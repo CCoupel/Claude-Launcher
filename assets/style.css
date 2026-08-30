@@ -61,6 +61,11 @@ nav {
 .btn-outline { border: 1px solid var(--border); color: var(--text); }
 .btn-outline:hover { border-color: var(--accent2); color: var(--accent2); text-decoration: none; }
 
+/* Screenshot */
+#screenshot { background: var(--bg); padding-top: 0; padding-bottom: 5rem; }
+.screenshot-img { display: block; width: 100%; max-width: 1000px; margin: 0 auto; border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,.45); }
+.screenshot-caption { text-align: center; font-size: .85rem; color: var(--muted); margin-top: 1rem; }
+
 /* Section header */
 .section-header { text-align: center; margin-bottom: 3rem; }
 .section-header h2 { font-size: clamp(1.6rem, 3vw, 2.2rem); font-weight: 700; margin-bottom: .75rem; text-wrap: balance; }
