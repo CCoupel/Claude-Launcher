@@ -700,6 +700,7 @@ if [[ "$1" == "--layout-watch" ]]; then
 
   prev_count=1
   prev_active_signature=""
+  prev_win_busy=0
 
   while true; do
     sleep 1
@@ -742,6 +743,19 @@ if [[ "$1" == "--layout-watch" ]]; then
       if [[ "$active_signature" != "$prev_active_signature" ]]; then
         prev_active_signature="$active_signature"
         do_layout "$TARGET_SESSION" "$WIN_ID" "$LEADER_PANE" "$active_cfg"
+      fi
+
+      # ── Surbrillance du titre de la fenêtre dans la status bar si un agent travaille ──
+      win_busy=0
+      [[ -n "$active_signature" ]] && win_busy=1
+      if [[ "$win_busy" != "$prev_win_busy" ]]; then
+        prev_win_busy="$win_busy"
+        style_project_window_busy "$TARGET_SESSION" "$WIN_ID" "$win_busy" "$active_project_color"
+      fi
+    else
+      if [[ "$prev_win_busy" != "0" ]]; then
+        prev_win_busy=0
+        style_project_window_busy "$TARGET_SESSION" "$WIN_ID" 0 ""
       fi
     fi
 
@@ -897,6 +911,19 @@ style_project_window() {
   local s="$1" win="$2"
   tmux set-window-option -t "$s:$win" window-status-style         "fg=colour242,bg=colour236"
   tmux set-window-option -t "$s:$win" window-status-current-style "bold,fg=colour255,bg=colour27"
+}
+
+# Met en surbrillance (ou remet en gris) le titre de la fenêtre dans la status
+# bar selon qu'au moins un teammate y est actif. Indépendant du style
+# focus/non-focus géré par window-status-current-style ci-dessus : une fenêtre
+# non regardée peut ainsi quand même signaler "un agent y travaille".
+style_project_window_busy() {
+  local s="$1" win="$2" busy="$3" color="$4"
+  if [[ "$busy" -eq 1 ]]; then
+    tmux set-window-option -t "$s:$win" window-status-style "bold,fg=colour232,bg=colour$(brighten_color "$color")" 2>/dev/null
+  else
+    tmux set-window-option -t "$s:$win" window-status-style "fg=colour242,bg=colour236" 2>/dev/null
+  fi
 }
 
 # ════════════════════════════════════════════════════════════════════════════
