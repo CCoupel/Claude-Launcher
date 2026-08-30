@@ -4,6 +4,8 @@ Hub tmux pour piloter plusieurs projets Claude Code en parallèle. Compagnon de
 [`claude_project_template`](https://github.com/CCoupel/claude_project_template) — mais utilisable
 avec n'importe quel projet Claude Code.
 
+**Site** : https://ccoupel.github.io/Claude-Launcher/
+
 ---
 
 ## Installation
