@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Claude Launcher</title>
+<meta name="description" content="Hub tmux pour piloter plusieurs projets Claude Code en parallele, avec auto-update et sessions groupees." />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link rel="stylesheet" href="assets/style.css" />
+</head>
+<body>
+
+<nav>
+  <div class="container nav-inner">
+    <div class="nav-logo">🚀 Claude <span>Launcher</span></div>
+    <ul class="nav-links">
+      <li><a href="#problems">Pourquoi</a></li>
+      <li><a href="#features">Fonctionnalités</a></li>
+      <li><a href="#install">Installation</a></li>
+      <li><a href="https://github.com/CCoupel/claude_project_template">Template →</a></li>
+    </ul>
+  </div>
+</nav>
+
+<section id="hero">
+  <div class="container">
+    <div class="hero-badge"><span class="dot"></span> Compagnon de claude_project_template</div>
+    <h1>Un hub tmux pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
+    <p class="hero-tagline">Sessions groupées, panes colorés par agent, auto-update silencieux.</p>
+    <p class="hero-sub">Un seul script Bash, une seule commande, aucune dépendance à installer à part tmux et gh.</p>
+    <div class="hero-ctas">
+      <a href="#install" class="btn btn-primary">Installer</a>
+      <a href="https://github.com/CCoupel/Claude-Launcher" class="btn btn-outline">Voir sur GitHub</a>
+    </div>
+  </div>
+</section>
+
+<section id="problems">
+  <div class="container">
+    <div class="section-header">
+      <h2>Le problème</h2>
+      <p>Travailler avec Claude Code sur plusieurs projets, sans outil dédié, devient vite ingérable.</p>
+    </div>
+    <div class="problems-grid">
+      <div class="problem-card"><div class="problem-icon">🪟</div><h3>Fenêtres éparpillées</h3><p>Un terminal par projet, aucune vue d'ensemble, on perd le fil de ce qui tourne où.</p></div>
+      <div class="problem-card"><div class="problem-icon">🎯</div><h3>Panes indistincts</h3><p>Plusieurs agents actifs dans la même fenêtre tmux, impossible de repérer au premier coup d'œil lequel a le focus.</p></div>
+      <div class="problem-card"><div class="problem-icon">🔄</div><h3>Setup répétitif</h3><p>Retélécharger `init-project.md`, relancer `claude`, revérifier la config — à chaque nouvelle session.</p></div>
+      <div class="problem-card"><div class="problem-icon">📌</div><h3>Version périmée</h3><p>Un script installé une fois et jamais mis à jour manque les correctifs et nouveautés.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <div class="section-header">
+      <h2>Ce que fait le launcher</h2>
+      <p>Un hub central en tmux — pas un remplacement de Claude Code, juste l'orchestration autour.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon">🗂️</div><div class="feature-body"><h3>Sessions groupées par projet</h3><p>Chaque projet ouvert dans sa propre session tmux, navigable depuis un menu fzf — pas besoin de mémoriser des noms de session.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🎨</div><div class="feature-body"><h3>Panes colorés</h3><p>Le pane actif s'éclaire, les autres s'assombrissent — le focus se repère visuellement sans avoir à lire les titres.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔁</div><div class="feature-body"><h3>Auto-update silencieux</h3><p>Le launcher vérifie le dernier tag GitHub à l'ouverture et se met à jour tout seul si une nouvelle version existe — repli sur la version locale si GitHub est inaccessible.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">📄</div><div class="feature-body"><h3>Template toujours à jour</h3><p><code>init-project.md</code> est resynchronisé depuis GitHub à chaque ouverture de projet, sans action manuelle.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔑</div><div class="feature-body"><h3>Config flexible</h3><p><code>EXTRA_ENVS</code> passe n'importe quelle variable d'environnement à Claude Code — clés d'API tierces, URLs de service, etc.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧩</div><div class="feature-body"><h3>Pas lié à un template</h3><p>Fonctionne avec n'importe quel projet Claude Code — <code>claude_project_template</code> est un compagnon naturel, pas une dépendance obligatoire.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="container">
+    <div class="section-header">
+      <h2>Installation</h2>
+      <p>Trois commandes, aucune configuration obligatoire pour démarrer.</p>
+    </div>
+    <div class="install-steps">
+
+      <div class="install-step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>Télécharger le script</h3>
+          <p>Un seul fichier Bash, exécutable direct.</p>
+          <pre><span class="code-cmd">curl</span> -fsSL \
+  https://raw.githubusercontent.com/CCoupel/Claude-Launcher/main/claude-launcher.sh \
+  -o ~/claude-launcher.sh && chmod +x ~/claude-launcher.sh</pre>
+        </div>
+      </div>
+
+      <div class="install-step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>Configurer (optionnel)</h3>
+          <p>Au premier lancement, le launcher crée <code>~/.config/claude-launcher.conf</code>.</p>
+          <pre><span class="code-cmd">~/claude-launcher.sh</span> --configure   <span class="code-comment"># édite GITHUB_DIR, token…</span></pre>
+          <table class="config-table">
+            <tr><th>Variable</th><th>Rôle</th></tr>
+            <tr><td><code>GITHUB_DIR</code></td><td>Répertoire contenant vos projets</td></tr>
+            <tr><td><code>GITHUB_TOKEN</code></td><td>Token GitHub (gh CLI + MCP)</td></tr>
+            <tr><td><code>CLAUDE_DISABLE_MOUSE</code></td><td><code>1</code> = désactive la souris</td></tr>
+            <tr><td><code>CLAUDE_EXPERIMENTAL_TEAMS</code></td><td><code>1</code> = active les agent teams</td></tr>
+            <tr><td><code>CLAUDE_OPTIONS</code></td><td>Options passées à <code>claude</code></td></tr>
+            <tr><td><code>EXTRA_ENVS</code></td><td>Variables d'environnement supplémentaires</td></tr>
+          </table>
+          <pre style="margin-top:.75rem">EXTRA_ENVS=(
+  <span class="code-comment">"ANTHROPIC_API_KEY=sk-ant-..."</span>
+  <span class="code-comment">"MY_API_URL=https://api.example.com"</span>
+)</pre>
+        </div>
+      </div>
+
+      <div class="install-step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Démarrer le hub</h3>
+          <pre><span class="code-cmd">~/claude-launcher.sh</span></pre>
+          <div class="launcher-features">
+            <div class="lf-item"><span class="lf-icon">✓</span> Vérifie le dernier tag GitHub, se met à jour si besoin</div>
+            <div class="lf-item"><span class="lf-icon">✓</span> Resynchronise <code>init-project.md</code></div>
+            <div class="lf-item"><span class="lf-icon">✓</span> Lance <code>/init-project</code> ensuite dans Claude Code</div>
+          </div>
+          <pre style="margin-top:.75rem"><span class="code-cmd">~/claude-launcher.sh</span> --update   <span class="code-comment"># force la mise à jour, préserve la config</span></pre>
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<section id="companion">
+  <div class="container">
+    <div class="companion">
+      <div class="companion-icon">🧩</div>
+      <div class="companion-body">
+        <h3>claude_project_template</h3>
+        <p>Le launcher fetche <code>init-project.md</code> depuis ce repo par défaut : agents, commandes et workflows prêts à l'emploi pour Claude Code.</p>
+      </div>
+      <a href="https://github.com/CCoupel/claude_project_template" class="btn btn-outline companion-cta">Voir le template →</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — historique migré depuis claude_project_template</p>
+  </div>
+</footer>
+
+</body>
+</html>
