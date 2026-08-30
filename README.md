@@ -53,11 +53,36 @@ EXTRA_ENVS=(
 
 ---
 
+## Migration depuis claude_project_template
+
+Le launcher vivait auparavant dans `claude_project_template`. Si votre `~/claude-launcher.sh`
+a été installé **avant** cette migration, il continue de chercher ses mises à jour là-bas — ce qui
+cessera de fonctionner une fois le launcher retiré de ce repo. **Une seule commande à relancer,
+une seule fois :**
+
+```bash
+curl -fsSL \
+  https://raw.githubusercontent.com/CCoupel/Claude-Launcher/main/claude-launcher.sh \
+  -o ~/claude-launcher.sh && chmod +x ~/claude-launcher.sh
+```
+
+C'est exactement la commande d'installation ci-dessus — elle remplace le script en place, votre
+`~/.config/claude-launcher.conf` n'est pas touché. Une fois cette version installée, l'auto-update
+pointe vers ce repo et vous n'aurez plus jamais besoin de refaire cette étape manuellement.
+
+**Comment savoir si vous êtes concerné ?**
+```bash
+grep -c LAUNCHER_REPO ~/claude-launcher.sh
+```
+`0` → ancienne version, à migrer avec la commande ci-dessus. `1` ou plus → déjà à jour.
+
+---
+
 ## Utiliser un autre template
 
 Le launcher fetche `init-project.md` depuis `claude_project_template` par défaut. Pour pointer
-vers un template différent, éditer la constante `TEMPLATE_REPO` dans `claude-launcher.sh` (ou via
-la config, selon la version — voir `--configure`).
+vers un template différent, éditer la constante `TEMPLATE_REPO` dans `claude-launcher.sh` — ce
+n'est pas exposé via `--configure` à ce jour.
 
 ---
 
