@@ -716,6 +716,7 @@ if [[ "$1" == "--layout-watch" ]]; then
   prev_count=1
   prev_active_signature=""
   prev_win_busy=0
+  declare -A prev_pane_color=()
 
   while true; do
     sleep 1
@@ -737,9 +738,18 @@ if [[ "$1" == "--layout-watch" ]]; then
         [[ "$active_pane_id" == "$LEADER_PANE" ]] && continue
         tmux list-panes -t "${TARGET_SESSION}:${WIN_ID}" -F '#{pane_id}' 2>/dev/null           | grep -qxF "$active_pane_id" || continue
         if [[ "$active_is_active" == "true" ]]; then
-          apply_pane_color "$active_pane_id" "$(brighten_color "$active_project_color")"
+          target_color=$(brighten_color "$active_project_color")
         else
-          apply_pane_color "$active_pane_id" "$(darken_color "$active_project_color")"
+          target_color=$(darken_color "$active_project_color")
+        fi
+        # N'applique (et ne déclenche un redraw tmux) que si la couleur a
+        # réellement changé — sinon appliquer inconditionnellement à chaque
+        # tick (1s) sur chaque pane de chaque projet ouvert produit un
+        # rafraîchissement permanent, d'autant plus perceptible/lent qu'il y a
+        # plusieurs projets ouverts en parallèle.
+        if [[ "${prev_pane_color[$active_pane_id]:-}" != "$target_color" ]]; then
+          prev_pane_color["$active_pane_id"]="$target_color"
+          apply_pane_color "$active_pane_id" "$target_color"
         fi
       done < <(jq -r '
         .members[]
@@ -1134,11 +1144,24 @@ GENSCRIPT
         curl -s --max-time 0.5 "http://localhost:$fzf_port" -d "" >/dev/null 2>&1 \
           && break
       done
-      # Boucle de reload toutes les 2s ; s'arrête quand fzf ferme le port
+      # Boucle de reload toutes les 2s ; ne déclenche reload() dans fzf que si
+      # le contenu généré a réellement changé — sinon la liste était rechargée
+      # inconditionnellement toutes les 2s, ce qui fait clignoter/sauter
+      # l'affichage en continu (d'autant plus perceptible avec plusieurs
+      # projets, la génération de la liste étant plus longue). Un ping vide
+      # sert de simple vérification de connexion quand rien n'a changé.
       _upd_tick=0
-      while curl -s --max-time 1 "http://localhost:$fzf_port" \
-          -d "reload(bash '$tmp_gen')" >/dev/null 2>&1; do
+      _prev_gen_hash=""
+      while :; do
         sleep 2
+        _cur_gen_hash=$(bash "$tmp_gen" 2>/dev/null | cksum)
+        if [[ "$_cur_gen_hash" != "$_prev_gen_hash" ]]; then
+          _prev_gen_hash="$_cur_gen_hash"
+          curl -s --max-time 1 "http://localhost:$fzf_port" \
+            -d "reload(bash '$tmp_gen')" >/dev/null 2>&1 || break
+        else
+          curl -s --max-time 1 "http://localhost:$fzf_port" -d "" >/dev/null 2>&1 || break
+        fi
         # Vérifie les MàJ GitHub : au 1er tick (~6s après lancement), puis toutes les 5 min
         if (( _upd_tick++ % 150 == 0 )); then
           _latest=$(curl -fsSL --ipv4 --max-time 5 \
