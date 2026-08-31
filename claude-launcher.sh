@@ -292,6 +292,21 @@ sync_init_project() {
     [[ ! -s "$INIT_PROJECT_CACHE" ]] && \
       printf "\033[1;33m  ⚠  init-project.md non téléchargé — /init-project indisponible\033[0m\n"
   fi
+
+  local latest_tag
+  latest_tag=$(curl -fsSL --ipv4 --max-time 5 \
+    "https://api.github.com/repos/${TEMPLATE_REPO}/tags" 2>/dev/null \
+    | jq -r '.[0].name // empty')
+  [[ -n "$latest_tag" ]] && printf '%s' "$latest_tag" > "$TEMPLATE_VERSION_CACHE"
+
+  # Commit HEAD de la branche template : c'est cette valeur (et non le tag) qui
+  # sert de référence d'obsolescence — même logique que /init-project (KNOWN_COMMIT
+  # vs LATEST_COMMIT dans TEMPLATE_claude/.template-source.json de chaque projet).
+  local latest_commit
+  latest_commit=$(curl -fsSL --ipv4 --max-time 5 \
+    "https://api.github.com/repos/${TEMPLATE_REPO}/commits/${TEMPLATE_BRANCH}" 2>/dev/null \
+    | jq -r '.sha // empty')
+  [[ -n "$latest_commit" ]] && printf '%s' "$latest_commit" > "$TEMPLATE_COMMIT_CACHE"
 }
 
 load_config
@@ -932,6 +947,11 @@ style_project_window_busy() {
 if [[ "$1" == "--menu" ]]; then
   SCRIPT_PATH="${2:-$(realpath "$0")}"
   INIT_PROJECT_CACHE="$(dirname "$SCRIPT_PATH")/init-project.md"
+  TEMPLATE_VERSION_CACHE="$(dirname "$SCRIPT_PATH")/.template-version"
+  TEMPLATE_COMMIT_CACHE="$(dirname "$SCRIPT_PATH")/.template-commit"
+  TEMPLATE_VERSION=$(cat "$TEMPLATE_VERSION_CACHE" 2>/dev/null)
+  [[ -z "$TEMPLATE_VERSION" ]] && TEMPLATE_VERSION="?"
+  TEMPLATE_COMMIT=$(cat "$TEMPLATE_COMMIT_CACHE" 2>/dev/null)
 
   # Nom réel de la session courante (sessions groupées ont un nom auto-généré ≠ $SESSION)
   CURRENT_SESSION=$(tmux display-message -p '#{session_name}' 2>/dev/null || echo "$SESSION")
@@ -956,6 +976,7 @@ if [[ "$1" == "--menu" ]]; then
     colors_decl+=$'\n'"PROJECT_COLORS[$(printf '%q' "$_k")]=$(printf '%q' "${PROJECT_COLORS[$_k]}")"
   done
   dirs_decl="GITHUB_DIRS=($(printf '%q ' "${GITHUB_DIRS[@]}"))"
+  latest_commit_decl="LATEST_TEMPLATE_COMMIT=$(printf '%q' "$TEMPLATE_COMMIT")"
 
   # Format des entrées fzf : 3 champs séparés par \t
   #   champ 1 : clé (nom du projet ou token spécial) — utilisé pour la recherche (--nth=1)
@@ -969,6 +990,7 @@ UPDATE_FLAG=$(printf '%q' "$tmp_update_flag")
 ${palette_decl}
 ${colors_decl}
 ${dirs_decl}
+${latest_commit_decl}
 
 get_project_color() {
   local project="\$1"
@@ -979,6 +1001,25 @@ get_project_color() {
     hash=\$(( (hash * 31 + c) % \${#COLOR_PALETTE[@]} ))
   done
   echo "\${COLOR_PALETTE[\$hash]}"
+}
+
+# Badge d'obsolescence template : compare TEMPLATE_claude/.template-source.json
+# du projet (commit synchronisé) au commit HEAD actuel de la branche template
+# (\$LATEST_TEMPLATE_COMMIT, mis en cache par sync_init_project). Même logique
+# que la comparaison KNOWN_COMMIT/LATEST_COMMIT dans /init-project.
+template_badge() {
+  local proj="\$1" src=""
+  [[ -f "\$proj/TEMPLATE_claude/.template-source.json" ]] && src="\$proj/TEMPLATE_claude/.template-source.json"
+  [[ -z "\$src" && -f "\$proj/.claude/.template-source.json" ]] && src="\$proj/.claude/.template-source.json"
+  [[ -z "\$src" ]] && return
+  local commit
+  commit=\$(jq -r '.commit // empty' "\$src" 2>/dev/null)
+  [[ -z "\$commit" ]] && return
+  if [[ -n "\$LATEST_TEMPLATE_COMMIT" && "\$commit" == "\$LATEST_TEMPLATE_COMMIT" ]]; then
+    printf ' \033[0;32m✓\033[0m'
+  else
+    printf ' \033[0;33m⚠\033[0m'
+  fi
 }
 
 existing_windows=\$(tmux list-windows -t "\$SESSION" -F '#{window_name}' 2>/dev/null)
@@ -1009,6 +1050,7 @@ for (( _di = _n_dirs - 1; _di >= 0; _di-- )); do
     entry="\${_projects[\$_ri]}"
     local_color=\$(get_project_color "\$entry")
     dot=\$(printf '\033[38;5;%sm●\033[0m' "\$local_color")
+    badge=\$(template_badge "\$_dir/\$entry")
     if [[ \$_n_dirs -gt 1 ]]; then
       # Premier généré (index _np-1) = dernier affiché dans le groupe = └─
       if [[ \$_ri -eq \$((_np - 1)) ]]; then
@@ -1020,9 +1062,9 @@ for (( _di = _n_dirs - 1; _di >= 0; _di-- )); do
       _pfx=""
     fi
     if echo "\$existing_windows" | grep -qxF "\$entry"; then
-      printf '%s\t%s%s \033[1;32m%s\033[0;32m [ouvert]\033[0m\t%s\n' "\$entry" "\$_pfx" "\$dot" "\$entry" "\$_dir"
+      printf '%s\t%s%s \033[1;32m%s\033[0;32m [ouvert]\033[0m%s\t%s\n' "\$entry" "\$_pfx" "\$dot" "\$entry" "\$badge" "\$_dir"
     else
-      printf '%s\t%s%s %s\t%s\n' "\$entry" "\$_pfx" "\$dot" "\$entry" "\$_dir"
+      printf '%s\t%s%s %s%s\t%s\n' "\$entry" "\$_pfx" "\$dot" "\$entry" "\$badge" "\$_dir"
     fi
   done
 
@@ -1079,7 +1121,7 @@ GENSCRIPT
 
   while true; do
     clear
-    printf "\033[1;36m  Claude Code Launcher\033[0m  \033[0;90m%s\033[0m  —  session : %s\n" "$SCRIPT_VERSION" "$CURRENT_SESSION"
+    printf "\033[1;36m  Claude Code Launcher\033[0m  \033[0;90m%s\033[0m  \033[0;90m·  template %s\033[0m  —  session : %s\n" "$SCRIPT_VERSION" "$TEMPLATE_VERSION" "$CURRENT_SESSION"
     printf "\033[0;90m  [Entrée] ouvrir  ·  [Ctrl+D] supprimer orpheline  ·  [Esc] annuler  ·  Ctrl+b R relayout\033[0m\n\n"
 
     fzf_port=$(( 20000 + RANDOM % 10000 ))
@@ -1245,6 +1287,8 @@ fi
 # ════════════════════════════════════════════════════════════════════════════
 SCRIPT_PATH="$(realpath "$0")"
 INIT_PROJECT_CACHE="$(dirname "$SCRIPT_PATH")/init-project.md"
+TEMPLATE_VERSION_CACHE="$(dirname "$SCRIPT_PATH")/.template-version"
+TEMPLATE_COMMIT_CACHE="$(dirname "$SCRIPT_PATH")/.template-commit"
 
 # Auto-update silencieux au lancement (sauf si --no-update)
 [[ "$NO_AUTO_UPDATE" == "0" ]] && auto_update
