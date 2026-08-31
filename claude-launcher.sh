@@ -245,8 +245,13 @@ darken_color() {
 
 apply_pane_color() {
   local pane_id="$1" color="$2"
+  local desired="bg=colour${color}"
+  # Compare à l'état tmux réel (pas à un cache local) : do_layout() réinitialise
+  # la couleur de tous les panes à chaque relayout, ce qui désynchroniserait un
+  # cache — la lecture live s'auto-corrige quelle que soit la cause du reset.
+  [[ "$(tmux show-options -p -t "$pane_id" -v window-style 2>/dev/null)" == "$desired" ]] && return
   # set-option -p (et non select-pane -P) : colore le pane sans changer le focus.
-  tmux set-option -p -t "$pane_id" window-style "bg=colour${color}" 2>/dev/null
+  tmux set-option -p -t "$pane_id" window-style "$desired" 2>/dev/null
 }
 
 auto_update() {
@@ -715,8 +720,6 @@ if [[ "$1" == "--layout-watch" ]]; then
 
   prev_count=1
   prev_active_signature=""
-  prev_win_busy=0
-  declare -A prev_pane_color=()
 
   while true; do
     sleep 1
@@ -728,38 +731,15 @@ if [[ "$1" == "--layout-watch" ]]; then
 
     pane_count=$(tmux list-panes -t "${TARGET_SESSION}:${WIN_ID}" 2>/dev/null       | wc -l | tr -d ' ')
 
-    # ── Surbrillance des panes teammates actifs (agent en train de travailler) ──
     active_cfg=$(find_team_config "$PROJECT_DIR")
     if [[ -n "$active_cfg" ]]; then
       active_project_name=$(tmux display-message -t "${TARGET_SESSION}:${WIN_ID}" -p '#{window_name}' 2>/dev/null)
       active_project_color=$(get_project_color "$active_project_name")
-      while IFS=$'\t' read -r active_pane_id active_is_active; do
-        [[ -z "$active_pane_id" || "$active_pane_id" == "null" ]] && continue
-        [[ "$active_pane_id" == "$LEADER_PANE" ]] && continue
-        tmux list-panes -t "${TARGET_SESSION}:${WIN_ID}" -F '#{pane_id}' 2>/dev/null           | grep -qxF "$active_pane_id" || continue
-        if [[ "$active_is_active" == "true" ]]; then
-          target_color=$(brighten_color "$active_project_color")
-        else
-          target_color=$(darken_color "$active_project_color")
-        fi
-        # N'applique (et ne déclenche un redraw tmux) que si la couleur a
-        # réellement changé — sinon appliquer inconditionnellement à chaque
-        # tick (1s) sur chaque pane de chaque projet ouvert produit un
-        # rafraîchissement permanent, d'autant plus perceptible/lent qu'il y a
-        # plusieurs projets ouverts en parallèle.
-        if [[ "${prev_pane_color[$active_pane_id]:-}" != "$target_color" ]]; then
-          prev_pane_color["$active_pane_id"]="$target_color"
-          apply_pane_color "$active_pane_id" "$target_color"
-        fi
-      done < <(jq -r '
-        .members[]
-        | select(.tmuxPaneId != null and .tmuxPaneId != "")
-        | [.tmuxPaneId, (.isActive // false)]
-        | @tsv
-      ' "$active_cfg" 2>/dev/null)
 
       # Ré-ordonne les panes si l'ensemble des agents actifs a changé
-      # (do_layout n'est sinon déclenché que sur un changement de pane_count)
+      # (do_layout n'est sinon déclenché que sur un changement de pane_count).
+      # Fait avant la coloration ci-dessous car do_layout() réinitialise la
+      # couleur de tous les panes à la couleur de base du projet.
       active_signature=$(jq -r '
         [.members[] | select(.tmuxPaneId != null and .tmuxPaneId != "" and ((.isActive // false) == true)) | .tmuxPaneId]
         | sort
@@ -770,18 +750,33 @@ if [[ "$1" == "--layout-watch" ]]; then
         do_layout "$TARGET_SESSION" "$WIN_ID" "$LEADER_PANE" "$active_cfg"
       fi
 
+      # ── Surbrillance des panes teammates actifs (agent en train de travailler) ──
+      # apply_pane_color() compare à l'état tmux réel et ne réécrit que si
+      # nécessaire — pas de cache local à maintenir ici.
+      while IFS=$'\t' read -r active_pane_id active_is_active; do
+        [[ -z "$active_pane_id" || "$active_pane_id" == "null" ]] && continue
+        [[ "$active_pane_id" == "$LEADER_PANE" ]] && continue
+        tmux list-panes -t "${TARGET_SESSION}:${WIN_ID}" -F '#{pane_id}' 2>/dev/null           | grep -qxF "$active_pane_id" || continue
+        if [[ "$active_is_active" == "true" ]]; then
+          target_color=$(brighten_color "$active_project_color")
+        else
+          target_color=$(darken_color "$active_project_color")
+        fi
+        apply_pane_color "$active_pane_id" "$target_color"
+      done < <(jq -r '
+        .members[]
+        | select(.tmuxPaneId != null and .tmuxPaneId != "")
+        | [.tmuxPaneId, (.isActive // false)]
+        | @tsv
+      ' "$active_cfg" 2>/dev/null)
+
       # ── Surbrillance du titre de la fenêtre dans la status bar si un agent travaille ──
+      # style_project_window_busy() compare aussi à l'état tmux réel.
       win_busy=0
       [[ -n "$active_signature" ]] && win_busy=1
-      if [[ "$win_busy" != "$prev_win_busy" ]]; then
-        prev_win_busy="$win_busy"
-        style_project_window_busy "$TARGET_SESSION" "$WIN_ID" "$win_busy" "$active_project_color"
-      fi
+      style_project_window_busy "$TARGET_SESSION" "$WIN_ID" "$win_busy" "$active_project_color"
     else
-      if [[ "$prev_win_busy" != "0" ]]; then
-        prev_win_busy=0
-        style_project_window_busy "$TARGET_SESSION" "$WIN_ID" 0 ""
-      fi
+      style_project_window_busy "$TARGET_SESSION" "$WIN_ID" 0 ""
     fi
 
     # Vérifie si un re-run a été demandé pendant un layout précédent
@@ -944,11 +939,18 @@ style_project_window() {
 # non regardée peut ainsi quand même signaler "un agent y travaille".
 style_project_window_busy() {
   local s="$1" win="$2" busy="$3" color="$4"
+  local desired
   if [[ "$busy" -eq 1 ]]; then
-    tmux set-window-option -t "$s:$win" window-status-style "bold,fg=colour232,bg=colour$(brighten_color "$color")" 2>/dev/null
+    desired="bold,fg=colour232,bg=colour$(brighten_color "$color")"
   else
-    tmux set-window-option -t "$s:$win" window-status-style "fg=colour242,bg=colour236" 2>/dev/null
+    desired="fg=colour242,bg=colour236"
   fi
+  # Compare à l'état tmux réel (pas à un cache local) : setup_tmux_style()
+  # réinitialise le style de toutes les fenêtres à chaque ré-attachement de
+  # session, ce qui désynchroniserait un cache — la lecture live s'auto-corrige
+  # quelle que soit la cause du reset.
+  [[ "$(tmux show-window-options -t "$s:$win" -v window-status-style 2>/dev/null)" == "$desired" ]] && return
+  tmux set-window-option -t "$s:$win" window-status-style "$desired" 2>/dev/null
 }
 
 # ════════════════════════════════════════════════════════════════════════════
