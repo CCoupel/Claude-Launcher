@@ -286,10 +286,23 @@ auto_update() {
 }
 
 sync_init_project() {
+  # Référence de version = le dernier tag ET le commit qu'il pointe (pas le HEAD
+  # de branche) : un commit non taggé est une version intermédiaire non
+  # stabilisée, elle ne doit ni déclencher de notification ni être déployée.
+  # Même logique côté /init-project (KNOWN_COMMIT vs LATEST_COMMIT dans
+  # TEMPLATE_claude/.template-source.json de chaque projet).
+  local latest_tag latest_commit
+  read -r latest_tag latest_commit < <(curl -fsSL --ipv4 --max-time 5 \
+    "https://api.github.com/repos/${TEMPLATE_REPO}/tags" 2>/dev/null \
+    | jq -r '.[0] | "\(.name // "") \(.commit.sha // "")"')
+
+  # init-project.md est fetché depuis le commit taggé (repli sur la branche si
+  # la résolution du tag échoue, pour ne pas casser /init-project hors-ligne).
+  local ref="${latest_commit:-$TEMPLATE_BRANCH}"
   local tmp
   tmp=$(mktemp)
   if curl -fsSL --ipv4 --max-time 10 \
-      "https://raw.githubusercontent.com/${TEMPLATE_REPO}/${TEMPLATE_BRANCH}/init-project.md" \
+      "https://raw.githubusercontent.com/${TEMPLATE_REPO}/${ref}/init-project.md" \
       -o "$tmp" 2>/dev/null && [[ -s "$tmp" ]]; then
     mv "$tmp" "$INIT_PROJECT_CACHE"
   else
@@ -298,19 +311,7 @@ sync_init_project() {
       printf "\033[1;33m  ⚠  init-project.md non téléchargé — /init-project indisponible\033[0m\n"
   fi
 
-  local latest_tag
-  latest_tag=$(curl -fsSL --ipv4 --max-time 5 \
-    "https://api.github.com/repos/${TEMPLATE_REPO}/tags" 2>/dev/null \
-    | jq -r '.[0].name // empty')
   [[ -n "$latest_tag" ]] && printf '%s' "$latest_tag" > "$TEMPLATE_VERSION_CACHE"
-
-  # Commit HEAD de la branche template : c'est cette valeur (et non le tag) qui
-  # sert de référence d'obsolescence — même logique que /init-project (KNOWN_COMMIT
-  # vs LATEST_COMMIT dans TEMPLATE_claude/.template-source.json de chaque projet).
-  local latest_commit
-  latest_commit=$(curl -fsSL --ipv4 --max-time 5 \
-    "https://api.github.com/repos/${TEMPLATE_REPO}/commits/${TEMPLATE_BRANCH}" 2>/dev/null \
-    | jq -r '.sha // empty')
   [[ -n "$latest_commit" ]] && printf '%s' "$latest_commit" > "$TEMPLATE_COMMIT_CACHE"
 }
 
@@ -980,7 +981,8 @@ if [[ "$1" == "--menu" ]]; then
   # Créé une fois, réexécuté à chaque ctrl-r pour rafraîchir le statut des windows
   tmp_gen=$(mktemp /tmp/claude_menu_gen.XXXXXX.sh)
   tmp_update_flag=$(mktemp /tmp/claude_update_flag.XXXXXX)
-  trap 'rm -f "$tmp_gen" "$tmp_update_flag"' EXIT INT TERM
+  tmp_template_flag=$(mktemp /tmp/claude_template_flag.XXXXXX)
+  trap 'rm -f "$tmp_gen" "$tmp_update_flag" "$tmp_template_flag"' EXIT INT TERM
 
   palette_decl="COLOR_PALETTE=(${COLOR_PALETTE[*]})"
   colors_decl="declare -A PROJECT_COLORS=()"
@@ -988,7 +990,7 @@ if [[ "$1" == "--menu" ]]; then
     colors_decl+=$'\n'"PROJECT_COLORS[$(printf '%q' "$_k")]=$(printf '%q' "${PROJECT_COLORS[$_k]}")"
   done
   dirs_decl="GITHUB_DIRS=($(printf '%q ' "${GITHUB_DIRS[@]}"))"
-  latest_commit_decl="LATEST_TEMPLATE_COMMIT=$(printf '%q' "$TEMPLATE_COMMIT")"
+  template_commit_cache_decl="TEMPLATE_COMMIT_CACHE_PATH=$(printf '%q' "$TEMPLATE_COMMIT_CACHE")"
 
   # Format des entrées fzf : 3 champs séparés par \t
   #   champ 1 : clé (nom du projet ou token spécial) — utilisé pour la recherche (--nth=1)
@@ -999,10 +1001,15 @@ if [[ "$1" == "--menu" ]]; then
 #!/usr/bin/env bash
 SESSION=$(printf '%q' "$SESSION")
 UPDATE_FLAG=$(printf '%q' "$tmp_update_flag")
+TEMPLATE_UPDATE_FLAG=$(printf '%q' "$tmp_template_flag")
 ${palette_decl}
 ${colors_decl}
 ${dirs_decl}
-${latest_commit_decl}
+${template_commit_cache_decl}
+# Lecture live du cache (pas une valeur figée à la génération) : le watcher
+# de fond met à jour ce fichier toutes les 10 min, donc les badges ✓/⚠ par
+# projet suivent sans attendre un redémarrage du menu.
+LATEST_TEMPLATE_COMMIT=\$(cat "\$TEMPLATE_COMMIT_CACHE_PATH" 2>/dev/null)
 
 get_project_color() {
   local project="\$1"
@@ -1016,9 +1023,10 @@ get_project_color() {
 }
 
 # Badge d'obsolescence template : compare TEMPLATE_claude/.template-source.json
-# du projet (commit synchronisé) au commit HEAD actuel de la branche template
-# (\$LATEST_TEMPLATE_COMMIT, mis en cache par sync_init_project). Même logique
-# que la comparaison KNOWN_COMMIT/LATEST_COMMIT dans /init-project.
+# du projet (commit synchronisé) au commit du dernier TAG template
+# (\$LATEST_TEMPLATE_COMMIT, mis en cache par sync_init_project — pas le HEAD
+# de branche, cf. commentaire de sync_init_project). Même logique que la
+# comparaison KNOWN_COMMIT/LATEST_COMMIT dans /init-project.
 template_badge() {
   local proj="\$1" src=""
   [[ -f "\$proj/TEMPLATE_claude/.template-source.json" ]] && src="\$proj/TEMPLATE_claude/.template-source.json"
@@ -1094,6 +1102,11 @@ if [[ -s "\$UPDATE_FLAG" ]]; then
   printf '__update__\t  \033[1;32m↑ %s disponible\033[0m  \033[0;90m[Entrée] mettre à jour\033[0m\t\n' "\$_latest"
 fi
 
+if [[ -s "\$TEMPLATE_UPDATE_FLAG" ]]; then
+  _tpl_latest=\$(cat "\$TEMPLATE_UPDATE_FLAG")
+  printf '__template_update__\t  \033[1;33m↑ template %s disponible\033[0m  \033[0;90m[Entrée] ignorer · /init-project dans un projet pour mettre à jour\033[0m\t\n' "\$_tpl_latest"
+fi
+
 # Sessions autres launcher (générées en dernier = affichées en premier après inversion)
 while IFS= read -r _sess; do
   [[ "\$_sess" == "\$SESSION" ]] && continue
@@ -1117,6 +1130,13 @@ GENSCRIPT
     if [[ "$entry" == "__update__" ]]; then
       printf "\033[1;32m  Nouvelle version disponible\033[0m\n\n"
       printf "  Appuyer sur Entrée pour télécharger et relancer le launcher.\n"
+      exit 0
+    fi
+    if [[ "$entry" == "__template_update__" ]]; then
+      printf "\033[1;33m  Nouvelle version du template disponible\033[0m\n\n"
+      printf "  La mise à jour se fait projet par projet : lancer /init-project\n"
+      printf "  dans une session Claude du projet concerné.\n\n"
+      printf "  Appuyer sur Entrée pour ignorer cette notification.\n"
       exit 0
     fi
     [[ "$entry" == __sep__* || "$entry" == __quit__ || "$entry" == __new__ || "$entry" == __session__* ]] && exit 0
@@ -1164,14 +1184,27 @@ GENSCRIPT
         else
           curl -s --max-time 1 "http://localhost:$fzf_port" -d "" >/dev/null 2>&1 || break
         fi
-        # Vérifie les MàJ GitHub : au 1er tick (~6s après lancement), puis toutes les 5 min
-        if (( _upd_tick++ % 150 == 0 )); then
+        # Vérifie les MàJ GitHub (launcher + template) : au 1er tick (~6s après
+        # lancement), puis toutes les 10 min.
+        if (( _upd_tick++ % 300 == 0 )); then
           _latest=$(curl -fsSL --ipv4 --max-time 5 \
             "https://api.github.com/repos/${LAUNCHER_REPO}/tags" 2>/dev/null \
             | jq -r '.[0].name // empty')
           if [[ -n "$_latest" && "$_latest" != "$SCRIPT_VERSION" ]]; then
             _newer=$(printf '%s\n%s\n' "$SCRIPT_VERSION" "$_latest" | sort -V | tail -1)
             [[ "$_newer" != "$SCRIPT_VERSION" ]] && printf '%s' "$_latest" > "$tmp_update_flag"
+          fi
+
+          # Template : comparaison sur le commit du dernier TAG (pas le HEAD de
+          # branche, cf. sync_init_project) — un commit non taggé est une
+          # version intermédiaire non stabilisée.
+          read -r _tpl_tag _tpl_commit < <(curl -fsSL --ipv4 --max-time 5 \
+            "https://api.github.com/repos/${TEMPLATE_REPO}/tags" 2>/dev/null \
+            | jq -r '.[0] | "\(.name // "") \(.commit.sha // "")"')
+          if [[ -n "$_tpl_commit" && "$_tpl_commit" != "$TEMPLATE_COMMIT" ]]; then
+            printf '%s' "$_tpl_commit" > "$TEMPLATE_COMMIT_CACHE"
+            [[ -n "$_tpl_tag" ]] && printf '%s' "$_tpl_tag" > "$TEMPLATE_VERSION_CACHE"
+            [[ -n "$_tpl_tag" ]] && printf '%s' "$_tpl_tag" > "$tmp_template_flag"
           fi
         fi
       done
@@ -1211,6 +1244,17 @@ GENSCRIPT
     if [[ "$project" == "__update__" ]]; then
       auto_update --menu "$SCRIPT_PATH"
       rm -f "$tmp_update_flag"
+      continue
+    fi
+
+    if [[ "$project" == "__template_update__" ]]; then
+      # Pas de mise à jour automatique possible ici (elle se fait projet par
+      # projet via /init-project) : on rafraîchit juste le libellé d'en-tête
+      # et on efface le flag pour ne plus afficher l'entrée.
+      TEMPLATE_VERSION=$(cat "$TEMPLATE_VERSION_CACHE" 2>/dev/null)
+      [[ -z "$TEMPLATE_VERSION" ]] && TEMPLATE_VERSION="?"
+      TEMPLATE_COMMIT=$(cat "$TEMPLATE_COMMIT_CACHE" 2>/dev/null)
+      rm -f "$tmp_template_flag"
       continue
     fi
 
