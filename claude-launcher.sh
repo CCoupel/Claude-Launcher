@@ -966,6 +966,17 @@ if [[ "$1" == "--menu" ]]; then
   [[ -z "$TEMPLATE_VERSION" ]] && TEMPLATE_VERSION="?"
   TEMPLATE_COMMIT=$(cat "$TEMPLATE_COMMIT_CACHE" 2>/dev/null)
 
+# Projet initialisé dont le template est en retard sur le dernier tag ?
+# (même critère que le badge ⚠ du menu). Faux si pas de template ou cache vide.
+project_template_outdated() {
+  local proj="$1" src="" commit
+  [[ -f "$proj/TEMPLATE_claude/.template-source.json" ]] && src="$proj/TEMPLATE_claude/.template-source.json"
+  [[ -z "$src" && -f "$proj/.claude/.template-source.json" ]] && src="$proj/.claude/.template-source.json"
+  [[ -z "$src" || -z "$TEMPLATE_COMMIT" ]] && return 1
+  commit=$(jq -r '.commit // empty' "$src" 2>/dev/null)
+  [[ -n "$commit" && "$commit" != "$TEMPLATE_COMMIT" ]]
+}
+
   # Nom réel de la session courante (sessions groupées ont un nom auto-généré ≠ $SESSION)
   CURRENT_SESSION=$(tmux display-message -p '#{session_name}' 2>/dev/null || echo "$SESSION")
 
@@ -1333,12 +1344,21 @@ GENSCRIPT
       apply_pane_color "$leader_pane" "$(get_project_color "$project")"
 
       CLAUDE_EXPORTS=$(build_claude_exports)
+      # Template en retard : claude démarre directement sur /init-project
+      # (prompt initial) pour appliquer la mise à jour, si l'utilisateur confirme.
+      # Confirmation posée dans le shell de la fenêtre, avant le lancement de claude.
+      INIT_PRE=""; INIT_ARG=""
+      if project_template_outdated "$project_dir"; then
+        INIT_PRE="_ip_arg=''; read -rp '↑ template en retard — lancer /init-project ? [o/N] ' _r; [[ \"\$_r\" == [oOyY]* ]] && _ip_arg='/init-project'
+"
+        INIT_ARG=" \$_ip_arg"
+      fi
       tmux send-keys -t "$SESSION:$project" \
         "cd '$project_dir'${CLAUDE_EXPORTS}
 mkdir -p .claude/commands
 _ip=.claude/commands/init-project.md
 [[ -s '${INIT_PROJECT_CACHE}' ]] && cp '${INIT_PROJECT_CACHE}' \"\$_ip\" || echo '⚠  init-project.md non disponible — relancer le launcher connecté'
-claude ${CLAUDE_OPTIONS}" \
+${INIT_PRE}claude ${CLAUDE_OPTIONS}${INIT_ARG}" \
         Enter
 
       tmux run-shell -b "bash '$SCRIPT_PATH' --layout-watch '$SESSION' '$win_id' '$leader_pane' '$project_dir' '$SCRIPT_PATH'"
