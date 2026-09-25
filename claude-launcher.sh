@@ -1347,10 +1347,11 @@ GENSCRIPT
       # Template en retard : claude démarre directement sur /init-project
       # (prompt initial) pour appliquer la mise à jour, si l'utilisateur confirme.
       # Confirmation posée dans le shell de la fenêtre, avant le lancement de claude.
+      # Même ligne que claude : send-keys tape tout d'un bloc, un read suivi d'une
+      # ligne déjà en buffer consommerait cette ligne comme réponse.
       INIT_PRE=""; INIT_ARG=""
       if project_template_outdated "$project_dir"; then
-        INIT_PRE="_ip_arg=''; read -rp '↑ template en retard — lancer /init-project ? [o/N] ' _r; [[ \"\$_r\" == [oOyY]* ]] && _ip_arg='/init-project'
-"
+        INIT_PRE="_ip_arg=''; read -rp '↑ template en retard — lancer /init-project ? [o/N] ' _r; [[ \"\$_r\" == [oOyY]* ]] && _ip_arg='/init-project'; "
         INIT_ARG=" \$_ip_arg"
       fi
       tmux send-keys -t "$SESSION:$project" \
