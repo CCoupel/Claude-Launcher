@@ -402,7 +402,7 @@ do_layout() {
     done < <(jq -r '
       .members[]
       | select(.tmuxPaneId != null and .tmuxPaneId != "")
-      | [.tmuxPaneId, .agentType, .name, (.isActive // false)]
+      | [.tmuxPaneId, (.agentType // "-"), .name, (.isActive // false)]
       | @tsv
     ' "$TEAM_CONFIG" 2>/dev/null)
 
