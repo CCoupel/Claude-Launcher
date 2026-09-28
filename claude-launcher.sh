@@ -79,7 +79,7 @@ SESSION="claude-hub"
 LAUNCHER_REPO="CCoupel/Claude-Launcher"       # hebergement du launcher lui-meme (self-update)
 TEMPLATE_REPO="CCoupel/claude_project_template"  # hebergement du template (init-project.md)
 TEMPLATE_BRANCH="main"
-SCRIPT_VERSION="v2.15.4"
+SCRIPT_VERSION="v2.25.10"
 CONFIG_FILE="${HOME}/.config/claude-launcher.conf"
 
 # ── Valeurs par défaut (écrasées par le fichier de config) ───────────────────
@@ -1053,56 +1053,191 @@ template_badge() {
   fi
 }
 
+# Badge git : signale un repo git et, si une branche amont est configurée,
+# un retard sur celle-ci — uniquement à partir de l'état déjà connu localement
+# (refs mises à jour au dernier "git fetch" de l'utilisateur), jamais de fetch
+# réseau ici : ce badge est recalculé à chaque rafraîchissement du menu
+# (toutes les ~2s), un appel réseau par projet et par tick serait bien trop
+# coûteux — l'indicateur peut donc être légèrement obsolète entre deux fetch.
+git_badge() {
+  local proj="\$1"
+  [[ -e "\$proj/.git" ]] || return
+  local upstream
+  upstream=\$(git -C "\$proj" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+  if [[ -z "\$upstream" ]]; then
+    printf ' \033[1;34m○\033[0m'
+    return
+  fi
+  local behind
+  behind=\$(git -C "\$proj" rev-list --count 'HEAD..@{u}' 2>/dev/null)
+  if [[ -n "\$behind" && "\$behind" -gt 0 ]]; then
+    printf ' \033[1;31m↓%s\033[0m' "\$behind"
+  else
+    printf ' \033[1;32m●\033[0m'
+  fi
+}
+
+# Découverte récursive des projets sous chaque racine GITHUB_DIRS : un dossier
+# est un projet s'il contient au moins 1 fichier direct (ou un .git), sinon
+# c'est un groupe et on descend dans ses sous-dossiers. Permet de ranger les
+# projets par thème (ex: \$PROJETS/INFRA, \$PROJETS/CLAUDE) sans avoir à lister
+# chaque groupe dans GITHUB_DIRS.
+MAX_SCAN_DEPTH=8
+
+_is_project_dir() {
+  local d="\$1"
+  [[ -e "\$d/.git" ]] && return 0
+  local f
+  while IFS= read -r f; do
+    return 0
+  done < <(find "\$d" -mindepth 1 -maxdepth 1 -type f 2>/dev/null)
+  return 1
+}
+
+# Comptage des collisions de nom de projet (même basename dans 2 groupes
+# différents) : nécessaire pour désambiguïser la clé de fenêtre tmux plus bas.
+declare -A _basename_count
+_proj_abspaths=()
+_proj_basenames=()
+
+_collect_projects() {
+  local dir="\$1" depth="\$2"
+  (( depth >= MAX_SCAN_DEPTH )) && return
+  local entries=() sub
+  while IFS= read -r sub; do
+    [[ "\$sub" == .* ]] && continue
+    [[ -d "\$dir/\$sub" ]] && entries+=("\$sub")
+  done < <(ls -1A "\$dir" 2>/dev/null)
+  local e child
+  for e in "\${entries[@]}"; do
+    child="\$dir/\$e"
+    if _is_project_dir "\$child"; then
+      _proj_abspaths+=("\$child")
+      _proj_basenames+=("\$e")
+      _basename_count["\$e"]=\$(( \${_basename_count["\$e"]:-0} + 1 ))
+    else
+      _collect_projects "\$child" \$((depth+1))
+    fi
+  done
+}
+
+# Un groupe n'est affiché que s'il contient au moins un projet en dessous
+# (évite les branches mortes dans le menu).
+_has_project_below() {
+  local dir="\$1" depth="\$2"
+  (( depth >= MAX_SCAN_DEPTH )) && return 1
+  local sub
+  while IFS= read -r sub; do
+    [[ "\$sub" == .* ]] && continue
+    local child="\$dir/\$sub"
+    [[ -d "\$child" ]] || continue
+    if _is_project_dir "\$child"; then
+      return 0
+    elif _has_project_below "\$child" \$((depth+1)); then
+      return 0
+    fi
+  done < <(ls -1A "\$dir" 2>/dev/null)
+  return 1
+}
+
+# Clé unique utilisée comme nom de fenêtre tmux : le basename, sauf collision
+# entre 2 groupes différents (ex: INFRA/api et CLAUDE/api) → préfixé par le
+# groupe parent ; en dernier recours (collision encore présente), le chemin
+# complet aplati.
+_key_for_project() {
+  local abspath="\$1" base="\$2"
+  if [[ "\${_basename_count[\$base]:-0}" -le 1 ]]; then
+    printf '%s' "\$base"
+    return
+  fi
+  local parent cnt=0 i p2
+  parent=\$(basename "\$(dirname "\$abspath")")
+  for i in "\${!_proj_abspaths[@]}"; do
+    [[ "\${_proj_basenames[\$i]}" == "\$base" ]] || continue
+    p2=\$(basename "\$(dirname "\${_proj_abspaths[\$i]}")")
+    [[ "\$p2" == "\$parent" ]] && cnt=\$((cnt+1))
+  done
+  if [[ \$cnt -le 1 ]]; then
+    printf '%s-%s' "\$parent" "\$base"
+  else
+    printf '%s' "\${abspath//\//-}"
+  fi
+}
+
 existing_windows=\$(tmux list-windows -t "\$SESSION" -F '#{window_name}' 2>/dev/null)
 
-# Génération en ordre INVERSE : fzf inverse la liste, donc on pré-inverse
-# pour qu'elle s'affiche dans le bon sens sans dépendre d'options fzf.
-#
-# Ordre d'affichage voulu (top→bottom) :
-#   sessions · update · quit · new · dir1 { sep + projets } · dir2 { sep + projets }
-# Ordre de génération (inversé) :
-#   dir2 { projets↑ + sep } · dir1 { projets↑ + sep } · new · quit · update · sessions
+# Construction de l'affichage en ordre NORMAL (top→bottom) dans ALL_LINES,
+# puis impression en ordre inverse à la fin : fzf réinverse la liste au
+# rendu (layout=default → 1ère ligne lue = en bas), donc on compense ici une
+# seule fois au lieu de raisonner en inversé à chaque niveau récursif.
+ALL_LINES=()
+_emit_line() { ALL_LINES+=("\$1"); }
+
+_walk_emit() {
+  local dir="\$1" depth="\$2" show_prefix="\$3"
+  (( depth >= MAX_SCAN_DEPTH )) && return
+  local entries=() sub
+  while IFS= read -r sub; do
+    [[ "\$sub" == .* ]] && continue
+    [[ -d "\$dir/\$sub" ]] && entries+=("\$sub")
+  done < <(ls -1A "\$dir" 2>/dev/null)
+  local n=\${#entries[@]} i=0 e child is_last _d indent pfx key local_color dot badge gitbadge
+  for e in "\${entries[@]}"; do
+    child="\$dir/\$e"
+    is_last=0
+    [[ \$i -eq \$((n - 1)) ]] && is_last=1
+    indent=""
+    for (( _d=0; _d<depth; _d++ )); do indent+="  "; done
+    if [[ "\$show_prefix" == "1" ]]; then
+      if [[ \$is_last -eq 1 ]]; then
+        pfx="\$indent"\$'\033[0;90m└─\033[0m '
+      else
+        pfx="\$indent"\$'\033[0;90m├─\033[0m '
+      fi
+    else
+      pfx=""
+    fi
+    if _is_project_dir "\$child"; then
+      key=\$(_key_for_project "\$child" "\$e")
+      local_color=\$(get_project_color "\$key")
+      dot=\$(printf '\033[38;5;%sm●\033[0m' "\$local_color")
+      badge=\$(template_badge "\$child")
+      gitbadge=\$(git_badge "\$child")
+      if echo "\$existing_windows" | grep -qxF "\$key"; then
+        _emit_line "\$(printf '%s\t%s%s \033[1;32m%s\033[0;32m [ouvert]\033[0m%s%s\t%s' "\$key" "\$pfx" "\$dot" "\$e" "\$badge" "\$gitbadge" "\$child")"
+      else
+        _emit_line "\$(printf '%s\t%s%s %s%s%s\t%s' "\$key" "\$pfx" "\$dot" "\$e" "\$badge" "\$gitbadge" "\$child")"
+      fi
+    elif _has_project_below "\$child" 0; then
+      _emit_line "\$(printf '__sep__%s\t%s\033[0;34m▸ \033[0;36m%s\033[0m\t' "\${child//\//_}" "\$pfx" "\$e")"
+      _walk_emit "\$child" \$((depth + 1)) "1"
+    fi
+    i=\$((i + 1))
+  done
+}
 
 _n_dirs=\${#GITHUB_DIRS[@]}
-for (( _di = _n_dirs - 1; _di >= 0; _di-- )); do
+for (( _di = 0; _di < _n_dirs; _di++ )); do
+  _dir="\${GITHUB_DIRS[\$_di]}"
+  [[ -d "\$_dir" ]] || continue
+  _collect_projects "\$_dir" 0
+done
+
+for (( _di = 0; _di < _n_dirs; _di++ )); do
   _dir="\${GITHUB_DIRS[\$_di]}"
   [[ -d "\$_dir" ]] || continue
   _dirname=\$(basename "\$_dir")
   _dirlabel=\$(printf '%s' "\$_dir" | rev | cut -d'/' -f1-2 | rev)
-
-  _projects=()
-  while IFS= read -r entry; do
-    [[ -d "\$_dir/\$entry" ]] && _projects+=("\$entry")
-  done < <(ls -1A "\$_dir" 2>/dev/null)
-  _np=\${#_projects[@]}
-
-  # Projets en ordre inverse (dernier alpha en premier → après inversion fzf : ordre alpha)
-  for (( _ri = _np - 1; _ri >= 0; _ri-- )); do
-    entry="\${_projects[\$_ri]}"
-    local_color=\$(get_project_color "\$entry")
-    dot=\$(printf '\033[38;5;%sm●\033[0m' "\$local_color")
-    badge=\$(template_badge "\$_dir/\$entry")
-    if [[ \$_n_dirs -gt 1 ]]; then
-      # Premier généré (index _np-1) = dernier affiché dans le groupe = └─
-      if [[ \$_ri -eq \$((_np - 1)) ]]; then
-        _pfx=\$'\033[0;90m  └─\033[0m '
-      else
-        _pfx=\$'\033[0;90m  ├─\033[0m '
-      fi
-    else
-      _pfx=""
-    fi
-    if echo "\$existing_windows" | grep -qxF "\$entry"; then
-      printf '%s\t%s%s \033[1;32m%s\033[0;32m [ouvert]\033[0m%s\t%s\n' "\$entry" "\$_pfx" "\$dot" "\$entry" "\$badge" "\$_dir"
-    else
-      printf '%s\t%s%s %s%s\t%s\n' "\$entry" "\$_pfx" "\$dot" "\$entry" "\$badge" "\$_dir"
-    fi
-  done
-
-  # Séparateur généré APRÈS les projets → affiché AU-DESSUS après inversion fzf
   if [[ \$_n_dirs -gt 1 ]]; then
-    printf '__sep__%s\t  \033[0;34m▸ \033[0;36m%s\033[0m\t\n' "\$_dirname" "\$_dirlabel"
+    _emit_line "\$(printf '__sep__%s\t  \033[0;34m▸ \033[0;36m%s\033[0m\t' "\$_dirname" "\$_dirlabel")"
   fi
+  _root_prefix="0"
+  [[ \$_n_dirs -gt 1 ]] && _root_prefix="1"
+  _walk_emit "\$_dir" 0 "\$_root_prefix"
+done
+
+for (( _li = \${#ALL_LINES[@]} - 1; _li >= 0; _li-- )); do
+  printf '%s\n' "\${ALL_LINES[\$_li]}"
 done
 
 printf '__new__\t  \033[1;36m✦ Créer nouveau projet\033[0m\t\n'
@@ -1152,7 +1287,50 @@ GENSCRIPT
     fi
     [[ "$entry" == __sep__* || "$entry" == __quit__ || "$entry" == __new__ || "$entry" == __session__* ]] && exit 0
     dirpath=$(printf "%s" "$1" | cut -f3)
-    full="$dirpath/$entry"
+    full="$dirpath"
+
+    if [ -d "$full" ]; then
+      # En-tête template : lecture live du cache (pas figée à la génération du
+      # preview_script), même logique que template_badge().
+      src=""
+      [ -f "$full/TEMPLATE_claude/.template-source.json" ] && src="$full/TEMPLATE_claude/.template-source.json"
+      [ -z "$src" ] && [ -f "$full/.claude/.template-source.json" ] && src="$full/.claude/.template-source.json"
+      if [ -n "$src" ]; then
+        tpl_tag=$(jq -r ".tag // empty" "$src" 2>/dev/null)
+        tpl_commit=$(jq -r ".commit // empty" "$src" 2>/dev/null)
+        tpl_synced=$(jq -r ".synced_at // empty" "$src" 2>/dev/null)
+        latest_commit=$(cat "'"$TEMPLATE_COMMIT_CACHE"'" 2>/dev/null)
+        latest_tag=$(cat "'"$TEMPLATE_VERSION_CACHE"'" 2>/dev/null)
+        printf "  Template : %s  " "${tpl_tag:-?}"
+        if [ -n "$latest_commit" ] && [ "$tpl_commit" = "$latest_commit" ]; then
+          printf "\033[0;32m✓ à jour\033[0m"
+        else
+          printf "\033[0;33m⚠ en retard\033[0m"
+          [ -n "$latest_tag" ] && printf " (dernière : %s)" "$latest_tag"
+        fi
+        [ -n "$tpl_synced" ] && printf "  \033[0;90msync %s\033[0m" "$tpl_synced"
+        printf "\n"
+      fi
+
+      # En-tête git : même logique que git_badge(), aucun fetch réseau ici non plus.
+      if [ -e "$full/.git" ]; then
+        branch=$(git -C "$full" rev-parse --abbrev-ref HEAD 2>/dev/null)
+        upstream=$(git -C "$full" rev-parse --abbrev-ref --symbolic-full-name '@{u}' 2>/dev/null)
+        if [ -z "$upstream" ]; then
+          printf "  Git      : %s  \033[1;34m○ pas de remote suivi\033[0m\n" "${branch:-?}"
+        else
+          behind=$(git -C "$full" rev-list --count "HEAD..@{u}" 2>/dev/null)
+          if [ -n "$behind" ] && [ "$behind" -gt 0 ]; then
+            printf "  Git      : %s  \033[1;31m↓%s en retard sur %s\033[0m\n" "${branch:-?}" "$behind" "$upstream"
+          else
+            printf "  Git      : %s  \033[1;32m● à jour avec %s\033[0m\n" "${branch:-?}" "$upstream"
+          fi
+        fi
+      fi
+
+      [ -n "$src" ] || [ -e "$full/.git" ] && printf "\n"
+    fi
+
     wins=$(tmux list-windows -t "'"$SESSION"'" -F "#{window_name}" 2>/dev/null)
     if echo "$wins" | grep -qxF "$entry"; then
       printf "\033[1;32m  ● window ouvert : %s\033[0m\n\n" "$entry"
@@ -1326,7 +1504,10 @@ GENSCRIPT
       printf "\n  \033[1;32m✓ Projet créé : %s\033[0m\n\n" "$project_dir"
       sleep 1
     else
-      project_dir="$project_root/$project"
+      # project_root contient déjà le chemin absolu complet (découverte
+      # récursive) — pas de jointure avec "$project" ici, contrairement à
+      # la branche __new__ ci-dessus où project_root est une racine GITHUB_DIRS.
+      project_dir="$project_root"
     fi
 
     if tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null \
