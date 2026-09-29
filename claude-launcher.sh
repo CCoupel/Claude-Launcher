@@ -79,7 +79,7 @@ SESSION="claude-hub"
 LAUNCHER_REPO="CCoupel/Claude-Launcher"       # hebergement du launcher lui-meme (self-update)
 TEMPLATE_REPO="CCoupel/claude_project_template"  # hebergement du template (init-project.md)
 TEMPLATE_BRANCH="main"
-SCRIPT_VERSION="v2.25.10"
+SCRIPT_VERSION="v2.26.0"
 CONFIG_FILE="${HOME}/.config/claude-launcher.conf"
 
 # ── Valeurs par défaut (écrasées par le fichier de config) ───────────────────
@@ -977,6 +977,16 @@ project_template_outdated() {
   [[ -n "$commit" && "$commit" != "$TEMPLATE_COMMIT" ]]
 }
 
+# Projet déjà initialisé (project-config.json.template_version, tracké git) dont
+# les fichiers template gitignorés sont absents (clone frais, autre machine) :
+# aucun .template-source.json mais une version installée connue.
+project_template_missing() {
+  local proj="$1"
+  [[ -f "$proj/TEMPLATE_claude/.template-source.json" || -f "$proj/.claude/.template-source.json" ]] && return 1
+  [[ -f "$proj/.claude/project-config.json" ]] || return 1
+  [[ -n "$(jq -r '.template_version.commit // empty' "$proj/.claude/project-config.json" 2>/dev/null)" ]]
+}
+
   # Nom réel de la session courante (sessions groupées ont un nom auto-généré ≠ $SESSION)
   CURRENT_SESSION=$(tmux display-message -p '#{session_name}' 2>/dev/null || echo "$SESSION")
 
@@ -1042,7 +1052,12 @@ template_badge() {
   local proj="\$1" src=""
   [[ -f "\$proj/TEMPLATE_claude/.template-source.json" ]] && src="\$proj/TEMPLATE_claude/.template-source.json"
   [[ -z "\$src" && -f "\$proj/.claude/.template-source.json" ]] && src="\$proj/.claude/.template-source.json"
-  [[ -z "\$src" ]] && return
+  if [[ -z "\$src" ]]; then
+    if [[ -n "\$(jq -r '.template_version.commit // empty' "\$proj/.claude/project-config.json" 2>/dev/null)" ]]; then
+      printf ' \033[1;31m⚠ fichiers manquants\033[0m'
+    fi
+    return
+  fi
   local commit
   commit=\$(jq -r '.commit // empty' "\$src" 2>/dev/null)
   [[ -z "\$commit" ]] && return
@@ -1310,6 +1325,12 @@ GENSCRIPT
         fi
         [ -n "$tpl_synced" ] && printf "  \033[0;90msync %s\033[0m" "$tpl_synced"
         printf "\n"
+      else
+        cfg_tag=$(jq -r ".template_version.tag // empty" "$full/.claude/project-config.json" 2>/dev/null)
+        cfg_commit=$(jq -r ".template_version.commit // empty" "$full/.claude/project-config.json" 2>/dev/null)
+        if [ -n "$cfg_commit" ]; then
+          printf "  Template : %s  \033[1;31m⚠ fichiers manquants\033[0m (clone frais ? /init-project restaure)\n" "${cfg_tag:-?}"
+        fi
       fi
 
       # En-tête git : même logique que git_badge(), aucun fetch réseau ici non plus.
@@ -1533,6 +1554,9 @@ GENSCRIPT
       INIT_PRE=""; INIT_ARG=""
       if project_template_outdated "$project_dir"; then
         INIT_PRE="_ip_arg=''; read -rp '↑ template en retard — lancer /init-project ? [o/N] ' _r; [[ \"\$_r\" == [oOyY]* ]] && _ip_arg='/init-project'; "
+        INIT_ARG=" \$_ip_arg"
+      elif project_template_missing "$project_dir"; then
+        INIT_PRE="_ip_arg='/init-project'; read -rp '🗑 fichiers template manquants (clone frais) — lancer /init-project pour restaurer ? [O/n] ' _r; [[ \"\$_r\" == [nN]* ]] && _ip_arg=''; "
         INIT_ARG=" \$_ip_arg"
       fi
       tmux send-keys -t "$SESSION:$project" \
