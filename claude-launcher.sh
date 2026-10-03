@@ -64,7 +64,7 @@ check_prerequisites() {
 
 # Sauter la vérification pour les modes internes (appelés par tmux en arrière-plan)
 case "${1:-}" in
-  --do-layout|--debug-layout|--relayout|--layout-watch) ;;
+  --do-layout|--debug-layout|--relayout|--layout-watch|--mirror|--mirror-manager) ;;
   *) check_prerequisites ;;
 esac
 
@@ -79,7 +79,7 @@ SESSION="claude-hub"
 LAUNCHER_REPO="CCoupel/Claude-Launcher"       # hebergement du launcher lui-meme (self-update)
 TEMPLATE_REPO="CCoupel/claude_project_template"  # hebergement du template (init-project.md)
 TEMPLATE_BRANCH="main"
-SCRIPT_VERSION="v2.26.0"
+SCRIPT_VERSION="v2.27.0"
 CONFIG_FILE="${HOME}/.config/claude-launcher.conf"
 
 # ── Valeurs par défaut (écrasées par le fichier de config) ───────────────────
@@ -955,6 +955,263 @@ style_project_window_busy() {
 }
 
 # ════════════════════════════════════════════════════════════════════════════
+# MODE --mirror  (tourne dans une vignette du window [menu])
+# Miroir interactif du pane teamleader d'un window projet : affiche en direct
+# (capture-pane) et relaie les touches via send-keys. Le window projet n'est
+# jamais modifié (aucun join/swap/resize), seul le contenu du pane est lu.
+# Usage : bash claude.sh --mirror WIN_ID PROJECT_NAME
+# ════════════════════════════════════════════════════════════════════════════
+if [[ "$1" == "--mirror" ]]; then
+  M_WIN="$2"
+  M_NAME="$3"
+  M_COLOR=$(get_project_color "$M_NAME")
+
+  _saved_stty=$(stty -g 2>/dev/null)
+  # Mode brut : toutes les touches (Ctrl+C, Échap, flèches...) sont relayées au
+  # teamleader au lieu d'être interprétées ici. Ctrl+b reste capté par tmux.
+  stty -echo -icanon -isig -ixon -ixoff -iexten 2>/dev/null
+  # Pas de retour à la ligne auto (lignes trop longues rognées), curseur masqué
+  printf '\033[?7l\033[?25l\033[2J'
+  trap 'printf "\033[?7h\033[?25h\033[0m"; [[ -n "$_saved_stty" ]] && stty "$_saved_stty" 2>/dev/null' EXIT
+
+  # Relaie une séquence de touches vers le leader : texte imprimable en -l,
+  # touches de contrôle / séquences d'échappement en octets bruts (-H).
+  _mirror_send() {
+    local leader="$1" data="$2" hex
+    if [[ "$data" =~ [[:cntrl:]] ]]; then
+      hex=$(printf '%s' "$data" | xxd -p -c 256 | sed 's/../0x& /g')
+      tmux send-keys -t "$leader" -H $hex 2>/dev/null
+    else
+      # Un argument finissant par ';' serait pris par tmux pour un séparateur
+      while [[ "$data" == *\; ]]; do
+        data="${data%;}"
+        [[ -n "$data" ]] && tmux send-keys -t "$leader" -l -- "$data" 2>/dev/null
+        data=""
+        tmux send-keys -t "$leader" -H 0x3b 2>/dev/null
+      done
+      [[ -n "$data" ]] && tmux send-keys -t "$leader" -l -- "$data" 2>/dev/null
+    fi
+  }
+
+  _mirror_leader() {
+    # Le teamleader est toujours le pane d'index le plus bas (do_layout le
+    # place en premier), y compris sans team.
+    tmux list-panes -t "$M_WIN" -F '#{pane_index} #{pane_id}' 2>/dev/null \
+      | sort -n | head -1 | cut -d' ' -f2
+  }
+
+  prev_state=""
+  while :; do
+    leader=$(_mirror_leader)
+    [[ -z "$leader" ]] && exit 0
+
+    read -r rows cols < <(stty size 2>/dev/null)
+    rows=${rows:-24}; cols=${cols:-80}
+    avail=$(( rows - 1 ))
+
+    read -r cur_x cur_y focus < <(tmux display-message -p -t "$leader" \
+      "#{cursor_x} #{cursor_y} #{pane_active}" 2>/dev/null)
+    focus_here=$(tmux display-message -p -t "$TMUX_PANE" '#{pane_active}' 2>/dev/null)
+    frame=$(tmux capture-pane -p -e -t "$leader" 2>/dev/null)
+
+    state="$rows|$cols|$cur_x|$cur_y|$focus_here|$frame"
+    if [[ "$state" != "$prev_state" ]]; then
+      prev_state="$state"
+      # Dernières $avail lignes jusqu'à la dernière non vide (ou le curseur) :
+      # la zone de saisie de claude est en bas, les lignes vides finales
+      # n'apportent rien. 1re ligne de sortie = numéro de la 1re ligne gardée.
+      body=$(printf '%s\n' "$frame" | awk -v h="$avail" -v cy="$cur_y" '
+        { lines[NR]=$0; s=$0; gsub(/\033\[[0-9;:?]*[A-Za-z]/,"",s)
+          if (s ~ /[^[:space:]]/) last=NR }
+        END { if (cy+1 > last) last=cy+1; if (last<1) last=1
+              start=last-h+1; if (start<1) start=1
+              print start
+              for (i=start;i<=last;i++) print lines[i] }')
+      start=$(head -1 <<<"$body")
+      out=$(printf '\033[1;1H\033[1;30;48;5;%sm ' "$M_COLOR")
+      if [[ "$focus_here" == "1" ]]; then out+="⌨ "; else out+="  "; fi
+      out+=$(printf '%s \033[0m\033[K' "$M_NAME")
+      r=2
+      while IFS= read -r line; do
+        out+=$(printf '\033[%d;1H\033[0m%s\033[0m\033[K' "$r" "$line")
+        r=$(( r + 1 ))
+      done < <(tail -n +2 <<<"$body")
+      # Efface le reste de la vignette
+      while (( r <= rows )); do
+        out+=$(printf '\033[%d;1H\033[K' "$r")
+        r=$(( r + 1 ))
+      done
+      # Curseur du leader, visible uniquement si cette vignette a le focus
+      cy_row=$(( cur_y + 1 - start + 2 ))
+      if [[ "$focus_here" == "1" && "$cy_row" -ge 2 && "$cy_row" -le "$rows" ]]; then
+        out+=$(printf '\033[%d;%dH\033[?25h' "$cy_row" "$(( cur_x + 1 ))")
+      else
+        out+=$'\033[?25l'
+      fi
+      printf '%s' "$out"
+    fi
+
+    # Lecture des touches (timeout = cadence de rafraîchissement)
+    IFS= read -rsn1 -t 0.4 key
+    rc=$?
+    if (( rc == 0 )); then
+      if [[ -z "$key" ]]; then
+        key=$'\r'                          # read -n1 renvoie vide sur Entrée
+      elif [[ "$key" == $'\033' ]]; then
+        # Séquence d'échappement : lire la suite (flèches, Suppr, Alt+x...)
+        while IFS= read -rsn1 -t 0.02 c; do
+          key+="$c"
+          [[ "$c" =~ [A-Za-z~] && ${#key} -gt 2 ]] && break
+        done
+      elif [[ ! "$key" =~ [[:cntrl:]] ]]; then
+        # Texte imprimable : regroupe ce qui est déjà en attente (collage)
+        while (( ${#key} < 500 )) && IFS= read -rsn1 -t 0.002 c && [[ -n "$c" && ! "$c" =~ [[:cntrl:]] ]]; do
+          key+="$c"
+        done
+        # Si la boucle s'est arrêtée sur un caractère de contrôle, le relayer ensuite
+        [[ -n "$c" && "$c" =~ [[:cntrl:]] ]] && { _mirror_send "$leader" "$key"; key="$c"; }
+      fi
+      _mirror_send "$leader" "$key"
+      sleep 0.05
+      prev_state=""                        # redessine tout de suite
+    elif (( rc != 142 && rc <= 128 )); then
+      exit 0                               # EOF : pane fermé
+    fi
+  done
+  exit 0
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
+# MODE --mirror-manager  (tourne en arrière-plan depuis le menu)
+# Garde une vignette --mirror par window projet ouvert dans le window [menu]
+# et les range en grille à droite du menu fzf (≈35 % de largeur à gauche).
+# Usage : bash claude.sh --mirror-manager SESSION SCRIPT_PATH MENU_PANE
+# ════════════════════════════════════════════════════════════════════════════
+_mirror_checksum() {
+  local str="$1" csum=0 c i
+  for (( i=0; i<${#str}; i++ )); do
+    c=$(printf '%d' "'${str:$i:1}")
+    csum=$(( ((csum >> 1) + ((csum & 1) << 15) + c) & 0xFFFF ))
+  done
+  printf '%04x' "$csum"
+}
+
+# Menu à gauche (pane d'index 0), n vignettes en grille à droite.
+# _mirror_relayout WIN_ID  — les vignettes = tous les panes sauf le premier.
+_mirror_relayout() {
+  local win="$1" W H n MW RW RX cols rows r c cnt rh y i idx=1
+  W=$(tmux display-message -t "$win" -p '#{window_width}' 2>/dev/null)
+  H=$(tmux display-message -t "$win" -p '#{window_height}' 2>/dev/null)
+  n=$(( $(tmux list-panes -t "$win" 2>/dev/null | wc -l) - 1 ))
+  (( n < 1 || W < 20 || H < 4 )) && return
+
+  MW=$(( W * 35 / 100 )); (( MW < 45 )) && MW=45
+  (( MW > W - 21 )) && MW=$(( W - 21 ))
+  RW=$(( W - MW - 1 )); RX=$(( MW + 1 ))
+  cols=1; while (( cols * cols < n )); do cols=$(( cols + 1 )); done
+  rows=$(( (n + cols - 1) / cols ))
+
+  local rowstrs=() rw cx cells rowh_total=0
+  y=0
+  for (( r=0; r<rows; r++ )); do
+    cnt=$(( n - r * cols )); (( cnt > cols )) && cnt=$cols
+    rh=$(( (H - rows + 1) / rows ))
+    (( r == rows - 1 )) && rh=$(( H - y ))
+    if (( cnt == 1 )); then
+      rowstrs+=("${RW}x${rh},${RX},${y},${idx}")
+      idx=$(( idx + 1 ))
+    else
+      local cw=$(( (RW - cnt + 1) / cnt ))
+      local rem=$(( RW - cw * cnt - (cnt - 1) ))
+      cells=""; cx=$RX
+      for (( c=0; c<cnt; c++ )); do
+        rw=$cw; (( c == cnt - 1 )) && rw=$(( cw + rem ))
+        [[ -n "$cells" ]] && cells+=","
+        cells+="${rw}x${rh},${cx},${y},${idx}"
+        idx=$(( idx + 1 )); cx=$(( cx + rw + 1 ))
+      done
+      rowstrs+=("${RW}x${rh},${RX},${y}{${cells}}")
+    fi
+    y=$(( y + rh + 1 ))
+  done
+
+  local right
+  if (( rows == 1 )); then
+    right="${rowstrs[0]}"
+  else
+    right="${RW}x${H},${RX},0[$(IFS=,; echo "${rowstrs[*]}")]"
+  fi
+  local body="${W}x${H},0,0{${MW}x${H},0,0,0,${right}}"
+  tmux select-layout -t "$win" "$(_mirror_checksum "$body"),${body}" 2>/dev/null
+}
+
+if [[ "$1" == "--mirror-manager" ]]; then
+  M_SESSION="$2"
+  M_SCRIPT="$3"
+  M_MENU_PANE="$4"
+  M_MENU_WIN=$(tmux display-message -p -t "$M_MENU_PANE" '#{window_id}' 2>/dev/null)
+  [[ -z "$M_MENU_WIN" ]] && exit 0
+  prev_sig=""
+
+  while :; do
+    sleep 1
+    # Quitte (et ferme les vignettes) si le pane du menu a disparu
+    if [[ -z "$(tmux display-message -p -t "$M_MENU_PANE" '#{pane_id}' 2>/dev/null)" ]]; then
+      tmux list-panes -t "$M_MENU_WIN" -F '#{pane_id}' 2>/dev/null \
+        | xargs -r -n1 tmux kill-pane -t 2>/dev/null
+      exit 0
+    fi
+
+    # Windows projet ouverts (tout sauf [menu])
+    declare -A want=(); want_order=()
+    while IFS='|' read -r wid wname; do
+      [[ -z "$wid" || "$wid" == "$M_MENU_WIN" || "$wname" == "[menu]" ]] && continue
+      want["$wid"]="$wname"; want_order+=("$wid")
+    done < <(tmux list-windows -t "$M_SESSION" -F '#{window_id}|#{window_name}' 2>/dev/null)
+
+    # Vignettes existantes ; celles dont le window n'existe plus sont fermées
+    declare -A have=(); last_tile=""
+    while IFS='|' read -r pid pwin; do
+      [[ -z "$pwin" ]] && continue
+      if [[ -z "${want[$pwin]:-}" ]]; then
+        tmux kill-pane -t "$pid" 2>/dev/null
+      else
+        have["$pwin"]="$pid"; last_tile="$pid"
+      fi
+    done < <(tmux list-panes -t "$M_MENU_WIN" -F '#{pane_id}|#{@mirror_win}' 2>/dev/null)
+
+    # Vignettes manquantes
+    for wid in "${want_order[@]}"; do
+      [[ -n "${have[$wid]:-}" ]] && continue
+      cmd="bash $(printf '%q' "$M_SCRIPT") --mirror $(printf '%q' "$wid") $(printf '%q' "${want[$wid]}")"
+      if [[ -z "$last_tile" ]]; then
+        newp=$(tmux split-window -d -h -l 65% -t "$M_MENU_PANE" -P -F '#{pane_id}' "$cmd" 2>/dev/null)
+      else
+        newp=$(tmux split-window -d -t "$last_tile" -P -F '#{pane_id}' "$cmd" 2>/dev/null)
+      fi
+      [[ -z "$newp" ]] && continue
+      tmux set-option -p -t "$newp" @mirror_win "$wid" 2>/dev/null
+      have["$wid"]="$newp"; last_tile="$newp"
+      prev_sig=""
+      # Garde le menu en index 0 et applique la grille avant la prochaine coupe
+      _mirror_relayout "$M_MENU_WIN"
+    done
+
+    # Fond de chaque vignette = couleur du projet (comme les panes du window projet)
+    for wid in "${want_order[@]}"; do
+      [[ -n "${have[$wid]:-}" ]] && apply_pane_color "${have[$wid]}" "$(get_project_color "${want[$wid]}")"
+    done
+
+    sig="$(tmux display-message -t "$M_MENU_WIN" -p '#{window_width}x#{window_height}')|$(tmux list-panes -t "$M_MENU_WIN" -F '#{pane_id}' 2>/dev/null | tr '\n' ',')"
+    if [[ "$sig" != "$prev_sig" ]]; then
+      prev_sig="$sig"
+      _mirror_relayout "$M_MENU_WIN"
+    fi
+  done
+  exit 0
+fi
+
+# ════════════════════════════════════════════════════════════════════════════
 # MODE --menu  (boucle fzf dans le window [menu])
 # ════════════════════════════════════════════════════════════════════════════
 if [[ "$1" == "--menu" ]]; then
@@ -997,6 +1254,18 @@ project_template_missing() {
   fi
 
   cleanup_orphan_teams
+
+  # Vue d'ensemble : une vignette miroir (interactive) par teamleader de projet
+  # ouvert, à droite du menu. Le gestionnaire ajoute/retire les vignettes ;
+  # à la sortie du menu on les ferme pour ne pas laisser un window [menu] orphelin.
+  if [[ -n "$TMUX_PANE" ]]; then
+    bash "$SCRIPT_PATH" --mirror-manager "$SESSION" "$SCRIPT_PATH" "$TMUX_PANE" &
+    MIRROR_MGR_PID=$!
+    _mirror_menu_win=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}' 2>/dev/null)
+    trap 'kill "$MIRROR_MGR_PID" 2>/dev/null
+      tmux list-panes -t "$_mirror_menu_win" -F "#{pane_id} #{@mirror_win}" 2>/dev/null \
+        | awk "NF>1{print \$1}" | xargs -r -n1 tmux kill-pane -t 2>/dev/null' EXIT
+  fi
 
   # ── Script de génération d'entrées fzf ─────────────────────────────────────
   # Créé une fois, réexécuté à chaque ctrl-r pour rafraîchir le statut des windows
