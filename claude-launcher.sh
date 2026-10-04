@@ -79,7 +79,7 @@ SESSION="claude-hub"
 LAUNCHER_REPO="CCoupel/Claude-Launcher"       # hebergement du launcher lui-meme (self-update)
 TEMPLATE_REPO="CCoupel/claude_project_template"  # hebergement du template (init-project.md)
 TEMPLATE_BRANCH="main"
-SCRIPT_VERSION="v2.27.0"
+SCRIPT_VERSION="v2.27.1"
 CONFIG_FILE="${HOME}/.config/claude-launcher.conf"
 
 # ── Valeurs par défaut (écrasées par le fichier de config) ───────────────────
@@ -1704,7 +1704,7 @@ GENSCRIPT
       --height=70% --border \
       --header "$_fzf_header" \
       --header-first \
-      --preview-window=right:45%:wrap \
+      --preview-window=right:67%:wrap \
       --preview "bash -c '$preview_script' -- {}" \
       --color 'hl:#5DCAA5,hl+:#1D9E75' \
       --bind 'esc:abort' \
