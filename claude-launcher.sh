@@ -79,7 +79,7 @@ SESSION="claude-hub"
 LAUNCHER_REPO="CCoupel/Claude-Launcher"       # hebergement du launcher lui-meme (self-update)
 TEMPLATE_REPO="CCoupel/claude_project_template"  # hebergement du template (init-project.md)
 TEMPLATE_BRANCH="main"
-SCRIPT_VERSION="v2.27.1"
+SCRIPT_VERSION="v2.27.2"
 CONFIG_FILE="${HOME}/.config/claude-launcher.conf"
 
 # ── Valeurs par défaut (écrasées par le fichier de config) ───────────────────
@@ -828,7 +828,7 @@ cleanup_orphan_teams() {
 
   local team_dir team_name cwd project
 
-  for team_dir in "$HOME/.claude/teams/"/; do
+  for team_dir in "$HOME/.claude/teams/"*/; do
     [[ -d "$team_dir" ]] || continue
     team_name=$(basename "$team_dir")
 
