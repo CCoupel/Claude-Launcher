@@ -79,7 +79,7 @@ SESSION="claude-hub"
 LAUNCHER_REPO="CCoupel/Claude-Launcher"       # hebergement du launcher lui-meme (self-update)
 TEMPLATE_REPO="CCoupel/claude_project_template"  # hebergement du template (init-project.md)
 TEMPLATE_BRANCH="main"
-SCRIPT_VERSION="v2.27.2"
+SCRIPT_VERSION="v2.27.3"
 CONFIG_FILE="${HOME}/.config/claude-launcher.conf"
 
 # ── Valeurs par défaut (écrasées par le fichier de config) ───────────────────
@@ -819,7 +819,7 @@ fi
 
 # ════════════════════════════════════════════════════════════════════════════
 # FONCTION : cleanup_orphan_teams
-#   - Pas de config.json          → suppression immédiate
+#   - Pas de config.json          → on ne touche à rien
 #   - Window tmux fermé           → suppression de toutes les teams du projet
 #   - Window tmux ouvert          → on ne touche à rien
 # ════════════════════════════════════════════════════════════════════════════
@@ -832,13 +832,9 @@ cleanup_orphan_teams() {
     [[ -d "$team_dir" ]] || continue
     team_name=$(basename "$team_dir")
 
-    # Pas de config.json → suppression directe
-    if [[ ! -f "$team_dir/config.json" ]]; then
-      echo "  🧹 $team_name — pas de config.json"
-      rm -rf "$team_dir"
-      rm -rf "$HOME/.claude/tasks/$team_name"
-      continue
-    fi
+    # Pas de config.json → impossible de rattacher la team à un projet
+    # (config absent ou en cours de réécriture) : on ne touche à rien.
+    [[ -f "$team_dir/config.json" ]] || continue
 
     cwd=$(jq -r '.members[] | select(.name=="team-lead") | .cwd' \
       "$team_dir/config.json" 2>/dev/null)
