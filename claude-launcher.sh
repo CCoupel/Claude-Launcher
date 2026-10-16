@@ -1245,8 +1245,8 @@ project_template_missing() {
 # semaine toutes limites, limites hebdo par modèle (ex. Fable). Réponse JSON brute
 # mise en cache ; un échec passager conserve la dernière réponse valide.
 # Cache partagé avec les panneaux milestone des projets : le launcher l'alimente
-# (60 s) ; un panneau ne fait son propre appel que si le cache manque ou a plus
-# de 90 s, et y réécrit la réponse fraîche. Un échec récent (`.err` < 60 s, écrit
+# (2 min) ; un panneau ne fait son propre appel que si le cache manque ou a plus
+# de 3 min, et y réécrit la réponse fraîche. Un échec récent (`.err` < 5 min, écrit
 # par quiconque : 429, token expiré) suspend les appels de tous.
 USAGE_URL="https://api.anthropic.com/api/oauth/usage"
 USAGE_WARN_PERCENT=70
@@ -1271,7 +1271,7 @@ fetch_claude_usage() {
     printf 'non authentifié — lancer claude puis /login' > "$cache.err"
     return 1
   elif [[ "$code" == 429 ]]; then
-    printf 'trop d’appels à l’endpoint, nouvel essai dans 60 s' > "$cache.err"
+    printf 'trop d’appels à l’endpoint, nouvel essai dans 5 min' > "$cache.err"
     return 1
   else
     printf 'endpoint indisponible%s' "${code:+ (HTTP $code)}" > "$cache.err"
@@ -1312,10 +1312,10 @@ render_claude_usage() {
     fi
     return
   fi
-  # Données périmées : dernier appel en échec, ou cache de plus de 5 min
+  # Données périmées : dernier appel en échec, ou cache de plus de 10 min
   # (menu fermé un moment). Barres grisées + horodatage de la lecture.
   age=$(( $(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0) ))
-  if [[ -s "$cache.err" ]] || (( age > 300 )); then
+  if [[ -s "$cache.err" ]] || (( age > 600 )); then
     stale="⚠ données de $(date -d "@$(stat -c %Y "$cache")" '+%H:%M')"
     (( age > 86400 )) && stale="⚠ données du $(date -d "@$(stat -c %Y "$cache")" '+%d/%m %H:%M')"
     [[ -s "$cache.err" ]] && stale+=" — $(cat "$cache.err")"
@@ -1816,7 +1816,7 @@ GENSCRIPT
       _prev_header_hash=$(cksum < "$tmp_header")
       while :; do
         sleep 2
-        # Consommation Claude : relue toutes les 60s (cache partagé, donc pas
+        # Consommation Claude : relue toutes les 2 min (cache partagé, donc pas
         # de rafale d'appels si le menu est relancé) ; l'en-tête n'est poussé
         # à fzf que s'il a changé.
         if (( _usage_tick++ % 30 == 0 )); then
@@ -1824,7 +1824,7 @@ GENSCRIPT
           _usage_err_age=$(( $(date +%s) - $(stat -c %Y "$USAGE_CACHE.err" 2>/dev/null || echo 0) ))
           # Pas d'appel si un projet vient de rafraîchir le cache, ni pendant
           # le backoff d'un échec récent (le nôtre ou celui d'un projet)
-          if (( _usage_age >= 55 )) && { [[ ! -s "$USAGE_CACHE.err" ]] || (( _usage_err_age >= 60 )); }; then
+          if (( _usage_age >= 115 )) && { [[ ! -s "$USAGE_CACHE.err" ]] || (( _usage_err_age >= 300 )); }; then
             fetch_claude_usage "$USAGE_CACHE"
           fi
           build_menu_header
