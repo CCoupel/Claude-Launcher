@@ -51,7 +51,10 @@ EXTRA_ENVS=(
 **Consommation du compte Claude :** sous la liste des projets, le menu affiche les fenêtres de quota
 du compte (session, semaine, limites par modèle) avec leur réinitialisation — même source que la page
 « Utilisation » de claude.ai et le milestone-panel du template. Rafraîchi toutes les 60 s (cache
-`~/.cache/claude-launcher/usage.json`) ; nécessite une connexion claude.ai (`claude` puis `/login`),
+`~/.cache/claude-launcher/usage.json`, **partagé avec les panneaux milestone des projets** : le launcher est
+le seul à appeler l'endpoint ; un panneau ne fait son propre appel que si le cache manque ou a plus de 90 s,
+et sa réponse fraîche sert alors au launcher et aux autres projets ; après un échec — 429, token expiré —
+plus personne n'appelle pendant 60 s) ; nécessite une connexion claude.ai (`claude` puis `/login`),
 sinon un message l'indique. Données périmées (échec, menu fermé) : barres grisées + horodatage.
 
 **Mettre à jour le launcher :**
