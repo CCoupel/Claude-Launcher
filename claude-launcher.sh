@@ -1244,6 +1244,10 @@ project_template_missing() {
 # Endpoint /api/oauth/usage avec le token OAuth de Claude Code : session (5h),
 # semaine toutes limites, limites hebdo par modèle (ex. Fable). Réponse JSON brute
 # mise en cache ; un échec passager conserve la dernière réponse valide.
+# Cache partagé avec les panneaux milestone des projets : le launcher l'alimente
+# (60 s) ; un panneau ne fait son propre appel que si le cache manque ou a plus
+# de 90 s, et y réécrit la réponse fraîche. Un échec récent (`.err` < 60 s, écrit
+# par quiconque : 429, token expiré) suspend les appels de tous.
 USAGE_URL="https://api.anthropic.com/api/oauth/usage"
 USAGE_WARN_PERCENT=70
 
@@ -1259,7 +1263,8 @@ fetch_claude_usage() {
   code=${json##*$'\n'}
   json=${json%$'\n'*}
   if [[ "$code" == 200 ]] && jq -e '.limits | type == "array"' <<< "$json" >/dev/null 2>&1; then
-    printf '%s' "$json" > "$cache"
+    # Écriture atomique : un panneau projet peut lire le cache au même moment
+    printf '%s' "$json" > "$cache.$$" && mv -f "$cache.$$" "$cache"
     rm -f "$cache.err"
   elif [[ "$code" == 401 || "$code" == 403 ]]; then
     # Token expiré (seul Claude Code le renouvelle, quand il tourne) ou révoqué
@@ -1816,7 +1821,12 @@ GENSCRIPT
         # à fzf que s'il a changé.
         if (( _usage_tick++ % 30 == 0 )); then
           _usage_age=$(( $(date +%s) - $(stat -c %Y "$USAGE_CACHE" 2>/dev/null || echo 0) ))
-          (( _usage_age >= 60 )) && fetch_claude_usage "$USAGE_CACHE"
+          _usage_err_age=$(( $(date +%s) - $(stat -c %Y "$USAGE_CACHE.err" 2>/dev/null || echo 0) ))
+          # Pas d'appel si un projet vient de rafraîchir le cache, ni pendant
+          # le backoff d'un échec récent (le nôtre ou celui d'un projet)
+          if (( _usage_age >= 55 )) && { [[ ! -s "$USAGE_CACHE.err" ]] || (( _usage_err_age >= 60 )); }; then
+            fetch_claude_usage "$USAGE_CACHE"
+          fi
           build_menu_header
           _cur_header_hash=$(cksum < "$tmp_header")
           if [[ "$_cur_header_hash" != "$_prev_header_hash" ]]; then
