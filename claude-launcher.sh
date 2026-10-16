@@ -99,6 +99,13 @@ LAYOUT_3ROW_LEADER_NUM=3
 LAYOUT_3ROW_MID_NUM=2
 LAYOUT_3ROW_DEN=7
 
+# ── Consommation du compte Claude : fréquence de lecture (configurable) ─────
+# Secondes entre deux appels à l'endpoint d'utilisation (min. 60 : le menu
+# vérifie chaque minute). Lu aussi par le milestone-panel du template (repli
+# 5 min si la config est illisible). Après un échec (429, token expiré) :
+# pause de max(5 min, 2 × cet intervalle).
+USAGE_REFRESH_SEC=120
+
 # ── Couleurs de fond par projet ──────────────────────────────────────────────
 # Palette sombre, couleurs distinctes (indices tmux 256)
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59)
@@ -155,6 +162,10 @@ EXTRA_ENVS=()
 #   ["mon-projet"]="53"
 #   ["autre-projet"]="17"
 # )
+
+# Consommation du compte Claude : secondes entre deux lectures (min. 60, défaut 120).
+# Le milestone-panel des projets lit aussi cette valeur (repli 5 min si absente).
+# USAGE_REFRESH_SEC=120
 
 # Surbrillance des panes teammates actifs (agent en train de travailler) :
 # variante éclaircie de la couleur du projet. 1 = léger, 5 = blanc/couleur pleine.
@@ -1245,11 +1256,24 @@ project_template_missing() {
 # semaine toutes limites, limites hebdo par modèle (ex. Fable). Réponse JSON brute
 # mise en cache ; un échec passager conserve la dernière réponse valide.
 # Cache partagé avec les panneaux milestone des projets : le launcher l'alimente
-# (2 min) ; un panneau ne fait son propre appel que si le cache manque ou a plus
-# de 3 min, et y réécrit la réponse fraîche. Un échec récent (`.err` < 5 min, écrit
+# (`USAGE_REFRESH_SEC`, 2 min par défaut) ; un panneau ne fait son propre appel que si le cache manque ou a plus
+# de 1,5 × cet intervalle, et y réécrit la réponse fraîche. Un échec récent (`.err` < max(5 min, 2 × intervalle), écrit
 # par quiconque : 429, token expiré) suspend les appels de tous.
 USAGE_URL="https://api.anthropic.com/api/oauth/usage"
 USAGE_WARN_PERCENT=70
+
+# Intervalle de lecture borné (min. 60 s) et pause après échec (≥ 5 min), cf. USAGE_REFRESH_SEC
+_usage_refresh() {
+  local n="${USAGE_REFRESH_SEC:-120}"
+  [[ "$n" =~ ^[0-9]+$ ]] || n=120
+  (( n < 60 )) && n=60
+  echo "$n"
+}
+_usage_backoff() {
+  local n=$(( $(_usage_refresh) * 2 ))
+  (( n < 300 )) && n=300
+  echo "$n"
+}
 
 fetch_claude_usage() {
   local cache="$1" creds="$HOME/.claude/.credentials.json" tok json code
@@ -1271,7 +1295,7 @@ fetch_claude_usage() {
     printf 'non authentifié — lancer claude puis /login' > "$cache.err"
     return 1
   elif [[ "$code" == 429 ]]; then
-    printf 'trop d’appels à l’endpoint, nouvel essai dans 5 min' > "$cache.err"
+    printf 'trop d’appels à l’endpoint, nouvel essai dans %d min' "$(( $(_usage_backoff) / 60 ))" > "$cache.err"
     return 1
   else
     printf 'endpoint indisponible%s' "${code:+ (HTTP $code)}" > "$cache.err"
@@ -1312,10 +1336,10 @@ render_claude_usage() {
     fi
     return
   fi
-  # Données périmées : dernier appel en échec, ou cache de plus de 10 min
+  # Données périmées : dernier appel en échec, ou cache de plus de 5 × l’intervalle
   # (menu fermé un moment). Barres grisées + horodatage de la lecture.
   age=$(( $(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0) ))
-  if [[ -s "$cache.err" ]] || (( age > 600 )); then
+  if [[ -s "$cache.err" ]] || (( age > $(_usage_refresh) * 5 )); then
     stale="⚠ données de $(date -d "@$(stat -c %Y "$cache")" '+%H:%M')"
     (( age > 86400 )) && stale="⚠ données du $(date -d "@$(stat -c %Y "$cache")" '+%d/%m %H:%M')"
     [[ -s "$cache.err" ]] && stale+=" — $(cat "$cache.err")"
@@ -1816,7 +1840,7 @@ GENSCRIPT
       _prev_header_hash=$(cksum < "$tmp_header")
       while :; do
         sleep 2
-        # Consommation Claude : relue toutes les 2 min (cache partagé, donc pas
+        # Consommation Claude : relue toutes les `USAGE_REFRESH_SEC` s (cache partagé, donc pas
         # de rafale d'appels si le menu est relancé) ; l'en-tête n'est poussé
         # à fzf que s'il a changé.
         if (( _usage_tick++ % 30 == 0 )); then
@@ -1824,7 +1848,7 @@ GENSCRIPT
           _usage_err_age=$(( $(date +%s) - $(stat -c %Y "$USAGE_CACHE.err" 2>/dev/null || echo 0) ))
           # Pas d'appel si un projet vient de rafraîchir le cache, ni pendant
           # le backoff d'un échec récent (le nôtre ou celui d'un projet)
-          if (( _usage_age >= 115 )) && { [[ ! -s "$USAGE_CACHE.err" ]] || (( _usage_err_age >= 300 )); }; then
+          if (( _usage_age >= $(_usage_refresh) - 5 )) && { [[ ! -s "$USAGE_CACHE.err" ]] || (( _usage_err_age >= $(_usage_backoff) )); }; then
             fetch_claude_usage "$USAGE_CACHE"
           fi
           build_menu_header

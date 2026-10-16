@@ -33,6 +33,7 @@ Au premier lancement, le launcher crée `~/.config/claude-launcher.conf` :
 | `CLAUDE_EXPERIMENTAL_TEAMS` | `1` = active les agent teams |
 | `CLAUDE_OPTIONS` | Options passées à `claude` |
 | `EXTRA_ENVS` | Variables d'environnement supplémentaires |
+| `USAGE_REFRESH_SEC` | Secondes entre deux lectures de la consommation du compte (min. 60, défaut 120). Lue aussi par le milestone-panel (repli 5 min si absente) ; après un échec (429…), pause de max(5 min, 2 × cette valeur) |
 
 `EXTRA_ENVS` permet de passer n'importe quelle variable d'env à Claude Code (clés d'API tierces, URLs…) :
 
@@ -50,11 +51,11 @@ EXTRA_ENVS=(
 
 **Consommation du compte Claude :** sous la liste des projets, le menu affiche les fenêtres de quota
 du compte (session, semaine, limites par modèle) avec leur réinitialisation — même source que la page
-« Utilisation » de claude.ai et le milestone-panel du template. Rafraîchi toutes les 2 min (cache
+« Utilisation » de claude.ai et le milestone-panel du template. Rafraîchi toutes les `USAGE_REFRESH_SEC` s, 2 min par défaut (cache
 `~/.cache/claude-launcher/usage.json`, **partagé avec les panneaux milestone des projets** : le launcher est
-le seul à appeler l'endpoint ; un panneau ne fait son propre appel que si le cache manque ou a plus de 3 min,
+le seul à appeler l'endpoint ; un panneau ne fait son propre appel que si le cache manque ou a plus de 1,5 × cet intervalle,
 et sa réponse fraîche sert alors au launcher et aux autres projets ; après un échec — 429, token expiré —
-plus personne n’appelle pendant 5 min) ; nécessite une connexion claude.ai (`claude` puis `/login`),
+plus personne n’appelle pendant max(5 min, 2 × l’intervalle)) ; nécessite une connexion claude.ai (`claude` puis `/login`),
 sinon un message l'indique. Données périmées (échec, menu fermé) : barres grisées + horodatage.
 
 **Mettre à jour le launcher :**
