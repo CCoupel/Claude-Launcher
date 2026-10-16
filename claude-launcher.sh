@@ -79,7 +79,7 @@ SESSION="claude-hub"
 LAUNCHER_REPO="CCoupel/Claude-Launcher"       # hebergement du launcher lui-meme (self-update)
 TEMPLATE_REPO="CCoupel/claude_project_template"  # hebergement du template (init-project.md)
 TEMPLATE_BRANCH="main"
-SCRIPT_VERSION="v2.27.3"
+SCRIPT_VERSION="v2.28.0"
 CONFIG_FILE="${HOME}/.config/claude-launcher.conf"
 
 # ── Valeurs par défaut (écrasées par le fichier de config) ───────────────────
@@ -1240,6 +1240,131 @@ project_template_missing() {
   [[ -n "$(jq -r '.template_version.commit // empty' "$proj/.claude/project-config.json" 2>/dev/null)" ]]
 }
 
+# ── Consommation du compte Claude (même source que le milestone-panel du template) ──
+# Endpoint /api/oauth/usage avec le token OAuth de Claude Code : session (5h),
+# semaine toutes limites, limites hebdo par modèle (ex. Fable). Réponse JSON brute
+# mise en cache ; un échec passager conserve la dernière réponse valide.
+USAGE_URL="https://api.anthropic.com/api/oauth/usage"
+USAGE_WARN_PERCENT=70
+
+fetch_claude_usage() {
+  local cache="$1" creds="$HOME/.claude/.credentials.json" tok json code
+  tok=$(jq -r '.claudeAiOauth.accessToken // empty' "$creds" 2>/dev/null)
+  [[ -z "$tok" ]] && { printf 'pas de connexion claude.ai (clé API ?) — lancer claude puis /login' > "$cache.err"; return 1; }
+  json=$(curl -sS --max-time 5 -w '\n%{http_code}' \
+    -H "Authorization: Bearer $tok" \
+    -H "anthropic-beta: oauth-2025-04-20" \
+    -H "Accept: application/json" \
+    "$USAGE_URL" 2>/dev/null)
+  code=${json##*$'\n'}
+  json=${json%$'\n'*}
+  if [[ "$code" == 200 ]] && jq -e '.limits | type == "array"' <<< "$json" >/dev/null 2>&1; then
+    printf '%s' "$json" > "$cache"
+    rm -f "$cache.err"
+  elif [[ "$code" == 401 || "$code" == 403 ]]; then
+    # Token expiré (seul Claude Code le renouvelle, quand il tourne) ou révoqué
+    printf 'non authentifié — lancer claude puis /login' > "$cache.err"
+    return 1
+  elif [[ "$code" == 429 ]]; then
+    printf 'trop d’appels à l’endpoint, nouvel essai dans 60 s' > "$cache.err"
+    return 1
+  else
+    printf 'endpoint indisponible%s' "${code:+ (HTTP $code)}" > "$cache.err"
+    return 1
+  fi
+}
+
+# Réinitialisation en forme courte (cf. formatReset du panel) : « 42 min »,
+# « 15:00 » le jour même, « demain 12:00 », sinon « mer. 12:00 ». Heure locale.
+_usage_reset() {
+  local iso="$1" t now diff hm days=(dim. lun. mar. mer. jeu. ven. sam.)
+  [[ -z "$iso" || "$iso" == "null" || "$iso" == "-" ]] && return
+  t=$(date -d "$iso" +%s 2>/dev/null) || return
+  t=$(( (t + 30) / 60 * 60 ))   # arrondi à la minute (l'API renvoie hh:59:59.6)
+  now=$(date +%s)
+  (( t <= now )) && { printf 'passée'; return; }
+  diff=$(( (t - now + 30) / 60 ))
+  (( diff <= 0 )) && { printf 'imminent'; return; }
+  (( diff < 60 )) && { printf '%d min' "$diff"; return; }
+  hm=$(date -d "@$t" +%H:%M)
+  if [[ $(date -d "@$t" +%F) == $(date +%F) ]]; then printf '%s' "$hm"
+  elif [[ $(date -d "@$t" +%F) == $(date -d tomorrow +%F) ]]; then printf 'demain %s' "$hm"
+  else printf '%s %s' "${days[$(date -d "@$t" +%w)]}" "$hm"
+  fi
+}
+
+# Lignes ANSI « Libellé  ████░░░░  42 %  demain 12:00 », une par fenêtre de quota.
+# $2 = largeur disponible (colonne de la liste fzf, hors preview).
+render_claude_usage() {
+  local cache="$1" width="${2:-40}" rows label pct sev reset color bar_w filled lw=0 rw=0 i
+  local stale="" age
+  local -a labels=() pcts=() sevs=() resets=()
+  if [[ ! -s "$cache" ]]; then
+    if [[ -s "$cache.err" ]]; then
+      printf '  \033[0;90mconsommation Claude : %s\033[0m' "$(cat "$cache.err")"
+    else
+      printf '  \033[0;90mconsommation Claude : chargement…\033[0m'
+    fi
+    return
+  fi
+  # Données périmées : dernier appel en échec, ou cache de plus de 5 min
+  # (menu fermé un moment). Barres grisées + horodatage de la lecture.
+  age=$(( $(date +%s) - $(stat -c %Y "$cache" 2>/dev/null || echo 0) ))
+  if [[ -s "$cache.err" ]] || (( age > 300 )); then
+    stale="⚠ données de $(date -d "@$(stat -c %Y "$cache")" '+%H:%M')"
+    (( age > 86400 )) && stale="⚠ données du $(date -d "@$(stat -c %Y "$cache")" '+%d/%m %H:%M')"
+    [[ -s "$cache.err" ]] && stale+=" — $(cat "$cache.err")"
+  fi
+  rows=$(jq -r '
+    def rank: {"session":0,"weekly_all":1,"weekly_scoped":2}[.kind] // 9;
+    def lbl:
+      if .kind == "session" then "Session"
+      elif .kind == "weekly_all" then "Semaine"
+      else ((.scope.model.display_name // .scope.model.id // .scope.surface) as $s
+        | if (.kind == "weekly_scoped" or .group == "weekly")
+          then (if $s then "\($s) sem." else "Semaine (autre)" end)
+          else (if $s then "\($s) \(.kind)" else .kind end) end)
+      end;
+    .limits | map(select(.kind and (.percent | type == "number")))
+    | sort_by(rank, lbl) | .[]
+    | [lbl, (.percent | if . < 0 then 0 else . end | round), (.severity // "-"), (.resets_at // "-")] | @tsv
+  ' "$cache" 2>/dev/null)
+  while IFS=$'\t' read -r label pct sev reset; do
+    [[ -z "$label" ]] && continue
+    reset=$(_usage_reset "$reset")
+    labels+=("$label"); pcts+=("$pct"); sevs+=("$sev"); resets+=("$reset")
+    (( ${#label} > lw )) && lw=${#label}
+    (( ${#reset} > rw )) && rw=${#reset}
+  done <<< "$rows"
+  bar_w=$(( width - lw - rw - 12 ))
+  (( bar_w < 8 )) && bar_w=8
+  (( bar_w > 40 )) && bar_w=40
+  for i in "${!labels[@]}"; do
+    pct=${pcts[$i]} sev=${sevs[$i]}
+    if [[ -n "$stale" || "${resets[$i]}" == "passée" ]]; then color='0;90'
+    elif [[ "$sev" == "critical" ]] || (( pct >= 90 )); then color='1;31'
+    elif [[ "$sev" == "warning" ]] || (( pct >= USAGE_WARN_PERCENT )); then color='1;33'
+    else color='1;34'
+    fi
+    (( pct > 100 )) && pct=100
+    filled=$(( (pct * bar_w + 50) / 100 ))
+    (( i > 0 )) && printf '\n'
+    if [[ "${resets[$i]}" == "passée" ]]; then
+      # Fenêtre réinitialisée depuis la lecture : le pourcentage n'a plus de sens
+      printf '  \033[1m%-*s\033[0m \033[0;90m%s    — réinit. passée\033[0m' \
+        "$lw" "${labels[$i]}" "$(printf '%*s' "$bar_w" '' | sed 's/ /░/g')"
+      continue
+    fi
+    printf '  \033[1m%-*s\033[0m \033[%sm%s\033[0;90m%s\033[0m \033[%sm%3d %%\033[0m' \
+      "$lw" "${labels[$i]}" "$color" \
+      "$(printf '%*s' "$filled" '' | sed 's/ /█/g')" \
+      "$(printf '%*s' $(( bar_w - filled )) '' | sed 's/ /░/g')" \
+      "$color" "${pcts[$i]}"
+    [[ -n "${resets[$i]}" ]] && printf '  \033[0;90m%s\033[0m' "${resets[$i]}"
+  done
+  [[ -n "$stale" ]] && printf '\n  \033[0;33m%s\033[0m' "$stale"
+}
+
   # Nom réel de la session courante (sessions groupées ont un nom auto-généré ≠ $SESSION)
   CURRENT_SESSION=$(tmux display-message -p '#{session_name}' 2>/dev/null || echo "$SESSION")
 
@@ -1258,9 +1383,6 @@ project_template_missing() {
     bash "$SCRIPT_PATH" --mirror-manager "$SESSION" "$SCRIPT_PATH" "$TMUX_PANE" &
     MIRROR_MGR_PID=$!
     _mirror_menu_win=$(tmux display-message -p -t "$TMUX_PANE" '#{window_id}' 2>/dev/null)
-    trap 'kill "$MIRROR_MGR_PID" 2>/dev/null
-      tmux list-panes -t "$_mirror_menu_win" -F "#{pane_id} #{@mirror_win}" 2>/dev/null \
-        | awk "NF>1{print \$1}" | xargs -r -n1 tmux kill-pane -t 2>/dev/null' EXIT
   fi
 
   # ── Script de génération d'entrées fzf ─────────────────────────────────────
@@ -1268,7 +1390,42 @@ project_template_missing() {
   tmp_gen=$(mktemp /tmp/claude_menu_gen.XXXXXX.sh)
   tmp_update_flag=$(mktemp /tmp/claude_update_flag.XXXXXX)
   tmp_template_flag=$(mktemp /tmp/claude_template_flag.XXXXXX)
-  trap 'rm -f "$tmp_gen" "$tmp_update_flag" "$tmp_template_flag"' EXIT INT TERM
+  tmp_header=$(mktemp /tmp/claude_menu_header.XXXXXX)
+  # Nettoyage unique à la sortie (un 2e trap EXIT remplacerait le 1er) :
+  # watcher, gestionnaire et vignettes miroir, fichiers temporaires.
+  # SIGTERM termine réellement le menu (sinon la boucle relance fzf) ;
+  # Ctrl+C reste un simple abandon de fzf (pas de trap INT).
+  menu_cleanup() {
+    [[ -n "$watcher_pid" ]] && kill "$watcher_pid" 2>/dev/null
+    if [[ -n "$MIRROR_MGR_PID" ]]; then
+      kill "$MIRROR_MGR_PID" 2>/dev/null
+      tmux list-panes -t "$_mirror_menu_win" -F "#{pane_id} #{@mirror_win}" 2>/dev/null \
+        | awk 'NF>1{print $1}' | xargs -r -n1 tmux kill-pane -t 2>/dev/null
+    fi
+    rm -f "$tmp_gen" "$tmp_update_flag" "$tmp_template_flag" "$tmp_header"
+  }
+  trap menu_cleanup EXIT
+  trap 'exit 143' TERM
+
+  # Cache de la consommation Claude, partagé entre relances du menu (throttle 60s)
+  USAGE_CACHE="${XDG_CACHE_HOME:-$HOME/.cache}/claude-launcher/usage.json"
+  mkdir -p "$(dirname "$USAGE_CACHE")"
+
+  # En-tête fzf (affiché sous la liste : layout default + --header-first) :
+  # session/clients puis une ligne par fenêtre de quota du compte Claude.
+  # Largeur de la barre calée sur la colonne liste (~33%, le preview prend 67%).
+  build_menu_header() {
+    local pw list_w n_clients
+    pw=$(tmux display-message -p -t "${TMUX_PANE:-}" '#{pane_width}' 2>/dev/null)
+    [[ "$pw" =~ ^[0-9]+$ ]] || pw=$(tput cols 2>/dev/null || echo 120)
+    list_w=$(( pw * 33 / 100 - 4 ))
+    n_clients=$(tmux list-clients -t "$SESSION" 2>/dev/null | wc -l | tr -d ' ')
+    {
+      printf '  \033[0;90msession :\033[0m \033[1;36m%s\033[0m  \033[0;90m·  %s client(s) attaché(s)\033[0m\n' \
+        "$CURRENT_SESSION" "$n_clients"
+      render_claude_usage "$USAGE_CACHE" "$list_w"
+    } > "$tmp_header"
+  }
 
   palette_decl="COLOR_PALETTE=(${COLOR_PALETTE[*]})"
   colors_decl="declare -A PROJECT_COLORS=()"
@@ -1632,6 +1789,7 @@ GENSCRIPT
     printf "\033[0;90m  [Entrée] ouvrir  ·  [Ctrl+D] supprimer orpheline  ·  [Esc] annuler  ·  Ctrl+b R relayout\033[0m\n\n"
 
     fzf_port=$(( 20000 + RANDOM % 10000 ))
+    build_menu_header
 
     # Watcher : rafraîchit la liste toutes les 2s via fzf --listen (fzf >= 0.36)
     (
@@ -1648,9 +1806,25 @@ GENSCRIPT
       # projets, la génération de la liste étant plus longue). Un ping vide
       # sert de simple vérification de connexion quand rien n'a changé.
       _upd_tick=0
+      _usage_tick=0
       _prev_gen_hash=""
+      _prev_header_hash=$(cksum < "$tmp_header")
       while :; do
         sleep 2
+        # Consommation Claude : relue toutes les 60s (cache partagé, donc pas
+        # de rafale d'appels si le menu est relancé) ; l'en-tête n'est poussé
+        # à fzf que s'il a changé.
+        if (( _usage_tick++ % 30 == 0 )); then
+          _usage_age=$(( $(date +%s) - $(stat -c %Y "$USAGE_CACHE" 2>/dev/null || echo 0) ))
+          (( _usage_age >= 60 )) && fetch_claude_usage "$USAGE_CACHE"
+          build_menu_header
+          _cur_header_hash=$(cksum < "$tmp_header")
+          if [[ "$_cur_header_hash" != "$_prev_header_hash" ]]; then
+            _prev_header_hash="$_cur_header_hash"
+            curl -s --max-time 1 "http://localhost:$fzf_port" \
+              -d "transform-header(cat '$tmp_header')" >/dev/null 2>&1 || break
+          fi
+        fi
         _cur_gen_hash=$(bash "$tmp_gen" 2>/dev/null | cksum)
         if [[ "$_cur_gen_hash" != "$_prev_gen_hash" ]]; then
           _prev_gen_hash="$_cur_gen_hash"
@@ -1686,9 +1860,6 @@ GENSCRIPT
     ) &
     watcher_pid=$!
 
-    _n_clients=$(tmux list-clients -t "$SESSION" 2>/dev/null | wc -l | tr -d ' ')
-    _fzf_header=$(printf '  \033[0;90msession :\033[0m \033[1;36m%s\033[0m  \033[0;90m·  %s client(s) attaché(s)\033[0m' "$CURRENT_SESSION" "$_n_clients")
-
     selected=$(bash "$tmp_gen" | FZF_DEFAULT_OPTS="" fzf \
       --layout=default \
       --listen "$fzf_port" \
@@ -1698,7 +1869,7 @@ GENSCRIPT
       --nth=1 \
       --prompt "  ❯ " \
       --height=70% --border \
-      --header "$_fzf_header" \
+      --header "$(cat "$tmp_header")" \
       --header-first \
       --preview-window=right:67%:wrap \
       --preview "bash -c '$preview_script' -- {}" \

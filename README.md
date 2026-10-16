@@ -48,6 +48,12 @@ EXTRA_ENVS=(
 - `init-project.md` est rafraîchi depuis GitHub (`claude_project_template`) à chaque ouverture de projet
 - Si GitHub est inaccessible et que le fichier existait déjà, l'ancienne version est conservée
 
+**Consommation du compte Claude :** sous la liste des projets, le menu affiche les fenêtres de quota
+du compte (session, semaine, limites par modèle) avec leur réinitialisation — même source que la page
+« Utilisation » de claude.ai et le milestone-panel du template. Rafraîchi toutes les 60 s (cache
+`~/.cache/claude-launcher/usage.json`) ; nécessite une connexion claude.ai (`claude` puis `/login`),
+sinon un message l'indique. Données périmées (échec, menu fermé) : barres grisées + horodatage.
+
 **Mettre à jour le launcher :**
 ```bash
 ~/claude-launcher.sh --update      # remplace le script, préserve la config
