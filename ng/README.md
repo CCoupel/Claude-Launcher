@@ -69,12 +69,18 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | frappe | filtrer |
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner la zone navigateur (4 colonnes par appui) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
+| clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
-Création d'un projet : le formulaire demande le nom puis un remote git facultatif ; le
-dossier est créé, `git init` exécuté, `origin` ajouté si un remote est donné, puis le projet
-est lancé.
+Création d'un projet : le formulaire demande le nom, puis le type de projet :
+
+- **géré** (`g`, par défaut) : remote git facultatif ; `git init`, `origin` ajouté si un remote
+  est donné, `init-project.md` déposé, et claude démarre directement sur `/init-project` ;
+- **brut** (`b`) : seulement le dossier et un `CLAUDE.md` minimal, ni git ni `/init-project`.
+
+Le projet est ensuite lancé. (Rouvert plus tard, un projet brut reçoit `init-project.md` comme
+les autres : `/init-project` reste possible pour le convertir.)
 
 ## Versions, mises à jour et template
 
@@ -89,8 +95,8 @@ main (version `dev` ou suffixée) ne se remplace jamais.
 Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes :
 
 - **NG** : si une release plus récente sort pendant que le launcher tourne, une annonce
-  `↑ NG vX disponible ✕` apparaît ; `Esc` `l` puis relancer pour l'installer (les projets
-  restent ouverts).
+  `↑ NG vX · cliquer pour installer ✕` apparaît : un clic sur le texte installe la version
+  et redémarre le navigateur sur place (projets et zone tmux conservés) ; `✕` la masque.
 - **Template** : un nouveau tag de `claude_project_template` est annoncé
   (`↑ template vX disponible ✕`), les caches `.template-commit` / `.template-version` (à côté
   du script, partagés avec le bash) sont mis à jour et les badges `✓`/`⚠` recalculés.

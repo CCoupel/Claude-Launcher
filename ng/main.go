@@ -66,6 +66,8 @@ type model struct {
 	wantTeam     bool // clic hors projet : bascule sur « ⌗ Teamleaders »
 	lastShow     time.Time
 	hideLauncher bool
+	updating     bool    // mise à jour lancée d'un clic, en cours
+	pendingCmd   tea.Cmd // commande produite par onMouse (qui ne renvoie que le modèle)
 	hideTpl      bool
 	lastClickIdx int
 	lastClickAt  time.Time
@@ -273,7 +275,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		mm := m.onMouse(msg)
 		mm.syncSelection()
-		return mm, tea.Batch(mm.detailCmd(), mm.stateCmd())
+		cmd := mm.pendingCmd
+		mm.pendingCmd = nil
+		return mm, tea.Batch(cmd, mm.detailCmd(), mm.stateCmd())
+	case updDoneMsg:
+		m.updating = false
+		switch {
+		case msg.err != nil:
+			m.msg = "⚠ mise à jour : " + msg.err.Error()
+		case msg.binDone && m.shell:
+			restartOnNewBinary() // ne revient pas : ce pane est relancé
+		case msg.binDone:
+			m.msg = "✓ " + msg.tag + " installée — relancer le launcher"
+		default:
+			m.msg = "✓ déjà à jour"
+			m.hideLauncher = true
+		}
 	case tea.KeyMsg:
 		nm, cmd := m.onKey(msg)
 		mm := nm.(model)
@@ -333,7 +350,9 @@ func (m *model) stateCmd() tea.Cmd {
 }
 
 // openSelected lance (ou rouvre) le projet sous le curseur.
-func (m model) openSelected() model {
+func (m model) openSelected() model { return m.openSelectedAs(launchNormal) }
+
+func (m model) openSelectedAs(mode launchMode) model {
 	if len(m.visible) == 0 {
 		return m
 	}
@@ -344,7 +363,7 @@ func (m model) openSelected() model {
 	if !n.Project {
 		return m
 	}
-	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate())
+	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate(), mode)
 	m.wantState, m.wantTeam, m.lastShow = false, false, time.Time{}
 	if m.shell && m.launch && m.msg == "" {
 		// le projet est à l'écran à droite : donne-lui le focus clavier
@@ -373,7 +392,15 @@ func (m model) onMouse(e tea.MouseMsg) model {
 		_, bodyH, _ := m.layout()
 		// sous la liste : filtre (bodyH), puis en-tête = session, versions, alertes…
 		if k := e.Y - bodyH - 3; k >= 0 && k < len(m.alerts()) {
-			m.dismissAlert(m.alerts()[k])
+			// « ↑ NG … disponible » : le texte met à jour, le ✕ masque
+			if a := m.alerts()[k]; a == "launcher" && e.X < lipgloss.Width(launcherAlert(m.newLauncher)) {
+				if !m.updating {
+					m.updating, m.msg = true, ""
+					m.pendingCmd = updateNowCmd(m.newLauncher)
+				}
+			} else {
+				m.dismissAlert(a)
+			}
 			return m
 		}
 		// clic hors d'un projet (zone vide, titre de groupe ou de racine, filtre,
@@ -900,13 +927,20 @@ func (m model) versionLines() string {
 	for _, a := range m.alerts() {
 		switch a {
 		case "launcher":
-			s += "\n  " + green.Render("↑ NG "+m.newLauncher+" disponible") + dim.Render(" ✕")
+			if m.updating {
+				s += "\n  " + green.Render("↑ NG "+m.newLauncher+" : mise à jour…")
+			} else {
+				s += "\n" + green.Render(launcherAlert(m.newLauncher)) + dim.Render(" ✕")
+			}
 		case "template":
 			s += "\n  " + yellow.Render("↑ template "+m.newTpl+" disponible") + dim.Render(" ✕")
 		}
 	}
 	return s
 }
+
+// launcherAlert : partie cliquable (mise à jour) de l'annonce, avant le ✕.
+func launcherAlert(tag string) string { return "  ↑ NG " + tag + " · cliquer pour installer" }
 
 // alerts : annonces de mises à jour encore affichées, dans l'ordre d'affichage.
 // Elles se masquent d'un clic (✕) ou avec ctrl+u ; les badges ⚠ par projet

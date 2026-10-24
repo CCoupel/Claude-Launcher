@@ -24,8 +24,9 @@ Un navigateur de projets à gauche, tmux à droite :
   en tâche de fond et rafraîchi quand le projet change.
 - **Onglet `⌗ Teamleaders`** : une vignette interactive par projet ouvert, à la couleur du projet.
 - **Un onglet par projet** : le teamleader et ses teammates, comme avant.
-- **Création de projet** : double-clic sur une catégorie (ou « ✦ Nouveau projet ») — nom, remote git
-  facultatif ; le dossier est créé, initialisé (`git init`) et lancé.
+- **Création de projet** : double-clic sur une catégorie (ou « ✦ Nouveau projet ») — nom, puis type :
+  **géré** (remote facultatif, `git init`, claude démarre sur `/init-project`) ou **brut** (dossier
+  et `CLAUDE.md` minimal, sans git ni `/init-project`) ; le projet est ensuite lancé.
 - **Mises à jour signalées** : une nouvelle version du launcher ou du template est annoncée (masquable) ;
   le NG signale, il ne se met pas à jour tout seul.
 
@@ -38,6 +39,7 @@ Un navigateur de projets à gauche, tmux à droite :
 | frappe | filtrer |
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner le navigateur (mémorisé) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
+| clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
