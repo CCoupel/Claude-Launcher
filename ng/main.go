@@ -59,7 +59,7 @@ type model struct {
 	newTpl       string
 	mgr          *stateMgr
 	form         newForm
-	confirmQuit  bool
+	quitStep     int // 0, quitAsk (launcher seul ou tout ?), quitAll (confirmer la fermeture des projets)
 	wantState    bool
 	navW         int // largeur demandée à tmux (appuis rapprochés)
 	navAt        time.Time
@@ -358,8 +358,8 @@ func (m model) onMouse(e tea.MouseMsg) model {
 	if m.form.mode != formNone {
 		return m
 	}
-	if m.confirmQuit {
-		m.confirmQuit = false // un clic annule la confirmation
+	if m.quitStep != 0 {
+		m.quitStep = 0 // un clic annule la sortie
 		return m
 	}
 	switch {
@@ -484,17 +484,63 @@ func (m model) countProjects() int {
 	return c
 }
 
-func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
-	if m.confirmQuit {
-		// toute autre touche que o/y annule : par défaut on reste
-		m.confirmQuit = false
-		switch k.String() {
-		case "o", "O", "y", "Y":
-			if m.shell {
-				_ = otmux("detach-client").Run()
-				return m, nil
+const (
+	quitAsk = 1
+	quitAll = 2
+)
+
+// openProjects : fenêtres projet ouvertes (hors onglets du launcher).
+func (m model) openProjects() int {
+	c := 0
+	for w := range m.windows {
+		if w != stateWindow && w != teamWindow && w != "[menu]" {
+			c++
+		}
+	}
+	return c
+}
+
+// quitLauncher : arrête le launcher sans toucher à claude-hub. En mode coque, le
+// serveur claude-ui entier est arrêté (et pas seulement détaché) pour que la
+// prochaine relance reparte du binaire installé, par exemple après une mise à jour.
+func (m model) quitLauncher() tea.Cmd {
+	if m.shell {
+		_ = otmux("kill-server").Run()
+	}
+	return tea.Quit
+}
+
+// quitAllProjects : ferme claude-hub (et les sessions groupées avec elle, qui
+// partagent ses fenêtres), puis le launcher.
+func (m model) quitAllProjects() tea.Cmd {
+	group, _ := tmuxOut("display-message", "-p", "-t", exactS(hubSession)+":", "#{session_group}")
+	if group != "" {
+		out, _ := tmuxOut("list-sessions", "-F", "#{session_group}|#{session_name}")
+		for _, l := range strings.Split(out, "\n") {
+			if g, name, ok := strings.Cut(l, "|"); ok && g == group && name != hubSession {
+				_ = dtmux("kill-session", "-t", exactS(name)).Run()
 			}
-			return m, tea.Quit
+		}
+	}
+	_ = dtmux("kill-session", "-t", exactS(hubSession)).Run()
+	return m.quitLauncher()
+}
+
+func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.quitStep != 0 {
+		// toute touche non prévue annule : par défaut on reste
+		step := m.quitStep
+		m.quitStep = 0
+		switch key := strings.ToLower(k.String()); {
+		case step == quitAsk && key == "l":
+			return m, m.quitLauncher()
+		case step == quitAsk && key == "t":
+			if m.openProjects() == 0 {
+				return m, m.quitAllProjects()
+			}
+			m.quitStep = quitAll
+		case step == quitAll && (key == "o" || key == "y"):
+			return m, m.quitAllProjects()
 		}
 		return m, nil
 	}
@@ -509,7 +555,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.wantState = true
 			return m, nil
 		}
-		m.confirmQuit = true
+		m.quitStep = quitAsk
 		return m, nil
 	case "ctrl+u":
 		m.hideLauncher, m.hideTpl = true, true
@@ -715,16 +761,23 @@ func (m model) View() string {
 
 	filter := dim.Render("  filtre › ") + m.filter + dim.Render("▏")
 	foot := dim.Render(hint)
-	if m.confirmQuit {
-		q := "Quitter ? [o/N]"
-		if m.shell {
-			q = "Détacher (projets conservés) ? [o/N]"
-		}
-		foot = yellow.Render("  " + q)
+	// Sortie : la question occupe les lignes du pied (deux en mode compact, où le
+	// navigateur ne fait souvent que 40 colonnes).
+	var q [2]string
+	switch m.quitStep {
+	case quitAsk:
+		q = [2]string{"  [l] launcher seul (projets gardés)", "  [t] tout fermer · autre : annuler"}
+	case quitAll:
+		q = [2]string{fmt.Sprintf("  Fermer %d projet(s) et leur claude ?", m.openProjects()), "  [o] oui · autre : annuler"}
 	}
-	if compact {
+	switch {
+	case q[0] != "" && compact:
+		foot = yellow.Render(q[0]) + "\n" + yellow.Render(q[1])
+	case q[0] != "":
+		foot = yellow.Render(q[0] + " ·" + q[1][1:])
+	case compact:
 		foot += "\n" + m.footStatus()
-	} else {
+	default:
 		foot += m.footStatus()
 	}
 	return lipgloss.JoinVertical(lipgloss.Left, body, filter, header, truncLines(foot, m.w))
