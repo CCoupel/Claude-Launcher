@@ -77,7 +77,7 @@ func loadPanesCmd(s Selection) tea.Cmd {
 		pd := paneData{path: s.Path}
 		pd.open = tmuxWindows(hubSession)[s.Key]
 		if pd.open {
-			b, err := dtmux("list-panes", "-t", hubSession+":"+s.Key, "-F",
+			b, err := dtmux("list-panes", "-t", exactW(hubSession, s.Key), "-F",
 				"#{pane_index}\t#{pane_title}\t#{pane_current_command}\t#{pane_width}x#{pane_height}").Output()
 			if err == nil {
 				for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {

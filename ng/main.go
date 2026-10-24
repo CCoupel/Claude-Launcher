@@ -210,8 +210,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case winMsg:
 		// Largeur totale inchangée mais navigateur modifié = bordure glissée à la
 		// souris : on la mémorise. Si le terminal a changé de taille, c'est le hook
-		// fixwidth qui rétablit la largeur mémorisée.
-		if m.lastWinW != 0 && msg.win == m.lastWinW && msg.nav != m.lastNavW {
+		// fixwidth qui rétablit la largeur mémorisée. Navigateur pleine largeur =
+		// zone tmux fermée, pas un glissement : on ne mémorise pas.
+		if m.lastWinW != 0 && msg.win == m.lastWinW && msg.nav != m.lastNavW && msg.nav < msg.win {
 			saveNavWidth(msg.nav)
 		}
 		m.lastWinW, m.lastNavW = msg.win, msg.nav
@@ -326,7 +327,7 @@ func (m *model) stateCmd() tea.Cmd {
 	}
 	m.lastShow = time.Now()
 	return func() tea.Msg {
-		_ = dtmux("select-window", "-t", hubSession+":"+target).Run()
+		_ = dtmux("select-window", "-t", exactW(hubSession, target)).Run()
 		return nil
 	}
 }
