@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -133,14 +134,61 @@ func checkUpdates() tea.Cmd {
 		}
 		if tag, sha, err := latestTag(templateRepo, "CL_FAKE_LATEST_TPL"); err == nil {
 			out.tplTag, out.ok = tag, true
-			if sha != "" && sha != readTrim(tplCommitPath()) {
+			changed := sha != "" && sha != readTrim(tplCommitPath())
+			if changed {
 				_ = os.WriteFile(tplCommitPath(), []byte(sha), 0o644)
 				_ = os.WriteFile(tplVersionPath(), []byte(tag), 0o644)
 				out.tplChanged = true
 			}
+			// init-project.md : à chaque démarrage (comme le sync_init_project du bash)
+			// puis à chaque nouveau tag du template
+			if sha != "" && (!initSynced || changed) && syncInitProject(sha) {
+				initSynced = true
+			}
 		}
 		return out
 	}
+}
+
+// rawBase : serveur des fichiers bruts GitHub (CL_RAW_BASE le remplace, pour les tests).
+var rawBase = func() string {
+	if b := os.Getenv("CL_RAW_BASE"); b != "" {
+		return strings.TrimRight(b, "/")
+	}
+	return "https://raw.githubusercontent.com"
+}()
+
+// initSynced : init-project.md a été resynchronisé depuis le démarrage.
+var initSynced bool
+
+func initProjectPath() string { return filepath.Join(cacheBase(), "init-project.md") }
+
+// syncInitProject télécharge init-project.md au commit taggé du template et le
+// dépose à côté du script (là où le lancement d'un projet le copie dans
+// .claude/commands/). Le cache n'est écrasé qu'en cas de réponse non vide : hors
+// ligne, l'ancienne version est conservée. Le script bash le faisait à chaque
+// lancement ; avec la redirection vers le NG, c'est maintenant le NG.
+func syncInitProject(ref string) bool {
+	url := rawBase + "/" + templateRepo + "/" + ref + "/init-project.md"
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "Claude-Launcher-NG")
+	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
+	if err != nil {
+		return false
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		return false
+	}
+	body, err := io.ReadAll(resp.Body)
+	if err != nil || len(body) == 0 {
+		return false
+	}
+	tmp := initProjectPath() + ".tmp"
+	if os.WriteFile(tmp, body, 0o600) != nil {
+		return false
+	}
+	return os.Rename(tmp, initProjectPath()) == nil
 }
 
 // latestTag : dernier tag GitHub. La variable d'environnement envKey (ex.
