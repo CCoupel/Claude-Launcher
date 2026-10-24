@@ -62,6 +62,28 @@ check_prerequisites() {
   [[ ${#warnings[@]} -gt 0 ]] && printf "\n"
 }
 
+# ════════════════════════════════════════════════════════════════════════════
+# REDIRECTION VERS CLAUDE-LAUNCHER-NG
+# L'ancien point d'entrée (« claude-launcher.sh » sans argument, ou --no-update)
+# lance désormais Claude-Launcher-NG (binaire `claude-launcher-ng`). Ce script
+# reste nécessaire au NG (modes --layout-watch, --mirror… ci-dessous) et gère
+# toujours --configure et --update.
+#   --legacy                  force l'ancien menu fzf pour cette exécution
+#   CLAUDE_LAUNCHER_LEGACY=1  idem, de façon permanente
+#   CLAUDE_LAUNCHER_NG=…      chemin du binaire NG (sinon PATH, puis ~/.local/bin)
+# Sans binaire NG installé, l'ancien menu démarre comme avant.
+# ════════════════════════════════════════════════════════════════════════════
+case "${1:-}" in
+  ""|--no-update)
+    if [[ "${CLAUDE_LAUNCHER_LEGACY:-0}" != "1" ]]; then
+      _ng="${CLAUDE_LAUNCHER_NG:-$(command -v claude-launcher-ng 2>/dev/null)}"
+      [[ -z "$_ng" && -x "$HOME/.local/bin/claude-launcher-ng" ]] && _ng="$HOME/.local/bin/claude-launcher-ng"
+      [[ -n "$_ng" && -x "$_ng" ]] && exec "$_ng" shell
+      unset _ng
+    fi ;;
+  --legacy) shift ;;
+esac
+
 # Sauter la vérification pour les modes internes (appelés par tmux en arrière-plan)
 case "${1:-}" in
   --do-layout|--debug-layout|--relayout|--layout-watch|--mirror|--mirror-manager) ;;

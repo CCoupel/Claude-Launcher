@@ -17,7 +17,33 @@ jobs:
       - name: Patch SCRIPT_VERSION
         run: sed -i "s/^SCRIPT_VERSION=.*/SCRIPT_VERSION=\"${GITHUB_REF_NAME}\"/" claude-launcher.sh
 
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng/go.mod
+
+      - name: Test Claude-Launcher-NG
+        working-directory: ng
+        run: |
+          go vet ./...
+          go test ./...
+
+      # Un binaire statique par plateforme ; la version du NG est celle du tag.
+      - name: Build Claude-Launcher-NG
+        working-directory: ng
+        run: |
+          mkdir -p ../dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.ngVersion=${GITHUB_REF_NAME}" \
+              -o ../dist/claude-launcher-ng-$os-$arch .
+          done
+          cd ../dist && sha256sum claude-launcher-ng-* > SHA256SUMS
+
       - uses: softprops/action-gh-release@v2
         with:
-          files: claude-launcher.sh
+          files: |
+            claude-launcher.sh
+            dist/claude-launcher-ng-*
+            dist/SHA256SUMS
           generate_release_notes: true
