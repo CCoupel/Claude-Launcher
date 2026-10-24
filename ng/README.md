@@ -5,14 +5,10 @@ script bash. Même modèle (une session tmux `claude-hub`, une fenêtre par proj
 teamleader + teammates), mais une interface réactive : navigateur de projets à
 gauche, tmux à droite.
 
-## Installation
+Vue d'ensemble, installation et configuration : [README du repo](../README.md).
+Ce document détaille le fonctionnement et le dépannage.
 
-```bash
-cd ng
-go build -o ~/.local/bin/claude-launcher-ng .
-# version : go build -ldflags "-X main.ngVersion=v3.0.1" -o ... .
-claude-launcher-ng version
-```
+## Installation
 
 ### Depuis une release
 
@@ -24,10 +20,20 @@ os=$(uname -s | tr A-Z a-z); arch=$(uname -m)
 case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 curl -fsSL "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng-$os-$arch" \
   -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng
+claude-launcher-ng version
 ```
 
-Prérequis : `tmux`, `git`, `bash`, `jq` et le script `~/claude-launcher.sh` (le NG réutilise
-ses modes `--layout-watch` et `--mirror`). Aucune dépendance fzf.
+### Depuis les sources
+
+```bash
+cd ng
+go build -o ~/.local/bin/claude-launcher-ng .
+# version : go build -ldflags "-X main.ngVersion=v3.0.1" -o ... .
+```
+
+Prérequis : `tmux`, `git`, `bash`, `jq`, `xxd` (vignettes), `claude`, et le script
+`~/claude-launcher.sh` (le NG réutilise ses modes `--layout-watch` et `--mirror`).
+Aucune dépendance fzf.
 
 ## Lancement
 
@@ -35,6 +41,7 @@ ses modes `--layout-watch` et `--mirror`). Aucune dépendance fzf.
 claude-launcher-ng            # = claude-launcher-ng shell
 ~/claude-launcher.sh          # l'ancienne commande redirige vers le NG
 ~/claude-launcher.sh --legacy # force l'ancien menu fzf (ou CLAUDE_LAUNCHER_LEGACY=1)
+claude-launcher-ng version
 ```
 
 La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHUB_DIRS`,
@@ -44,6 +51,8 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 
 - **Gauche** : navigateur (40 colonnes par défaut). Projets en arbre, badges git
   (`●` à jour, `○` sans amont, `↓N` en retard) et template (`✓`, `⚠`), consommation Claude.
+  L'en-tête indique les versions : `NG v3.0.0 · sh 3.0.0 · tpl 3.26.0` (NG, script compagnon,
+  dernier tag du template).
 - **Droite** : tmux, un onglet par projet, plus deux onglets épinglés :
   - `◈ État` : suit la sélection (git, template, panes, fichiers) — lu depuis un cache
     préparé en tâche de fond ;
@@ -53,26 +62,77 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 |---|---|
 | `↑` `↓` `PgUp` `PgDn`, molette, clic sur un projet | sélectionner → onglet `◈ État` |
 | `Entrée`, double-clic sur un projet | ouvrir / rejoindre le projet |
-| clic hors projet (groupe, zone vide, en-tête) | onglet `⌗ Teamleaders` |
+| clic hors projet (catégorie, zone vide, en-tête) | onglet `⌗ Teamleaders` |
 | double-clic sur une catégorie ou une racine | créer un projet dans ce dossier |
-| `✦ Nouveau projet` | créer un projet (choix de la racine) |
+| `✦ Nouveau projet` | créer un projet à la racine (choix de la racine si plusieurs) |
 | frappe | filtrer |
-| `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner la zone navigateur |
+| `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner la zone navigateur (4 colonnes par appui) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | `Esc` | effacer le filtre ; sinon demande de détacher (`o` pour confirmer) |
+
+Création d'un projet : le formulaire demande le nom puis un remote git facultatif ; le
+dossier est créé, `git init` exécuté, `origin` ajouté si un remote est donné, puis le projet
+est lancé.
+
+## Versions, mises à jour et template
+
+Vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes :
+
+- **NG** : si un tag plus récent que la version du binaire existe, une annonce
+  `↑ NG vX disponible ✕` apparaît (le NG signale, il ne se met pas à jour : relancer la
+  commande d'installation).
+- **Template** : un nouveau tag de `claude_project_template` est annoncé
+  (`↑ template vX disponible ✕`), les caches `.template-commit` / `.template-version` (à côté
+  du script, partagés avec le bash) sont mis à jour et les badges `✓`/`⚠` recalculés.
+  Un projet en retard propose `/init-project` à son lancement.
+- **`init-project.md`** : resynchronisé au démarrage puis à chaque nouveau tag du template
+  (fichier à côté du script, copié dans `.claude/commands/` à l'ouverture d'un projet).
+  Hors ligne, l'ancienne version est conservée.
 
 ## Architecture
 
 - Deux serveurs tmux : le serveur par défaut (session `claude-hub`, inchangée) et une
   « coque » dédiée (socket `claude-ui`) qui découpe le terminal en navigateur + `tmux attach`.
-- `cache.go` : état des projets calculé en tâche de fond. `inotify` n'existe pas sur `/mnt/c`
-  (9p) : détection par signature `stat` + recalcul périodique ; `inotify` sinon.
-- Mises à jour : le NG signale (tags GitHub du launcher et du template), il ne se met pas à jour.
+  La coque n'a pas de préfixe : toutes les touches passent au tmux intérieur.
+- `cache.go` : état des projets calculé en tâche de fond (2 calculs en parallèle) et écrit
+  dans `~/.cache/claude-launcher/state/`, que la vue `◈ État` lit.
+- `mirrors.go` : gestionnaire de l'onglet `⌗ Teamleaders`, qui réutilise les vignettes du
+  script (`claude-launcher.sh --mirror`).
+- `update.go` : versions, annonces, resynchronisation de `init-project.md`.
+
+### Détection des changements d'un projet
+
+`inotify` ne livre aucun événement sur `/mnt/c` sous WSL (système `9p`), même pour une
+écriture faite depuis Linux (vérifié par `inotify_probe_test.go`). Le NG distingue donc :
+
+- **disque Linux natif** : `inotify` récursif sur le projet et `.git` ;
+- **9p** (`/mnt/c`…) : une signature bon marché (quelques `stat` : `HEAD`, `index`, entrées de
+  premier niveau) interrogée toutes les 2 s pour le projet sélectionné, 8 s pour les projets
+  ouverts ;
+- dans les deux cas, un recalcul complet périodique sert de filet (sélectionné : 10 s au
+  minimum, relevé à 3 × la durée du calcul ; ouverts : 45 s ; autres : 5 min), car modifier un
+  fichier existant en sous-dossier ne change ni l'index ni le dossier.
+
+## Dépannage
+
+- **`Ctrl+←/→` ne fait rien** : votre terminal les intercepte. Glissez la bordure à la souris.
+- **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
+  `Ctrl+R` relance le scan des projets.
+- **Retrouver l'ancien menu** : `~/claude-launcher.sh --legacy`.
+- **Tout fermer** : `Esc` puis `o` détache sans rien arrêter. Pour arrêter : `tmux kill-session -t claude-hub`
+  (projets) et `tmux -L claude-ui kill-server` (coque).
+- **Essayer sans toucher à `claude-hub`** :
+  `CL_HUB=claude-hub-test CL_OUTER_SOCKET=claude-ui-test claude-launcher-ng`.
+- **Les annonces de version n'apparaissent pas** : GitHub est interrogé sans jeton ; en cas de
+  limite de débit ou hors ligne, le NG réessaie 10 minutes plus tard.
 
 ## Tests
 
-`go test ./...`. Variables de test : `CL_ROOTS` (racines factices), `CL_CLAUDE_BIN`
-(faux `claude`), `CL_HUB`, `CL_INNER_SOCKET`, `CL_OUTER_SOCKET`, `CL_SCRIPT`,
-`CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`, `XDG_CACHE_HOME`.
-`claude-launcher-ng-test` ouvre une répétition dans `claude-hub-test` sans toucher à `claude-hub`.
+`go test ./...` : comparaison de versions, resynchronisation de `init-project.md`, et une sonde
+`inotify` qui s'ignore sur `9p`. Variables de test : `CL_ROOTS` (racines factices),
+`CL_CLAUDE_BIN` (faux `claude`), `CL_HUB`, `CL_INNER_SOCKET`, `CL_OUTER_SOCKET`, `CL_SCRIPT`,
+`CL_RAW_BASE` (serveur de fichiers bruts), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`,
+`XDG_CACHE_HOME`.
+
+`docs/maquette.html` est la maquette interactive d'origine de l'interface.
