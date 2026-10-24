@@ -712,7 +712,9 @@ func (m model) badges(p string) string {
 	}
 	switch m.tpl[p] {
 	case TplOK:
-		b += green.Render(" ✓")
+		b += green.Bold(true).Render(" ✔")
+	case TplNone:
+		b += dim.Render(" ⊘")
 	case TplOutdated:
 		b += yellow.Render(" ⚠")
 	case TplMissing:
@@ -903,7 +905,9 @@ func (m model) renderPreview(w int) string {
 	sb.WriteString("\n")
 	switch m.tpl[n.Path] {
 	case TplOK:
-		sb.WriteString("\n" + dim.Render("template ") + green.Render("à jour"))
+		sb.WriteString("\n" + dim.Render("template ") + green.Render("✔ à jour"))
+	case TplNone:
+		sb.WriteString("\n" + dim.Render("template ⊘ non géré"))
 	case TplOutdated:
 		sb.WriteString("\n" + dim.Render("template ") + yellow.Render("mise à jour disponible"))
 	case TplMissing:

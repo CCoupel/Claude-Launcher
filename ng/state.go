@@ -234,11 +234,11 @@ func (m stateModel) topCards() string {
 		}
 		pl = append(pl, kv("dernier", shorten(m.data.detail.LastMsg, w-16)))
 	}
-	tl := dim.Render("non suivi")
+	tl := dim.Render("⊘ non géré par template")
 	have, latest := orQ(m.data.tag), orQ(readTrim(tplVersionPath()))
 	switch m.data.tpl {
 	case TplOK:
-		tl = green.Render(have + " · à jour")
+		tl = green.Render("✔ " + have + " · à jour")
 	case TplOutdated:
 		tl = yellow.Render(have+" → "+latest+" disponible") + dim.Render(" (/init-project au lancement)")
 	case TplMissing:
