@@ -115,11 +115,11 @@ func ensureInner(exe string) error {
 		}
 	}
 	// Barre d'onglets en haut ; le style projet est posé par window à l'ouverture.
-	_ = dtmux("set-option", "-t", exactS(hubSession), "status", "on").Run()
-	_ = dtmux("set-option", "-t", exactS(hubSession), "status-position", "top").Run()
-	_ = dtmux("set-option", "-t", exactS(hubSession), "status-justify", "left").Run()
-	_ = dtmux("set-option", "-t", exactS(hubSession), "status-left", "").Run()
-	_ = dtmux("set-option", "-t", exactS(hubSession), "status-right", "#[fg=colour244]%H:%M ").Run()
+	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status", "on").Run()
+	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-position", "top").Run()
+	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-justify", "left").Run()
+	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-left", "").Run()
+	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-right", "#[fg=colour244]%H:%M ").Run()
 	_ = dtmux("select-window", "-t", exactW(hubSession, stateWindow)).Run()
 	return nil
 }
