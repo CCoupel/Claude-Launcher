@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Claude Launcher</title>
-<meta name="description" content="Hub tmux pour piloter plusieurs projets Claude Code en parallele, avec auto-update et sessions groupees." />
+<title>Claude-Launcher-NG</title>
+<meta name="description" content="Claude-Launcher-NG : un hub tmux réactif pour piloter plusieurs projets Claude Code en parallèle. Navigateur de projets, état de chaque projet en un clic, vue d'ensemble des teamleaders." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -14,11 +14,12 @@
 
 <nav>
   <div class="container nav-inner">
-    <div class="nav-logo">🚀 Claude <span>Launcher</span></div>
+    <div class="nav-logo">🚀 Claude-Launcher<span>-NG</span></div>
     <ul class="nav-links">
       <li><a href="#problems">Pourquoi</a></li>
       <li><a href="#features">Fonctionnalités</a></li>
       <li><a href="#install">Installation</a></li>
+      <li><a href="#shortcuts">Raccourcis</a></li>
       <li><a href="https://github.com/CCoupel/claude_project_template">Template →</a></li>
     </ul>
   </div>
@@ -26,10 +27,10 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> Compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> v3.0.0 · compagnon de claude_project_template</div>
     <h1>Un hub tmux pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
-    <p class="hero-tagline">Sessions groupées, panes colorés par agent, auto-update silencieux.</p>
-    <p class="hero-sub">Un seul script Bash, une seule commande, aucune dépendance à installer à part tmux et gh.</p>
+    <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil.</p>
+    <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Plus de fzf, et une interface qui ne se fige plus.</p>
     <div class="hero-ctas">
       <a href="#install" class="btn btn-primary">Installer</a>
       <a href="https://github.com/CCoupel/Claude-Launcher" class="btn btn-outline">Voir sur GitHub</a>
@@ -39,8 +40,43 @@
 
 <section id="screenshot">
   <div class="container">
-    <img src="assets/screenshot-hub.png" alt="Hub tmux Claude Launcher : session team-lead en haut, six agents actifs en parallèle en bas (dev-backend, code-reviewer, deploy, dev-frontend, doc-updater, implementation-planner, qa, test-writer)" class="screenshot-img" />
-    <p class="screenshot-caption">Le hub team-lead en haut, les agents actifs en parallèle en bas — chaque pane garde son propre contexte.</p>
+    <div class="term-wrap">
+<pre class="term" role="img" aria-label="Claude-Launcher-NG : le navigateur de projets à gauche, avec ses badges git et template et la consommation du compte ; à droite, tmux avec l'onglet État qui détaille le projet sélectionné : branche, retard sur l'amont, version du template, panes et fichiers."> <span style="color:#39c5cf;font-weight:700">✦ Nouveau projet</span><span style="color:#6e7681"> (dbl-clic catégorie)</span>  <span style="color:#005fff">┃</span><span style="color:#484f58;background:#3fb950">0:◈ État* 1:⌗ Teamleaders  </span><span style="color:#6c6c6c;background:#303030">2:web-shop </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">3:api-gateway </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">4:k8s-cluster </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">5:cli-toolbox-</span><span style="color:#484f58;background:#3fb950">  </span><span style="color:#808080;background:#3fb950">11:12</span>
+<span style="font-weight:700"> ~/PROJETS                           </span>   <span style="color:#005fff">┃</span> <span style="color:#56d4dd;font-weight:700">◈ api-gateway</span>  <span style="color:#3fb950">● fenêtre tmux ouverte</span>
+ <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">APPS</span>                                <span style="color:#005fff">┃</span> <span style="color:#6e7681">~/PROJETS/APPS/api-gateway                                     </span>  <span style="color:#6e7681">· mis à jour à l&#x27;instant</span>
+▶<span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span>api-gateway<span style="color:#ff7b72;font-weight:700"> ↓2</span><span style="color:#d29922"> ⚠</span>                <span style="color:#005fff">┃</span><span style="color:#444444">╭───────────────────────────────────────────────────────────────────────────────────────╮</span>
+ <span style="color:#6e7681">  ├─ ○ </span>mobile-app<span style="color:#58a6ff;font-weight:700"> ○</span><span style="color:#3fb950"> ✓</span>                  <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">PROJET</span>                                                                                <span style="color:#444444">│</span>
+ <span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span>web-shop<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#3fb950"> ✓</span>                    <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">branche  </span>main<span style="color:#d29922">  *modifié</span>                                                               <span style="color:#444444">│</span>
+ <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">INFRA</span>                               <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">amont    </span><span style="color:#ff7b72;font-weight:700">en retard de 2 commit(s)</span>                                                     <span style="color:#444444">│</span>
+ <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span>k8s-cluster<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#3fb950"> ✓</span>                 <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">dernier  </span>docs: mise à jour du guide                                                   <span style="color:#444444">│</span>
+ <span style="color:#6e7681">  ├─ ○ </span>monitoring<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#d29922"> ⚠</span>                  <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">template </span><span style="color:#d29922">v3.9.1 → v3.26.0 disponible</span><span style="color:#6e7681"> (/init-project au lancement)</span>                     <span style="color:#444444">│</span>
+ <span style="color:#6e7681">  └─ ○ </span>terraform-base<span style="color:#58a6ff;font-weight:700"> ○</span><span style="color:#3fb950"> ✓</span>              <span style="color:#005fff">┃</span><span style="color:#444444">╰───────────────────────────────────────────────────────────────────────────────────────╯</span>
+ <span style="color:#6e7681">└─ </span><span style="color:#39c5cf;font-weight:700">TOOLS</span>                               <span style="color:#005fff">┃</span><span style="color:#444444">╭───────────────────────────────────────────────────────────────────────────────────────╮</span>
+ <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span>cli-toolbox<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#3fb950"> ✓</span>                 <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">PANES TMUX</span>                                                                            <span style="color:#444444">│</span>
+ <span style="color:#6e7681">  └─ ○ </span>docs-site<span style="color:#ff7b72;font-weight:700"> ↓1</span><span style="color:#3fb950"> ✓</span>                  <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">%0</span> leader     bash        <span style="color:#6e7681">91x33</span>                                                       <span style="color:#444444">│</span>
+                                        <span style="color:#005fff">┃</span><span style="color:#444444">╰───────────────────────────────────────────────────────────────────────────────────────╯</span>
+                                        <span style="color:#005fff">┃</span><span style="color:#444444">╭───────────────────────────────────────────────────────────────────────────────────────╮</span>
+                                        <span style="color:#005fff">┃</span><span style="color:#444444">│</span> <span style="color:#6e7681">FICHIERS · 7</span>                                                                          <span style="color:#444444">│</span>
+                                        <span style="color:#005fff">┃</span><span style="color:#444444">│</span>   <span style="color:#39c5cf">.claude/</span>                                     <span style="color:#6e7681">1 élém.   </span>                             <span style="color:#444444">│</span>
+                                        <span style="color:#005fff">┃</span><span style="color:#444444">│</span>   <span style="color:#39c5cf">docs/</span>                                        <span style="color:#6e7681">1 élém.   </span>                             <span style="color:#444444">│</span>
+                                        <span style="color:#444444">┃│</span> <span style="color:#d29922">●</span> <span style="color:#39c5cf">src/</span>                                         <span style="color:#6e7681">1 élém.   </span>                             <span style="color:#444444">│</span>
+                                        <span style="color:#444444">┃│</span>   <span style="color:#39c5cf">TEMPLATE_claude/</span>                             <span style="color:#6e7681">1 élém.   </span>                             <span style="color:#444444">│</span>
+                                        <span style="color:#444444">┃│</span>   .gitignore                                   <span style="color:#6e7681">14 o      </span>                             <span style="color:#444444">│</span>
+                                        <span style="color:#444444">┃│</span> <span style="color:#3fb950">?</span> NOTES.md                                     <span style="color:#6e7681">5 o       </span>                             <span style="color:#444444">│</span>
+                                        <span style="color:#444444">┃│</span>   README.md                                    <span style="color:#6e7681">14 o      </span>                             <span style="color:#444444">│</span>
+                                        <span style="color:#444444">┃╰───────────────────────────────────────────────────────────────────────────────────────╯</span>
+                                        <span style="color:#444444">┃</span>
+                                        <span style="color:#444444">┃</span>
+<span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#444444">┃</span>
+<span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#444444">┃</span>
+<span style="color:#6e7681">  NG v3.0.0 · sh 3.0.0 · tpl 3.26.0</span>     <span style="color:#444444">┃</span>
+  <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">13:49</span>       <span style="color:#444444">┃</span>
+  <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">lun. 13:13</span>  <span style="color:#444444">┃</span>
+  <span style="font-weight:700">Opus sem.</span> <span style="color:#d29922">██████</span><span style="color:#6e7681">░░</span><span style="color:#d29922">  79 %</span>  <span style="color:#6e7681">lun. 13:13</span>  <span style="color:#444444">┃</span>
+<span style="color:#6e7681">  ↵ ouvrir · tab→tmux · ctrl+←→ zone</span>    <span style="color:#444444">┃</span>
+<span style="color:#6e7681">  · 8 projets en 43ms</span>                   <span style="color:#444444">┃</span></pre>
+    </div>
+    <p class="screenshot-caption">À gauche, le navigateur. À droite, tmux : l'onglet « ◈ État » suit la sélection et détaille le projet — sans avoir à l'ouvrir.</p>
   </div>
 </section>
 
@@ -52,9 +88,9 @@
     </div>
     <div class="problems-grid">
       <div class="problem-card"><div class="problem-icon">🪟</div><h3>Fenêtres éparpillées</h3><p>Un terminal par projet, aucune vue d'ensemble, on perd le fil de ce qui tourne où.</p></div>
-      <div class="problem-card"><div class="problem-icon">🎯</div><h3>Panes indistincts</h3><p>Plusieurs agents actifs dans la même fenêtre tmux, impossible de repérer au premier coup d'œil lequel a le focus.</p></div>
-      <div class="problem-card"><div class="problem-icon">🔄</div><h3>Setup répétitif</h3><p>Retélécharger `init-project.md`, relancer `claude`, revérifier la config — à chaque nouvelle session.</p></div>
-      <div class="problem-card"><div class="problem-icon">📌</div><h3>Version périmée</h3><p>Un script installé une fois et jamais mis à jour manque les correctifs et nouveautés.</p></div>
+      <div class="problem-card"><div class="problem-icon">🐢</div><h3>Outils qui rament</h3><p>Sur un disque Windows, un <code>git status</code> prend 1 à 3 secondes : un menu qui le relance à chaque sélection devient pénible.</p></div>
+      <div class="problem-card"><div class="problem-icon">🔄</div><h3>Setup répétitif</h3><p>Retélécharger <code>init-project.md</code>, relancer <code>claude</code>, revérifier la config — à chaque nouvelle session.</p></div>
+      <div class="problem-card"><div class="problem-icon">📌</div><h3>Versions qui dérivent</h3><p>Quels projets sont en retard sur le template ? Lesquels n'ont pas été mis à jour depuis des semaines ?</p></div>
     </div>
   </div>
 </section>
@@ -62,17 +98,66 @@
 <section id="features">
   <div class="container">
     <div class="section-header">
-      <h2>Ce que fait le launcher</h2>
+      <h2>Ce que fait Claude-Launcher-NG</h2>
       <p>Un hub central en tmux — pas un remplacement de Claude Code, juste l'orchestration autour.</p>
     </div>
     <div class="features-grid">
-      <div class="feature-card"><div class="feature-icon">🗂️</div><div class="feature-body"><h3>Sessions groupées par projet</h3><p>Chaque projet ouvert dans sa propre session tmux, navigable depuis un menu fzf — pas besoin de mémoriser des noms de session.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🎨</div><div class="feature-body"><h3>Panes colorés</h3><p>Le pane actif s'éclaire, les autres s'assombrissent — le focus se repère visuellement sans avoir à lire les titres.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🔁</div><div class="feature-body"><h3>Auto-update silencieux</h3><p>Le launcher vérifie le dernier tag GitHub à l'ouverture et se met à jour tout seul si une nouvelle version existe — repli sur la version locale si GitHub est inaccessible.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">📄</div><div class="feature-body"><h3>Template toujours à jour</h3><p><code>init-project.md</code> est resynchronisé depuis GitHub à chaque ouverture de projet, sans action manuelle.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🔑</div><div class="feature-body"><h3>Config flexible</h3><p><code>EXTRA_ENVS</code> passe n'importe quelle variable d'environnement à Claude Code — clés d'API tierces, URLs de service, etc.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🧩</div><div class="feature-body"><h3>Pas lié à un template</h3><p>Fonctionne avec n'importe quel projet Claude Code — <code>claude_project_template</code> est un compagnon naturel, pas une dépendance obligatoire.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Navigateur de projets</h3><p>Vos projets en arbre par catégorie, un filtre à la frappe, la souris. Chaque ligne indique si le projet est ouvert, son état git (<code>●</code> à jour, <code>○</code> sans amont, <code>↓N</code> en retard) et son template (<code>✓</code> ou <code>⚠</code>).</p></div></div>
+      <div class="feature-card"><div class="feature-icon">◈</div><div class="feature-body"><h3>L'état en un clic</h3><p>L'onglet « État » suit la sélection : branche, retard sur l'amont, version du template (<code>v3.9.1 → v3.26.0</code>), panes tmux et fichiers du projet, avec un marqueur git sur chacun.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⚡</div><div class="feature-body"><h3>Prêt avant que vous cliquiez</h3><p>L'état de chaque projet est préparé en tâche de fond et rafraîchi dès qu'il change (commit, nouveau fichier) : la sélection est instantanée, même sur un disque Windows.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⌗</div><div class="feature-body"><h3>Tous les teamleaders</h3><p>Un onglet de vue d'ensemble affiche une vignette interactive par projet ouvert, à la couleur du projet : on voit d'un coup d'œil qui travaille, qui attend.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">✦</div><div class="feature-body"><h3>Nouveau projet en deux gestes</h3><p>Double-clic sur une catégorie : donnez un nom, un remote git si besoin. Le dossier est créé, initialisé et lancé dans Claude Code.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">📊</div><div class="feature-body"><h3>Consommation du compte</h3><p>Session, semaine, limites par modèle, avec leur réinitialisation, juste sous la liste des projets. Les barres se grisent quand la donnée est périmée.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Mises à jour signalées</h3><p>Une nouvelle version du launcher ou du template est annoncée, masquable d'un clic. Les projets en retard gardent leur badge <code>⚠</code> et proposent <code>/init-project</code> au lancement.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">↔️</div><div class="feature-body"><h3>Zone redimensionnable</h3><p><code>Ctrl+←</code> <code>Ctrl+→</code> ou glissez la bordure : la largeur du navigateur est mémorisée d'un lancement à l'autre.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧩</div><div class="feature-body"><h3>Compatible avec l'existant</h3><p>Même configuration, mêmes sessions tmux, mêmes agent teams. L'ancienne commande <code>claude-launcher.sh</code> redirige vers le NG ; <code>--legacy</code> rouvre l'ancien menu.</p></div></div>
     </div>
+  </div>
+</section>
+
+<section id="overview">
+  <div class="container">
+    <div class="section-header">
+      <h2>Tous vos teamleaders d'un coup d'œil</h2>
+      <p>Un clic hors des projets bascule sur la vue d'ensemble : chaque projet ouvert y a sa vignette, que vous pouvez piloter sans changer d'onglet.</p>
+    </div>
+    <div class="term-wrap">
+<pre class="term" role="img" aria-label="Vue d'ensemble des teamleaders : quatre vignettes interactives (web-shop, api-gateway, k8s-cluster, cli-toolbox), chacune avec la couleur de son projet."> <span style="color:#39c5cf;font-weight:700">✦ Nouveau projet</span><span style="color:#6e7681"> (dbl-clic catégorie)</span>  <span style="color:#005fff">┃</span><span style="color:#484f58;background:#3fb950">0:◈ État- 1:⌗ Teamleaders* </span><span style="color:#6c6c6c;background:#303030">2:web-shop </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">3:api-gateway </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">4:k8s-cluster </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">5:cli-toolbox </span><span style="color:#484f58;background:#3fb950">  </span><span style="color:#808080;background:#3fb950">11:12</span>
+<span style="font-weight:700"> ~/PROJETS                           </span>   <span style="color:#005fff">┃</span><span style="color:#484f58;background:#005f5f;font-weight:700"> ⌨ web-shop </span><span style="background:#005f5f">                                 </span><span style="color:#3fb950">│</span><span style="color:#484f58;background:#5f005f;font-weight:700">   api-gateway </span>
+ <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">APPS</span>                                <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+▶<span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span>api-gateway<span style="color:#ff7b72;font-weight:700"> ↓2</span><span style="color:#d29922"> ⚠</span>                <span style="color:#005fff">┃</span><span style="background:#005f5f"> </span><span style="color:#ff8700;background:#005f5f">✻</span><span style="background:#005f5f"> </span><span style="background:#005f5f;font-weight:700">Claude Code</span><span style="background:#005f5f">  </span><span style="color:#7fadb0;background:#005f5f">·  web-shop</span><span style="background:#005f5f">                  </span><span style="color:#3fb950">│</span><span style="background:#5f005f"> </span><span style="color:#ff8700;background:#5f005f">✻</span><span style="background:#5f005f"> </span><span style="background:#5f005f;font-weight:700">Claude Code</span><span style="background:#5f005f">  </span><span style="color:#a982b0;background:#5f005f">·  api-gateway</span>
+ <span style="color:#6e7681">  ├─ ○ </span>mobile-app<span style="color:#58a6ff;font-weight:700"> ○</span><span style="color:#3fb950"> ✓</span>                  <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+ <span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span>web-shop<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#3fb950"> ✓</span>                    <span style="color:#005fff">┃</span><span style="background:#005f5f"> </span><span style="color:#7fadb0;background:#005f5f">&gt;</span><span style="background:#005f5f"> refactorer le module de paiement          </span><span style="color:#3fb950">│</span><span style="background:#5f005f"> </span><span style="color:#a982b0;background:#5f005f">&gt;</span><span style="background:#5f005f"> refactorer le module de paiement</span>
+ <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">INFRA</span>                               <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+ <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span>k8s-cluster<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#3fb950"> ✓</span>                 <span style="color:#005fff">┃</span><span style="background:#005f5f"> </span><span style="color:#3fb950;background:#005f5f">●</span><span style="background:#005f5f"> Lecture de src/main.txt                   </span><span style="color:#3fb950">│</span><span style="background:#5f005f"> </span><span style="color:#3fb950;background:#5f005f">●</span><span style="background:#5f005f"> Lecture de src/main.txt</span>
+ <span style="color:#6e7681">  ├─ ○ </span>monitoring<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#d29922"> ⚠</span>                  <span style="color:#005fff">┃</span><span style="background:#005f5f"> </span><span style="color:#3fb950;background:#005f5f">●</span><span style="background:#005f5f"> Plan : 3 agents en route                  </span><span style="color:#3fb950">│</span><span style="background:#5f005f"> </span><span style="color:#3fb950;background:#5f005f">●</span><span style="background:#5f005f"> Plan : 3 agents en route</span>
+ <span style="color:#6e7681">  └─ ○ </span>terraform-base<span style="color:#58a6ff;font-weight:700"> ○</span><span style="color:#3fb950"> ✓</span>              <span style="color:#005fff">┃</span><span style="background:#005f5f"> </span><span style="color:#d29922;background:#005f5f">✦</span><span style="background:#005f5f"> dev-backend  ·  code-reviewer  ·  qa      </span><span style="color:#3fb950">│</span><span style="background:#5f005f"> </span><span style="color:#d29922;background:#5f005f">✦</span><span style="background:#5f005f"> dev-backend  ·  code-reviewer  ·  qa</span>
+ <span style="color:#6e7681">└─ </span><span style="color:#39c5cf;font-weight:700">TOOLS</span>                               <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+ <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span>cli-toolbox<span style="color:#3fb950;font-weight:700"> ●</span><span style="color:#3fb950"> ✓</span>                 <span style="color:#005fff">┃</span><span style="background:#005f5f"> </span><span style="color:#7fadb0;background:#005f5f">⏵⏵ bypass permissions on</span><span style="background:#005f5f">                    </span><span style="color:#3fb950">│</span><span style="background:#5f005f"> </span><span style="color:#a982b0;background:#5f005f">⏵⏵ bypass permissions on</span>
+ <span style="color:#6e7681">  └─ ○ </span>docs-site<span style="color:#ff7b72;font-weight:700"> ↓1</span><span style="color:#3fb950"> ✓</span>                  <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+                                        <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+                                        <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+                                        <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+                                        <span style="color:#005fff">┃</span><span style="background:#005f5f">                                             </span><span style="color:#3fb950">│</span>
+                                        <span style="color:#005fff">┃</span><span style="color:#3fb950">─────────────────────────────────────────────┼</span>─────────────────────────────────────────────
+                                        <span style="color:#444444">┃</span><span style="color:#484f58;background:#5f005f;font-weight:700">   k8s-cluster </span><span style="background:#5f005f">                              </span>│<span style="color:#484f58;background:#005f00;font-weight:700">   cli-toolbox </span>
+                                        <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+                                        <span style="color:#444444">┃</span><span style="background:#5f005f"> </span><span style="color:#ff8700;background:#5f005f">✻</span><span style="background:#5f005f"> </span><span style="background:#5f005f;font-weight:700">Claude Code</span><span style="background:#5f005f">  </span><span style="color:#a982b0;background:#5f005f">·  k8s-cluster</span><span style="background:#5f005f">               </span>│<span style="background:#005f00"> </span><span style="color:#ff8700;background:#005f00">✻</span><span style="background:#005f00"> </span><span style="background:#005f00;font-weight:700">Claude Code</span><span style="background:#005f00">  </span><span style="color:#7fad86;background:#005f00">·  cli-toolbox</span>
+                                        <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+                                        <span style="color:#444444">┃</span><span style="background:#5f005f"> </span><span style="color:#a982b0;background:#5f005f">&gt;</span><span style="background:#5f005f"> refactorer le module de paiement          </span>│<span style="background:#005f00"> </span><span style="color:#7fad86;background:#005f00">&gt;</span><span style="background:#005f00"> refactorer le module de paiement</span>
+                                        <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+                                        <span style="color:#444444">┃</span><span style="background:#5f005f"> </span><span style="color:#3fb950;background:#5f005f">●</span><span style="background:#5f005f"> Lecture de src/main.txt                   </span>│<span style="background:#005f00"> </span><span style="color:#3fb950;background:#005f00">●</span><span style="background:#005f00"> Lecture de src/main.txt</span>
+                                        <span style="color:#444444">┃</span><span style="background:#5f005f"> </span><span style="color:#3fb950;background:#5f005f">●</span><span style="background:#5f005f"> Plan : 3 agents en route                  </span>│<span style="background:#005f00"> </span><span style="color:#3fb950;background:#005f00">●</span><span style="background:#005f00"> Plan : 3 agents en route</span>
+<span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#444444">┃</span><span style="background:#5f005f"> </span><span style="color:#d29922;background:#5f005f">✦</span><span style="background:#5f005f"> dev-backend  ·  code-reviewer  ·  qa      </span>│<span style="background:#005f00"> </span><span style="color:#d29922;background:#005f00">✦</span><span style="background:#005f00"> dev-backend  ·  code-reviewer  ·  qa</span>
+<span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+<span style="color:#6e7681">  NG v3.0.0 · sh 3.0.0 · tpl 3.26.0</span>     <span style="color:#444444">┃</span><span style="background:#5f005f"> </span><span style="color:#a982b0;background:#5f005f">⏵⏵ bypass permissions on</span><span style="background:#5f005f">                    </span>│<span style="background:#005f00"> </span><span style="color:#7fad86;background:#005f00">⏵⏵ bypass permissions on</span>
+  <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">13:49</span>       <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+  <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">lun. 13:13</span>  <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+  <span style="font-weight:700">Opus sem.</span> <span style="color:#d29922">██████</span><span style="color:#6e7681">░░</span><span style="color:#d29922">  79 %</span>  <span style="color:#6e7681">lun. 13:13</span>  <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+<span style="color:#6e7681">  ↵ ouvrir · tab→tmux · ctrl+←→ zone</span>    <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│
+<span style="color:#6e7681">  · 8 projets en 43ms</span>                   <span style="color:#444444">┃</span><span style="background:#5f005f">                                             </span>│</pre>
+    </div>
+    <p class="screenshot-caption">Les vignettes sont interactives : le clavier va au teamleader de la vignette sélectionnée.</p>
   </div>
 </section>
 
@@ -80,58 +165,89 @@
   <div class="container">
     <div class="section-header">
       <h2>Installation</h2>
-      <p>Trois commandes, aucune configuration obligatoire pour démarrer.</p>
+      <p>Deux fichiers, aucune configuration obligatoire pour démarrer.</p>
     </div>
     <div class="install-steps">
 
       <div class="install-step">
         <div class="step-num">1</div>
         <div class="step-content">
-          <h3>Télécharger le script</h3>
-          <p>Un seul fichier Bash, exécutable direct.</p>
-          <pre><span class="code-cmd">curl</span> -fsSL \
-  https://raw.githubusercontent.com/CCoupel/Claude-Launcher/main/claude-launcher.sh \
-  -o ~/claude-launcher.sh && chmod +x ~/claude-launcher.sh</pre>
+          <h3>Installer Claude-Launcher-NG</h3>
+          <p>Un binaire statique par plateforme (linux et macOS, amd64 et arm64), publié avec chaque release, avec son <code>SHA256SUMS</code>.</p>
+          <pre><span class="code-cmd">os</span>=$(uname -s | tr A-Z a-z); <span class="code-cmd">arch</span>=$(uname -m)
+case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
+<span class="code-cmd">curl</span> -fsSL \
+  "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng-$os-$arch" \
+  -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng</pre>
         </div>
       </div>
 
       <div class="install-step">
         <div class="step-num">2</div>
         <div class="step-content">
-          <h3>Configurer (optionnel)</h3>
-          <p>Au premier lancement, le launcher crée <code>~/.config/claude-launcher.conf</code>.</p>
-          <pre><span class="code-cmd">~/claude-launcher.sh</span> --configure   <span class="code-comment"># édite GITHUB_DIR, token…</span></pre>
-          <table class="config-table">
-            <tr><th>Variable</th><th>Rôle</th></tr>
-            <tr><td><code>GITHUB_DIR</code></td><td>Répertoire contenant vos projets</td></tr>
-            <tr><td><code>GITHUB_TOKEN</code></td><td>Token GitHub (gh CLI + MCP)</td></tr>
-            <tr><td><code>CLAUDE_DISABLE_MOUSE</code></td><td><code>1</code> = désactive la souris</td></tr>
-            <tr><td><code>CLAUDE_EXPERIMENTAL_TEAMS</code></td><td><code>1</code> = active les agent teams</td></tr>
-            <tr><td><code>CLAUDE_OPTIONS</code></td><td>Options passées à <code>claude</code></td></tr>
-            <tr><td><code>EXTRA_ENVS</code></td><td>Variables d'environnement supplémentaires</td></tr>
-          </table>
-          <pre style="margin-top:.75rem">EXTRA_ENVS=(
-  <span class="code-comment">"ANTHROPIC_API_KEY=sk-ant-..."</span>
-  <span class="code-comment">"MY_API_URL=https://api.example.com"</span>
-)</pre>
+          <h3>Installer le script compagnon</h3>
+          <p>Le NG s'appuie sur <code>claude-launcher.sh</code> pour le layout des agents et les vignettes. Il sert aussi l'ancien menu (<code>--legacy</code>) et <code>--configure</code>.</p>
+          <pre><span class="code-cmd">curl</span> -fsSL \
+  https://raw.githubusercontent.com/CCoupel/Claude-Launcher/main/claude-launcher.sh \
+  -o ~/claude-launcher.sh && chmod +x ~/claude-launcher.sh</pre>
+          <p style="margin-top:.75rem">Prérequis : <code>tmux</code>, <code>git</code>, <code>bash</code>, <code>jq</code> et <code>xxd</code> (vignettes).</p>
         </div>
       </div>
 
       <div class="install-step">
         <div class="step-num">3</div>
         <div class="step-content">
+          <h3>Configurer (optionnel)</h3>
+          <p>Au premier lancement, le launcher crée <code>~/.config/claude-launcher.conf</code>, partagé avec l'ancien launcher.</p>
+          <pre><span class="code-cmd">~/claude-launcher.sh</span> --configure   <span class="code-comment"># édite GITHUB_DIRS, token…</span></pre>
+          <table class="config-table">
+            <tr><th>Variable</th><th>Rôle</th></tr>
+            <tr><td><code>GITHUB_DIR</code> / <code>GITHUB_DIRS</code></td><td>Dossier(s) racine contenant vos projets (les catégories sont les sous-dossiers)</td></tr>
+            <tr><td><code>GITHUB_TOKEN</code></td><td>Token GitHub (gh CLI + MCP)</td></tr>
+            <tr><td><code>CLAUDE_OPTIONS</code></td><td>Options passées à <code>claude</code></td></tr>
+            <tr><td><code>CLAUDE_EXPERIMENTAL_TEAMS</code></td><td><code>1</code> = active les agent teams</td></tr>
+            <tr><td><code>EXTRA_ENVS</code></td><td>Variables d'environnement supplémentaires</td></tr>
+            <tr><td><code>USAGE_REFRESH_SEC</code></td><td>Secondes entre deux lectures de la consommation (min. 60, défaut 120)</td></tr>
+          </table>
+        </div>
+      </div>
+
+      <div class="install-step">
+        <div class="step-num">4</div>
+        <div class="step-content">
           <h3>Démarrer le hub</h3>
-          <pre><span class="code-cmd">~/claude-launcher.sh</span></pre>
+          <pre><span class="code-cmd">claude-launcher-ng</span></pre>
           <div class="launcher-features">
-            <div class="lf-item"><span class="lf-icon">✓</span> Vérifie le dernier tag GitHub, se met à jour si besoin</div>
-            <div class="lf-item"><span class="lf-icon">✓</span> Resynchronise <code>init-project.md</code></div>
-            <div class="lf-item"><span class="lf-icon">✓</span> Lance <code>/init-project</code> ensuite dans Claude Code</div>
+            <div class="lf-item"><span class="lf-icon">✓</span> Crée (ou rejoint) la session tmux <code>claude-hub</code></div>
+            <div class="lf-item"><span class="lf-icon">✓</span> Prépare en arrière-plan l'état de tous vos projets</div>
+            <div class="lf-item"><span class="lf-icon">✓</span> Propose <code>/init-project</code> si le template d'un projet est en retard</div>
           </div>
-          <pre style="margin-top:.75rem"><span class="code-cmd">~/claude-launcher.sh</span> --update   <span class="code-comment"># force la mise à jour, préserve la config</span></pre>
+          <p style="margin-top:.75rem">Vous aviez déjà <code>claude-launcher.sh</code> ? Rien à changer : sans argument, il lance désormais le NG. <code>~/claude-launcher.sh --legacy</code> rouvre l'ancien menu fzf.</p>
         </div>
       </div>
 
     </div>
+  </div>
+</section>
+
+<section id="shortcuts">
+  <div class="container">
+    <div class="section-header">
+      <h2>Raccourcis</h2>
+      <p>Tout se fait à la souris ou au clavier.</p>
+    </div>
+    <table class="config-table">
+      <tr><th>Action</th><th>Effet</th></tr>
+      <tr><td><code>↑</code> <code>↓</code> <code>PgUp</code> <code>PgDn</code>, molette, clic sur un projet</td><td>Sélectionner le projet et afficher l'onglet « ◈ État »</td></tr>
+      <tr><td><code>Entrée</code>, double-clic sur un projet</td><td>Ouvrir ou rejoindre le projet</td></tr>
+      <tr><td>Clic hors d'un projet (catégorie, zone vide, en-tête)</td><td>Afficher la vue d'ensemble « ⌗ Teamleaders »</td></tr>
+      <tr><td>Double-clic sur une catégorie ou une racine</td><td>Créer un projet dans ce dossier</td></tr>
+      <tr><td>Frappe</td><td>Filtrer les projets</td></tr>
+      <tr><td><code>Ctrl+←</code> <code>Ctrl+→</code>, glisser la bordure</td><td>Redimensionner le navigateur</td></tr>
+      <tr><td><code>Tab</code>, <code>Alt+←</code> <code>Alt+→</code></td><td>Passer du navigateur à tmux</td></tr>
+      <tr><td><code>Ctrl+U</code>, clic sur <code>✕</code></td><td>Masquer une annonce de mise à jour</td></tr>
+      <tr><td><code>Esc</code></td><td>Effacer le filtre ; sinon demander à détacher</td></tr>
+    </table>
   </div>
 </section>
 
@@ -141,7 +257,7 @@
       <div class="companion-icon">🧩</div>
       <div class="companion-body">
         <h3>claude_project_template</h3>
-        <p>Le launcher fetche <code>init-project.md</code> depuis ce repo par défaut : agents, commandes et workflows prêts à l'emploi pour Claude Code.</p>
+        <p>Le launcher récupère <code>init-project.md</code> depuis ce repo par défaut : agents, commandes et workflows prêts à l'emploi pour Claude Code.</p>
       </div>
       <a href="https://github.com/CCoupel/claude_project_template" class="btn btn-outline companion-cta">Voir le template →</a>
     </div>
@@ -150,7 +266,7 @@
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG v3.0.0 — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 

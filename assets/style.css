@@ -125,3 +125,12 @@ footer a { color: var(--accent2); }
   .companion { flex-direction: column; text-align: center; }
   .companion-cta { margin-left: 0; }
 }
+
+/* Captures de terminal (HTML réel, pas une image) */
+.term-wrap { max-width: 1000px; margin: 0 auto; border-radius: var(--radius-lg); border: 1px solid var(--border); box-shadow: 0 20px 60px rgba(0,0,0,.45); overflow-x: auto; background: var(--bg); }
+.term-wrap::before { content: ""; display: block; height: 2.1rem; border-bottom: 1px solid var(--border); background: radial-gradient(circle at 1.1rem 50%, #ff5f56 .3rem, transparent .32rem), radial-gradient(circle at 2.1rem 50%, #ffbd2e .3rem, transparent .32rem), radial-gradient(circle at 3.1rem 50%, #27c93f .3rem, transparent .32rem), var(--bg2); }
+pre.term { margin: 0; border: 0; border-radius: 0; background: var(--bg); padding: 1rem 1.1rem 1.2rem; font-size: .68rem; line-height: 1.3; white-space: pre; width: max-content; min-width: 100%; color: var(--text); }
+#overview { background: var(--bg2); }
+#overview .term-wrap { box-shadow: 0 20px 60px rgba(0,0,0,.35); }
+#shortcuts .config-table { max-width: 860px; margin: 0 auto; }
+@media (max-width: 640px) { pre.term { font-size: .6rem; } }
