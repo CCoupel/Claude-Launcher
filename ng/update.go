@@ -18,7 +18,8 @@ import (
 
 // Versions et mises à jour : même logique que le menu bash (tags GitHub du
 // launcher et du template, comparaison du template sur le commit du dernier
-// tag), mais ici le Go se contente de SIGNALER — il ne se met pas à jour.
+// tag). En cours de route le NG se contente de SIGNALER une nouvelle version ;
+// la mise à jour elle-même a lieu au lancement (selfupdate.go).
 
 const (
 	launcherRepo = "CCoupel/Claude-Launcher"
@@ -32,7 +33,8 @@ const ngName = "Claude-Launcher-NG"
 //	go build -ldflags "-X main.ngVersion=v3.0.1"
 //
 // Les alertes de mise à jour la comparent au dernier tag de CCoupel/Claude-Launcher.
-var ngVersion = "v3.0.0"
+// Sans -X (build à la main), « dev » : pas de mise à jour automatique.
+var ngVersion = "dev"
 
 type (
 	updTickMsg struct{}
