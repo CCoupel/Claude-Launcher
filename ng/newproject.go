@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 )
@@ -16,8 +17,11 @@ import (
 //     racine : le projet est créé dans ce dossier, le formulaire ne demande que
 //     le nom et le remote ;
 //   - l'entrée « ✦ Nouveau projet » : dans une racine (choix si plusieurs).
-// Le dossier est créé, `git init` fait, le remote `origin` ajouté (facultatif),
-// puis le projet est ouvert.
+// Après le nom, le type de projet :
+//   - géré : `git init`, remote `origin` (facultatif), puis claude démarre
+//     directement sur /init-project ;
+//   - brut : le dossier et un CLAUDE.md minimal, ni git ni init-project.
+// Le projet est ensuite ouvert.
 
 type formMode int
 
@@ -25,6 +29,7 @@ const (
 	formNone formMode = iota
 	formRoot
 	formName
+	formKind
 	formRemote
 )
 
@@ -33,6 +38,7 @@ type newForm struct {
 	root   int
 	base   string // dossier fixé (catégorie ou racine) ; vide tant que la racine n'est pas choisie
 	name   string
+	raw    bool // projet brut (sinon géré)
 	remote string
 	err    string
 }
@@ -62,12 +68,18 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc", "ctrl+c":
 		m.form = newForm{}
 	case "up":
-		if f.mode == formRoot {
+		switch f.mode {
+		case formRoot:
 			f.root = max(0, f.root-1)
+		case formKind:
+			f.raw = false
 		}
 	case "down":
-		if f.mode == formRoot {
+		switch f.mode {
+		case formRoot:
 			f.root = min(len(m.cfg.Roots)-1, f.root+1)
+		case formKind:
+			f.raw = true
 		}
 	case "enter":
 		f.err = ""
@@ -81,8 +93,13 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if _, err := os.Stat(m.projectDir()); err == nil {
 				f.err = "ce dossier existe déjà"
 			} else {
-				f.mode = formRemote
+				f.mode = formKind
 			}
+		case formKind:
+			if f.raw {
+				return m.createProject(), nil
+			}
+			f.mode = formRemote
 		case formRemote:
 			return m.createProject(), nil
 		}
@@ -105,6 +122,15 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case formName:
 			f.name += s
+		case formKind: // g / b choisissent et valident
+			switch strings.ToLower(s) {
+			case "g":
+				f.raw = false
+				f.mode = formRemote
+			case "b":
+				f.raw = true
+				return m.createProject(), nil
+			}
 		case formRemote:
 			f.remote += s
 		}
@@ -156,14 +182,23 @@ func (m model) createProject() model {
 		m.form.err = err.Error()
 		return m
 	}
-	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
-		m.form.err = "git init : " + strings.TrimSpace(string(out))
-		return m
-	}
-	if r := strings.TrimSpace(m.form.remote); r != "" {
-		if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", r).CombinedOutput(); err != nil {
-			m.form.err = "git remote : " + strings.TrimSpace(string(out))
+	mode := launchNewManaged
+	if m.form.raw {
+		mode = launchNewRaw
+		if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(minimalClaudeMD(filepath.Base(dir))), 0o644); err != nil {
+			m.form.err = "CLAUDE.md : " + err.Error()
 			return m
+		}
+	} else {
+		if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+			m.form.err = "git init : " + strings.TrimSpace(string(out))
+			return m
+		}
+		if r := strings.TrimSpace(m.form.remote); r != "" {
+			if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", r).CombinedOutput(); err != nil {
+				m.form.err = "git remote : " + strings.TrimSpace(string(out))
+				return m
+			}
 		}
 	}
 	m.form = newForm{}
@@ -178,11 +213,18 @@ func (m model) createProject() model {
 			m.cursor = i
 		}
 	}
-	m = m.openSelected() // comme le bash : le projet créé est lancé aussitôt
+	m = m.openSelectedAs(mode) // comme le bash : le projet créé est lancé aussitôt
 	if m.msg == "" {
 		m.msg = "✓ projet créé"
 	}
 	return m
+}
+
+// minimalClaudeMD : contenu du CLAUDE.md d'un projet brut.
+func minimalClaudeMD(name string) string {
+	return "# " + name + "\n\n" +
+		"Projet créé le " + time.Now().Format("2006-01-02") + " par " + ngName + ".\n\n" +
+		"## Objectif\n\n_À compléter._\n"
 }
 
 func (m model) renderForm(w int) string {
@@ -209,6 +251,25 @@ func (m model) renderForm(w int) string {
 		}
 		sb.WriteString(" " + dim.Render("Nom :") + " " + f.name + c + "\n")
 	}
+	if f.mode >= formKind {
+		sb.WriteString("\n " + dim.Render("Type de projet :") + "\n")
+		for _, k := range []struct {
+			raw        bool
+			key, label string
+			desc       string
+		}{
+			{false, "g", "géré", "git + /init-project"},
+			{true, "b", "brut", "dossier + CLAUDE.md"},
+		} {
+			mark, style := "  ", dim
+			if k.raw == f.raw {
+				mark, style = green.Render("▶ "), bold
+			}
+			if f.mode == formKind || k.raw == f.raw {
+				sb.WriteString("  " + mark + style.Render(k.key+" "+k.label) + dim.Render("  "+k.desc) + "\n")
+			}
+		}
+	}
 	if f.mode >= formRemote {
 		sb.WriteString(" " + dim.Render("Remote git (facultatif) :") + "\n")
 		sb.WriteString("  " + f.remote + cur + "\n")
@@ -217,8 +278,11 @@ func (m model) renderForm(w int) string {
 		sb.WriteString("\n " + red.Render("✗ "+f.err) + "\n")
 	}
 	hint := "↵ valider · esc annuler"
-	if f.mode == formRoot {
+	switch f.mode {
+	case formRoot:
 		hint = "↑↓ ou 1-9 · ↵ valider · esc annuler"
+	case formKind:
+		hint = "↑↓ ou g/b · ↵ valider · esc annuler"
 	}
 	sb.WriteString("\n " + dim.Render(hint))
 	return truncLines(sb.String(), w)

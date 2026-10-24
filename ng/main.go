@@ -350,7 +350,9 @@ func (m *model) stateCmd() tea.Cmd {
 }
 
 // openSelected lance (ou rouvre) le projet sous le curseur.
-func (m model) openSelected() model {
+func (m model) openSelected() model { return m.openSelectedAs(launchNormal) }
+
+func (m model) openSelectedAs(mode launchMode) model {
 	if len(m.visible) == 0 {
 		return m
 	}
@@ -361,7 +363,7 @@ func (m model) openSelected() model {
 	if !n.Project {
 		return m
 	}
-	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate())
+	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate(), mode)
 	m.wantState, m.wantTeam, m.lastShow = false, false, time.Time{}
 	if m.shell && m.launch && m.msg == "" {
 		// le projet est à l'écran à droite : donne-lui le focus clavier

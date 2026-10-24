@@ -73,9 +73,14 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
-Création d'un projet : le formulaire demande le nom puis un remote git facultatif ; le
-dossier est créé, `git init` exécuté, `origin` ajouté si un remote est donné, puis le projet
-est lancé.
+Création d'un projet : le formulaire demande le nom, puis le type de projet :
+
+- **géré** (`g`, par défaut) : remote git facultatif ; `git init`, `origin` ajouté si un remote
+  est donné, `init-project.md` déposé, et claude démarre directement sur `/init-project` ;
+- **brut** (`b`) : seulement le dossier et un `CLAUDE.md` minimal, ni git ni `/init-project`.
+
+Le projet est ensuite lancé. (Rouvert plus tard, un projet brut reçoit `init-project.md` comme
+les autres : `/init-project` reste possible pour le convertir.)
 
 ## Versions, mises à jour et template
 

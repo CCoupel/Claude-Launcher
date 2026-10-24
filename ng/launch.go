@@ -76,7 +76,17 @@ func (c Config) exports() string {
 // fenêtre, styles, couleur du pane, démarrage de claude (avec la confirmation
 // /init-project si le template est en retard ou absent), puis le watcher de
 // layout — qui reste le script bash, pas encore migré.
-func launchProject(cfg Config, session string, n Node, latest string) error {
+// Mode de lancement : normal (ouverture d'un projet), ou juste après sa création
+// depuis le launcher — géré (/init-project d'office) ou brut (ni git ni init-project).
+type launchMode int
+
+const (
+	launchNormal launchMode = iota
+	launchNewManaged
+	launchNewRaw
+)
+
+func launchProject(cfg Config, session string, n Node, latest string, mode launchMode) error {
 	sess := targetSession(session)
 	if tmuxWindows(sess)[n.Key] {
 		return dtmux("select-window", "-t", exactW(sess, n.Key)).Run()
@@ -100,19 +110,27 @@ func launchProject(cfg Config, session string, n Node, latest string) error {
 	initCache := filepath.Join(filepath.Dir(script), "init-project.md")
 
 	var initPre, initArg string
-	switch readTemplate(n.Path, latest) {
-	case TplOutdated:
+	switch tpl := readTemplate(n.Path, latest); {
+	case mode == launchNewManaged:
+		initArg = " /init-project" // projet tout juste créé : pas de question
+	case mode == launchNewRaw: // ni question ni /init-project
+	case tpl == TplOutdated:
 		initPre = `_ip_arg=''; read -rp '↑ template en retard — lancer /init-project ? [o/N] ' _r; [[ "$_r" == [oOyY]* ]] && _ip_arg='/init-project'; `
 		initArg = " $_ip_arg"
-	case TplMissing:
+	case tpl == TplMissing:
 		initPre = `_ip_arg='/init-project'; read -rp '🗑 fichiers template manquants (clone frais) — lancer /init-project pour restaurer ? [O/n] ' _r; [[ "$_r" == [nN]* ]] && _ip_arg=''; `
 		initArg = " $_ip_arg"
 	}
 
-	keys := fmt.Sprintf("cd %s%s\nmkdir -p .claude/commands\n_ip=.claude/commands/init-project.md\n"+
-		"[[ -s %s ]] && cp %s \"$_ip\" || echo '⚠  init-project.md non disponible — relancer le launcher connecté'\n"+
-		"%s%s%s",
-		shq(n.Path), cfg.exports(), shq(initCache), shq(initCache), initPre, claudeBin()+" "+cfg.ClaudeOptions, initArg)
+	// init-project.md est déposé dans le projet, sauf pour un projet brut tout juste créé
+	copyInit := fmt.Sprintf("mkdir -p .claude/commands\n_ip=.claude/commands/init-project.md\n"+
+		"[[ -s %s ]] && cp %s \"$_ip\" || echo '⚠  init-project.md non disponible — relancer le launcher connecté'\n",
+		shq(initCache), shq(initCache))
+	if mode == launchNewRaw {
+		copyInit = ""
+	}
+	keys := fmt.Sprintf("cd %s%s\n%s%s%s%s",
+		shq(n.Path), cfg.exports(), copyInit, initPre, claudeBin()+" "+cfg.ClaudeOptions, initArg)
 	if err := dtmux("send-keys", "-t", target, keys, "Enter").Run(); err != nil {
 		return fmt.Errorf("send-keys : %w", err)
 	}

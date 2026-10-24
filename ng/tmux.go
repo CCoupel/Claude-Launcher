@@ -81,7 +81,7 @@ func tmuxWindows(session string) map[string]bool {
 
 // openProject : bascule sur la fenêtre existante ou en crée une. Sans --launch
 // le navigateur n'agit pas (il décrit seulement ce qu'il ferait).
-func openProject(cfg Config, session string, n Node, launch bool, latest string) string {
+func openProject(cfg Config, session string, n Node, launch bool, latest string, mode launchMode) string {
 	if dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		return "pas de session " + hubSession + " (lancer « claude-launcher-ng shell »)"
 	}
@@ -91,7 +91,7 @@ func openProject(cfg Config, session string, n Node, launch bool, latest string)
 		}
 		return "[dry-run] new-window " + n.Key + " → claude (couleur " + cfg.projectColor(n.Key) + ")"
 	}
-	if err := launchProject(cfg, session, n, latest); err != nil {
+	if err := launchProject(cfg, session, n, latest, mode); err != nil {
 		return fmt.Sprintf("tmux : %v", err)
 	}
 	return ""
