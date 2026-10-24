@@ -69,7 +69,7 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner la zone navigateur (4 colonnes par appui) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
-| `Esc` | effacer le filtre ; sinon demande de détacher (`o` pour confirmer) |
+| `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Création d'un projet : le formulaire demande le nom puis un remote git facultatif ; le
 dossier est créé, `git init` exécuté, `origin` ajouté si un remote est donné, puis le projet
@@ -81,7 +81,8 @@ Vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes :
 
 - **NG** : si un tag plus récent que la version du binaire existe, une annonce
   `↑ NG vX disponible ✕` apparaît (le NG signale, il ne se met pas à jour : relancer la
-  commande d'installation).
+  commande d'installation, puis `Esc` `l` et relancer : les projets restent ouverts). Un
+  navigateur resté sur l'ancien binaire est de toute façon redémarré à la relance.
 - **Template** : un nouveau tag de `claude_project_template` est annoncé
   (`↑ template vX disponible ✕`), les caches `.template-commit` / `.template-version` (à côté
   du script, partagés avec le bash) sont mis à jour et les badges `✓`/`⚠` recalculés.
@@ -120,8 +121,9 @@ Vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes :
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
 - **Retrouver l'ancien menu** : `~/claude-launcher.sh --legacy`.
-- **Tout fermer** : `Esc` puis `o` détache sans rien arrêter. Pour arrêter : `tmux kill-session -t claude-hub`
-  (projets) et `tmux -L claude-ui kill-server` (coque).
+- **Quitter** : `Esc` puis `l` arrête le launcher (serveur `claude-ui`) en laissant les projets
+  tourner dans `claude-hub` ; `Esc`, `t` puis `o` ferme aussi `claude-hub` et ses sessions groupées.
+- **Pas de zone tmux à droite** : relancer `claude-launcher-ng`, le pane manquant est recréé.
 - **Essayer sans toucher à `claude-hub`** :
   `CL_HUB=claude-hub-test CL_OUTER_SOCKET=claude-ui-test claude-launcher-ng`.
 - **Les annonces de version n'apparaissent pas** : GitHub est interrogé sans jeton ; en cas de

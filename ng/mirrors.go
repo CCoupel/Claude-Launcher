@@ -35,7 +35,7 @@ func runMirrorManager(cfg Config) {
 type tmuxWin struct{ id, name string }
 
 func listWindows() []tmuxWin {
-	out, err := tmuxOut("list-windows", "-t", hubSession, "-F", "#{window_id}|#{window_name}")
+	out, err := tmuxOut("list-windows", "-t", exactS(hubSession), "-F", "#{window_id}|#{window_name}")
 	if err != nil {
 		return nil
 	}
@@ -49,7 +49,7 @@ func listWindows() []tmuxWin {
 }
 
 func (mm *mirrorMgr) tick() {
-	if dtmux("has-session", "-t", hubSession).Run() != nil {
+	if dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		return
 	}
 	var teamID string
@@ -66,10 +66,10 @@ func (mm *mirrorMgr) tick() {
 	if teamID == "" {
 		// épinglé juste après « ◈ État » ; sinon en tête
 		id, err := tmuxOut("new-window", "-d", "-a", "-P", "-F", "#{window_id}", "-n", teamWindow,
-			"-t", hubSession+":"+stateWindow, teamPlaceholder)
+			"-t", exactW(hubSession, stateWindow), teamPlaceholder)
 		if err != nil {
 			id, err = tmuxOut("new-window", "-d", "-P", "-F", "#{window_id}", "-n", teamWindow,
-				"-t", hubSession+":", teamPlaceholder)
+				"-t", exactS(hubSession)+":", teamPlaceholder)
 		}
 		if err != nil {
 			return

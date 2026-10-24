@@ -18,11 +18,16 @@ var hubSession = func() string {
 // targetSession : le launcher bash vise toujours claude-hub (les sessions
 // groupées partagent ses fenêtres) ; à défaut, la session courante.
 func targetSession(current string) string {
-	if dtmux("has-session", "-t", hubSession).Run() == nil {
+	if dtmux("has-session", "-t", exactS(hubSession)).Run() == nil {
 		return hubSession
 	}
 	return current
 }
+
+// exactS / exactW : cibles tmux exactes. Sans « = », tmux accepte un préfixe :
+// « -t claude-hub » viserait claude-hub-test si claude-hub n'existe pas.
+func exactS(s string) string    { return "=" + s }
+func exactW(s, w string) string { return "=" + s + ":=" + w }
 
 func scriptPath() string {
 	if p := os.Getenv("CL_SCRIPT"); p != "" {
@@ -74,9 +79,9 @@ func (c Config) exports() string {
 func launchProject(cfg Config, session string, n Node, latest string) error {
 	sess := targetSession(session)
 	if tmuxWindows(sess)[n.Key] {
-		return dtmux("select-window", "-t", sess+":"+n.Key).Run()
+		return dtmux("select-window", "-t", exactW(sess, n.Key)).Run()
 	}
-	ids, err := tmuxOut("new-window", "-P", "-F", "#{window_id} #{pane_id}", "-t", sess, "-n", n.Key)
+	ids, err := tmuxOut("new-window", "-P", "-F", "#{window_id} #{pane_id}", "-t", exactS(sess)+":", "-n", n.Key)
 	if err != nil {
 		return fmt.Errorf("new-window : %w", err)
 	}
@@ -85,7 +90,7 @@ func launchProject(cfg Config, session string, n Node, latest string) error {
 		return fmt.Errorf("new-window : sortie inattendue %q", ids)
 	}
 	winID, pane := f[0], f[1]
-	target := sess + ":" + n.Key
+	target := exactW(sess, n.Key)
 
 	_ = dtmux("set-window-option", "-t", target, "window-status-style", "fg=colour242,bg=colour236").Run()
 	_ = dtmux("set-window-option", "-t", target, "window-status-current-style", "bold,fg=colour255,bg=colour27").Run()

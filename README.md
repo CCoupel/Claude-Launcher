@@ -39,7 +39,7 @@ Un navigateur de projets à gauche, tmux à droite :
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner le navigateur (mémorisé) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
-| `Esc` | effacer le filtre ; sinon demande de détacher (`o` pour confirmer) |
+| `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Détails, architecture et dépannage : [`ng/README.md`](ng/README.md).
 

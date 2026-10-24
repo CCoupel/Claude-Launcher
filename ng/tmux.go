@@ -58,7 +58,7 @@ func otmux(args ...string) *exec.Cmd {
 }
 
 func tmuxSession() string {
-	if dtmux("has-session", "-t", hubSession).Run() == nil {
+	if dtmux("has-session", "-t", exactS(hubSession)).Run() == nil {
 		return hubSession
 	}
 	return "(aucune session " + hubSession + ")"
@@ -67,7 +67,7 @@ func tmuxSession() string {
 // tmuxWindows : un seul appel tmux pour savoir quels projets sont ouverts.
 func tmuxWindows(session string) map[string]bool {
 	out := map[string]bool{}
-	b, err := dtmux("list-windows", "-t", session, "-F", "#{window_name}").Output()
+	b, err := dtmux("list-windows", "-t", exactS(session), "-F", "#{window_name}").Output()
 	if err != nil {
 		return out
 	}
@@ -82,7 +82,7 @@ func tmuxWindows(session string) map[string]bool {
 // openProject : bascule sur la fenêtre existante ou en crée une. Sans --launch
 // le navigateur n'agit pas (il décrit seulement ce qu'il ferait).
 func openProject(cfg Config, session string, n Node, launch bool, latest string) string {
-	if dtmux("has-session", "-t", hubSession).Run() != nil {
+	if dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		return "pas de session " + hubSession + " (lancer « claude-launcher-ng shell »)"
 	}
 	if !launch {
