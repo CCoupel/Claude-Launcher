@@ -51,6 +51,7 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 
 - **Gauche** : navigateur (40 colonnes par défaut). Projets en arbre, badges git
   (`●` à jour, `○` sans amont, `↓N` en retard) et template (`✓`, `⚠`), consommation Claude.
+  Un projet déjà ouvert est marqué `●` vert, son nom en gras sur la couleur de son pane tmux.
   L'en-tête indique les versions : `NG v3.0.0 · sh 3.0.0 · tpl 3.26.0` (NG, script compagnon,
   dernier tag du template).
 - **Droite** : tmux, un onglet par projet, plus deux onglets épinglés :
