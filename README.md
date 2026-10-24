@@ -38,6 +38,7 @@ Un navigateur de projets à gauche, tmux à droite :
 | frappe | filtrer |
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner le navigateur (mémorisé) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
+| clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 

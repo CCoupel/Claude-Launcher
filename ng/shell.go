@@ -92,6 +92,15 @@ func navWidth() (nav, win int) {
 
 // ── Coque ─────────────────────────────────────────────────────────────────
 
+func stateCommand(exe string) string {
+	return "CL_HUB=" + shq(hubSession) + " CL_INNER_SOCKET=" + shq(os.Getenv("CL_INNER_SOCKET")) + " " + shq(exe) + " state"
+}
+
+func navCommand(exe string) string {
+	return fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
+		shq(hubSession), shq(outerSocket()), shq(os.Getenv("CL_INNER_SOCKET")), shq(exe))
+}
+
 // paneStale : le pane exécute-t-il une autre copie du launcher que exe (binaire
 // supprimé ou remplacé par une mise à jour) ? On regarde le processus du pane
 // et ses enfants directs (cas où sh -c n'a pas fait exec).
@@ -120,7 +129,7 @@ func paneStale(tm func(...string) *exec.Cmd, target, exe string) bool {
 // ensureInner : crée claude-hub s'il manque, et épingle l'onglet « ◈ État »
 // en première position.
 func ensureInner(exe string) error {
-	stateCmd := "CL_HUB=" + shq(hubSession) + " CL_INNER_SOCKET=" + shq(os.Getenv("CL_INNER_SOCKET")) + " " + shq(exe) + " state"
+	stateCmd := stateCommand(exe)
 	if dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		if out, err := dtmux("new-session", "-d", "-s", hubSession, "-n", stateWindow, stateCmd).CombinedOutput(); err != nil {
 			return fmt.Errorf("new-session %s : %v (%s)", hubSession, err, strings.TrimSpace(string(out)))
@@ -164,8 +173,7 @@ func runShell() error {
 		innerSock = "-L " + shq(s) + " "
 	}
 	inner := fmt.Sprintf("env -u TMUX tmux %sattach-session -t %s", innerSock, shq(exactS(hubSession)))
-	nav := fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
-		shq(hubSession), shq(outerSocket()), shq(os.Getenv("CL_INNER_SOCKET")), shq(exe))
+	nav := navCommand(exe)
 	if otmux("has-session", "-t", outerSession).Run() != nil {
 		steps := [][]string{
 			{"-f", "/dev/null", "new-session", "-d", "-s", outerSession, "-n", "ui", nav},

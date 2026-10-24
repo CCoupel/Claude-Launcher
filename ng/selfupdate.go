@@ -14,6 +14,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Mise à jour automatique au lancement (« shell »), comme l'auto_update du
@@ -60,20 +62,7 @@ func selfUpdate() {
 	if err != nil || !releaseVerRe.MatchString(tag) {
 		return
 	}
-	exe, err := os.Executable()
-	if err != nil {
-		return
-	}
-	bin := ""
-	if releaseVerRe.MatchString(ngVersion) && versionNewer(ngVersion, tag) {
-		bin = exe
-	}
-	script := ""
-	if v := localLauncherVersion(); v != "" && versionNewer(v, tag) {
-		if script, err = filepath.EvalSymlinks(scriptPath()); err != nil {
-			script = ""
-		}
-	}
+	exe, bin, script := updateTargets(tag)
 	if bin == "" && script == "" {
 		return
 	}
@@ -93,6 +82,58 @@ func selfUpdate() {
 		fmt.Fprintln(os.Stderr, "relance impossible :", err)
 		os.Exit(1)
 	}
+}
+
+// updateTargets : fichiers à remplacer pour passer à tag (chemin vide : à jour,
+// ou binaire de dev qui ne se remplace pas).
+func updateTargets(tag string) (exe, bin, script string) {
+	exe, err := os.Executable()
+	if err != nil {
+		return "", "", ""
+	}
+	if releaseVerRe.MatchString(ngVersion) && versionNewer(ngVersion, tag) {
+		bin = exe
+	}
+	if v := localLauncherVersion(); v != "" && versionNewer(v, tag) {
+		if s, err := filepath.EvalSymlinks(scriptPath()); err == nil {
+			script = s
+		}
+	}
+	return exe, bin, script
+}
+
+type updDoneMsg struct {
+	tag     string
+	binDone bool
+	err     error
+}
+
+// updateNowCmd : mise à jour lancée d'un clic sur l'annonce « ↑ NG … disponible ».
+func updateNowCmd(tag string) tea.Cmd {
+	return func() tea.Msg {
+		if !releaseVerRe.MatchString(ngVersion) {
+			return updDoneMsg{tag: tag, err: fmt.Errorf("binaire de dev (%s) : non remplacé", ngVersion)}
+		}
+		_, bin, script := updateTargets(tag)
+		if bin == "" && script == "" {
+			return updDoneMsg{tag: tag}
+		}
+		binDone, _, err := applyUpdate(releaseBase+"/"+tag, bin, script)
+		return updDoneMsg{tag: tag, binDone: binDone, err: err}
+	}
+}
+
+// restartOnNewBinary : après une mise à jour depuis le navigateur, relance
+// « ◈ État » puis le navigateur lui-même sur le binaire installé (respawn-pane
+// tue ce processus). Les projets et la zone tmux ne sont pas touchés.
+func restartOnNewBinary() {
+	exe, err := os.Executable() // sous Linux : chemin du fichier, même remplacé
+	if err != nil {
+		return
+	}
+	exe = strings.TrimSuffix(exe, " (deleted)")
+	_ = dtmux("respawn-pane", "-k", "-t", exactW(hubSession, stateWindow), stateCommand(exe)).Run()
+	_ = otmux("respawn-pane", "-k", "-t", outerSession+":0.0", navCommand(exe)).Run()
 }
 
 // applyUpdate télécharge depuis base (…/releases/download/<tag>) le binaire de
