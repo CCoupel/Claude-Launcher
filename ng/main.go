@@ -179,7 +179,13 @@ func usageFetchCmd(sec int) tea.Cmd {
 	}
 }
 
+// readLatestTemplate : commit du dernier tag du template. La source de référence est
+// le cache à côté du script (celui que met à jour checkUpdates, comme le bash) ; les
+// autres emplacements ne servent que de repli.
 func readLatestTemplate() string {
+	if c := readTrim(tplCommitPath()); c != "" {
+		return c
+	}
 	home, _ := os.UserHomeDir()
 	exe, _ := os.Executable()
 	for _, p := range []string{
