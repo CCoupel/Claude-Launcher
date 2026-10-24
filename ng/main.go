@@ -823,11 +823,14 @@ func (m model) renderList(w, h int) string {
 			if !n.Project {
 				line = prefix + cyan.Render(n.Name)
 			} else {
-				dot := dim.Render("○ ")
+				dot, name := dim.Render("○ "), n.Name
 				if m.windows[n.Key] {
+					// ouvert : nom en surbrillance, sur la couleur de son pane tmux
 					dot = green.Render("● ")
+					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).
+						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).Render(" " + n.Name + " ")
 				}
-				line = prefix + dot + n.Name + m.badges(n.Path)
+				line = prefix + dot + name + m.badges(n.Path)
 			}
 		}
 		if i == m.cursor {
