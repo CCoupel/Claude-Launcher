@@ -18,7 +18,7 @@ Un navigateur de projets à gauche, tmux à droite :
 
 - **Navigateur** : vos projets en arbre par catégorie (les sous-dossiers de `GITHUB_DIRS`), filtre à la
   frappe, souris. Badges git (`●` à jour, `○` sans amont, `↓N` en retard sur l'amont) et template
-  (`✓` à jour, `⚠` en retard), consommation du compte Claude en bas.
+  (`✔` à jour, `⚠` en retard, `⊘` sans template), consommation du compte Claude en bas.
 - **Onglet `◈ État`** : suit la sélection et détaille le projet sans l'ouvrir — git, version du template
   (`v3.9.1 → v3.26.0`), panes tmux, fichiers avec leur marqueur git. Instantané : l'état est préparé
   en tâche de fond et rafraîchi quand le projet change.
