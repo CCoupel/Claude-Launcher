@@ -1,5 +1,11 @@
 # Claude Launcher
 
+> **Claude-Launcher-NG** : le lancement par défaut (`~/claude-launcher.sh` sans argument) redirige
+> désormais vers le nouveau launcher Go (voir [`ng/README.md`](ng/README.md)) dès que le binaire
+> `claude-launcher-ng` est installé. `~/claude-launcher.sh --legacy` (ou `CLAUDE_LAUNCHER_LEGACY=1`)
+> relance l'ancien menu fzf. Le script reste nécessaire au NG (layout, vignettes) et gère toujours
+> `--configure` et `--update`.
+
 Hub tmux pour piloter plusieurs projets Claude Code en parallèle. Compagnon de
 [`claude_project_template`](https://github.com/CCoupel/claude_project_template) — mais utilisable
 avec n'importe quel projet Claude Code.
