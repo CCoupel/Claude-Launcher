@@ -77,12 +77,19 @@ est lancé.
 
 ## Versions, mises à jour et template
 
-Vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes :
+**Au lancement**, comme l'ancien launcher bash, le NG se met à jour si la dernière release
+GitHub est plus récente : binaire de la plateforme et `claude-launcher.sh` (toujours utilisé
+pour le layout et les vignettes) sont téléchargés, vérifiés contre `SHA256SUMS`, remplacés,
+puis le NG se relance. Un navigateur resté sur l'ancien binaire est redémarré ; les projets
+ouverts ne sont pas touchés. Hors ligne ou en cas d'échec, il démarre avec la version en place.
+Désactiver : `claude-launcher-ng --no-update` ou `CL_NO_UPDATE=1`. Un binaire compilé à la
+main (version `dev` ou suffixée) ne se remplace jamais.
 
-- **NG** : si un tag plus récent que la version du binaire existe, une annonce
-  `↑ NG vX disponible ✕` apparaît (le NG signale, il ne se met pas à jour : relancer la
-  commande d'installation, puis `Esc` `l` et relancer : les projets restent ouverts). Un
-  navigateur resté sur l'ancien binaire est de toute façon redémarré à la relance.
+Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes :
+
+- **NG** : si une release plus récente sort pendant que le launcher tourne, une annonce
+  `↑ NG vX disponible ✕` apparaît ; `Esc` `l` puis relancer pour l'installer (les projets
+  restent ouverts).
 - **Template** : un nouveau tag de `claude_project_template` est annoncé
   (`↑ template vX disponible ✕`), les caches `.template-commit` / `.template-version` (à côté
   du script, partagés avec le bash) sont mis à jour et les badges `✓`/`⚠` recalculés.

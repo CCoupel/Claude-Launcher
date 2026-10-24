@@ -1000,6 +1000,7 @@ func main() {
 	var err error
 	switch cmd {
 	case "shell":
+		selfUpdate()
 		err = runShell()
 	case "nav":
 		_, err = tea.NewProgram(newModel(launch), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()

@@ -38,12 +38,14 @@ jobs:
               -ldflags "-s -w -X main.ngVersion=${GITHUB_REF_NAME}" \
               -o ../dist/claude-launcher-ng-$os-$arch .
           done
-          cd ../dist && sha256sum claude-launcher-ng-* > SHA256SUMS
+          # le script (SCRIPT_VERSION déjà patché) est aussi vérifié par la mise à jour auto
+          cp ../claude-launcher.sh ../dist/
+          cd ../dist && sha256sum claude-launcher.sh claude-launcher-ng-* > SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            claude-launcher.sh
+            dist/claude-launcher.sh
             dist/claude-launcher-ng-*
             dist/SHA256SUMS
           generate_release_notes: true

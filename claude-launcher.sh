@@ -78,7 +78,7 @@ case "${1:-}" in
     if [[ "${CLAUDE_LAUNCHER_LEGACY:-0}" != "1" ]]; then
       _ng="${CLAUDE_LAUNCHER_NG:-$(command -v claude-launcher-ng 2>/dev/null)}"
       [[ -z "$_ng" && -x "$HOME/.local/bin/claude-launcher-ng" ]] && _ng="$HOME/.local/bin/claude-launcher-ng"
-      [[ -n "$_ng" && -x "$_ng" ]] && exec "$_ng" shell
+      [[ -n "$_ng" && -x "$_ng" ]] && exec "$_ng" shell ${1:+"$1"}
       unset _ng
     fi ;;
   --legacy) shift ;;
