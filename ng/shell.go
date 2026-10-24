@@ -92,6 +92,31 @@ func navWidth() (nav, win int) {
 
 // ── Coque ─────────────────────────────────────────────────────────────────
 
+// paneStale : le pane exécute-t-il une autre copie du launcher que exe (binaire
+// supprimé ou remplacé par une mise à jour) ? On regarde le processus du pane
+// et ses enfants directs (cas où sh -c n'a pas fait exec).
+func paneStale(tm func(...string) *exec.Cmd, target, exe string) bool {
+	b, err := tm("display-message", "-p", "-t", target, "#{pane_pid}").Output()
+	if err != nil {
+		return false
+	}
+	pid := strings.TrimSpace(string(b))
+	pids := []string{pid}
+	if c, err := os.ReadFile("/proc/" + pid + "/task/" + pid + "/children"); err == nil {
+		pids = append(pids, strings.Fields(string(c))...)
+	}
+	for _, p := range pids {
+		l, err := os.Readlink("/proc/" + p + "/exe")
+		if err != nil || l == exe {
+			continue
+		}
+		if filepath.Base(strings.TrimSuffix(l, " (deleted)")) == filepath.Base(exe) {
+			return true
+		}
+	}
+	return false
+}
+
 // ensureInner : crée claude-hub s'il manque, et épingle l'onglet « ◈ État »
 // en première position.
 func ensureInner(exe string) error {
@@ -112,6 +137,8 @@ func ensureInner(exe string) error {
 			if out, err := dtmux("new-window", "-d", "-b", "-n", stateWindow, "-t", exactS(hubSession)+":^", stateCmd).CombinedOutput(); err != nil {
 				return fmt.Errorf("new-window %s : %v (%s)", stateWindow, err, strings.TrimSpace(string(out)))
 			}
+		} else if paneStale(dtmux, exactW(hubSession, stateWindow), exe) {
+			_ = dtmux("respawn-pane", "-k", "-t", exactW(hubSession, stateWindow), stateCmd).Run()
 		}
 	}
 	// Barre d'onglets en haut ; le style projet est posé par window à l'ouverture.
@@ -137,9 +164,9 @@ func runShell() error {
 		innerSock = "-L " + shq(s) + " "
 	}
 	inner := fmt.Sprintf("env -u TMUX tmux %sattach-session -t %s", innerSock, shq(exactS(hubSession)))
+	nav := fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
+		shq(hubSession), shq(outerSocket()), shq(os.Getenv("CL_INNER_SOCKET")), shq(exe))
 	if otmux("has-session", "-t", outerSession).Run() != nil {
-		nav := fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
-			shq(hubSession), shq(outerSocket()), shq(os.Getenv("CL_INNER_SOCKET")), shq(exe))
 		steps := [][]string{
 			{"-f", "/dev/null", "new-session", "-d", "-s", outerSession, "-n", "ui", nav},
 			{"split-window", "-h", "-t", outerSession + ":0.0", inner},
@@ -167,13 +194,20 @@ func runShell() error {
 				return fmt.Errorf("tmux %s : %v (%s)", s[0], err, strings.TrimSpace(string(out)))
 			}
 		}
-	} else if n, _ := otmux("display-message", "-p", "-t", outerSession+":0", "#{window_panes}").Output(); strings.TrimSpace(string(n)) == "1" {
+	} else {
+		// Coque survivante dont le navigateur tourne sur un binaire remplacé
+		// depuis (mise à jour) : on le redémarre sur le binaire installé.
+		if paneStale(otmux, outerSession+":0.0", exe) {
+			_ = otmux("respawn-pane", "-k", "-t", outerSession+":0.0", nav).Run()
+		}
+	}
+	if n, _ := otmux("display-message", "-p", "-t", outerSession+":0", "#{window_panes}").Output(); strings.TrimSpace(string(n)) == "1" {
 		// Coque survivante dont la zone tmux s'est fermée (session intérieure
 		// tuée, client détaché) : on la recrée au lieu de n'afficher que le navigateur.
 		// Taille posée d'emblée : un split à 50 % serait mémorisé comme un glissement.
 		args := []string{"split-window", "-h", "-d", "-t", outerSession + ":0.0"}
-		if nav, win := navWidth(); win > nav+1 {
-			args = append(args, "-l", strconv.Itoa(win-nav-1))
+		if w, win := navWidth(); win > w+1 {
+			args = append(args, "-l", strconv.Itoa(win-w-1))
 		}
 		if out, err := otmux(append(args, inner)...).CombinedOutput(); err != nil {
 			return fmt.Errorf("tmux split-window : %v (%s)", err, strings.TrimSpace(string(out)))
