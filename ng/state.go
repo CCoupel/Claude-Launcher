@@ -11,7 +11,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// Vue « ◈ État » : onglet épinglé de claude-hub qui suit la sélection du
+// Vue « ◈ État » : pane de la coque, sous le navigateur, qui suit la sélection du
 // navigateur (fichier selection.json) et montre l'état du projet sans
 // l'ouvrir : git, template, panes tmux et fichiers.
 
@@ -240,11 +240,11 @@ func (m stateModel) topCards() string {
 		tl = red.Render("fichiers manquants") + dim.Render(" (/init-project au lancement)")
 	}
 	pl = append(pl, kv("template", tl))
-	sb.WriteString(card("Projet", strings.Join(pl, "\n"), w) + "\n")
+	sb.WriteString(m.card("Projet", strings.Join(pl, "\n"), w) + "\n")
 
 	var tp []string
 	if !m.panes.open {
-		tp = append(tp, dim.Render("Aucune fenêtre — Entrée dans le navigateur pour lancer."))
+		tp = append(tp, dim.Render("Aucune fenêtre (Entrée pour lancer)."))
 	}
 	for i, p := range m.panes.panes {
 		role := "teammate"
@@ -253,7 +253,7 @@ func (m stateModel) topCards() string {
 		}
 		tp = append(tp, fmt.Sprintf("%s %s  %s  %s", dim.Render("%"+p.Idx), padRight(role, 9), padRight(p.Cmd, 10), dim.Render(p.Size)))
 	}
-	sb.WriteString(card("Panes tmux", strings.Join(tp, "\n"), w) + "\n")
+	sb.WriteString(m.card("Panes tmux", strings.Join(tp, "\n"), w) + "\n")
 	return sb.String()
 }
 
@@ -263,7 +263,10 @@ func (m stateModel) filesRows() int {
 		return 5
 	}
 	used := strings.Count(m.topCards(), "\n") + 1 // cartes du haut
-	return max(4, m.h-used-3)                     // bordure haute/basse + titre
+	if m.narrow() {
+		return max(2, m.h-used-1) // titre seul
+	}
+	return max(4, m.h-used-3) // bordure haute/basse + titre
 }
 
 func humanSize(n int64) string {
@@ -310,10 +313,17 @@ func (m stateModel) filesCard(w int) string {
 	if len(files) == 0 {
 		lines = append(lines, dim.Render("(vide)"))
 	}
-	return card(title, strings.Join(lines, "\n"), w)
+	return m.card(title, strings.Join(lines, "\n"), w)
 }
 
-func card(title, body string, w int) string {
+// narrow : pane d'infos sous le navigateur (≈ 40 colonnes) : sections sans
+// cadre, pour tenir dans la hauteur.
+func (m stateModel) narrow() bool { return m.w < 60 }
+
+func (m stateModel) card(title, body string, w int) string {
+	if m.narrow() {
+		return dim.Render(" "+strings.ToUpper(title)) + "\n" + lipgloss.NewStyle().PaddingLeft(1).Width(w).Render(body)
+	}
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).
 		Padding(0, 1).Width(w - 2)
 	return box.Render(dim.Render(strings.ToUpper(title)) + "\n" + body)
@@ -333,13 +343,17 @@ func (m stateModel) View() string {
 		return ""
 	}
 	if !m.hasSel {
-		return "\n  " + dim.Render("Sélectionnez un projet dans le navigateur (à gauche).")
+		return "\n  " + dim.Render("Sélectionnez un projet dans le navigateur (ci-dessus).")
 	}
 	out := m.topCards()
 	if !m.loaded {
 		return out
 	}
-	return truncLines(out+m.filesCard(min(m.w-2, 110)), m.w)
+	out = truncLines(out+m.filesCard(min(m.w-2, 110)), m.w)
+	if l := strings.Split(out, "\n"); m.h > 0 && len(l) > m.h {
+		out = strings.Join(l[:m.h], "\n") // jamais plus haut que le pane : l'en-tête resterait hors champ
+	}
+	return out
 }
 
 func runState() error {

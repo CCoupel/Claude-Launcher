@@ -111,9 +111,9 @@ func (g GitInfo) Remote() (string, string, lipgloss.Style) {
 	case g.Merged:
 		return "✓", "publié, mergé dans " + g.Main, green.Bold(true)
 	case g.Gone:
-		return "⇡", "amont supprimé, non mergé dans " + g.Main, cyan
+		return "⇡", "amont supprimé, non mergé", cyan
 	default:
-		return "⇡", "poussé, non mergé dans " + g.Main, cyan
+		return "⇡", "poussé, non mergé", cyan
 	}
 }
 

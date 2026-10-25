@@ -43,6 +43,7 @@ type (
 		launcherTag string
 		tplTag      string
 		tplChanged  bool // nouveau tag du template détecté (cache réécrit)
+		manual      bool // demandée par F5 : hors du cycle de 10 min
 	}
 )
 
@@ -128,9 +129,9 @@ func firstTag(repo string) (name, sha string, err error) {
 // checkUpdates interroge GitHub. Si le template a un nouveau tag, les caches
 // partagés avec le bash (.template-commit / .template-version) sont mis à jour :
 // les badges ✓/⚠ des deux versions restent ainsi cohérents.
-func checkUpdates() tea.Cmd {
+func checkUpdates(manual bool) tea.Cmd {
 	return func() tea.Msg {
-		var out updMsg
+		out := updMsg{manual: manual}
 		if tag, _, err := latestTag(launcherRepo, "CL_FAKE_LATEST_LAUNCHER"); err == nil {
 			out.launcherTag, out.ok = tag, true
 		}

@@ -60,13 +60,13 @@ type model struct {
 	mgr          *stateMgr
 	form         newForm
 	quitStep     int // 0, quitAsk (launcher seul ou tout ?), quitAll (confirmer la fermeture des projets)
-	wantState    bool
 	navW         int // largeur demandée à tmux (appuis rapprochés)
 	navAt        time.Time
 	wantTeam     bool // clic hors projet : bascule sur « ⌗ Teamleaders »
 	lastShow     time.Time
 	hideLauncher bool
 	updating     bool    // mise à jour lancée d'un clic, en cours
+	checking     bool    // recherche de mises à jour demandée par F5, en cours
 	pendingCmd   tea.Cmd // commande produite par onMouse (qui ne renvoie que le modèle)
 	hideTpl      bool
 	lastClickIdx int
@@ -225,7 +225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadedAt = time.Since(m.started)
 		}
 	case updTickMsg:
-		return m, checkUpdates()
+		return m, checkUpdates(false)
 	case updMsg:
 		if msg.ok {
 			if tag := ""; versionNewer(ngVersion, msg.launcherTag) {
@@ -247,6 +247,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for p := range m.tpl {
 				m.tpl[p] = readTemplate(p, latest)
 			}
+		}
+		if msg.manual {
+			// le cycle de 10 min continue de son côté : pas de second minuteur
+			m.checking = false
+			switch {
+			case !msg.ok:
+				m.msg = "⚠ GitHub injoignable"
+			case m.newLauncher != "":
+				m.msg = "↑ NG " + m.newLauncher + " disponible"
+			default:
+				m.msg = "✓ NG à jour"
+			}
+			if msg.ok && msg.tplChanged {
+				m.msg += " · tpl " + msg.tplTag + " dispo"
+			}
+			return m, nil
 		}
 		return m, updTickCmd(10 * time.Minute)
 	case detailMsg:
@@ -327,24 +343,18 @@ func (m model) resizeNav(keys string) model {
 	return m
 }
 
-// stateCmd : après une action de navigation, remet tmux sur l'onglet « ◈ État »
-// (le projet sélectionné y est détaillé). Limité à un appel / 250 ms pour les
-// répétitions de touche.
+// stateCmd : après un clic hors projet, remet tmux sur l'onglet
+// « ⌗ Teamleaders » (le projet sélectionné, lui, est détaillé sous le
+// navigateur sans toucher à la zone tmux). Limité à un appel / 250 ms.
 func (m *model) stateCmd() tea.Cmd {
-	target := ""
-	switch {
-	case m.wantTeam:
-		target = teamWindow
-	case m.wantState:
-		target = stateWindow
-	}
-	m.wantState, m.wantTeam = false, false
-	if target == "" || !m.shell || time.Since(m.lastShow) < 250*time.Millisecond {
+	want := m.wantTeam
+	m.wantTeam = false
+	if !want || !m.shell || time.Since(m.lastShow) < 250*time.Millisecond {
 		return nil
 	}
 	m.lastShow = time.Now()
 	return func() tea.Msg {
-		_ = dtmux("select-window", "-t", exactW(hubSession, target)).Run()
+		_ = dtmux("select-window", "-t", exactW(hubSession, teamWindow)).Run()
 		return nil
 	}
 }
@@ -364,10 +374,10 @@ func (m model) openSelectedAs(mode launchMode) model {
 		return m
 	}
 	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate(), mode)
-	m.wantState, m.wantTeam, m.lastShow = false, false, time.Time{}
+	m.wantTeam, m.lastShow = false, time.Time{}
 	if m.shell && m.launch && m.msg == "" {
 		// le projet est à l'écran à droite : donne-lui le focus clavier
-		_ = otmux("select-pane", "-t", outerSession+":0.1").Run()
+		_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
 	}
 	return m
 }
@@ -385,10 +395,8 @@ func (m model) onMouse(e tea.MouseMsg) model {
 	switch {
 	case e.Button == tea.MouseButtonWheelUp:
 		m.move(-3)
-		m.wantState = true
 	case e.Button == tea.MouseButtonWheelDown:
 		m.move(3)
-		m.wantState = true
 	case e.Button == tea.MouseButtonLeft && e.Action == tea.MouseActionPress:
 		_, bodyH, _ := m.layout()
 		// sous la liste : filtre (bodyH), puis en-tête = session, versions, alertes…
@@ -438,9 +446,7 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			return m.openSelected()
 		}
 		if m.nodes[m.visible[idx]].Special != "" {
-			m.wantTeam = true // « Nouveau projet » n'est pas un projet : pas d'État à montrer
-		} else {
-			m.wantState = true
+			m.wantTeam = true // « Nouveau projet » n'est pas un projet : rien à détailler
 		}
 	}
 	return m
@@ -581,7 +587,6 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.filter != "" && k.String() == "esc" {
 			m.filter = ""
 			m.refilter()
-			m.wantState = true
 			return m, nil
 		}
 		m.quitStep = quitAsk
@@ -589,9 +594,17 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.hideLauncher, m.hideTpl = true, true
 		return m, nil
+	case "f5":
+		// recherche immédiate ; les annonces masquées réapparaissent
+		if m.checking {
+			return m, nil
+		}
+		m.checking, m.hideLauncher, m.hideTpl = true, false, false
+		m.msg = "recherche des mises à jour…"
+		return m, checkUpdates(true)
 	case "tab":
 		if m.shell {
-			_ = otmux("select-pane", "-t", outerSession+":0.1").Run()
+			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
 		}
 	case "ctrl+left", "ctrl+right":
 		// Ctrl+← réduit, Ctrl+→ élargit la zone du navigateur (4 colonnes par appui)
@@ -605,16 +618,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "up", "ctrl+p":
 		m.move(-1)
-		m.wantState = true
 	case "down", "ctrl+n":
 		m.move(1)
-		m.wantState = true
 	case "pgup":
 		m.move(-10)
-		m.wantState = true
 	case "pgdown":
 		m.move(10)
-		m.wantState = true
 	case "ctrl+r":
 		m.nodes = withSpecial(scanTree(m.cfg.Roots))
 		if m.mgr != nil {
@@ -641,14 +650,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			r := []rune(m.filter)
 			m.filter = string(r[:len(r)-1])
 			m.refilter()
-			m.wantState = true
 		}
 	default:
 		if k.Type == tea.KeyRunes {
 			m.filter += string(k.Runes)
 			m.refilter()
 			m.cursor = m.firstProject()
-			m.wantState = true
 		}
 	}
 	return m, nil
@@ -730,7 +737,7 @@ func truncLines(s string, w int) string {
 }
 
 // layout : géométrie commune à l'affichage et à la souris. En coque, la preview
-// est toujours retirée : elle ferait doublon avec l'onglet « ◈ État » de tmux.
+// est toujours retirée : elle ferait doublon avec le pane d'infos sous le navigateur.
 func (m model) layout() (listW, bodyH int, compact bool) {
 	compact = m.shell || m.w < 80
 	listW = m.w * 38 / 100
@@ -773,10 +780,10 @@ func (m model) View() string {
 	}
 
 	var body string
-	hint := "  ↑↓ naviguer · entrée ouvrir · ctrl-r rescanner · esc quitter"
+	hint := "  ↑↓ naviguer · entrée ouvrir · ctrl-r rescanner · F5 mises à jour · esc quitter"
 	if compact {
 		body = lipgloss.NewStyle().Width(m.w).MaxWidth(m.w).Height(bodyH).Render(list)
-		hint = "  ↵ ouvrir · tab→tmux · ctrl+←→ zone"
+		hint = "  ↵ ouvrir · tab→tmux · ^←→ · F5 maj"
 	} else {
 		prev := m.renderPreview(m.w - listW - 3)
 		left := lipgloss.NewStyle().Width(listW).Height(bodyH).Render(list)
@@ -802,6 +809,8 @@ func (m model) View() string {
 		foot = yellow.Render(q[0]) + "\n" + yellow.Render(q[1])
 	case q[0] != "":
 		foot = yellow.Render(q[0] + " ·" + q[1][1:])
+	case compact && m.msg != "":
+		foot += "\n  " + yellow.Render(m.msg) // 40 colonnes : le message seul, sans le décompte
 	case compact:
 		foot += "\n" + m.footStatus()
 	default:
@@ -1037,6 +1046,12 @@ func main() {
 		selfUpdate()
 		err = runShell()
 	case "nav":
+		if os.Getenv("CL_SHELL") == "1" {
+			// redémarré par une mise à jour : la coque peut dater d'avant le pane d'infos
+			if exe, e := os.Executable(); e == nil {
+				_ = ensureLayout(strings.TrimSuffix(exe, " (deleted)"))
+			}
+		}
 		_, err = tea.NewProgram(newModel(launch), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	case "state":
 		err = runState()

@@ -61,14 +61,14 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
   Un projet déjà ouvert est marqué `●` vert, son nom en gras sur la couleur de son pane tmux.
   L'en-tête indique les versions : `NG v3.0.0 · sh 3.0.0 · tpl 3.26.0` (NG, script compagnon,
   dernier tag du template).
-- **Droite** : tmux, un onglet par projet, plus deux onglets épinglés :
-  - `◈ État` : suit la sélection (git, template, panes, fichiers) — lu depuis un cache
-    préparé en tâche de fond ;
-  - `⌗ Teamleaders` : une vignette interactive par projet ouvert.
+- **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, panes,
+  fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
+- **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
+  vignette interactive par projet ouvert).
 
 | Action | Effet |
 |---|---|
-| `↑` `↓` `PgUp` `PgDn`, molette, clic sur un projet | sélectionner → onglet `◈ État` |
+| `↑` `↓` `PgUp` `PgDn`, molette, clic sur un projet | sélectionner → détail sous le navigateur (un clic sur un projet ouvert bascule sur sa fenêtre) |
 | `Entrée`, double-clic sur un projet | ouvrir / rejoindre le projet |
 | clic hors projet (catégorie, zone vide, en-tête) | onglet `⌗ Teamleaders` |
 | double-clic sur une catégorie ou une racine | créer un projet dans ce dossier |
@@ -78,6 +78,7 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
+| `F5` | rechercher les mises à jour maintenant (réaffiche les annonces masquées) |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Création d'un projet : le formulaire demande le nom, puis le type de projet :
@@ -118,7 +119,7 @@ Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minut
   « coque » dédiée (socket `claude-ui`) qui découpe le terminal en navigateur + `tmux attach`.
   La coque n'a pas de préfixe : toutes les touches passent au tmux intérieur.
 - `cache.go` : état des projets calculé en tâche de fond (2 calculs en parallèle) et écrit
-  dans `~/.cache/claude-launcher/state/`, que la vue `◈ État` lit.
+  dans `~/.cache/claude-launcher/state/`, que le pane `◈ État` lit.
 - `mirrors.go` : gestionnaire de l'onglet `⌗ Teamleaders`, qui réutilise les vignettes du
   script (`claude-launcher.sh --mirror`).
 - `update.go` : versions, annonces, resynchronisation de `init-project.md`.

@@ -64,13 +64,9 @@ func (mm *mirrorMgr) tick() {
 		}
 	}
 	if teamID == "" {
-		// épinglé juste après « ◈ État » ; sinon en tête
-		id, err := tmuxOut("new-window", "-d", "-a", "-P", "-F", "#{window_id}", "-n", teamWindow,
-			"-t", exactW(hubSession, stateWindow), teamPlaceholder)
-		if err != nil {
-			id, err = tmuxOut("new-window", "-d", "-P", "-F", "#{window_id}", "-n", teamWindow,
-				"-t", exactS(hubSession)+":", teamPlaceholder)
-		}
+		// épinglé en tête
+		id, err := tmuxOut("new-window", "-d", "-b", "-P", "-F", "#{window_id}", "-n", teamWindow,
+			"-t", exactS(hubSession)+":^", teamPlaceholder)
 		if err != nil {
 			return
 		}
