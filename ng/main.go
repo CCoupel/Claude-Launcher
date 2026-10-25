@@ -372,7 +372,8 @@ func (m model) openSelectedAs(mode launchMode) model {
 	return m
 }
 
-// onMouse : clic = sélectionner, double-clic = ouvrir, molette = défiler.
+// onMouse : clic = sélectionner (ou basculer sur un projet déjà ouvert),
+// double-clic = ouvrir, molette = défiler.
 func (m model) onMouse(e tea.MouseMsg) model {
 	if m.form.mode != formNone {
 		return m
@@ -431,7 +432,8 @@ func (m model) onMouse(e tea.MouseMsg) model {
 		double := idx == m.lastClickIdx && time.Since(m.lastClickAt) < 450*time.Millisecond
 		m.cursor = idx
 		m.lastClickIdx, m.lastClickAt = idx, time.Now()
-		if double {
+		// projet déjà ouvert : un clic simple suffit pour basculer sur sa fenêtre
+		if n := m.nodes[m.visible[idx]]; double || (n.Project && m.windows[n.Key]) {
 			m.lastClickAt = time.Time{}
 			return m.openSelected()
 		}
