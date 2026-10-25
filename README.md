@@ -17,9 +17,11 @@ vignettes), et l'ancienne commande `~/claude-launcher.sh` **redirige vers le NG*
 Un navigateur de projets à gauche, tmux à droite :
 
 - **Navigateur** : vos projets en arbre par catégorie (les sous-dossiers de `GITHUB_DIRS`), filtre à la
-  frappe, souris. Badges git (`●` à jour, `○` sans amont, `↓N` en retard sur l'amont) et template
-  (`✔` à jour, `⚠` en retard, `⊘` sans template), consommation du compte Claude en bas.
-- **Onglet `◈ État`** : suit la sélection et détaille le projet sans l'ouvrir — git, version du template
+  frappe, souris. Badges git **local** (`●` au repos sur main, `✎` en cours, `◆` tout commité, `!` modifié
+  sur main) et **remote** (`○` jamais poussé, `↑N` non poussé, `⇡` non mergé, `✓` publié, `↓N` en retard),
+  badge template (`✔` à jour, `⚠` en retard, `⊘` sans template), consommation du compte Claude en bas.
+- **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir ni changer la
+  zone de droite — git, version locale et dernière release, version du template
   (`v3.9.1 → v3.26.0`), panes tmux, fichiers avec leur marqueur git. Instantané : l'état est préparé
   en tâche de fond et rafraîchi quand le projet change.
 - **Onglet `⌗ Teamleaders`** : une vignette interactive par projet ouvert, à la couleur du projet.
@@ -32,7 +34,7 @@ Un navigateur de projets à gauche, tmux à droite :
 
 | Action | Effet |
 |---|---|
-| `↑` `↓` `PgUp` `PgDn`, molette, clic sur un projet | sélectionner → onglet `◈ État` |
+| `↑` `↓` `PgUp` `PgDn`, molette, clic sur un projet | sélectionner → détail sous le navigateur (un clic sur un projet ouvert bascule sur sa fenêtre) |
 | `Entrée`, double-clic sur un projet | ouvrir / rejoindre le projet |
 | clic hors projet (catégorie, zone vide, en-tête) | onglet `⌗ Teamleaders` |
 | double-clic sur une catégorie ou une racine | créer un projet dans ce dossier |

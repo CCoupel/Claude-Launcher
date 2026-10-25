@@ -123,8 +123,8 @@ func updateNowCmd(tag string) tea.Cmd {
 	}
 }
 
-// restartOnNewBinary : après une mise à jour depuis le navigateur, relance
-// « ◈ État » puis le navigateur lui-même sur le binaire installé (respawn-pane
+// restartOnNewBinary : après une mise à jour depuis le navigateur, relance le
+// pane d'infos puis le navigateur lui-même sur le binaire installé (respawn-pane
 // tue ce processus). Les projets et la zone tmux ne sont pas touchés.
 func restartOnNewBinary() {
 	exe, err := os.Executable() // sous Linux : chemin du fichier, même remplacé
@@ -132,8 +132,10 @@ func restartOnNewBinary() {
 		return
 	}
 	exe = strings.TrimSuffix(exe, " (deleted)")
-	_ = dtmux("respawn-pane", "-k", "-t", exactW(hubSession, stateWindow), stateCommand(exe)).Run()
-	_ = otmux("respawn-pane", "-k", "-t", outerSession+":0.0", navCommand(exe)).Run()
+	if p := outerPane(roleInfo); p != "" {
+		_ = otmux("respawn-pane", "-k", "-t", p, stateCommand(exe)).Run()
+	}
+	_ = otmux("respawn-pane", "-k", "-t", outerPane(roleNav), navCommand(exe)).Run()
 }
 
 // applyUpdate télécharge depuis base (…/releases/download/<tag>) le binaire de
