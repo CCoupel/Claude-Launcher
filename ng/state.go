@@ -219,19 +219,14 @@ func (m stateModel) topCards() string {
 	if !g.IsRepo {
 		pl = append(pl, dim.Render("pas un dépôt git"))
 	} else {
-		br := g.Branch
-		if m.data.detail.Dirty {
-			br += yellow.Render("  *modifié")
-		}
-		pl = append(pl, kv("branche", br))
-		switch {
-		case !g.Upstream:
-			pl = append(pl, kv("amont", "aucun"))
-		case g.Behind > 0:
-			pl = append(pl, kv("amont", red.Render(fmt.Sprintf("en retard de %d commit(s)", g.Behind))))
-		default:
-			pl = append(pl, kv("amont", green.Render("à jour")))
-		}
+		d := m.data.detail
+		ls, lt, lst := g.Local()
+		rs, rt, rst := g.Remote()
+		pl = append(pl, kv("branche", g.Branch))
+		pl = append(pl, kv("local", lst.Render(ls+" "+lt)))
+		pl = append(pl, kv("remote", rst.Render(rs+" "+rt)))
+		pl = append(pl, kv("version", "locale  "+orNone(d.VerLocal)))
+		pl = append(pl, kv("", "release "+orNone(d.VerRelease)))
 		pl = append(pl, kv("dernier", shorten(m.data.detail.LastMsg, w-16)))
 	}
 	tl := dim.Render("⊘ non géré par template")
@@ -322,6 +317,13 @@ func card(title, body string, w int) string {
 	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).
 		Padding(0, 1).Width(w - 2)
 	return box.Render(dim.Render(strings.ToUpper(title)) + "\n" + body)
+}
+
+func orNone(s string) string {
+	if s == "" {
+		return dim.Render("aucune")
+	}
+	return s
 }
 
 func kv(k, v string) string { return dim.Render(padRight(k, 9)) + v }

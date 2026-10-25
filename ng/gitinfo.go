@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -10,14 +11,21 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/charmbracelet/lipgloss"
 )
 
 // GitInfo : état git purement local (jamais de fetch réseau), comme git_badge.
 type GitInfo struct {
 	IsRepo   bool
 	Branch   string
-	Upstream bool
+	Main     string // branche principale (origin/HEAD, sinon « main »)
+	Dirty    bool
+	Upstream bool // amont configuré
+	Gone     bool // amont configuré mais disparu (branche supprimée après merge + fetch --prune)
+	Ahead    int
 	Behind   int
+	Merged   bool // hors branche principale : HEAD déjà contenu dans origin/<Main>
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
@@ -25,36 +33,97 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	return strings.TrimSpace(string(out)), err
 }
 
-// readGit : un seul appel git par projet (le disque 9p de WSL rend chaque
-// fork coûteux). La branche vient de .git/HEAD ; `rev-list --left-right`
-// échoue s'il n'y a pas d'amont, ce qui sert aussi de détection.
+// readGit : un seul `git status --branch` par projet (le disque 9p de WSL rend
+// chaque fork coûteux) donne branche, avance/retard et modifications ; un
+// second appel, seulement hors branche principale, teste le merge.
 func readGit(dir string) GitInfo {
 	var g GitInfo
-	st, err := os.Stat(filepath.Join(dir, ".git"))
-	if err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return g
 	}
 	g.IsRepo = true
-	if st.IsDir() {
-		if b, err := os.ReadFile(filepath.Join(dir, ".git", "HEAD")); err == nil {
-			g.Branch = strings.TrimPrefix(strings.TrimSpace(string(b)), "ref: refs/heads/")
-		}
-	}
+	g.Main = mainBranch(dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	if s, err := git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{u}"); err == nil {
-		g.Upstream = true
-		if f := strings.Fields(s); len(f) == 2 {
-			g.Behind, _ = strconv.Atoi(f[1])
+	out, err := exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch").Output()
+	if err != nil {
+		return g
+	}
+	ab := false
+	for _, l := range strings.Split(string(out), "\n") {
+		switch {
+		case strings.HasPrefix(l, "# branch.head "):
+			g.Branch = strings.TrimPrefix(l, "# branch.head ")
+		case strings.HasPrefix(l, "# branch.upstream "):
+			g.Upstream = true
+		case strings.HasPrefix(l, "# branch.ab "):
+			ab = true
+			if f := strings.Fields(l); len(f) == 4 {
+				g.Ahead, _ = strconv.Atoi(strings.TrimPrefix(f[2], "+"))
+				g.Behind, _ = strconv.Atoi(strings.TrimPrefix(f[3], "-"))
+			}
+		case l != "" && !strings.HasPrefix(l, "#"):
+			g.Dirty = true
 		}
+	}
+	g.Gone = g.Upstream && !ab
+	if g.Upstream && g.Branch != g.Main {
+		g.Merged = exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
+			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main).Run() == nil
 	}
 	return g
 }
 
+// mainBranch : branche principale d'après origin/HEAD, « main » à défaut.
+func mainBranch(dir string) string {
+	if b, err := os.ReadFile(filepath.Join(dir, ".git", "refs", "remotes", "origin", "HEAD")); err == nil {
+		return strings.TrimPrefix(strings.TrimSpace(string(b)), "ref: refs/remotes/origin/")
+	}
+	return "main"
+}
+
+// Local : état de la copie de travail (symbole, libellé, style).
+func (g GitInfo) Local() (string, string, lipgloss.Style) {
+	onMain := g.Branch == g.Main
+	switch {
+	case onMain && g.Dirty:
+		return "!", "modifié directement sur " + g.Main, red
+	case onMain:
+		return "●", "au repos sur " + g.Main, green.Bold(true)
+	case g.Dirty:
+		return "✎", "en cours, non commité", yellow.Bold(true)
+	default:
+		return "◆", "terminé, tout commité", cyan
+	}
+}
+
+// Remote : état par rapport à origin, le plus urgent d'abord.
+func (g GitInfo) Remote() (string, string, lipgloss.Style) {
+	switch {
+	case !g.Upstream:
+		return "○", "jamais poussé", blue
+	case g.Behind > 0:
+		return fmt.Sprintf("↓%d", g.Behind), fmt.Sprintf("en retard de %d commit(s)", g.Behind), red
+	case g.Ahead > 0:
+		return fmt.Sprintf("↑%d", g.Ahead), fmt.Sprintf("%d commit(s) non poussé(s)", g.Ahead), yellow.Bold(true)
+	case g.Branch == g.Main:
+		return "✓", "à jour", green.Bold(true)
+	case g.Merged:
+		return "✓", "publié, mergé dans " + g.Main, green.Bold(true)
+	case g.Gone:
+		return "⇡", "amont supprimé, non mergé dans " + g.Main, cyan
+	default:
+		return "⇡", "poussé, non mergé dans " + g.Main, cyan
+	}
+}
+
 // GitDetail : chargé à la demande pour le seul projet sélectionné.
 type GitDetail struct {
-	Dirty   bool
 	LastMsg string
+	// VerLocal : version de travail (describe de HEAD) ; VerRelease : dernier
+	// tag atteignable depuis origin/<principale>.
+	VerLocal   string
+	VerRelease string
 	// Changes : entrée de premier niveau -> code git (M, A, D, ?) ; « ● » pour
 	// un dossier contenant des modifications.
 	Changes map[string]string
@@ -86,9 +155,10 @@ func readDetail(dir string) GitDetail {
 			}
 			d.Changes[top] = code
 		}
-		d.Dirty = len(d.Changes) > 0
 	}
 	d.LastMsg, _ = git(ctx, dir, "log", "-1", "--format=%s")
+	d.VerLocal, _ = git(ctx, dir, "describe", "--tags", "--dirty")
+	d.VerRelease, _ = git(ctx, dir, "describe", "--tags", "--abbrev=0", "origin/"+mainBranch(dir))
 	return d
 }
 
