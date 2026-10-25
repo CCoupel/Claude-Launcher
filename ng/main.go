@@ -66,6 +66,7 @@ type model struct {
 	lastShow     time.Time
 	hideLauncher bool
 	updating     bool    // mise à jour lancée d'un clic, en cours
+	checking     bool    // recherche de mises à jour demandée par F5, en cours
 	pendingCmd   tea.Cmd // commande produite par onMouse (qui ne renvoie que le modèle)
 	hideTpl      bool
 	lastClickIdx int
@@ -224,7 +225,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadedAt = time.Since(m.started)
 		}
 	case updTickMsg:
-		return m, checkUpdates()
+		return m, checkUpdates(false)
 	case updMsg:
 		if msg.ok {
 			if tag := ""; versionNewer(ngVersion, msg.launcherTag) {
@@ -246,6 +247,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			for p := range m.tpl {
 				m.tpl[p] = readTemplate(p, latest)
 			}
+		}
+		if msg.manual {
+			// le cycle de 10 min continue de son côté : pas de second minuteur
+			m.checking = false
+			switch {
+			case !msg.ok:
+				m.msg = "⚠ GitHub injoignable"
+			case m.newLauncher != "":
+				m.msg = "↑ NG " + m.newLauncher + " disponible"
+			default:
+				m.msg = "✓ NG à jour"
+			}
+			if msg.ok && msg.tplChanged {
+				m.msg += " · tpl " + msg.tplTag + " dispo"
+			}
+			return m, nil
 		}
 		return m, updTickCmd(10 * time.Minute)
 	case detailMsg:
@@ -577,6 +594,14 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.hideLauncher, m.hideTpl = true, true
 		return m, nil
+	case "f5":
+		// recherche immédiate ; les annonces masquées réapparaissent
+		if m.checking {
+			return m, nil
+		}
+		m.checking, m.hideLauncher, m.hideTpl = true, false, false
+		m.msg = "recherche des mises à jour…"
+		return m, checkUpdates(true)
 	case "tab":
 		if m.shell {
 			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
@@ -755,10 +780,10 @@ func (m model) View() string {
 	}
 
 	var body string
-	hint := "  ↑↓ naviguer · entrée ouvrir · ctrl-r rescanner · esc quitter"
+	hint := "  ↑↓ naviguer · entrée ouvrir · ctrl-r rescanner · F5 mises à jour · esc quitter"
 	if compact {
 		body = lipgloss.NewStyle().Width(m.w).MaxWidth(m.w).Height(bodyH).Render(list)
-		hint = "  ↵ ouvrir · tab→tmux · ctrl+←→ zone"
+		hint = "  ↵ ouvrir · tab→tmux · ^←→ · F5 maj"
 	} else {
 		prev := m.renderPreview(m.w - listW - 3)
 		left := lipgloss.NewStyle().Width(listW).Height(bodyH).Render(list)
@@ -784,6 +809,8 @@ func (m model) View() string {
 		foot = yellow.Render(q[0]) + "\n" + yellow.Render(q[1])
 	case q[0] != "":
 		foot = yellow.Render(q[0] + " ·" + q[1][1:])
+	case compact && m.msg != "":
+		foot += "\n  " + yellow.Render(m.msg) // 40 colonnes : le message seul, sans le décompte
 	case compact:
 		foot += "\n" + m.footStatus()
 	default:

@@ -78,6 +78,7 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
+| `F5` | rechercher les mises à jour maintenant (réaffiche les annonces masquées) |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Création d'un projet : le formulaire demande le nom, puis le type de projet :
