@@ -703,14 +703,10 @@ func (m model) badges(p string) string {
 		return dim.Render(" …")
 	}
 	var b string
-	switch {
-	case !g.IsRepo:
-	case !g.Upstream:
-		b += blue.Render(" ○")
-	case g.Behind > 0:
-		b += red.Render(fmt.Sprintf(" ↓%d", g.Behind))
-	default:
-		b += green.Bold(true).Render(" ●")
+	if g.IsRepo {
+		ls, _, lst := g.Local()
+		rs, _, rst := g.Remote()
+		b += " " + lst.Render(ls) + " " + rst.Render(rs)
 	}
 	switch m.tpl[p] {
 	case TplOK:
@@ -889,19 +885,14 @@ func (m model) renderPreview(w int) string {
 		sb.WriteString(dim.Render("○ non lancé") + "\n")
 	}
 	if g, ok := m.git[n.Path]; ok && g.IsRepo {
-		sb.WriteString("\n" + dim.Render("branche  ") + g.Branch)
 		d := m.detail[n.Path]
-		if d.Dirty {
-			sb.WriteString(yellow.Render("  *modifié"))
-		}
-		switch {
-		case !g.Upstream:
-			sb.WriteString("\n" + dim.Render("amont    ") + "aucun")
-		case g.Behind > 0:
-			sb.WriteString("\n" + dim.Render("amont    ") + red.Render(fmt.Sprintf("en retard de %d commit(s)", g.Behind)))
-		default:
-			sb.WriteString("\n" + dim.Render("amont    ") + "à jour")
-		}
+		ls, lt, lst := g.Local()
+		rs, rt, rst := g.Remote()
+		sb.WriteString("\n" + dim.Render("branche  ") + g.Branch)
+		sb.WriteString("\n" + dim.Render("local    ") + lst.Render(ls+" "+lt))
+		sb.WriteString("\n" + dim.Render("remote   ") + rst.Render(rs+" "+rt))
+		sb.WriteString("\n" + dim.Render("version  ") + "locale  " + orNone(d.VerLocal))
+		sb.WriteString("\n" + dim.Render("         ") + "release " + orNone(d.VerRelease))
 		sb.WriteString("\n" + dim.Render("dernier  ") + shorten(d.LastMsg, w-9))
 	}
 	sb.WriteString("\n")
