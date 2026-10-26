@@ -143,7 +143,21 @@ func ensureInner() error {
 	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-left", "").Run()
 	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-right", "#[fg=colour244]%H:%M ").Run()
 	_ = dtmux("select-window", "-t", exactW(hubSession, teamWindow)).Run()
+	bindZoom()
 	return nil
+}
+
+// tmuxDoubleClick : liaison DoubleClick1Pane par défaut de tmux (sélection d'un mot).
+const tmuxDoubleClick = `select-pane -t = ; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-word ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }`
+
+// bindZoom : dans claude-hub, un double-clic sur un pane le passe en plein écran
+// (comme préfixe+z) et un nouveau double-clic le remet en taille normale. Les
+// liaisons sont globales au serveur : les autres sessions gardent le comportement
+// par défaut.
+func bindZoom() {
+	cond := "#{==:#{session_name}," + hubSession + "}"
+	_ = dtmux("bind-key", "-n", "DoubleClick1Pane", "if-shell", "-F", cond,
+		"select-pane -t = ; resize-pane -Z -t =", tmuxDoubleClick).Run()
 }
 
 // dropStateWindow ferme l'onglet « ◈ État » des versions ≤ v3.0.8.
