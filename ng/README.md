@@ -81,6 +81,7 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | frappe | filtrer |
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner la zone navigateur (4 colonnes par appui) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
+| double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
 | clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | `F5` | rechercher les mises à jour maintenant (réaffiche les annonces masquées) |
