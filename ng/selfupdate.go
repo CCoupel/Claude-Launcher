@@ -66,6 +66,10 @@ func selfUpdate() {
 	if bin == "" && script == "" {
 		return
 	}
+	if !releaseReady(releaseBase + "/" + tag) {
+		fmt.Printf("\033[38;5;208m  ↑ %s %s : release pas encore publiée — démarrage avec la version en place\033[0m\n", ngName, tag)
+		return
+	}
 	fmt.Printf("\033[1;32m  ↑ %s %s disponible — mise à jour…\033[0m\n", ngName, tag)
 	binDone, scriptDone, err := applyUpdate(releaseBase+"/"+tag, bin, script)
 	if scriptDone {
@@ -180,6 +184,14 @@ func httpGet(url string, timeout time.Duration) ([]byte, error) {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 	return io.ReadAll(resp.Body)
+}
+
+// releaseReady : la release est-elle téléchargeable ? Le tag existe dès le push,
+// les fichiers seulement à la fin de la CI.
+func releaseReady(base string) bool {
+	sums, err := fetchSums(base + "/SHA256SUMS")
+	_, ok := sums[ngAsset()]
+	return err == nil && ok
 }
 
 // fetchSums : « <sha256>  <nom> » par ligne (format de sha256sum).

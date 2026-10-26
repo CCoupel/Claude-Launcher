@@ -19,7 +19,11 @@ import (
 // Versions et mises à jour : même logique que le menu bash (tags GitHub du
 // launcher et du template, comparaison du template sur le commit du dernier
 // tag). En cours de route le NG se contente de SIGNALER une nouvelle version ;
-// la mise à jour elle-même a lieu au lancement (selfupdate.go).
+// la mise à jour elle-même a lieu au lancement (selfupdate.go) ou d'un clic.
+//
+// Un tag poussé précède sa release de quelques minutes (CI) : tant que la
+// release n'est pas publiée, la version est annoncée en orange, non cliquable ;
+// une fois publiée, en vert, un clic l'installe (NG) ou l'adopte (template).
 
 const (
 	launcherRepo = "CCoupel/Claude-Launcher"
@@ -39,11 +43,17 @@ var ngVersion = "dev"
 type (
 	updTickMsg struct{}
 	updMsg     struct {
-		ok          bool
-		launcherTag string
-		tplTag      string
-		tplChanged  bool // nouveau tag du template détecté (cache réécrit)
-		manual      bool // demandée par F5 : hors du cycle de 10 min
+		ok            bool
+		launcherTag   string
+		launcherReady bool   // fichiers de release (SHA256SUMS) disponibles
+		tplTag        string // tag du template plus récent que le cache, pas encore adopté
+		tplSha        string
+		tplReady      bool // release du template publiée : adoptable d'un clic
+		manual        bool // demandée par F5 : hors du cycle de 10 min
+	}
+	tplAdoptedMsg struct {
+		tag    string
+		synced bool // init-project.md téléchargé
 	}
 )
 
@@ -102,8 +112,16 @@ func verParts(v string) [3]int {
 	return out
 }
 
+// apiBase : API GitHub (CL_API_BASE la remplace, pour les tests).
+var apiBase = func() string {
+	if b := os.Getenv("CL_API_BASE"); b != "" {
+		return strings.TrimRight(b, "/")
+	}
+	return "https://api.github.com"
+}()
+
 func firstTag(repo string) (name, sha string, err error) {
-	req, _ := http.NewRequest("GET", "https://api.github.com/repos/"+repo+"/tags", nil)
+	req, _ := http.NewRequest("GET", apiBase+"/repos/"+repo+"/tags", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
@@ -126,31 +144,71 @@ func firstTag(repo string) (name, sha string, err error) {
 	return tags[0].Name, tags[0].Commit.Sha, nil
 }
 
-// checkUpdates interroge GitHub. Si le template a un nouveau tag, les caches
-// partagés avec le bash (.template-commit / .template-version) sont mis à jour :
-// les badges ✓/⚠ des deux versions restent ainsi cohérents.
+// checkUpdates interroge GitHub. Un nouveau tag du template n'est pas adopté
+// d'office : il l'est d'un clic (adoptTplCmd), sauf sans cache (première
+// installation).
 func checkUpdates(manual bool) tea.Cmd {
 	return func() tea.Msg {
 		out := updMsg{manual: manual}
 		if tag, _, err := latestTag(launcherRepo, "CL_FAKE_LATEST_LAUNCHER"); err == nil {
 			out.launcherTag, out.ok = tag, true
+			if versionNewer(ngVersion, tag) {
+				out.launcherReady = releaseReady(releaseBase + "/" + tag)
+			}
 		}
 		if tag, sha, err := latestTag(templateRepo, "CL_FAKE_LATEST_TPL"); err == nil {
-			out.tplTag, out.ok = tag, true
-			changed := sha != "" && sha != readTrim(tplCommitPath())
-			if changed {
-				_ = os.WriteFile(tplCommitPath(), []byte(sha), 0o644)
-				_ = os.WriteFile(tplVersionPath(), []byte(tag), 0o644)
-				out.tplChanged = true
+			out.ok = true
+			switch cached := readTrim(tplCommitPath()); {
+			case sha == "" || sha == cached:
+			case cached == "":
+				adoptTemplate(tag, sha)
+			default:
+				out.tplTag, out.tplSha = tag, sha
+				out.tplReady = tplReleased(tag)
 			}
-			// init-project.md : à chaque démarrage (comme le sync_init_project du bash)
-			// puis à chaque nouveau tag du template
-			if sha != "" && (!initSynced || changed) && syncInitProject(sha) {
-				initSynced = true
-			}
+		}
+		// init-project.md : à chaque démarrage (comme le sync_init_project du bash),
+		// au commit adopté
+		if c := readTrim(tplCommitPath()); !initSynced && c != "" && syncInitProject(c) {
+			initSynced = true
 		}
 		return out
 	}
+}
+
+// adoptTemplate : les caches partagés avec le bash (.template-commit /
+// .template-version) passent au tag, et init-project.md est resynchronisé ;
+// les badges ⚠ des projets en retard en découlent.
+func adoptTemplate(tag, sha string) (synced bool) {
+	_ = os.WriteFile(tplCommitPath(), []byte(sha), 0o644)
+	_ = os.WriteFile(tplVersionPath(), []byte(tag), 0o644)
+	if syncInitProject(sha) {
+		initSynced = true
+		return true
+	}
+	return false
+}
+
+// adoptTplCmd : adoption lancée d'un clic sur l'annonce verte du template.
+func adoptTplCmd(tag, sha string) tea.Cmd {
+	return func() tea.Msg { return tplAdoptedMsg{tag: tag, synced: adoptTemplate(tag, sha)} }
+}
+
+// tplReleased : la release GitHub du tag de template est-elle publiée ?
+// CL_FAKE_TPL_RELEASED=<tag> la simule, pour les tests.
+func tplReleased(tag string) bool {
+	if v := os.Getenv("CL_FAKE_TPL_RELEASED"); v != "" {
+		return v == tag
+	}
+	req, _ := http.NewRequest("GET", apiBase+"/repos/"+templateRepo+"/releases/tags/"+tag, nil)
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("User-Agent", "Claude-Launcher-NG")
+	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == 200
 }
 
 // rawBase : serveur des fichiers bruts GitHub (CL_RAW_BASE le remplace, pour les tests).
