@@ -44,6 +44,11 @@ claude-launcher-ng            # = claude-launcher-ng shell
 claude-launcher-ng version
 ```
 
+Au lancement, les teams mortes de `~/.claude/teams` (et leurs tâches) sont supprimées : une session
+Claude coupée laisse la sienne, que la reprise par `/start-session` ne réutilise pas. Une team n'est
+supprimée que si elle a des teammates avec un pane tmux et qu'aucun de ces panes n'existe encore ;
+les teams sans teammate, ou tmux injoignable, ne sont jamais touchées.
+
 La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHUB_DIRS`,
 `CLAUDE_OPTIONS`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`…).
 
