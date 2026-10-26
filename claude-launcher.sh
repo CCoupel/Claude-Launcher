@@ -359,9 +359,14 @@ fi
 # FONCTION : find_team_config PROJECT_DIR
 # Cherche le config.json de la team correspondant au projet
 # Retourne le chemin ou "" si non trouvé
+# Plusieurs teams peuvent viser le même projet : une session coupée laisse la
+# sienne (panes morts) quand la reprise en crée une nouvelle. On retient la plus
+# récemment modifiée — celle de la session vivante, réécrite à chaque spawn et
+# changement d'activité.
 # ════════════════════════════════════════════════════════════════════════════
 find_team_config() {
   local project_dir="$1"
+  local best=""
 
   # Normalise le chemin : supprime slash final, résout si possible
   local real_project
@@ -379,10 +384,10 @@ find_team_config() {
 
     # Comparaison directe et insensible à la casse (chemins WSL /mnt/c/...)
     if [[ "$real_cwd" == "$real_project" ]]     || [[ "${real_cwd,,}" == "${real_project,,}" ]]; then
-      echo "$cfg"
-      return
+      [[ -z "$best" || "$cfg" -nt "$best" ]] && best="$cfg"
     fi
   done
+  echo "$best"
 }
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -665,18 +670,7 @@ if [[ "$1" == "--debug-layout" ]]; then
   echo "=== CONFIG.JSON trouvé ==="
   project_dir=$(tmux display-message -t "${win}.0" -p '#{pane_current_path}' 2>/dev/null)
   echo "project_dir = $project_dir"
-  cfg=""
-  for c in "$HOME/.claude/teams/"*/config.json; do
-    [[ -f "$c" ]] || continue
-    cwd=$(jq -r '.members[] | select(.name=="team-lead") | .cwd' "$c" 2>/dev/null)
-    [[ -z "$cwd" || "$cwd" == "null" ]] && continue
-    real_cwd=$(realpath "$cwd" 2>/dev/null) || real_cwd="${cwd%/}"
-    real_proj=$(realpath "$project_dir" 2>/dev/null) || real_proj="${project_dir%/}"
-    if [[ "$real_cwd" == "$real_proj" ]] || [[ "${real_cwd,,}" == "${real_proj,,}" ]]; then
-      cfg="$c"
-      break
-    fi
-  done
+  cfg=$(find_team_config "$project_dir")
   echo "config = $cfg"
 
   if [[ -f "$cfg" ]]; then
