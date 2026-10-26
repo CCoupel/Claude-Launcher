@@ -1044,6 +1044,7 @@ func main() {
 	switch cmd {
 	case "shell":
 		selfUpdate()
+		cleanupDeadTeams()
 		err = runShell()
 	case "nav":
 		if os.Getenv("CL_SHELL") == "1" {
