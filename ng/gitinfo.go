@@ -67,6 +67,17 @@ func readGit(dir string) GitInfo {
 		}
 	}
 	g.Gone = g.Upstream && !ab
+	// Poussée sans -u : pas de suivi configuré, mais origin/<branche> existe ;
+	// on compare avec elle plutôt que d'afficher « jamais poussé ».
+	if !g.Upstream && g.Branch != "" && g.Branch != "(detached)" {
+		if c, err := git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...refs/remotes/origin/"+g.Branch); err == nil {
+			if f := strings.Fields(c); len(f) == 2 {
+				g.Upstream = true
+				g.Ahead, _ = strconv.Atoi(f[0])
+				g.Behind, _ = strconv.Atoi(f[1])
+			}
+		}
+	}
 	if g.Upstream && g.Branch != g.Main {
 		g.Merged = exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
 			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main).Run() == nil

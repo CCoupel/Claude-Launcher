@@ -71,4 +71,11 @@ func TestGitIndicators(t *testing.T) {
 	check("mergée", "◆", "✓")
 	run(work, "checkout", "-q", "main")
 	check("main en retard", "●", "↓2")
+	// suivi retiré (branche poussée sans -u) : on compare quand même à origin/main
+	run(work, "branch", "-q", "--unset-upstream")
+	check("main en retard, sans suivi", "●", "↓2")
+	run(work, "merge", "-q", "--ff-only", "origin/main")
+	check("main à jour, sans suivi", "●", "✓")
+	run(work, "checkout", "-qb", "feat/locale")
+	check("branche jamais poussée", "◆", "○")
 }
