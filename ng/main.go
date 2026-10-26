@@ -255,12 +255,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case !msg.ok:
 				m.msg = "⚠ GitHub injoignable"
 			case m.newLauncher != "":
-				m.msg = "↑ NG " + m.newLauncher + " disponible"
+				// annoncée par l'alerte, comme pour la vérification régulière
+				m.msg = ""
 			default:
 				m.msg = "✓ NG à jour"
-			}
-			if msg.ok && msg.tplChanged {
-				m.msg += " · tpl " + msg.tplTag + " dispo"
 			}
 			return m, nil
 		}
