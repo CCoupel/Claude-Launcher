@@ -22,7 +22,7 @@ const mirrorPeriod = 250 * time.Millisecond
 // rawMode : équivalent de « stty -echo -icanon -isig -ixon -ixoff -iexten » ;
 // renvoie la fonction de restauration.
 func rawMode(fd int) (func(), error) {
-	old, err := unix.IoctlGetTermios(fd, unix.TCGETS)
+	old, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
 	if err != nil {
 		return nil, err
 	}
@@ -30,10 +30,10 @@ func rawMode(fd int) (func(), error) {
 	t.Lflag &^= unix.ECHO | unix.ICANON | unix.ISIG | unix.IEXTEN
 	t.Iflag &^= unix.IXON | unix.IXOFF | unix.ICRNL
 	t.Cc[unix.VMIN], t.Cc[unix.VTIME] = 1, 0
-	if err := unix.IoctlSetTermios(fd, unix.TCSETS, &t); err != nil {
+	if err := unix.IoctlSetTermios(fd, ioctlSetTermios, &t); err != nil {
 		return nil, err
 	}
-	return func() { _ = unix.IoctlSetTermios(fd, unix.TCSETS, old) }, nil
+	return func() { _ = unix.IoctlSetTermios(fd, ioctlSetTermios, old) }, nil
 }
 
 // mirrorLeader : le teamleader est le pane d'index le plus bas de la fenêtre
