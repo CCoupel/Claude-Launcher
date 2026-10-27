@@ -253,11 +253,42 @@ func (m stateModel) teamTitle() string {
 	if n == 0 {
 		return "Team"
 	}
-	return fmt.Sprintf("Team · %d teammates", n)
+	t := fmt.Sprintf("Team · %d teammates", n)
+	if v := m.teamClaude(); v != "" && m.narrow() {
+		t += " · claude " + v
+	}
+	return t
+}
+
+// teamClaude : version de claude commune aux teammates lancés ("" si aucun
+// ou si elles diffèrent). En pane étroit, elle passe dans le titre.
+func (m stateModel) teamClaude() string {
+	v := ""
+	for _, t := range m.panes.team {
+		switch {
+		case t.Claude == "":
+		case v == "":
+			v = t.Claude
+		case v != t.Claude:
+			return ""
+		}
+	}
+	return v
+}
+
+// shortEffort : effort abrégé pour le pane étroit.
+func shortEffort(e string) string {
+	switch e {
+	case "medium":
+		return "med"
+	case "xhigh":
+		return "xhi"
+	}
+	return e
 }
 
 // teamBody : une ligne par teammate : nom, version du template (+ si
-// compagnon), version de claude s'il est lancé.
+// compagnon), modèle et effort, version de claude s'il est lancé.
 func (m stateModel) teamBody(w int) string {
 	tm := m.panes.team
 	if len(tm) == 0 {
@@ -266,11 +297,20 @@ func (m stateModel) teamBody(w int) string {
 		}
 		return dim.Render("Pas de team template.")
 	}
-	nameW := 0
+	narrow, common := m.narrow(), m.teamClaude()
+	effW := 6
+	if narrow {
+		effW = 4
+	}
+	nameW, multi := 0, 0
 	for _, t := range tm {
 		nameW = max(nameW, len(t.Name))
+		if t.Count > 1 {
+			multi = 3 // « ×N » en fin de ligne
+		}
 	}
-	nameW = min(nameW, max(8, w-24))
+	// w-1 : la carte étroite garde une colonne de marge à gauche
+	nameW = min(nameW, max(8, w-1-2-1-9-7-effW-multi))
 	var lines []string
 	for _, t := range tm {
 		mark, name := dim.Render("○"), dim.Render(padRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
@@ -284,17 +324,30 @@ func (m stateModel) teamBody(w int) string {
 		if t.Companion {
 			tag += "+"
 		}
-		l := mark + " " + name + " " + padRight(tag, 9)
-		if t.Claude != "" {
+		model, effort := strings.TrimPrefix(t.Model, "claude-"), t.Effort
+		if narrow {
+			effort = shortEffort(effort)
+		}
+		l := mark + " " + name + " " + padRight(tag, 9) + padRight(orDash(model), 7) + dim.Render(padRight(orDash(effort), effW))
+		if t.Claude != "" && !(narrow && common != "") {
 			c := t.Claude
 			if t.Count > 1 {
 				c += fmt.Sprintf(" ×%d", t.Count)
 			}
 			l += " " + cyan.Render(c)
+		} else if t.Count > 1 {
+			l += " " + cyan.Render(fmt.Sprintf("×%d", t.Count))
 		}
-		lines = append(lines, l)
+		lines = append(lines, strings.TrimRight(l, " "))
 	}
 	return strings.Join(lines, "\n")
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "—"
+	}
+	return s
 }
 
 // filesRows : lignes disponibles pour la liste de fichiers (reste de l'écran).
