@@ -994,11 +994,19 @@ func (m model) renderHeader(w int) string {
 	sb.WriteString(m.versionLines())
 	u := m.usage
 	// juste sous les annonces (onMouse compte sur cette position)
+	// libellé court si le long ne tient pas (navigateur de 40 colonnes par défaut)
+	fit := func(long, short string) string {
+		if lipgloss.Width(long)+2 > w {
+			return short
+		}
+		return long
+	}
 	switch {
 	case u.Expired:
-		sb.WriteString("\n  " + red.Render("✗ connexion claude.ai expirée · cliquer pour /login"))
+		sb.WriteString("\n  " + red.Render(fit("✗ connexion claude.ai expirée · cliquer pour /login", "✗ connexion expirée · /login")))
 	case !u.LoginBy.IsZero():
-		sb.WriteString("\n  " + yellow.Render("⚠ connexion claude.ai : expiration "+formatReset(u.LoginBy.UTC().Format(time.RFC3339))+" · cliquer pour /login"))
+		at := formatReset(u.LoginBy.UTC().Format(time.RFC3339))
+		sb.WriteString("\n  " + yellow.Render(fit("⚠ connexion claude.ai : expiration "+at+" · cliquer pour /login", "⚠ /login avant "+at)))
 	}
 	if u.Expired {
 		if u.Err == authErr {
