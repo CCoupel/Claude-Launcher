@@ -149,13 +149,16 @@ func ensureInner() error {
 const tmuxDoubleClick = `select-pane -t = ; if-shell -F "#{||:#{pane_in_mode},#{mouse_any_flag}}" { send-keys -M } { copy-mode -H ; send-keys -X select-word ; run-shell -d 0.3 ; send-keys -X copy-pipe-and-cancel }`
 
 // bindZoom : dans claude-hub, un double-clic sur un pane le passe en plein écran
-// (comme préfixe+z) et un nouveau double-clic le remet en taille normale. Les
-// liaisons sont globales au serveur : les autres sessions gardent le comportement
-// par défaut.
+// (comme préfixe+z) et un nouveau double-clic le remet en taille normale ;
+// préfixe+R remet la team en ordre. Les liaisons sont globales au serveur : les
+// autres sessions gardent le comportement par défaut.
 func bindZoom() {
 	cond := "#{==:#{session_name}," + hubSession + "}"
 	_ = dtmux("bind-key", "-n", "DoubleClick1Pane", "if-shell", "-F", cond,
 		"select-pane -t = ; resize-pane -Z -t =", tmuxDoubleClick).Run()
+	// préfixe + R : remettre en ordre la team de la fenêtre courante (layout.go)
+	_ = dtmux("bind-key", "R", "if-shell", "-F", cond,
+		"run-shell -b "+shq(selfCommand("relayout")+" '#{window_id}'")).Run()
 }
 
 // ── Panes de la coque ─────────────────────────────────────────────────────

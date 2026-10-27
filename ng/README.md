@@ -39,7 +39,8 @@ xxd, ni script compagnon.
 ```bash
 claude-launcher-ng                    # = claude-launcher-ng shell
 claude-launcher-ng configure          # crée/édite ~/.config/claude-launcher.conf ($EDITOR)
-claude-launcher-ng relayout WIN_ID    # remet en ordre les panes d'une fenêtre projet
+claude-launcher-ng relayout WIN_ID    # remet en ordre les panes d'une fenêtre projet (= Ctrl+B R)
+claude-launcher-ng help               # commandes et raccourcis (= F1 dans le launcher)
 claude-launcher-ng version
 ~/claude-launcher.sh                  # ancienne commande : redirige vers le NG
 ```
@@ -89,12 +90,14 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
 | frappe | filtrer |
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner la zone navigateur (4 colonnes par appui) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
+| `Ctrl+B R` dans un projet | remettre en ordre les panes de la team |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
 | clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
 | `F5` | rechercher les mises à jour et relire la consommation maintenant (réaffiche les annonces masquées) |
+| `F1` | aide : commandes et raccourcis, dans un `display-popup` tmux par-dessus la coque |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Création d'un projet : le formulaire demande le nom, puis le type de projet :
@@ -171,8 +174,8 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
 - **`Ctrl+←/→` ne fait rien** : votre terminal les intercepte. Glissez la bordure à la souris.
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
-- **Panes d'une team en désordre** : `claude-launcher-ng relayout <window_id>` (ou la liaison
-  `bind R` du README principal).
+- **Panes d'une team en désordre** : `Ctrl+B R` dans l'onglet du projet, ou
+  `claude-launcher-ng relayout <window_id>`.
 - **Quitter** : `Esc` puis `l` arrête le launcher (serveur `claude-ui`) en laissant les projets
   tourner dans `claude-hub` ; `Esc`, `t` puis `o` ferme aussi `claude-hub` et ses sessions groupées.
 - **Pas de zone tmux à droite** : relancer `claude-launcher-ng`, le pane manquant est recréé.
