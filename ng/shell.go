@@ -135,6 +135,7 @@ func ensureInner() error {
 			return fmt.Errorf("new-session %s : %v (%s)", hubSession, err, strings.TrimSpace(string(out)))
 		}
 	}
+	keepTeamWindow(exactW(hubSession, teamWindow))
 	dropStateWindow()
 	// Barre d'onglets en haut ; le style projet est posé par window à l'ouverture.
 	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status", "on").Run()
