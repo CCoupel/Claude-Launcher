@@ -29,8 +29,11 @@ Un navigateur de projets à gauche, tmux à droite :
 - **Création de projet** : double-clic sur une catégorie (ou « ✦ Nouveau projet ») — nom, puis type :
   **géré** (remote facultatif, `git init`, claude démarre sur `/init-project`) ou **brut** (dossier
   et `CLAUDE.md` minimal, sans git ni `/init-project`) ; le projet est ensuite lancé.
-- **Mises à jour signalées** : une nouvelle version du launcher ou du template est annoncée (masquable) ;
-  le NG signale, il ne se met pas à jour tout seul.
+- **Mises à jour** : au lancement, le NG installe la dernière release (binaire et script, vérifiés contre
+  `SHA256SUMS`) ; une version sortie pendant qu'il tourne est annoncée et s'installe d'un clic. Un nouveau
+  template est annoncé (masquable).
+- **Connexion claude.ai surveillée** : ligne jaune 3 jours avant son expiration, rouge une fois expirée ;
+  un clic ouvre `claude /login`.
 
 | Action | Effet |
 |---|---|
@@ -44,7 +47,8 @@ Un navigateur de projets à gauche, tmux à droite :
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
 | clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
-| `F5` | rechercher les mises à jour maintenant (réaffiche les annonces masquées) |
+| clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
+| `F5` | rechercher les mises à jour et relire la consommation maintenant (réaffiche les annonces masquées) |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Détails, architecture et dépannage : [`ng/README.md`](ng/README.md).
@@ -115,8 +119,8 @@ EXTRA_ENVS=(
   resynchronise depuis GitHub au démarrage puis à chaque nouveau tag du template ; hors ligne,
   l'ancienne version est conservée) ; si le template du projet est en retard, `claude` démarre sur
   `/init-project` après confirmation.
-- Le NG signale (sans l'appliquer) une nouvelle version du launcher ou du template : vérification
-  GitHub au démarrage puis toutes les 10 minutes.
+- Le NG se met à jour au lancement, puis vérifie GitHub toutes les 10 minutes (ou sur `F5`) : une
+  nouvelle version du launcher s'installe d'un clic sur son annonce, un nouveau template est signalé.
 
 **Consommation du compte Claude :** sous la liste des projets, le navigateur affiche les fenêtres de quota
 du compte (session, semaine, limites par modèle) avec leur réinitialisation — même source que la page
@@ -124,13 +128,17 @@ du compte (session, semaine, limites par modèle) avec leur réinitialisation �
 `~/.cache/claude-launcher/usage.json`, **partagé avec les panneaux milestone des projets** : le launcher est
 le seul à appeler l'endpoint ; un panneau ne fait son propre appel que si le cache manque ou a plus de 1,5 × cet intervalle,
 et sa réponse fraîche sert alors au launcher et aux autres projets ; après un échec — 429, token expiré —
-plus personne n’appelle pendant max(5 min, 2 × l’intervalle)) ; nécessite une connexion claude.ai (`claude` puis `/login`),
-sinon un message l'indique. Données périmées (échec, launcher fermé) : barres grisées + horodatage.
+plus personne n’appelle pendant max(5 min, 2 × l’intervalle)) ; `F5` relit l'endpoint aussitôt,
+et un nouveau `/login` lève la pause. Nécessite une connexion claude.ai (`claude` puis `/login`), sinon un
+message l'indique. La connexion dure environ 30 jours : 3 jours avant son expiration, une ligne jaune
+`⚠ connexion claude.ai : expiration …` l'annonce, rouge `✗ connexion claude.ai expirée` ensuite (ou si
+l'endpoint refuse le jeton) ; un clic dessus ouvre une fenêtre `login` qui lance `claude /login`.
+Données périmées (échec, launcher fermé) : barres grisées + horodatage.
 
 **Mettre à jour :**
 ```bash
-# le NG : relancer la commande d'installation du binaire (étape 1)
-~/claude-launcher.sh --update      # le script compagnon : remplace le script, préserve la config
+# rien à faire : le NG installe la dernière release (binaire + script compagnon) à chaque lancement
+claude-launcher-ng --no-update     # démarrer sans mise à jour (ou CL_NO_UPDATE=1)
 ```
 
 ---
