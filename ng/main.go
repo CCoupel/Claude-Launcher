@@ -1131,7 +1131,7 @@ func main() {
 	switch cmd {
 	case "shell":
 		selfUpdate()
-		cleanupDeadTeams()
+		cleanupDeadTeams(loadConfig().resumeMaxAge())
 		err = runShell()
 	case "nav":
 		if os.Getenv("CL_SHELL") == "1" {

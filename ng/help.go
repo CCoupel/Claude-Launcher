@@ -53,7 +53,7 @@ var helpSections = []helpSection{
 		{"~/claude-launcher.sh", "ancienne commande : redirige vers le NG"},
 	}},
 	{"Fichiers", []helpRow{
-		{"~/.config/claude-launcher.conf", "configuration (GITHUB_DIRS, CLAUDE_OPTIONS…)"},
+		{"~/.config/claude-launcher.conf", "configuration (GITHUB_DIRS, CLAUDE_OPTIONS, RESUME_MODE…)"},
 	}},
 }
 
