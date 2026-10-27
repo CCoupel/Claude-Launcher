@@ -172,6 +172,14 @@ func usageTickCmd() tea.Cmd {
 func windowsCmd(session string) tea.Cmd {
 	return func() tea.Msg { return windowsMsg(tmuxWindows(targetSession(session))) }
 }
+
+// usageForceCmd : appel immédiat (F5), sans tenir compte du cache ni d'un échec récent.
+func usageForceCmd() tea.Cmd {
+	return func() tea.Msg {
+		fetchUsage(0)
+		return usageMsg(readUsage())
+	}
+}
 func usageFetchCmd(sec int) tea.Cmd {
 	return func() tea.Msg {
 		if needsFetch(sec) {
@@ -410,6 +418,17 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			}
 			return m
 		}
+		// connexion claude.ai expirée ou bientôt : ouvre une fenêtre claude /login
+		if e.Y-bodyH-3 == len(m.alerts()) && (m.usage.Expired || !m.usage.LoginBy.IsZero()) {
+			if !m.launch {
+				m.msg = "[dry-run] fenêtre login → claude /login"
+			} else if err := openLogin(m.session); err != nil {
+				m.msg = "⚠ login : " + err.Error()
+			} else if m.shell {
+				_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
+			}
+			return m
+		}
 		// clic hors d'un projet (zone vide, titre de groupe ou de racine, filtre,
 		// en-tête, aide, entrée « Nouveau projet ») : vue d'ensemble des teamleaders
 		if e.Y < 0 || e.Y >= bodyH {
@@ -599,7 +618,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.checking, m.hideLauncher, m.hideTpl = true, false, false
 		m.msg = "recherche des mises à jour…"
-		return m, checkUpdates(true)
+		return m, tea.Batch(checkUpdates(true), usageForceCmd())
 	case "tab":
 		if m.shell {
 			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
@@ -778,7 +797,7 @@ func (m model) View() string {
 	}
 
 	var body string
-	hint := "  ↑↓ naviguer · entrée ouvrir · ctrl-r rescanner · F5 mises à jour · esc quitter"
+	hint := "  ↑↓ naviguer · entrée ouvrir · ctrl-r rescanner · F5 actualiser · esc quitter"
 	if compact {
 		body = lipgloss.NewStyle().Width(m.w).MaxWidth(m.w).Height(bodyH).Render(list)
 		hint = "  ↵ ouvrir · tab→tmux · ^←→ · F5 maj"
@@ -974,8 +993,23 @@ func (m model) renderHeader(w int) string {
 	sb.WriteString(dim.Render("  session : ") + cyan.Render(m.session))
 	sb.WriteString(m.versionLines())
 	u := m.usage
+	// juste sous les annonces (onMouse compte sur cette position)
+	switch {
+	case u.Expired:
+		sb.WriteString("\n  " + red.Render("✗ connexion claude.ai expirée · cliquer pour /login"))
+	case !u.LoginBy.IsZero():
+		sb.WriteString("\n  " + yellow.Render("⚠ connexion claude.ai : expiration "+formatReset(u.LoginBy.UTC().Format(time.RFC3339))+" · cliquer pour /login"))
+	}
+	if u.Expired {
+		if u.Err == authErr {
+			u.Err = "" // déjà dit au-dessus
+		}
+	}
 	if len(u.Limits) == 0 {
 		msg := "chargement…"
+		if u.Expired && u.Err == "" {
+			msg = "indisponible"
+		}
 		if u.Err != "" {
 			msg = u.Err
 		}
