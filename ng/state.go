@@ -13,7 +13,7 @@ import (
 
 // Vue « ◈ État » : pane de la coque, sous le navigateur, qui suit la sélection du
 // navigateur (fichier selection.json) et montre l'état du projet sans
-// l'ouvrir : git, template, panes tmux et fichiers.
+// l'ouvrir : git, template, team (teammates, versions) et fichiers.
 
 type (
 	selTick   time.Time
@@ -30,10 +30,11 @@ type (
 		path  string
 		open  bool
 		panes []paneInfo
+		team  []teammate
 	}
 )
 
-type paneInfo struct{ Idx, Title, Cmd, Size string }
+type paneInfo struct{ ID, PID, Cmd string }
 
 type stateModel struct {
 	w, h     int
@@ -78,16 +79,17 @@ func loadPanesCmd(s Selection) tea.Cmd {
 		pd.open = tmuxWindows(hubSession)[s.Key]
 		if pd.open {
 			b, err := dtmux("list-panes", "-t", exactW(hubSession, s.Key), "-F",
-				"#{pane_index}\t#{pane_title}\t#{pane_current_command}\t#{pane_width}x#{pane_height}").Output()
+				"#{pane_id}\t#{pane_pid}\t#{pane_current_command}").Output()
 			if err == nil {
 				for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 					f := strings.Split(l, "\t")
-					if len(f) == 4 {
-						pd.panes = append(pd.panes, paneInfo{f[0], f[1], f[2], f[3]})
+					if len(f) == 3 {
+						pd.panes = append(pd.panes, paneInfo{f[0], f[1], f[2]})
 					}
 				}
 			}
 		}
+		pd.team = liveTeam(readTeammates(s.Path), s.Path, pd.panes)
 		return pd
 	}
 }
@@ -242,19 +244,57 @@ func (m stateModel) topCards() string {
 	pl = append(pl, kv("template", tl))
 	sb.WriteString(m.card("Projet", strings.Join(pl, "\n"), w) + "\n")
 
-	var tp []string
-	if !m.panes.open {
-		tp = append(tp, dim.Render("Aucune fenêtre (Entrée pour lancer)."))
-	}
-	for i, p := range m.panes.panes {
-		role := "teammate"
-		if i == 0 {
-			role = "leader"
-		}
-		tp = append(tp, fmt.Sprintf("%s %s  %s  %s", dim.Render("%"+p.Idx), padRight(role, 9), padRight(p.Cmd, 10), dim.Render(p.Size)))
-	}
-	sb.WriteString(m.card("Panes tmux", strings.Join(tp, "\n"), w) + "\n")
+	sb.WriteString(m.card(m.teamTitle(), m.teamBody(w), w) + "\n")
 	return sb.String()
+}
+
+func (m stateModel) teamTitle() string {
+	n := len(m.panes.team)
+	if n == 0 {
+		return "Team"
+	}
+	return fmt.Sprintf("Team · %d teammates", n)
+}
+
+// teamBody : une ligne par teammate : nom, version du template (+ si
+// compagnon), version de claude s'il est lancé.
+func (m stateModel) teamBody(w int) string {
+	tm := m.panes.team
+	if len(tm) == 0 {
+		if !m.panes.open {
+			return dim.Render("Pas de team template (Entrée pour lancer).")
+		}
+		return dim.Render("Pas de team template.")
+	}
+	nameW := 0
+	for _, t := range tm {
+		nameW = max(nameW, len(t.Name))
+	}
+	nameW = min(nameW, max(8, w-24))
+	var lines []string
+	for _, t := range tm {
+		mark, name := dim.Render("○"), dim.Render(padRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
+		if t.Claude != "" {
+			mark, name = green.Render("●"), padRight(ansi.Truncate(t.Name, nameW, "…"), nameW)
+		}
+		tag := t.Tag
+		if tag == "" {
+			tag = "—"
+		}
+		if t.Companion {
+			tag += "+"
+		}
+		l := mark + " " + name + " " + padRight(tag, 9)
+		if t.Claude != "" {
+			c := t.Claude
+			if t.Count > 1 {
+				c += fmt.Sprintf(" ×%d", t.Count)
+			}
+			l += " " + cyan.Render(c)
+		}
+		lines = append(lines, l)
+	}
+	return strings.Join(lines, "\n")
 }
 
 // filesRows : lignes disponibles pour la liste de fichiers (reste de l'écran).

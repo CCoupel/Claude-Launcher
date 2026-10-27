@@ -23,7 +23,9 @@ Un navigateur de projets à gauche, tmux à droite :
   badge template (`✔` à jour, `⚠` en retard, `⊘` sans template), consommation du compte Claude en bas.
 - **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir ni changer la
   zone de droite — git, version locale et dernière release, version du template
-  (`v3.9.1 → v3.26.0`), panes tmux, fichiers avec leur marqueur git. Instantané : l'état est préparé
+  (`v3.9.1 → v3.26.0`), composition de la team (un teammate par ligne : version de sa copie du
+  template, `+` s'il a un compagnon, version de claude s'il est lancé — `● dev-plugin v3.29.1+ 2.1.311`),
+  fichiers avec leur marqueur git. Instantané : l'état est préparé
   en tâche de fond et rafraîchi quand le projet change.
 - **Onglet `⌗ Teamleaders`** : une vignette interactive par projet ouvert, à la couleur du projet.
 - **Un onglet par projet** : le teamleader et ses teammates, rangés automatiquement (voir
