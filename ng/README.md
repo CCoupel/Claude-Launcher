@@ -87,8 +87,9 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
   fenêtre `login` qui lance `claude /login`. Après un `/login`, la consommation revient sans
   attendre la fin de la pause qui suit un échec ; `F5` la relit immédiatement.
   L'en-tête indique les versions : `NG v4.0.0 · tpl 3.26.0` (NG, dernier tag du template).
-- **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, panes,
-  fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
+- **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, team —
+  teammates du registre du template, version de leur copie, `+` si compagnon, version de claude
+  des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
 - **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
   vignette interactive par projet ouvert).
 
