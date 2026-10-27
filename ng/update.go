@@ -76,7 +76,7 @@ func readTrim(path string) string {
 
 var scriptVerRe = regexp.MustCompile(`^SCRIPT_VERSION="([^"]+)"`)
 
-// localLauncherVersion : version du launcher déployé (SCRIPT_VERSION du script bash).
+// localLauncherVersion : SCRIPT_VERSION de ~/claude-launcher.sh (redirection).
 func localLauncherVersion() string {
 	f, err := os.Open(scriptPath())
 	if err != nil {

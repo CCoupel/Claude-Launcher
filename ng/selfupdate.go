@@ -18,9 +18,9 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-// Mise à jour automatique au lancement (« shell »), comme l'auto_update du
-// launcher bash : si la dernière release est plus récente, le binaire NG et le
-// script bash (encore utilisé pour --layout-watch / --mirror) sont remplacés,
+// Mise à jour automatique au lancement (« shell ») : si la dernière release est
+// plus récente, le binaire NG et ~/claude-launcher.sh (simple redirection de
+// l'ancienne commande depuis la v4) sont remplacés,
 // puis le NG se relance. Le navigateur d'une coque déjà ouverte, resté sur
 // l'ancien binaire, est redémarré par runShell : les projets ne sont pas touchés.
 //

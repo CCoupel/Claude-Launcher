@@ -1,17 +1,15 @@
 package main
 
 import (
-	"fmt"
 	"sort"
 	"strings"
 	"time"
 )
 
 // Onglet « ⌗ Teamleaders » : une vignette interactive par projet ouvert (le
-// teamleader de chaque fenêtre), en grille. Les vignettes sont celles du
-// launcher bash (`claude-launcher.sh --mirror WIN NOM` : affichage du pane du
-// leader et relais des touches) ; ce gestionnaire remplace seulement le
-// --mirror-manager bash : il crée/retire les vignettes et applique la grille.
+// teamleader de chaque fenêtre), en grille. Chaque vignette est un
+// `claude-launcher-ng mirror WIN NOM` (mirror.go) ; ce gestionnaire les
+// crée/retire et applique la grille.
 
 const teamWindow = "⌗ Teamleaders"
 
@@ -65,7 +63,6 @@ func (mm *mirrorMgr) tick() {
 	var want []tmuxWin // projets ouverts, dans l'ordre des onglets
 	for _, w := range listWindows() {
 		switch w.name {
-		case stateWindow, "[menu]":
 		case teamWindow:
 			teamID = w.id
 		default:
@@ -129,7 +126,6 @@ func (mm *mirrorMgr) tick() {
 	}
 
 	// vignettes manquantes
-	script := scriptPath()
 	// coupe à partir d'un pane vivant (les vignettes périmées viennent d'être fermées)
 	var target string
 	for _, pid := range have {
@@ -146,7 +142,7 @@ func (mm *mirrorMgr) tick() {
 		if _, ok := have[w.id]; ok {
 			continue
 		}
-		cmd := fmt.Sprintf("bash %s --mirror %s %s", shq(script), shq(w.id), shq(w.name))
+		cmd := selfCommand("mirror", w.id, w.name)
 		pid, err := tmuxOut("split-window", "-d", "-t", target, "-P", "-F", "#{pane_id}", cmd)
 		if err != nil {
 			continue // pas la place : réessayé au prochain tick
