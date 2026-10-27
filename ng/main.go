@@ -630,6 +630,13 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.hideLauncher, m.hideTpl = true, true
 		return m, nil
+	case "f1":
+		if !m.shell {
+			m.msg = "aide : claude-launcher-ng help"
+		} else if err := openHelp(); err != nil {
+			m.msg = "⚠ aide : " + err.Error()
+		}
+		return m, nil
 	case "f5":
 		// recherche immédiate ; les annonces masquées réapparaissent
 		if m.checking {
@@ -817,10 +824,10 @@ func (m model) View() string {
 	}
 
 	var body string
-	hint := "  ↑↓ naviguer · entrée ouvrir · ctrl-r rescanner · F5 actualiser · esc quitter"
+	hint := "  ↑↓ naviguer · entrée ouvrir · F1 aide · F5 actualiser · esc quitter"
 	if compact {
 		body = lipgloss.NewStyle().Width(m.w).MaxWidth(m.w).Height(bodyH).Render(list)
-		hint = "  ↵ ouvrir · tab→tmux · ^←→ · F5 maj"
+		hint = "  ↵ ouvrir · tab→tmux · F1 aide · F5 maj"
 	} else {
 		prev := m.renderPreview(m.w - listW - 3)
 		left := lipgloss.NewStyle().Width(listW).Height(bodyH).Render(list)
@@ -1158,10 +1165,12 @@ func main() {
 		}
 	case "configure":
 		err = runConfigure()
+	case "help", "--help", "-h":
+		err = runHelp(len(os.Args) > 2 && os.Args[2] == "--wait")
 	case "version", "--version":
 		fmt.Println(ngName, ngVersion)
 	default:
-		err = fmt.Errorf("usage : claude-launcher-ng [shell|configure|relayout WIN_ID|version]")
+		err = fmt.Errorf("usage : claude-launcher-ng [shell|configure|relayout WIN_ID|help|version]")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

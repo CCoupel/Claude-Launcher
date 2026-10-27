@@ -46,12 +46,14 @@ Un navigateur de projets à gauche, tmux à droite :
 | frappe | filtrer |
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner le navigateur (mémorisé) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
+| `Ctrl+B R` dans un projet | remettre en ordre les panes de la team |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
 | clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
 | `F5` | rechercher les mises à jour et relire la consommation maintenant (réaffiche les annonces masquées) |
+| `F1` | aide : commandes et raccourcis, dans une fenêtre par-dessus le hub (une touche la ferme) |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Détails, architecture et dépannage : [`ng/README.md`](ng/README.md).
@@ -76,6 +78,7 @@ Prérequis : `tmux`, `git`, `bash` (lecture de la config) et `claude`. Plus beso
 
 ```bash
 claude-launcher-ng configure   # crée la config si besoin et l'ouvre dans $EDITOR (nano par défaut)
+claude-launcher-ng help        # commandes et raccourcis (F1 dans le launcher)
 ```
 
 **3. Lancement** :
@@ -152,13 +155,8 @@ changement d'activité (d'après `~/.claude/teams/*/config.json`) :
 - teammates actifs **éclaircis**, inactifs **assombris**, et le titre de l'onglet s'allume tant qu'un
   agent travaille.
 
-Pour forcer une remise en ordre, ajouter dans `~/.tmux.conf` :
-
-```tmux
-bind R run-shell "claude-launcher-ng relayout '#{window_id}'"
-```
-
-(une ancienne liaison `… claude-launcher.sh --relayout …` continue de fonctionner via la redirection).
+Pour forcer une remise en ordre : `Ctrl+B R` dans l'onglet du projet (liaison posée par le launcher dans
+`claude-hub`, rien à ajouter à `~/.tmux.conf`), ou `claude-launcher-ng relayout <window_id>`.
 
 ---
 
