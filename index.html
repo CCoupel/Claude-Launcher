@@ -28,7 +28,7 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> v4.1.0 · 100 % Go · compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v4.2.0</span> · 100 % Go · compagnon de claude_project_template</div>
     <h1>Un hub tmux pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
     <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil.</p>
     <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Plus de fzf, plus de script : une interface qui ne se fige plus.</p>
@@ -57,7 +57,7 @@
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span>                <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>
-<span style="color:#6e7681">  NG v4.1.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681" data-ng-term>  NG v4.2.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -146,7 +146,7 @@
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span>                <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681">  NG v4.1.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681" data-ng-term>  NG v4.2.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -329,9 +329,34 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG v4.1.0 — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG <span data-ng-version>v4.2.0</span> — historique migré depuis claude_project_template</p>
   </div>
 </footer>
+
+<script>
+// Version affichée = dernière release GitHub (la valeur écrite en dur reste en secours).
+(function () {
+  var KEY = 'ng-latest-release';
+  function apply(v) {
+    if (!/^v\d+\.\d+\.\d+$/.test(v)) return;
+    document.querySelectorAll('[data-ng-version]').forEach(function (e) { e.textContent = v; });
+    // maquettes du terminal : même largeur, pour ne pas décaler les colonnes
+    document.querySelectorAll('[data-ng-term]').forEach(function (e) {
+      var w = e.textContent.length;
+      e.textContent = e.textContent.replace(/NG v[\d.]+/, 'NG ' + v).trimEnd().padEnd(w);
+    });
+  }
+  try { var c = sessionStorage.getItem(KEY); if (c) { apply(c); return; } } catch (e) {}
+  fetch('https://api.github.com/repos/CCoupel/Claude-Launcher/releases/latest')
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (d) {
+      if (!d || !d.tag_name) return;
+      apply(d.tag_name);
+      try { sessionStorage.setItem(KEY, d.tag_name); } catch (e) {}
+    })
+    .catch(function () {});
+})();
+</script>
 
 </body>
 </html>
