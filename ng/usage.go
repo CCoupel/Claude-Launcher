@@ -84,7 +84,42 @@ type Usage struct {
 	ReadAt  time.Time // mtime du cache
 	Err     string
 	Loading bool
+	Expired bool      // connexion claude.ai expirée ou refusée : un /login s'impose
+	LoginBy time.Time // fin de validité de la connexion, si elle approche (alerte)
 }
+
+// loginWarn : délai avant expiration de la connexion à partir duquel on prévient.
+const loginWarn = 3 * 24 * time.Hour
+
+// loginExpiry : fin de validité de la connexion claude.ai. Le jeton d'accès ne dure
+// que quelques heures et claude le renouvelle seul ; c'est l'expiration du jeton de
+// renouvellement (~30 jours) qui impose un /login. Zéro si inconnue (clé API…).
+func loginExpiry() time.Time {
+	b, err := os.ReadFile(credentialsPath())
+	if err != nil {
+		return time.Time{}
+	}
+	var creds struct {
+		O struct {
+			ExpiresAt        int64 `json:"expiresAt"`
+			RefreshExpiresAt int64 `json:"refreshTokenExpiresAt"`
+		} `json:"claudeAiOauth"`
+	}
+	if json.Unmarshal(b, &creds) != nil {
+		return time.Time{}
+	}
+	ms := creds.O.RefreshExpiresAt
+	if ms == 0 {
+		ms = creds.O.ExpiresAt
+	}
+	if ms == 0 {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms)
+}
+
+// authErr : message d'échec écrit par fetchUsage sur un HTTP 401/403.
+const authErr = "non authentifié — lancer claude puis /login"
 
 func readUsage() Usage {
 	path := usageCachePath()
@@ -92,6 +127,10 @@ func readUsage() Usage {
 	if b, err := os.ReadFile(path + ".err"); err == nil {
 		u.Err = strings.TrimSpace(string(b))
 	}
+	if exp := loginExpiry(); !exp.IsZero() && time.Until(exp) < loginWarn {
+		u.LoginBy = exp
+	}
+	u.Expired = u.Err == authErr || (!u.LoginBy.IsZero() && !time.Now().Before(u.LoginBy))
 	st, err := os.Stat(path)
 	if err != nil {
 		u.Loading = u.Err == ""
@@ -119,6 +158,11 @@ func readUsage() Usage {
 	return u
 }
 
+func credentialsPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claude", ".credentials.json")
+}
+
 // needsFetch applique la politique du bash : pas d'appel si le cache est frais
 // (< 1,5 × intervalle) ou si un échec récent suspend les appels.
 func needsFetch(refreshSec int) bool {
@@ -128,8 +172,11 @@ func needsFetch(refreshSec int) bool {
 	if backoff < 5*time.Minute {
 		backoff = 5 * time.Minute
 	}
+	// Un /login réécrit les identifiants : l'échec précédent ne vaut plus, on réessaie.
 	if st, err := os.Stat(path + ".err"); err == nil && time.Since(st.ModTime()) < backoff {
-		return false
+		if cs, err := os.Stat(credentialsPath()); err != nil || !cs.ModTime().After(st.ModTime()) {
+			return false
+		}
 	}
 	if st, err := os.Stat(path); err == nil && time.Since(st.ModTime()) < interval*3/2 {
 		return false
@@ -143,8 +190,7 @@ func fetchUsage(refreshSec int) {
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	fail := func(msg string) { _ = os.WriteFile(path+".err", []byte(msg), 0o644) }
 
-	home, _ := os.UserHomeDir()
-	cb, err := os.ReadFile(filepath.Join(home, ".claude", ".credentials.json"))
+	cb, err := os.ReadFile(credentialsPath())
 	var creds struct {
 		O struct {
 			Token string `json:"accessToken"`
@@ -172,12 +218,22 @@ func fetchUsage(refreshSec int) {
 			_ = os.Remove(path + ".err")
 		}
 	case resp.StatusCode == 401 || resp.StatusCode == 403:
-		fail("non authentifié — lancer claude puis /login")
+		fail(authErr)
 	case resp.StatusCode == 429:
 		fail("trop d’appels à l’endpoint, nouvel essai dans quelques minutes")
 	default:
 		fail(fmt.Sprintf("endpoint indisponible (HTTP %d)", resp.StatusCode))
 	}
+}
+
+// openLogin ouvre dans la session des projets une fenêtre « login » qui lance
+// claude /login ; elle se ferme quand on quitte claude.
+func openLogin(session string) error {
+	sess := targetSession(session)
+	if tmuxWindows(sess)["login"] {
+		return dtmux("select-window", "-t", exactW(sess, "login")).Run()
+	}
+	return dtmux("new-window", "-t", exactS(sess)+":", "-n", "login", claudeBin()+" /login").Run()
 }
 
 var jours = []string{"dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."}
