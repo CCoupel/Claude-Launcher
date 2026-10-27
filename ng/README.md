@@ -64,6 +64,11 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
   release (dernier tag atteignable depuis `origin/main`).
   Un projet déjà ouvert est marqué `●` vert, son nom en gras sur la couleur de son pane tmux.
+  Sous la consommation, une ligne jaune `⚠ connexion claude.ai : expiration …` apparaît 3 jours
+  avant l'expiration de la connexion claude.ai (jeton de renouvellement, ~30 jours), rouge
+  `✗ connexion claude.ai expirée` ensuite ou si l'endpoint refuse le jeton : un clic ouvre une
+  fenêtre `login` qui lance `claude /login`. Après un `/login`, la consommation revient sans
+  attendre la fin de la pause qui suit un échec ; `F5` la relit immédiatement.
   L'en-tête indique les versions : `NG v3.0.0 · sh 3.0.0 · tpl 3.26.0` (NG, script compagnon,
   dernier tag du template).
 - **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, panes,
@@ -84,7 +89,8 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
 | clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
-| `F5` | rechercher les mises à jour maintenant (réaffiche les annonces masquées) |
+| clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
+| `F5` | rechercher les mises à jour et relire la consommation maintenant (réaffiche les annonces masquées) |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
 Création d'un projet : le formulaire demande le nom, puis le type de projet :
