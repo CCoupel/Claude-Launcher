@@ -390,6 +390,14 @@ func (m model) openSelectedAs(mode launchMode) model {
 	if !n.Project {
 		return m
 	}
+	if m.shell && m.launch && dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
+		// claude-hub fermé entre-temps : la coque le recrée, zone tmux de droite comprise
+		if err := ensureInner(); err == nil {
+			if exe, e := os.Executable(); e == nil {
+				_ = ensureLayout(strings.TrimSuffix(exe, " (deleted)"))
+			}
+		}
+	}
 	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate(), mode)
 	m.wantTeam, m.lastShow = false, time.Time{}
 	if m.shell && m.launch && m.msg == "" {

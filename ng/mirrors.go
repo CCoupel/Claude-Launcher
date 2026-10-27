@@ -21,6 +21,15 @@ type mirrorMgr struct {
 	cfg     Config
 	prevSig string
 	colored map[string]string // pane -> couleur déjà appliquée
+	guarded string            // onglet déjà protégé par keepTeamWindow
+}
+
+// keepTeamWindow : une vignette --mirror se termine d'elle-même dès que la fenêtre
+// de son projet disparaît, avant le tick suivant. Seul pane de l'onglet, elle
+// l'emporterait avec elle, et avec lui claude-hub s'il ne reste aucun projet :
+// le pane mort reste affiché jusqu'à ce que tick le remplace.
+func keepTeamWindow(win string) {
+	_ = dtmux("set-option", "-w", "-t", win, "remain-on-exit", "on").Run()
 }
 
 // runMirrorManager tourne dans le navigateur (mode coque), une fois par seconde.
@@ -73,6 +82,10 @@ func (mm *mirrorMgr) tick() {
 		teamID = id
 		mm.prevSig = ""
 	}
+	if mm.guarded != teamID {
+		keepTeamWindow(teamID)
+		mm.guarded = teamID
+	}
 
 	// panes actuels : vignettes (@mirror_win renseigné) et pane d'attente
 	have := map[string]string{} // window id -> pane id
@@ -81,14 +94,17 @@ func (mm *mirrorMgr) tick() {
 	for _, w := range want {
 		wantSet[w.id] = true
 	}
-	out, _ := tmuxOut("list-panes", "-t", teamID, "-F", "#{pane_id}|#{@mirror_win}")
+	out, _ := tmuxOut("list-panes", "-t", teamID, "-F", "#{pane_id}|#{pane_dead}|#{@mirror_win}")
 	for _, l := range strings.Split(out, "\n") {
-		pid, mw, ok := strings.Cut(l, "|")
-		if !ok || pid == "" {
+		f := strings.SplitN(l, "|", 3)
+		if len(f) != 3 || f[0] == "" {
 			continue
 		}
+		pid, dead, mw := f[0], f[1] == "1", f[2]
 		all = append(all, pid)
 		switch {
+		case dead: // vignette terminée (remain-on-exit) : remplacée ci-dessous
+			stale = append(stale, pid)
 		case mw == "":
 			placeholders = append(placeholders, pid)
 		case !wantSet[mw]:
@@ -102,7 +118,7 @@ func (mm *mirrorMgr) tick() {
 	}
 
 	// une fenêtre tmux sans pane se ferme : garder un pane d'attente tant qu'aucune vignette
-	if len(want) == 0 && len(placeholders) == 0 {
+	if len(placeholders) == 0 && len(have) == 0 {
 		if pid, err := tmuxOut("split-window", "-d", "-t", all[0], "-P", "-F", "#{pane_id}", teamPlaceholder); err == nil {
 			placeholders = append(placeholders, pid)
 		}
@@ -114,7 +130,17 @@ func (mm *mirrorMgr) tick() {
 
 	// vignettes manquantes
 	script := scriptPath()
-	target := all[len(all)-1]
+	// coupe à partir d'un pane vivant (les vignettes périmées viennent d'être fermées)
+	var target string
+	for _, pid := range have {
+		target = pid
+	}
+	if len(placeholders) > 0 {
+		target = placeholders[len(placeholders)-1]
+	}
+	if target == "" {
+		return
+	}
 	added := false
 	for _, w := range want {
 		if _, ok := have[w.id]; ok {
