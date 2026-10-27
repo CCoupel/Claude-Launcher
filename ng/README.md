@@ -46,12 +46,24 @@ claude-launcher-ng version
 ```
 
 Au lancement, les teams mortes de `~/.claude/teams` (et leurs tâches) sont supprimées : une session
-Claude coupée laisse la sienne, que la reprise par `/start-session` ne réutilise pas. Une team n'est
-supprimée que si elle a des teammates avec un pane tmux et qu'aucun de ces panes n'existe encore ;
-les teams sans teammate, ou tmux injoignable, ne sont jamais touchées.
+Claude coupée laisse la sienne. Une team n'est supprimée que si elle a des teammates avec un pane tmux
+et qu'aucun de ces panes n'existe encore ; les teams sans teammate, ou tmux injoignable, ne sont jamais
+touchées, ni celles dont la session du leader peut encore être reprise (voir ci-dessous).
+
+### Reprise après crash
+
+À l'ouverture d'un projet, si sa dernière conversation
+(`~/.claude/projects/<chemin encodé>/<id>.jsonl`) a moins de `RESUME_MAX_AGE_H` heures (24 par
+défaut), le launcher demande s'il faut la reprendre (`RESUME_MODE=ask`, ou `always` / `never`).
+Reprendre lance `claude --resume <id>` : même id de session, donc même team
+(`session-<8 premiers caractères>`) et même liste de tâches, que le nettoyage ci-dessus a épargnées.
+Les teammates ne sont pas restaurés par Claude Code : le teamleader repris reçoit en premier message
+la liste des teammates perdus et la consigne de les relancer d'après les tâches non terminées. La
+question n'est pas posée si la team indique un leader encore vivant (session ouverte ailleurs), et
+`/init-project` n'est jamais proposé sur une reprise.
 
 La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHUB_DIRS`,
-`CLAUDE_OPTIONS`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée par
+`CLAUDE_OPTIONS`, `RESUME_MODE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée par
 défaut au premier lancement.
 
 Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque), `mirror WIN NOM`
@@ -155,6 +167,7 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
   (`select-layout` avec somme de contrôle tmux) et teinte les panes. Ordre MRU des actifs dans
   `$TMPDIR/claude_layout_<win>.order`, verrou par fenêtre partagé avec `relayout`.
 - `update.go` : versions, annonces, resynchronisation de `init-project.md`.
+- `resume.go` : reprise après crash (dernière conversation du projet, sa team, question au lancement).
 
 ### Détection des changements d'un projet
 
@@ -187,7 +200,8 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
 ## Tests
 
 `go test ./...` : comparaison de versions, resynchronisation de `init-project.md`, mise en page
-(géométrie, somme de contrôle, ordre MRU, teintes comparées au bash v3), et une sonde
+(géométrie, somme de contrôle, ordre MRU, teintes comparées au bash v3), reprise après crash
+(encodage des chemins, dernière conversation, team, teams épargnées), et une sonde
 `inotify` qui s'ignore sur `9p`. Variables de test : `CL_ROOTS` (racines factices),
 `CL_CLAUDE_BIN` (faux `claude`), `CL_HUB`, `CL_INNER_SOCKET`, `CL_OUTER_SOCKET`, `CL_SCRIPT`,
 `CL_RAW_BASE` (serveur de fichiers bruts), `CL_API_BASE` (API GitHub), `CL_RELEASE_BASE`

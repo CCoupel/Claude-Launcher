@@ -22,6 +22,10 @@ type Config struct {
 	Palette       []string
 	ProjectColors map[string]string
 
+	// reprise de la dernière conversation au lancement (cf. resume.go)
+	ResumeMode    string // ask | always | never
+	ResumeMaxAgeH int
+
 	// mise en page des teams (cf. layout.go) et teinte des panes teammates
 	Layout2RowLeaderPct                                  int
 	Layout3RowLeaderNum, Layout3RowMidNum, Layout3RowDen int
@@ -35,7 +39,7 @@ func loadConfig() Config {
 	home, _ := os.UserHomeDir()
 	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{},
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
-		BrightenStep: 1, DarkenStep: 1}
+		BrightenStep: 1, DarkenStep: 1, ResumeMode: "ask", ResumeMaxAgeH: 24}
 	path := configPath()
 
 	script := `
@@ -43,11 +47,12 @@ GITHUB_DIR="$HOME/GITHUB"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN="
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=()
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
-PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1
+PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24
 [[ -f "$1" ]] && source "$1" >/dev/null 2>&1
 printf 'layout\t%s %s %s %s\n' "$LAYOUT_2ROW_LEADER_PCT" "$LAYOUT_3ROW_LEADER_NUM" "$LAYOUT_3ROW_MID_NUM" "$LAYOUT_3ROW_DEN"
 printf 'steps\t%s %s\n' "$PANE_ACTIVE_BRIGHTEN_STEP" "$PANE_INACTIVE_DARKEN_STEP"
 printf 'usage\t%s\n' "$USAGE_REFRESH_SEC"
+printf 'resume\t%s %s\n' "$RESUME_MODE" "$RESUME_MAX_AGE_H"
 printf 'token\t%s\n' "$GITHUB_TOKEN"
 printf 'mouse\t%s\n' "$CLAUDE_DISABLE_MOUSE"
 printf 'teams\t%s\n' "$CLAUDE_EXPERIMENTAL_TEAMS"
@@ -68,6 +73,15 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 			case "usage":
 				if n, e := strconv.Atoi(f[1]); e == nil {
 					cfg.UsageRefreshSec = n
+				}
+			case "resume":
+				if v := strings.Fields(f[1]); len(v) == 2 {
+					if v[0] == "ask" || v[0] == "always" || v[0] == "never" {
+						cfg.ResumeMode = v[0]
+					}
+					if n, e := strconv.Atoi(v[1]); e == nil && n > 0 {
+						cfg.ResumeMaxAgeH = n
+					}
 				}
 			case "token":
 				cfg.GithubToken = f[1]
@@ -166,6 +180,13 @@ GITHUB_TOKEN=""
 CLAUDE_DISABLE_MOUSE=1        # 1 = désactive la souris dans le terminal
 CLAUDE_EXPERIMENTAL_TEAMS=1  # 1 = active les agent teams
 CLAUDE_OPTIONS="--allow-dangerously-skip-permissions"
+
+# Reprise de la dernière conversation à l'ouverture d'un projet (après un crash,
+# un terminal fermé…) : ask = question [O/n], always = sans question, never = jamais.
+# Proposée seulement si la conversation date de moins de RESUME_MAX_AGE_H heures ;
+# la team d'une telle session (liste de tâches) est épargnée par le nettoyage.
+# RESUME_MODE=ask
+# RESUME_MAX_AGE_H=24
 
 # Variables d'environnement supplémentaires passées à Claude Code
 # Format : "NOM=valeur"  (une par ligne, sans export)

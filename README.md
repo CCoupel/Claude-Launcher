@@ -97,6 +97,8 @@ claude-launcher-ng        # ou : ~/claude-launcher.sh, s'il est installé (redir
 | `CLAUDE_DISABLE_MOUSE` | `1` = désactive la souris dans Claude Code |
 | `CLAUDE_EXPERIMENTAL_TEAMS` | `1` = active les agent teams |
 | `CLAUDE_OPTIONS` | Options passées à `claude` |
+| `RESUME_MODE` | Reprise de la dernière conversation à l'ouverture d'un projet : `ask` (question, défaut), `always`, `never` |
+| `RESUME_MAX_AGE_H` | Reprise proposée seulement si la conversation a moins de N heures (défaut 24) |
 | `EXTRA_ENVS` | Variables d'environnement supplémentaires |
 | `COLOR_PALETTE`, `PROJECT_COLORS` | Couleurs de fond des projets (indices tmux 256) |
 | `PANE_ACTIVE_BRIGHTEN_STEP`, `PANE_INACTIVE_DARKEN_STEP` | Teinte des teammates actifs (éclaircis) et inactifs (assombris), 1 = léger, 5 = fort (défaut 1) |
@@ -118,6 +120,13 @@ EXTRA_ENVS=(
   resynchronise depuis GitHub au démarrage puis à chaque adoption d'un nouveau template ; hors ligne,
   l'ancienne version est conservée) ; si le template du projet est en retard, `claude` démarre sur
   `/init-project` après confirmation.
+- **Reprise après crash** : si le projet a une conversation de moins de `RESUME_MAX_AGE_H` heures
+  (terminal fermé, crash, launcher quitté…), le launcher propose de la reprendre
+  (`↺ session précédente (il y a 12 min) — la reprendre ? [O/n]`, ou `⚠ session interrompue` si sa
+  team montre que le leader a disparu sans se fermer). La reprise relance `claude --resume <id>` :
+  la conversation, sa team et sa liste de tâches sont retrouvées, sans question `/init-project`. Les
+  teammates, eux, ne peuvent pas être repris par Claude Code : le teamleader reçoit une consigne pour
+  les relancer d'après la liste de tâches. Rien n'est proposé si la conversation tourne encore ailleurs.
 - Le NG se met à jour au lancement (s'il trouve une release publiée), puis vérifie GitHub toutes les
   10 minutes (2 minutes tant qu'une release est attendue, ou sur `F5`) : une nouvelle version du launcher
   ou du template est annoncée en orange dès le tag, puis en vert (cliquable pour l'installer) quand la

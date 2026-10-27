@@ -144,8 +144,20 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	if mode == launchNewRaw {
 		copyInit = ""
 	}
-	keys := fmt.Sprintf("cd %s%s\n%s%s%s%s",
-		shq(n.Path), cfg.exports(), copyInit, initPre, claudeBin()+" "+cfg.ClaudeOptions, initArg)
+	start := initPre + claudeBin() + " " + cfg.ClaudeOptions + initArg
+
+	// Reprise de la dernière conversation (resume.go) : si elle est choisie, ni
+	// question ni /init-project, qui viendraient perturber la conversation reprise.
+	if mode == launchNormal {
+		if pre, r, ok := cfg.resumeShell(n.Path); ok {
+			resume := claudeBin() + " " + cfg.ClaudeOptions + " --resume " + shq(r.ID)
+			if p := resumePrompt(r); p != "" {
+				resume += " " + shq(p)
+			}
+			start = pre + "if [[ -n $_rs ]]; then " + resume + "; else " + start + "; fi"
+		}
+	}
+	keys := fmt.Sprintf("cd %s%s\n%s%s", shq(n.Path), cfg.exports(), copyInit, start)
 	if err := dtmux("send-keys", "-t", target, keys, "Enter").Run(); err != nil {
 		return fmt.Errorf("send-keys : %w", err)
 	}

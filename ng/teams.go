@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Nettoyage des teams mortes. Une session Claude coupée (crash, terminal fermé)
@@ -14,7 +15,8 @@ import (
 //   - la team a au moins un teammate avec un pane tmux (%N) ;
 //   - aucun de ces panes n'existe sur le serveur tmux intérieur.
 // Les teams sans teammate (le leader n'a pas de pane %N) ne prouvent rien :
-// elles sont laissées en place. L'ancien cleanup_orphan_teams du bash, fondé sur
+// elles sont laissées en place, de même que celles dont la session du leader
+// peut encore être reprise (resume.go) : la reprise retrouve team et tâches. L'ancien cleanup_orphan_teams du bash, fondé sur
 // le nom de la fenêtre, avait déjà supprimé des teams vivantes.
 
 func claudeDir() string {
@@ -40,7 +42,7 @@ func livePanes() (map[string]bool, bool) {
 }
 
 // deadTeams : noms des teams de root/teams dont tous les panes teammates ont disparu.
-func deadTeams(root string, live map[string]bool) []string {
+func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []string {
 	entries, err := os.ReadDir(filepath.Join(root, "teams"))
 	if err != nil {
 		return nil
@@ -55,11 +57,12 @@ func deadTeams(root string, live map[string]bool) []string {
 			continue // config absente ou en cours d'écriture
 		}
 		var cfg struct {
-			Members []struct {
+			LeadSessionID string `json:"leadSessionId"`
+			Members       []struct {
 				TmuxPaneID string `json:"tmuxPaneId"`
 			} `json:"members"`
 		}
-		if json.Unmarshal(b, &cfg) != nil {
+		if json.Unmarshal(b, &cfg) != nil || resumableSession(root, cfg.LeadSessionID, resumeAge) {
 			continue
 		}
 		panes, alive := 0, false
@@ -80,13 +83,13 @@ func deadTeams(root string, live map[string]bool) []string {
 }
 
 // cleanupDeadTeams : supprime les teams mortes et leurs tâches ; renvoie leurs noms.
-func cleanupDeadTeams() []string {
+func cleanupDeadTeams(resumeAge time.Duration) []string {
 	live, ok := livePanes()
 	if !ok {
 		return nil
 	}
 	root := claudeDir()
-	dead := deadTeams(root, live)
+	dead := deadTeams(root, live, resumeAge)
 	for _, t := range dead {
 		_ = os.RemoveAll(filepath.Join(root, "teams", t))
 		_ = os.RemoveAll(filepath.Join(root, "tasks", t))
