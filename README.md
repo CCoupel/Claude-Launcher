@@ -24,7 +24,9 @@ Un navigateur de projets à gauche, tmux à droite :
 - **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir ni changer la
   zone de droite — git, version locale et dernière release, version du template
   (`v3.9.1 → v3.26.0`), composition de la team (un teammate par ligne : version de sa copie du
-  template, `+` s'il a un compagnon, version de claude s'il est lancé — `● dev-plugin v3.29.1+ 2.1.311`),
+  template, `+` s'il a un compagnon, modèle et effort — compagnon > template, modèle réel s'il est
+  lancé —, version de claude s'il est lancé : `● dev-plugin v3.29.1+ sonnet medium 2.1.311` ; en pane
+  étroit, la version de claude commune passe dans le titre),
   fichiers avec leur marqueur git. Instantané : l'état est préparé
   en tâche de fond et rafraîchi quand le projet change.
 - **Onglet `⌗ Teamleaders`** : une vignette interactive par projet ouvert, à la couleur du projet.

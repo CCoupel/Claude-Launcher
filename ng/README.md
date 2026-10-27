@@ -88,8 +88,8 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
   attendre la fin de la pause qui suit un échec ; `F5` la relit immédiatement.
   L'en-tête indique les versions : `NG v4.0.0 · tpl 3.26.0` (NG, dernier tag du template).
 - **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, team —
-  teammates du registre du template, version de leur copie, `+` si compagnon, version de claude
-  des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
+  teammates du registre du template, version de leur copie, `+` si compagnon, modèle et effort,
+  version de claude des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
 - **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
   vignette interactive par projet ouvert).
 
