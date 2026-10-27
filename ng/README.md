@@ -87,7 +87,8 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner la zone navigateur (4 colonnes par appui) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
-| clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
+| clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
+| clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
 | `F5` | rechercher les mises à jour et relire la consommation maintenant (réaffiche les annonces masquées) |
@@ -112,16 +113,22 @@ ouverts ne sont pas touchés. Hors ligne ou en cas d'échec, il démarre avec la
 Désactiver : `claude-launcher-ng --no-update` ou `CL_NO_UPDATE=1`. Un binaire compilé à la
 main (version `dev` ou suffixée) ne se remplace jamais.
 
-Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes :
+Si le tag est déjà poussé mais que sa release n'est pas encore publiée (CI en cours), le NG
+démarre avec la version en place.
 
-- **NG** : si une release plus récente sort pendant que le launcher tourne, une annonce
-  `↑ NG vX · cliquer pour installer ✕` apparaît : un clic sur le texte installe la version
-  et redémarre le navigateur sur place (projets et zone tmux conservés) ; `✕` la masque.
-- **Template** : un nouveau tag de `claude_project_template` est annoncé
-  (`↑ template vX disponible ✕`), les caches `.template-commit` / `.template-version` (à côté
-  du script, partagés avec le bash) sont mis à jour et les badges `✓`/`⚠` recalculés.
-  Un projet en retard propose `/init-project` à son lancement.
-- **`init-project.md`** : resynchronisé au démarrage puis à chaque nouveau tag du template
+Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes (2 minutes tant
+qu'une release est attendue). Chaque nouvelle version est annoncée en deux temps :
+en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliquable), puis en
+**vert** quand la release est publiée (`↑ NG vX · cliquer pour installer ✕`).
+
+- **NG** : un clic sur l'annonce verte installe la version et redémarre le navigateur sur place
+  (projets et zone tmux conservés) ; `✕` la masque.
+- **Template** (`↑ tpl vX …`) : un clic sur l'annonce verte adopte la version : les caches
+  `.template-commit` / `.template-version` (à côté du script, partagés avec le bash) passent au
+  tag, `init-project.md` est resynchronisé et les badges `✓`/`⚠` recalculés. Un projet en
+  retard propose ensuite `/init-project` à son lancement. Sans cache (première installation),
+  le dernier tag est adopté d'office.
+- **`init-project.md`** : resynchronisé au démarrage (au commit adopté) puis à chaque adoption
   (fichier à côté du script, copié dans `.claude/commands/` à l'ouverture d'un projet).
   Hors ligne, l'ancienne version est conservée.
 
@@ -168,7 +175,8 @@ Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minut
 `go test ./...` : comparaison de versions, resynchronisation de `init-project.md`, et une sonde
 `inotify` qui s'ignore sur `9p`. Variables de test : `CL_ROOTS` (racines factices),
 `CL_CLAUDE_BIN` (faux `claude`), `CL_HUB`, `CL_INNER_SOCKET`, `CL_OUTER_SOCKET`, `CL_SCRIPT`,
-`CL_RAW_BASE` (serveur de fichiers bruts), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`,
+`CL_RAW_BASE` (serveur de fichiers bruts), `CL_API_BASE` (API GitHub), `CL_RELEASE_BASE`
+(fichiers de release), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`, `CL_FAKE_TPL_RELEASED`,
 `XDG_CACHE_HOME`.
 
 `docs/maquette.html` est la maquette interactive d'origine de l'interface.

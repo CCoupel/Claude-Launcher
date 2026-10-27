@@ -45,7 +45,8 @@ Un navigateur de projets à gauche, tmux à droite :
 | `Ctrl+←` `Ctrl+→` ou glisser la bordure | redimensionner le navigateur (mémorisé) |
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
-| clic sur `↑ NG … cliquer pour installer` | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
+| clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version et redémarrer le navigateur (projets conservés) |
+| clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
 | `F5` | rechercher les mises à jour et relire la consommation maintenant (réaffiche les annonces masquées) |
@@ -116,11 +117,13 @@ EXTRA_ENVS=(
 
 **Comportements à l'ouverture d'un projet :**
 - `init-project.md` est copié dans `.claude/commands/` du projet (depuis le cache, que le launcher
-  resynchronise depuis GitHub au démarrage puis à chaque nouveau tag du template ; hors ligne,
+  resynchronise depuis GitHub au démarrage puis à chaque adoption d'un nouveau template ; hors ligne,
   l'ancienne version est conservée) ; si le template du projet est en retard, `claude` démarre sur
   `/init-project` après confirmation.
-- Le NG se met à jour au lancement, puis vérifie GitHub toutes les 10 minutes (ou sur `F5`) : une
-  nouvelle version du launcher s'installe d'un clic sur son annonce, un nouveau template est signalé.
+- Le NG se met à jour au lancement (s'il trouve une release publiée), puis vérifie GitHub toutes les
+  10 minutes (2 minutes tant qu'une release est attendue, ou sur `F5`) : une nouvelle version du launcher
+  ou du template est annoncée en orange dès le tag, puis en vert (cliquable pour l'installer) quand la
+  release est publiée.
 
 **Consommation du compte Claude :** sous la liste des projets, le navigateur affiche les fenêtres de quota
 du compte (session, semaine, limites par modèle) avec leur réinitialisation — même source que la page

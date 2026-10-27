@@ -56,7 +56,10 @@ type model struct {
 	launcherVer  string
 	tplVer       string
 	newLauncher  string
+	launcherOK   bool // release du NG publiée : installable
 	newTpl       string
+	tplSha       string
+	tplOK        bool // release du template publiée : adoptable
 	mgr          *stateMgr
 	form         newForm
 	quitStep     int // 0, quitAsk (launcher seul ou tout ?), quitAll (confirmer la fermeture des projets)
@@ -236,25 +239,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, checkUpdates(false)
 	case updMsg:
 		if msg.ok {
-			if tag := ""; versionNewer(ngVersion, msg.launcherTag) {
+			tag := ""
+			if versionNewer(ngVersion, msg.launcherTag) {
 				tag = msg.launcherTag
-				if tag != m.newLauncher {
-					m.hideLauncher = false
-				}
-				m.newLauncher = tag
-			} else {
-				m.newLauncher = tag
 			}
-			// nouveau tag du template annoncé (comme l'entrée « ↑ template … disponible » du bash)
-			if msg.tplChanged {
-				m.newTpl, m.hideTpl = msg.tplTag, false
+			// annonce masquée : réaffichée pour un nouveau tag ou quand sa release sort
+			if tag != m.newLauncher || msg.launcherReady != m.launcherOK {
+				m.hideLauncher = false
 			}
-			// le commit de référence a pu changer : réévalue les badges template
-			m.tplVer = readTrim(tplVersionPath())
-			latest := readTrim(tplCommitPath())
-			for p := range m.tpl {
-				m.tpl[p] = readTemplate(p, latest)
+			m.newLauncher, m.launcherOK = tag, msg.launcherReady
+			if msg.tplTag != m.newTpl || msg.tplReady != m.tplOK {
+				m.hideTpl = false
 			}
+			m.newTpl, m.tplSha, m.tplOK = msg.tplTag, msg.tplSha, msg.tplReady
+			m.reloadTemplate()
 		}
 		if msg.manual {
 			// le cycle de 10 min continue de son côté : pas de second minuteur
@@ -270,7 +268,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 			return m, nil
 		}
+		// release attendue : revérifie plus souvent pour passer au vert
+		if (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK) {
+			return m, updTickCmd(2 * time.Minute)
+		}
 		return m, updTickCmd(10 * time.Minute)
+	case tplAdoptedMsg:
+		if m.newTpl == msg.tag {
+			m.newTpl, m.tplSha, m.tplOK = "", "", false
+		}
+		m.reloadTemplate()
+		m.msg = "✓ template " + msg.tag + " adopté"
+		if !msg.synced {
+			m.msg = "⚠ template " + msg.tag + " : init-project.md non téléchargé"
+		}
 	case detailMsg:
 		m.detail[msg.path] = msg.d
 	case stateDoneMsg:
@@ -407,14 +418,16 @@ func (m model) onMouse(e tea.MouseMsg) model {
 		_, bodyH, _ := m.layout()
 		// sous la liste : filtre (bodyH), puis en-tête = session, versions, alertes…
 		if k := e.Y - bodyH - 3; k >= 0 && k < len(m.alerts()) {
-			// « ↑ NG … disponible » : le texte met à jour, le ✕ masque
-			if a := m.alerts()[k]; a == "launcher" && e.X < lipgloss.Width(launcherAlert(m.newLauncher)) {
-				if !m.updating {
-					m.updating, m.msg = true, ""
-					m.pendingCmd = updateNowCmd(m.newLauncher)
-				}
-			} else {
+			// annonce verte : le texte installe / adopte ; orange : sans effet ; ✕ masque
+			a := m.alerts()[k]
+			switch {
+			case e.X >= lipgloss.Width(m.alertText(a)):
 				m.dismissAlert(a)
+			case a == "launcher" && m.launcherOK && !m.updating:
+				m.updating, m.msg = true, ""
+				m.pendingCmd = updateNowCmd(m.newLauncher)
+			case a == "template" && m.tplOK:
+				m.pendingCmd = adoptTplCmd(m.newTpl, m.tplSha)
 			}
 			return m
 		}
@@ -717,6 +730,7 @@ var (
 	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
 	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
 	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
+	orange = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
 	blue   = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
 	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 )
@@ -948,22 +962,43 @@ func (m model) versionLines() string {
 	}
 	s := "\n" + dim.Render("  "+line)
 	for _, a := range m.alerts() {
-		switch a {
-		case "launcher":
-			if m.updating {
-				s += "\n  " + green.Render("↑ NG "+m.newLauncher+" : mise à jour…")
-			} else {
-				s += "\n" + green.Render(launcherAlert(m.newLauncher)) + dim.Render(" ✕")
-			}
-		case "template":
-			s += "\n  " + yellow.Render("↑ template "+m.newTpl+" disponible") + dim.Render(" ✕")
+		switch {
+		case a == "launcher" && m.updating:
+			s += "\n" + green.Render(m.alertText(a))
+		case (a == "launcher" && m.launcherOK) || (a == "template" && m.tplOK):
+			s += "\n" + green.Render(m.alertText(a)) + dim.Render(" ✕")
+		default:
+			s += "\n" + orange.Render(m.alertText(a)) + dim.Render(" ✕")
 		}
 	}
 	return s
 }
 
-// launcherAlert : partie cliquable (mise à jour) de l'annonce, avant le ✕.
-func launcherAlert(tag string) string { return "  ↑ NG " + tag + " · cliquer pour installer" }
+// alertText : texte d'une annonce, avant le ✕ (vert : cliquable).
+func (m model) alertText(a string) string {
+	name, tag, ok := "NG", m.newLauncher, m.launcherOK
+	if a == "template" {
+		name, tag, ok = "tpl", m.newTpl, m.tplOK
+	}
+	switch {
+	case a == "launcher" && m.updating:
+		return "  ↑ NG " + tag + " : mise à jour…"
+	case ok:
+		return "  ↑ " + name + " " + tag + " · cliquer pour installer"
+	default:
+		return "  ↑ " + name + " " + tag + " · mise à jour disponible"
+	}
+}
+
+// reloadTemplate : le commit de référence a pu changer (adoption, ou script
+// bash) : réévalue version et badges template.
+func (m *model) reloadTemplate() {
+	m.tplVer = readTrim(tplVersionPath())
+	latest := readTrim(tplCommitPath())
+	for p := range m.tpl {
+		m.tpl[p] = readTemplate(p, latest)
+	}
+}
 
 // alerts : annonces de mises à jour encore affichées, dans l'ordre d'affichage.
 // Elles se masquent d'un clic (✕) ou avec ctrl+u ; les badges ⚠ par projet
