@@ -1,7 +1,7 @@
 # Claude-Launcher-NG
 
-Nouvelle génération de Claude-Launcher : un binaire Go qui remplace le menu fzf du
-script bash. Même modèle (une session tmux `claude-hub`, une fenêtre par projet,
+Nouvelle génération de Claude-Launcher : un binaire Go qui a remplacé le menu fzf du
+script bash (v3), puis ses derniers modes (mise en page des teams, vignettes : v4). Même modèle (une session tmux `claude-hub`, une fenêtre par projet,
 teamleader + teammates), mais une interface réactive : navigateur de projets à
 gauche, tmux à droite.
 
@@ -31,17 +31,17 @@ go build -o ~/.local/bin/claude-launcher-ng .
 # version : go build -ldflags "-X main.ngVersion=v3.0.1" -o ... .
 ```
 
-Prérequis : `tmux`, `git`, `bash`, `jq`, `xxd` (vignettes), `claude`, et le script
-`~/claude-launcher.sh` (le NG réutilise ses modes `--layout-watch` et `--mirror`).
-Aucune dépendance fzf.
+Prérequis : `tmux`, `git`, `bash` (lecture de la config) et `claude`. Ni fzf, ni jq, ni
+xxd, ni script compagnon.
 
 ## Lancement
 
 ```bash
-claude-launcher-ng            # = claude-launcher-ng shell
-~/claude-launcher.sh          # l'ancienne commande redirige vers le NG
-~/claude-launcher.sh --legacy # force l'ancien menu fzf (ou CLAUDE_LAUNCHER_LEGACY=1)
+claude-launcher-ng                    # = claude-launcher-ng shell
+claude-launcher-ng configure          # crée/édite ~/.config/claude-launcher.conf ($EDITOR)
+claude-launcher-ng relayout WIN_ID    # remet en ordre les panes d'une fenêtre projet
 claude-launcher-ng version
+~/claude-launcher.sh                  # ancienne commande : redirige vers le NG
 ```
 
 Au lancement, les teams mortes de `~/.claude/teams` (et leurs tâches) sont supprimées : une session
@@ -50,7 +50,11 @@ supprimée que si elle a des teammates avec un pane tmux et qu'aucun de ces pane
 les teams sans teammate, ou tmux injoignable, ne sont jamais touchées.
 
 La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHUB_DIRS`,
-`CLAUDE_OPTIONS`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`…).
+`CLAUDE_OPTIONS`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée par
+défaut au premier lancement.
+
+Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque), `mirror WIN NOM`
+(vignette Teamleaders), `layout-watch WIN LEADER DOSSIER` (mise en page d'une fenêtre projet).
 
 ## Interface
 
@@ -69,8 +73,7 @@ La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHU
   `✗ connexion claude.ai expirée` ensuite ou si l'endpoint refuse le jeton : un clic ouvre une
   fenêtre `login` qui lance `claude /login`. Après un `/login`, la consommation revient sans
   attendre la fin de la pause qui suit un échec ; `F5` la relit immédiatement.
-  L'en-tête indique les versions : `NG v3.0.0 · sh 3.0.0 · tpl 3.26.0` (NG, script compagnon,
-  dernier tag du template).
+  L'en-tête indique les versions : `NG v4.0.0 · tpl 3.26.0` (NG, dernier tag du template).
 - **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, panes,
   fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
 - **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
@@ -105,9 +108,8 @@ les autres : `/init-project` reste possible pour le convertir.)
 
 ## Versions, mises à jour et template
 
-**Au lancement**, comme l'ancien launcher bash, le NG se met à jour si la dernière release
-GitHub est plus récente : binaire de la plateforme et `claude-launcher.sh` (toujours utilisé
-pour le layout et les vignettes) sont téléchargés, vérifiés contre `SHA256SUMS`, remplacés,
+**Au lancement**, le NG se met à jour si la dernière release GitHub est plus récente : binaire
+de la plateforme et `~/claude-launcher.sh` (s'il existe : simple redirection) sont téléchargés, vérifiés contre `SHA256SUMS`, remplacés,
 puis le NG se relance. Un navigateur resté sur l'ancien binaire est redémarré ; les projets
 ouverts ne sont pas touchés. Hors ligne ou en cas d'échec, il démarre avec la version en place.
 Désactiver : `claude-launcher-ng --no-update` ou `CL_NO_UPDATE=1`. Un binaire compilé à la
@@ -124,12 +126,12 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
 - **NG** : un clic sur l'annonce verte installe la version et redémarre le navigateur sur place
   (projets et zone tmux conservés) ; `✕` la masque.
 - **Template** (`↑ tpl vX …`) : un clic sur l'annonce verte adopte la version : les caches
-  `.template-commit` / `.template-version` (à côté du script, partagés avec le bash) passent au
+  `.template-commit` / `.template-version` (dans `~`) passent au
   tag, `init-project.md` est resynchronisé et les badges `✓`/`⚠` recalculés. Un projet en
   retard propose ensuite `/init-project` à son lancement. Sans cache (première installation),
   le dernier tag est adopté d'office.
 - **`init-project.md`** : resynchronisé au démarrage (au commit adopté) puis à chaque adoption
-  (fichier à côté du script, copié dans `.claude/commands/` à l'ouverture d'un projet).
+  (`~/init-project.md`, copié dans `.claude/commands/` à l'ouverture d'un projet).
   Hors ligne, l'ancienne version est conservée.
 
 ## Architecture
@@ -139,8 +141,16 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
   La coque n'a pas de préfixe : toutes les touches passent au tmux intérieur.
 - `cache.go` : état des projets calculé en tâche de fond (2 calculs en parallèle) et écrit
   dans `~/.cache/claude-launcher/state/`, que le pane `◈ État` lit.
-- `mirrors.go` : gestionnaire de l'onglet `⌗ Teamleaders`, qui réutilise les vignettes du
-  script (`claude-launcher.sh --mirror`).
+- `mirrors.go` : gestionnaire de l'onglet `⌗ Teamleaders` (une vignette par projet ouvert,
+  grille, pane d'attente ; l'onglet garde ses panes terminés jusqu'au passage suivant pour ne
+  jamais se vider, ce qui fermerait `claude-hub`).
+- `mirror.go` : une vignette — terminal en mode brut, un seul appel tmux par rafraîchissement
+  (focus, curseur et contenu du leader), touches relayées en octets bruts (`send-keys -H`).
+- `layout.go` : mise en page d'une fenêtre projet. Un watcher par fenêtre (1 s) lit la team
+  (`~/.claude/teams/*/config.json`, la plus récente pour le projet) et l'état tmux en un seul
+  `list-panes` ; il réordonne (`swap-pane -d`, sans voler le focus), applique la géométrie
+  (`select-layout` avec somme de contrôle tmux) et teinte les panes. Ordre MRU des actifs dans
+  `$TMPDIR/claude_layout_<win>.order`, verrou par fenêtre partagé avec `relayout`.
 - `update.go` : versions, annonces, resynchronisation de `init-project.md`.
 
 ### Détection des changements d'un projet
@@ -161,7 +171,8 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
 - **`Ctrl+←/→` ne fait rien** : votre terminal les intercepte. Glissez la bordure à la souris.
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
-- **Retrouver l'ancien menu** : `~/claude-launcher.sh --legacy`.
+- **Panes d'une team en désordre** : `claude-launcher-ng relayout <window_id>` (ou la liaison
+  `bind R` du README principal).
 - **Quitter** : `Esc` puis `l` arrête le launcher (serveur `claude-ui`) en laissant les projets
   tourner dans `claude-hub` ; `Esc`, `t` puis `o` ferme aussi `claude-hub` et ses sessions groupées.
 - **Pas de zone tmux à droite** : relancer `claude-launcher-ng`, le pane manquant est recréé.
@@ -172,7 +183,8 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
 
 ## Tests
 
-`go test ./...` : comparaison de versions, resynchronisation de `init-project.md`, et une sonde
+`go test ./...` : comparaison de versions, resynchronisation de `init-project.md`, mise en page
+(géométrie, somme de contrôle, ordre MRU, teintes comparées au bash v3), et une sonde
 `inotify` qui s'ignore sur `9p`. Variables de test : `CL_ROOTS` (racines factices),
 `CL_CLAUDE_BIN` (faux `claude`), `CL_HUB`, `CL_INNER_SOCKET`, `CL_OUTER_SOCKET`, `CL_SCRIPT`,
 `CL_RAW_BASE` (serveur de fichiers bruts), `CL_API_BASE` (API GitHub), `CL_RELEASE_BASE`

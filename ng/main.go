@@ -53,7 +53,6 @@ type model struct {
 	launch       bool
 	shell        bool
 	lastSel      string
-	launcherVer  string
 	tplVer       string
 	newLauncher  string
 	launcherOK   bool // release du NG publiée : installable
@@ -89,7 +88,6 @@ func newModel(launch bool) model {
 		windows: map[string]bool{}, launch: launch, started: time.Now(), shell: os.Getenv("CL_SHELL") == "1",
 	}
 	m.session = tmuxSession()
-	m.launcherVer = localLauncherVersion()
 	m.tplVer = readTrim(tplVersionPath())
 	m.nodes = withSpecial(scanTree(cfg.Roots))
 	m.usage = readUsage()
@@ -566,7 +564,7 @@ const (
 func (m model) openProjects() int {
 	c := 0
 	for w := range m.windows {
-		if w != stateWindow && w != teamWindow && w != "[menu]" {
+		if w != teamWindow {
 			c++
 		}
 	}
@@ -962,11 +960,10 @@ func bareVer(v string) string { return strings.TrimPrefix(orQ(v), "v") }
 
 // versionLines : versions du launcher et du template, et alertes de mise à jour.
 func (m model) versionLines() string {
-	// « sh » = le script claude-launcher.sh, que le NG réutilise (layout, vignettes).
 	// 40 colonnes par défaut : libellés courts, complets si la place le permet.
-	line := "NG " + ngVersion + " · sh " + bareVer(m.launcherVer) + " · tpl " + bareVer(m.tplVer)
+	line := "NG " + ngVersion + " · tpl " + bareVer(m.tplVer)
 	if m.w >= 70 {
-		line = ngName + " " + ngVersion + " · script " + orQ(m.launcherVer) + " · dernier template " + orQ(m.tplVer)
+		line = ngName + " " + ngVersion + " · dernier template " + orQ(m.tplVer)
 	}
 	s := "\n" + dim.Render("  "+line)
 	for _, a := range m.alerts() {
@@ -1141,10 +1138,30 @@ func main() {
 		err = runState()
 	case "fixwidth":
 		fixWidth()
+	case "mirror": // vignette de l'onglet Teamleaders (lancée par tmux)
+		if len(os.Args) != 4 {
+			err = fmt.Errorf("usage : claude-launcher-ng mirror WIN_ID NOM")
+		} else {
+			err = runMirror(os.Args[2], os.Args[3])
+		}
+	case "layout-watch": // mise en page d'une fenêtre projet (lancée par tmux)
+		if len(os.Args) != 5 {
+			err = fmt.Errorf("usage : claude-launcher-ng layout-watch WIN_ID LEADER_PANE DOSSIER")
+		} else {
+			runLayoutWatch(os.Args[2], os.Args[3], os.Args[4])
+		}
+	case "relayout":
+		if len(os.Args) != 3 {
+			err = fmt.Errorf("usage : claude-launcher-ng relayout WIN_ID")
+		} else {
+			runRelayout(os.Args[2])
+		}
+	case "configure":
+		err = runConfigure()
 	case "version", "--version":
 		fmt.Println(ngName, ngVersion)
 	default:
-		err = fmt.Errorf("usage : claude-launcher-ng [shell|nav [--launch]|state|fixwidth|version]")
+		err = fmt.Errorf("usage : claude-launcher-ng [shell|configure|relayout WIN_ID|version]")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

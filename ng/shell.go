@@ -12,7 +12,6 @@ import (
 )
 
 const (
-	stateWindow  = "◈ État"
 	defaultNavW  = 40
 	outerSession = "claude-ui"
 )
@@ -127,8 +126,7 @@ func paneStale(tm func(...string) *exec.Cmd, target, exe string) bool {
 	return false
 }
 
-// ensureInner : crée claude-hub s'il manque (premier onglet : « ⌗ Teamleaders »)
-// et retire l'ancien onglet « ◈ État », remplacé par le pane d'infos de la coque.
+// ensureInner : crée claude-hub s'il manque (premier onglet : « ⌗ Teamleaders »).
 func ensureInner() error {
 	if dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		if out, err := dtmux("new-session", "-d", "-s", hubSession, "-n", teamWindow, teamPlaceholder).CombinedOutput(); err != nil {
@@ -136,7 +134,6 @@ func ensureInner() error {
 		}
 	}
 	keepTeamWindow(exactW(hubSession, teamWindow))
-	dropStateWindow()
 	// Barre d'onglets en haut ; le style projet est posé par window à l'ouverture.
 	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status", "on").Run()
 	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-position", "top").Run()
@@ -159,16 +156,6 @@ func bindZoom() {
 	cond := "#{==:#{session_name}," + hubSession + "}"
 	_ = dtmux("bind-key", "-n", "DoubleClick1Pane", "if-shell", "-F", cond,
 		"select-pane -t = ; resize-pane -Z -t =", tmuxDoubleClick).Run()
-}
-
-// dropStateWindow ferme l'onglet « ◈ État » des versions ≤ v3.0.8.
-func dropStateWindow() {
-	b, _ := dtmux("list-windows", "-t", exactS(hubSession), "-F", "#{window_name}").Output()
-	for _, l := range strings.Split(string(b), "\n") {
-		if strings.TrimSpace(l) == stateWindow {
-			_ = dtmux("kill-window", "-t", exactW(hubSession, stateWindow)).Run()
-		}
-	}
 }
 
 // ── Panes de la coque ─────────────────────────────────────────────────────
@@ -212,7 +199,7 @@ func tagPane(id, role string) { _ = otmux("set-option", "-p", "-t", id, "@cl", r
 
 // ensureLayout complète la coque : rôles posés (coque d'avant les rôles :
 // pane 0 = navigateur, l'autre = zone tmux), zone tmux et pane d'infos recréés
-// s'ils manquent, ancien onglet « ◈ État » fermé. Appelé par la coque et par
+// s'ils manquent. Appelé par la coque et par
 // un navigateur redémarré après mise à jour : un verrou évite les doublons.
 func ensureLayout(exe string) error {
 	if f, err := os.OpenFile(filepath.Join(cacheDir(), "layout.lock"), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
@@ -257,7 +244,6 @@ func ensureLayout(exe string) error {
 	}
 	_ = otmux("bind-key", "-n", "M-Left", "select-pane", "-t", nav).Run()
 	_ = otmux("bind-key", "-n", "M-Right", "select-pane", "-t", roles[roleHub]).Run()
-	dropStateWindow()
 	return nil
 }
 
@@ -273,6 +259,9 @@ func runShell() error {
 	exe, err := os.Executable()
 	if err != nil {
 		return err
+	}
+	if created, err := ensureConfig(); err == nil && created {
+		fmt.Println("  ✓ config par défaut créée :", configPath(), "(claude-launcher-ng configure pour l'éditer)")
 	}
 	if err := ensureInner(); err != nil {
 		return err

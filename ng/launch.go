@@ -29,12 +29,29 @@ func targetSession(current string) string {
 func exactS(s string) string    { return "=" + s }
 func exactW(s, w string) string { return "=" + s + ":=" + w }
 
+// scriptPath : ~/claude-launcher.sh, réduit depuis la v4 à une redirection de
+// l'ancienne commande vers le NG (tenue à jour par la mise à jour automatique).
 func scriptPath() string {
 	if p := os.Getenv("CL_SCRIPT"); p != "" {
 		return p
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, "claude-launcher.sh")
+}
+
+// selfCommand : ligne de commande d'une sous-commande du NG lancée par tmux
+// (vignette, watcher), avec le serveur tmux et la session visés.
+func selfCommand(args ...string) string {
+	exe, err := os.Executable()
+	if err != nil {
+		exe = "claude-launcher-ng"
+	}
+	c := "CL_HUB=" + shq(hubSession) + " CL_INNER_SOCKET=" + shq(os.Getenv("CL_INNER_SOCKET")) +
+		" " + shq(strings.TrimSuffix(exe, " (deleted)"))
+	for _, a := range args {
+		c += " " + shq(a)
+	}
+	return c
 }
 
 // claudeBin : commande lancée dans chaque projet (CL_CLAUDE_BIN : remplaçant de test).
@@ -72,10 +89,9 @@ func (c Config) exports() string {
 	return e.String()
 }
 
-// launchProject reproduit la branche « ouvrir un projet » du menu bash :
-// fenêtre, styles, couleur du pane, démarrage de claude (avec la confirmation
-// /init-project si le template est en retard ou absent), puis le watcher de
-// layout — qui reste le script bash, pas encore migré.
+// launchProject : fenêtre, styles, couleur du pane, démarrage de claude (avec la
+// confirmation /init-project si le template est en retard ou absent), puis le
+// watcher de mise en page (layout.go).
 // Mode de lancement : normal (ouverture d'un projet), ou juste après sa création
 // depuis le launcher — géré (/init-project d'office) ou brut (ni git ni init-project).
 type launchMode int
@@ -106,8 +122,7 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	_ = dtmux("set-window-option", "-t", target, "window-status-current-style", "bold,fg=colour255,bg=colour27").Run()
 	_ = dtmux("set-option", "-p", "-t", pane, "window-style", "bg=colour"+cfg.projectColor(n.Key)).Run()
 
-	script := scriptPath()
-	initCache := filepath.Join(filepath.Dir(script), "init-project.md")
+	initCache := initProjectPath()
 
 	var initPre, initArg string
 	switch tpl := readTemplate(n.Path, latest); {
@@ -135,8 +150,6 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 		return fmt.Errorf("send-keys : %w", err)
 	}
 
-	watch := fmt.Sprintf("bash %s --layout-watch %s %s %s %s %s",
-		shq(script), shq(sess), shq(winID), shq(pane), shq(n.Path), shq(script))
-	_ = dtmux("run-shell", "-b", watch).Run()
+	_ = dtmux("run-shell", "-b", selfCommand("layout-watch", winID, pane, n.Path)).Run()
 	return dtmux("select-window", "-t", target).Run()
 }

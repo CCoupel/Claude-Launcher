@@ -6,9 +6,10 @@ avec n'importe quel projet Claude Code.
 
 **Site** : https://ccoupel.github.io/Claude-Launcher/
 
-Depuis la v3, le launcher est **Claude-Launcher-NG** : un binaire Go, réactif, qui remplace l'ancien
-menu fzf. Le script `claude-launcher.sh` reste dans ce repo : le NG s'en sert (layout des agents,
-vignettes), et l'ancienne commande `~/claude-launcher.sh` **redirige vers le NG**.
+Le launcher est **Claude-Launcher-NG** : un binaire Go, réactif, qui a remplacé l'ancien menu fzf en v3.
+Depuis la **v4**, il est entièrement en Go : la mise en page des teams et les vignettes Teamleaders, qui
+passaient encore par le script bash, sont intégrées au binaire, et l'ancien menu (`--legacy`) est
+supprimé. `~/claude-launcher.sh` n'est plus qu'une redirection de l'ancienne commande vers le NG.
 
 ---
 
@@ -25,12 +26,13 @@ Un navigateur de projets à gauche, tmux à droite :
   (`v3.9.1 → v3.26.0`), panes tmux, fichiers avec leur marqueur git. Instantané : l'état est préparé
   en tâche de fond et rafraîchi quand le projet change.
 - **Onglet `⌗ Teamleaders`** : une vignette interactive par projet ouvert, à la couleur du projet.
-- **Un onglet par projet** : le teamleader et ses teammates, comme avant.
+- **Un onglet par projet** : le teamleader et ses teammates, rangés automatiquement (voir
+  [Mise en page des teams](#mise-en-page-des-teams)).
 - **Création de projet** : double-clic sur une catégorie (ou « ✦ Nouveau projet ») — nom, puis type :
   **géré** (remote facultatif, `git init`, claude démarre sur `/init-project`) ou **brut** (dossier
   et `CLAUDE.md` minimal, sans git ni `/init-project`) ; le projet est ensuite lancé.
-- **Mises à jour** : au lancement, le NG installe la dernière release (binaire et script, vérifiés contre
-  `SHA256SUMS`) ; une version sortie pendant qu'il tourne est annoncée et s'installe d'un clic. Un nouveau
+- **Mises à jour** : au lancement, le NG installe la dernière release (binaire et redirection
+  `~/claude-launcher.sh`, vérifiés contre `SHA256SUMS`) ; une version sortie pendant qu'il tourne est annoncée et s'installe d'un clic. Un nouveau
   template est annoncé (masquable).
 - **Connexion claude.ai surveillée** : ligne jaune 3 jours avant son expiration, rouge une fois expirée ;
   un clic ouvre `claude /login`.
@@ -68,28 +70,18 @@ curl -fsSL "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/
   -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng
 ```
 
-**2. Le script compagnon** (requis : le NG réutilise ses modes `--layout-watch` et `--mirror`) :
+Prérequis : `tmux`, `git`, `bash` (lecture de la config) et `claude`. Plus besoin de `fzf`, `jq` ni `xxd`.
+
+**2. Configuration** — au premier lancement, le launcher crée `~/.config/claude-launcher.conf` :
 
 ```bash
-curl -fsSL \
-  https://raw.githubusercontent.com/CCoupel/Claude-Launcher/main/claude-launcher.sh \
-  -o ~/claude-launcher.sh && chmod +x ~/claude-launcher.sh
+claude-launcher-ng configure   # crée la config si besoin et l'ouvre dans $EDITOR (nano par défaut)
 ```
 
-Prérequis : `tmux`, `git`, `bash`, `jq`, `xxd` (vignettes) et `claude`. `fzf` n'est nécessaire que
-pour l'ancien menu (`--legacy`).
-
-**3. Configuration** — au premier lancement, le launcher crée `~/.config/claude-launcher.conf`
-(partagé avec l'ancien launcher) :
+**3. Lancement** :
 
 ```bash
-~/claude-launcher.sh --configure   # édite la config (GITHUB_DIR, token…)
-```
-
-**4. Lancement** :
-
-```bash
-claude-launcher-ng        # ou : ~/claude-launcher.sh (sans argument, redirige vers le NG)
+claude-launcher-ng        # ou : ~/claude-launcher.sh, s'il est installé (redirige vers le NG)
 ```
 
 **Variables disponibles dans la config :**
@@ -104,6 +96,9 @@ claude-launcher-ng        # ou : ~/claude-launcher.sh (sans argument, redirige v
 | `CLAUDE_OPTIONS` | Options passées à `claude` |
 | `EXTRA_ENVS` | Variables d'environnement supplémentaires |
 | `COLOR_PALETTE`, `PROJECT_COLORS` | Couleurs de fond des projets (indices tmux 256) |
+| `PANE_ACTIVE_BRIGHTEN_STEP`, `PANE_INACTIVE_DARKEN_STEP` | Teinte des teammates actifs (éclaircis) et inactifs (assombris), 1 = léger, 5 = fort (défaut 1) |
+| `LAYOUT_2ROW_LEADER_PCT` | Hauteur du teamleader (%) quand la team tient sur 2 lignes (≤ 5 teammates, défaut 50) |
+| `LAYOUT_3ROW_LEADER_NUM`, `LAYOUT_3ROW_MID_NUM`, `LAYOUT_3ROW_DEN` | Au-delà de 5 teammates : fractions leader / ligne du milieu (défaut 3/7 et 2/7, la dernière ligne a le reste) |
 | `USAGE_REFRESH_SEC` | Secondes entre deux lectures de la consommation du compte (min. 60, défaut 120). Lue aussi par le milestone-panel (repli 5 min si absente) ; après un échec (429…), pause de max(5 min, 2 × cette valeur) |
 
 `EXTRA_ENVS` permet de passer n'importe quelle variable d'env à Claude Code (clés d'API tierces, URLs…) :
@@ -140,57 +135,58 @@ Données périmées (échec, launcher fermé) : barres grisées + horodatage.
 
 **Mettre à jour :**
 ```bash
-# rien à faire : le NG installe la dernière release (binaire + script compagnon) à chaque lancement
+# rien à faire : le NG installe la dernière release à chaque lancement
 claude-launcher-ng --no-update     # démarrer sans mise à jour (ou CL_NO_UPDATE=1)
 ```
 
 ---
 
-## Ancien menu fzf (`--legacy`)
+## Mise en page des teams
 
-L'ancien launcher bash est conservé :
+Dans l'onglet d'un projet, le NG range les panes à chaque arrivée ou départ d'un teammate et à chaque
+changement d'activité (d'après `~/.claude/teams/*/config.json`) :
 
-```bash
-~/claude-launcher.sh --legacy        # force l'ancien menu pour cette exécution
-CLAUDE_LAUNCHER_LEGACY=1 ~/claude-launcher.sh   # idem, en permanence
+- **en haut** : le teamleader, et les agents de type `cdp` ;
+- **dessous** : les teammates, les **actifs d'abord** (le dernier à s'être mis au travail en tête),
+  puis les inactifs par nom ; sur une ligne jusqu'à 5 teammates, sur deux au-delà ;
+- teammates actifs **éclaircis**, inactifs **assombris**, et le titre de l'onglet s'allume tant qu'un
+  agent travaille.
+
+Pour forcer une remise en ordre, ajouter dans `~/.tmux.conf` :
+
+```tmux
+bind R run-shell "claude-launcher-ng relayout '#{window_id}'"
 ```
 
-Sans binaire `claude-launcher-ng` installé, `~/claude-launcher.sh` démarre l'ancien menu comme avant.
-`CLAUDE_LAUNCHER_NG=/chemin/claude-launcher-ng` indique un binaire hors du `PATH`. Les modes internes
-(`--menu`, `--mirror`, `--layout-watch`, `--do-layout`…), `--configure` et `--update` ne sont jamais
-redirigés. L'ancien menu s'auto-met à jour depuis les releases ; le NG, lui, signale seulement.
+(une ancienne liaison `… claude-launcher.sh --relayout …` continue de fonctionner via la redirection).
+
+---
+
+## Passage à la v4
+
+- **L'ancien menu fzf est supprimé** : `~/claude-launcher.sh --legacy`, `CLAUDE_LAUNCHER_LEGACY=1` et
+  `--update` n'existent plus. `~/claude-launcher.sh` redirige vers le NG (`--configure` →
+  `claude-launcher-ng configure`) ; il peut aussi être supprimé.
+- Une installation v3 passe en v4 d'elle-même au lancement suivant (mise à jour automatique) ; les
+  projets déjà ouverts gardent leur mise en page bash jusqu'à leur réouverture.
+- `CLAUDE_LAUNCHER_NG=/chemin/claude-launcher-ng` indique à la redirection un binaire hors du `PATH`.
 
 ---
 
 ## Migration depuis claude_project_template
 
-Le launcher vivait auparavant dans `claude_project_template`. Si votre `~/claude-launcher.sh`
-a été installé **avant** cette migration, il continue de chercher ses mises à jour là-bas — ce qui
-cessera de fonctionner une fois le launcher retiré de ce repo. **Une seule commande à relancer,
-une seule fois** (c'est l'étape 2 de l'installation) :
-
-```bash
-curl -fsSL \
-  https://raw.githubusercontent.com/CCoupel/Claude-Launcher/main/claude-launcher.sh \
-  -o ~/claude-launcher.sh && chmod +x ~/claude-launcher.sh
-```
-
-Elle remplace le script en place, votre `~/.config/claude-launcher.conf` n'est pas touché. Une fois cette
-version installée, l'auto-update pointe vers ce repo.
-
-**Comment savoir si vous êtes concerné ?**
-```bash
-grep -c LAUNCHER_REPO ~/claude-launcher.sh
-```
-`0` → ancienne version, à migrer avec la commande ci-dessus. `1` ou plus → déjà à jour.
+Le launcher vivait auparavant dans `claude_project_template`. Un `~/claude-launcher.sh` installé
+depuis là-bas cherche encore ses mises à jour dans ce repo-là : il suffit d'installer le NG
+(étape 1 de l'installation) et de le lancer par `claude-launcher-ng`. L'ancien script peut être
+supprimé ; `~/.config/claude-launcher.conf` est repris tel quel.
 
 ---
 
 ## Utiliser un autre template
 
 Le launcher fetche `init-project.md` depuis `claude_project_template` par défaut. Pour pointer
-vers un template différent, éditer la constante `TEMPLATE_REPO` dans `claude-launcher.sh` — ce
-n'est pas exposé via `--configure` à ce jour.
+vers un template différent, modifier la constante `templateRepo` de `ng/update.go` et recompiler —
+ce n'est pas exposé dans la config à ce jour.
 
 ---
 
@@ -200,6 +196,7 @@ Ce repo ne contenait, jusqu'à récemment, que le launcher au sein de
 [`claude_project_template`](https://github.com/CCoupel/claude_project_template) — il en a été
 extrait pour permettre un cycle de release indépendant (le launcher est un outil tmux générique,
 le template est du contenu Markdown pur : agents, commandes, contextes). L'historique complet des
-commits touchant `claude-launcher.sh` a été préservé lors de la migration.
+commits touchant `claude-launcher.sh` a été préservé lors de la migration (le menu bash complet
+reste consultable dans l'historique git, jusqu'à la v3.0.17).
 
 `claude_project_template` reste la seule source pour `TEMPLATE_claude/` et `/init-project`.
