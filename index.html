@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Claude-Launcher-NG</title>
-<meta name="description" content="Claude-Launcher-NG : un hub tmux réactif pour piloter plusieurs projets Claude Code en parallèle. Navigateur de projets, état de chaque projet en un clic, vue d'ensemble des teamleaders." />
+<meta name="description" content="Claude-Launcher-NG : un hub tmux réactif, 100 % Go, pour piloter plusieurs projets Claude Code en parallèle. Navigateur de projets, état de chaque projet en un clic, vue d'ensemble des teamleaders, teams rangées automatiquement." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -18,6 +18,7 @@
     <ul class="nav-links">
       <li><a href="#problems">Pourquoi</a></li>
       <li><a href="#features">Fonctionnalités</a></li>
+      <li><a href="#teams">Teams</a></li>
       <li><a href="#install">Installation</a></li>
       <li><a href="#shortcuts">Raccourcis</a></li>
       <li><a href="https://github.com/CCoupel/claude_project_template">Template →</a></li>
@@ -27,10 +28,10 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> v3.0.15 · compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> v4.1.0 · 100 % Go · compagnon de claude_project_template</div>
     <h1>Un hub tmux pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
     <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil.</p>
-    <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Plus de fzf, et une interface qui ne se fige plus.</p>
+    <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Plus de fzf, plus de script : une interface qui ne se fige plus.</p>
     <div class="hero-ctas">
       <a href="#install" class="btn btn-primary">Installer</a>
       <a href="https://github.com/CCoupel/Claude-Launcher" class="btn btn-outline">Voir sur GitHub</a>
@@ -56,7 +57,7 @@
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span>                <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>
-<span style="color:#6e7681">  NG v3.0.15 · sh 3.0.15 · tpl 3.28.0</span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681">  NG v4.1.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -118,7 +119,7 @@
       <div class="feature-card"><div class="feature-icon">📊</div><div class="feature-body"><h3>Consommation et connexion</h3><p>Session, semaine, limites par modèle, avec leur réinitialisation ; <code>F5</code> les relit aussitôt. La connexion claude.ai est surveillée : alerte jaune 3 jours avant son expiration, rouge ensuite, et un clic ouvre <code>claude /login</code>.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Toujours à jour</h3><p>Au lancement, le NG installe la dernière release, vérifiée contre <code>SHA256SUMS</code>. Une version sortie entre-temps s'installe d'un clic sur son annonce, sans fermer vos projets. Les projets en retard sur le template proposent <code>/init-project</code>.</p></div></div>
       <div class="feature-card"><div class="feature-icon">↔️</div><div class="feature-body"><h3>Un espace qui s'adapte</h3><p><code>Ctrl+←</code> <code>Ctrl+→</code> ou glissez la bordure : la largeur du navigateur est mémorisée. Double-clic sur un pane d'une team : plein écran, et retour d'un autre double-clic.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🧩</div><div class="feature-body"><h3>Compatible avec l'existant</h3><p>Même configuration, mêmes sessions tmux, mêmes agent teams. L'ancienne commande <code>claude-launcher.sh</code> redirige vers le NG ; <code>--legacy</code> rouvre l'ancien menu.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧩</div><div class="feature-body"><h3>100 % Go depuis la v4</h3><p>Mise en page des teams et vignettes sont passées dans le binaire : plus de script, ni <code>jq</code> ni <code>xxd</code>, et bien moins de processus lancés chaque seconde. Même configuration, mêmes sessions tmux ; l'ancienne commande <code>claude-launcher.sh</code> redirige vers le NG.</p></div></div>
     </div>
   </div>
 </section>
@@ -145,7 +146,7 @@
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span>                <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681">  NG v3.0.15 · sh 3.0.15 · tpl 3.28.0</span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681">  NG v4.1.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -177,11 +178,58 @@
   </div>
 </section>
 
+<section id="teams">
+  <div class="container">
+    <div class="section-header">
+      <h2>Des teams rangées toutes seules</h2>
+      <p>À chaque arrivée d'un teammate et à chaque changement d'activité, l'onglet du projet se réorganise : le teamleader et le chef de projet en haut, les agents qui travaillent d'abord, les autres ensuite.</p>
+    </div>
+    <div class="term-wrap">
+<pre class="term" role="img" aria-label="Onglet du projet web-shop : en haut le teamleader et le cdp ; dessous dev-back et dev-front, actifs et éclaircis, puis doc et qa, en attente et assombris."><span style="color:#6c6c6c;background:#303030"> ⌗ Teamleaders </span><span style="color:#eeeeee;background:#005fff;font-weight:700"> web-shop </span><span style="color:#6c6c6c;background:#303030"> k8s-cluster </span><span style="color:#bcbcbc;background:#262626">                                                                          </span><span style="color:#808080;background:#262626">14:32 </span>
+<span style="color:#ff875f;background:#005f5f">✻</span><span style="background:#005f5f"> </span><span style="background:#005f5f;font-weight:700">Claude Code · web-shop</span><span style="background:#005f5f">                                  </span><span style="color:#005fff">│</span><span style="color:#ff875f;background:#000000">✻</span><span style="background:#000000"> </span><span style="background:#000000;font-weight:700">cdp</span><span style="background:#000000">                                                      </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="color:#6e7681;background:#005f5f">&gt;</span><span style="background:#005f5f"> répartir le paiement entre front et back                </span><span style="color:#005fff">│</span><span style="color:#6e7681;background:#000000">plan : 3 lots, lot 2 en cours</span><span style="background:#000000">                              </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">● dev-front et dev-back au travail                        </span><span style="color:#005fff">│</span><span style="color:#6e7681;background:#000000">  en attente</span><span style="background:#000000">                                               </span>
+<span style="background:#005f5f">● qa attend la fin du front                               </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="color:#ff875f;background:#005f5f">✶ Travail en cours…</span><span style="background:#005f5f">                                       </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="background:#005f5f">                                                          </span><span style="color:#005fff">│</span><span style="background:#000000">                                                           </span>
+<span style="color:#005fff">────────────────────────────┬────────────────────────────┬┴</span><span style="color:#444444">───────────────────────────┬───────────────────────────────</span>
+<span style="color:#ff875f;background:#008787">✻</span><span style="background:#008787"> </span><span style="background:#008787;font-weight:700">dev-back</span><span style="background:#008787">                  </span><span style="color:#444444">│</span><span style="color:#ff875f;background:#008787">✻</span><span style="background:#008787"> </span><span style="background:#008787;font-weight:700">dev-front</span><span style="background:#008787">                 </span><span style="color:#444444">│</span><span style="color:#ff875f;background:#000000">✻</span><span style="background:#000000"> </span><span style="background:#000000;font-weight:700">doc</span><span style="background:#000000">                       </span><span style="color:#444444">│</span><span style="color:#ff875f;background:#000000">✻</span><span style="background:#000000"> </span><span style="background:#000000;font-weight:700">qa</span><span style="background:#000000">                           </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">● Lecture de api/payment.go </span><span style="color:#444444">│</span><span style="background:#008787">● Écriture de checkout.tsx  </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">● go test ./payment         </span><span style="color:#444444">│</span><span style="color:#6e7681;background:#008787">  +42 −7</span><span style="background:#008787">                    </span><span style="color:#444444">│</span><span style="color:#6e7681;background:#000000">  en attente</span><span style="background:#000000">                </span><span style="color:#444444">│</span><span style="color:#6e7681;background:#000000">  en attente</span><span style="background:#000000">                   </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="color:#ff875f;background:#008787">✶ Travail en cours…</span><span style="background:#008787">         </span><span style="color:#444444">│</span><span style="color:#ff875f;background:#008787">✶ Travail en cours…</span><span style="background:#008787">         </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span>
+<span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#008787">                            </span><span style="color:#444444">│</span><span style="background:#000000">                            </span><span style="color:#444444">│</span><span style="background:#000000">                               </span></pre>
+    </div>
+    <p class="screenshot-caption">Plus de 5 teammates : ils passent sur deux lignes. Pour forcer une remise en ordre : <code>Ctrl+B R</code> dans l'onglet du projet.</p>
+  </div>
+</section>
+
 <section id="install">
   <div class="container">
     <div class="section-header">
       <h2>Installation</h2>
-      <p>Deux fichiers, aucune configuration obligatoire pour démarrer.</p>
+      <p>Un seul binaire, aucune configuration obligatoire pour démarrer.</p>
     </div>
     <div class="install-steps">
 
@@ -195,27 +243,17 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 <span class="code-cmd">curl</span> -fsSL \
   "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng-$os-$arch" \
   -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng</pre>
+          <p style="margin-top:.75rem">Prérequis : <code>tmux</code>, <code>git</code>, <code>bash</code> et <code>claude</code>. Rien d'autre.</p>
         </div>
       </div>
 
       <div class="install-step">
         <div class="step-num">2</div>
         <div class="step-content">
-          <h3>Installer le script compagnon</h3>
-          <p>Le NG s'appuie sur <code>claude-launcher.sh</code> pour le layout des agents et les vignettes. Il sert aussi l'ancien menu (<code>--legacy</code>) et <code>--configure</code>.</p>
-          <pre><span class="code-cmd">curl</span> -fsSL \
-  https://raw.githubusercontent.com/CCoupel/Claude-Launcher/main/claude-launcher.sh \
-  -o ~/claude-launcher.sh && chmod +x ~/claude-launcher.sh</pre>
-          <p style="margin-top:.75rem">Prérequis : <code>tmux</code>, <code>git</code>, <code>bash</code>, <code>jq</code> et <code>xxd</code> (vignettes).</p>
-        </div>
-      </div>
-
-      <div class="install-step">
-        <div class="step-num">3</div>
-        <div class="step-content">
           <h3>Configurer (optionnel)</h3>
-          <p>Au premier lancement, le launcher crée <code>~/.config/claude-launcher.conf</code>, partagé avec l'ancien launcher.</p>
-          <pre><span class="code-cmd">~/claude-launcher.sh</span> --configure   <span class="code-comment"># édite GITHUB_DIRS, token…</span></pre>
+          <p>Au premier lancement, le launcher crée <code>~/.config/claude-launcher.conf</code>.</p>
+          <pre><span class="code-cmd">claude-launcher-ng</span> configure   <span class="code-comment"># ouvre la config dans $EDITOR : GITHUB_DIRS, token…</span>
+<span class="code-cmd">claude-launcher-ng</span> help        <span class="code-comment"># commandes et raccourcis (F1 dans le launcher)</span></pre>
           <table class="config-table">
             <tr><th>Variable</th><th>Rôle</th></tr>
             <tr><td><code>GITHUB_DIR</code> / <code>GITHUB_DIRS</code></td><td>Dossier(s) racine contenant vos projets (les catégories sont les sous-dossiers)</td></tr>
@@ -223,13 +261,15 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
             <tr><td><code>CLAUDE_OPTIONS</code></td><td>Options passées à <code>claude</code></td></tr>
             <tr><td><code>CLAUDE_EXPERIMENTAL_TEAMS</code></td><td><code>1</code> = active les agent teams</td></tr>
             <tr><td><code>EXTRA_ENVS</code></td><td>Variables d'environnement supplémentaires</td></tr>
+            <tr><td><code>PANE_ACTIVE_BRIGHTEN_STEP</code>, <code>PANE_INACTIVE_DARKEN_STEP</code></td><td>Teinte des teammates actifs et inactifs (1 = léger, 5 = fort)</td></tr>
+            <tr><td><code>LAYOUT_2ROW_LEADER_PCT</code>, <code>LAYOUT_3ROW_*</code></td><td>Hauteur laissée au teamleader dans la mise en page des teams</td></tr>
             <tr><td><code>USAGE_REFRESH_SEC</code></td><td>Secondes entre deux lectures de la consommation (min. 60, défaut 120)</td></tr>
           </table>
         </div>
       </div>
 
       <div class="install-step">
-        <div class="step-num">4</div>
+        <div class="step-num">3</div>
         <div class="step-content">
           <h3>Démarrer le hub</h3>
           <pre><span class="code-cmd">claude-launcher-ng</span></pre>
@@ -237,9 +277,9 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
             <div class="lf-item"><span class="lf-icon">✓</span> Crée (ou rejoint) la session tmux <code>claude-hub</code></div>
             <div class="lf-item"><span class="lf-icon">✓</span> Prépare en arrière-plan l'état de tous vos projets</div>
             <div class="lf-item"><span class="lf-icon">✓</span> Propose <code>/init-project</code> si le template d'un projet est en retard</div>
-            <div class="lf-item"><span class="lf-icon">✓</span> Se met à jour tout seul : binaire et script compagnon, vérifiés (<code>--no-update</code> pour s'en passer)</div>
+            <div class="lf-item"><span class="lf-icon">✓</span> Se met à jour tout seul, release vérifiée (<code>--no-update</code> pour s'en passer)</div>
           </div>
-          <p style="margin-top:.75rem">Vous aviez déjà <code>claude-launcher.sh</code> ? Rien à changer : sans argument, il lance désormais le NG. <code>~/claude-launcher.sh --legacy</code> rouvre l'ancien menu fzf.</p>
+          <p style="margin-top:.75rem">Vous étiez en v3 ? Elle passe en v4 d'elle-même au lancement suivant. L'ancien menu fzf (<code>--legacy</code>) a été retiré ; <code>~/claude-launcher.sh</code> lance toujours le NG.</p>
         </div>
       </div>
 
@@ -251,7 +291,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
   <div class="container">
     <div class="section-header">
       <h2>Raccourcis</h2>
-      <p>Tout se fait à la souris ou au clavier.</p>
+      <p>Tout se fait à la souris ou au clavier. <code>F1</code> les rappelle à tout moment.</p>
     </div>
     <table class="config-table">
       <tr><th>Action</th><th>Effet</th></tr>
@@ -263,9 +303,11 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
       <tr><td><code>Ctrl+←</code> <code>Ctrl+→</code>, glisser la bordure</td><td>Redimensionner le navigateur</td></tr>
       <tr><td><code>Tab</code>, <code>Alt+←</code> <code>Alt+→</code></td><td>Passer du navigateur à tmux</td></tr>
       <tr><td>Double-clic sur un pane d'une team</td><td>Plein écran ; double-clic à nouveau pour revenir</td></tr>
+      <tr><td><code>Ctrl+B R</code> dans un projet</td><td>Remettre en ordre les panes de la team</td></tr>
       <tr><td>Clic sur <code>↑ NG … cliquer pour installer</code></td><td>Installer la nouvelle version (projets conservés)</td></tr>
       <tr><td>Clic sur l'alerte de connexion</td><td>Ouvrir une fenêtre qui lance <code>claude /login</code></td></tr>
       <tr><td><code>Ctrl+U</code>, clic sur <code>✕</code></td><td>Masquer une annonce de mise à jour</td></tr>
+      <tr><td><code>F1</code></td><td>Afficher l'aide : toutes les commandes et tous les raccourcis</td></tr>
       <tr><td><code>F5</code></td><td>Rechercher les mises à jour et relire la consommation maintenant</td></tr>
       <tr><td><code>Esc</code></td><td>Effacer le filtre ; sinon quitter : <code>l</code> launcher seul (projets conservés), <code>t</code> tout fermer</td></tr>
     </table>
@@ -287,7 +329,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG v3.0.15 — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG v4.1.0 — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 
