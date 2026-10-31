@@ -183,7 +183,8 @@ CLAUDE_OPTIONS="--allow-dangerously-skip-permissions"
 
 # Reprise de la dernière conversation à l'ouverture d'un projet (après un crash,
 # un terminal fermé…) : ask = question [O/n], always = sans question, never = jamais.
-# Proposée seulement si la conversation date de moins de RESUME_MAX_AGE_H heures ;
+# Proposée seulement si la conversation date de moins de RESUME_MAX_AGE_H heures
+# et n'a pas été close par /end-session ;
 # la team d'une telle session (liste de tâches) est épargnée par le nettoyage.
 # RESUME_MODE=ask
 # RESUME_MAX_AGE_H=24

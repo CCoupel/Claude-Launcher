@@ -20,7 +20,10 @@ Un navigateur de projets à gauche, tmux à droite :
 - **Navigateur** : vos projets en arbre par catégorie (les sous-dossiers de `GITHUB_DIRS`), filtre à la
   frappe, souris. Badges git **local** (`●` au repos sur main, `✎` en cours, `◆` tout commité, `!` modifié
   sur main) et **remote** (`○` jamais poussé, `↑N` non poussé, `⇡` non mergé, `✓` publié, `↓N` en retard),
-  badge template (`✔` à jour, `⚠` en retard, `⊘` sans template), consommation du compte Claude en bas.
+  badge template (`✔` à jour, `⚠` en retard, `⊘` sans template), `↺` si une session Claude est restée
+  en suspens (non close par `/end-session`, rouge si interrompue par un crash), consommation du compte
+  Claude en bas. Les dossiers ajoutés, renommés ou supprimés apparaissent ou disparaissent seuls
+  (inotify, ou date des dossiers de catégorie sur `/mnt/c`).
 - **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir ni changer la
   zone de droite — git, version locale et dernière release, version du template
   (`v3.9.1 → v3.26.0`), composition de la team (un teammate par ligne : version de sa copie du
@@ -130,7 +133,8 @@ EXTRA_ENVS=(
   team montre que le leader a disparu sans se fermer). La reprise relance `claude --resume <id>` :
   la conversation, sa team et sa liste de tâches sont retrouvées, sans question `/init-project`. Les
   teammates, eux, ne peuvent pas être repris par Claude Code : le teamleader reçoit une consigne pour
-  les relancer d'après la liste de tâches. Rien n'est proposé si la conversation tourne encore ailleurs.
+  les relancer d'après la liste de tâches. Rien n'est proposé si la conversation tourne encore ailleurs,
+  ni si elle a été close par `/end-session`.
 - Le NG se met à jour au lancement (s'il trouve une release publiée), puis vérifie GitHub toutes les
   10 minutes (2 minutes tant qu'une release est attendue, ou sur `F5`) : une nouvelle version du launcher
   ou du template est annoncée en orange dès le tag, puis en vert (cliquable pour l'installer) quand la
