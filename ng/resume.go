@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -37,6 +40,74 @@ type Resumable struct {
 	Teammates []string // teammates de la team de la session (perdus au crash)
 	Crashed   bool     // la team désigne un leader dont le processus n'existe plus
 	InUse     bool     // … ou un leader toujours en vie : session ouverte ailleurs
+	Ended     bool     // close volontairement par /end-session : rien à reprendre
+}
+
+// endSessionMark : trace laissée dans la conversation par la commande /end-session.
+var endSessionMark = []byte("<command-name>/end-session</command-name>")
+
+// endedCache : verdict de sessionEnded par fichier, tant que taille et date ne
+// bougent pas (le navigateur l'interroge pour chaque projet toutes les 10 s).
+var endedCache = struct {
+	sync.Mutex
+	m map[string]endedEntry
+}{m: map[string]endedEntry{}}
+
+type endedEntry struct {
+	mod   time.Time
+	size  int64
+	ended bool
+}
+
+func sessionEnded(f string) bool {
+	info, err := os.Stat(f)
+	if err != nil {
+		return false
+	}
+	endedCache.Lock()
+	e, ok := endedCache.m[f]
+	endedCache.Unlock()
+	if ok && e.mod.Equal(info.ModTime()) && e.size == info.Size() {
+		return e.ended
+	}
+	ended := scanEnded(f)
+	endedCache.Lock()
+	endedCache.m[f] = endedEntry{info.ModTime(), info.Size(), ended}
+	endedCache.Unlock()
+	return ended
+}
+
+// scanEnded : la conversation f a été close par /end-session tapé par
+// l'utilisateur (prompt « user » dont le contenu est la commande ; les résultats
+// d'outils, qui sont des listes, peuvent citer la marque sans compter).
+func scanEnded(f string) bool {
+	fh, err := os.Open(f)
+	if err != nil {
+		return false
+	}
+	defer fh.Close()
+	rd := bufio.NewReaderSize(fh, 1<<20)
+	for {
+		line, err := rd.ReadBytes('\n')
+		if bytes.Contains(line, endSessionMark) {
+			var d struct {
+				Type    string `json:"type"`
+				IsMeta  bool   `json:"isMeta"`
+				Message struct {
+					Content json.RawMessage `json:"content"`
+				} `json:"message"`
+			}
+			var c string
+			if json.Unmarshal(line, &d) == nil && d.Type == "user" && !d.IsMeta &&
+				json.Unmarshal(d.Message.Content, &c) == nil &&
+				strings.HasPrefix(c, "<command-") && strings.Contains(c, string(endSessionMark)) {
+				return true
+			}
+		}
+		if err != nil {
+			return false
+		}
+	}
 }
 
 // lastSession : conversation la plus récente du projet ; ok=false s'il n'y en a pas.
@@ -61,6 +132,7 @@ func lastSession(root, path string) (r Resumable, ok bool) {
 	}
 	if ok {
 		r.Teammates, r.Crashed, r.InUse = sessionTeam(root, r.ID)
+		r.Ended = sessionEnded(filepath.Join(dir, r.ID+".jsonl"))
 	}
 	return r, ok
 }
@@ -106,15 +178,15 @@ func sessionTeam(root, id string) (teammates []string, crashed, inUse bool) {
 	return teammates, crashed, inUse
 }
 
-// resumableSession : session encore récente (moins de maxAge) dont la team ne
-// doit pas être nettoyée ; cherchée dans tous les projets.
+// resumableSession : session encore récente (moins de maxAge), non close par
+// /end-session, dont la team ne doit pas être nettoyée ; cherchée dans tous les projets.
 func resumableSession(root, id string, maxAge time.Duration) bool {
 	if maxAge <= 0 || id == "" {
 		return false
 	}
 	m, _ := filepath.Glob(filepath.Join(root, "projects", "*", id+".jsonl"))
 	for _, f := range m {
-		if info, err := os.Stat(f); err == nil && time.Since(info.ModTime()) < maxAge {
+		if info, err := os.Stat(f); err == nil && time.Since(info.ModTime()) < maxAge && !sessionEnded(f) {
 			return true
 		}
 	}
@@ -150,8 +222,7 @@ func (c Config) resumeShell(path string) (pre string, r Resumable, ok bool) {
 	if c.ResumeMode == "never" {
 		return "", r, false
 	}
-	r, ok = lastSession(claudeDir(), path)
-	if !ok || r.InUse || time.Since(r.Mod) >= c.resumeMaxAge() {
+	if r, ok = c.pendingSession(path); !ok {
 		return "", r, false
 	}
 	if c.ResumeMode == "always" {
@@ -166,6 +237,22 @@ func (c Config) resumeShell(path string) (pre string, r Resumable, ok bool) {
 	}
 	q += " — la reprendre ? [O/n] "
 	return "_rs=1; read -rp " + shq(q) + ` _r; [[ "$_r" == [nN]* ]] && _rs=''; `, r, true
+}
+
+// pendingSession : dernière conversation du projet restée en suspens — ni close
+// par /end-session, ni ouverte ailleurs, de moins de RESUME_MAX_AGE_H heures
+// (24 h si la reprise est désactivée). C'est elle que la reprise propose, et
+// elle que signale l'icône « ↺ » du navigateur.
+func (c Config) pendingSession(path string) (r Resumable, ok bool) {
+	maxAge := time.Duration(c.ResumeMaxAgeH) * time.Hour
+	if maxAge <= 0 {
+		maxAge = 24 * time.Hour
+	}
+	r, ok = lastSession(claudeDir(), path)
+	if !ok || r.InUse || r.Ended || time.Since(r.Mod) >= maxAge {
+		return r, false
+	}
+	return r, true
 }
 
 // resumeMaxAge : fenêtre de reprise (0 si la reprise est désactivée).

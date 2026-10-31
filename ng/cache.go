@@ -208,14 +208,24 @@ func (m *stateMgr) worker() {
 // leur état (sélection et projets ouverts d'abord).
 func (m *stateMgr) SetProjects(paths []string) {
 	m.mu.Lock()
-	old := map[string]bool{}
+	known := map[string]bool{}
 	for _, p := range m.projects {
-		old[p] = true
+		known[p] = true
 	}
 	m.projects = paths
+	keep := map[string]bool{}
+	for _, p := range paths {
+		keep[p] = true
+	}
+	for p := range known {
+		if !keep[p] { // projet disparu (dossier supprimé ou renommé)
+			delete(m.poll, p)
+			delete(m.sigs, p)
+		}
+	}
 	m.mu.Unlock()
 	for _, p := range paths {
-		if !old[p] {
+		if !known[p] {
 			if onNetworkFS(p) {
 				m.mu.Lock()
 				m.poll[p] = true

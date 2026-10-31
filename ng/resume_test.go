@@ -118,3 +118,94 @@ func TestResumeShell(t *testing.T) {
 		t.Error("conversation trop ancienne : aucune reprise attendue")
 	}
 }
+
+func TestSessionEnded(t *testing.T) {
+	root := fakeClaude(t, "/p/proj", map[string]time.Duration{"bbbbbbbb-2": 10 * time.Minute})
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+	f := filepath.Join(root, "projects", projectDirName("/p/proj"), "bbbbbbbb-2.jsonl")
+	write := func(lines ...string) {
+		_ = os.WriteFile(f, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+	}
+	cfg := Config{ResumeMode: "ask", ResumeMaxAgeH: 24}
+
+	// marque citée dans un résultat d'outil ou un message méta : pas une clôture
+	write(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","content":"<command-name>/end-session</command-name>"}]}}`,
+		`{"type":"user","isMeta":true,"message":{"role":"user","content":"<command-name>/end-session</command-name>"}}`)
+	if sessionEnded(f) {
+		t.Error("marque citée prise pour une clôture")
+	}
+	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+		t.Error("session non close : reprise attendue")
+	}
+
+	// /end-session tapé, suivi d'échanges de fin (commit, push…) : session close
+	write(`{"type":"user","message":{"role":"user","content":"bonjour"}}`,
+		`{"type":"user","message":{"role":"user","content":"<command-message>end-session</command-message>\n<command-name>/end-session</command-name>"},"origin":{"kind":"human"}}`,
+		`{"type":"user","message":{"role":"user","content":"commit et push"}}`)
+	if !sessionEnded(f) {
+		t.Fatal("/end-session non détecté")
+	}
+	if _, r, ok := cfg.resumeShell("/p/proj"); ok || !r.Ended {
+		t.Errorf("session close : aucune reprise attendue (%+v)", r)
+	}
+	if resumableSession(root, "bbbbbbbb-2", 24*time.Hour) {
+		t.Error("session close : sa team ne doit plus être épargnée")
+	}
+}
+
+func TestTreeRefresh(t *testing.T) {
+	base := t.TempDir()
+	mk := func(name string) string {
+		p := filepath.Join(base, "grp", name)
+		_ = os.MkdirAll(p, 0o755)
+		_ = os.WriteFile(filepath.Join(p, "README"), []byte("x"), 0o644)
+		return p
+	}
+	a, b, c := mk("alpha"), mk("beta"), mk("gamma")
+	cfg := Config{Roots: []string{base}, ResumeMaxAgeH: 24}
+	root := fakeClaude(t, b, map[string]time.Duration{"bbbbbbbb-2": 10 * time.Minute})
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+
+	m := model{cfg: cfg, git: map[string]GitInfo{}, detail: map[string]GitDetail{}, asked: map[string]bool{},
+		tpl: map[string]TemplateState{}, windows: map[string]bool{}}
+	m.setNodes(scanCmd(cfg.Roots)().(treeMsg))
+	m.sessions = sessCmd(cfg, m.projectPaths(), 0)().(sessMsg)
+	for i, v := range m.visible { // sélection sur gamma
+		if m.nodes[v].Path == c {
+			m.cursor = i
+		}
+	}
+	m.git[a] = GitInfo{IsRepo: true}
+
+	// session en suspens de beta : icône tant que le projet n'est pas ouvert ici
+	nb := Node{Path: b, Key: "beta", Project: true}
+	if got := m.sessionBadge(nb); !strings.Contains(got, "↺") {
+		t.Errorf("badge beta=%q", got)
+	}
+	m.windows["beta"] = true
+	if got := m.sessionBadge(nb); got != "" {
+		t.Errorf("projet ouvert : badge inattendu %q", got)
+	}
+	if m.sessionBadge(Node{Path: a, Key: "alpha"}) != "" {
+		t.Error("alpha sans session : badge inattendu")
+	}
+
+	// dossier alpha supprimé hors du launcher : retiré, sélection gardée sur gamma
+	_ = os.RemoveAll(a)
+	tm := scanCmd(cfg.Roots)().(treeMsg)
+	if sameTree(m.nodes, tm) {
+		t.Fatal("suppression non vue par scanTree")
+	}
+	m.setNodes(tm)
+	for _, p := range m.projectPaths() {
+		if p == a {
+			t.Error("alpha encore listé")
+		}
+	}
+	if _, ok := m.git[a]; ok {
+		t.Error("état git d'alpha non oublié")
+	}
+	if got := m.nodes[m.visible[m.cursor]].Path; got != c {
+		t.Errorf("sélection=%q, attendu gamma", got)
+	}
+}

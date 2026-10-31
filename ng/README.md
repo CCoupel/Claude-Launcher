@@ -59,7 +59,9 @@ Reprendre lance `claude --resume <id>` : même id de session, donc même team
 (`session-<8 premiers caractères>`) et même liste de tâches, que le nettoyage ci-dessus a épargnées.
 Les teammates ne sont pas restaurés par Claude Code : le teamleader repris reçoit en premier message
 la liste des teammates perdus et la consigne de les relancer d'après les tâches non terminées. La
-question n'est pas posée si la team indique un leader encore vivant (session ouverte ailleurs), et
+question n'est pas posée si la team indique un leader encore vivant (session ouverte ailleurs), ni si
+la conversation a été close par `/end-session` (commande tapée, même suivie d'échanges de fin : la
+team de cette session n'est alors plus épargnée), et
 `/init-project` n'est jamais proposé sur une reprise.
 
 La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHUB_DIRS`,
@@ -81,6 +83,13 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
   release (dernier tag atteignable depuis `origin/main`).
   Un projet déjà ouvert est marqué `●` vert, son nom en gras sur la couleur de son pane tmux.
+  Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`,
+  de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
+  crash) : c'est la session que son ouverture proposera de reprendre.
+  Un dossier de projet créé, renommé ou supprimé hors du launcher apparaît ou disparaît sans
+  `Ctrl+R` : seuls les racines et dossiers de catégorie sont surveillés (inotify sur disque Linux ;
+  sur `/mnt/c`, où inotify est muet, leur date comparée toutes les 3 s, soit quelques `stat`), et
+  l'arbre n'est relu qu'après un changement (`treewatch.go`).
   Sous la consommation, une ligne jaune `⚠ connexion claude.ai : expiration …` apparaît 3 jours
   avant l'expiration de la connexion claude.ai (jeton de renouvellement, ~30 jours), rouge
   `✗ connexion claude.ai expirée` ensuite ou si l'endpoint refuse le jeton : un clic ouvre une
@@ -168,6 +177,7 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
   (`select-layout` avec somme de contrôle tmux) et teinte les panes. Ordre MRU des actifs dans
   `$TMPDIR/claude_layout_<win>.order`, verrou par fenêtre partagé avec `relayout`.
 - `update.go` : versions, annonces, resynchronisation de `init-project.md`.
+- `treewatch.go` : surveillance de l'arborescence (projets ajoutés / supprimés hors du launcher).
 - `resume.go` : reprise après crash (dernière conversation du projet, sa team, question au lancement).
 
 ### Détection des changements d'un projet

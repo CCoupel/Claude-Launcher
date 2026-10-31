@@ -32,6 +32,9 @@ type (
 		path string
 		d    GitDetail
 	}
+	treeChanged struct{}             // l'arborescence a bougé sur disque (treewatch.go)
+	treeMsg     []Node               // arborescence relue après un tel changement
+	sessMsg     map[string]Resumable // sessions en suspens, relues toutes les 10 s
 )
 
 type model struct {
@@ -48,6 +51,8 @@ type model struct {
 	tpl          map[string]TemplateState
 	latest       string
 	windows      map[string]bool
+	sessions     map[string]Resumable // projet -> conversation en suspens (icône ↺)
+	treeCh       <-chan struct{}      // signal de changement de l'arborescence
 	usage        Usage
 	session      string
 	launch       bool
@@ -90,6 +95,7 @@ func newModel(launch bool) model {
 	m.session = tmuxSession()
 	m.tplVer = readTrim(tplVersionPath())
 	m.nodes = withSpecial(scanTree(cfg.Roots))
+	m.treeCh = watchTree(cfg.Roots)
 	m.usage = readUsage()
 	m.refilter()
 	m.cursor = m.firstProject()
@@ -139,7 +145,7 @@ func (m *model) refilter() {
 
 func (m model) Init() tea.Cmd {
 	m.latest = readLatestTemplate()
-	cmds := []tea.Cmd{tickCmd(), usageTickCmd(), windowsCmd(m.session), usageFetchCmd(m.cfg.UsageRefreshSec), updTickCmd(6 * time.Second)}
+	cmds := []tea.Cmd{waitTree(m.treeCh), sessCmd(m.cfg, m.projectPaths(), 0), tickCmd(), usageTickCmd(), windowsCmd(m.session), usageFetchCmd(m.cfg.UsageRefreshSec), updTickCmd(6 * time.Second)}
 	if m.mgr != nil {
 		cmds = append(cmds, waitState(m.mgr.Done))
 	}
@@ -162,6 +168,85 @@ func gitCmd(path, latest string) tea.Cmd {
 		defer func() { <-gitSem }()
 		return gitMsg{path, readGit(path), readTemplate(path, latest)}
 	}
+}
+
+// waitTree : attend le prochain changement de l'arborescence (projets ajoutés,
+// renommés ou supprimés hors du launcher).
+func waitTree(ch <-chan struct{}) tea.Cmd {
+	return func() tea.Msg { <-ch; return treeChanged{} }
+}
+
+func scanCmd(roots []string) tea.Cmd {
+	return func() tea.Msg { return treeMsg(withSpecial(scanTree(roots))) }
+}
+
+// sessCmd : sessions en suspens des projets, après delay. Bon marché : ~/.claude
+// est sur disque natif et sessionEnded ne relit un fichier que s'il a changé.
+func sessCmd(cfg Config, paths []string, delay time.Duration) tea.Cmd {
+	read := func(time.Time) tea.Msg {
+		sess := map[string]Resumable{}
+		for _, p := range paths {
+			if r, ok := cfg.pendingSession(p); ok {
+				sess[p] = r
+			}
+		}
+		return sessMsg(sess)
+	}
+	if delay <= 0 {
+		return func() tea.Msg { return read(time.Now()) }
+	}
+	return tea.Tick(delay, read)
+}
+
+// setNodes : remplace l'arborescence en gardant la sélection sur le même projet ;
+// l'état des projets disparus est oublié, celui des nouveaux est calculé.
+func (m *model) setNodes(nodes []Node) tea.Cmd {
+	sel := ""
+	if m.cursor < len(m.visible) {
+		sel = m.nodes[m.visible[m.cursor]].Path
+	}
+	known := map[string]bool{}
+	for _, p := range m.projectPaths() {
+		known[p] = true
+	}
+	m.nodes = nodes
+	if m.mgr != nil {
+		m.mgr.SetProjects(m.projectPaths())
+	}
+	m.refilter()
+	for i, v := range m.visible {
+		if m.nodes[v].Path == sel {
+			m.cursor = i
+			break
+		}
+	}
+	var cmds []tea.Cmd
+	for _, p := range m.projectPaths() {
+		if !known[p] {
+			cmds = append(cmds, gitCmd(p, readLatestTemplate()))
+		}
+		delete(known, p)
+	}
+	for p := range known { // dossier supprimé ou renommé
+		delete(m.git, p)
+		delete(m.tpl, p)
+		delete(m.detail, p)
+		delete(m.asked, p)
+	}
+	return tea.Batch(cmds...)
+}
+
+// sameTree : mêmes nœuds, dans le même ordre.
+func sameTree(a, b []Node) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func tickCmd() tea.Cmd {
@@ -282,6 +367,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case detailMsg:
 		m.detail[msg.path] = msg.d
+	case treeChanged:
+		return m, tea.Batch(waitTree(m.treeCh), scanCmd(m.cfg.Roots))
+	case treeMsg:
+		if sameTree(m.nodes, msg) {
+			return m, nil
+		}
+		cmd := m.setNodes(msg)
+		m.syncSelection()
+		return m, tea.Batch(cmd, m.detailCmd(), m.stateCmd())
+	case sessMsg:
+		m.sessions = msg
+		return m, sessCmd(m.cfg, m.projectPaths(), 10*time.Second)
 	case stateDoneMsg:
 		ps := ProjState(msg)
 		m.git[ps.Path], m.tpl[ps.Path], m.detail[ps.Path] = ps.Git, ps.Tpl, ps.Detail
@@ -772,6 +869,20 @@ func (m model) badges(p string) string {
 	return b
 }
 
+// sessionBadge : « ↺ » si le projet, fermé ici, a une conversation en suspens
+// (non close par /end-session) que son ouverture proposera de reprendre ; en
+// rouge si sa team montre que le leader a disparu sans se fermer (crash).
+func (m model) sessionBadge(n Node) string {
+	r, ok := m.sessions[n.Path]
+	if !ok || m.windows[n.Key] {
+		return ""
+	}
+	if r.Crashed {
+		return red.Render(" ↺")
+	}
+	return yellow.Render(" ↺")
+}
+
 func truncLines(s string, w int) string {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
@@ -910,7 +1021,7 @@ func (m model) renderList(w, h int) string {
 					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).
 						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).Render(" " + n.Name + " ")
 				}
-				line = prefix + dot + name + m.badges(n.Path)
+				line = prefix + dot + name + m.badges(n.Path) + m.sessionBadge(n)
 			}
 		}
 		if i == m.cursor {
@@ -936,6 +1047,14 @@ func (m model) renderPreview(w int) string {
 		sb.WriteString(green.Render("● fenêtre tmux ouverte") + "\n")
 	} else {
 		sb.WriteString(dim.Render("○ non lancé") + "\n")
+		if r, ok := m.sessions[n.Path]; ok {
+			label := "↺ session non close (il y a " + ageLabel(time.Since(r.Mod)) + ")"
+			if r.Crashed {
+				sb.WriteString(red.Render("⚠ session interrompue (il y a "+ageLabel(time.Since(r.Mod))+")") + "\n")
+			} else {
+				sb.WriteString(yellow.Render(label) + "\n")
+			}
+		}
 	}
 	if g, ok := m.git[n.Path]; ok && g.IsRepo {
 		d := m.detail[n.Path]
