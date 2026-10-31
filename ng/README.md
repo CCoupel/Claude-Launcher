@@ -83,6 +83,12 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
   release (dernier tag atteignable depuis `origin/main`).
   Un projet déjà ouvert est marqué `●` vert, son nom en gras sur la couleur de son pane tmux.
+  Badge milestone `⚑` (projets GitHub ; `gh api …/milestones`, un appel par projet toutes les
+  5 min, `F5` pour forcer, cache `~/.cache/claude-launcher/milestones.json`) : **jaune** = un
+  milestone ouvert a des issues ouvertes (en cours) ; **orange** = toutes ses issues sont fermées
+  mais il n'est pas clos (à publier) ; **vert** = plus rien d'ouvert, dernier milestone clos
+  (publié). Pas de badge sans milestone. Les milestones sans version (`v2.x`) ne comptent pas
+  comme en cours. L'aperçu détaille : `⚑ v1.1.0 en cours (5/7 issues fermées)`.
   Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`,
   de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
   crash) : c'est la session que son ouverture proposera de reprendre.
@@ -177,6 +183,7 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
   (`select-layout` avec somme de contrôle tmux) et teinte les panes. Ordre MRU des actifs dans
   `$TMPDIR/claude_layout_<win>.order`, verrou par fenêtre partagé avec `relayout`.
 - `update.go` : versions, annonces, resynchronisation de `init-project.md`.
+- `milestone.go` : badge ⚑ (état des milestones GitHub du projet).
 - `treewatch.go` : surveillance de l'arborescence (projets ajoutés / supprimés hors du launcher).
 - `resume.go` : reprise après crash (dernière conversation du projet, sa team, question au lancement).
 
