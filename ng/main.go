@@ -35,6 +35,12 @@ type (
 	treeChanged struct{}             // l'arborescence a bougé sur disque (treewatch.go)
 	treeMsg     []Node               // arborescence relue après un tel changement
 	sessMsg     map[string]Resumable // sessions en suspens, relues toutes les 10 s
+	msMsg       struct {             // milestones d'un projet (milestone.go)
+		path string
+		st   MsState
+		ok   bool
+	}
+	msTick time.Time
 )
 
 type model struct {
@@ -53,6 +59,7 @@ type model struct {
 	windows      map[string]bool
 	sessions     map[string]Resumable // projet -> conversation en suspens (icône ↺)
 	treeCh       <-chan struct{}      // signal de changement de l'arborescence
+	milestones   map[string]MsState   // projet -> état de ses milestones (badge ⚑)
 	usage        Usage
 	session      string
 	launch       bool
@@ -96,6 +103,7 @@ func newModel(launch bool) model {
 	m.tplVer = readTrim(tplVersionPath())
 	m.nodes = withSpecial(scanTree(cfg.Roots))
 	m.treeCh = watchTree(cfg.Roots)
+	m.milestones = readMsCache()
 	m.usage = readUsage()
 	m.refilter()
 	m.cursor = m.firstProject()
@@ -159,6 +167,7 @@ func (m model) Init() tea.Cmd {
 			cmds = append(cmds, gitCmd(n.Path, readLatestTemplate()))
 		}
 	}
+	cmds = append(cmds, m.msStale(false), msTickCmd())
 	return tea.Batch(cmds...)
 }
 
@@ -168,6 +177,39 @@ func gitCmd(path, latest string) tea.Cmd {
 		defer func() { <-gitSem }()
 		return gitMsg{path, readGit(path), readTemplate(path, latest)}
 	}
+}
+
+// msCmd : relit les milestones GitHub d'un projet (sans remote GitHub : aucun).
+func msCmd(path, token string) tea.Cmd {
+	return func() tea.Msg {
+		if !onGitHub(path) {
+			return msMsg{path, MsState{At: time.Now()}, true}
+		}
+		msSem <- struct{}{}
+		defer func() { <-msSem }()
+		ms, err := fetchMilestones(path, token)
+		if err != nil {
+			return msMsg{path: path}
+		}
+		st := milestoneState(ms)
+		st.At = time.Now()
+		return msMsg{path, st, true}
+	}
+}
+
+func msTickCmd() tea.Cmd {
+	return tea.Tick(time.Minute, func(t time.Time) tea.Msg { return msTick(t) })
+}
+
+// msStale : relecture des milestones de plus de msRefresh (de tous si force).
+func (m model) msStale(force bool) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, p := range m.projectPaths() {
+		if st, ok := m.milestones[p]; force || !ok || time.Since(st.At) >= msRefresh {
+			cmds = append(cmds, msCmd(p, m.cfg.GithubToken))
+		}
+	}
+	return tea.Batch(cmds...)
 }
 
 // waitTree : attend le prochain changement de l'arborescence (projets ajoutés,
@@ -227,7 +269,9 @@ func (m *model) setNodes(nodes []Node) tea.Cmd {
 		}
 		delete(known, p)
 	}
+	cmds = append(cmds, m.msStale(false))
 	for p := range known { // dossier supprimé ou renommé
+		delete(m.milestones, p)
 		delete(m.git, p)
 		delete(m.tpl, p)
 		delete(m.detail, p)
@@ -376,6 +420,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := m.setNodes(msg)
 		m.syncSelection()
 		return m, tea.Batch(cmd, m.detailCmd(), m.stateCmd())
+	case msMsg:
+		if msg.ok && m.milestones[msg.path] != msg.st {
+			m.milestones[msg.path] = msg.st
+			writeMsCache(m.milestones)
+		}
+		return m, nil
+	case msTick:
+		return m, tea.Batch(msTickCmd(), m.msStale(false))
 	case sessMsg:
 		m.sessions = msg
 		return m, sessCmd(m.cfg, m.projectPaths(), 10*time.Second)
@@ -741,7 +793,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.checking, m.hideLauncher, m.hideTpl = true, false, false
 		m.msg = "recherche des mises à jour…"
-		return m, tea.Batch(checkUpdates(true), usageForceCmd())
+		return m, tea.Batch(checkUpdates(true), usageForceCmd(), m.msStale(true))
 	case "tab":
 		if m.shell {
 			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
@@ -867,6 +919,33 @@ func (m model) badges(p string) string {
 		b += red.Render(" ⚠ fichiers manquants")
 	}
 	return b
+}
+
+// msBadge : « ⚑ » jaune (milestone en cours), orange (terminé, à publier),
+// vert (dernier milestone publié) ; rien sans milestone.
+func (m model) msBadge(p string) string {
+	switch m.milestones[p].Kind {
+	case MsWorking:
+		return yellow.Render(" ⚑")
+	case MsReleasing:
+		return orange.Render(" ⚑")
+	case MsDone:
+		return green.Render(" ⚑")
+	}
+	return ""
+}
+
+// msLine : détail du badge ⚑ pour l'aperçu.
+func msLine(st MsState) string {
+	switch st.Kind {
+	case MsWorking:
+		return yellow.Render(fmt.Sprintf("⚑ %s en cours (%d/%d issues fermées)", st.Title, st.Closed, st.Open+st.Closed))
+	case MsReleasing:
+		return orange.Render(fmt.Sprintf("⚑ %s terminé, à publier (%d issues fermées)", st.Title, st.Closed))
+	case MsDone:
+		return green.Render("⚑ " + st.Title + " publié (il y a " + ageLabel(time.Since(st.DoneAt)) + ")")
+	}
+	return ""
 }
 
 // sessionBadge : « ↺ » si le projet, fermé ici, a une conversation en suspens
@@ -1021,7 +1100,7 @@ func (m model) renderList(w, h int) string {
 					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).
 						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).Render(" " + n.Name + " ")
 				}
-				line = prefix + dot + name + m.badges(n.Path) + m.sessionBadge(n)
+				line = prefix + dot + name + m.badges(n.Path) + m.msBadge(n.Path) + m.sessionBadge(n)
 			}
 		}
 		if i == m.cursor {
@@ -1055,6 +1134,9 @@ func (m model) renderPreview(w int) string {
 				sb.WriteString(yellow.Render(label) + "\n")
 			}
 		}
+	}
+	if l := msLine(m.milestones[n.Path]); l != "" {
+		sb.WriteString(l + "\n")
 	}
 	if g, ok := m.git[n.Path]; ok && g.IsRepo {
 		d := m.detail[n.Path]

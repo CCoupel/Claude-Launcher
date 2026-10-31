@@ -20,7 +20,8 @@ Un navigateur de projets à gauche, tmux à droite :
 - **Navigateur** : vos projets en arbre par catégorie (les sous-dossiers de `GITHUB_DIRS`), filtre à la
   frappe, souris. Badges git **local** (`●` au repos sur main, `✎` en cours, `◆` tout commité, `!` modifié
   sur main) et **remote** (`○` jamais poussé, `↑N` non poussé, `⇡` non mergé, `✓` publié, `↓N` en retard),
-  badge template (`✔` à jour, `⚠` en retard, `⊘` sans template), `↺` si une session Claude est restée
+  badge template (`✔` à jour, `⚠` en retard, `⊘` sans template), badge milestone GitHub (`⚑` jaune en
+  cours, orange terminé mais à publier, vert publié), `↺` si une session Claude est restée
   en suspens (non close par `/end-session`, rouge si interrompue par un crash), consommation du compte
   Claude en bas. Les dossiers ajoutés, renommés ou supprimés apparaissent ou disparaissent seuls
   (inotify, ou date des dossiers de catégorie sur `/mnt/c`).
