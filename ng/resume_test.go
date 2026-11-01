@@ -179,14 +179,17 @@ func TestTreeRefresh(t *testing.T) {
 
 	// session en suspens de beta : icône tant que le projet n'est pas ouvert ici
 	nb := Node{Path: b, Key: "beta", Project: true}
-	if got := m.sessionBadge(nb); !strings.Contains(got, "↺") {
+	if got := m.badges(nb); !strings.Contains(got, "↺") {
 		t.Errorf("badge beta=%q", got)
 	}
+	if l := strings.Join(legendLines(m.projInfo(nb), 0), "\n"); !strings.Contains(l, "↺") || !strings.Contains(l, "reprise proposée") {
+		t.Errorf("légende beta=%q", l)
+	}
 	m.windows["beta"] = true
-	if got := m.sessionBadge(nb); got != "" {
+	if got := m.badges(nb); strings.Contains(got, "↺") {
 		t.Errorf("projet ouvert : badge inattendu %q", got)
 	}
-	if m.sessionBadge(Node{Path: a, Key: "alpha"}) != "" {
+	if strings.Contains(m.badges(Node{Path: a, Key: "alpha"}), "↺") {
 		t.Error("alpha sans session : badge inattendu")
 	}
 

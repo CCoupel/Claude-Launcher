@@ -31,12 +31,15 @@ type (
 		open  bool
 		panes []paneInfo
 		team  []teammate
+		sess  Resumable // session en suspens (badge ↺)
+		hasS  bool
 	}
 )
 
 type paneInfo struct{ ID, PID, Cmd string }
 
 type stateModel struct {
+	cfg      Config
 	w, h     int
 	sel      Selection
 	hasSel   bool
@@ -75,9 +78,10 @@ func loadStateCmd(s Selection) tea.Cmd {
 	}
 }
 
-func loadPanesCmd(s Selection) tea.Cmd {
+func loadPanesCmd(s Selection, cfg Config) tea.Cmd {
 	return func() tea.Msg {
 		pd := paneData{path: s.Path}
+		pd.sess, pd.hasS = cfg.pendingSession(s.Path)
 		pd.open = tmuxWindows(hubSession)[s.Key]
 		if pd.open {
 			b, err := dtmux("list-panes", "-t", exactW(hubSession, s.Key), "-F",
@@ -136,10 +140,10 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ms, m.msMtime = MsState{}, time.Time{}
 			m.panes = paneData{}
 			m.paneAt, m.selAt = time.Now(), time.Now()
-			cmds = append(cmds, loadPanesCmd(s))
+			cmds = append(cmds, loadPanesCmd(s, m.cfg))
 		case ok && time.Since(m.paneAt) > 2*time.Second:
 			m.paneAt = time.Now()
-			cmds = append(cmds, loadPanesCmd(s))
+			cmds = append(cmds, loadPanesCmd(s, m.cfg))
 		}
 		if m.hasSel {
 			// l'état vient du cache préparé en tâche de fond par le navigateur ;
@@ -205,11 +209,7 @@ func (m *stateModel) clampScroll() {
 func (m stateModel) topCards() string {
 	w := min(m.w-2, 110)
 	var sb strings.Builder
-	pill := dim.Render("○ non lancé")
-	if m.panes.open {
-		pill = green.Render("● fenêtre tmux ouverte")
-	}
-	sb.WriteString(" " + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14")).Render("◈ "+m.sel.Name) + "  " + pill + "\n")
+	sb.WriteString(" " + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14")).Render("◈ "+m.sel.Name) + "\n")
 	age := ""
 	if m.loaded && !m.data.updated.IsZero() {
 		age = "  " + dim.Render("· mis à jour "+ageText(m.data.updated))
@@ -222,32 +222,23 @@ func (m stateModel) topCards() string {
 		return sb.String() + "\n " + dim.Render("préparation en cours…")
 	}
 
+	// légende : les icônes de la ligne du navigateur, dans le même ordre
 	g := m.data.git
-	var pl []string
+	inner := w - 4 // carte encadrée : bordure et marge de chaque côté
+	if m.narrow() {
+		inner = w - 1
+	}
+	pl := legendLines(projInfo{open: m.panes.open, git: g, gitOK: true, tpl: m.data.tpl,
+		tplTag: m.data.tag, tplLatest: readTrim(tplVersionPath()), ms: m.ms, sess: m.panes.sess, hasSess: m.panes.hasS}, inner)
 	if !g.IsRepo {
 		pl = append(pl, dim.Render("pas un dépôt git"))
 	} else {
 		d := m.data.detail
-		ls, lt, lst := g.Local()
-		rs, rt, rst := g.Remote()
-		pl = append(pl, kv("branche", g.Branch))
-		pl = append(pl, kv("local", lst.Render(ls+" "+lt)))
-		pl = append(pl, kv("remote", rst.Render(rs+" "+rt)))
+		pl = append(pl, "", kv("branche", g.Branch))
 		pl = append(pl, kv("version", "locale  "+orNone(d.VerLocal)))
 		pl = append(pl, kv("", "release "+orNone(d.VerRelease)))
-		pl = append(pl, kv("dernier", shorten(m.data.detail.LastMsg, w-16)))
+		pl = append(pl, kv("dernier", shorten(d.LastMsg, w-16)))
 	}
-	tl := dim.Render("⊘ non géré par template")
-	have, latest := orQ(m.data.tag), orQ(readTrim(tplVersionPath()))
-	switch m.data.tpl {
-	case TplOK:
-		tl = green.Render("✔ " + have + " · à jour")
-	case TplOutdated:
-		tl = yellow.Render(have+" → "+latest+" disponible") + dim.Render(" (/init-project au lancement)")
-	case TplMissing:
-		tl = red.Render("fichiers manquants") + dim.Render(" (/init-project au lancement)")
-	}
-	pl = append(pl, kv("template", tl))
 	sb.WriteString(m.card("Projet", strings.Join(pl, "\n"), w) + "\n")
 	if l := msLines(m.ms); l != nil {
 		title := "Milestone"
@@ -463,6 +454,6 @@ func (m stateModel) View() string {
 }
 
 func runState() error {
-	_, err := tea.NewProgram(stateModel{}, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+	_, err := tea.NewProgram(stateModel{cfg: loadConfig()}, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }
