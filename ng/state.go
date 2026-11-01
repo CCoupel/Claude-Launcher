@@ -47,6 +47,8 @@ type stateModel struct {
 	paneAt   time.Time
 	scroll   int // défilement de la liste de fichiers
 
+	ms         MsState   // milestones du projet (cache du navigateur, milestone.go)
+	msMtime    time.Time // mtime du cache des milestones déjà lu
 	cacheMtime time.Time // mtime du fichier de cache déjà affiché
 	selAt      time.Time
 	fallback   bool // calcul direct si le cache n'arrive pas
@@ -131,6 +133,7 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case ok && s.Path != m.sel.Path:
 			m.sel, m.hasSel, m.scroll = s, true, 0
 			m.loaded, m.cacheMtime, m.fallback = false, time.Time{}, false
+			m.ms, m.msMtime = MsState{}, time.Time{}
 			m.panes = paneData{}
 			m.paneAt, m.selAt = time.Now(), time.Now()
 			cmds = append(cmds, loadPanesCmd(s))
@@ -163,6 +166,9 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // reloadCache relit le fichier de cache du projet sélectionné s'il a changé.
 func (m *stateModel) reloadCache() {
+	if st, err := os.Stat(msCachePath()); err == nil && !st.ModTime().Equal(m.msMtime) {
+		m.ms, m.msMtime = readMsCache()[m.sel.Path], st.ModTime()
+	}
 	st, err := os.Stat(statePath(m.sel.Path))
 	if err != nil || (m.loaded && st.ModTime().Equal(m.cacheMtime)) {
 		return
@@ -243,6 +249,13 @@ func (m stateModel) topCards() string {
 	}
 	pl = append(pl, kv("template", tl))
 	sb.WriteString(m.card("Projet", strings.Join(pl, "\n"), w) + "\n")
+	if l := msLines(m.ms); l != nil {
+		title := "Milestone"
+		if !m.ms.At.IsZero() {
+			title += " · lu " + ageText(m.ms.At)
+		}
+		sb.WriteString(m.card(title, strings.Join(l, "\n"), w) + "\n")
+	}
 
 	sb.WriteString(m.card(m.teamTitle(), m.teamBody(w), w) + "\n")
 	return sb.String()
