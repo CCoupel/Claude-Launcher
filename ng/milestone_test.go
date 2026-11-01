@@ -1,9 +1,26 @@
 package main
 
 import (
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
+
+func issue(ms string, labels ...string) rawIssue {
+	var i rawIssue
+	if ms != "" {
+		i.Milestone = &struct {
+			Title string `json:"title"`
+		}{ms}
+	}
+	for _, l := range labels {
+		i.Labels = append(i.Labels, struct {
+			Name string `json:"name"`
+		}{l})
+	}
+	return i
+}
 
 func TestMilestoneState(t *testing.T) {
 	t0 := time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)
@@ -14,37 +31,69 @@ func TestMilestoneState(t *testing.T) {
 		return rawMilestone{Title: title, State: "open", Open: o, Closed: c}
 	}
 	cases := []struct {
-		name  string
-		ms    []rawMilestone
-		kind  MsKind
-		title string
+		name   string
+		ms     []rawMilestone
+		issues []rawIssue
+		kind   MsKind
+		title  string
 	}{
-		{"aucun", nil, MsNone, ""},
-		{"publié : dernier clos", []rawMilestone{closed("v1.0.0", 5), closed("v0.9.0", 1)}, MsDone, "v1.0.0"},
-		{"en cours, même sans issue fermée", []rawMilestone{closed("v1.0.0", 5), open("v1.1.0", 1, 0)}, MsWorking, "v1.1.0"},
-		{"en cours : la plus petite version", []rawMilestone{open("v1.10.0", 2, 1), open("v1.9.0", 4, 0)}, MsWorking, "v1.9.0"},
-		{"à publier passe devant en cours", []rawMilestone{open("v1.2.0", 3, 0), open("v1.1.0", 0, 4)}, MsReleasing, "v1.1.0"},
-		{"backlog sans version ignoré", []rawMilestone{closed("v1.0.0", 5), open("v1.x", 7, 0)}, MsDone, "v1.0.0"},
-		{"x dans le titre, pas dans le numéro", []rawMilestone{open("v2.4.4 — Versioning X.Y.Z.a", 1, 0)}, MsWorking, "v2.4.4 — Versioning X.Y.Z.a"},
-		{"milestone ouvert vide ignoré", []rawMilestone{open("v2.0.0", 0, 0)}, MsNone, ""},
+		{"aucun", nil, nil, MsNone, ""},
+		{"publié : dernier clos", []rawMilestone{closed("v1.0.0", 5), closed("v0.9.0", 1)}, nil, MsDone, "v1.0.0"},
+		// cas Ansible_SecAgent : issues ouvertes sans label de phase → le panneau dit « aucun en cours »
+		{"issues ouvertes sans phase : en attente",
+			[]rawMilestone{closed("v3.0.3", 1), open("v3.0.4 — Confiance", 1, 10), open("v3.0.5 — Durcissement", 23, 0)},
+			[]rawIssue{issue("v3.0.4 — Confiance", "bug"), issue("v3.0.5 — Durcissement", "status:todo")},
+			MsIdle, ""},
+		{"en cours : issue avec phase",
+			[]rawMilestone{open("v1.1.0", 2, 5)},
+			[]rawIssue{issue("v1.1.0", "EN COURS"), issue("v1.1.0", "bug")}, MsWorking, "v1.1.0"},
+		{"en cours : le premier par version, pas le plus avancé",
+			[]rawMilestone{open("v1.10.0", 2, 1), open("v1.9.0", 4, 0)},
+			[]rawIssue{issue("v1.10.0", "PRET"), issue("v1.9.0", "PLANNING")}, MsWorking, "v1.9.0"},
+		{"en cours passe devant à publier (comme le panneau)",
+			[]rawMilestone{open("v1.1.0", 0, 4), open("v1.2.0", 3, 0)},
+			[]rawIssue{issue("v1.2.0", "EN COURS")}, MsWorking, "v1.2.0"},
+		{"à publier : toutes fermées, rien de démarré",
+			[]rawMilestone{open("v1.1.0", 0, 4), open("v1.2.0", 3, 0)},
+			[]rawIssue{issue("v1.2.0")}, MsReleasing, "v1.1.0"},
+		{"phase sans milestone ignorée", []rawMilestone{open("v2.0.0", 1, 0)}, []rawIssue{issue("", "EN COURS")}, MsIdle, ""},
 	}
 	for _, c := range cases {
-		if st := milestoneState(c.ms); st.Kind != c.kind || st.Title != c.title {
+		if st := milestoneState(c.ms, c.issues); st.Kind != c.kind || st.Title != c.title {
 			t.Errorf("%s : %+v", c.name, st)
 		}
 	}
-	if st := milestoneState([]rawMilestone{open("v1.1.0", 2, 3)}); st.Open != 2 || st.Closed != 3 {
-		t.Errorf("compteurs : %+v", st)
+
+	// détail du milestone en cours : phases dans l'ordre du panneau, bloquées
+	st := milestoneState([]rawMilestone{open("v1.1.0", 4, 6)}, []rawIssue{
+		issue("v1.1.0", "EN REVIEW"), issue("v1.1.0", "PRET", "BLOQUE"), issue("v1.1.0", "PRET"), issue("v1.1.0", "bug")})
+	want := []MsPhase{{"PRET", 2}, {"EN REVIEW", 1}, {msNoPhase, 1}}
+	if !reflect.DeepEqual(st.Phases, want) || st.Blocked != 1 || st.Open != 4 || st.Closed != 6 {
+		t.Errorf("détail : %+v", st)
+	}
+	if l := strings.Join(msLines(st), "\n"); !strings.Contains(l, "60%") || !strings.Contains(l, "6/10") || !strings.Contains(l, "pret 2") {
+		t.Errorf("msLines=%q", l)
+	}
+
+	// en attente : ordre du panneau (sans version en dernier, avancement décroissant)
+	st = milestoneState([]rawMilestone{open("v1.x", 1, 9), open("v1.2.0", 3, 1), open("v1.3.0", 1, 3)}, nil)
+	var got []string
+	for _, r := range st.Pending {
+		got = append(got, r.Title)
+	}
+	if !reflect.DeepEqual(got, []string{"v1.3.0", "v1.2.0", "v1.x"}) {
+		t.Errorf("ordre en attente : %v", got)
 	}
 }
 
-func TestLessMilestone(t *testing.T) {
-	a := rawMilestone{Title: "v1.2.0", DueOn: "2026-12-01T00:00:00Z"}
-	b := rawMilestone{Title: "v1.1.0"}
-	if !lessMilestone(a, b) {
+func TestCompareTitles(t *testing.T) {
+	if compareTitles("v1.9", "v1.10") >= 0 || compareTitles("v3.0.4 — Confiance", "v3.0.5 — X.Y") >= 0 {
+		t.Error("ordre des versions")
+	}
+	if !lessMilestone(rawMilestone{Title: "v1.2.0", DueOn: "2026-12-01T00:00:00Z"}, rawMilestone{Title: "v1.1.0"}) {
 		t.Error("échéance d'abord")
 	}
-	if !lessMilestone(rawMilestone{Title: "v1.9"}, rawMilestone{Title: "v1.10"}) {
-		t.Error("v1.9 avant v1.10")
+	if !unversioned("v2.x — backlog") || unversioned("v2.4.4 — Versioning X.Y.Z.a") {
+		t.Error("unversioned")
 	}
 }

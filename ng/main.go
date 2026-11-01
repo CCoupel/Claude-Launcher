@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -187,11 +188,10 @@ func msCmd(path, token string) tea.Cmd {
 		}
 		msSem <- struct{}{}
 		defer func() { <-msSem }()
-		ms, err := fetchMilestones(path, token)
+		st, err := readMilestones(path, token)
 		if err != nil {
 			return msMsg{path: path}
 		}
-		st := milestoneState(ms)
 		st.At = time.Now()
 		return msMsg{path, st, true}
 	}
@@ -421,7 +421,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSelection()
 		return m, tea.Batch(cmd, m.detailCmd(), m.stateCmd())
 	case msMsg:
-		if msg.ok && m.milestones[msg.path] != msg.st {
+		if old := m.milestones[msg.path]; msg.ok && !reflect.DeepEqual(old.withoutAt(), msg.st.withoutAt()) {
 			m.milestones[msg.path] = msg.st
 			writeMsCache(m.milestones)
 		}
@@ -922,28 +922,18 @@ func (m model) badges(p string) string {
 }
 
 // msBadge : « ⚑ » jaune (milestone en cours), orange (terminé, à publier),
-// vert (dernier milestone publié) ; rien sans milestone.
+// gris (milestones ouverts, aucun en cours), vert (dernier milestone publié) ;
+// rien sans milestone. Même règle que le panneau milestone du projet.
 func (m model) msBadge(p string) string {
 	switch m.milestones[p].Kind {
 	case MsWorking:
 		return yellow.Render(" ⚑")
 	case MsReleasing:
 		return orange.Render(" ⚑")
+	case MsIdle:
+		return dim.Render(" ⚑")
 	case MsDone:
 		return green.Render(" ⚑")
-	}
-	return ""
-}
-
-// msLine : détail du badge ⚑ pour l'aperçu.
-func msLine(st MsState) string {
-	switch st.Kind {
-	case MsWorking:
-		return yellow.Render(fmt.Sprintf("⚑ %s en cours (%d/%d issues fermées)", st.Title, st.Closed, st.Open+st.Closed))
-	case MsReleasing:
-		return orange.Render(fmt.Sprintf("⚑ %s terminé, à publier (%d issues fermées)", st.Title, st.Closed))
-	case MsDone:
-		return green.Render("⚑ " + st.Title + " publié (il y a " + ageLabel(time.Since(st.DoneAt)) + ")")
 	}
 	return ""
 }
@@ -1135,8 +1125,8 @@ func (m model) renderPreview(w int) string {
 			}
 		}
 	}
-	if l := msLine(m.milestones[n.Path]); l != "" {
-		sb.WriteString(l + "\n")
+	if l := msLines(m.milestones[n.Path]); l != nil {
+		sb.WriteString("\n" + truncLines(strings.Join(l, "\n"), w) + "\n")
 	}
 	if g, ok := m.git[n.Path]; ok && g.IsRepo {
 		d := m.detail[n.Path]

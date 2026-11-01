@@ -83,12 +83,17 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
   release (dernier tag atteignable depuis `origin/main`).
   Un projet déjà ouvert est marqué `●` vert, son nom en gras sur la couleur de son pane tmux.
-  Badge milestone `⚑` (projets GitHub ; `gh api …/milestones`, un appel par projet toutes les
-  5 min, `F5` pour forcer, cache `~/.cache/claude-launcher/milestones.json`) : **jaune** = un
-  milestone ouvert a des issues ouvertes (en cours) ; **orange** = toutes ses issues sont fermées
-  mais il n'est pas clos (à publier) ; **vert** = plus rien d'ouvert, dernier milestone clos
-  (publié). Pas de badge sans milestone. Les milestones sans version (`v2.x`) ne comptent pas
-  comme en cours. L'aperçu détaille : `⚑ v1.1.0 en cours (5/7 issues fermées)`.
+  Badge milestone `⚑` (projets GitHub), calculé avec **la règle du panneau milestone des projets**
+  (`skills/milestone-panel`), pour que launcher et projet ouvert soient d'accord : **jaune** = milestone
+  en cours (le premier ouvert, par échéance puis version, ayant une issue ouverte avec un label de phase
+  `PLANNING`…`DONE`) ; **orange** = à défaut, un milestone ouvert dont toutes les issues sont fermées (à
+  publier) ; **gris** = des milestones ouverts mais aucun en cours (le panneau : « Aucun milestone en
+  cours ») ; **vert** = plus rien d'ouvert, dernier milestone clos (publié) ; rien sans milestone.
+  La carte **Milestone** de la vue `◈ État` (et l'aperçu) donne le milestone en cours, sa barre
+  d'avancement (issues fermées / total), ses issues ouvertes par phase et les bloquées ; sans milestone
+  en cours, la liste des milestones ouverts avec leur avancement. Deux appels `gh` par projet (ceux du
+  panneau : milestones, issues ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
+  `~/.cache/claude-launcher/milestones-v2.json`.
   Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`,
   de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
   crash) : c'est la session que son ouverture proposera de reprendre.
