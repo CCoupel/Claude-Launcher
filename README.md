@@ -27,7 +27,8 @@ Un navigateur de projets à gauche, tmux à droite :
   Claude en bas. Les dossiers ajoutés, renommés ou supprimés apparaissent ou disparaissent seuls
   (inotify, ou date des dossiers de catégorie sur `/mnt/c`).
 - **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir ni changer la
-  zone de droite — git, version locale et dernière release, version du template
+  zone de droite — en tête, la légende des icônes de sa ligne dans le navigateur, mêmes icônes, mêmes
+  couleurs, même ordre (`!   local : modifié directement sur main`, `⚑   milestone v1.1.0 en cours (60%)`…), puis git, version locale et dernière release, version du template
   (`v3.9.1 → v3.26.0`), composition de la team (un teammate par ligne : version de sa copie du
   template, `+` s'il a un compagnon, modèle et effort — compagnon > template, modèle réel s'il est
   lancé —, version de claude s'il est lancé : `● dev-plugin v3.29.1+ sonnet medium 2.1.311` ; en pane

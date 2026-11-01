@@ -897,59 +897,22 @@ var (
 	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 )
 
-func (m model) badges(p string) string {
-	g, ok := m.git[p]
-	if !ok {
-		return dim.Render(" …")
-	}
-	var b string
-	if g.IsRepo {
-		ls, _, lst := g.Local()
-		rs, _, rst := g.Remote()
-		b += " " + lst.Render(ls) + " " + rst.Render(rs)
-	}
-	switch m.tpl[p] {
-	case TplOK:
-		b += green.Bold(true).Render(" ✔")
-	case TplNone:
-		b += dim.Render(" ⊘")
-	case TplOutdated:
-		b += yellow.Render(" ⚠")
-	case TplMissing:
-		b += red.Render(" ⚠ fichiers manquants")
+// projInfo : ce que le navigateur sait du projet, pour ses indicateurs (legend.go).
+func (m model) projInfo(n Node) projInfo {
+	g, ok := m.git[n.Path]
+	r, hasSess := m.sessions[n.Path]
+	return projInfo{open: m.windows[n.Key], git: g, gitOK: ok, tpl: m.tpl[n.Path], tplLatest: m.tplVer,
+		ms: m.milestones[n.Path], sess: r, hasSess: hasSess}
+}
+
+// badges : icônes de la ligne du projet (« … » tant que git n'est pas lu).
+func (m model) badges(n Node) string {
+	p := m.projInfo(n)
+	b := badgeLine(badgeIndicators(p))
+	if !p.gitOK {
+		b = dim.Render(" …") + b
 	}
 	return b
-}
-
-// msBadge : « ⚑ » jaune (milestone en cours), orange (terminé, à publier),
-// gris (milestones ouverts, aucun en cours), vert (dernier milestone publié) ;
-// rien sans milestone. Même règle que le panneau milestone du projet.
-func (m model) msBadge(p string) string {
-	switch m.milestones[p].Kind {
-	case MsWorking:
-		return yellow.Render(" ⚑")
-	case MsReleasing:
-		return orange.Render(" ⚑")
-	case MsIdle:
-		return dim.Render(" ⚑")
-	case MsDone:
-		return green.Render(" ⚑")
-	}
-	return ""
-}
-
-// sessionBadge : « ↺ » si le projet, fermé ici, a une conversation en suspens
-// (non close par /end-session) que son ouverture proposera de reprendre ; en
-// rouge si sa team montre que le leader a disparu sans se fermer (crash).
-func (m model) sessionBadge(n Node) string {
-	r, ok := m.sessions[n.Path]
-	if !ok || m.windows[n.Key] {
-		return ""
-	}
-	if r.Crashed {
-		return red.Render(" ↺")
-	}
-	return yellow.Render(" ↺")
 }
 
 func truncLines(s string, w int) string {
@@ -1090,7 +1053,7 @@ func (m model) renderList(w, h int) string {
 					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).
 						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).Render(" " + n.Name + " ")
 				}
-				line = prefix + dot + name + m.badges(n.Path) + m.msBadge(n.Path) + m.sessionBadge(n)
+				line = prefix + dot + name + m.badges(n)
 			}
 		}
 		if i == m.cursor {
@@ -1112,43 +1075,17 @@ func (m model) renderPreview(w int) string {
 	var sb strings.Builder
 	sb.WriteString(bold.Render(n.Name) + "\n")
 	sb.WriteString(dim.Render(shorten(n.Path, w)) + "\n\n")
-	if m.windows[n.Key] {
-		sb.WriteString(green.Render("● fenêtre tmux ouverte") + "\n")
-	} else {
-		sb.WriteString(dim.Render("○ non lancé") + "\n")
-		if r, ok := m.sessions[n.Path]; ok {
-			label := "↺ session non close (il y a " + ageLabel(time.Since(r.Mod)) + ")"
-			if r.Crashed {
-				sb.WriteString(red.Render("⚠ session interrompue (il y a "+ageLabel(time.Since(r.Mod))+")") + "\n")
-			} else {
-				sb.WriteString(yellow.Render(label) + "\n")
-			}
-		}
-	}
-	if l := msLines(m.milestones[n.Path]); l != nil {
-		sb.WriteString("\n" + truncLines(strings.Join(l, "\n"), w) + "\n")
-	}
-	if g, ok := m.git[n.Path]; ok && g.IsRepo {
+	p := m.projInfo(n)
+	sb.WriteString(truncLines(strings.Join(legendLines(p, 0), "\n"), w) + "\n")
+	if g := p.git; p.gitOK && g.IsRepo {
 		d := m.detail[n.Path]
-		ls, lt, lst := g.Local()
-		rs, rt, rst := g.Remote()
 		sb.WriteString("\n" + dim.Render("branche  ") + g.Branch)
-		sb.WriteString("\n" + dim.Render("local    ") + lst.Render(ls+" "+lt))
-		sb.WriteString("\n" + dim.Render("remote   ") + rst.Render(rs+" "+rt))
 		sb.WriteString("\n" + dim.Render("version  ") + "locale  " + orNone(d.VerLocal))
 		sb.WriteString("\n" + dim.Render("         ") + "release " + orNone(d.VerRelease))
-		sb.WriteString("\n" + dim.Render("dernier  ") + shorten(d.LastMsg, w-9))
+		sb.WriteString("\n" + dim.Render("dernier  ") + shorten(d.LastMsg, w-9) + "\n")
 	}
-	sb.WriteString("\n")
-	switch m.tpl[n.Path] {
-	case TplOK:
-		sb.WriteString("\n" + dim.Render("template ") + green.Render("✔ à jour"))
-	case TplNone:
-		sb.WriteString("\n" + dim.Render("template ⊘ non géré"))
-	case TplOutdated:
-		sb.WriteString("\n" + dim.Render("template ") + yellow.Render("mise à jour disponible"))
-	case TplMissing:
-		sb.WriteString("\n" + dim.Render("template ") + red.Render("fichiers manquants"))
+	if l := msLines(p.ms); len(l) > 1 {
+		sb.WriteString("\n" + truncLines(strings.Join(l[1:], "\n"), w) + "\n")
 	}
 	return sb.String()
 }
