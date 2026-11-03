@@ -58,6 +58,9 @@ func badgeIndicators(p projInfo) []indicator {
 	if i, ok := msIndicator(p.ms); ok {
 		out = append(out, i)
 	}
+	if i, ok := prIndicator(p.ms); ok {
+		out = append(out, i)
+	}
 	if p.hasSess && !p.open {
 		ago := " (il y a " + ageLabel(time.Since(p.sess.Mod)) + ")"
 		if p.sess.Crashed {
@@ -103,6 +106,18 @@ func msIndicator(st MsState) (indicator, bool) {
 		return indicator{icon: "⚑", style: green, text: "milestone " + st.Title + " publié"}, true
 	}
 	return indicator{}, false
+}
+
+// prIndicator : « ⇄N », N pull requests ouvertes en attente (brouillons compris).
+func prIndicator(st MsState) (indicator, bool) {
+	if st.PRs == 0 {
+		return indicator{}, false
+	}
+	text := fmt.Sprintf("%d pull request(s) ouverte(s) en attente", st.PRs)
+	if st.Drafts > 0 {
+		text += fmt.Sprintf(" (dont %d brouillon(s))", st.Drafts)
+	}
+	return indicator{icon: fmt.Sprintf("⇄%d", st.PRs), style: msPurple, text: text}, true
 }
 
 // badgeLine : rendu des badges sur la ligne du navigateur.

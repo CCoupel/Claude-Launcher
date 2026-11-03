@@ -22,7 +22,8 @@ Un navigateur de projets à gauche, tmux à droite :
   sur main) et **remote** (`○` jamais poussé, `↑N` non poussé, `⇡` non mergé, `✓` publié, `↓N` en retard),
   badge template (`✔` à jour, `⚠` en retard, `⊘` sans template), badge milestone GitHub (`⚑` jaune en
   cours, orange terminé mais à publier, gris aucun en cours, vert publié — même règle que le panneau
-  milestone du projet ; milestone et avancement dans la vue `◈ État`), `↺` si une session Claude est restée
+  milestone du projet ; milestone et avancement dans la vue `◈ État`), `⇄N` (violet) = N pull
+  requests ouvertes en attente sur GitHub (brouillons compris, détaillés dans la légende), `↺` si une session Claude est restée
   en suspens (non close par `/end-session`, rouge si interrompue par un crash), consommation du compte
   Claude en bas. Les dossiers ajoutés, renommés ou supprimés apparaissent ou disparaissent seuls
   (inotify, ou date des dossiers de catégorie sur `/mnt/c`).

@@ -97,3 +97,18 @@ func TestCompareTitles(t *testing.T) {
 		t.Error("unversioned")
 	}
 }
+
+func TestPRIndicator(t *testing.T) {
+	if _, ok := prIndicator(MsState{}); ok {
+		t.Error("badge PR sans PR ouverte")
+	}
+	n, d := countPRs([]rawPR{{false}, {true}, {false}})
+	i, ok := prIndicator(MsState{PRs: n, Drafts: d})
+	if !ok || i.icon != "⇄3" || !strings.Contains(i.text, "3 pull request") || !strings.Contains(i.text, "dont 1 brouillon") {
+		t.Errorf("prIndicator=%+v ok=%v", i, ok)
+	}
+	ins := badgeIndicators(projInfo{ms: MsState{Kind: MsWorking, PRs: 2}})
+	if len(ins) != 2 || ins[0].icon != "⚑" || ins[1].icon != "⇄2" {
+		t.Errorf("ordre des badges=%+v", ins)
+	}
+}
