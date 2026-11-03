@@ -20,6 +20,7 @@
       <li><a href="#features">Fonctionnalités</a></li>
       <li><a href="#teams">Teams</a></li>
       <li><a href="#install">Installation</a></li>
+      <li><a href="#commands">Commandes</a></li>
       <li><a href="#shortcuts">Raccourcis</a></li>
       <li><a href="https://github.com/CCoupel/claude_project_template">Template →</a></li>
     </ul>
@@ -300,6 +301,21 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
       </div>
 
     </div>
+  </div>
+</section>
+
+<section id="commands">
+  <div class="container">
+    <div class="section-header">
+      <h2>Les commandes déposées dans vos projets</h2>
+      <p>Le launcher pose deux commandes Claude Code dans <code>.claude/commands/</code> du projet, avant de lancer <code>claude</code>. Rien d'autre n'y est écrit.</p>
+    </div>
+    <table class="config-table">
+      <tr><th>Commande</th><th>Quand</th><th>Rôle</th></tr>
+      <tr><td><code>/init-project</code><br><code>init-project.md</code></td><td>À chaque ouverture d'un projet, remplacée par la version du template adoptée par le launcher (sauf un projet brut tout juste créé)</td><td>Installe ou met à jour le template : agents, commandes, workflows. Lancée d'office à la création d'un projet géré, proposée à l'ouverture si le template est en retard ou ses fichiers manquants</td></tr>
+      <tr><td><code>/end-session</code><br><code>end-session.md</code></td><td>Projets sans template seulement, et seulement s'ils n'en ont pas : une commande existante n'est jamais écrasée</td><td>Clôt la session : résumé de ce qui a été fait et de ce qui reste, sans rien modifier. La session n'est plus proposée à la reprise. Dans un projet du template, c'est le <code>/end-session</code> du template qui sert</td></tr>
+    </table>
+    <p class="screenshot-caption">Dans un dépôt git, ces fichiers apparaissent comme non suivis s'ils ne sont pas ignorés. Le marqueur de sortie propre (<code>Ctrl+C</code>, <code>/exit</code>), lui, reste hors du projet, dans <code>~/.cache/claude-launcher/</code>.</p>
   </div>
 </section>
 
