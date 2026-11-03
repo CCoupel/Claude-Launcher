@@ -20,6 +20,7 @@
       <li><a href="#features">Fonctionnalités</a></li>
       <li><a href="#teams">Teams</a></li>
       <li><a href="#install">Installation</a></li>
+      <li><a href="#commands">Commandes</a></li>
       <li><a href="#shortcuts">Raccourcis</a></li>
       <li><a href="https://github.com/CCoupel/claude_project_template">Template →</a></li>
     </ul>
@@ -28,7 +29,7 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v4.7.0</span> · 100 % Go · compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v4.9.0</span> · 100 % Go · compagnon de claude_project_template</div>
     <h1>Un hub tmux pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
     <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil.</p>
     <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Plus de fzf, plus de script : une interface qui ne se fige plus.</p>
@@ -42,12 +43,12 @@
 <section id="screenshot">
   <div class="container">
     <div class="term-wrap">
-<pre class="term" role="img" aria-label="Claude-Launcher-NG : en haut à gauche, le navigateur de projets avec ses badges git local, remote, template, milestone et session, l’alerte de connexion et la consommation du compte ; dessous, les infos du projet sélectionné : légende de ses icônes, branche, versions, milestone en cours et son avancement, team, fichiers ; à droite, tmux avec le projet web-shop ouvert."> <span style="color:#39c5cf;font-weight:700">✦ Nouveau projet</span><span style="color:#6e7681"> (dbl-clic catégorie)</span>  <span style="color:#005fff">┃</span><span style="color:#484f58;background:#3fb950">0:⌗ Teamleaders  </span><span style="color:#eeeeee;background:#005fff;font-weight:700">1:web-shop*</span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">2:k8s-cluster </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">3:cli-toolbox-</span><span style="color:#484f58;background:#3fb950">                                             </span><span style="color:#808080;background:#3fb950">09:38</span>
+<pre class="term" role="img" aria-label="Claude-Launcher-NG : en haut à gauche, le navigateur de projets avec ses badges git local, remote, template, milestone, pull requests et session, l’alerte de connexion et la consommation du compte ; dessous, les infos du projet sélectionné : légende de ses icônes, branche, versions, milestone en cours et son avancement, team, fichiers ; à droite, tmux avec le projet web-shop ouvert."> <span style="color:#39c5cf;font-weight:700">✦ Nouveau projet</span><span style="color:#6e7681"> (dbl-clic catégorie)</span>  <span style="color:#005fff">┃</span><span style="color:#484f58;background:#3fb950">0:⌗ Teamleaders  </span><span style="color:#eeeeee;background:#005fff;font-weight:700">1:web-shop*</span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">2:k8s-cluster </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">3:cli-toolbox-</span><span style="color:#484f58;background:#3fb950">                                             </span><span style="color:#808080;background:#3fb950">09:38</span>
 <span style="font-weight:700"> ~/PROJETS                           </span>   <span style="color:#005fff">┃</span>
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">APPS</span>                                <span style="color:#005fff">┃</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  web-shop
- <span style="color:#6e7681">  ├─ ○ </span>api-gateway <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓2</span><span style="color:#d29922"> ⚠</span><span style="color:#d29922"> ⚑</span><span style="color:#d29922"> ↺</span>          <span style="color:#005fff">┃</span>
+ <span style="color:#6e7681">  ├─ ○ </span>api-gateway <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓2</span><span style="color:#d29922"> ⚠</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄2</span><span style="color:#d29922"> ↺</span>       <span style="color:#005fff">┃</span>
  <span style="color:#6e7681">  ├─ ○ </span>mobile-app <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span> <span style="color:#6e7681">&gt;</span> intégrer le module de paiement Stripe
-▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#d29922"> ⚑</span>              <span style="color:#005fff">┃</span>
+▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄1</span>           <span style="color:#005fff">┃</span>
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">INFRA</span>                               <span style="color:#005fff">┃</span> ● Lecture de src/pay.txt
  <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#5f005f;font-weight:700"> k8s-cluster </span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓ ✔</span><span style="color:#f0883e"> ⚑</span>           <span style="color:#005fff">┃</span> ● Plan : 3 agents en route
  <span style="color:#6e7681">  ├─ ○ </span>monitoring <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓</span><span style="color:#d29922"> ⚠</span><span style="color:#ff7b72"> ↺</span>              <span style="color:#005fff">┃</span> ✦ dev-backend · code-reviewer · qa
@@ -57,7 +58,7 @@
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>
-<span style="color:#6e7681" data-ng-term>  NG v4.7.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681" data-ng-term>  NG v4.9.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -74,6 +75,8 @@
  <span style="color:#3fb950;font-weight:700">✔  </span> template v3.28.0 à jour            <span style="color:#444444">┃</span>
  <span style="color:#d29922">⚑  </span> milestone v1.2.0 — Paiement en     <span style="color:#444444">┃</span>
      ligne en cours (60%)               <span style="color:#444444">┃</span>
+ <span style="color:#a371f7">⇄1 </span> 1 pull request(s) ouverte(s) en    <span style="color:#444444">┃</span>
+     attente                            <span style="color:#444444">┃</span>
                                         <span style="color:#444444">┃</span>
  <span style="color:#6e7681">branche  </span>feat/paiement                 <span style="color:#444444">┃</span>
  <span style="color:#6e7681">version  </span>locale  v1.1.0-1-g17140f6-    <span style="color:#444444">┃</span>
@@ -122,7 +125,7 @@
       <p>Un hub central en tmux — pas un remplacement de Claude Code, juste l'orchestration autour.</p>
     </div>
     <div class="features-grid">
-      <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Navigateur de projets</h3><p>Vos projets en arbre par catégorie, un filtre à la frappe, la souris. Chaque ligne indique si le projet est ouvert, son état git local (<code>●</code> au repos, <code>✎</code> en cours, <code>◆</code> tout commité, <code>!</code> modifié sur main) et remote (<code>○</code> jamais poussé, <code>↑N</code> non poussé, <code>⇡</code> non mergé, <code>✓</code> publié, <code>↓N</code> en retard), son template (<code>✔</code>, <code>⚠</code>, <code>⊘</code>), son milestone (<code>⚑</code>) et une session à reprendre (<code>↺</code>). Un dossier créé ou supprimé apparaît ou disparaît tout seul.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Navigateur de projets</h3><p>Vos projets en arbre par catégorie, un filtre à la frappe, la souris. Chaque ligne indique si le projet est ouvert, son état git local (<code>●</code> au repos, <code>✎</code> en cours, <code>◆</code> tout commité, <code>!</code> modifié sur main) et remote (<code>○</code> jamais poussé, <code>↑N</code> non poussé, <code>⇡</code> non mergé, <code>✓</code> publié, <code>↓N</code> en retard), son template (<code>✔</code>, <code>⚠</code>, <code>⊘</code>), son milestone (<code>⚑</code>), ses pull requests ouvertes (<code style="color:#a371f7">⇄N</code>) et une session à reprendre (<code>↺</code>). Un dossier créé ou supprimé apparaît ou disparaît tout seul.</p></div></div>
       <div class="feature-card"><div class="feature-icon">◈</div><div class="feature-body"><h3>L'état en un clic</h3><p>Sous le navigateur, les infos suivent la sélection : la légende des icônes du projet, branche, version locale et dernière release, template (<code>v3.26.1 → v3.28.0</code>), milestone en cours, composition de la team (version, modèle et effort de chaque teammate) et fichiers avec leur marqueur git. La zone tmux, elle, ne bouge pas.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⚡</div><div class="feature-body"><h3>Prêt avant que vous cliquiez</h3><p>L'état de chaque projet est préparé en tâche de fond et rafraîchi dès qu'il change (commit, nouveau fichier) : la sélection est instantanée, même sur un disque Windows.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⌗</div><div class="feature-body"><h3>Tous les teamleaders</h3><p>Un onglet de vue d'ensemble affiche une vignette interactive par projet ouvert, à la couleur du projet : on voit d'un coup d'œil qui travaille, qui attend.</p></div></div>
@@ -132,8 +135,8 @@
       <div class="feature-card"><div class="feature-icon">↔️</div><div class="feature-body"><h3>Un espace qui s'adapte</h3><p><code>Ctrl+←</code> <code>Ctrl+→</code> ou glissez la bordure : la largeur du navigateur est mémorisée. Double-clic sur un pane d'une team : plein écran, et retour d'un autre double-clic.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🧩</div><div class="feature-body"><h3>100 % Go depuis la v4</h3><p>Mise en page des teams et vignettes sont passées dans le binaire : plus de script, ni <code>jq</code> ni <code>xxd</code>, et bien moins de processus lancés chaque seconde. Même configuration, mêmes sessions tmux ; l'ancienne commande <code>claude-launcher.sh</code> redirige vers le NG.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⚑</div><div class="feature-body"><h3>Milestones GitHub</h3><p>Le drapeau dit où en est chaque projet : <span style="color:#d29922">jaune</span> milestone en cours, <span style="color:#f0883e">orange</span> terminé mais à publier, gris aucun en cours, <span style="color:#3fb950">vert</span> publié. Même règle que le panneau milestone du projet ; un clic donne le milestone, sa barre d'avancement et ses issues par phase.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">↺</div><div class="feature-body"><h3>Reprise après crash</h3><p>Terminal fermé, crash, launcher quitté : à l'ouverture, le projet propose de reprendre la conversation, sa team et ses tâches, et le teamleader relance les teammates perdus. Une session close par <code>/end-session</code> n'est plus proposée ; <code>↺</code> signale celles qui restent en suspens.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🔎</div><div class="feature-body"><h3>Chaque icône expliquée</h3><p>Dans la vue du projet, chaque icône de sa ligne revient avec sa couleur et son sens, dans le même ordre : <code>!</code> modifié directement sur main, <code>⚑</code> milestone v1.2.0 en cours (60 %), <code>↺</code> session non close… Plus besoin de connaître les symboles par cœur.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">↺</div><div class="feature-body"><h3>Reprise après crash</h3><p>Terminal fermé, crash, launcher quitté : à l'ouverture, le projet propose de reprendre la conversation, sa team et ses tâches, et le teamleader relance toute son équipe — pas seulement les agents des tâches en cours : une correction demandée par la QA trouvera ses développeurs. Une session close par <code>/end-session</code> ou quittée proprement (<code>Ctrl+C</code>, <code>/exit</code>) n'est plus proposée, et les projets sans template reçoivent leur <code>/end-session</code> ; <code>↺</code> ne signale que les vraies interruptions.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔎</div><div class="feature-body"><h3>Chaque icône expliquée</h3><p>Dans la vue du projet, chaque icône de sa ligne revient avec sa couleur et son sens, dans le même ordre : <code>!</code> modifié directement sur main, <code>⚑</code> milestone v1.2.0 en cours (60 %), <code style="color:#a371f7">⇄1</code> pull request ouverte, <code>↺</code> session non close… Plus besoin de connaître les symboles par cœur.</p></div></div>
     </div>
   </div>
 </section>
@@ -148,9 +151,9 @@
 <pre class="term" role="img" aria-label="Vue d’ensemble des teamleaders : une vignette interactive par projet ouvert (web-shop, k8s-cluster, cli-toolbox), à la couleur de son projet."> <span style="color:#39c5cf;font-weight:700">✦ Nouveau projet</span><span style="color:#6e7681"> (dbl-clic catégorie)</span>  <span style="color:#005fff">┃</span><span style="color:#484f58;background:#3fb950">0:⌗ Teamleaders* </span><span style="color:#6c6c6c;background:#303030">1:web-shop-</span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">2:k8s-cluster </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">3:cli-toolbox </span><span style="color:#484f58;background:#3fb950">                                             </span><span style="color:#808080;background:#3fb950">09:38</span>
 <span style="font-weight:700"> ~/PROJETS                           </span>   <span style="color:#005fff">┃</span><span style="color:#484f58;background:#005f5f;font-weight:700"> ⌨ web-shop </span><span style="background:#005f5f">                                          </span><span style="color:#3fb950">│</span><span style="color:#484f58;background:#5f005f;font-weight:700">   k8s-cluster </span>
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">APPS</span>                                <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
- <span style="color:#6e7681">  ├─ ○ </span>api-gateway <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓2</span><span style="color:#d29922"> ⚠</span><span style="color:#d29922"> ⚑</span><span style="color:#d29922"> ↺</span>          <span style="color:#005fff">┃</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  web-shop                           <span style="color:#3fb950">│</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  k8s-cluster
+ <span style="color:#6e7681">  ├─ ○ </span>api-gateway <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓2</span><span style="color:#d29922"> ⚠</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄2</span><span style="color:#d29922"> ↺</span>       <span style="color:#005fff">┃</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  web-shop                           <span style="color:#3fb950">│</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  k8s-cluster
  <span style="color:#6e7681">  ├─ ○ </span>mobile-app <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#d29922"> ⚑</span>              <span style="color:#005fff">┃</span> <span style="color:#6e7681">&gt;</span> intégrer le module de paiement Stripe              <span style="color:#3fb950">│</span> <span style="color:#6e7681">&gt;</span> passer l'ingress en Gateway API
+▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄1</span>           <span style="color:#005fff">┃</span> <span style="color:#6e7681">&gt;</span> intégrer le module de paiement Stripe              <span style="color:#3fb950">│</span> <span style="color:#6e7681">&gt;</span> passer l'ingress en Gateway API
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">INFRA</span>                               <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
  <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#5f005f;font-weight:700"> k8s-cluster </span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓ ✔</span><span style="color:#f0883e"> ⚑</span>           <span style="color:#005fff">┃</span> ● Lecture de src/pay.txt                             <span style="color:#3fb950">│</span> ● Lecture de charts/ingress.yaml
  <span style="color:#6e7681">  ├─ ○ </span>monitoring <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓</span><span style="color:#d29922"> ⚠</span><span style="color:#ff7b72"> ↺</span>              <span style="color:#005fff">┃</span> ● Plan : 3 agents en route                           <span style="color:#3fb950">│</span> ● Édition de 4 fichiers
@@ -160,7 +163,7 @@
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681" data-ng-term>  NG v4.7.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681" data-ng-term>  NG v4.9.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -177,16 +180,16 @@
  <span style="color:#3fb950;font-weight:700">✔  </span> template v3.28.0 à jour            <span style="color:#444444">┃</span> ● Tests : 42 réussis
  <span style="color:#d29922">⚑  </span> milestone v1.2.0 — Paiement en     <span style="color:#444444">┃</span> ✓ Prêt pour la PR
      ligne en cours (60%)               <span style="color:#444444">┃</span>
-                                        <span style="color:#444444">┃</span> <span style="color:#ff5f5f">⏵⏵ bypass permissions on</span>
+ <span style="color:#a371f7">⇄1 </span> 1 pull request(s) ouverte(s) en    <span style="color:#444444">┃</span> <span style="color:#ff5f5f">⏵⏵ bypass permissions on</span>
+     attente                            <span style="color:#444444">┃</span>
+                                        <span style="color:#444444">┃</span>
  <span style="color:#6e7681">branche  </span>feat/paiement                 <span style="color:#444444">┃</span>
  <span style="color:#6e7681">version  </span>locale  v1.1.0-1-g17140f6-    <span style="color:#444444">┃</span>
  dirty                                  <span style="color:#444444">┃</span>
  <span style="color:#6e7681">         </span>release v1.1.0                <span style="color:#444444">┃</span>
  <span style="color:#6e7681">dernier  </span>…t: module de paiement        <span style="color:#444444">┃</span>
 <span style="color:#6e7681"> MILESTONE · LU IL Y A 48 S</span>             <span style="color:#444444">┃</span>
- <span style="color:#d29922">⚑ </span><span style="color:#39c5cf;font-weight:700">v1.2.0 — Paiement en ligne</span>           <span style="color:#444444">┃</span>
- <span style="color:#a371f7">██████</span><span style="color:#6e7681">░░░░</span><span style="font-weight:700">  60%</span><span style="color:#6e7681"> 6/10</span>                   <span style="color:#444444">┃</span>
- pret 1<span style="color:#6e7681"> · </span>en cours 2<span style="color:#6e7681"> · </span>en review 1      <span style="color:#444444">┃</span></pre>
+ <span style="color:#d29922">⚑ </span><span style="color:#39c5cf;font-weight:700">v1.2.0 — Paiement en ligne</span>           <span style="color:#444444">┃</span></pre>
     </div>
     <p class="screenshot-caption">Les vignettes sont interactives : le clavier va au teamleader de la vignette sélectionnée.</p>
   </div>
@@ -301,6 +304,21 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
   </div>
 </section>
 
+<section id="commands">
+  <div class="container">
+    <div class="section-header">
+      <h2>Les commandes déposées dans vos projets</h2>
+      <p>Le launcher pose deux commandes Claude Code dans <code>.claude/commands/</code> du projet, avant de lancer <code>claude</code>. Rien d'autre n'y est écrit.</p>
+    </div>
+    <table class="config-table">
+      <tr><th>Commande</th><th>Quand</th><th>Rôle</th></tr>
+      <tr><td><code>/init-project</code><br><code>init-project.md</code></td><td>À chaque ouverture d'un projet, remplacée par la version du template adoptée par le launcher (sauf un projet brut tout juste créé)</td><td>Installe ou met à jour le template : agents, commandes, workflows. Lancée d'office à la création d'un projet géré, proposée à l'ouverture si le template est en retard ou ses fichiers manquants</td></tr>
+      <tr><td><code>/end-session</code><br><code>end-session.md</code></td><td>Projets sans template seulement, et seulement s'ils n'en ont pas : une commande existante n'est jamais écrasée</td><td>Clôt la session : résumé de ce qui a été fait et de ce qui reste, sans rien modifier. La session n'est plus proposée à la reprise. Dans un projet du template, c'est le <code>/end-session</code> du template qui sert</td></tr>
+    </table>
+    <p class="screenshot-caption">Dans un dépôt git, ces fichiers apparaissent comme non suivis s'ils ne sont pas ignorés. Le marqueur de sortie propre (<code>Ctrl+C</code>, <code>/exit</code>), lui, reste hors du projet, dans <code>~/.cache/claude-launcher/</code>.</p>
+  </div>
+</section>
+
 <section id="shortcuts">
   <div class="container">
     <div class="section-header">
@@ -343,7 +361,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG <span data-ng-version>v4.7.0</span> — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG <span data-ng-version>v4.9.0</span> — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 
