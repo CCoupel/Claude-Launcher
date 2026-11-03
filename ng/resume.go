@@ -64,6 +64,9 @@ func sessionEnded(f string) bool {
 	if err != nil {
 		return false
 	}
+	if cleanExited(filepath.Base(filepath.Dir(f)), info.ModTime()) {
+		return true
+	}
 	endedCache.Lock()
 	e, ok := endedCache.m[f]
 	endedCache.Unlock()
@@ -75,6 +78,29 @@ func sessionEnded(f string) bool {
 	endedCache.m[f] = endedEntry{info.ModTime(), info.Size(), ended}
 	endedCache.Unlock()
 	return ended
+}
+
+// Sortie propre : le shell du pane, qui ne reprend la main que si claude s'est
+// arrêté normalement (Ctrl+C, /exit — pas un terminal fermé ni WSL tué), touche
+// un marqueur par projet (nom encodé de ~/.claude/projects). Une conversation
+// qui n'a pas bougé depuis ce marqueur est close, comme par /end-session.
+
+func cleanExitPath(dirName string) string {
+	return filepath.Join(cacheDir(), "clean-exit", dirName)
+}
+
+// cleanExitShell : suite bash de la commande claude, qui pose le marqueur du
+// projet path si claude s'est terminé lui-même (ou sur SIGINT, 130) ; tué par
+// un autre signal (OOM, segfault : statut ≥ 128), c'est un crash.
+func cleanExitShell(path string) string {
+	m := cleanExitPath(projectDirName(path))
+	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + shq(filepath.Dir(m)) + " && touch " + shq(m)
+}
+
+// cleanExited : le marqueur du projet est postérieur (ou égal) à mod.
+func cleanExited(dirName string, mod time.Time) bool {
+	info, err := os.Stat(cleanExitPath(dirName))
+	return err == nil && !mod.After(info.ModTime())
 }
 
 // scanEnded : la conversation f a été close par /end-session tapé par
@@ -207,13 +233,16 @@ func ageLabel(d time.Duration) string {
 }
 
 // resumePrompt : consigne envoyée au leader repris dont les teammates ont disparu.
+// « ont été perdus » est la formule que le template reconnaît (MILESTONE_CADRAGE.md
+// 4.2) ; toute l'équipe est respawnée, pas seulement les agents des tâches en cours.
 func resumePrompt(r Resumable) string {
 	if len(r.Teammates) == 0 {
 		return ""
 	}
 	return "Reprise après interruption de la session : tes teammates (" + strings.Join(r.Teammates, ", ") +
-		") ont été perdus et ne répondront plus. Relis la liste de tâches de la team, " +
-		"relance les teammates nécessaires pour les tâches non terminées, puis poursuis le travail en cours."
+		") ont été perdus et ne répondront plus. Respawne tout l'effectif attendu de la team, " +
+		"pas seulement les agents des tâches en cours (une correction de QA ou le lot suivant en auront besoin) — " +
+		"dans un projet du template : /start-session étape 4 points 2 à 4 puis 4bis — puis poursuis le travail en cours."
 }
 
 // resumeShell : préambule bash qui pose (ou non) la question de reprise et met

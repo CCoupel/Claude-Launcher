@@ -1126,7 +1126,7 @@ func (m model) alertText(a string) string {
 	case ok:
 		return "  ↑ " + name + " " + tag + " · cliquer pour installer"
 	default:
-		return "  ↑ " + name + " " + tag + " · mise à jour disponible"
+		return "  ↑ " + name + " " + tag + " · mise à jour bientôt prête"
 	}
 }
 

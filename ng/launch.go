@@ -123,9 +123,10 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	_ = dtmux("set-option", "-p", "-t", pane, "window-style", "bg=colour"+cfg.projectColor(n.Key)).Run()
 
 	initCache := initProjectPath()
+	tpl := readTemplate(n.Path, latest)
 
 	var initPre, initArg string
-	switch tpl := readTemplate(n.Path, latest); {
+	switch {
 	case mode == launchNewManaged:
 		initArg = " /init-project" // projet tout juste créé : pas de question
 	case mode == launchNewRaw: // ni question ni /init-project
@@ -157,6 +158,12 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 			start = pre + "if [[ -n $_rs ]]; then " + resume + "; else " + start + "; fi"
 		}
 	}
+	// sortie propre : marqueur posé seulement si claude rend la main au shell
+	start += "; " + cleanExitShell(n.Path)
+	// projet non géré : /end-session minimal, pour pouvoir le clore comme les autres
+	if mode == launchNewRaw || mode == launchNormal && tpl == TplNone {
+		ensureEndSession(n.Path)
+	}
 	keys := fmt.Sprintf("cd %s%s\n%s%s", shq(n.Path), cfg.exports(), copyInit, start)
 	if err := dtmux("send-keys", "-t", target, keys, "Enter").Run(); err != nil {
 		return fmt.Errorf("send-keys : %w", err)
@@ -164,4 +171,27 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 
 	_ = dtmux("run-shell", "-b", selfCommand("layout-watch", winID, pane, n.Path)).Run()
 	return dtmux("select-window", "-t", target).Run()
+}
+
+// endSessionCmd : /end-session déposé dans un projet non géré (le template, lui,
+// apporte le sien). Le taper laisse dans la conversation la marque que le
+// navigateur reconnaît (resume.go) : la session n'est plus proposée à la reprise.
+const endSessionCmd = `---
+description: Clore la session (déposé par Claude-Launcher dans un projet non géré)
+---
+
+Fin de session. Sans modifier aucun fichier ni lancer de commande, résume en
+quelques lignes ce qui a été fait pendant la session et ce qui reste à faire,
+puis indique que la session peut être quittée (/exit).
+`
+
+// ensureEndSession : dépose .claude/commands/end-session.md s'il n'existe pas.
+func ensureEndSession(path string) {
+	f := filepath.Join(path, ".claude", "commands", "end-session.md")
+	if _, err := os.Stat(f); err == nil {
+		return
+	}
+	if os.MkdirAll(filepath.Dir(f), 0o755) == nil {
+		_ = os.WriteFile(f, []byte(endSessionCmd), 0o644)
+	}
 }

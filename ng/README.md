@@ -58,11 +58,22 @@ défaut), le launcher demande s'il faut la reprendre (`RESUME_MODE=ask`, ou `alw
 Reprendre lance `claude --resume <id>` : même id de session, donc même team
 (`session-<8 premiers caractères>`) et même liste de tâches, que le nettoyage ci-dessus a épargnées.
 Les teammates ne sont pas restaurés par Claude Code : le teamleader repris reçoit en premier message
-la liste des teammates perdus et la consigne de les relancer d'après les tâches non terminées. La
+la liste des teammates perdus et la consigne de respawner **tout** l'effectif attendu de la team, pas
+seulement les agents des tâches en cours (une correction de QA en aura besoin) ; dans un projet du template,
+via `/start-session` étape 4 puis 4bis (le template reconnaît la formule « ont été perdus »). La
 question n'est pas posée si la team indique un leader encore vivant (session ouverte ailleurs), ni si
 la conversation a été close par `/end-session` (commande tapée, même suivie d'échanges de fin : la
-team de cette session n'est alors plus épargnée), et
+team de cette session n'est alors plus épargnée), ni si elle s'est terminée par une sortie propre, et
 `/init-project` n'est jamais proposé sur une reprise.
+
+**Sortie propre** : la commande `claude` du pane est suivie d'une commande bash qui pose
+`~/.cache/claude-launcher/clean-exit/<chemin encodé>` (la date seule compte) si claude a rendu la main au
+shell de lui-même ou sur `Ctrl+C` (statut < 128 ou 130). Un crash qui emporte le terminal (fenêtre fermée,
+WSL tué) ou claude tué par un autre signal (OOM, segfault) ne pose rien. Une conversation qui n'a
+pas bougé depuis ce marqueur est close comme par `/end-session` ; reprise ensuite, elle redevient en
+suspens. Un **projet non géré** (sans template) reçoit en plus, à l'ouverture, un
+`.claude/commands/end-session.md` minimal s'il n'en a pas (résumé de fin, sans rien modifier) : `/end-session`
+s'y tape comme ailleurs ; une commande existante n'est jamais écrasée.
 
 La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHUB_DIRS`,
 `CLAUDE_OPTIONS`, `RESUME_MODE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée par
@@ -100,8 +111,8 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
   en cours, la liste des milestones ouverts avec leur avancement. Trois appels `gh` par projet (ceux du
   panneau : milestones, issues ouvertes ; plus les PR ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
   `~/.cache/claude-launcher/milestones-v2.json`.
-  Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`,
-  de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
+  Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`
+  ni par une sortie propre, de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
   crash) : c'est la session que son ouverture proposera de reprendre.
   Un dossier de projet créé, renommé ou supprimé hors du launcher apparaît ou disparaît sans
   `Ctrl+R` : seuls les racines et dossiers de catégorie sont surveillés (inotify sur disque Linux ;
@@ -162,7 +173,7 @@ démarre avec la version en place.
 
 Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes (2 minutes tant
 qu'une release est attendue). Chaque nouvelle version est annoncée en deux temps :
-en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliquable), puis en
+en **orange** dès le tag (`↑ NG vX · mise à jour bientôt prête ✕`, non cliquable), puis en
 **vert** quand la release est publiée (`↑ NG vX · cliquer pour installer ✕`).
 
 - **NG** : un clic sur l'annonce verte installe la version et redémarre le navigateur sur place
