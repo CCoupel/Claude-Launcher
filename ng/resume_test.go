@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -210,5 +211,56 @@ func TestTreeRefresh(t *testing.T) {
 	}
 	if got := m.nodes[m.visible[m.cursor]].Path; got != c {
 		t.Errorf("sélection=%q, attendu gamma", got)
+	}
+}
+
+func TestCleanExit(t *testing.T) {
+	root := fakeClaude(t, "/p/proj", map[string]time.Duration{"bbbbbbbb-2": 10 * time.Minute})
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	cfg := Config{ResumeMode: "ask", ResumeMaxAgeH: 24}
+	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+		t.Fatal("sans marqueur : reprise attendue")
+	}
+
+	// claude tué par un signal (OOM, segfault) : crash, pas de marqueur
+	_ = exec.Command("bash", "-c", "sh -c 'kill -9 $$'; "+cleanExitShell("/p/proj")).Run()
+	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+		t.Fatal("claude tué : reprise attendue")
+	}
+
+	// claude rend la main au shell du pane (Ctrl+C : 130) : marqueur posé
+	if out, err := exec.Command("bash", "-c", "(exit 130); "+cleanExitShell("/p/proj")).CombinedOutput(); err != nil {
+		t.Fatalf("cleanExitShell : %v %s", err, out)
+	}
+	if _, r, ok := cfg.resumeShell("/p/proj"); ok || !r.Ended {
+		t.Errorf("sortie propre : aucune reprise attendue (%+v)", r)
+	}
+	if resumableSession(root, "bbbbbbbb-2", 24*time.Hour) {
+		t.Error("sortie propre : sa team ne doit plus être épargnée")
+	}
+
+	// conversation reprise ensuite (plus récente que le marqueur) : de nouveau en suspens
+	f := filepath.Join(root, "projects", projectDirName("/p/proj"), "bbbbbbbb-2.jsonl")
+	later := time.Now().Add(time.Minute)
+	_ = os.Chtimes(f, later, later)
+	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+		t.Error("conversation postérieure au marqueur : reprise attendue")
+	}
+}
+
+func TestEnsureEndSession(t *testing.T) {
+	p := t.TempDir()
+	ensureEndSession(p)
+	f := filepath.Join(p, ".claude", "commands", "end-session.md")
+	b, err := os.ReadFile(f)
+	if err != nil || string(b) != endSessionCmd {
+		t.Fatalf("end-session.md non déposé : %v", err)
+	}
+	// une commande existante (celle du template ou de l'utilisateur) n'est pas écrasée
+	_ = os.WriteFile(f, []byte("perso"), 0o644)
+	ensureEndSession(p)
+	if b, _ := os.ReadFile(f); string(b) != "perso" {
+		t.Error("end-session.md existant écrasé")
 	}
 }

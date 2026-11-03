@@ -24,7 +24,7 @@ Un navigateur de projets à gauche, tmux à droite :
   cours, orange terminé mais à publier, gris aucun en cours, vert publié — même règle que le panneau
   milestone du projet ; milestone et avancement dans la vue `◈ État`), `⇄N` (violet) = N pull
   requests ouvertes en attente sur GitHub (brouillons compris, détaillés dans la légende), `↺` si une session Claude est restée
-  en suspens (non close par `/end-session`, rouge si interrompue par un crash), consommation du compte
+  en suspens (ni close par `/end-session` ni quittée proprement par `Ctrl+C` / `/exit`, rouge si interrompue par un crash), consommation du compte
   Claude en bas. Les dossiers ajoutés, renommés ou supprimés apparaissent ou disparaissent seuls
   (inotify, ou date des dossiers de catégorie sur `/mnt/c`).
 - **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir ni changer la
@@ -138,7 +138,9 @@ EXTRA_ENVS=(
   la conversation, sa team et sa liste de tâches sont retrouvées, sans question `/init-project`. Les
   teammates, eux, ne peuvent pas être repris par Claude Code : le teamleader reçoit une consigne pour
   les relancer d'après la liste de tâches. Rien n'est proposé si la conversation tourne encore ailleurs,
-  ni si elle a été close par `/end-session`.
+  ni si elle a été close par `/end-session` ou quittée proprement (`Ctrl+C`, `/exit` : claude rend la main
+  au shell du pane, qui pose un marqueur ; un vrai crash n'en pose pas). Un projet non géré par le template
+  reçoit à l'ouverture un `/end-session` minimal (`.claude/commands/end-session.md`, jamais écrasé s'il existe).
 - Le NG se met à jour au lancement (s'il trouve une release publiée), puis vérifie GitHub toutes les
   10 minutes (2 minutes tant qu'une release est attendue, ou sur `F5`) : une nouvelle version du launcher
   ou du template est annoncée en orange dès le tag, puis en vert (cliquable pour l'installer) quand la

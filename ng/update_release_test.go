@@ -60,7 +60,7 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 		t.Fatal("le template ne doit pas être adopté avant le clic")
 	}
 	m := model{newLauncher: msg.launcherTag, newTpl: msg.tplTag}
-	if a := m.alertText("launcher"); !strings.Contains(a, "mise à jour disponible") {
+	if a := m.alertText("launcher"); !strings.Contains(a, "mise à jour bientôt prête") {
 		t.Errorf("annonce NG sans release : %q", a)
 	}
 	// releases publiées : installables / adoptables

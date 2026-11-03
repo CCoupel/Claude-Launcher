@@ -64,6 +64,9 @@ func sessionEnded(f string) bool {
 	if err != nil {
 		return false
 	}
+	if cleanExited(filepath.Base(filepath.Dir(f)), info.ModTime()) {
+		return true
+	}
 	endedCache.Lock()
 	e, ok := endedCache.m[f]
 	endedCache.Unlock()
@@ -75,6 +78,29 @@ func sessionEnded(f string) bool {
 	endedCache.m[f] = endedEntry{info.ModTime(), info.Size(), ended}
 	endedCache.Unlock()
 	return ended
+}
+
+// Sortie propre : le shell du pane, qui ne reprend la main que si claude s'est
+// arrêté normalement (Ctrl+C, /exit — pas un terminal fermé ni WSL tué), touche
+// un marqueur par projet (nom encodé de ~/.claude/projects). Une conversation
+// qui n'a pas bougé depuis ce marqueur est close, comme par /end-session.
+
+func cleanExitPath(dirName string) string {
+	return filepath.Join(cacheDir(), "clean-exit", dirName)
+}
+
+// cleanExitShell : suite bash de la commande claude, qui pose le marqueur du
+// projet path si claude s'est terminé lui-même (ou sur SIGINT, 130) ; tué par
+// un autre signal (OOM, segfault : statut ≥ 128), c'est un crash.
+func cleanExitShell(path string) string {
+	m := cleanExitPath(projectDirName(path))
+	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + shq(filepath.Dir(m)) + " && touch " + shq(m)
+}
+
+// cleanExited : le marqueur du projet est postérieur (ou égal) à mod.
+func cleanExited(dirName string, mod time.Time) bool {
+	info, err := os.Stat(cleanExitPath(dirName))
+	return err == nil && !mod.After(info.ModTime())
 }
 
 // scanEnded : la conversation f a été close par /end-session tapé par
