@@ -89,14 +89,16 @@ Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque),
   `PLANNING`…`DONE`) ; **orange** = à défaut, un milestone ouvert dont toutes les issues sont fermées (à
   publier) ; **gris** = des milestones ouverts mais aucun en cours (le panneau : « Aucun milestone en
   cours ») ; **vert** = plus rien d'ouvert, dernier milestone clos (publié) ; rien sans milestone.
+  Badge PR `⇄N` (violet, projets GitHub) : N pull requests ouvertes en attente (`gh pr list --state
+  open`, brouillons compris ; la légende précise « dont N brouillon(s) ») ; rien sans PR ouverte.
   La carte **Projet** de la vue `◈ État` (et l'aperçu) commence par la légende des icônes de la ligne
   du projet : chaque icône, dans sa couleur et dans l'ordre du navigateur, suivie de sa signification
   (`!   local : modifié directement sur main`, `↺   session non close (il y a 12 min) : reprise
   proposée à l'ouverture`…). Ligne et légende sont tirées de la même source (`legend.go`).
   La carte **Milestone** de la vue `◈ État` (et l'aperçu) donne le milestone en cours, sa barre
   d'avancement (issues fermées / total), ses issues ouvertes par phase et les bloquées ; sans milestone
-  en cours, la liste des milestones ouverts avec leur avancement. Deux appels `gh` par projet (ceux du
-  panneau : milestones, issues ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
+  en cours, la liste des milestones ouverts avec leur avancement. Trois appels `gh` par projet (ceux du
+  panneau : milestones, issues ouvertes ; plus les PR ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
   `~/.cache/claude-launcher/milestones-v2.json`.
   Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`,
   de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
@@ -193,7 +195,7 @@ en **orange** dès le tag (`↑ NG vX · mise à jour disponible ✕`, non cliqu
   `$TMPDIR/claude_layout_<win>.order`, verrou par fenêtre partagé avec `relayout`.
 - `update.go` : versions, annonces, resynchronisation de `init-project.md`.
 - `legend.go` : indicateurs d'un projet (icônes de sa ligne et leur signification).
-- `milestone.go` : badge ⚑ (état des milestones GitHub du projet).
+- `milestone.go` : badge ⚑ (état des milestones GitHub du projet) et badge ⇄N (PR ouvertes).
 - `treewatch.go` : surveillance de l'arborescence (projets ajoutés / supprimés hors du launcher).
 - `resume.go` : reprise après crash (dernière conversation du projet, sa team, question au lancement).
 

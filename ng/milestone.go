@@ -59,6 +59,8 @@ type MsState struct {
 	Blocked int       `json:"blocked,omitempty"` // en cours : issues BLOQUE
 	Pending []MsRow   `json:"pending,omitempty"` // en attente : milestones ouverts
 	DoneAt  time.Time `json:"done_at"`           // publié : date de clôture
+	PRs     int       `json:"prs,omitempty"`     // pull requests ouvertes (badge ⇄)
+	Drafts  int       `json:"drafts,omitempty"`  // dont brouillons
 	At      time.Time `json:"at"`                // lecture GitHub
 }
 
@@ -277,13 +279,19 @@ func ghJSON(dir, token string, v any, args ...string) error {
 	return json.Unmarshal(out, v)
 }
 
-// readMilestones : état des milestones du projet (deux appels gh en parallèle).
+type rawPR struct {
+	IsDraft bool `json:"isDraft"`
+}
+
+// readMilestones : état des milestones du projet et ses PR ouvertes (trois
+// appels gh en parallèle).
 func readMilestones(dir, token string) (MsState, error) {
 	var ms []rawMilestone
 	var issues []rawIssue
-	var e1, e2 error
+	var prs []rawPR
+	var e1, e2, e3 error
 	var wg sync.WaitGroup
-	wg.Add(2)
+	wg.Add(3)
 	go func() {
 		defer wg.Done()
 		e1 = ghJSON(dir, token, &ms, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100")
@@ -292,14 +300,29 @@ func readMilestones(dir, token string) (MsState, error) {
 		defer wg.Done()
 		e2 = ghJSON(dir, token, &issues, "issue", "list", "--state", "open", "--limit", "500", "--json", "labels,milestone")
 	}()
+	go func() {
+		defer wg.Done()
+		e3 = ghJSON(dir, token, &prs, "pr", "list", "--state", "open", "--limit", "200", "--json", "isDraft")
+	}()
 	wg.Wait()
-	if e1 != nil {
-		return MsState{}, e1
+	for _, e := range []error{e1, e2, e3} {
+		if e != nil {
+			return MsState{}, e
+		}
 	}
-	if e2 != nil {
-		return MsState{}, e2
+	st := milestoneState(ms, issues)
+	st.PRs, st.Drafts = countPRs(prs)
+	return st, nil
+}
+
+func countPRs(prs []rawPR) (n, drafts int) {
+	for _, p := range prs {
+		n++
+		if p.IsDraft {
+			drafts++
+		}
 	}
-	return milestoneState(ms, issues), nil
+	return
 }
 
 // withoutAt : l'état sans l'heure de lecture (pour savoir s'il a changé).
