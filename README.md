@@ -137,7 +137,8 @@ EXTRA_ENVS=(
   team montre que le leader a disparu sans se fermer). La reprise relance `claude --resume <id>` :
   la conversation, sa team et sa liste de tâches sont retrouvées, sans question `/init-project`. Les
   teammates, eux, ne peuvent pas être repris par Claude Code : le teamleader reçoit une consigne pour
-  les relancer d'après la liste de tâches. Rien n'est proposé si la conversation tourne encore ailleurs,
+  respawner tout l'effectif attendu de la team (pas seulement les agents des tâches en cours : une correction
+  de QA en aura besoin), appliquée par le template via `/start-session` étape 4. Rien n'est proposé si la conversation tourne encore ailleurs,
   ni si elle a été close par `/end-session` ou quittée proprement (`Ctrl+C`, `/exit` : claude rend la main
   au shell du pane, qui pose un marqueur ; un vrai crash n'en pose pas). Un projet non géré par le template
   reçoit à l'ouverture un `/end-session` minimal (`.claude/commands/end-session.md`, jamais écrasé s'il existe).

@@ -68,7 +68,8 @@ func TestLastSession(t *testing.T) {
 	if want := []string{"dev", "qa"}; !reflect.DeepEqual(r.Teammates, want) || !r.Crashed {
 		t.Errorf("team : %+v", r)
 	}
-	if p := resumePrompt(r); !strings.Contains(p, "dev, qa") {
+	if p := resumePrompt(r); !strings.Contains(p, "dev, qa") || !strings.Contains(p, "ont été perdus") ||
+		!strings.Contains(p, "tout l'effectif attendu") {
 		t.Errorf("resumePrompt=%q", p)
 	}
 	if p := resumePrompt(Resumable{ID: "x"}); p != "" {

@@ -233,13 +233,16 @@ func ageLabel(d time.Duration) string {
 }
 
 // resumePrompt : consigne envoyée au leader repris dont les teammates ont disparu.
+// « ont été perdus » est la formule que le template reconnaît (MILESTONE_CADRAGE.md
+// 4.2) ; toute l'équipe est respawnée, pas seulement les agents des tâches en cours.
 func resumePrompt(r Resumable) string {
 	if len(r.Teammates) == 0 {
 		return ""
 	}
 	return "Reprise après interruption de la session : tes teammates (" + strings.Join(r.Teammates, ", ") +
-		") ont été perdus et ne répondront plus. Relis la liste de tâches de la team, " +
-		"relance les teammates nécessaires pour les tâches non terminées, puis poursuis le travail en cours."
+		") ont été perdus et ne répondront plus. Respawne tout l'effectif attendu de la team, " +
+		"pas seulement les agents des tâches en cours (une correction de QA ou le lot suivant en auront besoin) — " +
+		"dans un projet du template : /start-session étape 4 points 2 à 4 puis 4bis — puis poursuis le travail en cours."
 }
 
 // resumeShell : préambule bash qui pose (ou non) la question de reprise et met

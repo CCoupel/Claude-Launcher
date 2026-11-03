@@ -58,7 +58,9 @@ défaut), le launcher demande s'il faut la reprendre (`RESUME_MODE=ask`, ou `alw
 Reprendre lance `claude --resume <id>` : même id de session, donc même team
 (`session-<8 premiers caractères>`) et même liste de tâches, que le nettoyage ci-dessus a épargnées.
 Les teammates ne sont pas restaurés par Claude Code : le teamleader repris reçoit en premier message
-la liste des teammates perdus et la consigne de les relancer d'après les tâches non terminées. La
+la liste des teammates perdus et la consigne de respawner **tout** l'effectif attendu de la team, pas
+seulement les agents des tâches en cours (une correction de QA en aura besoin) ; dans un projet du template,
+via `/start-session` étape 4 puis 4bis (le template reconnaît la formule « ont été perdus »). La
 question n'est pas posée si la team indique un leader encore vivant (session ouverte ailleurs), ni si
 la conversation a été close par `/end-session` (commande tapée, même suivie d'échanges de fin : la
 team de cette session n'est alors plus épargnée), ni si elle s'est terminée par une sortie propre, et
