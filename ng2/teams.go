@@ -27,16 +27,20 @@ func claudeDir() string {
 	return filepath.Join(home, ".claude")
 }
 
-// livePanes : panes du serveur intérieur ; ok=false si tmux ne répond pas
-// (serveur absent ou erreur) — on ne conclut alors à rien.
+// livePanes : panes de tous les tmux portant des projets ; ok=false si l'un
+// d'eux ne répond pas (serveur absent ou erreur) — on ne conclut alors à rien.
+// TODO #43 : les ids %N ne sont uniques que par serveur ; avec des conteneurs,
+// une team devra être confrontée aux panes de SON tmux (pidSpace du leader).
 func livePanes() (map[string]bool, bool) {
-	b, err := dtmux("list-panes", "-a", "-F", "#{pane_id}").Output()
-	if err != nil {
-		return nil, false
-	}
 	live := map[string]bool{}
-	for _, p := range strings.Fields(string(b)) {
-		live[p] = true
+	for _, t := range targets() {
+		b, err := t.Output("list-panes", "-a", "-F", "#{pane_id}")
+		if err != nil {
+			return nil, false
+		}
+		for _, p := range strings.Fields(string(b)) {
+			live[p] = true
+		}
 	}
 	return live, len(live) > 0
 }

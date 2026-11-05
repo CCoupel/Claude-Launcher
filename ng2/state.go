@@ -84,8 +84,9 @@ func loadPanesCmd(s Selection, cfg Config) tea.Cmd {
 		pd.sess, pd.hasS = cfg.pendingSession(s.Path)
 		pd.open = tmuxWindows(hubSession)[s.Key]
 		if pd.open {
-			b, err := dtmux("list-panes", "-t", exactW(hubSession, s.Key), "-F",
-				"#{pane_id}\t#{pane_pid}\t#{pane_current_command}").Output()
+			pw := projectOf(exactW(hubSession, s.Key))
+			b, err := pw.t.Output("list-panes", "-t", pw.win, "-F",
+				"#{pane_id}\t#{pane_pid}\t#{pane_current_command}")
 			if err == nil {
 				for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 					f := strings.Split(l, "\t")

@@ -38,8 +38,8 @@ func rawMode(fd int) (func(), error) {
 
 // mirrorLeader : le teamleader est le pane d'index le plus bas de la fenêtre
 // (doLayout le place en premier), y compris sans team. "" : fenêtre fermée.
-func mirrorLeader(win string) string {
-	ws, err := readWin(win)
+func mirrorLeader(p projWin) string {
+	ws, err := readWin(p)
 	if err != nil {
 		return ""
 	}
@@ -115,6 +115,7 @@ func runMirror(win, name string) error {
 		}
 	}()
 
+	pw := projectOf(win)
 	leader, leaderAt := "", time.Time{}
 	prev := ""
 	tick := time.NewTicker(mirrorPeriod)
@@ -122,17 +123,30 @@ func runMirror(win, name string) error {
 	for {
 		// le leader change rarement (relayout, fermeture) : relu toutes les 2 s
 		if leader == "" || time.Since(leaderAt) > 2*time.Second {
-			if leader = mirrorLeader(win); leader == "" {
+			if leader = mirrorLeader(pw); leader == "" {
 				return nil
 			}
 			leaderAt = time.Now()
 		}
+		// focus de la vignette (hub) + curseur et écran du leader (tmux du projet) :
+		// un seul appel tmux en exécution directe
 		args := []string{"display-message", "-p", "-t", leader, "#{cursor_x} #{cursor_y}", ";",
 			"capture-pane", "-p", "-e", "-t", leader}
-		if self != "" {
-			args = append([]string{"display-message", "-p", "-t", self, "#{pane_active}", ";"}, args...)
+		var out []byte
+		var err error
+		switch {
+		case self == "":
+			out, err = pw.t.Output(args...)
+		case pw.direct():
+			out, err = hub.Output(append([]string{"display-message", "-p", "-t", self, "#{pane_active}", ";"}, args...)...)
+		default:
+			var f []byte
+			if f, err = hub.Output("display-message", "-p", "-t", self, "#{pane_active}"); err == nil {
+				var o []byte
+				o, err = pw.t.Output(args...)
+				out = append(f, o...)
+			}
 		}
-		out, err := dtmux(args...).Output()
 		if err != nil {
 			leader = "" // leader disparu : relu au tour suivant
 		} else {
@@ -171,7 +185,7 @@ func runMirror(win, name string) error {
 				for _, c := range k {
 					hex = append(hex, fmt.Sprintf("%02x", c))
 				}
-				_ = dtmux(hex...).Run()
+				_ = pw.t.Run(hex...)
 			}
 			time.Sleep(30 * time.Millisecond) // laisse le leader réagir avant de redessiner
 		case <-tick.C:

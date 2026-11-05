@@ -97,8 +97,10 @@ type winState struct {
 
 const winFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window-status-style}|#{window_name}"
 
-func readWin(win string) (winState, error) {
-	out, err := tmuxOut("list-panes", "-t", win, "-F", winFormat)
+// readWin : panes et taille lus dans le tmux du projet ; nom et style de
+// l'onglet lus dans le hub (même appel en exécution directe).
+func readWin(p projWin) (winState, error) {
+	out, err := tout(p.t, "list-panes", "-t", p.win, "-F", winFormat)
 	if err != nil {
 		return winState{}, err
 	}
@@ -115,7 +117,14 @@ func readWin(win string) (winState, error) {
 		ws.statusStyle, ws.name = f[5], f[6]
 	}
 	if len(ws.panes) == 0 {
-		return ws, fmt.Errorf("fenêtre %s sans pane", win)
+		return ws, fmt.Errorf("fenêtre %s sans pane", p.win)
+	}
+	if !p.direct() {
+		tab, err := tout(hub, "display-message", "-p", "-t", p.hubWin, "#{window-status-style}|#{window_name}")
+		if err != nil {
+			return ws, err
+		}
+		ws.statusStyle, ws.name, _ = strings.Cut(tab, "|")
 	}
 	sort.Slice(ws.panes, func(i, j int) bool { return ws.panes[i].index < ws.panes[j].index })
 	return ws, nil
@@ -141,10 +150,10 @@ func (ws winState) styleOf(id string) string {
 
 // setPaneColor : ne réécrit que si l'état tmux réel diffère. set-option -p (et
 // non select-pane -P) : colore le pane sans lui donner le focus.
-func setPaneColor(ws winState, pane, color string) {
+func setPaneColor(p projWin, ws winState, pane, color string) {
 	want := "bg=colour" + color
 	if ws.styleOf(pane) != want {
-		_ = dtmux("set-option", "-p", "-t", pane, "window-style", want).Run()
+		_ = p.t.Run("set-option", "-p", "-t", pane, "window-style", want)
 	}
 }
 
@@ -312,13 +321,13 @@ func classify(ws winState, leader string, tc *teamConfig, orderFile string) (top
 // géométrie, dans l'ordre des index existants : il faut des swap-pane), puis
 // applique la géométrie et la couleur de base du projet. Un verrou par fenêtre
 // sérialise le watcher et un relayout manuel.
-func doLayout(cfg Config, win, leader, teamPath string) {
-	if f, err := os.OpenFile(filepath.Join(os.TempDir(), "claude_layout_"+strings.TrimPrefix(win, "@")+".lock"),
+func doLayout(cfg Config, pw projWin, leader, teamPath string) {
+	if f, err := os.OpenFile(filepath.Join(os.TempDir(), "claude_layout_"+strings.TrimPrefix(pw.hubWin, "@")+".lock"),
 		os.O_CREATE|os.O_RDWR, 0o644); err == nil {
 		defer f.Close()
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 	}
-	ws, err := readWin(win)
+	ws, err := readWin(pw)
 	if err != nil || len(ws.panes) <= 1 {
 		return
 	}
@@ -328,7 +337,7 @@ func doLayout(cfg Config, win, leader, teamPath string) {
 			tc = &t
 		}
 	}
-	top, bot := classify(ws, leader, tc, orderPath(win))
+	top, bot := classify(ws, leader, tc, orderPath(pw.hubWin))
 
 	// échanges : la position i de l'ordre voulu reçoit l'index physique i
 	at := make([]string, len(ws.panes)) // position -> pane
@@ -344,16 +353,16 @@ func doLayout(cfg Config, win, leader, teamPath string) {
 		}
 		cur, j := at[i], pos[p]
 		// -d : ne jamais déplacer le focus (seul le teamleader le garde)
-		_ = dtmux("swap-pane", "-d", "-s", p, "-t", cur).Run()
+		_ = pw.t.Run("swap-pane", "-d", "-s", p, "-t", cur)
 		at[i], at[j], pos[p], pos[cur] = p, cur, i, j
 	}
 
 	topIdx, botIdx := idxs[:len(top)], idxs[len(top):len(want)]
-	_ = dtmux("select-layout", "-t", win, layoutString(cfg, ws.w, ws.h, topIdx, botIdx)).Run()
+	_ = pw.t.Run("select-layout", "-t", pw.win, layoutString(cfg, ws.w, ws.h, topIdx, botIdx))
 
 	color := cfg.projectColor(ws.name)
 	for _, p := range want {
-		setPaneColor(ws, p, color)
+		setPaneColor(pw, ws, p, color)
 	}
 }
 
@@ -372,13 +381,13 @@ func activeSignature(ws winState, tc teamConfig) string {
 
 // styleBusy : titre de l'onglet allumé (couleur du projet éclaircie) tant qu'un
 // agent travaille, indépendamment du style focus/non-focus.
-func styleBusy(cfg Config, win string, ws winState, busy bool, color string) {
+func styleBusy(cfg Config, p projWin, ws winState, busy bool, color string) {
 	want := "fg=colour242,bg=colour236"
 	if busy {
 		want = "bold,fg=colour232,bg=colour" + brightenColor(color, cfg.BrightenStep)
 	}
 	if ws.statusStyle != want {
-		_ = dtmux("set-window-option", "-t", win, "window-status-style", want).Run()
+		_ = hub.Run("set-window-option", "-t", p.hubWin, "window-status-style", want)
 	}
 }
 
@@ -386,10 +395,11 @@ func styleBusy(cfg Config, win string, ws winState, busy bool, color string) {
 // launchProject) et s'arrête avec elle.
 func runLayoutWatch(win, leader, projectDir string) {
 	cfg := loadConfig()
+	pw := projectOf(win)
 	prevCount, prevSig := 1, ""
 	for {
 		time.Sleep(time.Second)
-		ws, err := readWin(win)
+		ws, err := readWin(pw)
 		if err != nil {
 			return // fenêtre fermée
 		}
@@ -399,8 +409,8 @@ func runLayoutWatch(win, leader, projectDir string) {
 			// avant la teinte : doLayout remet tous les panes à la couleur de base
 			if sig := activeSignature(ws, tc); sig != prevSig {
 				prevSig = sig
-				doLayout(cfg, win, leader, path)
-				if ws, err = readWin(win); err != nil {
+				doLayout(cfg, pw, leader, path)
+				if ws, err = readWin(pw); err != nil {
 					return
 				}
 			}
@@ -409,14 +419,14 @@ func runLayoutWatch(win, leader, projectDir string) {
 					continue
 				}
 				if m.IsActive {
-					setPaneColor(ws, m.PaneID, brightenColor(color, cfg.BrightenStep))
+					setPaneColor(pw, ws, m.PaneID, brightenColor(color, cfg.BrightenStep))
 				} else {
-					setPaneColor(ws, m.PaneID, darkenColor(color, cfg.DarkenStep))
+					setPaneColor(pw, ws, m.PaneID, darkenColor(color, cfg.DarkenStep))
 				}
 			}
-			styleBusy(cfg, win, ws, prevSig != "", color)
+			styleBusy(cfg, pw, ws, prevSig != "", color)
 		} else {
-			styleBusy(cfg, win, ws, false, "")
+			styleBusy(cfg, pw, ws, false, "")
 		}
 
 		n := len(ws.panes)
@@ -446,28 +456,30 @@ func runLayoutWatch(win, leader, projectDir string) {
 				}
 			}
 		}
-		doLayout(cfg, win, leader, team)
+		doLayout(cfg, pw, leader, team)
 	}
 }
 
 // runRelayout : mise en page forcée d'une fenêtre (liaison tmux, ex. Ctrl+b R :
 // bind R run-shell "claude-launcher-ng2 relayout '#{window_id}'").
 func runRelayout(win string) {
-	ws, err := readWin(win)
+	pw := projectOf(win)
+	ws, err := readWin(pw)
 	if err != nil {
 		return
 	}
+	// messages dans le hub : c'est là que l'utilisateur regarde
 	if len(ws.panes) <= 1 {
-		_ = dtmux("display-message", "-t", win, "Relayout : pas de team active (1 seul pane)").Run()
+		_ = hub.Run("display-message", "-t", pw.hubWin, "Relayout : pas de team active (1 seul pane)")
 		return
 	}
 	leader := ws.panes[0].id
-	dir, _ := tmuxOut("display-message", "-p", "-t", leader, "#{pane_current_path}")
+	dir, _ := tout(pw.t, "display-message", "-p", "-t", leader, "#{pane_current_path}")
 	path := findTeamConfig(dir)
 	if path == "" {
-		_ = dtmux("display-message", "-t", win, "Relayout : aucune team trouvée pour "+dir).Run()
+		_ = hub.Run("display-message", "-t", pw.hubWin, "Relayout : aucune team trouvée pour "+dir)
 		return
 	}
-	doLayout(loadConfig(), win, leader, path)
-	_ = dtmux("display-message", "-t", win, "Relayout appliqué ("+filepath.Base(filepath.Dir(path))+")").Run()
+	doLayout(loadConfig(), pw, leader, path)
+	_ = hub.Run("display-message", "-t", pw.hubWin, "Relayout appliqué ("+filepath.Base(filepath.Dir(path))+")")
 }
