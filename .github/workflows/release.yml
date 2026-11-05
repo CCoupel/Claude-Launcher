@@ -9,7 +9,9 @@ permissions:
   contents: write
 
 jobs:
+  # v3/v4 : launcher NG (dossier ng/) + script de redirection
   release:
+    if: ${{ !startsWith(github.ref_name, 'v5') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,5 +49,42 @@ jobs:
           files: |
             dist/claude-launcher.sh
             dist/claude-launcher-ng-*
+            dist/SHA256SUMS
+          generate_release_notes: true
+
+  # v5 : launcher NG2 (dossier ng2/), binaires seuls (plus de claude-launcher.sh)
+  release-ng2:
+    if: ${{ startsWith(github.ref_name, 'v5') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng2/go.mod
+          cache-dependency-path: ng2/go.sum
+
+      - name: Test Claude-Launcher-NG2
+        working-directory: ng2
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build Claude-Launcher-NG2
+        working-directory: ng2
+        run: |
+          mkdir -p ../dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.ngVersion=${GITHUB_REF_NAME}" \
+              -o ../dist/claude-launcher-ng2-$os-$arch .
+          done
+          cd ../dist && sha256sum claude-launcher-ng2-* > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/claude-launcher-ng2-*
             dist/SHA256SUMS
           generate_release_notes: true
