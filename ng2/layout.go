@@ -403,6 +403,7 @@ func runLayoutWatch(win, leader, projectDir string) {
 	cfg := loadConfig()
 	pw := projectOf(win)
 	prevCount, prevSig, prevRelayout := 1, "", ""
+	beat := 0
 	server := ""
 	for {
 		time.Sleep(time.Second)
@@ -418,6 +419,11 @@ func runLayoutWatch(win, leader, projectDir string) {
 			return
 		}
 		if !pw.direct() {
+			// propriétaire (#48) : battement de cœur toutes les 5 s ; si un autre
+			// launcher a pris la main, ce watcher s'efface
+			if beat++; beat%5 == 1 && !heartbeat(pw) {
+				return
+			}
 			// Ctrl+B R dans le tmux du conteneur incrémente @cl_relayout (bootstrap.sh)
 			if r, _ := tout(pw.t, "show-options", "-wqv", "-t", pw.win, "@cl_relayout"); r != prevRelayout {
 				if prevRelayout != "" || r != "" {

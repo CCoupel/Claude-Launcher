@@ -111,6 +111,13 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	if err != nil {
 		return err
 	}
+	if _, ok := engineOf(be); !ok {
+		// sur l'hôte : jamais pendant qu'un autre launcher fait tourner ce projet
+		// dans un conteneur (deux claude dans le même dossier partagé)
+		if who := foreignOwner(n.Path); who != "" {
+			return fmt.Errorf("projet en cours dans un conteneur, piloté par %s — le fermer là-bas ou F2 pour le rejoindre sur ce backend", who)
+		}
+	}
 	_, inCtr := engineOf(be)
 	nw := []string{"new-window", "-P", "-F", "#{window_id} #{pane_id}", "-t", exactS(sess) + ":", "-n", n.Key}
 	var startFile string

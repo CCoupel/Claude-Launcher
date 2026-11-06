@@ -123,13 +123,35 @@ func runCtrAttach(proj, startFile string) error {
 		}
 	}
 	_ = os.Remove(startFile)
+	// propriétaire (#48) : un seul launcher pilote la session
+	readOnly := false
+	if o := e.owner(name); o.alive() && o.id != launcherID() {
+		switch ownerChoice(o) {
+		case "l":
+			readOnly = true
+		case "p":
+			e.takeOver(name)
+		default:
+			return nil
+		}
+	} else {
+		e.claimOwner(name)
+	}
 	if pane := os.Getenv("TMUX_PANE"); pane != "" {
 		if win, err := tout(hub, "display-message", "-p", "-t", pane, "#{window_id}"); err == nil {
-			leader, _ := e.output(name, tmuxIn("display-message", "-p", "-t", "="+ctrSession+":", "#{pane_id}")...)
-			_ = hub.Run("run-shell", "-b", selfCommand("layout-watch", win, leader, proj))
+			if readOnly {
+				_ = hub.Run("set-window-option", "-t", win, "@cl_readonly", "1")
+			} else {
+				leader, _ := e.output(name, tmuxIn("display-message", "-p", "-t", "="+ctrSession+":", "#{pane_id}")...)
+				_ = hub.Run("run-shell", "-b", selfCommand("layout-watch", win, leader, proj))
+			}
 		}
 	}
-	a := e.execArgv(name, false, true, tmuxIn("attach-session", "-t", "="+ctrSession)...)
+	att := []string{"attach-session", "-t", "=" + ctrSession}
+	if readOnly {
+		att = append(att, "-r")
+	}
+	a := e.execArgv(name, false, true, tmuxIn(att...)...)
 	bin, err := lookPath(a[0])
 	if err != nil {
 		return err

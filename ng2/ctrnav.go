@@ -165,6 +165,10 @@ func reattachCmd(cfg Config, session string, nodes []Node) tea.Cmd {
 				if !ok || !f.Running || open[n.Key] || projectBackend(f.Project).Name != b.Name || !e.hasSession(f.Name) {
 					continue
 				}
+				// seulement les sessions de ce launcher (#48) : pas celles d'une autre machine
+				if o := e.owner(f.Name); o.id != "" && o.id != launcherID() {
+					continue
+				}
 				if err := launchProject(cfg, session, n, readLatestTemplate(), launchNormal); err != nil {
 					back = append(back, n.Name+" ⚠ "+err.Error())
 				} else {

@@ -1,10 +1,12 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestTmuxQuote(t *testing.T) {
@@ -332,5 +334,20 @@ func TestLaunchBackendNoFallback(t *testing.T) {
 	_ = os.MkdirAll(q, 0o755)
 	if b, err := launchBackend(q); err != nil || b.Name != "host" {
 		t.Errorf("jamais configuré : %v %s", err, b.Name)
+	}
+}
+
+func TestOwner(t *testing.T) {
+	now := time.Now().Unix()
+	o := parseOwner(fmt.Sprintf("MSI:1000:claude-ng2|%d", now-5))
+	if o.id != "MSI:1000:claude-ng2" || !o.alive() {
+		t.Errorf("propriétaire récent : %+v", o)
+	}
+	if parseOwner(fmt.Sprintf("x|%d", now-60)).alive() || parseOwner("|").alive() || parseOwner("").alive() {
+		t.Error("propriétaire parti ou absent vu vivant")
+	}
+	t.Setenv("CL_INNER_SOCKET", "t-x")
+	if id := launcherID(); !strings.HasSuffix(id, ":t-x") || !strings.HasPrefix(id, hostName()+":") {
+		t.Errorf("launcherID : %s", id)
 	}
 }
