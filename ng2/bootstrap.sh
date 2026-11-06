@@ -55,6 +55,11 @@ if ! getent passwd "$CL_UID" >/dev/null; then
     adduser -u "$CL_UID" -G "$(getent group "$CL_GID" | cut -d: -f1)" -h "$CL_HOME" -H -D -s /bin/bash "$CL_USER"
 fi
 NAME=$(getent passwd "$CL_UID" | cut -d: -f1)
+# utilisateur déjà présent dans l'image (ubuntu:24.04 : « ubuntu », uid 1000) :
+# même HOME que l'hôte (su le prend dans passwd) et bash
+if [ "$(getent passwd "$CL_UID" | cut -d: -f6)" != "$CL_HOME" ] || [ "$(getent passwd "$CL_UID" | cut -d: -f7)" != /bin/bash ]; then
+  usermod -d "$CL_HOME" -s /bin/bash "$NAME" 2>/dev/null || sed -i "s#^\($NAME:[^:]*:[^:]*:[^:]*:[^:]*\):[^:]*:[^:]*\$#\1:$CL_HOME:/bin/bash#" /etc/passwd
+fi
 mkdir -p "$CL_HOME" /etc/sudoers.d
 chown "$CL_UID:$CL_GID" "$CL_HOME"
 echo "$NAME ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/cl

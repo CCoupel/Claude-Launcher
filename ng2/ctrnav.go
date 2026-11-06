@@ -112,13 +112,13 @@ func (m model) cycleBackend() model {
 	if !n.Project {
 		return m
 	}
-	if !hasEnv(n.Path) {
-		m.msg = "F2 : pas de " + envFile + " dans ce projet (exécution locale seulement)"
-		return m
-	}
 	if m.windows[n.Key] {
 		m.msg = "F2 : projet ouvert — le fermer avant de changer de backend"
 		return m
+	}
+	if !hasEnv(n.Path) {
+		// pas encore d'environnement : choisir un socle (crée env.yaml)
+		return m.startExecChoice(n)
 	}
 	if _, err := loadEnv(n.Path); err != nil {
 		m.msg = "⚠ " + err.Error()

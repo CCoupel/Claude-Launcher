@@ -31,7 +31,7 @@ var helpSections = []helpSection{
 		{"Tab, Alt+← Alt+→", "passer du navigateur à tmux et retour"},
 		{"Ctrl+← Ctrl+→, bordure", "largeur du navigateur (mémorisée)"},
 		{"Ctrl+R", "rescanner les projets"},
-		{"F2", "backend du projet (host, conteneurs) : suivant — projet fermé, env.yaml requis"},
+		{"F2", "exécution du projet fermé : choisir un socle (sans env.yaml), sinon backend suivant"},
 		{"F5", "mises à jour et consommation maintenant"},
 		{"Ctrl+U, clic sur ✕", "masquer les annonces de mise à jour"},
 		{"clic sur l'annonce verte", "installer la nouvelle version (projets conservés)"},

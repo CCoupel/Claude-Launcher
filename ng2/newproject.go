@@ -31,6 +31,7 @@ const (
 	formName
 	formKind
 	formRemote
+	formExec // socle d'exécution : hôte ou conteneur (image)
 )
 
 type newForm struct {
@@ -41,6 +42,84 @@ type newForm struct {
 	raw    bool // projet brut (sinon géré)
 	remote string
 	err    string
+	// exécution (formExec) : 0 = hôte, i = images[i-1] dans le backend ctrBe
+	exec     int
+	images   []string
+	ctrBe    string
+	existing string // F2 sur un projet sans env.yaml : son dossier (pas de création)
+}
+
+// execStep : formulaire suivant l'étape « type » ou « remote » : le choix du
+// socle s'il existe un backend conteneur, sinon la création directe.
+func (m model) execStep() (model, bool) {
+	f, ok := execForm(m.form)
+	if !ok {
+		return m, false
+	}
+	m.form = f
+	return m, true
+}
+
+// execForm : étape « Exécution » présélectionnée sur defaults: de backends.yaml
+// (mode host → « hôte » ; backend conteneur → son socle defaults.image).
+func execForm(f newForm) (newForm, bool) {
+	b, ok := defaultCtrBackend()
+	if !ok {
+		return f, false
+	}
+	defBe, defImg := execDefaults()
+	images := baseImages()
+	idx := 0
+	if defImg != "" {
+		idx = -1
+		for i, im := range images {
+			if im == defImg {
+				idx = i
+			}
+		}
+		if idx < 0 { // socle par défaut hors liste : proposé en tête
+			images, idx = append([]string{defImg}, images...), 0
+		}
+	}
+	f.mode, f.images, f.ctrBe = formExec, images, b.Name
+	f.exec = 0
+	if defBe != "" && defBe != "host" && defBe == b.Name {
+		f.exec = idx + 1
+	}
+	return f, true
+}
+
+// cycleCtrBe (←→) : backend conteneur suivant / précédent.
+func (f *newForm) cycleCtrBe(d int) {
+	cs := ctrBackends()
+	for i, b := range cs {
+		if b.Name == f.ctrBe {
+			f.ctrBe = cs[(i+d+len(cs))%len(cs)].Name
+			return
+		}
+	}
+}
+
+// startExecChoice (F2) : socle pour un projet existant sans env.yaml.
+func (m model) startExecChoice(n Node) model {
+	f, ok := execForm(newForm{existing: n.Path, name: n.Name})
+	if !ok {
+		m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
+		return m
+	}
+	m.form = f
+	return m
+}
+
+// applyExec : env.yaml + affectation selon le socle choisi (rien pour l'hôte).
+func applyExec(dir string, f newForm) error {
+	if f.exec <= 0 || f.exec > len(f.images) {
+		return nil
+	}
+	if err := writeEnv(dir, f.images[f.exec-1]); err != nil {
+		return err
+	}
+	return writeAssignment(dir, f.ctrBe)
 }
 
 // withSpecial place l'entrée « Nouveau projet » en tête de la liste.
@@ -73,6 +152,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.root = max(0, f.root-1)
 		case formKind:
 			f.raw = false
+		case formExec:
+			f.exec = max(0, f.exec-1)
 		}
 	case "down":
 		switch f.mode {
@@ -80,6 +161,16 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.root = min(len(m.cfg.Roots)-1, f.root+1)
 		case formKind:
 			f.raw = true
+		case formExec:
+			f.exec = min(len(f.images), f.exec+1)
+		}
+	case "left", "right":
+		if f.mode == formExec {
+			d := 1
+			if k.String() == "left" {
+				d = -1
+			}
+			f.cycleCtrBe(d)
 		}
 	case "enter":
 		f.err = ""
@@ -97,10 +188,21 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case formKind:
 			if f.raw {
+				if mm, ok := m.execStep(); ok {
+					return mm, nil
+				}
 				return m.createProject(), nil
 			}
 			f.mode = formRemote
 		case formRemote:
+			if mm, ok := m.execStep(); ok {
+				return mm, nil
+			}
+			return m.createProject(), nil
+		case formExec:
+			if f.existing != "" {
+				return m.applyExecExisting(), ctrCmd(m.projectPaths(), 0)
+			}
 			return m.createProject(), nil
 		}
 	case "backspace":
@@ -129,7 +231,14 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				f.mode = formRemote
 			case "b":
 				f.raw = true
+				if mm, ok := m.execStep(); ok {
+					return mm, nil
+				}
 				return m.createProject(), nil
+			}
+		case formExec: // un chiffre choisit (0 : hôte)
+			if len(s) == 1 && s[0] >= '0' && int(s[0]-'0') <= len(f.images) {
+				f.exec = int(s[0] - '0')
 			}
 		case formRemote:
 			f.remote += s
@@ -182,6 +291,10 @@ func (m model) createProject() model {
 		m.form.err = err.Error()
 		return m
 	}
+	if err := applyExec(dir, m.form); err != nil {
+		m.form.err = "env.yaml : " + err.Error()
+		return m
+	}
 	mode := launchNewManaged
 	if m.form.raw {
 		mode = launchNewRaw
@@ -220,6 +333,22 @@ func (m model) createProject() model {
 	return m
 }
 
+// applyExecExisting : fin du choix F2 sur un projet existant.
+func (m model) applyExecExisting() model {
+	f := m.form
+	if err := applyExec(f.existing, f); err != nil {
+		m.form.err = err.Error()
+		return m
+	}
+	m.form = newForm{}
+	if f.exec == 0 {
+		m.msg = f.name + " : exécution sur l'hôte (inchangée)"
+	} else {
+		m.msg = "⬡ " + f.name + " : " + imageLabel(f.images[f.exec-1]) + " sur " + f.ctrBe + " — env.yaml créé, F2 pour changer de backend"
+	}
+	return m
+}
+
 // minimalClaudeMD : contenu du CLAUDE.md d'un projet brut.
 func minimalClaudeMD(name string) string {
 	return "# " + name + "\n\n" +
@@ -227,9 +356,41 @@ func minimalClaudeMD(name string) string {
 		"## Objectif\n\n_À compléter._\n"
 }
 
+// renderExec : liste des socles (0 : hôte).
+func (m model) renderExec(w int) string {
+	f := m.form
+	var sb strings.Builder
+	sb.WriteString(" " + dim.Render("Exécution :") + "\n")
+	opts := append([]string{"hôte (cette machine)"}, f.images...)
+	for i, o := range opts {
+		mark, style := "  ", dim
+		if i == f.exec {
+			mark, style = green.Render("▶ "), bold
+		}
+		label := o
+		if i > 0 {
+			label = imageLabel(o)
+		}
+		sb.WriteString("  " + mark + style.Render(fmt.Sprintf("%d %s", i, shorten(label, w-9))) + "\n")
+	}
+	if f.exec > 0 {
+		sb.WriteString(" " + dim.Render("conteneur sur ") + cyan.Render(f.ctrBe) + dim.Render(shorten("  ←→ autre backend", w-16-len(f.ctrBe))) + "\n")
+	}
+	return sb.String()
+}
+
 func (m model) renderForm(w int) string {
 	f := m.form
 	var sb strings.Builder
+	if f.existing != "" {
+		sb.WriteString(" " + cyan.Render("⬢ Exécution de "+f.name) + "\n\n")
+		sb.WriteString(m.renderExec(w))
+		if f.err != "" {
+			sb.WriteString("\n " + red.Render("✗ "+f.err) + "\n")
+		}
+		sb.WriteString("\n " + dim.Render("↑↓ 0-9 socle · ←→ backend · ↵ · esc"))
+		return truncLines(sb.String(), w)
+	}
 	sb.WriteString(" " + cyan.Render("✦ Nouveau projet") + "\n\n")
 	if f.mode == formRoot {
 		sb.WriteString(" " + dim.Render("Dossier racine :") + "\n")
@@ -270,9 +431,16 @@ func (m model) renderForm(w int) string {
 			}
 		}
 	}
-	if f.mode >= formRemote {
+	if f.mode >= formRemote && !f.raw {
 		sb.WriteString(" " + dim.Render("Remote git (facultatif) :") + "\n")
-		sb.WriteString("  " + f.remote + cur + "\n")
+		c := ""
+		if f.mode == formRemote {
+			c = cur
+		}
+		sb.WriteString("  " + f.remote + c + "\n")
+	}
+	if f.mode == formExec {
+		sb.WriteString("\n" + m.renderExec(w))
 	}
 	if f.err != "" {
 		sb.WriteString("\n " + red.Render("✗ "+f.err) + "\n")
@@ -283,6 +451,8 @@ func (m model) renderForm(w int) string {
 		hint = "↑↓ ou 1-9 · ↵ valider · esc annuler"
 	case formKind:
 		hint = "↑↓ ou g/b · ↵ valider · esc annuler"
+	case formExec:
+		hint = "↑↓ 0-9 socle · ←→ backend · ↵ · esc"
 	}
 	sb.WriteString("\n " + dim.Render(hint))
 	return truncLines(sb.String(), w)

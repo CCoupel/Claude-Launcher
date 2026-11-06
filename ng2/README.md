@@ -117,9 +117,33 @@ prefer: podman                       # backend proposé par défaut (facultatif)
 Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
 l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
 
+### Créer un projet en conteneur
+
+À la création (« ✦ Nouveau projet »), après le type de projet, l'étape
+**Exécution** propose `0 hôte` puis les socles (`↑↓` ou un chiffre), et le
+backend conteneur (`←→`). Choisir un socle écrit un `env.yaml` minimal et
+commenté et affecte le projet à ce backend. Sur un projet existant **sans**
+`env.yaml`, **F2** ouvre le même choix.
+
+Le mode et le socle **présélectionnés** se règlent dans `backends.yaml` :
+
+```yaml
+defaults:
+  backend: podman                         # host : « hôte » présélectionné
+  image: docker.io/library/debian:12
+images:                                   # socles proposés (facultatif)
+  - docker.io/library/debian:12
+  - docker.io/library/ubuntu:24.04
+  - docker.io/library/rockylinux:9
+  - docker.io/library/alpine:3.20
+```
+
+Sans `images`, ce sont ces quatre-là (bootstrap vérifié sur chacun). Un
+`defaults.image` hors de la liste y est ajouté en tête.
+
 ### Choisir le backend : F2
 
-Dans le navigateur, **F2** sur un projet fermé qui a un `env.yaml` fait défiler
+Dans le navigateur, **F2** sur un projet fermé qui a déjà un `env.yaml` fait défiler
 les backends : `host` (l'OS, comme avant), puis les moteurs de conteneurs.
 Sans `~/.config/claude-launcher-ng2/backends.yaml`, ce sont podman et docker
 **s'ils répondent** (un `docker` de Docker Desktop sans intégration WSL est

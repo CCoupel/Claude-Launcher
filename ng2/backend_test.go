@@ -211,3 +211,57 @@ func TestK8sArgv(t *testing.T) {
 		t.Errorf("manifeste : %v %s", err, m)
 	}
 }
+
+func TestExecChoice(t *testing.T) {
+	h := withHome(t)
+	_ = os.MkdirAll(filepath.Join(h, ".config", "claude-launcher-ng2"), 0o755)
+	_ = os.WriteFile(backendsPath(), []byte("backends:\n  a-pod: {type: podman}\n  b-dock: {type: docker}\ndefaults: {backend: b-dock}\nimages: [docker.io/library/debian:12, quay.io/x/y:1]\n"), 0o644)
+	if b, ok := defaultCtrBackend(); !ok || b.Name != "b-dock" {
+		t.Errorf("defaults.backend : %+v", b)
+	}
+	if im := baseImages(); len(im) != 2 || imageLabel(im[0]) != "debian:12" || imageLabel(im[1]) != "quay.io/x/y:1" {
+		t.Errorf("images : %v", im)
+	}
+	p := filepath.Join(h, "proj")
+	_ = os.MkdirAll(p, 0o755)
+	if err := applyExec(p, newForm{exec: 0, images: baseImages(), ctrBe: "b-dock"}); err != nil || hasEnv(p) {
+		t.Errorf("hôte : env.yaml créé (%v)", err)
+	}
+	if err := applyExec(p, newForm{exec: 1, images: baseImages(), ctrBe: "b-dock"}); err != nil {
+		t.Fatal(err)
+	}
+	if e, err := loadEnv(p); err != nil || e.Image != "docker.io/library/debian:12" || projectBackend(p).Name != "b-dock" {
+		t.Errorf("socle : %v %+v %s", err, e, projectBackend(p).Name)
+	}
+	_ = os.WriteFile(backendsPath(), []byte("backends:\n  a-pod: {type: podman}\n"), 0o644)
+	if b, _ := defaultCtrBackend(); b.Name != "a-pod" || len(baseImages()) != len(defaultImages) {
+		t.Errorf("défauts : %s %v", b.Name, baseImages())
+	}
+}
+
+func TestExecDefaultsPreselect(t *testing.T) {
+	h := withHome(t)
+	_ = os.MkdirAll(filepath.Join(h, ".config", "claude-launcher-ng2"), 0o755)
+	write := func(s string) { _ = os.WriteFile(backendsPath(), []byte(s), 0o644) }
+	write("backends:\n  pod: {type: podman}\n  lab: {type: k8s, volumes: {/x: p}}\ndefaults: {backend: lab, image: docker.io/library/rockylinux:9}\n")
+	f, ok := execForm(newForm{})
+	if !ok || f.ctrBe != "lab" || f.exec == 0 || f.images[f.exec-1] != "docker.io/library/rockylinux:9" {
+		t.Errorf("présélection lab/rocky : %+v", f)
+	}
+	f.cycleCtrBe(1)
+	if f.ctrBe != "pod" {
+		t.Errorf("←→ : %s", f.ctrBe)
+	}
+	write("backends:\n  pod: {type: podman}\ndefaults: {backend: host, image: quay.io/a/b:2}\n")
+	if f, _ := execForm(newForm{}); f.exec != 0 || f.images[0] != "quay.io/a/b:2" {
+		t.Errorf("présélection hôte, image hors liste en tête : %+v", f)
+	}
+	write("backends:\n  pod: {type: podman}\ndefaults: {backend: pod}\n")
+	if f, _ := execForm(newForm{}); f.exec != 1 || f.images[0] != defaultImages[0] {
+		t.Errorf("backend sans image : premier socle : %+v", f)
+	}
+	write("backends: {}\n")
+	if _, ok := execForm(newForm{}); ok && len(detectedEngines()) == 0 {
+		t.Error("aucun backend conteneur : pas d'étape Exécution")
+	}
+}

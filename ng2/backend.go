@@ -120,8 +120,10 @@ func (b BackendConf) remote() bool {
 
 type backendsFile struct {
 	Backends map[string]BackendConf `yaml:"backends"`
+	Images   []string               `yaml:"images"` // socles proposés à la création (défaut : defaultImages)
 	Defaults struct {
-		Backend string `yaml:"backend"`
+		Backend string `yaml:"backend"` // mode présélectionné à la création : host ou un backend conteneur
+		Image   string `yaml:"image"`   // socle présélectionné
 	} `yaml:"defaults"`
 }
 
@@ -203,6 +205,82 @@ var detectedEngines = sync.OnceValue(func() []string {
 	}
 	return out
 })
+
+// defaultImages : socles proposés par défaut (bootstrap vérifié sur chacun).
+var defaultImages = []string{
+	"docker.io/library/debian:12",
+	"docker.io/library/ubuntu:24.04",
+	"docker.io/library/rockylinux:9",
+	"docker.io/library/alpine:3.20",
+}
+
+// baseImages : socles proposés (images: de backends.yaml, sinon defaultImages).
+func baseImages() []string {
+	var f backendsFile
+	if b, err := os.ReadFile(backendsPath()); err == nil && yaml.Unmarshal(b, &f) == nil && len(f.Images) > 0 {
+		return f.Images
+	}
+	return defaultImages
+}
+
+// imageLabel : « debian:12 » pour docker.io/library/debian:12.
+func imageLabel(img string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(img, "docker.io/"), "library/")
+}
+
+// execDefaults : defaults: de backends.yaml (mode et socle présélectionnés).
+func execDefaults() (backend, image string) {
+	var f backendsFile
+	if b, err := os.ReadFile(backendsPath()); err == nil {
+		_ = yaml.Unmarshal(b, &f)
+	}
+	return f.Defaults.Backend, f.Defaults.Image
+}
+
+// ctrBackends : backends à conteneurs (podman, docker, ssh, k8s), dans l'ordre.
+func ctrBackends() []BackendConf {
+	bs, _ := loadBackends()
+	var out []BackendConf
+	for _, b := range bs {
+		if _, ok := engineOf(b); ok {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// defaultCtrBackend : backend conteneur présélectionné (defaults.backend s'il
+// désigne un conteneur, sinon le premier).
+func defaultCtrBackend() (BackendConf, bool) {
+	cs := ctrBackends()
+	if len(cs) == 0 {
+		return BackendConf{}, false
+	}
+	def, _ := execDefaults()
+	for _, b := range cs {
+		if b.Name == def {
+			return b, true
+		}
+	}
+	return cs[0], true
+}
+
+// writeEnv : env.yaml minimal et commenté pour le socle img (sans écraser un existant).
+func writeEnv(proj, img string) error {
+	p := envPath(proj)
+	if _, err := os.Stat(p); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n"+
+		"image: "+img+"\n"+
+		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n"+
+		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n"+
+		"# setup: []                 # étapes exécutées une fois, en utilisateur, dans le projet\n"+
+		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n"), 0o644)
+}
 
 func findBackend(name string) (BackendConf, bool) {
 	bs, err := loadBackends()
