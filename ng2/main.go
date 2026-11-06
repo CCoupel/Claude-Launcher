@@ -547,6 +547,11 @@ func (m model) openSelectedAs(mode launchMode) model {
 	if !n.Project {
 		return m
 	}
+	// première ouverture d'un projet jamais configuré : choisir d'abord son
+	// exécution (hôte ou conteneur), s'il existe un backend conteneur
+	if mode == launchNormal && m.launch && !m.windows[n.Key] && !assigned(n.Path) && len(ctrBackends()) > 0 {
+		return m.startExecChoice(n, true)
+	}
 	if m.shell && m.launch && dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		// claude-hub fermé entre-temps : la coque le recrée, zone tmux de droite comprise
 		if err := ensureInner(); err == nil {

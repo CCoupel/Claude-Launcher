@@ -80,8 +80,8 @@ func TestBackendsAndAssignment(t *testing.T) {
 	if err := writeAssignment(proj, "host"); err != nil {
 		t.Fatal(err)
 	}
-	if b := projectBackend(proj); b.Name != "pod" { // host = pas d'entrée → prefer
-		t.Errorf("affectation host puis prefer : %s", b.Name)
+	if b := projectBackend(proj); b.Name != "host" || !assigned(proj) { // host explicite : plus de prefer
+		t.Errorf("affectation host : %s", b.Name)
 	}
 	_ = os.WriteFile(envPath(proj), []byte("image: debian:12\n"), 0o644)
 	_ = writeAssignment(proj, "pod")
@@ -224,8 +224,8 @@ func TestExecChoice(t *testing.T) {
 	}
 	p := filepath.Join(h, "proj")
 	_ = os.MkdirAll(p, 0o755)
-	if err := applyExec(p, newForm{exec: 0, images: baseImages(), ctrBe: "b-dock"}); err != nil || hasEnv(p) {
-		t.Errorf("hôte : env.yaml créé (%v)", err)
+	if err := applyExec(p, newForm{exec: 0, images: baseImages(), ctrBe: "b-dock"}); err != nil || hasEnv(p) || !assigned(p) || projectBackend(p).Name != "host" {
+		t.Errorf("hôte : env.yaml créé ou affectation absente (%v)", err)
 	}
 	if err := applyExec(p, newForm{exec: 1, images: baseImages(), ctrBe: "b-dock"}); err != nil {
 		t.Fatal(err)
@@ -263,5 +263,37 @@ func TestExecDefaultsPreselect(t *testing.T) {
 	write("backends: {}\n")
 	if _, ok := execForm(newForm{}); ok && len(detectedEngines()) == 0 {
 		t.Error("aucun backend conteneur : pas d'étape Exécution")
+	}
+}
+
+func TestReconfigure(t *testing.T) {
+	h := withHome(t)
+	_ = os.MkdirAll(filepath.Join(h, ".config", "claude-launcher-ng2"), 0o755)
+	_ = os.WriteFile(backendsPath(), []byte("backends:\n  pod: {type: podman}\n  lab: {type: k8s, volumes: {/x: p}}\ndefaults: {backend: pod}\n"), 0o644)
+	p := filepath.Join(h, "proj")
+	_ = os.MkdirAll(filepath.Join(p, ".claude-launcher"), 0o755)
+	_ = os.WriteFile(envPath(p), []byte("# commentaire gardé\nimage: docker.io/library/debian:12\npackages: [jq]\n"), 0o644)
+	_ = writeAssignment(p, "lab")
+	m := model{}.startExecChoice(Node{Path: p, Name: "proj"}, false)
+	f := m.form
+	if f.ctrBe != "lab" || f.exec == 0 || f.images[f.exec-1] != "docker.io/library/debian:12" {
+		t.Fatalf("préremplissage : %+v", f)
+	}
+	f.exec = indexOf(f.images, "docker.io/library/alpine:3.20") + 1
+	f.ctrBe = "pod"
+	if err := applyExec(p, f); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(envPath(p))
+	if !strings.Contains(string(b), "image: docker.io/library/alpine:3.20") || !strings.Contains(string(b), "# commentaire gardé") || !strings.Contains(string(b), "packages: [jq]") || projectBackend(p).Name != "pod" {
+		t.Errorf("reconfiguration : %s / %s", b, projectBackend(p).Name)
+	}
+	f.exec = 0
+	_ = applyExec(p, f)
+	if projectBackend(p).Name != "host" || !hasEnv(p) {
+		t.Error("retour à l'hôte : env.yaml doit être gardé")
+	}
+	if m := (model{}).startExecChoice(Node{Path: p, Name: "proj"}, false); m.form.exec != 0 {
+		t.Errorf("projet sur l'hôte : « hôte » attendu, %+v", m.form)
 	}
 }

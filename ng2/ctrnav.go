@@ -104,7 +104,7 @@ func ctrIndicator(p projInfo) (indicator, bool) {
 }
 
 // cycleBackend (F2) : backend suivant pour le projet sélectionné.
-func (m model) cycleBackend() model {
+func (m model) cycleBackend() model { // F2
 	if len(m.visible) == 0 {
 		return m
 	}
@@ -116,35 +116,14 @@ func (m model) cycleBackend() model {
 		m.msg = "F2 : projet ouvert — le fermer avant de changer de backend"
 		return m
 	}
-	if !hasEnv(n.Path) {
-		// pas encore d'environnement : choisir un socle (crée env.yaml)
-		return m.startExecChoice(n)
-	}
-	if _, err := loadEnv(n.Path); err != nil {
-		m.msg = "⚠ " + err.Error()
-		return m
-	}
-	bs, err := loadBackends()
-	if err != nil {
-		m.msg = "⚠ " + err.Error()
-		return m
-	}
-	cur := projectBackend(n.Path).Name
-	next := bs[0]
-	for i, b := range bs {
-		if b.Name == cur {
-			next = bs[(i+1)%len(bs)]
+	if hasEnv(n.Path) {
+		if _, err := loadEnv(n.Path); err != nil {
+			m.msg = "⚠ " + err.Error()
+			return m
 		}
 	}
-	if err := writeAssignment(n.Path, next.Name); err != nil {
-		m.msg = "⚠ " + err.Error()
-		return m
-	}
-	if m.ctr.assign != nil {
-		m.ctr.assign[n.Path] = next.Name
-	}
-	m.msg = "backend de " + n.Name + " : " + next.Name
-	return m
+	// formulaire « Exécution » prérempli avec l'état du projet
+	return m.startExecChoice(n, false)
 }
 
 // reattachContainers : au démarrage du hub, une fenêtre est recréée pour chaque

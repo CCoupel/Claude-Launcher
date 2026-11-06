@@ -46,7 +46,8 @@ type newForm struct {
 	exec     int
 	images   []string
 	ctrBe    string
-	existing string // F2 sur un projet sans env.yaml : son dossier (pas de création)
+	existing string // F2 ou première ouverture : dossier du projet existant (pas de création)
+	openNext bool   // première ouverture : lancer le projet une fois configuré
 }
 
 // execStep : formulaire suivant l'étape « type » ou « remote » : le choix du
@@ -100,23 +101,58 @@ func (f *newForm) cycleCtrBe(d int) {
 	}
 }
 
-// startExecChoice (F2) : socle pour un projet existant sans env.yaml.
-func (m model) startExecChoice(n Node) model {
-	f, ok := execForm(newForm{existing: n.Path, name: n.Name})
+// startExecChoice : configuration d'un projet existant — F2, ou sa première
+// ouverture (openNext). Préremplie avec son état : socle de son env.yaml et
+// backend affecté, ou « hôte » ; sinon les défauts de backends.yaml.
+func (m model) startExecChoice(n Node, openNext bool) model {
+	f, ok := execForm(newForm{existing: n.Path, name: n.Name, openNext: openNext})
 	if !ok {
 		m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
 		return m
+	}
+	if assigned(n.Path) || hasEnv(n.Path) {
+		b := projectBackend(n.Path)
+		f.exec = 0
+		if _, ok := engineOf(b); ok {
+			f.ctrBe = b.Name
+		}
+		if e, err := loadEnv(n.Path); err == nil {
+			i := indexOf(f.images, e.Image)
+			if i < 0 {
+				f.images, i = append([]string{e.Image}, f.images...), 0
+			}
+			if _, ok := engineOf(b); ok {
+				f.exec = i + 1
+			}
+		}
 	}
 	m.form = f
 	return m
 }
 
-// applyExec : env.yaml + affectation selon le socle choisi (rien pour l'hôte).
+func indexOf(list []string, s string) int {
+	for i, v := range list {
+		if v == s {
+			return i
+		}
+	}
+	return -1
+}
+
+// applyExec : affectation selon le choix (« host » compris) ; un socle crée
+// env.yaml, ou change sa ligne image: s'il existe déjà (hôte : env.yaml gardé).
 func applyExec(dir string, f newForm) error {
 	if f.exec <= 0 || f.exec > len(f.images) {
-		return nil
+		return writeAssignment(dir, "host")
 	}
-	if err := writeEnv(dir, f.images[f.exec-1]); err != nil {
+	img := f.images[f.exec-1]
+	if e, err := loadEnv(dir); err == nil {
+		if e.Image != img {
+			if err := setEnvImage(dir, img); err != nil {
+				return err
+			}
+		}
+	} else if err := writeEnv(dir, img); err != nil {
 		return err
 	}
 	return writeAssignment(dir, f.ctrBe)
@@ -342,9 +378,20 @@ func (m model) applyExecExisting() model {
 	}
 	m.form = newForm{}
 	if f.exec == 0 {
-		m.msg = f.name + " : exécution sur l'hôte (inchangée)"
+		m.msg = f.name + " : exécution sur l'hôte"
 	} else {
-		m.msg = "⬡ " + f.name + " : " + imageLabel(f.images[f.exec-1]) + " sur " + f.ctrBe + " — env.yaml créé, F2 pour changer de backend"
+		m.msg = "⬡ " + f.name + " : " + imageLabel(f.images[f.exec-1]) + " sur " + f.ctrBe + " (F2 pour reconfigurer)"
+	}
+	if f.openNext {
+		for i, idx := range m.visible {
+			if m.nodes[idx].Path == f.existing {
+				m.cursor = i
+			}
+		}
+		msg := m.msg
+		if m = m.openSelectedAs(launchNormal); m.msg == "" {
+			m.msg = msg
+		}
 	}
 	return m
 }
@@ -383,7 +430,11 @@ func (m model) renderForm(w int) string {
 	f := m.form
 	var sb strings.Builder
 	if f.existing != "" {
-		sb.WriteString(" " + cyan.Render("⬢ Exécution de "+f.name) + "\n\n")
+		sb.WriteString(" " + cyan.Render("⬢ Exécution de "+f.name) + "\n")
+		if f.openNext {
+			sb.WriteString(" " + dim.Render("projet pas encore configuré : choisir où il tourne,") + "\n " + dim.Render("puis ↵ l'ouvre") + "\n")
+		}
+		sb.WriteString("\n")
 		sb.WriteString(m.renderExec(w))
 		if f.err != "" {
 			sb.WriteString("\n " + red.Render("✗ "+f.err) + "\n")

@@ -318,10 +318,10 @@ func readAssignments() map[string]string {
 
 func writeAssignment(proj, backend string) error {
 	m := readAssignments()
-	if backend == "" || backend == "host" {
+	if backend == "" {
 		delete(m, proj)
 	} else {
-		m[proj] = backend
+		m[proj] = backend // « host » compris : le projet est configuré (plus de question à l'ouverture)
 	}
 	b, _ := json.MarshalIndent(m, "", "  ")
 	if err := os.MkdirAll(ng2StateDir(), 0o755); err != nil {
@@ -332,6 +332,33 @@ func writeAssignment(proj, backend string) error {
 		return err
 	}
 	return os.Rename(tmp, assignPath())
+}
+
+// assigned : le projet a déjà été configuré (backend choisi, host compris).
+func assigned(proj string) bool {
+	_, ok := readAssignments()[proj]
+	return ok
+}
+
+// setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé).
+func setEnvImage(proj, img string) error {
+	p := envPath(proj)
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(b), "\n")
+	done := false
+	for i, l := range lines {
+		if strings.HasPrefix(l, "image:") {
+			lines[i], done = "image: "+img, true
+			break
+		}
+	}
+	if !done {
+		lines = append([]string{"image: " + img}, lines...)
+	}
+	return os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
 // projectBackend : backend affecté au projet ; host sans env.yaml ou sans
