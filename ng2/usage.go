@@ -15,14 +15,16 @@ import (
 
 const usageURL = "https://api.anthropic.com/api/oauth/usage"
 
-// Même fichier de cache que le launcher bash : les deux versions cohabitent.
+// Contrat avec le template : le panneau milestone des projets lit (et alimente)
+// ~/.cache/claude-launcher/usage.json (et usage.json.err) — chemin partagé avec
+// le launcher v4, PAS dans le cache propre à NG2. Seul ce fichier y reste.
 func usageCachePath() string {
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {
 		home, _ := os.UserHomeDir()
 		base = filepath.Join(home, ".cache")
 	}
-	return filepath.Join(base, "claude-launcher-ng2", "usage.json")
+	return filepath.Join(base, "claude-launcher", "usage.json")
 }
 
 type Limit struct {
