@@ -133,23 +133,35 @@ backends:
 
 #### Backends distants
 
+Quatre façons d'atteindre un moteur :
+
 ```yaml
 backends:
-  srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/share/MFS/ROOT] }
-  srv1:        { type: ssh,    host: srv1,                       shared: [/share/MFS/ROOT] }
+  srv1-docker: { type: docker, host: tcp://192.168.1.211:2375,  shared: [/share/MFS/ROOT] }
+  srv2-podman: { type: podman, host: tcp://192.168.1.212:8888,  shared: [/share/MFS/ROOT] }
+  srv1-sshd:   { type: ssh, host: srv1, engine: docker,          shared: [/share/MFS/ROOT] }
+  srv2-sshp:   { type: ssh, host: srv2, engine: podman,          shared: [/share/MFS/ROOT] }
 ```
 
-- **docker** se pilote **en direct** : `host` est l'adresse du démon (`tcp://…`,
-  ou un `context` docker), jamais à travers ssh. Le client docker doit être
-  installé sur la machine du launcher.
-- **ssh** suppose **podman** sur la machine distante (`ssh <host> podman …`,
-  accès par clé sans mot de passe).
-- **`shared`** : racines du stockage partagé (NFS, MooseFS…), montées **aux
-  mêmes chemins** sur la machine du launcher et sur la machine distante.
-  `~/.claude` (ou `CLAUDE_CONFIG_DIR`) et le projet doivent s'y trouver : les
-  conversations, teams et marqueurs sont lus des deux côtés. Les dossiers sont
-  montés avec `--mount` : s'ils manquent de l'autre côté, la création échoue
-  (au lieu d'y créer un dossier vide).
+| Type | Accès | Côté machine distante |
+|---|---|---|
+| `docker` + `host` | **direct** au démon (`docker -H`, ou `context`) | démon exposé (`daemon.json` → `"hosts": [… "tcp://0.0.0.0:2375"]`, TLS : 2376) |
+| `podman` + `host` | **direct** au service podman (`podman --url`) | `podman system service --time=0 tcp://0.0.0.0:8888` (API non authentifiée ni chiffrée : réseau de confiance) |
+| `ssh`, `engine: docker` | `ssh <host> docker …` | docker dans le PATH d'une commande ssh, utilisateur dans le groupe `docker` |
+| `ssh`, `engine: podman` (défaut) | `ssh <host> podman …` | podman dans le PATH d'une commande ssh |
+
+Le client du moteur doit être installé sur la machine du launcher pour les
+accès directs (le client podman ne pilote pas un démon docker). En ssh,
+`engine_host` donne l'adresse du démon côté machine distante (docker rootless :
+`unix:///run/user/<uid>/docker.sock`, service podman…). Accès ssh par clé, sans
+mot de passe.
+
+**`shared`** : racines du stockage partagé (NFS, MooseFS…), montées **aux mêmes
+chemins** sur la machine du launcher et sur la machine distante. `~/.claude`
+(ou `CLAUDE_CONFIG_DIR`) et le projet doivent s'y trouver : le launcher lit
+lui-même conversations, teams et marqueurs, et trouve les projets dans son
+navigateur. Les dossiers sont montés avec `--mount` : s'ils manquent de l'autre
+côté, la création échoue (au lieu d'y créer un dossier vide).
 
 Un backend inutilisable est signalé `⚠` dans le navigateur, et
 `claude-launcher-ng2 backends` détaille chaque problème avec la façon d'y
