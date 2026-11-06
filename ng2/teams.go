@@ -33,9 +33,12 @@ func claudeDir() string {
 // une team devra être confrontée aux panes de SON tmux (pidSpace du leader).
 func livePanes() (map[string]bool, bool) {
 	live := map[string]bool{}
-	for _, t := range targets() {
+	for i, t := range targets() {
 		b, err := t.Output("list-panes", "-a", "-F", "#{pane_id}")
 		if err != nil {
+			if i > 0 { // serveur v4 absent : rien à protéger de ce côté
+				continue
+			}
 			return nil, false
 		}
 		for _, p := range strings.Fields(string(b)) {
@@ -62,12 +65,23 @@ func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []str
 		}
 		var cfg struct {
 			LeadSessionID string `json:"leadSessionId"`
-			Members       []struct {
+			LeadProcess   *struct {
+				PID      int    `json:"pid"`
+				PIDSpace string `json:"pidSpace"`
+			} `json:"leadProcess"`
+			Members []struct {
 				TmuxPaneID string `json:"tmuxPaneId"`
 			} `json:"members"`
 		}
 		if json.Unmarshal(b, &cfg) != nil || resumableSession(root, cfg.LeadSessionID, resumeAge) {
 			continue
+		}
+		// team d'un conteneur ou d'une autre machine : ses panes %N sont ceux de
+		// SON tmux, invisibles d'ici — jamais supprimée par l'hôte
+		if p := cfg.LeadProcess; p != nil && p.PIDSpace != "" && p.PIDSpace != hostPidSpace() {
+			if h, _, _ := strings.Cut(p.PIDSpace, "#"); h != hostName() {
+				continue
+			}
 		}
 		panes, alive := 0, false
 		for _, m := range cfg.Members {

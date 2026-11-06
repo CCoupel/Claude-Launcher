@@ -154,11 +154,46 @@ const tmuxDoubleClick = `select-pane -t = ; if-shell -F "#{||:#{pane_in_mode},#{
 // autres sessions gardent le comportement par défaut.
 func bindZoom() {
 	cond := "#{==:#{session_name}," + hubSession + "}"
-	_ = dtmux("bind-key", "-n", "DoubleClick1Pane", "if-shell", "-F", cond,
+	// fenêtre d'un projet en conteneur (@cl_nested) : le double-clic est transmis
+	// au tmux du conteneur, qui zoome lui-même (bootstrap.sh)
+	zcond := "#{&&:" + cond + ",#{!:#{@cl_nested}}}"
+	_ = dtmux("bind-key", "-n", "DoubleClick1Pane", "if-shell", "-F", zcond,
 		"select-pane -t = ; resize-pane -Z -t =", tmuxDoubleClick).Run()
 	// préfixe + R : remettre en ordre la team de la fenêtre courante (layout.go)
 	_ = dtmux("bind-key", "R", "if-shell", "-F", cond,
 		"run-shell -b "+shq(selfCommand("relayout")+" '#{window_id}'")).Run()
+	bindNested()
+}
+
+// bindNested : préfixe transparent pour les projets en conteneur. Le hub n'a plus
+// de préfixe (il serait reconnu AVANT les liaisons -n) : Ctrl+B est aiguillé —
+// fenêtre ordinaire → table prefix habituelle ; fenêtre d'un conteneur
+// (@cl_nested) → table cl_nested, qui renvoie Ctrl+B + la touche au tmux du
+// conteneur ; Ctrl+B Ctrl+B y rejoint le préfixe du hub. Serveur NG2 seulement.
+func bindNested() {
+	_ = dtmux("set-option", "-g", "prefix", "None").Run()
+	_ = dtmux("set-option", "-g", "prefix2", "None").Run()
+	_ = dtmux("bind-key", "-n", "C-b", "if-shell", "-F", "#{@cl_nested}",
+		"switch-client -T cl_nested", "switch-client -T prefix").Run()
+	_ = dtmux("bind-key", "-T", "cl_nested", "C-b", "switch-client", "-T", "prefix").Run()
+	for _, k := range nestedKeys() {
+		if k == ";" { // « ; » sépare les commandes : envoyé en hexadécimal
+			_ = dtmux("bind-key", "-T", "cl_nested", "\\;", "send-keys", "-H", "02", "3b").Run()
+			continue
+		}
+		_ = dtmux("bind-key", "-T", "cl_nested", k, "send-keys", "C-b", k).Run()
+	}
+}
+
+// nestedKeys : touches transmises après Ctrl+B au tmux d'un conteneur.
+func nestedKeys() []string {
+	var ks []string
+	for _, r := range "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!#$%&()*+,-./:;<=>?@[]^_`{|}~\"'\\" {
+		ks = append(ks, string(r))
+	}
+	return append(ks, "Up", "Down", "Left", "Right", "M-Up", "M-Down", "M-Left", "M-Right",
+		"C-Up", "C-Down", "C-Left", "C-Right", "PPage", "NPage", "Space", "Enter", "Escape",
+		"BSpace", "Tab", "C-o", "C-z")
 }
 
 // ── Panes de la coque ─────────────────────────────────────────────────────

@@ -107,7 +107,21 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	if tmuxWindows(sess)[n.Key] {
 		return dtmux("select-window", "-t", exactW(sess, n.Key)).Run()
 	}
-	ids, err := tmuxOut("new-window", "-P", "-F", "#{window_id} #{pane_id}", "-t", exactS(sess)+":", "-n", n.Key)
+	be := projectBackend(n.Path)
+	_, inCtr := engineOf(be)
+	nw := []string{"new-window", "-P", "-F", "#{window_id} #{pane_id}", "-t", exactS(sess) + ":", "-n", n.Key}
+	var startFile string
+	if inCtr {
+		// la fenêtre exécute ctr-attach (conteneur, bootstrap, attache) ; le script
+		// de démarrage lui est passé par fichier
+		f, err := ctrStartFile(n.Path, "")
+		if err != nil {
+			return err
+		}
+		startFile = f
+		nw = append(nw, selfCommand("ctr-attach", n.Path, startFile))
+	}
+	ids, err := tmuxOut(nw...)
 	if err != nil {
 		return fmt.Errorf("new-window : %w", err)
 	}
@@ -121,6 +135,12 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	_ = dtmux("set-window-option", "-t", target, "window-status-style", "fg=colour242,bg=colour236").Run()
 	_ = dtmux("set-window-option", "-t", target, "window-status-current-style", "bold,fg=colour255,bg=colour27").Run()
 	_ = dtmux("set-option", "-p", "-t", pane, "window-style", "bg=colour"+cfg.projectColor(n.Key)).Run()
+
+	if inCtr {
+		_ = dtmux("set-window-option", "-t", target, "@cl_backend", be.Name).Run()
+		_ = dtmux("set-window-option", "-t", target, "@cl_ctr", ctrName(n.Path)).Run()
+		_ = dtmux("set-window-option", "-t", target, "@cl_nested", "1").Run()
+	}
 
 	initCache := initProjectPath()
 	tpl := readTemplate(n.Path, latest)
@@ -163,6 +183,24 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	// projet non géré : /end-session minimal, pour pouvoir le clore comme les autres
 	if mode == launchNewRaw || mode == launchNormal && tpl == TplNone {
 		ensureEndSession(n.Path)
+	}
+	if inCtr {
+		// même démarrage qu'en local, exécuté par le bash du tmux du conteneur ;
+		// init-project.md est copié depuis l'hôte (le cache n'est pas monté)
+		if mode != launchNewRaw {
+			if b, err := os.ReadFile(initCache); err == nil && len(b) > 0 {
+				d := filepath.Join(n.Path, ".claude", "commands")
+				if os.MkdirAll(d, 0o755) == nil {
+					_ = os.WriteFile(filepath.Join(d, "init-project.md"), b, 0o644)
+				}
+			}
+		}
+		ctrStart := strings.ReplaceAll(start, claudeBin()+" ", "claude ")
+		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", shq(n.Path), cfg.exports(), ctrStart)
+		if err := os.WriteFile(startFile, []byte(script), 0o600); err != nil {
+			return err
+		}
+		return dtmux("select-window", "-t", target).Run()
 	}
 	keys := fmt.Sprintf("cd %s%s\n%s%s", shq(n.Path), cfg.exports(), copyInit, start)
 	if err := dtmux("send-keys", "-t", target, keys, "Enter").Run(); err != nil {

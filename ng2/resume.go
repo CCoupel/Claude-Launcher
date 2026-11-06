@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 )
 
@@ -85,8 +84,10 @@ func sessionEnded(f string) bool {
 // un marqueur par projet (nom encodé de ~/.claude/projects). Une conversation
 // qui n'a pas bougé depuis ce marqueur est close, comme par /end-session.
 
+// Il vit dans ~/.claude (partagé avec les conteneurs, qui le posent eux aussi),
+// dans un dossier propre à NG2 que le launcher v4 ne lit pas.
 func cleanExitPath(dirName string) string {
-	return filepath.Join(cacheDir(), "clean-exit", dirName)
+	return filepath.Join(claudeDir(), "claude-launcher-ng2", "clean-exit", dirName)
 }
 
 // cleanExitShell : suite bash de la commande claude, qui pose le marqueur du
@@ -182,7 +183,8 @@ func sessionTeam(root, id string) (teammates []string, crashed, inUse bool) {
 	var cfg struct {
 		LeadSessionID string `json:"leadSessionId"`
 		LeadProcess   *struct {
-			PID int `json:"pid"`
+			PID      int    `json:"pid"`
+			PIDSpace string `json:"pidSpace"`
 		} `json:"leadProcess"`
 		Members []struct {
 			Name      string `json:"name"`
@@ -198,8 +200,14 @@ func sessionTeam(root, id string) (teammates []string, crashed, inUse bool) {
 		}
 	}
 	if p := cfg.LeadProcess; p != nil && p.PID > 0 {
-		err := syscall.Kill(p.PID, 0)
-		crashed, inUse = err == syscall.ESRCH, err == nil || err == syscall.EPERM
+		switch leaderAliveIn(p.PID, p.PIDSpace) {
+		case leaderAlive:
+			inUse = true
+		case leaderDead:
+			crashed = true
+		default: // invérifiable (autre machine) : ouverte ailleurs, pas de reprise
+			inUse = true
+		}
 	}
 	return teammates, crashed, inUse
 }

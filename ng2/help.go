@@ -31,6 +31,7 @@ var helpSections = []helpSection{
 		{"Tab, Alt+← Alt+→", "passer du navigateur à tmux et retour"},
 		{"Ctrl+← Ctrl+→, bordure", "largeur du navigateur (mémorisée)"},
 		{"Ctrl+R", "rescanner les projets"},
+		{"F2", "backend du projet (host, conteneurs) : suivant — projet fermé, env.yaml requis"},
 		{"F5", "mises à jour et consommation maintenant"},
 		{"Ctrl+U, clic sur ✕", "masquer les annonces de mise à jour"},
 		{"clic sur l'annonce verte", "installer la nouvelle version (projets conservés)"},
@@ -42,6 +43,7 @@ var helpSections = []helpSection{
 		{"double-clic sur un pane", "plein écran, double-clic à nouveau pour revenir"},
 		{"Ctrl+B z", "idem au clavier"},
 		{"Ctrl+B R", "remettre en ordre les panes de la team"},
+		{"projet en conteneur ⬢", "Ctrl+B agit dans le conteneur ; Ctrl+B Ctrl+B = préfixe du hub"},
 	}},
 	{"Commandes", []helpRow{
 		{"claude-launcher-ng2", "lancer le hub (mise à jour auto au passage)"},
@@ -49,11 +51,13 @@ var helpSections = []helpSection{
 		{"claude-launcher-ng2 configure", "créer / éditer la config ($EDITOR)"},
 		{"claude-launcher-ng2 relayout WIN_ID", "remettre en ordre les panes d'une fenêtre"},
 		{"claude-launcher-ng2 help", "cette aide dans le terminal"},
+		{"claude-launcher-ng2 backends", "backends et conteneurs des projets"},
 		{"claude-launcher-ng2 version", "version installée"},
-		{"~/claude-launcher.sh", "ancienne commande : redirige vers le NG"},
 	}},
 	{"Fichiers", []helpRow{
-		{"~/.config/claude-launcher.conf", "configuration (GITHUB_DIRS, CLAUDE_OPTIONS, RESUME_MODE…)"},
+		{"~/.config/claude-launcher-ng2/config.conf", "configuration (GITHUB_DIRS, CLAUDE_OPTIONS, RESUME_MODE…)"},
+		{"~/.config/claude-launcher-ng2/backends.yaml", "backends d'exécution (défaut : host + podman/docker trouvés)"},
+		{"<projet>/.claude-launcher/env.yaml", "environnement du projet en conteneur (image, paquets, setup)"},
 	}},
 }
 

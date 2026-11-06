@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"os/exec"
+	"strings"
+)
 
 // ── Cibles tmux ───────────────────────────────────────────────────────────
 //
@@ -41,14 +44,49 @@ type projWin struct {
 // direct : panes dans le hub lui-même (exécution locale directe).
 func (p projWin) direct() bool { return p.t == hub && p.win == p.hubWin }
 
-// projectOf : cible des panes de la fenêtre hubWin du hub. Aujourd'hui toujours
-// directe ; #43 y branchera les projets en conteneur.
+// projectOf : cible des panes de la fenêtre hubWin du hub. Une fenêtre de projet
+// en conteneur porte les options @cl_backend et @cl_ctr (posées par
+// launchProject) : ses panes sont alors dans le tmux du conteneur, piloté par son
+// canal de contrôle ; sinon ils sont dans la fenêtre du hub elle-même.
 func projectOf(hubWin string) projWin {
-	return projWin{t: hub, win: hubWin, hubWin: hubWin}
+	direct := projWin{t: hub, win: hubWin, hubWin: hubWin}
+	s, err := tout(hub, "display-message", "-p", "-t", hubWin, "#{@cl_backend}|#{@cl_ctr}")
+	if err != nil {
+		return direct
+	}
+	be, ctr, _ := strings.Cut(s, "|")
+	if be == "" || ctr == "" {
+		return direct
+	}
+	b, ok := findBackend(be)
+	if !ok {
+		return direct
+	}
+	e, ok := engineOf(b)
+	if !ok {
+		return direct
+	}
+	return projWin{t: ctlFor(e, ctr), win: "=" + ctrSession + ":", hubWin: hubWin}
 }
 
-// targets : tous les tmux portant des panes de projets (nettoyage des teams).
-func targets() []Target { return []Target{hub} }
+// v4Server : serveur tmux par défaut, celui du launcher v4 (claude-hub). NG2 n'y
+// écrit jamais ; il le lit pour ne pas croire mortes les teams d'une session v4.
+type v4Server struct{}
+
+func (v4Server) Run(args ...string) error { return v4Server{}.cmd(args...).Run() }
+func (v4Server) Output(args ...string) ([]byte, error) {
+	return v4Server{}.cmd(args...).Output()
+}
+func (v4Server) cmd(args ...string) *exec.Cmd {
+	c := exec.Command("tmux", args...)
+	c.Env = envWithout("TMUX", "TMUX_PANE")
+	return c
+}
+
+// targets : tmux de l'hôte portant des panes de teams (nettoyage des teams) :
+// le hub NG2 et le serveur par défaut (v4). Les teams des conteneurs ne sont
+// jamais jugées ici (pidSpace étranger, cf. teams.go).
+func targets() []Target { return []Target{hub, v4Server{}} }
 
 // tout : Output d'une cible, espaces de fin retirés.
 func tout(t Target, args ...string) (string, error) {

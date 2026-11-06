@@ -59,8 +59,7 @@ func normPath(p string) string {
 // findTeamConfig : config.json de la team du projet. Une session coupée laisse
 // sa team quand la reprise en crée une autre : la plus récemment modifiée gagne.
 func findTeamConfig(projectDir string) string {
-	home, _ := os.UserHomeDir()
-	files, _ := filepath.Glob(filepath.Join(home, ".claude", "teams", "*", "config.json"))
+	files, _ := filepath.Glob(filepath.Join(claudeDir(), "teams", "*", "config.json"))
 	want := normPath(projectDir)
 	best, bestT := "", time.Time{}
 	for _, f := range files {
@@ -396,12 +395,27 @@ func styleBusy(cfg Config, p projWin, ws winState, busy bool, color string) {
 func runLayoutWatch(win, leader, projectDir string) {
 	cfg := loadConfig()
 	pw := projectOf(win)
-	prevCount, prevSig := 1, ""
+	prevCount, prevSig, prevRelayout := 1, "", ""
 	for {
 		time.Sleep(time.Second)
 		ws, err := readWin(pw)
 		if err != nil {
 			return // fenêtre fermée
+		}
+		if !pw.direct() {
+			// conteneur : la session survit à la fenêtre du hub ; le watcher, non
+			if hub.Run("display-message", "-p", "-t", pw.hubWin, "#{window_id}") != nil {
+				return
+			}
+			// Ctrl+B R dans le tmux du conteneur incrémente @cl_relayout (bootstrap.sh)
+			if r, _ := tout(pw.t, "show-options", "-wqv", "-t", pw.win, "@cl_relayout"); r != prevRelayout {
+				if prevRelayout != "" || r != "" {
+					if path := findTeamConfig(projectDir); path != "" && len(ws.panes) > 1 {
+						doLayout(cfg, pw, leader, path)
+					}
+				}
+				prevRelayout = r
+			}
 		}
 		if path := findTeamConfig(projectDir); path != "" {
 			tc, _ := readTeam(path)

@@ -31,6 +31,10 @@ type projInfo struct {
 	ms        MsState
 	sess      Resumable
 	hasSess   bool
+	hasEnv    bool   // .claude-launcher/env.yaml présent
+	backend   string // backend affecté (host par défaut)
+	ctr       Found  // conteneur du projet
+	ctrKnown  bool   // … s'il existe
 }
 
 // openIndicator : pastille devant le nom.
@@ -54,6 +58,9 @@ func badgeIndicators(p projInfo) []indicator {
 		if t, ok := tplIndicator(p); ok {
 			out = append(out, t)
 		}
+	}
+	if i, ok := ctrIndicator(p); ok {
+		out = append(out, i)
 	}
 	if i, ok := msIndicator(p.ms); ok {
 		out = append(out, i)

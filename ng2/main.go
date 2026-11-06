@@ -59,6 +59,7 @@ type model struct {
 	latest       string
 	windows      map[string]bool
 	sessions     map[string]Resumable // projet -> conversation en suspens (icône ↺)
+	ctr          ctrView              // backends et conteneurs (ctrnav.go)
 	treeCh       <-chan struct{}      // signal de changement de l'arborescence
 	milestones   map[string]MsState   // projet -> état de ses milestones (badge ⚑)
 	usage        Usage
@@ -154,7 +155,7 @@ func (m *model) refilter() {
 
 func (m model) Init() tea.Cmd {
 	m.latest = readLatestTemplate()
-	cmds := []tea.Cmd{waitTree(m.treeCh), sessCmd(m.cfg, m.projectPaths(), 0), tickCmd(), usageTickCmd(), windowsCmd(m.session), usageFetchCmd(m.cfg.UsageRefreshSec), updTickCmd(6 * time.Second)}
+	cmds := []tea.Cmd{waitTree(m.treeCh), sessCmd(m.cfg, m.projectPaths(), 0), ctrCmd(m.projectPaths(), 0), tickCmd(), usageTickCmd(), windowsCmd(m.session), usageFetchCmd(m.cfg.UsageRefreshSec), updTickCmd(6 * time.Second)}
 	if m.mgr != nil {
 		cmds = append(cmds, waitState(m.mgr.Done))
 	}
@@ -162,6 +163,9 @@ func (m model) Init() tea.Cmd {
 		// onglet « ⌗ Teamleaders » : une vignette par projet ouvert
 		cfg := m.cfg
 		cmds = append(cmds, func() tea.Msg { runMirrorManager(cfg); return nil })
+		if m.launch {
+			cmds = append(cmds, reattachCmd(m.cfg, m.session, m.nodes))
+		}
 	}
 	for _, n := range m.nodes {
 		if n.Project {
@@ -431,6 +435,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sessMsg:
 		m.sessions = msg
 		return m, sessCmd(m.cfg, m.projectPaths(), 10*time.Second)
+	case ctrMsg:
+		m.ctr = ctrView(msg)
+		return m, ctrCmd(m.projectPaths(), 10*time.Second)
+	case reattachMsg:
+		m.msg = "⬢ sessions de conteneur retrouvées : " + strings.Join(msg, ", ")
+		return m, windowsCmd(m.session)
 	case stateDoneMsg:
 		ps := ProjState(msg)
 		m.git[ps.Path], m.tpl[ps.Path], m.detail[ps.Path] = ps.Git, ps.Tpl, ps.Detail
@@ -786,6 +796,9 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			m.msg = "⚠ aide : " + err.Error()
 		}
 		return m, nil
+	case "f2":
+		// backend d'exécution du projet (host, conteneurs) : suivant
+		return m.cycleBackend(), ctrCmd(m.projectPaths(), 0)
 	case "f5":
 		// recherche immédiate ; les annonces masquées réapparaissent
 		if m.checking {
@@ -901,8 +914,10 @@ var (
 func (m model) projInfo(n Node) projInfo {
 	g, ok := m.git[n.Path]
 	r, hasSess := m.sessions[n.Path]
+	f, ctrKnown := m.ctr.found[n.Path]
 	return projInfo{open: m.windows[n.Key], git: g, gitOK: ok, tpl: m.tpl[n.Path], tplLatest: m.tplVer,
-		ms: m.milestones[n.Path], sess: r, hasSess: hasSess}
+		ms: m.milestones[n.Path], sess: r, hasSess: hasSess,
+		hasEnv: m.ctr.env[n.Path], backend: m.ctr.assign[n.Path], ctr: f, ctrKnown: ctrKnown}
 }
 
 // badges : icônes de la ligne du projet (« … » tant que git n'est pas lu).
@@ -1291,6 +1306,10 @@ func main() {
 		} else {
 			runRelayout(os.Args[2])
 		}
+	case "ctr-attach": // fenêtre d'un projet en conteneur (lancée par tmux)
+		err = ctrAttachMain(os.Args[2:])
+	case "backends":
+		err = runBackends()
 	case "configure":
 		err = runConfigure()
 	case "help", "--help", "-h":
