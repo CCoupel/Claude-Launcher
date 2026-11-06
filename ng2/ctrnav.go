@@ -207,7 +207,7 @@ func runBackends() error {
 	}
 	fmt.Println("Backends (" + backendsPath() + ") :")
 	for _, b := range bs {
-		line := "  " + padRight(b.Name, 12) + b.Type
+		line := "  " + padRight(b.Name, 12) + " " + b.Type
 		if b.Host != "" {
 			line += " " + b.Host
 		}

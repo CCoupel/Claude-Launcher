@@ -89,7 +89,9 @@ selon le backend : `podman`, le client `docker`, `kubectl` ou `ssh` (rien à pr�
 images : le launcher y installe tmux, git, claude et les paquets du projet).
 
 **2. Configuration** — au premier lancement, NG2 crée `~/.config/claude-launcher-ng2/config.conf`
-(copie de la config v4 `~/.config/claude-launcher.conf` si elle existe) :
+(copie de la config v4 `~/.config/claude-launcher.conf` si elle existe). Pour un launcher portable
+(binaire sur un stockage partagé), la config peut être posée **à côté du binaire**, dans
+`.config/claude-launcher-ng2/` : elle est alors prioritaire.
 
 ```bash
 claude-launcher-ng2 configure   # crée la config si besoin et l'ouvre dans $EDITOR (nano par défaut)

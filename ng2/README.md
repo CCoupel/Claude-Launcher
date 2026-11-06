@@ -85,7 +85,23 @@ suspens. Un **projet non géré** (sans template) reçoit en plus, à l'ouvertur
 `.claude/commands/end-session.md` minimal s'il n'en a pas (résumé de fin, sans rien modifier) : `/end-session`
 s'y tape comme ailleurs ; une commande existante n'est jamais écrasée.
 
-La configuration est `~/.config/claude-launcher-ng2/config.conf` (relue par bash : `GITHUB_DIRS`,
+**Config portable** : si un `config.conf` se trouve dans `.config/claude-launcher-ng2/` **à côté du
+binaire** (liens symboliques résolus), c'est ce dossier qui est utilisé (`config.conf` et
+`backends.yaml`) ; sinon `~/.config/claude-launcher-ng2/`. Exemple, launcher posé sur un stockage
+partagé et utilisable de toutes les machines :
+
+```
+/share/MFS/ROOT/CLAUDE_PROJETS/
+├── claude-launcher-ng2
+└── .config/claude-launcher-ng2/
+    ├── config.conf
+    └── backends.yaml
+```
+
+Les affectations des projets (hôte ou backend, `~/.local/state/claude-launcher-ng2/projects.json`)
+restent propres à chaque machine.
+
+La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
 `CLAUDE_OPTIONS`, `RESUME_MODE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
 premier lancement : **copie de la config v4** (`~/.config/claude-launcher.conf`) si elle existe, sinon les
 valeurs par défaut. Les backends d'exécution sont dans `~/.config/claude-launcher-ng2/backends.yaml`

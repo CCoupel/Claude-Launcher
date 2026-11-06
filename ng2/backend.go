@@ -127,11 +127,6 @@ type backendsFile struct {
 	} `yaml:"defaults"`
 }
 
-func ng2ConfigDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "claude-launcher-ng2")
-}
-
 func backendsPath() string { return filepath.Join(ng2ConfigDir(), "backends.yaml") }
 
 // loadBackends : backends déclarés, triés (host en premier). Sans fichier :

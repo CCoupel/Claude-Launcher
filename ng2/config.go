@@ -157,9 +157,37 @@ func (c Config) projectColor(name string) string {
 	return c.Palette[h]
 }
 
-func configPath() string {
+// configPath : config.conf du dossier de config (ng2ConfigDir).
+func configPath() string { return filepath.Join(ng2ConfigDir(), "config.conf") }
+
+// ng2ConfigDir : dossier de config du launcher (config.conf, backends.yaml).
+// D'abord à côté du binaire — <dossier du binaire>/.config/claude-launcher-ng2,
+// s'il contient un config.conf : launcher portable, posé avec sa config sur un
+// stockage partagé —, sinon ~/.config/claude-launcher-ng2.
+// CL_CONFIG_DIR force un dossier (tests).
+func ng2ConfigDir() string {
+	if d := os.Getenv("CL_CONFIG_DIR"); d != "" {
+		return d
+	}
+	if d := portableConfigDir(); d != "" {
+		if _, err := os.Stat(filepath.Join(d, "config.conf")); err == nil {
+			return d
+		}
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".config", "claude-launcher-ng2", "config.conf")
+	return filepath.Join(home, ".config", "claude-launcher-ng2")
+}
+
+// portableConfigDir : <dossier du binaire>/.config/claude-launcher-ng2 (liens résolus).
+func portableConfigDir() string {
+	exe, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	if r, err := filepath.EvalSymlinks(strings.TrimSuffix(exe, " (deleted)")); err == nil {
+		exe = r
+	}
+	return filepath.Join(filepath.Dir(exe), ".config", "claude-launcher-ng2")
 }
 
 // v4ConfigPath : config du launcher v4, importée une fois à la création (ensureConfig).
