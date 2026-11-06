@@ -1270,6 +1270,14 @@ func main() {
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {
 		cmd = os.Args[1]
 	}
+	// options-commandes : ne jamais lancer le hub pour --version / --help
+	// (avant : tout argument « --… » ouvrait le launcher)
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--version", "-v", "--help", "-h":
+			cmd = os.Args[1]
+		}
+	}
 	launch := false
 	for _, a := range os.Args[1:] {
 		if a == "--launch" {
@@ -1320,7 +1328,7 @@ func main() {
 		err = runConfigure()
 	case "help", "--help", "-h":
 		err = runHelp(len(os.Args) > 2 && os.Args[2] == "--wait")
-	case "version", "--version":
+	case "version", "--version", "-v":
 		fmt.Println(ngName, ngVersion)
 	default:
 		err = fmt.Errorf("usage : claude-launcher-ng2 [shell|configure|relayout WIN_ID|help|version]")
