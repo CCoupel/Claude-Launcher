@@ -14,7 +14,10 @@ fi
 step() { printf '\n\033[1;36m▸ %s\033[0m\n' "$1"; }
 
 step "paquets système"
-BASE="tmux git bash sudo curl ca-certificates"
+BASE="tmux git bash sudo ca-certificates"
+# curl seulement s'il manque : rockylinux:9 fournit curl-minimal, qui entre en
+# conflit avec le paquet curl
+command -v curl >/dev/null 2>&1 || BASE="$BASE curl"
 if command -v apt-get >/dev/null 2>&1; then
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -qq
@@ -35,6 +38,13 @@ else
   exit 2
 fi
 command -v tmux >/dev/null || { echo "tmux introuvable après installation (dépôts de l'image ?)" >&2; exit 2; }
+# le launcher pilote ce tmux par son mode contrôle (attach -f ignore-size,no-output) : 3.2 minimum
+TV=$(tmux -V | sed -E 's/[^0-9]*([0-9]+)\.([0-9]+).*/\1 \2/')
+set -- $TV
+if [ "${1:-0}" -lt 3 ] || { [ "$1" -eq 3 ] && [ "${2:-0}" -lt 2 ]; }; then
+  echo "$(tmux -V) trop ancien : tmux 3.2 minimum (image plus récente, ex. Debian 12, Rocky 9, Alpine 3.16+)" >&2
+  exit 2
+fi
 
 step "utilisateur $CL_USER ($CL_UID:$CL_GID)"
 if ! getent group "$CL_GID" >/dev/null; then

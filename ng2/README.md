@@ -91,6 +91,101 @@ défaut au premier lancement.
 Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque), `mirror WIN NOM`
 (vignette Teamleaders), `layout-watch WIN LEADER DOSSIER` (mise en page d'une fenêtre projet).
 
+## Projets en conteneur (v5)
+
+Un projet peut tourner dans **son propre conteneur** au lieu de l'OS hôte : les
+outils, bibliothèques et paquets qu'il installe restent dans le conteneur, et
+chaque projet choisit sa distribution (Debian, Rocky, Alpine…). Sans
+déclaration, rien ne change : le projet tourne sur l'hôte comme en v4.
+
+### Déclarer l'environnement : `<projet>/.claude-launcher/env.yaml`
+
+Versionné avec le projet :
+
+```yaml
+image: docker.io/library/debian:12   # obligatoire ; image « vanilla », rien à préinstaller
+packages: [python3-venv, libpq-dev]  # en plus de tmux git bash sudo curl (implicites)
+packages_by_manager:                 # noms qui diffèrent selon la distribution
+  dnf: [libpq-devel]
+setup:                               # exécuté une fois, en utilisateur, dans le projet
+  - python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+mounts:                              # dossiers en plus (lecture seule par défaut)
+  - path: ../claude_project_template
+prefer: podman                       # backend proposé par défaut (facultatif)
+```
+
+Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
+l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
+
+### Choisir le backend : F2
+
+Dans le navigateur, **F2** sur un projet fermé qui a un `env.yaml` fait défiler
+les backends : `host` (l'OS, comme avant), puis les moteurs de conteneurs.
+Sans `~/.config/claude-launcher-ng2/backends.yaml`, ce sont podman et docker
+**s'ils répondent** (un `docker` de Docker Desktop sans intégration WSL est
+ignoré). Pour les nommer ou viser un contexte docker :
+
+```yaml
+backends:
+  podman: { type: podman }
+  docker: { type: docker, context: default }
+```
+
+L'affectation est mémorisée par machine
+(`~/.local/state/claude-launcher-ng2/projects.json`), pas dans le projet.
+
+| Icône | Signification |
+|---|---|
+| `⬡` gris | `env.yaml` présent, projet sur l'hôte (ou conteneur pas encore créé) |
+| `⬢` cyan | conteneur en marche |
+| `⬢` gris | conteneur arrêté (redémarré à l'ouverture) |
+
+### À l'ouverture
+
+1. Le conteneur `cl-<projet>-<empreinte>` est créé (ou démarré), avec les
+   labels `cl.launcher=ng2`, `cl.project`, `cl.backend`, `cl.image`.
+2. **Bootstrap** (idempotent, rejoué seulement si `env.yaml` change) : paquets
+   système (`apt`, `dnf`, `apk`, `zypper`), utilisateur aux uid/gid de l'hôte
+   avec sudo, **installation de claude**, étapes `setup`. Compter ~20 s la
+   première fois (image en cache), une fraction de seconde ensuite.
+3. Le démarrage habituel (questions `/init-project` et reprise, claude, marqueur
+   de sortie propre) s'exécute **dans le tmux du conteneur**, attaché dans la
+   fenêtre du projet. Les teammates y sont créés et mis en page comme en local.
+
+Prérequis de l'image : un gestionnaire de paquets connu et **tmux ≥ 3.2** dans
+ses dépôts (Debian 12, Rocky/Alma 9, Alpine 3.16+ ; pas UBI sans abonnement
+RHEL, ni RHEL 8 et ses dérivés).
+
+### Clavier dans un projet en conteneur
+
+| Touche | Effet |
+|---|---|
+| `Ctrl+B` + touche | agit dans le conteneur (`z` zoom, flèches, `[` copie, `R` remise en ordre…) |
+| `Ctrl+B Ctrl+B` + touche | préfixe du hub (`n` / `p` : fenêtre suivante / précédente…) |
+| double-clic | zoom du pane, comme en local |
+
+### Launcher arrêté, hub fermé
+
+La session du conteneur (claude **et** ses teammates) continue de tourner. Au
+prochain lancement, NG2 retrouve les conteneurs par leurs labels et recrée la
+fenêtre de chaque projet dont la session est vivante : on retrouve la session
+telle quelle. Fermer la fenêtre d'un projet en conteneur ne l'arrête pas non
+plus : Entrée dans le navigateur s'y rattache. Pour l'arrêter, quitter claude
+(`/exit`, ou `/end-session` puis `/exit`).
+
+### Config de claude dans les conteneurs
+
+Les sessions en conteneur utilisent `CLAUDE_CONFIG_DIR=~/.claude`, donc
+`~/.claude/.claude.json` (un fichier monté seul se détacherait : claude le
+réécrit par remplacement). Au premier conteneur, ce fichier est **copié** depuis
+`~/.claude.json`, jamais déplacé : les sessions de l'hôte gardent le leur.
+
+### Changement de version majeure
+
+v4 ne connaît pas les conteneurs : son nettoyage des teams et sa reprise
+peuvent prendre la session d'un conteneur pour morte. **Passer de v4 à v5 (ou
+revenir) uniquement avec tous les projets fermés.**
+
 ## Interface
 
 - **Gauche** : navigateur (40 colonnes par défaut). Projets en arbre, deux badges git
