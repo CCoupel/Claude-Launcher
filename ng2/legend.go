@@ -36,6 +36,7 @@ type projInfo struct {
 	ctr       Found     // conteneur du projet
 	ctrKnown  bool      // … s'il existe
 	problems  []problem // backend affecté inutilisable (diag.go)
+	badCfg    string    // configuration d'exécution invalide : lancement refusé
 }
 
 // openIndicator : pastille devant le nom.

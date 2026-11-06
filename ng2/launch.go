@@ -107,7 +107,10 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	if tmuxWindows(sess)[n.Key] {
 		return dtmux("select-window", "-t", exactW(sess, n.Key)).Run()
 	}
-	be := projectBackend(n.Path)
+	be, err := launchBackend(n.Path)
+	if err != nil {
+		return err
+	}
 	_, inCtr := engineOf(be)
 	nw := []string{"new-window", "-P", "-F", "#{window_id} #{pane_id}", "-t", exactS(sess) + ":", "-n", n.Key}
 	var startFile string

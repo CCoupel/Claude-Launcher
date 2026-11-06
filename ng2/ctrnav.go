@@ -19,6 +19,7 @@ type ctrView struct {
 	found  map[string]Found     // projet -> son conteneur, s'il existe
 	errs   map[string]string    // backend -> erreur de listing (moteur absent…)
 	diag   map[string][]problem // backend affecté à un projet -> ce qui l'empêche de marcher
+	bad    map[string]string    // projet -> configuration invalide (launchBackend)
 }
 
 type ctrMsg ctrView
@@ -32,12 +33,19 @@ func ctrCmd(paths []string, delay time.Duration) tea.Cmd {
 }
 
 func readCtrView(paths []string) ctrView {
-	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}}
+	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}, bad: map[string]string{}}
 	any := false
+	asg := readAssignments()
 	for _, p := range paths {
 		if hasEnv(p) {
 			v.env[p], any = true, true
 			v.assign[p] = projectBackend(p).Name
+		}
+		if name, ok := asg[p]; ok && name != "host" {
+			v.assign[p] = name
+			if _, err := launchBackend(p); err != nil {
+				v.bad[p] = err.Error()
+			}
 		}
 	}
 	bs, _ := loadBackends()
@@ -84,6 +92,9 @@ func usedBackend(name string) bool {
 
 // ctrIndicator : backend du projet sur la ligne du navigateur (projets en conteneur seulement).
 func ctrIndicator(p projInfo) (indicator, bool) {
+	if p.badCfg != "" {
+		return indicator{icon: "⚠", style: red, text: p.badCfg}, true
+	}
 	if p.backend == "" || p.backend == "host" {
 		if p.hasEnv {
 			return indicator{icon: "⬡", style: dim, text: "env.yaml présent : exécution locale (F2 : choisir un conteneur)"}, true

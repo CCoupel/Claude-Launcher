@@ -132,6 +132,11 @@ gardé). Il s'ouvre :
 - par **F2** sur un projet fermé, **prérempli avec son état** (socle et backend
   actuels, ou « hôte ») : c'est la reconfiguration.
 
+Un projet configuré se lance **uniquement** sur son backend : pour le lancer
+ailleurs, le reconfigurer par F2. Si sa configuration n'est plus valable
+(backend retiré de `backends.yaml`, `env.yaml` absent ou illisible), il est
+marqué `⚠` et son ouverture est refusée — jamais de repli sur l'hôte.
+
 Le mode et le socle **présélectionnés** se règlent dans `backends.yaml` :
 
 ```yaml

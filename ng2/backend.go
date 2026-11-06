@@ -363,6 +363,33 @@ func setEnvImage(proj, img string) error {
 
 // projectBackend : backend affecté au projet ; host sans env.yaml ou sans
 // affectation valide. Une affectation absente reprend « prefer » d'env.yaml.
+// launchBackend : backend sur lequel le projet DOIT être lancé. Un projet
+// configuré ne part jamais ailleurs : backend disparu de backends.yaml, ou
+// env.yaml absent / illisible pour un backend conteneur → erreur (F2 pour
+// reconfigurer), jamais un repli sur l'hôte.
+func launchBackend(proj string) (BackendConf, error) {
+	name, ok := readAssignments()[proj]
+	if !ok {
+		return projectBackend(proj), nil // jamais configuré (aucun backend conteneur : hôte)
+	}
+	if name == "host" {
+		return BackendConf{Name: "host", Type: "host"}, nil
+	}
+	b, found := findBackend(name)
+	if !found {
+		return b, fmt.Errorf("backend « %s » du projet absent de backends.yaml — F2 pour reconfigurer", name)
+	}
+	if _, ok := engineOf(b); ok {
+		if !hasEnv(proj) {
+			return b, fmt.Errorf("projet configuré sur « %s » mais %s absent — F2 pour reconfigurer", name, envFile)
+		}
+		if _, err := loadEnv(proj); err != nil {
+			return b, fmt.Errorf("%v — corriger le fichier ou F2 pour reconfigurer", err)
+		}
+	}
+	return b, nil
+}
+
 func projectBackend(proj string) BackendConf {
 	host := BackendConf{Name: "host", Type: "host"}
 	if !hasEnv(proj) {

@@ -297,3 +297,40 @@ func TestReconfigure(t *testing.T) {
 		t.Errorf("projet sur l'hôte : « hôte » attendu, %+v", m.form)
 	}
 }
+
+// Un projet configuré se lance sur son backend, jamais ailleurs.
+func TestLaunchBackendNoFallback(t *testing.T) {
+	h := withHome(t)
+	_ = os.MkdirAll(filepath.Join(h, ".config", "claude-launcher-ng2"), 0o755)
+	_ = os.WriteFile(backendsPath(), []byte("backends:\n  pod: {type: podman}\n"), 0o644)
+	p := filepath.Join(h, "proj")
+	_ = os.MkdirAll(filepath.Join(p, ".claude-launcher"), 0o755)
+	_ = os.WriteFile(envPath(p), []byte("image: docker.io/library/debian:12\n"), 0o644)
+
+	_ = writeAssignment(p, "pod")
+	if b, err := launchBackend(p); err != nil || b.Name != "pod" {
+		t.Errorf("backend configuré : %v %s", err, b.Name)
+	}
+	_ = writeAssignment(p, "host")
+	if b, err := launchBackend(p); err != nil || b.Name != "host" {
+		t.Errorf("hôte configuré (env.yaml présent) : %v %s", err, b.Name)
+	}
+	_ = writeAssignment(p, "disparu")
+	if _, err := launchBackend(p); err == nil || !strings.Contains(err.Error(), "F2") {
+		t.Errorf("backend retiré de backends.yaml : refus attendu, %v", err)
+	}
+	_ = writeAssignment(p, "pod")
+	_ = os.Remove(envPath(p))
+	if _, err := launchBackend(p); err == nil || !strings.Contains(err.Error(), "env.yaml") {
+		t.Errorf("env.yaml disparu : refus attendu, %v", err)
+	}
+	_ = os.WriteFile(envPath(p), []byte("packages: [x]\n"), 0o644)
+	if _, err := launchBackend(p); err == nil {
+		t.Error("env.yaml invalide : refus attendu")
+	}
+	q := filepath.Join(h, "neuf") // jamais configuré : pas d'erreur (le formulaire a été proposé avant)
+	_ = os.MkdirAll(q, 0o755)
+	if b, err := launchBackend(q); err != nil || b.Name != "host" {
+		t.Errorf("jamais configuré : %v %s", err, b.Name)
+	}
+}

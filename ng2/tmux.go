@@ -98,7 +98,7 @@ func openProject(cfg Config, session string, n Node, launch bool, latest string,
 		return "[dry-run] new-window " + n.Key + " → claude (couleur " + cfg.projectColor(n.Key) + ")"
 	}
 	if err := launchProject(cfg, session, n, latest, mode); err != nil {
-		return fmt.Sprintf("tmux : %v", err)
+		return fmt.Sprintf("⚠ %v", err)
 	}
 	return ""
 }
