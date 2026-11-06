@@ -131,6 +131,32 @@ backends:
   docker: { type: docker, context: default }
 ```
 
+#### Backends distants
+
+```yaml
+backends:
+  srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/share/MFS/ROOT] }
+  srv1:        { type: ssh,    host: srv1,                       shared: [/share/MFS/ROOT] }
+```
+
+- **docker** se pilote **en direct** : `host` est l'adresse du démon (`tcp://…`,
+  ou un `context` docker), jamais à travers ssh. Le client docker doit être
+  installé sur la machine du launcher.
+- **ssh** suppose **podman** sur la machine distante (`ssh <host> podman …`,
+  accès par clé sans mot de passe).
+- **`shared`** : racines du stockage partagé (NFS, MooseFS…), montées **aux
+  mêmes chemins** sur la machine du launcher et sur la machine distante.
+  `~/.claude` (ou `CLAUDE_CONFIG_DIR`) et le projet doivent s'y trouver : les
+  conversations, teams et marqueurs sont lus des deux côtés. Les dossiers sont
+  montés avec `--mount` : s'ils manquent de l'autre côté, la création échoue
+  (au lieu d'y créer un dossier vide).
+
+Un backend inutilisable est signalé `⚠` dans le navigateur, et
+`claude-launcher-ng2 backends` détaille chaque problème avec la façon d'y
+remédier : client ou moteur absent, accès au socket docker refusé, démon
+distant non exposé, accès ssh, podman absent de la machine distante, stockage
+partagé non monté ou non déclaré, `~/.claude` hors du partage.
+
 L'affectation est mémorisée par machine
 (`~/.local/state/claude-launcher-ng2/projects.json`), pas dans le projet.
 

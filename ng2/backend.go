@@ -89,9 +89,18 @@ func (e EnvSpec) hash() string {
 // ── Config des backends ───────────────────────────────────────────────────
 
 type BackendConf struct {
-	Name    string `yaml:"-"`
-	Type    string `yaml:"type"`    // host | podman | docker
-	Context string `yaml:"context"` // docker : --context
+	Name    string   `yaml:"-"`
+	Type    string   `yaml:"type"`    // host | podman | docker | ssh
+	Context string   `yaml:"context"` // docker : --context
+	Host    string   `yaml:"host"`    // docker : adresse du démon (tcp://…) ; ssh : destination ssh
+	Shared  []string `yaml:"shared"`  // distant : racines du stockage partagé (mêmes chemins des deux côtés)
+}
+
+// remote : le conteneur tourne sur une autre machine (démon docker distant, ou
+// podman joint par ssh). Ses montages y sont résolus : ~/.claude et le projet
+// doivent être sur le stockage partagé, aux mêmes chemins.
+func (b BackendConf) remote() bool {
+	return b.Type == "ssh" || b.Type == "docker" && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
 }
 
 type backendsFile struct {
@@ -135,8 +144,12 @@ func loadBackends() ([]BackendConf, error) {
 		c.Name = n
 		switch c.Type {
 		case "host", "podman", "docker":
+		case "ssh":
+			if c.Host == "" {
+				return nil, fmt.Errorf("backends.yaml : backend ssh %q sans « host » (destination ssh)", n)
+			}
 		default:
-			return nil, fmt.Errorf("backends.yaml : backend %q de type %q non géré (host, podman, docker)", n, c.Type)
+			return nil, fmt.Errorf("backends.yaml : backend %q de type %q non géré (host, podman, docker, ssh)", n, c.Type)
 		}
 		out = append(out, c)
 	}
@@ -240,24 +253,51 @@ func projectBackend(proj string) BackendConf {
 
 // ── Moteur de conteneurs (podman / docker) ────────────────────────────────
 
-// Engine : un moteur de conteneurs local. Le conteneur porte les labels
+// Engine : un moteur de conteneurs : podman local, docker (socket local ou démon
+// distant en accès direct), ou podman d'une autre machine joint par ssh. Le conteneur porte les labels
 // cl.launcher=ng2, cl.project, cl.backend, cl.image : c'est par eux que le
 // launcher retrouve ses projets au redémarrage (List).
 type Engine struct{ b BackendConf }
 
 func engineOf(b BackendConf) (Engine, bool) {
-	if b.Type != "podman" && b.Type != "docker" {
-		return Engine{}, false
+	switch b.Type {
+	case "podman", "docker", "ssh":
+		return Engine{b}, true
 	}
-	return Engine{b}, true
+	return Engine{}, false
 }
 
-func (e Engine) cli(args ...string) []string {
-	out := []string{e.b.Type}
-	if e.b.Type == "docker" && e.b.Context != "" {
-		out = append(out, "--context", e.b.Context)
+// podman : moteur podman (local ou distant par ssh) — utilisateur gardé (keep-id).
+func (e Engine) podman() bool { return e.b.Type == "podman" || e.b.Type == "ssh" }
+
+func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
+
+// cliT : ligne de commande du moteur ; tty : terminal demandé à ssh (attache).
+// Par ssh, la commande distante est une seule chaîne passée au shell distant :
+// chaque argument y est protégé.
+func (e Engine) cliT(tty bool, args ...string) []string {
+	switch e.b.Type {
+	case "ssh":
+		out := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
+		if tty {
+			out = append(out, "-t")
+		}
+		q := make([]string, len(args))
+		for i, a := range args {
+			q[i] = shq(a)
+		}
+		return append(out, e.b.Host, "podman "+strings.Join(q, " "))
+	case "docker":
+		out := []string{"docker"}
+		if e.b.Context != "" {
+			out = append(out, "--context", e.b.Context)
+		}
+		if e.b.Host != "" {
+			out = append(out, "-H", e.b.Host)
+		}
+		return append(out, args...)
 	}
-	return append(out, args...)
+	return append([]string{e.b.Type}, args...)
 }
 
 func (e Engine) cmd(args ...string) *exec.Cmd {
@@ -315,9 +355,13 @@ func (e Engine) ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 			return "", err
 		}
 		fmt.Fprintf(log, "  création du conteneur %s (%s)…\n", name, env.Image)
+		var out bytes.Buffer
 		c := e.cmd(args...)
-		c.Stdout, c.Stderr = log, log
+		c.Stdout, c.Stderr = io.MultiWriter(log, &out), io.MultiWriter(log, &out)
 		if err := c.Run(); err != nil {
+			if s := out.String(); strings.Contains(s, "bind source path does not exist") || strings.Contains(s, "no such file or directory") {
+				return "", fmt.Errorf("création du conteneur : un dossier monté manque sur la machine du moteur — stockage partagé non monté au même chemin (%s, %s)", claudeDir(), proj)
+			}
 			return "", fmt.Errorf("création du conteneur : %w", err)
 		}
 	default:
@@ -335,13 +379,31 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	if err := ensureSharedConfig(); err != nil {
 		return nil, err
 	}
-	args := []string{"run", "-d", "--name", name, "--hostname", name,
+	if err := e.checkShared(proj); err != nil {
+		return nil, err
+	}
+	// hostname : « cl- » conteneur local, « clx- » distant — pidSpace.go en déduit
+	// si l'absence du namespace prouve la mort du leader (local) ou rien (distant)
+	host := name
+	if e.b.remote() {
+		host = "clx-" + strings.TrimPrefix(name, "cl-")
+	}
+	// --mount (et non -v) : échoue si le dossier manque sur la machine du moteur,
+	// au lieu d'y créer un dossier vide (stockage partagé non monté)
+	bind := func(p string, ro bool) string {
+		m := "type=bind,src=" + p + ",dst=" + p
+		if ro {
+			m += ",readonly"
+		}
+		return m
+	}
+	args := []string{"run", "-d", "--name", name, "--hostname", host,
 		"--label", "cl.launcher=ng2", "--label", "cl.project=" + proj,
 		"--label", "cl.backend=" + e.b.Name, "--label", "cl.image=" + env.Image,
-		"-v", cd + ":" + cd, "-v", proj + ":" + proj, "-w", proj,
+		"--mount", bind(cd, false), "--mount", bind(proj, false), "-w", proj,
 		"-e", "HOME=" + home, "-e", "CLAUDE_CONFIG_DIR=" + cd, "-e", "LANG=C.UTF-8",
 		"-e", "DISABLE_AUTOUPDATER=1"}
-	if e.b.Type == "podman" {
+	if e.podman() {
 		args = append(args, "--userns=keep-id", "--user", "0")
 	}
 	for _, m := range env.Mounts {
@@ -352,11 +414,10 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 		if _, err := os.Stat(p); err != nil {
 			return nil, fmt.Errorf("montage %s : %w", m.Path, err)
 		}
-		v := p + ":" + p
-		if m.RO == nil || *m.RO {
-			v += ":ro"
+		if e.b.remote() && !underShared(e.b, p) {
+			return nil, fmt.Errorf("montage %s : hors du stockage partagé du backend %s (%s)", p, e.b.Name, strings.Join(e.b.Shared, ", "))
 		}
-		args = append(args, "-v", v)
+		args = append(args, "--mount", bind(p, m.RO == nil || *m.RO))
 	}
 	return append(args, env.Image, "sh", "-c", pid1), nil
 }
@@ -388,6 +449,16 @@ func ensureSharedConfig() error {
 // execArgv : commande exécutée dans le conteneur ; root : en root, sinon en
 // utilisateur de l'hôte (uid:gid) ; tty : terminal interactif (attach).
 func (e Engine) execArgv(name string, root, tty bool, argv ...string) []string {
+	if tty {
+		// attache : TERM et LANG passés au conteneur, terminal demandé à ssh
+		a := []string{"exec", "-i", "-t", "-e", "TERM=tmux-256color", "-e", "LANG=C.UTF-8"}
+		if root {
+			a = append(a, "-u", "0")
+		} else {
+			a = append(a, "-u", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
+		}
+		return e.cliT(true, append(append(a, name), argv...)...)
+	}
 	a := []string{"exec", "-i"}
 	if tty {
 		a = append(a, "-t", "-e", "TERM=tmux-256color")

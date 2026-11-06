@@ -132,3 +132,51 @@ func TestLeaderAliveIn(t *testing.T) {
 		t.Error("conteneur NG2 local arrêté : le leader doit être mort")
 	}
 }
+
+func TestRemoteEngines(t *testing.T) {
+	ssh := Engine{BackendConf{Name: "srv", Type: "ssh", Host: "srv1", Shared: []string{"/share/MFS/ROOT"}}}
+	got := ssh.cli("exec", "-i", "ctr", "sh", "-c", "echo 'a b' $HOME")
+	want := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "srv1",
+		`podman 'exec' '-i' 'ctr' 'sh' '-c' 'echo '\''a b'\'' $HOME'`}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("ssh cli :\n %q\n %q", got, want)
+	}
+	if a := ssh.execArgv("ctr", false, true, "tmux", "attach"); a[5] != "-t" {
+		t.Errorf("attache ssh sans -t : %q", a)
+	}
+	if !ssh.podman() || !ssh.b.remote() {
+		t.Error("ssh : podman distant attendu")
+	}
+	dk := Engine{BackendConf{Type: "docker", Host: "tcp://192.168.1.211:2375"}}
+	if strings.Join(dk.cli("ps"), " ") != "docker -H tcp://192.168.1.211:2375 ps" || !dk.b.remote() || dk.podman() {
+		t.Errorf("docker distant : %v", dk.cli("ps"))
+	}
+	if (BackendConf{Type: "docker"}).remote() || (BackendConf{Type: "docker", Host: "unix:///run/docker.sock"}).remote() {
+		t.Error("docker local vu distant")
+	}
+	b := ssh.b
+	if !underShared(b, "/share/MFS/ROOT/x/y") || underShared(b, "/share/MFS/ROOTX") || underShared(b, "/mnt/c/p") {
+		t.Error("underShared")
+	}
+	if ps := sharedProblems(BackendConf{Name: "x", Type: "ssh", Host: "h"}, ""); len(ps) != 1 || !strings.Contains(ps[0].fix, "shared") {
+		t.Errorf("shared manquant : %v", ps)
+	}
+	if ps := sharedProblems(BackendConf{Type: "podman"}, "/mnt/c/p"); ps != nil {
+		t.Errorf("local : pas de prérequis de partage : %v", ps)
+	}
+}
+
+func TestSSHBackendNeedsHost(t *testing.T) {
+	h := withHome(t)
+	_ = os.MkdirAll(filepath.Join(h, ".config", "claude-launcher-ng2"), 0o755)
+	_ = os.WriteFile(backendsPath(), []byte("backends:\n  srv: {type: ssh}\n"), 0o644)
+	if _, err := loadBackends(); err == nil {
+		t.Error("backend ssh sans host accepté")
+	}
+}
+
+func TestLeaderRemoteContainerUnknown(t *testing.T) {
+	if leaderAliveIn(42, "clx-projet-1234#pid:[1]") != leaderUnknown {
+		t.Error("conteneur distant : rien à conclure de l'absence du namespace ici")
+	}
+}

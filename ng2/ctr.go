@@ -90,6 +90,13 @@ func runCtrAttach(proj, startFile string) error {
 		return err
 	}
 	fmt.Printf("\033[1m⬡ %s — %s (%s)\033[0m\n", baseName(proj), b.Name, env.Image)
+	if ps := diagnose(b); len(ps) > 0 {
+		var s strings.Builder
+		for _, p := range ps {
+			fmt.Fprintf(&s, "\n  ⚠ %s\n    → %s", p.what, p.fix)
+		}
+		return fmt.Errorf("backend %s inutilisable :%s", b.Name, s.String())
+	}
 	name, err := e.ensure(proj, env, os.Stdout)
 	if err != nil {
 		return err

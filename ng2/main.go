@@ -917,7 +917,8 @@ func (m model) projInfo(n Node) projInfo {
 	f, ctrKnown := m.ctr.found[n.Path]
 	return projInfo{open: m.windows[n.Key], git: g, gitOK: ok, tpl: m.tpl[n.Path], tplLatest: m.tplVer,
 		ms: m.milestones[n.Path], sess: r, hasSess: hasSess,
-		hasEnv: m.ctr.env[n.Path], backend: m.ctr.assign[n.Path], ctr: f, ctrKnown: ctrKnown}
+		hasEnv: m.ctr.env[n.Path], backend: m.ctr.assign[n.Path], ctr: f, ctrKnown: ctrKnown,
+		problems: m.ctr.diag[m.ctr.assign[n.Path]]}
 }
 
 // badges : icônes de la ligne du projet (« … » tant que git n'est pas lu).

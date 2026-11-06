@@ -14,10 +14,11 @@ import (
 
 // ctrView : ce que le navigateur sait des backends, relu toutes les 10 s.
 type ctrView struct {
-	env    map[string]bool   // projet -> a un .claude-launcher/env.yaml
-	assign map[string]string // projet -> backend (sans entrée : host, ou « prefer »)
-	found  map[string]Found  // projet -> son conteneur, s'il existe
-	errs   map[string]string // backend -> erreur de listing (moteur absent…)
+	env    map[string]bool      // projet -> a un .claude-launcher/env.yaml
+	assign map[string]string    // projet -> backend (sans entrée : host, ou « prefer »)
+	found  map[string]Found     // projet -> son conteneur, s'il existe
+	errs   map[string]string    // backend -> erreur de listing (moteur absent…)
+	diag   map[string][]problem // backend affecté à un projet -> ce qui l'empêche de marcher
 }
 
 type ctrMsg ctrView
@@ -31,7 +32,7 @@ func ctrCmd(paths []string, delay time.Duration) tea.Cmd {
 }
 
 func readCtrView(paths []string) ctrView {
-	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}}
+	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}}
 	any := false
 	for _, p := range paths {
 		if hasEnv(p) {
@@ -45,6 +46,12 @@ func readCtrView(paths []string) ctrView {
 		if !ok || !any && !usedBackend(b.Name) {
 			continue
 		}
+		if assignedTo(v.assign, b.Name) {
+			if ps := diagnoseCached(b); len(ps) > 0 {
+				v.diag[b.Name] = ps
+				continue
+			}
+		}
 		fs, err := e.list()
 		if err != nil {
 			v.errs[b.Name] = err.Error()
@@ -55,6 +62,15 @@ func readCtrView(paths []string) ctrView {
 		}
 	}
 	return v
+}
+
+func assignedTo(assign map[string]string, name string) bool {
+	for _, b := range assign {
+		if b == name {
+			return true
+		}
+	}
+	return false
 }
 
 func usedBackend(name string) bool {
@@ -75,6 +91,9 @@ func ctrIndicator(p projInfo) (indicator, bool) {
 		return indicator{}, false
 	}
 	switch {
+	case len(p.problems) > 0:
+		return indicator{icon: "⚠", style: yellow, text: "backend " + p.backend + " inutilisable : " + p.problems[0].String() +
+			" (détails : claude-launcher-ng2 backends)"}, true
 	case !p.ctrKnown:
 		return indicator{icon: "⬡", style: dim, text: "conteneur " + p.backend + " pas encore créé (bootstrap à l'ouverture)"}, true
 	case p.ctr.Running:
@@ -195,6 +214,16 @@ func runBackends() error {
 	fmt.Println("Backends (" + backendsPath() + ") :")
 	for _, b := range bs {
 		line := "  " + padRight(b.Name, 12) + b.Type
+		if b.Host != "" {
+			line += " " + b.Host
+		}
+		if ps := diagnose(b); len(ps) > 0 {
+			for _, p := range ps {
+				line += "\n      ⚠ " + p.what + "\n        → " + p.fix
+			}
+			fmt.Println(line)
+			continue
+		}
 		if e, ok := engineOf(b); ok {
 			fs, err := e.list()
 			if err != nil {

@@ -31,10 +31,11 @@ type projInfo struct {
 	ms        MsState
 	sess      Resumable
 	hasSess   bool
-	hasEnv    bool   // .claude-launcher/env.yaml présent
-	backend   string // backend affecté (host par défaut)
-	ctr       Found  // conteneur du projet
-	ctrKnown  bool   // … s'il existe
+	hasEnv    bool      // .claude-launcher/env.yaml présent
+	backend   string    // backend affecté (host par défaut)
+	ctr       Found     // conteneur du projet
+	ctrKnown  bool      // … s'il existe
+	problems  []problem // backend affecté inutilisable (diag.go)
 }
 
 // openIndicator : pastille devant le nom.
