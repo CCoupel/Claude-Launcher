@@ -47,3 +47,22 @@ func TestDeadTeams(t *testing.T) {
 		t.Errorf("deadTeams (reprise désactivée)=%v, attendu %v", got, want)
 	}
 }
+
+// Team d'un conteneur (pidSpace étranger) : ses panes %N sont ceux du tmux du
+// conteneur, jamais jugés par l'hôte. Team de l'hôte d'un démarrage précédent
+// (même hostname, autre namespace) : jugée normalement.
+func TestDeadTeamsForeignPidSpace(t *testing.T) {
+	root := t.TempDir()
+	team := func(name, cfg string) {
+		d := filepath.Join(root, "teams", name)
+		_ = os.MkdirAll(d, 0o755)
+		_ = os.WriteFile(filepath.Join(d, "config.json"), []byte(cfg), 0o644)
+	}
+	team("conteneur", `{"leadProcess":{"pid":12,"pidSpace":"cl-demo-1234#pid:[1]"},"members":[{"tmuxPaneId":"%1"}]}`)
+	team("hote-ancien", `{"leadProcess":{"pid":12,"pidSpace":"`+hostName()+`#pid:[1]"},"members":[{"tmuxPaneId":"%1"}]}`)
+	team("hote", `{"leadProcess":{"pid":12,"pidSpace":"`+hostPidSpace()+`"},"members":[{"tmuxPaneId":"%1"}]}`)
+	got := deadTeams(root, map[string]bool{"%9": true}, 0)
+	if want := []string{"hote", "hote-ancien"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("deadTeams=%v, attendu %v", got, want)
+	}
+}

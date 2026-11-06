@@ -90,11 +90,12 @@ type winPane struct {
 
 type winState struct {
 	name, statusStyle string
+	server            string // PID du serveur tmux du hub (un hub recréé redonne les mêmes @N)
 	w, h              int
 	panes             []winPane // par index croissant
 }
 
-const winFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window-status-style}|#{window_name}"
+const winFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window-status-style}|#{pid}|#{window_name}"
 
 // readWin : panes et taille lus dans le tmux du projet ; nom et style de
 // l'onglet lus dans le hub (même appel en exécution directe).
@@ -105,25 +106,31 @@ func readWin(p projWin) (winState, error) {
 	}
 	var ws winState
 	for _, l := range strings.Split(out, "\n") {
-		f := strings.SplitN(l, "|", 7)
-		if len(f) != 7 || f[0] == "" {
+		f := strings.SplitN(l, "|", 8)
+		if len(f) != 8 || f[0] == "" {
 			continue
 		}
 		idx, _ := strconv.Atoi(f[1])
 		ws.panes = append(ws.panes, winPane{f[0], idx, f[2]})
 		ws.w, _ = strconv.Atoi(f[3])
 		ws.h, _ = strconv.Atoi(f[4])
-		ws.statusStyle, ws.name = f[5], f[6]
+		ws.statusStyle, ws.server, ws.name = f[5], f[6], f[7]
 	}
 	if len(ws.panes) == 0 {
 		return ws, fmt.Errorf("fenêtre %s sans pane", p.win)
 	}
 	if !p.direct() {
-		tab, err := tout(hub, "display-message", "-p", "-t", p.hubWin, "#{window-status-style}|#{window_name}")
+		// display-message réussit même sur une fenêtre disparue (il répond alors
+		// pour une autre) : l'identifiant renvoyé doit être celui demandé
+		tab, err := tout(hub, "display-message", "-p", "-t", p.hubWin, "#{window_id}|#{window-status-style}|#{pid}|#{window_name}")
 		if err != nil {
 			return ws, err
 		}
-		ws.statusStyle, ws.name, _ = strings.Cut(tab, "|")
+		f := strings.SplitN(tab, "|", 4)
+		if len(f) != 4 || strings.HasPrefix(p.hubWin, "@") && f[0] != p.hubWin {
+			return ws, fmt.Errorf("fenêtre %s fermée", p.hubWin)
+		}
+		ws.statusStyle, ws.server, ws.name = f[1], f[2], f[3]
 	}
 	sort.Slice(ws.panes, func(i, j int) bool { return ws.panes[i].index < ws.panes[j].index })
 	return ws, nil
@@ -396,17 +403,21 @@ func runLayoutWatch(win, leader, projectDir string) {
 	cfg := loadConfig()
 	pw := projectOf(win)
 	prevCount, prevSig, prevRelayout := 1, "", ""
+	server := ""
 	for {
 		time.Sleep(time.Second)
 		ws, err := readWin(pw)
 		if err != nil {
 			return // fenêtre fermée
 		}
+		// hub tué puis recréé : il redonne les mêmes @N à d'autres fenêtres (ou à
+		// la même, rattachée, qui a son propre watcher) — ce watcher-ci s'arrête
+		if server == "" {
+			server = ws.server
+		} else if ws.server != server {
+			return
+		}
 		if !pw.direct() {
-			// conteneur : la session survit à la fenêtre du hub ; le watcher, non
-			if hub.Run("display-message", "-p", "-t", pw.hubWin, "#{window_id}") != nil {
-				return
-			}
 			// Ctrl+B R dans le tmux du conteneur incrémente @cl_relayout (bootstrap.sh)
 			if r, _ := tout(pw.t, "show-options", "-wqv", "-t", pw.win, "@cl_relayout"); r != prevRelayout {
 				if prevRelayout != "" || r != "" {

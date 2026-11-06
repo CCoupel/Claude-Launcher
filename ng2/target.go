@@ -50,11 +50,16 @@ func (p projWin) direct() bool { return p.t == hub && p.win == p.hubWin }
 // canal de contrôle ; sinon ils sont dans la fenêtre du hub elle-même.
 func projectOf(hubWin string) projWin {
 	direct := projWin{t: hub, win: hubWin, hubWin: hubWin}
-	s, err := tout(hub, "display-message", "-p", "-t", hubWin, "#{@cl_backend}|#{@cl_ctr}")
+	// display-message répond pour une autre fenêtre si hubWin a disparu : on vérifie l'id
+	s, err := tout(hub, "display-message", "-p", "-t", hubWin, "#{window_id}|#{@cl_backend}|#{@cl_ctr}")
 	if err != nil {
 		return direct
 	}
-	be, ctr, _ := strings.Cut(s, "|")
+	f := strings.SplitN(s, "|", 3)
+	if len(f) != 3 || strings.HasPrefix(hubWin, "@") && f[0] != hubWin {
+		return direct
+	}
+	be, ctr := f[1], f[2]
 	if be == "" || ctr == "" {
 		return direct
 	}
