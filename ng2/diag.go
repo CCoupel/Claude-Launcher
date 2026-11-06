@@ -103,12 +103,17 @@ func diagnose(b BackendConf) []problem {
 }
 
 func engineProblems(b BackendConf) []problem {
+	e := Engine{b}
 	switch b.Type {
 	case "podman":
 		if _, err := exec.LookPath("podman"); err != nil {
 			return []problem{{"podman absent de cette machine", "l'installer : sudo apt install -y podman (ou dnf install podman)"}}
 		}
-		if out, err := runQuiet(8*time.Second, "podman", "info", "--format", "{{.Host.Security.Rootless}}"); err != nil {
+		if out, err := runQuiet(8*time.Second, e.cli("info", "--format", "{{.Host.Security.Rootless}}")...); err != nil {
+			if b.remote() {
+				return []problem{{"service podman de " + b.Host + " injoignable : " + firstLine(out, err),
+					"le lancer sur l'hôte (utilisateur) : podman system service --time=0 " + b.Host + " — API non authentifiée ni chiffrée : réseau de confiance seulement, sinon backend ssh"}}
+			}
 			return []problem{{"podman ne répond pas : " + firstLine(out, err), "vérifier « podman info » (sous-uids : /etc/subuid, /etc/subgid)"}}
 		}
 	case "docker":
@@ -116,35 +121,60 @@ func engineProblems(b BackendConf) []problem {
 			return []problem{{"client docker absent de cette machine",
 				"installer le client seul (binaire statique : https://download.docker.com/linux/static/stable/) ou, sous WSL, activer Docker Desktop → Settings → Resources → WSL integration"}}
 		}
-		e := Engine{b}
-		out, err := runQuiet(8*time.Second, e.cli("version", "--format", "{{.Server.Version}}")...)
-		if err != nil {
-			msg := firstLine(out, err)
-			switch {
-			case strings.Contains(msg, "permission denied"):
-				return []problem{{"accès au démon docker refusé : " + msg,
-					"ajouter l'utilisateur au groupe docker : sudo usermod -aG docker $USER, puis ouvrir une nouvelle session"}}
-			case strings.Contains(msg, "could not be found in this WSL"):
-				return []problem{{"pas de client docker utilisable (lanceur de Docker Desktop sans intégration WSL)",
-					"installer le client docker seul (binaire statique : https://download.docker.com/linux/static/stable/) ou activer Docker Desktop → Settings → Resources → WSL integration"}}
-			case b.remote():
-				return []problem{{"démon docker de " + b.Host + " injoignable : " + msg,
-					"l'exposer : sur l'hôte, /etc/docker/daemon.json → \"hosts\": [\"unix:///var/run/docker.sock\", \"tcp://0.0.0.0:2375\"] puis systemctl restart docker (TLS : port 2376 et --tlsverify)"}}
-			default:
-				return []problem{{"démon docker injoignable : " + msg, "le démarrer (sudo systemctl start docker) ou viser un démon distant (« host: tcp://… »)"}}
-			}
+		if p, ok := dockerProblem(b, runQuietErr(8*time.Second, e.cli("version", "--format", "{{.Server.Version}}")...), ""); ok {
+			return []problem{p}
 		}
 	case "ssh":
 		if out, err := runQuiet(12*time.Second, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", b.Host, "true"); err != nil {
 			return []problem{{"accès ssh à " + b.Host + " impossible : " + firstLine(out, err),
 				"configurer un accès par clé sans mot de passe : ssh-copy-id " + b.Host + " (et l'hôte dans ~/.ssh/config)"}}
 		}
-		if _, err := runQuiet(12*time.Second, "ssh", "-o", "BatchMode=yes", b.Host, "command -v podman"); err != nil {
-			return []problem{{"podman absent de " + b.Host + " (le backend ssh utilise podman ; pour docker, viser son démon en direct : type docker, host tcp://…)",
-				"l'installer : ssh " + b.Host + " sudo apt install -y podman (ou dnf install podman)"}}
+		eng := b.engine()
+		if _, err := runQuiet(12*time.Second, "ssh", "-o", "BatchMode=yes", b.Host, "command -v "+eng); err != nil {
+			return []problem{{eng + " absent de " + b.Host + " (ou hors du PATH d'une commande ssh)",
+				"l'installer : ssh " + b.Host + " sudo apt install -y " + map[string]string{"podman": "podman", "docker": "docker.io"}[eng] + " — ou choisir l'autre moteur (engine: podman|docker)"}}
+		}
+		if eng == "docker" {
+			if p, ok := dockerProblem(b, runQuietErr(12*time.Second, e.cli("version", "--format", "{{.Server.Version}}")...), " sur "+b.Host); ok {
+				return []problem{p}
+			}
+		} else if out, err := runQuiet(12*time.Second, e.cli("info", "--format", "{{.Host.Security.Rootless}}")...); err != nil {
+			return []problem{{"podman ne répond pas sur " + b.Host + " : " + firstLine(out, err), "vérifier « ssh " + b.Host + " podman info »"}}
 		}
 	}
 	return nil
+}
+
+type qerr struct {
+	out string
+	err error
+}
+
+func runQuietErr(timeout time.Duration, argv ...string) qerr {
+	out, err := runQuiet(timeout, argv...)
+	return qerr{out, err}
+}
+
+// dockerProblem : lecture de l'échec d'un « docker version » (local, direct ou par ssh).
+func dockerProblem(b BackendConf, r qerr, where string) (problem, bool) {
+	if r.err == nil {
+		return problem{}, false
+	}
+	msg := firstLine(r.out, r.err)
+	switch {
+	case strings.Contains(msg, "permission denied"):
+		return problem{"accès au démon docker refusé" + where + " : " + msg,
+			"ajouter l'utilisateur au groupe docker" + where + " : sudo usermod -aG docker $USER, puis ouvrir une nouvelle session"}, true
+	case strings.Contains(msg, "could not be found in this WSL"):
+		return problem{"pas de client docker utilisable (lanceur de Docker Desktop sans intégration WSL)",
+			"installer le client docker seul (binaire statique : https://download.docker.com/linux/static/stable/) ou activer Docker Desktop → Settings → Resources → WSL integration"}, true
+	case b.Type == "docker" && b.remote():
+		return problem{"démon docker de " + b.Host + " injoignable : " + msg,
+			"l'exposer : sur l'hôte, /etc/docker/daemon.json → \"hosts\": [\"unix:///var/run/docker.sock\", \"tcp://0.0.0.0:2375\"] puis systemctl restart docker (TLS : port 2376 et --tlsverify)"}, true
+	default:
+		return problem{"démon docker injoignable" + where + " : " + msg,
+			"le démarrer (sudo systemctl start docker), ou indiquer son adresse (host / engine_host : unix:///run/user/<uid>/docker.sock pour un docker rootless)"}, true
+	}
 }
 
 func firstLine(out string, err error) string {

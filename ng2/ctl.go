@@ -43,11 +43,36 @@ func (c *ctlTarget) Output(args ...string) ([]byte, error) {
 	if err := c.open(); err != nil {
 		return nil, err
 	}
-	b, err := c.send(ctlLine(args))
-	if errors.Is(err, errCtlDown) {
-		c.close()
+	// une ligne par commande : en mode contrôle, tmux répond par un bloc
+	// %begin…%end PAR commande d'une liste « a ; b » — n'en lire qu'un décalerait
+	// toutes les réponses suivantes
+	var out []byte
+	for _, cmd := range splitCommands(args) {
+		b, err := c.send(ctlLine(cmd))
+		out = append(out, b...)
+		if err != nil {
+			if errors.Is(err, errCtlDown) {
+				c.close()
+			}
+			return out, err
+		}
 	}
-	return b, err
+	return out, nil
+}
+
+// splitCommands : « a x ; b y » → [[a x] [b y]].
+func splitCommands(args []string) [][]string {
+	var out [][]string
+	cur := []string{}
+	for _, a := range args {
+		if a == ";" {
+			out = append(out, cur)
+			cur = []string{}
+			continue
+		}
+		cur = append(cur, a)
+	}
+	return append(out, cur)
 }
 
 func (c *ctlTarget) open() error {
@@ -123,7 +148,7 @@ func (c *ctlTarget) read() ([]byte, error) {
 	}
 }
 
-// ctlLine : arguments → ligne de commande tmux. « ; » seul sépare deux commandes.
+// ctlLine : arguments d'UNE commande → ligne de commande tmux.
 func ctlLine(args []string) string {
 	q := make([]string, len(args))
 	for i, a := range args {

@@ -90,17 +90,30 @@ func (e EnvSpec) hash() string {
 
 type BackendConf struct {
 	Name    string   `yaml:"-"`
-	Type    string   `yaml:"type"`    // host | podman | docker | ssh
-	Context string   `yaml:"context"` // docker : --context
-	Host    string   `yaml:"host"`    // docker : adresse du démon (tcp://…) ; ssh : destination ssh
-	Shared  []string `yaml:"shared"`  // distant : racines du stockage partagé (mêmes chemins des deux côtés)
+	Type    string   `yaml:"type"`        // host | podman | docker | ssh
+	Context string   `yaml:"context"`     // docker : --context
+	Host    string   `yaml:"host"`        // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
+	Engine  string   `yaml:"engine"`      // ssh : moteur sur la machine distante, podman (défaut) ou docker
+	EngHost string   `yaml:"engine_host"` // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
+	Shared  []string `yaml:"shared"`      // distant : racines du stockage partagé (mêmes chemins des deux côtés)
+}
+
+// engine : moteur réellement piloté (podman ou docker).
+func (b BackendConf) engine() string {
+	if b.Type == "ssh" {
+		if b.Engine == "" {
+			return "podman"
+		}
+		return b.Engine
+	}
+	return b.Type
 }
 
 // remote : le conteneur tourne sur une autre machine (démon docker distant, ou
 // podman joint par ssh). Ses montages y sont résolus : ~/.claude et le projet
 // doivent être sur le stockage partagé, aux mêmes chemins.
 func (b BackendConf) remote() bool {
-	return b.Type == "ssh" || b.Type == "docker" && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
+	return b.Type == "ssh" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
 }
 
 type backendsFile struct {
@@ -147,6 +160,9 @@ func loadBackends() ([]BackendConf, error) {
 		case "ssh":
 			if c.Host == "" {
 				return nil, fmt.Errorf("backends.yaml : backend ssh %q sans « host » (destination ssh)", n)
+			}
+			if c.Engine != "" && c.Engine != "podman" && c.Engine != "docker" {
+				return nil, fmt.Errorf("backends.yaml : backend ssh %q : engine %q (podman ou docker)", n, c.Engine)
 			}
 		default:
 			return nil, fmt.Errorf("backends.yaml : backend %q de type %q non géré (host, podman, docker, ssh)", n, c.Type)
@@ -267,8 +283,22 @@ func engineOf(b BackendConf) (Engine, bool) {
 	return Engine{}, false
 }
 
-// podman : moteur podman (local ou distant par ssh) — utilisateur gardé (keep-id).
-func (e Engine) podman() bool { return e.b.Type == "podman" || e.b.Type == "ssh" }
+// podman : moteur podman (direct ou par ssh) — utilisateur gardé (keep-id).
+func (e Engine) podman() bool { return e.b.engine() == "podman" }
+
+// engineArgv : client du moteur et adresse de son démon / service.
+func engineArgv(engine, context, host string) []string {
+	out := []string{engine}
+	switch {
+	case engine == "docker" && context != "":
+		out = append(out, "--context", context)
+	case engine == "docker" && host != "":
+		out = append(out, "-H", host)
+	case engine == "podman" && host != "":
+		out = append(out, "--url", host)
+	}
+	return out
+}
 
 func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
 
@@ -282,22 +312,14 @@ func (e Engine) cliT(tty bool, args ...string) []string {
 		if tty {
 			out = append(out, "-t")
 		}
-		q := make([]string, len(args))
-		for i, a := range args {
+		rem := append(engineArgv(e.b.engine(), "", e.b.EngHost), args...)
+		q := make([]string, len(rem))
+		for i, a := range rem {
 			q[i] = shq(a)
 		}
-		return append(out, e.b.Host, "podman "+strings.Join(q, " "))
-	case "docker":
-		out := []string{"docker"}
-		if e.b.Context != "" {
-			out = append(out, "--context", e.b.Context)
-		}
-		if e.b.Host != "" {
-			out = append(out, "-H", e.b.Host)
-		}
-		return append(out, args...)
+		return append(out, e.b.Host, strings.Join(q, " "))
 	}
-	return append([]string{e.b.Type}, args...)
+	return append(engineArgv(e.b.Type, e.b.Context, e.b.Host), args...)
 }
 
 func (e Engine) cmd(args ...string) *exec.Cmd {
@@ -498,7 +520,8 @@ type Found struct {
 // list : conteneurs NG2 du moteur (par label ; labels relus par inspect, même
 // format pour podman et docker).
 func (e Engine) list() ([]Found, error) {
-	b, err := e.cmd("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2").Output()
+	// filtre aussi par backend : deux backends peuvent viser le même moteur
+	b, err := e.cmd("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.backend="+e.b.Name).Output()
 	if err != nil {
 		return nil, err
 	}

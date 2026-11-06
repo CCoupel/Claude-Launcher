@@ -22,8 +22,8 @@ func TestTmuxQuote(t *testing.T) {
 			t.Errorf("tmuxQuote(%q) = %s, attendu %s", in, got, want)
 		}
 	}
-	if got := ctlLine([]string{"display-message", "-p", "x", ";", "capture-pane", "-p"}); got != "'display-message' '-p' 'x' ; 'capture-pane' '-p'" {
-		t.Errorf("ctlLine : %s", got)
+	if got := splitCommands([]string{"display-message", "-p", "x", ";", "capture-pane", "-p"}); len(got) != 2 || ctlLine(got[1]) != "'capture-pane' '-p'" {
+		t.Errorf("splitCommands : %q", got)
 	}
 }
 
@@ -137,7 +137,7 @@ func TestRemoteEngines(t *testing.T) {
 	ssh := Engine{BackendConf{Name: "srv", Type: "ssh", Host: "srv1", Shared: []string{"/share/MFS/ROOT"}}}
 	got := ssh.cli("exec", "-i", "ctr", "sh", "-c", "echo 'a b' $HOME")
 	want := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "srv1",
-		`podman 'exec' '-i' 'ctr' 'sh' '-c' 'echo '\''a b'\'' $HOME'`}
+		`'podman' 'exec' '-i' 'ctr' 'sh' '-c' 'echo '\''a b'\'' $HOME'`}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("ssh cli :\n %q\n %q", got, want)
 	}
@@ -153,6 +153,14 @@ func TestRemoteEngines(t *testing.T) {
 	}
 	if (BackendConf{Type: "docker"}).remote() || (BackendConf{Type: "docker", Host: "unix:///run/docker.sock"}).remote() {
 		t.Error("docker local vu distant")
+	}
+	sd := Engine{BackendConf{Type: "ssh", Host: "srv1", Engine: "docker", EngHost: "unix:///run/user/1000/docker.sock"}}
+	if got := sd.cli("ps")[6]; got != "'docker' '-H' 'unix:///run/user/1000/docker.sock' 'ps'" || sd.podman() {
+		t.Errorf("ssh+docker : %q", got)
+	}
+	pd := Engine{BackendConf{Type: "podman", Host: "tcp://127.0.0.1:8888"}}
+	if strings.Join(pd.cli("ps"), " ") != "podman --url tcp://127.0.0.1:8888 ps" || !pd.podman() || !pd.b.remote() {
+		t.Errorf("podman direct : %v", pd.cli("ps"))
 	}
 	b := ssh.b
 	if !underShared(b, "/share/MFS/ROOT/x/y") || underShared(b, "/share/MFS/ROOTX") || underShared(b, "/mnt/c/p") {
