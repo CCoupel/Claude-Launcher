@@ -105,6 +105,8 @@ func diagnose(b BackendConf) []problem {
 func engineProblems(b BackendConf) []problem {
 	e := Engine{b}
 	switch b.Type {
+	case "k8s":
+		return k8sProblems(b)
 	case "podman":
 		if _, err := exec.LookPath("podman"); err != nil {
 			return []problem{{"podman absent de cette machine", "l'installer : sudo apt install -y podman (ou dnf install podman)"}}

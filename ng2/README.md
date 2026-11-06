@@ -133,7 +133,7 @@ backends:
 
 #### Backends distants
 
-Quatre façons d'atteindre un moteur :
+Quatre façons d'atteindre un moteur de conteneurs, plus Kubernetes :
 
 ```yaml
 backends:
@@ -149,6 +149,32 @@ backends:
 | `podman` + `host` | **direct** au service podman (`podman --url`) | `podman system service --time=0 tcp://0.0.0.0:8888` (API non authentifiée ni chiffrée : réseau de confiance) |
 | `ssh`, `engine: docker` | `ssh <host> docker …` | docker dans le PATH d'une commande ssh, utilisateur dans le groupe `docker` |
 | `ssh`, `engine: podman` (défaut) | `ssh <host> podman …` | podman dans le PATH d'une commande ssh |
+
+#### Kubernetes
+
+```yaml
+backends:
+  lab: { type: k8s, context: k8s, namespace: claude-ng2,
+         volumes: { /share/MFS/ROOT: claude-shared } }   # racine partagée → PVC ReadWriteMany
+```
+
+Un projet = un **StatefulSet** (1 réplique) `clx-<projet>-<empreinte>` ; son pod
+`…-0` monte chaque PVC de `volumes` **au chemin de sa racine**, donc aux mêmes
+chemins que sur la machine du launcher (les racines de `volumes` tiennent lieu
+de `shared`). Le pod tourne en root pour le bootstrap ; les commandes
+utilisateur passent par `su` (`kubectl exec` n'a pas de `-u`). Le chemin du
+projet est en annotation (`cl.project`), le listing par labels
+(`cl.launcher=ng2`, `cl.backend`).
+
+Prérequis : `kubectl` et son contexte, un namespace où l'on peut créer des
+StatefulSets, des PVC ReadWriteMany liés (ex. MooseFS : PV `csi.moosefs.com`
+avec `volumeAttributes.mfsSubDir`), et un namespace qui autorise les pods root.
+`claude-launcher-ng2 backends` signale ce qui manque, commande à l'appui.
+
+Pod perdu (nœud, éviction) : le StatefulSet le recrée, la fenêtre se ferme ;
+à la réouverture, le bootstrap est refait et la reprise de la conversation est
+proposée (le launcher constate que le pod n'a plus de session : le leader est
+mort, même si son PID n'est pas vérifiable d'ici).
 
 Le client du moteur doit être installé sur la machine du launcher pour les
 accès directs (le client podman ne pilote pas un démon docker). En ssh,

@@ -138,7 +138,7 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 
 	if inCtr {
 		_ = dtmux("set-window-option", "-t", target, "@cl_backend", be.Name).Run()
-		_ = dtmux("set-window-option", "-t", target, "@cl_ctr", ctrName(n.Path)).Run()
+		_ = dtmux("set-window-option", "-t", target, "@cl_ctr", ctrRef(be, n.Path)).Run()
 		_ = dtmux("set-window-option", "-t", target, "@cl_nested", "1").Run()
 	}
 

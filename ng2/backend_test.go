@@ -58,9 +58,13 @@ func TestBackendsAndAssignment(t *testing.T) {
 	if e, _ := engineOf(bs[1]); strings.Join(e.cli("ps"), " ") != "docker --context x ps" {
 		t.Errorf("cli docker : %v", e.cli("ps"))
 	}
-	_ = os.WriteFile(backendsPath(), []byte("backends:\n  k: {type: k8s}\n"), 0o644)
+	_ = os.WriteFile(backendsPath(), []byte("backends:\n  k: {type: lxc}\n"), 0o644)
 	if _, err := loadBackends(); err == nil {
-		t.Error("type k8s accepté")
+		t.Error("type inconnu accepté")
+	}
+	_ = os.WriteFile(backendsPath(), []byte("backends:\n  lab: {type: k8s, context: k8s, namespace: ns, volumes: {/share/MFS/ROOT: pvc-a}}\n"), 0o644)
+	if bs, err := loadBackends(); err != nil || len(bs) != 2 || strings.Join(bs[1].Shared, ",") != "/share/MFS/ROOT" || !bs[1].remote() {
+		t.Errorf("k8s : %v %+v", err, bs)
 	}
 	_ = os.WriteFile(backendsPath(), []byte("backends:\n  pod: {type: podman}\n"), 0o644)
 
@@ -186,5 +190,24 @@ func TestSSHBackendNeedsHost(t *testing.T) {
 func TestLeaderRemoteContainerUnknown(t *testing.T) {
 	if leaderAliveIn(42, "clx-projet-1234#pid:[1]") != leaderUnknown {
 		t.Error("conteneur distant : rien à conclure de l'absence du namespace ici")
+	}
+}
+
+func TestK8sArgv(t *testing.T) {
+	e := Engine{BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "ns", Volumes: map[string]string{"/share/MFS/ROOT": "pvc-a"}}}
+	a := e.execArgv("clx-p-1-0", true, false, "sh", "-s")
+	if strings.Join(a, " ") != "kubectl --context k8s -n ns exec -i clx-p-1-0 -c main -- sh -s" {
+		t.Errorf("exec root : %q", a)
+	}
+	u := e.execArgv("clx-p-1-0", false, true, "tmux", "attach", "-t", "=cl")
+	if !strings.Contains(strings.Join(u, " "), "exec -i -t clx-p-1-0 -c main -- sh -c exec su") || u[len(u)-1] != "exec env LANG=C.UTF-8 TERM=tmux-256color 'tmux' 'attach' '-t' '=cl'" {
+		t.Errorf("exec utilisateur : %q", u)
+	}
+	if !strings.HasPrefix(k8sPod("/x/Demo Projet"), "clx-demo-projet-") || !strings.HasSuffix(k8sPod("/x/y"), "-0") {
+		t.Errorf("nom de pod : %s", k8sPod("/x/Demo Projet"))
+	}
+	m, err := e.k8sManifest("/share/MFS/ROOT/p", EnvSpec{Image: "debian:12"})
+	if err != nil || !strings.Contains(string(m), `"claimName":"pvc-a"`) || !strings.Contains(string(m), `"mountPath":"/share/MFS/ROOT"`) || !strings.Contains(string(m), `"cl.project":"/share/MFS/ROOT/p"`) {
+		t.Errorf("manifeste : %v %s", err, m)
 	}
 }

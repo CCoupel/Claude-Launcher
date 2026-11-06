@@ -139,6 +139,27 @@ func runCtrAttach(proj, startFile string) error {
 
 var lookPath = exec.LookPath
 
+// ctrSessionGone : le projet tourne sur un backend à conteneurs dont le
+// conteneur n'a plus de session tmux (ou n'existe plus). Faux si on ne sait pas
+// (backend hôte, moteur injoignable) : dans le doute, pas de reprise.
+func ctrSessionGone(proj string) bool {
+	b := projectBackend(proj)
+	e, ok := engineOf(b)
+	if !ok || len(diagnoseCached(b)) > 0 {
+		return false
+	}
+	fs, err := e.list()
+	if err != nil {
+		return false
+	}
+	for _, f := range fs {
+		if f.Project == proj {
+			return !f.Running || !e.hasSession(ctrRef(b, proj))
+		}
+	}
+	return true // plus de conteneur pour ce projet
+}
+
 func baseName(p string) string { return p[strings.LastIndex(p, "/")+1:] }
 
 // paneSize : taille du pane courant (pour la première fenêtre du tmux du projet).

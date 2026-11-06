@@ -39,6 +39,7 @@ type Resumable struct {
 	Teammates []string // teammates de la team de la session (perdus au crash)
 	Crashed   bool     // la team désigne un leader dont le processus n'existe plus
 	InUse     bool     // … ou un leader toujours en vie : session ouverte ailleurs
+	Unknown   bool     // … leader dans un conteneur distant : invérifiable d'ici (InUse par prudence)
 	Ended     bool     // close volontairement par /end-session : rien à reprendre
 }
 
@@ -158,7 +159,7 @@ func lastSession(root, path string) (r Resumable, ok bool) {
 		}
 	}
 	if ok {
-		r.Teammates, r.Crashed, r.InUse = sessionTeam(root, r.ID)
+		r.Teammates, r.Crashed, r.InUse, r.Unknown = sessionTeam(root, r.ID)
 		r.Ended = sessionEnded(filepath.Join(dir, r.ID+".jsonl"))
 	}
 	return r, ok
@@ -175,10 +176,10 @@ func teamName(id string) string {
 // sessionTeam : teammates de la team de la session id, et si son leader a disparu
 // sans la libérer (leadProcess encore renseigné, processus absent) : signe de
 // crash ; ou s'il tourne encore (la session est ouverte hors de cette fenêtre).
-func sessionTeam(root, id string) (teammates []string, crashed, inUse bool) {
+func sessionTeam(root, id string) (teammates []string, crashed, inUse, unknown bool) {
 	b, err := os.ReadFile(filepath.Join(root, "teams", teamName(id), "config.json"))
 	if err != nil {
-		return nil, false, false
+		return nil, false, false, false
 	}
 	var cfg struct {
 		LeadSessionID string `json:"leadSessionId"`
@@ -192,7 +193,7 @@ func sessionTeam(root, id string) (teammates []string, crashed, inUse bool) {
 		} `json:"members"`
 	}
 	if json.Unmarshal(b, &cfg) != nil || cfg.LeadSessionID != id {
-		return nil, false, false
+		return nil, false, false, false
 	}
 	for _, m := range cfg.Members {
 		if m.AgentType != "team-lead" && m.Name != "" {
@@ -205,11 +206,11 @@ func sessionTeam(root, id string) (teammates []string, crashed, inUse bool) {
 			inUse = true
 		case leaderDead:
 			crashed = true
-		default: // invérifiable (autre machine) : ouverte ailleurs, pas de reprise
-			inUse = true
+		default: // invérifiable (autre machine) : ouverte ailleurs, sauf preuve contraire (pendingSession)
+			inUse, unknown = true, true
 		}
 	}
-	return teammates, crashed, inUse
+	return teammates, crashed, inUse, unknown
 }
 
 // resumableSession : session encore récente (moins de maxAge), non close par
@@ -286,6 +287,11 @@ func (c Config) pendingSession(path string) (r Resumable, ok bool) {
 		maxAge = 24 * time.Hour
 	}
 	r, ok = lastSession(claudeDir(), path)
+	if ok && r.InUse && r.Unknown && !r.Ended && time.Since(r.Mod) < maxAge && ctrSessionGone(path) {
+		// leader d'un conteneur distant : son conteneur (ou pod) n'a plus de
+		// session tmux — recréé, arrêté ou disparu — donc le leader est mort
+		r.InUse, r.Crashed = false, true
+	}
 	if !ok || r.InUse || r.Ended || time.Since(r.Mod) >= maxAge {
 		return r, false
 	}

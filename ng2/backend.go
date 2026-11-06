@@ -89,13 +89,15 @@ func (e EnvSpec) hash() string {
 // ── Config des backends ───────────────────────────────────────────────────
 
 type BackendConf struct {
-	Name    string   `yaml:"-"`
-	Type    string   `yaml:"type"`        // host | podman | docker | ssh
-	Context string   `yaml:"context"`     // docker : --context
-	Host    string   `yaml:"host"`        // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
-	Engine  string   `yaml:"engine"`      // ssh : moteur sur la machine distante, podman (défaut) ou docker
-	EngHost string   `yaml:"engine_host"` // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
-	Shared  []string `yaml:"shared"`      // distant : racines du stockage partagé (mêmes chemins des deux côtés)
+	Name      string            `yaml:"-"`
+	Type      string            `yaml:"type"`        // host | podman | docker | ssh
+	Context   string            `yaml:"context"`     // docker : --context
+	Host      string            `yaml:"host"`        // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
+	Engine    string            `yaml:"engine"`      // ssh : moteur sur la machine distante, podman (défaut) ou docker
+	EngHost   string            `yaml:"engine_host"` // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
+	Shared    []string          `yaml:"shared"`      // distant : racines du stockage partagé (mêmes chemins des deux côtés)
+	Namespace string            `yaml:"namespace"`   // k8s
+	Volumes   map[string]string `yaml:"volumes"`     // k8s : racine partagée → PVC ReadWriteMany monté à ce chemin
 }
 
 // engine : moteur réellement piloté (podman ou docker).
@@ -113,7 +115,7 @@ func (b BackendConf) engine() string {
 // podman joint par ssh). Ses montages y sont résolus : ~/.claude et le projet
 // doivent être sur le stockage partagé, aux mêmes chemins.
 func (b BackendConf) remote() bool {
-	return b.Type == "ssh" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
+	return b.Type == "ssh" || b.Type == "k8s" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
 }
 
 type backendsFile struct {
@@ -157,6 +159,12 @@ func loadBackends() ([]BackendConf, error) {
 		c.Name = n
 		switch c.Type {
 		case "host", "podman", "docker":
+		case "k8s":
+			c.Shared = nil // les racines partagées sont celles des volumes
+			for r := range c.Volumes {
+				c.Shared = append(c.Shared, r)
+			}
+			sort.Strings(c.Shared)
 		case "ssh":
 			if c.Host == "" {
 				return nil, fmt.Errorf("backends.yaml : backend ssh %q sans « host » (destination ssh)", n)
@@ -165,7 +173,7 @@ func loadBackends() ([]BackendConf, error) {
 				return nil, fmt.Errorf("backends.yaml : backend ssh %q : engine %q (podman ou docker)", n, c.Engine)
 			}
 		default:
-			return nil, fmt.Errorf("backends.yaml : backend %q de type %q non géré (host, podman, docker, ssh)", n, c.Type)
+			return nil, fmt.Errorf("backends.yaml : backend %q de type %q non géré (host, podman, docker, ssh, k8s)", n, c.Type)
 		}
 		out = append(out, c)
 	}
@@ -277,7 +285,7 @@ type Engine struct{ b BackendConf }
 
 func engineOf(b BackendConf) (Engine, bool) {
 	switch b.Type {
-	case "podman", "docker", "ssh":
+	case "podman", "docker", "ssh", "k8s":
 		return Engine{b}, true
 	}
 	return Engine{}, false
@@ -361,6 +369,9 @@ const pid1 = `trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done`
 
 // ensure : conteneur du projet créé (ou recréé si l'image a changé) et démarré.
 func (e Engine) ensure(proj string, env EnvSpec, log io.Writer) (string, error) {
+	if e.b.k8s() {
+		return e.k8sEnsure(proj, env, log)
+	}
 	name := ctrName(proj)
 	status, image := e.state(name)
 	if status != "" && image != env.Image {
@@ -471,6 +482,9 @@ func ensureSharedConfig() error {
 // execArgv : commande exécutée dans le conteneur ; root : en root, sinon en
 // utilisateur de l'hôte (uid:gid) ; tty : terminal interactif (attach).
 func (e Engine) execArgv(name string, root, tty bool, argv ...string) []string {
+	if e.b.k8s() {
+		return e.k8sExecArgv(name, root, tty, argv...)
+	}
 	if tty {
 		// attache : TERM et LANG passés au conteneur, terminal demandé à ssh
 		a := []string{"exec", "-i", "-t", "-e", "TERM=tmux-256color", "-e", "LANG=C.UTF-8"}
@@ -520,6 +534,9 @@ type Found struct {
 // list : conteneurs NG2 du moteur (par label ; labels relus par inspect, même
 // format pour podman et docker).
 func (e Engine) list() ([]Found, error) {
+	if e.b.k8s() {
+		return e.k8sList()
+	}
 	// filtre aussi par backend : deux backends peuvent viser le même moteur
 	b, err := e.cmd("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.backend="+e.b.Name).Output()
 	if err != nil {
