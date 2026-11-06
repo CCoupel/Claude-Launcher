@@ -218,8 +218,11 @@ Pour forcer une remise en ordre : `Ctrl+B R` dans l'onglet du projet, ou
    (`0 hôte` pour garder le comportement de la v4).
 4. Pour les conteneurs : les sessions en conteneur utilisent `CLAUDE_CONFIG_DIR=~/.claude`, donc
    `~/.claude/.claude.json`, **copié** une fois depuis `~/.claude.json` (jamais déplacé : les sessions
-   de l'hôte gardent le leur). Pour un backend distant, mettre `~/.claude` (ou `CLAUDE_CONFIG_DIR`) et
-   les projets sur le stockage partagé.
+   de l'hôte gardent le leur). Pour un backend distant, `~/.claude` et les projets doivent passer sur
+   le stockage partagé : suivre le guide pas à pas
+   [**Passer ses projets et `~/.claude` sur un stockage partagé**](ng2/MIGRATION.md) (il ne suffit pas
+   de copier les projets : conversations, mémoire, réglages par projet et historique sont indexés par
+   leur chemin).
 
 Le launcher v4 encore installé continue de chercher ses mises à jour : il affichera « mise à jour
 incomplète » (il ne trouve pas de binaire v4 dans les releases v5) — sans conséquence ; le supprimer
