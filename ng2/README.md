@@ -219,6 +219,11 @@ accès directs (le client podman ne pilote pas un démon docker). En ssh,
 `unix:///run/user/<uid>/docker.sock`, service podman…). Accès ssh par clé, sans
 mot de passe.
 
+Pour passer une installation locale sur le stockage partagé (projets, `~/.claude`,
+conversations, mémoire, réglages par projet), suivre le guide pas à pas
+[MIGRATION.md](MIGRATION.md), avec exemples et retour arrière : copier les projets ne
+suffit pas.
+
 **`shared`** : racines du stockage partagé (NFS, MooseFS…), montées **aux mêmes
 chemins** sur la machine du launcher et sur la machine distante. `~/.claude`
 (ou `CLAUDE_CONFIG_DIR`) et le projet doivent s'y trouver : le launcher lit
