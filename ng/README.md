@@ -1,5 +1,10 @@
 # Claude-Launcher-NG
 
+> **Dépréciée** — Claude-Launcher-NG (v4) n'évolue plus : la version courante est
+> [Claude-Launcher-NG2 (v5)](../ng2/README.md), qui s'installe à côté. Changer de version
+> majeure uniquement avec tous les projets fermés ([README](../README.md#passage-à-la-v5)).
+
+
 Nouvelle génération de Claude-Launcher : un binaire Go qui a remplacé le menu fzf du
 script bash (v3), puis ses derniers modes (mise en page des teams, vignettes : v4). Même modèle (une session tmux `claude-hub`, une fenêtre par projet,
 teamleader + teammates), mais une interface réactive : navigateur de projets à

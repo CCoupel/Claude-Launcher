@@ -1,18 +1,18 @@
-# Claude-Launcher-NG2 (v5, en développement)
+# Claude-Launcher-NG2 (v5)
 
-> **En cours** — suivi : [#46](https://github.com/CCoupel/Claude-Launcher/issues/46).
-> NG2 = NG v4 + exécution des projets dans des conteneurs (podman, docker, ssh, k8s),
-> tmux imbriqué piloté par `tmux -C`. Binaire `claude-launcher-ng2`, serveurs tmux
-> `claude-ui-ng2` (coque) et `claude-ng2` (intérieur, session `claude-hub-ng2`),
-> config `~/.config/claude-launcher-ng2/config.conf` (importée de la config v4 à la
-> création), cache `~/.cache/claude-launcher-ng2/` : NG2 et v4 peuvent tourner côte
-> à côte. **Changement de version majeure : uniquement avec tous les projets fermés.**
-> La suite de ce document décrit encore NG v4 et sera réécrite avant la sortie.
+Binaire Go qui pilote plusieurs projets Claude Code dans tmux : navigateur de
+projets à gauche, tmux à droite, une fenêtre par projet (teamleader +
+teammates). La v5 ajoute l'**exécution des projets dans des conteneurs** —
+podman, docker, podman ou docker par ssh, Kubernetes — avec un tmux par
+projet, imbriqué dans le hub et piloté par son canal de contrôle (`tmux -C`).
+Sans configuration, un projet tourne sur l'hôte comme en v4.
 
-Nouvelle génération de Claude-Launcher : un binaire Go qui a remplacé le menu fzf du
-script bash (v3), puis ses derniers modes (mise en page des teams, vignettes : v4). Même modèle (une session tmux `claude-hub`, une fenêtre par projet,
-teamleader + teammates), mais une interface réactive : navigateur de projets à
-gauche, tmux à droite.
+NG2 a ses propres noms, et peut tourner à côté d'un launcher v4 : binaire
+`claude-launcher-ng2`, coque `claude-ui-ng2`, serveur tmux intérieur
+`claude-ng2` (session `claude-hub-ng2`), config
+`~/.config/claude-launcher-ng2/`, cache `~/.cache/claude-launcher-ng2/`.
+**Changer de version majeure (v4 ↔ v5) uniquement avec tous les projets
+fermés.**
 
 Vue d'ensemble, installation et configuration : [README du repo](../README.md).
 Ce document détaille le fonctionnement et le dépannage.
@@ -21,37 +21,38 @@ Ce document détaille le fonctionnement et le dépannage.
 
 ### Depuis une release
 
-Chaque tag `v*` publie un binaire par plateforme (linux/darwin, amd64/arm64) et un
-`SHA256SUMS` :
+Chaque tag `v5.*` (et suivants) publie un binaire par plateforme (linux/darwin,
+amd64/arm64) et un `SHA256SUMS` :
 
 ```bash
 os=$(uname -s | tr A-Z a-z); arch=$(uname -m)
 case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
-curl -fsSL "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng-$os-$arch" \
-  -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng
-claude-launcher-ng version
+curl -fsSL "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng2-$os-$arch" \
+  -o ~/.local/bin/claude-launcher-ng2 && chmod +x ~/.local/bin/claude-launcher-ng2
+claude-launcher-ng2 version
 ```
 
 ### Depuis les sources
 
 ```bash
-cd ng
-go build -o ~/.local/bin/claude-launcher-ng .
-# version : go build -ldflags "-X main.ngVersion=v3.0.1" -o ... .
+cd ng2
+go build -o ~/.local/bin/claude-launcher-ng2 .
+# version : go build -ldflags "-X main.ngVersion=v5.0.0" -o ... .
 ```
 
-Prérequis : `tmux`, `git`, `bash` (lecture de la config) et `claude`. Ni fzf, ni jq, ni
-xxd, ni script compagnon.
+Prérequis : `tmux`, `git`, `bash` (lecture de la config) et `claude`. Pour les projets en
+conteneur, en plus : le client du moteur (`podman`, `docker`, `kubectl`) ou `ssh`, selon le
+backend ; rien n'est à préinstaller dans les images.
 
 ## Lancement
 
 ```bash
-claude-launcher-ng                    # = claude-launcher-ng shell
-claude-launcher-ng configure          # crée/édite ~/.config/claude-launcher.conf ($EDITOR)
-claude-launcher-ng relayout WIN_ID    # remet en ordre les panes d'une fenêtre projet (= Ctrl+B R)
-claude-launcher-ng help               # commandes et raccourcis (= F1 dans le launcher)
-claude-launcher-ng version
-~/claude-launcher.sh                  # ancienne commande : redirige vers le NG
+claude-launcher-ng2                    # = claude-launcher-ng2 shell
+claude-launcher-ng2 configure          # crée/édite ~/.config/claude-launcher-ng2/config.conf ($EDITOR)
+claude-launcher-ng2 relayout WIN_ID    # remet en ordre les panes d'une fenêtre projet (= Ctrl+B R)
+claude-launcher-ng2 help               # commandes et raccourcis (= F1 dans le launcher)
+claude-launcher-ng2 version
+claude-launcher-ng2 backends          # backends, conteneurs et diagnostic
 ```
 
 Au lancement, les teams mortes de `~/.claude/teams` (et leurs tâches) sont supprimées : une session
@@ -76,7 +77,7 @@ team de cette session n'est alors plus épargnée), ni si elle s'est terminée p
 `/init-project` n'est jamais proposé sur une reprise.
 
 **Sortie propre** : la commande `claude` du pane est suivie d'une commande bash qui pose
-`~/.cache/claude-launcher/clean-exit/<chemin encodé>` (la date seule compte) si claude a rendu la main au
+`~/.claude/claude-launcher-ng2/clean-exit/<chemin encodé>` (la date seule compte) si claude a rendu la main au
 shell de lui-même ou sur `Ctrl+C` (statut < 128 ou 130). Un crash qui emporte le terminal (fenêtre fermée,
 WSL tué) ou claude tué par un autre signal (OOM, segfault) ne pose rien. Une conversation qui n'a
 pas bougé depuis ce marqueur est close comme par `/end-session` ; reprise ensuite, elle redevient en
@@ -84,9 +85,11 @@ suspens. Un **projet non géré** (sans template) reçoit en plus, à l'ouvertur
 `.claude/commands/end-session.md` minimal s'il n'en a pas (résumé de fin, sans rien modifier) : `/end-session`
 s'y tape comme ailleurs ; une commande existante n'est jamais écrasée.
 
-La configuration reste `~/.config/claude-launcher.conf` (relue par bash : `GITHUB_DIRS`,
-`CLAUDE_OPTIONS`, `RESUME_MODE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée par
-défaut au premier lancement.
+La configuration est `~/.config/claude-launcher-ng2/config.conf` (relue par bash : `GITHUB_DIRS`,
+`CLAUDE_OPTIONS`, `RESUME_MODE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
+premier lancement : **copie de la config v4** (`~/.config/claude-launcher.conf`) si elle existe, sinon les
+valeurs par défaut. Les backends d'exécution sont dans `~/.config/claude-launcher-ng2/backends.yaml`
+(voir [Projets en conteneur](#projets-en-conteneur-v5)).
 
 Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque), `mirror WIN NOM`
 (vignette Teamleaders), `layout-watch WIN LEADER DOSSIER` (mise en page d'une fenêtre projet).
@@ -271,12 +274,40 @@ telle quelle. Fermer la fenêtre d'un projet en conteneur ne l'arrête pas non
 plus : Entrée dans le navigateur s'y rattache. Pour l'arrêter, quitter claude
 (`/exit`, ou `/end-session` puis `/exit`).
 
+### Plusieurs launchers sur un même projet
+
+Un projet en conteneur (surtout distant) peut être atteint par plusieurs
+launchers, sur plusieurs machines ; **un seul le pilote** : son propriétaire,
+noté dans la session tmux du conteneur et entretenu par son launcher (battement
+de cœur toutes les 5 s, parti au-delà de 20 s). Un autre launcher qui l'ouvre
+pendant ce temps demande :
+
+| Choix | Effet |
+|---|---|
+| `l` | **rejoindre en lecture seule** : on voit la session (partage d'écran), sans pouvoir taper ni la réarranger |
+| `p` | **prendre la main** : l'autre launcher est détaché (sa fenêtre se ferme) et ce launcher devient propriétaire |
+| `a` | annuler |
+
+Au démarrage, un launcher ne rattache que les sessions dont il est
+propriétaire. Et un projet qui tourne dans un conteneur piloté par un autre
+launcher ne peut pas être lancé sur l'hôte (deux claude dans le même dossier
+partagé).
+
 ### Config de claude dans les conteneurs
 
 Les sessions en conteneur utilisent `CLAUDE_CONFIG_DIR=~/.claude`, donc
 `~/.claude/.claude.json` (un fichier monté seul se détacherait : claude le
 réécrit par remplacement). Au premier conteneur, ce fichier est **copié** depuis
 `~/.claude.json`, jamais déplacé : les sessions de l'hôte gardent le leur.
+
+### Limites connues
+
+- Le panneau milestone des projets lit la consommation du compte dans
+  `~/.cache/claude-launcher/usage.json`, monté dans les conteneurs **locaux** ;
+  dans un conteneur distant (ssh, docker distant, k8s), il l'interroge lui-même.
+- Le copier-coller OSC 52 à travers les deux niveaux de tmux n'est pas vérifié.
+- La carte Team lit la version de claude du leader dans le conteneur (une fois
+  par minute) ; celles des teammates viennent du nom de leur processus.
 
 ### Changement de version majeure
 
@@ -312,7 +343,7 @@ revenir) uniquement avec tous les projets fermés.**
   d'avancement (issues fermées / total), ses issues ouvertes par phase et les bloquées ; sans milestone
   en cours, la liste des milestones ouverts avec leur avancement. Trois appels `gh` par projet (ceux du
   panneau : milestones, issues ouvertes ; plus les PR ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
-  `~/.cache/claude-launcher/milestones-v2.json`.
+  `~/.cache/claude-launcher-ng2/milestones-v2.json`.
   Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`
   ni par une sortie propre, de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
   crash) : c'est la session que son ouverture proposera de reprendre.
@@ -325,7 +356,7 @@ revenir) uniquement avec tous les projets fermés.**
   `✗ connexion claude.ai expirée` ensuite ou si l'endpoint refuse le jeton : un clic ouvre une
   fenêtre `login` qui lance `claude /login`. Après un `/login`, la consommation revient sans
   attendre la fin de la pause qui suit un échec ; `F5` la relit immédiatement.
-  L'en-tête indique les versions : `NG v4.0.0 · tpl 3.26.0` (NG, dernier tag du template).
+  L'en-tête indique les versions : `NG2 v5.0.0 · tpl 4.2.1` (NG, dernier tag du template).
 - **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, team —
   teammates du registre du template, version de leur copie, `+` si compagnon, modèle et effort,
   version de claude des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
@@ -364,10 +395,10 @@ les autres : `/init-project` reste possible pour le convertir.)
 ## Versions, mises à jour et template
 
 **Au lancement**, le NG se met à jour si la dernière release GitHub est plus récente : binaire
-de la plateforme et `~/claude-launcher.sh` (s'il existe : simple redirection) sont téléchargés, vérifiés contre `SHA256SUMS`, remplacés,
+de la plateforme est téléchargé, vérifié contre `SHA256SUMS`, remplacé,
 puis le NG se relance. Un navigateur resté sur l'ancien binaire est redémarré ; les projets
 ouverts ne sont pas touchés. Hors ligne ou en cas d'échec, il démarre avec la version en place.
-Désactiver : `claude-launcher-ng --no-update` ou `CL_NO_UPDATE=1`. Un binaire compilé à la
+Désactiver : `claude-launcher-ng2 --no-update` ou `CL_NO_UPDATE=1`. Un binaire compilé à la
 main (version `dev` ou suffixée) ne se remplace jamais.
 
 Si le tag est déjà poussé mais que sa release n'est pas encore publiée (CI en cours), le NG
@@ -391,14 +422,20 @@ en **orange** dès le tag (`↑ NG vX · mise à jour bientôt prête ✕`, non 
 
 ## Architecture
 
-- Deux serveurs tmux : le serveur par défaut (session `claude-hub`, inchangée) et une
-  « coque » dédiée (socket `claude-ui`) qui découpe le terminal en navigateur + `tmux attach`.
-  La coque n'a pas de préfixe : toutes les touches passent au tmux intérieur.
+- Deux serveurs tmux dédiés : l'« intérieur » (socket `claude-ng2`, session `claude-hub-ng2` —
+  jamais le serveur par défaut, celui du launcher v4) et une « coque » (socket `claude-ui-ng2`) qui
+  découpe le terminal en navigateur + `tmux attach`. La coque n'a pas de préfixe : toutes les
+  touches passent au tmux intérieur, dont le préfixe est aiguillé (`Ctrl+B` vers le conteneur pour un
+  projet en conteneur).
+- `target.go` : cible tmux d'un projet — le hub lui-même (exécution directe) ou le tmux de son
+  conteneur par canal de contrôle (`ctl.go`, une commande par ligne) ; `backend.go`, `k8s.go`,
+  `ctr.go`, `bootstrap.sh`, `diag.go`, `owner.go`, `pidspace.go` : moteurs, bootstrap, diagnostic,
+  propriétaire, espaces de PID.
 - `cache.go` : état des projets calculé en tâche de fond (2 calculs en parallèle) et écrit
-  dans `~/.cache/claude-launcher/state/`, que le pane `◈ État` lit.
+  dans `~/.cache/claude-launcher-ng2/state/`, que le pane `◈ État` lit.
 - `mirrors.go` : gestionnaire de l'onglet `⌗ Teamleaders` (une vignette par projet ouvert,
   grille, pane d'attente ; l'onglet garde ses panes terminés jusqu'au passage suivant pour ne
-  jamais se vider, ce qui fermerait `claude-hub`).
+  jamais se vider, ce qui fermerait `claude-hub-ng2`).
 - `mirror.go` : une vignette — terminal en mode brut, un seul appel tmux par rafraîchissement
   (focus, curseur et contenu du leader), touches relayées en octets bruts (`send-keys -H`).
 - `layout.go` : mise en page d'une fenêtre projet. Un watcher par fenêtre (1 s) lit la team
@@ -431,12 +468,12 @@ en **orange** dès le tag (`↑ NG vX · mise à jour bientôt prête ✕`, non 
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
 - **Panes d'une team en désordre** : `Ctrl+B R` dans l'onglet du projet, ou
-  `claude-launcher-ng relayout <window_id>`.
-- **Quitter** : `Esc` puis `l` arrête le launcher (serveur `claude-ui`) en laissant les projets
-  tourner dans `claude-hub` ; `Esc`, `t` puis `o` ferme aussi `claude-hub` et ses sessions groupées.
-- **Pas de zone tmux à droite** : relancer `claude-launcher-ng`, le pane manquant est recréé.
-- **Essayer sans toucher à `claude-hub`** :
-  `CL_HUB=claude-hub-test CL_OUTER_SOCKET=claude-ui-test claude-launcher-ng`.
+  `claude-launcher-ng2 relayout <window_id>`.
+- **Quitter** : `Esc` puis `l` arrête le launcher (serveur `claude-ui-ng2`) en laissant les projets
+  tourner dans `claude-hub-ng2` ; `Esc`, `t` puis `o` ferme aussi `claude-hub-ng2` et ses sessions groupées.
+- **Pas de zone tmux à droite** : relancer `claude-launcher-ng2`, le pane manquant est recréé.
+- **Essayer sans toucher à `claude-hub-ng2`** :
+  `CL_HUB=claude-hub-test CL_OUTER_SOCKET=claude-ui-test claude-launcher-ng2`.
 - **Les annonces de version n'apparaissent pas** : GitHub est interrogé sans jeton ; en cas de
   limite de débit ou hors ligne, le NG réessaie 10 minutes plus tard.
 
