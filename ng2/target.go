@@ -39,6 +39,8 @@ type projWin struct {
 	t      Target // tmux qui porte les panes du projet
 	win    string // fenêtre des panes, dans t
 	hubWin string // fenêtre du projet dans le hub (onglet, messages)
+	// conteneur : commande exécutée dans le conteneur du projet (nil en direct)
+	ctrExec func(argv ...string) (string, error)
 }
 
 // direct : panes dans le hub lui-même (exécution locale directe).
@@ -71,7 +73,8 @@ func projectOf(hubWin string) projWin {
 	if !ok {
 		return direct
 	}
-	return projWin{t: ctlFor(e, ctr), win: "=" + ctrSession + ":", hubWin: hubWin}
+	return projWin{t: ctlFor(e, ctr), win: "=" + ctrSession + ":", hubWin: hubWin,
+		ctrExec: func(argv ...string) (string, error) { return e.output(ctr, argv...) }}
 }
 
 // v4Server : serveur tmux par défaut, celui du launcher v4 (claude-hub). NG2 n'y

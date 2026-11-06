@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // Composition de la team d'un projet, pour la vue « ◈ État » : les teammates du
@@ -148,6 +150,9 @@ func claudeVersion(cmd, pid string) string {
 	if v := claudeVerRe.FindString(cmd); v != "" {
 		return v
 	}
+	if pid == "" { // pane d'un conteneur : PID d'un autre espace, rien à lire ici
+		return ""
+	}
 	pids := []string{pid}
 	if b, err := os.ReadFile("/proc/" + pid + "/task/" + pid + "/children"); err == nil {
 		pids = append(pids, strings.Fields(string(b))...)
@@ -161,6 +166,52 @@ func claudeVersion(cmd, pid string) string {
 		}
 	}
 	return ""
+}
+
+// ctrPaneVersions : panes d'un projet en conteneur. Leurs PID sont ceux du
+// conteneur : ne jamais les chercher dans le /proc de l'hôte (PID = ""). Les
+// teammates portent déjà leur version (nom du processus) ; le pane du leader
+// reçoit celle de claude installé DANS le conteneur (cible de ~/.local/bin/claude).
+func ctrPaneVersions(pw projWin, panes []paneInfo) {
+	v := ""
+	for i := range panes {
+		panes[i].PID = ""
+		if claudeVerRe.FindString(panes[i].Cmd) != "" {
+			continue
+		}
+		if v == "" {
+			v = ctrClaudeVersion(pw)
+		}
+		if v != "" && i == 0 { // le leader : premier pane (doLayout le place en tête)
+			panes[i].Cmd = v
+		}
+	}
+}
+
+// ctrVerCache : version de claude par conteneur, une minute.
+var ctrVerCache = struct {
+	sync.Mutex
+	m map[string]verEntry
+}{m: map[string]verEntry{}}
+
+type verEntry struct {
+	at time.Time
+	v  string
+}
+
+func ctrClaudeVersion(pw projWin) string {
+	ctrVerCache.Lock()
+	e, ok := ctrVerCache.m[pw.hubWin]
+	ctrVerCache.Unlock()
+	if ok && time.Since(e.at) < time.Minute {
+		return e.v
+	}
+	out, _ := pw.ctrExec("sh", "-c", `basename "$(readlink -f "$HOME/.local/bin/claude" 2>/dev/null)"`)
+	v := claudeVerRe.FindString(out)
+	ctrVerCache.Lock()
+	ctrVerCache.m[pw.hubWin] = verEntry{time.Now(), v}
+	ctrVerCache.Unlock()
+	return v
 }
 
 // liveTeam : complète les teammates avec la version de claude (et le modèle

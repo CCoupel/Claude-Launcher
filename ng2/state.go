@@ -95,6 +95,9 @@ func loadPanesCmd(s Selection, cfg Config) tea.Cmd {
 					}
 				}
 			}
+			if pw.ctrExec != nil {
+				ctrPaneVersions(pw, pd.panes)
+			}
 		}
 		pd.team = liveTeam(readTeammates(s.Path), s.Path, pd.panes)
 		return pd
