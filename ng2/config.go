@@ -30,6 +30,10 @@ type Config struct {
 	Layout2RowLeaderPct                                  int
 	Layout3RowLeaderNum, Layout3RowMidNum, Layout3RowDen int
 	BrightenStep, DarkenStep                             int
+
+	// config de claude (CLAUDE_CONFIG_DIR) imposée à toutes les sessions du
+	// launcher ; relative : par rapport au dossier de config.conf
+	ClaudeConfigDir string
 }
 
 // loadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
@@ -57,12 +61,15 @@ printf 'token\t%s\n' "$GITHUB_TOKEN"
 printf 'mouse\t%s\n' "$CLAUDE_DISABLE_MOUSE"
 printf 'teams\t%s\n' "$CLAUDE_EXPERIMENTAL_TEAMS"
 printf 'opts\t%s\n' "$CLAUDE_OPTIONS"
+printf 'claudedir\t%s\n' "${CLAUDE_CONFIG_DIR-}"
 printf 'palette\t%s\n' "${COLOR_PALETTE[*]}"
 for e in "${EXTRA_ENVS[@]}"; do printf 'env\t%s\n' "$e"; done
 for k in "${!PROJECT_COLORS[@]}"; do printf 'color\t%s\t%s\n' "$k" "${PROJECT_COLORS[$k]}"; done
 if (( ${#GITHUB_DIRS[@]} )); then for d in "${GITHUB_DIRS[@]}"; do printf 'root\t%s\n' "$d"; done
 else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
-	out, err := exec.Command("bash", "-c", script, "_", path).Output()
+	cmd := exec.Command("bash", "-c", script, "_", path)
+	cmd.Env = envWithout("CLAUDE_CONFIG_DIR") // seule la valeur du fichier compte ici
+	out, err := cmd.Output()
 	if err == nil {
 		for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
 			f := strings.SplitN(l, "\t", 3)
@@ -110,6 +117,13 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 			case "root":
 				if r := strings.TrimSpace(f[1]); r != "" {
 					cfg.Roots = append(cfg.Roots, r)
+				}
+			case "claudedir":
+				if d := strings.TrimSpace(f[1]); d != "" {
+					if !filepath.IsAbs(d) {
+						d = filepath.Join(filepath.Dir(path), d)
+					}
+					cfg.ClaudeConfigDir = filepath.Clean(d)
 				}
 			}
 		}
@@ -210,6 +224,11 @@ GITHUB_DIRS=()
 # Token GitHub (gh CLI + Claude Code MCP)
 GITHUB_TOKEN=""
 
+# Config de claude pour toutes les sessions du launcher (hôte et conteneurs) —
+# ex. sur un stockage partagé. Relative : par rapport au dossier de ce fichier.
+# Une variable CLAUDE_CONFIG_DIR déjà définie au lancement l'emporte.
+# CLAUDE_CONFIG_DIR="/share/MFS/ROOT/CLAUDE_PROJETS/.claude"
+
 # Options Claude Code
 CLAUDE_DISABLE_MOUSE=1        # 1 = désactive la souris dans le terminal
 CLAUDE_EXPERIMENTAL_TEAMS=1  # 1 = active les agent teams
@@ -255,6 +274,18 @@ EXTRA_ENVS=()
 # LAYOUT_2ROW_LEADER_PCT=50
 # LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
 `
+
+// applyClaudeConfigDir : CLAUDE_CONFIG_DIR de la config, posé dans
+// l'environnement du launcher (donc de ses sous-commandes et de ses sessions)
+// s'il n'est pas déjà défini. Appelé au tout début de main.
+func applyClaudeConfigDir() {
+	if os.Getenv("CLAUDE_CONFIG_DIR") != "" {
+		return
+	}
+	if d := loadConfig().ClaudeConfigDir; d != "" {
+		_ = os.Setenv("CLAUDE_CONFIG_DIR", d)
+	}
+}
 
 // ensureConfig crée la config par défaut si elle n'existe pas encore.
 func ensureConfig() (created bool, err error) {

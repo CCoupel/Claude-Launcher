@@ -56,7 +56,7 @@ var helpSections = []helpSection{
 	}},
 	{"Fichiers", []helpRow{
 		{"<binaire>/.config/claude-launcher-ng2/", "config portable, à côté du binaire (si config.conf y est)"},
-		{"~/.config/claude-launcher-ng2/config.conf", "sinon : configuration (GITHUB_DIRS, CLAUDE_OPTIONS, RESUME_MODE…)"},
+		{"~/.config/claude-launcher-ng2/config.conf", "sinon : configuration (GITHUB_DIRS, CLAUDE_OPTIONS, CLAUDE_CONFIG_DIR…)"},
 		{"~/.config/claude-launcher-ng2/backends.yaml", "backends : host, podman, docker, ssh (+docker/podman), k8s"},
 		{"<projet>/.claude-launcher/env.yaml", "environnement du projet en conteneur (image, paquets, setup)"},
 	}},

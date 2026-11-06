@@ -351,3 +351,25 @@ func TestOwner(t *testing.T) {
 		t.Errorf("launcherID : %s", id)
 	}
 }
+
+func TestClaudeConfigDirFromConfig(t *testing.T) {
+	d := t.TempDir()
+	cfgDir := filepath.Join(d, "mfs", ".config", "claude-launcher-ng2")
+	_ = os.MkdirAll(cfgDir, 0o755)
+	t.Setenv("CL_CONFIG_DIR", cfgDir)
+	_ = os.WriteFile(filepath.Join(cfgDir, "config.conf"), []byte(`CLAUDE_CONFIG_DIR="../../.claude"`+"\n"), 0o644)
+	if got, want := loadConfig().ClaudeConfigDir, filepath.Join(d, "mfs", ".claude"); got != want {
+		t.Errorf("relatif : %s, attendu %s", got, want)
+	}
+	_ = os.WriteFile(filepath.Join(cfgDir, "config.conf"), []byte(`CLAUDE_CONFIG_DIR="/share/x/.claude"`+"\n"), 0o644)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	applyClaudeConfigDir()
+	if os.Getenv("CLAUDE_CONFIG_DIR") != "/share/x/.claude" || claudeDir() != "/share/x/.claude" {
+		t.Errorf("appliqué : %q", os.Getenv("CLAUDE_CONFIG_DIR"))
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "/env/gagne")
+	applyClaudeConfigDir()
+	if os.Getenv("CLAUDE_CONFIG_DIR") != "/env/gagne" || loadConfig().ClaudeConfigDir != "/share/x/.claude" {
+		t.Error("une variable déjà définie doit l'emporter (et la config lue reste celle du fichier)")
+	}
+}

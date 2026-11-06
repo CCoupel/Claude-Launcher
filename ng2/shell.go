@@ -134,6 +134,11 @@ func ensureInner() error {
 		}
 	}
 	keepTeamWindow(exactW(hubSession, teamWindow))
+	// config de claude du launcher : aussi pour les fenêtres ouvertes plus tard,
+	// même si le serveur tournait déjà (il garde l'environnement de sa création)
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		_ = dtmux("set-environment", "-g", "CLAUDE_CONFIG_DIR", d).Run()
+	}
 	// Barre d'onglets en haut ; le style projet est posé par window à l'ouverture.
 	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status", "on").Run()
 	_ = dtmux("set-option", "-t", exactS(hubSession)+":", "status-position", "top").Run()

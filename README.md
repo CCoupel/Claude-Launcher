@@ -122,6 +122,7 @@ claude-launcher-ng2
 | `PANE_ACTIVE_BRIGHTEN_STEP`, `PANE_INACTIVE_DARKEN_STEP` | Teinte des teammates actifs (éclaircis) et inactifs (assombris), 1 = léger, 5 = fort (défaut 1) |
 | `LAYOUT_2ROW_LEADER_PCT` | Hauteur du teamleader (%) quand la team tient sur 2 lignes (≤ 5 teammates, défaut 50) |
 | `LAYOUT_3ROW_LEADER_NUM`, `LAYOUT_3ROW_MID_NUM`, `LAYOUT_3ROW_DEN` | Au-delà de 5 teammates : fractions leader / ligne du milieu (défaut 3/7 et 2/7) |
+| `CLAUDE_CONFIG_DIR` | Config de claude (`~/.claude` par défaut) pour toutes les sessions du launcher, hôte et conteneurs ; relative au dossier de la config ; une variable déjà définie au lancement l'emporte |
 | `USAGE_REFRESH_SEC` | Secondes entre deux lectures de la consommation du compte (min. 60, défaut 120) ; après un échec (429…), pause de max(5 min, 2 × cette valeur) |
 
 `EXTRA_ENVS` permet de passer n'importe quelle variable d'env à Claude Code :

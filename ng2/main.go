@@ -1266,6 +1266,7 @@ func (m model) renderHeader(w int) string {
 }
 
 func main() {
+	applyClaudeConfigDir()
 	cmd := "shell"
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {
 		cmd = os.Args[1]

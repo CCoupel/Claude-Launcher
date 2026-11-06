@@ -256,7 +256,18 @@ backends:
 
 ## 10. Pointer claude vers la nouvelle config
 
-`CLAUDE_CONFIG_DIR` doit être défini **pour tous les claude** (hôte, launcher v4, NG2, qui le
+**Pour les sessions du launcher seulement** (le plus simple, et sans toucher aux autres claude) :
+le mettre dans `config.conf` — relatif au dossier de la config si le launcher est portable :
+
+```bash
+echo 'CLAUDE_CONFIG_DIR="/share/MFS/ROOT/home/cyril/.claude"' >> ~/.config/claude-launcher-ng2/config.conf
+```
+
+NG2 l'applique à toutes ses sessions, sur l'hôte et dans les conteneurs. Les claude lancés hors du
+launcher (et le launcher v4) continuent sur `~/.claude` : n'ouvrez alors les projets migrés que dans
+NG2.
+
+**Pour tous les claude de la machine**, `CLAUDE_CONFIG_DIR` doit être défini **pour tous les claude** (hôte, launcher v4, NG2, qui le
 transmet aux conteneurs) et **avant** le démarrage des serveurs tmux (ils transmettent leur
 environnement aux sessions) :
 

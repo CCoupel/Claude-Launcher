@@ -101,6 +101,17 @@ partagé et utilisable de toutes les machines :
 Les affectations des projets (hôte ou backend, `~/.local/state/claude-launcher-ng2/projects.json`)
 restent propres à chaque machine.
 
+**Config de claude** : `CLAUDE_CONFIG_DIR` dans `config.conf` l'impose à toutes les sessions du
+launcher (hôte et conteneurs) ; un chemin relatif l'est par rapport au dossier de `config.conf`, ce
+qui garde l'ensemble portable. Une variable `CLAUDE_CONFIG_DIR` déjà définie au lancement l'emporte.
+
+```bash
+# /share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/config.conf
+PROJECT_BASE="/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS/"
+GITHUB_DIRS=("$PROJECT_BASE")
+CLAUDE_CONFIG_DIR="../../.claude"          # = /share/MFS/ROOT/CLAUDE_PROJETS/.claude
+```
+
 La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
 `CLAUDE_OPTIONS`, `RESUME_MODE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
 premier lancement : **copie de la config v4** (`~/.config/claude-launcher.conf`) si elle existe, sinon les
