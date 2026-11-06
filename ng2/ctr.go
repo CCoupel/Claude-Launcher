@@ -135,7 +135,7 @@ func runCtrAttach(proj, startFile string) error {
 			return nil
 		}
 	} else {
-		e.claimOwner(name)
+		e.claimFree(name)
 	}
 	if pane := os.Getenv("TMUX_PANE"); pane != "" {
 		if win, err := tout(hub, "display-message", "-p", "-t", pane, "#{window_id}"); err == nil {

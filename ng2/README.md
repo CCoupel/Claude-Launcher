@@ -285,10 +285,12 @@ pendant ce temps demande :
 | Choix | Effet |
 |---|---|
 | `l` | **rejoindre en lecture seule** : on voit la session (partage d'écran), sans pouvoir taper ni la réarranger |
-| `p` | **prendre la main** : l'autre launcher est détaché (sa fenêtre se ferme) et ce launcher devient propriétaire |
+| `p` | **prendre la main** : l'autre launcher passe en **lecture seule** (sa fenêtre reste ouverte et l'indique) et ce launcher devient propriétaire |
 | `a` | annuler |
 
-Au démarrage, un launcher ne rattache que les sessions dont il est
+Le launcher qui a perdu la main reprend la sienne par **Entrée** sur le
+projet : sa fenêtre en lecture seule est rouverte et la même question est
+posée. Au démarrage, un launcher ne rattache que les sessions dont il est
 propriétaire. Et un projet qui tourne dans un conteneur piloté par un autre
 launcher ne peut pas être lancé sur l'hôte (deux claude dans le même dossier
 partagé).

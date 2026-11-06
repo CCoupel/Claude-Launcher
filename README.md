@@ -184,7 +184,8 @@ defaults: { backend: podman, image: docker.io/library/debian:12 }
 - **Launcher arrêté** : la session du conteneur (claude et ses teammates) continue ; au relancement,
   NG2 la retrouve et rattache sa fenêtre.
 - **Plusieurs launchers sur un même projet** : un seul le pilote ; les autres peuvent le rejoindre en
-  lecture seule ou en prendre la main.
+  lecture seule ou en prendre la main (l'ancien propriétaire passe alors en lecture seule, et reprend
+  la main par Entrée sur le projet).
 
 Détails : [`ng2/README.md` — Projets en conteneur](ng2/README.md#projets-en-conteneur-v5).
 

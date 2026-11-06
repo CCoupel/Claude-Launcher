@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // Nom de la session intérieure ; CL_HUB permet une répétition sans toucher à claude-hub.
@@ -105,7 +106,19 @@ const (
 func launchProject(cfg Config, session string, n Node, latest string, mode launchMode) error {
 	sess := targetSession(session)
 	if tmuxWindows(sess)[n.Key] {
-		return dtmux("select-window", "-t", exactW(sess, n.Key)).Run()
+		// fenêtre en lecture seule (un autre launcher a la main) : la rouvrir,
+		// ce qui repose la question rejoindre / prendre la main (#48)
+		if ro, _ := tmuxOut("display-message", "-p", "-t", exactW(sess, n.Key), "#{@cl_readonly}"); ro != "1" {
+			return dtmux("select-window", "-t", exactW(sess, n.Key)).Run()
+		}
+		// détacher d'abord le client du conteneur (Ctrl+B d, reçu tel quel par le
+		// tmux du conteneur) : tuer la fenêtre seule y laisse un client fantôme
+		w := exactW(sess, n.Key)
+		_ = dtmux("send-keys", "-t", w, "C-b", "d").Run()
+		for i := 0; i < 20 && tmuxWindows(sess)[n.Key]; i++ {
+			time.Sleep(100 * time.Millisecond)
+		}
+		_ = dtmux("kill-window", "-t", w).Run()
 	}
 	be, err := launchBackend(n.Path)
 	if err != nil {

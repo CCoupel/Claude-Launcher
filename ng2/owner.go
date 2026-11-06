@@ -52,16 +52,36 @@ func (e Engine) claimOwner(name string) {
 }
 
 // takeOver : prise de main — les clients en écriture (l'ancien propriétaire)
-// sont détachés ; les clients en lecture seule restent.
+// passent en lecture seule (switch-client -r bascule le drapeau) : ils voient
+// toujours la session ; son watcher, voyant le nouveau propriétaire, le signale.
 func (e Engine) takeOver(name string) {
+	for _, c := range e.rwClients(name) {
+		_ = e.exec(name, false, nil, nil, tmuxIn("switch-client", "-c", c, "-r")...)
+	}
+	e.claimOwner(name)
+}
+
+// claimFree : prise de propriété sans autre propriétaire vivant (c'était nous,
+// ou il est parti) : un client en écriture encore là est un fantôme — fenêtre du
+// hub tuée, le pty restant ouvert côté conteneur — et il est détaché.
+func (e Engine) claimFree(name string) {
+	for _, c := range e.rwClients(name) {
+		_ = e.exec(name, false, nil, nil, tmuxIn("detach-client", "-t", c)...)
+	}
+	e.claimOwner(name)
+}
+
+// rwClients : clients en écriture de la session (hors canaux de contrôle).
+func (e Engine) rwClients(name string) []string {
 	s, _ := e.output(name, tmuxIn("list-clients", "-t", "="+ctrSession+":", "-F", "#{client_name}|#{client_readonly}|#{client_control_mode}")...)
+	var out []string
 	for _, l := range strings.Split(s, "\n") {
 		f := strings.Split(l, "|")
 		if len(f) == 3 && f[0] != "" && f[1] != "1" && f[2] != "1" {
-			_ = e.exec(name, false, nil, nil, tmuxIn("detach-client", "-t", f[0])...)
+			out = append(out, f[0])
 		}
 	}
-	e.claimOwner(name)
+	return out
 }
 
 // ownerChoice : la session a un autre propriétaire vivant — demander quoi faire
@@ -87,13 +107,17 @@ func ownerChoice(o ownerInfo) string {
 	}
 }
 
-// heartbeat : appelé par layout-watch ; false si un autre launcher a pris la main.
+// heartbeat : appelé par layout-watch ; false si un autre launcher a pris la
+// main — la fenêtre est alors marquée en lecture seule et le message affiché.
 func heartbeat(pw projWin) bool {
 	s, err := tout(pw.t, "display-message", "-p", "-t", pw.win, ownerFormat)
 	if err != nil {
 		return true // canal momentanément indisponible : on ne conclut rien
 	}
 	if o := parseOwner(s); o.id != "" && o.id != launcherID() {
+		_ = hub.Run("set-window-option", "-t", pw.hubWin, "@cl_readonly", "1")
+		_ = hub.Run("display-message", "-d", "8000", "-t", pw.hubWin,
+			"⬢ "+o.id+" a pris la main : lecture seule — Entrée sur le projet pour la reprendre")
 		return false
 	}
 	_ = pw.t.Run("set-option", "-t", "="+ctrSession+":", "@cl_owner_at", strconv.FormatInt(time.Now().Unix(), 10))
