@@ -36,9 +36,9 @@ nav {
   border-bottom: 1px solid var(--border); padding: .875rem 0;
 }
 .nav-inner { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-.nav-logo { font-weight: 700; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: .5rem; }
+.nav-logo { white-space: nowrap; font-weight: 700; font-size: 1.05rem; color: var(--text); display: flex; align-items: center; gap: .5rem; }
 .nav-logo span { color: var(--accent2); }
-.nav-links { display: flex; align-items: center; gap: 1.5rem; list-style: none; }
+.nav-links { display: flex; align-items: center; gap: 1.1rem; white-space: nowrap; list-style: none; }
 .nav-links a { color: var(--muted); font-size: .875rem; transition: color .2s; }
 .nav-links a:hover { color: var(--text); text-decoration: none; }
 
@@ -134,3 +134,17 @@ pre.term { margin: 0; border: 0; border-radius: 0; background: var(--bg); paddin
 #overview .term-wrap { box-shadow: 0 20px 60px rgba(0,0,0,.35); }
 #shortcuts .config-table { max-width: 860px; margin: 0 auto; }
 @media (max-width: 640px) { pre.term { font-size: .6rem; } }
+
+/* Migration v4 → v5 : encart d'alerte */
+:root { --red: #f85149; }
+.alert-big { border: 2px solid var(--red); background: linear-gradient(135deg, rgba(248,81,73,.16), rgba(245,158,11,.08)); border-radius: var(--radius-lg); padding: 1.75rem 2rem; display: grid; grid-template-columns: auto 1fr; gap: 1.25rem; align-items: start; margin-bottom: 2.5rem; }
+.alert-big .alert-icon { font-size: 2.75rem; line-height: 1; }
+.alert-big h3 { color: var(--red); font-size: 1.35rem; font-weight: 800; margin-bottom: .5rem; text-wrap: balance; }
+.alert-big p { margin-bottom: .6rem; }
+.alert-big ul { margin: .25rem 0 0 1.1rem; display: grid; gap: .35rem; }
+.alert-big strong { color: var(--text); }
+.alert-big code { font-family: var(--mono); color: var(--accent2); font-size: .85em; }
+.hero-alert { display: inline-block; margin-top: 1.25rem; border: 1px solid var(--red); color: var(--text); background: rgba(248,81,73,.12); border-radius: 999px; padding: .35rem 1rem; font-size: .9rem; text-decoration: none; }
+.hero-alert:hover { background: rgba(248,81,73,.22); }
+.pitfalls { margin-top: 1rem; display: grid; gap: .5rem; padding-left: 1.1rem; }
+@media (max-width: 640px) { .alert-big { grid-template-columns: 1fr; padding: 1.25rem; } }

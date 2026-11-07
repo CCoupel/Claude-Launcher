@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Claude-Launcher-NG</title>
-<meta name="description" content="Claude-Launcher-NG : un hub tmux réactif, 100 % Go, pour piloter plusieurs projets Claude Code en parallèle. Navigateur de projets, état de chaque projet en un clic, milestones GitHub, reprise après crash, vue d'ensemble des teamleaders, teams rangées automatiquement." />
+<title>Claude-Launcher-NG2</title>
+<meta name="description" content="Claude-Launcher-NG2 : un hub tmux réactif, 100 % Go, pour piloter plusieurs projets Claude Code en parallèle, sur l'hôte ou en conteneur (podman, docker, ssh, Kubernetes). Navigateur de projets, état de chaque projet en un clic, milestones GitHub, reprise après crash, vue d'ensemble des teamleaders, teams rangées automatiquement." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -14,12 +14,14 @@
 
 <nav>
   <div class="container nav-inner">
-    <div class="nav-logo">🚀 Claude-Launcher<span>-NG</span></div>
+    <div class="nav-logo">🚀 Claude-Launcher<span>-NG2</span></div>
     <ul class="nav-links">
       <li><a href="#problems">Pourquoi</a></li>
       <li><a href="#features">Fonctionnalités</a></li>
+      <li><a href="#containers">Conteneurs</a></li>
       <li><a href="#teams">Teams</a></li>
       <li><a href="#install">Installation</a></li>
+      <li><a href="#migration">Migration</a></li>
       <li><a href="#commands">Commandes</a></li>
       <li><a href="#shortcuts">Raccourcis</a></li>
       <li><a href="https://github.com/CCoupel/claude_project_template">Template →</a></li>
@@ -29,14 +31,15 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v4.9.0</span> · 100 % Go · compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v5.0.0</span> · projets en conteneur · compagnon de claude_project_template</div>
     <h1>Un hub tmux pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
-    <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil.</p>
-    <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Plus de fzf, plus de script : une interface qui ne se fige plus.</p>
+    <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil — sur votre machine ou <em>dans un conteneur</em> : podman, docker, ssh, Kubernetes.</p>
+    <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Chaque projet peut avoir son conteneur, ses outils, sa machine : votre OS reste propre.</p>
     <div class="hero-ctas">
       <a href="#install" class="btn btn-primary">Installer</a>
       <a href="https://github.com/CCoupel/Claude-Launcher" class="btn btn-outline">Voir sur GitHub</a>
     </div>
+    <a href="#migration" class="hero-alert">⚠ Vous utilisez la v4 ? Fermez tous vos projets avant de passer en v5 — lire la procédure</a>
   </div>
 </section>
 
@@ -48,17 +51,17 @@
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">APPS</span>                                <span style="color:#005fff">┃</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  web-shop
  <span style="color:#6e7681">  ├─ ○ </span>api-gateway <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓2</span><span style="color:#d29922"> ⚠</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄2</span><span style="color:#d29922"> ↺</span>       <span style="color:#005fff">┃</span>
  <span style="color:#6e7681">  ├─ ○ </span>mobile-app <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span> <span style="color:#6e7681">&gt;</span> intégrer le module de paiement Stripe
-▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄1</span>           <span style="color:#005fff">┃</span>
+▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄1</span>         <span style="color:#005fff">┃</span>
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">INFRA</span>                               <span style="color:#005fff">┃</span> ● Lecture de src/pay.txt
- <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#5f005f;font-weight:700"> k8s-cluster </span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓ ✔</span><span style="color:#f0883e"> ⚑</span>           <span style="color:#005fff">┃</span> ● Plan : 3 agents en route
- <span style="color:#6e7681">  ├─ ○ </span>monitoring <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓</span><span style="color:#d29922"> ⚠</span><span style="color:#ff7b72"> ↺</span>              <span style="color:#005fff">┃</span> ✦ dev-backend · code-reviewer · qa
+ <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#5f005f;font-weight:700"> k8s-cluster </span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓ ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#f0883e"> ⚑</span>         <span style="color:#005fff">┃</span> ● Plan : 3 agents en route
+ <span style="color:#6e7681">  ├─ ○ </span>monitoring <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓</span><span style="color:#d29922"> ⚠</span><span style="color:#6e7681"> ⬡</span><span style="color:#ff7b72"> ↺</span>            <span style="color:#005fff">┃</span> ✦ dev-backend · code-reviewer · qa
  <span style="color:#6e7681">  └─ ○ </span>terraform-base <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#6e7681"> ⊘</span>            <span style="color:#005fff">┃</span>
  <span style="color:#6e7681">└─ </span><span style="color:#39c5cf;font-weight:700">TOOLS</span>                               <span style="color:#005fff">┃</span> <span style="color:#ff5f5f">⏵⏵ bypass permissions on</span>
  <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f00;font-weight:700"> cli-toolbox </span> <span style="color:#39c5cf;font-weight:700">◆</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#6e7681"> ⚑</span>           <span style="color:#005fff">┃</span>
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
-<span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>
-<span style="color:#6e7681" data-ng-term>  NG v4.9.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>
+<span style="color:#6e7681" data-ng-term>  NG v5.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -72,7 +75,8 @@
  <span style="color:#3fb950">●  </span> fenêtre tmux ouverte               <span style="color:#444444">┃</span>
  <span style="color:#d29922;font-weight:700">✎  </span> local : en cours, non commité      <span style="color:#444444">┃</span>
  <span style="color:#39c5cf;font-weight:700">⇡  </span> remote : poussé, non mergé         <span style="color:#444444">┃</span>
- <span style="color:#3fb950;font-weight:700">✔  </span> template v3.28.0 à jour            <span style="color:#444444">┃</span>
+ <span style="color:#3fb950;font-weight:700">✔  </span> template v5.0.0 à jour             <span style="color:#444444">┃</span>
+ <span style="color:#39c5cf">⬢  </span> conteneur k8s en marche            <span style="color:#444444">┃</span>
  <span style="color:#d29922">⚑  </span> milestone v1.2.0 — Paiement en     <span style="color:#444444">┃</span>
      ligne en cours (60%)               <span style="color:#444444">┃</span>
  <span style="color:#a371f7">⇄1 </span> 1 pull request(s) ouverte(s) en    <span style="color:#444444">┃</span>
@@ -88,9 +92,9 @@
  <span style="color:#a371f7">██████</span><span style="color:#6e7681">░░░░</span><span style="font-weight:700">  60%</span><span style="color:#6e7681"> 6/10</span>                   <span style="color:#444444">┃</span>
  pret 1<span style="color:#6e7681"> · </span>en cours 2<span style="color:#6e7681"> · </span>en review 1      <span style="color:#444444">┃</span>
 <span style="color:#6e7681"> TEAM · 3 TEAMMATES</span>                     <span style="color:#444444">┃</span>
- <span style="color:#6e7681">○</span> <span style="color:#6e7681">dev-backend  </span> v3.28.0+ sonnet <span style="color:#6e7681">high</span>   <span style="color:#444444">┃</span>
- <span style="color:#6e7681">○</span> <span style="color:#6e7681">code-reviewer</span> v3.28.0  opus   <span style="color:#6e7681">med </span>   <span style="color:#444444">┃</span>
- <span style="color:#6e7681">○</span> <span style="color:#6e7681">qa           </span> v3.28.0  sonnet <span style="color:#6e7681">med </span>   <span style="color:#444444">┃</span>
+ <span style="color:#6e7681">○</span> <span style="color:#6e7681">dev-backend  </span> v5.0.0+  sonnet <span style="color:#6e7681">high</span>   <span style="color:#444444">┃</span>
+ <span style="color:#6e7681">○</span> <span style="color:#6e7681">code-reviewer</span> v5.0.0   opus   <span style="color:#6e7681">med </span>   <span style="color:#444444">┃</span>
+ <span style="color:#6e7681">○</span> <span style="color:#6e7681">qa           </span> v5.0.0   sonnet <span style="color:#6e7681">med </span>   <span style="color:#444444">┃</span>
 <span style="color:#6e7681"> FICHIERS · 5</span>                           <span style="color:#444444">┃</span>
    <span style="color:#39c5cf">.claude/</span>       <span style="color:#6e7681">3 élém.   </span>            <span style="color:#444444">┃</span>
    <span style="color:#39c5cf">docs/</span>          <span style="color:#6e7681">1 élém.   </span>            <span style="color:#444444">┃</span>
@@ -99,7 +103,7 @@
    README.md      <span style="color:#6e7681">11 o      </span>            <span style="color:#444444">┃</span>
                                         <span style="color:#444444">┃</span></pre>
     </div>
-    <p class="screenshot-caption">À gauche, le navigateur et, dessous, les infos du projet sélectionné — sans avoir à l'ouvrir. À droite, tmux : un onglet par projet ouvert.</p>
+    <p class="screenshot-caption">À gauche, le navigateur et, dessous, les infos du projet sélectionné — sans avoir à l'ouvrir ; <code style="color:#39c5cf">⬢</code> signale un projet dont le conteneur tourne. À droite, tmux : un onglet par projet ouvert.</p>
   </div>
 </section>
 
@@ -113,6 +117,7 @@
       <div class="problem-card"><div class="problem-icon">🪟</div><h3>Fenêtres éparpillées</h3><p>Un terminal par projet, aucune vue d'ensemble, on perd le fil de ce qui tourne où.</p></div>
       <div class="problem-card"><div class="problem-icon">🐢</div><h3>Outils qui rament</h3><p>Sur un disque Windows, un <code>git status</code> prend 1 à 3 secondes : un menu qui le relance à chaque sélection devient pénible.</p></div>
       <div class="problem-card"><div class="problem-icon">🔄</div><h3>Setup répétitif</h3><p>Retélécharger <code>init-project.md</code>, relancer <code>claude</code>, revérifier la config — à chaque nouvelle session.</p></div>
+      <div class="problem-card"><div class="problem-icon">🧪</div><h3>Un OS qui se remplit</h3><p>Chaque projet amène son Node, son Python, son Go, ses paquets système. La machine accumule des outils qu'aucun projet ne nettoie, et deux projets finissent par se gêner.</p></div>
       <div class="problem-card"><div class="problem-icon">📌</div><h3>Versions qui dérivent</h3><p>Quels projets sont en retard sur le template ? Lesquels n'ont pas été mis à jour depuis des semaines ?</p></div>
     </div>
   </div>
@@ -121,22 +126,62 @@
 <section id="features">
   <div class="container">
     <div class="section-header">
-      <h2>Ce que fait Claude-Launcher-NG</h2>
+      <h2>Ce que fait Claude-Launcher-NG2</h2>
       <p>Un hub central en tmux — pas un remplacement de Claude Code, juste l'orchestration autour.</p>
     </div>
     <div class="features-grid">
       <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Navigateur de projets</h3><p>Vos projets en arbre par catégorie, un filtre à la frappe, la souris. Chaque ligne indique si le projet est ouvert, son état git local (<code>●</code> au repos, <code>✎</code> en cours, <code>◆</code> tout commité, <code>!</code> modifié sur main) et remote (<code>○</code> jamais poussé, <code>↑N</code> non poussé, <code>⇡</code> non mergé, <code>✓</code> publié, <code>↓N</code> en retard), son template (<code>✔</code>, <code>⚠</code>, <code>⊘</code>), son milestone (<code>⚑</code>), ses pull requests ouvertes (<code style="color:#a371f7">⇄N</code>) et une session à reprendre (<code>↺</code>). Un dossier créé ou supprimé apparaît ou disparaît tout seul.</p></div></div>
       <div class="feature-card"><div class="feature-icon">◈</div><div class="feature-body"><h3>L'état en un clic</h3><p>Sous le navigateur, les infos suivent la sélection : la légende des icônes du projet, branche, version locale et dernière release, template (<code>v3.26.1 → v3.28.0</code>), milestone en cours, composition de la team (version, modèle et effort de chaque teammate) et fichiers avec leur marqueur git. La zone tmux, elle, ne bouge pas.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">⚡</div><div class="feature-body"><h3>Prêt avant que vous cliquiez</h3><p>L'état de chaque projet est préparé en tâche de fond et rafraîchi dès qu'il change (commit, nouveau fichier) : la sélection est instantanée, même sur un disque Windows.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⚡</div><div class="feature-body"><h3>Prêt avant que vous cliquiez</h3><p>L'état de chaque projet est préparé en tâche de fond et rafraîchi dès qu'il change (commit, nouveau fichier) : la sélection est instantanée, même sur un disque Windows ou un stockage réseau (MooseFS, NFS…).</p></div></div>
       <div class="feature-card"><div class="feature-icon">⌗</div><div class="feature-body"><h3>Tous les teamleaders</h3><p>Un onglet de vue d'ensemble affiche une vignette interactive par projet ouvert, à la couleur du projet : on voit d'un coup d'œil qui travaille, qui attend.</p></div></div>
       <div class="feature-card"><div class="feature-icon">✦</div><div class="feature-body"><h3>Nouveau projet en deux gestes</h3><p>Double-clic sur une catégorie : donnez un nom, un remote git si besoin. Le dossier est créé, initialisé et lancé dans Claude Code.</p></div></div>
       <div class="feature-card"><div class="feature-icon">📊</div><div class="feature-body"><h3>Consommation et connexion</h3><p>Session, semaine, limites par modèle, avec leur réinitialisation ; <code>F5</code> les relit aussitôt. La connexion claude.ai est surveillée : alerte jaune 3 jours avant son expiration, rouge ensuite, et un clic ouvre <code>claude /login</code>.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Toujours à jour</h3><p>Au lancement, le NG installe la dernière release, vérifiée contre <code>SHA256SUMS</code>. Une version sortie entre-temps s'installe d'un clic sur son annonce, sans fermer vos projets. Les projets en retard sur le template proposent <code>/init-project</code>.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Toujours à jour</h3><p>Au lancement, le NG installe la dernière release, vérifiée contre <code>SHA256SUMS</code>. Une version sortie entre-temps s'installe d'un clic sur son annonce, sans fermer vos projets. Les projets en retard sur le template proposent <code>/init-project</code> ; le template suit la version majeure du launcher (template v5 ↔ NG2 v5).</p></div></div>
       <div class="feature-card"><div class="feature-icon">↔️</div><div class="feature-body"><h3>Un espace qui s'adapte</h3><p><code>Ctrl+←</code> <code>Ctrl+→</code> ou glissez la bordure : la largeur du navigateur est mémorisée. Double-clic sur un pane d'une team : plein écran, et retour d'un autre double-clic.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🧩</div><div class="feature-body"><h3>100 % Go depuis la v4</h3><p>Mise en page des teams et vignettes sont passées dans le binaire : plus de script, ni <code>jq</code> ni <code>xxd</code>, et bien moins de processus lancés chaque seconde. Même configuration, mêmes sessions tmux ; l'ancienne commande <code>claude-launcher.sh</code> redirige vers le NG.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧳</div><div class="feature-body"><h3>Un launcher portable</h3><p>Posez le binaire et sa config (<code>.config/claude-launcher-ng2/</code>) sur un stockage partagé : chaque machine qui le lance retrouve les mêmes projets, la même config claude (<code>CLAUDE_CONFIG_DIR</code>) et les mêmes backends. Toujours un seul binaire Go, sans dépendance.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⚑</div><div class="feature-body"><h3>Milestones GitHub</h3><p>Le drapeau dit où en est chaque projet : <span style="color:#d29922">jaune</span> milestone en cours, <span style="color:#f0883e">orange</span> terminé mais à publier, gris aucun en cours, <span style="color:#3fb950">vert</span> publié. Même règle que le panneau milestone du projet ; un clic donne le milestone, sa barre d'avancement et ses issues par phase.</p></div></div>
       <div class="feature-card"><div class="feature-icon">↺</div><div class="feature-body"><h3>Reprise après crash</h3><p>Terminal fermé, crash, launcher quitté : à l'ouverture, le projet propose de reprendre la conversation, sa team et ses tâches, et le teamleader relance toute son équipe — pas seulement les agents des tâches en cours : une correction demandée par la QA trouvera ses développeurs. Une session close par <code>/end-session</code> ou quittée proprement (<code>Ctrl+C</code>, <code>/exit</code>) n'est plus proposée, et les projets sans template reçoivent leur <code>/end-session</code> ; <code>↺</code> ne signale que les vraies interruptions.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🔎</div><div class="feature-body"><h3>Chaque icône expliquée</h3><p>Dans la vue du projet, chaque icône de sa ligne revient avec sa couleur et son sens, dans le même ordre : <code>!</code> modifié directement sur main, <code>⚑</code> milestone v1.2.0 en cours (60 %), <code style="color:#a371f7">⇄1</code> pull request ouverte, <code>↺</code> session non close… Plus besoin de connaître les symboles par cœur.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<section id="containers">
+  <div class="container">
+    <div class="section-header">
+      <h2>Vos projets en conteneur</h2>
+      <p>Nouveau en v5 : chaque projet peut tourner dans son propre conteneur, sur votre machine ou ailleurs. Claude, ses teammates et les outils du projet y vivent ; le navigateur, les vignettes et la mise en page des teams restent les mêmes.</p>
+    </div>
+    <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon">📦</div><div class="feature-body"><h3>podman ou docker, en local</h3><p>Le conteneur le plus simple : sur la machine du launcher, aux mêmes chemins, <code>/mnt/c</code> compris sous WSL.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🖥️</div><div class="feature-body"><h3>Un démon distant</h3><p>Docker ou le service podman d'un serveur, en direct (<code>host: tcp://…</code>) ou par <code>ssh</code>. Projets et config claude sont sur un stockage partagé monté aux mêmes chemins des deux côtés.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">☸️</div><div class="feature-body"><h3>Kubernetes</h3><p>Un StatefulSet par projet, un PVC ReadWriteMany au même chemin que chez vous (ex. MooseFS). Pod perdu : il est recréé et la conversation vous est proposée à la reprise.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⚙️</div><div class="feature-body"><h3>Bootstrap automatique</h3><p>Image vanilla (Debian, Ubuntu, Rocky, Alpine) : le launcher y installe tmux, git, claude et les paquets du projet déclarés dans <code>.claude-launcher/env.yaml</code>. Rejoué seulement si ce fichier change ; ~20 s la première fois.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⌨️</div><div class="feature-body"><h3>Comme en local</h3><p>Le tmux du conteneur s'affiche dans la fenêtre du projet : souris, zoom double-clic, <code>Ctrl+B</code> qui agit dans le conteneur (<code>Ctrl+B Ctrl+B</code> pour le hub), vignettes et teams rangées comme d'habitude.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔗</div><div class="feature-body"><h3>Rien ne s'arrête avec le launcher</h3><p>Launcher quitté, fenêtre fermée : claude et sa team continuent dans le conteneur. Au retour, le projet se rattache tout seul. Plusieurs launchers sur un même projet ? Un seul pilote, les autres regardent en lecture seule et peuvent prendre la main.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🩺</div><div class="feature-body"><h3>Diagnostic intégré</h3><p>Un backend inutilisable est marqué <code>⚠</code> ; <code>claude-launcher-ng2 backends</code> dit quoi faire : client absent, démon non exposé, accès ssh, stockage partagé non monté, PVC manquant…</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Choisi projet par projet</h3><p>À la création, ou à la première ouverture d'un projet, une étape « Exécution » propose l'hôte ou un conteneur, avec le socle et le backend présélectionnés dans <code>backends.yaml</code>. <code>F2</code> reconfigure un projet fermé.</p></div></div>
+    </div>
+    <div class="install-steps" style="margin-top:2rem">
+      <div class="install-step">
+        <div class="step-num">⬢</div>
+        <div class="step-content">
+          <h3>Déclarer ses backends — <code>backends.yaml</code></h3>
+          <pre><span class="code-cmd">defaults</span>: { backend: podman, image: docker.io/library/ubuntu:24.04 }
+<span class="code-cmd">backends</span>:
+  podman:      { type: podman }
+  srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/share/MFS/ROOT] }
+  srv2-ssh:    { type: ssh, host: srv2, engine: podman,        shared: [/share/MFS/ROOT] }
+  lab:         { type: k8s, context: k8s, namespace: claude,
+                 volumes: { /share/MFS/ROOT: claude-shared } }   <span class="code-comment"># PVC ReadWriteMany</span></pre>
+          <h3 style="margin-top:1rem">Décrire l'environnement du projet — <code>.claude-launcher/env.yaml</code></h3>
+          <pre><span class="code-cmd">image</span>: docker.io/library/debian:12
+<span class="code-cmd">packages</span>: [golang, make]
+<span class="code-cmd">setup</span>:
+  - go install golang.org/x/tools/gopls@latest</pre>
+          <p style="margin-top:.75rem">Sans <code>env.yaml</code> ni backend, rien ne change : le projet tourne sur l'hôte comme avant.</p>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -153,17 +198,17 @@
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">APPS</span>                                <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
  <span style="color:#6e7681">  ├─ ○ </span>api-gateway <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓2</span><span style="color:#d29922"> ⚠</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄2</span><span style="color:#d29922"> ↺</span>       <span style="color:#005fff">┃</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  web-shop                           <span style="color:#3fb950">│</span> <span style="color:#ff875f">✻</span> <span style="font-weight:700">Claude Code</span>  ·  k8s-cluster
  <span style="color:#6e7681">  ├─ ○ </span>mobile-app <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄1</span>           <span style="color:#005fff">┃</span> <span style="color:#6e7681">&gt;</span> intégrer le module de paiement Stripe              <span style="color:#3fb950">│</span> <span style="color:#6e7681">&gt;</span> passer l'ingress en Gateway API
+▶<span style="color:#6e7681">  └─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f5f;font-weight:700"> web-shop </span> <span style="color:#d29922;font-weight:700">✎</span> <span style="color:#39c5cf;font-weight:700">⇡</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#d29922"> ⚑</span><span style="color:#a371f7"> ⇄1</span>         <span style="color:#005fff">┃</span> <span style="color:#6e7681">&gt;</span> intégrer le module de paiement Stripe              <span style="color:#3fb950">│</span> <span style="color:#6e7681">&gt;</span> passer l'ingress en Gateway API
  <span style="color:#6e7681">├─ </span><span style="color:#39c5cf;font-weight:700">INFRA</span>                               <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
- <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#5f005f;font-weight:700"> k8s-cluster </span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓ ✔</span><span style="color:#f0883e"> ⚑</span>           <span style="color:#005fff">┃</span> ● Lecture de src/pay.txt                             <span style="color:#3fb950">│</span> ● Lecture de charts/ingress.yaml
- <span style="color:#6e7681">  ├─ ○ </span>monitoring <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓</span><span style="color:#d29922"> ⚠</span><span style="color:#ff7b72"> ↺</span>              <span style="color:#005fff">┃</span> ● Plan : 3 agents en route                           <span style="color:#3fb950">│</span> ● Édition de 4 fichiers
+ <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#5f005f;font-weight:700"> k8s-cluster </span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓ ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#f0883e"> ⚑</span>         <span style="color:#005fff">┃</span> ● Lecture de src/pay.txt                             <span style="color:#3fb950">│</span> ● Lecture de charts/ingress.yaml
+ <span style="color:#6e7681">  ├─ ○ </span>monitoring <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#3fb950;font-weight:700">✓</span><span style="color:#d29922"> ⚠</span><span style="color:#6e7681"> ⬡</span><span style="color:#ff7b72"> ↺</span>            <span style="color:#005fff">┃</span> ● Plan : 3 agents en route                           <span style="color:#3fb950">│</span> ● Édition de 4 fichiers
  <span style="color:#6e7681">  └─ ○ </span>terraform-base <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#6e7681"> ⊘</span>            <span style="color:#005fff">┃</span> ✦ dev-backend · code-reviewer · qa                   <span style="color:#3fb950">│</span> ✦ infra · reviewer
  <span style="color:#6e7681">└─ </span><span style="color:#39c5cf;font-weight:700">TOOLS</span>                               <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
  <span style="color:#6e7681">  ├─ </span><span style="color:#3fb950">● </span><span style="color:#ffffff;background:#005f00;font-weight:700"> cli-toolbox </span> <span style="color:#39c5cf;font-weight:700">◆</span> <span style="color:#58a6ff;font-weight:700">○</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#6e7681"> ⚑</span>           <span style="color:#005fff">┃</span> <span style="color:#ff5f5f">⏵⏵ bypass permissions on</span>                             <span style="color:#3fb950">│</span> <span style="color:#ff5f5f">⏵⏵ bypass permissions on</span>
  <span style="color:#6e7681">  └─ ○ </span>docs-site <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#3fb950"> ⚑</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub</span>                  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681" data-ng-term>  NG v4.9.0 · tpl 3.28.0             </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681" data-ng-term>  NG v5.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -177,7 +222,7 @@
  <span style="color:#3fb950">●  </span> fenêtre tmux ouverte               <span style="color:#444444">┃</span> <span style="color:#6e7681">&gt;</span> ajouter la complétion bash
  <span style="color:#d29922;font-weight:700">✎  </span> local : en cours, non commité      <span style="color:#444444">┃</span>
  <span style="color:#39c5cf;font-weight:700">⇡  </span> remote : poussé, non mergé         <span style="color:#444444">┃</span> ● Écriture de src/comp.txt
- <span style="color:#3fb950;font-weight:700">✔  </span> template v3.28.0 à jour            <span style="color:#444444">┃</span> ● Tests : 42 réussis
+ <span style="color:#3fb950;font-weight:700">✔  </span> template v5.0.0 à jour             <span style="color:#444444">┃</span> ● Tests : 42 réussis
  <span style="color:#d29922">⚑  </span> milestone v1.2.0 — Paiement en     <span style="color:#444444">┃</span> ✓ Prêt pour la PR
      ligne en cours (60%)               <span style="color:#444444">┃</span>
  <span style="color:#a371f7">⇄1 </span> 1 pull request(s) ouverte(s) en    <span style="color:#444444">┃</span> <span style="color:#ff5f5f">⏵⏵ bypass permissions on</span>
@@ -253,14 +298,14 @@
       <div class="install-step">
         <div class="step-num">1</div>
         <div class="step-content">
-          <h3>Installer Claude-Launcher-NG</h3>
+          <h3>Installer Claude-Launcher-NG2</h3>
           <p>Un binaire statique par plateforme (linux et macOS, amd64 et arm64), publié avec chaque release, avec son <code>SHA256SUMS</code>.</p>
           <pre><span class="code-cmd">os</span>=$(uname -s | tr A-Z a-z); <span class="code-cmd">arch</span>=$(uname -m)
 case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 <span class="code-cmd">curl</span> -fsSL \
-  "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng-$os-$arch" \
-  -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng</pre>
-          <p style="margin-top:.75rem">Prérequis : <code>tmux</code>, <code>git</code>, <code>bash</code> et <code>claude</code>. Rien d'autre.</p>
+  "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng2-$os-$arch" \
+  -o ~/.local/bin/claude-launcher-ng2 && chmod +x ~/.local/bin/claude-launcher-ng2</pre>
+          <p style="margin-top:.75rem">Prérequis : <code>tmux</code>, <code>git</code>, <code>bash</code> et <code>claude</code>. Pour les conteneurs, selon le backend : <code>podman</code>, le client <code>docker</code>, <code>kubectl</code> ou <code>ssh</code> — rien à préinstaller dans les images.</p>
         </div>
       </div>
 
@@ -268,15 +313,17 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
         <div class="step-num">2</div>
         <div class="step-content">
           <h3>Configurer (optionnel)</h3>
-          <p>Au premier lancement, le launcher crée <code>~/.config/claude-launcher.conf</code>.</p>
-          <pre><span class="code-cmd">claude-launcher-ng</span> configure   <span class="code-comment"># ouvre la config dans $EDITOR : GITHUB_DIRS, token…</span>
-<span class="code-cmd">claude-launcher-ng</span> help        <span class="code-comment"># commandes et raccourcis (F1 dans le launcher)</span></pre>
+          <p>Au premier lancement, le launcher crée <code>~/.config/claude-launcher-ng2/config.conf</code> (copie de la config v4 si elle existe). Posée à côté du binaire, dans <code>.config/claude-launcher-ng2/</code>, elle est prioritaire : launcher portable.</p>
+          <pre><span class="code-cmd">claude-launcher-ng2</span> configure   <span class="code-comment"># ouvre la config dans $EDITOR : GITHUB_DIRS, token…</span>
+<span class="code-cmd">claude-launcher-ng2</span> backends    <span class="code-comment"># backends d'exécution, conteneurs, diagnostic</span>
+<span class="code-cmd">claude-launcher-ng2</span> help        <span class="code-comment"># commandes et raccourcis (F1 dans le launcher)</span></pre>
           <table class="config-table">
             <tr><th>Variable</th><th>Rôle</th></tr>
             <tr><td><code>GITHUB_DIR</code> / <code>GITHUB_DIRS</code></td><td>Dossier(s) racine contenant vos projets (les catégories sont les sous-dossiers)</td></tr>
             <tr><td><code>GITHUB_TOKEN</code></td><td>Token GitHub (gh CLI + MCP)</td></tr>
             <tr><td><code>CLAUDE_OPTIONS</code></td><td>Options passées à <code>claude</code></td></tr>
             <tr><td><code>CLAUDE_EXPERIMENTAL_TEAMS</code></td><td><code>1</code> = active les agent teams</td></tr>
+            <tr><td><code>CLAUDE_CONFIG_DIR</code></td><td>Config de claude (par défaut <code>~/.claude</code>) ; chemin relatif = relatif au fichier de config, pour un launcher portable sur stockage partagé</td></tr>
             <tr><td><code>EXTRA_ENVS</code></td><td>Variables d'environnement supplémentaires</td></tr>
             <tr><td><code>PANE_ACTIVE_BRIGHTEN_STEP</code>, <code>PANE_INACTIVE_DARKEN_STEP</code></td><td>Teinte des teammates actifs et inactifs (1 = léger, 5 = fort)</td></tr>
             <tr><td><code>LAYOUT_2ROW_LEADER_PCT</code>, <code>LAYOUT_3ROW_*</code></td><td>Hauteur laissée au teamleader dans la mise en page des teams</td></tr>
@@ -289,17 +336,102 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
         <div class="step-num">3</div>
         <div class="step-content">
           <h3>Démarrer le hub</h3>
-          <pre><span class="code-cmd">claude-launcher-ng</span></pre>
+          <pre><span class="code-cmd">claude-launcher-ng2</span></pre>
           <div class="launcher-features">
-            <div class="lf-item"><span class="lf-icon">✓</span> Crée (ou rejoint) la session tmux <code>claude-hub</code></div>
+            <div class="lf-item"><span class="lf-icon">✓</span> Crée (ou rejoint) la session tmux <code>claude-hub-ng2</code>, sur son propre serveur tmux : la v4 peut tourner à côté</div>
             <div class="lf-item"><span class="lf-icon">✓</span> Prépare en arrière-plan l'état de tous vos projets</div>
             <div class="lf-item"><span class="lf-icon">✓</span> Propose <code>/init-project</code> si le template d'un projet est en retard</div>
             <div class="lf-item"><span class="lf-icon">✓</span> Se met à jour tout seul, release vérifiée (<code>--no-update</code> pour s'en passer)</div>
           </div>
-          <p style="margin-top:.75rem">Vous étiez en v3 ? Elle passe en v4 d'elle-même au lancement suivant. L'ancien menu fzf (<code>--legacy</code>) a été retiré ; <code>~/claude-launcher.sh</code> lance toujours le NG.</p>
+          <p style="margin-top:.75rem"><strong>Vous venez de la v4 ?</strong> La v5 s'installe à côté (binaire, config, cache et tmux distincts) ; la v4 ne passe pas en v5 d'elle-même. Suivez la <a href="#migration">procédure de migration</a> ci-dessous.</p>
         </div>
       </div>
 
+    </div>
+  </div>
+</section>
+
+<section id="migration">
+  <div class="container">
+    <div class="section-header">
+      <h2>Migrer de la v4 à la v5</h2>
+      <p>La v5 s'installe à côté de la v4 et ne la modifie pas. Le passage se fait une fois, projets fermés.</p>
+    </div>
+
+    <div class="alert-big" role="alert">
+      <div class="alert-icon">⚠️</div>
+      <div>
+        <h3>Fermez TOUS vos projets avant de passer en v5</h3>
+        <p>La v4 ne connaît pas les conteneurs. Au lancement, elle supprime les teams qu'elle croit mortes et propose de reprendre les sessions qu'elle croit interrompues : une session v5 en conteneur, dont elle ne voit pas les panes, serait prise pour morte et <strong>sa team supprimée</strong>.</p>
+        <ul>
+          <li><strong>Ne lancez jamais un même projet avec la v4 et la v5.</strong> Un projet ouvert en v5 est migré : ne le rouvrez plus en v4.</li>
+          <li><strong>Ne lancez jamais la v4 sur une config claude partagée</strong> avec la v5 (même <code>~/.claude</code> ou même <code>CLAUDE_CONFIG_DIR</code>).</li>
+          <li><strong>La v4 ne passe pas en v5 d'elle-même</strong> : elle affichera « mise à jour incomplète ». C'est normal, installez NG2.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="install-steps">
+      <div class="install-step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>Fermer tous les projets dans la v4</h3>
+          <p>Dans le launcher v4 : <code>Esc</code>, <code>t</code> (tout fermer), puis <code>o</code>. Quittez proprement chaque claude (<code>/end-session</code> ou <code>/exit</code>) si vous voulez retrouver vos sessions sans reprise.</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>Installer NG2 à côté de la v4</h3>
+          <pre><span class="code-cmd">os</span>=$(uname -s | tr A-Z a-z); <span class="code-cmd">arch</span>=$(uname -m)
+case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
+<span class="code-cmd">curl</span> -fsSL \
+  "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng2-$os-$arch" \
+  -o ~/.local/bin/claude-launcher-ng2 && chmod +x ~/.local/bin/claude-launcher-ng2</pre>
+          <p style="margin-top:.75rem">Binaire, config, cache et serveur tmux distincts (<code>claude-launcher-ng2</code>, <code>claude-hub-ng2</code>) : la v4 reste intacte.</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Lancer NG2</h3>
+          <pre><span class="code-cmd">claude-launcher-ng2</span></pre>
+          <p style="margin-top:.75rem">Votre config v4 (<code>~/.config/claude-launcher.conf</code>) est copiée dans <code>~/.config/claude-launcher-ng2/config.conf</code>. À sa première ouverture, chaque projet demande où il tourne : choisir <code>hôte</code> garde exactement le comportement de la v4.</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3>Conteneurs locaux : rien d'autre à faire</h3>
+          <p>Les sessions lancées par NG2 utilisent <code>CLAUDE_CONFIG_DIR=~/.claude</code> ; <code>~/.claude.json</code> est <strong>copié</strong> une fois dans <code>~/.claude/.claude.json</code> (jamais déplacé : les sessions de l'hôte gardent le leur).</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <h3>Conteneurs distants ou Kubernetes : passer sur un stockage partagé</h3>
+          <p>Projets et config claude doivent être sur un stockage réseau (NFS, MooseFS, PVC ReadWriteMany) monté <strong>aux mêmes chemins</strong> partout. Copier les projets ne suffit pas : conversations, mémoire, réglages par projet et historique sont indexés par leur chemin. Suivez le guide pas à pas, avec retour arrière : <a href="https://github.com/CCoupel/Claude-Launcher/blob/main/ng2/MIGRATION.md"><strong>Passer ses projets et ~/.claude sur un stockage partagé</strong></a>.</p>
+          <p style="margin-top:.75rem">Points relevés lors d'une vraie migration (WSL vers MooseFS) :</p>
+          <ul class="pitfalls">
+            <li><strong>Copier avec <code>rsync -a</code></strong> : une copie qui suit les liens perd ceux de <code>node_modules/.bin</code> ou d'un <code>.venv</code> ; à défaut, régénérez-les (<code>npm ci</code>, nouveau venv).</li>
+            <li><strong>Worktrees git</strong> (<code>gh-pages</code>, <code>MARKETING</code>…) : leur fichier <code>.git</code> pointe vers l'ancien chemin, et un commit partirait dans l'ancien dépôt. Réécrivez-le puis <code>git worktree repair</code> ; <code>git worktree prune</code> pour les orphelins.</li>
+            <li><strong>Chemins absolus dans <code>.git/config</code></strong>, comme <code>core.hooksPath</code> : à corriger ou retirer.</li>
+            <li><strong>Connexion claude</strong> : ne recopiez pas <code>.credentials.json</code> d'une config encore active vers l'autre (chaque renouvellement déconnecterait l'autre côté) ; faites <code>/login</code> une fois dans NG2.</li>
+            <li><strong>Dossiers vides dans <code>~/.claude/projects</code></strong> (ex. <code>-tmp-remember-summarizer-cwd-*</code> laissés par un plugin) : sans danger, mais à supprimer (<code>find ~/.claude/projects -mindepth 1 -maxdepth 2 -type d -empty -delete</code>) avant de passer sur un stockage réseau.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">6</div>
+        <div class="step-content">
+          <h3>Retirer la v4 une fois la v5 adoptée</h3>
+          <pre><span class="code-cmd">rm</span> ~/.local/bin/claude-launcher-ng</pre>
+          <p style="margin-top:.75rem"><strong>Revenir à la v4</strong>, tous les projets fermés :</p>
+          <pre><span class="code-cmd">curl</span> -fsSL \
+  "https://github.com/CCoupel/Claude-Launcher/releases/download/v4.9.0/claude-launcher-ng-$os-$arch" \
+  -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng</pre>
+        </div>
+      </div>
     </div>
   </div>
 </section>
@@ -331,11 +463,13 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
       <tr><td><code>Entrée</code>, double-clic sur un projet</td><td>Ouvrir ou rejoindre le projet</td></tr>
       <tr><td>Clic hors d'un projet (catégorie, zone vide, en-tête)</td><td>Afficher la vue d'ensemble « ⌗ Teamleaders »</td></tr>
       <tr><td>Double-clic sur une catégorie ou une racine</td><td>Créer un projet dans ce dossier</td></tr>
+      <tr><td><code>F2</code> sur un projet fermé</td><td>Reconfigurer son exécution : hôte, ou conteneur avec son socle et son backend</td></tr>
       <tr><td>Frappe</td><td>Filtrer les projets</td></tr>
       <tr><td><code>Ctrl+←</code> <code>Ctrl+→</code>, glisser la bordure</td><td>Redimensionner le navigateur</td></tr>
       <tr><td><code>Tab</code>, <code>Alt+←</code> <code>Alt+→</code></td><td>Passer du navigateur à tmux</td></tr>
       <tr><td>Double-clic sur un pane d'une team</td><td>Plein écran ; double-clic à nouveau pour revenir</td></tr>
       <tr><td><code>Ctrl+B R</code> dans un projet</td><td>Remettre en ordre les panes de la team</td></tr>
+      <tr><td><code>Ctrl+B</code> dans un projet <code style="color:#39c5cf">⬢</code></td><td>Agit dans le tmux du conteneur ; <code>Ctrl+B Ctrl+B</code> = préfixe du hub</td></tr>
       <tr><td>Clic sur <code>↑ NG … cliquer pour installer</code></td><td>Installer la nouvelle version (projets conservés)</td></tr>
       <tr><td>Clic sur l'alerte de connexion</td><td>Ouvrir une fenêtre qui lance <code>claude /login</code></td></tr>
       <tr><td><code>Ctrl+U</code>, clic sur <code>✕</code></td><td>Masquer une annonce de mise à jour</td></tr>
@@ -352,7 +486,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
       <div class="companion-icon">🧩</div>
       <div class="companion-body">
         <h3>claude_project_template</h3>
-        <p>Le launcher récupère <code>init-project.md</code> depuis ce repo par défaut : agents, commandes et workflows prêts à l'emploi pour Claude Code.</p>
+        <p>Le launcher récupère <code>init-project.md</code> depuis ce repo par défaut : agents, commandes et workflows prêts à l'emploi pour Claude Code. Launcher et template partagent leur version majeure : le template v5 va avec NG2 v5.</p>
       </div>
       <a href="https://github.com/CCoupel/claude_project_template" class="btn btn-outline companion-cta">Voir le template →</a>
     </div>
@@ -361,7 +495,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG <span data-ng-version>v4.9.0</span> — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v5.0.0</span> — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 
