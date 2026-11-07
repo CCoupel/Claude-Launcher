@@ -59,6 +59,7 @@ Au lancement, les teams mortes de `~/.claude/teams` (et leurs tâches) sont supp
 Claude coupée laisse la sienne. Une team n'est supprimée que si elle a des teammates avec un pane tmux
 et qu'aucun de ces panes n'existe encore ; les teams sans teammate, ou tmux injoignable, ne sont jamais
 touchées, ni celles dont la session du leader peut encore être reprise (voir ci-dessous).
+Si ce nettoyage dure (stockage réseau), une barre de progression s'affiche au-delà d'une demi-seconde.
 
 ### Reprise après crash
 
@@ -492,7 +493,9 @@ en **orange** dès le tag (`↑ NG vX · mise à jour bientôt prête ✕`, non 
 écriture faite depuis Linux (vérifié par `inotify_probe_test.go`). Le NG distingue donc :
 
 - **disque Linux natif** : `inotify` récursif sur le projet et `.git` ;
-- **9p** (`/mnt/c`…) : une signature bon marché (quelques `stat` : `HEAD`, `index`, entrées de
+- **stockage réseau** — 9p (`/mnt/c`…), FUSE (MooseFS, sshfs…), NFS, SMB, Ceph : poser
+  `inotify` sur toute l'arborescence y est lent (25 s pour 23 projets sur MooseFS) et il ne voit
+  pas les écritures faites d'une autre machine ou d'un conteneur. Une signature bon marché (quelques `stat` : `HEAD`, `index`, entrées de
   premier niveau) interrogée toutes les 2 s pour le projet sélectionné, 8 s pour les projets
   ouverts ;
 - dans les deux cas, un recalcul complet périodique sert de filet (sélectionné : 10 s au
