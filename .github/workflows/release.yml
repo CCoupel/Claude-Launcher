@@ -8,8 +8,54 @@ on:
 permissions:
   contents: write
 
+# Routage par version majeure du tag :
+#   < v4  → legacy : script bash claude-launcher.sh seul
+#   = v4  → ng/    : Claude-Launcher-NG + script de redirection
+#   ≥ v5  → ng2/   : Claude-Launcher-NG2, binaires seuls
+# Rappel : GitHub exécute le workflow présent DANS le commit tagué ; ce routage
+# s'applique donc aux tags posés sur un commit qui contient ce fichier.
 jobs:
+  route:
+    runs-on: ubuntu-latest
+    outputs:
+      target: ${{ steps.r.outputs.target }}
+    steps:
+      - id: r
+        run: |
+          major=$(printf '%s' "$GITHUB_REF_NAME" | sed -nE 's/^v([0-9]+)\..*/\1/p')
+          if [ -z "$major" ]; then echo "tag non reconnu : $GITHUB_REF_NAME" >&2; exit 1; fi
+          if   [ "$major" -lt 4 ]; then t=legacy
+          elif [ "$major" -eq 4 ]; then t=ng
+          else t=ng2; fi
+          echo "target=$t" >> "$GITHUB_OUTPUT"; echo "$GITHUB_REF_NAME → $t"
+
+  # < v4 : legacy (script bash seul)
+  release-legacy:
+    needs: route
+    if: ${{ needs.route.outputs.target == 'legacy' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Patch SCRIPT_VERSION
+        run: sed -i "s/^SCRIPT_VERSION=.*/SCRIPT_VERSION=\"${GITHUB_REF_NAME}\"/" claude-launcher.sh
+
+      - name: Package
+        run: |
+          mkdir -p dist && cp claude-launcher.sh dist/
+          cd dist && sha256sum claude-launcher.sh > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/claude-launcher.sh
+            dist/SHA256SUMS
+          generate_release_notes: true
+
+  # v4 : launcher NG (dossier ng/) + script de redirection
   release:
+    needs: route
+    if: ${{ needs.route.outputs.target == 'ng' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -47,5 +93,43 @@ jobs:
           files: |
             dist/claude-launcher.sh
             dist/claude-launcher-ng-*
+            dist/SHA256SUMS
+          generate_release_notes: true
+
+  # ≥ v5 : launcher NG2 (dossier ng2/), binaires seuls (plus de claude-launcher.sh)
+  release-ng2:
+    needs: route
+    if: ${{ needs.route.outputs.target == 'ng2' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng2/go.mod
+          cache-dependency-path: ng2/go.sum
+
+      - name: Test Claude-Launcher-NG2
+        working-directory: ng2
+        run: |
+          go vet ./...
+          go test ./...
+
+      - name: Build Claude-Launcher-NG2
+        working-directory: ng2
+        run: |
+          mkdir -p ../dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os=${target%/*}; arch=${target#*/}
+            CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
+              -ldflags "-s -w -X main.ngVersion=${GITHUB_REF_NAME}" \
+              -o ../dist/claude-launcher-ng2-$os-$arch .
+          done
+          cd ../dist && sha256sum claude-launcher-ng2-* > SHA256SUMS
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/claude-launcher-ng2-*
             dist/SHA256SUMS
           generate_release_notes: true
