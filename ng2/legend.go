@@ -37,6 +37,7 @@ type projInfo struct {
 	ctrKnown  bool      // … s'il existe
 	problems  []problem // backend affecté inutilisable (diag.go)
 	badCfg    string    // configuration d'exécution invalide : lancement refusé
+	dups      []string  // groupe de serveurs : serveurs où le projet a un conteneur (en double)
 	live      liveSess  // session tmux vivante dans le conteneur…
 	hasLive   bool      // … s'il y en a une
 	dot       sessState // point devant le nom (sessionOf), calculé par le navigateur
@@ -78,6 +79,8 @@ func sessionOf(p projInfo) (sessState, string) {
 		return sessHere, "ouvert ici, ce launcher a la main (Ctrl+clic ou Suppr : fermer)"
 	case p.badCfg != "":
 		return sessAnomaly, "configuration d'exécution invalide : lancement refusé"
+	case len(p.dups) > 1:
+		return sessAnomaly, "conteneur en double sur " + strings.Join(p.dups, " et ") + " : Entrée pour choisir lequel garder"
 	case len(p.problems) > 0:
 		return sessAnomaly, "backend " + p.backend + " inutilisable : rien ne peut démarrer"
 	case p.claudeLive() && p.foreign() != "":

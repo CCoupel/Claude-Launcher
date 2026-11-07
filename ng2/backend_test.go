@@ -142,12 +142,15 @@ func TestLeaderAliveIn(t *testing.T) {
 func TestRemoteEngines(t *testing.T) {
 	ssh := Engine{BackendConf{Name: "srv", Type: "ssh", Host: "srv1", Shared: []string{"/share/MFS/ROOT"}}}
 	got := ssh.cli("exec", "-i", "ctr", "sh", "-c", "echo 'a b' $HOME")
-	want := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", "srv1",
-		`'podman' 'exec' '-i' 'ctr' 'sh' '-c' 'echo '\''a b'\'' $HOME'`}
+	want := append(append([]string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...), "srv1",
+		`'podman' 'exec' '-i' 'ctr' 'sh' '-c' 'echo '\''a b'\'' $HOME'`)
+	if len(sshMux()) != 6 || !strings.Contains(strings.Join(sshMux(), " "), "ControlMaster=auto") {
+		t.Errorf("connexion ssh persistante : %q", sshMux())
+	}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("ssh cli :\n %q\n %q", got, want)
 	}
-	if a := ssh.execArgv("ctr", false, true, "tmux", "attach"); a[5] != "-t" {
+	if a := ssh.execArgv("ctr", false, true, "tmux", "attach"); a[5+len(sshMux())] != "-t" {
 		t.Errorf("attache ssh sans -t : %q", a)
 	}
 	if !ssh.podman() || !ssh.b.remote() {
@@ -161,7 +164,7 @@ func TestRemoteEngines(t *testing.T) {
 		t.Error("docker local vu distant")
 	}
 	sd := Engine{BackendConf{Type: "ssh", Host: "srv1", Engine: "docker", EngHost: "unix:///run/user/1000/docker.sock"}}
-	if got := sd.cli("ps")[6]; got != "'docker' '-H' 'unix:///run/user/1000/docker.sock' 'ps'" || sd.podman() {
+	if got := sd.cli("ps")[6+len(sshMux())]; got != "'docker' '-H' 'unix:///run/user/1000/docker.sock' 'ps'" || sd.podman() {
 		t.Errorf("ssh+docker : %q", got)
 	}
 	pd := Engine{BackendConf{Type: "podman", Host: "tcp://127.0.0.1:8888"}}

@@ -273,6 +273,43 @@ backends:
 | `ssh`, `engine: docker` | `ssh <host> docker …` | docker dans le PATH d'une commande ssh, utilisateur dans le groupe `docker` |
 | `ssh`, `engine: podman` (défaut) | `ssh <host> podman …` | podman dans le PATH d'une commande ssh |
 
+#### Groupe de serveurs (docker, podman, ssh)
+
+Un backend docker, podman ou ssh peut viser **plusieurs serveurs** (`hosts:`
+à la place de `host:`). Le projet est affecté au groupe (F2 propose son nom),
+et **le launcher choisit le serveur** :
+
+```yaml
+backends:
+  docker-pool: { type: docker, shared: [/share/MFS/ROOT],
+                 hosts: [tcp://192.168.1.211:2375, tcp://192.168.1.212:2375, tcp://192.168.1.213:2375] }
+  ssh-pool:    { type: ssh, engine: podman, shared: [/share/MFS/ROOT], hosts: [srv1, srv2] }
+```
+
+- **Aucun registre** : les conteneurs eux-mêmes font foi (labels
+  `cl.launcher`, `cl.project`, `cl.backend`) ; le serveur d'un projet est celui
+  où l'on trouve son conteneur. Rien à perdre ni à resynchroniser.
+- **À l'ouverture**, tous les serveurs du groupe sont interrogés (en
+  parallèle) : le projet garde le serveur de son conteneur, même arrêté (son
+  bootstrap, son `$HOME` et ses dossiers `local:` y sont) ; sans conteneur, il
+  va sur le serveur qui a **le moins de conteneurs NG2 en marche**. Un verrou
+  (`.claude-launcher/.lock`, le temps de la création) empêche deux launchers de
+  le créer sur deux serveurs.
+- **Entre deux launchers**, le scan régulier du navigateur (10 s) parcourt
+  tous les serveurs : un projet ouvert par l'autre apparaît en 10 s au plus,
+  avec son point (`■` orange piloté ailleurs…).
+- **Serveur injoignable** : le groupe reste utilisable tant qu'un serveur
+  répond ; à l'ouverture d'un projet introuvable, le launcher demande s'il faut
+  démarrer ailleurs (son conteneur est peut-être sur le serveur muet). Chaque
+  commande de listing est bornée à 8 s.
+- **Doublon** (le même projet sur deux serveurs) : point `✕` ; Entrée demande
+  lequel garder, les autres sont supprimés.
+- **Rééquilibrer** : supprimer le conteneur d'un projet ; il est replacé à la
+  prochaine ouverture.
+- `claude-launcher-ng2 backends` détaille chaque serveur : état, conteneurs,
+  problèmes. En ssh, une connexion persistante (`ControlMaster`) sert toutes les
+  commandes vers un même serveur.
+
 #### Kubernetes
 
 ```yaml

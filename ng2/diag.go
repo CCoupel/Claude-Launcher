@@ -71,7 +71,7 @@ func (e Engine) checkShared(proj string) error {
 	if e.b.Type == "ssh" && len(ps) == 0 {
 		// les mêmes chemins doivent exister de l'autre côté
 		for _, p := range []string{claudeDir(), proj} {
-			if exec.Command("ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10", e.b.Host, "test -d "+shq(p)).Run() != nil {
+			if exec.Command("ssh", append(append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...), e.b.Host, "test -d "+shq(p))...).Run() != nil {
 				ps = append(ps, problem{p + " absent sur " + e.b.Host,
 					"monter le stockage partagé sur " + e.b.Host + " au même chemin qu'ici"})
 			}
@@ -99,7 +99,32 @@ func runQuiet(timeout time.Duration, argv ...string) (string, error) {
 
 // diagnose : problèmes du backend (vide : utilisable) — moteur, puis stockage partagé.
 func diagnose(b BackendConf) []problem {
+	if b.pool() {
+		// groupe (#61) : utilisable tant qu'un serveur l'est ; sinon les problèmes de chacun
+		var all []problem
+		for _, h := range b.Hosts {
+			ps := diagnose(b.at(h))
+			if len(ps) == 0 {
+				return nil
+			}
+			for _, p := range ps {
+				all = append(all, problem{h + " : " + p.what, p.fix})
+			}
+		}
+		return all
+	}
 	return append(engineProblems(b), sharedProblems(b, "")...)
+}
+
+// poolProblems : problèmes de chaque serveur d'un groupe (pour « backends »).
+func poolProblems(b BackendConf) map[string][]problem {
+	out := map[string][]problem{}
+	for _, h := range b.servers() {
+		if ps := diagnose(b.at(h)); len(ps) > 0 {
+			out[h] = ps
+		}
+	}
+	return out
 }
 
 func engineProblems(b BackendConf) []problem {

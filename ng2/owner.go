@@ -140,10 +140,10 @@ func foreignOwner(proj string) string {
 			continue
 		}
 		for _, f := range fs {
-			if f.Project != proj || !f.Running || !e.hasSession(f.Name) {
+			if f.Project != proj || !f.Running || !e.of(f).hasSession(f.Name) {
 				continue
 			}
-			if o := e.owner(f.Name); o.alive() && o.id != launcherID() {
+			if o := e.of(f).owner(f.Name); o.alive() && o.id != launcherID() {
 				return o.id + " (" + b.Name + ")"
 			}
 		}

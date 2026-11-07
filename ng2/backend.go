@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -248,6 +249,8 @@ type BackendConf struct {
 	Type      string            `yaml:"type"`        // host | podman | docker | ssh
 	Context   string            `yaml:"context"`     // docker : --context
 	Host      string            `yaml:"host"`        // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
+	Hosts     []string          `yaml:"hosts"`       // groupe de serveurs (#61, pool.go) : à la place de host
+	Server    string            `yaml:"-"`           // membre d'un groupe : son serveur (at)
 	Engine    string            `yaml:"engine"`      // ssh : moteur sur la machine distante, podman (défaut) ou docker
 	EngHost   string            `yaml:"engine_host"` // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
 	Shared    []string          `yaml:"shared"`      // distant : racines du stockage partagé (mêmes chemins des deux côtés)
@@ -272,6 +275,9 @@ func (b BackendConf) engine() string {
 // podman joint par ssh). Ses montages y sont résolus : ~/.claude et le projet
 // doivent être sur le stockage partagé, aux mêmes chemins.
 func (b BackendConf) remote() bool {
+	if b.pool() {
+		return b.at(b.Hosts[0]).remote() // groupe : distant comme ses serveurs
+	}
 	return b.Type == "ssh" || b.Type == "k8s" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
 }
 
@@ -311,6 +317,21 @@ func loadBackends() ([]BackendConf, error) {
 	var out []BackendConf
 	for n, c := range f.Backends {
 		c.Name = n
+		if len(c.Hosts) > 0 {
+			if c.Type != "podman" && c.Type != "docker" && c.Type != "ssh" {
+				return nil, fmt.Errorf("backends.yaml : backend %q : « hosts » (groupe de serveurs) réservé à podman, docker et ssh", n)
+			}
+			if c.Host != "" {
+				return nil, fmt.Errorf("backends.yaml : backend %q : « host » ou « hosts », pas les deux", n)
+			}
+			seen := map[string]bool{}
+			for _, h := range c.Hosts {
+				if strings.TrimSpace(h) == "" || seen[h] {
+					return nil, fmt.Errorf("backends.yaml : backend %q : serveur vide ou en double dans « hosts »", n)
+				}
+				seen[h] = true
+			}
+		}
 		switch c.Type {
 		case "host", "podman", "docker":
 		case "k8s":
@@ -323,7 +344,7 @@ func loadBackends() ([]BackendConf, error) {
 				return nil, fmt.Errorf("backends.yaml : backend %q : %w", n, err)
 			}
 		case "ssh":
-			if c.Host == "" {
+			if c.Host == "" && len(c.Hosts) == 0 {
 				return nil, fmt.Errorf("backends.yaml : backend ssh %q sans « host » (destination ssh)", n)
 			}
 			if c.Engine != "" && c.Engine != "podman" && c.Engine != "docker" {
@@ -582,6 +603,16 @@ func engineOf(b BackendConf) (Engine, bool) {
 func (e Engine) podman() bool { return e.b.engine() == "podman" }
 
 // engineArgv : client du moteur et adresse de son démon / service.
+// sshMux : connexion ssh persistante, partagée par les commandes vers un même
+// serveur (le scan des groupes ne rouvre pas une session toutes les 10 s).
+func sshMux() []string {
+	d := filepath.Join(os.TempDir(), "cl-ssh-"+strconv.Itoa(os.Getuid()))
+	if os.MkdirAll(d, 0o700) != nil {
+		return nil
+	}
+	return []string{"-o", "ControlMaster=auto", "-o", "ControlPath=" + d + "/%C", "-o", "ControlPersist=120"}
+}
+
 func engineArgv(engine, context, host string) []string {
 	out := []string{engine}
 	switch {
@@ -603,7 +634,7 @@ func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
 func (e Engine) cliT(tty bool, args ...string) []string {
 	switch e.b.Type {
 	case "ssh":
-		out := []string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}
+		out := append([]string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...)
 		if tty {
 			out = append(out, "-t")
 		}
@@ -615,6 +646,21 @@ func (e Engine) cliT(tty bool, args ...string) []string {
 		return append(out, e.b.Host, strings.Join(q, " "))
 	}
 	return append(engineArgv(e.b.Type, e.b.Context, e.b.Host), args...)
+}
+
+// listTimeout : délai d'une commande de listing.
+var listTimeout = 8 * time.Second
+
+// quick : sortie d'une commande du moteur, abandonnée au-delà de listTimeout.
+func (e Engine) quick(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
+	defer cancel()
+	a := e.cli(args...)
+	out, err := exec.CommandContext(ctx, a[0], a[1:]...).Output()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("%s : pas de réponse en %s", e.b.Host, listTimeout)
+	}
+	return out, err
 }
 
 func (e Engine) cmd(args ...string) *exec.Cmd {
@@ -841,17 +887,31 @@ type Found struct {
 	Name    string
 	Project string
 	Running bool
-	Failed  bool // devrait tourner mais n'y arrive pas (pod pas prêt, conteneur dead/restarting)
+	Server  string // groupe de serveurs : serveur où le conteneur a été trouvé
+	Failed  bool   // devrait tourner mais n'y arrive pas (pod pas prêt, conteneur dead/restarting)
 }
 
-// list : conteneurs NG2 du moteur (par label ; labels relus par inspect, même
-// format pour podman et docker).
+// list : conteneurs NG2 du backend — de tous ses serveurs pour un groupe (#61) ;
+// erreur seulement si aucun ne répond (les injoignables : listPool).
 func (e Engine) list() ([]Found, error) {
 	if e.b.k8s() {
 		return e.k8sList()
 	}
+	fs, down := e.listPool()
+	if len(down) == len(e.b.servers()) {
+		for _, err := range down {
+			return nil, err
+		}
+	}
+	return fs, nil
+}
+
+// listOne : conteneurs NG2 d'un serveur (par label ; labels relus par inspect,
+// même format pour podman et docker).
+func (e Engine) listOne() ([]Found, error) {
 	// filtre aussi par backend : deux backends peuvent viser le même moteur
-	b, err := e.cmd("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.backend="+e.b.Name).Output()
+	// délai borné : un serveur éteint ne doit pas bloquer le scan (groupes, #61)
+	b, err := e.quick("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.backend="+e.b.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -859,8 +919,8 @@ func (e Engine) list() ([]Found, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
-	b, err = e.cmd(append([]string{"inspect", "-f",
-		`{{.Name}}|{{.State.Status}}|{{index .Config.Labels "cl.project"}}`}, ids...)...).Output()
+	b, err = e.quick(append([]string{"inspect", "-f",
+		`{{.Name}}|{{.State.Status}}|{{index .Config.Labels "cl.project"}}`}, ids...)...)
 	if err != nil {
 		return nil, err
 	}
