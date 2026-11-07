@@ -202,8 +202,13 @@ func TestK8sArgv(t *testing.T) {
 		t.Errorf("exec root : %q", a)
 	}
 	u := e.execArgv("clx-p-1-0", false, true, "tmux", "attach", "-t", "=cl")
-	if !strings.Contains(strings.Join(u, " "), "exec -i -t clx-p-1-0 -c main -- sh -c exec su") || u[len(u)-1] != "exec env LANG=C.UTF-8 TERM=tmux-256color 'tmux' 'attach' '-t' '=cl'" {
+	if j := strings.Join(u, " "); !strings.Contains(j, "exec -i -t clx-p-1-0 -c main -- sh -c if command -v setpriv") ||
+		!strings.Contains(j, "exec setpriv --reuid=") || !strings.Contains(j, "; exec su -s /bin/sh") || u[len(u)-1] != "exec env LANG=C.UTF-8 TERM=tmux-256color 'tmux' 'attach' '-t' '=cl'" {
 		t.Errorf("exec utilisateur : %q", u)
+	}
+	// sans terminal : su (pas de SIGWINCH à recevoir)
+	if r := e.execArgv("clx-p-1-0", false, false, "true"); !strings.Contains(strings.Join(r, " "), "-- sh -c exec su -s /bin/sh") {
+		t.Errorf("exec utilisateur sans tty : %q", r)
 	}
 	if !strings.HasPrefix(k8sPod("/x/Demo Projet"), "clx-demo-projet-") || !strings.HasSuffix(k8sPod("/x/y"), "-0") {
 		t.Errorf("nom de pod : %s", k8sPod("/x/Demo Projet"))

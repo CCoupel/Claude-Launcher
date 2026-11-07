@@ -30,7 +30,7 @@ elif command -v yum >/dev/null 2>&1; then
   yum install -y -q $BASE procps-ng $CL_PKGS $CL_PKGS_DNF
 elif command -v apk >/dev/null 2>&1; then
   # claude (variante musl) a besoin de libgcc, libstdc++ et ripgrep
-  apk add -q --no-cache $BASE procps libgcc libstdc++ ripgrep shadow $CL_PKGS $CL_PKGS_APK
+  apk add -q --no-cache $BASE procps libgcc libstdc++ ripgrep shadow setpriv $CL_PKGS $CL_PKGS_APK
 elif command -v zypper >/dev/null 2>&1; then
   zypper -nq install $BASE procps $CL_PKGS $CL_PKGS_ZYPPER
 else

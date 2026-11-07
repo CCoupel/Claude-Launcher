@@ -73,8 +73,23 @@ func (e Engine) k8sExecArgv(pod string, root, tty bool, argv ...string) []string
 		cmd += " TERM=tmux-256color"
 	}
 	cmd += " " + strings.Join(q, " ")
-	user := fmt.Sprintf(`exec su -s /bin/sh "$(getent passwd %d | cut -d: -f1)" -c "$1"`, os.Getuid())
-	return e.kubectl(append(a, "sh", "-c", user, "sh", cmd)...)
+	return e.kubectl(append(a, "sh", "-c", k8sAsUser(os.Getuid(), os.Getgid(), tty), "sh", cmd)...)
+}
+
+// k8sAsUser : script sh qui exécute "$1" sous l'utilisateur uid (kubectl exec
+// n'a pas de -u). Avec un terminal, setpriv plutôt que su : « su -c » ouvre une
+// nouvelle session sans terminal de contrôle, et le client tmux ne reçoit alors
+// plus SIGWINCH (fenêtre du projet jamais redimensionnée). su reste le repli
+// (image sans setpriv) ; l'environnement posé est celui que su poserait.
+func k8sAsUser(uid, gid int, tty bool) string {
+	su := fmt.Sprintf(`exec su -s /bin/sh "$(getent passwd %d | cut -d: -f1)" -c "$1"`, uid)
+	if !tty {
+		return su
+	}
+	return fmt.Sprintf(`if command -v setpriv >/dev/null 2>&1; then `+
+		`u=$(getent passwd %d | cut -d: -f1); h=$(getent passwd %d | cut -d: -f6); `+
+		`exec setpriv --reuid=%d --regid=%d --init-groups env HOME="$h" USER="$u" LOGNAME="$u" SHELL=/bin/sh sh -c "$1"; fi; %s`,
+		uid, uid, uid, gid, su)
 }
 
 // k8sState : phase du pod ("Running"…) et image en place ; "" si absent.
