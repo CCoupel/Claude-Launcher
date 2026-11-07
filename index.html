@@ -21,6 +21,7 @@
       <li><a href="#containers">Conteneurs</a></li>
       <li><a href="#teams">Teams</a></li>
       <li><a href="#install">Installation</a></li>
+      <li><a href="#migration">Migration</a></li>
       <li><a href="#commands">Commandes</a></li>
       <li><a href="#shortcuts">Raccourcis</a></li>
       <li><a href="https://github.com/CCoupel/claude_project_template">Template →</a></li>
@@ -38,6 +39,7 @@
       <a href="#install" class="btn btn-primary">Installer</a>
       <a href="https://github.com/CCoupel/Claude-Launcher" class="btn btn-outline">Voir sur GitHub</a>
     </div>
+    <a href="#migration" class="hero-alert">⚠ Vous utilisez la v4 ? Fermez tous vos projets avant de passer en v5 — lire la procédure</a>
   </div>
 </section>
 
@@ -341,10 +343,95 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
             <div class="lf-item"><span class="lf-icon">✓</span> Propose <code>/init-project</code> si le template d'un projet est en retard</div>
             <div class="lf-item"><span class="lf-icon">✓</span> Se met à jour tout seul, release vérifiée (<code>--no-update</code> pour s'en passer)</div>
           </div>
-          <p style="margin-top:.75rem"><strong>Vous venez de la v4 ?</strong> La v5 s'installe à côté (binaire, config, cache et tmux distincts) ; la v4 ne passe pas en v5 d'elle-même. Fermez tous vos projets avant de changer de version majeure, et pour mettre projets et config claude sur un stockage partagé, suivez le <a href="https://github.com/CCoupel/Claude-Launcher/blob/main/ng2/MIGRATION.md">guide de migration</a>.</p>
+          <p style="margin-top:.75rem"><strong>Vous venez de la v4 ?</strong> La v5 s'installe à côté (binaire, config, cache et tmux distincts) ; la v4 ne passe pas en v5 d'elle-même. Suivez la <a href="#migration">procédure de migration</a> ci-dessous.</p>
         </div>
       </div>
 
+    </div>
+  </div>
+</section>
+
+<section id="migration">
+  <div class="container">
+    <div class="section-header">
+      <h2>Migrer de la v4 à la v5</h2>
+      <p>La v5 s'installe à côté de la v4 et ne la modifie pas. Le passage se fait une fois, projets fermés.</p>
+    </div>
+
+    <div class="alert-big" role="alert">
+      <div class="alert-icon">⚠️</div>
+      <div>
+        <h3>Fermez TOUS vos projets avant de passer en v5</h3>
+        <p>La v4 ne connaît pas les conteneurs. Au lancement, elle supprime les teams qu'elle croit mortes et propose de reprendre les sessions qu'elle croit interrompues : une session v5 en conteneur, dont elle ne voit pas les panes, serait prise pour morte et <strong>sa team supprimée</strong>.</p>
+        <ul>
+          <li><strong>Ne lancez jamais un même projet avec la v4 et la v5.</strong> Un projet ouvert en v5 est migré : ne le rouvrez plus en v4.</li>
+          <li><strong>Ne lancez jamais la v4 sur une config claude partagée</strong> avec la v5 (même <code>~/.claude</code> ou même <code>CLAUDE_CONFIG_DIR</code>).</li>
+          <li><strong>La v4 ne passe pas en v5 d'elle-même</strong> : elle affichera « mise à jour incomplète ». C'est normal, installez NG2.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="install-steps">
+      <div class="install-step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>Fermer tous les projets dans la v4</h3>
+          <p>Dans le launcher v4 : <code>Esc</code>, <code>t</code> (tout fermer), puis <code>o</code>. Quittez proprement chaque claude (<code>/end-session</code> ou <code>/exit</code>) si vous voulez retrouver vos sessions sans reprise.</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>Installer NG2 à côté de la v4</h3>
+          <pre><span class="code-cmd">os</span>=$(uname -s | tr A-Z a-z); <span class="code-cmd">arch</span>=$(uname -m)
+case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
+<span class="code-cmd">curl</span> -fsSL \
+  "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/claude-launcher-ng2-$os-$arch" \
+  -o ~/.local/bin/claude-launcher-ng2 && chmod +x ~/.local/bin/claude-launcher-ng2</pre>
+          <p style="margin-top:.75rem">Binaire, config, cache et serveur tmux distincts (<code>claude-launcher-ng2</code>, <code>claude-hub-ng2</code>) : la v4 reste intacte.</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Lancer NG2</h3>
+          <pre><span class="code-cmd">claude-launcher-ng2</span></pre>
+          <p style="margin-top:.75rem">Votre config v4 (<code>~/.config/claude-launcher.conf</code>) est copiée dans <code>~/.config/claude-launcher-ng2/config.conf</code>. À sa première ouverture, chaque projet demande où il tourne : choisir <code>hôte</code> garde exactement le comportement de la v4.</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3>Conteneurs locaux : rien d'autre à faire</h3>
+          <p>Les sessions lancées par NG2 utilisent <code>CLAUDE_CONFIG_DIR=~/.claude</code> ; <code>~/.claude.json</code> est <strong>copié</strong> une fois dans <code>~/.claude/.claude.json</code> (jamais déplacé : les sessions de l'hôte gardent le leur).</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">5</div>
+        <div class="step-content">
+          <h3>Conteneurs distants ou Kubernetes : passer sur un stockage partagé</h3>
+          <p>Projets et config claude doivent être sur un stockage réseau (NFS, MooseFS, PVC ReadWriteMany) monté <strong>aux mêmes chemins</strong> partout. Copier les projets ne suffit pas : conversations, mémoire, réglages par projet et historique sont indexés par leur chemin. Suivez le guide pas à pas, avec retour arrière : <a href="https://github.com/CCoupel/Claude-Launcher/blob/main/ng2/MIGRATION.md"><strong>Passer ses projets et ~/.claude sur un stockage partagé</strong></a>.</p>
+          <p style="margin-top:.75rem">Points relevés lors d'une vraie migration (WSL vers MooseFS) :</p>
+          <ul class="pitfalls">
+            <li><strong>Copier avec <code>rsync -a</code></strong> : une copie qui suit les liens perd ceux de <code>node_modules/.bin</code> ou d'un <code>.venv</code> ; à défaut, régénérez-les (<code>npm ci</code>, nouveau venv).</li>
+            <li><strong>Worktrees git</strong> (<code>gh-pages</code>, <code>MARKETING</code>…) : leur fichier <code>.git</code> pointe vers l'ancien chemin, et un commit partirait dans l'ancien dépôt. Réécrivez-le puis <code>git worktree repair</code> ; <code>git worktree prune</code> pour les orphelins.</li>
+            <li><strong>Chemins absolus dans <code>.git/config</code></strong>, comme <code>core.hooksPath</code> : à corriger ou retirer.</li>
+            <li><strong>Connexion claude</strong> : ne recopiez pas <code>.credentials.json</code> d'une config encore active vers l'autre (chaque renouvellement déconnecterait l'autre côté) ; faites <code>/login</code> une fois dans NG2.</li>
+            <li><strong>Dossiers vides dans <code>~/.claude/projects</code></strong> (ex. <code>-tmp-remember-summarizer-cwd-*</code> laissés par un plugin) : sans danger, mais à supprimer (<code>find ~/.claude/projects -mindepth 1 -maxdepth 2 -type d -empty -delete</code>) avant de passer sur un stockage réseau.</li>
+          </ul>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">6</div>
+        <div class="step-content">
+          <h3>Retirer la v4 une fois la v5 adoptée</h3>
+          <pre><span class="code-cmd">rm</span> ~/.local/bin/claude-launcher-ng</pre>
+          <p style="margin-top:.75rem"><strong>Revenir à la v4</strong>, tous les projets fermés :</p>
+          <pre><span class="code-cmd">curl</span> -fsSL \
+  "https://github.com/CCoupel/Claude-Launcher/releases/download/v4.9.0/claude-launcher-ng-$os-$arch" \
+  -o ~/.local/bin/claude-launcher-ng && chmod +x ~/.local/bin/claude-launcher-ng</pre>
+        </div>
+      </div>
     </div>
   </div>
 </section>
