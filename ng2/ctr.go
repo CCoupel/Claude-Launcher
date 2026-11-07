@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	_ "embed"
 	"encoding/base64"
 	"fmt"
@@ -119,7 +120,13 @@ func runCtrAttach(proj, startFile string) error {
 		}
 		return fmt.Errorf("backend %s inutilisable :%s", b.Name, s.String())
 	}
+	// groupe de serveurs (#61) : serveur du projet, choisi sous verrou s'il est nouveau
+	e, unlock, err := e.place(proj, asker{os.Stdout, bufio.NewReader(os.Stdin)})
+	if err != nil {
+		return err
+	}
 	name, err := e.ensure(proj, env, os.Stdout)
+	unlock()
 	if err != nil {
 		return err
 	}
@@ -170,6 +177,7 @@ func runCtrAttach(proj, startFile string) error {
 	}
 	if pane := os.Getenv("TMUX_PANE"); pane != "" {
 		if win, err := tout(hub, "display-message", "-p", "-t", pane, "#{window_id}"); err == nil {
+			_ = hub.Run("set-window-option", "-t", win, "@cl_server", e.b.Server)
 			if readOnly {
 				_ = hub.Run("set-window-option", "-t", win, "@cl_readonly", "1")
 			} else {
@@ -221,7 +229,7 @@ func ctrSessionGone(proj string) bool {
 	}
 	for _, f := range fs {
 		if f.Project == proj {
-			return !f.Running || !e.hasSession(ctrRef(b, proj))
+			return !f.Running || !e.of(f).hasSession(f.Name)
 		}
 	}
 	return true // plus de conteneur pour ce projet

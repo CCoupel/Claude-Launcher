@@ -53,12 +53,12 @@ func (p projWin) direct() bool { return p.t == hub && p.win == p.hubWin }
 func projectOf(hubWin string) projWin {
 	direct := projWin{t: hub, win: hubWin, hubWin: hubWin}
 	// display-message répond pour une autre fenêtre si hubWin a disparu : on vérifie l'id
-	s, err := tout(hub, "display-message", "-p", "-t", hubWin, "#{window_id}|#{@cl_backend}|#{@cl_ctr}")
+	s, err := tout(hub, "display-message", "-p", "-t", hubWin, "#{window_id}|#{@cl_backend}|#{@cl_ctr}|#{@cl_server}")
 	if err != nil {
 		return direct
 	}
-	f := strings.SplitN(s, "|", 3)
-	if len(f) != 3 || strings.HasPrefix(hubWin, "@") && f[0] != hubWin {
+	f := strings.SplitN(s, "|", 4)
+	if len(f) != 4 || strings.HasPrefix(hubWin, "@") && f[0] != hubWin {
 		return direct
 	}
 	be, ctr := f[1], f[2]
@@ -69,7 +69,7 @@ func projectOf(hubWin string) projWin {
 	if !ok {
 		return direct
 	}
-	e, ok := engineOf(b)
+	e, ok := engineOf(b.at(f[3])) // groupe de serveurs : celui du conteneur (#61)
 	if !ok {
 		return direct
 	}

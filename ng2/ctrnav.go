@@ -23,6 +23,8 @@ type ctrView struct {
 	diag   map[string][]problem // backend affecté à un projet -> ce qui l'empêche de marcher
 	bad    map[string]string    // projet -> configuration invalide (launchBackend)
 	live   map[string]liveSess  // projet -> session tmux vivante dans son conteneur
+	dups   map[string][]string  // projet -> serveurs où il a un conteneur (groupe, en double)
+	down   map[string]string    // backend (groupe) -> serveurs injoignables
 }
 
 // liveSess : session tmux du conteneur d'un projet (#50) : propriétaire, nombre
@@ -78,7 +80,8 @@ func ctrNowCmd(paths []string, delay time.Duration) tea.Cmd {
 }
 
 func readCtrView(paths []string) ctrView {
-	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}, bad: map[string]string{}, live: map[string]liveSess{}}
+	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}, bad: map[string]string{}, live: map[string]liveSess{},
+		dups: map[string][]string{}, down: map[string]string{}}
 	any := false
 	asg := readAssignments()
 	for _, p := range paths {
@@ -105,12 +108,32 @@ func readCtrView(paths []string) ctrView {
 				continue
 			}
 		}
-		fs, err := e.list()
-		if err != nil {
-			v.errs[b.Name] = err.Error()
+		var fs []Found
+		var down map[string]error
+		if b.k8s() {
+			var err error
+			if fs, err = e.k8sList(); err != nil {
+				down = map[string]error{"": err}
+			}
+		} else {
+			fs, down = e.listPool() // groupe : tous ses serveurs en parallèle (#61)
+		}
+		if len(fs) == 0 && len(down) > 0 && len(down) == len(b.servers()) {
+			for _, err := range down {
+				v.errs[b.Name] = err.Error()
+			}
 			continue
 		}
+		if len(down) > 0 {
+			v.down[b.Name] = downText(down)
+		}
 		for _, f := range fs {
+			if o, dup := v.found[f.Project]; dup && o.Backend == f.Backend && o.Server != f.Server {
+				v.dups[f.Project] = append(v.dups[f.Project], f.Server)
+				if len(v.dups[f.Project]) == 1 {
+					v.dups[f.Project] = []string{o.Server, f.Server}
+				}
+			}
 			v.found[f.Project] = f
 		}
 		// sessions des conteneurs en marche, en parallèle (un exec chacun ; k8s ~0,5 s)
@@ -123,7 +146,7 @@ func readCtrView(paths []string) ctrView {
 			wg.Add(1)
 			go func(f Found) {
 				defer wg.Done()
-				if l, ok := e.readLive(f.Name); ok {
+				if l, ok := e.of(f).readLive(f.Name); ok {
 					mu.Lock()
 					v.live[f.Project] = l
 					mu.Unlock()
@@ -225,11 +248,11 @@ func reattachCmd(cfg Config, session string, nodes []Node) tea.Cmd {
 			}
 			for _, f := range fs {
 				n, ok := byPath[f.Project]
-				if !ok || !f.Running || open[n.Key] || projectBackend(f.Project).Name != b.Name || !e.hasSession(f.Name) {
+				if !ok || !f.Running || open[n.Key] || projectBackend(f.Project).Name != b.Name || !e.of(f).hasSession(f.Name) {
 					continue
 				}
 				// seulement les sessions de ce launcher (#48) : pas celles d'une autre machine
-				if o := e.owner(f.Name); o.id != "" && o.id != launcherID() {
+				if o := e.of(f).owner(f.Name); o.id != "" && o.id != launcherID() {
 					continue
 				}
 				if err := launchProject(cfg, session, n, readLatestTemplate(), launchNormal); err != nil {
@@ -274,6 +297,14 @@ func runBackends() error {
 		if b.Host != "" {
 			line += " " + b.Host
 		}
+		if b.pool() {
+			fmt.Println(line + fmt.Sprintf("  groupe de %d serveurs", len(b.Hosts)))
+			printPool(b)
+			continue
+		}
+		if b.k8s() {
+			line += "  (" + b.placementText() + ")"
+		}
 		if ps := diagnose(b); len(ps) > 0 {
 			for _, p := range ps {
 				line += "\n      ⚠ " + p.what + "\n        → " + p.fix
@@ -287,16 +318,69 @@ func runBackends() error {
 				line += "  ⚠ " + strings.TrimSpace(err.Error())
 			} else {
 				line += fmt.Sprintf("  %d conteneur(s)", len(fs))
+				var nodes map[string]string
+				if b.k8s() {
+					nodes = e.k8sNodes()
+				}
 				for _, f := range fs {
 					st := "arrêté"
 					if f.Running {
 						st = "en marche"
 					}
 					line += "\n      " + f.Name + "  " + st + "  " + f.Project
+					if n := nodes[f.Name]; n != "" {
+						line += "  (node " + n + ")"
+					}
 				}
 			}
 		}
 		fmt.Println(line)
 	}
 	return nil
+}
+
+// printPool : chaque serveur d'un groupe (#61) — état, conteneurs NG2, diagnostic.
+func printPool(b BackendConf) {
+	e := Engine{b}
+	fs, down := e.listPool()
+	probs := poolProblems(b)
+	load := loadOf(b, fs, down)
+	for _, h := range b.Hosts {
+		line := "      " + h
+		switch {
+		case len(probs[h]) > 0:
+			for _, p := range probs[h] {
+				line += "\n        ⚠ " + p.what + "\n          → " + p.fix
+			}
+		case down[h] != nil:
+			line += "  ⚠ " + strings.TrimSpace(down[h].Error())
+		default:
+			n := 0
+			for _, f := range fs {
+				if f.Server == h {
+					n++
+				}
+			}
+			line += fmt.Sprintf("  %d conteneur(s), %d en marche", n, load[h])
+			for _, f := range fs {
+				if f.Server == h {
+					st := "arrêté"
+					if f.Running {
+						st = "en marche"
+					}
+					line += "\n        " + f.Name + "  " + st + "  " + f.Project
+				}
+			}
+		}
+		fmt.Println(line)
+	}
+	seen := map[string][]string{}
+	for _, f := range fs {
+		seen[f.Project] = append(seen[f.Project], f.Server)
+	}
+	for p, hs := range seen {
+		if len(hs) > 1 {
+			fmt.Printf("      ⚠ %s en double sur %s (Entrée sur le projet pour choisir)\n", p, strings.Join(hs, " et "))
+		}
+	}
 }

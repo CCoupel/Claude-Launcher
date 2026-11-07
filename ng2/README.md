@@ -273,6 +273,43 @@ backends:
 | `ssh`, `engine: docker` | `ssh <host> docker …` | docker dans le PATH d'une commande ssh, utilisateur dans le groupe `docker` |
 | `ssh`, `engine: podman` (défaut) | `ssh <host> podman …` | podman dans le PATH d'une commande ssh |
 
+#### Groupe de serveurs (docker, podman, ssh)
+
+Un backend docker, podman ou ssh peut viser **plusieurs serveurs** (`hosts:`
+à la place de `host:`). Le projet est affecté au groupe (F2 propose son nom),
+et **le launcher choisit le serveur** :
+
+```yaml
+backends:
+  docker-pool: { type: docker, shared: [/share/MFS/ROOT],
+                 hosts: [tcp://192.168.1.211:2375, tcp://192.168.1.212:2375, tcp://192.168.1.213:2375] }
+  ssh-pool:    { type: ssh, engine: podman, shared: [/share/MFS/ROOT], hosts: [srv1, srv2] }
+```
+
+- **Aucun registre** : les conteneurs eux-mêmes font foi (labels
+  `cl.launcher`, `cl.project`, `cl.backend`) ; le serveur d'un projet est celui
+  où l'on trouve son conteneur. Rien à perdre ni à resynchroniser.
+- **À l'ouverture**, tous les serveurs du groupe sont interrogés (en
+  parallèle) : le projet garde le serveur de son conteneur, même arrêté (son
+  bootstrap, son `$HOME` et ses dossiers `local:` y sont) ; sans conteneur, il
+  va sur le serveur qui a **le moins de conteneurs NG2 en marche**. Un verrou
+  (`.claude-launcher/.lock`, le temps de la création) empêche deux launchers de
+  le créer sur deux serveurs.
+- **Entre deux launchers**, le scan régulier du navigateur (10 s) parcourt
+  tous les serveurs : un projet ouvert par l'autre apparaît en 10 s au plus,
+  avec son point (`■` orange piloté ailleurs…).
+- **Serveur injoignable** : le groupe reste utilisable tant qu'un serveur
+  répond ; à l'ouverture d'un projet introuvable, le launcher demande s'il faut
+  démarrer ailleurs (son conteneur est peut-être sur le serveur muet). Chaque
+  commande de listing est bornée à 8 s.
+- **Doublon** (le même projet sur deux serveurs) : point `✕` ; Entrée demande
+  lequel garder, les autres sont supprimés.
+- **Rééquilibrer** : supprimer le conteneur d'un projet ; il est replacé à la
+  prochaine ouverture.
+- `claude-launcher-ng2 backends` détaille chaque serveur : état, conteneurs,
+  problèmes. En ssh, une connexion persistante (`ControlMaster`) sert toutes les
+  commandes vers un même serveur.
+
 #### Kubernetes
 
 ```yaml
@@ -293,6 +330,45 @@ Prérequis : `kubectl` et son contexte, un namespace où l'on peut créer des
 StatefulSets, des PVC ReadWriteMany liés (ex. MooseFS : PV `csi.moosefs.com`
 avec `volumeAttributes.mfsSubDir`), et un namespace qui autorise les pods root.
 `claude-launcher-ng2 backends` signale ce qui manque, commande à l'appui.
+Droits minimaux dans le namespace : StatefulSets (et `statefulsets/scale`),
+pods, `pods/exec`, events et PVC en lecture, plus `get` sur le namespace
+lui-même (exemple complet : `.claude-launcher/k8s-acces-pod.sh` de ce dépôt).
+
+**Placement des pods** (#60) : par défaut, les pods NG2 d'un backend sont
+**répartis sur les nodes**. NG2 ajoute une contrainte `topologySpreadConstraints`
+par node (`maxSkew: 1`, `whenUnsatisfiable: ScheduleAnyway`) : un projet de plus
+que de nodes ne reste jamais bloqué en `Pending`, et la répartition reste
+équilibrée (2-2-1 plutôt que 3-1-1). Le reste se règle sous `pod:`, ajouté au
+spec du pod :
+
+```yaml
+backends:
+  lab:
+    type: k8s
+    context: k8s
+    namespace: claude-ng2
+    volumes: { /share/MFS/ROOT: claude-shared }
+    spread: true                 # défaut ; false : placement laissé au scheduler
+    pod:                         # facultatif
+      nodeSelector: { node-role/claude: "true" }
+      tolerations: [{ key: dedie, operator: Exists }]
+      resources: { limits: { memory: 4Gi } }       # appliqué au conteneur
+      # affinity: …  anti-affinité stricte, si on la veut vraiment
+```
+
+Clés admises sous `pod` : `nodeSelector`, `affinity`, `tolerations`,
+`topologySpreadConstraints` (ajoutées à celle de `spread`), `resources`,
+`priorityClassName`, `serviceAccountName`, `automountServiceAccountToken`,
+`runtimeClassName`, `schedulerName`, `nodeName`, `imagePullSecrets`, `dnsPolicy`,
+`dnsConfig`, `hostAliases`, `terminationGracePeriodSeconds`, `securityContext`.
+Conteneurs et volumes restent gérés par NG2 : `backends.yaml` est refusé s'il
+les mentionne. `claude-launcher-ng2 backends` affiche le placement et le node
+de chaque pod.
+
+Un placement modifié **n'est jamais appliqué à un pod en marche** (le recréer
+couperait sa session) : son empreinte (annotation `cl.sched`) est comparée, et
+il prend effet au **prochain démarrage du pod**. Pour rééquilibrer un projet,
+le fermer (Ctrl+clic) puis le rouvrir.
 
 Pod perdu (nœud, éviction) : le StatefulSet le recrée, la fenêtre se ferme ;
 à la réouverture, le bootstrap est refait et la reprise de la conversation est

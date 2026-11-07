@@ -61,6 +61,7 @@ func (m model) planClose(n Node) (closePlan, string) {
 	var what []string
 	if b, ok := findBackend(p.backend); ok && p.ctrKnown {
 		if e, ok := engineOf(b); ok {
+			e = e.of(p.ctr) // groupe de serveurs : celui du conteneur (#61)
 			pl.engine, pl.ctr = &e, p.ctr.Name
 		}
 	}

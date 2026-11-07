@@ -997,7 +997,7 @@ func (m model) projInfo(n Node) projInfo {
 	p := projInfo{open: m.windows[n.Key], git: g, gitOK: ok, tpl: m.tpl[n.Path], tplLatest: m.tplVer,
 		ms: m.milestones[n.Path], sess: r, hasSess: hasSess,
 		hasEnv: m.ctr.env[n.Path], backend: m.ctr.assign[n.Path], ctr: f, ctrKnown: ctrKnown,
-		problems: m.ctr.diag[m.ctr.assign[n.Path]], badCfg: m.ctr.bad[n.Path], live: l, hasLive: hasLive}
+		problems: m.ctr.diag[m.ctr.assign[n.Path]], badCfg: m.ctr.bad[n.Path], live: l, hasLive: hasLive, dups: m.ctr.dups[n.Path]}
 	p.dot, p.dotWhy = sessionOf(p)
 	return p
 }
