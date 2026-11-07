@@ -108,6 +108,27 @@ rsync -a --no-o --no-g --info=progress2 "$OLD/" "$NEW/"
   qu'avant.
 - Les originaux sous `$OLD` ne sont **pas** supprimés.
 
+Après la copie, corriger ce que git garde en **chemin absolu** (sinon une commande lancée dans la
+copie agit sur l'original) :
+
+```bash
+# worktrees (gh-pages, MARKETING…) : leur fichier .git pointe vers l'ancien dépôt
+for wt in "$NEW"/*/*/.git/worktrees/*; do
+  r=${wt%/.git/worktrees/*}                                       # dépôt (copie)
+  d=$(dirname "$(cat "$wt/gitdir")"); d=${d/#$OLD/$NEW}          # worktree, nouveau chemin
+  if [ -d "$d" ]; then echo "gitdir: $wt" > "$d/.git"; git -C "$r" worktree repair "$d"; fi
+done
+for r in "$NEW"/*/*/; do [ -d "$r.git/worktrees" ] && git -C "$r" worktree prune -v; done   # orphelins
+
+# autres chemins absolus de .git/config (core.hooksPath…)
+grep -l "$OLD\|/mnt/c" "$NEW"/*/*/.git/config
+```
+
+- `git -C <projet> worktree list` ne doit plus montrer que des chemins sous `$NEW`.
+- Un `core.hooksPath` qui pointe vers un dossier disparu : `git config --unset core.hooksPath`.
+- Si la copie a suivi les liens symboliques (outil autre que `rsync -a`), `node_modules/.bin` et
+  les `.venv` sont cassés : les régénérer (`npm ci`, nouveau venv).
+
 ---
 
 ## 6. Copier la config de claude et réécrire ses chemins internes
@@ -115,6 +136,14 @@ rsync -a --no-o --no-g --info=progress2 "$OLD/" "$NEW/"
 ```bash
 rsync -a --no-o --no-g ~/.claude/ "$CFG/"
 cp -p ~/.claude.json "$CFG/.claude.json"
+```
+
+Avant la copie, supprimer les dossiers **vides** de `~/.claude/projects` (certains plugins en
+laissent des centaines, ex. `-tmp-remember-summarizer-cwd-*`) : sans danger, mais chaque dossier
+coûte au démarrage sur un stockage réseau :
+
+```bash
+find ~/.claude/projects -mindepth 1 -maxdepth 2 -type d -empty -delete
 ```
 
 `~/.claude` contient des chemins absolus vers lui-même. Les lister :
@@ -285,6 +314,11 @@ claude --version                   # démarre, sans demander de connexion
 ```
 
 Avec cette variable, claude lit sa config dans `$CFG/.claude.json` (et non plus `~/.claude.json`).
+
+**Connexion** : si l'ancienne config reste utilisée en parallèle (sessions encore ouvertes sur
+`~/.claude`), ne recopiez pas `.credentials.json` de l'une vers l'autre : les deux partageraient le
+même jeton, et chaque renouvellement déconnecterait l'autre côté. Faites plutôt `/login` une fois
+dans une session NG2 : la nouvelle config a sa propre connexion.
 
 ---
 
