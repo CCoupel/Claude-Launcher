@@ -67,6 +67,10 @@ type model struct {
 	launch       bool
 	shell        bool
 	lastSel      string
+	lastDot      string            // signification du point écrite avec la sélection
+	closeAsk     *closePlan        // fermeture en attente de confirmation (close.go)
+	closing      map[string]string // projet -> étape de sa fermeture en cours
+	closeCh      chan closeMsg     // avancement des fermetures
 	tplVer       string
 	newLauncher  string
 	launcherOK   bool // release du NG publiée : installable
@@ -434,10 +438,16 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(msTickCmd(), m.msStale(false))
 	case sessMsg:
 		m.sessions = msg
+		m.syncSelection()
 		return m, sessCmd(m.cfg, m.projectPaths(), 10*time.Second)
 	case ctrMsg:
 		m.ctr = ctrView(msg)
+		m.syncSelection()
 		return m, ctrCmd(m.projectPaths(), 10*time.Second)
+	case closeMsg:
+		mm, cmd := m.onClose(msg)
+		mm.syncSelection()
+		return mm, cmd
 	case reattachMsg:
 		m.msg = "⬢ sessions de conteneur retrouvées : " + strings.Join(msg, ", ")
 		return m, windowsCmd(m.session)
@@ -579,6 +589,12 @@ func (m model) onMouse(e tea.MouseMsg) model {
 		m.quitStep = 0 // un clic annule la sortie
 		return m
 	}
+	if m.closeAsk != nil {
+		if e.Action == tea.MouseActionPress {
+			m.closeAsk, m.msg = nil, "fermeture annulée"
+		}
+		return m
+	}
 	switch {
 	case e.Button == tea.MouseButtonWheelUp:
 		m.move(-3)
@@ -637,6 +653,13 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			m.wantTeam = true
 			return m
 		}
+		if e.Ctrl && m.nodes[m.visible[idx]].Project {
+			// Ctrl+clic : fermer le projet (close.go)
+			m.cursor = idx
+			mm, cmd := m.askClose(m.nodes[m.visible[idx]])
+			mm.pendingCmd = cmd
+			return mm
+		}
 		double := idx == m.lastClickIdx && time.Since(m.lastClickAt) < 450*time.Millisecond
 		m.cursor = idx
 		m.lastClickIdx, m.lastClickAt = idx, time.Now()
@@ -672,12 +695,17 @@ func (m *model) syncSelection() {
 		return
 	}
 	n := m.nodes[m.visible[m.cursor]]
-	if !n.Project || n.Path == m.lastSel {
+	if !n.Project {
 		return
 	}
-	m.lastSel = n.Path
-	writeSelection(n)
-	if m.mgr != nil {
+	p := m.projInfo(n)
+	same := n.Path == m.lastSel
+	if same && p.dotWhy == m.lastDot {
+		return
+	}
+	m.lastSel, m.lastDot = n.Path, p.dotWhy
+	writeSelection(n, p.dot, p.dotWhy)
+	if m.mgr != nil && !same {
 		m.mgr.Select(n.Path)
 	}
 }
@@ -782,6 +810,17 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.form.mode != formNone {
 		return m.onFormKey(k)
 	}
+	if m.closeAsk != nil {
+		// toute autre touche que o/y annule : par défaut on garde le projet
+		pl := *m.closeAsk
+		m.closeAsk = nil
+		if key := strings.ToLower(k.String()); key == "o" || key == "y" {
+			m.msg = "⏻ " + pl.node.Name + " : fermeture…"
+			return m, m.startClose(pl)
+		}
+		m.msg = "fermeture annulée"
+		return m, nil
+	}
 	switch k.String() {
 	case "ctrl+c", "esc":
 		if m.filter != "" && k.String() == "esc" {
@@ -855,6 +894,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 	case "enter":
 		return m.openSelected(), nil
+	case "delete":
+		if len(m.visible) > 0 {
+			return m.askClose(m.nodes[m.visible[m.cursor]])
+		}
 	case "backspace":
 		if m.filter != "" {
 			r := []rune(m.filter)
@@ -920,10 +963,13 @@ func (m model) projInfo(n Node) projInfo {
 	g, ok := m.git[n.Path]
 	r, hasSess := m.sessions[n.Path]
 	f, ctrKnown := m.ctr.found[n.Path]
-	return projInfo{open: m.windows[n.Key], git: g, gitOK: ok, tpl: m.tpl[n.Path], tplLatest: m.tplVer,
+	l, hasLive := m.ctr.live[n.Path]
+	p := projInfo{open: m.windows[n.Key], git: g, gitOK: ok, tpl: m.tpl[n.Path], tplLatest: m.tplVer,
 		ms: m.milestones[n.Path], sess: r, hasSess: hasSess,
 		hasEnv: m.ctr.env[n.Path], backend: m.ctr.assign[n.Path], ctr: f, ctrKnown: ctrKnown,
-		problems: m.ctr.diag[m.ctr.assign[n.Path]], badCfg: m.ctr.bad[n.Path]}
+		problems: m.ctr.diag[m.ctr.assign[n.Path]], badCfg: m.ctr.bad[n.Path], live: l, hasLive: hasLive}
+	p.dot, p.dotWhy = sessionOf(p)
+	return p
 }
 
 // badges : icônes de la ligne du projet (« … » tant que git n'est pas lu).
@@ -988,10 +1034,10 @@ func (m model) View() string {
 	}
 
 	var body string
-	hint := "  ↑↓ naviguer · entrée ouvrir · F1 aide · F5 actualiser · esc quitter"
+	hint := "  ↑↓ naviguer · entrée ouvrir · ^clic/suppr fermer · F1 aide · F5 actualiser · esc quitter"
 	if compact {
 		body = lipgloss.NewStyle().Width(m.w).MaxWidth(m.w).Height(bodyH).Render(list)
-		hint = "  ↵ ouvrir · tab→tmux · F1 aide · F5 maj"
+		hint = "  ↵ ouvrir · ^clic/suppr fermer · F1 aide"
 	} else {
 		prev := m.renderPreview(m.w - listW - 3)
 		left := lipgloss.NewStyle().Width(listW).Height(bodyH).Render(list)
@@ -1011,6 +1057,18 @@ func (m model) View() string {
 		q = [2]string{"  [l] launcher seul (projets gardés)", "  [t] tout fermer · autre : annuler"}
 	case quitAll:
 		q = [2]string{fmt.Sprintf("  Fermer %d projet(s) et leur claude ?", m.openProjects()), "  [o] oui · autre : annuler"}
+	}
+	if m.closeAsk != nil {
+		ask := orange.Bold(true).Reverse(true)
+		if compact {
+			// 40 colonnes : la question sur deux lignes
+			// 40 colonnes : « o/N » reste sur la première ligne, le détail dessous
+			qs, rest, _ := strings.Cut(m.closeAsk.question, " ? ")
+			foot = ask.Render("  "+qs+" ? o/N ") + "\n" + dim.Render("  "+strings.TrimSuffix(rest, " · o/N"))
+		} else {
+			foot = ask.Render("  " + m.closeAsk.question + " ")
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, body, filter, header, truncLines(foot, m.w))
 	}
 	switch {
 	case q[0] != "" && compact:
@@ -1067,10 +1125,13 @@ func (m model) renderList(w, h int) string {
 			if !n.Project {
 				line = prefix + cyan.Render(n.Name)
 			} else {
-				dot, name := dim.Render("○ "), n.Name
+				di := dotIndicator(m.projInfo(n))
+				dot, name := di.style.Render(di.icon)+" ", n.Name
+				if _, busy := m.closing[n.Path]; busy {
+					dot = cyan.Render("⏻ ")
+				}
 				if m.windows[n.Key] {
 					// ouvert : nom en surbrillance, sur la couleur de son pane tmux
-					dot = green.Render("● ")
 					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).
 						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).Render(" " + n.Name + " ")
 				}

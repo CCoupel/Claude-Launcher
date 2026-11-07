@@ -33,12 +33,15 @@ type Selection struct {
 	Name string `json:"name"`
 	Key  string `json:"key"`
 	Path string `json:"path"`
+	// point d'état de session (#50), pour la légende de la vue « ◈ État »
+	Dot    int    `json:"dot,omitempty"`
+	DotWhy string `json:"dot_why,omitempty"`
 }
 
 func selectionPath() string { return filepath.Join(cacheDir(), "selection.json") }
 
-func writeSelection(n Node) {
-	b, _ := json.Marshal(Selection{Name: n.Name, Key: n.Key, Path: n.Path})
+func writeSelection(n Node, dot sessState, why string) {
+	b, _ := json.Marshal(Selection{Name: n.Name, Key: n.Key, Path: n.Path, Dot: int(dot), DotWhy: why})
 	tmp := selectionPath() + ".tmp"
 	if os.WriteFile(tmp, b, 0o644) == nil {
 		_ = os.Rename(tmp, selectionPath())

@@ -45,6 +45,9 @@ type EnvSpec struct {
 	Packages          []string            `yaml:"packages"`
 	PackagesByManager map[string][]string `yaml:"packages_by_manager"`
 	Setup             []string            `yaml:"setup"`
+	Watch             []string            `yaml:"watch"`    // fichiers dont le contenu change → setup rejoué
+	OnStart           []string            `yaml:"on_start"` // étapes rejouées à chaque démarrage du projet
+	Local             []string            `yaml:"local"`    // dossiers du projet privés au conteneur (masqués)
 	Mounts            []EnvMount          `yaml:"mounts"`
 	Prefer            string              `yaml:"prefer"`
 	raw               []byte
@@ -74,8 +77,76 @@ func loadEnv(proj string) (EnvSpec, error) {
 	if e.Image == "" {
 		return e, fmt.Errorf("%s : « image » manquante", envFile)
 	}
+	for i, l := range e.Local {
+		c, err := cleanRel(l)
+		if err != nil {
+			return e, fmt.Errorf("%s : local « %s » : %w", envFile, l, err)
+		}
+		e.Local[i] = c
+	}
+	for i, w := range e.Watch {
+		c, err := cleanRel(w)
+		if err != nil {
+			return e, fmt.Errorf("%s : watch « %s » : %w", envFile, w, err)
+		}
+		e.Watch[i] = c
+	}
 	e.raw = b
 	return e, nil
+}
+
+// cleanRel : chemin relatif au projet, sans sortir du projet (ni « : », séparateur de -v).
+func cleanRel(p string) (string, error) {
+	c := filepath.Clean(strings.TrimSpace(p))
+	switch {
+	case c == "." || c == "":
+		return "", fmt.Errorf("chemin vide")
+	case filepath.IsAbs(c):
+		return "", fmt.Errorf("chemin relatif au projet attendu")
+	case c == ".." || strings.HasPrefix(c, "../"):
+		return "", fmt.Errorf("hors du projet")
+	case strings.ContainsAny(c, ":,"):
+		return "", fmt.Errorf("« : » et « , » interdits")
+	}
+	return c, nil
+}
+
+// localPaths : chemins absolus des dossiers « local » du projet.
+func (e EnvSpec) localPaths(proj string) []string {
+	out := make([]string, len(e.Local))
+	for i, l := range e.Local {
+		out[i] = filepath.Join(proj, l)
+	}
+	return out
+}
+
+// localKey : empreinte des dossiers « local » (label cl.local du conteneur) ; ils
+// sont posés à la création : une liste changée impose de recréer le conteneur.
+func (e EnvSpec) localKey() string {
+	if len(e.Local) == 0 {
+		return ""
+	}
+	l := append([]string(nil), e.Local...)
+	sort.Strings(l)
+	h := sha256.Sum256([]byte(strings.Join(l, "\n")))
+	return hex.EncodeToString(h[:])[:12]
+}
+
+// setupHash : empreinte des étapes setup et du contenu des fichiers watch ; si
+// elle change (verrou de dépendances modifié…), seules les étapes setup sont
+// rejouées au prochain démarrage, sans refaire tout le bootstrap.
+func (e EnvSpec) setupHash(proj string) string {
+	h := sha256.New()
+	h.Write([]byte(strings.Join(e.Setup, "\n")))
+	for _, w := range e.Watch {
+		fmt.Fprintf(h, "\x00%s\x00", w)
+		if b, err := os.ReadFile(filepath.Join(proj, w)); err == nil {
+			h.Write(b)
+		} else {
+			h.Write([]byte("(absent)"))
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
 }
 
 // hash : empreinte de l'environnement + du script de bootstrap (rejoué si elle change).
@@ -481,14 +552,21 @@ func ctrName(proj string) string {
 	return "cl-" + n + "-" + hex.EncodeToString(h[:])[:8]
 }
 
-// state : "running", "exited", "created"… ou "" si le conteneur n'existe pas.
-func (e Engine) state(name string) (status, image string) {
-	b, err := e.cmd("inspect", "-f", `{{.State.Status}}|{{index .Config.Labels "cl.image"}}`, name).Output()
+// stateLocal : "running", "exited", "created"… ou "" si le conteneur n'existe
+// pas ; son image et l'empreinte des dossiers « local » posés à sa création.
+func (e Engine) stateLocal(name string) (status, image, local string) {
+	b, err := e.cmd("inspect", "-f", `{{.State.Status}}|{{index .Config.Labels "cl.image"}}|{{index .Config.Labels "cl.local"}}`, name).Output()
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
-	status, image, _ = strings.Cut(strings.TrimSpace(string(b)), "|")
-	return status, image
+	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 3)
+	for len(f) < 3 {
+		f = append(f, "")
+	}
+	if f[2] == "<no value>" {
+		f[2] = ""
+	}
+	return f[0], f[1], f[2]
 }
 
 // pid1 : processus principal qui ignore tout sauf SIGTERM (arrêt propre, sans --init).
@@ -500,10 +578,15 @@ func (e Engine) ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 		return e.k8sEnsure(proj, env, log)
 	}
 	name := ctrName(proj)
-	status, image := e.state(name)
-	if status != "" && image != env.Image {
-		fmt.Fprintf(log, "  image changée (%s → %s) : conteneur recréé\n", image, env.Image)
-		_ = e.cmd("rm", "-f", name).Run()
+	status, image, local := e.stateLocal(name)
+	if status != "" && (image != env.Image || local != env.localKey()) {
+		if image != env.Image {
+			fmt.Fprintf(log, "  image changée (%s → %s) : conteneur recréé\n", image, env.Image)
+		} else {
+			fmt.Fprintf(log, "  dossiers « local » changés : conteneur recréé\n")
+		}
+		// -v : ses volumes anonymes (dossiers « local ») partent avec lui
+		_ = e.cmd("rm", "-f", "-v", name).Run()
 		status = ""
 	}
 	switch status {
@@ -560,6 +643,7 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	args := []string{"run", "-d", "--name", name, "--hostname", host,
 		"--label", "cl.launcher=ng2", "--label", "cl.project=" + proj,
 		"--label", "cl.backend=" + e.b.Name, "--label", "cl.image=" + env.Image,
+		"--label", "cl.local=" + env.localKey(),
 		"--mount", bind(cd, false), "--mount", bind(proj, false), "-w", proj,
 		"-e", "HOME=" + home, "-e", "CLAUDE_CONFIG_DIR=" + cd, "-e", "LANG=C.UTF-8",
 		"-e", "DISABLE_AUTOUPDATER=1"}
@@ -585,6 +669,11 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 			return nil, fmt.Errorf("montage %s : hors du stockage partagé du backend %s (%s)", p, e.b.Name, strings.Join(e.b.Shared, ", "))
 		}
 		args = append(args, "--mount", bind(p, m.RO == nil || *m.RO))
+	}
+	// dossiers « local » : volume anonyme du conteneur, monté par-dessus le
+	// dossier du projet (masqué) ; supprimé avec le conteneur (rm -v)
+	for _, p := range env.localPaths(proj) {
+		args = append(args, "-v", p)
 	}
 	return append(args, env.Image, "sh", "-c", pid1), nil
 }
@@ -663,6 +752,7 @@ type Found struct {
 	Name    string
 	Project string
 	Running bool
+	Failed  bool // devrait tourner mais n'y arrive pas (pod pas prêt, conteneur dead/restarting)
 }
 
 // list : conteneurs NG2 du moteur (par label ; labels relus par inspect, même
@@ -691,7 +781,8 @@ func (e Engine) list() ([]Found, error) {
 		if len(f) != 3 || f[2] == "" {
 			continue
 		}
-		out = append(out, Found{Backend: e.b.Name, Name: strings.TrimPrefix(f[0], "/"), Project: f[2], Running: f[1] == "running"})
+		out = append(out, Found{Backend: e.b.Name, Name: strings.TrimPrefix(f[0], "/"), Project: f[2], Running: f[1] == "running",
+			Failed: f[1] == "dead" || f[1] == "restarting"})
 	}
 	return out, nil
 }

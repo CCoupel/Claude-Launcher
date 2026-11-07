@@ -219,6 +219,11 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 			}
 		}
 		ctrStart := strings.ReplaceAll(start, claudeBin()+" ", "claude ")
+		if cfg.CtrStopOnExit {
+			// sortie propre : la session du conteneur se termine, et ctr-attach
+			// (resté parent de l'attache) arrête le conteneur
+			ctrStart += " && tmux kill-session"
+		}
 		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", shq(n.Path), cfg.exports(), ctrStart)
 		if err := os.WriteFile(startFile, []byte(script), 0o600); err != nil {
 			return err

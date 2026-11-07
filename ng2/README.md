@@ -114,7 +114,7 @@ CLAUDE_CONFIG_DIR="../../.claude"          # = /share/MFS/ROOT/CLAUDE_PROJETS/.c
 ```
 
 La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
-`CLAUDE_OPTIONS`, `RESUME_MODE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
+`CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
 premier lancement : **copie de la config v4** (`~/.config/claude-launcher.conf`) si elle existe, sinon les
 valeurs par défaut. Les backends d'exécution sont dans `~/.config/claude-launcher-ng2/backends.yaml`
 (voir [Projets en conteneur](#projets-en-conteneur-v5)).
@@ -139,7 +139,12 @@ packages: [python3-venv, libpq-dev]  # en plus de tmux git bash sudo curl (impli
 packages_by_manager:                 # noms qui diffèrent selon la distribution
   dnf: [libpq-devel]
 setup:                               # exécuté une fois, en utilisateur, dans le projet
-  - python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+  - "[ -d .venv/bin ] || python3 -m venv .venv"
+  - .venv/bin/pip install -r requirements.txt
+watch: [requirements.txt]            # contenu modifié → setup rejoué (seul) à l'ouverture
+on_start:                            # à chaque démarrage du projet (pas au rattachement)
+  - .venv/bin/python manage.py migrate --check
+local: [.venv]                       # dossiers privés au conteneur (voir ci-dessous)
 mounts:                              # dossiers en plus (lecture seule par défaut)
   - path: ../claude_project_template
 prefer: podman                       # backend proposé par défaut (facultatif)
@@ -147,6 +152,35 @@ prefer: podman                       # backend proposé par défaut (facultatif)
 
 Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
 l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
+
+#### Ce qui est construit reste dans le conteneur
+
+Le dossier du projet est partagé (hôte, autres conteneurs, autres machines) : il
+ne devrait contenir que les sources, les verrous de dépendances et `env.yaml`.
+Ce que `setup` construit dépend de l'image (glibc ou musl, chemins des
+interpréteurs) :
+
+- **`local:`** — chemins relatifs au projet (`node_modules`,
+  `web/node_modules`, `.venv`…) **privés au conteneur** : un volume du conteneur
+  (volume anonyme podman/docker, `emptyDir` en k8s) est monté par-dessus et
+  **masque** le dossier du projet. Les outils les trouvent à leur place
+  habituelle ; l'hôte garde son propre `node_modules` sans conflit. Ils
+  appartiennent à l'utilisateur et vivent autant que le conteneur : recréé
+  (image changée, liste `local` modifiée, pod perdu), il repart de volumes
+  neufs, reconstruits par `setup`. Le moteur crée au besoin, dans le projet, le
+  dossier vide servant de point de montage.
+- **Caches** (pip, npm, go, uv…) : rien à faire, ils sont sous `$HOME`
+  (`~/.cache`, `~/.npm`, `~/go`), qui est déjà propre au conteneur (seul
+  `~/.claude` est partagé).
+- **`watch:`** — fichiers dont le **contenu** est comparé à chaque ouverture :
+  s'il a changé depuis le dernier `setup` (verrou de dépendances modifié), les
+  étapes `setup` sont rejouées, seules, sans réinstaller les paquets système.
+- **`on_start:`** — étapes rejouées à chaque démarrage d'une session du projet
+  (jamais au rattachement à une session vivante) ; à l'auteur de les garder
+  rapides (`[ -d node_modules/.bin ] || npm ci`).
+
+Les étapes `setup` et `on_start` tournent en utilisateur, dans le projet, avec
+`bash -e` : une erreur arrête l'ouverture (et `setup` sera retenté à la suivante).
 
 ### Configurer l'exécution d'un projet
 
@@ -274,14 +308,19 @@ L'affectation (y compris « hôte ») est mémorisée par machine
 | `⬢` cyan | conteneur en marche |
 | `⬢` gris | conteneur arrêté (redémarré à l'ouverture) |
 
+Le point devant le nom dit, lui, où en est **la session claude** (voir
+[Fermer un projet](#fermer-un-projet)).
+
 ### À l'ouverture
 
 1. Le conteneur `cl-<projet>-<empreinte>` est créé (ou démarré), avec les
-   labels `cl.launcher=ng2`, `cl.project`, `cl.backend`, `cl.image`.
+   labels `cl.launcher=ng2`, `cl.project`, `cl.backend`, `cl.image`, `cl.local` (empreinte des dossiers `local`).
 2. **Bootstrap** (idempotent, rejoué seulement si `env.yaml` change) : paquets
    système (`apt`, `dnf`, `apk`, `zypper`), utilisateur aux uid/gid de l'hôte
    avec sudo, **installation de claude**, étapes `setup`. Compter ~20 s la
-   première fois (image en cache), une fraction de seconde ensuite.
+   première fois (image en cache), une fraction de seconde ensuite. Si seul un
+   fichier `watch` a changé : étapes `setup` seulement. Puis, pour une nouvelle
+   session, les étapes `on_start`.
 3. Le démarrage habituel (questions `/init-project` et reprise, claude, marqueur
    de sortie propre) s'exécute **dans le tmux du conteneur**, attaché dans la
    fenêtre du projet. Les teammates y sont créés et mis en page comme en local.
@@ -304,8 +343,41 @@ La session du conteneur (claude **et** ses teammates) continue de tourner. Au
 prochain lancement, NG2 retrouve les conteneurs par leurs labels et recrée la
 fenêtre de chaque projet dont la session est vivante : on retrouve la session
 telle quelle. Fermer la fenêtre d'un projet en conteneur ne l'arrête pas non
-plus : Entrée dans le navigateur s'y rattache. Pour l'arrêter, quitter claude
-(`/exit`, ou `/end-session` puis `/exit`).
+plus : le point passe à `◐` et Entrée dans le navigateur s'y rattache. Pour
+l'arrêter : **Ctrl+clic** sur le projet (voir ci-dessous).
+
+### Fermer un projet
+
+Le point devant le nom du projet dit où en est sa session claude ; l'icône
+`⬡`/`⬢` reste l'état du conteneur.
+
+| Point | Session | Entrée | Ctrl+clic / Suppr |
+|---|---|---|---|
+| `○` gris | non démarrée (avec `⬢` cyan : conteneur en marche pour rien, après un `/exit`) | démarre le projet | conteneur vide : l'arrête, sans question ; sinon rien |
+| `●` vert | vivante, dans une fenêtre de ce hub | va à sa fenêtre | ferme, après confirmation |
+| `◐` orange | vivante, non rattachée (hub fermé) ou pilotée par un autre launcher | s'y rattache (ou propose la prise de main) | ferme, après confirmation ; **refusé** si un autre launcher la pilote |
+| `✕` rouge | anomalie : backend `⚠`, pod en échec, session interrompue `↺` | comme avant (reprise proposée, erreur expliquée) | abandonne la reprise et arrête le conteneur, après confirmation |
+
+La question tient dans le pied du navigateur (`Fermer web-shop ? claude + 2
+teammate(s) · pod k8s arrêté (rien n'est perdu) · o/N`) ; toute autre touche
+qu'`o` annule. La fermeture, ensuite :
+
+1. `/exit` est envoyé à claude (après un Échap qui interrompt une réponse en
+   cours) : sortie propre, marqueur posé, pas de `↺` ensuite ;
+2. attente de la fin de claude (30 s), puis fermeture de la session tmux,
+   teammates compris — forcée si claude ne répond pas ;
+3. arrêt du conteneur : `podman`/`docker stop` ; k8s : StatefulSet à **0
+   réplique** (le pod est libéré, tout est sur le stockage partagé). L'ouverture
+   suivante le redémarre (k8s : remise à 1 réplique, ~20 s).
+
+Un projet sur l'hôte s'arrête aux étapes 1 et 2. Un projet piloté par un autre
+launcher n'est jamais fermé d'ici, ce qui couperait le travail de quelqu'un
+d'autre : Entrée pour prendre la main, puis Ctrl+clic.
+
+`CTR_STOP_ON_EXIT=1` dans `config.conf` (désactivé par défaut) arrête aussi le
+conteneur quand claude se termine proprement **de lui-même** (`/exit` tapé dans
+le projet) : la session du conteneur se termine et la fenêtre se ferme. Un
+simple détachement, lui, n'arrête rien.
 
 ### Plusieurs launchers sur un même projet
 
@@ -361,7 +433,9 @@ revenir) uniquement avec tous les projets fermés.**
 
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
   release (dernier tag atteignable depuis `origin/main`).
-  Un projet déjà ouvert est marqué `●` vert, son nom en gras sur la couleur de son pane tmux.
+  Le point devant le nom est l'état de la session : `○` non démarrée, `●` vert ouverte dans ce hub
+  (nom en gras sur la couleur de son pane tmux), `◐` orange vivante mais non rattachée, `✕` rouge
+  anomalie (voir [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet.
   Badge milestone `⚑` (projets GitHub), calculé avec **la règle du panneau milestone des projets**
   (`skills/milestone-panel`), pour que launcher et projet ouvert soient d'accord : **jaune** = milestone
   en cours (le premier ouvert, par échéance puis version, ayant une issue ouverte avec un label de phase
@@ -505,6 +579,8 @@ en **orange** dès le tag (`↑ NG vX · mise à jour bientôt prête ✕`, non 
 ## Dépannage
 
 - **`Ctrl+←/→` ne fait rien** : votre terminal les intercepte. Glissez la bordure à la souris.
+- **Ctrl+clic ne ferme pas le projet** : votre terminal le garde pour lui (ouverture de liens).
+  Sélectionnez le projet et appuyez sur `Suppr`.
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
 - **Panes d'une team en désordre** : `Ctrl+B R` dans l'onglet du projet, ou
