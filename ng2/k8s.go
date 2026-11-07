@@ -94,17 +94,35 @@ func k8sAsUser(uid, gid int, tty bool) string {
 
 // k8sState : phase du pod ("Running"…) et image en place ; "" si absent.
 func (e Engine) k8sState(proj string) (phase, image string) {
-	b, err := e.kcmd("get", "statefulset", k8sName(proj), "-o", `jsonpath={.metadata.annotations.cl\.image}`).Output()
+	phase, image, _ = e.k8sStateLocal(proj)
+	return phase, image
+}
+
+// k8sStateLocal : k8sState, plus l'empreinte des dossiers « local » du StatefulSet.
+func (e Engine) k8sStateLocal(proj string) (phase, image, local string) {
+	b, err := e.kcmd("get", "statefulset", k8sName(proj), "-o", `jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}`).Output()
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
-	image = strings.TrimSpace(string(b))
+	image, local, _ = strings.Cut(strings.TrimSpace(string(b)), "|")
 	p, _ := e.kcmd("get", "pod", k8sPod(proj), "-o", "jsonpath={.status.phase}").Output()
 	phase = strings.TrimSpace(string(p))
 	if phase == "" {
 		phase = "Pending"
 	}
-	return phase, image
+	return phase, image, local
+}
+
+// k8sPodCurrent : le pod porte l'image et les dossiers « local » attendus, et
+// n'est pas en cours de suppression.
+func (e Engine) k8sPodCurrent(pod string, env EnvSpec) bool {
+	b, err := e.kcmd("get", "pod", pod, "-o",
+		`jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}|{.metadata.deletionTimestamp}`).Output()
+	if err != nil {
+		return false
+	}
+	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 3)
+	return len(f) == 3 && f[0] == env.Image && f[1] == env.localKey() && f[2] == ""
 }
 
 func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, error) {
@@ -115,14 +133,16 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 		return "", err
 	}
 	pod := k8sPod(proj)
-	phase, image := e.k8sState(proj)
-	if phase == "Running" && image == env.Image {
+	phase, image, local := e.k8sStateLocal(proj)
+	if phase == "Running" && image == env.Image && local == env.localKey() {
 		return pod, nil
 	}
 	if phase == "" {
 		fmt.Fprintf(log, "  création du StatefulSet %s (%s)…\n", k8sName(proj), env.Image)
 	} else if image != env.Image {
 		fmt.Fprintf(log, "  image changée (%s → %s) : pod recréé\n", image, env.Image)
+	} else if local != env.localKey() {
+		fmt.Fprintf(log, "  dossiers « local » changés : pod recréé\n")
 	}
 	man, err := e.k8sManifest(proj, env)
 	if err != nil {
@@ -140,8 +160,9 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 	for time.Now().Before(deadline) {
 		w := e.kcmd("wait", "--for=condition=Ready", "pod/"+pod, "--timeout=20s")
 		if b, err := w.CombinedOutput(); err == nil {
-			// un pod recréé (image changée) doit porter la nouvelle image
-			if _, img := e.k8sState(proj); img == env.Image {
+			// un pod recréé (image ou dossiers « local » changés) : le pod prêt doit
+			// être le NOUVEAU (ses annotations), pas l'ancien encore en arrêt
+			if e.k8sPodCurrent(pod, env) {
 				return pod, nil
 			}
 		} else if s := string(b); strings.Contains(s, "ImagePull") || strings.Contains(s, "ErrImage") {
@@ -168,8 +189,14 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 		mounts = append(mounts, map[string]any{"name": v, "mountPath": r})
 		vols = append(vols, map[string]any{"name": v, "persistentVolumeClaim": map[string]any{"claimName": e.b.Volumes[r]}})
 	}
+	// dossiers « local » : emptyDir du pod, monté par-dessus le dossier du projet
+	for i, p := range env.localPaths(proj) {
+		v := fmt.Sprintf("local%d", i)
+		mounts = append(mounts, map[string]any{"name": v, "mountPath": p})
+		vols = append(vols, map[string]any{"name": v, "emptyDir": map[string]any{}})
+	}
 	labels := map[string]string{"cl.launcher": "ng2", "cl.backend": e.b.Name, "cl.ctr": name}
-	ann := map[string]string{"cl.project": proj, "cl.image": env.Image}
+	ann := map[string]string{"cl.project": proj, "cl.image": env.Image, "cl.local": env.localKey()}
 	envs := []map[string]string{{"name": "HOME", "value": home}, {"name": "CLAUDE_CONFIG_DIR", "value": claudeDir()},
 		{"name": "LANG", "value": "C.UTF-8"}, {"name": "DISABLE_AUTOUPDATER", "value": "1"}}
 	m := map[string]any{

@@ -3,15 +3,21 @@
 # Envoyé par stdin (exec -i -u 0 … sh -s), précédé des variables CL_* :
 #   CL_UID CL_GID CL_USER CL_HOME CL_PROJ CL_HASH CL_SKIP_CLAUDE
 #   CL_PKGS (génériques) CL_PKGS_APT CL_PKGS_DNF CL_PKGS_APK CL_PKGS_ZYPPER
-#   CL_SETUP (étapes du projet, en base64)
-# Idempotent : rien n'est refait si le marqueur porte déjà CL_HASH.
+#   CL_SETUP (étapes du projet, en base64) CL_SETUP_HASH (setup + fichiers watch)
+#   CL_LOCAL (dossiers « local », chemins absolus, un par ligne)
+# Idempotent : rien n'est refait si le marqueur porte déjà CL_HASH ; si seul
+# CL_SETUP_HASH a changé (fichier watch modifié), seules les étapes setup sont rejouées.
 set -e
 MARK=/var/lib/cl/bootstrap
-if [ "$(cat "$MARK" 2>/dev/null)" = "$CL_HASH" ]; then
-  echo "  ✓ bootstrap à jour"
-  exit 0
-fi
+SMARK=/var/lib/cl/setup
+FULL=1
+[ "$(cat "$MARK" 2>/dev/null)" = "$CL_HASH" ] && FULL=0
+SETUP=$FULL
+[ "$(cat "$SMARK" 2>/dev/null)" = "$CL_SETUP_HASH" ] || SETUP=1
 step() { printf '\n\033[1;36m▸ %s\033[0m\n' "$1"; }
+asuser() { su -s /bin/sh "$NAME" -c "export HOME='$CL_HOME' CLAUDE_CONFIG_DIR='$CLAUDE_CONFIG_DIR' LANG=C.UTF-8 PATH=\"$CL_HOME/.local/bin:\$PATH\"; $1"; }
+
+if [ "$FULL" = 1 ]; then
 
 step "paquets système"
 BASE="tmux git bash sudo ca-certificates"
@@ -64,7 +70,6 @@ mkdir -p "$CL_HOME" /etc/sudoers.d
 chown "$CL_UID:$CL_GID" "$CL_HOME"
 echo "$NAME ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/cl
 chmod 440 /etc/sudoers.d/cl
-asuser() { su -s /bin/sh "$NAME" -c "export HOME='$CL_HOME' CLAUDE_CONFIG_DIR='$CLAUDE_CONFIG_DIR' LANG=C.UTF-8 PATH=\"$CL_HOME/.local/bin:\$PATH\"; $1"; }
 
 step "tmux du projet"
 # préfixe Ctrl+B transmis par le hub ; double-clic = zoom ; R = relayout demandé au
@@ -90,13 +95,36 @@ if [ "$CL_SKIP_CLAUDE" != 1 ]; then
   fi
 fi
 
-if [ -n "$CL_SETUP" ]; then
-  step "étapes du projet (env.yaml : setup)"
+fi # FULL
+[ "$FULL" = 1 ] || NAME=$(getent passwd "$CL_UID" | cut -d: -f1)
+
+# dossiers « local » : volumes neufs du conteneur, créés root — à l'utilisateur
+if [ -n "$CL_LOCAL" ]; then
+  printf '%s\n' "$CL_LOCAL" | while IFS= read -r d; do
+    [ -n "$d" ] || continue
+    mkdir -p "$d"
+    chown "$CL_UID:$CL_GID" "$d"
+  done
+fi
+
+if [ "$SETUP" = 1 ] && [ -n "$CL_SETUP" ]; then
+  if [ "$FULL" = 1 ]; then
+    step "étapes du projet (env.yaml : setup)"
+  else
+    step "fichiers surveillés modifiés (env.yaml : watch) : étapes setup rejouées"
+  fi
   printf '%s' "$CL_SETUP" | base64 -d > /tmp/cl-setup.sh
   chmod 755 /tmp/cl-setup.sh
   asuser "cd '$CL_PROJ' && bash -e /tmp/cl-setup.sh"
 fi
 
 mkdir -p /var/lib/cl
-echo "$CL_HASH" > "$MARK"
-step "bootstrap terminé"
+echo "$CL_SETUP_HASH" > "$SMARK"
+if [ "$FULL" = 1 ]; then
+  echo "$CL_HASH" > "$MARK"
+  step "bootstrap terminé"
+elif [ "$SETUP" = 1 ]; then
+  step "étapes setup terminées"
+else
+  echo "  ✓ bootstrap à jour"
+fi

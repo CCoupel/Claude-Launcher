@@ -139,7 +139,12 @@ packages: [python3-venv, libpq-dev]  # en plus de tmux git bash sudo curl (impli
 packages_by_manager:                 # noms qui diffèrent selon la distribution
   dnf: [libpq-devel]
 setup:                               # exécuté une fois, en utilisateur, dans le projet
-  - python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+  - "[ -d .venv/bin ] || python3 -m venv .venv"
+  - .venv/bin/pip install -r requirements.txt
+watch: [requirements.txt]            # contenu modifié → setup rejoué (seul) à l'ouverture
+on_start:                            # à chaque démarrage du projet (pas au rattachement)
+  - .venv/bin/python manage.py migrate --check
+local: [.venv]                       # dossiers privés au conteneur (voir ci-dessous)
 mounts:                              # dossiers en plus (lecture seule par défaut)
   - path: ../claude_project_template
 prefer: podman                       # backend proposé par défaut (facultatif)
@@ -147,6 +152,35 @@ prefer: podman                       # backend proposé par défaut (facultatif)
 
 Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
 l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
+
+#### Ce qui est construit reste dans le conteneur
+
+Le dossier du projet est partagé (hôte, autres conteneurs, autres machines) : il
+ne devrait contenir que les sources, les verrous de dépendances et `env.yaml`.
+Ce que `setup` construit dépend de l'image (glibc ou musl, chemins des
+interpréteurs) :
+
+- **`local:`** — chemins relatifs au projet (`node_modules`,
+  `web/node_modules`, `.venv`…) **privés au conteneur** : un volume du conteneur
+  (volume anonyme podman/docker, `emptyDir` en k8s) est monté par-dessus et
+  **masque** le dossier du projet. Les outils les trouvent à leur place
+  habituelle ; l'hôte garde son propre `node_modules` sans conflit. Ils
+  appartiennent à l'utilisateur et vivent autant que le conteneur : recréé
+  (image changée, liste `local` modifiée, pod perdu), il repart de volumes
+  neufs, reconstruits par `setup`. Le moteur crée au besoin, dans le projet, le
+  dossier vide servant de point de montage.
+- **Caches** (pip, npm, go, uv…) : rien à faire, ils sont sous `$HOME`
+  (`~/.cache`, `~/.npm`, `~/go`), qui est déjà propre au conteneur (seul
+  `~/.claude` est partagé).
+- **`watch:`** — fichiers dont le **contenu** est comparé à chaque ouverture :
+  s'il a changé depuis le dernier `setup` (verrou de dépendances modifié), les
+  étapes `setup` sont rejouées, seules, sans réinstaller les paquets système.
+- **`on_start:`** — étapes rejouées à chaque démarrage d'une session du projet
+  (jamais au rattachement à une session vivante) ; à l'auteur de les garder
+  rapides (`[ -d node_modules/.bin ] || npm ci`).
+
+Les étapes `setup` et `on_start` tournent en utilisateur, dans le projet, avec
+`bash -e` : une erreur arrête l'ouverture (et `setup` sera retenté à la suivante).
 
 ### Configurer l'exécution d'un projet
 
@@ -277,11 +311,13 @@ L'affectation (y compris « hôte ») est mémorisée par machine
 ### À l'ouverture
 
 1. Le conteneur `cl-<projet>-<empreinte>` est créé (ou démarré), avec les
-   labels `cl.launcher=ng2`, `cl.project`, `cl.backend`, `cl.image`.
+   labels `cl.launcher=ng2`, `cl.project`, `cl.backend`, `cl.image`, `cl.local` (empreinte des dossiers `local`).
 2. **Bootstrap** (idempotent, rejoué seulement si `env.yaml` change) : paquets
    système (`apt`, `dnf`, `apk`, `zypper`), utilisateur aux uid/gid de l'hôte
    avec sudo, **installation de claude**, étapes `setup`. Compter ~20 s la
-   première fois (image en cache), une fraction de seconde ensuite.
+   première fois (image en cache), une fraction de seconde ensuite. Si seul un
+   fichier `watch` a changé : étapes `setup` seulement. Puis, pour une nouvelle
+   session, les étapes `on_start`.
 3. Le démarrage habituel (questions `/init-project` et reprise, claude, marqueur
    de sortie propre) s'exécute **dans le tmux du conteneur**, attaché dans la
    fenêtre du projet. Les teammates y sont créés et mis en page comme en local.

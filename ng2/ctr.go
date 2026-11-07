@@ -40,7 +40,8 @@ func bootstrapVars(proj string, env EnvSpec) string {
 		{"CL_PKGS", strings.Join(env.Packages, " ")},
 		{"CL_PKGS_APT", byMgr("apt")}, {"CL_PKGS_DNF", byMgr("dnf")},
 		{"CL_PKGS_APK", byMgr("apk")}, {"CL_PKGS_ZYPPER", byMgr("zypper")},
-		{"CL_SETUP", setup},
+		{"CL_SETUP", setup}, {"CL_SETUP_HASH", env.setupHash(proj)},
+		{"CL_LOCAL", strings.Join(env.localPaths(proj), "\n")},
 	}
 	var b strings.Builder
 	for _, v := range vars {
@@ -54,6 +55,20 @@ func (e Engine) bootstrap(name, proj string, env EnvSpec, log io.Writer) error {
 	script := bootstrapVars(proj, env) + bootstrapScript
 	if err := e.exec(name, true, strings.NewReader(script), log, "sh", "-s"); err != nil {
 		return fmt.Errorf("bootstrap : %w", err)
+	}
+	return nil
+}
+
+// onStart : étapes on_start de env.yaml, en utilisateur dans le projet, à chaque
+// démarrage d'une session (pas au rattachement à une session vivante).
+func (e Engine) onStart(name, proj string, env EnvSpec) error {
+	if len(env.OnStart) == 0 {
+		return nil
+	}
+	fmt.Printf("\n\033[1;36m▸ %s\033[0m\n", "étapes de démarrage (env.yaml : on_start)")
+	script := "export PATH=\"$HOME/.local/bin:$PATH\"\ncd " + shq(proj) + "\n" + strings.Join(env.OnStart, "\n") + "\n"
+	if err := e.exec(name, false, strings.NewReader(script), os.Stdout, "bash", "-e", "-s"); err != nil {
+		return fmt.Errorf("on_start : %w", err)
 	}
 	return nil
 }
@@ -90,6 +105,9 @@ func runCtrAttach(proj, startFile string) error {
 		return err
 	}
 	fmt.Printf("\033[1m⬡ %s — %s (%s)\033[0m\n", baseName(proj), b.Name, env.Image)
+	if len(env.Local) > 0 {
+		fmt.Printf("  dossiers privés au conteneur : %s\n", strings.Join(env.Local, ", "))
+	}
 	if ps := diagnose(b); len(ps) > 0 {
 		var s strings.Builder
 		for _, p := range ps {
@@ -105,6 +123,9 @@ func runCtrAttach(proj, startFile string) error {
 		return err
 	}
 	if !e.hasSession(name) {
+		if err := e.onStart(name, proj, env); err != nil {
+			return err
+		}
 		// le script de démarrage est écrit par launchProject juste après la création
 		// de la fenêtre : l'attendre (bootstrap déjà à jour = quelques dixièmes de s)
 		var start []byte
