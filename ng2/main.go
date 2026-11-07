@@ -232,6 +232,21 @@ func scanCmd(roots []string) tea.Cmd {
 
 // sessCmd : sessions en suspens des projets, après delay. Bon marché : ~/.claude
 // est sur disque natif et sessionEnded ne relit un fichier que s'il a changé.
+// sessNowMsg : relecture ponctuelle des sessions en suspens (sans reprogrammer).
+type sessNowMsg map[string]Resumable
+
+func sessNowCmd(cfg Config, paths []string) tea.Cmd {
+	return func() tea.Msg {
+		sess := map[string]Resumable{}
+		for _, p := range paths {
+			if r, ok := cfg.pendingSession(p); ok {
+				sess[p] = r
+			}
+		}
+		return sessNowMsg(sess)
+	}
+}
+
 func sessCmd(cfg Config, paths []string, delay time.Duration) tea.Cmd {
 	read := func(time.Time) tea.Msg {
 		sess := map[string]Resumable{}
@@ -444,6 +459,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ctr = ctrView(msg)
 		m.syncSelection()
 		return m, ctrCmd(m.projectPaths(), 10*time.Second)
+	case ctrNowMsg:
+		m.ctr = ctrView(msg)
+		m.syncSelection()
+		return m, nil
+	case sessNowMsg:
+		m.sessions = msg
+		m.syncSelection()
+		return m, nil
 	case closeMsg:
 		mm, cmd := m.onClose(msg)
 		mm.syncSelection()
@@ -495,7 +518,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		nm, cmd := m.onKey(msg)
 		mm := nm.(model)
 		mm.syncSelection()
-		return mm, tea.Batch(cmd, mm.detailCmd(), mm.stateCmd())
+		pc := mm.pendingCmd
+		mm.pendingCmd = nil
+		return mm, tea.Batch(cmd, pc, mm.detailCmd(), mm.stateCmd())
 	}
 	m.syncSelection()
 	return m, m.detailCmd()
@@ -572,6 +597,11 @@ func (m model) openSelectedAs(mode launchMode) model {
 	}
 	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate(), mode)
 	m.wantTeam, m.lastShow = false, time.Time{}
+	if m.launch && m.msg == "" && hasEnv(n.Path) {
+		// conteneur : propriétaire de la session relu une fois l'attache faite, sans
+		// attendre la relecture périodique (point ▲ aussitôt)
+		m.pendingCmd = tea.Batch(m.pendingCmd, ctrNowCmd(m.projectPaths(), 4*time.Second))
+	}
 	if m.shell && m.launch && m.msg == "" {
 		// le projet est à l'écran à droite : donne-lui le focus clavier
 		_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
@@ -842,7 +872,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "f2":
 		// backend d'exécution du projet (host, conteneurs) : suivant
-		return m.cycleBackend(), ctrCmd(m.projectPaths(), 0)
+		return m.cycleBackend(), ctrNowCmd(m.projectPaths(), 0)
 	case "f5":
 		// recherche immédiate ; les annonces masquées réapparaissent
 		if m.checking {

@@ -26,7 +26,7 @@ var helpSections = []helpSection{
 		{"↑ ↓ PgUp PgDn, molette, clic", "sélectionner un projet (clic sur un projet ouvert : sa fenêtre)"},
 		{"Entrée, double-clic", "ouvrir / rejoindre le projet"},
 		{"Ctrl+clic, Suppr", "fermer le projet : /exit à claude, puis arrêt du conteneur (confirmation o/N)"},
-		{"○ ● ◐ ✕ devant le nom", "session : non démarrée · ouverte ici · vivante non rattachée · anomalie"},
+		{"point devant le nom", "○ rien ne tourne · ● bleu conteneur prêt sans claude · ▲ ouvert ici · ● vert lecture seule · ■ orange autre hub · ● orange personne ne pilote · ✕ problème"},
 		{"frappe", "filtrer ; Esc efface le filtre"},
 		{"clic hors projet", "onglet ⌗ Teamleaders"},
 		{"double-clic catégorie", "créer un projet dans ce dossier"},
