@@ -35,7 +35,7 @@ func TestBestTagUpTo(t *testing.T) {
 	for _, c := range []struct {
 		major int
 		want  string
-	}{{5, "v5.10.0"}, {6, "v6.0.0"}, {4, "v4.3.1"}, {3, ""}} {
+	}{{5, "v5.10.0"}, {6, "v6.0.0"}, {4, "v4.3.1"}, {3, ""}, {0, "v6.0.0"}} {
 		got := ""
 		if i := bestTagUpTo(tags, c.major); i >= 0 {
 			got = tags[i].Name

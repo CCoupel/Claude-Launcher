@@ -143,10 +143,11 @@ func tplTag() (name, sha string, err error) {
 }
 
 // bestTagUpTo : index du tag vX.Y.Z le plus élevé avec X ≤ major (-1 : aucun).
+// major 0 (version « dev », compilée sans -ldflags) : pas de plafond.
 func bestTagUpTo(tags []tagRef, major int) int {
 	best := -1
 	for i, t := range tags {
-		if !strings.HasPrefix(t.Name, "v") || verParts(t.Name)[0] > major {
+		if !strings.HasPrefix(t.Name, "v") || (major > 0 && verParts(t.Name)[0] > major) {
 			continue
 		}
 		if best < 0 || versionNewer(tags[best].Name, t.Name) {
