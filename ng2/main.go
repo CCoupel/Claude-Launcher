@@ -1289,7 +1289,11 @@ func main() {
 	switch cmd {
 	case "shell":
 		selfUpdate()
+		bar := startProgress("Nettoyage des teams")
+		teamsProgress = bar.Step
 		cleanupDeadTeams(loadConfig().resumeMaxAge())
+		teamsProgress = nil
+		bar.Done()
 		err = runShell()
 	case "nav":
 		if os.Getenv("CL_SHELL") == "1" {

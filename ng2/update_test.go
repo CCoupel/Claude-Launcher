@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+	"time"
+)
 
 func TestVersionNewer(t *testing.T) {
 	cases := []struct {
@@ -43,5 +47,14 @@ func TestBestTagUpTo(t *testing.T) {
 		if got != c.want {
 			t.Errorf("majeure %d : %q, attendu %q", c.major, got, c.want)
 		}
+	}
+}
+
+func TestProgressLine(t *testing.T) {
+	if got := progressLine("X", 3, 8, 2*time.Second); got != "  X  █████████░░░░░░░░░░░░░░░  3/8  2s" {
+		t.Fatalf("%q", got)
+	}
+	if got := progressLine("X", 0, 0, 0); !strings.Contains(got, "0/0") {
+		t.Fatalf("%q", got)
 	}
 }

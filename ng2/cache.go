@@ -301,8 +301,19 @@ func onNetworkFS(path string) bool {
 	if err := syscall.Statfs(path, &st); err != nil {
 		return false
 	}
-	const v9fsMagic = 0x01021997
-	return int64(st.Type) == v9fsMagic
+	return networkFSMagic[int64(st.Type)]
+}
+
+// networkFSMagic : systèmes de fichiers où inotify est lent à poser (réseau)
+// et aveugle aux écritures faites ailleurs (autre machine, conteneur distant,
+// pod) : leurs projets sont scrutés au lieu d'être surveillés.
+var networkFSMagic = map[int64]bool{
+	0x01021997: true, // 9p (/mnt/c de WSL)
+	0x65735546: true, // FUSE (MooseFS, sshfs, GlusterFS…)
+	0x6969:     true, // NFS
+	0xFF534D42: true, // CIFS
+	0xFE534D42: true, // SMB2
+	0x00C36400: true, // Ceph
 }
 
 // projectSig : signature bon marché d'un projet — mtime de HEAD, index, refs,

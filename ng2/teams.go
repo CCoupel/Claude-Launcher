@@ -48,6 +48,9 @@ func livePanes() (map[string]bool, bool) {
 	return live, len(live) > 0
 }
 
+// teamsProgress : avancement de deadTeams (barre de progression au démarrage).
+var teamsProgress func(done, total int)
+
 // deadTeams : noms des teams de root/teams dont tous les panes teammates ont disparu.
 func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []string {
 	entries, err := os.ReadDir(filepath.Join(root, "teams"))
@@ -55,7 +58,10 @@ func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []str
 		return nil
 	}
 	var dead []string
-	for _, e := range entries {
+	for i, e := range entries {
+		if teamsProgress != nil {
+			teamsProgress(i, len(entries))
+		}
 		if !e.IsDir() {
 			continue
 		}
@@ -73,7 +79,7 @@ func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []str
 				TmuxPaneID string `json:"tmuxPaneId"`
 			} `json:"members"`
 		}
-		if json.Unmarshal(b, &cfg) != nil || resumableSession(root, cfg.LeadSessionID, resumeAge) {
+		if json.Unmarshal(b, &cfg) != nil {
 			continue
 		}
 		// team d'un conteneur ou d'une autre machine : ses panes %N sont ceux de
@@ -93,7 +99,9 @@ func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []str
 				alive = true
 			}
 		}
-		if panes > 0 && !alive {
+		// session reprenable : cherchée en dernier (balaye tous les projets,
+		// coûteux sur un stockage réseau), seulement pour une team condamnée
+		if panes > 0 && !alive && !resumableSession(root, cfg.LeadSessionID, resumeAge) {
 			dead = append(dead, e.Name())
 		}
 	}
