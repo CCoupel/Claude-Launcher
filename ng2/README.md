@@ -153,6 +153,30 @@ prefer: podman                       # backend proposé par défaut (facultatif)
 Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
 l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
 
+#### Bootstrap du launcher : `env.yaml` à côté de `backends.yaml`
+
+Ce qui sert à **vous** plutôt qu'à un projet (statusline, hooks, outils de
+votre `settings.json`) se déclare une fois pour tous vos conteneurs dans
+`<config>/env.yaml`, à côté de `backends.yaml` (ex.
+`/share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/env.yaml`) :
+
+```yaml
+# bootstrap du launcher : ajouté à celui de chaque projet
+packages: [python3, jq]          # ex. statusline en python
+setup:
+  - pip install --user --break-system-packages rich
+```
+
+Clés admises : `packages`, `packages_by_manager`, `setup`, `on_start` (les
+autres, comme `image` ou `local`, regardent un projet et sont refusées avec un
+message clair). Les paquets sont réunis à ceux du projet, les étapes du launcher
+passent **avant** celles du projet. Modifier ce fichier rejoue le bootstrap de
+chaque conteneur à sa prochaine ouverture ; sans lui, rien ne change.
+
+Exemple vécu : une statusline `bash … statusline-command.sh` qui lit son JSON
+avec `python3` reste vide dans un conteneur `ubuntu:24.04`, qui n'a pas python :
+`packages: [python3]` ici la répare partout.
+
 #### Ce qui est construit reste dans le conteneur
 
 Le dossier du projet est partagé (hôte, autres conteneurs, autres machines) : il
