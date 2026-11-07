@@ -21,3 +21,27 @@ func TestVersionNewer(t *testing.T) {
 		}
 	}
 }
+
+// le template n'est jamais pris dans une majeure supérieure à celle du launcher
+func TestBestTagUpTo(t *testing.T) {
+	mk := func(names ...string) []tagRef {
+		out := make([]tagRef, len(names))
+		for i, n := range names {
+			out[i].Name = n
+		}
+		return out
+	}
+	tags := mk("v6.0.0", "v4.3.1", "v5.1.0", "v5.0.2", "latest", "v5.10.0")
+	for _, c := range []struct {
+		major int
+		want  string
+	}{{5, "v5.10.0"}, {6, "v6.0.0"}, {4, "v4.3.1"}, {3, ""}} {
+		got := ""
+		if i := bestTagUpTo(tags, c.major); i >= 0 {
+			got = tags[i].Name
+		}
+		if got != c.want {
+			t.Errorf("majeure %d : %q, attendu %q", c.major, got, c.want)
+		}
+	}
+}

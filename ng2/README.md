@@ -450,6 +450,9 @@ en **orange** dès le tag (`↑ NG vX · mise à jour bientôt prête ✕`, non 
   tag, `init-project.md` est resynchronisé et les badges `✓`/`⚠` recalculés. Un projet en
   retard propose ensuite `/init-project` à son lancement. Sans cache (première installation),
   le dernier tag est adopté d'office.
+- **Version majeure commune** : à partir de la v5, launcher et template partagent leur version
+  majeure (le template v5 suppose un launcher v5). NG2 ne retient que les tags du template dont
+  la majeure ne dépasse pas la sienne : un template v6 ne sera jamais proposé à un NG2 v5.
 - **`init-project.md`** : resynchronisé au démarrage (au commit adopté) puis à chaque adoption
   (`~/init-project.md`, copié dans `.claude/commands/` à l'ouverture d'un projet).
   Hors ligne, l'ancienne version est conservée.

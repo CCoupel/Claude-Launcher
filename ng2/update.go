@@ -121,7 +121,43 @@ var apiBase = func() string {
 }()
 
 func firstTag(repo string) (name, sha string, err error) {
-	req, _ := http.NewRequest("GET", apiBase+"/repos/"+repo+"/tags", nil)
+	return pickTag(repo, func([]tagRef) int { return 0 })
+}
+
+type tagRef struct {
+	Name   string `json:"name"`
+	Commit struct {
+		Sha string `json:"sha"`
+	} `json:"commit"`
+}
+
+// tplTag : dernier tag du template dont la version majeure ne dépasse pas
+// celle du launcher (template et launcher partagent leur majeure depuis la v5 :
+// un template d'une majeure supérieure suppose un launcher plus récent).
+// CL_FAKE_LATEST_TPL le remplace, pour les tests.
+func tplTag() (name, sha string, err error) {
+	if v := os.Getenv("CL_FAKE_LATEST_TPL"); v != "" {
+		return v, "fake-" + v, nil
+	}
+	return pickTag(templateRepo, func(tags []tagRef) int { return bestTagUpTo(tags, verParts(ngVersion)[0]) })
+}
+
+// bestTagUpTo : index du tag vX.Y.Z le plus élevé avec X ≤ major (-1 : aucun).
+func bestTagUpTo(tags []tagRef, major int) int {
+	best := -1
+	for i, t := range tags {
+		if !strings.HasPrefix(t.Name, "v") || verParts(t.Name)[0] > major {
+			continue
+		}
+		if best < 0 || versionNewer(tags[best].Name, t.Name) {
+			best = i
+		}
+	}
+	return best
+}
+
+func pickTag(repo string, choose func([]tagRef) int) (name, sha string, err error) {
+	req, _ := http.NewRequest("GET", apiBase+"/repos/"+repo+"/tags?per_page=100", nil)
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
@@ -132,16 +168,15 @@ func firstTag(repo string) (name, sha string, err error) {
 	if resp.StatusCode != 200 {
 		return "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	var tags []struct {
-		Name   string `json:"name"`
-		Commit struct {
-			Sha string `json:"sha"`
-		} `json:"commit"`
-	}
+	var tags []tagRef
 	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil || len(tags) == 0 {
 		return "", "", fmt.Errorf("pas de tag")
 	}
-	return tags[0].Name, tags[0].Commit.Sha, nil
+	i := choose(tags)
+	if i < 0 {
+		return "", "", fmt.Errorf("pas de tag compatible")
+	}
+	return tags[i].Name, tags[i].Commit.Sha, nil
 }
 
 // checkUpdates interroge GitHub. Un nouveau tag du template n'est pas adopté
@@ -156,7 +191,7 @@ func checkUpdates(manual bool) tea.Cmd {
 				out.launcherReady = releaseReady(releaseBase + "/" + tag)
 			}
 		}
-		if tag, sha, err := latestTag(templateRepo, "CL_FAKE_LATEST_TPL"); err == nil {
+		if tag, sha, err := tplTag(); err == nil {
 			out.ok = true
 			switch cached := readTrim(tplCommitPath()); {
 			case sha == "" || sha == cached:

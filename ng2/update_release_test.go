@@ -33,7 +33,7 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 	}))
 	defer srv.Close()
 	oldAPI, oldRaw, oldRel, oldVer, oldSynced := apiBase, rawBase, releaseBase, ngVersion, initSynced
-	apiBase, rawBase, releaseBase, ngVersion, initSynced = srv.URL, srv.URL, srv.URL+"/rel", "v1.0.0", false
+	apiBase, rawBase, releaseBase, ngVersion, initSynced = srv.URL, srv.URL, srv.URL+"/rel", "v5.0.0", false
 	defer func() {
 		apiBase, rawBase, releaseBase, ngVersion, initSynced = oldAPI, oldRaw, oldRel, oldVer, oldSynced
 	}()
