@@ -51,10 +51,12 @@ func (m model) planClose(n Node) (closePlan, string) {
 		return closePlan{}, n.Name + " : fermeture déjà en cours"
 	}
 	p := m.projInfo(n)
-	if who := p.foreign(); who != "" {
+	switch p.dot {
+	case sessReadOnly, sessElse:
+		who := p.live.owner.id
 		return closePlan{}, n.Name + " : piloté par " + who + " — Entrée pour prendre la main, puis Ctrl+clic"
 	}
-	pl := closePlan{node: n, window: p.open, session: p.open || p.hasLive,
+	pl := closePlan{node: n, window: p.open, session: p.open || p.claudeLive(),
 		hubSess: targetSession(m.session), hubTgt: exactW(targetSession(m.session), n.Key)}
 	var what []string
 	if b, ok := findBackend(p.backend); ok && p.ctrKnown {
@@ -73,10 +75,12 @@ func (m model) planClose(n Node) (closePlan, string) {
 	}
 	switch p.dot {
 	case sessNone:
+		return closePlan{}, n.Name + " : rien ne tourne, rien à fermer"
+	case sessReady:
 		if !running {
-			return closePlan{}, n.Name + " n'est pas démarré : rien à fermer"
+			return closePlan{}, n.Name + " : rien à fermer"
 		}
-		return pl, "" // conteneur vide : arrêté sans question
+		return pl, "" // conteneur sans claude : arrêté sans question
 	case sessAnomaly:
 		switch {
 		case p.hasSess && !pl.session:
@@ -153,8 +157,8 @@ func (m model) onClose(c closeMsg) (model, tea.Cmd) {
 		m.msg = "✓ " + name + " fermé"
 	}
 	delete(m.closing, c.path)
-	return m, tea.Batch(waitClose(m.closeCh), windowsCmd(m.session), ctrCmd(m.projectPaths(), 0),
-		sessCmd(m.cfg, m.projectPaths(), 0))
+	return m, tea.Batch(waitClose(m.closeCh), windowsCmd(m.session), ctrNowCmd(m.projectPaths(), 0),
+		sessNowCmd(m.cfg, m.projectPaths()))
 }
 
 // sessionTmux : tmux de la session du projet — le hub (fenêtre du projet) ou
@@ -269,6 +273,11 @@ func leaderPane(t sessionTmux, target string, inCtr bool) (id, cmd string) {
 	if err != nil {
 		return "", ""
 	}
+	return leaderOf(s)
+}
+
+// leaderOf : dans des lignes « %id commande », le plus petit %id et sa commande.
+func leaderOf(s string) (id, cmd string) {
 	best := -1
 	for _, l := range strings.Split(s, "\n") {
 		f := strings.Fields(l)

@@ -123,6 +123,12 @@ func runCtrAttach(proj, startFile string) error {
 	if err := e.bootstrap(name, proj, env, os.Stdout); err != nil {
 		return err
 	}
+	if l, ok := e.readLive(name); ok && !l.claude {
+		// tmux resté seul après un /exit (point bleu) : la session est recréée
+		// pour que claude redémarre, au lieu de se rattacher à son shell
+		fmt.Println("  claude n'est plus en marche dans la session : redémarrage")
+		_ = e.exec(name, false, nil, io.Discard, tmuxIn("kill-session", "-t", "="+ctrSession)...)
+	}
 	if !e.hasSession(name) {
 		if err := e.onStart(name, proj, env); err != nil {
 			return err

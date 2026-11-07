@@ -237,7 +237,7 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m.createProject(), nil
 		case formExec:
 			if f.existing != "" {
-				return m.applyExecExisting(), ctrCmd(m.projectPaths(), 0)
+				return m.applyExecExisting(), ctrNowCmd(m.projectPaths(), 0)
 			}
 			return m.createProject(), nil
 		}

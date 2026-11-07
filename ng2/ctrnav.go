@@ -25,25 +25,37 @@ type ctrView struct {
 	live   map[string]liveSess  // projet -> session tmux vivante dans son conteneur
 }
 
-// liveSess : session tmux du conteneur d'un projet (#50) : propriétaire et nombre
-// de panes (claude et ses teammates).
+// liveSess : session tmux du conteneur d'un projet (#50) : propriétaire, nombre
+// de panes (claude et ses teammates) et claude encore en marche dans le leader.
 type liveSess struct {
-	owner ownerInfo
-	panes int
+	owner  ownerInfo
+	panes  int
+	claude bool // le leader (plus petit %id) n'est pas revenu à son shell
 }
 
-// readLive : session du conteneur name, si elle existe (une seule commande).
+// readLive : session du conteneur name, si elle existe (une seule commande :
+// propriétaire et panes, puis la liste des panes).
 func (e Engine) readLive(name string) (liveSess, bool) {
-	s, err := e.output(name, tmuxIn("display-message", "-p", "-t", "="+ctrSession+":", ownerFormat+"|#{window_panes}")...)
+	s, err := e.output(name, tmuxIn("display-message", "-p", "-t", "="+ctrSession+":", ownerFormat+"|#{window_panes}", ";",
+		"list-panes", "-s", "-t", "="+ctrSession, "-F", "#{pane_id} #{pane_current_command}")...)
 	if err != nil {
 		return liveSess{}, false
 	}
-	i := strings.LastIndex(s, "|")
+	return parseLive(s)
+}
+
+func parseLive(s string) (liveSess, bool) {
+	head, panes, _ := strings.Cut(s, "\n")
+	i := strings.LastIndex(head, "|")
 	if i < 0 {
 		return liveSess{}, false
 	}
-	n, _ := strconv.Atoi(s[i+1:])
-	return liveSess{owner: parseOwner(s[:i]), panes: n}, true
+	n, _ := strconv.Atoi(head[i+1:])
+	l := liveSess{owner: parseOwner(head[:i]), panes: n}
+	if id, cmd := leaderOf(panes); id != "" {
+		l.claude = !shells[cmd]
+	}
+	return l, true
 }
 
 type ctrMsg ctrView
@@ -54,6 +66,15 @@ func ctrCmd(paths []string, delay time.Duration) tea.Cmd {
 		return func() tea.Msg { return read(time.Now()) }
 	}
 	return tea.Tick(delay, read)
+}
+
+// ctrNowMsg : relecture ponctuelle (après une ouverture, une fermeture, F2) ;
+// contrairement à ctrMsg, elle ne reprogramme pas la relecture périodique, qui
+// sinon se dédoublerait à chaque fois.
+type ctrNowMsg ctrView
+
+func ctrNowCmd(paths []string, delay time.Duration) tea.Cmd {
+	return tea.Tick(delay, func(time.Time) tea.Msg { return ctrNowMsg(readCtrView(paths)) })
 }
 
 func readCtrView(paths []string) ctrView {

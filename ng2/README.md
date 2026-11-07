@@ -343,20 +343,28 @@ La session du conteneur (claude **et** ses teammates) continue de tourner. Au
 prochain lancement, NG2 retrouve les conteneurs par leurs labels et recrée la
 fenêtre de chaque projet dont la session est vivante : on retrouve la session
 telle quelle. Fermer la fenêtre d'un projet en conteneur ne l'arrête pas non
-plus : le point passe à `◐` et Entrée dans le navigateur s'y rattache. Pour
+plus : le point passe à `●` orange et Entrée dans le navigateur s'y rattache. Pour
 l'arrêter : **Ctrl+clic** sur le projet (voir ci-dessous).
 
 ### Fermer un projet
 
-Le point devant le nom du projet dit où en est sa session claude ; l'icône
-`⬡`/`⬢` reste l'état du conteneur.
+Le point devant le nom du projet dit où en sont son conteneur et sa session
+claude, et qui la pilote ; l'icône `⬡`/`⬢` reste l'état du conteneur.
 
-| Point | Session | Entrée | Ctrl+clic / Suppr |
+| Point | État | Entrée | Ctrl+clic / Suppr |
 |---|---|---|---|
-| `○` gris | non démarrée (avec `⬢` cyan : conteneur en marche pour rien, après un `/exit`) | démarre le projet | conteneur vide : l'arrête, sans question ; sinon rien |
-| `●` vert | vivante, dans une fenêtre de ce hub | va à sa fenêtre | ferme, après confirmation |
-| `◐` orange | vivante, non rattachée (hub fermé) ou pilotée par un autre launcher | s'y rattache (ou propose la prise de main) | ferme, après confirmation ; **refusé** si un autre launcher la pilote |
-| `✕` rouge | anomalie : backend `⚠`, pod en échec, session interrompue `↺` | comme avant (reprise proposée, erreur expliquée) | abandonne la reprise et arrête le conteneur, après confirmation |
+| `○` gris | rien ne tourne : projet sur l'hôte non lancé, pas de conteneur, ou conteneur arrêté | démarre le projet | rien à fermer |
+| `●` bleu | conteneur en marche **sans claude** : pas de tmux, ou tmux resté seul après un `/exit` | claude démarre aussitôt, sans attendre de pod (un tmux resté seul est recréé) | arrête le conteneur, sans question |
+| `▲` vert | ouvert dans ce hub, **ce launcher a la main** | va à sa fenêtre | ferme, après confirmation |
+| `●` vert | ouvert dans ce hub **en lecture seule** (un autre launcher a pris la main) | rejoindre en lecture seule ou prendre la main | refusé : prendre la main d'abord |
+| `■` orange | claude tourne, **piloté par un autre hub** | rejoindre en lecture seule ou prendre la main | refusé : prendre la main d'abord |
+| `●` orange | claude tourne, **aucun launcher ne le pilote** (hub fermé, launcher arrêté, propriétaire silencieux depuis 20 s) | s'y rattache et en prend le contrôle | ferme, après confirmation |
+| `✕` rouge | problème : backend `⚠`, configuration invalide, pod en échec, session interrompue `↺` | comme avant (reprise proposée, erreur expliquée) | abandonne la reprise et arrête le conteneur, après confirmation |
+
+Un projet sur l'hôte ne connaît que `○`, `▲` et `✕` (sa session vit dans le
+hub). Le navigateur relit toutes les 10 s chaque conteneur en marche, en une
+seule commande : propriétaire de la session et commande du leader (claude ou
+son shell).
 
 La question tient dans le pied du navigateur (`Fermer web-shop ? claude + 2
 teammate(s) · pod k8s arrêté (rien n'est perdu) · o/N`) ; toute autre touche
@@ -377,7 +385,8 @@ d'autre : Entrée pour prendre la main, puis Ctrl+clic.
 `CTR_STOP_ON_EXIT=1` dans `config.conf` (désactivé par défaut) arrête aussi le
 conteneur quand claude se termine proprement **de lui-même** (`/exit` tapé dans
 le projet) : la session du conteneur se termine et la fenêtre se ferme. Un
-simple détachement, lui, n'arrête rien.
+simple détachement, lui, n'arrête rien. Sans cette option, le projet passe au
+`●` bleu.
 
 ### Plusieurs launchers sur un même projet
 
@@ -433,9 +442,10 @@ revenir) uniquement avec tous les projets fermés.**
 
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
   release (dernier tag atteignable depuis `origin/main`).
-  Le point devant le nom est l'état de la session : `○` non démarrée, `●` vert ouverte dans ce hub
-  (nom en gras sur la couleur de son pane tmux), `◐` orange vivante mais non rattachée, `✕` rouge
-  anomalie (voir [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet.
+  Le point devant le nom est l'état du projet : `○` rien ne tourne, `●` bleu conteneur prêt sans
+  claude, `▲` vert ouvert ici (nom en gras sur la couleur de son pane tmux), `●` vert lecture seule,
+  `■` orange piloté par un autre hub, `●` orange personne ne pilote, `✕` rouge problème (voir
+  [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet.
   Badge milestone `⚑` (projets GitHub), calculé avec **la règle du panneau milestone des projets**
   (`skills/milestone-panel`), pour que launcher et projet ouvert soient d'accord : **jaune** = milestone
   en cours (le premier ouvert, par échéance puis version, ayant une issue ouverte avec un label de phase

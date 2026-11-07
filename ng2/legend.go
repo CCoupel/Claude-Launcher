@@ -43,15 +43,18 @@ type projInfo struct {
 	dotWhy    string    // … et sa signification
 }
 
-// ── Point d'état de session (#50) ─────────────────────────────────────────
+// ── Point d'état de session (#50, révisé #54) ──────────────────────────────
 
 type sessState int
 
 const (
-	sessNone     sessState = iota // ○ aucune session
-	sessAttached                  // ● session dans une fenêtre de ce hub
-	sessDetached                  // ◐ session vivante, non rattachée ici
-	sessAnomaly                   // ✕ backend ⚠, pod en échec, session interrompue ↺
+	sessNone     sessState = iota // ○ gris : rien ne tourne
+	sessReady                     // ● bleu : conteneur en marche sans claude
+	sessHere                      // ▲ vert : ouvert ici, ce launcher a la main
+	sessReadOnly                  // ● vert : ouvert ici en lecture seule
+	sessElse                      // ■ orange : piloté par un autre hub
+	sessOrphan                    // ● orange : vivant, aucun launcher ne pilote
+	sessAnomaly                   // ✕ rouge : backend ⚠, config invalide, pod en échec, reprise ↺
 )
 
 // foreign : la session du conteneur est pilotée par un autre launcher vivant.
@@ -62,28 +65,35 @@ func (p projInfo) foreign() string {
 	return ""
 }
 
-// sessionOf : état de la session claude du projet, et sa signification.
+// claudeLive : claude tourne dans la session du conteneur (pas seulement tmux).
+func (p projInfo) claudeLive() bool { return p.hasLive && p.live.claude }
+
+// sessionOf : état du projet (conteneur, session claude, pilotage) et sa signification.
 func sessionOf(p projInfo) (sessState, string) {
-	idle := p.ctrKnown && p.ctr.Running && !p.hasLive
+	running := p.ctrKnown && p.ctr.Running
 	switch {
+	case p.open && p.hasLive && p.live.owner.id != "" && p.live.owner.id != launcherID():
+		return sessReadOnly, "ouvert ici en lecture seule : " + p.live.owner.id + " a la main (Entrée : rejoindre ou prendre la main)"
 	case p.open:
-		return sessAttached, "session ouverte dans ce hub (Ctrl+clic ou Suppr : la fermer)"
+		return sessHere, "ouvert ici, ce launcher a la main (Ctrl+clic ou Suppr : fermer)"
 	case p.badCfg != "":
 		return sessAnomaly, "configuration d'exécution invalide : lancement refusé"
 	case len(p.problems) > 0:
 		return sessAnomaly, "backend " + p.backend + " inutilisable : rien ne peut démarrer"
-	case p.foreign() != "":
-		return sessDetached, "session vivante, pilotée par " + p.foreign() + " : Entrée pour la rejoindre ou prendre la main"
-	case p.hasLive:
-		return sessDetached, "session vivante dans le conteneur, non rattachée : Entrée pour s'y rattacher"
+	case p.claudeLive() && p.foreign() != "":
+		return sessElse, "piloté par un autre hub (" + p.foreign() + ") : Entrée pour rejoindre ou prendre la main"
+	case p.claudeLive():
+		return sessOrphan, "claude tourne, aucun launcher ne le pilote : Entrée pour s'y rattacher"
 	case p.hasSess:
 		return sessAnomaly, "session interrompue (↺) : Entrée pour la reprendre, Ctrl+clic pour l'abandonner"
 	case p.ctrKnown && p.ctr.Failed:
 		return sessAnomaly, "conteneur " + p.backend + " en échec (pod pas prêt) : Ctrl+clic pour l'arrêter"
-	case idle:
-		return sessNone, "non démarré ; conteneur en marche sans session (Ctrl+clic : l'arrêter)"
+	case running:
+		return sessReady, "conteneur en marche sans claude : Entrée le démarre aussitôt, Ctrl+clic arrête le conteneur"
+	case p.ctrKnown:
+		return sessNone, "rien ne tourne (conteneur arrêté, redémarré à l'ouverture)"
 	}
-	return sessNone, "non démarré"
+	return sessNone, "rien ne tourne"
 }
 
 // dotIndicator : pastille devant le nom.
@@ -93,10 +103,16 @@ func dotIndicator(p projInfo) indicator {
 		st, why = sessionOf(p)
 	}
 	switch st {
-	case sessAttached:
-		return indicator{icon: "●", style: green, text: why}
-	case sessDetached:
-		return indicator{icon: "◐", style: orange.Bold(true), text: why}
+	case sessReady:
+		return indicator{icon: "●", style: blue, text: why}
+	case sessHere:
+		return indicator{icon: "▲", style: green.Bold(true), text: why}
+	case sessReadOnly:
+		return indicator{icon: "●", style: green.Bold(true), text: why}
+	case sessElse:
+		return indicator{icon: "■", style: orange.Bold(true), text: why}
+	case sessOrphan:
+		return indicator{icon: "●", style: orange.Bold(true), text: why}
 	case sessAnomaly:
 		return indicator{icon: "✕", style: red, text: why}
 	}
