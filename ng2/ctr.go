@@ -101,11 +101,14 @@ func runCtrAttach(proj, startFile string) error {
 	if !ok {
 		return fmt.Errorf("%s : backend %s sans conteneur", proj, b.Name)
 	}
-	env, err := loadEnv(proj)
+	env, err := loadEnvFull(proj)
 	if err != nil {
 		return err
 	}
 	fmt.Printf("\033[1m⬡ %s — %s (%s)\033[0m\n", baseName(proj), b.Name, env.Image)
+	if _, err := os.Stat(launcherEnvPath()); err == nil {
+		fmt.Printf("  + bootstrap du launcher : %s\n", launcherEnvPath())
+	}
 	if len(env.Local) > 0 {
 		fmt.Printf("  dossiers privés au conteneur : %s\n", strings.Join(env.Local, ", "))
 	}

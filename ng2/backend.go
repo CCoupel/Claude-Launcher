@@ -95,6 +95,90 @@ func loadEnv(proj string) (EnvSpec, error) {
 	return e, nil
 }
 
+// ── Bootstrap du launcher (#57) ───────────────────────────────────────────
+//
+// <config>/env.yaml, à côté de backends.yaml : l'outillage de l'utilisateur
+// (statusline, hooks…) installé dans TOUS ses conteneurs, en plus du env.yaml de
+// chaque projet. Clés : packages, packages_by_manager, setup, on_start — celles
+// qui ne concernent pas un projet en particulier.
+
+func launcherEnvPath() string { return filepath.Join(ng2ConfigDir(), "env.yaml") }
+
+var launcherEnvKeys = map[string]bool{"packages": true, "packages_by_manager": true, "setup": true, "on_start": true}
+
+// loadLauncherEnv : env.yaml du launcher ; absent = vide.
+func loadLauncherEnv() (EnvSpec, error) {
+	var e EnvSpec
+	b, err := os.ReadFile(launcherEnvPath())
+	if os.IsNotExist(err) {
+		return e, nil
+	}
+	if err != nil {
+		return e, err
+	}
+	var keys map[string]any
+	if err := yaml.Unmarshal(b, &keys); err != nil {
+		return e, fmt.Errorf("%s : %w", launcherEnvPath(), err)
+	}
+	for k := range keys {
+		if !launcherEnvKeys[k] {
+			return e, fmt.Errorf("%s : clé « %s » réservée au env.yaml d'un projet (ici : packages, packages_by_manager, setup, on_start)", launcherEnvPath(), k)
+		}
+	}
+	if err := yaml.Unmarshal(b, &e); err != nil {
+		return e, fmt.Errorf("%s : %w", launcherEnvPath(), err)
+	}
+	e.raw = b
+	return e, nil
+}
+
+// withLauncher : environnement du projet complété par celui du launcher —
+// paquets réunis, étapes du launcher d'abord ; ses changements entrent dans les
+// empreintes (bootstrap ou setup rejoués).
+func (e EnvSpec) withLauncher(l EnvSpec) EnvSpec {
+	if len(l.raw) == 0 {
+		return e
+	}
+	union := func(a, b []string) []string {
+		seen := map[string]bool{}
+		var out []string
+		for _, x := range append(append([]string(nil), a...), b...) {
+			if !seen[x] {
+				seen[x], out = true, append(out, x)
+			}
+		}
+		return out
+	}
+	e.Packages = union(l.Packages, e.Packages)
+	if len(l.PackagesByManager) > 0 {
+		m := map[string][]string{}
+		for k, v := range e.PackagesByManager {
+			m[k] = v
+		}
+		for k, v := range l.PackagesByManager {
+			m[k] = union(v, m[k])
+		}
+		e.PackagesByManager = m
+	}
+	e.Setup = append(append([]string(nil), l.Setup...), e.Setup...)
+	e.OnStart = append(append([]string(nil), l.OnStart...), e.OnStart...)
+	e.raw = append(append(append([]byte(nil), e.raw...), "\x00launcher\x00"...), l.raw...)
+	return e
+}
+
+// loadEnvFull : env.yaml du projet complété par celui du launcher (bootstrap).
+func loadEnvFull(proj string) (EnvSpec, error) {
+	e, err := loadEnv(proj)
+	if err != nil {
+		return e, err
+	}
+	l, err := loadLauncherEnv()
+	if err != nil {
+		return e, err
+	}
+	return e.withLauncher(l), nil
+}
+
 // cleanRel : chemin relatif au projet, sans sortir du projet (ni « : », séparateur de -v).
 func cleanRel(p string) (string, error) {
 	c := filepath.Clean(strings.TrimSpace(p))
