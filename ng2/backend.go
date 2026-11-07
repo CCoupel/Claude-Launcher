@@ -752,6 +752,7 @@ type Found struct {
 	Name    string
 	Project string
 	Running bool
+	Failed  bool // devrait tourner mais n'y arrive pas (pod pas prêt, conteneur dead/restarting)
 }
 
 // list : conteneurs NG2 du moteur (par label ; labels relus par inspect, même
@@ -780,7 +781,8 @@ func (e Engine) list() ([]Found, error) {
 		if len(f) != 3 || f[2] == "" {
 			continue
 		}
-		out = append(out, Found{Backend: e.b.Name, Name: strings.TrimPrefix(f[0], "/"), Project: f[2], Running: f[1] == "running"})
+		out = append(out, Found{Backend: e.b.Name, Name: strings.TrimPrefix(f[0], "/"), Project: f[2], Running: f[1] == "running",
+			Failed: f[1] == "dead" || f[1] == "restarting"})
 	}
 	return out, nil
 }

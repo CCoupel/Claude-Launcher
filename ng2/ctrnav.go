@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -20,6 +22,28 @@ type ctrView struct {
 	errs   map[string]string    // backend -> erreur de listing (moteur absent…)
 	diag   map[string][]problem // backend affecté à un projet -> ce qui l'empêche de marcher
 	bad    map[string]string    // projet -> configuration invalide (launchBackend)
+	live   map[string]liveSess  // projet -> session tmux vivante dans son conteneur
+}
+
+// liveSess : session tmux du conteneur d'un projet (#50) : propriétaire et nombre
+// de panes (claude et ses teammates).
+type liveSess struct {
+	owner ownerInfo
+	panes int
+}
+
+// readLive : session du conteneur name, si elle existe (une seule commande).
+func (e Engine) readLive(name string) (liveSess, bool) {
+	s, err := e.output(name, tmuxIn("display-message", "-p", "-t", "="+ctrSession+":", ownerFormat+"|#{window_panes}")...)
+	if err != nil {
+		return liveSess{}, false
+	}
+	i := strings.LastIndex(s, "|")
+	if i < 0 {
+		return liveSess{}, false
+	}
+	n, _ := strconv.Atoi(s[i+1:])
+	return liveSess{owner: parseOwner(s[:i]), panes: n}, true
 }
 
 type ctrMsg ctrView
@@ -33,7 +57,7 @@ func ctrCmd(paths []string, delay time.Duration) tea.Cmd {
 }
 
 func readCtrView(paths []string) ctrView {
-	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}, bad: map[string]string{}}
+	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}, bad: map[string]string{}, live: map[string]liveSess{}}
 	any := false
 	asg := readAssignments()
 	for _, p := range paths {
@@ -68,6 +92,24 @@ func readCtrView(paths []string) ctrView {
 		for _, f := range fs {
 			v.found[f.Project] = f
 		}
+		// sessions des conteneurs en marche, en parallèle (un exec chacun ; k8s ~0,5 s)
+		var mu sync.Mutex
+		var wg sync.WaitGroup
+		for _, f := range fs {
+			if !f.Running {
+				continue
+			}
+			wg.Add(1)
+			go func(f Found) {
+				defer wg.Done()
+				if l, ok := e.readLive(f.Name); ok {
+					mu.Lock()
+					v.live[f.Project] = l
+					mu.Unlock()
+				}
+			}(f)
+		}
+		wg.Wait()
 	}
 	return v
 }

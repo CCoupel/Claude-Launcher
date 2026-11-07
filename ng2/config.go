@@ -34,6 +34,10 @@ type Config struct {
 	// config de claude (CLAUDE_CONFIG_DIR) imposée à toutes les sessions du
 	// launcher ; relative : par rapport au dossier de config.conf
 	ClaudeConfigDir string
+
+	// projet en conteneur : arrêter le conteneur quand claude se termine
+	// proprement de lui-même (#50 ; la fermeture Ctrl+clic l'arrête toujours)
+	CtrStopOnExit bool
 }
 
 // loadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
@@ -51,7 +55,7 @@ GITHUB_DIR="$HOME/GITHUB"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN="
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=()
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
-PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24
+PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0
 [[ -f "$1" ]] && source "$1" >/dev/null 2>&1
 printf 'layout\t%s %s %s %s\n' "$LAYOUT_2ROW_LEADER_PCT" "$LAYOUT_3ROW_LEADER_NUM" "$LAYOUT_3ROW_MID_NUM" "$LAYOUT_3ROW_DEN"
 printf 'steps\t%s %s\n' "$PANE_ACTIVE_BRIGHTEN_STEP" "$PANE_INACTIVE_DARKEN_STEP"
@@ -59,6 +63,7 @@ printf 'usage\t%s\n' "$USAGE_REFRESH_SEC"
 printf 'resume\t%s %s\n' "$RESUME_MODE" "$RESUME_MAX_AGE_H"
 printf 'token\t%s\n' "$GITHUB_TOKEN"
 printf 'mouse\t%s\n' "$CLAUDE_DISABLE_MOUSE"
+printf 'ctrstop\t%s\n' "$CTR_STOP_ON_EXIT"
 printf 'teams\t%s\n' "$CLAUDE_EXPERIMENTAL_TEAMS"
 printf 'opts\t%s\n' "$CLAUDE_OPTIONS"
 printf 'claudedir\t%s\n' "${CLAUDE_CONFIG_DIR-}"
@@ -94,6 +99,8 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 				cfg.GithubToken = f[1]
 			case "mouse":
 				cfg.DisableMouse = f[1] == "1"
+			case "ctrstop":
+				cfg.CtrStopOnExit = f[1] == "1"
 			case "teams":
 				cfg.ExpTeams = f[1] == "1"
 			case "opts":

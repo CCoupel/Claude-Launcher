@@ -146,6 +146,7 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.paneAt, m.selAt = time.Now(), time.Now()
 			cmds = append(cmds, loadPanesCmd(s, m.cfg))
 		case ok && time.Since(m.paneAt) > 2*time.Second:
+			m.sel.Dot, m.sel.DotWhy = s.Dot, s.DotWhy // point d'état mis à jour par le navigateur
 			m.paneAt = time.Now()
 			cmds = append(cmds, loadPanesCmd(s, m.cfg))
 		}
@@ -233,7 +234,8 @@ func (m stateModel) topCards() string {
 		inner = w - 1
 	}
 	pl := legendLines(projInfo{open: m.panes.open, git: g, gitOK: true, tpl: m.data.tpl,
-		tplTag: m.data.tag, tplLatest: readTrim(tplVersionPath()), ms: m.ms, sess: m.panes.sess, hasSess: m.panes.hasS}, inner)
+		tplTag: m.data.tag, tplLatest: readTrim(tplVersionPath()), ms: m.ms, sess: m.panes.sess, hasSess: m.panes.hasS,
+		dot: sessState(m.sel.Dot), dotWhy: m.sel.DotWhy}, inner)
 	if !g.IsRepo {
 		pl = append(pl, dim.Render("pas un dépôt git"))
 	} else {

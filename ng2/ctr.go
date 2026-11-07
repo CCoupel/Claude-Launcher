@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"os/user"
 	"strconv"
 	"strings"
@@ -177,7 +178,21 @@ func runCtrAttach(proj, startFile string) error {
 	if err != nil {
 		return err
 	}
-	return syscall.Exec(bin, a, os.Environ())
+	if !loadConfig().CtrStopOnExit || readOnly {
+		return syscall.Exec(bin, a, os.Environ())
+	}
+	// CTR_STOP_ON_EXIT : l'attache reste un enfant ; quand elle rend la main et que
+	// la session n'existe plus (claude sorti proprement, ou fermeture), le
+	// conteneur est arrêté. Simple détachement : la session vit, rien n'est arrêté.
+	signal.Ignore(syscall.SIGINT, syscall.SIGQUIT)
+	c := exec.Command(bin, a[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	_ = c.Run()
+	if !e.hasSession(name) {
+		fmt.Println("\n⏻ claude terminé : arrêt du conteneur (CTR_STOP_ON_EXIT)")
+		return e.stop(proj, name)
+	}
+	return nil
 }
 
 var lookPath = exec.LookPath

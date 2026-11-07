@@ -139,6 +139,8 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 	}
 	if phase == "" {
 		fmt.Fprintf(log, "  création du StatefulSet %s (%s)…\n", k8sName(proj), env.Image)
+	} else if phase == "Pending" && image == env.Image && local == env.localKey() {
+		fmt.Fprintf(log, "  pod arrêté : remise à 1 réplique…\n")
 	} else if image != env.Image {
 		fmt.Fprintf(log, "  image changée (%s → %s) : pod recréé\n", image, env.Image)
 	} else if local != env.localKey() {
@@ -224,17 +226,19 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 
 func (e Engine) k8sList() ([]Found, error) {
 	b, err := e.kcmd("get", "statefulsets", "-l", "cl.launcher=ng2,cl.backend="+e.b.Name, "-o",
-		`jsonpath={range .items[*]}{.metadata.name}|{.status.readyReplicas}|{.metadata.annotations.cl\.project}{"\n"}{end}`).Output()
+		`jsonpath={range .items[*]}{.metadata.name}|{.spec.replicas}|{.status.readyReplicas}|{.metadata.annotations.cl\.project}{"\n"}{end}`).Output()
 	if err != nil {
 		return nil, err
 	}
 	var out []Found
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		f := strings.SplitN(l, "|", 3)
-		if len(f) != 3 || f[2] == "" {
+		// nom|réplicas voulues|prêtes|projet ; 0 réplique = arrêté (fermeture #50)
+		f := strings.SplitN(l, "|", 4)
+		if len(f) != 4 || f[3] == "" {
 			continue
 		}
-		out = append(out, Found{Backend: e.b.Name, Name: f[0] + "-0", Project: f[2], Running: f[1] == "1"})
+		out = append(out, Found{Backend: e.b.Name, Name: f[0] + "-0", Project: f[3], Running: f[2] == "1",
+			Failed: f[1] == "1" && f[2] != "1"})
 	}
 	return out, nil
 }
