@@ -274,6 +274,9 @@ func runBackends() error {
 		if b.Host != "" {
 			line += " " + b.Host
 		}
+		if b.k8s() {
+			line += "  (" + b.placementText() + ")"
+		}
 		if ps := diagnose(b); len(ps) > 0 {
 			for _, p := range ps {
 				line += "\n      ⚠ " + p.what + "\n        → " + p.fix
@@ -287,12 +290,19 @@ func runBackends() error {
 				line += "  ⚠ " + strings.TrimSpace(err.Error())
 			} else {
 				line += fmt.Sprintf("  %d conteneur(s)", len(fs))
+				var nodes map[string]string
+				if b.k8s() {
+					nodes = e.k8sNodes()
+				}
 				for _, f := range fs {
 					st := "arrêté"
 					if f.Running {
 						st = "en marche"
 					}
 					line += "\n      " + f.Name + "  " + st + "  " + f.Project
+					if n := nodes[f.Name]; n != "" {
+						line += "  (node " + n + ")"
+					}
 				}
 			}
 		}

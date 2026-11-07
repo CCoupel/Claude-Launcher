@@ -293,6 +293,45 @@ Prérequis : `kubectl` et son contexte, un namespace où l'on peut créer des
 StatefulSets, des PVC ReadWriteMany liés (ex. MooseFS : PV `csi.moosefs.com`
 avec `volumeAttributes.mfsSubDir`), et un namespace qui autorise les pods root.
 `claude-launcher-ng2 backends` signale ce qui manque, commande à l'appui.
+Droits minimaux dans le namespace : StatefulSets (et `statefulsets/scale`),
+pods, `pods/exec`, events et PVC en lecture, plus `get` sur le namespace
+lui-même (exemple complet : `.claude-launcher/k8s-acces-pod.sh` de ce dépôt).
+
+**Placement des pods** (#60) : par défaut, les pods NG2 d'un backend sont
+**répartis sur les nodes**. NG2 ajoute une contrainte `topologySpreadConstraints`
+par node (`maxSkew: 1`, `whenUnsatisfiable: ScheduleAnyway`) : un projet de plus
+que de nodes ne reste jamais bloqué en `Pending`, et la répartition reste
+équilibrée (2-2-1 plutôt que 3-1-1). Le reste se règle sous `pod:`, ajouté au
+spec du pod :
+
+```yaml
+backends:
+  lab:
+    type: k8s
+    context: k8s
+    namespace: claude-ng2
+    volumes: { /share/MFS/ROOT: claude-shared }
+    spread: true                 # défaut ; false : placement laissé au scheduler
+    pod:                         # facultatif
+      nodeSelector: { node-role/claude: "true" }
+      tolerations: [{ key: dedie, operator: Exists }]
+      resources: { limits: { memory: 4Gi } }       # appliqué au conteneur
+      # affinity: …  anti-affinité stricte, si on la veut vraiment
+```
+
+Clés admises sous `pod` : `nodeSelector`, `affinity`, `tolerations`,
+`topologySpreadConstraints` (ajoutées à celle de `spread`), `resources`,
+`priorityClassName`, `serviceAccountName`, `automountServiceAccountToken`,
+`runtimeClassName`, `schedulerName`, `nodeName`, `imagePullSecrets`, `dnsPolicy`,
+`dnsConfig`, `hostAliases`, `terminationGracePeriodSeconds`, `securityContext`.
+Conteneurs et volumes restent gérés par NG2 : `backends.yaml` est refusé s'il
+les mentionne. `claude-launcher-ng2 backends` affiche le placement et le node
+de chaque pod.
+
+Un placement modifié **n'est jamais appliqué à un pod en marche** (le recréer
+couperait sa session) : son empreinte (annotation `cl.sched`) est comparée, et
+il prend effet au **prochain démarrage du pod**. Pour rééquilibrer un projet,
+le fermer (Ctrl+clic) puis le rouvrir.
 
 Pod perdu (nœud, éviction) : le StatefulSet le recrée, la fenêtre se ferme ;
 à la réouverture, le bootstrap est refait et la reprise de la conversation est

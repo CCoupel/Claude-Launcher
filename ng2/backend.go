@@ -253,6 +253,8 @@ type BackendConf struct {
 	Shared    []string          `yaml:"shared"`      // distant : racines du stockage partagé (mêmes chemins des deux côtés)
 	Namespace string            `yaml:"namespace"`   // k8s
 	Volumes   map[string]string `yaml:"volumes"`     // k8s : racine partagée → PVC ReadWriteMany monté à ce chemin
+	Spread    *bool             `yaml:"spread"`      // k8s : répartir les pods NG2 sur les nodes (défaut : oui, #60)
+	Pod       map[string]any    `yaml:"pod"`         // k8s : ajouté au spec du pod (nodeSelector, affinity, tolerations, resources…)
 }
 
 // engine : moteur réellement piloté (podman ou docker).
@@ -317,6 +319,9 @@ func loadBackends() ([]BackendConf, error) {
 				c.Shared = append(c.Shared, r)
 			}
 			sort.Strings(c.Shared)
+			if err := validatePod(c.Pod); err != nil {
+				return nil, fmt.Errorf("backends.yaml : backend %q : %w", n, err)
+			}
 		case "ssh":
 			if c.Host == "" {
 				return nil, fmt.Errorf("backends.yaml : backend ssh %q sans « host » (destination ssh)", n)
