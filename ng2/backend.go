@@ -799,13 +799,8 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	if e.podman() {
 		args = append(args, "--userns=keep-id", "--user", "0")
 	}
-	if !e.b.remote() {
-		// cache de consommation partagé avec le panneau milestone des projets
-		// (usage.go) : sinon chaque conteneur appellerait l'API lui-même
-		if d := filepath.Dir(usageCachePath()); os.MkdirAll(d, 0o755) == nil {
-			args = append(args, "--mount", bind(d, false))
-		}
-	}
+	// cache de consommation : plus de montage, un lien vers la config claude
+	// (montée partout) est posé à chaque ouverture (usage.go, linkUsageScript)
 	for _, m := range env.Mounts {
 		p := m.Path
 		if !filepath.IsAbs(p) {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -25,6 +26,60 @@ func usageCachePath() string {
 		base = filepath.Join(home, ".cache")
 	}
 	return filepath.Join(base, "claude-launcher", "usage.json")
+}
+
+// ── Cache partagé entre hubs et conteneurs ─────────────────────────────────
+//
+// ~/.cache/claude-launcher n'est partagé que sur une même machine : le $HOME d'un
+// conteneur lui est propre, si bien que le panneau milestone de chaque projet en
+// conteneur appelait l'endpoint de son côté, sans voir le cache ni les 429 des
+// autres (appels cumulés → 429 sans fin). Le dossier devient un lien vers
+// <config claude>/claude-launcher-cache : la config claude est montée au même
+// chemin dans tous les conteneurs, et l'endpoint est propre au compte, donc à
+// cette config. Template inchangé (il suit le lien).
+
+// sharedUsageDir : dossier du cache de consommation commun à tous.
+func sharedUsageDir() string { return filepath.Join(claudeDir(), "claude-launcher-cache") }
+
+// linkUsageCache : ~/.cache/claude-launcher → sharedUsageDir (sur la machine du
+// hub). Un dossier existant n'est remplacé que s'il ne contient que le cache de
+// consommation (usage.json*).
+func linkUsageCache() {
+	link := filepath.Dir(usageCachePath())
+	target := sharedUsageDir()
+	if os.MkdirAll(target, 0o755) != nil {
+		return
+	}
+	if t, err := os.Readlink(link); err == nil {
+		if t == target {
+			return
+		}
+		_ = os.Remove(link)
+	} else if es, err := os.ReadDir(link); err == nil {
+		for _, e := range es {
+			if !strings.HasPrefix(e.Name(), "usage.json") {
+				return // autre chose que le cache : on n'y touche pas
+			}
+		}
+		// données encore utiles : reprises si le cache commun n'en a pas
+		if _, err := os.Stat(filepath.Join(target, "usage.json")); err != nil {
+			_ = os.Rename(filepath.Join(link, "usage.json"), filepath.Join(target, "usage.json"))
+		}
+		_ = os.RemoveAll(link)
+	}
+	_ = os.MkdirAll(filepath.Dir(link), 0o755)
+	_ = os.Symlink(target, link)
+}
+
+// linkUsageScript : même lien, dans un conteneur (en utilisateur, à chaque ouverture).
+// Un conteneur local créé avant la v5.4 monte ~/.cache/claude-launcher : ce
+// montage, qui désigne déjà le dossier commun (-ef), est laissé tel quel.
+func linkUsageScript() string {
+	return `d="$HOME/.cache/claude-launcher"; t=` + shq(sharedUsageDir()) + `
+mkdir -p "$HOME/.cache" "$t"
+# déjà le dossier commun (lien, ou montage d'un conteneur local créé avant la v5.4) : rien
+if [ "$(readlink "$d" 2>/dev/null)" != "$t" ] && ! [ "$d" -ef "$t" ]; then rm -rf "$d"; ln -sfn "$t" "$d"; fi
+`
 }
 
 type Limit struct {
@@ -174,9 +229,14 @@ func needsFetch(refreshSec int) bool {
 	if backoff < 5*time.Minute {
 		backoff = 5 * time.Minute
 	}
-	// Un /login réécrit les identifiants : l'échec précédent ne vaut plus, on réessaie.
+	// Échec récent (sa date peut être dans le futur : attente prolongée après un
+	// 429). Un /login réécrit les identifiants : l'échec ne vaut plus, on réessaie
+	// — sauf après un 429 (claude renouvelle seul son jeton toutes
+	// les quelques heures, ce qui lèverait l'attente).
 	if st, err := os.Stat(path + ".err"); err == nil && time.Since(st.ModTime()) < backoff {
-		if cs, err := os.Stat(credentialsPath()); err != nil || !cs.ModTime().After(st.ModTime()) {
+		b, _ := os.ReadFile(path + ".err")
+		cs, cerr := os.Stat(credentialsPath())
+		if strings.HasPrefix(string(b), "trop d") || cerr != nil || !cs.ModTime().After(st.ModTime()) {
 			return false
 		}
 	}
@@ -218,11 +278,17 @@ func fetchUsage(refreshSec int) {
 		tmp := fmt.Sprintf("%s.%d", path, os.Getpid())
 		if os.WriteFile(tmp, body, 0o644) == nil && os.Rename(tmp, path) == nil {
 			_ = os.Remove(path + ".err")
+			_ = os.Remove(path + ".wait")
 		}
 	case resp.StatusCode == 401 || resp.StatusCode == 403:
 		fail(authErr)
 	case resp.StatusCode == 429:
-		fail("trop d’appels à l’endpoint, nouvel essai dans quelques minutes")
+		wait := tooMany(path, resp.Header.Get("Retry-After"))
+		fail("trop d’appels à l’endpoint, nouvel essai vers " + time.Now().Add(wait).Format("15:04"))
+		// .err daté de façon que l'attente commune (5 min après sa date, pour le
+		// launcher comme pour le panneau du template) finisse dans « wait »
+		at := time.Now().Add(wait - usageMinBackoff)
+		_ = os.Chtimes(path+".err", at, at)
 	default:
 		fail(fmt.Sprintf("endpoint indisponible (HTTP %d)", resp.StatusCode))
 	}
@@ -271,4 +337,32 @@ func formatReset(iso string) string {
 		return "demain " + hm
 	}
 	return jours[t.Weekday()] + " " + hm
+}
+
+// usageMinBackoff : pause minimale après un échec (launcher et panneau du template).
+const usageMinBackoff = 5 * time.Minute
+
+// usageMaxWait : attente maximale entre deux essais après des 429 successifs.
+var usageMaxWait = 30 * time.Minute
+
+// tooMany : attente après un 429 — Retry-After s'il est donné (secondes), sinon
+// le double de la précédente (5 min, 10, 20, puis 30 au plus) ; notée dans
+// <cache>.wait, effacée au premier succès.
+func tooMany(path, retryAfter string) time.Duration {
+	wait := usageMinBackoff
+	if n, err := strconv.Atoi(strings.TrimSpace(retryAfter)); err == nil && n > 0 {
+		wait = time.Duration(n) * time.Second
+	} else if b, err := os.ReadFile(path + ".wait"); err == nil {
+		if n, err := strconv.Atoi(strings.TrimSpace(string(b))); err == nil {
+			wait = 2 * time.Duration(n) * time.Second
+		}
+	}
+	if wait < usageMinBackoff {
+		wait = usageMinBackoff
+	}
+	if wait > usageMaxWait {
+		wait = usageMaxWait
+	}
+	_ = os.WriteFile(path+".wait", []byte(strconv.Itoa(int(wait.Seconds()))), 0o644)
+	return wait
 }

@@ -23,6 +23,8 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 			fmt.Fprintf(w, `[{"name":"v5.0.0","commit":{"sha":%q}}]`, tplSha)
 		case p == "/repos/"+templateRepo+"/releases/tags/v5.0.0" && tplPublished:
 			fmt.Fprint(w, `{}`)
+		case p == "/repos/"+launcherRepo+"/releases/tags/v9.9.9" && ngPublished:
+			fmt.Fprintf(w, `{"assets":[{"id":1,"name":"SHA256SUMS","state":"uploaded"},{"id":2,"name":%q,"state":"uploaded"}]}`, ngAsset())
 		case p == "/rel/v9.9.9/SHA256SUMS" && ngPublished:
 			fmt.Fprintf(w, "abc  %s\n", ngAsset())
 		case strings.HasSuffix(p, "/init-project.md"):
@@ -60,7 +62,7 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 		t.Fatal("le template ne doit pas être adopté avant le clic")
 	}
 	m := model{newLauncher: msg.launcherTag, newTpl: msg.tplTag}
-	if a := m.alertText("launcher"); !strings.Contains(a, "mise à jour bientôt prête") {
+	if a := m.alertText("launcher"); !strings.Contains(a, "nouvelle version en préparation") {
 		t.Errorf("annonce NG sans release : %q", a)
 	}
 	// releases publiées : installables / adoptables
