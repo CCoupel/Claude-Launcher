@@ -67,7 +67,7 @@ func (e Engine) onStart(name, proj string, env EnvSpec) error {
 	if len(env.OnStart) == 0 {
 		return nil
 	}
-	fmt.Printf("\n\033[1;36m▸ %s\033[0m\n", "étapes de démarrage (env.yaml : on_start)")
+	fmt.Printf("\n\033[1;36m▸ %s\033[0m\n", "étapes de démarrage (on_start : launcher, template, projet)")
 	script := "export PATH=\"$HOME/.local/bin:$PATH\"\ncd " + shq(proj) + "\n" + strings.Join(env.OnStart, "\n") + "\n"
 	if err := e.exec(name, false, strings.NewReader(script), os.Stdout, "bash", "-e", "-s"); err != nil {
 		return fmt.Errorf("on_start : %w", err)

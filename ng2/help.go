@@ -63,7 +63,8 @@ var helpSections = []helpSection{
 		{"~/.config/claude-launcher-ng2/config.conf", "sinon : configuration (GITHUB_DIRS, CLAUDE_OPTIONS, CLAUDE_CONFIG_DIR…)"},
 		{"~/.config/claude-launcher-ng2/backends.yaml", "backends : host, podman, docker, ssh (+docker/podman), k8s ; pools de machines (pools:, drain:)"},
 		{"~/.config/claude-launcher-ng2/env.yaml", "bootstrap du launcher, ajouté à celui de chaque conteneur (paquets, setup, on_start)"},
-		{"<projet>/.claude-launcher/env.yaml", "environnement du projet en conteneur (image, paquets, setup)"},
+		{"<projet>/.claude-launcher/env-template.yaml", "environnement fourni par le template selon la stack (réécrit par /init-project)"},
+		{"<projet>/.claude-launcher/env.yaml", "environnement propre au projet, fusionné après le template (image, paquets, setup)"},
 	}},
 }
 

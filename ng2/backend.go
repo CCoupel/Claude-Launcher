@@ -61,39 +61,152 @@ type EnvMount struct {
 
 func envPath(proj string) string { return filepath.Join(proj, envFile) }
 
+// ── Environnement fourni par le template (#79) ────────────────────────────
+//
+// <projet>/.claude-launcher/env-template.yaml : écrit (et réécrit entièrement)
+// par le template selon la stack ; env.yaml reste au projet. Fusion : template
+// puis projet — image et prefer du projet l'emportent (prefer interdit dans le
+// template), listes réunies, étapes du template d'abord, mounts réunis par path
+// (ro du projet l'emporte). Un env.yaml seul se lit comme avant (empreintes
+// inchangées : conteneurs existants non reconstruits).
+
+const envTemplateFile = ".claude-launcher/env-template.yaml"
+
+func envTemplatePath(proj string) string { return filepath.Join(proj, envTemplateFile) }
+
+// hasEnv : le projet décrit un environnement conteneur (l'un des deux fichiers).
 func hasEnv(proj string) bool {
-	_, err := os.Stat(envPath(proj))
-	return err == nil
+	for _, p := range []string{envPath(proj), envTemplatePath(proj)} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
-func loadEnv(proj string) (EnvSpec, error) {
+// parseEnvFile : un fichier d'environnement, chemins relatifs contrôlés.
+func parseEnvFile(b []byte, name string) (EnvSpec, error) {
 	var e EnvSpec
-	b, err := os.ReadFile(envPath(proj))
-	if err != nil {
-		return e, err
-	}
 	if err := yaml.Unmarshal(b, &e); err != nil {
-		return e, fmt.Errorf("%s : %w", envFile, err)
-	}
-	if e.Image == "" {
-		return e, fmt.Errorf("%s : « image » manquante", envFile)
+		return e, fmt.Errorf("%s : %w", name, err)
 	}
 	for i, l := range e.Local {
 		c, err := cleanRel(l)
 		if err != nil {
-			return e, fmt.Errorf("%s : local « %s » : %w", envFile, l, err)
+			return e, fmt.Errorf("%s : local « %s » : %w", name, l, err)
 		}
 		e.Local[i] = c
 	}
 	for i, w := range e.Watch {
 		c, err := cleanRel(w)
 		if err != nil {
-			return e, fmt.Errorf("%s : watch « %s » : %w", envFile, w, err)
+			return e, fmt.Errorf("%s : watch « %s » : %w", name, w, err)
 		}
 		e.Watch[i] = c
 	}
 	e.raw = b
 	return e, nil
+}
+
+// loadEnv : environnement du projet, env-template.yaml et env.yaml fusionnés.
+// Aucun des deux : erreur « fichier absent » (os.IsNotExist).
+func loadEnv(proj string) (EnvSpec, error) {
+	var e EnvSpec
+	pb, perr := os.ReadFile(envPath(proj))
+	tb, terr := os.ReadFile(envTemplatePath(proj))
+	if perr != nil && terr != nil {
+		if os.IsNotExist(perr) && !os.IsNotExist(terr) {
+			return e, terr
+		}
+		return e, perr
+	}
+	if perr != nil && !os.IsNotExist(perr) {
+		return e, perr
+	}
+	if terr != nil && !os.IsNotExist(terr) {
+		return e, terr
+	}
+	var p, t EnvSpec
+	var err error
+	if perr == nil {
+		if p, err = parseEnvFile(pb, envFile); err != nil {
+			return p, err
+		}
+	}
+	if terr == nil {
+		var keys map[string]any
+		if yaml.Unmarshal(tb, &keys) == nil {
+			if _, ok := keys["prefer"]; ok {
+				return e, fmt.Errorf("%s : « prefer » réservé à %s (choix du backend, propre au projet)", envTemplateFile, envFile)
+			}
+		}
+		if t, err = parseEnvFile(tb, envTemplateFile); err != nil {
+			return t, err
+		}
+		e = t.withProject(p)
+	} else {
+		e = p
+	}
+	if e.Image == "" {
+		where := envFile
+		if terr == nil {
+			where = envFile + " ni " + envTemplateFile
+		}
+		return e, fmt.Errorf("« image » manquante (%s)", where)
+	}
+	return e, nil
+}
+
+// union : éléments de a puis de b, sans doublon, ordre gardé.
+func union(a, b []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, x := range append(append([]string(nil), a...), b...) {
+		if !seen[x] {
+			seen[x], out = true, append(out, x)
+		}
+	}
+	return out
+}
+
+// withProject : environnement du template (e) complété par celui du projet (p).
+func (e EnvSpec) withProject(p EnvSpec) EnvSpec {
+	if p.Image != "" {
+		e.Image = p.Image
+	}
+	e.Prefer = p.Prefer
+	e.Packages = union(e.Packages, p.Packages)
+	if len(p.PackagesByManager) > 0 {
+		m := map[string][]string{}
+		for k, v := range e.PackagesByManager {
+			m[k] = v
+		}
+		for k, v := range p.PackagesByManager {
+			m[k] = union(m[k], v)
+		}
+		e.PackagesByManager = m
+	}
+	e.Setup = append(append([]string(nil), e.Setup...), p.Setup...)
+	e.OnStart = append(append([]string(nil), e.OnStart...), p.OnStart...)
+	e.Watch = union(e.Watch, p.Watch)
+	e.Local = union(e.Local, p.Local)
+	var mounts []EnvMount
+	idx := map[string]int{}
+	for _, m := range append(append([]EnvMount(nil), e.Mounts...), p.Mounts...) {
+		if i, ok := idx[m.Path]; ok {
+			if m.RO != nil {
+				mounts[i].RO = m.RO // le projet l'emporte
+			}
+			continue
+		}
+		idx[m.Path] = len(mounts)
+		mounts = append(mounts, m)
+	}
+	e.Mounts = mounts
+	// empreinte : projet d'abord (identique à un env.yaml seul quand il n'y a pas
+	// de template), puis le template
+	e.raw = append(append(append([]byte(nil), p.raw...), "\x00template\x00"...), e.raw...)
+	return e
 }
 
 // ── Bootstrap du launcher (#57) ───────────────────────────────────────────
@@ -139,16 +252,6 @@ func loadLauncherEnv() (EnvSpec, error) {
 func (e EnvSpec) withLauncher(l EnvSpec) EnvSpec {
 	if len(l.raw) == 0 {
 		return e
-	}
-	union := func(a, b []string) []string {
-		seen := map[string]bool{}
-		var out []string
-		for _, x := range append(append([]string(nil), a...), b...) {
-			if !seen[x] {
-				seen[x], out = true, append(out, x)
-			}
-		}
-		return out
 	}
 	e.Packages = union(l.Packages, e.Packages)
 	if len(l.PackagesByManager) > 0 {
@@ -465,6 +568,7 @@ func writeEnv(proj, img string) error {
 		return err
 	}
 	return os.WriteFile(p, []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n"+
+		"# Ajouts propres au projet ; env-template.yaml (s'il existe) vient du template : ne pas le modifier.\n"+
 		"image: "+img+"\n"+
 		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n"+
 		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n"+
@@ -550,10 +654,14 @@ func assigned(proj string) bool {
 	return ok
 }
 
-// setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé).
+// setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
+// env.yaml absent (template seul, ou rien) : créé avec ce socle.
 func setEnvImage(proj, img string) error {
 	p := envPath(proj)
 	b, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return writeEnv(proj, img)
+	}
 	if err != nil {
 		return err
 	}
@@ -591,7 +699,7 @@ func launchBackend(proj string) (BackendConf, error) {
 	}
 	if _, ok := engineOf(b); ok {
 		if !hasEnv(proj) {
-			return b, fmt.Errorf("projet configuré sur « %s » mais %s absent — F2 pour reconfigurer", name, envFile)
+			return b, fmt.Errorf("projet configuré sur « %s » mais ni %s ni %s — F2 pour reconfigurer", name, envFile, envTemplateFile)
 		}
 		if _, err := loadEnv(proj); err != nil {
 			return b, fmt.Errorf("%v — corriger le fichier ou F2 pour reconfigurer", err)

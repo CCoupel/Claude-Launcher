@@ -141,21 +141,24 @@ func indexOf(list []string, s string) int {
 
 // applyExec : affectation selon le choix (« host » compris) ; un socle crée
 // env.yaml, ou change sa ligne image: s'il existe déjà (hôte : env.yaml gardé).
+// Le socle d'env-template.yaml choisi tel quel : env.yaml ni créé ni modifié.
 func applyExec(dir string, f newForm) error {
 	if f.exec <= 0 || f.exec > len(f.images) {
 		return writeAssignment(dir, "host")
 	}
-	img := f.images[f.exec-1]
-	if e, err := loadEnv(dir); err == nil {
-		if e.Image != img {
-			if err := setEnvImage(dir, img); err != nil {
-				return err
-			}
-		}
-	} else if err := writeEnv(dir, img); err != nil {
+	if err := applyImage(dir, f.images[f.exec-1]); err != nil {
 		return err
 	}
 	return writeAssignment(dir, f.ctrBe)
+}
+
+// applyImage : socle img pour le projet — env.yaml modifié (ou créé) seulement
+// si l'environnement fusionné n'a pas déjà ce socle.
+func applyImage(dir, img string) error {
+	if e, err := loadEnv(dir); err == nil && e.Image == img {
+		return nil
+	}
+	return setEnvImage(dir, img) // absent, sans image valable, ou autre socle
 }
 
 // withSpecial place l'entrée « Nouveau projet » en tête de la liste.

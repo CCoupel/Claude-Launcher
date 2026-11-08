@@ -16,7 +16,7 @@ import (
 
 // ctrView : ce que le navigateur sait des backends, relu toutes les 10 s.
 type ctrView struct {
-	env    map[string]bool      // projet -> a un .claude-launcher/env.yaml
+	env    map[string]bool      // projet -> a un env.yaml ou un env-template.yaml
 	assign map[string]string    // projet -> backend (sans entrée : host, ou « prefer »)
 	found  map[string]Found     // projet -> son conteneur, s'il existe
 	errs   map[string]string    // backend -> erreur de listing (moteur absent…)
@@ -183,7 +183,7 @@ func ctrIndicator(p projInfo) (indicator, bool) {
 	}
 	if p.backend == "" || p.backend == "host" {
 		if p.hasEnv {
-			return indicator{icon: "⬡", style: dim, text: "env.yaml présent : exécution locale (F2 : choisir un conteneur)"}, true
+			return indicator{icon: "⬡", style: dim, text: "environnement conteneur présent (env.yaml / env-template.yaml) : exécution locale (F2 : choisir un conteneur)"}, true
 		}
 		return indicator{}, false
 	}
