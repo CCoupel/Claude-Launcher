@@ -85,10 +85,11 @@ type rawIssue struct {
 var msPhases = []string{"PLANNING", "PRET", "EN COURS", "EN REVIEW", "EN QA", "DONE"}
 
 const (
-	msRefresh  = 5 * time.Minute
-	msNoPhase  = "SANS PHASE"
-	msMaxRows  = 6
-	msBarWidth = 10
+	msRefresh = 5 * time.Minute
+	msNoPhase = "SANS PHASE"
+	msMaxRows = 6
+	msBarMin  = 10 // barre d'avancement : de 10 cellules…
+	msBarMax  = 40 // … à 40, selon la largeur du pane
 )
 
 var msSem = make(chan struct{}, 3)
@@ -335,24 +336,37 @@ func (s MsState) withoutAt() MsState {
 
 var msPurple = lipgloss.NewStyle().Foreground(lipgloss.Color("#a371f7"))
 
-// msBar : « ███████░░░  70% 7/10 », comme le panneau.
-func msBar(r MsRow) string {
+// msBar : « ███████░░░  70% 7/10[ titre] », comme le panneau. La barre prend la
+// largeur laissée par le pourcentage, le compte et le titre (titre vide : aucun),
+// entre msBarMin et msBarMax cellules.
+func msBar(r MsRow, width int, title string) string {
 	t := r.Open + r.Closed
+	tail := fmt.Sprintf(" %3d%%", 0) + fmt.Sprintf(" %d/%d", r.Closed, t)
+	if title != "" {
+		tail += " " + title
+	}
+	bw := width - lipgloss.Width(tail)
+	bw = max(msBarMin, min(msBarMax, bw))
 	n, pct := 0, 0
 	if t > 0 {
-		n = int(float64(r.Closed)/float64(t)*msBarWidth + 0.5)
+		n = int(float64(r.Closed)/float64(t)*float64(bw) + 0.5)
 		pct = int(float64(r.Closed)/float64(t)*100 + 0.5)
 	}
-	return msPurple.Render(strings.Repeat("█", n)) + dim.Render(strings.Repeat("░", msBarWidth-n)) +
+	s := msPurple.Render(strings.Repeat("█", n)) + dim.Render(strings.Repeat("░", bw-n)) +
 		bold.Render(fmt.Sprintf(" %3d%%", pct)) + dim.Render(fmt.Sprintf(" %d/%d", r.Closed, t))
+	if title != "" {
+		s += " " + title
+	}
+	return s
 }
 
 // msLines : milestone en cours et son avancement (titre, barre, phases), ou
 // liste des milestones ouverts quand aucun n'est en cours ; nil sans milestone.
-func msLines(st MsState) []string {
+// width : largeur disponible (les barres s'y adaptent).
+func msLines(st MsState, width int) []string {
 	switch st.Kind {
 	case MsWorking:
-		l := []string{yellow.Render("⚑ ") + cyan.Render(st.Title), msBar(st.MsRow)}
+		l := []string{yellow.Render("⚑ ") + cyan.Render(st.Title), msBar(st.MsRow, width, "")}
 		var ph []string
 		for _, p := range st.Phases {
 			s := fmt.Sprintf("%s %d", strings.ToLower(p.Name), p.N)
@@ -369,7 +383,7 @@ func msLines(st MsState) []string {
 		}
 		return l
 	case MsReleasing:
-		return []string{orange.Render("⚑ ") + cyan.Render(st.Title) + orange.Render(" — à publier"), msBar(st.MsRow)}
+		return []string{orange.Render("⚑ ") + cyan.Render(st.Title) + orange.Render(" — à publier"), msBar(st.MsRow, width, "")}
 	case MsIdle:
 		l := []string{dim.Render("⚑ aucun milestone en cours")}
 		for i, r := range st.Pending {
@@ -377,7 +391,7 @@ func msLines(st MsState) []string {
 				l = append(l, dim.Render(fmt.Sprintf("  … %d autre(s)", len(st.Pending)-i)))
 				break
 			}
-			l = append(l, msBar(r)+" "+r.Title)
+			l = append(l, msBar(r, width, r.Title))
 		}
 		return l
 	case MsDone:
