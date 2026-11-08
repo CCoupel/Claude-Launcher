@@ -298,7 +298,22 @@ func runBackends() error {
 			line += " " + b.Host
 		}
 		if b.pool() {
-			fmt.Println(line + fmt.Sprintf("  groupe de %d serveurs", len(b.Hosts)))
+			g := fmt.Sprintf("  groupe de %d serveurs", len(b.Hosts))
+			if b.Pool != "" {
+				g = fmt.Sprintf("  pool %s (%d machines", b.Pool, len(b.Hosts))
+				if len(b.Drain) > 0 {
+					g += fmt.Sprintf(", %d en drain", len(b.Drain))
+				}
+				if len(b.Mates) > 0 {
+					var ns []string
+					for _, m := range b.Mates {
+						ns = append(ns, m.Name)
+					}
+					g += ", charge commune avec " + strings.Join(ns, ", ")
+				}
+				g += ")"
+			}
+			fmt.Println(line + g)
 			printPool(b)
 			continue
 		}
@@ -345,8 +360,16 @@ func printPool(b BackendConf) {
 	fs, down := e.listPool()
 	probs := poolProblems(b)
 	load := loadOf(b, fs, down)
+	own := map[string]int{}
+	for h, n := range load {
+		own[h] = n
+	}
+	addMates(b, load)
 	for _, h := range b.Hosts {
 		line := "      " + h
+		if b.Drain[h] {
+			line += "  [drain : plus de nouveaux projets]"
+		}
 		switch {
 		case len(probs[h]) > 0:
 			for _, p := range probs[h] {
@@ -361,7 +384,10 @@ func printPool(b BackendConf) {
 					n++
 				}
 			}
-			line += fmt.Sprintf("  %d conteneur(s), %d en marche", n, load[h])
+			line += fmt.Sprintf("  %d conteneur(s), %d en marche", n, own[h])
+			if o := load[h] - own[h]; o > 0 {
+				line += fmt.Sprintf(" (+%d d'autres backends du pool)", o)
+			}
 			for _, f := range fs {
 				if f.Server == h {
 					st := "arrêté"

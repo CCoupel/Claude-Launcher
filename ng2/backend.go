@@ -250,6 +250,10 @@ type BackendConf struct {
 	Context   string            `yaml:"context"`     // docker : --context
 	Host      string            `yaml:"host"`        // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
 	Hosts     []string          `yaml:"hosts"`       // groupe de serveurs (#61, pool.go) : à la place de host
+	Pool      string            `yaml:"pool"`        // pool de machines nommé (#64) : host sert alors de modèle ({} = machine)
+	Machines  map[string]string `yaml:"-"`           // pool : adresse du serveur → machine
+	Drain     map[string]bool   `yaml:"-"`           // pool : serveurs (adresses) sans nouveaux projets
+	Mates     []BackendConf     `yaml:"-"`           // pool : autres backends du même pool (charge commune)
 	Server    string            `yaml:"-"`           // membre d'un groupe : son serveur (at)
 	Engine    string            `yaml:"engine"`      // ssh : moteur sur la machine distante, podman (défaut) ou docker
 	EngHost   string            `yaml:"engine_host"` // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
@@ -282,6 +286,7 @@ func (b BackendConf) remote() bool {
 }
 
 type backendsFile struct {
+	Pools    map[string]PoolConf    `yaml:"pools"` // pools de machines nommés (#64, pool.go)
 	Backends map[string]BackendConf `yaml:"backends"`
 	Images   []string               `yaml:"images"` // socles proposés à la création (défaut : defaultImages)
 	Defaults struct {
@@ -314,9 +319,17 @@ func loadBackends() ([]BackendConf, error) {
 		f.Backends = map[string]BackendConf{}
 	}
 	f.Backends["host"] = BackendConf{Type: "host"}
+	if err := checkPools(f.Pools); err != nil {
+		return nil, err
+	}
 	var out []BackendConf
 	for n, c := range f.Backends {
 		c.Name = n
+		if c.Pool != "" {
+			if err := c.usePool(f.Pools); err != nil {
+				return nil, fmt.Errorf("backends.yaml : backend %q : %w", n, err)
+			}
+		}
 		if len(c.Hosts) > 0 {
 			if c.Type != "podman" && c.Type != "docker" && c.Type != "ssh" {
 				return nil, fmt.Errorf("backends.yaml : backend %q : « hosts » (groupe de serveurs) réservé à podman, docker et ssh", n)
@@ -361,6 +374,7 @@ func loadBackends() ([]BackendConf, error) {
 		}
 		return out[i].Name < out[j].Name
 	})
+	linkMates(out)
 	return out, nil
 }
 
