@@ -99,8 +99,10 @@ partagé et utilisable de toutes les machines :
     └── backends.yaml
 ```
 
-Les affectations des projets (hôte ou backend, `~/.local/state/claude-launcher-ng2/projects.json`)
-restent propres à chaque machine.
+Les affectations des projets (hôte ou backend) sont dans `projects.json`, dans ce même dossier
+(depuis la v5.4.3) : en mode portable, tous les hubs, sur toutes les machines, savent où vit chaque
+projet. L'ancien `~/.local/state/claude-launcher-ng2/projects.json`, propre à la machine, est repris
+une fois et laissé en place.
 
 **Config de claude** : `CLAUDE_CONFIG_DIR` dans `config.conf` l'impose à toutes les sessions du
 launcher (hôte et conteneurs) ; un chemin relatif l'est par rapport au dossier de `config.conf`, ce
@@ -440,8 +442,8 @@ remédier : client ou moteur absent, accès au socket docker refusé, démon
 distant non exposé, accès ssh, podman absent de la machine distante, stockage
 partagé non monté ou non déclaré, `~/.claude` hors du partage.
 
-L'affectation (y compris « hôte ») est mémorisée par machine
-(`~/.local/state/claude-launcher-ng2/projects.json`), pas dans le projet.
+L'affectation (y compris « hôte ») est mémorisée dans `projects.json`, à côté de `backends.yaml`
+(partagée en mode portable), pas dans le projet.
 
 | Icône | Signification |
 |---|---|
@@ -580,6 +582,14 @@ de l'attente : `Retry-After` s'il est donné, sinon 5 min, puis 10, 20 et 30 au 
 tant que les refus se suivent (retour à la normale au premier succès). L'heure du
 prochain essai est affichée (`⚠ … trop d'appels à l'endpoint, nouvel essai vers 10:52`).
 Un renouvellement du jeton par claude ne lève pas cette attente ; `F5` force un appel.
+Au lancement du hub, l'échec noté et l'attente sont effacés (les dernières données restent
+affichées) : le premier relevé interroge l'endpoint sans attendre, même si l'échec venait d'un
+autre launcher arrêté depuis.
+
+Le jeton est lu dans la config claude (`$CLAUDE_CONFIG_DIR/.credentials.json`), le même que
+celui des sessions claude ; jusqu'à la v5.4.2, `~/.claude/.credentials.json`, qui pouvait garder
+un ancien jeton refusé en 429. **Un launcher v4 encore actif** lit toujours cet ancien fichier
+et écrit ses échecs dans le cache commun : l'arrêter.
 
 
 - Le copier-coller OSC 52 à travers les deux niveaux de tmux n'est pas vérifié.

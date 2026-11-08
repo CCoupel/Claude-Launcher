@@ -1432,6 +1432,7 @@ func main() {
 	case "shell":
 		selfUpdate()
 		linkUsageCache()
+		resetUsageBackoff()
 		bar := startProgress("Nettoyage des teams")
 		teamsProgress = bar.Step
 		cleanupDeadTeams(loadConfig().resumeMaxAge())

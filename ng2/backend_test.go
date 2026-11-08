@@ -381,3 +381,32 @@ func TestClaudeConfigDirFromConfig(t *testing.T) {
 		t.Error("une variable déjà définie doit l'emporter (et la config lue reste celle du fichier)")
 	}
 }
+
+// v5.4.3 : projects.json passe du dossier d'état local au dossier de config
+// (partagé) ; l'ancien fichier est repris une fois et laissé en place.
+func TestAssignmentMigration(t *testing.T) {
+	h := withHome(t)
+	legacy := filepath.Join(h, "state", "claude-launcher-ng2", "projects.json")
+	_ = os.MkdirAll(filepath.Dir(legacy), 0o755)
+	_ = os.WriteFile(legacy, []byte(`{"/p/a": "pod"}`), 0o644)
+	if got := readAssignments()["/p/a"]; got != "pod" {
+		t.Fatalf("migration : %q, attendu pod", got)
+	}
+	if want := filepath.Join(h, ".config", "claude-launcher-ng2", "projects.json"); assignPath() != want {
+		t.Fatalf("assignPath = %s, attendu %s", assignPath(), want)
+	}
+	if _, err := os.Stat(assignPath()); err != nil {
+		t.Fatal("projects.json non écrit dans le dossier de config")
+	}
+	if err := writeAssignment("/p/b", "host"); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(legacy, []byte(`{"/p/a": "autre"}`), 0o644) // ignoré désormais
+	m := readAssignments()
+	if m["/p/a"] != "pod" || m["/p/b"] != "host" {
+		t.Fatalf("affectations : %v", m)
+	}
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatal("ancien fichier supprimé")
+	}
+}

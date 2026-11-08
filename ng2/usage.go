@@ -98,6 +98,16 @@ if [ "$(readlink "$d" 2>/dev/null)" != "$t" ] && ! [ "$d" -ef "$t" ]; then rm -r
 `
 }
 
+// resetUsageBackoff : au lancement du hub, l'échec noté (.err) et l'attente
+// progressive (.wait) sont effacés — par exemple ceux d'un ancien launcher
+// arrêté entre-temps : le premier relevé interroge l'endpoint sans attendre.
+// Les dernières données (usage.json) restent affichées jusque-là.
+func resetUsageBackoff() {
+	for _, ext := range []string{".err", ".wait"} {
+		_ = os.Remove(usageCachePath() + ext)
+	}
+}
+
 type Limit struct {
 	Kind     string  `json:"kind"`
 	Group    string  `json:"group"`
@@ -231,10 +241,11 @@ func readUsage() Usage {
 	return u
 }
 
-func credentialsPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude", ".credentials.json")
-}
+// credentialsPath : identifiants de claude, dans SA config (CLAUDE_CONFIG_DIR
+// si défini) — pas ~/.claude, qui peut garder un ancien jeton (connexion
+// d'avant la migration de la config) : le hub interrogeait alors l'endpoint
+// avec un autre jeton que les sessions claude, refusé en 429 sans fin.
+func credentialsPath() string { return filepath.Join(claudeDir(), ".credentials.json") }
 
 // needsFetch applique la politique du bash : pas d'appel si le cache est frais
 // (< 1,5 × intervalle) ou si un échec récent suspend les appels.
