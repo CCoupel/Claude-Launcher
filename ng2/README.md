@@ -669,6 +669,12 @@ qu'une release est attendue). Chaque nouvelle version est annoncée en deux temp
 en **orange** dès le tag (`↑ NG vX · mise à jour bientôt prête ✕`, non cliquable), puis en
 **vert** quand la release est publiée (`↑ NG vX · cliquer pour installer ✕`).
 
+Les fichiers sont pris par le lien direct de la release
+(`github.com/…/releases/download/<tag>/…`) ; s'il répond en erreur 5xx (GitHub sert
+parfois un 504 constant pour certains fichiers), un second essai est fait, puis le
+fichier est pris par l'API GitHub (`releases/tags/<tag>` → `releases/assets/<id>`).
+Chaque fichier reste vérifié contre `SHA256SUMS`.
+
 - **NG** : un clic sur l'annonce verte installe la version et redémarre le navigateur sur place
   (projets et zone tmux conservés) ; `✕` la masque.
 - **Template** (`↑ tpl vX …`) : un clic sur l'annonce verte adopte la version : les caches
