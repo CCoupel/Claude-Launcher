@@ -31,6 +31,11 @@ func TestMilestoneState(t *testing.T) {
 	open := func(title string, o, c int) rawMilestone {
 		return rawMilestone{Title: title, State: "open", Open: o, Closed: c}
 	}
+	dated := func(title string, o, c int, due string) rawMilestone {
+		m := open(title, o, c)
+		m.DueOn = due
+		return m
+	}
 	cases := []struct {
 		name   string
 		ms     []rawMilestone
@@ -50,7 +55,23 @@ func TestMilestoneState(t *testing.T) {
 			[]rawIssue{issue("v1.1.0", "EN COURS"), issue("v1.1.0", "bug")}, MsWorking, "v1.1.0"},
 		{"en cours : le premier par version, pas le plus avancé",
 			[]rawMilestone{open("v1.10.0", 2, 1), open("v1.9.0", 4, 0)},
-			[]rawIssue{issue("v1.10.0", "PRET"), issue("v1.9.0", "PLANNING")}, MsWorking, "v1.9.0"},
+			[]rawIssue{issue("v1.10.0", "PRET"), issue("v1.9.0", "EN COURS")}, MsWorking, "v1.9.0"},
+		// cas BuzzMaster : v11.5.0 n'a que des issues en PLANNING, pas de due date → non démarré
+		{"PLANNING seul, sans due date : en attente",
+			[]rawMilestone{open("v11.5.0 — Optimisation des tests", 4, 0)},
+			[]rawIssue{issue("v11.5.0 — Optimisation des tests", "PLANNING")}, MsIdle, ""},
+		{"PLANNING ne démarre pas, le suivant en PRET oui",
+			[]rawMilestone{open("v1.9.0", 4, 0), open("v1.10.0", 2, 1)},
+			[]rawIssue{issue("v1.9.0", "PLANNING"), issue("v1.10.0", "PRET")}, MsWorking, "v1.10.0"},
+		{"due date : en cours même sans phase, devant un milestone en PRET",
+			[]rawMilestone{dated("v1.2.0", 3, 1, "2026-11-01T00:00:00Z"), open("v1.1.0", 2, 0)},
+			[]rawIssue{issue("v1.1.0", "PRET")}, MsWorking, "v1.2.0"},
+		{"due date : la plus ancienne",
+			[]rawMilestone{dated("v1.1.0", 3, 1, "2026-11-05T00:00:00Z"), dated("v1.2.0", 3, 0, "2026-11-01T00:00:00Z")},
+			nil, MsWorking, "v1.2.0"},
+		{"due date toutes fermées : à publier, même si le suivant est en PLANNING",
+			[]rawMilestone{dated("v1.1.0", 0, 4, "2026-11-01T00:00:00Z"), open("v1.2.0", 3, 0)},
+			[]rawIssue{issue("v1.2.0", "PLANNING")}, MsReleasing, "v1.1.0"},
 		{"en cours passe devant à publier (comme le panneau)",
 			[]rawMilestone{open("v1.1.0", 0, 4), open("v1.2.0", 3, 0)},
 			[]rawIssue{issue("v1.2.0", "EN COURS")}, MsWorking, "v1.2.0"},

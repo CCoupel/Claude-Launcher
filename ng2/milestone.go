@@ -19,8 +19,13 @@ import (
 // « Milestone » de la vue État. Même règle que le panneau milestone des
 // projets (skills/milestone-panel/hooks/lib.ts, buildView), pour que le
 // launcher et le projet ouvert disent la même chose :
-//   - en cours    : premier milestone ouvert (échéance, puis version) portant au
-//     moins une issue ouverte avec un label de phase (PLANNING… DONE) ;
+//   - en cours    : le milestone ouvert portant une due date (GITHUB.md 3.0 :
+//     `due_on` = date de démarrage, posée par MILESTONE START), la plus
+//     ancienne ; toutes ses issues fermées, il est « à publier » jusqu'à sa
+//     clôture, même si le suivant a déjà des issues en PLANNING ;
+//   - repli sans aucune due date (convention antérieure) : premier milestone
+//     ouvert (version) portant une issue avec un label de phase autre que
+//     PLANNING (un plan en cours d'élaboration ne démarre pas le milestone) ;
 //   - à publier   : à défaut, premier milestone ouvert dont toutes les issues
 //     sont fermées (le panneau : « — publication », jusqu'à sa clôture) ;
 //   - en attente  : des milestones ouverts, aucun en cours (le panneau :
@@ -188,17 +193,45 @@ func milestoneState(ms []rawMilestone, issues []rawIssue) MsState {
 	sort.SliceStable(open, func(i, j int) bool { return lessMilestone(open[i], open[j]) })
 	row := func(m rawMilestone) MsRow { return MsRow{m.Title, m.Open, m.Closed} }
 
-	started := map[string]bool{}
-	for _, i := range issues {
-		if i.Milestone != nil && phaseOf(i) != "" {
-			started[i.Milestone.Title] = true
+	isDone := func(m rawMilestone) bool { return m.Open == 0 && m.Closed > 0 }
+	var dated *rawMilestone
+	for i := range open {
+		if open[i].DueOn != "" {
+			dated = &open[i]
+			break
 		}
 	}
-	for _, m := range open {
-		if !started[m.Title] {
-			continue
+	var working, releasing *rawMilestone
+	if dated != nil {
+		if isDone(*dated) {
+			releasing = dated
+		} else {
+			working = dated
 		}
-		st := MsState{Kind: MsWorking, MsRow: row(m)}
+	} else {
+		started := map[string]bool{}
+		for _, i := range issues {
+			if p := phaseOf(i); i.Milestone != nil && p != "" && p != "PLANNING" {
+				started[i.Milestone.Title] = true
+			}
+		}
+		for k := range open {
+			if started[open[k].Title] {
+				working = &open[k]
+				break
+			}
+		}
+		if working == nil {
+			for k := range open {
+				if isDone(open[k]) {
+					releasing = &open[k]
+					break
+				}
+			}
+		}
+	}
+	if m := working; m != nil {
+		st := MsState{Kind: MsWorking, MsRow: row(*m)}
 		count := map[string]int{}
 		for _, i := range issues {
 			if i.Milestone == nil || i.Milestone.Title != m.Title {
@@ -223,10 +256,8 @@ func milestoneState(ms []rawMilestone, issues []rawIssue) MsState {
 		}
 		return st
 	}
-	for _, m := range open {
-		if m.Open == 0 && m.Closed > 0 {
-			return MsState{Kind: MsReleasing, MsRow: row(m)}
-		}
+	if releasing != nil {
+		return MsState{Kind: MsReleasing, MsRow: row(*releasing)}
 	}
 	if len(open) > 0 {
 		// ordre du panneau : sans version en dernier, avancement décroissant, version
