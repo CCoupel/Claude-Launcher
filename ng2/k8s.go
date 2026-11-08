@@ -43,14 +43,29 @@ func (e Engine) kcmd(args ...string) *exec.Cmd {
 	return exec.Command(a[0], a[1:]...)
 }
 
-// k8sName : nom du StatefulSet (et préfixe du pod) d'un projet.
-func k8sName(proj string) string { return "clx-" + strings.TrimPrefix(ctrName(proj), "cl-") }
+// k8sName : nom du StatefulSet d'un projet, « <catégorie>-<projet> » ; son pod
+// (et hostname, imposé par le StatefulSet) : « <catégorie>-<projet>-0 ».
+func k8sName(proj string) string { return ctrName(proj) }
 
 func k8sPod(proj string) string { return k8sName(proj) + "-0" }
 
+// legacyK8sName : StatefulSet d'avant v5.6 (« clx-<projet>-<empreinte> »).
+func legacyK8sName(proj string) string {
+	return "clx-" + strings.TrimPrefix(legacyCtrName(proj), "cl-")
+}
+
+// k8sHas : le StatefulSet existe.
+func (e Engine) k8sHas(name string) bool {
+	return e.kcmd("get", "statefulset", name, "-o", "name").Run() == nil
+}
+
 // ctrRef : ce que vise « exec » pour un projet : son pod (k8s) ou son conteneur.
+// k8s : un StatefulSet d'avant v5.6 encore là garde son nom jusqu'à sa migration.
 func ctrRef(b BackendConf, proj string) string {
 	if b.k8s() {
+		if e := (Engine{b}); !e.k8sHas(k8sName(proj)) && e.k8sHas(legacyK8sName(proj)) {
+			return legacyK8sName(proj) + "-0"
+		}
 		return k8sPod(proj)
 	}
 	return ctrName(proj)
@@ -96,33 +111,28 @@ func k8sAsUser(uid, gid int, tty bool) string {
 
 // k8sState : phase du pod ("Running"…) et image en place ; "" si absent.
 func (e Engine) k8sState(proj string) (phase, image string) {
-	phase, image, _ = e.k8sStateLocal(proj)
+	phase, image, _, _, _ = e.k8sStateFull(k8sName(proj))
 	return phase, image
 }
 
-// k8sStateLocal : k8sState, plus l'empreinte des dossiers « local » du StatefulSet.
-func (e Engine) k8sStateLocal(proj string) (phase, image, local string) {
-	phase, image, local, _ = e.k8sStateFull(proj)
-	return
-}
-
-// k8sStateFull : k8sStateLocal, plus l'empreinte du placement (cl.sched, #60).
-func (e Engine) k8sStateFull(proj string) (phase, image, local, sched string) {
-	b, err := e.kcmd("get", "statefulset", k8sName(proj), "-o", `jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}|{.metadata.annotations.cl\.sched}`).Output()
+// k8sStateFull : phase du pod du StatefulSet name, image, empreintes des
+// dossiers « local » et du placement (cl.sched, #60), projet (cl.project).
+func (e Engine) k8sStateFull(name string) (phase, image, local, sched, project string) {
+	b, err := e.kcmd("get", "statefulset", name, "-o", `jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}|{.metadata.annotations.cl\.sched}|{.metadata.annotations.cl\.project}`).Output()
 	if err != nil {
-		return "", "", "", ""
+		return "", "", "", "", ""
 	}
-	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 3)
-	for len(f) < 3 {
+	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 4)
+	for len(f) < 4 {
 		f = append(f, "")
 	}
-	image, local, sched = f[0], f[1], f[2]
-	p, _ := e.kcmd("get", "pod", k8sPod(proj), "-o", "jsonpath={.status.phase}").Output()
+	image, local, sched, project = f[0], f[1], f[2], f[3]
+	p, _ := e.kcmd("get", "pod", name+"-0", "-o", "jsonpath={.status.phase}").Output()
 	phase = strings.TrimSpace(string(p))
 	if phase == "" {
 		phase = "Pending"
 	}
-	return phase, image, local, sched
+	return phase, image, local, sched, project
 }
 
 // k8sPodCurrent : le pod porte l'image et les dossiers « local » attendus, et
@@ -145,7 +155,22 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 		return "", err
 	}
 	pod := k8sPod(proj)
-	phase, image, local, sched := e.k8sStateFull(proj)
+	phase, image, local, sched, owner := e.k8sStateFull(k8sName(proj))
+	if phase == "" {
+		// StatefulSet d'avant v5.6 : gardé tant que son pod tourne à jour (sa
+		// session continue), sinon supprimé et recréé sous le nouveau nom
+		old := legacyK8sName(proj)
+		if lp, li, ll, _, _ := e.k8sStateFull(old); lp == "Running" && li == env.Image && ll == env.localKey() {
+			fmt.Fprintf(log, "  StatefulSet %s (ancien nom) conservé : renommé %s à sa prochaine ouverture après fermeture\n", old, k8sName(proj))
+			return old + "-0", nil
+		} else if lp != "" {
+			fmt.Fprintf(log, "  ancien StatefulSet %s supprimé : recréé sous le nom %s\n", old, k8sName(proj))
+			_ = e.kcmd("delete", "statefulset", old, "--wait=true", "--timeout=60s").Run()
+		}
+	}
+	if phase != "" && owner != "" && owner != proj {
+		return "", fmt.Errorf("StatefulSet %s déjà pris par le projet %s : renommer la catégorie ou le projet", k8sName(proj), owner)
+	}
 	if phase == "Running" && image == env.Image && local == env.localKey() {
 		// placement changé (#60) : jamais appliqué à un pod en marche (le recréer
 		// couperait sa session) ; il le sera au prochain démarrage du pod

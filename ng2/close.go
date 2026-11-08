@@ -310,7 +310,8 @@ func paneCommand(t sessionTmux, pane string) string {
 func (e Engine) stop(proj, name string) error {
 	var c *exec.Cmd
 	if e.b.k8s() {
-		c = e.kcmd("scale", "statefulset", k8sName(proj), "--replicas=0")
+		// nom réel (pod « <statefulset>-0 ») : un StatefulSet d'avant v5.6 garde le sien
+		c = e.kcmd("scale", "statefulset", strings.TrimSuffix(name, "-0"), "--replicas=0")
 	} else {
 		c = e.cmd("stop", "-t", "5", name)
 	}
