@@ -121,6 +121,31 @@ premier lancement : **copie de la config v4** (`~/.config/claude-launcher.conf`)
 valeurs par défaut. Les backends d'exécution sont dans `~/.config/claude-launcher-ng2/backends.yaml`
 (voir [Projets en conteneur](#projets-en-conteneur-v5)).
 
+**Variables d'environnement de toutes les sessions claude (v5.7.0)** : `GITHUB_TOKEN` (exporté en
+`GH_TOKEN` et `GITHUB_PERSONAL_ACCESS_TOKEN`), `CLAUDE_DISABLE_MOUSE`, `CLAUDE_EXPERIMENTAL_TEAMS` et
+**toutes les entrées de `EXTRA_ENVS`** (`"NOM=valeur"`, une paire de guillemets autour de la valeur
+ôtée) sont recopiées par le launcher dans le bloc `env` du **`settings.json` utilisateur**
+(`$CLAUDE_CONFIG_DIR/settings.json`), au démarrage du hub et à chaque ouverture de projet. Claude
+lit ce fichier quel que soit son dossier de lancement : projets sur l'hôte ou en conteneur,
+worktrees, et **teammates** — créés par claude dans de nouveaux panes tmux, ils n'héritent pas du
+shell du premier pane, et ceux démarrés dans un sous-dossier (`.claude/agents`…) ne voient pas le
+`.claude/settings.local.json` du projet. Rien à faire par projet.
+- Seules les clés du launcher sont touchées, le reste du fichier est gardé ; une variable retirée de
+  `config.conf` est ôtée (liste tenue dans `$CLAUDE_CONFIG_DIR/claude-launcher/settings-env.json`) ;
+  rien n'est réécrit sans changement ; un `settings.json` illisible (JSON invalide) est laissé tel quel.
+- Une variable secrète (nom contenant `TOKEN`, `KEY`, `SECRET`, `PASSWORD`, `CREDENTIAL`) passe le
+  fichier en `0600` et n'est plus tapée dans le shell du projet (ni historique ni scrollback tmux) ;
+  les autres y sont toujours exportées. Si la recopie échoue, tout est tapé comme avant.
+- Un `env` du `.claude/settings.local.json` d'un projet l'emporte pour ce projet.
+- Ces variables valent aussi pour un claude lancé hors du launcher avec le même `CLAUDE_CONFIG_DIR`.
+
+```bash
+EXTRA_ENVS=(
+  "MY_API_URL=https://api.example.com"
+  "SENTRY_AUTH_TOKEN=sntrys_..."      # secret : settings.json seulement
+)
+```
+
 Sous-commandes internes, lancées par tmux : `nav`, `state`, `fixwidth` (coque), `mirror WIN NOM`
 (vignette Teamleaders), `layout-watch WIN LEADER DOSSIER` (mise en page d'une fenêtre projet).
 
