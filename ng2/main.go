@@ -1430,6 +1430,7 @@ func main() {
 	switch cmd {
 	case "shell":
 		selfUpdate()
+		linkUsageCache()
 		bar := startProgress("Nettoyage des teams")
 		teamsProgress = bar.Step
 		cleanupDeadTeams(loadConfig().resumeMaxAge())

@@ -557,11 +557,23 @@ Les sessions en conteneur utilisent `CLAUDE_CONFIG_DIR=~/.claude`, donc
 réécrit par remplacement). Au premier conteneur, ce fichier est **copié** depuis
 `~/.claude.json`, jamais déplacé : les sessions de l'hôte gardent le leur.
 
-### Limites connues
+### Consommation du compte : un seul cache pour tous
 
-- Le panneau milestone des projets lit la consommation du compte dans
-  `~/.cache/claude-launcher/usage.json`, monté dans les conteneurs **locaux** ;
-  dans un conteneur distant (ssh, docker distant, k8s), il l'interroge lui-même.
+Le panneau milestone des projets et le hub lisent la consommation du compte dans
+`~/.cache/claude-launcher/usage.json`. Ce dossier est un **lien** vers
+`<config claude>/claude-launcher-cache` (la config claude, `CLAUDE_CONFIG_DIR`, est
+montée au même chemin dans tous les conteneurs, locaux ou distants) : le lien est posé
+au démarrage du hub et à chaque ouverture d'un projet en conteneur. Hubs et
+conteneurs partagent ainsi le cache **et** les échecs : l'endpoint n'est appelé qu'une
+fois par intervalle (`USAGE_REFRESH_SEC`, 120 s par défaut) pour tout le monde.
+
+Après un refus pour excès d'appels (HTTP 429), plus personne n'appelle avant la fin
+de l'attente : `Retry-After` s'il est donné, sinon 5 min, puis 10, 20 et 30 au plus
+tant que les refus se suivent (retour à la normale au premier succès). L'heure du
+prochain essai est affichée (`⚠ … trop d'appels à l'endpoint, nouvel essai vers 10:52`).
+Un renouvellement du jeton par claude ne lève pas cette attente ; `F5` force un appel.
+
+
 - Le copier-coller OSC 52 à travers les deux niveaux de tmux n'est pas vérifié.
 - La carte Team lit la version de claude du leader dans le conteneur (une fois
   par minute) ; celles des teammates viennent du nom de leur processus.

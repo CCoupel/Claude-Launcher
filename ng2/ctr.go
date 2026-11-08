@@ -133,6 +133,8 @@ func runCtrAttach(proj, startFile string) error {
 	if err := e.bootstrap(name, proj, env, os.Stdout); err != nil {
 		return err
 	}
+	// cache de consommation commun (panneau milestone) : voir linkUsageCache
+	_ = e.exec(name, false, strings.NewReader(linkUsageScript()), io.Discard, "sh", "-s")
 	if l, ok := e.readLive(name); ok && !l.claude {
 		// tmux resté seul après un /exit (point bleu) : la session est recréée
 		// pour que claude redémarre, au lieu de se rattacher à son shell
