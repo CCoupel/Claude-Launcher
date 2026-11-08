@@ -114,6 +114,9 @@ func newModel(launch bool) model {
 		windows: map[string]bool{}, launch: launch, started: time.Now(), shell: os.Getenv("CL_SHELL") == "1",
 	}
 	m.session = tmuxSession()
+	if m.shell {
+		_ = syncLauncherEnv(cfg) // variables du launcher pour toutes les sessions claude
+	}
 	m.tplVer = readTrim(tplVersionPath())
 	m.nodes = withSpecial(scanTree(cfg.Roots))
 	m.treeCh = watchTree(cfg.Roots)

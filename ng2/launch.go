@@ -70,24 +70,25 @@ func tmuxOut(args ...string) (string, error) {
 	return strings.TrimSpace(string(b)), err
 }
 
-// exports : équivalent de build_claude_exports.
-func (c Config) exports() string {
+// exports : variables du launcher tapées dans le shell du projet avant claude.
+// Elles sont aussi dans settings.json (settingsenv.go), qui seul atteint les
+// teammates ; les secrets (token…) n'y sont donc tapés que si cette recopie a
+// échoué (inline) — sinon ils resteraient dans l'historique et le scrollback.
+func (c Config) exports(inline bool) string {
 	var e strings.Builder
-	if c.GithubToken != "" {
-		fmt.Fprintf(&e, "\nexport GITHUB_PERSONAL_ACCESS_TOKEN=%q\nexport GH_TOKEN=%q", c.GithubToken, c.GithubToken)
-	}
-	if c.DisableMouse {
-		e.WriteString("\nexport CLAUDE_CODE_DISABLE_MOUSE=1")
-	}
-	if c.ExpTeams {
-		e.WriteString("\nexport CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1")
-	}
-	for _, v := range c.ExtraEnvs {
-		if v != "" {
-			e.WriteString("\nexport " + v)
+	for _, v := range c.envVars() {
+		if secretEnv(v.K) && !inline {
+			continue
 		}
+		fmt.Fprintf(&e, "\nexport %s=%s", v.K, shq(v.V))
 	}
 	return e.String()
+}
+
+// syncLauncherEnv : recopie des variables du launcher dans settings.json ;
+// false si elle a échoué (les secrets sont alors tapés comme avant).
+func syncLauncherEnv(cfg Config) bool {
+	return syncSettingsEnv(claudeDir(), cfg.envVars()) == nil
 }
 
 // launchProject : fenêtre, styles, couleur du pane, démarrage de claude (avec la
@@ -124,6 +125,7 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	if err != nil {
 		return err
 	}
+	synced := syncLauncherEnv(cfg)
 	if _, ok := engineOf(be); !ok {
 		// sur l'hôte : jamais pendant qu'un autre launcher fait tourner ce projet
 		// dans un conteneur (deux claude dans le même dossier partagé)
@@ -224,13 +226,13 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 			// (resté parent de l'attache) arrête le conteneur
 			ctrStart += " && tmux kill-session"
 		}
-		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", shq(n.Path), cfg.exports(), ctrStart)
+		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", shq(n.Path), cfg.exports(!synced), ctrStart)
 		if err := os.WriteFile(startFile, []byte(script), 0o600); err != nil {
 			return err
 		}
 		return dtmux("select-window", "-t", target).Run()
 	}
-	keys := fmt.Sprintf("cd %s%s\n%s%s", shq(n.Path), cfg.exports(), copyInit, start)
+	keys := fmt.Sprintf("cd %s%s\n%s%s", shq(n.Path), cfg.exports(!synced), copyInit, start)
 	if err := dtmux("send-keys", "-t", target, keys, "Enter").Run(); err != nil {
 		return fmt.Errorf("send-keys : %w", err)
 	}
