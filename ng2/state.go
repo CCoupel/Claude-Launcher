@@ -423,13 +423,34 @@ func (m stateModel) filesCard(w int) string {
 // cadre, pour tenir dans la hauteur.
 func (m stateModel) narrow() bool { return m.w < 60 }
 
+// Bandeau de titre des cartes : fond sur toute la ligne, pour que chaque carte
+// ressorte ; le nom en gras, la précision (« · lu il y a 18 h ») en atténué.
+var (
+	cardBarBg   = lipgloss.Color("237")
+	cardBarName = lipgloss.NewStyle().Background(cardBarBg).Foreground(lipgloss.Color("255")).Bold(true)
+	cardBarRest = lipgloss.NewStyle().Background(cardBarBg).Foreground(lipgloss.Color("248"))
+)
+
+// cardBar : « ␣NOM · précision␣… » sur w colonnes, fond cardBarBg.
+func cardBar(title string, w int) string {
+	name, rest, _ := strings.Cut(strings.ToUpper(title), " · ")
+	s := cardBarName.Render(" " + name)
+	if rest != "" {
+		s += cardBarRest.Render(" · " + rest)
+	}
+	s = ansi.Truncate(s, w, "…")
+	if d := w - lipgloss.Width(s); d > 0 {
+		s += cardBarRest.Render(strings.Repeat(" ", d))
+	}
+	return s
+}
+
 func (m stateModel) card(title, body string, w int) string {
 	if m.narrow() {
-		return dim.Render(" "+strings.ToUpper(title)) + "\n" + lipgloss.NewStyle().PaddingLeft(1).Width(w).Render(body)
+		return cardBar(title, w) + "\n" + lipgloss.NewStyle().PaddingLeft(1).Width(w).Render(body)
 	}
-	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238")).
-		Padding(0, 1).Width(w - 2)
-	return box.Render(dim.Render(strings.ToUpper(title)) + "\n" + body)
+	box := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("238"))
+	return box.Render(cardBar(title, w-2) + "\n" + lipgloss.NewStyle().Padding(0, 1).Width(w-2).Render(body))
 }
 
 func orNone(s string) string {

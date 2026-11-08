@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // Milestones GitHub d'un projet : badge « ⚑ » du navigateur et carte
@@ -391,6 +392,60 @@ func msBar(r MsRow, width int, title string) string {
 	return s
 }
 
+// msListRows : la liste des milestones ouverts, une ligne chacun, colonnes
+// alignées : « v1.2.0 — Titre  n/m  ███░░░░  P% ». Quand la largeur manque, on
+// retire dans l'ordre : la barre, puis la fin du titre (« … », la version reste
+// entière), puis le pourcentage ; au plus étroit : « v1.2.0 n/m ».
+func msListRows(rows []MsRow, width int) []string {
+	const pctW = 4 // « 100% »
+	titleW, verW, cw := 0, 0, 0
+	for _, r := range rows {
+		titleW = max(titleW, lipgloss.Width(r.Title))
+		if f := strings.Fields(r.Title); len(f) > 0 {
+			verW = max(verW, lipgloss.Width(f[0]))
+		}
+		cw = max(cw, len(fmt.Sprintf("%d/%d", r.Closed, r.Open+r.Closed)))
+	}
+	bar, pct := 0, true
+	switch tail := 1 + cw + 1 + pctW; {
+	case titleW+tail+1+msBarMin <= width: // tout tient : la barre prend le reste
+		bar = min(msBarMax, width-titleW-tail-1)
+	case titleW+tail <= width: // sans barre
+	case verW+tail <= width: // titre tronqué
+		titleW = width - tail
+	default: // sans pourcentage, titre réduit jusqu'à la version
+		pct = false
+		titleW = max(verW, width-1-cw)
+	}
+	var out []string
+	for _, r := range rows {
+		t := r.Open + r.Closed
+		n, p := 0, 0
+		if t > 0 {
+			n = int(float64(r.Closed)/float64(t)*float64(bar) + 0.5)
+			p = int(float64(r.Closed)/float64(t)*100 + 0.5)
+		}
+		title := r.Title
+		if lipgloss.Width(title) > titleW {
+			// tronqué ; s'il ne reste que la version (et un « — »), la version seule
+			ver := strings.Fields(title)[0]
+			title = ansi.Truncate(title, titleW, "…")
+			if titleW < lipgloss.Width(ver)+2 || strings.TrimRight(strings.TrimSuffix(title, "…"), " —–-") == ver {
+				title = ver
+			}
+		}
+		s := padRight(title, titleW) + dim.Render(" "+fmt.Sprintf("%*s", cw, fmt.Sprintf("%d/%d", r.Closed, t)))
+		if bar > 0 {
+			s += " " + msPurple.Render(strings.Repeat("█", n)) + dim.Render(strings.Repeat("░", bar-n))
+		}
+		if pct {
+			s += bold.Render(fmt.Sprintf(" %3d%%", p))
+		}
+		out = append(out, s)
+	}
+	return out
+}
+
 // msLines : milestone en cours et son avancement (titre, barre, phases), ou
 // liste des milestones ouverts quand aucun n'est en cours ; nil sans milestone.
 // width : largeur disponible (les barres s'y adaptent).
@@ -417,12 +472,13 @@ func msLines(st MsState, width int) []string {
 		return []string{orange.Render("⚑ ") + cyan.Render(st.Title) + orange.Render(" — à publier"), msBar(st.MsRow, width, "")}
 	case MsIdle:
 		l := []string{dim.Render("⚑ aucun milestone en cours")}
-		for i, r := range st.Pending {
-			if i == msMaxRows {
-				l = append(l, dim.Render(fmt.Sprintf("  … %d autre(s)", len(st.Pending)-i)))
-				break
-			}
-			l = append(l, msBar(r, width, r.Title))
+		rows := st.Pending
+		if len(rows) > msMaxRows {
+			rows = rows[:msMaxRows]
+		}
+		l = append(l, msListRows(rows, width)...)
+		if n := len(st.Pending) - len(rows); n > 0 {
+			l = append(l, dim.Render(fmt.Sprintf("  … %d autre(s)", n)))
 		}
 		return l
 	case MsDone:
