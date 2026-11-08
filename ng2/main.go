@@ -343,6 +343,7 @@ func usageForceCmd() tea.Cmd {
 }
 func usageFetchCmd(sec int) tea.Cmd {
 	return func() tea.Msg {
+		linkUsageCache() // liens du contrat (usage.go), rétablis s'ils ont été remplacés
 		if needsFetch(sec) {
 			fetchUsage(sec)
 		}

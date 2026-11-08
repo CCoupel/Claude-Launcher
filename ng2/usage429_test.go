@@ -11,6 +11,7 @@ import (
 func TestUsage429Backoff(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
 	p := usageCachePath()
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
@@ -47,29 +48,43 @@ func TestLinkUsageCache(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, "shared", ".claude"))
-	old := filepath.Join(home, ".cache", "claude-launcher")
-	_ = os.MkdirAll(old, 0o755)
-	_ = os.WriteFile(filepath.Join(old, "usage.json"), []byte(`{"limits":[]}`), 0o644)
-	_ = os.WriteFile(filepath.Join(old, "usage.json.err"), []byte("x"), 0o644)
+	dir := filepath.Join(home, ".cache", "claude-launcher")
+	_ = os.MkdirAll(filepath.Join(dir, "state"), 0o755)
+	_ = os.WriteFile(filepath.Join(dir, "navwidth"), []byte("40"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "usage.json"), []byte(`{"limits":[]}`), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "usage.json.err"), []byte("trop d’appels"), 0o644)
+	fut := time.Now().Add(10 * time.Minute)
+	_ = os.Chtimes(filepath.Join(dir, "usage.json.err"), fut, fut)
+	_ = os.WriteFile(filepath.Join(dir, "usage.json.wait"), []byte("600"), 0o644)
 	linkUsageCache()
-	if t2, err := os.Readlink(old); err != nil || t2 != sharedUsageDir() {
-		t.Fatalf("lien : %q %v", t2, err)
+	for _, n := range []string{"usage.json", "usage.json.err"} {
+		if l, err := os.Readlink(filepath.Join(dir, n)); err != nil || l != filepath.Join(sharedUsageDir(), n) {
+			t.Errorf("%s : lien %q %v", n, l, err)
+		}
 	}
-	if b, _ := os.ReadFile(filepath.Join(sharedUsageDir(), "usage.json")); !strings.Contains(string(b), "limits") {
-		t.Error("cache existant non repris")
+	if b, _ := os.ReadFile(usageCachePath()); !strings.Contains(string(b), "limits") {
+		t.Error("cache local non repris")
 	}
-	linkUsageCache() // idempotent
-	if t2, _ := os.Readlink(old); t2 != sharedUsageDir() {
-		t.Error("lien perdu")
+	if st, _ := os.Stat(usageCachePath() + ".err"); st == nil || st.ModTime().Before(fut.Add(-time.Second)) {
+		t.Error("attente (date de .err) perdue")
 	}
-	// dossier avec autre chose : intact
-	home2 := t.TempDir()
-	t.Setenv("HOME", home2)
-	other := filepath.Join(home2, ".cache", "claude-launcher")
-	_ = os.MkdirAll(other, 0o755)
-	_ = os.WriteFile(filepath.Join(other, "autre"), nil, 0o644)
+	if b, _ := os.ReadFile(usageCachePath() + ".wait"); string(b) != "600" {
+		t.Error(".wait non repris")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "navwidth")); err != nil {
+		t.Error("autres fichiers touchés")
+	}
+	// le hub écrit dans le commun : le panneau le lit par le lien
+	_ = os.WriteFile(usageCachePath()+".tmp", []byte(`{"limits":[{"kind":"session"}]}`), 0o644)
+	_ = os.Rename(usageCachePath()+".tmp", usageCachePath())
+	if b, _ := os.ReadFile(filepath.Join(dir, "usage.json")); !strings.Contains(string(b), "session") {
+		t.Error("lecture par le lien")
+	}
+	// lien remplacé par un fichier (écriture par remplacement) : rétabli
+	_ = os.Remove(filepath.Join(dir, "usage.json.err"))
+	_ = os.WriteFile(filepath.Join(dir, "usage.json.err"), []byte("x"), 0o644)
 	linkUsageCache()
-	if _, err := os.Readlink(other); err == nil {
-		t.Error("dossier avec d'autres fichiers remplacé")
+	if _, err := os.Readlink(filepath.Join(dir, "usage.json.err")); err != nil {
+		t.Error("lien non rétabli")
 	}
 }
