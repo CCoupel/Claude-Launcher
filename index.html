@@ -150,11 +150,11 @@
   <div class="container">
     <div class="section-header">
       <h2>Vos projets en conteneur</h2>
-      <p>Nouveau en v5 : chaque projet peut tourner dans son propre conteneur, sur votre machine ou ailleurs. La v5.1 ajoute le point d'état, la fermeture d'un Ctrl+clic et les dossiers de build propres au conteneur ; la v5.2, la répartition de la charge sur plusieurs serveurs ou nodes. Claude, ses teammates et les outils du projet y vivent ; le navigateur, les vignettes et la mise en page des teams restent les mêmes.</p>
+      <p>Nouveau en v5 : chaque projet peut tourner dans son propre conteneur, sur votre machine ou ailleurs. La v5.1 ajoute le point d'état, la fermeture d'un Ctrl+clic et les dossiers de build propres au conteneur ; la v5.2, la répartition de la charge sur plusieurs serveurs ou nodes ; la v5.3, des pools de machines partagés entre backends. Claude, ses teammates et les outils du projet y vivent ; le navigateur, les vignettes et la mise en page des teams restent les mêmes.</p>
     </div>
     <div class="features-grid">
       <div class="feature-card"><div class="feature-icon">📦</div><div class="feature-body"><h3>podman ou docker, en local</h3><p>Le conteneur le plus simple : sur la machine du launcher, aux mêmes chemins, <code>/mnt/c</code> compris sous WSL.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🖥️</div><div class="feature-body"><h3>Un démon distant</h3><p>Docker ou le service podman d'un serveur, en direct (<code>host: tcp://…</code>) ou par <code>ssh</code> — ou d'un <strong>groupe de serveurs</strong> (<code>hosts: […]</code>). Projets et config claude sont sur un stockage partagé monté aux mêmes chemins partout.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🖥️</div><div class="feature-body"><h3>Un démon distant</h3><p>Docker ou le service podman d'un serveur, en direct (<code>host: tcp://…</code>) ou par <code>ssh</code> — ou d'un <strong>groupe de serveurs</strong> (<code>hosts: […]</code>, ou un <code>pool:</code> nommé). Projets et config claude sont sur un stockage partagé monté aux mêmes chemins partout.</p></div></div>
       <div class="feature-card"><div class="feature-icon">☸️</div><div class="feature-body"><h3>Kubernetes</h3><p>Un StatefulSet par projet, un PVC ReadWriteMany au même chemin que chez vous (ex. MooseFS). Les pods sont répartis sur les nodes ; sélecteur de nodes, tolérances et ressources se règlent dans <code>backends.yaml</code>. Pod perdu : il est recréé et la conversation vous est proposée à la reprise.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⚙️</div><div class="feature-body"><h3>Bootstrap automatique</h3><p>Image vanilla (Debian, Ubuntu, Rocky, Alpine) : le launcher y installe tmux, git, claude et les paquets du projet déclarés dans <code>.claude-launcher/env.yaml</code>, plus votre propre outillage déclaré une fois pour tous les conteneurs. Rejoué seulement si l'un de ces fichiers change ; ~20 s la première fois.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⌨️</div><div class="feature-body"><h3>Comme en local</h3><p>Le tmux du conteneur s'affiche dans la fenêtre du projet : souris, zoom double-clic, <code>Ctrl+B</code> qui agit dans le conteneur (<code>Ctrl+B Ctrl+B</code> pour le hub), vignettes et teams rangées comme d'habitude.</p></div></div>
@@ -162,7 +162,7 @@
       <div class="feature-card"><div class="feature-icon">🚦</div><div class="feature-body"><h3>Un point qui dit tout</h3><p>Devant chaque projet : rien ne tourne, conteneur prêt sans claude, ouvert ici et piloté, ouvert en lecture seule, piloté par un autre hub, claude qui tourne sans launcher, ou problème. Le tableau ci-dessous les détaille.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⏻</div><div class="feature-body"><h3>Fermer d'un Ctrl+clic</h3><p><code>Ctrl+clic</code> ou <code>Suppr</code> sur un projet, une confirmation, et le launcher envoie <code>/exit</code> à claude, attend sa sortie propre, ferme la team puis arrête le conteneur (k8s : 0 réplique, rien n'est perdu). Un conteneur resté allumé sans claude s'arrête sans question.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🗂️</div><div class="feature-body"><h3>Les builds restent dans le conteneur</h3><p><code>node_modules</code>, <code>.venv</code>… déclarés <code>local:</code> dans <code>env.yaml</code> sont propres au conteneur : rien ne pollue le dossier partagé. <code>watch:</code> rejoue l'installation quand un verrou change, <code>on_start:</code> la vérifie à chaque démarrage.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">⚖️</div><div class="feature-body"><h3>La charge répartie toute seule</h3><p>Donnez plusieurs serveurs à un backend : chaque nouveau projet part sur le moins chargé, puis y reste avec son conteneur. Pas de registre à tenir : le launcher retrouve chaque projet sur son serveur, même ouvert par un autre launcher, et un serveur en panne n'arrête pas les autres. Sur Kubernetes, les pods se répartissent sur les nodes, sans jamais rester bloqués.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⚖️</div><div class="feature-body"><h3>La charge répartie toute seule</h3><p>Donnez plusieurs serveurs à un backend : chaque nouveau projet part sur le moins chargé, puis y reste avec son conteneur. Pas de registre à tenir : le launcher retrouve chaque projet sur son serveur, même ouvert par un autre launcher, et un serveur en panne n'arrête pas les autres. Déclarez vos machines une fois dans un <strong>pool</strong>, partagé par vos backends docker et ssh : la charge de chaque machine compte tous leurs conteneurs, et une ligne <code>drain:</code> met une machine en maintenance sans toucher à ses projets. Sur Kubernetes, les pods se répartissent sur les nodes, sans jamais rester bloqués.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🩺</div><div class="feature-body"><h3>Diagnostic intégré</h3><p>Un backend inutilisable est marqué <code>⚠</code> ; <code>claude-launcher-ng2 backends</code> dit quoi faire : client absent, démon non exposé, accès ssh, stockage partagé non monté, PVC manquant…</p></div></div>
       <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Choisi projet par projet</h3><p>À la création, ou à la première ouverture d'un projet, une étape « Exécution » propose l'hôte ou un conteneur, avec le socle et le backend présélectionnés dans <code>backends.yaml</code>. <code>F2</code> reconfigure un projet fermé.</p></div></div>
     </div>
@@ -182,12 +182,16 @@
         <div class="step-content">
           <h3>Déclarer ses backends — <code>backends.yaml</code></h3>
           <pre><span class="code-cmd">defaults</span>: { backend: podman, image: docker.io/library/ubuntu:24.04 }
+<span class="code-cmd">pools</span>:
+  lan: { hosts: [srv1, srv2, srv3], drain: [srv3] }       <span class="code-comment"># srv3 : plus de nouveaux projets</span>
 <span class="code-cmd">backends</span>:
   podman:      { type: podman }
   srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/share/MFS/ROOT] }
   srv2-ssh:    { type: ssh, host: srv2, engine: podman,        shared: [/share/MFS/ROOT] }
-  docker-pool: { type: docker, shared: [/share/MFS/ROOT],         <span class="code-comment"># groupe : le moins chargé</span>
-                 hosts: [tcp://srv1:2375, tcp://srv2:2375, tcp://srv3:2375] }
+  docker-lan:  { type: docker, pool: lan, host: "tcp://{}:2375",  <span class="code-comment"># la machine la moins chargée</span>
+                 shared: [/share/MFS/ROOT] }
+  ssh-lan:     { type: ssh, pool: lan, host: "cyril@{}",        <span class="code-comment"># même pool : charge commune</span>
+                 engine: podman, shared: [/share/MFS/ROOT] }
   lab:         { type: k8s, context: k8s, namespace: claude,
                  volumes: { /share/MFS/ROOT: claude-shared },  <span class="code-comment"># PVC ReadWriteMany</span>
                  spread: true,                                  <span class="code-comment"># pods répartis sur les nodes (défaut)</span>
