@@ -810,11 +810,11 @@ func (e Engine) cmd(args ...string) *exec.Cmd {
 	return exec.Command(a[0], a[1:]...)
 }
 
-// ctrName : nom (et hostname) du conteneur d'un projet : lisible + empreinte du chemin.
-func ctrName(proj string) string {
-	base := strings.ToLower(filepath.Base(proj))
+// dnsSlug : s réduit à un label DNS (minuscules, chiffres, « - »), au plus max
+// caractères ; def si rien ne reste.
+func dnsSlug(s string, max int, def string) string {
 	var b strings.Builder
-	for _, r := range base {
+	for _, r := range strings.ToLower(s) {
 		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
 			b.WriteRune(r)
 		} else {
@@ -822,28 +822,79 @@ func ctrName(proj string) string {
 		}
 	}
 	n := strings.Trim(b.String(), "-")
-	if len(n) > 30 {
-		n = n[:30]
+	if len(n) > max {
+		n = strings.TrimRight(n[:max], "-")
 	}
-	h := sha256.Sum256([]byte(proj))
-	return "cl-" + n + "-" + hex.EncodeToString(h[:])[:8]
+	if n == "" {
+		n = def
+	}
+	return n
 }
+
+// ctrSlug : nom du projet en label DNS.
+func ctrSlug(proj string) string { return dnsSlug(filepath.Base(proj), 30, "projet") }
+
+// catSlug : catégorie du projet (dossier parent) en label DNS.
+func catSlug(proj string) string { return dnsSlug(filepath.Base(filepath.Dir(proj)), 20, "projets") }
+
+// ctrName : nom du conteneur (et du StatefulSet k8s) d'un projet :
+// « <catégorie>-<projet> ». Deux projets de même catégorie et même nom sous
+// des racines différentes : le second est refusé (label cl.project, cf. ensure).
+func ctrName(proj string) string { return catSlug(proj) + "-" + ctrSlug(proj) }
+
+// legacyCtrName : nom d'avant v5.6 (« cl-<projet>-<empreinte du chemin> »),
+// reconnu pour migrer les conteneurs existants.
+func legacyCtrName(proj string) string {
+	h := sha256.Sum256([]byte(proj))
+	return "cl-" + ctrSlug(proj) + "-" + hex.EncodeToString(h[:])[:8]
+}
+
+// ctrHost : hostname du conteneur d'un projet : le nom du projet.
+func ctrHost(proj string) string { return ctrSlug(proj) }
 
 // stateLocal : "running", "exited", "created"… ou "" si le conteneur n'existe
 // pas ; son image et l'empreinte des dossiers « local » posés à sa création.
 func (e Engine) stateLocal(name string) (status, image, local string) {
-	b, err := e.cmd("inspect", "-f", `{{.State.Status}}|{{index .Config.Labels "cl.image"}}|{{index .Config.Labels "cl.local"}}`, name).Output()
+	c := e.ctrInfo(name)
+	return c.status, c.image, c.local
+}
+
+// ctrState : ce que le launcher lit d'un conteneur (status "" : absent).
+type ctrState struct{ status, image, local, project, host string }
+
+func (e Engine) ctrInfo(name string) ctrState {
+	b, err := e.cmd("inspect", "-f", `{{.State.Status}}|{{index .Config.Labels "cl.image"}}|{{index .Config.Labels "cl.local"}}|{{index .Config.Labels "cl.project"}}|{{.Config.Hostname}}`, name).Output()
 	if err != nil {
-		return "", "", ""
+		return ctrState{}
 	}
-	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 3)
-	for len(f) < 3 {
+	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 5)
+	for len(f) < 5 {
 		f = append(f, "")
 	}
-	if f[2] == "<no value>" {
-		f[2] = ""
+	for i := range f {
+		if f[i] == "<no value>" {
+			f[i] = ""
+		}
 	}
-	return f[0], f[1], f[2]
+	return ctrState{f[0], f[1], f[2], f[3], f[4]}
+}
+
+// migrateLegacy : conteneur au nom d'avant v5.6 → nouveau nom. En marche, il
+// est renommé (sa session continue ; hostname mis à jour à sa prochaine
+// recréation) ; arrêté, il est supprimé et recréé (hostname = nom du projet).
+func (e Engine) migrateLegacy(proj, name string, log io.Writer) {
+	old := legacyCtrName(proj)
+	c := e.ctrInfo(old)
+	switch {
+	case c.status == "":
+	case c.status == "running":
+		if err := e.cmd("rename", old, name).Run(); err == nil {
+			fmt.Fprintf(log, "  conteneur %s renommé %s\n", old, name)
+		}
+	default:
+		fmt.Fprintf(log, "  ancien conteneur %s supprimé : recréé sous le nom %s\n", old, name)
+		_ = e.cmd("rm", "-f", "-v", old).Run()
+	}
 }
 
 // pid1 : processus principal qui ignore tout sauf SIGTERM (arrêt propre, sans --init).
@@ -855,12 +906,24 @@ func (e Engine) ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 		return e.k8sEnsure(proj, env, log)
 	}
 	name := ctrName(proj)
-	status, image, local := e.stateLocal(name)
-	if status != "" && (image != env.Image || local != env.localKey()) {
+	c := e.ctrInfo(name)
+	if c.status == "" {
+		e.migrateLegacy(proj, name, log)
+		c = e.ctrInfo(name)
+	}
+	if c.status != "" && c.project != "" && c.project != proj {
+		return "", fmt.Errorf("nom de conteneur %s déjà pris par le projet %s : renommer la catégorie ou le projet", name, c.project)
+	}
+	status, image, local := c.status, c.image, c.local
+	// hostname d'avant v5.6 : corrigé quand le conteneur est arrêté (jamais en marche)
+	staleHost := status != "" && status != "running" && c.host != ctrHost(proj)
+	if status != "" && (image != env.Image || local != env.localKey() || staleHost) {
 		if image != env.Image {
 			fmt.Fprintf(log, "  image changée (%s → %s) : conteneur recréé\n", image, env.Image)
-		} else {
+		} else if local != env.localKey() {
 			fmt.Fprintf(log, "  dossiers « local » changés : conteneur recréé\n")
+		} else {
+			fmt.Fprintf(log, "  hostname %s → %s : conteneur recréé\n", c.host, ctrHost(proj))
 		}
 		// -v : ses volumes anonymes (dossiers « local ») partent avec lui
 		_ = e.cmd("rm", "-f", "-v", name).Run()
@@ -902,12 +965,9 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	if err := e.checkShared(proj); err != nil {
 		return nil, err
 	}
-	// hostname : « cl- » conteneur local, « clx- » distant — pidSpace.go en déduit
-	// si l'absence du namespace prouve la mort du leader (local) ou rien (distant)
-	host := name
-	if e.b.remote() {
-		host = "clx-" + strings.TrimPrefix(name, "cl-")
-	}
+	// hostname : le nom du projet ; pidspace.go reconnaît un conteneur local
+	// arrêté en le cherchant parmi les conteneurs NG2 des moteurs locaux
+	host := ctrHost(proj)
 	// --mount (et non -v) : échoue si le dossier manque sur la machine du moteur,
 	// au lieu d'y créer un dossier vide (stockage partagé non monté)
 	bind := func(p string, ro bool) string {

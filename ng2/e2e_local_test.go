@@ -78,8 +78,13 @@ func TestE2ELocalWatchOnStart(t *testing.T) {
 	if lines("setup.log") != 1 {
 		t.Fatalf("setup après bootstrap complet : %d", lines("setup.log"))
 	}
-	// local : à l'utilisateur, et masqué (rien n'arrive dans le dossier partagé)
+	// hostname : le projet (conteneur) ; <catégorie>-<projet>-0 (pod de StatefulSet)
 	var out bytes.Buffer
+	if err := e.exec(name, false, nil, &out, "hostname"); err != nil || strings.TrimSpace(out.String()) != map[bool]string{true: "test-demo-local-0", false: "demo-local"}[e.b.k8s()] {
+		t.Errorf("hostname : %q %v", out.String(), err)
+	}
+	out.Reset()
+	// local : à l'utilisateur, et masqué (rien n'arrive dans le dossier partagé)
 	if err := e.exec(name, false, nil, &out, "sh", "-c", "touch node_modules/x && stat -c %u node_modules"); err != nil {
 		t.Fatalf("écriture dans local : %v %s", err, out.String())
 	}

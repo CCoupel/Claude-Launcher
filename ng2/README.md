@@ -387,8 +387,8 @@ backends:
          volumes: { /share/MFS/ROOT: claude-shared } }   # racine partagée → PVC ReadWriteMany
 ```
 
-Un projet = un **StatefulSet** (1 réplique) `clx-<projet>-<empreinte>` ; son pod
-`…-0` monte chaque PVC de `volumes` **au chemin de sa racine**, donc aux mêmes
+Un projet = un **StatefulSet** (1 réplique) `<catégorie>-<projet>` ; son pod
+`<catégorie>-<projet>-0` (aussi son hostname, imposé par le StatefulSet) monte chaque PVC de `volumes` **au chemin de sa racine**, donc aux mêmes
 chemins que sur la machine du launcher (les racines de `volumes` tiennent lieu
 de `shared`). Le pod tourne en root pour le bootstrap ; les commandes
 utilisateur passent par `su` (`kubectl exec` n'a pas de `-u`). Le chemin du
@@ -482,8 +482,21 @@ Le point devant le nom dit, lui, où en est **la session claude** (voir
 
 ### À l'ouverture
 
-1. Le conteneur `cl-<projet>-<empreinte>` est créé (ou démarré), avec les
+1. Le conteneur `<catégorie>-<projet>` (hostname : `<projet>`) est créé (ou démarré), avec les
    labels `cl.launcher=ng2`, `cl.project`, `cl.backend`, `cl.image`, `cl.local` (empreinte des dossiers `local`).
+
+   **Noms (v5.6.0)** : catégorie et projet réduits à des minuscules, chiffres et
+   `-` (20 et 30 caractères au plus), par exemple `CLAUDE_LAUNCHER/Claude-Launcher`
+   → conteneur ou StatefulSet `claude-launcher-claude-launcher`. Le chemin complet,
+   posé à la création (label `cl.project`, annotation `cl.project` sous k8s),
+   départage deux projets de même catégorie et même nom sous des racines
+   différentes : le second est refusé avec un message clair (renommer la
+   catégorie ou le projet). **Migration** des noms d'avant v5.6.0
+   (`cl-<projet>-<empreinte>`, `clx-…`), à l'ouverture du projet : un conteneur
+   en marche est renommé sans coupure, et son hostname est corrigé à sa prochaine
+   ouverture une fois arrêté (recréé, les dossiers `local` repartent à vide) ; un
+   StatefulSet en marche est conservé tel quel, puis recréé sous le nouveau nom à
+   la première ouverture après sa fermeture.
 2. **Bootstrap** (idempotent, rejoué seulement si `env.yaml` ou `env-template.yaml` change) : paquets
    système (`apt`, `dnf`, `apk`, `zypper`), utilisateur aux uid/gid de l'hôte
    avec sudo, **installation de claude**, étapes `setup`. Compter ~20 s la

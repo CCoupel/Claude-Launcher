@@ -32,11 +32,21 @@ func TestTmuxQuote(t *testing.T) {
 func TestCtrName(t *testing.T) {
 	a := ctrName("/mnt/c/PROJETS/PRO/Ansible_SecAgent")
 	b := ctrName("/mnt/c/PROJETS/OTHER/Ansible_SecAgent")
-	if !strings.HasPrefix(a, "cl-ansible-secagent-") || a == b || len(a) > 63 {
+	if a != "pro-ansible-secagent" || b != "other-ansible-secagent" {
 		t.Errorf("ctrName : %q / %q", a, b)
 	}
-	if n := ctrName("/x/" + strings.Repeat("très-long nom ", 10)); len(n) > 63 || strings.Contains(n, " ") {
-		t.Errorf("ctrName long : %q", n)
+	if k8sPod("/share/CLAUDE_LAUNCHER/Claude-Launcher") != "claude-launcher-claude-launcher-0" {
+		t.Errorf("k8sPod : %q", k8sPod("/share/CLAUDE_LAUNCHER/Claude-Launcher"))
+	}
+	// StatefulSet : son nom + « -<hash de révision> » (label du pod) tient en 63
+	if n := ctrName("/" + strings.Repeat("catégorie ", 5) + "/" + strings.Repeat("très-long nom ", 10)); len(n) > 51 || strings.Contains(n, " ") {
+		t.Errorf("ctrName long : %q (%d)", n, len(n))
+	}
+	if l := legacyCtrName("/mnt/c/PROJETS/PRO/Ansible_SecAgent"); !strings.HasPrefix(l, "cl-ansible-secagent-") || len(l) != len("cl-ansible-secagent-")+8 {
+		t.Errorf("legacyCtrName : %q", l)
+	}
+	if l := legacyK8sName("/p/x"); !strings.HasPrefix(l, "clx-x-") {
+		t.Errorf("legacyK8sName : %q", l)
 	}
 }
 
@@ -213,7 +223,7 @@ func TestK8sArgv(t *testing.T) {
 	if r := e.execArgv("clx-p-1-0", false, false, "true"); !strings.Contains(strings.Join(r, " "), "-- sh -c exec su -s /bin/sh") {
 		t.Errorf("exec utilisateur sans tty : %q", r)
 	}
-	if !strings.HasPrefix(k8sPod("/x/Demo Projet"), "clx-demo-projet-") || !strings.HasSuffix(k8sPod("/x/y"), "-0") {
+	if k8sPod("/x/Demo Projet") != "x-demo-projet-0" {
 		t.Errorf("nom de pod : %s", k8sPod("/x/Demo Projet"))
 	}
 	m, err := e.k8sManifest("/share/MFS/ROOT/p", EnvSpec{Image: "debian:12"})
@@ -408,5 +418,43 @@ func TestAssignmentMigration(t *testing.T) {
 	}
 	if _, err := os.Stat(legacy); err != nil {
 		t.Fatal("ancien fichier supprimé")
+	}
+}
+
+// hostname : le nom du projet, pour le conteneur comme pour le pod (k8s)
+func TestCtrHostIsProjectName(t *testing.T) {
+	withHome(t)
+	if h := ctrHost("/mnt/c/PROJETS/PRO/Ansible_SecAgent"); h != "ansible-secagent" {
+		t.Errorf("ctrHost : %q", h)
+	}
+	if h := ctrHost("/x/___"); h != "projet" {
+		t.Errorf("ctrHost vide : %q", h)
+	}
+	if h := ctrHost("/x/" + strings.Repeat("a", 29) + " b"); strings.HasSuffix(h, "-") || len(h) > 30 {
+		t.Errorf("ctrHost tronqué : %q", h)
+	}
+	proj := t.TempDir()
+	e := Engine{BackendConf{Name: "podman", Type: "podman"}}
+	a, err := e.runArgs(ctrName(proj), proj, EnvSpec{Image: "debian:12"})
+	if err != nil || !strings.Contains(strings.Join(a, " "), "--hostname "+ctrHost(proj)+" ") {
+		t.Errorf("runArgs hostname : %v %q", err, a)
+	}
+	k := Engine{BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "ns", Volumes: map[string]string{"/share/MFS/ROOT": "pvc-a"}}}
+	m, err := k.k8sManifest("/share/MFS/ROOT/Mon_Projet", EnvSpec{Image: "debian:12"})
+	if err != nil || !strings.Contains(string(m), `"name":"root-mon-projet"`) {
+		t.Errorf("manifeste : StatefulSet <catégorie>-<projet> attendu : %v %s", err, m)
+	}
+}
+
+// conteneur local arrêté, hostname = nom du projet : reconnu par les moteurs locaux
+func TestLeaderLocalStoppedByProjectHost(t *testing.T) {
+	old := localCtrHosts
+	defer func() { localCtrHosts = old }()
+	localCtrHosts = func() map[string]bool { return map[string]bool{"mon-projet": true} }
+	if leaderAliveIn(42, "mon-projet#pid:[1]") != leaderDead {
+		t.Error("conteneur local arrêté : le leader doit être mort")
+	}
+	if leaderAliveIn(42, "autre-projet#pid:[1]") != leaderUnknown {
+		t.Error("projet inconnu des moteurs locaux : rien à conclure")
 	}
 }

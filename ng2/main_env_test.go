@@ -14,6 +14,8 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("CLAUDE_CONFIG_DIR", d)
+	// pas d'interrogation des vrais moteurs locaux depuis leaderAliveIn
+	localCtrHosts = func() map[string]bool { return nil }
 	code := m.Run()
 	os.RemoveAll(d)
 	os.Exit(code)
