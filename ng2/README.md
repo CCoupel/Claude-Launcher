@@ -620,7 +620,7 @@ revenir) uniquement avec tous les projets fermés.**
   (`!   local : modifié directement sur main`, `↺   session non close (il y a 12 min) : reprise
   proposée à l'ouverture`…). Ligne et légende sont tirées de la même source (`legend.go`).
   La carte **Milestone** de la vue `◈ État` (et l'aperçu) donne le milestone en cours, sa barre
-  d'avancement (issues fermées / total), ses issues ouvertes par phase et les bloquées ; sans milestone
+  d'avancement (issues fermées / total ; elle prend la largeur du pane, de 10 à 40 cellules), ses issues ouvertes par phase et les bloquées ; sans milestone
   en cours, la liste des milestones ouverts avec leur avancement. Trois appels `gh` par projet (ceux du
   panneau : milestones, issues ouvertes ; plus les PR ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
   `~/.cache/claude-launcher-ng2/milestones-v2.json`.

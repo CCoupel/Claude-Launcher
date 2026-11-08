@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/charmbracelet/lipgloss"
 	"reflect"
 	"strings"
 	"testing"
@@ -71,7 +72,7 @@ func TestMilestoneState(t *testing.T) {
 	if !reflect.DeepEqual(st.Phases, want) || st.Blocked != 1 || st.Open != 4 || st.Closed != 6 {
 		t.Errorf("détail : %+v", st)
 	}
-	if l := strings.Join(msLines(st), "\n"); !strings.Contains(l, "60%") || !strings.Contains(l, "6/10") || !strings.Contains(l, "pret 2") {
+	if l := strings.Join(msLines(st, 40), "\n"); !strings.Contains(l, "60%") || !strings.Contains(l, "6/10") || !strings.Contains(l, "pret 2") {
 		t.Errorf("msLines=%q", l)
 	}
 
@@ -110,5 +111,28 @@ func TestPRIndicator(t *testing.T) {
 	ins := badgeIndicators(projInfo{ms: MsState{Kind: MsWorking, PRs: 2}})
 	if len(ins) != 2 || ins[0].icon != "⚑" || ins[1].icon != "⇄2" {
 		t.Errorf("ordre des badges=%+v", ins)
+	}
+}
+
+// Barres d'avancement : à la largeur du pane (10 à 40 cellules), sans la dépasser.
+func TestMsBarWidth(t *testing.T) {
+	cells := func(s string) int { return strings.Count(s, "█") + strings.Count(s, "░") }
+	r := MsRow{Open: 2, Closed: 0}
+	for _, c := range []struct {
+		width int
+		title string
+		want  int
+	}{{52, "v5.4.1", 36}, {120, "v5.4.1", 40}, {30, "", 21}, {20, "un titre très long", 10}} {
+		b := msBar(r, c.width, c.title)
+		if n := cells(b); n != c.want {
+			t.Errorf("largeur %d, titre %q : %d cellules, attendu %d", c.width, c.title, n, c.want)
+		}
+		if c.want > msBarMin && lipgloss.Width(b) > c.width {
+			t.Errorf("largeur %d dépassée : %d", c.width, lipgloss.Width(b))
+		}
+	}
+	idle := MsState{Kind: MsIdle, Pending: []MsRow{{Title: "v5.4.1", Open: 2}}}
+	if l := msLines(idle, 52); cells(l[1]) != 36 {
+		t.Errorf("liste des milestones : %q", l[1])
 	}
 }

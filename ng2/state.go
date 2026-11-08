@@ -246,7 +246,7 @@ func (m stateModel) topCards() string {
 		pl = append(pl, kv("dernier", shorten(d.LastMsg, w-16)))
 	}
 	sb.WriteString(m.card("Projet", strings.Join(pl, "\n"), w) + "\n")
-	if l := msLines(m.ms); l != nil {
+	if l := msLines(m.ms, inner); l != nil {
 		title := "Milestone"
 		if !m.ms.At.IsZero() {
 			title += " · lu " + ageText(m.ms.At)

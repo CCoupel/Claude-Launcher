@@ -1236,7 +1236,7 @@ func (m model) renderPreview(w int) string {
 		sb.WriteString("\n" + dim.Render("         ") + "release " + orNone(d.VerRelease))
 		sb.WriteString("\n" + dim.Render("dernier  ") + shorten(d.LastMsg, w-9) + "\n")
 	}
-	if l := msLines(p.ms); len(l) > 1 {
+	if l := msLines(p.ms, w); len(l) > 1 {
 		sb.WriteString("\n" + truncLines(strings.Join(l[1:], "\n"), w) + "\n")
 	}
 	return sb.String()
