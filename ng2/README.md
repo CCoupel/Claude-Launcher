@@ -658,9 +658,11 @@ revenir) uniquement avec tous les projets fermés.**
   [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet.
   Badge milestone `⚑` (projets GitHub), calculé avec **la règle du panneau milestone des projets**
   (`skills/milestone-panel`), pour que launcher et projet ouvert soient d'accord : **jaune** = milestone
-  en cours (le premier ouvert, par échéance puis version, ayant une issue ouverte avec un label de phase
-  `PLANNING`…`DONE`) ; **orange** = à défaut, un milestone ouvert dont toutes les issues sont fermées (à
-  publier) ; **gris** = des milestones ouverts mais aucun en cours (le panneau : « Aucun milestone en
+  en cours : le milestone ouvert portant une **due date** (posée par MILESTONE START, la plus ancienne) ;
+  sans aucune due date (convention antérieure), le premier par version ayant une issue ouverte dans une
+  phase `PRET`…`DONE` — des issues en `PLANNING` seules ne démarrent pas un milestone (v5.6.1) ;
+  **orange** = le milestone daté a toutes ses issues fermées (ou, sans due date, à défaut un milestone
+  ouvert dont toutes les issues sont fermées) : à publier, jusqu'à sa clôture ; **gris** = des milestones ouverts mais aucun en cours (le panneau : « Aucun milestone en
   cours ») ; **vert** = plus rien d'ouvert, dernier milestone clos (publié) ; rien sans milestone.
   Badge PR `⇄N` (violet, projets GitHub) : N pull requests ouvertes en attente (`gh pr list --state
   open`, brouillons compris ; la légende précise « dont N brouillon(s) ») ; rien sans PR ouverte.
