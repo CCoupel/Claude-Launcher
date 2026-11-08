@@ -18,8 +18,22 @@ const usageURL = "https://api.anthropic.com/api/oauth/usage"
 
 // Contrat avec le template : le panneau milestone des projets lit (et alimente)
 // ~/.cache/claude-launcher/usage.json (et usage.json.err) — chemin partagé avec
-// le launcher v4, PAS dans le cache propre à NG2. Seul ce fichier y reste.
-func usageCachePath() string {
+// le launcher v4, PAS dans le cache propre à NG2.
+//
+// Ce chemin n'est commun qu'à une même machine : le $HOME d'un conteneur lui est
+// propre, si bien que le panneau de chaque projet en conteneur appelait
+// l'endpoint de son côté, sans voir le cache ni les 429 des autres (appels
+// cumulés → 429 sans fin). Le vrai cache est donc dans la config claude
+// (sharedUsageDir), montée au même chemin dans tous les conteneurs et propre au
+// compte, comme l'endpoint :
+//   - le hub y lit et écrit directement ;
+//   - sur la machine du hub, ~/.cache/claude-launcher garde ses autres fichiers
+//     (v4, état…) : seuls usage.json et usage.json.err y deviennent des liens ;
+//   - dans un conteneur, le dossier entier devient un lien (linkUsageScript).
+// Template inchangé : il suit les liens.
+
+// legacyUsagePath : ~/.cache/claude-launcher/usage.json (chemin du contrat).
+func legacyUsagePath() string {
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {
 		home, _ := os.UserHomeDir()
@@ -28,47 +42,49 @@ func usageCachePath() string {
 	return filepath.Join(base, "claude-launcher", "usage.json")
 }
 
-// ── Cache partagé entre hubs et conteneurs ─────────────────────────────────
-//
-// ~/.cache/claude-launcher n'est partagé que sur une même machine : le $HOME d'un
-// conteneur lui est propre, si bien que le panneau milestone de chaque projet en
-// conteneur appelait l'endpoint de son côté, sans voir le cache ni les 429 des
-// autres (appels cumulés → 429 sans fin). Le dossier devient un lien vers
-// <config claude>/claude-launcher-cache : la config claude est montée au même
-// chemin dans tous les conteneurs, et l'endpoint est propre au compte, donc à
-// cette config. Template inchangé (il suit le lien).
-
 // sharedUsageDir : dossier du cache de consommation commun à tous.
 func sharedUsageDir() string { return filepath.Join(claudeDir(), "claude-launcher-cache") }
 
-// linkUsageCache : ~/.cache/claude-launcher → sharedUsageDir (sur la machine du
-// hub). Un dossier existant n'est remplacé que s'il ne contient que le cache de
-// consommation (usage.json*).
+// usageCachePath : cache lu et écrit par le hub (commun).
+func usageCachePath() string { return filepath.Join(sharedUsageDir(), "usage.json") }
+
+// linkUsageCache : sur la machine du hub, usage.json et usage.json.err de
+// ~/.cache/claude-launcher deviennent des liens vers le cache commun (un
+// usage.json local plus récent y est d'abord copié). Rejoué à chaque relevé :
+// une écriture du panneau par remplacement de fichier casserait le lien.
 func linkUsageCache() {
-	link := filepath.Dir(usageCachePath())
+	dir := filepath.Dir(legacyUsagePath())
 	target := sharedUsageDir()
 	if os.MkdirAll(target, 0o755) != nil {
 		return
 	}
-	if t, err := os.Readlink(link); err == nil {
-		if t == target {
-			return
+	if t, err := os.Readlink(dir); err == nil && t == target {
+		return // dossier entier déjà lié
+	}
+	if os.MkdirAll(dir, 0o755) != nil {
+		return
+	}
+	for _, n := range []string{"usage.json", "usage.json.err", "usage.json.wait"} {
+		l, t := filepath.Join(dir, n), filepath.Join(target, n)
+		if cur, err := os.Readlink(l); err == nil && cur == t {
+			continue
 		}
-		_ = os.Remove(link)
-	} else if es, err := os.ReadDir(link); err == nil {
-		for _, e := range es {
-			if !strings.HasPrefix(e.Name(), "usage.json") {
-				return // autre chose que le cache : on n'y touche pas
+		// fichier local (avant la v5.4.1) plus récent que le commun : copié, date
+		// comprise (celle de .err porte l'attente après un 429) — copie et non
+		// rename : disque local → stockage partagé
+		if ls, err := os.Lstat(l); err == nil && ls.Mode().IsRegular() {
+			if ts, err := os.Stat(t); err != nil || ls.ModTime().After(ts.ModTime()) {
+				if b, err := os.ReadFile(l); err == nil && os.WriteFile(t+".tmp", b, 0o644) == nil {
+					_ = os.Rename(t+".tmp", t)
+					_ = os.Chtimes(t, ls.ModTime(), ls.ModTime())
+				}
 			}
 		}
-		// données encore utiles : reprises si le cache commun n'en a pas
-		if _, err := os.Stat(filepath.Join(target, "usage.json")); err != nil {
-			_ = os.Rename(filepath.Join(link, "usage.json"), filepath.Join(target, "usage.json"))
+		_ = os.Remove(l)
+		if n != "usage.json.wait" { // .wait : propre au launcher, pas de lien
+			_ = os.Symlink(t, l)
 		}
-		_ = os.RemoveAll(link)
 	}
-	_ = os.MkdirAll(filepath.Dir(link), 0o755)
-	_ = os.Symlink(target, link)
 }
 
 // linkUsageScript : même lien, dans un conteneur (en utilisateur, à chaque ouverture).

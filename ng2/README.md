@@ -559,13 +559,21 @@ réécrit par remplacement). Au premier conteneur, ce fichier est **copié** dep
 
 ### Consommation du compte : un seul cache pour tous
 
-Le panneau milestone des projets et le hub lisent la consommation du compte dans
-`~/.cache/claude-launcher/usage.json`. Ce dossier est un **lien** vers
-`<config claude>/claude-launcher-cache` (la config claude, `CLAUDE_CONFIG_DIR`, est
-montée au même chemin dans tous les conteneurs, locaux ou distants) : le lien est posé
-au démarrage du hub et à chaque ouverture d'un projet en conteneur. Hubs et
-conteneurs partagent ainsi le cache **et** les échecs : l'endpoint n'est appelé qu'une
-fois par intervalle (`USAGE_REFRESH_SEC`, 120 s par défaut) pour tout le monde.
+Le cache de la consommation du compte est dans `<config claude>/claude-launcher-cache/`
+(la config claude, `CLAUDE_CONFIG_DIR`, est montée au même chemin dans tous les
+conteneurs, locaux ou distants, et l'endpoint est propre au compte) :
+
+- le **hub** y lit et écrit directement ;
+- le **panneau milestone** des projets lit `~/.cache/claude-launcher/usage.json` :
+  - sur la machine du hub, `usage.json` et `usage.json.err` de ce dossier sont des
+    **liens** vers le cache commun (le reste du dossier n'est pas touché) ; ils sont
+    posés au démarrage et rétablis à chaque relevé ;
+  - dans un conteneur, le dossier entier est un lien, posé à chaque ouverture du projet.
+
+Hubs et conteneurs partagent ainsi le cache **et** les échecs : l'endpoint n'est appelé
+qu'une fois par intervalle (`USAGE_REFRESH_SEC`, 120 s par défaut) pour tout le monde.
+Un projet en conteneur ouvert avant la v5.4 garde son propre cache jusqu'à sa
+réouverture (détacher puis Entrée).
 
 Après un refus pour excès d'appels (HTTP 429), plus personne n'appelle avant la fin
 de l'attente : `Retry-After` s'il est donné, sinon 5 min, puis 10, 20 et 30 au plus
