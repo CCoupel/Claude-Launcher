@@ -155,6 +155,27 @@ prefer: podman                       # backend proposé par défaut (facultatif)
 Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
 l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
 
+#### Environnement fourni par le template : `env-template.yaml` (v5.5.0)
+
+Deux fichiers versionnés, chacun avec **un seul propriétaire** :
+
+| Fichier | Propriétaire | Écriture |
+|---|---|---|
+| `.claude-launcher/env-template.yaml` | le template (`/init-project`), selon la stack | réécrit entièrement à chaque passage : ne pas le modifier |
+| `.claude-launcher/env.yaml` | le projet | à la main ; le launcher n'y touche que pour `image:` (F2) |
+
+L'un des deux suffit. NG2 les fusionne (après le bootstrap du launcher, ci-dessous) :
+
+- `image`, `prefer` : ceux d'`env.yaml` l'emportent ; `prefer` est refusé dans
+  `env-template.yaml` (choix du backend, propre au projet) ;
+- `packages`, `packages_by_manager`, `watch`, `local` : réunis ;
+- `setup`, `on_start` : étapes du template, puis celles du projet ;
+- `mounts` : réunis par `path`, le `ro` d'`env.yaml` l'emporte.
+
+Un projet n'enlève rien au template. Toute modification de l'un ou l'autre fichier
+rejoue le bootstrap : les étapes doivent pouvoir être rejouées. Un `env.yaml` seul
+se lit exactement comme avant (empreinte inchangée, conteneur non recréé).
+
 #### Bootstrap du launcher : `env.yaml` à côté de `backends.yaml`
 
 Ce qui sert à **vous** plutôt qu'à un projet (statusline, hooks, outils de
@@ -212,7 +233,8 @@ Les étapes `setup` et `on_start` tournent en utilisateur, dans le projet, avec
 
 Le formulaire **Exécution** propose `0 hôte` puis les socles (`↑↓` ou un
 chiffre), et le backend conteneur (`←→`). Choisir un socle écrit un
-`env.yaml` minimal et commenté (ou change sa ligne `image:` s'il existe) et
+`env.yaml` minimal et commenté (ou change sa ligne `image:` s'il existe ; rien
+n'est écrit si `env-template.yaml` fournit déjà ce socle) et
 affecte le projet à ce backend ; `0 hôte` le remet sur l'OS (l'`env.yaml` est
 gardé). Il s'ouvre :
 
@@ -225,7 +247,8 @@ gardé). Il s'ouvre :
 
 Un projet configuré se lance **uniquement** sur son backend : pour le lancer
 ailleurs, le reconfigurer par F2. Si sa configuration n'est plus valable
-(backend retiré de `backends.yaml`, `env.yaml` absent ou illisible), il est
+(backend retiré de `backends.yaml`, `env.yaml` et `env-template.yaml` absents,
+ou l'un d'eux illisible), il est
 marqué `⚠` et son ouverture est refusée — jamais de repli sur l'hôte.
 
 Le mode et le socle **présélectionnés** se règlent dans `backends.yaml` :
@@ -447,7 +470,7 @@ L'affectation (y compris « hôte ») est mémorisée dans `projects.json`, à c
 
 | Icône | Signification |
 |---|---|
-| `⬡` gris | `env.yaml` présent, projet sur l'hôte (ou conteneur pas encore créé) |
+| `⬡` gris | `env.yaml` ou `env-template.yaml` présent, projet sur l'hôte (ou conteneur pas encore créé) |
 | `⬢` cyan | conteneur en marche |
 | `⬢` gris | conteneur arrêté (redémarré à l'ouverture) |
 
@@ -458,7 +481,7 @@ Le point devant le nom dit, lui, où en est **la session claude** (voir
 
 1. Le conteneur `cl-<projet>-<empreinte>` est créé (ou démarré), avec les
    labels `cl.launcher=ng2`, `cl.project`, `cl.backend`, `cl.image`, `cl.local` (empreinte des dossiers `local`).
-2. **Bootstrap** (idempotent, rejoué seulement si `env.yaml` change) : paquets
+2. **Bootstrap** (idempotent, rejoué seulement si `env.yaml` ou `env-template.yaml` change) : paquets
    système (`apt`, `dnf`, `apk`, `zypper`), utilisateur aux uid/gid de l'hôte
    avec sudo, **installation de claude**, étapes `setup`. Compter ~20 s la
    première fois (image en cache), une fraction de seconde ensuite. Si seul un

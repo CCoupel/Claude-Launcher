@@ -159,11 +159,12 @@ dans les conteneurs locaux) : le launcher est le seul à appeler l'endpoint tant
 
 ## Projets en conteneur
 
-Trois fichiers :
+Quatre fichiers :
 
 | Fichier | Contenu |
 |---|---|
-| `<projet>/.claude-launcher/env.yaml` (versionné) | ce dont le projet a besoin : `image` (le socle), `packages`, `setup`, `mounts` |
+| `<projet>/.claude-launcher/env-template.yaml` (versionné, écrit par le template) | l'environnement de la stack, réécrit par `/init-project` (v5.5.0) |
+| `<projet>/.claude-launcher/env.yaml` (versionné) | ce dont le projet a besoin en plus : `image` (le socle), `packages`, `setup`, `mounts`… — fusionné après le template, son `image` l'emporte |
 | `~/.config/claude-launcher-ng2/backends.yaml` (machine) | où l'on peut l'exécuter, et les **défauts** présélectionnés (`defaults: { backend, image }`, `images:`) |
 | `projects.json`, à côté de `backends.yaml` (dossier de config, partagé en mode portable) | l'affectation de chaque projet (hôte ou backend), choisie à la création, à la 1re ouverture ou par F2, commune à tous les hubs depuis la v5.4.3 (l'ancien `~/.local/state/claude-launcher-ng2/projects.json` est repris une fois) |
 

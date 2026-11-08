@@ -31,7 +31,7 @@ type projInfo struct {
 	ms        MsState
 	sess      Resumable
 	hasSess   bool
-	hasEnv    bool      // .claude-launcher/env.yaml présent
+	hasEnv    bool      // env.yaml ou env-template.yaml présent
 	backend   string    // backend affecté (host par défaut)
 	ctr       Found     // conteneur du projet
 	ctrKnown  bool      // … s'il existe
