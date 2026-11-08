@@ -35,6 +35,7 @@ func TestLoginAlerte(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	_ = os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
 	if u := readUsage(); u.Expired || !u.LoginBy.IsZero() {
 		t.Fatal("sans identifiants : rien à signaler")
@@ -55,5 +56,21 @@ func TestLoginAlerte(t *testing.T) {
 	write(-time.Minute)
 	if u := readUsage(); !u.Expired {
 		t.Fatal("connexion expirée : alerte rouge attendue")
+	}
+}
+
+// Les identifiants sont ceux de la config claude (CLAUDE_CONFIG_DIR), pas un
+// éventuel ancien ~/.claude/.credentials.json (jeton périmé → 429 sans fin).
+func TestCredentialsDansConfigClaude(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfg := filepath.Join(home, "shared", ".claude")
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if got, want := credentialsPath(), filepath.Join(cfg, ".credentials.json"); got != want {
+		t.Fatalf("credentialsPath = %s, attendu %s", got, want)
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	if got, want := credentialsPath(), filepath.Join(home, ".claude", ".credentials.json"); got != want {
+		t.Fatalf("sans CLAUDE_CONFIG_DIR : %s, attendu %s", got, want)
 	}
 }

@@ -231,10 +231,11 @@ func readUsage() Usage {
 	return u
 }
 
-func credentialsPath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".claude", ".credentials.json")
-}
+// credentialsPath : identifiants de claude, dans SA config (CLAUDE_CONFIG_DIR
+// si défini) — pas ~/.claude, qui peut garder un ancien jeton (connexion
+// d'avant la migration de la config) : le hub interrogeait alors l'endpoint
+// avec un autre jeton que les sessions claude, refusé en 429 sans fin.
+func credentialsPath() string { return filepath.Join(claudeDir(), ".credentials.json") }
 
 // needsFetch applique la politique du bash : pas d'appel si le cache est frais
 // (< 1,5 × intervalle) ou si un échec récent suspend les appels.
