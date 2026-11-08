@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -182,6 +183,74 @@ func httpGet(url string, timeout time.Duration) ([]byte, error) {
 	return io.ReadAll(resp.Body)
 }
 
+// releaseGet : fichier de release. Le lien direct (github.com/…/releases/download)
+// peut répondre 5xx pour certains fichiers alors que l'API les sert (vu en v5.3.0 :
+// 504 constant) : un nouvel essai, puis l'API (releases/tags/<tag> → assets/<id>).
+func releaseGet(url string, timeout time.Duration) ([]byte, error) {
+	b, err := httpGet(url, timeout)
+	if err == nil || !retryable(err) {
+		return b, err
+	}
+	time.Sleep(releaseRetryWait)
+	if b, err = httpGet(url, timeout); err == nil || !retryable(err) {
+		return b, err
+	}
+	if !strings.HasPrefix(url, releaseBase+"/") {
+		return nil, err
+	}
+	rest := strings.SplitN(strings.TrimPrefix(url, releaseBase+"/"), "/", 2) // <tag>/<nom>
+	if len(rest) != 2 {
+		return nil, err
+	}
+	b, err2 := apiAsset(rest[0], rest[1], timeout)
+	if err2 != nil {
+		return nil, fmt.Errorf("%v ; par l'API : %v", err, err2)
+	}
+	return b, nil
+}
+
+var releaseRetryWait = 2 * time.Second
+
+// retryable : erreur réseau ou réponse 5xx (pas un 404 : fichier absent).
+func retryable(err error) bool {
+	m := err.Error()
+	return !strings.HasPrefix(m, "HTTP ") || strings.HasPrefix(m, "HTTP 5")
+}
+
+// apiAsset : fichier name de la release tag, par l'API GitHub.
+func apiAsset(tag, name string, timeout time.Duration) ([]byte, error) {
+	b, err := httpGet(apiBase+"/repos/"+launcherRepo+"/releases/tags/"+tag, 10*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	var rel struct {
+		Assets []struct {
+			ID   int64  `json:"id"`
+			Name string `json:"name"`
+		} `json:"assets"`
+	}
+	if err := json.Unmarshal(b, &rel); err != nil {
+		return nil, err
+	}
+	for _, a := range rel.Assets {
+		if a.Name == name {
+			req, _ := http.NewRequest("GET", fmt.Sprintf("%s/repos/%s/releases/assets/%d", apiBase, launcherRepo, a.ID), nil)
+			req.Header.Set("Accept", "application/octet-stream")
+			req.Header.Set("User-Agent", "Claude-Launcher-NG")
+			resp, err := (&http.Client{Timeout: timeout}).Do(req)
+			if err != nil {
+				return nil, err
+			}
+			defer resp.Body.Close()
+			if resp.StatusCode != 200 {
+				return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+			}
+			return io.ReadAll(resp.Body)
+		}
+	}
+	return nil, fmt.Errorf("%s absent de la release %s", name, tag)
+}
+
 // releaseReady : la release est-elle téléchargeable ? Le tag existe dès le push,
 // les fichiers seulement à la fin de la CI.
 func releaseReady(base string) bool {
@@ -192,7 +261,7 @@ func releaseReady(base string) bool {
 
 // fetchSums : « <sha256>  <nom> » par ligne (format de sha256sum).
 func fetchSums(url string) (map[string]string, error) {
-	b, err := httpGet(url, 10*time.Second)
+	b, err := releaseGet(url, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("SHA256SUMS : %w", err)
 	}
@@ -211,7 +280,7 @@ func replaceVerified(base, name string, sums map[string]string, dst string) erro
 	if !ok {
 		return fmt.Errorf("%s absent de SHA256SUMS", name)
 	}
-	body, err := httpGet(base+"/"+name, 2*time.Minute)
+	body, err := releaseGet(base+"/"+name, 2*time.Minute)
 	if err != nil {
 		return fmt.Errorf("%s : %w", name, err)
 	}
