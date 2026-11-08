@@ -60,7 +60,8 @@ Un navigateur de projets à gauche, tmux à droite :
 | `Ctrl+B R` dans un projet | remettre en ordre les panes de la team |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; à nouveau pour revenir |
 | dans un projet en conteneur | `Ctrl+B` + touche agit dans le conteneur ; `Ctrl+B Ctrl+B` + touche = préfixe du hub |
-| clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version (projets conservés) |
+| clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version, déjà téléchargée et contrôlée (projets conservés) |
+| clic sur `↑ NG … réessayer` (jaune) | relancer tout de suite le téléchargement de la nouvelle version |
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | fenêtre `login` qui lance `claude /login` |

@@ -45,7 +45,7 @@ type (
 	updMsg     struct {
 		ok            bool
 		launcherTag   string
-		launcherReady bool   // fichiers de release (SHA256SUMS) disponibles
+		launcherReady bool   // release publiée (SHA256SUMS et binaire listés par l'API)
 		tplTag        string // tag du template plus récent que le cache, pas encore adopté
 		tplSha        string
 		tplReady      bool // release du template publiée : adoptable d'un clic
@@ -189,7 +189,7 @@ func checkUpdates(manual bool) tea.Cmd {
 		if tag, _, err := latestTag(launcherRepo, "CL_FAKE_LATEST_LAUNCHER"); err == nil {
 			out.launcherTag, out.ok = tag, true
 			if versionNewer(ngVersion, tag) {
-				out.launcherReady = releaseReady(releaseBase + "/" + tag)
+				out.launcherReady = releasePublished(tag)
 			}
 		}
 		if tag, sha, err := tplTag(); err == nil {

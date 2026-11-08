@@ -73,7 +73,15 @@ type model struct {
 	closeCh      chan closeMsg     // avancement des fermetures
 	tplVer       string
 	newLauncher  string
-	launcherOK   bool // release du NG publiée : installable
+	launcherPub  bool // release du NG publiée (jaune : en préparation)
+	launcherOK   bool // binaire préparé et contrôlé (vert : un clic l'installe), prefetch.go
+	prefTag      string
+	prefStep     string // étape en cours (stepText)
+	prefErr      string // raison courte du dernier échec (nouvel essai à la vérification suivante)
+	prefBusy     bool
+	prefFile     string // binaire préparé, dans le dossier temporaire
+	prefSum      string
+	prefCh       chan tea.Msg
 	newTpl       string
 	tplSha       string
 	tplOK        bool // release du template publiée : adoptable
@@ -388,16 +396,24 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case updTickMsg:
 		return m, checkUpdates(false)
 	case updMsg:
+		var prepCmd tea.Cmd
 		if msg.ok {
 			tag := ""
 			if versionNewer(ngVersion, msg.launcherTag) {
 				tag = msg.launcherTag
 			}
 			// annonce masquée : réaffichée pour un nouveau tag ou quand sa release sort
-			if tag != m.newLauncher || msg.launcherReady != m.launcherOK {
+			if tag != m.newLauncher || msg.launcherReady != m.launcherPub {
 				m.hideLauncher = false
 			}
-			m.newLauncher, m.launcherOK = tag, msg.launcherReady
+			if tag != m.newLauncher {
+				m.launcherOK, m.prefFile, m.prefErr = false, "", ""
+			}
+			m.newLauncher, m.launcherPub = tag, msg.launcherReady
+			// publiée : préparer (télécharger et contrôler) ; nouvel essai après un échec
+			if tag != "" && m.launcherPub && !m.launcherOK && !(m.prefBusy && m.prefTag == tag) {
+				prepCmd = m.startPrefetch(tag)
+			}
 			if msg.tplTag != m.newTpl || msg.tplReady != m.tplOK {
 				m.hideTpl = false
 			}
@@ -416,13 +432,29 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			default:
 				m.msg = "✓ NG à jour"
 			}
-			return m, nil
+			return m, prepCmd
 		}
 		// release attendue : revérifie plus souvent pour passer au vert
 		if (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK) {
-			return m, updTickCmd(2 * time.Minute)
+			return m, tea.Batch(prepCmd, updTickCmd(2*time.Minute))
 		}
-		return m, updTickCmd(10 * time.Minute)
+		return m, tea.Batch(prepCmd, updTickCmd(10*time.Minute))
+	case prefStepMsg:
+		if msg.tag == m.prefTag {
+			m.prefStep = msg.step
+		}
+		return m, waitPref(m.prefCh)
+	case prefDoneMsg:
+		if msg.tag == m.prefTag {
+			m.prefBusy = false
+			if msg.err != nil {
+				m.prefErr = shortReason(msg.err)
+			} else if msg.tag == m.newLauncher {
+				m.launcherOK, m.prefFile, m.prefSum, m.prefErr = true, msg.path, msg.sum, ""
+				m.hideLauncher = false
+			}
+		}
+		return m, nil
 	case tplAdoptedMsg:
 		if m.newTpl == msg.tag {
 			m.newTpl, m.tplSha, m.tplOK = "", "", false
@@ -503,6 +535,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return mm, tea.Batch(cmd, mm.detailCmd(), mm.stateCmd())
 	case updDoneMsg:
 		m.updating = false
+		if msg.stale && m.newLauncher != "" {
+			m.launcherOK, m.prefFile = false, ""
+			m.msg = "⚠ mise à jour : " + msg.err.Error()
+			return m, m.startPrefetch(m.newLauncher)
+		}
 		switch {
 		case msg.err != nil:
 			m.msg = "⚠ mise à jour : " + msg.err.Error()
@@ -641,7 +678,9 @@ func (m model) onMouse(e tea.MouseMsg) model {
 				m.dismissAlert(a)
 			case a == "launcher" && m.launcherOK && !m.updating:
 				m.updating, m.msg = true, ""
-				m.pendingCmd = updateNowCmd(m.newLauncher)
+				m.pendingCmd = installPreparedCmd(m.newLauncher, m.prefFile, m.prefSum)
+			case a == "launcher" && m.launcherPub && !m.prefBusy && m.prefErr != "":
+				m.pendingCmd = m.startPrefetch(m.newLauncher) // jaune en échec : réessayer
 			case a == "template" && m.tplOK:
 				m.pendingCmd = adoptTplCmd(m.newTpl, m.tplSha)
 			}
@@ -1219,6 +1258,8 @@ func (m model) versionLines() string {
 			s += "\n" + green.Render(m.alertText(a))
 		case (a == "launcher" && m.launcherOK) || (a == "template" && m.tplOK):
 			s += "\n" + green.Render(m.alertText(a)) + dim.Render(" ✕")
+		case a == "launcher" && m.launcherPub:
+			s += "\n" + yellow.Render(m.alertText(a)) + dim.Render(" ✕")
 		default:
 			s += "\n" + orange.Render(m.alertText(a)) + dim.Render(" ✕")
 		}
@@ -1232,13 +1273,22 @@ func (m model) alertText(a string) string {
 	if a == "template" {
 		name, tag, ok = "tpl", m.newTpl, m.tplOK
 	}
+	wide := m.w >= 70
 	switch {
 	case a == "launcher" && m.updating:
-		return "  ↑ NG " + tag + " : mise à jour…"
+		return "  ↑ NG " + tag + " : installation…"
 	case ok:
 		return "  ↑ " + name + " " + tag + " · cliquer pour installer"
+	case a == "launcher" && m.launcherPub && m.prefBusy:
+		return "  ↑ NG " + tag + " · " + stepText(m.prefStep, wide)
+	case a == "launcher" && m.launcherPub && m.prefErr != "" && wide:
+		return "  ↑ NG " + tag + " · disponible mais inaccessible (" + m.prefErr + ") · cliquer pour réessayer"
+	case a == "launcher" && m.launcherPub && m.prefErr != "":
+		return "  ↑ NG " + tag + " · " + m.prefErr + " · réessayer"
+	case a == "launcher" && m.launcherPub:
+		return "  ↑ NG " + tag + " · " + stepText("start", wide)
 	default:
-		return "  ↑ " + name + " " + tag + " · mise à jour bientôt prête"
+		return "  ↑ " + name + " " + tag + " · nouvelle version en préparation"
 	}
 }
 

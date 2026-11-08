@@ -15,8 +15,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	tea "github.com/charmbracelet/bubbletea"
 )
 
 // Mise à jour automatique au lancement (« shell ») : si la dernière release est
@@ -107,21 +105,7 @@ type updDoneMsg struct {
 	tag     string
 	binDone bool
 	err     error
-}
-
-// updateNowCmd : mise à jour lancée d'un clic sur l'annonce « ↑ NG … disponible ».
-func updateNowCmd(tag string) tea.Cmd {
-	return func() tea.Msg {
-		if !releaseVerRe.MatchString(ngVersion) {
-			return updDoneMsg{tag: tag, err: fmt.Errorf("binaire de dev (%s) : non remplacé", ngVersion)}
-		}
-		_, bin, script := updateTargets(tag)
-		if bin == "" && script == "" {
-			return updDoneMsg{tag: tag}
-		}
-		binDone, _, err := applyUpdate(releaseBase+"/"+tag, bin, script)
-		return updDoneMsg{tag: tag, binDone: binDone, err: err}
-	}
+	stale   bool // binaire préparé disparu ou modifié : à repréparer
 }
 
 // restartOnNewBinary : après une mise à jour depuis le navigateur, relance le
@@ -170,8 +154,19 @@ func applyUpdate(base, bin, script string) (binDone, scriptDone bool, err error)
 }
 
 func httpGet(url string, timeout time.Duration) ([]byte, error) {
+	return httpGetP(url, timeout, "", nil)
+}
+
+// progress : octets reçus, taille totale (≤ 0 : inconnue) ; (-1, -1) : passage par l'API.
+type progress func(n, total int64)
+
+// httpGetP : GET avec en-tête Accept facultatif et suivi de l'avancement.
+func httpGetP(url string, timeout time.Duration, accept string, prog progress) ([]byte, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
+	if accept != "" {
+		req.Header.Set("Accept", accept)
+	}
 	resp, err := (&http.Client{Timeout: timeout}).Do(req)
 	if err != nil {
 		return nil, err
@@ -180,19 +175,38 @@ func httpGet(url string, timeout time.Duration) ([]byte, error) {
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
-	return io.ReadAll(resp.Body)
+	if prog == nil {
+		return io.ReadAll(resp.Body)
+	}
+	var buf []byte
+	chunk := make([]byte, 64<<10)
+	for {
+		n, err := resp.Body.Read(chunk)
+		buf = append(buf, chunk[:n]...)
+		prog(int64(len(buf)), resp.ContentLength)
+		if err == io.EOF {
+			return buf, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+	}
 }
 
 // releaseGet : fichier de release. Le lien direct (github.com/…/releases/download)
 // peut répondre 5xx pour certains fichiers alors que l'API les sert (vu en v5.3.0 :
 // 504 constant) : un nouvel essai, puis l'API (releases/tags/<tag> → assets/<id>).
 func releaseGet(url string, timeout time.Duration) ([]byte, error) {
-	b, err := httpGet(url, timeout)
+	return releaseGetP(url, timeout, nil)
+}
+
+func releaseGetP(url string, timeout time.Duration, prog progress) ([]byte, error) {
+	b, err := httpGetP(url, timeout, "", prog)
 	if err == nil || !retryable(err) {
 		return b, err
 	}
 	time.Sleep(releaseRetryWait)
-	if b, err = httpGet(url, timeout); err == nil || !retryable(err) {
+	if b, err = httpGetP(url, timeout, "", prog); err == nil || !retryable(err) {
 		return b, err
 	}
 	if !strings.HasPrefix(url, releaseBase+"/") {
@@ -202,7 +216,10 @@ func releaseGet(url string, timeout time.Duration) ([]byte, error) {
 	if len(rest) != 2 {
 		return nil, err
 	}
-	b, err2 := apiAsset(rest[0], rest[1], timeout)
+	if prog != nil {
+		prog(-1, -1) // repli par l'API (affiché comme une étape)
+	}
+	b, err2 := apiAsset(rest[0], rest[1], timeout, prog)
 	if err2 != nil {
 		return nil, fmt.Errorf("%v ; par l'API : %v", err, err2)
 	}
@@ -218,37 +235,58 @@ func retryable(err error) bool {
 }
 
 // apiAsset : fichier name de la release tag, par l'API GitHub.
-func apiAsset(tag, name string, timeout time.Duration) ([]byte, error) {
+func apiAsset(tag, name string, timeout time.Duration, prog progress) ([]byte, error) {
+	rel, err := releaseAssets(tag)
+	if err != nil {
+		return nil, err
+	}
+	for _, a := range rel {
+		if a.Name == name {
+			return httpGetP(fmt.Sprintf("%s/repos/%s/releases/assets/%d", apiBase, launcherRepo, a.ID), timeout, "application/octet-stream", prog)
+		}
+	}
+	return nil, fmt.Errorf("%s absent de la release %s", name, tag)
+}
+
+type relAsset struct {
+	ID    int64  `json:"id"`
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+// releaseAssets : fichiers de la release tag du launcher, selon l'API.
+func releaseAssets(tag string) ([]relAsset, error) {
 	b, err := httpGet(apiBase+"/repos/"+launcherRepo+"/releases/tags/"+tag, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
 	var rel struct {
-		Assets []struct {
-			ID   int64  `json:"id"`
-			Name string `json:"name"`
-		} `json:"assets"`
+		Assets []relAsset `json:"assets"`
 	}
 	if err := json.Unmarshal(b, &rel); err != nil {
 		return nil, err
 	}
-	for _, a := range rel.Assets {
-		if a.Name == name {
-			req, _ := http.NewRequest("GET", fmt.Sprintf("%s/repos/%s/releases/assets/%d", apiBase, launcherRepo, a.ID), nil)
-			req.Header.Set("Accept", "application/octet-stream")
-			req.Header.Set("User-Agent", "Claude-Launcher-NG")
-			resp, err := (&http.Client{Timeout: timeout}).Do(req)
-			if err != nil {
-				return nil, err
-			}
-			defer resp.Body.Close()
-			if resp.StatusCode != 200 {
-				return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
-			}
-			return io.ReadAll(resp.Body)
+	return rel.Assets, nil
+}
+
+// releasePublished : la release tag porte-t-elle SHA256SUMS et le binaire de la
+// plateforme ? Selon l'API (indépendante des liens directs, parfois en 504) ;
+// API injoignable (autre qu'un 404) : par le lien direct de SHA256SUMS.
+func releasePublished(tag string) bool {
+	as, err := releaseAssets(tag)
+	if err != nil {
+		if err.Error() == "HTTP 404" {
+			return false
+		}
+		return releaseReady(releaseBase + "/" + tag)
+	}
+	got := map[string]bool{}
+	for _, a := range as {
+		if a.State == "" || a.State == "uploaded" {
+			got[a.Name] = true
 		}
 	}
-	return nil, fmt.Errorf("%s absent de la release %s", name, tag)
+	return got["SHA256SUMS"] && got[ngAsset()]
 }
 
 // releaseReady : la release est-elle téléchargeable ? Le tag existe dès le push,
@@ -284,10 +322,20 @@ func replaceVerified(base, name string, sums map[string]string, dst string) erro
 	if err != nil {
 		return fmt.Errorf("%s : %w", name, err)
 	}
-	h := sha256.Sum256(body)
-	if hex.EncodeToString(h[:]) != want {
+	if sumOf(body) != want {
 		return fmt.Errorf("%s : somme SHA-256 incorrecte", name)
 	}
+	return writeAtomic(dst, body)
+}
+
+func sumOf(b []byte) string {
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
+// writeAtomic : remplace dst par body d'un seul rename (fichier temporaire à
+// côté de dst : même système de fichiers), droits de dst conservés.
+func writeAtomic(dst string, body []byte) error {
 	mode := os.FileMode(0o755)
 	if st, err := os.Stat(dst); err == nil {
 		mode = st.Mode().Perm()
