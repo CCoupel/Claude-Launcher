@@ -98,6 +98,16 @@ if [ "$(readlink "$d" 2>/dev/null)" != "$t" ] && ! [ "$d" -ef "$t" ]; then rm -r
 `
 }
 
+// resetUsageBackoff : au lancement du hub, l'échec noté (.err) et l'attente
+// progressive (.wait) sont effacés — par exemple ceux d'un ancien launcher
+// arrêté entre-temps : le premier relevé interroge l'endpoint sans attendre.
+// Les dernières données (usage.json) restent affichées jusque-là.
+func resetUsageBackoff() {
+	for _, ext := range []string{".err", ".wait"} {
+		_ = os.Remove(usageCachePath() + ext)
+	}
+}
+
 type Limit struct {
 	Kind     string  `json:"kind"`
 	Group    string  `json:"group"`

@@ -88,3 +88,32 @@ func TestLinkUsageCache(t *testing.T) {
 		t.Error("lien non rétabli")
 	}
 }
+
+// Au lancement du hub, un 429 noté (par un autre launcher, arrêté depuis) ne
+// bloque plus le premier relevé.
+func TestResetUsageBackoff(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
+	p := usageCachePath()
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte(`{"limits":[]}`), 0o644)
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(p, old, old)
+	_ = os.WriteFile(p+".err", []byte("trop d’appels à l’endpoint, nouvel essai dans quelques minutes"), 0o644)
+	_ = os.WriteFile(p+".wait", []byte("1800"), 0o644)
+	if needsFetch(120) {
+		t.Fatal("429 récent : pas d'appel attendu avant le reset")
+	}
+	resetUsageBackoff()
+	if !needsFetch(120) {
+		t.Fatal("après le reset du lancement : appel attendu")
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatal("usage.json ne doit pas être effacé")
+	}
+	if _, err := os.Stat(p + ".wait"); err == nil {
+		t.Fatal(".wait non effacé")
+	}
+}
