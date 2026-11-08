@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"reflect"
 	"strings"
 	"testing"
@@ -152,8 +153,35 @@ func TestMsBarWidth(t *testing.T) {
 			t.Errorf("largeur %d dépassée : %d", c.width, lipgloss.Width(b))
 		}
 	}
-	idle := MsState{Kind: MsIdle, Pending: []MsRow{{Title: "v5.4.1", Open: 2}}}
-	if l := msLines(idle, 52); cells(l[1]) != 36 {
-		t.Errorf("liste des milestones : %q", l[1])
+	// liste (cas BuzzMaster) : « titre n/m barre P% », colonnes alignées ; quand
+	// la largeur manque : sans barre, puis titre tronqué, puis sans P%
+	idle := MsState{Kind: MsIdle, Pending: []MsRow{
+		{Title: "v15.0 — Éclairage ambiance — Extensions", Open: 4, Closed: 1},
+		{Title: "v12.0 — Roue de la Fortune", Open: 2},
+		{Title: "v11.6.0 — Ambiance de musique d'événement — Extensions", Open: 14}}}
+	strip := func(w int) []string {
+		var o []string
+		for _, l := range msLines(idle, w)[1:] {
+			if lipgloss.Width(l) > w {
+				t.Errorf("largeur %d dépassée : %q", w, ansi.Strip(l))
+			}
+			o = append(o, ansi.Strip(l))
+		}
+		return o
+	}
+	if l := strip(100); cells(l[0]) < msBarMin || !strings.HasSuffix(l[0], " 20%") || !strings.HasPrefix(l[0], "v15.0 — Éclairage ambiance — Extensions ") {
+		t.Errorf("complet : %q", l)
+	}
+	if l := strip(68); cells(l[0]) != 0 || !strings.HasSuffix(l[2], "Extensions 0/14   0%") {
+		t.Errorf("sans barre : %q", l)
+	}
+	if l := strip(40); cells(l[0]) != 0 || !strings.HasSuffix(l[2], "… 0/14   0%") {
+		t.Errorf("titre tronqué : %q", l)
+	}
+	if l := strip(17); l[2] != "v11.6.0 0/14   0%" || l[0] != "v15.0    1/5  20%" {
+		t.Errorf("version jamais coupée : %q", l)
+	}
+	if l := strip(13); !reflect.DeepEqual(l, []string{"v15.0     1/5", "v12.0     0/2", "v11.6.0  0/14"}) {
+		t.Errorf("au plus étroit : %q", l)
 	}
 }

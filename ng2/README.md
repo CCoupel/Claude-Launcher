@@ -666,13 +666,17 @@ revenir) uniquement avec tous les projets fermés.**
   cours ») ; **vert** = plus rien d'ouvert, dernier milestone clos (publié) ; rien sans milestone.
   Badge PR `⇄N` (violet, projets GitHub) : N pull requests ouvertes en attente (`gh pr list --state
   open`, brouillons compris ; la légende précise « dont N brouillon(s) ») ; rien sans PR ouverte.
+  Les cartes de la vue `◈ État` ont leur titre sur un bandeau de fond gris foncé, sur toute la largeur
+  (nom en gras, précision comme `· lu il y a 18 h` atténuée), pour que chaque carte ressorte (v5.6.2).
   La carte **Projet** de la vue `◈ État` (et l'aperçu) commence par la légende des icônes de la ligne
   du projet : chaque icône, dans sa couleur et dans l'ordre du navigateur, suivie de sa signification
   (`!   local : modifié directement sur main`, `↺   session non close (il y a 12 min) : reprise
   proposée à l'ouverture`…). Ligne et légende sont tirées de la même source (`legend.go`).
   La carte **Milestone** de la vue `◈ État` (et l'aperçu) donne le milestone en cours, sa barre
   d'avancement (issues fermées / total ; elle prend la largeur du pane, de 10 à 40 cellules), ses issues ouvertes par phase et les bloquées ; sans milestone
-  en cours, la liste des milestones ouverts avec leur avancement. Trois appels `gh` par projet (ceux du
+  en cours, la liste des milestones ouverts, une ligne chacun, colonnes alignées : `v1.2.0 — Titre  n/m  ███░░░
+  P%` (v5.6.2). Pane étroit : on retire dans l'ordre la barre, puis la fin du titre (`…`, la version
+  reste entière), puis le pourcentage ; au plus étroit, `v1.2.0 n/m`. Trois appels `gh` par projet (ceux du
   panneau : milestones, issues ouvertes ; plus les PR ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
   `~/.cache/claude-launcher-ng2/milestones-v2.json`.
   Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`
