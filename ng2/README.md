@@ -173,7 +173,10 @@ L'un des deux suffit. NG2 les fusionne (après le bootstrap du launcher, ci-dess
 - `mounts` : réunis par `path`, le `ro` d'`env.yaml` l'emporte.
 
 Un projet n'enlève rien au template. Toute modification de l'un ou l'autre fichier
-rejoue le bootstrap : les étapes doivent pouvoir être rejouées. Un `env.yaml` seul
+rejoue le bootstrap : les étapes doivent pouvoir être rejouées. Le bootstrap est
+**additif** : un paquet retiré d'un fichier reste installé dans le conteneur
+existant (rien n'est désinstallé, le conteneur n'est pas recréé pour cela) ; il
+disparaît à la prochaine recréation (changement d'`image` ou des dossiers `local`). Un `env.yaml` seul
 se lit exactement comme avant (empreinte inchangée, conteneur non recréé).
 
 #### Bootstrap du launcher : `env.yaml` à côté de `backends.yaml`
