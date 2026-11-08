@@ -310,6 +310,47 @@ backends:
   problèmes. En ssh, une connexion persistante (`ControlMaster`) sert toutes les
   commandes vers un même serveur.
 
+#### Pools de machines nommés
+
+Quand plusieurs backends visent les mêmes machines (docker **et** ssh, par
+exemple), la liste se déclare **une fois** dans `pools:` ; chaque backend la
+cite par `pool:` (à la place de `hosts:`) :
+
+```yaml
+pools:
+  dev:
+    hosts: [192.168.1.211, 192.168.1.212, 192.168.1.213]
+  gros:
+    hosts: [srv6, srv7, srv8]
+    drain: [srv7]                # maintenance : plus de nouveaux projets
+
+backends:
+  docker-dev:  { type: docker, pool: dev,  host: "tcp://{}:2375", shared: [/share/MFS/ROOT] }
+  ssh-dev:     { type: ssh,    pool: dev,  host: "cyril@{}", engine: podman, shared: [/share/MFS/ROOT] }
+  docker-gros: { type: docker, pool: gros, host: "tcp://{}:2375", shared: [/share/MFS/ROOT] }
+```
+
+- Un pool est **toujours un objet** : `hosts:` (obligatoire) et `drain:`
+  (facultatif). Mettre une machine de côté, c'est ajouter une ligne `drain:`,
+  sans réécrire la liste ; une liste simple (`dev: [a, b]`) est refusée.
+- Avec `pool:`, `host:` est un **modèle d'adresse** : `{}` y est remplacé par la
+  machine (`tcp://{}:2375`, `cyril@{}`). Sans `host:`, chaque entrée du pool est
+  prise telle quelle (adresses complètes).
+- **`drain:`** : la machine ne reçoit plus de **nouveaux** projets ; elle reste
+  interrogée, ses projets restent visibles et s'ouvrent normalement (pour la
+  vider : supprimer leurs conteneurs, ils sont replacés ailleurs à la
+  prochaine ouverture). Si toutes les machines sont en drain, un nouveau projet
+  est refusé (« aucun serveur disponible (tous en drain) »).
+- **Charge commune** : la charge d'une machine additionne les conteneurs NG2 en
+  marche de **tous les backends du pool** (ici docker-dev et ssh-dev) ; le
+  choix du serveur interroge donc aussi les autres backends du pool.
+- Refusés au chargement : pool inconnu ou vide, machine en double, entrée de
+  `drain:` absente de `hosts:`, `pool:` avec `hosts:`, `host:` sans `{}`.
+- Retirer une machine du pool alors que des projets y tournent les rend
+  invisibles : la passer d'abord en `drain:`, puis la vider.
+- `claude-launcher-ng2 backends` affiche le pool, les machines en drain et la
+  charge venue des autres backends du pool.
+
 #### Kubernetes
 
 ```yaml

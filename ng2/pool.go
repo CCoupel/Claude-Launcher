@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ── Groupe de serveurs (#61) ──────────────────────────────────────────────
@@ -112,15 +114,171 @@ func loadOf(b BackendConf, fs []Found, down map[string]error) map[string]int {
 	return n
 }
 
-// leastLoaded : serveur joignable le moins chargé (ordre de hosts en cas d'égalité).
+// leastLoaded : serveur joignable, hors drain, le moins chargé (ordre de hosts
+// en cas d'égalité).
 func leastLoaded(b BackendConf, load map[string]int) string {
 	best := ""
 	for _, h := range b.servers() {
-		if n, ok := load[h]; ok && (best == "" || n < load[best]) {
+		if n, ok := load[h]; ok && !b.Drain[h] && (best == "" || n < load[best]) {
 			best = h
 		}
 	}
 	return best
+}
+
+// ── Pools de machines nommés (#64) ───────────────────────────────────────
+//
+//	pools:
+//	  dev: { hosts: [srv1, srv2, srv3], drain: [srv3] }
+//	backends:
+//	  docker-dev: { type: docker, pool: dev, host: "tcp://{}:2375", … }
+//	  ssh-dev:    { type: ssh,    pool: dev, host: "cyril@{}", … }
+//
+// Un backend qui cite un pool devient un groupe de serveurs (hosts) : chaque
+// machine donne une adresse par le modèle host ({} = la machine). drain : plus
+// de nouveaux projets (la machine reste interrogée). Les backends d'un même
+// pool partagent la charge de chaque machine (Mates).
+
+type PoolConf struct {
+	Hosts []string `yaml:"hosts"`
+	Drain []string `yaml:"drain"`
+}
+
+// UnmarshalYAML : un pool est toujours un objet (une liste simple obligerait à
+// réécrire la ligne pour mettre une machine en drain) ; clés connues seulement.
+func (p *PoolConf) UnmarshalYAML(n *yaml.Node) error {
+	if n.Kind != yaml.MappingNode {
+		return fmt.Errorf("ligne %d : un pool s'écrit { hosts: [srv1, srv2], drain: [] }, pas une liste", n.Line)
+	}
+	for i := 0; i < len(n.Content); i += 2 {
+		if k := n.Content[i].Value; k != "hosts" && k != "drain" {
+			return fmt.Errorf("ligne %d : clé de pool %q inconnue (hosts, drain)", n.Content[i].Line, k)
+		}
+	}
+	type raw PoolConf
+	return n.Decode((*raw)(p))
+}
+
+// checkPools : pools non vides, sans doublon, drain inclus dans hosts.
+func checkPools(ps map[string]PoolConf) error {
+	for n, p := range ps {
+		if len(p.Hosts) == 0 {
+			return fmt.Errorf("backends.yaml : pool %q sans machine (hosts)", n)
+		}
+		seen := map[string]bool{}
+		for _, h := range p.Hosts {
+			if strings.TrimSpace(h) == "" || seen[h] {
+				return fmt.Errorf("backends.yaml : pool %q : machine vide ou en double dans « hosts »", n)
+			}
+			seen[h] = true
+		}
+		dr := map[string]bool{}
+		for _, h := range p.Drain {
+			if !seen[h] {
+				return fmt.Errorf("backends.yaml : pool %q : %q en drain mais absent de « hosts »", n, h)
+			}
+			if dr[h] {
+				return fmt.Errorf("backends.yaml : pool %q : %q en double dans « drain »", n, h)
+			}
+			dr[h] = true
+		}
+	}
+	return nil
+}
+
+// usePool : remplit hosts (adresses), machines et drain depuis le pool cité.
+func (c *BackendConf) usePool(ps map[string]PoolConf) error {
+	if c.Type != "podman" && c.Type != "docker" && c.Type != "ssh" {
+		return fmt.Errorf("« pool » réservé à podman, docker et ssh")
+	}
+	if len(c.Hosts) > 0 {
+		return fmt.Errorf("« pool » ou « hosts », pas les deux")
+	}
+	p, ok := ps[c.Pool]
+	if !ok {
+		var l []string
+		for n := range ps {
+			l = append(l, n)
+		}
+		sort.Strings(l)
+		return fmt.Errorf("pool %q inconnu (pools déclarés : %s)", c.Pool, strings.Join(l, ", "))
+	}
+	if c.Host != "" && !strings.Contains(c.Host, "{}") {
+		return fmt.Errorf("avec « pool », « host » est un modèle d'adresse où {} est la machine (ex. tcp://{}:2375) ; %q n'en contient pas", c.Host)
+	}
+	addr := func(m string) string {
+		if c.Host == "" {
+			return m
+		}
+		return strings.ReplaceAll(c.Host, "{}", m)
+	}
+	c.Machines, c.Drain = map[string]string{}, map[string]bool{}
+	for _, m := range p.Hosts {
+		a := addr(m)
+		c.Hosts = append(c.Hosts, a)
+		c.Machines[a] = m
+	}
+	for _, m := range p.Drain {
+		c.Drain[addr(m)] = true
+	}
+	c.Host = ""
+	return nil
+}
+
+// linkMates : chaque backend d'un pool connaît les autres backends du pool.
+func linkMates(bs []BackendConf) {
+	byPool := map[string][]BackendConf{}
+	for _, b := range bs {
+		if b.Pool != "" {
+			byPool[b.Pool] = append(byPool[b.Pool], b) // copies sans Mates
+		}
+	}
+	for i := range bs {
+		for _, m := range byPool[bs[i].Pool] {
+			if bs[i].Pool != "" && m.Name != bs[i].Name {
+				bs[i].Mates = append(bs[i].Mates, m)
+			}
+		}
+	}
+}
+
+// machine : machine du pool derrière le serveur h (h lui-même hors pool).
+func (b BackendConf) machine(h string) string {
+	if m, ok := b.Machines[h]; ok {
+		return m
+	}
+	return h
+}
+
+// addMates : ajoute à load (par serveur de b) les conteneurs NG2 en marche des
+// autres backends du pool, machine par machine (interrogés en parallèle).
+func addMates(b BackendConf, load map[string]int) {
+	if len(b.Mates) == 0 {
+		return
+	}
+	own := map[string]string{} // machine → serveur de b
+	for _, h := range b.Hosts {
+		own[b.machine(h)] = h
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	for _, m := range b.Mates {
+		wg.Add(1)
+		go func(m BackendConf) {
+			defer wg.Done()
+			fs, _ := Engine{m}.listPool()
+			mu.Lock()
+			defer mu.Unlock()
+			for _, f := range fs {
+				if h, ok := own[m.machine(f.Server)]; ok && f.Running {
+					if _, up := load[h]; up {
+						load[h]++
+					}
+				}
+			}
+		}(m)
+	}
+	wg.Wait()
 }
 
 // ── Verrou de création ────────────────────────────────────────────────────
@@ -207,9 +365,13 @@ func (e Engine) place(proj string, a asker) (Engine, func(), error) {
 		fs, mine2, down2 := find()
 		if len(mine2) == 0 {
 			load := loadOf(e.b, fs, down2)
+			addMates(e.b, load)
 			best := leastLoaded(e.b, load)
 			if best == "" {
 				unlock()
+				if len(load) > 0 {
+					return e, noop, fmt.Errorf("groupe %s : aucun serveur disponible (tous en drain)", e.b.Name)
+				}
 				return e, noop, fmt.Errorf("groupe %s : aucun serveur ne répond (%s)", e.b.Name, downText(down2))
 			}
 			if len(down2) > 0 {
@@ -219,7 +381,11 @@ func (e Engine) place(proj string, a asker) (Engine, func(), error) {
 					return e, noop, fmt.Errorf("ouverture annulée : %s injoignable(s)", downText(down2))
 				}
 			}
-			fmt.Fprintf(a.out, "  serveur choisi : %s (%d conteneur(s) NG2 en marche)\n", best, load[best])
+			what := "conteneur(s) NG2 en marche"
+			if len(e.b.Mates) > 0 {
+				what += " sur la machine, tous backends du pool"
+			}
+			fmt.Fprintf(a.out, "  serveur choisi : %s (%d %s)\n", best, load[best], what)
 			return Engine{e.b.at(best)}, unlock, nil
 		}
 		unlock()
