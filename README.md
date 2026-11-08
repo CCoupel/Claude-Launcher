@@ -165,7 +165,7 @@ Trois fichiers :
 |---|---|
 | `<projet>/.claude-launcher/env.yaml` (versionné) | ce dont le projet a besoin : `image` (le socle), `packages`, `setup`, `mounts` |
 | `~/.config/claude-launcher-ng2/backends.yaml` (machine) | où l'on peut l'exécuter, et les **défauts** présélectionnés (`defaults: { backend, image }`, `images:`) |
-| `~/.local/state/claude-launcher-ng2/projects.json` (machine) | l'affectation de chaque projet (hôte ou backend), choisie à la création, à la 1re ouverture ou par F2 |
+| `projects.json`, à côté de `backends.yaml` (dossier de config, partagé en mode portable) | l'affectation de chaque projet (hôte ou backend), choisie à la création, à la 1re ouverture ou par F2, commune à tous les hubs depuis la v5.4.3 (l'ancien `~/.local/state/claude-launcher-ng2/projects.json` est repris une fois) |
 
 ```yaml
 # backends.yaml

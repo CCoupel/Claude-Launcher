@@ -99,8 +99,10 @@ partagé et utilisable de toutes les machines :
     └── backends.yaml
 ```
 
-Les affectations des projets (hôte ou backend, `~/.local/state/claude-launcher-ng2/projects.json`)
-restent propres à chaque machine.
+Les affectations des projets (hôte ou backend) sont dans `projects.json`, dans ce même dossier
+(depuis la v5.4.3) : en mode portable, tous les hubs, sur toutes les machines, savent où vit chaque
+projet. L'ancien `~/.local/state/claude-launcher-ng2/projects.json`, propre à la machine, est repris
+une fois et laissé en place.
 
 **Config de claude** : `CLAUDE_CONFIG_DIR` dans `config.conf` l'impose à toutes les sessions du
 launcher (hôte et conteneurs) ; un chemin relatif l'est par rapport au dossier de `config.conf`, ce
@@ -440,8 +442,8 @@ remédier : client ou moteur absent, accès au socket docker refusé, démon
 distant non exposé, accès ssh, podman absent de la machine distante, stockage
 partagé non monté ou non déclaré, `~/.claude` hors du partage.
 
-L'affectation (y compris « hôte ») est mémorisée par machine
-(`~/.local/state/claude-launcher-ng2/projects.json`), pas dans le projet.
+L'affectation (y compris « hôte ») est mémorisée dans `projects.json`, à côté de `backends.yaml`
+(partagée en mode portable), pas dans le projet.
 
 | Icône | Signification |
 |---|---|

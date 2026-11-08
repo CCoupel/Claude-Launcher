@@ -487,6 +487,8 @@ func findBackend(name string) (BackendConf, bool) {
 
 // ── Affectation projet → backend ──────────────────────────────────────────
 
+// ng2StateDir : ancien emplacement de projects.json (jusqu'à la v5.4.2), local
+// à la machine ; lu une fois pour la migration.
 func ng2StateDir() string {
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
@@ -496,14 +498,40 @@ func ng2StateDir() string {
 	return filepath.Join(base, "claude-launcher-ng2")
 }
 
-func assignPath() string { return filepath.Join(ng2StateDir(), "projects.json") }
+// assignPath : affectations projet → backend, à côté de backends.yaml dans le
+// dossier de config (sur le stockage partagé en mode portable) : tous les hubs,
+// sur toutes les machines, savent où vit chaque projet.
+func assignPath() string { return filepath.Join(ng2ConfigDir(), "projects.json") }
+
+func legacyAssignPath() string { return filepath.Join(ng2StateDir(), "projects.json") }
 
 func readAssignments() map[string]string {
 	m := map[string]string{}
-	if b, err := os.ReadFile(assignPath()); err == nil {
+	b, err := os.ReadFile(assignPath())
+	if os.IsNotExist(err) {
+		// migration : reprise de l'ancien fichier local, laissé en place (retour
+		// arrière possible vers une version antérieure)
+		if lb, lerr := os.ReadFile(legacyAssignPath()); lerr == nil && json.Unmarshal(lb, &m) == nil {
+			_ = saveAssignments(m)
+			return m
+		}
+	}
+	if err == nil {
 		_ = json.Unmarshal(b, &m)
 	}
 	return m
+}
+
+func saveAssignments(m map[string]string) error {
+	b, _ := json.MarshalIndent(m, "", "  ")
+	if err := os.MkdirAll(filepath.Dir(assignPath()), 0o755); err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.%d.tmp", assignPath(), os.Getpid()) // plusieurs hubs, plusieurs machines
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, assignPath())
 }
 
 func writeAssignment(proj, backend string) error {
@@ -513,15 +541,7 @@ func writeAssignment(proj, backend string) error {
 	} else {
 		m[proj] = backend // « host » compris : le projet est configuré (plus de question à l'ouverture)
 	}
-	b, _ := json.MarshalIndent(m, "", "  ")
-	if err := os.MkdirAll(ng2StateDir(), 0o755); err != nil {
-		return err
-	}
-	tmp := assignPath() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, assignPath())
+	return saveAssignments(m)
 }
 
 // assigned : le projet a déjà été configuré (backend choisi, host compris).

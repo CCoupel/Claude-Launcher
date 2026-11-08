@@ -24,7 +24,7 @@ fait perdre :
 | Réglages par projet (confiance du dossier, MCP du projet, outils autorisés) | `~/.claude.json`, table `projects` | chemin absolu | confiance redemandée, MCP du projet |
 | Historique des prompts (flèche ↑) | `~/.claude/history.jsonl`, champ `project` | chemin absolu | rappel des anciens prompts du projet |
 | Racines du navigateur | `GITHUB_DIRS` de la config du launcher | chemin | les projets n'apparaissent plus |
-| Exécution choisie (hôte, backend) | `~/.local/state/claude-launcher-ng2/projects.json` | chemin absolu | question redemandée à la 1re ouverture |
+| Exécution choisie (hôte, backend) | `projects.json` du dossier de config du launcher (`~/.config/claude-launcher-ng2/`, ou `<dossier du binaire>/.config/claude-launcher-ng2/` en portable ; `~/.local/state/claude-launcher-ng2/` avant la v5.4.3) | chemin absolu | question redemandée à la 1re ouverture |
 
 Et pour un backend distant, **`~/.claude` lui-même** doit être sur le stockage partagé, au même
 chemin partout : conversations, teams, connexion et réglages sont lus par le launcher **et** par le
@@ -90,7 +90,8 @@ pgrep -a claude || echo "aucun claude en cours"     # doit afficher « aucun cla
 
 mkdir -p "$BAK"
 tar -C ~ -czf "$BAK/claude.tgz" .claude .claude.json
-cp ~/.local/state/claude-launcher-ng2/projects.json "$BAK/" 2>/dev/null
+CFG=~/.config/claude-launcher-ng2   # en portable : <dossier du binaire>/.config/claude-launcher-ng2
+cp "$CFG/projects.json" "$BAK/" 2>/dev/null
 ls -lh "$BAK"
 ```
 
@@ -258,10 +259,10 @@ grep -n GITHUB_DIR ~/.config/claude-launcher-ng2/config.conf
 **Exécution choisie par projet** (NG2) :
 
 ```bash
-python3 - "$OLD" "$NEW" <<'PY'
+python3 - "$OLD" "$NEW" "$CFG" <<'PY'
 import json, os, sys
 old, new = sys.argv[1].rstrip("/"), sys.argv[2].rstrip("/")
-f = os.path.expanduser("~/.local/state/claude-launcher-ng2/projects.json")
+f = os.path.join(os.path.expanduser(sys.argv[3]), "projects.json")
 if os.path.exists(f):
     d = json.load(open(f))
     d = {(new + k[len(old):] if k == old or k.startswith(old + "/") else k): v for k, v in d.items()}
@@ -347,7 +348,7 @@ Tant que rien n'a été supprimé, il suffit de rendre la main à l'ancienne con
 ```bash
 sed -i '/CLAUDE_CONFIG_DIR=/d' ~/.profile ~/.bashrc       # retirer la variable
 sed -i "s#$NEW#$OLD#g" ~/.config/claude-launcher-ng2/config.conf
-cp "$BAK/projects.json" ~/.local/state/claude-launcher-ng2/ 2>/dev/null
+cp "$BAK/projects.json" "$CFG/" 2>/dev/null
 # nouveau terminal (ou wsl --shutdown) : ~/.claude et ~/.claude.json d'origine reprennent
 ```
 
