@@ -183,7 +183,9 @@ func runCtrAttach(proj, startFile string) error {
 			if readOnly {
 				_ = hub.Run("set-window-option", "-t", win, "@cl_readonly", "1")
 			} else {
-				leader, _ := e.output(name, tmuxIn("display-message", "-p", "-t", "="+ctrSession+":", "#{pane_id}")...)
+				// premier pane créé, pas le pane actif (un teammate peut avoir le focus)
+				panes, _ := e.output(name, tmuxIn("list-panes", "-s", "-t", "="+ctrSession, "-F", "#{pane_id}")...)
+				leader, _ := leaderOf(panes)
 				_ = hub.Run("run-shell", "-b", selfCommand("layout-watch", win, leader, proj))
 			}
 		}

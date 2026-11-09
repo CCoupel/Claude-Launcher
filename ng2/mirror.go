@@ -36,14 +36,14 @@ func rawMode(fd int) (func(), error) {
 	return func() { _ = unix.IoctlSetTermios(fd, ioctlSetTermios, old) }, nil
 }
 
-// mirrorLeader : le teamleader est le pane d'index le plus bas de la fenêtre
-// (doLayout le place en premier), y compris sans team. "" : fenêtre fermée.
+// mirrorLeader : le teamleader est le premier pane créé de la fenêtre (plus
+// petit %id), y compris sans team. "" : fenêtre fermée.
 func mirrorLeader(p projWin) string {
 	ws, err := readWin(p)
 	if err != nil {
 		return ""
 	}
-	return ws.panes[0].id
+	return ws.leader()
 }
 
 // mirrorFrame : rendu complet de la vignette (rows × cols) à partir de l'écran
