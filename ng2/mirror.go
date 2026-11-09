@@ -121,8 +121,12 @@ func runMirror(win, name string) error {
 	tick := time.NewTicker(mirrorPeriod)
 	defer tick.Stop()
 	for {
-		// le leader change rarement (relayout, fermeture) : relu toutes les 2 s
+		// le leader change rarement (relayout, fermeture) : relu toutes les 2 s,
+		// avec la cible : la vignette naît dès l'apparition de la fenêtre, avant
+		// que l'ouverture du conteneur y pose @cl_backend/@cl_ctr — figée, elle
+		// capturerait le pane du hub (toute la fenêtre du conteneur) (#92)
 		if leader == "" || time.Since(leaderAt) > 2*time.Second {
+			pw = projectOf(win)
 			if leader = mirrorLeader(pw); leader == "" {
 				return nil
 			}

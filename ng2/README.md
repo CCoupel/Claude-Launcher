@@ -724,6 +724,9 @@ revenir) uniquement avec tous les projets fermés.**
   vignette interactive par projet ouvert). Le teamleader d'une fenêtre est son premier pane
   créé (plus petit `%id`), jamais le pane actif ni le premier par position : rouvrir un projet
   en conteneur alors qu'un teammate a le focus n'affiche plus ce teammate à la place du leader (v5.7.1).
+  La vignette relit aussi toutes les 2 s si la fenêtre est en conteneur : née avant que
+  l'ouverture du pod pose `@cl_backend`/`@cl_ctr`, elle ne reste plus figée sur le pane du hub
+  (toute la fenêtre du conteneur, dont elle ne montrait que le bas : les teammates) (v5.7.2).
 
 | Action | Effet |
 |---|---|
