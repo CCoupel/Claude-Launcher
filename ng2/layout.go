@@ -136,6 +136,17 @@ func readWin(p projWin) (winState, error) {
 	return ws, nil
 }
 
+// leader : le teamleader est le premier pane créé de la fenêtre (plus petit
+// %id) — ni le pane actif, ni l'index, qu'un teammate peut occuper (#90).
+func (ws winState) leader() string {
+	var b strings.Builder
+	for _, p := range ws.panes {
+		b.WriteString(p.id + "\n")
+	}
+	id, _ := leaderOf(b.String())
+	return id
+}
+
 func (ws winState) has(id string) bool {
 	for _, p := range ws.panes {
 		if p.id == id {
@@ -418,6 +429,11 @@ func runLayoutWatch(win, leader, projectDir string) {
 		} else if ws.server != server {
 			return
 		}
+		// le leader passé au lancement peut être faux (pane actif à
+		// l'attachement) : relu de la fenêtre à chaque tour
+		if l := ws.leader(); l != "" {
+			leader = l
+		}
 		if !pw.direct() {
 			// propriétaire (#48) : battement de cœur toutes les 5 s ; si un autre
 			// launcher a pris la main, ce watcher s'efface
@@ -504,7 +520,7 @@ func runRelayout(win string) {
 		_ = hub.Run("display-message", "-t", pw.hubWin, "Relayout : pas de team active (1 seul pane)")
 		return
 	}
-	leader := ws.panes[0].id
+	leader := ws.leader()
 	dir, _ := tout(pw.t, "display-message", "-p", "-t", leader, "#{pane_current_path}")
 	path := findTeamConfig(dir)
 	if path == "" {

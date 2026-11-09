@@ -721,7 +721,9 @@ revenir) uniquement avec tous les projets fermés.**
   teammates du registre du template, version de leur copie, `+` si compagnon, modèle et effort,
   version de claude des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
 - **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
-  vignette interactive par projet ouvert).
+  vignette interactive par projet ouvert). Le teamleader d'une fenêtre est son premier pane
+  créé (plus petit `%id`), jamais le pane actif ni le premier par position : rouvrir un projet
+  en conteneur alors qu'un teammate a le focus n'affiche plus ce teammate à la place du leader (v5.7.1).
 
 | Action | Effet |
 |---|---|
@@ -820,7 +822,8 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
   grille, pane d'attente ; l'onglet garde ses panes terminés jusqu'au passage suivant pour ne
   jamais se vider, ce qui fermerait `claude-hub-ng2`).
 - `mirror.go` : une vignette — terminal en mode brut, un seul appel tmux par rafraîchissement
-  (focus, curseur et contenu du leader), touches relayées en octets bruts (`send-keys -H`).
+  (focus, curseur et contenu du leader — plus petit `%id` de la fenêtre, `winState.leader`),
+  touches relayées en octets bruts (`send-keys -H`).
 - `layout.go` : mise en page d'une fenêtre projet. Un watcher par fenêtre (1 s) lit la team
   (`~/.claude/teams/*/config.json`, la plus récente pour le projet) et l'état tmux en un seul
   `list-panes` ; il réordonne (`swap-pane -d`, sans voler le focus), applique la géométrie
