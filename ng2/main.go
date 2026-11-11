@@ -363,7 +363,7 @@ func readLatestTemplate() string {
 		return c
 	}
 	home, _ := os.UserHomeDir()
-	exe, _ := os.Executable()
+	exe, _ := selfExe()
 	for _, p := range []string{
 		filepath.Join(home, ".template-commit"),
 		filepath.Join(filepath.Dir(exe), ".template-commit"),
@@ -632,8 +632,8 @@ func (m model) openSelectedAs(mode launchMode) model {
 	if m.shell && m.launch && dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		// claude-hub fermé entre-temps : la coque le recrée, zone tmux de droite comprise
 		if err := ensureInner(); err == nil {
-			if exe, e := os.Executable(); e == nil {
-				_ = ensureLayout(strings.TrimSuffix(exe, " (deleted)"))
+			if exe, e := selfExe(); e == nil {
+				_ = ensureLayout(exe)
 			}
 		}
 	}
@@ -1455,8 +1455,8 @@ func main() {
 	case "nav":
 		if os.Getenv("CL_SHELL") == "1" {
 			// redémarré par une mise à jour : la coque peut dater d'avant le pane d'infos
-			if exe, e := os.Executable(); e == nil {
-				_ = ensureLayout(strings.TrimSuffix(exe, " (deleted)"))
+			if exe, e := selfExe(); e == nil {
+				_ = ensureLayout(exe)
 			}
 		}
 		_, err = tea.NewProgram(newModel(launch), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()

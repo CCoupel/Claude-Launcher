@@ -201,11 +201,11 @@ func ng2ConfigDir() string {
 
 // portableConfigDir : <dossier du binaire>/.config/claude-launcher-ng2 (liens résolus).
 func portableConfigDir() string {
-	exe, err := os.Executable()
+	exe, err := selfExe()
 	if err != nil {
 		return ""
 	}
-	if r, err := filepath.EvalSymlinks(strings.TrimSuffix(exe, " (deleted)")); err == nil {
+	if r, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = r
 	}
 	return filepath.Join(filepath.Dir(exe), ".config", "claude-launcher-ng2")
