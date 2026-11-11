@@ -90,7 +90,7 @@ func selfUpdate() {
 // updateTargets : fichiers à remplacer pour passer à tag (chemin vide : à jour,
 // ou binaire de dev qui ne se remplace pas).
 func updateTargets(tag string) (exe, bin, script string) {
-	exe, err := os.Executable()
+	exe, err := selfExe()
 	if err != nil {
 		return "", "", ""
 	}
@@ -112,11 +112,10 @@ type updDoneMsg struct {
 // pane d'infos puis le navigateur lui-même sur le binaire installé (respawn-pane
 // tue ce processus). Les projets et la zone tmux ne sont pas touchés.
 func restartOnNewBinary() {
-	exe, err := os.Executable() // sous Linux : chemin du fichier, même remplacé
+	exe, err := selfExe() // chemin du fichier, même remplacé ou après un remontage
 	if err != nil {
 		return
 	}
-	exe = strings.TrimSuffix(exe, " (deleted)")
 	if p := outerPane(roleInfo); p != "" {
 		_ = otmux("respawn-pane", "-k", "-t", p, stateCommand(exe)).Run()
 	}

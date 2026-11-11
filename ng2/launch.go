@@ -43,12 +43,12 @@ func scriptPath() string {
 // selfCommand : ligne de commande d'une sous-commande du NG lancée par tmux
 // (vignette, watcher), avec le serveur tmux et la session visés.
 func selfCommand(args ...string) string {
-	exe, err := os.Executable()
+	exe, err := selfExe()
 	if err != nil {
 		exe = "claude-launcher-ng2"
 	}
 	c := "CL_HUB=" + shq(hubSession) + " CL_INNER_SOCKET=" + shq(innerSocket()) +
-		" " + shq(strings.TrimSuffix(exe, " (deleted)"))
+		" " + shq(exe)
 	for _, a := range args {
 		c += " " + shq(a)
 	}

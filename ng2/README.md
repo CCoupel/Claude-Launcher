@@ -876,6 +876,10 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
   surveillée du tout : navigateur vide jusqu'à la relance du launcher.
   Si le binaire lui-même est sur ce stockage (mode portable), un démontage peut aussi faire tomber
   le navigateur : la relance recrée alors la coque (voir ci-dessus).
+- **« mise à jour : /CLAUDE_PROJETS/claude-launcher-ng2 : open … no such file or directory »**
+  (jusqu'à la v5.7.3) : le stockage du binaire a été démonté puis remonté pendant que le launcher
+  tournait ; le système ne donnait plus que le chemin interne au partage. Depuis la v5.7.4, le
+  chemin vu au démarrage sert de repli. Contournement : `Esc` `l`, puis relancer le launcher.
 - **Essayer sans toucher à `claude-hub-ng2`** :
   `CL_HUB=claude-hub-test CL_OUTER_SOCKET=claude-ui-test claude-launcher-ng2`.
 - **Les annonces de version n'apparaissent pas** : GitHub est interrogé sans jeton ; en cas de

@@ -330,7 +330,7 @@ func innerCommand() string {
 }
 
 func runShell() error {
-	exe, err := os.Executable()
+	exe, err := selfExe()
 	if err != nil {
 		return err
 	}

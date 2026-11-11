@@ -153,7 +153,7 @@ func openHelp() error {
 	ch, _ := strconv.Atoi(f[2])
 	w := min(100, max(cw, 20))
 	tw := w - 2 // intérieur du popup (bordure)
-	exe, err := os.Executable()
+	exe, err := selfExe()
 	if err != nil {
 		return err
 	}
