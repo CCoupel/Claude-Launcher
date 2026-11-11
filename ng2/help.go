@@ -34,7 +34,7 @@ var helpSections = []helpSection{
 		{"Ctrl+← Ctrl+→, bordure", "largeur du navigateur (mémorisée)"},
 		{"Ctrl+R", "rescanner les projets"},
 		{"F2", "reconfigurer l'exécution du projet fermé (hôte, socle, backend)"},
-		{"F5", "mises à jour et consommation maintenant"},
+		{"F5", "mises à jour, consommation et liste des projets maintenant"},
 		{"Ctrl+U, clic sur ✕", "masquer les annonces de mise à jour"},
 		{"annonce NG orange / jaune", "version en préparation / en téléchargement et contrôle"},
 		{"clic sur l'annonce verte", "installer la nouvelle version, déjà téléchargée (projets conservés)"},

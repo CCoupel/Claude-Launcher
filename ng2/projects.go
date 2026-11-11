@@ -19,6 +19,7 @@ type Node struct {
 	Key     string // nom de fenêtre tmux (basename, désambiguïsé si collision)
 	Root    bool   // en-tête d'une racine de GITHUB_DIRS
 	Special string // entrée d'action (« new » : nouveau projet), pas un projet
+	Missing bool   // racine introuvable ou illisible (montage perdu)
 }
 
 func isProjectDir(d string) bool {
@@ -90,6 +91,12 @@ func scanTree(roots []string) []Node {
 	}
 
 	for _, r := range roots {
+		if !dirReachable(r) {
+			// racine perdue (montage tombé) : signalée plutôt qu'un navigateur
+			// vide ; elle réapparaît seule au remontage (treewatch)
+			nodes = append(nodes, Node{Name: r, Path: r, Root: true, Missing: true})
+			continue
+		}
 		sub := walk(r, 0)
 		if len(sub) == 0 {
 			continue

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +50,18 @@ func treeDirs(roots []string) []string {
 	return out
 }
 
+// dirReachable : le dossier existe et se lit (faux sur un montage réseau perdu :
+// ENOENT, ENOTCONN « transport endpoint is not connected », ESTALE…).
+func dirReachable(d string) bool {
+	f, err := os.Open(d)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	_, err = f.Readdirnames(1)
+	return err == nil || err == io.EOF
+}
+
 // dirsSig : date de chaque dossier (« - » s'il a disparu).
 func dirsSig(dirs []string) string {
 	var b strings.Builder
@@ -87,7 +100,11 @@ func runTreeWatch(roots []string, c chan<- struct{}) {
 		keep := map[string]bool{}
 		polled = polled[:0]
 		for _, d := range treeDirs(roots) {
-			if w == nil || onNetworkFS(d) {
+			// Dossier absent ou injoignable (montage perdu : MooseFS, NFS…) :
+			// scruté, pour voir son retour. inotify ne peut pas le surveiller et
+			// statfs y échoue : sans cela il ne serait plus regardé du tout et le
+			// navigateur resterait vide après le remontage.
+			if w == nil || onNetworkFS(d) || !dirReachable(d) {
 				polled = append(polled, d)
 				continue
 			}
@@ -97,7 +114,9 @@ func runTreeWatch(roots []string, c chan<- struct{}) {
 			}
 		}
 		for d := range watched {
-			if !keep[d] {
+			// un dossier surveillé qui a disparu perd sa veille inotify : on
+			// l'oublie, pour la reposer s'il revient
+			if !keep[d] || !dirReachable(d) {
 				_ = w.Remove(d)
 				delete(watched, d)
 			}

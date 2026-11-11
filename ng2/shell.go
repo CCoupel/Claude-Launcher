@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 )
 
 const (
@@ -243,6 +244,37 @@ func outerPane(role string) string {
 
 func tagPane(id, role string) { _ = otmux("set-option", "-p", "-t", id, "@cl", role).Run() }
 
+// shellWithoutNav : la coque n'a plus de navigateur. Une coque d'avant les
+// rôles (aucun pane étiqueté) n'est pas concernée : ensureLayout l'étiquette.
+func shellWithoutNav() bool {
+	roles, untagged := outerPanes()
+	if roles[roleNav] != "" {
+		return false
+	}
+	return !(len(roles) == 0 && len(untagged) > 0)
+}
+
+// navErrFile : dernière erreur de sortie du navigateur (son pane se ferme avec
+// lui, le message serait perdu).
+func navErrFile() string { return filepath.Join(cacheDir(), "nav.err") }
+
+func recordNavError(err error) {
+	line := time.Now().Format("2006-01-02 15:04:05") + " " + ngVersion + " : " + strings.TrimSpace(err.Error())
+	_ = os.WriteFile(navErrFile(), []byte(line+"\n"), 0o644)
+}
+
+func lastNavError() string {
+	b, err := os.ReadFile(navErrFile())
+	if err != nil {
+		return ""
+	}
+	s := strings.TrimSpace(string(b))
+	if i := strings.IndexByte(s, '\n'); i >= 0 {
+		s = s[:i]
+	}
+	return s
+}
+
 // ensureLayout complète la coque : rôles posés (coque d'avant les rôles :
 // pane 0 = navigateur, l'autre = zone tmux), zone tmux et pane d'infos recréés
 // s'ils manquent. Appelé par la coque et par
@@ -309,6 +341,17 @@ func runShell() error {
 		return err
 	}
 	nav := navCommand(exe)
+	if otmux("has-session", "-t", outerSession).Run() == nil && shellWithoutNav() {
+		// Coque survivante dont le navigateur a disparu (plantage, processus
+		// tué) : elle ne contient que les infos et l'attache à claude-hub, rien
+		// à garder. On la recrée au lieu d'échouer (« coque sans navigateur »).
+		fmt.Println("  ⚠ navigateur absent de la coque : coque recréée (projets conservés)")
+		if why := lastNavError(); why != "" {
+			fmt.Println("    dernière sortie du navigateur :", why)
+			_ = os.Remove(navErrFile()) // affichée une fois : pas de cause périmée la fois suivante
+		}
+		_ = otmux("kill-server").Run()
+	}
 	if otmux("has-session", "-t", outerSession).Run() != nil {
 		steps := [][]string{
 			{"-f", "/dev/null", "new-session", "-d", "-s", outerSession, "-n", "ui", nav},

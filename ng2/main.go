@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -714,6 +715,11 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			if n := m.nodes[m.visible[idx]]; !n.Project && n.Special == "" && n.Path != "" {
 				double := idx == m.lastClickIdx && time.Since(m.lastClickAt) < 450*time.Millisecond
 				m.lastClickIdx, m.lastClickAt = idx, time.Now()
+				if double && n.Missing {
+					m.lastClickAt = time.Time{}
+					m.msg = "⚠ " + n.Path + " inaccessible (montage perdu ?)"
+					return m
+				}
 				if double {
 					m.lastClickAt = time.Time{}
 					return m.startNewProject(n.Path)
@@ -923,7 +929,8 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		m.checking, m.hideLauncher, m.hideTpl = true, false, false
 		m.msg = "recherche des mises à jour…"
-		return m, tea.Batch(checkUpdates(true), usageForceCmd(), m.msStale(true))
+		// relit aussi l'arborescence (filet de sécurité : dossier remonté…)
+		return m, tea.Batch(checkUpdates(true), usageForceCmd(), m.msStale(true), scanCmd(m.cfg.Roots))
 	case "tab":
 		if m.shell {
 			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
@@ -1183,6 +1190,9 @@ func (m model) renderList(w, h int) string {
 		switch {
 		case n.Special != "":
 			line = " " + cyan.Render(n.Name) + dim.Render(" (dbl-clic catégorie)")
+		case n.Root && n.Missing:
+			const tag = " ⚠ inaccessible"
+			line = bold.Render(" "+shorten(n.Name, w-2-utf8.RuneCountInString(tag))) + yellow.Render(tag)
 		case n.Root:
 			line = bold.Render(" " + shorten(n.Name, w-2))
 		default:
@@ -1450,6 +1460,9 @@ func main() {
 			}
 		}
 		_, err = tea.NewProgram(newModel(launch), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+		if err != nil && os.Getenv("CL_SHELL") == "1" {
+			recordNavError(err) // le pane se ferme : garder la cause pour la relance
+		}
 	case "state":
 		err = runState()
 	case "fixwidth":
