@@ -31,7 +31,8 @@ Un navigateur de projets à gauche, tmux à droite :
   en suspens (rouge si interrompue par un crash), **exécution** (`⬡` env.yaml / conteneur pas encore
   créé, `⬢` cyan conteneur en marche, `⬢` gris arrêté, `⚠` backend inutilisable ou configuration
   invalide), consommation du compte Claude en bas. Les dossiers ajoutés, renommés ou supprimés
-  apparaissent ou disparaissent seuls.
+  apparaissent ou disparaissent seuls ; une racine devenue inaccessible (stockage partagé démonté) est
+  marquée `⚠ inaccessible` et ses projets reviennent seuls au remontage.
 - **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir — légende des
   icônes de sa ligne, git, versions, template, composition de la team (version du template de chaque
   teammate, modèle, effort, version de claude), fichiers.
@@ -65,7 +66,7 @@ Un navigateur de projets à gauche, tmux à droite :
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | fenêtre `login` qui lance `claude /login` |
-| `F5` | rechercher les mises à jour et relire la consommation maintenant |
+| `F5` | rechercher les mises à jour, relire la consommation et la liste des projets maintenant |
 | `F1` | aide : commandes et raccourcis |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 

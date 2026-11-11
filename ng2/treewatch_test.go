@@ -60,3 +60,53 @@ func TestWatchTree(t *testing.T) {
 	case <-time.After(time.Second):
 	}
 }
+
+// Montage perdu puis rétabli (MooseFS tombé) : la racine disparaît, l'arbre la
+// signale « inaccessible », et elle revient seule au remontage — sans Ctrl+R ni
+// relance (avant : plus surveillée du tout, navigateur vide jusqu'à la relance).
+func TestWatchTreeRootLostAndBack(t *testing.T) {
+	parent := t.TempDir()
+	root := filepath.Join(parent, "PROJETS")
+	away := filepath.Join(parent, "PROJETS.demonte")
+	_ = os.MkdirAll(filepath.Join(root, "cat/proj"), 0o755)
+	_ = os.WriteFile(filepath.Join(root, "cat/proj/README"), []byte("x"), 0o644)
+	c := watchTree([]string{root})
+	time.Sleep(100 * time.Millisecond)
+
+	if err := os.Rename(root, away); err != nil { // le dossier disparaît
+		t.Fatal(err)
+	}
+	waitSignal(t, c, "racine disparue")
+	nodes := scanTree([]string{root})
+	if len(nodes) != 1 || !nodes[0].Root || !nodes[0].Missing {
+		t.Fatalf("racine perdue : %+v, attendu un en-tête « inaccessible »", nodes)
+	}
+
+	if err := os.Rename(away, root); err != nil { // remontage
+		t.Fatal(err)
+	}
+	waitSignal(t, c, "racine revenue")
+	nodes = scanTree([]string{root})
+	if len(nodes) != 3 || nodes[0].Missing || nodes[2].Name != "proj" {
+		t.Fatalf("racine revenue : %+v", nodes)
+	}
+
+	// et elle reste surveillée ensuite
+	_ = os.Mkdir(filepath.Join(root, "cat/neuf"), 0o755)
+	waitSignal(t, c, "création après remontage")
+}
+
+func TestDirReachable(t *testing.T) {
+	d := t.TempDir()
+	if !dirReachable(d) {
+		t.Error("dossier vide vu injoignable")
+	}
+	if dirReachable(filepath.Join(d, "absent")) {
+		t.Error("dossier absent vu joignable")
+	}
+	f := filepath.Join(d, "fichier")
+	_ = os.WriteFile(f, nil, 0o644)
+	if dirReachable(f) {
+		t.Error("fichier vu comme dossier joignable")
+	}
+}

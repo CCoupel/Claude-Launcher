@@ -745,7 +745,7 @@ revenir) uniquement avec tous les projets fermés.**
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
-| `F5` | rechercher les mises à jour et relire la consommation maintenant (réaffiche les annonces masquées) |
+| `F5` | rechercher les mises à jour, relire la consommation et la liste des projets maintenant (réaffiche les annonces masquées) |
 | `F1` | aide : commandes et raccourcis, dans un `display-popup` tmux par-dessus la coque |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
@@ -865,6 +865,17 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
 - **Quitter** : `Esc` puis `l` arrête le launcher (serveur `claude-ui-ng2`) en laissant les projets
   tourner dans `claude-hub-ng2` ; `Esc`, `t` puis `o` ferme aussi `claude-hub-ng2` et ses sessions groupées.
 - **Pas de zone tmux à droite** : relancer `claude-launcher-ng2`, le pane manquant est recréé.
+- **Navigateur disparu** (plantage, processus tué) : la relance recrée la coque
+  (`⚠ navigateur absent de la coque : coque recréée`), projets conservés, et affiche la dernière
+  erreur de sortie du navigateur si elle a été notée (`~/.cache/claude-launcher-ng2/nav.err`).
+  Jusqu'à la v5.7.2, la relance échouait sur `coque sans navigateur` :
+  `tmux -L claude-ui-ng2 kill-server` puis relancer.
+- **Stockage des projets démonté** (MooseFS, NFS… tombé) : la racine reste dans le navigateur,
+  marquée `⚠ inaccessible`, et elle est scrutée toutes les 3 s ; au remontage, ses projets
+  reviennent seuls (`F5` force la relecture). Jusqu'à la v5.7.2, une racine perdue n'était plus
+  surveillée du tout : navigateur vide jusqu'à la relance du launcher.
+  Si le binaire lui-même est sur ce stockage (mode portable), un démontage peut aussi faire tomber
+  le navigateur : la relance recrée alors la coque (voir ci-dessus).
 - **Essayer sans toucher à `claude-hub-ng2`** :
   `CL_HUB=claude-hub-test CL_OUTER_SOCKET=claude-ui-test claude-launcher-ng2`.
 - **Les annonces de version n'apparaissent pas** : GitHub est interrogé sans jeton ; en cas de
