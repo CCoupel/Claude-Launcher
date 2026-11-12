@@ -678,7 +678,7 @@ revenir) uniquement avec tous les projets fermés.**
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
   release (dernier tag atteignable depuis `origin/main`).
   Le point devant le nom est l'état du projet : `○` rien ne tourne, `●` bleu conteneur prêt sans
-  claude, `▲` vert ouvert ici (nom en gras sur la couleur de son pane tmux), `●` vert lecture seule,
+  claude, `▲` vert ouvert ici (bandeau à la couleur de son pane tmux sur toute la largeur de la ligne, badges à droite), `●` vert lecture seule,
   `■` orange piloté par un autre hub, `●` orange personne ne pilote, `✕` rouge problème (voir
   [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet.
   Badge milestone `⚑` (projets GitHub), calculé avec **la règle du panneau milestone des projets**

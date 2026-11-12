@@ -1213,12 +1213,18 @@ func (m model) renderList(w, h int) string {
 				if _, busy := m.closing[n.Path]; busy {
 					dot = cyan.Render("⏻ ")
 				}
+				badges := m.badges(n)
 				if m.windows[n.Key] {
-					// ouvert : nom en surbrillance, sur la couleur de son pane tmux
+					// ouvert : bandeau à la couleur de son pane tmux, étiré sur toute
+					// la largeur libre de la ligne (badges calés à droite) pour qu'un
+					// projet ouvert saute aux yeux.
+					free := w - ansi.StringWidth(prefix+dot) - ansi.StringWidth(badges)
+					label := "  " + shorten(n.Name, max(free-4, 1)) + "  "
 					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).
-						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).Render(" " + n.Name + " ")
+						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).
+						Width(max(free, ansi.StringWidth(label))).Render(label)
 				}
-				line = prefix + dot + name + m.badges(n)
+				line = prefix + dot + name + badges
 			}
 		}
 		if i == m.cursor {
