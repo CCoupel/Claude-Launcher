@@ -117,6 +117,7 @@ func newModel(launch bool) model {
 	m.session = tmuxSession()
 	if m.shell {
 		_ = syncLauncherEnv(cfg) // variables du launcher pour toutes les sessions claude
+		exportBrowserPathsHub()  // chemins vus par le navigateur (#104), projets sur l'hôte
 		if why := takeNavCrash(); why != "" {
 			m.msg = "⚠ relancé après " + why // détail : nav.err.last (cache)
 		}

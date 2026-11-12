@@ -134,6 +134,9 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 		}
 	}
 	_, inCtr := engineOf(be)
+	if !inCtr {
+		exportBrowserPathsHub() // config relue à chaque ouverture (#104)
+	}
 	nw := []string{"new-window", "-P", "-F", "#{window_id} #{pane_id}", "-t", exactS(sess) + ":", "-n", n.Key}
 	var startFile string
 	if inCtr {

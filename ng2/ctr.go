@@ -80,6 +80,31 @@ func tmuxIn(args ...string) []string {
 	return append([]string{"tmux", "-u", "-L", ctrSocket, "-f", "/etc/cl-tmux.conf"}, args...)
 }
 
+// newCtrSession : session tmux du projet dans le conteneur, avec les chemins vus
+// par le navigateur (#104) dès le premier pane (claude). tmux < 3.0 n'a pas
+// -e : session créée sans, seuls les panes suivants (teammates) auront la
+// variable, posée par setCtrBrowserPaths.
+func (e Engine) newCtrSession(name, proj string, w, h int) error {
+	ns := []string{"new-session", "-d", "-s", ctrSession, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", proj}
+	withEnv := append([]string{"new-session", "-d", "-e", browserPathEnv()}, ns[2:]...)
+	if e.exec(name, false, nil, io.Discard, tmuxIn(withEnv...)...) == nil {
+		return nil
+	}
+	if err := e.exec(name, false, nil, os.Stdout, tmuxIn(ns...)...); err != nil {
+		return fmt.Errorf("tmux du projet : %w", err)
+	}
+	return nil
+}
+
+// setCtrBrowserPaths : à chaque ouverture ou rattachement, correspondance à
+// jour dans l'environnement de la session : les panes créés ensuite
+// (teammates) la prennent, sans recréer le conteneur ni le pod (#104).
+func (e Engine) setCtrBrowserPaths(name string) {
+	if v, val, ok := strings.Cut(browserPathEnv(), "="); ok {
+		_ = e.exec(name, false, nil, io.Discard, tmuxIn("set-environment", "-t", "="+ctrSession, v, val)...)
+	}
+}
+
 func (e Engine) hasSession(name string) bool {
 	return e.exec(name, false, nil, io.Discard, tmuxIn("has-session", "-t", "="+ctrSession)...) == nil
 }
@@ -154,15 +179,15 @@ func runCtrAttach(proj, startFile string) error {
 			}
 		}
 		w, h := paneSize()
-		if err := e.exec(name, false, nil, os.Stdout, tmuxIn("new-session", "-d", "-s", ctrSession,
-			"-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", proj)...); err != nil {
-			return fmt.Errorf("tmux du projet : %w", err)
+		if err := e.newCtrSession(name, proj, w, h); err != nil {
+			return err
 		}
 		if len(start) > 0 {
 			_ = e.exec(name, false, nil, os.Stdout, tmuxIn("send-keys", "-t", "="+ctrSession+":", string(start), "Enter")...)
 		}
 	}
 	_ = os.Remove(startFile)
+	e.setCtrBrowserPaths(name)
 	// propriétaire (#48) : un seul launcher pilote la session
 	readOnly := false
 	if o := e.owner(name); o.alive() && o.id != launcherID() {

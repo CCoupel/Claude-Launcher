@@ -395,7 +395,10 @@ type backendsFile struct {
 	Defaults struct {
 		Backend string `yaml:"backend"` // mode présélectionné à la création : host ou un backend conteneur
 		Image   string `yaml:"image"`   // socle présélectionné
+		// correspondance session ↔ navigateur (#104, browserpaths.go) ; nil : défaut
+		BrowserPaths *[]BrowserPath `yaml:"browser_paths"`
 	} `yaml:"defaults"`
+	Hubs map[string]hubConf `yaml:"hubs"` // réglages par machine du launcher (hostname)
 }
 
 func backendsPath() string { return filepath.Join(ng2ConfigDir(), "backends.yaml") }
