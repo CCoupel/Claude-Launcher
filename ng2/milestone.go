@@ -67,7 +67,10 @@ type MsState struct {
 	DoneAt  time.Time `json:"done_at"`           // publié : date de clôture
 	PRs     int       `json:"prs,omitempty"`     // pull requests ouvertes (badge ⇄)
 	Drafts  int       `json:"drafts,omitempty"`  // dont brouillons
-	At      time.Time `json:"at"`                // lecture GitHub
+	// Release : dernière release publiée sur GitHub (ni brouillon ni pré-release)
+	Release   string    `json:"release,omitempty"`
+	ReleaseAt time.Time `json:"release_at,omitzero"`
+	At        time.Time `json:"at"` // lecture GitHub
 }
 
 type rawMilestone struct {
@@ -312,19 +315,30 @@ func ghJSON(dir, token string, v any, args ...string) error {
 	return json.Unmarshal(out, v)
 }
 
+type rawRelease struct {
+	Tag string    `json:"tagName"`
+	At  time.Time `json:"publishedAt"`
+}
+
 type rawPR struct {
 	IsDraft bool `json:"isDraft"`
 }
 
-// readMilestones : état des milestones du projet et ses PR ouvertes (trois
-// appels gh en parallèle).
+// readMilestones : état des milestones du projet, ses PR ouvertes et sa
+// dernière release GitHub (quatre appels gh en parallèle).
 func readMilestones(dir, token string) (MsState, error) {
 	var ms []rawMilestone
 	var issues []rawIssue
 	var prs []rawPR
-	var e1, e2, e3 error
+	var rels []rawRelease
+	var e1, e2, e3, e4 error
 	var wg sync.WaitGroup
-	wg.Add(3)
+	wg.Add(4)
+	go func() {
+		defer wg.Done()
+		e4 = ghJSON(dir, token, &rels, "release", "list", "--exclude-drafts", "--exclude-pre-releases",
+			"--limit", "1", "--json", "tagName,publishedAt")
+	}()
 	go func() {
 		defer wg.Done()
 		e1 = ghJSON(dir, token, &ms, "api", "repos/{owner}/{repo}/milestones?state=all&per_page=100")
@@ -338,14 +352,37 @@ func readMilestones(dir, token string) (MsState, error) {
 		e3 = ghJSON(dir, token, &prs, "pr", "list", "--state", "open", "--limit", "200", "--json", "isDraft")
 	}()
 	wg.Wait()
-	for _, e := range []error{e1, e2, e3} {
+	for _, e := range []error{e1, e2, e3, e4} {
 		if e != nil {
 			return MsState{}, e
 		}
 	}
 	st := milestoneState(ms, issues)
 	st.PRs, st.Drafts = countPRs(prs)
+	if len(rels) > 0 {
+		st.Release, st.ReleaseAt = rels[0].Tag, rels[0].At
+	}
 	return st, nil
+}
+
+// releaseText : dernière release GitHub et sa date ; à défaut (pas encore lue,
+// dépôt hors GitHub) le dernier tag git de la branche principale. Un tag local
+// différent de la release est signalé (tags non récupérés, ou tag sans release).
+func releaseText(ms MsState, tag string) string {
+	if ms.Release == "" {
+		if tag == "" {
+			return orNone(tag)
+		}
+		return tag + dim.Render(" (tag git)")
+	}
+	s := ms.Release
+	if !ms.ReleaseAt.IsZero() {
+		s += dim.Render(" GitHub, il y a " + ageLabel(time.Since(ms.ReleaseAt)))
+	}
+	if tag != "" && tag != ms.Release {
+		s += yellow.Render(" · tag git " + tag)
+	}
+	return s
 }
 
 func countPRs(prs []rawPR) (n, drafts int) {

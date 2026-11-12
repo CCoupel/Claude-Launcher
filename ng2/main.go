@@ -117,6 +117,9 @@ func newModel(launch bool) model {
 	m.session = tmuxSession()
 	if m.shell {
 		_ = syncLauncherEnv(cfg) // variables du launcher pour toutes les sessions claude
+		if why := takeNavCrash(); why != "" {
+			m.msg = "⚠ relancé après " + why // détail : nav.err.last (cache)
+		}
 	}
 	m.tplVer = readTrim(tplVersionPath())
 	m.nodes = withSpecial(scanTree(cfg.Roots))
@@ -1214,15 +1217,24 @@ func (m model) renderList(w, h int) string {
 					dot = cyan.Render("⏻ ")
 				}
 				badges := m.badges(n)
+				rel := m.milestones[n.Path].Release // dernière release GitHub
 				if m.windows[n.Key] {
 					// ouvert : bandeau à la couleur de son pane tmux, étiré sur toute
 					// la largeur libre de la ligne (badges calés à droite) pour qu'un
-					// projet ouvert saute aux yeux.
+					// projet ouvert saute aux yeux ; la release y est calée à droite.
 					free := w - ansi.StringWidth(prefix+dot) - ansi.StringWidth(badges)
-					label := "  " + shorten(n.Name, max(free-4, 1)) + "  "
-					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).
-						Background(lipgloss.Color(m.cfg.projectColor(n.Key))).
-						Width(max(free, ansi.StringWidth(label))).Render(label)
+					bg := lipgloss.Color(m.cfg.projectColor(n.Key))
+					tail := ""
+					if rel != "" && free-utf8.RuneCountInString(n.Name)-6 >= utf8.RuneCountInString(rel)+1 {
+						tail = rel + " "
+					}
+					label := "  " + shorten(n.Name, max(free-4-utf8.RuneCountInString(tail), 1)) + "  "
+					pad := max(free-ansi.StringWidth(label)-utf8.RuneCountInString(tail), 0)
+					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(bg).
+						Render(label+strings.Repeat(" ", pad)) +
+						lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(bg).Render(tail)
+				} else if rel != "" && ansi.StringWidth(prefix+dot+name+badges)+1+utf8.RuneCountInString(rel) <= w-1 {
+					name += dim.Render(" " + rel) // seulement s'il reste la place : les badges d'abord
 				}
 				line = prefix + dot + name + badges
 			}
@@ -1252,7 +1264,7 @@ func (m model) renderPreview(w int) string {
 		d := m.detail[n.Path]
 		sb.WriteString("\n" + dim.Render("branche  ") + g.Branch)
 		sb.WriteString("\n" + dim.Render("version  ") + "locale  " + orNone(d.VerLocal))
-		sb.WriteString("\n" + dim.Render("         ") + "release " + orNone(d.VerRelease))
+		sb.WriteString("\n" + dim.Render("         ") + "release " + releaseText(p.ms, d.VerRelease))
 		sb.WriteString("\n" + dim.Render("dernier  ") + shorten(d.LastMsg, w-9) + "\n")
 	}
 	if l := msLines(p.ms, w); len(l) > 1 {

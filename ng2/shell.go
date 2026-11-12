@@ -97,12 +97,32 @@ func navWidth() (nav, win int) {
 // ── Coque ─────────────────────────────────────────────────────────────────
 
 func stateCommand(exe string) string {
-	return "CL_HUB=" + shq(hubSession) + " CL_INNER_SOCKET=" + shq(innerSocket()) + " " + shq(exe) + " state"
+	return supervised(roleInfo, "CL_HUB="+shq(hubSession)+" CL_OUTER_SOCKET="+shq(outerSocket())+
+		" CL_INNER_SOCKET="+shq(innerSocket())+" "+shq(exe)+" state")
 }
 
 func navCommand(exe string) string {
-	return fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
-		shq(hubSession), shq(outerSocket()), shq(innerSocket()), shq(exe))
+	return supervised(roleNav, fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
+		shq(hubSession), shq(outerSocket()), shq(innerSocket()), shq(exe)))
+}
+
+// supervised : commande d'un pane de la coque relancée en boucle. Sans elle, le
+// pane se fermait avec son processus (plantage, panic, SIGBUS quand le binaire
+// sur MooseFS devient illisible, binaire absent après un démontage…) et le
+// navigateur disparaissait, emportant F5, Échap… Le code de sortie et la fin de
+// stderr sont consignés dans <rôle>.err (relu au redémarrage). Quitter le
+// launcher arrête tout le serveur de la coque, donc aussi la boucle.
+func supervised(role, cmd string) string {
+	errf := filepath.Join(cacheDir(), role+".err")
+	out := filepath.Join(cacheDir(), role+".stderr")
+	return fmt.Sprintf(`while :; do %s 2>%s; rc=$?; `+
+		`case $rc in 2) w=" (panic)";; 127) w=" (binaire introuvable : stockage démonté ?)";; `+
+		`135) w=" (SIGBUS : binaire illisible, stockage démonté ?)";; 137) w=" (SIGKILL)";; 139) w=" (SIGSEGV)";; *) w="";; esac; `+
+		// Go convertit SIGBUS/SIGSEGV en panic (code 2) : la cause est dans stderr.
+		`grep -q SIGBUS %s 2>/dev/null && w=" (SIGBUS : binaire illisible, stockage démonté ?)"; `+
+		`{ echo "$(date '+%%Y-%%m-%%d %%H:%%M:%%S') arrêt inattendu ($rc)$w"; head -n 40 %s 2>/dev/null; } >%s; `+
+		`printf '\n  ⚠ arrêt inattendu (code %%s)%%s : redémarrage dans 2 s…\n' "$rc" "$w"; sleep 2; done`,
+		cmd, shq(out), shq(out), shq(out), shq(errf))
 }
 
 // paneStale : le pane exécute-t-il une autre copie du launcher que exe (binaire
@@ -263,6 +283,20 @@ func recordNavError(err error) {
 	_ = os.WriteFile(navErrFile(), []byte(line+"\n"), 0o644)
 }
 
+// takeNavCrash : arrêt inattendu consigné par la boucle du pane (supervised),
+// lu une fois au redémarrage ; le fichier est gardé en .last pour le diagnostic.
+func takeNavCrash() string {
+	s := lastNavError()
+	if s == "" {
+		return ""
+	}
+	_ = os.Rename(navErrFile(), navErrFile()+".last")
+	if _, rest, ok := strings.Cut(s, " arrêt inattendu "); ok {
+		return "arrêt " + rest
+	}
+	return "une erreur : " + s
+}
+
 func lastNavError() string {
 	b, err := os.ReadFile(navErrFile())
 	if err != nil {
@@ -295,7 +329,22 @@ func ensureLayout(exe string) error {
 	}
 	nav := roles[roleNav]
 	if nav == "" {
-		return fmt.Errorf("coque sans navigateur")
+		// Navigateur disparu (pane fermé) : on le recrée au-dessus des infos, ou à
+		// gauche de la zone tmux s'il n'y a plus qu'elle.
+		args := []string{"split-window", "-v", "-b", "-d", "-P", "-F", "#{pane_id}", "-l", "55%", "-t", roles[roleInfo]}
+		if roles[roleInfo] == "" {
+			if roles[roleHub] == "" {
+				return fmt.Errorf("coque sans navigateur")
+			}
+			w, _ := navWidth()
+			args = []string{"split-window", "-h", "-b", "-d", "-P", "-F", "#{pane_id}", "-l", strconv.Itoa(w), "-t", roles[roleHub]}
+		}
+		out, err := otmux(append(args, navCommand(exe))...).Output()
+		if err != nil {
+			return fmt.Errorf("tmux split-window (navigateur) : %v", err)
+		}
+		nav = strings.TrimSpace(string(out))
+		tagPane(nav, roleNav)
 	}
 	if roles[roleHub] == "" {
 		// -f : pleine hauteur, à droite du navigateur et du pane d'infos.

@@ -676,7 +676,11 @@ revenir) uniquement avec tous les projets fermés.**
     non mergé dans main · `✓` à jour / mergé · `↓N` en retard.
 
   Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
-  release (dernier tag atteignable depuis `origin/main`).
+  release publiée sur GitHub, avec sa date (`v5.7.4 GitHub, il y a 2 j`) ; un dernier tag git
+  d'`origin/main` différent est signalé en jaune (`· tag git v5.7.1` : tags pas récupérés, ou tag
+  sans release). Sans release GitHub connue (dépôt hors GitHub, pas encore lue), le tag git seul,
+  marqué `(tag git)`. La même release GitHub est affichée à côté du nom du projet dans le
+  navigateur (calée à droite dans le bandeau d'un projet ouvert), si la ligne a la place après les badges.
   Le point devant le nom est l'état du projet : `○` rien ne tourne, `●` bleu conteneur prêt sans
   claude, `▲` vert ouvert ici (bandeau à la couleur de son pane tmux sur toute la largeur de la ligne, badges à droite), `●` vert lecture seule,
   `■` orange piloté par un autre hub, `●` orange personne ne pilote, `✕` rouge problème (voir
@@ -701,8 +705,8 @@ revenir) uniquement avec tous les projets fermés.**
   d'avancement (issues fermées / total ; elle prend la largeur du pane, de 10 à 40 cellules), ses issues ouvertes par phase et les bloquées ; sans milestone
   en cours, la liste des milestones ouverts, une ligne chacun, colonnes alignées : `v1.2.0 — Titre  n/m  ███░░░
   P%` (v5.6.2). Pane étroit : on retire dans l'ordre la barre, puis la fin du titre (`…`, la version
-  reste entière), puis le pourcentage ; au plus étroit, `v1.2.0 n/m`. Trois appels `gh` par projet (ceux du
-  panneau : milestones, issues ouvertes ; plus les PR ouvertes) toutes les 5 min, `F5` pour forcer ; cache partagé
+  reste entière), puis le pourcentage ; au plus étroit, `v1.2.0 n/m`. Quatre appels `gh` par projet (ceux du
+  panneau : milestones, issues ouvertes ; plus les PR ouvertes et la dernière release) toutes les 5 min, `F5` pour forcer ; cache partagé
   `~/.cache/claude-launcher-ng2/milestones-v2.json`.
   Un projet fermé dont la dernière conversation est restée en suspens (non close par `/end-session`
   ni par une sortie propre, de moins de `RESUME_MAX_AGE_H` heures, ouverte nulle part) porte `↺` (rouge si sa team montre un
@@ -748,6 +752,11 @@ revenir) uniquement avec tous les projets fermés.**
 | `F5` | rechercher les mises à jour, relire la consommation et la liste des projets maintenant (réaffiche les annonces masquées) |
 | `F1` | aide : commandes et raccourcis, dans un `display-popup` tmux par-dessus la coque |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
+
+Les commandes `Esc`, `Ctrl+C`, `F1`, `F2`, `F5`, `Ctrl+R`, `Ctrl+U`, `Tab`, `Entrée`, `Suppr` et
+`Ctrl+←/→` marchent aussi dans le pane des cartes (sous le navigateur) : elles sont relayées au
+navigateur, qui prend le focus pour la suite (question de fermeture après `Esc`, etc.). Les flèches,
+`PgUp`/`PgDn`, `j`/`k` y font défiler les cartes ; `q` ne ferme plus ce pane.
 
 Création d'un projet : le formulaire demande le nom, puis le type de projet :
 
@@ -865,11 +874,14 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
 - **Quitter** : `Esc` puis `l` arrête le launcher (serveur `claude-ui-ng2`) en laissant les projets
   tourner dans `claude-hub-ng2` ; `Esc`, `t` puis `o` ferme aussi `claude-hub-ng2` et ses sessions groupées.
 - **Pas de zone tmux à droite** : relancer `claude-launcher-ng2`, le pane manquant est recréé.
-- **Navigateur disparu** (plantage, processus tué) : la relance recrée la coque
-  (`⚠ navigateur absent de la coque : coque recréée`), projets conservés, et affiche la dernière
-  erreur de sortie du navigateur si elle a été notée (`~/.cache/claude-launcher-ng2/nav.err`).
-  Jusqu'à la v5.7.2, la relance échouait sur `coque sans navigateur` :
-  `tmux -L claude-ui-ng2 kill-server` puis relancer.
+- **Navigateur disparu** (plantage, panic, binaire illisible ou absent après un démontage du
+  stockage) : depuis la v5.8.0, le navigateur et le pane des cartes tournent dans une boucle qui
+  les relance en 2 s ; la cause s'affiche au redémarrage (`⚠ relancé après arrêt (2) (SIGBUS : …)`)
+  et le détail (code de sortie, début de stderr) reste dans `~/.cache/claude-launcher-ng2/nav.err.last`.
+  Si le pane du navigateur a quand même été fermé, le pane des cartes le recrée sous 3 s (ou dès
+  qu'une commande y est tapée). Une coque plus ancienne sans navigateur est recréée à la relance
+  (`⚠ navigateur absent de la coque : coque recréée`), projets conservés. Jusqu'à la v5.7.2, la
+  relance échouait sur `coque sans navigateur` : `tmux -L claude-ui-ng2 kill-server` puis relancer.
 - **Stockage des projets démonté** (MooseFS, NFS… tombé) : la racine reste dans le navigateur,
   marquée `⚠ inaccessible`, et elle est scrutée toutes les 3 s ; au remontage, ses projets
   reviennent seuls (`F5` force la relecture). Jusqu'à la v5.7.2, une racine perdue n'était plus
