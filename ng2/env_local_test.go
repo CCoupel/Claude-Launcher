@@ -10,7 +10,7 @@ import (
 func writeEnvFile(t *testing.T, proj, body string) {
 	t.Helper()
 	_ = os.MkdirAll(filepath.Join(proj, ".claude-launcher"), 0o755)
-	if err := os.WriteFile(envPath(proj), []byte(body), 0o644); err != nil {
+	if err := os.WriteFile(EnvPath(proj), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -19,7 +19,7 @@ func writeEnvFile(t *testing.T, proj, body string) {
 func TestEnvLocalWatchValidation(t *testing.T) {
 	proj := t.TempDir()
 	writeEnvFile(t, proj, "image: debian:12\nlocal: [node_modules, ./web/node_modules/, .venv]\nwatch: [package-lock.json]\non_start: [\"true\"]\n")
-	e, err := loadEnv(proj)
+	e, err := LoadEnv(proj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,7 +31,7 @@ func TestEnvLocalWatchValidation(t *testing.T) {
 	}
 	for _, bad := range []string{"/abs", "..", "../x", "a/../../x", ".", "a:b", "a,b"} {
 		writeEnvFile(t, proj, "image: debian:12\nlocal: ['"+bad+"']\n")
-		if _, err := loadEnv(proj); err == nil {
+		if _, err := LoadEnv(proj); err == nil {
 			t.Errorf("local %q accepté", bad)
 		}
 	}

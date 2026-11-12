@@ -86,7 +86,7 @@ type model struct {
 	newTpl       string
 	tplSha       string
 	tplOK        bool // release du template publiée : adoptable
-	mgr          *stateMgr
+	mgr          *StateMgr
 	form         newForm
 	quitStep     int // 0, quitAsk (launcher seul ou tout ?), quitAll (confirmer la fermeture des projets)
 	navW         int // largeur demandée à tmux (appuis rapprochés)
@@ -108,8 +108,8 @@ type model struct {
 	loadedAt     time.Duration
 }
 
-func newModel(launch bool) model {
-	cfg := loadConfig()
+func NewModel(launch bool) model {
+	cfg := LoadConfig()
 	m := model{
 		cfg: cfg, git: map[string]GitInfo{}, detail: map[string]GitDetail{}, asked: map[string]bool{}, tpl: map[string]TemplateState{},
 		windows: map[string]bool{}, launch: launch, started: time.Now(), shell: os.Getenv("CL_SHELL") == "1",
@@ -122,20 +122,20 @@ func newModel(launch bool) model {
 			m.msg = "⚠ relancé après " + why // détail : nav.err.last (cache)
 		}
 	}
-	m.tplVer = readTrim(tplVersionPath())
-	m.nodes = withSpecial(scanTree(cfg.Roots))
-	m.treeCh = watchTree(cfg.Roots)
-	m.milestones = readMsCache()
-	m.usage = readUsage()
+	m.tplVer = ReadTrim(TplVersionPath())
+	m.nodes = withSpecial(ScanTree(cfg.Roots))
+	m.treeCh = WatchTree(cfg.Roots)
+	m.milestones = ReadMsCache()
+	m.usage = ReadUsage()
 	m.refilter()
 	m.cursor = m.firstProject()
 	if m.shell {
 		// cache d'état en tâche de fond (inotify) : la vue « ◈ État » ne fait que lire
-		if mgr, err := newStateMgr(); err == nil {
+		if mgr, err := NewStateMgr(); err == nil {
 			m.mgr = mgr
 			m.mgr.SetProjects(m.projectPaths())
 			for _, p := range m.projectPaths() { // badges immédiats depuis le cache précédent
-				if ps, _, ok := readState(p); ok {
+				if ps, _, ok := ReadState(p); ok {
 					m.git[p], m.tpl[p], m.detail[p] = ps.Git, ps.Tpl, ps.Detail
 				}
 			}
@@ -175,7 +175,7 @@ func (m *model) refilter() {
 
 func (m model) Init() tea.Cmd {
 	m.latest = readLatestTemplate()
-	cmds := []tea.Cmd{waitTree(m.treeCh), sessCmd(m.cfg, m.projectPaths(), 0), ctrCmd(m.projectPaths(), 0), tickCmd(), usageTickCmd(), windowsCmd(m.session), usageFetchCmd(m.cfg.UsageRefreshSec), updTickCmd(6 * time.Second)}
+	cmds := []tea.Cmd{waitTree(m.treeCh), sessCmd(m.cfg, m.projectPaths(), 0), ctrCmd(m.projectPaths(), 0), tickCmd(), usageTickCmd(), windowsCmd(m.session), usageFetchCmd(m.cfg.UsageRefreshSec), UpdTickCmd(6 * time.Second)}
 	if m.mgr != nil {
 		cmds = append(cmds, waitState(m.mgr.Done))
 	}
@@ -200,19 +200,19 @@ func gitCmd(path, latest string) tea.Cmd {
 	return func() tea.Msg {
 		gitSem <- struct{}{}
 		defer func() { <-gitSem }()
-		return gitMsg{path, readGit(path), readTemplate(path, latest)}
+		return gitMsg{path, ReadGit(path), ReadTemplate(path, latest)}
 	}
 }
 
 // msCmd : relit les milestones GitHub d'un projet (sans remote GitHub : aucun).
 func msCmd(path, token string) tea.Cmd {
 	return func() tea.Msg {
-		if !onGitHub(path) {
+		if !OnGitHub(path) {
 			return msMsg{path, MsState{At: time.Now()}, true}
 		}
-		msSem <- struct{}{}
-		defer func() { <-msSem }()
-		st, err := readMilestones(path, token)
+		MsSem <- struct{}{}
+		defer func() { <-MsSem }()
+		st, err := ReadMilestones(path, token)
 		if err != nil {
 			return msMsg{path: path}
 		}
@@ -229,7 +229,7 @@ func msTickCmd() tea.Cmd {
 func (m model) msStale(force bool) tea.Cmd {
 	var cmds []tea.Cmd
 	for _, p := range m.projectPaths() {
-		if st, ok := m.milestones[p]; force || !ok || time.Since(st.At) >= msRefresh {
+		if st, ok := m.milestones[p]; force || !ok || time.Since(st.At) >= MsRefresh {
 			cmds = append(cmds, msCmd(p, m.cfg.GithubToken))
 		}
 	}
@@ -243,7 +243,7 @@ func waitTree(ch <-chan struct{}) tea.Cmd {
 }
 
 func scanCmd(roots []string) tea.Cmd {
-	return func() tea.Msg { return treeMsg(withSpecial(scanTree(roots))) }
+	return func() tea.Msg { return treeMsg(withSpecial(ScanTree(roots))) }
 }
 
 // sessCmd : sessions en suspens des projets, après delay. Bon marché : ~/.claude
@@ -255,7 +255,7 @@ func sessNowCmd(cfg Config, paths []string) tea.Cmd {
 	return func() tea.Msg {
 		sess := map[string]Resumable{}
 		for _, p := range paths {
-			if r, ok := cfg.pendingSession(p); ok {
+			if r, ok := cfg.PendingSession(p); ok {
 				sess[p] = r
 			}
 		}
@@ -267,7 +267,7 @@ func sessCmd(cfg Config, paths []string, delay time.Duration) tea.Cmd {
 	read := func(time.Time) tea.Msg {
 		sess := map[string]Resumable{}
 		for _, p := range paths {
-			if r, ok := cfg.pendingSession(p); ok {
+			if r, ok := cfg.PendingSession(p); ok {
 				sess[p] = r
 			}
 		}
@@ -345,17 +345,17 @@ func windowsCmd(session string) tea.Cmd {
 // usageForceCmd : appel immédiat (F5), sans tenir compte du cache ni d'un échec récent.
 func usageForceCmd() tea.Cmd {
 	return func() tea.Msg {
-		fetchUsage(0)
-		return usageMsg(readUsage())
+		FetchUsage(0)
+		return usageMsg(ReadUsage())
 	}
 }
 func usageFetchCmd(sec int) tea.Cmd {
 	return func() tea.Msg {
-		linkUsageCache() // liens du contrat (usage.go), rétablis s'ils ont été remplacés
-		if needsFetch(sec) {
-			fetchUsage(sec)
+		LinkUsageCache() // liens du contrat (usage.go), rétablis s'ils ont été remplacés
+		if NeedsFetch(sec) {
+			FetchUsage(sec)
 		}
-		return usageMsg(readUsage())
+		return usageMsg(ReadUsage())
 	}
 }
 
@@ -363,11 +363,11 @@ func usageFetchCmd(sec int) tea.Cmd {
 // le cache à côté du script (celui que met à jour checkUpdates, comme le bash) ; les
 // autres emplacements ne servent que de repli.
 func readLatestTemplate() string {
-	if c := readTrim(tplCommitPath()); c != "" {
+	if c := ReadTrim(TplCommitPath()); c != "" {
 		return c
 	}
 	home, _ := os.UserHomeDir()
-	exe, _ := selfExe()
+	exe, _ := SelfExe()
 	for _, p := range []string{
 		filepath.Join(home, ".template-commit"),
 		filepath.Join(filepath.Dir(exe), ".template-commit"),
@@ -402,38 +402,38 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if len(m.git) == m.countProjects() {
 			m.loadedAt = time.Since(m.started)
 		}
-	case updTickMsg:
-		return m, checkUpdates(false)
-	case updMsg:
+	case UpdTickMsg:
+		return m, CheckUpdates(false)
+	case UpdMsg:
 		var prepCmd tea.Cmd
-		if msg.ok {
+		if msg.Ok {
 			tag := ""
-			if versionNewer(ngVersion, msg.launcherTag) {
-				tag = msg.launcherTag
+			if VersionNewer(NgVersion, msg.LauncherTag) {
+				tag = msg.LauncherTag
 			}
 			// annonce masquée : réaffichée pour un nouveau tag ou quand sa release sort
-			if tag != m.newLauncher || msg.launcherReady != m.launcherPub {
+			if tag != m.newLauncher || msg.LauncherReady != m.launcherPub {
 				m.hideLauncher = false
 			}
 			if tag != m.newLauncher {
 				m.launcherOK, m.prefFile, m.prefErr = false, "", ""
 			}
-			m.newLauncher, m.launcherPub = tag, msg.launcherReady
+			m.newLauncher, m.launcherPub = tag, msg.LauncherReady
 			// publiée : préparer (télécharger et contrôler) ; nouvel essai après un échec
 			if tag != "" && m.launcherPub && !m.launcherOK && !(m.prefBusy && m.prefTag == tag) {
 				prepCmd = m.startPrefetch(tag)
 			}
-			if msg.tplTag != m.newTpl || msg.tplReady != m.tplOK {
+			if msg.TplTag != m.newTpl || msg.TplReady != m.tplOK {
 				m.hideTpl = false
 			}
-			m.newTpl, m.tplSha, m.tplOK = msg.tplTag, msg.tplSha, msg.tplReady
+			m.newTpl, m.tplSha, m.tplOK = msg.TplTag, msg.TplSha, msg.TplReady
 			m.reloadTemplate()
 		}
-		if msg.manual {
+		if msg.Manual {
 			// le cycle de 10 min continue de son côté : pas de second minuteur
 			m.checking = false
 			switch {
-			case !msg.ok:
+			case !msg.Ok:
 				m.msg = "⚠ GitHub injoignable"
 			case m.newLauncher != "":
 				// annoncée par l'alerte, comme pour la vérification régulière
@@ -445,9 +445,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// release attendue : revérifie plus souvent pour passer au vert
 		if (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK) {
-			return m, tea.Batch(prepCmd, updTickCmd(2*time.Minute))
+			return m, tea.Batch(prepCmd, UpdTickCmd(2*time.Minute))
 		}
-		return m, tea.Batch(prepCmd, updTickCmd(10*time.Minute))
+		return m, tea.Batch(prepCmd, UpdTickCmd(10*time.Minute))
 	case prefStepMsg:
 		if msg.tag == m.prefTag {
 			m.prefStep = msg.step
@@ -464,14 +464,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
-	case tplAdoptedMsg:
-		if m.newTpl == msg.tag {
+	case TplAdoptedMsg:
+		if m.newTpl == msg.Tag {
 			m.newTpl, m.tplSha, m.tplOK = "", "", false
 		}
 		m.reloadTemplate()
-		m.msg = "✓ template " + msg.tag + " adopté"
-		if !msg.synced {
-			m.msg = "⚠ template " + msg.tag + " : init-project.md non téléchargé"
+		m.msg = "✓ template " + msg.Tag + " adopté"
+		if !msg.Synced {
+			m.msg = "⚠ template " + msg.Tag + " : init-project.md non téléchargé"
 		}
 	case detailMsg:
 		m.detail[msg.path] = msg.d
@@ -485,9 +485,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.syncSelection()
 		return m, tea.Batch(cmd, m.detailCmd(), m.stateCmd())
 	case msMsg:
-		if old := m.milestones[msg.path]; msg.ok && !reflect.DeepEqual(old.withoutAt(), msg.st.withoutAt()) {
+		if old := m.milestones[msg.path]; msg.ok && !reflect.DeepEqual(old.WithoutAt(), msg.st.WithoutAt()) {
 			m.milestones[msg.path] = msg.st
-			writeMsCache(m.milestones)
+			WriteMsCache(m.milestones)
 		}
 		return m, nil
 	case msTick:
@@ -542,20 +542,20 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		cmd := mm.pendingCmd
 		mm.pendingCmd = nil
 		return mm, tea.Batch(cmd, mm.detailCmd(), mm.stateCmd())
-	case updDoneMsg:
+	case UpdDoneMsg:
 		m.updating = false
-		if msg.stale && m.newLauncher != "" {
+		if msg.Stale && m.newLauncher != "" {
 			m.launcherOK, m.prefFile = false, ""
-			m.msg = "⚠ mise à jour : " + msg.err.Error()
+			m.msg = "⚠ mise à jour : " + msg.Err.Error()
 			return m, m.startPrefetch(m.newLauncher)
 		}
 		switch {
-		case msg.err != nil:
-			m.msg = "⚠ mise à jour : " + msg.err.Error()
-		case msg.binDone && m.shell:
+		case msg.Err != nil:
+			m.msg = "⚠ mise à jour : " + msg.Err.Error()
+		case msg.BinDone && m.shell:
 			restartOnNewBinary() // ne revient pas : ce pane est relancé
-		case msg.binDone:
-			m.msg = "✓ " + msg.tag + " installée — relancer le launcher"
+		case msg.BinDone:
+			m.msg = "✓ " + msg.Tag + " installée — relancer le launcher"
 		default:
 			m.msg = "✓ déjà à jour"
 			m.hideLauncher = true
@@ -630,20 +630,20 @@ func (m model) openSelectedAs(mode launchMode) model {
 	}
 	// première ouverture d'un projet jamais configuré : choisir d'abord son
 	// exécution (hôte ou conteneur), s'il existe un backend conteneur
-	if mode == launchNormal && m.launch && !m.windows[n.Key] && !assigned(n.Path) && len(ctrBackends()) > 0 {
+	if mode == launchNormal && m.launch && !m.windows[n.Key] && !Assigned(n.Path) && len(CtrBackends()) > 0 {
 		return m.startExecChoice(n, true)
 	}
 	if m.shell && m.launch && dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		// claude-hub fermé entre-temps : la coque le recrée, zone tmux de droite comprise
 		if err := ensureInner(); err == nil {
-			if exe, e := selfExe(); e == nil {
-				_ = ensureLayout(exe)
+			if exe, e := SelfExe(); e == nil {
+				_ = EnsureLayout(exe)
 			}
 		}
 	}
 	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate(), mode)
 	m.wantTeam, m.lastShow = false, time.Time{}
-	if m.launch && m.msg == "" && hasEnv(n.Path) {
+	if m.launch && m.msg == "" && HasEnv(n.Path) {
 		// conteneur : propriétaire de la session relu une fois l'attache faite, sans
 		// attendre la relecture périodique (point ▲ aussitôt)
 		m.pendingCmd = tea.Batch(m.pendingCmd, ctrNowCmd(m.projectPaths(), 4*time.Second))
@@ -691,7 +691,7 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			case a == "launcher" && m.launcherPub && !m.prefBusy && m.prefErr != "":
 				m.pendingCmd = m.startPrefetch(m.newLauncher) // jaune en échec : réessayer
 			case a == "template" && m.tplOK:
-				m.pendingCmd = adoptTplCmd(m.newTpl, m.tplSha)
+				m.pendingCmd = AdoptTplCmd(m.newTpl, m.tplSha)
 			}
 			return m
 		}
@@ -816,7 +816,7 @@ func (m model) detailCmd() tea.Cmd {
 	return func() tea.Msg {
 		gitSem <- struct{}{}
 		defer func() { <-gitSem }()
-		return detailMsg{p, readDetail(p)}
+		return detailMsg{p, ReadDetail(p)}
 	}
 }
 
@@ -934,7 +934,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.checking, m.hideLauncher, m.hideTpl = true, false, false
 		m.msg = "recherche des mises à jour…"
 		// relit aussi l'arborescence (filet de sécurité : dossier remonté…)
-		return m, tea.Batch(checkUpdates(true), usageForceCmd(), m.msStale(true), scanCmd(m.cfg.Roots))
+		return m, tea.Batch(CheckUpdates(true), usageForceCmd(), m.msStale(true), scanCmd(m.cfg.Roots))
 	case "tab":
 		if m.shell {
 			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
@@ -958,7 +958,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgdown":
 		m.move(10)
 	case "ctrl+r":
-		m.nodes = withSpecial(scanTree(m.cfg.Roots))
+		m.nodes = withSpecial(ScanTree(m.cfg.Roots))
 		if m.mgr != nil {
 			m.mgr.SetProjects(m.projectPaths())
 		}
@@ -1032,14 +1032,14 @@ func sign(a int) int {
 // ── Rendu ────────────────────────────────────────────────────────────────
 
 var (
-	dim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	bold   = lipgloss.NewStyle().Bold(true)
-	green  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
-	yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
-	red    = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
-	orange = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
-	blue   = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
-	cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
+	Dim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	Bold   = lipgloss.NewStyle().Bold(true)
+	Green  = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))
+	Yellow = lipgloss.NewStyle().Foreground(lipgloss.Color("3"))
+	Red    = lipgloss.NewStyle().Foreground(lipgloss.Color("1")).Bold(true)
+	Orange = lipgloss.NewStyle().Foreground(lipgloss.Color("208"))
+	Blue   = lipgloss.NewStyle().Foreground(lipgloss.Color("4")).Bold(true)
+	Cyan   = lipgloss.NewStyle().Foreground(lipgloss.Color("6")).Bold(true)
 )
 
 // projInfo : ce que le navigateur sait du projet, pour ses indicateurs (legend.go).
@@ -1061,7 +1061,7 @@ func (m model) badges(n Node) string {
 	p := m.projInfo(n)
 	b := badgeLine(badgeIndicators(p))
 	if !p.gitOK {
-		b = dim.Render(" …") + b
+		b = Dim.Render(" …") + b
 	}
 	return b
 }
@@ -1131,8 +1131,8 @@ func (m model) View() string {
 		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
 	}
 
-	filter := dim.Render("  filtre › ") + m.filter + dim.Render("▏")
-	foot := dim.Render(hint)
+	filter := Dim.Render("  filtre › ") + m.filter + Dim.Render("▏")
+	foot := Dim.Render(hint)
 	// Sortie : la question occupe les lignes du pied (deux en mode compact, où le
 	// navigateur ne fait souvent que 40 colonnes).
 	var q [2]string
@@ -1143,12 +1143,12 @@ func (m model) View() string {
 		q = [2]string{fmt.Sprintf("  Fermer %d projet(s) et leur claude ?", m.openProjects()), "  [o] oui · autre : annuler"}
 	}
 	if m.closeAsk != nil {
-		ask := orange.Bold(true).Reverse(true)
+		ask := Orange.Bold(true).Reverse(true)
 		if compact {
 			// 40 colonnes : la question sur deux lignes
 			// 40 colonnes : « o/N » reste sur la première ligne, le détail dessous
 			qs, rest, _ := strings.Cut(m.closeAsk.question, " ? ")
-			foot = ask.Render("  "+qs+" ? o/N ") + "\n" + dim.Render("  "+strings.TrimSuffix(rest, " · o/N"))
+			foot = ask.Render("  "+qs+" ? o/N ") + "\n" + Dim.Render("  "+strings.TrimSuffix(rest, " · o/N"))
 		} else {
 			foot = ask.Render("  " + m.closeAsk.question + " ")
 		}
@@ -1156,11 +1156,11 @@ func (m model) View() string {
 	}
 	switch {
 	case q[0] != "" && compact:
-		foot = yellow.Render(q[0]) + "\n" + yellow.Render(q[1])
+		foot = Yellow.Render(q[0]) + "\n" + Yellow.Render(q[1])
 	case q[0] != "":
-		foot = yellow.Render(q[0] + " ·" + q[1][1:])
+		foot = Yellow.Render(q[0] + " ·" + q[1][1:])
 	case compact && m.msg != "":
-		foot += "\n  " + yellow.Render(m.msg) // 40 colonnes : le message seul, sans le décompte
+		foot += "\n  " + Yellow.Render(m.msg) // 40 colonnes : le message seul, sans le décompte
 	case compact:
 		foot += "\n" + m.footStatus()
 	default:
@@ -1172,19 +1172,19 @@ func (m model) View() string {
 func (m model) footStatus() string {
 	s := ""
 	if m.loadedAt > 0 {
-		s = dim.Render(fmt.Sprintf("  · %d projets en %s", m.countProjects(), m.loadedAt.Round(time.Millisecond)))
+		s = Dim.Render(fmt.Sprintf("  · %d projets en %s", m.countProjects(), m.loadedAt.Round(time.Millisecond)))
 	} else {
-		s = dim.Render(fmt.Sprintf("  · git %d/%d", len(m.git), m.countProjects()))
+		s = Dim.Render(fmt.Sprintf("  · git %d/%d", len(m.git), m.countProjects()))
 	}
 	if m.msg != "" {
-		s += "  " + yellow.Render(m.msg)
+		s += "  " + Yellow.Render(m.msg)
 	}
 	return s
 }
 
 func (m model) renderList(w, h int) string {
 	if len(m.visible) == 0 {
-		return dim.Render("  aucun projet")
+		return Dim.Render("  aucun projet")
 	}
 	top := m.listTop(h)
 	var sb strings.Builder
@@ -1193,12 +1193,12 @@ func (m model) renderList(w, h int) string {
 		var line string
 		switch {
 		case n.Special != "":
-			line = " " + cyan.Render(n.Name) + dim.Render(" (dbl-clic catégorie)")
+			line = " " + Cyan.Render(n.Name) + Dim.Render(" (dbl-clic catégorie)")
 		case n.Root && n.Missing:
 			const tag = " ⚠ inaccessible"
-			line = bold.Render(" "+shorten(n.Name, w-2-utf8.RuneCountInString(tag))) + yellow.Render(tag)
+			line = Bold.Render(" "+shorten(n.Name, w-2-utf8.RuneCountInString(tag))) + Yellow.Render(tag)
 		case n.Root:
-			line = bold.Render(" " + shorten(n.Name, w-2))
+			line = Bold.Render(" " + shorten(n.Name, w-2))
 		default:
 			indent := strings.Repeat("  ", n.Depth)
 			branch := "├─ "
@@ -1208,14 +1208,14 @@ func (m model) renderList(w, h int) string {
 			if m.filter != "" {
 				indent, branch = "", ""
 			}
-			prefix := " " + dim.Render(indent+branch)
+			prefix := " " + Dim.Render(indent+branch)
 			if !n.Project {
-				line = prefix + cyan.Render(n.Name)
+				line = prefix + Cyan.Render(n.Name)
 			} else {
 				di := dotIndicator(m.projInfo(n))
 				dot, name := di.style.Render(di.icon)+" ", n.Name
 				if _, busy := m.closing[n.Path]; busy {
-					dot = cyan.Render("⏻ ")
+					dot = Cyan.Render("⏻ ")
 				}
 				badges := m.badges(n)
 				rel := m.milestones[n.Path].Release // dernière release GitHub
@@ -1224,7 +1224,7 @@ func (m model) renderList(w, h int) string {
 					// la largeur libre de la ligne (badges calés à droite) pour qu'un
 					// projet ouvert saute aux yeux ; la release y est calée à droite.
 					free := w - ansi.StringWidth(prefix+dot) - ansi.StringWidth(badges)
-					bg := lipgloss.Color(m.cfg.projectColor(n.Key))
+					bg := lipgloss.Color(m.cfg.ProjectColor(n.Key))
 					tail := ""
 					if rel != "" && free-utf8.RuneCountInString(n.Name)-6 >= utf8.RuneCountInString(rel)+1 {
 						tail = rel + " "
@@ -1235,7 +1235,7 @@ func (m model) renderList(w, h int) string {
 						Render(label+strings.Repeat(" ", pad)) +
 						lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(bg).Render(tail)
 				} else if rel != "" && ansi.StringWidth(prefix+dot+name+badges)+1+utf8.RuneCountInString(rel) <= w-1 {
-					name += dim.Render(" " + rel) // seulement s'il reste la place : les badges d'abord
+					name += Dim.Render(" " + rel) // seulement s'il reste la place : les badges d'abord
 				}
 				line = prefix + dot + name + badges
 			}
@@ -1254,47 +1254,47 @@ func (m model) renderPreview(w int) string {
 	}
 	n := m.nodes[m.visible[m.cursor]]
 	if !n.Project {
-		return dim.Render(n.Path)
+		return Dim.Render(n.Path)
 	}
 	var sb strings.Builder
-	sb.WriteString(bold.Render(n.Name) + "\n")
-	sb.WriteString(dim.Render(shorten(n.Path, w)) + "\n\n")
+	sb.WriteString(Bold.Render(n.Name) + "\n")
+	sb.WriteString(Dim.Render(shorten(n.Path, w)) + "\n\n")
 	p := m.projInfo(n)
 	sb.WriteString(truncLines(strings.Join(legendLines(p, 0), "\n"), w) + "\n")
 	if g := p.git; p.gitOK && g.IsRepo {
 		d := m.detail[n.Path]
-		sb.WriteString("\n" + dim.Render("branche  ") + g.Branch)
-		sb.WriteString("\n" + dim.Render("version  ") + "locale  " + orNone(d.VerLocal))
-		sb.WriteString("\n" + dim.Render("         ") + "release " + releaseText(p.ms, d.VerRelease))
-		sb.WriteString("\n" + dim.Render("dernier  ") + shorten(d.LastMsg, w-9) + "\n")
+		sb.WriteString("\n" + Dim.Render("branche  ") + g.Branch)
+		sb.WriteString("\n" + Dim.Render("version  ") + "locale  " + OrNone(d.VerLocal))
+		sb.WriteString("\n" + Dim.Render("         ") + "release " + ReleaseText(p.ms, d.VerRelease))
+		sb.WriteString("\n" + Dim.Render("dernier  ") + shorten(d.LastMsg, w-9) + "\n")
 	}
-	if l := msLines(p.ms, w); len(l) > 1 {
+	if l := MsLines(p.ms, w); len(l) > 1 {
 		sb.WriteString("\n" + truncLines(strings.Join(l[1:], "\n"), w) + "\n")
 	}
 	return sb.String()
 }
 
 // bareVer : « v2.29.0 » -> « 2.29.0 » (compact), « ? » si inconnue.
-func bareVer(v string) string { return strings.TrimPrefix(orQ(v), "v") }
+func bareVer(v string) string { return strings.TrimPrefix(OrQ(v), "v") }
 
 // versionLines : versions du launcher et du template, et alertes de mise à jour.
 func (m model) versionLines() string {
 	// 40 colonnes par défaut : libellés courts, complets si la place le permet.
-	line := "NG " + ngVersion + " · tpl " + bareVer(m.tplVer)
+	line := "NG " + NgVersion + " · tpl " + bareVer(m.tplVer)
 	if m.w >= 70 {
-		line = ngName + " " + ngVersion + " · dernier template " + orQ(m.tplVer)
+		line = NgName + " " + NgVersion + " · dernier template " + OrQ(m.tplVer)
 	}
-	s := "\n" + dim.Render("  "+line)
+	s := "\n" + Dim.Render("  "+line)
 	for _, a := range m.alerts() {
 		switch {
 		case a == "launcher" && m.updating:
-			s += "\n" + green.Render(m.alertText(a))
+			s += "\n" + Green.Render(m.alertText(a))
 		case (a == "launcher" && m.launcherOK) || (a == "template" && m.tplOK):
-			s += "\n" + green.Render(m.alertText(a)) + dim.Render(" ✕")
+			s += "\n" + Green.Render(m.alertText(a)) + Dim.Render(" ✕")
 		case a == "launcher" && m.launcherPub:
-			s += "\n" + yellow.Render(m.alertText(a)) + dim.Render(" ✕")
+			s += "\n" + Yellow.Render(m.alertText(a)) + Dim.Render(" ✕")
 		default:
-			s += "\n" + orange.Render(m.alertText(a)) + dim.Render(" ✕")
+			s += "\n" + Orange.Render(m.alertText(a)) + Dim.Render(" ✕")
 		}
 	}
 	return s
@@ -1328,10 +1328,10 @@ func (m model) alertText(a string) string {
 // reloadTemplate : le commit de référence a pu changer (adoption, ou script
 // bash) : réévalue version et badges template.
 func (m *model) reloadTemplate() {
-	m.tplVer = readTrim(tplVersionPath())
-	latest := readTrim(tplCommitPath())
+	m.tplVer = ReadTrim(TplVersionPath())
+	latest := ReadTrim(TplCommitPath())
 	for p := range m.tpl {
-		m.tpl[p] = readTemplate(p, latest)
+		m.tpl[p] = ReadTemplate(p, latest)
 	}
 }
 
@@ -1360,7 +1360,7 @@ func (m *model) dismissAlert(kind string) {
 
 func (m model) renderHeader(w int) string {
 	var sb strings.Builder
-	sb.WriteString(dim.Render("  session : ") + cyan.Render(m.session))
+	sb.WriteString(Dim.Render("  session : ") + Cyan.Render(m.session))
 	sb.WriteString(m.versionLines())
 	u := m.usage
 	// juste sous les annonces (onMouse compte sur cette position)
@@ -1373,13 +1373,13 @@ func (m model) renderHeader(w int) string {
 	}
 	switch {
 	case u.Expired:
-		sb.WriteString("\n  " + red.Render(fit("✗ connexion claude.ai expirée · cliquer pour /login", "✗ connexion expirée · /login")))
+		sb.WriteString("\n  " + Red.Render(fit("✗ connexion claude.ai expirée · cliquer pour /login", "✗ connexion expirée · /login")))
 	case !u.LoginBy.IsZero():
-		at := formatReset(u.LoginBy.UTC().Format(time.RFC3339))
-		sb.WriteString("\n  " + yellow.Render(fit("⚠ connexion claude.ai : expiration "+at+" · cliquer pour /login", "⚠ /login avant "+at)))
+		at := FormatReset(u.LoginBy.UTC().Format(time.RFC3339))
+		sb.WriteString("\n  " + Yellow.Render(fit("⚠ connexion claude.ai : expiration "+at+" · cliquer pour /login", "⚠ /login avant "+at)))
 	}
 	if u.Expired {
-		if u.Err == authErr {
+		if u.Err == AuthErr {
 			u.Err = "" // déjà dit au-dessus
 		}
 	}
@@ -1391,7 +1391,7 @@ func (m model) renderHeader(w int) string {
 		if u.Err != "" {
 			msg = u.Err
 		}
-		return sb.String() + "\n" + dim.Render("  consommation Claude : "+msg)
+		return sb.String() + "\n" + Dim.Render("  consommation Claude : "+msg)
 	}
 	stale := ""
 	if u.Err != "" || time.Since(u.ReadAt) > time.Duration(m.cfg.UsageRefreshSec)*5*time.Second {
@@ -1403,44 +1403,44 @@ func (m model) renderHeader(w int) string {
 	lw, rw := 0, 0
 	resets := make([]string, len(u.Limits))
 	for i, l := range u.Limits {
-		resets[i] = formatReset(l.ResetsAt)
+		resets[i] = FormatReset(l.ResetsAt)
 		lw = max(lw, lipgloss.Width(l.Label()))
 		rw = max(rw, lipgloss.Width(resets[i]))
 	}
 	barW := min(40, max(8, m.w-lw-rw-16))
 	for i, l := range u.Limits {
 		pct := int(l.Percent + 0.5)
-		style := blue
+		style := Blue
 		switch {
 		case stale != "" || resets[i] == "passée":
-			style = dim
+			style = Dim
 		case l.Severity == "critical" || pct >= 90:
-			style = red
+			style = Red
 		case l.Severity == "warning" || pct >= 70:
-			style = yellow
+			style = Yellow
 		}
 		p := min(100, max(0, pct))
 		filled := (p*barW + 50) / 100
-		label := bold.Render(padRight(l.Label(), lw))
+		label := Bold.Render(PadRight(l.Label(), lw))
 		sb.WriteString("\n  " + label + " ")
 		if resets[i] == "passée" {
-			sb.WriteString(dim.Render(strings.Repeat("░", barW) + "    — réinit. passée"))
+			sb.WriteString(Dim.Render(strings.Repeat("░", barW) + "    — réinit. passée"))
 			continue
 		}
-		sb.WriteString(style.Render(strings.Repeat("█", filled)) + dim.Render(strings.Repeat("░", barW-filled)))
+		sb.WriteString(style.Render(strings.Repeat("█", filled)) + Dim.Render(strings.Repeat("░", barW-filled)))
 		sb.WriteString(style.Render(fmt.Sprintf(" %3d %%", pct)))
 		if resets[i] != "" {
-			sb.WriteString("  " + dim.Render(resets[i]))
+			sb.WriteString("  " + Dim.Render(resets[i]))
 		}
 	}
 	if stale != "" {
-		sb.WriteString("\n  " + yellow.Render(stale))
+		sb.WriteString("\n  " + Yellow.Render(stale))
 	}
 	return sb.String()
 }
 
 func main() {
-	applyClaudeConfigDir()
+	ApplyClaudeConfigDir()
 	cmd := "shell"
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {
 		cmd = os.Args[1]
@@ -1462,58 +1462,58 @@ func main() {
 	var err error
 	switch cmd {
 	case "shell":
-		selfUpdate()
-		linkUsageCache()
-		resetUsageBackoff()
-		bar := startProgress("Nettoyage des teams")
-		teamsProgress = bar.Step
-		cleanupDeadTeams(loadConfig().resumeMaxAge())
-		teamsProgress = nil
+		SelfUpdate()
+		LinkUsageCache()
+		ResetUsageBackoff()
+		bar := StartProgress("Nettoyage des teams")
+		TeamsProgress = bar.Step
+		CleanupDeadTeams(LoadConfig().ResumeMaxAge())
+		TeamsProgress = nil
 		bar.Done()
-		err = runShell()
+		err = RunShell()
 	case "nav":
 		if os.Getenv("CL_SHELL") == "1" {
 			// redémarré par une mise à jour : la coque peut dater d'avant le pane d'infos
-			if exe, e := selfExe(); e == nil {
-				_ = ensureLayout(exe)
+			if exe, e := SelfExe(); e == nil {
+				_ = EnsureLayout(exe)
 			}
 		}
-		_, err = tea.NewProgram(newModel(launch), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+		_, err = tea.NewProgram(NewModel(launch), tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 		if err != nil && os.Getenv("CL_SHELL") == "1" {
-			recordNavError(err) // le pane se ferme : garder la cause pour la relance
+			RecordNavError(err) // le pane se ferme : garder la cause pour la relance
 		}
 	case "state":
-		err = runState()
+		err = RunState()
 	case "fixwidth":
-		fixWidth()
+		FixWidth()
 	case "mirror": // vignette de l'onglet Teamleaders (lancée par tmux)
 		if len(os.Args) != 4 {
 			err = fmt.Errorf("usage : claude-launcher-ng2 mirror WIN_ID NOM")
 		} else {
-			err = runMirror(os.Args[2], os.Args[3])
+			err = RunMirror(os.Args[2], os.Args[3])
 		}
 	case "layout-watch": // mise en page d'une fenêtre projet (lancée par tmux)
 		if len(os.Args) != 5 {
 			err = fmt.Errorf("usage : claude-launcher-ng2 layout-watch WIN_ID LEADER_PANE DOSSIER")
 		} else {
-			runLayoutWatch(os.Args[2], os.Args[3], os.Args[4])
+			RunLayoutWatch(os.Args[2], os.Args[3], os.Args[4])
 		}
 	case "relayout":
 		if len(os.Args) != 3 {
 			err = fmt.Errorf("usage : claude-launcher-ng2 relayout WIN_ID")
 		} else {
-			runRelayout(os.Args[2])
+			RunRelayout(os.Args[2])
 		}
 	case "ctr-attach": // fenêtre d'un projet en conteneur (lancée par tmux)
-		err = ctrAttachMain(os.Args[2:])
+		err = CtrAttachMain(os.Args[2:])
 	case "backends":
-		err = runBackends()
+		err = RunBackends()
 	case "configure":
-		err = runConfigure()
+		err = RunConfigure()
 	case "help", "--help", "-h":
-		err = runHelp(len(os.Args) > 2 && os.Args[2] == "--wait")
+		err = RunHelp(len(os.Args) > 2 && os.Args[2] == "--wait")
 	case "version", "--version", "-v":
-		fmt.Println(ngName, ngVersion)
+		fmt.Println(NgName, NgVersion)
 	default:
 		err = fmt.Errorf("usage : claude-launcher-ng2 [shell|configure|relayout WIN_ID|help|version]")
 	}

@@ -43,12 +43,12 @@ type Config struct {
 // loadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
 // celui du launcher actuel (tableaux, $HOME, variables), sans le réimplémenter.
 // Sortie : une ligne « TAG<TAB>valeur » par information.
-func loadConfig() Config {
+func LoadConfig() Config {
 	home, _ := os.UserHomeDir()
 	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{},
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
 		BrightenStep: 1, DarkenStep: 1, ResumeMode: "ask", ResumeMaxAgeH: 24}
-	path := configPath()
+	path := ConfigPath()
 
 	script := `
 GITHUB_DIR="$HOME/GITHUB"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""
@@ -73,7 +73,7 @@ for k in "${!PROJECT_COLORS[@]}"; do printf 'color\t%s\t%s\n' "$k" "${PROJECT_CO
 if (( ${#GITHUB_DIRS[@]} )); then for d in "${GITHUB_DIRS[@]}"; do printf 'root\t%s\n' "$d"; done
 else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 	cmd := exec.Command("bash", "-c", script, "_", path)
-	cmd.Env = envWithout("CLAUDE_CONFIG_DIR") // seule la valeur du fichier compte ici
+	cmd.Env = EnvWithout("CLAUDE_CONFIG_DIR") // seule la valeur du fichier compte ici
 	out, err := cmd.Output()
 	if err == nil {
 		for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
@@ -167,7 +167,7 @@ func atois(s string) []int {
 
 // projectColor : même hash déterministe que get_project_color du bash
 // (nom identique → couleur identique, la config pouvant surcharger).
-func (c Config) projectColor(name string) string {
+func (c Config) ProjectColor(name string) string {
 	if v, ok := c.ProjectColors[name]; ok {
 		return v
 	}
@@ -179,14 +179,14 @@ func (c Config) projectColor(name string) string {
 }
 
 // configPath : config.conf du dossier de config (ng2ConfigDir).
-func configPath() string { return filepath.Join(ng2ConfigDir(), "config.conf") }
+func ConfigPath() string { return filepath.Join(Ng2ConfigDir(), "config.conf") }
 
 // ng2ConfigDir : dossier de config du launcher (config.conf, backends.yaml).
 // D'abord à côté du binaire — <dossier du binaire>/.config/claude-launcher-ng2,
 // s'il contient un config.conf : launcher portable, posé avec sa config sur un
 // stockage partagé —, sinon ~/.config/claude-launcher-ng2.
 // CL_CONFIG_DIR force un dossier (tests).
-func ng2ConfigDir() string {
+func Ng2ConfigDir() string {
 	if d := os.Getenv("CL_CONFIG_DIR"); d != "" {
 		return d
 	}
@@ -201,7 +201,7 @@ func ng2ConfigDir() string {
 
 // portableConfigDir : <dossier du binaire>/.config/claude-launcher-ng2 (liens résolus).
 func portableConfigDir() string {
-	exe, err := selfExe()
+	exe, err := SelfExe()
 	if err != nil {
 		return ""
 	}
@@ -285,18 +285,18 @@ EXTRA_ENVS=()
 // applyClaudeConfigDir : CLAUDE_CONFIG_DIR de la config, posé dans
 // l'environnement du launcher (donc de ses sous-commandes et de ses sessions)
 // s'il n'est pas déjà défini. Appelé au tout début de main.
-func applyClaudeConfigDir() {
+func ApplyClaudeConfigDir() {
 	if os.Getenv("CLAUDE_CONFIG_DIR") != "" {
 		return
 	}
-	if d := loadConfig().ClaudeConfigDir; d != "" {
+	if d := LoadConfig().ClaudeConfigDir; d != "" {
 		_ = os.Setenv("CLAUDE_CONFIG_DIR", d)
 	}
 }
 
 // ensureConfig crée la config par défaut si elle n'existe pas encore.
-func ensureConfig() (created bool, err error) {
-	path := configPath()
+func EnsureConfig() (created bool, err error) {
+	path := ConfigPath()
 	if _, err := os.Stat(path); err == nil {
 		return false, nil
 	}
@@ -311,19 +311,19 @@ func ensureConfig() (created bool, err error) {
 }
 
 // runConfigure : crée la config si besoin puis l'ouvre dans $EDITOR (nano par défaut).
-func runConfigure() error {
-	created, err := ensureConfig()
+func RunConfigure() error {
+	created, err := EnsureConfig()
 	if err != nil {
 		return err
 	}
 	if created {
-		fmt.Println("✓ Config créée :", configPath())
+		fmt.Println("✓ Config créée :", ConfigPath())
 	}
 	editor := os.Getenv("EDITOR")
 	if editor == "" {
 		editor = "nano"
 	}
-	c := exec.Command("sh", "-c", editor+` "$1"`, "_", configPath())
+	c := exec.Command("sh", "-c", editor+` "$1"`, "_", ConfigPath())
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return c.Run()
 }

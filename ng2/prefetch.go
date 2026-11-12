@@ -32,7 +32,7 @@ type (
 
 // prefPath : binaire téléchargé pour tag, dans le dossier temporaire.
 func prefPath(tag string) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("claude-launcher-ng2-%s-%s", tag, strings.TrimPrefix(ngAsset(), "claude-launcher-ng2-")))
+	return filepath.Join(os.TempDir(), fmt.Sprintf("claude-launcher-ng2-%s-%s", tag, strings.TrimPrefix(NgAsset(), "claude-launcher-ng2-")))
 }
 
 // startPrefetch : lance la préparation de tag ; l'avancement arrive par m.prefCh.
@@ -59,13 +59,13 @@ func waitPref(ch <-chan tea.Msg) tea.Cmd { return func() tea.Msg { return <-ch }
 // prefetch : télécharge le binaire de tag (sauf s'il est déjà là), puis
 // SHA256SUMS, puis contrôle la somme ; renvoie le fichier prêt et sa somme.
 func prefetch(tag string, step func(string)) (path, sum string, err error) {
-	base := releaseBase + "/" + tag
+	base := ReleaseBase + "/" + tag
 	path = prefPath(tag)
 	body, rerr := os.ReadFile(path)
 	if rerr != nil {
 		step("bin:0")
 		last := -1
-		body, err = releaseGetP(base+"/"+ngAsset(), 3*time.Minute, func(n, total int64) {
+		body, err = ReleaseGetP(base+"/"+NgAsset(), 3*time.Minute, func(n, total int64) {
 			if n < 0 {
 				step("api")
 				last = -1
@@ -85,21 +85,21 @@ func prefetch(tag string, step func(string)) (path, sum string, err error) {
 		step("cached")
 	}
 	step("sha")
-	sums, err := fetchSums(base + "/SHA256SUMS")
+	sums, err := FetchSums(base + "/SHA256SUMS")
 	if err != nil {
 		return "", "", err
 	}
 	step("check")
-	want, ok := sums[ngAsset()]
+	want, ok := sums[NgAsset()]
 	if !ok {
-		return "", "", fmt.Errorf("%s absent de SHA256SUMS", ngAsset())
+		return "", "", fmt.Errorf("%s absent de SHA256SUMS", NgAsset())
 	}
-	if sumOf(body) != want {
+	if SumOf(body) != want {
 		_ = os.Remove(path)
 		return "", "", fmt.Errorf("somme SHA-256 incorrecte")
 	}
 	if rerr != nil {
-		if err := writeAtomic(path, body); err != nil {
+		if err := WriteAtomic(path, body); err != nil {
 			return "", "", err
 		}
 		_ = os.Chmod(path, 0o755)
@@ -114,28 +114,28 @@ func installPrepared(path, sum, dst string) error {
 	if err != nil {
 		return fmt.Errorf("binaire préparé introuvable (%v) : il va être retéléchargé", err)
 	}
-	if sumOf(body) != sum {
+	if SumOf(body) != sum {
 		_ = os.Remove(path)
 		return fmt.Errorf("binaire préparé modifié : il va être retéléchargé")
 	}
-	return writeAtomic(dst, body)
+	return WriteAtomic(dst, body)
 }
 
 // installPreparedCmd : clic sur l'annonce verte.
 func installPreparedCmd(tag, path, sum string) tea.Cmd {
 	return func() tea.Msg {
-		if !releaseVerRe.MatchString(ngVersion) {
-			return updDoneMsg{tag: tag, err: fmt.Errorf("binaire de dev (%s) : non remplacé", ngVersion)}
+		if !ReleaseVerRe.MatchString(NgVersion) {
+			return UpdDoneMsg{Tag: tag, Err: fmt.Errorf("binaire de dev (%s) : non remplacé", NgVersion)}
 		}
-		_, bin, _ := updateTargets(tag)
+		_, bin, _ := UpdateTargets(tag)
 		if bin == "" {
-			return updDoneMsg{tag: tag}
+			return UpdDoneMsg{Tag: tag}
 		}
 		if err := installPrepared(path, sum, bin); err != nil {
-			return updDoneMsg{tag: tag, err: err, stale: true}
+			return UpdDoneMsg{Tag: tag, Err: err, Stale: true}
 		}
 		_ = os.Remove(path)
-		return updDoneMsg{tag: tag, binDone: true}
+		return UpdDoneMsg{Tag: tag, BinDone: true}
 	}
 }
 

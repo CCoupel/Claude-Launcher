@@ -46,12 +46,12 @@ type ProjState struct {
 }
 
 func stateDir() string {
-	d := filepath.Join(cacheDir(), "state")
+	d := filepath.Join(CacheDir(), "state")
 	_ = os.MkdirAll(d, 0o755)
 	return d
 }
 
-func statePath(project string) string {
+func StatePath(project string) string {
 	h := sha1.Sum([]byte(project))
 	return filepath.Join(stateDir(), hex.EncodeToString(h[:8])+".json")
 }
@@ -61,7 +61,7 @@ func writeState(ps ProjState) {
 	if err != nil {
 		return
 	}
-	p := statePath(ps.Path)
+	p := StatePath(ps.Path)
 	tmp := p + ".tmp"
 	if os.WriteFile(tmp, b, 0o644) == nil {
 		_ = os.Rename(tmp, p)
@@ -69,8 +69,8 @@ func writeState(ps ProjState) {
 }
 
 // readState lit le cache d'un projet ; mtime sert à détecter une mise à jour.
-func readState(project string) (ps ProjState, mtime time.Time, ok bool) {
-	p := statePath(project)
+func ReadState(project string) (ps ProjState, mtime time.Time, ok bool) {
+	p := StatePath(project)
 	st, err := os.Stat(p)
 	if err != nil {
 		return ps, mtime, false
@@ -83,14 +83,14 @@ func readState(project string) (ps ProjState, mtime time.Time, ok bool) {
 }
 
 func computeState(project string) ProjState {
-	latest := readTrim(tplCommitPath())
+	latest := ReadTrim(TplCommitPath())
 	return ProjState{
 		Path:      project,
-		Git:       readGit(project),
-		Detail:    readDetail(project),
-		Tpl:       readTemplate(project, latest),
-		TplTag:    templateTag(project),
-		Files:     readFiles(project),
+		Git:       ReadGit(project),
+		Detail:    ReadDetail(project),
+		Tpl:       ReadTemplate(project, latest),
+		TplTag:    TemplateTag(project),
+		Files:     ReadFiles(project),
 		UpdatedAt: time.Now(),
 	}
 }
@@ -123,7 +123,7 @@ var gitWatched = map[string]bool{
 	"HEAD": true, "index": true, "packed-refs": true, "FETCH_HEAD": true, "ORIG_HEAD": true, "MERGE_HEAD": true,
 }
 
-type stateMgr struct {
+type StateMgr struct {
 	w *fsnotify.Watcher
 
 	mu       sync.Mutex
@@ -142,12 +142,12 @@ type stateMgr struct {
 	Done   chan ProjState // projets recalculés, pour mettre à jour le navigateur
 }
 
-func newStateMgr() (*stateMgr, error) {
+func NewStateMgr() (*StateMgr, error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
 	}
-	m := &stateMgr{
+	m := &StateMgr{
 		w: w, open: map[string]bool{}, pending: map[string]bool{}, updated: map[string]time.Time{}, dur: map[string]time.Duration{},
 		dirOwner: map[string]string{}, timers: map[string]*time.Timer{}, poll: map[string]bool{}, sigs: map[string]string{},
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
@@ -161,7 +161,7 @@ func newStateMgr() (*stateMgr, error) {
 	return m, nil
 }
 
-func (m *stateMgr) enqueue(p string, hi bool) {
+func (m *StateMgr) enqueue(p string, hi bool) {
 	m.mu.Lock()
 	if m.pending[p] {
 		m.mu.Unlock()
@@ -176,7 +176,7 @@ func (m *stateMgr) enqueue(p string, hi bool) {
 	}
 }
 
-func (m *stateMgr) worker() {
+func (m *StateMgr) worker() {
 	for {
 		var p string
 		select {
@@ -206,7 +206,7 @@ func (m *stateMgr) worker() {
 
 // SetProjects : liste des projets connus ; surveille les nouveaux et prépare
 // leur état (sélection et projets ouverts d'abord).
-func (m *stateMgr) SetProjects(paths []string) {
+func (m *StateMgr) SetProjects(paths []string) {
 	m.mu.Lock()
 	known := map[string]bool{}
 	for _, p := range m.projects {
@@ -226,21 +226,21 @@ func (m *stateMgr) SetProjects(paths []string) {
 	m.mu.Unlock()
 	for _, p := range paths {
 		if !known[p] {
-			if onNetworkFS(p) {
+			if OnNetworkFS(p) {
 				m.mu.Lock()
 				m.poll[p] = true
 				m.mu.Unlock()
 			} else {
 				m.watchProject(p)
 			}
-			if _, _, ok := readState(p); !ok {
+			if _, _, ok := ReadState(p); !ok {
 				m.enqueue(p, false)
 			}
 		}
 	}
 }
 
-func (m *stateMgr) SetOpen(paths map[string]bool) {
+func (m *StateMgr) SetOpen(paths map[string]bool) {
 	m.mu.Lock()
 	m.open = paths
 	m.mu.Unlock()
@@ -248,13 +248,13 @@ func (m *stateMgr) SetOpen(paths map[string]bool) {
 
 // Select : appelé à chaque sélection. La donnée en cache s'affiche tout de
 // suite ; elle n'est recalculée (en priorité) que si elle est périmée.
-func (m *stateMgr) Select(p string) {
+func (m *StateMgr) Select(p string) {
 	m.mu.Lock()
 	m.selected = p
 	last := m.updated[p]
 	m.mu.Unlock()
 	if last.IsZero() {
-		if ps, _, ok := readState(p); ok {
+		if ps, _, ok := ReadState(p); ok {
 			last = ps.UpdatedAt
 		}
 	}
@@ -263,7 +263,7 @@ func (m *stateMgr) Select(p string) {
 	}
 }
 
-func (m *stateMgr) periodic() {
+func (m *StateMgr) periodic() {
 	for range time.Tick(2 * time.Second) {
 		m.mu.Lock()
 		var due []string
@@ -296,7 +296,7 @@ func (m *stateMgr) periodic() {
 // ── Disque réseau : signature interrogée ──────────────────────────────────
 
 // onNetworkFS : le projet est-il sur un système 9p (ex. /mnt/c sous WSL) ?
-func onNetworkFS(path string) bool {
+func OnNetworkFS(path string) bool {
 	var st syscall.Statfs_t
 	if err := syscall.Statfs(path, &st); err != nil {
 		return false
@@ -342,7 +342,7 @@ func projectSig(p string) string {
 	return b.String()
 }
 
-func (m *stateMgr) poller() {
+func (m *StateMgr) poller() {
 	tick := 0
 	for range time.Tick(pollSelected) {
 		tick++
@@ -374,7 +374,7 @@ func (m *stateMgr) poller() {
 
 // ── inotify ───────────────────────────────────────────────────────────────
 
-func (m *stateMgr) watchProject(p string) {
+func (m *StateMgr) watchProject(p string) {
 	n := 0
 	_ = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
@@ -403,7 +403,7 @@ func (m *stateMgr) watchProject(p string) {
 	}
 }
 
-func (m *stateMgr) addDir(project, dir string) {
+func (m *StateMgr) addDir(project, dir string) {
 	m.mu.Lock()
 	if _, ok := m.dirOwner[dir]; ok {
 		m.mu.Unlock()
@@ -418,7 +418,7 @@ func (m *stateMgr) addDir(project, dir string) {
 	}
 }
 
-func (m *stateMgr) events() {
+func (m *StateMgr) events() {
 	for {
 		select {
 		case ev, ok := <-m.w.Events:
@@ -431,7 +431,7 @@ func (m *stateMgr) events() {
 	}
 }
 
-func (m *stateMgr) onEvent(ev fsnotify.Event) {
+func (m *StateMgr) onEvent(ev fsnotify.Event) {
 	if ev.Op == fsnotify.Chmod {
 		return
 	}
@@ -468,7 +468,7 @@ func (m *stateMgr) onEvent(ev fsnotify.Event) {
 
 // schedule regroupe les rafales d'événements (checkout, npm install…) en un
 // seul recalcul, lancé en priorité.
-func (m *stateMgr) schedule(project string) {
+func (m *StateMgr) schedule(project string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if t, ok := m.timers[project]; ok {

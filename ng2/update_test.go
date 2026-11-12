@@ -20,7 +20,7 @@ func TestVersionNewer(t *testing.T) {
 		{"v2.28.0", "", false},
 	}
 	for _, c := range cases {
-		if got := versionNewer(c.a, c.b); got != c.want {
+		if got := VersionNewer(c.a, c.b); got != c.want {
 			t.Errorf("versionNewer(%q,%q)=%v, attendu %v", c.a, c.b, got, c.want)
 		}
 	}

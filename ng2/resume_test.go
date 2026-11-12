@@ -12,11 +12,11 @@ import (
 )
 
 func TestProjectDirName(t *testing.T) {
-	got := projectDirName("/mnt/c/Users/cyril/Documents/PROJETS/CLAUDE_LAUNCHER/Claude-Launcher")
+	got := ProjectDirName("/mnt/c/Users/cyril/Documents/PROJETS/CLAUDE_LAUNCHER/Claude-Launcher")
 	if want := "-mnt-c-Users-cyril-Documents-PROJETS-CLAUDE-LAUNCHER-Claude-Launcher"; got != want {
 		t.Errorf("projectDirName=%q, attendu %q", got, want)
 	}
-	if got := projectDirName("/a/é.b"); got != "-a---b" {
+	if got := ProjectDirName("/a/é.b"); got != "-a---b" {
 		t.Errorf("projectDirName non ASCII=%q", got)
 	}
 }
@@ -25,7 +25,7 @@ func TestProjectDirName(t *testing.T) {
 func fakeClaude(t *testing.T, path string, convs map[string]time.Duration) string {
 	t.Helper()
 	root := t.TempDir()
-	dir := filepath.Join(root, "projects", projectDirName(path))
+	dir := filepath.Join(root, "projects", ProjectDirName(path))
 	if err := os.MkdirAll(filepath.Join(dir, "memory"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -68,11 +68,11 @@ func TestLastSession(t *testing.T) {
 	if want := []string{"dev", "qa"}; !reflect.DeepEqual(r.Teammates, want) || !r.Crashed {
 		t.Errorf("team : %+v", r)
 	}
-	if p := resumePrompt(r); !strings.Contains(p, "dev, qa") || !strings.Contains(p, "ont été perdus") ||
+	if p := ResumePrompt(r); !strings.Contains(p, "dev, qa") || !strings.Contains(p, "ont été perdus") ||
 		!strings.Contains(p, "tout l'effectif attendu") {
 		t.Errorf("resumePrompt=%q", p)
 	}
-	if p := resumePrompt(Resumable{ID: "x"}); p != "" {
+	if p := ResumePrompt(Resumable{ID: "x"}); p != "" {
 		t.Errorf("resumePrompt sans team=%q", p)
 	}
 
@@ -88,16 +88,16 @@ func TestResumeShell(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 
 	cfg := Config{ResumeMode: "ask", ResumeMaxAgeH: 24}
-	pre, r, ok := cfg.resumeShell("/p/proj")
+	pre, r, ok := cfg.ResumeShell("/p/proj")
 	if !ok || r.ID != "bbbbbbbb-2" || !strings.Contains(pre, "read -rp") || !strings.Contains(pre, "10 min") {
 		t.Errorf("ask : %q %+v %v", pre, r, ok)
 	}
 	cfg.ResumeMode = "always"
-	if pre, _, ok = cfg.resumeShell("/p/proj"); !ok || pre != "_rs=1; " {
+	if pre, _, ok = cfg.ResumeShell("/p/proj"); !ok || pre != "_rs=1; " {
 		t.Errorf("always : %q %v", pre, ok)
 	}
 	cfg.ResumeMode = "never"
-	if _, _, ok = cfg.resumeShell("/p/proj"); ok || cfg.resumeMaxAge() != 0 {
+	if _, _, ok = cfg.ResumeShell("/p/proj"); ok || cfg.ResumeMaxAge() != 0 {
 		t.Error("never : aucune reprise attendue")
 	}
 	cfg = Config{ResumeMode: "ask", ResumeMaxAgeH: 24}
@@ -107,16 +107,16 @@ func TestResumeShell(t *testing.T) {
 	_ = os.MkdirAll(d, 0o755)
 	_ = os.WriteFile(filepath.Join(d, "config.json"), []byte(fmt.Sprintf(
 		`{"leadSessionId":"bbbbbbbb-2","leadProcess":{"pid":%d},"members":[]}`, os.Getpid())), 0o644)
-	if _, r, ok = cfg.resumeShell("/p/proj"); ok || !r.InUse {
+	if _, r, ok = cfg.ResumeShell("/p/proj"); ok || !r.InUse {
 		t.Errorf("session en cours : aucune reprise attendue (%+v)", r)
 	}
 
-	if _, _, ok = cfg.resumeShell("/p/autre"); ok {
+	if _, _, ok = cfg.ResumeShell("/p/autre"); ok {
 		t.Error("projet sans conversation : aucune reprise attendue")
 	}
 	old := fakeClaude(t, "/p/proj", map[string]time.Duration{"x": 30 * time.Hour})
 	t.Setenv("CLAUDE_CONFIG_DIR", old)
-	if _, _, ok = cfg.resumeShell("/p/proj"); ok {
+	if _, _, ok = cfg.ResumeShell("/p/proj"); ok {
 		t.Error("conversation trop ancienne : aucune reprise attendue")
 	}
 }
@@ -124,7 +124,7 @@ func TestResumeShell(t *testing.T) {
 func TestSessionEnded(t *testing.T) {
 	root := fakeClaude(t, "/p/proj", map[string]time.Duration{"bbbbbbbb-2": 10 * time.Minute})
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
-	f := filepath.Join(root, "projects", projectDirName("/p/proj"), "bbbbbbbb-2.jsonl")
+	f := filepath.Join(root, "projects", ProjectDirName("/p/proj"), "bbbbbbbb-2.jsonl")
 	write := func(lines ...string) {
 		_ = os.WriteFile(f, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 	}
@@ -136,7 +136,7 @@ func TestSessionEnded(t *testing.T) {
 	if sessionEnded(f) {
 		t.Error("marque citée prise pour une clôture")
 	}
-	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+	if _, _, ok := cfg.ResumeShell("/p/proj"); !ok {
 		t.Error("session non close : reprise attendue")
 	}
 
@@ -147,7 +147,7 @@ func TestSessionEnded(t *testing.T) {
 	if !sessionEnded(f) {
 		t.Fatal("/end-session non détecté")
 	}
-	if _, r, ok := cfg.resumeShell("/p/proj"); ok || !r.Ended {
+	if _, r, ok := cfg.ResumeShell("/p/proj"); ok || !r.Ended {
 		t.Errorf("session close : aucune reprise attendue (%+v)", r)
 	}
 	if resumableSession(root, "bbbbbbbb-2", 24*time.Hour) {
@@ -220,21 +220,21 @@ func TestCleanExit(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	cfg := Config{ResumeMode: "ask", ResumeMaxAgeH: 24}
-	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+	if _, _, ok := cfg.ResumeShell("/p/proj"); !ok {
 		t.Fatal("sans marqueur : reprise attendue")
 	}
 
 	// claude tué par un signal (OOM, segfault) : crash, pas de marqueur
-	_ = exec.Command("bash", "-c", "sh -c 'kill -9 $$'; "+cleanExitShell("/p/proj")).Run()
-	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+	_ = exec.Command("bash", "-c", "sh -c 'kill -9 $$'; "+CleanExitShell("/p/proj")).Run()
+	if _, _, ok := cfg.ResumeShell("/p/proj"); !ok {
 		t.Fatal("claude tué : reprise attendue")
 	}
 
 	// claude rend la main au shell du pane (Ctrl+C : 130) : marqueur posé
-	if out, err := exec.Command("bash", "-c", "(exit 130); "+cleanExitShell("/p/proj")).CombinedOutput(); err != nil {
+	if out, err := exec.Command("bash", "-c", "(exit 130); "+CleanExitShell("/p/proj")).CombinedOutput(); err != nil {
 		t.Fatalf("cleanExitShell : %v %s", err, out)
 	}
-	if _, r, ok := cfg.resumeShell("/p/proj"); ok || !r.Ended {
+	if _, r, ok := cfg.ResumeShell("/p/proj"); ok || !r.Ended {
 		t.Errorf("sortie propre : aucune reprise attendue (%+v)", r)
 	}
 	if resumableSession(root, "bbbbbbbb-2", 24*time.Hour) {
@@ -242,10 +242,10 @@ func TestCleanExit(t *testing.T) {
 	}
 
 	// conversation reprise ensuite (plus récente que le marqueur) : de nouveau en suspens
-	f := filepath.Join(root, "projects", projectDirName("/p/proj"), "bbbbbbbb-2.jsonl")
+	f := filepath.Join(root, "projects", ProjectDirName("/p/proj"), "bbbbbbbb-2.jsonl")
 	later := time.Now().Add(time.Minute)
 	_ = os.Chtimes(f, later, later)
-	if _, _, ok := cfg.resumeShell("/p/proj"); !ok {
+	if _, _, ok := cfg.ResumeShell("/p/proj"); !ok {
 		t.Error("conversation postérieure au marqueur : reprise attendue")
 	}
 }

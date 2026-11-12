@@ -43,14 +43,14 @@ func TestE2ELocalWatchOnStart(t *testing.T) {
 	env := func(local string) EnvSpec {
 		writeEnvFile(t, proj, "image: docker.io/library/debian:12\nlocal: ["+local+"]\nwatch: [lock.txt]\n"+
 			"setup: [\"echo setup >> setup.log\"]\non_start: [\"echo start >> start.log\"]\n")
-		e, err := loadEnv(proj)
+		e, err := LoadEnv(proj)
 		if err != nil {
 			t.Fatal(err)
 		}
 		return e
 	}
-	name := ctrName(proj)
-	if e.b.k8s() {
+	name := CtrName(proj)
+	if e.B.K8s() {
 		name = k8sPod(proj)
 		defer e.kcmd("delete", "statefulset", k8sName(proj), "--wait=false").Run()
 	} else {
@@ -63,12 +63,12 @@ func TestE2ELocalWatchOnStart(t *testing.T) {
 	run := func(en EnvSpec) string {
 		t.Helper()
 		var out bytes.Buffer
-		n, err := e.ensure(proj, en, &out)
+		n, err := e.Ensure(proj, en, &out)
 		if err != nil {
 			t.Fatalf("ensure : %v\n%s", err, out.String())
 		}
 		name = n
-		if err := e.bootstrap(name, proj, en, &out); err != nil {
+		if err := e.Bootstrap(name, proj, en, &out); err != nil {
 			t.Fatalf("bootstrap : %v\n%s", err, out.String())
 		}
 		return out.String()
@@ -80,12 +80,12 @@ func TestE2ELocalWatchOnStart(t *testing.T) {
 	}
 	// hostname : le projet (conteneur) ; <catégorie>-<projet>-0 (pod de StatefulSet)
 	var out bytes.Buffer
-	if err := e.exec(name, false, nil, &out, "hostname"); err != nil || strings.TrimSpace(out.String()) != map[bool]string{true: "test-demo-local-0", false: "demo-local"}[e.b.k8s()] {
+	if err := e.Exec(name, false, nil, &out, "hostname"); err != nil || strings.TrimSpace(out.String()) != map[bool]string{true: "test-demo-local-0", false: "demo-local"}[e.B.K8s()] {
 		t.Errorf("hostname : %q %v", out.String(), err)
 	}
 	out.Reset()
 	// local : à l'utilisateur, et masqué (rien n'arrive dans le dossier partagé)
-	if err := e.exec(name, false, nil, &out, "sh", "-c", "touch node_modules/x && stat -c %u node_modules"); err != nil {
+	if err := e.Exec(name, false, nil, &out, "sh", "-c", "touch node_modules/x && stat -c %u node_modules"); err != nil {
 		t.Fatalf("écriture dans local : %v %s", err, out.String())
 	}
 	if strings.TrimSpace(out.String()) != itoa(os.Getuid()) {
@@ -101,7 +101,7 @@ func TestE2ELocalWatchOnStart(t *testing.T) {
 	if s := run(en); lines("setup.log") != 2 || !strings.Contains(s, "fichiers surveillés modifiés") || strings.Contains(s, "paquets système") {
 		t.Errorf("watch : setup %d, sortie %q", lines("setup.log"), s)
 	}
-	if err := e.onStart(name, proj, en); err != nil || lines("start.log") != 1 {
+	if err := e.OnStart(name, proj, en); err != nil || lines("start.log") != 1 {
 		t.Errorf("on_start : %v, %d", err, lines("start.log"))
 	}
 	// liste local changée : conteneur recréé, volume neuf (x disparu)
@@ -110,7 +110,7 @@ func TestE2ELocalWatchOnStart(t *testing.T) {
 		t.Errorf("recréation attendue : %q", s)
 	}
 	out.Reset()
-	_ = e.exec(name, false, nil, &out, "sh", "-c", "ls -A node_modules; test -O .venv && echo venv-ok")
+	_ = e.Exec(name, false, nil, &out, "sh", "-c", "ls -A node_modules; test -O .venv && echo venv-ok")
 	if strings.Contains(out.String(), "x") || !strings.Contains(out.String(), "venv-ok") {
 		t.Errorf("après recréation : %q", out.String())
 	}

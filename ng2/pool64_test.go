@@ -37,12 +37,12 @@ backends:
 
 func TestNamedPools(t *testing.T) {
 	writeBackends(t, poolsYAML)
-	bs, err := loadBackends()
+	bs, err := LoadBackends()
 	if err != nil {
 		t.Fatal(err)
 	}
 	d := backendNamed(bs, "docker-dev")
-	if strings.Join(d.Hosts, " ") != "tcp://a:2375 tcp://b:2375 tcp://c:2375" || d.Host != "" || !d.pool() {
+	if strings.Join(d.Hosts, " ") != "tcp://a:2375 tcp://b:2375 tcp://c:2375" || d.Host != "" || !d.IsPool() {
 		t.Errorf("adresses : %+v", d)
 	}
 	if !d.Drain["tcp://c:2375"] || d.Drain["tcp://a:2375"] || d.machine("tcp://b:2375") != "b" {
@@ -54,7 +54,7 @@ func TestNamedPools(t *testing.T) {
 	if len(d.Mates) != 2 || d.Mates[0].Mates != nil {
 		t.Errorf("pool partagé : %d autres backends", len(d.Mates))
 	}
-	if m := d.at("tcp://b:2375"); m.Host != "tcp://b:2375" || m.pool() {
+	if m := d.At("tcp://b:2375"); m.Host != "tcp://b:2375" || m.IsPool() {
 		t.Errorf("membre : %+v", m)
 	}
 }
@@ -73,13 +73,13 @@ func TestNamedPoolsErrors(t *testing.T) {
 	}
 	for y, want := range cases {
 		writeBackends(t, y)
-		if _, err := loadBackends(); err == nil || !strings.Contains(err.Error(), want) {
+		if _, err := LoadBackends(); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("%q : %v, attendu ~%q", y, err, want)
 		}
 	}
 	// sans host : l'entrée du pool est l'adresse
 	writeBackends(t, "pools:\n  dev: { hosts: [tcp://a:1, tcp://b:1] }\nbackends:\n  x: { type: docker, pool: dev }\n")
-	if bs, err := loadBackends(); err != nil || backendNamed(bs, "x").Hosts[1] != "tcp://b:1" {
+	if bs, err := LoadBackends(); err != nil || backendNamed(bs, "x").Hosts[1] != "tcp://b:1" {
 		t.Errorf("adresses complètes : %v", err)
 	}
 }
@@ -88,7 +88,7 @@ func TestNamedPoolsPlace(t *testing.T) {
 	_, put := withFakeDocker(t)
 	// sans ssh-dev : pas de vraie connexion ssh dans ce test
 	writeBackends(t, strings.Replace(poolsYAML, "  ssh-dev:", "  #ssh-dev:", 1))
-	bs, err := loadBackends()
+	bs, err := LoadBackends()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,23 +99,23 @@ func TestNamedPoolsPlace(t *testing.T) {
 	put("tcp://b:2376", "cl-z", "running", "/p/z")
 	proj := t.TempDir()
 	a, out := answer("")
-	pe, unlock, err := e.place(proj, a)
+	pe, unlock, err := e.Place(proj, a)
 	unlock()
 	// c est vide mais en drain ; charge commune : a=1, b=2 → a
-	if err != nil || pe.b.Host != "tcp://a:2375" || !strings.Contains(out.String(), "tous backends du pool") {
-		t.Fatalf("charge commune + drain : %v %+v %q", err, pe.b, out.String())
+	if err != nil || pe.B.Host != "tcp://a:2375" || !strings.Contains(out.String(), "tous backends du pool") {
+		t.Fatalf("charge commune + drain : %v %+v %q", err, pe.B, out.String())
 	}
 	// projet existant sur une machine en drain : il y reste
 	proj2 := t.TempDir()
-	put("tcp://c:2375", ctrName(proj2), "exited", proj2)
-	if pe, unlock, err = e.place(proj2, a); err != nil || pe.b.Host != "tcp://c:2375" {
-		t.Errorf("projet sur machine en drain : %v %+v", err, pe.b)
+	put("tcp://c:2375", CtrName(proj2), "exited", proj2)
+	if pe, unlock, err = e.Place(proj2, a); err != nil || pe.B.Host != "tcp://c:2375" {
+		t.Errorf("projet sur machine en drain : %v %+v", err, pe.B)
 	}
 	unlock()
 	// tout en drain : nouveau projet refusé
 	writeBackends(t, "pools:\n  p: { hosts: [a], drain: [a] }\nbackends:\n  d: { type: docker, pool: p, host: \"tcp://{}:2375\", shared: [/] }\n")
-	bs, _ = loadBackends()
-	if _, unlock, err = (Engine{backendNamed(bs, "d")}).place(t.TempDir(), a); err == nil || !strings.Contains(err.Error(), "tous en drain") {
+	bs, _ = LoadBackends()
+	if _, unlock, err = (Engine{backendNamed(bs, "d")}).Place(t.TempDir(), a); err == nil || !strings.Contains(err.Error(), "tous en drain") {
 		t.Errorf("tout en drain : %v", err)
 	}
 	unlock()

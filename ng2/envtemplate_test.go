@@ -38,7 +38,7 @@ on_start: [proj-start]
 watch: [go.sum, package-lock.json]
 mounts: [{path: ../ro, ro: true}, {path: ../autre}]
 `)
-	e, err := loadEnv(proj)
+	e, err := LoadEnv(proj)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,7 +60,7 @@ mounts: [{path: ../ro, ro: true}, {path: ../autre}]
 	if len(e.Mounts) != 3 || e.Mounts[1].Path != "../ro" || e.Mounts[1].RO == nil || !*e.Mounts[1].RO {
 		t.Fatalf("mounts : %+v", e.Mounts)
 	}
-	if !hasEnv(proj) {
+	if !HasEnv(proj) {
 		t.Fatal("hasEnv")
 	}
 	// avec le launcher : ses étapes d'abord
@@ -72,21 +72,21 @@ mounts: [{path: ../ro, ro: true}, {path: ../autre}]
 func TestEnvTemplateSeul(t *testing.T) {
 	proj := t.TempDir()
 	writeProjFile(t, proj, envTemplateFile, "image: ubuntu:24.04\nsetup: [a]\n")
-	if !hasEnv(proj) {
+	if !HasEnv(proj) {
 		t.Fatal("template seul : environnement attendu")
 	}
-	e, err := loadEnv(proj)
+	e, err := LoadEnv(proj)
 	if err != nil || e.Image != "ubuntu:24.04" {
 		t.Fatalf("%v %q", err, e.Image)
 	}
 	h1 := e.hash()
 	writeProjFile(t, proj, envTemplateFile, "image: ubuntu:24.04\nsetup: [a, b]\n")
-	e2, _ := loadEnv(proj)
+	e2, _ := LoadEnv(proj)
 	if e2.hash() == h1 {
 		t.Fatal("un changement du template doit changer l'empreinte")
 	}
 	writeProjFile(t, proj, envTemplateFile, "image: ubuntu:24.04\nprefer: pod\n")
-	if _, err := loadEnv(proj); err == nil || !strings.Contains(err.Error(), "prefer") {
+	if _, err := LoadEnv(proj); err == nil || !strings.Contains(err.Error(), "prefer") {
 		t.Fatalf("prefer dans le template : erreur attendue, %v", err)
 	}
 }
@@ -96,18 +96,18 @@ func TestEnvSeulInchange(t *testing.T) {
 	proj := t.TempDir()
 	content := "image: ubuntu:24.04\npackages: [jq]\n"
 	writeProjFile(t, proj, envFile, content)
-	e, err := loadEnv(proj)
+	e, err := LoadEnv(proj)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(e.raw) != content {
 		t.Fatalf("raw modifié : %q", e.raw)
 	}
-	_ = os.Remove(envPath(proj))
-	if _, err := loadEnv(proj); !os.IsNotExist(err) {
+	_ = os.Remove(EnvPath(proj))
+	if _, err := LoadEnv(proj); !os.IsNotExist(err) {
 		t.Fatalf("aucun fichier : IsNotExist attendu, %v", err)
 	}
-	if hasEnv(proj) {
+	if HasEnv(proj) {
 		t.Fatal("aucun fichier : pas d'environnement")
 	}
 }
@@ -117,20 +117,20 @@ func TestEnvSeulInchange(t *testing.T) {
 func TestEnvTemplateImage(t *testing.T) {
 	proj := t.TempDir()
 	writeProjFile(t, proj, envTemplateFile, "packages: [jq]\n")
-	if _, err := loadEnv(proj); err == nil {
+	if _, err := LoadEnv(proj); err == nil {
 		t.Fatal("sans image : erreur attendue")
 	}
 	writeProjFile(t, proj, envTemplateFile, "image: ubuntu:24.04\n")
-	if err := applyImage(proj, "ubuntu:24.04"); err != nil {
+	if err := ApplyImage(proj, "ubuntu:24.04"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(envPath(proj)); err == nil {
+	if _, err := os.Stat(EnvPath(proj)); err == nil {
 		t.Fatal("socle du template : env.yaml ne doit pas être créé")
 	}
-	if err := applyImage(proj, "fedora:41"); err != nil {
+	if err := ApplyImage(proj, "fedora:41"); err != nil {
 		t.Fatal(err)
 	}
-	if e, _ := loadEnv(proj); e.Image != "fedora:41" {
+	if e, _ := LoadEnv(proj); e.Image != "fedora:41" {
 		t.Fatalf("socle choisi : %q", e.Image)
 	}
 }

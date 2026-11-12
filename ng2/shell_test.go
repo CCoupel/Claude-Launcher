@@ -68,7 +68,7 @@ func TestNavErrorRoundTrip(t *testing.T) {
 	if lastNavError() != "" {
 		t.Fatal("erreur inventée")
 	}
-	recordNavError(errors.New("program was killed: boom\n"))
+	RecordNavError(errors.New("program was killed: boom\n"))
 	if s := lastNavError(); !strings.Contains(s, "program was killed: boom") || strings.Contains(s, "\n") {
 		t.Fatalf("lastNavError = %q", s)
 	}

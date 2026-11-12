@@ -54,18 +54,18 @@ func poolBackend() BackendConf {
 	return BackendConf{Name: "pool", Type: "docker", Hosts: []string{"tcp://a:2375", "tcp://b:2375", "tcp://c:2375"}, Shared: []string{"/"}}
 }
 
-func answer(s string) (asker, *bytes.Buffer) {
+func answer(s string) (Asker, *bytes.Buffer) {
 	var out bytes.Buffer
-	return asker{&out, bufio.NewReader(strings.NewReader(s))}, &out
+	return Asker{&out, bufio.NewReader(strings.NewReader(s))}, &out
 }
 
 func TestPoolMembers(t *testing.T) {
 	b := poolBackend()
-	m := b.at("tcp://b:2375")
-	if m.Host != "tcp://b:2375" || m.Server != "tcp://b:2375" || m.pool() || m.Name != "pool" {
+	m := b.At("tcp://b:2375")
+	if m.Host != "tcp://b:2375" || m.Server != "tcp://b:2375" || m.IsPool() || m.Name != "pool" {
 		t.Errorf("membre : %+v", m)
 	}
-	if single := (BackendConf{Host: "x"}); !b.remote() || len(b.servers()) != 3 || single.at("y").Host != "x" {
+	if single := (BackendConf{Host: "x"}); !b.remote() || len(b.Servers()) != 3 || single.At("y").Host != "x" {
 		t.Error("groupe : distant, 3 serveurs ; hors groupe at() sans effet")
 	}
 	if got := (Engine{m}).cli("ps"); strings.Join(got, " ") != "docker -H tcp://b:2375 ps" {
@@ -80,7 +80,7 @@ func TestPoolList(t *testing.T) {
 	put("tcp://b:2375", "cl-p3", "running", "/p/p3")
 	t.Setenv("FAKE_DOWN", "tcp://c:2375")
 	e := Engine{poolBackend()}
-	fs, down := e.listPool()
+	fs, down := e.ListPool()
 	if len(fs) != 3 || len(down) != 1 || down["tcp://c:2375"] == nil {
 		t.Fatalf("listPool : %+v %v", fs, down)
 	}
@@ -91,15 +91,15 @@ func TestPoolList(t *testing.T) {
 	if srv["/p/p1"] != "tcp://a:2375" || srv["/p/p3"] != "tcp://b:2375" {
 		t.Errorf("serveurs : %v", srv)
 	}
-	if l := loadOf(e.b, fs, down); l["tcp://a:2375"] != 1 || l["tcp://b:2375"] != 1 {
+	if l := LoadOf(e.B, fs, down); l["tcp://a:2375"] != 1 || l["tcp://b:2375"] != 1 {
 		t.Errorf("charge (en marche seulement, injoignable exclu) : %v", l)
 	}
 	// list() : pas d'erreur tant qu'un serveur répond ; erreur si tous sont muets
-	if _, err := e.list(); err != nil {
+	if _, err := e.List(); err != nil {
 		t.Errorf("list avec un serveur muet : %v", err)
 	}
 	t.Setenv("FAKE_DOWN", "tcp://a:2375 tcp://b:2375 tcp://c:2375")
-	if _, err := e.list(); err == nil {
+	if _, err := e.List(); err == nil {
 		t.Error("list sans aucun serveur : erreur attendue")
 	}
 }
@@ -109,12 +109,12 @@ func TestPoolPlace(t *testing.T) {
 	e := Engine{poolBackend()}
 	proj := t.TempDir()
 	// existant (même arrêté) : son serveur, sans verrou ni question
-	put("tcp://c:2375", ctrName(proj), "exited", proj)
+	put("tcp://c:2375", CtrName(proj), "exited", proj)
 	a, _ := answer("")
-	pe, unlock, err := e.place(proj, a)
+	pe, unlock, err := e.Place(proj, a)
 	unlock()
-	if err != nil || pe.b.Host != "tcp://c:2375" {
-		t.Fatalf("projet existant : %v %+v", err, pe.b)
+	if err != nil || pe.B.Host != "tcp://c:2375" {
+		t.Fatalf("projet existant : %v %+v", err, pe.B)
 	}
 
 	// nouveau : serveur le moins chargé (conteneurs NG2 en marche)
@@ -123,9 +123,9 @@ func TestPoolPlace(t *testing.T) {
 	put("tcp://a:2375", "cl-y", "running", "/p/y")
 	put("tcp://b:2375", "cl-z", "running", "/p/z")
 	a, out := answer("")
-	pe, unlock, err = e.place(proj2, a)
-	if err != nil || pe.b.Host != "tcp://c:2375" {
-		t.Fatalf("nouveau projet : %v %+v", err, pe.b)
+	pe, unlock, err = e.Place(proj2, a)
+	if err != nil || pe.B.Host != "tcp://c:2375" {
+		t.Fatalf("nouveau projet : %v %+v", err, pe.B)
 	}
 	if _, err := os.Stat(lockPath(proj2)); err != nil {
 		t.Error("verrou absent pendant la création")
@@ -142,7 +142,7 @@ func TestPoolPlace(t *testing.T) {
 	t.Setenv("FAKE_DOWN", "tcp://c:2375")
 	proj3 := t.TempDir()
 	a, out = answer("n\n")
-	if _, unlock, err = e.place(proj3, a); err == nil || !strings.Contains(out.String(), "tcp://c:2375 injoignable") {
+	if _, unlock, err = e.Place(proj3, a); err == nil || !strings.Contains(out.String(), "tcp://c:2375 injoignable") {
 		t.Errorf("injoignable, refus : %v %q", err, out.String())
 	}
 	unlock()
@@ -150,37 +150,37 @@ func TestPoolPlace(t *testing.T) {
 		t.Error("verrou laissé après annulation")
 	}
 	a, _ = answer("o\n")
-	pe, unlock, err = e.place(proj3, a)
+	pe, unlock, err = e.Place(proj3, a)
 	unlock()
-	if err != nil || pe.b.Host != "tcp://b:2375" {
-		t.Errorf("injoignable, accord : %v %+v", err, pe.b)
+	if err != nil || pe.B.Host != "tcp://b:2375" {
+		t.Errorf("injoignable, accord : %v %+v", err, pe.B)
 	}
 
 	// doublon : on garde celui choisi, l'autre est supprimé
 	t.Setenv("FAKE_DOWN", "")
 	proj4 := t.TempDir()
-	put("tcp://a:2375", ctrName(proj4), "running", proj4)
-	put("tcp://b:2375", ctrName(proj4), "exited", proj4)
+	put("tcp://a:2375", CtrName(proj4), "running", proj4)
+	put("tcp://b:2375", CtrName(proj4), "exited", proj4)
 	a, out = answer("2\n")
-	pe, unlock, err = e.place(proj4, a)
+	pe, unlock, err = e.Place(proj4, a)
 	unlock()
 	rm, _ := os.ReadFile(filepath.Join(state, "removed"))
-	if err != nil || pe.b.Host != "tcp://b:2375" || !strings.Contains(string(rm), "tcp://a:2375 "+ctrName(proj4)) {
-		t.Errorf("doublon : %v %+v supprimés=%q sortie=%q", err, pe.b, rm, out.String())
+	if err != nil || pe.B.Host != "tcp://b:2375" || !strings.Contains(string(rm), "tcp://a:2375 "+CtrName(proj4)) {
+		t.Errorf("doublon : %v %+v supprimés=%q sortie=%q", err, pe.B, rm, out.String())
 	}
 
 	// aucun serveur : erreur claire
 	t.Setenv("FAKE_DOWN", "tcp://a:2375 tcp://b:2375 tcp://c:2375")
 	a, _ = answer("")
-	if _, unlock, err = e.place(t.TempDir(), a); err == nil || !strings.Contains(err.Error(), "aucun serveur") {
+	if _, unlock, err = e.Place(t.TempDir(), a); err == nil || !strings.Contains(err.Error(), "aucun serveur") {
 		t.Errorf("aucun serveur : %v", err)
 	}
 	unlock()
 
 	// hors groupe : rien ne change
 	single := Engine{BackendConf{Name: "d", Type: "docker", Host: "tcp://a:2375"}}
-	if pe, unlock, err := single.place(proj, a); err != nil || pe.b.Host != "tcp://a:2375" {
-		t.Errorf("hors groupe : %v %+v", err, pe.b)
+	if pe, unlock, err := single.Place(proj, a); err != nil || pe.B.Host != "tcp://a:2375" {
+		t.Errorf("hors groupe : %v %+v", err, pe.B)
 	} else {
 		unlock()
 	}
@@ -219,7 +219,7 @@ func TestPoolConfig(t *testing.T) {
 	}
 	for y, want := range cases {
 		_ = os.WriteFile(filepath.Join(d, "backends.yaml"), []byte("backends:\n  "+y+"\n"), 0o644)
-		bs, err := loadBackends()
+		bs, err := LoadBackends()
 		switch {
 		case want == "" && err != nil:
 			t.Errorf("%s : refusé : %v", y, err)
@@ -227,7 +227,7 @@ func TestPoolConfig(t *testing.T) {
 			t.Errorf("%s : %v, attendu ~%q", y, err, want)
 		case want == "":
 			for _, b := range bs {
-				if b.Name == "pool" && (!b.pool() || len(b.servers()) != 2) {
+				if b.Name == "pool" && (!b.IsPool() || len(b.Servers()) != 2) {
 					t.Errorf("groupe ssh : %+v", b)
 				}
 			}
@@ -244,14 +244,14 @@ func TestPoolDiagnose(t *testing.T) {
 	_ = os.MkdirAll(filepath.Join(root, ".claude"), 0o755)
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(root, ".claude"))
 	t.Setenv("FAKE_DOWN", "tcp://a:2375 tcp://b:2375")
-	if ps := diagnose(b); len(ps) != 0 {
+	if ps := Diagnose(b); len(ps) != 0 {
 		t.Errorf("un serveur sur trois répond : groupe utilisable attendu, %v", ps)
 	}
-	if pp := poolProblems(b); len(pp) != 2 || pp["tcp://c:2375"] != nil {
+	if pp := PoolProblems(b); len(pp) != 2 || pp["tcp://c:2375"] != nil {
 		t.Errorf("problèmes par serveur : %v", pp)
 	}
 	t.Setenv("FAKE_DOWN", "tcp://a:2375 tcp://b:2375 tcp://c:2375")
-	if ps := diagnose(b); len(ps) < 3 || !strings.HasPrefix(ps[0].what, "tcp://a:2375 : ") {
+	if ps := Diagnose(b); len(ps) < 3 || !strings.HasPrefix(ps[0].What, "tcp://a:2375 : ") {
 		t.Errorf("aucun serveur : problèmes de chacun attendus, %v", ps)
 	}
 }

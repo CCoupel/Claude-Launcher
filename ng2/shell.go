@@ -17,7 +17,7 @@ const (
 	outerSession = "claude-ui-ng2"
 )
 
-func cacheDir() string {
+func CacheDir() string {
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {
 		home, _ := os.UserHomeDir()
@@ -39,7 +39,7 @@ type Selection struct {
 	DotWhy string `json:"dot_why,omitempty"`
 }
 
-func selectionPath() string { return filepath.Join(cacheDir(), "selection.json") }
+func selectionPath() string { return filepath.Join(CacheDir(), "selection.json") }
 
 func writeSelection(n Node, dot sessState, why string) {
 	b, _ := json.Marshal(Selection{Name: n.Name, Key: n.Key, Path: n.Path, Dot: int(dot), DotWhy: why})
@@ -60,7 +60,7 @@ func readSelection() (Selection, bool) {
 
 // ── Largeur de la zone navigation ─────────────────────────────────────────
 
-func navWidthPath() string { return filepath.Join(cacheDir(), "navwidth") }
+func navWidthPath() string { return filepath.Join(CacheDir(), "navwidth") }
 
 func loadNavWidth() int {
 	if b, err := os.ReadFile(navWidthPath()); err == nil {
@@ -77,7 +77,7 @@ func saveNavWidth(n int) {
 
 // fixWidth : appelé par les hooks tmux (attache, redimensionnement du terminal)
 // pour que le navigateur garde sa largeur et que la zone tmux absorbe le reste.
-func fixWidth() {
+func FixWidth() {
 	w, _ := navWidth()
 	_ = otmux("resize-pane", "-t", outerSession+":0.0", "-x", strconv.Itoa(w)).Run()
 }
@@ -97,13 +97,13 @@ func navWidth() (nav, win int) {
 // ── Coque ─────────────────────────────────────────────────────────────────
 
 func stateCommand(exe string) string {
-	return supervised(roleInfo, "CL_HUB="+shq(hubSession)+" CL_OUTER_SOCKET="+shq(outerSocket())+
-		" CL_INNER_SOCKET="+shq(innerSocket())+" "+shq(exe)+" state")
+	return supervised(roleInfo, "CL_HUB="+Shq(hubSession)+" CL_OUTER_SOCKET="+Shq(outerSocket())+
+		" CL_INNER_SOCKET="+Shq(InnerSocket())+" "+Shq(exe)+" state")
 }
 
 func navCommand(exe string) string {
 	return supervised(roleNav, fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
-		shq(hubSession), shq(outerSocket()), shq(innerSocket()), shq(exe)))
+		Shq(hubSession), Shq(outerSocket()), Shq(InnerSocket()), Shq(exe)))
 }
 
 // supervised : commande d'un pane de la coque relancée en boucle. Sans elle, le
@@ -113,8 +113,8 @@ func navCommand(exe string) string {
 // stderr sont consignés dans <rôle>.err (relu au redémarrage). Quitter le
 // launcher arrête tout le serveur de la coque, donc aussi la boucle.
 func supervised(role, cmd string) string {
-	errf := filepath.Join(cacheDir(), role+".err")
-	out := filepath.Join(cacheDir(), role+".stderr")
+	errf := filepath.Join(CacheDir(), role+".err")
+	out := filepath.Join(CacheDir(), role+".stderr")
 	return fmt.Sprintf(`while :; do %s 2>%s; rc=$?; `+
 		`case $rc in 2) w=" (panic)";; 127) w=" (binaire introuvable : stockage démonté ?)";; `+
 		`135) w=" (SIGBUS : binaire illisible, stockage démonté ?)";; 137) w=" (SIGKILL)";; 139) w=" (SIGSEGV)";; *) w="";; esac; `+
@@ -122,7 +122,7 @@ func supervised(role, cmd string) string {
 		`grep -q SIGBUS %s 2>/dev/null && w=" (SIGBUS : binaire illisible, stockage démonté ?)"; `+
 		`{ echo "$(date '+%%Y-%%m-%%d %%H:%%M:%%S') arrêt inattendu ($rc)$w"; head -n 40 %s 2>/dev/null; } >%s; `+
 		`printf '\n  ⚠ arrêt inattendu (code %%s)%%s : redémarrage dans 2 s…\n' "$rc" "$w"; sleep 2; done`,
-		cmd, shq(out), shq(out), shq(out), shq(errf))
+		cmd, Shq(out), Shq(out), Shq(out), Shq(errf))
 }
 
 // paneStale : le pane exécute-t-il une autre copie du launcher que exe (binaire
@@ -190,7 +190,7 @@ func bindZoom() {
 		"select-pane -t = ; resize-pane -Z -t =", tmuxDoubleClick).Run()
 	// préfixe + R : remettre en ordre la team de la fenêtre courante (layout.go)
 	_ = dtmux("bind-key", "R", "if-shell", "-F", cond,
-		"run-shell -b "+shq(selfCommand("relayout")+" '#{window_id}'")).Run()
+		"run-shell -b "+Shq(selfCommand("relayout")+" '#{window_id}'")).Run()
 	bindNested()
 }
 
@@ -276,10 +276,10 @@ func shellWithoutNav() bool {
 
 // navErrFile : dernière erreur de sortie du navigateur (son pane se ferme avec
 // lui, le message serait perdu).
-func navErrFile() string { return filepath.Join(cacheDir(), "nav.err") }
+func navErrFile() string { return filepath.Join(CacheDir(), "nav.err") }
 
-func recordNavError(err error) {
-	line := time.Now().Format("2006-01-02 15:04:05") + " " + ngVersion + " : " + strings.TrimSpace(err.Error())
+func RecordNavError(err error) {
+	line := time.Now().Format("2006-01-02 15:04:05") + " " + NgVersion + " : " + strings.TrimSpace(err.Error())
 	_ = os.WriteFile(navErrFile(), []byte(line+"\n"), 0o644)
 }
 
@@ -313,8 +313,8 @@ func lastNavError() string {
 // pane 0 = navigateur, l'autre = zone tmux), zone tmux et pane d'infos recréés
 // s'ils manquent. Appelé par la coque et par
 // un navigateur redémarré après mise à jour : un verrou évite les doublons.
-func ensureLayout(exe string) error {
-	if f, err := os.OpenFile(filepath.Join(cacheDir(), "layout.lock"), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
+func EnsureLayout(exe string) error {
+	if f, err := os.OpenFile(filepath.Join(CacheDir(), "layout.lock"), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
 		defer f.Close()
 		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
 	}
@@ -375,16 +375,16 @@ func ensureLayout(exe string) error {
 }
 
 func innerCommand() string {
-	return fmt.Sprintf("env -u TMUX tmux -L %s attach-session -t %s", shq(innerSocket()), shq(exactS(hubSession)))
+	return fmt.Sprintf("env -u TMUX tmux -L %s attach-session -t %s", Shq(InnerSocket()), Shq(exactS(hubSession)))
 }
 
-func runShell() error {
-	exe, err := selfExe()
+func RunShell() error {
+	exe, err := SelfExe()
 	if err != nil {
 		return err
 	}
-	if created, err := ensureConfig(); err == nil && created {
-		fmt.Println("  ✓ config par défaut créée :", configPath(), "(claude-launcher-ng2 configure pour l'éditer)")
+	if created, err := EnsureConfig(); err == nil && created {
+		fmt.Println("  ✓ config par défaut créée :", ConfigPath(), "(claude-launcher-ng2 configure pour l'éditer)")
 	}
 	if err := ensureInner(); err != nil {
 		return err
@@ -417,8 +417,8 @@ func runShell() error {
 			// contente de transmettre l'événement au programme du pane.
 			{"bind-key", "-n", "DoubleClick1Pane", "send-keys", "-M"},
 			{"bind-key", "-n", "TripleClick1Pane", "send-keys", "-M"},
-			{"set-hook", "-t", outerSession, "client-attached", "run-shell " + shq(shq(exe)+" fixwidth")},
-			{"set-hook", "-t", outerSession, "client-resized", "run-shell " + shq(shq(exe)+" fixwidth")},
+			{"set-hook", "-t", outerSession, "client-attached", "run-shell " + Shq(Shq(exe)+" fixwidth")},
+			{"set-hook", "-t", outerSession, "client-resized", "run-shell " + Shq(Shq(exe)+" fixwidth")},
 			{"set-option", "-p", "-t", outerSession + ":0.0", "@cl", roleNav},
 		}
 		for _, s := range steps {
@@ -437,13 +437,13 @@ func runShell() error {
 			_ = otmux("respawn-pane", "-k", "-t", p, nav).Run()
 		}
 	}
-	if err := ensureLayout(exe); err != nil {
+	if err := EnsureLayout(exe); err != nil {
 		return err
 	}
 	_ = otmux("select-pane", "-t", outerPane(roleNav)).Run()
 	// Attache le terminal courant à la coque (environnement propre : pas d'imbrication).
 	c := exec.Command("tmux", "-L", outerSocket(), "attach-session", "-t", outerSession)
-	c.Env = envWithout("TMUX", "TMUX_PANE")
+	c.Env = EnvWithout("TMUX", "TMUX_PANE")
 	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
 	return c.Run()
 }

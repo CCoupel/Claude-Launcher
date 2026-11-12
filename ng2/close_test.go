@@ -7,9 +7,9 @@ import (
 )
 
 func TestSessionOf(t *testing.T) {
-	me := ownerInfo{id: launcherID(), at: time.Now()}
-	other := ownerInfo{id: "srv1:1000:x", at: time.Now()}
-	gone := ownerInfo{id: "srv1:1000:x", at: time.Now().Add(-time.Hour)}
+	me := OwnerInfo{Id: LauncherID(), At: time.Now()}
+	other := OwnerInfo{Id: "srv1:1000:x", At: time.Now()}
+	gone := OwnerInfo{Id: "srv1:1000:x", At: time.Now().Add(-time.Hour)}
 	run := Found{Running: true}
 	cases := []struct {
 		name string
@@ -20,15 +20,15 @@ func TestSessionOf(t *testing.T) {
 		{"rien", projInfo{}, sessNone, "rien ne tourne"},
 		{"conteneur arrêté", projInfo{ctrKnown: true}, sessNone, "arrêté"},
 		{"conteneur vide", projInfo{ctrKnown: true, ctr: run}, sessReady, "sans claude"},
-		{"tmux seul après /exit", projInfo{ctrKnown: true, ctr: run, hasLive: true, live: liveSess{owner: me}}, sessReady, "sans claude"},
+		{"tmux seul après /exit", projInfo{ctrKnown: true, ctr: run, hasLive: true, live: LiveSess{Owner: me}}, sessReady, "sans claude"},
 		{"ouvert ici (hôte)", projInfo{open: true, hasSess: true}, sessHere, "a la main"},
-		{"ouvert ici, piloté", projInfo{open: true, hasLive: true, live: liveSess{owner: me, claude: true}}, sessHere, "a la main"},
-		{"lecture seule", projInfo{open: true, hasLive: true, live: liveSess{owner: other, claude: true}}, sessReadOnly, "lecture seule"},
-		{"autre hub", projInfo{ctrKnown: true, ctr: run, hasLive: true, live: liveSess{owner: other, claude: true}}, sessElse, "autre hub"},
-		{"orphelin (à moi)", projInfo{hasLive: true, live: liveSess{owner: me, claude: true}}, sessOrphan, "aucun launcher"},
-		{"orphelin (parti)", projInfo{hasLive: true, live: liveSess{owner: gone, claude: true}}, sessOrphan, "aucun launcher"},
+		{"ouvert ici, piloté", projInfo{open: true, hasLive: true, live: LiveSess{Owner: me, Claude: true}}, sessHere, "a la main"},
+		{"lecture seule", projInfo{open: true, hasLive: true, live: LiveSess{Owner: other, Claude: true}}, sessReadOnly, "lecture seule"},
+		{"autre hub", projInfo{ctrKnown: true, ctr: run, hasLive: true, live: LiveSess{Owner: other, Claude: true}}, sessElse, "autre hub"},
+		{"orphelin (à moi)", projInfo{hasLive: true, live: LiveSess{Owner: me, Claude: true}}, sessOrphan, "aucun launcher"},
+		{"orphelin (parti)", projInfo{hasLive: true, live: LiveSess{Owner: gone, Claude: true}}, sessOrphan, "aucun launcher"},
 		{"reprise", projInfo{hasSess: true, ctrKnown: true, ctr: run}, sessAnomaly, "↺"},
-		{"backend ⚠", projInfo{backend: "k8s", problems: []problem{{"x", "y"}}}, sessAnomaly, "inutilisable"},
+		{"backend ⚠", projInfo{backend: "k8s", problems: []Problem{{"x", "y"}}}, sessAnomaly, "inutilisable"},
 		{"config invalide", projInfo{badCfg: "x"}, sessAnomaly, "invalide"},
 		{"pod en échec", projInfo{ctrKnown: true, ctr: Found{Failed: true}}, sessAnomaly, "échec"},
 	}
@@ -50,14 +50,14 @@ func TestSessionOf(t *testing.T) {
 }
 
 func TestParseLive(t *testing.T) {
-	l, ok := parseLive("srv1:1:x|1700000000|3\n%7 claude\n%3 claude\n%12 node")
-	if !ok || l.panes != 3 || l.owner.id != "srv1:1:x" || !l.claude {
+	l, ok := ParseLive("srv1:1:x|1700000000|3\n%7 claude\n%3 claude\n%12 node")
+	if !ok || l.Panes != 3 || l.Owner.Id != "srv1:1:x" || !l.Claude {
 		t.Errorf("claude en marche : %+v %v", l, ok)
 	}
-	if l, _ := parseLive("|0|1\n%4 bash"); l.claude || l.owner.id != "" {
+	if l, _ := ParseLive("|0|1\n%4 bash"); l.Claude || l.Owner.Id != "" {
 		t.Errorf("tmux seul : %+v", l)
 	}
-	if _, ok := parseLive(""); ok {
+	if _, ok := ParseLive(""); ok {
 		t.Error("sortie vide acceptée")
 	}
 }
@@ -99,7 +99,7 @@ func TestStopSession(t *testing.T) {
 
 	f := &fakeTmux{cmd: map[string]string{"%3": "claude", "%7": "claude", "%12": "claude"}, exits: true}
 	var steps []string
-	_ = stopSession(f.run, "="+ctrSession+":", true, func(s string) { steps = append(steps, s) })
+	_ = stopSession(f.run, "="+CtrSession+":", true, func(s string) { steps = append(steps, s) })
 	if strings.Join(f.sent, ",") != "Escape,/exit,Enter" {
 		t.Errorf("touches : %v", f.sent)
 	}
@@ -110,7 +110,7 @@ func TestStopSession(t *testing.T) {
 	// claude ne répond pas : arrêt forcé après closeWait
 	f = &fakeTmux{cmd: map[string]string{"%3": "claude", "%7": "x", "%12": "x"}}
 	steps = nil
-	_ = stopSession(f.run, "="+ctrSession+":", true, func(s string) { steps = append(steps, s) })
+	_ = stopSession(f.run, "="+CtrSession+":", true, func(s string) { steps = append(steps, s) })
 	if !f.kill || len(steps) != 2 || !strings.Contains(steps[1], "arrêt forcé") {
 		t.Errorf("arrêt forcé attendu : kill=%v %v", f.kill, steps)
 	}
@@ -126,7 +126,7 @@ func TestStopSession(t *testing.T) {
 func TestPlanCloseRefus(t *testing.T) {
 	n := Node{Name: "p", Path: "/x/p", Key: "p", Project: true}
 	m := model{windows: map[string]bool{}, git: map[string]GitInfo{}, tpl: map[string]TemplateState{}}
-	m.ctr = ctrView{live: map[string]liveSess{n.Path: {owner: ownerInfo{id: "srv1:1:x", at: time.Now()}, panes: 3, claude: true}}}
+	m.ctr = ctrView{live: map[string]LiveSess{n.Path: {Owner: OwnerInfo{Id: "srv1:1:x", At: time.Now()}, Panes: 3, Claude: true}}}
 	if _, why := m.planClose(n); !strings.Contains(why, "piloté par srv1") || !strings.Contains(why, "prendre la main") {
 		t.Errorf("piloté ailleurs : %q", why)
 	}

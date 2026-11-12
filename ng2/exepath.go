@@ -56,6 +56,6 @@ func pickExe(cands []string) (string, error) {
 }
 
 // selfExe : chemin utilisable du binaire du launcher (voir plus haut).
-func selfExe() (string, error) {
+func SelfExe() (string, error) {
 	return pickExe(exeCandidates(currentExe(), startExe, os.Args[0]))
 }

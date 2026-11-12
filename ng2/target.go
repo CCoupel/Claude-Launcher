@@ -65,16 +65,16 @@ func projectOf(hubWin string) projWin {
 	if be == "" || ctr == "" {
 		return direct
 	}
-	b, ok := findBackend(be)
+	b, ok := FindBackend(be)
 	if !ok {
 		return direct
 	}
-	e, ok := engineOf(b.at(f[3])) // groupe de serveurs : celui du conteneur (#61)
+	e, ok := EngineOf(b.At(f[3])) // groupe de serveurs : celui du conteneur (#61)
 	if !ok {
 		return direct
 	}
-	return projWin{t: ctlFor(e, ctr), win: "=" + ctrSession + ":", hubWin: hubWin,
-		ctrExec: func(argv ...string) (string, error) { return e.output(ctr, argv...) }}
+	return projWin{t: CtlFor(e, ctr), win: "=" + CtrSession + ":", hubWin: hubWin,
+		ctrExec: func(argv ...string) (string, error) { return e.Output(ctr, argv...) }}
 }
 
 // v4Server : serveur tmux par défaut, celui du launcher v4 (claude-hub). NG2 n'y
@@ -87,7 +87,7 @@ func (v4Server) Output(args ...string) ([]byte, error) {
 }
 func (v4Server) cmd(args ...string) *exec.Cmd {
 	c := exec.Command("tmux", args...)
-	c.Env = envWithout("TMUX", "TMUX_PANE")
+	c.Env = EnvWithout("TMUX", "TMUX_PANE")
 	return c
 }
 

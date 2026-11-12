@@ -167,7 +167,7 @@ func (mm *mirrorMgr) tick() {
 		if !ok {
 			continue
 		}
-		c := "bg=colour" + mm.cfg.projectColor(w.name)
+		c := "bg=colour" + mm.cfg.ProjectColor(w.name)
 		if mm.colored[pid] != c {
 			_ = dtmux("set-option", "-p", "-t", pid, "window-style", c).Run()
 			mm.colored[pid] = c

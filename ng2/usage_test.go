@@ -21,12 +21,12 @@ func TestNeedsFetchApresLogin(t *testing.T) {
 	old := time.Now().Add(-time.Minute)
 	_ = os.Chtimes(credentialsPath(), old, old)
 	_ = os.WriteFile(errPath, []byte("non authentifié"), 0o644)
-	if needsFetch(60) {
+	if NeedsFetch(60) {
 		t.Fatal("échec récent sans nouveau login : l'appel devrait être suspendu")
 	}
 
 	_ = os.Chtimes(credentialsPath(), time.Now().Add(time.Second), time.Now().Add(time.Second))
-	if !needsFetch(60) {
+	if !NeedsFetch(60) {
 		t.Fatal("identifiants plus récents que l'échec : l'appel devrait être relancé")
 	}
 }
@@ -37,7 +37,7 @@ func TestLoginAlerte(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", filepath.Join(home, "cache"))
 	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	_ = os.MkdirAll(filepath.Join(home, ".claude"), 0o755)
-	if u := readUsage(); u.Expired || !u.LoginBy.IsZero() {
+	if u := ReadUsage(); u.Expired || !u.LoginBy.IsZero() {
 		t.Fatal("sans identifiants : rien à signaler")
 	}
 	write := func(refresh time.Duration) {
@@ -46,15 +46,15 @@ func TestLoginAlerte(t *testing.T) {
 			`{"claudeAiOauth":{"expiresAt":%d,"refreshTokenExpiresAt":%d}}`, acc, time.Now().Add(refresh).UnixMilli())), 0o600)
 	}
 	write(20 * 24 * time.Hour)
-	if u := readUsage(); u.Expired || !u.LoginBy.IsZero() {
+	if u := ReadUsage(); u.Expired || !u.LoginBy.IsZero() {
 		t.Fatal("connexion valide 20 jours : pas d'alerte")
 	}
 	write(2 * 24 * time.Hour)
-	if u := readUsage(); u.Expired || u.LoginBy.IsZero() {
+	if u := ReadUsage(); u.Expired || u.LoginBy.IsZero() {
 		t.Fatal("expire dans 2 jours : alerte jaune attendue")
 	}
 	write(-time.Minute)
-	if u := readUsage(); !u.Expired {
+	if u := ReadUsage(); !u.Expired {
 		t.Fatal("connexion expirée : alerte rouge attendue")
 	}
 }

@@ -38,7 +38,7 @@ func TestE2EK8sSpread(t *testing.T) {
 		projs = append(projs, p)
 		defer e.kcmd("delete", "statefulset", k8sName(p), "--wait=false").Run()
 	}
-	env, _ := loadEnv(projs[0])
+	env, _ := LoadEnv(projs[0])
 
 	// les trois en parallèle, comme trois ouvertures rapprochées
 	var wg sync.WaitGroup
@@ -48,7 +48,7 @@ func TestE2EK8sSpread(t *testing.T) {
 		go func(i int, p string) {
 			defer wg.Done()
 			var out bytes.Buffer
-			_, errs[i] = e.ensure(p, env, &out)
+			_, errs[i] = e.Ensure(p, env, &out)
 		}(i, p)
 	}
 	wg.Wait()
@@ -57,7 +57,7 @@ func TestE2EK8sSpread(t *testing.T) {
 			t.Fatalf("ensure %s : %v", projs[i], err)
 		}
 	}
-	nodes := e.k8sNodes()
+	nodes := e.K8sNodes()
 	count := map[string]int{}
 	for _, p := range projs {
 		count[nodes[k8sPod(p)]]++
@@ -81,27 +81,27 @@ func TestE2EK8sSpread(t *testing.T) {
 	before := uid()
 	no := false
 	e2 := Engine{b}
-	e2.b.Spread = &no
+	e2.B.Spread = &no
 	var out bytes.Buffer
-	if _, err := e2.ensure(p, env, &out); err != nil {
+	if _, err := e2.Ensure(p, env, &out); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "appliqué au prochain démarrage") || uid() != before {
 		t.Fatalf("pod en marche touché : %q, uid %s → %s", out.String(), before, uid())
 	}
 	// … il l'est à son redémarrage (pod arrêté : 0 réplique, puis ouverture)
-	if err := e2.stop(p, k8sPod(p)); err != nil {
+	if err := e2.Stop(p, k8sPod(p)); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 60 && uid() != ""; i++ {
 		time.Sleep(time.Second)
 	}
 	out.Reset()
-	if _, err := e2.ensure(p, env, &out); err != nil {
+	if _, err := e2.Ensure(p, env, &out); err != nil {
 		t.Fatalf("redémarrage : %v\n%s", err, out.String())
 	}
 	got, _ := e.kcmd("get", "pod", k8sPod(p), "-o", `jsonpath={.metadata.annotations.cl\.sched}|{.spec.topologySpreadConstraints}`).Output()
-	if s := string(got); !strings.HasPrefix(s, e2.b.schedKey()+"|") || strings.Contains(s, "kubernetes.io/hostname") {
+	if s := string(got); !strings.HasPrefix(s, e2.B.schedKey()+"|") || strings.Contains(s, "kubernetes.io/hostname") {
 		t.Errorf("nouveau placement non appliqué au redémarrage : %s", s)
 	}
 }

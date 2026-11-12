@@ -64,7 +64,7 @@ func subdirs(dir string) []string {
 // scanTree reproduit _collect_projects/_walk_emit du launcher bash : un dossier
 // est un projet s'il contient un .git ou un fichier direct, sinon un groupe
 // (affiché seulement s'il contient un projet en dessous).
-func scanTree(roots []string) []Node {
+func ScanTree(roots []string) []Node {
 	var nodes []Node
 	counts := map[string]int{}
 

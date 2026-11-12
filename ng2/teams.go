@@ -19,7 +19,7 @@ import (
 // peut encore être reprise (resume.go) : la reprise retrouve team et tâches. L'ancien cleanup_orphan_teams du bash, fondé sur
 // le nom de la fenêtre, avait déjà supprimé des teams vivantes.
 
-func claudeDir() string {
+func ClaudeDir() string {
 	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
 		return d
 	}
@@ -49,18 +49,18 @@ func livePanes() (map[string]bool, bool) {
 }
 
 // teamsProgress : avancement de deadTeams (barre de progression au démarrage).
-var teamsProgress func(done, total int)
+var TeamsProgress func(done, total int)
 
 // deadTeams : noms des teams de root/teams dont tous les panes teammates ont disparu.
-func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []string {
+func DeadTeams(root string, live map[string]bool, resumeAge time.Duration) []string {
 	entries, err := os.ReadDir(filepath.Join(root, "teams"))
 	if err != nil {
 		return nil
 	}
 	var dead []string
 	for i, e := range entries {
-		if teamsProgress != nil {
-			teamsProgress(i, len(entries))
+		if TeamsProgress != nil {
+			TeamsProgress(i, len(entries))
 		}
 		if !e.IsDir() {
 			continue
@@ -84,8 +84,8 @@ func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []str
 		}
 		// team d'un conteneur ou d'une autre machine : ses panes %N sont ceux de
 		// SON tmux, invisibles d'ici — jamais supprimée par l'hôte
-		if p := cfg.LeadProcess; p != nil && p.PIDSpace != "" && p.PIDSpace != hostPidSpace() {
-			if h, _, _ := strings.Cut(p.PIDSpace, "#"); h != hostName() {
+		if p := cfg.LeadProcess; p != nil && p.PIDSpace != "" && p.PIDSpace != HostPidSpace() {
+			if h, _, _ := strings.Cut(p.PIDSpace, "#"); h != HostName() {
 				continue
 			}
 		}
@@ -109,13 +109,13 @@ func deadTeams(root string, live map[string]bool, resumeAge time.Duration) []str
 }
 
 // cleanupDeadTeams : supprime les teams mortes et leurs tâches ; renvoie leurs noms.
-func cleanupDeadTeams(resumeAge time.Duration) []string {
+func CleanupDeadTeams(resumeAge time.Duration) []string {
 	live, ok := livePanes()
 	if !ok {
 		return nil
 	}
-	root := claudeDir()
-	dead := deadTeams(root, live, resumeAge)
+	root := ClaudeDir()
+	dead := DeadTeams(root, live, resumeAge)
 	for _, t := range dead {
 		_ = os.RemoveAll(filepath.Join(root, "teams", t))
 		_ = os.RemoveAll(filepath.Join(root, "tasks", t))

@@ -227,7 +227,7 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p == browserHealthPath {
-		_, _ = io.WriteString(w, ngName+" "+ngVersion+"\n")
+		_, _ = io.WriteString(w, NgName+" "+NgVersion+"\n")
 		return
 	}
 	real, ok := s.allowed(p)
@@ -312,10 +312,10 @@ func (s fileServer) listDir(w http.ResponseWriter, p, real string) {
 
 // ── Cycle de vie ──────────────────────────────────────────────────────────
 
-func browserServerStatusPath() string { return filepath.Join(cacheDir(), "browser-server.status") }
+func browserServerStatusPath() string { return filepath.Join(CacheDir(), "browser-server.status") }
 
 func setServerStatus(msg string) {
-	_ = os.MkdirAll(cacheDir(), 0o755)
+	_ = os.MkdirAll(CacheDir(), 0o755)
 	_ = os.WriteFile(browserServerStatusPath(), []byte(time.Now().Format("2006-01-02 15:04:05")+" "+msg+"\n"), 0o644)
 }
 
@@ -356,7 +356,7 @@ func servedRoots(lists ...[]string) []string {
 // runBrowserServer : lancé avec le pane des cartes du hub (supervisé). Réglage
 // relu toutes les 10 s : changement d'adresse ou off pris en compte sans
 // relance ; port occupé → nouvel essai.
-func runBrowserServer() {
+func RunBrowserServer() {
 	var cur serverConf
 	var srv *http.Server
 	var allow []string
@@ -402,14 +402,14 @@ func probeBrowserServer(c serverConf) (string, error) {
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
-	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(string(b), ngName) {
+	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(string(b), NgName) {
 		return "", fmt.Errorf("port occupé par un autre service (HTTP %d)", resp.StatusCode)
 	}
 	return strings.TrimSpace(string(b)), nil
 }
 
 // printBrowserServer : section de « claude-launcher-ng2 backends ».
-func printBrowserServer() {
+func PrintBrowserServer() {
 	c, err := browserServer()
 	fmt.Printf("\nServeur web pour le navigateur (%s) :\n", c.Source)
 	if err != nil {

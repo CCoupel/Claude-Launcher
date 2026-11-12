@@ -179,15 +179,15 @@ var ctlCache = struct {
 	m map[string]*ctlTarget
 }{m: map[string]*ctlTarget{}}
 
-func ctlFor(e Engine, name string) *ctlTarget {
-	key := e.b.Name + "/" + name
+func CtlFor(e Engine, name string) *ctlTarget {
+	key := e.B.Name + "/" + name
 	ctlCache.Lock()
 	defer ctlCache.Unlock()
 	if t, ok := ctlCache.m[key]; ok {
 		return t
 	}
-	attach := tmuxIn("-C", "attach-session", "-f", "ignore-size,no-output", "-t", "="+ctrSession)
-	t := &ctlTarget{argv: e.execArgv(name, false, false, attach...)}
+	attach := TmuxIn("-C", "attach-session", "-f", "ignore-size,no-output", "-t", "="+CtrSession)
+	t := &ctlTarget{argv: e.ExecArgv(name, false, false, attach...)}
 	ctlCache.m[key] = t
 	return t
 }

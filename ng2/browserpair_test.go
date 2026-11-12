@@ -95,7 +95,7 @@ func TestSyncBrowserHook(t *testing.T) {
 		t.Fatal(err)
 	}
 	for i := 0; i < 2; i++ {
-		if err := syncBrowserHook(d); err != nil {
+		if err := SyncBrowserHook(d); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -119,7 +119,7 @@ func TestSyncBrowserHook(t *testing.T) {
 	}
 	// fichier absent : créé avec le seul hook
 	d2 := t.TempDir()
-	if err := syncBrowserHook(d2); err != nil {
+	if err := SyncBrowserHook(d2); err != nil {
 		t.Fatal(err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(d2, "settings.json")); !strings.Contains(string(b), browserHookMark) {

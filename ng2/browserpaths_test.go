@@ -138,10 +138,10 @@ func TestExportBrowserPathsHub(t *testing.T) {
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
 	t.Cleanup(func() { _ = dtmux("kill-server").Run() })
-	if err := os.MkdirAll(ng2ConfigDir(), 0o755); err != nil {
+	if err := os.MkdirAll(Ng2ConfigDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(backendsPath(), []byte("defaults:\n  browser_paths: [{ container: /share/MFS/ROOT, host: '\\\\nas\\MFS\\ROOT' }]\n"), 0o644); err != nil {
+	if err := os.WriteFile(BackendsPath(), []byte("defaults:\n  browser_paths: [{ container: /share/MFS/ROOT, host: '\\\\nas\\MFS\\ROOT' }]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if out, err := dtmux("-f", "/dev/null", "new-session", "-d", "-s", "hub", "sleep 600").CombinedOutput(); err != nil {
@@ -192,19 +192,19 @@ exec "${args[@]}"
 		t.Setenv("TMUX_TMPDIR", d)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
-	e := Engine{b: BackendConf{Name: "podman", Type: "podman"}}
-	t.Cleanup(func() { _ = e.exec("x", false, nil, nil, tmuxIn("kill-server")...) })
-	_ = os.MkdirAll(ng2ConfigDir(), 0o755)
+	e := Engine{B: BackendConf{Name: "podman", Type: "podman"}}
+	t.Cleanup(func() { _ = e.Exec("x", false, nil, nil, TmuxIn("kill-server")...) })
+	_ = os.MkdirAll(Ng2ConfigDir(), 0o755)
 	setMap := func(host string) {
 		y := "defaults:\n  browser_paths: [{ container: /share/MFS/ROOT, host: " + host + " }]\n"
-		if err := os.WriteFile(backendsPath(), []byte(y), 0o644); err != nil {
+		if err := os.WriteFile(BackendsPath(), []byte(y), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
 	seen := func(cmdTarget []string) string {
 		f := cfg + "/seen"
 		_ = os.Remove(f)
-		if err := e.exec("x", false, nil, nil, tmuxIn(append(cmdTarget, `printf %s "$CL_BROWSER_PATH_MAP" > `+f+`; sleep 5`)...)...); err != nil {
+		if err := e.Exec("x", false, nil, nil, TmuxIn(append(cmdTarget, `printf %s "$CL_BROWSER_PATH_MAP" > `+f+`; sleep 5`)...)...); err != nil {
 			t.Fatal(err)
 		}
 		for i := 0; i < 50; i++ {
@@ -217,19 +217,19 @@ exec "${args[@]}"
 	}
 
 	setMap("/mnt/a")
-	if err := e.newCtrSession("x", cfg, 80, 24); err != nil {
+	if err := e.NewCtrSession("x", cfg, 80, 24); err != nil {
 		t.Skipf("tmux inutilisable ici : %v", err)
 	}
-	first := seen([]string{"respawn-pane", "-k", "-t", "=" + ctrSession + ":"})
+	first := seen([]string{"respawn-pane", "-k", "-t", "=" + CtrSession + ":"})
 	if !strings.Contains(first, `"host":"/mnt/a"`) {
 		t.Fatalf("premier pane : %q", first)
 	}
-	if h, err := e.output("x", tmuxIn("show-environment", "-t", "="+ctrSession, browserHintVar)...); err != nil || !strings.Contains(h, "Claude-Launcher, navigateur") {
+	if h, err := e.Output("x", TmuxIn("show-environment", "-t", "="+CtrSession, browserHintVar)...); err != nil || !strings.Contains(h, "Claude-Launcher, navigateur") {
 		t.Fatalf("consigne dans la session du conteneur : %v %q", err, h)
 	}
 	setMap("/mnt/b") // config modifiée, conteneur intact
-	e.setCtrBrowserPaths("x")
-	mate := seen([]string{"split-window", "-t", "=" + ctrSession + ":"})
+	e.SetCtrBrowserPaths("x")
+	mate := seen([]string{"split-window", "-t", "=" + CtrSession + ":"})
 	if !strings.Contains(mate, `"host":"/mnt/b"`) {
 		t.Fatalf("teammate après rattachement : %q", mate)
 	}

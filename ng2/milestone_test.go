@@ -94,7 +94,7 @@ func TestMilestoneState(t *testing.T) {
 	if !reflect.DeepEqual(st.Phases, want) || st.Blocked != 1 || st.Open != 4 || st.Closed != 6 {
 		t.Errorf("détail : %+v", st)
 	}
-	if l := strings.Join(msLines(st, 40), "\n"); !strings.Contains(l, "60%") || !strings.Contains(l, "6/10") || !strings.Contains(l, "pret 2") {
+	if l := strings.Join(MsLines(st, 40), "\n"); !strings.Contains(l, "60%") || !strings.Contains(l, "6/10") || !strings.Contains(l, "pret 2") {
 		t.Errorf("msLines=%q", l)
 	}
 
@@ -125,7 +125,7 @@ func TestPRIndicator(t *testing.T) {
 	if _, ok := prIndicator(MsState{}); ok {
 		t.Error("badge PR sans PR ouverte")
 	}
-	n, d := countPRs([]rawPR{{false}, {true}, {false}})
+	n, d := CountPRs([]RawPR{{false}, {true}, {false}})
 	i, ok := prIndicator(MsState{PRs: n, Drafts: d})
 	if !ok || i.icon != "⇄3" || !strings.Contains(i.text, "3 pull request") || !strings.Contains(i.text, "dont 1 brouillon") {
 		t.Errorf("prIndicator=%+v ok=%v", i, ok)
@@ -161,7 +161,7 @@ func TestMsBarWidth(t *testing.T) {
 		{Title: "v11.6.0 — Ambiance de musique d'événement — Extensions", Open: 14}}}
 	strip := func(w int) []string {
 		var o []string
-		for _, l := range msLines(idle, w)[1:] {
+		for _, l := range MsLines(idle, w)[1:] {
 			if lipgloss.Width(l) > w {
 				t.Errorf("largeur %d dépassée : %q", w, ansi.Strip(l))
 			}

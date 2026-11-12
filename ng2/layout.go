@@ -59,7 +59,7 @@ func normPath(p string) string {
 // findTeamConfig : config.json de la team du projet. Une session coupée laisse
 // sa team quand la reprise en crée une autre : la plus récemment modifiée gagne.
 func findTeamConfig(projectDir string) string {
-	files, _ := filepath.Glob(filepath.Join(claudeDir(), "teams", "*", "config.json"))
+	files, _ := filepath.Glob(filepath.Join(ClaudeDir(), "teams", "*", "config.json"))
 	want := normPath(projectDir)
 	best, bestT := "", time.Time{}
 	for _, f := range files {
@@ -143,7 +143,7 @@ func (ws winState) leader() string {
 	for _, p := range ws.panes {
 		b.WriteString(p.id + "\n")
 	}
-	id, _ := leaderOf(b.String())
+	id, _ := LeaderOf(b.String())
 	return id
 }
 
@@ -377,7 +377,7 @@ func doLayout(cfg Config, pw projWin, leader, teamPath string) {
 	topIdx, botIdx := idxs[:len(top)], idxs[len(top):len(want)]
 	_ = pw.t.Run("select-layout", "-t", pw.win, layoutString(cfg, ws.w, ws.h, topIdx, botIdx))
 
-	color := cfg.projectColor(ws.name)
+	color := cfg.ProjectColor(ws.name)
 	for _, p := range want {
 		setPaneColor(pw, ws, p, color)
 	}
@@ -410,8 +410,8 @@ func styleBusy(cfg Config, p projWin, ws winState, busy bool, color string) {
 
 // runLayoutWatch tourne en arrière-plan pour une fenêtre projet (lancé par
 // launchProject) et s'arrête avec elle.
-func runLayoutWatch(win, leader, projectDir string) {
-	cfg := loadConfig()
+func RunLayoutWatch(win, leader, projectDir string) {
+	cfg := LoadConfig()
 	pw := projectOf(win)
 	prevCount, prevSig, prevRelayout := 1, "", ""
 	beat := 0
@@ -452,7 +452,7 @@ func runLayoutWatch(win, leader, projectDir string) {
 		}
 		if path := findTeamConfig(projectDir); path != "" {
 			tc, _ := readTeam(path)
-			color := cfg.projectColor(ws.name)
+			color := cfg.ProjectColor(ws.name)
 			// avant la teinte : doLayout remet tous les panes à la couleur de base
 			if sig := activeSignature(ws, tc); sig != prevSig {
 				prevSig = sig
@@ -509,7 +509,7 @@ func runLayoutWatch(win, leader, projectDir string) {
 
 // runRelayout : mise en page forcée d'une fenêtre (liaison tmux, ex. Ctrl+b R :
 // bind R run-shell "claude-launcher-ng2 relayout '#{window_id}'").
-func runRelayout(win string) {
+func RunRelayout(win string) {
 	pw := projectOf(win)
 	ws, err := readWin(pw)
 	if err != nil {
@@ -527,6 +527,6 @@ func runRelayout(win string) {
 		_ = hub.Run("display-message", "-t", pw.hubWin, "Relayout : aucune team trouvée pour "+dir)
 		return
 	}
-	doLayout(loadConfig(), pw, leader, path)
+	doLayout(LoadConfig(), pw, leader, path)
 	_ = hub.Run("display-message", "-t", pw.hubWin, "Relayout appliqué ("+filepath.Base(filepath.Dir(path))+")")
 }

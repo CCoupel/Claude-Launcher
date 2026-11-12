@@ -145,7 +145,7 @@ func TestBrowserFileServer(t *testing.T) {
 	if code, body, _ = get("GET", root+"/site/", "localhost"); code != 200 || body != "accueil" {
 		t.Errorf("index.html : %d %q", code, body)
 	}
-	if code, body, _ = get("GET", browserHealthPath, "localhost"); code != 200 || !strings.HasPrefix(body, ngName) {
+	if code, body, _ = get("GET", browserHealthPath, "localhost"); code != 200 || !strings.HasPrefix(body, NgName) {
 		t.Errorf("santé : %d %q", code, body)
 	}
 }

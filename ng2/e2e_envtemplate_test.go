@@ -34,20 +34,20 @@ func TestE2EEnvTemplate(t *testing.T) {
 	defer e.kcmd("delete", "statefulset", k8sName(proj), "--wait=false").Run()
 	run := func() string {
 		t.Helper()
-		en, err := loadEnv(proj)
+		en, err := LoadEnv(proj)
 		if err != nil {
 			t.Fatal(err)
 		}
 		var out bytes.Buffer
-		name, err := e.ensure(proj, en, &out)
+		name, err := e.Ensure(proj, en, &out)
 		if err != nil {
 			t.Fatalf("ensure : %v\n%s", err, out.String())
 		}
-		if err := e.bootstrap(name, proj, en, &out); err != nil {
+		if err := e.Bootstrap(name, proj, en, &out); err != nil {
 			t.Fatalf("bootstrap : %v\n%s", err, out.String())
 		}
 		out.Reset()
-		if err := e.exec(name, false, nil, &out, "sh", "-c", "command -v jq file >/dev/null && echo outils-ok"); err != nil || !strings.Contains(out.String(), "outils-ok") {
+		if err := e.Exec(name, false, nil, &out, "sh", "-c", "command -v jq file >/dev/null && echo outils-ok"); err != nil || !strings.Contains(out.String(), "outils-ok") {
 			t.Fatalf("paquets des deux fichiers : %v %q", err, out.String())
 		}
 		b, _ := os.ReadFile(filepath.Join(proj, "setup.log"))

@@ -53,15 +53,15 @@ func (m model) planClose(n Node) (closePlan, string) {
 	p := m.projInfo(n)
 	switch p.dot {
 	case sessReadOnly, sessElse:
-		who := p.live.owner.id
+		who := p.live.Owner.Id
 		return closePlan{}, n.Name + " : piloté par " + who + " — Entrée pour prendre la main, puis Ctrl+clic"
 	}
 	pl := closePlan{node: n, window: p.open, session: p.open || p.claudeLive(),
 		hubSess: targetSession(m.session), hubTgt: exactW(targetSession(m.session), n.Key)}
 	var what []string
-	if b, ok := findBackend(p.backend); ok && p.ctrKnown {
-		if e, ok := engineOf(b); ok {
-			e = e.of(p.ctr) // groupe de serveurs : celui du conteneur (#61)
+	if b, ok := FindBackend(p.backend); ok && p.ctrKnown {
+		if e, ok := EngineOf(b); ok {
+			e = e.Of(p.ctr) // groupe de serveurs : celui du conteneur (#61)
 			pl.engine, pl.ctr = &e, p.ctr.Name
 		}
 	}
@@ -69,7 +69,7 @@ func (m model) planClose(n Node) (closePlan, string) {
 	stopText := ""
 	if running {
 		stopText = "conteneur arrêté"
-		if pl.engine.b.k8s() {
+		if pl.engine.B.K8s() {
 			stopText = "pod k8s arrêté"
 		}
 		stopText += " (rien n'est perdu)"
@@ -113,7 +113,7 @@ func (m model) teammates(p projInfo, pl closePlan) int {
 	n := 0
 	switch {
 	case p.hasLive:
-		n = p.live.panes
+		n = p.live.Panes
 	case pl.window:
 		s, _ := tmuxOut("display-message", "-p", "-t", pl.hubTgt, "#{window_panes}")
 		n, _ = strconv.Atoi(s)
@@ -169,7 +169,7 @@ type sessionTmux func(args ...string) (string, error)
 func (pl closePlan) tmux() sessionTmux {
 	if pl.engine != nil && pl.ctr != "" {
 		e, name := *pl.engine, pl.ctr
-		return func(args ...string) (string, error) { return e.output(name, tmuxIn(args...)...) }
+		return func(args ...string) (string, error) { return e.Output(name, TmuxIn(args...)...) }
 	}
 	return func(args ...string) (string, error) { return tmuxOut(args...) }
 }
@@ -177,7 +177,7 @@ func (pl closePlan) tmux() sessionTmux {
 // sessionTarget : cible tmux de la session (fenêtre du hub, ou session du conteneur).
 func (pl closePlan) sessionTarget() string {
 	if pl.engine != nil && pl.ctr != "" {
-		return "=" + ctrSession + ":"
+		return "=" + CtrSession + ":"
 	}
 	return pl.hubTgt
 }
@@ -185,7 +185,7 @@ func (pl closePlan) sessionTarget() string {
 func runClose(pl closePlan, step func(string)) error {
 	if pl.abandon {
 		// la conversation reste lisible (/resume) ; elle n'est plus proposée à la reprise
-		m := cleanExitPath(projectDirName(pl.node.Path))
+		m := CleanExitPath(ProjectDirName(pl.node.Path))
 		if err := os.MkdirAll(filepath.Dir(m), 0o755); err == nil {
 			_ = os.WriteFile(m, nil, 0o644)
 			now := time.Now()
@@ -196,8 +196,8 @@ func runClose(pl closePlan, step func(string)) error {
 	if pl.session {
 		if pl.engine != nil {
 			// dernier contrôle : quelqu'un a pu prendre la main depuis la question
-			if o := pl.engine.owner(pl.ctr); o.alive() && o.id != launcherID() {
-				return fmt.Errorf("piloté par %s depuis la question : fermeture annulée", o.id)
+			if o := pl.engine.Owner(pl.ctr); o.Alive() && o.Id != LauncherID() {
+				return fmt.Errorf("piloté par %s depuis la question : fermeture annulée", o.Id)
 			}
 		}
 		if err := stopSession(pl.tmux(), pl.sessionTarget(), pl.engine != nil && pl.ctr != "", step); err != nil {
@@ -213,10 +213,10 @@ func runClose(pl closePlan, step func(string)) error {
 	}
 	if pl.engine != nil {
 		step("arrêt du conteneur…")
-		if err := pl.engine.stop(pl.node.Path, pl.ctr); err != nil {
+		if err := pl.engine.Stop(pl.node.Path, pl.ctr); err != nil {
 			return err
 		}
-		if pl.engine.b.k8s() {
+		if pl.engine.B.K8s() {
 			step("pod arrêté (0 réplique)")
 		} else {
 			step("conteneur arrêté")
@@ -226,7 +226,7 @@ func runClose(pl closePlan, step func(string)) error {
 }
 
 // shells : commandes d'un pane revenu à son shell (claude terminé).
-var shells = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "fish": true, "ash": true}
+var Shells = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "fish": true, "ash": true}
 
 // stopSession : /exit au leader, attente de sa sortie (closeWait), puis
 // fermeture de la session tmux (hub : la fenêtre ; conteneur : la session).
@@ -236,7 +236,7 @@ func stopSession(t sessionTmux, target string, inCtr bool, step func(string)) er
 		return nil // plus de session
 	}
 	start := time.Now()
-	if !shells[cmd] {
+	if !Shells[cmd] {
 		// Échap interrompt une réponse en cours ; /exit est ensuite tapé seul
 		_, _ = t("send-keys", "-t", leader, "Escape")
 		time.Sleep(400 * time.Millisecond)
@@ -247,7 +247,7 @@ func stopSession(t sessionTmux, target string, inCtr bool, step func(string)) er
 		clean := false
 		for time.Since(start) < closeWait {
 			time.Sleep(500 * time.Millisecond)
-			if c := paneCommand(t, leader); c == "" || shells[c] {
+			if c := paneCommand(t, leader); c == "" || Shells[c] {
 				clean = true
 				break
 			}
@@ -259,7 +259,7 @@ func stopSession(t sessionTmux, target string, inCtr bool, step func(string)) er
 		}
 	}
 	if inCtr {
-		_, _ = t("kill-session", "-t", "="+ctrSession)
+		_, _ = t("kill-session", "-t", "="+CtrSession)
 	}
 	return nil
 }
@@ -268,17 +268,17 @@ func stopSession(t sessionTmux, target string, inCtr bool, step func(string)) er
 func leaderPane(t sessionTmux, target string, inCtr bool) (id, cmd string) {
 	args := []string{"list-panes", "-t", target, "-F", "#{pane_id} #{pane_current_command}"}
 	if inCtr {
-		args = []string{"list-panes", "-s", "-t", "=" + ctrSession, "-F", "#{pane_id} #{pane_current_command}"}
+		args = []string{"list-panes", "-s", "-t", "=" + CtrSession, "-F", "#{pane_id} #{pane_current_command}"}
 	}
 	s, err := t(args...)
 	if err != nil {
 		return "", ""
 	}
-	return leaderOf(s)
+	return LeaderOf(s)
 }
 
 // leaderOf : dans des lignes « %id commande », le plus petit %id et sa commande.
-func leaderOf(s string) (id, cmd string) {
+func LeaderOf(s string) (id, cmd string) {
 	best := -1
 	for _, l := range strings.Split(s, "\n") {
 		f := strings.Fields(l)
@@ -307,9 +307,9 @@ func paneCommand(t sessionTmux, pane string) string {
 
 // stop : arrêt du conteneur du projet (k8s : 0 réplique, le pod est libéré ;
 // tout est sur le stockage partagé, l'ouverture suivante le remet à 1).
-func (e Engine) stop(proj, name string) error {
+func (e Engine) Stop(proj, name string) error {
 	var c *exec.Cmd
-	if e.b.k8s() {
+	if e.B.K8s() {
 		// nom réel (pod « <statefulset>-0 ») : un StatefulSet d'avant v5.6 garde le sien
 		c = e.kcmd("scale", "statefulset", strings.TrimSuffix(name, "-0"), "--replicas=0")
 	} else {

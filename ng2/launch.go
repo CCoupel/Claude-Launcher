@@ -43,14 +43,14 @@ func scriptPath() string {
 // selfCommand : ligne de commande d'une sous-commande du NG lancée par tmux
 // (vignette, watcher), avec le serveur tmux et la session visés.
 func selfCommand(args ...string) string {
-	exe, err := selfExe()
+	exe, err := SelfExe()
 	if err != nil {
 		exe = "claude-launcher-ng2"
 	}
-	c := "CL_HUB=" + shq(hubSession) + " CL_INNER_SOCKET=" + shq(innerSocket()) +
-		" " + shq(exe)
+	c := "CL_HUB=" + Shq(hubSession) + " CL_INNER_SOCKET=" + Shq(InnerSocket()) +
+		" " + Shq(exe)
 	for _, a := range args {
-		c += " " + shq(a)
+		c += " " + Shq(a)
 	}
 	return c
 }
@@ -58,12 +58,12 @@ func selfCommand(args ...string) string {
 // claudeBin : commande lancée dans chaque projet (CL_CLAUDE_BIN : remplaçant de test).
 func claudeBin() string {
 	if b := os.Getenv("CL_CLAUDE_BIN"); b != "" {
-		return shq(b)
+		return Shq(b)
 	}
 	return "claude"
 }
 
-func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+func Shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 func tmuxOut(args ...string) (string, error) {
 	b, err := dtmux(args...).Output()
@@ -74,13 +74,13 @@ func tmuxOut(args ...string) (string, error) {
 // Elles sont aussi dans settings.json (settingsenv.go), qui seul atteint les
 // teammates ; les secrets (token…) n'y sont donc tapés que si cette recopie a
 // échoué (inline) — sinon ils resteraient dans l'historique et le scrollback.
-func (c Config) exports(inline bool) string {
+func (c Config) Exports(inline bool) string {
 	var e strings.Builder
-	for _, v := range c.envVars() {
+	for _, v := range c.EnvVars() {
 		if secretEnv(v.K) && !inline {
 			continue
 		}
-		fmt.Fprintf(&e, "\nexport %s=%s", v.K, shq(v.V))
+		fmt.Fprintf(&e, "\nexport %s=%s", v.K, Shq(v.V))
 	}
 	return e.String()
 }
@@ -88,8 +88,8 @@ func (c Config) exports(inline bool) string {
 // syncLauncherEnv : recopie des variables du launcher dans settings.json ;
 // false si elle a échoué (les secrets sont alors tapés comme avant).
 func syncLauncherEnv(cfg Config) bool {
-	_ = syncBrowserHook(claudeDir()) // consigne navigateur à chaque session (#106)
-	return syncSettingsEnv(claudeDir(), cfg.envVars()) == nil
+	_ = SyncBrowserHook(ClaudeDir()) // consigne navigateur à chaque session (#106)
+	return SyncSettingsEnv(ClaudeDir(), cfg.EnvVars()) == nil
 }
 
 // launchProject : fenêtre, styles, couleur du pane, démarrage de claude (avec la
@@ -122,19 +122,19 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 		}
 		_ = dtmux("kill-window", "-t", w).Run()
 	}
-	be, err := launchBackend(n.Path)
+	be, err := LaunchBackend(n.Path)
 	if err != nil {
 		return err
 	}
 	synced := syncLauncherEnv(cfg)
-	if _, ok := engineOf(be); !ok {
+	if _, ok := EngineOf(be); !ok {
 		// sur l'hôte : jamais pendant qu'un autre launcher fait tourner ce projet
 		// dans un conteneur (deux claude dans le même dossier partagé)
-		if who := foreignOwner(n.Path); who != "" {
+		if who := ForeignOwner(n.Path); who != "" {
 			return fmt.Errorf("projet en cours dans un conteneur, piloté par %s — le fermer là-bas ou F2 pour le rejoindre sur ce backend", who)
 		}
 	}
-	_, inCtr := engineOf(be)
+	_, inCtr := EngineOf(be)
 	if !inCtr {
 		exportBrowserPathsHub() // config relue à chaque ouverture (#104)
 	}
@@ -163,16 +163,16 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 
 	_ = dtmux("set-window-option", "-t", target, "window-status-style", "fg=colour242,bg=colour236").Run()
 	_ = dtmux("set-window-option", "-t", target, "window-status-current-style", "bold,fg=colour255,bg=colour27").Run()
-	_ = dtmux("set-option", "-p", "-t", pane, "window-style", "bg=colour"+cfg.projectColor(n.Key)).Run()
+	_ = dtmux("set-option", "-p", "-t", pane, "window-style", "bg=colour"+cfg.ProjectColor(n.Key)).Run()
 
 	if inCtr {
 		_ = dtmux("set-window-option", "-t", target, "@cl_backend", be.Name).Run()
-		_ = dtmux("set-window-option", "-t", target, "@cl_ctr", ctrRef(be, n.Path)).Run()
+		_ = dtmux("set-window-option", "-t", target, "@cl_ctr", CtrRef(be, n.Path)).Run()
 		_ = dtmux("set-window-option", "-t", target, "@cl_nested", "1").Run()
 	}
 
-	initCache := initProjectPath()
-	tpl := readTemplate(n.Path, latest)
+	initCache := InitProjectPath()
+	tpl := ReadTemplate(n.Path, latest)
 
 	var initPre, initArg string
 	switch {
@@ -180,21 +180,21 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 		initArg = " /init-project" // projet tout juste créé : pas de question
 	case mode == launchNewRaw: // ni question ni /init-project
 	case tpl == TplOutdated:
-		q := "↑ template en retard : projet " + projectTemplateRef(n.Path) + " → disponible " + templateRef(readTrim(tplVersionPath()), latest) +
+		q := "↑ template en retard : projet " + ProjectTemplateRef(n.Path) + " → disponible " + TemplateRef(ReadTrim(TplVersionPath()), latest) +
 			" — lancer /init-project ? [o/N] "
-		initPre = `_ip_arg=''; read -rp ` + shq(q) + ` _r; [[ "$_r" == [oOyY]* ]] && _ip_arg='/init-project'; `
+		initPre = `_ip_arg=''; read -rp ` + Shq(q) + ` _r; [[ "$_r" == [oOyY]* ]] && _ip_arg='/init-project'; `
 		initArg = " $_ip_arg"
 	case tpl == TplMissing:
-		q := "🗑 fichiers template manquants (clone frais) : projet " + projectTemplateRef(n.Path) + ", disponible " + templateRef(readTrim(tplVersionPath()), latest) +
+		q := "🗑 fichiers template manquants (clone frais) : projet " + ProjectTemplateRef(n.Path) + ", disponible " + TemplateRef(ReadTrim(TplVersionPath()), latest) +
 			" — lancer /init-project pour restaurer ? [O/n] "
-		initPre = `_ip_arg='/init-project'; read -rp ` + shq(q) + ` _r; [[ "$_r" == [nN]* ]] && _ip_arg=''; `
+		initPre = `_ip_arg='/init-project'; read -rp ` + Shq(q) + ` _r; [[ "$_r" == [nN]* ]] && _ip_arg=''; `
 		initArg = " $_ip_arg"
 	}
 
 	// init-project.md est déposé dans le projet, sauf pour un projet brut tout juste créé
 	copyInit := fmt.Sprintf("mkdir -p .claude/commands\n_ip=.claude/commands/init-project.md\n"+
 		"[[ -s %s ]] && cp %s \"$_ip\" || echo '⚠  init-project.md non disponible — relancer le launcher connecté'\n",
-		shq(initCache), shq(initCache))
+		Shq(initCache), Shq(initCache))
 	if mode == launchNewRaw {
 		copyInit = ""
 	}
@@ -203,16 +203,16 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 	// Reprise de la dernière conversation (resume.go) : si elle est choisie, ni
 	// question ni /init-project, qui viendraient perturber la conversation reprise.
 	if mode == launchNormal {
-		if pre, r, ok := cfg.resumeShell(n.Path); ok {
-			resume := claudeBin() + " " + cfg.ClaudeOptions + " --resume " + shq(r.ID)
-			if p := resumePrompt(r); p != "" {
-				resume += " " + shq(p)
+		if pre, r, ok := cfg.ResumeShell(n.Path); ok {
+			resume := claudeBin() + " " + cfg.ClaudeOptions + " --resume " + Shq(r.ID)
+			if p := ResumePrompt(r); p != "" {
+				resume += " " + Shq(p)
 			}
 			start = pre + "if [[ -n $_rs ]]; then " + resume + "; else " + start + "; fi"
 		}
 	}
 	// sortie propre : marqueur posé seulement si claude rend la main au shell
-	start += "; " + cleanExitShell(n.Path)
+	start += "; " + CleanExitShell(n.Path)
 	// projet non géré : /end-session minimal, pour pouvoir le clore comme les autres
 	if mode == launchNewRaw || mode == launchNormal && tpl == TplNone {
 		ensureEndSession(n.Path)
@@ -234,13 +234,13 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 			// (resté parent de l'attache) arrête le conteneur
 			ctrStart += " && tmux kill-session"
 		}
-		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", shq(n.Path), cfg.exports(!synced), ctrStart)
+		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", Shq(n.Path), cfg.Exports(!synced), ctrStart)
 		if err := os.WriteFile(startFile, []byte(script), 0o600); err != nil {
 			return err
 		}
 		return dtmux("select-window", "-t", target).Run()
 	}
-	keys := fmt.Sprintf("cd %s%s\n%s%s", shq(n.Path), cfg.exports(!synced), copyInit, start)
+	keys := fmt.Sprintf("cd %s%s\n%s%s", Shq(n.Path), cfg.Exports(!synced), copyInit, start)
 	if err := dtmux("send-keys", "-t", target, keys, "Enter").Run(); err != nil {
 		return fmt.Errorf("send-keys : %w", err)
 	}

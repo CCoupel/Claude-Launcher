@@ -29,14 +29,14 @@ type (
 	paneData struct {
 		path  string
 		open  bool
-		panes []paneInfo
-		team  []teammate
+		panes []PaneInfo
+		team  []Teammate
 		sess  Resumable // session en suspens (badge ↺)
 		hasS  bool
 	}
 )
 
-type paneInfo struct{ ID, PID, Cmd string }
+type PaneInfo struct{ ID, PID, Cmd string }
 
 type stateModel struct {
 	cfg      Config
@@ -73,7 +73,7 @@ func forwardToNav(key string) tea.Cmd {
 	return func() tea.Msg {
 		nav := outerPane(roleNav)
 		if nav == "" {
-			if exe, err := selfExe(); err == nil && ensureLayout(exe) == nil {
+			if exe, err := SelfExe(); err == nil && EnsureLayout(exe) == nil {
 				nav = outerPane(roleNav)
 				time.Sleep(500 * time.Millisecond) // le temps que le navigateur démarre
 			}
@@ -90,8 +90,8 @@ func forwardToNav(key string) tea.Cmd {
 func healNavCmd() tea.Cmd {
 	return func() tea.Msg {
 		if roles, _ := outerPanes(); len(roles) > 0 && roles[roleNav] == "" {
-			if exe, err := selfExe(); err == nil {
-				_ = ensureLayout(exe)
+			if exe, err := SelfExe(); err == nil {
+				_ = EnsureLayout(exe)
 			}
 		}
 		return nil
@@ -109,11 +109,11 @@ func loadStateCmd(s Selection) tea.Cmd {
 		latest := readLatestTemplate()
 		return stateData{
 			path:    s.Path,
-			git:     readGit(s.Path),
-			detail:  readDetail(s.Path),
-			tpl:     readTemplate(s.Path, latest),
-			files:   readFiles(s.Path),
-			tag:     templateTag(s.Path),
+			git:     ReadGit(s.Path),
+			detail:  ReadDetail(s.Path),
+			tpl:     ReadTemplate(s.Path, latest),
+			files:   ReadFiles(s.Path),
+			tag:     TemplateTag(s.Path),
 			updated: time.Now(),
 		}
 	}
@@ -122,7 +122,7 @@ func loadStateCmd(s Selection) tea.Cmd {
 func loadPanesCmd(s Selection, cfg Config) tea.Cmd {
 	return func() tea.Msg {
 		pd := paneData{path: s.Path}
-		pd.sess, pd.hasS = cfg.pendingSession(s.Path)
+		pd.sess, pd.hasS = cfg.PendingSession(s.Path)
 		pd.open = tmuxWindows(hubSession)[s.Key]
 		if pd.open {
 			pw := projectOf(exactW(hubSession, s.Key))
@@ -132,7 +132,7 @@ func loadPanesCmd(s Selection, cfg Config) tea.Cmd {
 				for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 					f := strings.Split(l, "\t")
 					if len(f) == 3 {
-						pd.panes = append(pd.panes, paneInfo{f[0], f[1], f[2]})
+						pd.panes = append(pd.panes, PaneInfo{f[0], f[1], f[2]})
 					}
 				}
 			}
@@ -140,7 +140,7 @@ func loadPanesCmd(s Selection, cfg Config) tea.Cmd {
 				ctrPaneVersions(pw, pd.panes)
 			}
 		}
-		pd.team = liveTeam(readTeammates(s.Path), s.Path, pd.panes)
+		pd.team = LiveTeam(ReadTeammates(s.Path), s.Path, pd.panes)
 		return pd
 	}
 }
@@ -222,14 +222,14 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // reloadCache relit le fichier de cache du projet sélectionné s'il a changé.
 func (m *stateModel) reloadCache() {
-	if st, err := os.Stat(msCachePath()); err == nil && !st.ModTime().Equal(m.msMtime) {
-		m.ms, m.msMtime = readMsCache()[m.sel.Path], st.ModTime()
+	if st, err := os.Stat(MsCachePath()); err == nil && !st.ModTime().Equal(m.msMtime) {
+		m.ms, m.msMtime = ReadMsCache()[m.sel.Path], st.ModTime()
 	}
-	st, err := os.Stat(statePath(m.sel.Path))
+	st, err := os.Stat(StatePath(m.sel.Path))
 	if err != nil || (m.loaded && st.ModTime().Equal(m.cacheMtime)) {
 		return
 	}
-	ps, mt, ok := readState(m.sel.Path)
+	ps, mt, ok := ReadState(m.sel.Path)
 	if !ok {
 		return
 	}
@@ -264,14 +264,14 @@ func (m stateModel) topCards() string {
 	sb.WriteString(" " + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14")).Render("◈ "+m.sel.Name) + "\n")
 	age := ""
 	if m.loaded && !m.data.updated.IsZero() {
-		age = "  " + dim.Render("· mis à jour "+ageText(m.data.updated))
+		age = "  " + Dim.Render("· mis à jour "+ageText(m.data.updated))
 		if time.Since(m.data.updated) > 2*time.Minute {
-			age = "  " + yellow.Render("· mis à jour "+ageText(m.data.updated))
+			age = "  " + Yellow.Render("· mis à jour "+ageText(m.data.updated))
 		}
 	}
-	sb.WriteString(" " + dim.Render(shorten(m.sel.Path, m.w-2-lipgloss.Width(age))) + age + "\n")
+	sb.WriteString(" " + Dim.Render(shorten(m.sel.Path, m.w-2-lipgloss.Width(age))) + age + "\n")
 	if !m.loaded {
-		return sb.String() + "\n " + dim.Render("préparation en cours…")
+		return sb.String() + "\n " + Dim.Render("préparation en cours…")
 	}
 
 	// légende : les icônes de la ligne du navigateur, dans le même ordre
@@ -281,19 +281,19 @@ func (m stateModel) topCards() string {
 		inner = w - 1
 	}
 	pl := legendLines(projInfo{open: m.panes.open, git: g, gitOK: true, tpl: m.data.tpl,
-		tplTag: m.data.tag, tplLatest: readTrim(tplVersionPath()), ms: m.ms, sess: m.panes.sess, hasSess: m.panes.hasS,
+		tplTag: m.data.tag, tplLatest: ReadTrim(TplVersionPath()), ms: m.ms, sess: m.panes.sess, hasSess: m.panes.hasS,
 		dot: sessState(m.sel.Dot), dotWhy: m.sel.DotWhy}, inner)
 	if !g.IsRepo {
-		pl = append(pl, dim.Render("pas un dépôt git"))
+		pl = append(pl, Dim.Render("pas un dépôt git"))
 	} else {
 		d := m.data.detail
 		pl = append(pl, "", kv("branche", g.Branch))
-		pl = append(pl, kv("version", "locale  "+orNone(d.VerLocal)))
-		pl = append(pl, kv("", "release "+releaseText(m.ms, d.VerRelease)))
+		pl = append(pl, kv("version", "locale  "+OrNone(d.VerLocal)))
+		pl = append(pl, kv("", "release "+ReleaseText(m.ms, d.VerRelease)))
 		pl = append(pl, kv("dernier", shorten(d.LastMsg, w-16)))
 	}
 	sb.WriteString(m.card("Projet", strings.Join(pl, "\n"), w) + "\n")
-	if l := msLines(m.ms, inner); l != nil {
+	if l := MsLines(m.ms, inner); l != nil {
 		title := "Milestone"
 		if !m.ms.At.IsZero() {
 			title += " · lu " + ageText(m.ms.At)
@@ -350,9 +350,9 @@ func (m stateModel) teamBody(w int) string {
 	tm := m.panes.team
 	if len(tm) == 0 {
 		if !m.panes.open {
-			return dim.Render("Pas de team template (Entrée pour lancer).")
+			return Dim.Render("Pas de team template (Entrée pour lancer).")
 		}
-		return dim.Render("Pas de team template.")
+		return Dim.Render("Pas de team template.")
 	}
 	narrow, common := m.narrow(), m.teamClaude()
 	effW := 6
@@ -370,9 +370,9 @@ func (m stateModel) teamBody(w int) string {
 	nameW = min(nameW, max(8, w-1-2-1-9-7-effW-multi))
 	var lines []string
 	for _, t := range tm {
-		mark, name := dim.Render("○"), dim.Render(padRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
+		mark, name := Dim.Render("○"), Dim.Render(PadRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
 		if t.Claude != "" {
-			mark, name = green.Render("●"), padRight(ansi.Truncate(t.Name, nameW, "…"), nameW)
+			mark, name = Green.Render("●"), PadRight(ansi.Truncate(t.Name, nameW, "…"), nameW)
 		}
 		tag := t.Tag
 		if tag == "" {
@@ -385,15 +385,15 @@ func (m stateModel) teamBody(w int) string {
 		if narrow {
 			effort = shortEffort(effort)
 		}
-		l := mark + " " + name + " " + padRight(tag, 9) + padRight(orDash(model), 7) + dim.Render(padRight(orDash(effort), effW))
+		l := mark + " " + name + " " + PadRight(tag, 9) + PadRight(orDash(model), 7) + Dim.Render(PadRight(orDash(effort), effW))
 		if t.Claude != "" && !(narrow && common != "") {
 			c := t.Claude
 			if t.Count > 1 {
 				c += fmt.Sprintf(" ×%d", t.Count)
 			}
-			l += " " + cyan.Render(c)
+			l += " " + Cyan.Render(c)
 		} else if t.Count > 1 {
-			l += " " + cyan.Render(fmt.Sprintf("×%d", t.Count))
+			l += " " + Cyan.Render(fmt.Sprintf("×%d", t.Count))
 		}
 		lines = append(lines, strings.TrimRight(l, " "))
 	}
@@ -434,11 +434,11 @@ func changeMark(c string) string {
 	case "":
 		return " "
 	case "D":
-		return red.Render(c)
+		return Red.Render(c)
 	case "?", "A":
-		return green.Render(c)
+		return Green.Render(c)
 	}
-	return yellow.Render(c)
+	return Yellow.Render(c)
 }
 
 func (m stateModel) filesCard(w int) string {
@@ -458,10 +458,10 @@ func (m stateModel) filesCard(w int) string {
 			meta = fmt.Sprintf("%d élém.", f.Count)
 		}
 		name = ansi.Truncate(name, nameW, "…")
-		lines = append(lines, changeMark(m.data.detail.Changes[f.Name])+" "+padRight(name, nameW)+" "+dim.Render(padRight(meta, 10)))
+		lines = append(lines, changeMark(m.data.detail.Changes[f.Name])+" "+PadRight(name, nameW)+" "+Dim.Render(PadRight(meta, 10)))
 	}
 	if len(files) == 0 {
-		lines = append(lines, dim.Render("(vide)"))
+		lines = append(lines, Dim.Render("(vide)"))
 	}
 	return m.card(title, strings.Join(lines, "\n"), w)
 }
@@ -500,21 +500,21 @@ func (m stateModel) card(title, body string, w int) string {
 	return box.Render(cardBar(title, w-2) + "\n" + lipgloss.NewStyle().Padding(0, 1).Width(w-2).Render(body))
 }
 
-func orNone(s string) string {
+func OrNone(s string) string {
 	if s == "" {
-		return dim.Render("aucune")
+		return Dim.Render("aucune")
 	}
 	return s
 }
 
-func kv(k, v string) string { return dim.Render(padRight(k, 9)) + v }
+func kv(k, v string) string { return Dim.Render(PadRight(k, 9)) + v }
 
 func (m stateModel) View() string {
 	if m.w == 0 {
 		return ""
 	}
 	if !m.hasSel {
-		return "\n  " + dim.Render("Sélectionnez un projet dans le navigateur (ci-dessus).")
+		return "\n  " + Dim.Render("Sélectionnez un projet dans le navigateur (ci-dessus).")
 	}
 	out := m.topCards()
 	if !m.loaded {
@@ -527,8 +527,8 @@ func (m stateModel) View() string {
 	return out
 }
 
-func runState() error {
-	go runBrowserServer() // fichiers pour le navigateur (#106), avec ce pane supervisé
-	_, err := tea.NewProgram(stateModel{cfg: loadConfig()}, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
+func RunState() error {
+	go RunBrowserServer() // fichiers pour le navigateur (#106), avec ce pane supervisé
+	_, err := tea.NewProgram(stateModel{cfg: LoadConfig()}, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }

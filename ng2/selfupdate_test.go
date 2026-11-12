@@ -54,7 +54,7 @@ func TestApplyUpdate(t *testing.T) {
 	bin, script := filepath.Join(dir, "claude-launcher-ng2"), filepath.Join(dir, "claude-launcher.sh")
 	writeFile(t, bin, "ancien binaire", 0o755)
 	writeFile(t, script, "ancien script", 0o700)
-	srv := fakeRelease(t, map[string]string{ngAsset(): "nouveau binaire", "claude-launcher.sh": "nouveau script"}, "")
+	srv := fakeRelease(t, map[string]string{NgAsset(): "nouveau binaire", "claude-launcher.sh": "nouveau script"}, "")
 
 	binDone, scriptDone, err := applyUpdate(srv.URL+"/v9.9.9", bin, script)
 	if err != nil || !binDone || !scriptDone {
@@ -80,8 +80,8 @@ func TestApplyUpdateRefusesBadSum(t *testing.T) {
 	writeFile(t, bin, "ancien binaire", 0o755)
 	writeFile(t, script, "ancien script", 0o755)
 	// somme fausse pour le binaire, script absent de SHA256SUMS
-	sums := fmt.Sprintf("%064d  %s\n", 0, ngAsset())
-	srv := fakeRelease(t, map[string]string{ngAsset(): "binaire altéré", "claude-launcher.sh": "nouveau script"}, sums)
+	sums := fmt.Sprintf("%064d  %s\n", 0, NgAsset())
+	srv := fakeRelease(t, map[string]string{NgAsset(): "binaire altéré", "claude-launcher.sh": "nouveau script"}, sums)
 
 	binDone, scriptDone, err := applyUpdate(srv.URL+"/v9.9.9", bin, script)
 	if err == nil || binDone || scriptDone {
@@ -109,7 +109,7 @@ func TestApplyUpdateOffline(t *testing.T) {
 
 func TestReleaseVersionOnly(t *testing.T) {
 	for v, want := range map[string]bool{"v3.0.2": true, "dev": false, "v3.0.1+quit": false, "": false, "v3.0": false} {
-		if got := releaseVerRe.MatchString(v); got != want {
+		if got := ReleaseVerRe.MatchString(v); got != want {
 			t.Errorf("%q : %v, attendu %v", v, got, want)
 		}
 	}

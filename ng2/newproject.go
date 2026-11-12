@@ -64,12 +64,12 @@ func (m model) execStep() (model, bool) {
 // execForm : étape « Exécution » présélectionnée sur defaults: de backends.yaml
 // (mode host → « hôte » ; backend conteneur → son socle defaults.image).
 func execForm(f newForm) (newForm, bool) {
-	b, ok := defaultCtrBackend()
+	b, ok := DefaultCtrBackend()
 	if !ok {
 		return f, false
 	}
-	defBe, defImg := execDefaults()
-	images := baseImages()
+	defBe, defImg := ExecDefaults()
+	images := BaseImages()
 	idx := 0
 	if defImg != "" {
 		idx = -1
@@ -92,7 +92,7 @@ func execForm(f newForm) (newForm, bool) {
 
 // cycleCtrBe (←→) : backend conteneur suivant / précédent.
 func (f *newForm) cycleCtrBe(d int) {
-	cs := ctrBackends()
+	cs := CtrBackends()
 	for i, b := range cs {
 		if b.Name == f.ctrBe {
 			f.ctrBe = cs[(i+d+len(cs))%len(cs)].Name
@@ -110,18 +110,18 @@ func (m model) startExecChoice(n Node, openNext bool) model {
 		m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
 		return m
 	}
-	if assigned(n.Path) || hasEnv(n.Path) {
-		b := projectBackend(n.Path)
+	if Assigned(n.Path) || HasEnv(n.Path) {
+		b := ProjectBackend(n.Path)
 		f.exec = 0
-		if _, ok := engineOf(b); ok {
+		if _, ok := EngineOf(b); ok {
 			f.ctrBe = b.Name
 		}
-		if e, err := loadEnv(n.Path); err == nil {
+		if e, err := LoadEnv(n.Path); err == nil {
 			i := indexOf(f.images, e.Image)
 			if i < 0 {
 				f.images, i = append([]string{e.Image}, f.images...), 0
 			}
-			if _, ok := engineOf(b); ok {
+			if _, ok := EngineOf(b); ok {
 				f.exec = i + 1
 			}
 		}
@@ -144,18 +144,18 @@ func indexOf(list []string, s string) int {
 // Le socle d'env-template.yaml choisi tel quel : env.yaml ni créé ni modifié.
 func applyExec(dir string, f newForm) error {
 	if f.exec <= 0 || f.exec > len(f.images) {
-		return writeAssignment(dir, "host")
+		return WriteAssignment(dir, "host")
 	}
-	if err := applyImage(dir, f.images[f.exec-1]); err != nil {
+	if err := ApplyImage(dir, f.images[f.exec-1]); err != nil {
 		return err
 	}
-	return writeAssignment(dir, f.ctrBe)
+	return WriteAssignment(dir, f.ctrBe)
 }
 
 // applyImage : socle img pour le projet — env.yaml modifié (ou créé) seulement
 // si l'environnement fusionné n'a pas déjà ce socle.
-func applyImage(dir, img string) error {
-	if e, err := loadEnv(dir); err == nil && e.Image == img {
+func ApplyImage(dir, img string) error {
+	if e, err := LoadEnv(dir); err == nil && e.Image == img {
 		return nil
 	}
 	return setEnvImage(dir, img) // absent, sans image valable, ou autre socle
@@ -355,7 +355,7 @@ func (m model) createProject() model {
 	}
 	m.form = newForm{}
 	m.filter = ""
-	m.nodes = withSpecial(scanTree(m.cfg.Roots))
+	m.nodes = withSpecial(ScanTree(m.cfg.Roots))
 	if m.mgr != nil {
 		m.mgr.SetProjects(m.projectPaths())
 	}
@@ -383,7 +383,7 @@ func (m model) applyExecExisting() model {
 	if f.exec == 0 {
 		m.msg = f.name + " : exécution sur l'hôte"
 	} else {
-		m.msg = "⬡ " + f.name + " : " + imageLabel(f.images[f.exec-1]) + " sur " + f.ctrBe + " (F2 pour reconfigurer)"
+		m.msg = "⬡ " + f.name + " : " + ImageLabel(f.images[f.exec-1]) + " sur " + f.ctrBe + " (F2 pour reconfigurer)"
 	}
 	if f.openNext {
 		for i, idx := range m.visible {
@@ -402,7 +402,7 @@ func (m model) applyExecExisting() model {
 // minimalClaudeMD : contenu du CLAUDE.md d'un projet brut.
 func minimalClaudeMD(name string) string {
 	return "# " + name + "\n\n" +
-		"Projet créé le " + time.Now().Format("2006-01-02") + " par " + ngName + ".\n\n" +
+		"Projet créé le " + time.Now().Format("2006-01-02") + " par " + NgName + ".\n\n" +
 		"## Objectif\n\n_À compléter._\n"
 }
 
@@ -410,21 +410,21 @@ func minimalClaudeMD(name string) string {
 func (m model) renderExec(w int) string {
 	f := m.form
 	var sb strings.Builder
-	sb.WriteString(" " + dim.Render("Exécution :") + "\n")
+	sb.WriteString(" " + Dim.Render("Exécution :") + "\n")
 	opts := append([]string{"hôte (cette machine)"}, f.images...)
 	for i, o := range opts {
-		mark, style := "  ", dim
+		mark, style := "  ", Dim
 		if i == f.exec {
-			mark, style = green.Render("▶ "), bold
+			mark, style = Green.Render("▶ "), Bold
 		}
 		label := o
 		if i > 0 {
-			label = imageLabel(o)
+			label = ImageLabel(o)
 		}
 		sb.WriteString("  " + mark + style.Render(fmt.Sprintf("%d %s", i, shorten(label, w-9))) + "\n")
 	}
 	if f.exec > 0 {
-		sb.WriteString(" " + dim.Render("conteneur sur ") + cyan.Render(f.ctrBe) + dim.Render(shorten("  ←→ autre backend", w-16-len(f.ctrBe))) + "\n")
+		sb.WriteString(" " + Dim.Render("conteneur sur ") + Cyan.Render(f.ctrBe) + Dim.Render(shorten("  ←→ autre backend", w-16-len(f.ctrBe))) + "\n")
 	}
 	return sb.String()
 }
@@ -433,41 +433,41 @@ func (m model) renderForm(w int) string {
 	f := m.form
 	var sb strings.Builder
 	if f.existing != "" {
-		sb.WriteString(" " + cyan.Render("⬢ Exécution de "+f.name) + "\n")
+		sb.WriteString(" " + Cyan.Render("⬢ Exécution de "+f.name) + "\n")
 		if f.openNext {
-			sb.WriteString(" " + dim.Render("projet pas encore configuré : choisir où il tourne,") + "\n " + dim.Render("puis ↵ l'ouvre") + "\n")
+			sb.WriteString(" " + Dim.Render("projet pas encore configuré : choisir où il tourne,") + "\n " + Dim.Render("puis ↵ l'ouvre") + "\n")
 		}
 		sb.WriteString("\n")
 		sb.WriteString(m.renderExec(w))
 		if f.err != "" {
-			sb.WriteString("\n " + red.Render("✗ "+f.err) + "\n")
+			sb.WriteString("\n " + Red.Render("✗ "+f.err) + "\n")
 		}
-		sb.WriteString("\n " + dim.Render("↑↓ 0-9 socle · ←→ backend · ↵ · esc"))
+		sb.WriteString("\n " + Dim.Render("↑↓ 0-9 socle · ←→ backend · ↵ · esc"))
 		return truncLines(sb.String(), w)
 	}
-	sb.WriteString(" " + cyan.Render("✦ Nouveau projet") + "\n\n")
+	sb.WriteString(" " + Cyan.Render("✦ Nouveau projet") + "\n\n")
 	if f.mode == formRoot {
-		sb.WriteString(" " + dim.Render("Dossier racine :") + "\n")
+		sb.WriteString(" " + Dim.Render("Dossier racine :") + "\n")
 		for i, r := range m.cfg.Roots {
-			mark, style := "  ", dim
+			mark, style := "  ", Dim
 			if i == f.root {
-				mark, style = green.Render("▶ "), bold
+				mark, style = Green.Render("▶ "), Bold
 			}
 			sb.WriteString("  " + mark + style.Render(fmt.Sprintf("%d %s", i+1, shorten(r, w-9))) + "\n")
 		}
 	} else {
-		sb.WriteString(" " + dim.Render("dans ") + cyan.Render(shorten(m.where(), w-8)) + "\n\n")
+		sb.WriteString(" " + Dim.Render("dans ") + Cyan.Render(shorten(m.where(), w-8)) + "\n\n")
 	}
-	cur := dim.Render("▏")
+	cur := Dim.Render("▏")
 	if f.mode >= formName {
 		c := ""
 		if f.mode == formName {
 			c = cur
 		}
-		sb.WriteString(" " + dim.Render("Nom :") + " " + f.name + c + "\n")
+		sb.WriteString(" " + Dim.Render("Nom :") + " " + f.name + c + "\n")
 	}
 	if f.mode >= formKind {
-		sb.WriteString("\n " + dim.Render("Type de projet :") + "\n")
+		sb.WriteString("\n " + Dim.Render("Type de projet :") + "\n")
 		for _, k := range []struct {
 			raw        bool
 			key, label string
@@ -476,17 +476,17 @@ func (m model) renderForm(w int) string {
 			{false, "g", "géré", "git + /init-project"},
 			{true, "b", "brut", "dossier + CLAUDE.md"},
 		} {
-			mark, style := "  ", dim
+			mark, style := "  ", Dim
 			if k.raw == f.raw {
-				mark, style = green.Render("▶ "), bold
+				mark, style = Green.Render("▶ "), Bold
 			}
 			if f.mode == formKind || k.raw == f.raw {
-				sb.WriteString("  " + mark + style.Render(k.key+" "+k.label) + dim.Render("  "+k.desc) + "\n")
+				sb.WriteString("  " + mark + style.Render(k.key+" "+k.label) + Dim.Render("  "+k.desc) + "\n")
 			}
 		}
 	}
 	if f.mode >= formRemote && !f.raw {
-		sb.WriteString(" " + dim.Render("Remote git (facultatif) :") + "\n")
+		sb.WriteString(" " + Dim.Render("Remote git (facultatif) :") + "\n")
 		c := ""
 		if f.mode == formRemote {
 			c = cur
@@ -497,7 +497,7 @@ func (m model) renderForm(w int) string {
 		sb.WriteString("\n" + m.renderExec(w))
 	}
 	if f.err != "" {
-		sb.WriteString("\n " + red.Render("✗ "+f.err) + "\n")
+		sb.WriteString("\n " + Red.Render("✗ "+f.err) + "\n")
 	}
 	hint := "↵ valider · esc annuler"
 	switch f.mode {
@@ -508,6 +508,6 @@ func (m model) renderForm(w int) string {
 	case formExec:
 		hint = "↑↓ 0-9 socle · ←→ backend · ↵ · esc"
 	}
-	sb.WriteString("\n " + dim.Render(hint))
+	sb.WriteString("\n " + Dim.Render(hint))
 	return truncLines(sb.String(), w)
 }

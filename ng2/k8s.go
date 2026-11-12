@@ -24,14 +24,14 @@ import (
 // machine du launcher. Labels cl.launcher / cl.backend / cl.ctr (listing),
 // annotations cl.project / cl.image (le chemin n'est pas une valeur de label).
 
-func (b BackendConf) k8s() bool { return b.Type == "k8s" }
+func (b BackendConf) K8s() bool { return b.Type == "k8s" }
 
 func (e Engine) kubectl(args ...string) []string {
 	out := []string{"kubectl"}
-	if e.b.Context != "" {
-		out = append(out, "--context", e.b.Context)
+	if e.B.Context != "" {
+		out = append(out, "--context", e.B.Context)
 	}
-	ns := e.b.Namespace
+	ns := e.B.Namespace
 	if ns == "" {
 		ns = "default"
 	}
@@ -45,7 +45,7 @@ func (e Engine) kcmd(args ...string) *exec.Cmd {
 
 // k8sName : nom du StatefulSet d'un projet, « <catégorie>-<projet> » ; son pod
 // (et hostname, imposé par le StatefulSet) : « <catégorie>-<projet>-0 ».
-func k8sName(proj string) string { return ctrName(proj) }
+func k8sName(proj string) string { return CtrName(proj) }
 
 func k8sPod(proj string) string { return k8sName(proj) + "-0" }
 
@@ -61,14 +61,14 @@ func (e Engine) k8sHas(name string) bool {
 
 // ctrRef : ce que vise « exec » pour un projet : son pod (k8s) ou son conteneur.
 // k8s : un StatefulSet d'avant v5.6 encore là garde son nom jusqu'à sa migration.
-func ctrRef(b BackendConf, proj string) string {
-	if b.k8s() {
+func CtrRef(b BackendConf, proj string) string {
+	if b.K8s() {
 		if e := (Engine{b}); !e.k8sHas(k8sName(proj)) && e.k8sHas(legacyK8sName(proj)) {
 			return legacyK8sName(proj) + "-0"
 		}
 		return k8sPod(proj)
 	}
-	return ctrName(proj)
+	return CtrName(proj)
 }
 
 // k8sExecArgv : kubectl exec ; en utilisateur, via su (résolu par son uid).
@@ -83,7 +83,7 @@ func (e Engine) k8sExecArgv(pod string, root, tty bool, argv ...string) []string
 	}
 	q := make([]string, len(argv))
 	for i, s := range argv {
-		q[i] = shq(s)
+		q[i] = Shq(s)
 	}
 	cmd := "exec env LANG=C.UTF-8"
 	if tty {
@@ -144,7 +144,7 @@ func (e Engine) k8sPodCurrent(pod string, env EnvSpec) bool {
 		return false
 	}
 	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 4)
-	return len(f) == 4 && f[0] == env.Image && f[1] == env.localKey() && f[2] == e.b.schedKey() && f[3] == ""
+	return len(f) == 4 && f[0] == env.Image && f[1] == env.localKey() && f[2] == e.B.schedKey() && f[3] == ""
 }
 
 func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, error) {
@@ -174,7 +174,7 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 	if phase == "Running" && image == env.Image && local == env.localKey() {
 		// placement changé (#60) : jamais appliqué à un pod en marche (le recréer
 		// couperait sa session) ; il le sera au prochain démarrage du pod
-		if sched != e.b.schedKey() {
+		if sched != e.B.schedKey() {
 			fmt.Fprintf(log, "  placement modifié dans backends.yaml : appliqué au prochain démarrage du pod\n")
 		}
 		return pod, nil
@@ -222,8 +222,8 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 	home, _ := os.UserHomeDir()
 	name := k8sName(proj)
-	roots := make([]string, 0, len(e.b.Volumes))
-	for r := range e.b.Volumes {
+	roots := make([]string, 0, len(e.B.Volumes))
+	for r := range e.B.Volumes {
 		roots = append(roots, r)
 	}
 	sort.Strings(roots)
@@ -231,7 +231,7 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 	for i, r := range roots {
 		v := fmt.Sprintf("shared%d", i)
 		mounts = append(mounts, map[string]any{"name": v, "mountPath": r})
-		vols = append(vols, map[string]any{"name": v, "persistentVolumeClaim": map[string]any{"claimName": e.b.Volumes[r]}})
+		vols = append(vols, map[string]any{"name": v, "persistentVolumeClaim": map[string]any{"claimName": e.B.Volumes[r]}})
 	}
 	// dossiers « local » : emptyDir du pod, monté par-dessus le dossier du projet
 	for i, p := range env.localPaths(proj) {
@@ -239,9 +239,9 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 		mounts = append(mounts, map[string]any{"name": v, "mountPath": p})
 		vols = append(vols, map[string]any{"name": v, "emptyDir": map[string]any{}})
 	}
-	labels := map[string]string{"cl.launcher": "ng2", "cl.backend": e.b.Name, "cl.ctr": name}
-	ann := map[string]string{"cl.project": proj, "cl.image": env.Image, "cl.local": env.localKey(), "cl.sched": e.b.schedKey()}
-	envs := []map[string]string{{"name": "HOME", "value": home}, {"name": "CLAUDE_CONFIG_DIR", "value": claudeDir()},
+	labels := map[string]string{"cl.launcher": "ng2", "cl.backend": e.B.Name, "cl.ctr": name}
+	ann := map[string]string{"cl.project": proj, "cl.image": env.Image, "cl.local": env.localKey(), "cl.sched": e.B.schedKey()}
+	envs := []map[string]string{{"name": "HOME", "value": home}, {"name": "CLAUDE_CONFIG_DIR", "value": ClaudeDir()},
 		{"name": "LANG", "value": "C.UTF-8"}, {"name": "DISABLE_AUTOUPDATER", "value": "1"}}
 	m := map[string]any{
 		"apiVersion": "apps/v1", "kind": "StatefulSet",
@@ -253,7 +253,7 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 				"metadata": map[string]any{"labels": labels, "annotations": ann},
 				"spec": map[string]any{
 					"terminationGracePeriodSeconds": 10,
-					"containers": []map[string]any{e.b.withResources(map[string]any{
+					"containers": []map[string]any{e.B.withResources(map[string]any{
 						"name": "main", "image": env.Image, "command": []string{"sh", "-c", pid1},
 						"workingDir": proj, "env": envs, "volumeMounts": mounts,
 						"securityContext": map[string]any{"runAsUser": 0},
@@ -263,7 +263,7 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 			},
 		},
 	}
-	e.b.placePod(m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any))
+	e.B.placePod(m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any))
 	return json.Marshal(m)
 }
 
@@ -356,7 +356,7 @@ func (b BackendConf) schedKey() string {
 }
 
 // placementText : placement en clair (claude-launcher-ng2 backends).
-func (b BackendConf) placementText() string {
+func (b BackendConf) PlacementText() string {
 	t := "répartition par node : non"
 	if b.spread() {
 		t = "répartition par node : oui"
@@ -372,8 +372,8 @@ func (b BackendConf) placementText() string {
 	return t
 }
 
-func (e Engine) k8sList() ([]Found, error) {
-	b, err := e.kcmd("get", "statefulsets", "-l", "cl.launcher=ng2,cl.backend="+e.b.Name, "-o",
+func (e Engine) K8sList() ([]Found, error) {
+	b, err := e.kcmd("get", "statefulsets", "-l", "cl.launcher=ng2,cl.backend="+e.B.Name, "-o",
 		`jsonpath={range .items[*]}{.metadata.name}|{.spec.replicas}|{.status.readyReplicas}|{.metadata.annotations.cl\.project}{"\n"}{end}`).Output()
 	if err != nil {
 		return nil, err
@@ -385,16 +385,16 @@ func (e Engine) k8sList() ([]Found, error) {
 		if len(f) != 4 || f[3] == "" {
 			continue
 		}
-		out = append(out, Found{Backend: e.b.Name, Name: f[0] + "-0", Project: f[3], Running: f[2] == "1",
+		out = append(out, Found{Backend: e.B.Name, Name: f[0] + "-0", Project: f[3], Running: f[2] == "1",
 			Failed: f[1] == "1" && f[2] != "1"})
 	}
 	return out, nil
 }
 
 // k8sNodes : node de chaque pod NG2 du backend (pour « backends »).
-func (e Engine) k8sNodes() map[string]string {
+func (e Engine) K8sNodes() map[string]string {
 	out := map[string]string{}
-	b, err := e.kcmd("get", "pods", "-l", "cl.launcher=ng2,cl.backend="+e.b.Name, "-o",
+	b, err := e.kcmd("get", "pods", "-l", "cl.launcher=ng2,cl.backend="+e.B.Name, "-o",
 		`jsonpath={range .items[*]}{.metadata.name}|{.spec.nodeName}{"\n"}{end}`).Output()
 	if err != nil {
 		return out
@@ -408,9 +408,9 @@ func (e Engine) k8sNodes() map[string]string {
 }
 
 // k8sProblems : kubectl, contexte, namespace, droits, PVC (liés, ReadWriteMany).
-func k8sProblems(b BackendConf) []problem {
+func k8sProblems(b BackendConf) []Problem {
 	if _, err := exec.LookPath("kubectl"); err != nil {
-		return []problem{{"kubectl absent de cette machine", "l'installer (https://kubernetes.io/docs/tasks/tools/) et configurer ~/.kube/config"}}
+		return []Problem{{"kubectl absent de cette machine", "l'installer (https://kubernetes.io/docs/tasks/tools/) et configurer ~/.kube/config"}}
 	}
 	e := Engine{b}
 	ns := b.Namespace
@@ -419,27 +419,27 @@ func k8sProblems(b BackendConf) []problem {
 	}
 	if out, err := runQuiet(15*time.Second, e.kubectl("get", "namespace", ns, "-o", "name")...); err != nil {
 		if strings.Contains(out, "NotFound") || strings.Contains(out, "not found") {
-			return []problem{{"namespace " + ns + " absent", "le créer : kubectl" + ctxArg(b) + " create namespace " + ns}}
+			return []Problem{{"namespace " + ns + " absent", "le créer : kubectl" + ctxArg(b) + " create namespace " + ns}}
 		}
-		return []problem{{"cluster injoignable (contexte « " + b.Context + " ») : " + firstLine(out, err), "vérifier kubectl config get-contexts / ~/.kube/config"}}
+		return []Problem{{"cluster injoignable (contexte « " + b.Context + " ») : " + firstLine(out, err), "vérifier kubectl config get-contexts / ~/.kube/config"}}
 	}
 	if out, _ := runQuiet(15*time.Second, e.kubectl("auth", "can-i", "create", "statefulsets")...); strings.TrimSpace(out) != "yes" {
-		return []problem{{"droit de créer des StatefulSets refusé dans " + ns, "accorder un rôle (ex. edit) sur le namespace " + ns}}
+		return []Problem{{"droit de créer des StatefulSets refusé dans " + ns, "accorder un rôle (ex. edit) sur le namespace " + ns}}
 	}
 	if len(b.Volumes) == 0 {
-		return []problem{{"aucun volume partagé déclaré", "« volumes: { /racine/partagée: <pvc ReadWriteMany> } » dans " + backendsPath()}}
+		return []Problem{{"aucun volume partagé déclaré", "« volumes: { /racine/partagée: <pvc ReadWriteMany> } » dans " + BackendsPath()}}
 	}
-	var out []problem
+	var out []Problem
 	for r, pvc := range b.Volumes {
 		s, err := runQuiet(15*time.Second, e.kubectl("get", "pvc", pvc, "-o", "jsonpath={.status.phase} {.spec.accessModes}")...)
 		switch {
 		case err != nil:
-			out = append(out, problem{"PVC " + pvc + " (pour " + r + ") absent de " + ns,
+			out = append(out, Problem{"PVC " + pvc + " (pour " + r + ") absent de " + ns,
 				"créer un PVC ReadWriteMany sur le stockage partagé (ex. MooseFS : PV csi.moosefs.com, volumeAttributes.mfsSubDir = le dossier qui correspond à " + r + ")"})
 		case !strings.HasPrefix(s, "Bound"):
-			out = append(out, problem{"PVC " + pvc + " non lié (" + s + ")", "vérifier son PV : kubectl" + ctxArg(b) + " -n " + ns + " describe pvc " + pvc})
+			out = append(out, Problem{"PVC " + pvc + " non lié (" + s + ")", "vérifier son PV : kubectl" + ctxArg(b) + " -n " + ns + " describe pvc " + pvc})
 		case !strings.Contains(s, "ReadWriteMany"):
-			out = append(out, problem{"PVC " + pvc + " sans ReadWriteMany (" + s + ")", "le recréer en ReadWriteMany : plusieurs pods et la machine du launcher y accèdent"})
+			out = append(out, Problem{"PVC " + pvc + " sans ReadWriteMany (" + s + ")", "le recréer en ReadWriteMany : plusieurs pods et la machine du launcher y accèdent"})
 		}
 	}
 	return out

@@ -48,27 +48,27 @@ func TestE2ELegacyK8sMigration(t *testing.T) {
 	if out, err := e.kcmd("wait", "--for=condition=Ready", "pod/"+old+"-0", "--timeout=180s").CombinedOutput(); err != nil {
 		t.Fatalf("ancien pod : %v %s", err, out)
 	}
-	if r := ctrRef(e.b, proj); r != old+"-0" {
+	if r := CtrRef(e.B, proj); r != old+"-0" {
 		t.Errorf("ctrRef pendant la transition : %s", r)
 	}
 	var log bytes.Buffer
-	if n, err := e.ensure(proj, env, &log); err != nil || n != old+"-0" {
+	if n, err := e.Ensure(proj, env, &log); err != nil || n != old+"-0" {
 		t.Fatalf("en marche : ancien pod attendu : %q %v %s", n, err, log.String())
 	}
-	if err := e.stop(proj, old+"-0"); err != nil {
+	if err := e.Stop(proj, old+"-0"); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(3 * time.Second)
 	log.Reset()
-	n, err := e.ensure(proj, env, &log)
+	n, err := e.Ensure(proj, env, &log)
 	if err != nil || n != "test-demo-name-0" || e.k8sHas(old) {
 		t.Fatalf("arrêté : migration attendue : %q %v ancien présent=%v\n%s", n, err, e.k8sHas(old), log.String())
 	}
 	var out bytes.Buffer
-	if err := e.exec(n, true, nil, &out, "hostname"); err != nil || strings.TrimSpace(out.String()) != "test-demo-name-0" {
+	if err := e.Exec(n, true, nil, &out, "hostname"); err != nil || strings.TrimSpace(out.String()) != "test-demo-name-0" {
 		t.Errorf("hostname : %q %v", out.String(), err)
 	}
-	if r := ctrRef(e.b, proj); r != "test-demo-name-0" {
+	if r := CtrRef(e.B, proj); r != "test-demo-name-0" {
 		t.Errorf("ctrRef après migration : %s", r)
 	}
 }

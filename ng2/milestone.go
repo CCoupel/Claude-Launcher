@@ -94,14 +94,14 @@ type rawIssue struct {
 var msPhases = []string{"PLANNING", "PRET", "EN COURS", "EN REVIEW", "EN QA", "DONE"}
 
 const (
-	msRefresh = 5 * time.Minute
+	MsRefresh = 5 * time.Minute
 	msNoPhase = "SANS PHASE"
 	msMaxRows = 6
 	msBarMin  = 10 // barre d'avancement : de 10 cellules…
 	msBarMax  = 40 // … à 40, selon la largeur du pane
 )
 
-var msSem = make(chan struct{}, 3)
+var MsSem = make(chan struct{}, 3)
 
 // panelSemver : version comme le panneau (« v » ôté, découpe sur « . »,
 // parseInt de chaque morceau, 0 s'il ne commence pas par un nombre).
@@ -176,7 +176,7 @@ func phaseOf(i rawIssue) string {
 	return ""
 }
 
-func ratio(r MsRow) float64 {
+func Ratio(r MsRow) float64 {
 	if t := r.Open + r.Closed; t > 0 {
 		return float64(r.Closed) / float64(t)
 	}
@@ -271,7 +271,7 @@ func milestoneState(ms []rawMilestone, issues []rawIssue) MsState {
 			if ua, ub := unversioned(a.Title), unversioned(b.Title); ua != ub {
 				return ub
 			}
-			if ra, rb := ratio(row(a)), ratio(row(b)); ra != rb {
+			if ra, rb := Ratio(row(a)), Ratio(row(b)); ra != rb {
 				return ra > rb
 			}
 			if c := compareTitles(a.Title, b.Title); c != 0 {
@@ -294,7 +294,7 @@ func milestoneState(ms []rawMilestone, issues []rawIssue) MsState {
 // ── lecture GitHub ─────────────────────────────────────────────────────────
 
 // onGitHub : le dépôt a un remote GitHub (évite d'appeler gh pour rien).
-func onGitHub(dir string) bool {
+func OnGitHub(dir string) bool {
 	b, err := os.ReadFile(filepath.Join(dir, ".git", "config"))
 	return err == nil && strings.Contains(string(b), "github.com")
 }
@@ -320,16 +320,16 @@ type rawRelease struct {
 	At  time.Time `json:"publishedAt"`
 }
 
-type rawPR struct {
+type RawPR struct {
 	IsDraft bool `json:"isDraft"`
 }
 
 // readMilestones : état des milestones du projet, ses PR ouvertes et sa
 // dernière release GitHub (quatre appels gh en parallèle).
-func readMilestones(dir, token string) (MsState, error) {
+func ReadMilestones(dir, token string) (MsState, error) {
 	var ms []rawMilestone
 	var issues []rawIssue
-	var prs []rawPR
+	var prs []RawPR
 	var rels []rawRelease
 	var e1, e2, e3, e4 error
 	var wg sync.WaitGroup
@@ -358,7 +358,7 @@ func readMilestones(dir, token string) (MsState, error) {
 		}
 	}
 	st := milestoneState(ms, issues)
-	st.PRs, st.Drafts = countPRs(prs)
+	st.PRs, st.Drafts = CountPRs(prs)
 	if len(rels) > 0 {
 		st.Release, st.ReleaseAt = rels[0].Tag, rels[0].At
 	}
@@ -368,24 +368,24 @@ func readMilestones(dir, token string) (MsState, error) {
 // releaseText : dernière release GitHub et sa date ; à défaut (pas encore lue,
 // dépôt hors GitHub) le dernier tag git de la branche principale. Un tag local
 // différent de la release est signalé (tags non récupérés, ou tag sans release).
-func releaseText(ms MsState, tag string) string {
+func ReleaseText(ms MsState, tag string) string {
 	if ms.Release == "" {
 		if tag == "" {
-			return orNone(tag)
+			return OrNone(tag)
 		}
-		return tag + dim.Render(" (tag git)")
+		return tag + Dim.Render(" (tag git)")
 	}
 	s := ms.Release
 	if !ms.ReleaseAt.IsZero() {
-		s += dim.Render(" GitHub, il y a " + ageLabel(time.Since(ms.ReleaseAt)))
+		s += Dim.Render(" GitHub, il y a " + AgeLabel(time.Since(ms.ReleaseAt)))
 	}
 	if tag != "" && tag != ms.Release {
-		s += yellow.Render(" · tag git " + tag)
+		s += Yellow.Render(" · tag git " + tag)
 	}
 	return s
 }
 
-func countPRs(prs []rawPR) (n, drafts int) {
+func CountPRs(prs []RawPR) (n, drafts int) {
 	for _, p := range prs {
 		n++
 		if p.IsDraft {
@@ -396,14 +396,14 @@ func countPRs(prs []rawPR) (n, drafts int) {
 }
 
 // withoutAt : l'état sans l'heure de lecture (pour savoir s'il a changé).
-func (s MsState) withoutAt() MsState {
+func (s MsState) WithoutAt() MsState {
 	s.At = time.Time{}
 	return s
 }
 
 // ── affichage (navigateur et vue État) ─────────────────────────────────────
 
-var msPurple = lipgloss.NewStyle().Foreground(lipgloss.Color("#a371f7"))
+var MsPurple = lipgloss.NewStyle().Foreground(lipgloss.Color("#a371f7"))
 
 // msBar : « ███████░░░  70% 7/10[ titre] », comme le panneau. La barre prend la
 // largeur laissée par le pourcentage, le compte et le titre (titre vide : aucun),
@@ -421,8 +421,8 @@ func msBar(r MsRow, width int, title string) string {
 		n = int(float64(r.Closed)/float64(t)*float64(bw) + 0.5)
 		pct = int(float64(r.Closed)/float64(t)*100 + 0.5)
 	}
-	s := msPurple.Render(strings.Repeat("█", n)) + dim.Render(strings.Repeat("░", bw-n)) +
-		bold.Render(fmt.Sprintf(" %3d%%", pct)) + dim.Render(fmt.Sprintf(" %d/%d", r.Closed, t))
+	s := MsPurple.Render(strings.Repeat("█", n)) + Dim.Render(strings.Repeat("░", bw-n)) +
+		Bold.Render(fmt.Sprintf(" %3d%%", pct)) + Dim.Render(fmt.Sprintf(" %d/%d", r.Closed, t))
 	if title != "" {
 		s += " " + title
 	}
@@ -471,12 +471,12 @@ func msListRows(rows []MsRow, width int) []string {
 				title = ver
 			}
 		}
-		s := padRight(title, titleW) + dim.Render(" "+fmt.Sprintf("%*s", cw, fmt.Sprintf("%d/%d", r.Closed, t)))
+		s := PadRight(title, titleW) + Dim.Render(" "+fmt.Sprintf("%*s", cw, fmt.Sprintf("%d/%d", r.Closed, t)))
 		if bar > 0 {
-			s += " " + msPurple.Render(strings.Repeat("█", n)) + dim.Render(strings.Repeat("░", bar-n))
+			s += " " + MsPurple.Render(strings.Repeat("█", n)) + Dim.Render(strings.Repeat("░", bar-n))
 		}
 		if pct {
-			s += bold.Render(fmt.Sprintf(" %3d%%", p))
+			s += Bold.Render(fmt.Sprintf(" %3d%%", p))
 		}
 		out = append(out, s)
 	}
@@ -486,40 +486,40 @@ func msListRows(rows []MsRow, width int) []string {
 // msLines : milestone en cours et son avancement (titre, barre, phases), ou
 // liste des milestones ouverts quand aucun n'est en cours ; nil sans milestone.
 // width : largeur disponible (les barres s'y adaptent).
-func msLines(st MsState, width int) []string {
+func MsLines(st MsState, width int) []string {
 	switch st.Kind {
 	case MsWorking:
-		l := []string{yellow.Render("⚑ ") + cyan.Render(st.Title), msBar(st.MsRow, width, "")}
+		l := []string{Yellow.Render("⚑ ") + Cyan.Render(st.Title), msBar(st.MsRow, width, "")}
 		var ph []string
 		for _, p := range st.Phases {
 			s := fmt.Sprintf("%s %d", strings.ToLower(p.Name), p.N)
 			if p.Name == msNoPhase {
-				s = dim.Render(s)
+				s = Dim.Render(s)
 			}
 			ph = append(ph, s)
 		}
 		if len(ph) > 0 {
-			l = append(l, strings.Join(ph, dim.Render(" · ")))
+			l = append(l, strings.Join(ph, Dim.Render(" · ")))
 		}
 		if st.Blocked > 0 {
-			l = append(l, red.Render(fmt.Sprintf("⛔ %d bloquée(s)", st.Blocked)))
+			l = append(l, Red.Render(fmt.Sprintf("⛔ %d bloquée(s)", st.Blocked)))
 		}
 		return l
 	case MsReleasing:
-		return []string{orange.Render("⚑ ") + cyan.Render(st.Title) + orange.Render(" — à publier"), msBar(st.MsRow, width, "")}
+		return []string{Orange.Render("⚑ ") + Cyan.Render(st.Title) + Orange.Render(" — à publier"), msBar(st.MsRow, width, "")}
 	case MsIdle:
-		l := []string{dim.Render("⚑ aucun milestone en cours")}
+		l := []string{Dim.Render("⚑ aucun milestone en cours")}
 		rows := st.Pending
 		if len(rows) > msMaxRows {
 			rows = rows[:msMaxRows]
 		}
 		l = append(l, msListRows(rows, width)...)
 		if n := len(st.Pending) - len(rows); n > 0 {
-			l = append(l, dim.Render(fmt.Sprintf("  … %d autre(s)", n)))
+			l = append(l, Dim.Render(fmt.Sprintf("  … %d autre(s)", n)))
 		}
 		return l
 	case MsDone:
-		return []string{green.Render("⚑ "+st.Title+" publié") + dim.Render(" (il y a "+ageLabel(time.Since(st.DoneAt))+")")}
+		return []string{Green.Render("⚑ "+st.Title+" publié") + Dim.Render(" (il y a "+AgeLabel(time.Since(st.DoneAt))+")")}
 	}
 	return nil
 }
@@ -528,7 +528,7 @@ func msLines(st MsState, width int) []string {
 
 var msCacheMu sync.Mutex
 
-func msCachePath() string {
+func MsCachePath() string {
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {
 		home, _ := os.UserHomeDir()
@@ -537,22 +537,22 @@ func msCachePath() string {
 	return filepath.Join(base, "claude-launcher-ng2", "milestones-v2.json")
 }
 
-func readMsCache() map[string]MsState {
+func ReadMsCache() map[string]MsState {
 	out := map[string]MsState{}
-	if b, err := os.ReadFile(msCachePath()); err == nil {
+	if b, err := os.ReadFile(MsCachePath()); err == nil {
 		_ = json.Unmarshal(b, &out)
 	}
 	return out
 }
 
-func writeMsCache(m map[string]MsState) {
+func WriteMsCache(m map[string]MsState) {
 	msCacheMu.Lock()
 	defer msCacheMu.Unlock()
 	b, err := json.Marshal(m)
 	if err != nil {
 		return
 	}
-	p := msCachePath()
+	p := MsCachePath()
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
 	tmp := p + ".tmp"
 	if os.WriteFile(tmp, b, 0o644) == nil {

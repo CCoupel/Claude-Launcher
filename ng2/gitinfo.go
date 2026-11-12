@@ -36,7 +36,7 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 // readGit : un seul `git status --branch` par projet (le disque 9p de WSL rend
 // chaque fork coûteux) donne branche, avance/retard et modifications ; un
 // second appel, seulement hors branche principale, teste le merge.
-func readGit(dir string) GitInfo {
+func ReadGit(dir string) GitInfo {
 	var g GitInfo
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return g
@@ -98,13 +98,13 @@ func (g GitInfo) Local() (string, string, lipgloss.Style) {
 	onMain := g.Branch == g.Main
 	switch {
 	case onMain && g.Dirty:
-		return "!", "modifié directement sur " + g.Main, red
+		return "!", "modifié directement sur " + g.Main, Red
 	case onMain:
-		return "●", "au repos sur " + g.Main, green.Bold(true)
+		return "●", "au repos sur " + g.Main, Green.Bold(true)
 	case g.Dirty:
-		return "✎", "en cours, non commité", yellow.Bold(true)
+		return "✎", "en cours, non commité", Yellow.Bold(true)
 	default:
-		return "◆", "terminé, tout commité", cyan
+		return "◆", "terminé, tout commité", Cyan
 	}
 }
 
@@ -112,19 +112,19 @@ func (g GitInfo) Local() (string, string, lipgloss.Style) {
 func (g GitInfo) Remote() (string, string, lipgloss.Style) {
 	switch {
 	case !g.Upstream:
-		return "○", "jamais poussé", blue
+		return "○", "jamais poussé", Blue
 	case g.Behind > 0:
-		return fmt.Sprintf("↓%d", g.Behind), fmt.Sprintf("en retard de %d commit(s)", g.Behind), red
+		return fmt.Sprintf("↓%d", g.Behind), fmt.Sprintf("en retard de %d commit(s)", g.Behind), Red
 	case g.Ahead > 0:
-		return fmt.Sprintf("↑%d", g.Ahead), fmt.Sprintf("%d commit(s) non poussé(s)", g.Ahead), yellow.Bold(true)
+		return fmt.Sprintf("↑%d", g.Ahead), fmt.Sprintf("%d commit(s) non poussé(s)", g.Ahead), Yellow.Bold(true)
 	case g.Branch == g.Main:
-		return "✓", "à jour", green.Bold(true)
+		return "✓", "à jour", Green.Bold(true)
 	case g.Merged:
-		return "✓", "publié, mergé dans " + g.Main, green.Bold(true)
+		return "✓", "publié, mergé dans " + g.Main, Green.Bold(true)
 	case g.Gone:
-		return "⇡", "amont supprimé, non mergé", cyan
+		return "⇡", "amont supprimé, non mergé", Cyan
 	default:
-		return "⇡", "poussé, non mergé", cyan
+		return "⇡", "poussé, non mergé", Cyan
 	}
 }
 
@@ -140,7 +140,7 @@ type GitDetail struct {
 	Changes map[string]string
 }
 
-func readDetail(dir string) GitDetail {
+func ReadDetail(dir string) GitDetail {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := GitDetail{Changes: map[string]string{}}
@@ -182,7 +182,7 @@ type FileEntry struct {
 }
 
 // readFiles liste le premier niveau du projet (dossiers d'abord), hors .git.
-func readFiles(dir string) []FileEntry {
+func ReadFiles(dir string) []FileEntry {
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return nil
@@ -213,7 +213,7 @@ func readFiles(dir string) []FileEntry {
 }
 
 // templateTag : tag du template installé dans le projet (ex. v3.9.1).
-func templateTag(proj string) string {
+func TemplateTag(proj string) string {
 	for _, c := range []string{
 		filepath.Join(proj, "TEMPLATE_claude", ".template-source.json"),
 		filepath.Join(proj, ".claude", ".template-source.json"),
@@ -241,7 +241,7 @@ const (
 )
 
 // templateRef : version d'un template, « v3.28.0 (8f583bf) », ou ce qui en est connu.
-func templateRef(tag, commit string) string {
+func TemplateRef(tag, commit string) string {
 	if len(commit) > 7 {
 		commit = commit[:7]
 	}
@@ -258,7 +258,7 @@ func templateRef(tag, commit string) string {
 
 // projectTemplateRef : version du template du projet (.template-source.json,
 // sinon template_version de project-config.json).
-func projectTemplateRef(proj string) string {
+func ProjectTemplateRef(proj string) string {
 	var s struct {
 		Tag    string `json:"tag"`
 		Commit string `json:"commit"`
@@ -268,7 +268,7 @@ func projectTemplateRef(proj string) string {
 		filepath.Join(proj, ".claude", ".template-source.json"),
 	} {
 		if b, err := os.ReadFile(c); err == nil && json.Unmarshal(b, &s) == nil && (s.Tag != "" || s.Commit != "") {
-			return templateRef(s.Tag, s.Commit)
+			return TemplateRef(s.Tag, s.Commit)
 		}
 	}
 	var pc struct {
@@ -278,12 +278,12 @@ func projectTemplateRef(proj string) string {
 		} `json:"template_version"`
 	}
 	if b, err := os.ReadFile(filepath.Join(proj, ".claude", "project-config.json")); err == nil && json.Unmarshal(b, &pc) == nil {
-		return templateRef(pc.TV.Tag, pc.TV.Commit)
+		return TemplateRef(pc.TV.Tag, pc.TV.Commit)
 	}
-	return templateRef("", "")
+	return TemplateRef("", "")
 }
 
-func readTemplate(proj, latest string) TemplateState {
+func ReadTemplate(proj, latest string) TemplateState {
 	var src string
 	for _, c := range []string{
 		filepath.Join(proj, "TEMPLATE_claude", ".template-source.json"),

@@ -19,7 +19,7 @@ import (
 //
 // CL_INNER_SOCKET / CL_OUTER_SOCKET permettent d'isoler les deux pour les tests.
 
-func envWithout(drop ...string) []string {
+func EnvWithout(drop ...string) []string {
 	var out []string
 	for _, e := range os.Environ() {
 		keep := true
@@ -38,13 +38,13 @@ func envWithout(drop ...string) []string {
 // dtmux : commande tmux sur le serveur intérieur (TMUX retiré de l'environnement,
 // sinon tmux viserait le serveur de la coque dans laquelle tourne le navigateur).
 func dtmux(args ...string) *exec.Cmd {
-	c := exec.Command("tmux", append([]string{"-L", innerSocket()}, args...)...)
-	c.Env = envWithout("TMUX", "TMUX_PANE")
+	c := exec.Command("tmux", append([]string{"-L", InnerSocket()}, args...)...)
+	c.Env = EnvWithout("TMUX", "TMUX_PANE")
 	return c
 }
 
 // innerSocket : socket du serveur intérieur (CL_INNER_SOCKET pour les tests).
-func innerSocket() string {
+func InnerSocket() string {
 	if s := os.Getenv("CL_INNER_SOCKET"); s != "" {
 		return s
 	}
@@ -95,7 +95,7 @@ func openProject(cfg Config, session string, n Node, launch bool, latest string,
 		if tmuxWindows(targetSession(session))[n.Key] {
 			return "[dry-run] select-window " + n.Key
 		}
-		return "[dry-run] new-window " + n.Key + " → claude (couleur " + cfg.projectColor(n.Key) + ")"
+		return "[dry-run] new-window " + n.Key + " → claude (couleur " + cfg.ProjectColor(n.Key) + ")"
 	}
 	if err := launchProject(cfg, session, n, latest, mode); err != nil {
 		return fmt.Sprintf("⚠ %v", err)
@@ -103,7 +103,7 @@ func openProject(cfg Config, session string, n Node, launch bool, latest string,
 	return ""
 }
 
-func padRight(s string, w int) string {
+func PadRight(s string, w int) string {
 	if d := w - lipgloss.Width(s); d > 0 {
 		return s + strings.Repeat(" ", d)
 	}

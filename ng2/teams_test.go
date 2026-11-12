@@ -28,7 +28,7 @@ func TestDeadTeams(t *testing.T) {
 	team("sans-config", "")
 	team("illisible", `{"members":[`)
 
-	got := deadTeams(root, map[string]bool{"%1": true, "%5": true}, 0)
+	got := DeadTeams(root, map[string]bool{"%1": true, "%5": true}, 0)
 	if want := []string{"morte"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("deadTeams=%v, attendu %v", got, want)
 	}
@@ -38,11 +38,11 @@ func TestDeadTeams(t *testing.T) {
 	conv := filepath.Join(root, "projects", "-p", "abcd1234-x.jsonl")
 	_ = os.MkdirAll(filepath.Dir(conv), 0o755)
 	_ = os.WriteFile(conv, []byte("{}\n"), 0o644)
-	got = deadTeams(root, map[string]bool{"%5": true}, time.Hour)
+	got = DeadTeams(root, map[string]bool{"%5": true}, time.Hour)
 	if want := []string{"morte"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("deadTeams (reprise 1 h)=%v, attendu %v", got, want)
 	}
-	got = deadTeams(root, map[string]bool{"%5": true}, 0)
+	got = DeadTeams(root, map[string]bool{"%5": true}, 0)
 	if want := []string{"morte", "reprenable"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("deadTeams (reprise désactivée)=%v, attendu %v", got, want)
 	}
@@ -59,9 +59,9 @@ func TestDeadTeamsForeignPidSpace(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(d, "config.json"), []byte(cfg), 0o644)
 	}
 	team("conteneur", `{"leadProcess":{"pid":12,"pidSpace":"cl-demo-1234#pid:[1]"},"members":[{"tmuxPaneId":"%1"}]}`)
-	team("hote-ancien", `{"leadProcess":{"pid":12,"pidSpace":"`+hostName()+`#pid:[1]"},"members":[{"tmuxPaneId":"%1"}]}`)
-	team("hote", `{"leadProcess":{"pid":12,"pidSpace":"`+hostPidSpace()+`"},"members":[{"tmuxPaneId":"%1"}]}`)
-	got := deadTeams(root, map[string]bool{"%9": true}, 0)
+	team("hote-ancien", `{"leadProcess":{"pid":12,"pidSpace":"`+HostName()+`#pid:[1]"},"members":[{"tmuxPaneId":"%1"}]}`)
+	team("hote", `{"leadProcess":{"pid":12,"pidSpace":"`+HostPidSpace()+`"},"members":[{"tmuxPaneId":"%1"}]}`)
+	got := DeadTeams(root, map[string]bool{"%9": true}, 0)
 	if want := []string{"hote", "hote-ancien"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("deadTeams=%v, attendu %v", got, want)
 	}

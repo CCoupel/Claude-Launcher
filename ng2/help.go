@@ -80,7 +80,7 @@ func helpText(width int) string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	key := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	var b strings.Builder
-	b.WriteString(bold.Render(ngName+" "+ngVersion) + dim.Render("  ·  aide") + "\n")
+	b.WriteString(Bold.Render(NgName+" "+NgVersion) + Dim.Render("  ·  aide") + "\n")
 	for _, s := range helpSections {
 		b.WriteString("\n" + title.Render(s.title) + "\n")
 		for _, r := range s.rows {
@@ -97,7 +97,7 @@ func helpText(width int) string {
 				if i > 0 {
 					k = ""
 				}
-				b.WriteString("  " + key.Render(padRight(k, keyW)) + "  " + l + "\n")
+				b.WriteString("  " + key.Render(PadRight(k, keyW)) + "  " + l + "\n")
 			}
 		}
 	}
@@ -123,7 +123,7 @@ func wrapWords(s string, w int) []string {
 }
 
 // runHelp imprime l'aide ; avec wait (popup), attend une touche avant de rendre la main.
-func runHelp(wait bool) error {
+func RunHelp(wait bool) error {
 	w := 100
 	if s, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && s > 0 {
 		w = s
@@ -132,8 +132,8 @@ func runHelp(wait bool) error {
 	if !wait {
 		return nil
 	}
-	fmt.Print("\n" + dim.Render("  une touche pour fermer"))
-	if restore, err := rawMode(int(os.Stdin.Fd())); err == nil {
+	fmt.Print("\n" + Dim.Render("  une touche pour fermer"))
+	if restore, err := RawMode(int(os.Stdin.Fd())); err == nil {
 		defer restore()
 	}
 	buf := make([]byte, 16)
@@ -153,7 +153,7 @@ func openHelp() error {
 	ch, _ := strconv.Atoi(f[2])
 	w := min(100, max(cw, 20))
 	tw := w - 2 // intérieur du popup (bordure)
-	exe, err := selfExe()
+	exe, err := SelfExe()
 	if err != nil {
 		return err
 	}
@@ -161,6 +161,6 @@ func openHelp() error {
 	h := min(strings.Count(helpText(tw), "\n")+4, max(ch, 5))
 	cmd := exec.Command("tmux", "-L", outerSocket(), "display-popup", "-c", name, "-E",
 		"-w", strconv.Itoa(w), "-h", strconv.Itoa(h), "-T", " Aide · F1 ",
-		"COLUMNS="+strconv.Itoa(tw)+" "+shq(strings.TrimSuffix(exe, " (deleted)"))+" help --wait")
+		"COLUMNS="+strconv.Itoa(tw)+" "+Shq(strings.TrimSuffix(exe, " (deleted)"))+" help --wait")
 	return cmd.Start() // le popup vit sa vie ; le navigateur reste réactif
 }

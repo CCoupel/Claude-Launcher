@@ -32,13 +32,13 @@ func TestUsage429Backoff(t *testing.T) {
 	_ = os.Chtimes(p+".err", at, at)
 	_ = os.WriteFile(credentialsPath(), []byte("{}"), 0o600)
 	_ = os.Chtimes(credentialsPath(), time.Now().Add(time.Hour), time.Now().Add(time.Hour))
-	if needsFetch(120) {
+	if NeedsFetch(120) {
 		t.Error("429 : attente non respectée")
 	}
 	old := time.Now().Add(-usageMinBackoff - time.Second)
 	_ = os.Chtimes(p+".err", old, old)
 	_ = os.Remove(p)
-	if !needsFetch(120) {
+	if !NeedsFetch(120) {
 		t.Error("attente finie : appel attendu")
 	}
 }
@@ -56,7 +56,7 @@ func TestLinkUsageCache(t *testing.T) {
 	fut := time.Now().Add(10 * time.Minute)
 	_ = os.Chtimes(filepath.Join(dir, "usage.json.err"), fut, fut)
 	_ = os.WriteFile(filepath.Join(dir, "usage.json.wait"), []byte("600"), 0o644)
-	linkUsageCache()
+	LinkUsageCache()
 	for _, n := range []string{"usage.json", "usage.json.err"} {
 		if l, err := os.Readlink(filepath.Join(dir, n)); err != nil || l != filepath.Join(sharedUsageDir(), n) {
 			t.Errorf("%s : lien %q %v", n, l, err)
@@ -83,7 +83,7 @@ func TestLinkUsageCache(t *testing.T) {
 	// lien remplacé par un fichier (écriture par remplacement) : rétabli
 	_ = os.Remove(filepath.Join(dir, "usage.json.err"))
 	_ = os.WriteFile(filepath.Join(dir, "usage.json.err"), []byte("x"), 0o644)
-	linkUsageCache()
+	LinkUsageCache()
 	if _, err := os.Readlink(filepath.Join(dir, "usage.json.err")); err != nil {
 		t.Error("lien non rétabli")
 	}
@@ -103,11 +103,11 @@ func TestResetUsageBackoff(t *testing.T) {
 	_ = os.Chtimes(p, old, old)
 	_ = os.WriteFile(p+".err", []byte("trop d’appels à l’endpoint, nouvel essai dans quelques minutes"), 0o644)
 	_ = os.WriteFile(p+".wait", []byte("1800"), 0o644)
-	if needsFetch(120) {
+	if NeedsFetch(120) {
 		t.Fatal("429 récent : pas d'appel attendu avant le reset")
 	}
-	resetUsageBackoff()
-	if !needsFetch(120) {
+	ResetUsageBackoff()
+	if !NeedsFetch(120) {
 		t.Fatal("après le reset du lancement : appel attendu")
 	}
 	if _, err := os.Stat(p); err != nil {

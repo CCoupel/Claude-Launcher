@@ -25,7 +25,7 @@ func TestEnvVars(t *testing.T) {
 	c := Config{GithubToken: "ghp_x", DisableMouse: true, ExpTeams: true,
 		ExtraEnvs: []string{`MY_URL="https://a.b/c?d=1"`, "PLAIN=v", "bad name=1", "NOEQ", "GH_TOKEN=autre"}}
 	got := map[string]string{}
-	for _, v := range c.envVars() {
+	for _, v := range c.EnvVars() {
 		got[v.K] = v.V
 	}
 	want := map[string]string{"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_x", "GH_TOKEN": "autre",
@@ -40,11 +40,11 @@ func TestEnvVars(t *testing.T) {
 		}
 	}
 	// secrets jamais tapés dans le shell quand settings.json est à jour
-	e := c.exports(false)
+	e := c.Exports(false)
 	if strings.Contains(e, "ghp_x") || strings.Contains(e, "GH_TOKEN") || !strings.Contains(e, "export PLAIN='v'") {
 		t.Errorf("exports(false) = %q", e)
 	}
-	if e := c.exports(true); !strings.Contains(e, "export GITHUB_PERSONAL_ACCESS_TOKEN='ghp_x'") {
+	if e := c.Exports(true); !strings.Contains(e, "export GITHUB_PERSONAL_ACCESS_TOKEN='ghp_x'") {
 		t.Errorf("exports(true) = %q", e)
 	}
 }
@@ -60,7 +60,7 @@ func TestSyncSettingsEnv(t *testing.T) {
 	if err := os.WriteFile(p, []byte(orig), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := syncSettingsEnv(dir, []envVar{{"GH_TOKEN", "ghp_1"}, {"FOO", "bar"}}); err != nil {
+	if err := SyncSettingsEnv(dir, []envVar{{"GH_TOKEN", "ghp_1"}, {"FOO", "bar"}}); err != nil {
 		t.Fatal(err)
 	}
 	d := readSettings(t, dir)
@@ -80,7 +80,7 @@ func TestSyncSettingsEnv(t *testing.T) {
 
 	// sans changement : fichier non réécrit
 	fi1, _ := os.Stat(p)
-	if err := syncSettingsEnv(dir, []envVar{{"GH_TOKEN", "ghp_1"}, {"FOO", "bar"}}); err != nil {
+	if err := SyncSettingsEnv(dir, []envVar{{"GH_TOKEN", "ghp_1"}, {"FOO", "bar"}}); err != nil {
 		t.Fatal(err)
 	}
 	if fi2, _ := os.Stat(p); !fi2.ModTime().Equal(fi1.ModTime()) {
@@ -88,7 +88,7 @@ func TestSyncSettingsEnv(t *testing.T) {
 	}
 
 	// FOO retirée de la config : ôtée ; MINE (pas au launcher) gardée
-	if err := syncSettingsEnv(dir, []envVar{{"GH_TOKEN", "ghp_2"}}); err != nil {
+	if err := SyncSettingsEnv(dir, []envVar{{"GH_TOKEN", "ghp_2"}}); err != nil {
 		t.Fatal(err)
 	}
 	env = readSettings(t, dir)["env"].(map[string]any)
@@ -98,7 +98,7 @@ func TestSyncSettingsEnv(t *testing.T) {
 
 	// JSON invalide : laissé tel quel
 	_ = os.WriteFile(p, []byte("{pas du json"), 0o600)
-	if err := syncSettingsEnv(dir, []envVar{{"GH_TOKEN", "x"}}); err == nil {
+	if err := SyncSettingsEnv(dir, []envVar{{"GH_TOKEN", "x"}}); err == nil {
 		t.Error("JSON invalide accepté")
 	}
 	if b, _ := os.ReadFile(p); string(b) != "{pas du json" {
@@ -107,7 +107,7 @@ func TestSyncSettingsEnv(t *testing.T) {
 
 	// pas de settings.json : créé
 	d2 := t.TempDir()
-	if err := syncSettingsEnv(d2, []envVar{{"A", "1"}}); err != nil {
+	if err := SyncSettingsEnv(d2, []envVar{{"A", "1"}}); err != nil {
 		t.Fatal(err)
 	}
 	if readSettings(t, d2)["env"].(map[string]any)["A"] != "1" {

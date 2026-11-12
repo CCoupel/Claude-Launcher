@@ -20,42 +20,42 @@ type ctrView struct {
 	assign map[string]string    // projet -> backend (sans entrée : host, ou « prefer »)
 	found  map[string]Found     // projet -> son conteneur, s'il existe
 	errs   map[string]string    // backend -> erreur de listing (moteur absent…)
-	diag   map[string][]problem // backend affecté à un projet -> ce qui l'empêche de marcher
+	diag   map[string][]Problem // backend affecté à un projet -> ce qui l'empêche de marcher
 	bad    map[string]string    // projet -> configuration invalide (launchBackend)
-	live   map[string]liveSess  // projet -> session tmux vivante dans son conteneur
+	live   map[string]LiveSess  // projet -> session tmux vivante dans son conteneur
 	dups   map[string][]string  // projet -> serveurs où il a un conteneur (groupe, en double)
 	down   map[string]string    // backend (groupe) -> serveurs injoignables
 }
 
 // liveSess : session tmux du conteneur d'un projet (#50) : propriétaire, nombre
 // de panes (claude et ses teammates) et claude encore en marche dans le leader.
-type liveSess struct {
-	owner  ownerInfo
-	panes  int
-	claude bool // le leader (plus petit %id) n'est pas revenu à son shell
+type LiveSess struct {
+	Owner  OwnerInfo
+	Panes  int
+	Claude bool // le leader (plus petit %id) n'est pas revenu à son shell
 }
 
 // readLive : session du conteneur name, si elle existe (une seule commande :
 // propriétaire et panes, puis la liste des panes).
-func (e Engine) readLive(name string) (liveSess, bool) {
-	s, err := e.output(name, tmuxIn("display-message", "-p", "-t", "="+ctrSession+":", ownerFormat+"|#{window_panes}", ";",
-		"list-panes", "-s", "-t", "="+ctrSession, "-F", "#{pane_id} #{pane_current_command}")...)
+func (e Engine) ReadLive(name string) (LiveSess, bool) {
+	s, err := e.Output(name, TmuxIn("display-message", "-p", "-t", "="+CtrSession+":", OwnerFormat+"|#{window_panes}", ";",
+		"list-panes", "-s", "-t", "="+CtrSession, "-F", "#{pane_id} #{pane_current_command}")...)
 	if err != nil {
-		return liveSess{}, false
+		return LiveSess{}, false
 	}
-	return parseLive(s)
+	return ParseLive(s)
 }
 
-func parseLive(s string) (liveSess, bool) {
+func ParseLive(s string) (LiveSess, bool) {
 	head, panes, _ := strings.Cut(s, "\n")
 	i := strings.LastIndex(head, "|")
 	if i < 0 {
-		return liveSess{}, false
+		return LiveSess{}, false
 	}
 	n, _ := strconv.Atoi(head[i+1:])
-	l := liveSess{owner: parseOwner(head[:i]), panes: n}
-	if id, cmd := leaderOf(panes); id != "" {
-		l.claude = !shells[cmd]
+	l := LiveSess{Owner: ParseOwner(head[:i]), Panes: n}
+	if id, cmd := LeaderOf(panes); id != "" {
+		l.Claude = !Shells[cmd]
 	}
 	return l, true
 }
@@ -80,52 +80,52 @@ func ctrNowCmd(paths []string, delay time.Duration) tea.Cmd {
 }
 
 func readCtrView(paths []string) ctrView {
-	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]problem{}, bad: map[string]string{}, live: map[string]liveSess{},
+	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]Found{}, errs: map[string]string{}, diag: map[string][]Problem{}, bad: map[string]string{}, live: map[string]LiveSess{},
 		dups: map[string][]string{}, down: map[string]string{}}
 	any := false
-	asg := readAssignments()
+	asg := ReadAssignments()
 	for _, p := range paths {
-		if hasEnv(p) {
+		if HasEnv(p) {
 			v.env[p], any = true, true
-			v.assign[p] = projectBackend(p).Name
+			v.assign[p] = ProjectBackend(p).Name
 		}
 		if name, ok := asg[p]; ok && name != "host" {
 			v.assign[p] = name
-			if _, err := launchBackend(p); err != nil {
+			if _, err := LaunchBackend(p); err != nil {
 				v.bad[p] = err.Error()
 			}
 		}
 	}
-	bs, _ := loadBackends()
+	bs, _ := LoadBackends()
 	for _, b := range bs {
-		e, ok := engineOf(b)
+		e, ok := EngineOf(b)
 		if !ok || !any && !usedBackend(b.Name) {
 			continue
 		}
 		if assignedTo(v.assign, b.Name) {
-			if ps := diagnoseCached(b); len(ps) > 0 {
+			if ps := DiagnoseCached(b); len(ps) > 0 {
 				v.diag[b.Name] = ps
 				continue
 			}
 		}
 		var fs []Found
 		var down map[string]error
-		if b.k8s() {
+		if b.K8s() {
 			var err error
-			if fs, err = e.k8sList(); err != nil {
+			if fs, err = e.K8sList(); err != nil {
 				down = map[string]error{"": err}
 			}
 		} else {
-			fs, down = e.listPool() // groupe : tous ses serveurs en parallèle (#61)
+			fs, down = e.ListPool() // groupe : tous ses serveurs en parallèle (#61)
 		}
-		if len(fs) == 0 && len(down) > 0 && len(down) == len(b.servers()) {
+		if len(fs) == 0 && len(down) > 0 && len(down) == len(b.Servers()) {
 			for _, err := range down {
 				v.errs[b.Name] = err.Error()
 			}
 			continue
 		}
 		if len(down) > 0 {
-			v.down[b.Name] = downText(down)
+			v.down[b.Name] = DownText(down)
 		}
 		for _, f := range fs {
 			if o, dup := v.found[f.Project]; dup && o.Backend == f.Backend && o.Server != f.Server {
@@ -146,7 +146,7 @@ func readCtrView(paths []string) ctrView {
 			wg.Add(1)
 			go func(f Found) {
 				defer wg.Done()
-				if l, ok := e.of(f).readLive(f.Name); ok {
+				if l, ok := e.Of(f).ReadLive(f.Name); ok {
 					mu.Lock()
 					v.live[f.Project] = l
 					mu.Unlock()
@@ -168,7 +168,7 @@ func assignedTo(assign map[string]string, name string) bool {
 }
 
 func usedBackend(name string) bool {
-	for _, b := range readAssignments() {
+	for _, b := range ReadAssignments() {
 		if b == name {
 			return true
 		}
@@ -179,24 +179,24 @@ func usedBackend(name string) bool {
 // ctrIndicator : backend du projet sur la ligne du navigateur (projets en conteneur seulement).
 func ctrIndicator(p projInfo) (indicator, bool) {
 	if p.badCfg != "" {
-		return indicator{icon: "⚠", style: red, text: p.badCfg}, true
+		return indicator{icon: "⚠", style: Red, text: p.badCfg}, true
 	}
 	if p.backend == "" || p.backend == "host" {
 		if p.hasEnv {
-			return indicator{icon: "⬡", style: dim, text: "environnement conteneur présent (env.yaml / env-template.yaml) : exécution locale (F2 : choisir un conteneur)"}, true
+			return indicator{icon: "⬡", style: Dim, text: "environnement conteneur présent (env.yaml / env-template.yaml) : exécution locale (F2 : choisir un conteneur)"}, true
 		}
 		return indicator{}, false
 	}
 	switch {
 	case len(p.problems) > 0:
-		return indicator{icon: "⚠", style: yellow, text: "backend " + p.backend + " inutilisable : " + p.problems[0].String() +
+		return indicator{icon: "⚠", style: Yellow, text: "backend " + p.backend + " inutilisable : " + p.problems[0].String() +
 			" (détails : claude-launcher-ng2 backends)"}, true
 	case !p.ctrKnown:
-		return indicator{icon: "⬡", style: dim, text: "conteneur " + p.backend + " pas encore créé (bootstrap à l'ouverture)"}, true
+		return indicator{icon: "⬡", style: Dim, text: "conteneur " + p.backend + " pas encore créé (bootstrap à l'ouverture)"}, true
 	case p.ctr.Running:
-		return indicator{icon: "⬢", style: cyan, text: "conteneur " + p.backend + " en marche (" + p.ctr.Name + ")"}, true
+		return indicator{icon: "⬢", style: Cyan, text: "conteneur " + p.backend + " en marche (" + p.ctr.Name + ")"}, true
 	default:
-		return indicator{icon: "⬢", style: dim, text: "conteneur " + p.backend + " arrêté (redémarré à l'ouverture)"}, true
+		return indicator{icon: "⬢", style: Dim, text: "conteneur " + p.backend + " arrêté (redémarré à l'ouverture)"}, true
 	}
 }
 
@@ -213,8 +213,8 @@ func (m model) cycleBackend() model { // F2
 		m.msg = "F2 : projet ouvert — le fermer avant de changer de backend"
 		return m
 	}
-	if hasEnv(n.Path) {
-		if _, err := loadEnv(n.Path); err != nil {
+	if HasEnv(n.Path) {
+		if _, err := LoadEnv(n.Path); err != nil {
 			m.msg = "⚠ " + err.Error()
 			return m
 		}
@@ -234,25 +234,25 @@ func reattachCmd(cfg Config, session string, nodes []Node) tea.Cmd {
 				byPath[n.Path] = n
 			}
 		}
-		bs, _ := loadBackends()
+		bs, _ := LoadBackends()
 		open := tmuxWindows(targetSession(session))
 		var back []string
 		for _, b := range bs {
-			e, ok := engineOf(b)
+			e, ok := EngineOf(b)
 			if !ok {
 				continue
 			}
-			fs, err := e.list()
+			fs, err := e.List()
 			if err != nil {
 				continue
 			}
 			for _, f := range fs {
 				n, ok := byPath[f.Project]
-				if !ok || !f.Running || open[n.Key] || projectBackend(f.Project).Name != b.Name || !e.of(f).hasSession(f.Name) {
+				if !ok || !f.Running || open[n.Key] || ProjectBackend(f.Project).Name != b.Name || !e.Of(f).HasSession(f.Name) {
 					continue
 				}
 				// seulement les sessions de ce launcher (#48) : pas celles d'une autre machine
-				if o := e.of(f).owner(f.Name); o.id != "" && o.id != launcherID() {
+				if o := e.Of(f).Owner(f.Name); o.Id != "" && o.Id != LauncherID() {
 					continue
 				}
 				if err := launchProject(cfg, session, n, readLatestTemplate(), launchNormal); err != nil {
@@ -273,7 +273,7 @@ type reattachMsg []string
 
 // ctrAttachMain : sous-commande ctr-attach ; en cas d'échec, l'erreur reste
 // affichée dans la fenêtre jusqu'à Entrée (sinon tmux la fermerait aussitôt).
-func ctrAttachMain(args []string) error {
+func CtrAttachMain(args []string) error {
 	if len(args) != 2 {
 		return fmt.Errorf("usage : claude-launcher-ng2 ctr-attach DOSSIER FICHIER_DEMARRAGE")
 	}
@@ -286,18 +286,18 @@ func ctrAttachMain(args []string) error {
 }
 
 // runBackends : sous-commande « backends » : backends et conteneurs NG2.
-func runBackends() error {
-	bs, err := loadBackends()
+func RunBackends() error {
+	bs, err := LoadBackends()
 	if err != nil {
 		return err
 	}
-	fmt.Println("Backends (" + backendsPath() + ") :")
+	fmt.Println("Backends (" + BackendsPath() + ") :")
 	for _, b := range bs {
-		line := "  " + padRight(b.Name, 12) + " " + b.Type
+		line := "  " + PadRight(b.Name, 12) + " " + b.Type
 		if b.Host != "" {
 			line += " " + b.Host
 		}
-		if b.pool() {
+		if b.IsPool() {
 			g := fmt.Sprintf("  groupe de %d serveurs", len(b.Hosts))
 			if b.Pool != "" {
 				g = fmt.Sprintf("  pool %s (%d machines", b.Pool, len(b.Hosts))
@@ -317,25 +317,25 @@ func runBackends() error {
 			printPool(b)
 			continue
 		}
-		if b.k8s() {
-			line += "  (" + b.placementText() + ")"
+		if b.K8s() {
+			line += "  (" + b.PlacementText() + ")"
 		}
-		if ps := diagnose(b); len(ps) > 0 {
+		if ps := Diagnose(b); len(ps) > 0 {
 			for _, p := range ps {
-				line += "\n      ⚠ " + p.what + "\n        → " + p.fix
+				line += "\n      ⚠ " + p.What + "\n        → " + p.Fix
 			}
 			fmt.Println(line)
 			continue
 		}
-		if e, ok := engineOf(b); ok {
-			fs, err := e.list()
+		if e, ok := EngineOf(b); ok {
+			fs, err := e.List()
 			if err != nil {
 				line += "  ⚠ " + strings.TrimSpace(err.Error())
 			} else {
 				line += fmt.Sprintf("  %d conteneur(s)", len(fs))
 				var nodes map[string]string
-				if b.k8s() {
-					nodes = e.k8sNodes()
+				if b.K8s() {
+					nodes = e.K8sNodes()
 				}
 				for _, f := range fs {
 					st := "arrêté"
@@ -351,23 +351,23 @@ func runBackends() error {
 		}
 		fmt.Println(line)
 	}
-	printBrowserServer()
-	printBrowserDevice()
-	printBrowserPaths()
+	PrintBrowserServer()
+	PrintBrowserDevice()
+	PrintBrowserPaths()
 	return nil
 }
 
 // printPool : chaque serveur d'un groupe (#61) — état, conteneurs NG2, diagnostic.
 func printPool(b BackendConf) {
 	e := Engine{b}
-	fs, down := e.listPool()
-	probs := poolProblems(b)
-	load := loadOf(b, fs, down)
+	fs, down := e.ListPool()
+	probs := PoolProblems(b)
+	load := LoadOf(b, fs, down)
 	own := map[string]int{}
 	for h, n := range load {
 		own[h] = n
 	}
-	addMates(b, load)
+	AddMates(b, load)
 	for _, h := range b.Hosts {
 		line := "      " + h
 		if b.Drain[h] {
@@ -376,7 +376,7 @@ func printPool(b BackendConf) {
 		switch {
 		case len(probs[h]) > 0:
 			for _, p := range probs[h] {
-				line += "\n        ⚠ " + p.what + "\n          → " + p.fix
+				line += "\n        ⚠ " + p.What + "\n          → " + p.Fix
 			}
 		case down[h] != nil:
 			line += "  ⚠ " + strings.TrimSpace(down[h].Error())

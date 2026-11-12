@@ -94,17 +94,17 @@ func TestValidatePod(t *testing.T) {
 	d := t.TempDir()
 	t.Setenv("CL_CONFIG_DIR", d)
 	_ = os.WriteFile(filepath.Join(d, "backends.yaml"), []byte("backends:\n  lab: {type: k8s, context: c, namespace: n, pod: {volumes: []}}\n"), 0o644)
-	if _, err := loadBackends(); err == nil || !strings.Contains(err.Error(), `"lab"`) || !strings.Contains(err.Error(), "volumes") {
+	if _, err := LoadBackends(); err == nil || !strings.Contains(err.Error(), `"lab"`) || !strings.Contains(err.Error(), "volumes") {
 		t.Errorf("backends.yaml : %v", err)
 	}
 	_ = os.WriteFile(filepath.Join(d, "backends.yaml"), []byte("backends:\n  lab: {type: k8s, context: c, namespace: n, spread: false, pod: {nodeSelector: {a: b}}}\n"), 0o644)
-	bs, err := loadBackends()
+	bs, err := LoadBackends()
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, b := range bs {
-		if b.Name == "lab" && (b.spread() || b.placementText() != "répartition par node : non ; pod : nodeSelector") {
-			t.Errorf("chargement : spread=%v %q", b.spread(), b.placementText())
+		if b.Name == "lab" && (b.spread() || b.PlacementText() != "répartition par node : non ; pod : nodeSelector") {
+			t.Errorf("chargement : spread=%v %q", b.spread(), b.PlacementText())
 		}
 	}
 }

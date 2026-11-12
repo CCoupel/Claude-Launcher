@@ -37,8 +37,8 @@ const (
 
 var deviceIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{6,80}$`)
 
-func browserTokenPath() string  { return filepath.Join(cacheDir(), "browser-token") }
-func browserDevicePath() string { return filepath.Join(cacheDir(), "browser-device") }
+func browserTokenPath() string  { return filepath.Join(CacheDir(), "browser-token") }
+func browserDevicePath() string { return filepath.Join(CacheDir(), "browser-device") }
 
 // browserToken : jeton du hub, tiré une fois et gardé (les sessions déjà
 // ouvertes le connaissent).
@@ -53,7 +53,7 @@ func browserToken() string {
 		return ""
 	}
 	t := hex.EncodeToString(buf)
-	_ = os.MkdirAll(cacheDir(), 0o755)
+	_ = os.MkdirAll(CacheDir(), 0o755)
 	if err := os.WriteFile(browserTokenPath(), []byte(t+"\n"), 0o600); err != nil {
 		return ""
 	}
@@ -92,7 +92,7 @@ func (s fileServer) servePair(w http.ResponseWriter, r *http.Request) {
 		page(http.StatusBadRequest, "✗ deviceId invalide", "deviceId attendu : celui donné par list_connected_browsers.")
 		return
 	}
-	_ = os.MkdirAll(cacheDir(), 0o755)
+	_ = os.MkdirAll(CacheDir(), 0o755)
 	if err := os.WriteFile(browserDevicePath(), []byte(dev+"\n"), 0o644); err != nil {
 		page(http.StatusInternalServerError, "✗ enregistrement impossible", err.Error())
 		return
@@ -133,7 +133,7 @@ func browserHint(c serverConf, device, devSource, token, machine string, ps []Br
 
 // browserEnvVars : variables du navigateur pour les sessions (tmux du hub et
 // des conteneurs).
-func browserEnvVars() []envVar {
+func BrowserEnvVars() []envVar {
 	f := readBackendsFile()
 	machine := hubName()
 	ps, _, _ := resolveBrowserPaths(f, machine, knownRoots(), onWSL())
@@ -161,7 +161,7 @@ const browserHookCommand = `[ -n "$CL_BROWSER_HINT" ] && printf '%s\n' "$CL_BROW
 
 // syncBrowserHook : hook SessionStart du launcher dans <dir>/settings.json,
 // posé une fois ; les autres hooks sont gardés. JSON illisible : laissé tel quel.
-func syncBrowserHook(dir string) error {
+func SyncBrowserHook(dir string) error {
 	path := filepath.Join(dir, "settings.json")
 	doc := map[string]json.RawMessage{}
 	mode := os.FileMode(0o644)
@@ -255,7 +255,7 @@ func syncBrowserHook(dir string) error {
 }
 
 // printBrowserDevice : section de « claude-launcher-ng2 backends ».
-func printBrowserDevice() {
+func PrintBrowserDevice() {
 	dev, src := browserDevice(readBackendsFile(), hubName())
 	fmt.Printf("\nNavigateur du hub (machine %s) :\n", hubName())
 	if dev == "" {

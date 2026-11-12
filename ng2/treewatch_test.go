@@ -42,7 +42,7 @@ func TestWatchTree(t *testing.T) {
 	base := t.TempDir()
 	_ = os.MkdirAll(filepath.Join(base, "grp/proj"), 0o755)
 	_ = os.WriteFile(filepath.Join(base, "grp/proj/README"), []byte("x"), 0o644)
-	c := watchTree([]string{base})
+	c := WatchTree([]string{base})
 	time.Sleep(100 * time.Millisecond)
 
 	_ = os.Mkdir(filepath.Join(base, "grp/neuf"), 0o755) // nouveau dossier dans un groupe
@@ -70,14 +70,14 @@ func TestWatchTreeRootLostAndBack(t *testing.T) {
 	away := filepath.Join(parent, "PROJETS.demonte")
 	_ = os.MkdirAll(filepath.Join(root, "cat/proj"), 0o755)
 	_ = os.WriteFile(filepath.Join(root, "cat/proj/README"), []byte("x"), 0o644)
-	c := watchTree([]string{root})
+	c := WatchTree([]string{root})
 	time.Sleep(100 * time.Millisecond)
 
 	if err := os.Rename(root, away); err != nil { // le dossier disparaît
 		t.Fatal(err)
 	}
 	waitSignal(t, c, "racine disparue")
-	nodes := scanTree([]string{root})
+	nodes := ScanTree([]string{root})
 	if len(nodes) != 1 || !nodes[0].Root || !nodes[0].Missing {
 		t.Fatalf("racine perdue : %+v, attendu un en-tête « inaccessible »", nodes)
 	}
@@ -86,7 +86,7 @@ func TestWatchTreeRootLostAndBack(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitSignal(t, c, "racine revenue")
-	nodes = scanTree([]string{root})
+	nodes = ScanTree([]string{root})
 	if len(nodes) != 3 || nodes[0].Missing || nodes[2].Name != "proj" {
 		t.Fatalf("racine revenue : %+v", nodes)
 	}

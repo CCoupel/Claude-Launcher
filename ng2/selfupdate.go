@@ -26,16 +26,16 @@ import (
 // (version absente ou suffixée, ex. « dev », « v3.0.1+fix ») ne se remplace pas.
 
 // releaseBase : racine des fichiers de release (CL_RELEASE_BASE la remplace, pour les tests).
-var releaseBase = func() string {
+var ReleaseBase = func() string {
 	if b := os.Getenv("CL_RELEASE_BASE"); b != "" {
 		return strings.TrimRight(b, "/")
 	}
-	return "https://github.com/" + launcherRepo + "/releases/download"
+	return "https://github.com/" + LauncherRepo + "/releases/download"
 }()
 
-var releaseVerRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
+var ReleaseVerRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
-func ngAsset() string { return "claude-launcher-ng2-" + runtime.GOOS + "-" + runtime.GOARCH }
+func NgAsset() string { return "claude-launcher-ng2-" + runtime.GOOS + "-" + runtime.GOARCH }
 
 func updateDisabled() bool {
 	if os.Getenv("CL_NO_UPDATE") == "1" {
@@ -52,24 +52,24 @@ func updateDisabled() bool {
 // selfUpdate : à appeler avant runShell. Hors ligne ou en cas d'échec, on
 // démarre simplement avec la version en place. Si le binaire a été remplacé,
 // le processus est remplacé par le nouveau binaire (pas de retour).
-func selfUpdate() {
+func SelfUpdate() {
 	if updateDisabled() {
 		return
 	}
-	tag, _, err := latestTag(launcherRepo, "CL_FAKE_LATEST_LAUNCHER")
-	if err != nil || !releaseVerRe.MatchString(tag) {
+	tag, _, err := latestTag(LauncherRepo, "CL_FAKE_LATEST_LAUNCHER")
+	if err != nil || !ReleaseVerRe.MatchString(tag) {
 		return
 	}
-	exe, bin, script := updateTargets(tag)
+	exe, bin, script := UpdateTargets(tag)
 	if bin == "" && script == "" {
 		return
 	}
-	if !releaseReady(releaseBase + "/" + tag) {
-		fmt.Printf("\033[38;5;208m  ↑ %s %s : release pas encore publiée — démarrage avec la version en place\033[0m\n", ngName, tag)
+	if !releaseReady(ReleaseBase + "/" + tag) {
+		fmt.Printf("\033[38;5;208m  ↑ %s %s : release pas encore publiée — démarrage avec la version en place\033[0m\n", NgName, tag)
 		return
 	}
-	fmt.Printf("\033[1;32m  ↑ %s %s disponible — mise à jour…\033[0m\n", ngName, tag)
-	binDone, scriptDone, err := applyUpdate(releaseBase+"/"+tag, bin, script)
+	fmt.Printf("\033[1;32m  ↑ %s %s disponible — mise à jour…\033[0m\n", NgName, tag)
+	binDone, scriptDone, err := applyUpdate(ReleaseBase+"/"+tag, bin, script)
 	if scriptDone {
 		fmt.Println("  ✓ script mis à jour :", script)
 	}
@@ -80,7 +80,7 @@ func selfUpdate() {
 	if binDone {
 		fmt.Println("  ✓ launcher mis à jour. Relancement…")
 		_ = os.Setenv("CL_NO_UPDATE", "1") // le nouveau binaire ne revérifie pas
-		err := execBinary(exe, os.Args, os.Environ())
+		err := ExecBinary(exe, os.Args, os.Environ())
 		fmt.Fprintln(os.Stderr, "relance impossible :", err)
 		os.Exit(1)
 	}
@@ -88,30 +88,30 @@ func selfUpdate() {
 
 // updateTargets : fichiers à remplacer pour passer à tag (chemin vide : à jour,
 // ou binaire de dev qui ne se remplace pas).
-func updateTargets(tag string) (exe, bin, script string) {
-	exe, err := selfExe()
+func UpdateTargets(tag string) (exe, bin, script string) {
+	exe, err := SelfExe()
 	if err != nil {
 		return "", "", ""
 	}
-	if releaseVerRe.MatchString(ngVersion) && versionNewer(ngVersion, tag) {
+	if ReleaseVerRe.MatchString(NgVersion) && VersionNewer(NgVersion, tag) {
 		bin = exe
 	}
 	// v5 ne livre plus claude-launcher.sh (redirection v3 → v4) : seul le binaire est mis à jour.
 	return exe, bin, ""
 }
 
-type updDoneMsg struct {
-	tag     string
-	binDone bool
-	err     error
-	stale   bool // binaire préparé disparu ou modifié : à repréparer
+type UpdDoneMsg struct {
+	Tag     string
+	BinDone bool
+	Err     error
+	Stale   bool // binaire préparé disparu ou modifié : à repréparer
 }
 
 // restartOnNewBinary : après une mise à jour depuis le navigateur, relance le
 // pane d'infos puis le navigateur lui-même sur le binaire installé (respawn-pane
 // tue ce processus). Les projets et la zone tmux ne sont pas touchés.
 func restartOnNewBinary() {
-	exe, err := selfExe() // chemin du fichier, même remplacé ou après un remontage
+	exe, err := SelfExe() // chemin du fichier, même remplacé ou après un remontage
 	if err != nil {
 		return
 	}
@@ -126,7 +126,7 @@ func restartOnNewBinary() {
 // fichier est vérifié contre SHA256SUMS avant de remplacer l'existant d'un seul
 // rename : jamais de fichier à moitié écrit.
 func applyUpdate(base, bin, script string) (binDone, scriptDone bool, err error) {
-	sums, err := fetchSums(base + "/SHA256SUMS")
+	sums, err := FetchSums(base + "/SHA256SUMS")
 	if err != nil {
 		return false, false, err
 	}
@@ -139,7 +139,7 @@ func applyUpdate(base, bin, script string) (binDone, scriptDone bool, err error)
 		}
 	}
 	if bin != "" {
-		if err := replaceVerified(base, ngAsset(), sums, bin); err != nil {
+		if err := replaceVerified(base, NgAsset(), sums, bin); err != nil {
 			errs = append(errs, err.Error())
 		} else {
 			binDone = true
@@ -195,22 +195,22 @@ func httpGetP(url string, timeout time.Duration, accept string, prog progress) (
 // peut répondre 5xx pour certains fichiers alors que l'API les sert (vu en v5.3.0 :
 // 504 constant) : un nouvel essai, puis l'API (releases/tags/<tag> → assets/<id>).
 func releaseGet(url string, timeout time.Duration) ([]byte, error) {
-	return releaseGetP(url, timeout, nil)
+	return ReleaseGetP(url, timeout, nil)
 }
 
-func releaseGetP(url string, timeout time.Duration, prog progress) ([]byte, error) {
+func ReleaseGetP(url string, timeout time.Duration, prog progress) ([]byte, error) {
 	b, err := httpGetP(url, timeout, "", prog)
 	if err == nil || !retryable(err) {
 		return b, err
 	}
-	time.Sleep(releaseRetryWait)
+	time.Sleep(ReleaseRetryWait)
 	if b, err = httpGetP(url, timeout, "", prog); err == nil || !retryable(err) {
 		return b, err
 	}
-	if !strings.HasPrefix(url, releaseBase+"/") {
+	if !strings.HasPrefix(url, ReleaseBase+"/") {
 		return nil, err
 	}
-	rest := strings.SplitN(strings.TrimPrefix(url, releaseBase+"/"), "/", 2) // <tag>/<nom>
+	rest := strings.SplitN(strings.TrimPrefix(url, ReleaseBase+"/"), "/", 2) // <tag>/<nom>
 	if len(rest) != 2 {
 		return nil, err
 	}
@@ -224,7 +224,7 @@ func releaseGetP(url string, timeout time.Duration, prog progress) ([]byte, erro
 	return b, nil
 }
 
-var releaseRetryWait = 2 * time.Second
+var ReleaseRetryWait = 2 * time.Second
 
 // retryable : erreur réseau ou réponse 5xx (pas un 404 : fichier absent).
 func retryable(err error) bool {
@@ -240,7 +240,7 @@ func apiAsset(tag, name string, timeout time.Duration, prog progress) ([]byte, e
 	}
 	for _, a := range rel {
 		if a.Name == name {
-			return httpGetP(fmt.Sprintf("%s/repos/%s/releases/assets/%d", apiBase, launcherRepo, a.ID), timeout, "application/octet-stream", prog)
+			return httpGetP(fmt.Sprintf("%s/repos/%s/releases/assets/%d", ApiBase, LauncherRepo, a.ID), timeout, "application/octet-stream", prog)
 		}
 	}
 	return nil, fmt.Errorf("%s absent de la release %s", name, tag)
@@ -254,7 +254,7 @@ type relAsset struct {
 
 // releaseAssets : fichiers de la release tag du launcher, selon l'API.
 func releaseAssets(tag string) ([]relAsset, error) {
-	b, err := httpGet(apiBase+"/repos/"+launcherRepo+"/releases/tags/"+tag, 10*time.Second)
+	b, err := httpGet(ApiBase+"/repos/"+LauncherRepo+"/releases/tags/"+tag, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -270,13 +270,13 @@ func releaseAssets(tag string) ([]relAsset, error) {
 // releasePublished : la release tag porte-t-elle SHA256SUMS et le binaire de la
 // plateforme ? Selon l'API (indépendante des liens directs, parfois en 504) ;
 // API injoignable (autre qu'un 404) : par le lien direct de SHA256SUMS.
-func releasePublished(tag string) bool {
+func ReleasePublished(tag string) bool {
 	as, err := releaseAssets(tag)
 	if err != nil {
 		if err.Error() == "HTTP 404" {
 			return false
 		}
-		return releaseReady(releaseBase + "/" + tag)
+		return releaseReady(ReleaseBase + "/" + tag)
 	}
 	got := map[string]bool{}
 	for _, a := range as {
@@ -284,19 +284,19 @@ func releasePublished(tag string) bool {
 			got[a.Name] = true
 		}
 	}
-	return got["SHA256SUMS"] && got[ngAsset()]
+	return got["SHA256SUMS"] && got[NgAsset()]
 }
 
 // releaseReady : la release est-elle téléchargeable ? Le tag existe dès le push,
 // les fichiers seulement à la fin de la CI.
 func releaseReady(base string) bool {
-	sums, err := fetchSums(base + "/SHA256SUMS")
-	_, ok := sums[ngAsset()]
+	sums, err := FetchSums(base + "/SHA256SUMS")
+	_, ok := sums[NgAsset()]
 	return err == nil && ok
 }
 
 // fetchSums : « <sha256>  <nom> » par ligne (format de sha256sum).
-func fetchSums(url string) (map[string]string, error) {
+func FetchSums(url string) (map[string]string, error) {
 	b, err := releaseGet(url, 10*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("SHA256SUMS : %w", err)
@@ -320,20 +320,20 @@ func replaceVerified(base, name string, sums map[string]string, dst string) erro
 	if err != nil {
 		return fmt.Errorf("%s : %w", name, err)
 	}
-	if sumOf(body) != want {
+	if SumOf(body) != want {
 		return fmt.Errorf("%s : somme SHA-256 incorrecte", name)
 	}
-	return writeAtomic(dst, body)
+	return WriteAtomic(dst, body)
 }
 
-func sumOf(b []byte) string {
+func SumOf(b []byte) string {
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
 
 // writeAtomic : remplace dst par body d'un seul rename (fichier temporaire à
 // côté de dst : même système de fichiers), droits de dst conservés.
-func writeAtomic(dst string, body []byte) error {
+func WriteAtomic(dst string, body []byte) error {
 	mode := os.FileMode(0o755)
 	if st, err := os.Stat(dst); err == nil {
 		mode = st.Mode().Perm()

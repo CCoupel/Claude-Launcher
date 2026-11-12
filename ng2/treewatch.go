@@ -80,7 +80,7 @@ func dirsSig(dirs []string) string {
 
 // watchTree : envoie sur le canal rendu à chaque changement de l'arborescence
 // (rafales regroupées ; un signal en attente suffit).
-func watchTree(roots []string) <-chan struct{} {
+func WatchTree(roots []string) <-chan struct{} {
 	c := make(chan struct{}, 1)
 	go runTreeWatch(roots, c)
 	return c
@@ -104,7 +104,7 @@ func runTreeWatch(roots []string, c chan<- struct{}) {
 			// scruté, pour voir son retour. inotify ne peut pas le surveiller et
 			// statfs y échoue : sans cela il ne serait plus regardé du tout et le
 			// navigateur resterait vide après le remontage.
-			if w == nil || onNetworkFS(d) || !dirReachable(d) {
+			if w == nil || OnNetworkFS(d) || !dirReachable(d) {
 				polled = append(polled, d)
 				continue
 			}

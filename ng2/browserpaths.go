@@ -193,8 +193,8 @@ func resolveBrowserPaths(f backendsFile, host string, roots []string, wsl bool) 
 
 // knownRoots : racines de projets et racines partagées des backends.
 func knownRoots() []string {
-	roots := append([]string{}, loadConfig().Roots...)
-	if bs, err := loadBackends(); err == nil {
+	roots := append([]string{}, LoadConfig().Roots...)
+	if bs, err := LoadBackends(); err == nil {
 		for _, b := range bs {
 			roots = append(roots, b.Shared...)
 		}
@@ -204,7 +204,7 @@ func knownRoots() []string {
 
 func readBackendsFile() backendsFile {
 	var f backendsFile
-	if b, err := os.ReadFile(backendsPath()); err == nil {
+	if b, err := os.ReadFile(BackendsPath()); err == nil {
 		_ = yaml.Unmarshal(b, &f)
 	}
 	return f
@@ -231,13 +231,13 @@ func browserPathJSON(ps []BrowserPath) string {
 // hub, hérité par les fenêtres créées ensuite (teamleader et teammates) :
 // CL_BROWSER_PATH_MAP et CL_BROWSER_HINT (#106).
 func exportBrowserPathsHub() {
-	for _, v := range browserEnvVars() {
+	for _, v := range BrowserEnvVars() {
 		_ = dtmux("set-environment", "-g", v.K, v.V).Run()
 	}
 }
 
 // printBrowserPaths : section de « claude-launcher-ng2 backends ».
-func printBrowserPaths() {
+func PrintBrowserPaths() {
 	ps, source, warns := browserPaths()
 	fmt.Printf("\nChemins vus par le navigateur (%s, machine %s) — %s :\n", browserPathVar, hubName(), source)
 	if len(ps) == 0 {

@@ -30,19 +30,19 @@ import (
 // Chaque serveur est un backend « membre » (at) : même nom, host fixé ; tout ce
 // qui agit sur un conteneur passe par le membre de son serveur (Engine.of).
 
-func (b BackendConf) pool() bool { return len(b.Hosts) > 0 }
+func (b BackendConf) IsPool() bool { return len(b.Hosts) > 0 }
 
 // servers : serveurs du backend (un seul hors groupe).
-func (b BackendConf) servers() []string {
-	if b.pool() {
+func (b BackendConf) Servers() []string {
+	if b.IsPool() {
 		return b.Hosts
 	}
 	return []string{b.Host}
 }
 
 // at : membre du groupe pour le serveur h (le backend lui-même hors groupe).
-func (b BackendConf) at(h string) BackendConf {
-	if !b.pool() || h == "" {
+func (b BackendConf) At(h string) BackendConf {
+	if !b.IsPool() || h == "" {
 		return b
 	}
 	c := b
@@ -51,26 +51,26 @@ func (b BackendConf) at(h string) BackendConf {
 }
 
 // of : moteur du serveur où se trouve le conteneur f.
-func (e Engine) of(f Found) Engine { return Engine{e.b.at(f.Server)} }
+func (e Engine) Of(f Found) Engine { return Engine{e.B.At(f.Server)} }
 
 // listPool : conteneurs NG2 de tous les serveurs, interrogés en parallèle ;
 // down : serveurs qui n'ont pas répondu, avec leur erreur.
-func (e Engine) listPool() (fs []Found, down map[string]error) {
+func (e Engine) ListPool() (fs []Found, down map[string]error) {
 	down = map[string]error{}
-	if !e.b.pool() {
+	if !e.B.IsPool() {
 		l, err := e.listOne()
 		if err != nil {
-			down[e.b.Host] = err
+			down[e.B.Host] = err
 		}
 		return l, down
 	}
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	for _, h := range e.b.Hosts {
+	for _, h := range e.B.Hosts {
 		wg.Add(1)
 		go func(h string) {
 			defer wg.Done()
-			l, err := Engine{e.b.at(h)}.listOne()
+			l, err := Engine{e.B.At(h)}.listOne()
 			mu.Lock()
 			defer mu.Unlock()
 			if err != nil {
@@ -89,7 +89,7 @@ func (e Engine) listPool() (fs []Found, down map[string]error) {
 }
 
 // downText : « srv1, srv2 » (serveurs injoignables, triés).
-func downText(down map[string]error) string {
+func DownText(down map[string]error) string {
 	var l []string
 	for h := range down {
 		l = append(l, h)
@@ -99,9 +99,9 @@ func downText(down map[string]error) string {
 }
 
 // busiest : nombre de conteneurs NG2 en marche par serveur joignable.
-func loadOf(b BackendConf, fs []Found, down map[string]error) map[string]int {
+func LoadOf(b BackendConf, fs []Found, down map[string]error) map[string]int {
 	n := map[string]int{}
-	for _, h := range b.servers() {
+	for _, h := range b.Servers() {
 		if _, ko := down[h]; !ko {
 			n[h] = 0
 		}
@@ -118,7 +118,7 @@ func loadOf(b BackendConf, fs []Found, down map[string]error) map[string]int {
 // en cas d'égalité).
 func leastLoaded(b BackendConf, load map[string]int) string {
 	best := ""
-	for _, h := range b.servers() {
+	for _, h := range b.Servers() {
 		if n, ok := load[h]; ok && !b.Drain[h] && (best == "" || n < load[best]) {
 			best = h
 		}
@@ -252,7 +252,7 @@ func (b BackendConf) machine(h string) string {
 
 // addMates : ajoute à load (par serveur de b) les conteneurs NG2 en marche des
 // autres backends du pool, machine par machine (interrogés en parallèle).
-func addMates(b BackendConf, load map[string]int) {
+func AddMates(b BackendConf, load map[string]int) {
 	if len(b.Mates) == 0 {
 		return
 	}
@@ -266,7 +266,7 @@ func addMates(b BackendConf, load map[string]int) {
 		wg.Add(1)
 		go func(m BackendConf) {
 			defer wg.Done()
-			fs, _ := Engine{m}.listPool()
+			fs, _ := Engine{m}.ListPool()
 			mu.Lock()
 			defer mu.Unlock()
 			for _, f := range fs {
@@ -302,7 +302,7 @@ func lockProject(proj string, wait time.Duration) (func(), error) {
 	for {
 		f, err := os.OpenFile(p, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
 		if err == nil {
-			fmt.Fprintf(f, "%s %s\n", launcherID(), time.Now().Format(time.RFC3339))
+			fmt.Fprintf(f, "%s %s\n", LauncherID(), time.Now().Format(time.RFC3339))
 			f.Close()
 			return func() { _ = os.Remove(p) }, nil
 		}
@@ -324,14 +324,14 @@ func lockProject(proj string, wait time.Duration) (func(), error) {
 // ── Choix du serveur à l'ouverture ────────────────────────────────────────
 
 // asker : question posée dans la fenêtre du projet (réponse lue sur in).
-type asker struct {
-	out io.Writer
-	in  *bufio.Reader
+type Asker struct {
+	Out io.Writer
+	In  *bufio.Reader
 }
 
-func (a asker) ask(q string) string {
-	fmt.Fprint(a.out, q)
-	l, err := a.in.ReadString('\n')
+func (a Asker) ask(q string) string {
+	fmt.Fprint(a.Out, q)
+	l, err := a.In.ReadString('\n')
 	if err != nil {
 		return ""
 	}
@@ -340,13 +340,13 @@ func (a asker) ask(q string) string {
 
 // place : moteur du serveur du projet dans le groupe (le backend lui-même hors
 // groupe). Le verrou rendu (unlock) est à libérer une fois le conteneur créé.
-func (e Engine) place(proj string, a asker) (Engine, func(), error) {
+func (e Engine) Place(proj string, a Asker) (Engine, func(), error) {
 	noop := func() {}
-	if !e.b.pool() {
+	if !e.B.IsPool() {
 		return e, noop, nil
 	}
 	find := func() ([]Found, []Found, map[string]error) {
-		fs, down := e.listPool()
+		fs, down := e.ListPool()
 		var mine []Found
 		for _, f := range fs {
 			if f.Project == proj {
@@ -364,29 +364,29 @@ func (e Engine) place(proj string, a asker) (Engine, func(), error) {
 		}
 		fs, mine2, down2 := find()
 		if len(mine2) == 0 {
-			load := loadOf(e.b, fs, down2)
-			addMates(e.b, load)
-			best := leastLoaded(e.b, load)
+			load := LoadOf(e.B, fs, down2)
+			AddMates(e.B, load)
+			best := leastLoaded(e.B, load)
 			if best == "" {
 				unlock()
 				if len(load) > 0 {
-					return e, noop, fmt.Errorf("groupe %s : aucun serveur disponible (tous en drain)", e.b.Name)
+					return e, noop, fmt.Errorf("groupe %s : aucun serveur disponible (tous en drain)", e.B.Name)
 				}
-				return e, noop, fmt.Errorf("groupe %s : aucun serveur ne répond (%s)", e.b.Name, downText(down2))
+				return e, noop, fmt.Errorf("groupe %s : aucun serveur ne répond (%s)", e.B.Name, DownText(down2))
 			}
 			if len(down2) > 0 {
-				r := a.ask(fmt.Sprintf("⚠ %s injoignable(s) : le projet y est peut-être. Démarrer quand même sur %s ? [o/N] ", downText(down2), best))
+				r := a.ask(fmt.Sprintf("⚠ %s injoignable(s) : le projet y est peut-être. Démarrer quand même sur %s ? [o/N] ", DownText(down2), best))
 				if r != "o" && r != "y" {
 					unlock()
-					return e, noop, fmt.Errorf("ouverture annulée : %s injoignable(s)", downText(down2))
+					return e, noop, fmt.Errorf("ouverture annulée : %s injoignable(s)", DownText(down2))
 				}
 			}
 			what := "conteneur(s) NG2 en marche"
-			if len(e.b.Mates) > 0 {
+			if len(e.B.Mates) > 0 {
 				what += " sur la machine, tous backends du pool"
 			}
-			fmt.Fprintf(a.out, "  serveur choisi : %s (%d %s)\n", best, load[best], what)
-			return Engine{e.b.at(best)}, unlock, nil
+			fmt.Fprintf(a.Out, "  serveur choisi : %s (%d %s)\n", best, load[best], what)
+			return Engine{e.B.At(best)}, unlock, nil
 		}
 		unlock()
 		mine = mine2
@@ -394,21 +394,21 @@ func (e Engine) place(proj string, a asker) (Engine, func(), error) {
 	if len(mine) > 1 {
 		return e.resolveDup(mine, a)
 	}
-	fmt.Fprintf(a.out, "  serveur : %s\n", mine[0].Server)
-	return e.of(mine[0]), noop, nil
+	fmt.Fprintf(a.Out, "  serveur : %s\n", mine[0].Server)
+	return e.Of(mine[0]), noop, nil
 }
 
 // resolveDup : le même projet sur plusieurs serveurs — demander lequel garder ;
 // les autres conteneurs sont supprimés (avec leurs volumes anonymes).
-func (e Engine) resolveDup(mine []Found, a asker) (Engine, func(), error) {
+func (e Engine) resolveDup(mine []Found, a Asker) (Engine, func(), error) {
 	noop := func() {}
-	fmt.Fprintf(a.out, "\n⚠ conteneur en double pour ce projet :\n")
+	fmt.Fprintf(a.Out, "\n⚠ conteneur en double pour ce projet :\n")
 	for i, f := range mine {
 		st := "arrêté"
 		if f.Running {
 			st = "en marche"
 		}
-		fmt.Fprintf(a.out, "  %d  %s  (%s)\n", i+1, f.Server, st)
+		fmt.Fprintf(a.Out, "  %d  %s  (%s)\n", i+1, f.Server, st)
 	}
 	r := a.ask(fmt.Sprintf("garder lequel ? [1-%d, autre : annuler] ", len(mine)))
 	k, err := strconv.Atoi(r)
@@ -418,11 +418,11 @@ func (e Engine) resolveDup(mine []Found, a asker) (Engine, func(), error) {
 	keep := mine[k-1]
 	for i, f := range mine {
 		if i != k-1 {
-			if out, err := e.of(f).cmd("rm", "-f", "-v", f.Name).CombinedOutput(); err != nil {
+			if out, err := e.Of(f).cmd("rm", "-f", "-v", f.Name).CombinedOutput(); err != nil {
 				return e, noop, fmt.Errorf("suppression du doublon sur %s : %v (%s)", f.Server, err, strings.TrimSpace(string(out)))
 			}
-			fmt.Fprintf(a.out, "  doublon supprimé sur %s\n", f.Server)
+			fmt.Fprintf(a.Out, "  doublon supprimé sur %s\n", f.Server)
 		}
 	}
-	return e.of(keep), noop, nil
+	return e.Of(keep), noop, nil
 }

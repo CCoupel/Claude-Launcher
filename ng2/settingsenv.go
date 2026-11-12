@@ -27,7 +27,7 @@ type envVar struct{ K, V string }
 // envVars : GITHUB_TOKEN (GH_TOKEN et GITHUB_PERSONAL_ACCESS_TOKEN),
 // CLAUDE_DISABLE_MOUSE, CLAUDE_EXPERIMENTAL_TEAMS, puis EXTRA_ENVS (« NOM=valeur »,
 // une paire de guillemets autour de la valeur ôtée) ; la dernière l'emporte.
-func (c Config) envVars() []envVar {
+func (c Config) EnvVars() []envVar {
 	var v []envVar
 	if c.GithubToken != "" {
 		v = append(v, envVar{"GITHUB_PERSONAL_ACCESS_TOKEN", c.GithubToken}, envVar{"GH_TOKEN", c.GithubToken})
@@ -82,7 +82,7 @@ func settingsEnvKeysPath(dir string) string {
 // syncSettingsEnv : met le bloc env de <dir>/settings.json à jour avec vars ;
 // n'écrit que si quelque chose change. Fichier illisible (JSON invalide) :
 // laissé tel quel. Une valeur secrète présente : fichier en 0600.
-func syncSettingsEnv(dir string, vars []envVar) error {
+func SyncSettingsEnv(dir string, vars []envVar) error {
 	path := filepath.Join(dir, "settings.json")
 	doc := map[string]json.RawMessage{}
 	mode := os.FileMode(0o644)

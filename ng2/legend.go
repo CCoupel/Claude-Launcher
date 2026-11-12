@@ -35,10 +35,10 @@ type projInfo struct {
 	backend   string    // backend affecté (host par défaut)
 	ctr       Found     // conteneur du projet
 	ctrKnown  bool      // … s'il existe
-	problems  []problem // backend affecté inutilisable (diag.go)
+	problems  []Problem // backend affecté inutilisable (diag.go)
 	badCfg    string    // configuration d'exécution invalide : lancement refusé
 	dups      []string  // groupe de serveurs : serveurs où le projet a un conteneur (en double)
-	live      liveSess  // session tmux vivante dans le conteneur…
+	live      LiveSess  // session tmux vivante dans le conteneur…
 	hasLive   bool      // … s'il y en a une
 	dot       sessState // point devant le nom (sessionOf), calculé par le navigateur
 	dotWhy    string    // … et sa signification
@@ -60,21 +60,21 @@ const (
 
 // foreign : la session du conteneur est pilotée par un autre launcher vivant.
 func (p projInfo) foreign() string {
-	if p.hasLive && p.live.owner.alive() && p.live.owner.id != launcherID() {
-		return p.live.owner.id
+	if p.hasLive && p.live.Owner.Alive() && p.live.Owner.Id != LauncherID() {
+		return p.live.Owner.Id
 	}
 	return ""
 }
 
 // claudeLive : claude tourne dans la session du conteneur (pas seulement tmux).
-func (p projInfo) claudeLive() bool { return p.hasLive && p.live.claude }
+func (p projInfo) claudeLive() bool { return p.hasLive && p.live.Claude }
 
 // sessionOf : état du projet (conteneur, session claude, pilotage) et sa signification.
 func sessionOf(p projInfo) (sessState, string) {
 	running := p.ctrKnown && p.ctr.Running
 	switch {
-	case p.open && p.hasLive && p.live.owner.id != "" && p.live.owner.id != launcherID():
-		return sessReadOnly, "ouvert ici en lecture seule : " + p.live.owner.id + " a la main (Entrée : rejoindre ou prendre la main)"
+	case p.open && p.hasLive && p.live.Owner.Id != "" && p.live.Owner.Id != LauncherID():
+		return sessReadOnly, "ouvert ici en lecture seule : " + p.live.Owner.Id + " a la main (Entrée : rejoindre ou prendre la main)"
 	case p.open:
 		return sessHere, "ouvert ici, ce launcher a la main (Ctrl+clic ou Suppr : fermer)"
 	case p.badCfg != "":
@@ -107,19 +107,19 @@ func dotIndicator(p projInfo) indicator {
 	}
 	switch st {
 	case sessReady:
-		return indicator{icon: "●", style: blue, text: why}
+		return indicator{icon: "●", style: Blue, text: why}
 	case sessHere:
-		return indicator{icon: "▲", style: green.Bold(true), text: why}
+		return indicator{icon: "▲", style: Green.Bold(true), text: why}
 	case sessReadOnly:
-		return indicator{icon: "●", style: green.Bold(true), text: why}
+		return indicator{icon: "●", style: Green.Bold(true), text: why}
 	case sessElse:
-		return indicator{icon: "■", style: orange.Bold(true), text: why}
+		return indicator{icon: "■", style: Orange.Bold(true), text: why}
 	case sessOrphan:
-		return indicator{icon: "●", style: orange.Bold(true), text: why}
+		return indicator{icon: "●", style: Orange.Bold(true), text: why}
 	case sessAnomaly:
-		return indicator{icon: "✕", style: red, text: why}
+		return indicator{icon: "✕", style: Red, text: why}
 	}
-	return indicator{icon: "○", style: dim, text: why}
+	return indicator{icon: "○", style: Dim, text: why}
 }
 
 // badgeIndicators : icônes après le nom, dans l'ordre de la ligne du navigateur.
@@ -146,11 +146,11 @@ func badgeIndicators(p projInfo) []indicator {
 		out = append(out, i)
 	}
 	if p.hasSess && !p.open {
-		ago := " (il y a " + ageLabel(time.Since(p.sess.Mod)) + ")"
+		ago := " (il y a " + AgeLabel(time.Since(p.sess.Mod)) + ")"
 		if p.sess.Crashed {
-			out = append(out, indicator{icon: "↺", style: red, text: "session interrompue par un crash" + ago + " : reprise proposée à l'ouverture"})
+			out = append(out, indicator{icon: "↺", style: Red, text: "session interrompue par un crash" + ago + " : reprise proposée à l'ouverture"})
 		} else {
-			out = append(out, indicator{icon: "↺", style: yellow, text: "session non close" + ago + " : reprise proposée à l'ouverture"})
+			out = append(out, indicator{icon: "↺", style: Yellow, text: "session non close" + ago + " : reprise proposée à l'ouverture"})
 		}
 	}
 	return out
@@ -163,17 +163,17 @@ func tplIndicator(p projInfo) (indicator, bool) {
 	}
 	switch p.tpl {
 	case TplOK:
-		return indicator{icon: "✔", style: green.Bold(true), text: "template" + have + " à jour"}, true
+		return indicator{icon: "✔", style: Green.Bold(true), text: "template" + have + " à jour"}, true
 	case TplNone:
-		return indicator{icon: "⊘", style: dim, text: "non géré par template"}, true
+		return indicator{icon: "⊘", style: Dim, text: "non géré par template"}, true
 	case TplOutdated:
 		next := "mise à jour"
 		if p.tplLatest != "" {
 			next = p.tplLatest
 		}
-		return indicator{icon: "⚠", style: yellow, text: "template" + have + " en retard, " + next + " disponible (/init-project au lancement)"}, true
+		return indicator{icon: "⚠", style: Yellow, text: "template" + have + " en retard, " + next + " disponible (/init-project au lancement)"}, true
 	case TplMissing:
-		return indicator{icon: "⚠", style: red, text: "fichiers du template manquants (/init-project au lancement)", short: "fichiers manquants"}, true
+		return indicator{icon: "⚠", style: Red, text: "fichiers du template manquants (/init-project au lancement)", short: "fichiers manquants"}, true
 	}
 	return indicator{}, false
 }
@@ -181,13 +181,13 @@ func tplIndicator(p projInfo) (indicator, bool) {
 func msIndicator(st MsState) (indicator, bool) {
 	switch st.Kind {
 	case MsWorking:
-		return indicator{icon: "⚑", style: yellow, text: fmt.Sprintf("milestone %s en cours (%d%%)", st.Title, int(ratio(st.MsRow)*100+0.5))}, true
+		return indicator{icon: "⚑", style: Yellow, text: fmt.Sprintf("milestone %s en cours (%d%%)", st.Title, int(Ratio(st.MsRow)*100+0.5))}, true
 	case MsReleasing:
-		return indicator{icon: "⚑", style: orange, text: "milestone " + st.Title + " terminé, à publier"}, true
+		return indicator{icon: "⚑", style: Orange, text: "milestone " + st.Title + " terminé, à publier"}, true
 	case MsIdle:
-		return indicator{icon: "⚑", style: dim, text: fmt.Sprintf("aucun milestone en cours (%d ouvert(s))", len(st.Pending))}, true
+		return indicator{icon: "⚑", style: Dim, text: fmt.Sprintf("aucun milestone en cours (%d ouvert(s))", len(st.Pending))}, true
 	case MsDone:
-		return indicator{icon: "⚑", style: green, text: "milestone " + st.Title + " publié"}, true
+		return indicator{icon: "⚑", style: Green, text: "milestone " + st.Title + " publié"}, true
 	}
 	return indicator{}, false
 }
@@ -201,7 +201,7 @@ func prIndicator(st MsState) (indicator, bool) {
 	if st.Drafts > 0 {
 		text += fmt.Sprintf(" (dont %d brouillon(s))", st.Drafts)
 	}
-	return indicator{icon: fmt.Sprintf("⇄%d", st.PRs), style: msPurple, text: text}, true
+	return indicator{icon: fmt.Sprintf("⇄%d", st.PRs), style: MsPurple, text: text}, true
 }
 
 // badgeLine : rendu des badges sur la ligne du navigateur.
@@ -227,7 +227,7 @@ func legendLines(p projInfo, w int) []string {
 		if w > 8 {
 			text = strings.ReplaceAll(lipgloss.NewStyle().Width(w-4).Render(text), "\n", "\n    ")
 		}
-		out = append(out, i.style.Render(padRight(i.icon, 3))+" "+text)
+		out = append(out, i.style.Render(PadRight(i.icon, 3))+" "+text)
 	}
 	return out
 }

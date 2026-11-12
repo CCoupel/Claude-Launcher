@@ -17,18 +17,18 @@ import (
 func fakePrefRelease(t *testing.T, bin []byte) (directDown, apiUp *bool) {
 	t.Helper()
 	d, a := true, false
-	sums := sumOf(bin) + "  " + ngAsset() + "\n"
+	sums := SumOf(bin) + "  " + NgAsset() + "\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch p := r.URL.Path; {
-		case p == "/repos/"+launcherRepo+"/releases/tags/v9.9.9":
-			fmt.Fprintf(w, `{"assets":[{"id":1,"name":"SHA256SUMS","state":"uploaded"},{"id":2,"name":%q,"state":"uploaded"}]}`, ngAsset())
+		case p == "/repos/"+LauncherRepo+"/releases/tags/v9.9.9":
+			fmt.Fprintf(w, `{"assets":[{"id":1,"name":"SHA256SUMS","state":"uploaded"},{"id":2,"name":%q,"state":"uploaded"}]}`, NgAsset())
 		case p == "/rel/v9.9.9/SHA256SUMS":
 			fmt.Fprint(w, sums)
-		case p == "/rel/v9.9.9/"+ngAsset() && !d:
+		case p == "/rel/v9.9.9/"+NgAsset() && !d:
 			w.Write(bin)
-		case p == "/rel/v9.9.9/"+ngAsset():
+		case p == "/rel/v9.9.9/"+NgAsset():
 			w.WriteHeader(504)
-		case p == "/repos/"+launcherRepo+"/releases/assets/2" && a:
+		case p == "/repos/"+LauncherRepo+"/releases/assets/2" && a:
 			w.Header().Set("Content-Length", fmt.Sprint(len(bin)))
 			w.Write(bin)
 		default:
@@ -36,9 +36,9 @@ func fakePrefRelease(t *testing.T, bin []byte) (directDown, apiUp *bool) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	oldAPI, oldRel, oldWait, oldVer := apiBase, releaseBase, releaseRetryWait, ngVersion
-	apiBase, releaseBase, releaseRetryWait, ngVersion = srv.URL, srv.URL+"/rel", time.Millisecond, "v5.0.0"
-	t.Cleanup(func() { apiBase, releaseBase, releaseRetryWait, ngVersion = oldAPI, oldRel, oldWait, oldVer })
+	oldAPI, oldRel, oldWait, oldVer := ApiBase, ReleaseBase, ReleaseRetryWait, NgVersion
+	ApiBase, ReleaseBase, ReleaseRetryWait, NgVersion = srv.URL, srv.URL+"/rel", time.Millisecond, "v5.0.0"
+	t.Cleanup(func() { ApiBase, ReleaseBase, ReleaseRetryWait, NgVersion = oldAPI, oldRel, oldWait, oldVer })
 	t.Setenv("TMPDIR", t.TempDir())
 	return &d, &a
 }
@@ -73,7 +73,7 @@ func TestPrefetchStates(t *testing.T) {
 		t.Errorf("orange : %q", a)
 	}
 	// publiée, binaire inaccessible (direct et API en 504) : jaune, raison, réessayer
-	if !releasePublished("v9.9.9") {
+	if !ReleasePublished("v9.9.9") {
 		t.Fatal("release non vue publiée")
 	}
 	m.launcherPub = true

@@ -36,16 +36,16 @@ func TestE2ENamedPool(t *testing.T) {
 		"backends:\n"+
 		"  e2e64-a: { type: docker, pool: lab, host: \"tcp://{}:2375\", shared: ["+root+"] }\n"+
 		"  e2e64-b: { type: docker, pool: lab, host: \"tcp://{}:2375\", shared: ["+root+"] }\n")
-	bs, err := loadBackends()
+	bs, err := LoadBackends()
 	if err != nil {
 		t.Fatal(err)
 	}
 	A, B := Engine{backendNamed(bs, "e2e64-a")}, Engine{backendNamed(bs, "e2e64-b")}
 	t.Cleanup(func() {
 		for _, e := range []Engine{A, B} {
-			fs, _ := e.listPool()
+			fs, _ := e.ListPool()
 			for _, c := range fs {
-				_ = e.of(c).cmd("rm", "-f", "-v", c.Name).Run()
+				_ = e.Of(c).cmd("rm", "-f", "-v", c.Name).Run()
 			}
 		}
 		os.RemoveAll(h)
@@ -56,18 +56,18 @@ func TestE2ENamedPool(t *testing.T) {
 		p := filepath.Join(h, "PROJETS", "TEST", n)
 		_ = os.MkdirAll(p, 0o755)
 		a, out := answer("")
-		pe, unlock, err := e.place(p, a)
+		pe, unlock, err := e.Place(p, a)
 		if err != nil {
 			unlock()
 			t.Fatalf("place %s : %v\n%s", n, err, out.String())
 		}
-		_, err = pe.ensure(p, env, &strings.Builder{})
+		_, err = pe.Ensure(p, env, &strings.Builder{})
 		unlock()
 		if err != nil {
 			t.Fatalf("ensure %s : %v", n, err)
 		}
-		t.Logf("%s (%s) → %s : %s", n, e.b.Name, pe.b.Server, strings.TrimSpace(out.String()))
-		return pe.b.Server
+		t.Logf("%s (%s) → %s : %s", n, e.B.Name, pe.B.Server, strings.TrimSpace(out.String()))
+		return pe.B.Server
 	}
 	// A, puis B : B voit la charge de A sur la 1re machine → 2e machine
 	s1 := open(A, "a1")

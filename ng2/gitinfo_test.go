@@ -39,7 +39,7 @@ func TestGitIndicators(t *testing.T) {
 
 	check := func(step, wantLocal, wantRemote string) {
 		t.Helper()
-		g := readGit(work)
+		g := ReadGit(work)
 		l, _, _ := g.Local()
 		r, _, _ := g.Remote()
 		if l != wantLocal || r != wantRemote {
@@ -61,7 +61,7 @@ func TestGitIndicators(t *testing.T) {
 	run(work, "commit", "-qm", "c")
 	check("commit non poussé", "◆", "↑1")
 	run(work, "push", "-q")
-	if d := readDetail(work); !strings.HasPrefix(d.VerLocal, "v1.0.0-2-g") || d.VerRelease != "v1.0.0" {
+	if d := ReadDetail(work); !strings.HasPrefix(d.VerLocal, "v1.0.0-2-g") || d.VerRelease != "v1.0.0" {
 		t.Errorf("versions : locale %q release %q", d.VerLocal, d.VerRelease)
 	}
 	// merge de la PR côté origin, puis fetch --prune

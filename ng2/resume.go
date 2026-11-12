@@ -20,7 +20,7 @@ import (
 // consigne pour les relancer d'après la liste de tâches.
 
 // projectDirName : encodage du chemin par Claude Code (tout sauf [A-Za-z0-9] → « - »).
-func projectDirName(path string) string {
+func ProjectDirName(path string) string {
 	var b strings.Builder
 	for _, r := range path {
 		if r < 128 && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
@@ -87,21 +87,21 @@ func sessionEnded(f string) bool {
 
 // Il vit dans ~/.claude (partagé avec les conteneurs, qui le posent eux aussi),
 // dans un dossier propre à NG2 que le launcher v4 ne lit pas.
-func cleanExitPath(dirName string) string {
-	return filepath.Join(claudeDir(), "claude-launcher-ng2", "clean-exit", dirName)
+func CleanExitPath(dirName string) string {
+	return filepath.Join(ClaudeDir(), "claude-launcher-ng2", "clean-exit", dirName)
 }
 
 // cleanExitShell : suite bash de la commande claude, qui pose le marqueur du
 // projet path si claude s'est terminé lui-même (ou sur SIGINT, 130) ; tué par
 // un autre signal (OOM, segfault : statut ≥ 128), c'est un crash.
-func cleanExitShell(path string) string {
-	m := cleanExitPath(projectDirName(path))
-	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + shq(filepath.Dir(m)) + " && touch " + shq(m)
+func CleanExitShell(path string) string {
+	m := CleanExitPath(ProjectDirName(path))
+	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + Shq(filepath.Dir(m)) + " && touch " + Shq(m)
 }
 
 // cleanExited : le marqueur du projet est postérieur (ou égal) à mod.
 func cleanExited(dirName string, mod time.Time) bool {
-	info, err := os.Stat(cleanExitPath(dirName))
+	info, err := os.Stat(CleanExitPath(dirName))
 	return err == nil && !mod.After(info.ModTime())
 }
 
@@ -140,7 +140,7 @@ func scanEnded(f string) bool {
 
 // lastSession : conversation la plus récente du projet ; ok=false s'il n'y en a pas.
 func lastSession(root, path string) (r Resumable, ok bool) {
-	dir := filepath.Join(root, "projects", projectDirName(path))
+	dir := filepath.Join(root, "projects", ProjectDirName(path))
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return r, false
@@ -202,9 +202,9 @@ func sessionTeam(root, id string) (teammates []string, crashed, inUse, unknown b
 	}
 	if p := cfg.LeadProcess; p != nil && p.PID > 0 {
 		switch leaderAliveIn(p.PID, p.PIDSpace) {
-		case leaderAlive:
+		case LeaderAlive:
 			inUse = true
-		case leaderDead:
+		case LeaderDead:
 			crashed = true
 		default: // invérifiable (autre machine) : ouverte ailleurs, sauf preuve contraire (pendingSession)
 			inUse, unknown = true, true
@@ -229,7 +229,7 @@ func resumableSession(root, id string, maxAge time.Duration) bool {
 }
 
 // ageLabel : « 12 min », « 3 h », « 2 j ».
-func ageLabel(d time.Duration) string {
+func AgeLabel(d time.Duration) string {
 	switch {
 	case d < time.Minute:
 		return "moins d'une minute"
@@ -244,7 +244,7 @@ func ageLabel(d time.Duration) string {
 // resumePrompt : consigne envoyée au leader repris dont les teammates ont disparu.
 // « ont été perdus » est la formule que le template reconnaît (MILESTONE_CADRAGE.md
 // 4.2) ; toute l'équipe est respawnée, pas seulement les agents des tâches en cours.
-func resumePrompt(r Resumable) string {
+func ResumePrompt(r Resumable) string {
 	if len(r.Teammates) == 0 {
 		return ""
 	}
@@ -256,37 +256,37 @@ func resumePrompt(r Resumable) string {
 
 // resumeShell : préambule bash qui pose (ou non) la question de reprise et met
 // _rs à 1 si la session doit être reprise. "" si aucune reprise n'est proposée.
-func (c Config) resumeShell(path string) (pre string, r Resumable, ok bool) {
+func (c Config) ResumeShell(path string) (pre string, r Resumable, ok bool) {
 	if c.ResumeMode == "never" {
 		return "", r, false
 	}
-	if r, ok = c.pendingSession(path); !ok {
+	if r, ok = c.PendingSession(path); !ok {
 		return "", r, false
 	}
 	if c.ResumeMode == "always" {
 		return "_rs=1; ", r, true
 	}
-	q := "↺ session précédente (il y a " + ageLabel(time.Since(r.Mod)) + ")"
+	q := "↺ session précédente (il y a " + AgeLabel(time.Since(r.Mod)) + ")"
 	if r.Crashed {
-		q = "⚠ session interrompue (il y a " + ageLabel(time.Since(r.Mod)) + ")"
+		q = "⚠ session interrompue (il y a " + AgeLabel(time.Since(r.Mod)) + ")"
 	}
 	if n := len(r.Teammates); n > 0 {
 		q += fmt.Sprintf(", team de %d teammate(s) à relancer", n)
 	}
 	q += " — la reprendre ? [O/n] "
-	return "_rs=1; read -rp " + shq(q) + ` _r; [[ "$_r" == [nN]* ]] && _rs=''; `, r, true
+	return "_rs=1; read -rp " + Shq(q) + ` _r; [[ "$_r" == [nN]* ]] && _rs=''; `, r, true
 }
 
 // pendingSession : dernière conversation du projet restée en suspens — ni close
 // par /end-session, ni ouverte ailleurs, de moins de RESUME_MAX_AGE_H heures
 // (24 h si la reprise est désactivée). C'est elle que la reprise propose, et
 // elle que signale l'icône « ↺ » du navigateur.
-func (c Config) pendingSession(path string) (r Resumable, ok bool) {
+func (c Config) PendingSession(path string) (r Resumable, ok bool) {
 	maxAge := time.Duration(c.ResumeMaxAgeH) * time.Hour
 	if maxAge <= 0 {
 		maxAge = 24 * time.Hour
 	}
-	r, ok = lastSession(claudeDir(), path)
+	r, ok = lastSession(ClaudeDir(), path)
 	if ok && r.InUse && r.Unknown && !r.Ended && time.Since(r.Mod) < maxAge && ctrSessionGone(path) {
 		// leader d'un conteneur distant : son conteneur (ou pod) n'a plus de
 		// session tmux — recréé, arrêté ou disparu — donc le leader est mort
@@ -299,7 +299,7 @@ func (c Config) pendingSession(path string) (r Resumable, ok bool) {
 }
 
 // resumeMaxAge : fenêtre de reprise (0 si la reprise est désactivée).
-func (c Config) resumeMaxAge() time.Duration {
+func (c Config) ResumeMaxAge() time.Duration {
 	if c.ResumeMode == "never" {
 		return 0
 	}

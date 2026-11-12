@@ -33,9 +33,9 @@ func TestE2EPool(t *testing.T) {
 	b := BackendConf{Name: "e2e-pool", Type: "docker", Hosts: hosts, Shared: []string{root}}
 	e := Engine{b}
 	t.Cleanup(func() {
-		fs, _ := e.listPool()
+		fs, _ := e.ListPool()
 		for _, c := range fs {
-			_ = e.of(c).cmd("rm", "-f", "-v", c.Name).Run()
+			_ = e.Of(c).cmd("rm", "-f", "-v", c.Name).Run()
 		}
 		os.RemoveAll(h)
 	})
@@ -48,21 +48,21 @@ func TestE2EPool(t *testing.T) {
 	open := func(e Engine, p, reply string) (Engine, string) {
 		t.Helper()
 		a, out := answer(reply)
-		pe, unlock, err := e.place(p, a)
+		pe, unlock, err := e.Place(p, a)
 		if err != nil {
 			unlock()
 			t.Fatalf("place %s : %v\n%s", filepath.Base(p), err, out.String())
 		}
 		var log bytes.Buffer
-		_, err = pe.ensure(p, env, &log)
+		_, err = pe.Ensure(p, env, &log)
 		unlock()
 		if err != nil {
-			t.Fatalf("ensure %s sur %s : %v\n%s", filepath.Base(p), pe.b.Server, err, log.String())
+			t.Fatalf("ensure %s sur %s : %v\n%s", filepath.Base(p), pe.B.Server, err, log.String())
 		}
 		return pe, out.String()
 	}
 	where := func(p string) []string {
-		fs, _ := Engine{b}.listPool() // vue d'un autre launcher : rien en mémoire
+		fs, _ := Engine{b}.ListPool() // vue d'un autre launcher : rien en mémoire
 		var s []string
 		for _, c := range fs {
 			if c.Project == p {
@@ -79,7 +79,7 @@ func TestE2EPool(t *testing.T) {
 		p := proj("p" + strconv.Itoa(i))
 		ps = append(ps, p)
 		pe, _ := open(e, p, "")
-		seen[pe.b.Server] = true
+		seen[pe.B.Server] = true
 	}
 	if len(seen) != len(hosts) {
 		t.Fatalf("répartition : %d serveurs utilisés pour %d projets (%v)", len(seen), len(hosts), seen)
@@ -96,10 +96,10 @@ func TestE2EPool(t *testing.T) {
 	// 3. serveur gardé, même conteneur arrêté
 	first := where(ps[0])[0]
 	pe, _ := open(e, ps[0], "")
-	_ = pe.cmd("stop", "-t", "1", ctrName(ps[0])).Run()
+	_ = pe.cmd("stop", "-t", "1", CtrName(ps[0])).Run()
 	pe, _ = open(e, ps[0], "")
-	if pe.b.Server != first || len(where(ps[0])) != 1 {
-		t.Errorf("serveur non gardé : %s → %s (%v)", first, pe.b.Server, where(ps[0]))
+	if pe.B.Server != first || len(where(ps[0])) != 1 {
+		t.Errorf("serveur non gardé : %s → %s (%v)", first, pe.B.Server, where(ps[0]))
 	}
 
 	// 4. deux launchers ouvrent le même nouveau projet au même instant : un seul conteneur
@@ -119,18 +119,18 @@ func TestE2EPool(t *testing.T) {
 	if other == first {
 		other = hosts[1]
 	}
-	args, err := Engine{b.at(other)}.runArgs(ctrName(ps[0]), ps[0], env)
+	args, err := Engine{b.At(other)}.runArgs(CtrName(ps[0]), ps[0], env)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out, err := (Engine{b.at(other)}).cmd(args...).CombinedOutput(); err != nil {
+	if out, err := (Engine{b.At(other)}).cmd(args...).CombinedOutput(); err != nil {
 		t.Fatalf("doublon : %v %s", err, out)
 	}
 	if w := where(ps[0]); len(w) != 2 {
 		t.Fatalf("doublon non vu : %v", w)
 	}
 	keep, k := 1, 0 // garder celui de « first » : son rang dans la liste triée
-	fs, _ := e.listPool()
+	fs, _ := e.ListPool()
 	for _, c := range fs {
 		if c.Project == ps[0] {
 			k++
@@ -140,8 +140,8 @@ func TestE2EPool(t *testing.T) {
 		}
 	}
 	pe, out := open(e, ps[0], strconv.Itoa(keep)+"\n")
-	if pe.b.Server != first || !strings.Contains(out, "doublon supprimé sur "+other) || len(where(ps[0])) != 1 {
-		t.Errorf("doublon : gardé %s, attendu %s ; %v\n%s", pe.b.Server, first, where(ps[0]), out)
+	if pe.B.Server != first || !strings.Contains(out, "doublon supprimé sur "+other) || len(where(ps[0])) != 1 {
+		t.Errorf("doublon : gardé %s, attendu %s ; %v\n%s", pe.B.Server, first, where(ps[0]), out)
 	}
 
 	// 6. serveur injoignable dans le groupe : question, puis démarrage ailleurs
@@ -149,7 +149,7 @@ func TestE2EPool(t *testing.T) {
 	bad.Hosts = append([]string{"tcp://192.0.2.1:2375"}, hosts...) // adresse de documentation : jamais joignable
 	p6 := proj("injoignable")
 	pe, out = open(Engine{bad}, p6, "o\n")
-	if !strings.Contains(out, "192.0.2.1:2375 injoignable") || pe.b.Server == "tcp://192.0.2.1:2375" {
-		t.Errorf("serveur injoignable : %s\n%s", pe.b.Server, out)
+	if !strings.Contains(out, "192.0.2.1:2375 injoignable") || pe.B.Server == "tcp://192.0.2.1:2375" {
+		t.Errorf("serveur injoignable : %s\n%s", pe.B.Server, out)
 	}
 }

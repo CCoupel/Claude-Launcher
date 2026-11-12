@@ -36,7 +36,7 @@ import (
 
 const (
 	ctrSocket  = "cl" // socket tmux dans le conteneur
-	ctrSession = "cl" // session du projet dans ce tmux
+	CtrSession = "cl" // session du projet dans ce tmux
 	envFile    = ".claude-launcher/env.yaml"
 )
 
@@ -59,7 +59,7 @@ type EnvMount struct {
 	RO   *bool  `yaml:"ro"` // lecture seule par défaut
 }
 
-func envPath(proj string) string { return filepath.Join(proj, envFile) }
+func EnvPath(proj string) string { return filepath.Join(proj, envFile) }
 
 // ── Environnement fourni par le template (#79) ────────────────────────────
 //
@@ -75,8 +75,8 @@ const envTemplateFile = ".claude-launcher/env-template.yaml"
 func envTemplatePath(proj string) string { return filepath.Join(proj, envTemplateFile) }
 
 // hasEnv : le projet décrit un environnement conteneur (l'un des deux fichiers).
-func hasEnv(proj string) bool {
-	for _, p := range []string{envPath(proj), envTemplatePath(proj)} {
+func HasEnv(proj string) bool {
+	for _, p := range []string{EnvPath(proj), envTemplatePath(proj)} {
 		if _, err := os.Stat(p); err == nil {
 			return true
 		}
@@ -110,9 +110,9 @@ func parseEnvFile(b []byte, name string) (EnvSpec, error) {
 
 // loadEnv : environnement du projet, env-template.yaml et env.yaml fusionnés.
 // Aucun des deux : erreur « fichier absent » (os.IsNotExist).
-func loadEnv(proj string) (EnvSpec, error) {
+func LoadEnv(proj string) (EnvSpec, error) {
 	var e EnvSpec
-	pb, perr := os.ReadFile(envPath(proj))
+	pb, perr := os.ReadFile(EnvPath(proj))
 	tb, terr := os.ReadFile(envTemplatePath(proj))
 	if perr != nil && terr != nil {
 		if os.IsNotExist(perr) && !os.IsNotExist(terr) {
@@ -216,14 +216,14 @@ func (e EnvSpec) withProject(p EnvSpec) EnvSpec {
 // chaque projet. Clés : packages, packages_by_manager, setup, on_start — celles
 // qui ne concernent pas un projet en particulier.
 
-func launcherEnvPath() string { return filepath.Join(ng2ConfigDir(), "env.yaml") }
+func LauncherEnvPath() string { return filepath.Join(Ng2ConfigDir(), "env.yaml") }
 
 var launcherEnvKeys = map[string]bool{"packages": true, "packages_by_manager": true, "setup": true, "on_start": true}
 
 // loadLauncherEnv : env.yaml du launcher ; absent = vide.
 func loadLauncherEnv() (EnvSpec, error) {
 	var e EnvSpec
-	b, err := os.ReadFile(launcherEnvPath())
+	b, err := os.ReadFile(LauncherEnvPath())
 	if os.IsNotExist(err) {
 		return e, nil
 	}
@@ -232,15 +232,15 @@ func loadLauncherEnv() (EnvSpec, error) {
 	}
 	var keys map[string]any
 	if err := yaml.Unmarshal(b, &keys); err != nil {
-		return e, fmt.Errorf("%s : %w", launcherEnvPath(), err)
+		return e, fmt.Errorf("%s : %w", LauncherEnvPath(), err)
 	}
 	for k := range keys {
 		if !launcherEnvKeys[k] {
-			return e, fmt.Errorf("%s : clé « %s » réservée au env.yaml d'un projet (ici : packages, packages_by_manager, setup, on_start)", launcherEnvPath(), k)
+			return e, fmt.Errorf("%s : clé « %s » réservée au env.yaml d'un projet (ici : packages, packages_by_manager, setup, on_start)", LauncherEnvPath(), k)
 		}
 	}
 	if err := yaml.Unmarshal(b, &e); err != nil {
-		return e, fmt.Errorf("%s : %w", launcherEnvPath(), err)
+		return e, fmt.Errorf("%s : %w", LauncherEnvPath(), err)
 	}
 	e.raw = b
 	return e, nil
@@ -271,8 +271,8 @@ func (e EnvSpec) withLauncher(l EnvSpec) EnvSpec {
 }
 
 // loadEnvFull : env.yaml du projet complété par celui du launcher (bootstrap).
-func loadEnvFull(proj string) (EnvSpec, error) {
-	e, err := loadEnv(proj)
+func LoadEnvFull(proj string) (EnvSpec, error) {
+	e, err := LoadEnv(proj)
 	if err != nil {
 		return e, err
 	}
@@ -382,8 +382,8 @@ func (b BackendConf) engine() string {
 // podman joint par ssh). Ses montages y sont résolus : ~/.claude et le projet
 // doivent être sur le stockage partagé, aux mêmes chemins.
 func (b BackendConf) remote() bool {
-	if b.pool() {
-		return b.at(b.Hosts[0]).remote() // groupe : distant comme ses serveurs
+	if b.IsPool() {
+		return b.At(b.Hosts[0]).remote() // groupe : distant comme ses serveurs
 	}
 	return b.Type == "ssh" || b.Type == "k8s" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
 }
@@ -403,13 +403,13 @@ type backendsFile struct {
 	Hubs map[string]hubConf `yaml:"hubs"` // réglages par machine du launcher (hostname)
 }
 
-func backendsPath() string { return filepath.Join(ng2ConfigDir(), "backends.yaml") }
+func BackendsPath() string { return filepath.Join(Ng2ConfigDir(), "backends.yaml") }
 
 // loadBackends : backends déclarés, triés (host en premier). Sans fichier :
 // host + les moteurs de conteneurs trouvés dans le PATH.
-func loadBackends() ([]BackendConf, error) {
+func LoadBackends() ([]BackendConf, error) {
 	var f backendsFile
-	b, err := os.ReadFile(backendsPath())
+	b, err := os.ReadFile(BackendsPath())
 	switch {
 	case err == nil:
 		if err := yaml.Unmarshal(b, &f); err != nil {
@@ -417,7 +417,7 @@ func loadBackends() ([]BackendConf, error) {
 		}
 	case os.IsNotExist(err):
 		f.Backends = map[string]BackendConf{}
-		for _, t := range detectedEngines() {
+		for _, t := range DetectedEngines() {
 			f.Backends[t] = BackendConf{Type: t}
 		}
 	default:
@@ -488,7 +488,7 @@ func loadBackends() ([]BackendConf, error) {
 
 // detectedEngines : moteurs du PATH qui répondent (un « docker » de Docker
 // Desktop sans intégration WSL est présent mais inutilisable). Une fois par processus.
-var detectedEngines = sync.OnceValue(func() []string {
+var DetectedEngines = sync.OnceValue(func() []string {
 	var out []string
 	for _, t := range []string{"podman", "docker"} {
 		if _, err := exec.LookPath(t); err != nil {
@@ -505,7 +505,7 @@ var detectedEngines = sync.OnceValue(func() []string {
 })
 
 // defaultImages : socles proposés par défaut (bootstrap vérifié sur chacun).
-var defaultImages = []string{
+var DefaultImages = []string{
 	"docker.io/library/debian:12",
 	"docker.io/library/ubuntu:24.04",
 	"docker.io/library/rockylinux:9",
@@ -513,34 +513,34 @@ var defaultImages = []string{
 }
 
 // baseImages : socles proposés (images: de backends.yaml, sinon defaultImages).
-func baseImages() []string {
+func BaseImages() []string {
 	var f backendsFile
-	if b, err := os.ReadFile(backendsPath()); err == nil && yaml.Unmarshal(b, &f) == nil && len(f.Images) > 0 {
+	if b, err := os.ReadFile(BackendsPath()); err == nil && yaml.Unmarshal(b, &f) == nil && len(f.Images) > 0 {
 		return f.Images
 	}
-	return defaultImages
+	return DefaultImages
 }
 
 // imageLabel : « debian:12 » pour docker.io/library/debian:12.
-func imageLabel(img string) string {
+func ImageLabel(img string) string {
 	return strings.TrimPrefix(strings.TrimPrefix(img, "docker.io/"), "library/")
 }
 
 // execDefaults : defaults: de backends.yaml (mode et socle présélectionnés).
-func execDefaults() (backend, image string) {
+func ExecDefaults() (backend, image string) {
 	var f backendsFile
-	if b, err := os.ReadFile(backendsPath()); err == nil {
+	if b, err := os.ReadFile(BackendsPath()); err == nil {
 		_ = yaml.Unmarshal(b, &f)
 	}
 	return f.Defaults.Backend, f.Defaults.Image
 }
 
 // ctrBackends : backends à conteneurs (podman, docker, ssh, k8s), dans l'ordre.
-func ctrBackends() []BackendConf {
-	bs, _ := loadBackends()
+func CtrBackends() []BackendConf {
+	bs, _ := LoadBackends()
 	var out []BackendConf
 	for _, b := range bs {
-		if _, ok := engineOf(b); ok {
+		if _, ok := EngineOf(b); ok {
 			out = append(out, b)
 		}
 	}
@@ -549,12 +549,12 @@ func ctrBackends() []BackendConf {
 
 // defaultCtrBackend : backend conteneur présélectionné (defaults.backend s'il
 // désigne un conteneur, sinon le premier).
-func defaultCtrBackend() (BackendConf, bool) {
-	cs := ctrBackends()
+func DefaultCtrBackend() (BackendConf, bool) {
+	cs := CtrBackends()
 	if len(cs) == 0 {
 		return BackendConf{}, false
 	}
-	def, _ := execDefaults()
+	def, _ := ExecDefaults()
 	for _, b := range cs {
 		if b.Name == def {
 			return b, true
@@ -565,7 +565,7 @@ func defaultCtrBackend() (BackendConf, bool) {
 
 // writeEnv : env.yaml minimal et commenté pour le socle img (sans écraser un existant).
 func writeEnv(proj, img string) error {
-	p := envPath(proj)
+	p := EnvPath(proj)
 	if _, err := os.Stat(p); err == nil {
 		return nil
 	}
@@ -581,8 +581,8 @@ func writeEnv(proj, img string) error {
 		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n"), 0o644)
 }
 
-func findBackend(name string) (BackendConf, bool) {
-	bs, err := loadBackends()
+func FindBackend(name string) (BackendConf, bool) {
+	bs, err := LoadBackends()
 	if err != nil {
 		return BackendConf{}, false
 	}
@@ -610,11 +610,11 @@ func ng2StateDir() string {
 // assignPath : affectations projet → backend, à côté de backends.yaml dans le
 // dossier de config (sur le stockage partagé en mode portable) : tous les hubs,
 // sur toutes les machines, savent où vit chaque projet.
-func assignPath() string { return filepath.Join(ng2ConfigDir(), "projects.json") }
+func assignPath() string { return filepath.Join(Ng2ConfigDir(), "projects.json") }
 
 func legacyAssignPath() string { return filepath.Join(ng2StateDir(), "projects.json") }
 
-func readAssignments() map[string]string {
+func ReadAssignments() map[string]string {
 	m := map[string]string{}
 	b, err := os.ReadFile(assignPath())
 	if os.IsNotExist(err) {
@@ -643,8 +643,8 @@ func saveAssignments(m map[string]string) error {
 	return os.Rename(tmp, assignPath())
 }
 
-func writeAssignment(proj, backend string) error {
-	m := readAssignments()
+func WriteAssignment(proj, backend string) error {
+	m := ReadAssignments()
 	if backend == "" {
 		delete(m, proj)
 	} else {
@@ -654,15 +654,15 @@ func writeAssignment(proj, backend string) error {
 }
 
 // assigned : le projet a déjà été configuré (backend choisi, host compris).
-func assigned(proj string) bool {
-	_, ok := readAssignments()[proj]
+func Assigned(proj string) bool {
+	_, ok := ReadAssignments()[proj]
 	return ok
 }
 
 // setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
 // env.yaml absent (template seul, ou rien) : créé avec ce socle.
 func setEnvImage(proj, img string) error {
-	p := envPath(proj)
+	p := EnvPath(proj)
 	b, err := os.ReadFile(p)
 	if os.IsNotExist(err) {
 		return writeEnv(proj, img)
@@ -690,41 +690,41 @@ func setEnvImage(proj, img string) error {
 // configuré ne part jamais ailleurs : backend disparu de backends.yaml, ou
 // env.yaml absent / illisible pour un backend conteneur → erreur (F2 pour
 // reconfigurer), jamais un repli sur l'hôte.
-func launchBackend(proj string) (BackendConf, error) {
-	name, ok := readAssignments()[proj]
+func LaunchBackend(proj string) (BackendConf, error) {
+	name, ok := ReadAssignments()[proj]
 	if !ok {
-		return projectBackend(proj), nil // jamais configuré (aucun backend conteneur : hôte)
+		return ProjectBackend(proj), nil // jamais configuré (aucun backend conteneur : hôte)
 	}
 	if name == "host" {
 		return BackendConf{Name: "host", Type: "host"}, nil
 	}
-	b, found := findBackend(name)
+	b, found := FindBackend(name)
 	if !found {
 		return b, fmt.Errorf("backend « %s » du projet absent de backends.yaml — F2 pour reconfigurer", name)
 	}
-	if _, ok := engineOf(b); ok {
-		if !hasEnv(proj) {
+	if _, ok := EngineOf(b); ok {
+		if !HasEnv(proj) {
 			return b, fmt.Errorf("projet configuré sur « %s » mais ni %s ni %s — F2 pour reconfigurer", name, envFile, envTemplateFile)
 		}
-		if _, err := loadEnv(proj); err != nil {
+		if _, err := LoadEnv(proj); err != nil {
 			return b, fmt.Errorf("%v — corriger le fichier ou F2 pour reconfigurer", err)
 		}
 	}
 	return b, nil
 }
 
-func projectBackend(proj string) BackendConf {
+func ProjectBackend(proj string) BackendConf {
 	host := BackendConf{Name: "host", Type: "host"}
-	if !hasEnv(proj) {
+	if !HasEnv(proj) {
 		return host
 	}
-	name, ok := readAssignments()[proj]
+	name, ok := ReadAssignments()[proj]
 	if !ok {
-		if e, err := loadEnv(proj); err == nil && e.Prefer != "" {
+		if e, err := LoadEnv(proj); err == nil && e.Prefer != "" {
 			name = e.Prefer
 		}
 	}
-	if b, ok := findBackend(name); ok {
+	if b, ok := FindBackend(name); ok {
 		return b
 	}
 	return host
@@ -736,9 +736,9 @@ func projectBackend(proj string) BackendConf {
 // distant en accès direct), ou podman d'une autre machine joint par ssh. Le conteneur porte les labels
 // cl.launcher=ng2, cl.project, cl.backend, cl.image : c'est par eux que le
 // launcher retrouve ses projets au redémarrage (List).
-type Engine struct{ b BackendConf }
+type Engine struct{ B BackendConf }
 
-func engineOf(b BackendConf) (Engine, bool) {
+func EngineOf(b BackendConf) (Engine, bool) {
 	switch b.Type {
 	case "podman", "docker", "ssh", "k8s":
 		return Engine{b}, true
@@ -747,7 +747,7 @@ func engineOf(b BackendConf) (Engine, bool) {
 }
 
 // podman : moteur podman (direct ou par ssh) — utilisateur gardé (keep-id).
-func (e Engine) podman() bool { return e.b.engine() == "podman" }
+func (e Engine) podman() bool { return e.B.engine() == "podman" }
 
 // engineArgv : client du moteur et adresse de son démon / service.
 // sshMux : connexion ssh persistante, partagée par les commandes vers un même
@@ -779,20 +779,20 @@ func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
 // Par ssh, la commande distante est une seule chaîne passée au shell distant :
 // chaque argument y est protégé.
 func (e Engine) cliT(tty bool, args ...string) []string {
-	switch e.b.Type {
+	switch e.B.Type {
 	case "ssh":
 		out := append([]string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...)
 		if tty {
 			out = append(out, "-t")
 		}
-		rem := append(engineArgv(e.b.engine(), "", e.b.EngHost), args...)
+		rem := append(engineArgv(e.B.engine(), "", e.B.EngHost), args...)
 		q := make([]string, len(rem))
 		for i, a := range rem {
-			q[i] = shq(a)
+			q[i] = Shq(a)
 		}
-		return append(out, e.b.Host, strings.Join(q, " "))
+		return append(out, e.B.Host, strings.Join(q, " "))
 	}
-	return append(engineArgv(e.b.Type, e.b.Context, e.b.Host), args...)
+	return append(engineArgv(e.B.Type, e.B.Context, e.B.Host), args...)
 }
 
 // listTimeout : délai d'une commande de listing.
@@ -805,7 +805,7 @@ func (e Engine) quick(args ...string) ([]byte, error) {
 	a := e.cli(args...)
 	out, err := exec.CommandContext(ctx, a[0], a[1:]...).Output()
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("%s : pas de réponse en %s", e.b.Host, listTimeout)
+		return nil, fmt.Errorf("%s : pas de réponse en %s", e.B.Host, listTimeout)
 	}
 	return out, err
 }
@@ -845,7 +845,7 @@ func catSlug(proj string) string { return dnsSlug(filepath.Base(filepath.Dir(pro
 // ctrName : nom du conteneur (et du StatefulSet k8s) d'un projet :
 // « <catégorie>-<projet> ». Deux projets de même catégorie et même nom sous
 // des racines différentes : le second est refusé (label cl.project, cf. ensure).
-func ctrName(proj string) string { return catSlug(proj) + "-" + ctrSlug(proj) }
+func CtrName(proj string) string { return catSlug(proj) + "-" + ctrSlug(proj) }
 
 // legacyCtrName : nom d'avant v5.6 (« cl-<projet>-<empreinte du chemin> »),
 // reconnu pour migrer les conteneurs existants.
@@ -906,11 +906,11 @@ func (e Engine) migrateLegacy(proj, name string, log io.Writer) {
 const pid1 = `trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done`
 
 // ensure : conteneur du projet créé (ou recréé si l'image a changé) et démarré.
-func (e Engine) ensure(proj string, env EnvSpec, log io.Writer) (string, error) {
-	if e.b.k8s() {
+func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) {
+	if e.B.K8s() {
 		return e.k8sEnsure(proj, env, log)
 	}
-	name := ctrName(proj)
+	name := CtrName(proj)
 	c := e.ctrInfo(name)
 	if c.status == "" {
 		e.migrateLegacy(proj, name, log)
@@ -948,7 +948,7 @@ func (e Engine) ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 		c.Stdout, c.Stderr = io.MultiWriter(log, &out), io.MultiWriter(log, &out)
 		if err := c.Run(); err != nil {
 			if s := out.String(); strings.Contains(s, "bind source path does not exist") || strings.Contains(s, "no such file or directory") {
-				return "", fmt.Errorf("création du conteneur : un dossier monté manque sur la machine du moteur — stockage partagé non monté au même chemin (%s, %s)", claudeDir(), proj)
+				return "", fmt.Errorf("création du conteneur : un dossier monté manque sur la machine du moteur — stockage partagé non monté au même chemin (%s, %s)", ClaudeDir(), proj)
 			}
 			return "", fmt.Errorf("création du conteneur : %w", err)
 		}
@@ -963,7 +963,7 @@ func (e Engine) ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 
 func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	home, _ := os.UserHomeDir()
-	cd := claudeDir()
+	cd := ClaudeDir()
 	if err := ensureSharedConfig(); err != nil {
 		return nil, err
 	}
@@ -984,7 +984,7 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	}
 	args := []string{"run", "-d", "--name", name, "--hostname", host,
 		"--label", "cl.launcher=ng2", "--label", "cl.project=" + proj,
-		"--label", "cl.backend=" + e.b.Name, "--label", "cl.image=" + env.Image,
+		"--label", "cl.backend=" + e.B.Name, "--label", "cl.image=" + env.Image,
 		"--label", "cl.local=" + env.localKey(),
 		"--mount", bind(cd, false), "--mount", bind(proj, false), "-w", proj,
 		"-e", "HOME=" + home, "-e", "CLAUDE_CONFIG_DIR=" + cd, "-e", "LANG=C.UTF-8",
@@ -1002,8 +1002,8 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 		if _, err := os.Stat(p); err != nil {
 			return nil, fmt.Errorf("montage %s : %w", m.Path, err)
 		}
-		if e.b.remote() && !underShared(e.b, p) {
-			return nil, fmt.Errorf("montage %s : hors du stockage partagé du backend %s (%s)", p, e.b.Name, strings.Join(e.b.Shared, ", "))
+		if e.B.remote() && !underShared(e.B, p) {
+			return nil, fmt.Errorf("montage %s : hors du stockage partagé du backend %s (%s)", p, e.B.Name, strings.Join(e.B.Shared, ", "))
 		}
 		args = append(args, "--mount", bind(p, m.RO == nil || *m.RO))
 	}
@@ -1020,7 +1020,7 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 // réécrit par remplacement). Première fois : COPIE de ~/.claude.json, jamais
 // déplacée — les sessions de l'hôte (launcher v4 compris) gardent la leur.
 func ensureSharedConfig() error {
-	dst := filepath.Join(claudeDir(), ".claude.json")
+	dst := filepath.Join(ClaudeDir(), ".claude.json")
 	if _, err := os.Stat(dst); err == nil {
 		return nil
 	}
@@ -1029,7 +1029,7 @@ func ensureSharedConfig() error {
 	if err != nil {
 		return nil // pas de config à reprendre : claude en créera une
 	}
-	if err := os.MkdirAll(claudeDir(), 0o755); err != nil {
+	if err := os.MkdirAll(ClaudeDir(), 0o755); err != nil {
 		return err
 	}
 	tmp := dst + ".cl-tmp"
@@ -1041,8 +1041,8 @@ func ensureSharedConfig() error {
 
 // execArgv : commande exécutée dans le conteneur ; root : en root, sinon en
 // utilisateur de l'hôte (uid:gid) ; tty : terminal interactif (attach).
-func (e Engine) execArgv(name string, root, tty bool, argv ...string) []string {
-	if e.b.k8s() {
+func (e Engine) ExecArgv(name string, root, tty bool, argv ...string) []string {
+	if e.B.K8s() {
 		return e.k8sExecArgv(name, root, tty, argv...)
 	}
 	if tty {
@@ -1067,16 +1067,16 @@ func (e Engine) execArgv(name string, root, tty bool, argv ...string) []string {
 	return e.cli(append(append(a, name), argv...)...)
 }
 
-func (e Engine) exec(name string, root bool, stdin io.Reader, out io.Writer, argv ...string) error {
-	a := e.execArgv(name, root, false, argv...)
+func (e Engine) Exec(name string, root bool, stdin io.Reader, out io.Writer, argv ...string) error {
+	a := e.ExecArgv(name, root, false, argv...)
 	c := exec.Command(a[0], a[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = stdin, out, out
 	return c.Run()
 }
 
-func (e Engine) output(name string, argv ...string) (string, error) {
+func (e Engine) Output(name string, argv ...string) (string, error) {
 	var b bytes.Buffer
-	a := e.execArgv(name, false, false, argv...)
+	a := e.ExecArgv(name, false, false, argv...)
 	c := exec.Command(a[0], a[1:]...)
 	c.Stdout = &b
 	err := c.Run()
@@ -1095,12 +1095,12 @@ type Found struct {
 
 // list : conteneurs NG2 du backend — de tous ses serveurs pour un groupe (#61) ;
 // erreur seulement si aucun ne répond (les injoignables : listPool).
-func (e Engine) list() ([]Found, error) {
-	if e.b.k8s() {
-		return e.k8sList()
+func (e Engine) List() ([]Found, error) {
+	if e.B.K8s() {
+		return e.K8sList()
 	}
-	fs, down := e.listPool()
-	if len(down) == len(e.b.servers()) {
+	fs, down := e.ListPool()
+	if len(down) == len(e.B.Servers()) {
 		for _, err := range down {
 			return nil, err
 		}
@@ -1113,7 +1113,7 @@ func (e Engine) list() ([]Found, error) {
 func (e Engine) listOne() ([]Found, error) {
 	// filtre aussi par backend : deux backends peuvent viser le même moteur
 	// délai borné : un serveur éteint ne doit pas bloquer le scan (groupes, #61)
-	b, err := e.quick("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.backend="+e.b.Name)
+	b, err := e.quick("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.backend="+e.B.Name)
 	if err != nil {
 		return nil, err
 	}
@@ -1132,7 +1132,7 @@ func (e Engine) listOne() ([]Found, error) {
 		if len(f) != 3 || f[2] == "" {
 			continue
 		}
-		out = append(out, Found{Backend: e.b.Name, Name: strings.TrimPrefix(f[0], "/"), Project: f[2], Running: f[1] == "running",
+		out = append(out, Found{Backend: e.B.Name, Name: strings.TrimPrefix(f[0], "/"), Project: f[2], Running: f[1] == "running",
 			Failed: f[1] == "dead" || f[1] == "restarting"})
 	}
 	return out, nil

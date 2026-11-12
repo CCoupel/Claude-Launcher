@@ -16,49 +16,49 @@ import (
 // a le PID de son conteneur ; un leader d'avant un redémarrage de WSL a un PID
 // d'un namespace disparu. Tester ces PID avec kill(2) sur l'hôte serait faux.
 
-func hostName() string {
+func HostName() string {
 	h, _ := os.Hostname()
 	return h
 }
 
 // hostPidSpace : espace de PID du launcher, au format de Claude Code.
-func hostPidSpace() string {
+func HostPidSpace() string {
 	h, _ := os.Hostname()
 	ns, _ := os.Readlink("/proc/self/ns/pid")
 	return h + "#" + ns
 }
 
 // leaderState : ce qu'on peut dire du leader (pid, pidSpace).
-type leaderState int
+type LeaderState int
 
 const (
-	leaderUnknown leaderState = iota // espace étranger introuvable ici : on ne conclut rien
-	leaderAlive
-	leaderDead
+	LeaderUnknown LeaderState = iota // espace étranger introuvable ici : on ne conclut rien
+	LeaderAlive
+	LeaderDead
 )
 
 // leaderAliveInHosts : leaderAliveIn, les hostnames des conteneurs locaux étant
 // fournis par l'appelant (localCtrHosts).
-func leaderAliveInHosts(pid int, space string, localCtrHosts func() map[string]bool) leaderState {
+func LeaderAliveInHosts(pid int, space string, localCtrHosts func() map[string]bool) LeaderState {
 	if pid <= 0 {
-		return leaderDead
+		return LeaderDead
 	}
-	host := hostPidSpace()
+	host := HostPidSpace()
 	if space == "" || space == host {
 		switch err := syscall.Kill(pid, 0); {
 		case err == nil || err == syscall.EPERM:
-			return leaderAlive
+			return LeaderAlive
 		default:
-			return leaderDead
+			return LeaderDead
 		}
 	}
 	hName, _, _ := strings.Cut(host, "#")
 	name, ns, ok := strings.Cut(space, "#")
 	if !ok {
-		return leaderUnknown
+		return LeaderUnknown
 	}
 	if name == hName {
-		return leaderDead // même machine, namespace d'un démarrage précédent
+		return LeaderDead // même machine, namespace d'un démarrage précédent
 	}
 	// conteneur local : ses processus sont visibles de l'hôte ; NSpid donne leur
 	// PID dans chaque namespace, le dernier étant celui du conteneur
@@ -76,22 +76,22 @@ func leaderAliveInHosts(pid int, space string, localCtrHosts func() map[string]b
 		for _, line := range strings.Split(string(b), "\n") {
 			if f := strings.Fields(strings.TrimPrefix(line, "NSpid:")); strings.HasPrefix(line, "NSpid:") && len(f) > 0 {
 				if f[len(f)-1] == strconv.Itoa(pid) {
-					return leaderAlive
+					return LeaderAlive
 				}
 			}
 		}
 	}
 	if found {
-		return leaderDead // le conteneur tourne, son leader non
+		return LeaderDead // le conteneur tourne, son leader non
 	}
 	if strings.HasPrefix(name, "cl-") || localCtrHosts()[name] {
-		return leaderDead // conteneur NG2 local arrêté (« cl- » : hostname d'avant v5.6)
+		return LeaderDead // conteneur NG2 local arrêté (« cl- » : hostname d'avant v5.6)
 	}
-	return leaderUnknown // autre machine (ssh, k8s…) : invérifiable d'ici
+	return LeaderUnknown // autre machine (ssh, k8s…) : invérifiable d'ici
 }
 
-func leaderAliveIn(pid int, space string) leaderState {
-	return leaderAliveInHosts(pid, space, localCtrHosts)
+func leaderAliveIn(pid int, space string) LeaderState {
+	return LeaderAliveInHosts(pid, space, localCtrHosts)
 }
 
 var localHosts struct {
@@ -109,7 +109,7 @@ var localCtrHosts = func() map[string]bool {
 		return localHosts.set
 	}
 	set := map[string]bool{}
-	bs, _ := loadBackends()
+	bs, _ := LoadBackends()
 	for _, b := range bs {
 		if b.Type == "host" || b.remote() {
 			continue

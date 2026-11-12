@@ -39,7 +39,7 @@ func TestEnsureRenamesRunningLegacy(t *testing.T) {
 	proj := "/p/PRO/Demo"
 	put(legacyCtrName(proj), "running", proj, legacyCtrName(proj))
 	var log bytes.Buffer
-	n, err := Engine{BackendConf{Name: "docker", Type: "docker"}}.ensure(proj, EnvSpec{Image: "img"}, &log)
+	n, err := Engine{BackendConf{Name: "docker", Type: "docker"}}.Ensure(proj, EnvSpec{Image: "img"}, &log)
 	if err != nil || n != "pro-demo" || !strings.Contains(log.String(), "renommé pro-demo") {
 		t.Fatalf("ensure : %q %v %s", n, err, log.String())
 	}
@@ -55,7 +55,7 @@ func TestEnsureRecreatesStaleHost(t *testing.T) {
 	proj := "/p/PRO/Demo"
 	put("pro-demo", "exited", proj, legacyCtrName(proj))
 	var log bytes.Buffer
-	_, _ = Engine{BackendConf{Name: "docker", Type: "docker"}}.ensure(proj, EnvSpec{Image: "img"}, &log)
+	_, _ = Engine{BackendConf{Name: "docker", Type: "docker"}}.Ensure(proj, EnvSpec{Image: "img"}, &log)
 	b, _ := os.ReadFile(filepath.Join(dir, "log"))
 	if !strings.Contains(log.String(), "hostname "+legacyCtrName(proj)+" → demo") || !strings.Contains(string(b), "rm -f -v pro-demo") {
 		t.Errorf("hostname périmé non corrigé :\n%s\n%s", log.String(), b)
@@ -67,7 +67,7 @@ func TestEnsureNameCollision(t *testing.T) {
 	withHome(t)
 	_, put := withNamingDocker(t)
 	put("pro-demo", "running", "/autre/PRO/Demo", "demo")
-	_, err := Engine{BackendConf{Name: "docker", Type: "docker"}}.ensure("/p/PRO/Demo", EnvSpec{Image: "img"}, &bytes.Buffer{})
+	_, err := Engine{BackendConf{Name: "docker", Type: "docker"}}.Ensure("/p/PRO/Demo", EnvSpec{Image: "img"}, &bytes.Buffer{})
 	if err == nil || !strings.Contains(err.Error(), "/autre/PRO/Demo") {
 		t.Errorf("collision non détectée : %v", err)
 	}

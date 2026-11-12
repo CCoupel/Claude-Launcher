@@ -37,10 +37,10 @@ func TestTeam(t *testing.T) {
 		{"agentType":"custom","tmuxPaneId":"%26"},
 		{"agentType":"qa","tmuxPaneId":"%99"}]}`)
 
-	panes := []paneInfo{{"%21", "1", "2.1.311"}, {"%24", "1", "2.1.311"}, {"%25", "1", "2.1.310"},
+	panes := []PaneInfo{{"%21", "1", "2.1.311"}, {"%24", "1", "2.1.311"}, {"%25", "1", "2.1.310"},
 		{"%26", "1", "2.1.311"}, {"%27", "1", "bash"}}
-	got := liveTeam(readTeammates(proj), proj, panes)
-	want := []teammate{
+	got := LiveTeam(ReadTeammates(proj), proj, panes)
+	want := []Teammate{
 		{Name: "teamleader", Tag: "v3.29.1", Model: "opus", Effort: "medium", Claude: "2.1.311", Count: 1},
 		// compagnon > template pour l'effort, modèle réel du teammate lancé
 		{Name: "dev-plugin", Tag: "v3.29.1", Companion: true, Model: "opus", Effort: "high", Claude: "2.1.311", Count: 2},
@@ -57,7 +57,7 @@ func TestTeam(t *testing.T) {
 	write(filepath.Join(old, ".claude", ".template-source.json"), `{"tag":"v2.0.0"}`)
 	write(filepath.Join(old, ".claude", "agents", "cdp.template.md"), "x")
 	write(filepath.Join(old, ".claude", "agents", "cdp.md"), "x")
-	if got := readTeammates(old); !reflect.DeepEqual(got, []teammate{{Name: "cdp", Tag: "v2.0.0", Companion: true}}) {
+	if got := ReadTeammates(old); !reflect.DeepEqual(got, []Teammate{{Name: "cdp", Tag: "v2.0.0", Companion: true}}) {
 		t.Errorf("readTeammates sans registre = %+v", got)
 	}
 }

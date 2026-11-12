@@ -21,7 +21,7 @@ const mirrorPeriod = 250 * time.Millisecond
 
 // rawMode : équivalent de « stty -echo -icanon -isig -ixon -ixoff -iexten » ;
 // renvoie la fonction de restauration.
-func rawMode(fd int) (func(), error) {
+func RawMode(fd int) (func(), error) {
 	old, err := unix.IoctlGetTermios(fd, ioctlGetTermios)
 	if err != nil {
 		return nil, err
@@ -86,12 +86,12 @@ func mirrorFrame(name, color string, rows, cols int, focus bool, curX, curY int,
 	return b.String()
 }
 
-func runMirror(win, name string) error {
-	cfg := loadConfig()
-	color := cfg.projectColor(name)
+func RunMirror(win, name string) error {
+	cfg := LoadConfig()
+	color := cfg.ProjectColor(name)
 	self := os.Getenv("TMUX_PANE")
 	fd := int(os.Stdin.Fd())
-	restore, err := rawMode(fd)
+	restore, err := RawMode(fd)
 	if err != nil {
 		return err
 	}

@@ -23,7 +23,7 @@ type progressBar struct {
 
 const progressDelay = 500 * time.Millisecond
 
-func startProgress(label string) *progressBar {
+func StartProgress(label string) *progressBar {
 	p := &progressBar{label: label, start: time.Now(), stop: make(chan struct{})}
 	p.wg.Add(1)
 	go func() {

@@ -16,7 +16,7 @@ import (
 func TestSupervisedRestartsAndRecords(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	count := filepath.Join(t.TempDir(), "runs")
-	cmd := supervised(roleNav, "sh -c "+shq("echo run >>"+shq(count)+"; echo 'unexpected fault address' >&2; exit 135"))
+	cmd := supervised(roleNav, "sh -c "+Shq("echo run >>"+Shq(count)+"; echo 'unexpected fault address' >&2; exit 135"))
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	_ = exec.CommandContext(ctx, "sh", "-c", cmd).Run()
@@ -70,7 +70,7 @@ func TestEnsureLayoutRecreatesNav(t *testing.T) {
 		if !keepInfo {
 			run(t, otmux("kill-pane", "-t", info))
 		}
-		if err := ensureLayout("/bin/true"); err != nil {
+		if err := EnsureLayout("/bin/true"); err != nil {
 			t.Fatalf("keepInfo=%v : %v", keepInfo, err)
 		}
 		roles, _ := outerPanes()

@@ -43,7 +43,7 @@ func legacyUsagePath() string {
 }
 
 // sharedUsageDir : dossier du cache de consommation commun à tous.
-func sharedUsageDir() string { return filepath.Join(claudeDir(), "claude-launcher-cache") }
+func sharedUsageDir() string { return filepath.Join(ClaudeDir(), "claude-launcher-cache") }
 
 // usageCachePath : cache lu et écrit par le hub (commun).
 func usageCachePath() string { return filepath.Join(sharedUsageDir(), "usage.json") }
@@ -52,7 +52,7 @@ func usageCachePath() string { return filepath.Join(sharedUsageDir(), "usage.jso
 // ~/.cache/claude-launcher deviennent des liens vers le cache commun (un
 // usage.json local plus récent y est d'abord copié). Rejoué à chaque relevé :
 // une écriture du panneau par remplacement de fichier casserait le lien.
-func linkUsageCache() {
+func LinkUsageCache() {
 	dir := filepath.Dir(legacyUsagePath())
 	target := sharedUsageDir()
 	if os.MkdirAll(target, 0o755) != nil {
@@ -90,8 +90,8 @@ func linkUsageCache() {
 // linkUsageScript : même lien, dans un conteneur (en utilisateur, à chaque ouverture).
 // Un conteneur local créé avant la v5.4 monte ~/.cache/claude-launcher : ce
 // montage, qui désigne déjà le dossier commun (-ef), est laissé tel quel.
-func linkUsageScript() string {
-	return `d="$HOME/.cache/claude-launcher"; t=` + shq(sharedUsageDir()) + `
+func LinkUsageScript() string {
+	return `d="$HOME/.cache/claude-launcher"; t=` + Shq(sharedUsageDir()) + `
 mkdir -p "$HOME/.cache" "$t"
 # déjà le dossier commun (lien, ou montage d'un conteneur local créé avant la v5.4) : rien
 if [ "$(readlink "$d" 2>/dev/null)" != "$t" ] && ! [ "$d" -ef "$t" ]; then rm -rf "$d"; ln -sfn "$t" "$d"; fi
@@ -102,7 +102,7 @@ if [ "$(readlink "$d" 2>/dev/null)" != "$t" ] && ! [ "$d" -ef "$t" ]; then rm -r
 // progressive (.wait) sont effacés — par exemple ceux d'un ancien launcher
 // arrêté entre-temps : le premier relevé interroge l'endpoint sans attendre.
 // Les dernières données (usage.json) restent affichées jusque-là.
-func resetUsageBackoff() {
+func ResetUsageBackoff() {
 	for _, ext := range []string{".err", ".wait"} {
 		_ = os.Remove(usageCachePath() + ext)
 	}
@@ -202,9 +202,9 @@ func loginExpiry() time.Time {
 }
 
 // authErr : message d'échec écrit par fetchUsage sur un HTTP 401/403.
-const authErr = "non authentifié — lancer claude puis /login"
+const AuthErr = "non authentifié — lancer claude puis /login"
 
-func readUsage() Usage {
+func ReadUsage() Usage {
 	path := usageCachePath()
 	var u Usage
 	if b, err := os.ReadFile(path + ".err"); err == nil {
@@ -213,7 +213,7 @@ func readUsage() Usage {
 	if exp := loginExpiry(); !exp.IsZero() && time.Until(exp) < loginWarn {
 		u.LoginBy = exp
 	}
-	u.Expired = u.Err == authErr || (!u.LoginBy.IsZero() && !time.Now().Before(u.LoginBy))
+	u.Expired = u.Err == AuthErr || (!u.LoginBy.IsZero() && !time.Now().Before(u.LoginBy))
 	st, err := os.Stat(path)
 	if err != nil {
 		u.Loading = u.Err == ""
@@ -245,11 +245,11 @@ func readUsage() Usage {
 // si défini) — pas ~/.claude, qui peut garder un ancien jeton (connexion
 // d'avant la migration de la config) : le hub interrogeait alors l'endpoint
 // avec un autre jeton que les sessions claude, refusé en 429 sans fin.
-func credentialsPath() string { return filepath.Join(claudeDir(), ".credentials.json") }
+func credentialsPath() string { return filepath.Join(ClaudeDir(), ".credentials.json") }
 
 // needsFetch applique la politique du bash : pas d'appel si le cache est frais
 // (< 1,5 × intervalle) ou si un échec récent suspend les appels.
-func needsFetch(refreshSec int) bool {
+func NeedsFetch(refreshSec int) bool {
 	path := usageCachePath()
 	interval := time.Duration(refreshSec) * time.Second
 	backoff := 2 * interval
@@ -274,7 +274,7 @@ func needsFetch(refreshSec int) bool {
 }
 
 // fetchUsage interroge l'endpoint et met à jour le cache de façon atomique.
-func fetchUsage(refreshSec int) {
+func FetchUsage(refreshSec int) {
 	path := usageCachePath()
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	fail := func(msg string) { _ = os.WriteFile(path+".err", []byte(msg), 0o644) }
@@ -308,7 +308,7 @@ func fetchUsage(refreshSec int) {
 			_ = os.Remove(path + ".wait")
 		}
 	case resp.StatusCode == 401 || resp.StatusCode == 403:
-		fail(authErr)
+		fail(AuthErr)
 	case resp.StatusCode == 429:
 		wait := tooMany(path, resp.Header.Get("Retry-After"))
 		fail("trop d’appels à l’endpoint, nouvel essai vers " + time.Now().Add(wait).Format("15:04"))
@@ -334,7 +334,7 @@ func openLogin(session string) error {
 var jours = []string{"dim.", "lun.", "mar.", "mer.", "jeu.", "ven.", "sam."}
 
 // formatReset : « 42 min », « 15:00 », « demain 12:00 », « mer. 12:00 ».
-func formatReset(iso string) string {
+func FormatReset(iso string) string {
 	if iso == "" {
 		return ""
 	}
