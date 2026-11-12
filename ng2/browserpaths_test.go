@@ -86,11 +86,13 @@ hubs:
 	}
 }
 
-// Sans browser_paths : même chemin des deux côtés pour chaque racine connue,
-// dédoublonnée et triée ; sous WSL, wslpath -w et os windows.
+// Sans browser_paths ni serveur web (browser_server off) : même chemin des deux
+// côtés pour chaque racine connue, dédoublonnée et triée ; sous WSL, wslpath -w
+// et os windows.
 func TestBrowserPathsDefault(t *testing.T) {
 	roots := []string{"/share/MFS/ROOT/", "/home/u/PROJETS", "/share/MFS/ROOT", "relatif", ""}
-	ps, src, warns := resolveBrowserPaths(backendsFile{}, "pc", roots, false)
+	off := parseBackendsYAML(t, "defaults:\n  browser_server: { listen: off }\n")
+	ps, src, warns := resolveBrowserPaths(off, "pc", roots, false)
 	if !strings.Contains(src, "même chemin") || len(warns) != 0 {
 		t.Fatalf("source %q, %v", src, warns)
 	}
@@ -106,7 +108,7 @@ func TestBrowserPathsDefault(t *testing.T) {
 		}
 		return `\\wsl.localhost\Ubuntu` + strings.ReplaceAll(p, "/", `\`), nil
 	}
-	ps, src, _ = resolveBrowserPaths(backendsFile{}, "pc", roots, true)
+	ps, src, _ = resolveBrowserPaths(off, "pc", roots, true)
 	// même longueur : ordre alphabétique (/home avant /share)
 	if !strings.Contains(src, "WSL") || ps[1].Host != `\\wsl.localhost\Ubuntu\share\MFS\ROOT` || ps[1].OS != "windows" ||
 		ps[0].Host != "/home/u/PROJETS" || ps[0].OS != "linux" { // wslpath en échec : identité

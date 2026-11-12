@@ -536,13 +536,56 @@ Prérequis de l'image : un gestionnaire de paquets connu et **tmux ≥ 3.2** dan
 ses dépôts (Debian 12, Rocky/Alma 9, Alpine 3.16+ ; pas UBI sans abonnement
 RHEL, ni RHEL 8 et ses dérivés).
 
-### Chemins vus par le navigateur : `browser_paths` (v5.9.0)
+### Fichiers ouverts dans le navigateur : serveur web du launcher (v5.10.0)
 
-Le template ouvre dans Chrome (`claude-in-chrome`) des fichiers du projet en `file://` : maquettes,
-procédures de test, aperçus. Claude les voit au chemin de sa session (`/share/MFS/ROOT/…`), mais
-Chrome tourne sur votre poste et voit ce dossier ailleurs (`\\nas\MFS\ROOT\…`, `C:\…`). Le launcher
-donne cette correspondance à chaque session claude dans la variable **`CL_BROWSER_PATH_MAP`**.
-Le template la lit, et `/init-project` ne pose plus la question.
+Le template ouvre dans Chrome (`claude-in-chrome`) des fichiers du projet : maquettes, procédures de
+test, aperçus. L'extension refuse les URL `file://`. Le hub sert donc ces fichiers en HTTP, en lecture
+seule, et **le chemin de l'URL est le chemin interne** :
+
+```
+Claude (session ou conteneur) : /share/MFS/ROOT/x/maquette.html
+URL donnée à Chrome           : http://localhost:8765/share/MFS/ROOT/x/maquette.html
+```
+
+- Chrome tourne sur la machine du launcher. Sous WSL2, le `localhost` de Windows est redirigé vers
+  WSL : il n'y a pas de `\\wsl.localhost\…` à configurer. Les projets en conteneur (podman, docker,
+  k8s) sont couverts aussi, puisque le stockage partagé y est monté au même chemin que sur le hub.
+- **Ne sont servies que les racines connues** : racines de projets, `shared` des backends, et
+  `allow`. Le reste renvoie 404, y compris les `..` et les liens symboliques qui sortent de ces
+  racines. L'en-tête `Host` est contrôlé (une page piégée qui ferait pointer son nom vers
+  `127.0.0.1` est refusée), il n'y a pas de CORS, et les réponses portent `Cache-Control: no-store`
+  pour qu'une maquette modifiée se recharge. Un dossier affiche son `index.html` ou, à défaut, la
+  liste de ses fichiers ; `.md` et `.yaml` sont affichés en texte.
+- Le serveur tourne dans le pane des cartes du hub, qui est relancé s'il s'arrête. Le réglage est
+  relu toutes les 10 s, et un port occupé est réessayé.
+  `claude-launcher-ng2 backends` affiche l'adresse, l'état (`actif : Claude-Launcher-NG2 v…`) et les
+  racines servies.
+
+```yaml
+# ~/.config/claude-launcher-ng2/backends.yaml — tout est facultatif
+defaults:
+  browser_server:
+    listen: 127.0.0.1:8765        # défaut ; « 9000 » = 127.0.0.1:9000 ; off = désactivé
+    allow: [/data/maquettes]      # dossiers servis en plus des racines connues
+hubs:
+  serveur:                        # par machine du launcher : l'emporte champ par champ
+    browser_server: { listen: "0.0.0.0:8765", url: "http://serveur.maison.lan:8765" }
+```
+
+`url` est la base annoncée au template. Elle est déduite de `listen` par défaut : `localhost` en
+boucle locale, le nom de la machine si le serveur écoute sur toutes les interfaces. Attention :
+écouter ailleurs que sur `127.0.0.1` expose les racines à tout le réseau.
+
+La correspondance est donnée à chaque session claude dans la variable **`CL_BROWSER_PATH_MAP`**,
+que le template lit (`/init-project` ne pose plus la question). Avec le serveur, elle vaut
+`[{"container":"/","host":"http://localhost:8765","os":"url"}]`. Pour une entrée `os: "url"`, l'URL
+est `host` + `/` + le chemin relatif au `container`, chaque segment encodé.
+
+#### Option avancée : `browser_paths` (v5.9.0)
+
+Pour ouvrir les fichiers par un autre chemin (partage réseau en `file://`, autre serveur web), on
+déclare la correspondance ; elle l'emporte alors sur le serveur. Chrome voit ce dossier ailleurs
+que Claude (`\\nas\MFS\ROOT\…`, `C:\…`, `http://…`) :
 
 ```yaml
 # ~/.config/claude-launcher-ng2/backends.yaml
@@ -556,16 +599,17 @@ hubs:                                     # facultatif : par machine du launcher
 ```
 
 - `container` : préfixe absolu vu par claude. `host` : le même dossier vu par le navigateur,
-  sous la forme `C:\…`, `\\serveur\partage\…` (dont `\\wsl.localhost\<distro>\…`) ou `/…`. `os`
-  (`windows` ou `linux`, macOS = `linux`) est facultatif : il est déduit de la forme de `host`.
+  sous la forme `C:\…`, `\\serveur\partage\…` (dont `\\wsl.localhost\<distro>\…`), `/…` ou une base
+  `http(s)://…`. `os` (`windows`, `linux` — macOS = `linux` — ou `url`) est facultatif : il est
+  déduit de la forme de `host`.
 - **Global, surchargeable par poste, pas par backend** : NG2 monte le stockage partagé au même chemin
   dans tous les backends, seul le poste où tourne Chrome change le côté `host`. `backends.yaml` étant
   commun à tous vos hubs, `hubs.<machine>` (nom de la machine du launcher, nom court accepté)
   l'emporte sur `defaults`. `browser_paths: []` : aucun navigateur ne peut ouvrir ces fichiers,
   le template affiche seulement leur chemin.
-- **Sans `browser_paths`** : même chemin des deux côtés pour chaque racine de projets et chaque
-  racine partagée des backends ; sous WSL, `host` = `wslpath -w <racine>` et `os: windows`. C'est
-  juste quand Chrome tourne sur la machine du launcher.
+- **Sans `browser_paths`** : le serveur web ci-dessus. Avec `browser_server: { listen: off }` :
+  même chemin des deux côtés pour chaque racine de projets et chaque racine partagée des backends ;
+  sous WSL, `host` = `wslpath -w <racine>` et `os: windows`.
 - Entrée invalide (`container` relatif, `host` d'une autre forme, `os` inconnu) : ignorée et signalée
   par `claude-launcher-ng2 backends`, qui affiche aussi la correspondance effective et sa source.
 - Valeur : tableau JSON compact, préfixe `container` le plus long d'abord, sans séparateur final :
@@ -935,6 +979,12 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
   (jusqu'à la v5.7.3) : le stockage du binaire a été démonté puis remonté pendant que le launcher
   tournait ; le système ne donnait plus que le chemin interne au partage. Depuis la v5.7.4, le
   chemin vu au démarrage sert de repli. Contournement : `Esc` `l`, puis relancer le launcher.
+- **Une maquette ne s'ouvre pas dans Chrome** : `claude-launcher-ng2 backends` doit afficher
+  `actif` pour le serveur web. `écoute impossible … address already in use` : un autre service tient
+  le port, changez `browser_server.listen`. Le serveur est lancé par le pane des cartes : relancez le
+  hub après une mise à jour du binaire. 404 : le fichier n'est pas sous une racine connue, ajoutez son
+  dossier à `browser_server.allow`. Sous WSL, si `localhost` ne répond pas depuis Windows, vérifiez
+  que `localhostForwarding` n'est pas désactivé dans `.wslconfig`.
 - **Essayer sans toucher à `claude-hub-ng2`** :
   `CL_HUB=claude-hub-test CL_OUTER_SOCKET=claude-ui-test claude-launcher-ng2`.
 - **Les annonces de version n'apparaissent pas** : GitHub est interrogé sans jeton ; en cas de
