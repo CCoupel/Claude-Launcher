@@ -528,6 +528,7 @@ func (m stateModel) View() string {
 }
 
 func runState() error {
+	go runBrowserServer() // fichiers pour le navigateur (#106), avec ce pane supervisé
 	_, err := tea.NewProgram(stateModel{cfg: loadConfig()}, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run()
 	return err
 }

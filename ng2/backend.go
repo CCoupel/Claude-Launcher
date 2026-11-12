@@ -397,6 +397,8 @@ type backendsFile struct {
 		Image   string `yaml:"image"`   // socle présélectionné
 		// correspondance session ↔ navigateur (#104, browserpaths.go) ; nil : défaut
 		BrowserPaths *[]BrowserPath `yaml:"browser_paths"`
+		// serveur web des fichiers pour le navigateur (#106, browserserver.go)
+		BrowserServer *BrowserServer `yaml:"browser_server"`
 	} `yaml:"defaults"`
 	Hubs map[string]hubConf `yaml:"hubs"` // réglages par machine du launcher (hostname)
 }

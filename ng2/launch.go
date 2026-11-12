@@ -88,6 +88,7 @@ func (c Config) exports(inline bool) string {
 // syncLauncherEnv : recopie des variables du launcher dans settings.json ;
 // false si elle a échoué (les secrets sont alors tapés comme avant).
 func syncLauncherEnv(cfg Config) bool {
+	_ = syncBrowserHook(claudeDir()) // consigne navigateur à chaque session (#106)
 	return syncSettingsEnv(claudeDir(), cfg.envVars()) == nil
 }
 
@@ -179,10 +180,14 @@ func launchProject(cfg Config, session string, n Node, latest string, mode launc
 		initArg = " /init-project" // projet tout juste créé : pas de question
 	case mode == launchNewRaw: // ni question ni /init-project
 	case tpl == TplOutdated:
-		initPre = `_ip_arg=''; read -rp '↑ template en retard — lancer /init-project ? [o/N] ' _r; [[ "$_r" == [oOyY]* ]] && _ip_arg='/init-project'; `
+		q := "↑ template en retard : projet " + projectTemplateRef(n.Path) + " → disponible " + templateRef(readTrim(tplVersionPath()), latest) +
+			" — lancer /init-project ? [o/N] "
+		initPre = `_ip_arg=''; read -rp ` + shq(q) + ` _r; [[ "$_r" == [oOyY]* ]] && _ip_arg='/init-project'; `
 		initArg = " $_ip_arg"
 	case tpl == TplMissing:
-		initPre = `_ip_arg='/init-project'; read -rp '🗑 fichiers template manquants (clone frais) — lancer /init-project pour restaurer ? [O/n] ' _r; [[ "$_r" == [nN]* ]] && _ip_arg=''; `
+		q := "🗑 fichiers template manquants (clone frais) : projet " + projectTemplateRef(n.Path) + ", disponible " + templateRef(readTrim(tplVersionPath()), latest) +
+			" — lancer /init-project pour restaurer ? [O/n] "
+		initPre = `_ip_arg='/init-project'; read -rp ` + shq(q) + ` _r; [[ "$_r" == [nN]* ]] && _ip_arg=''; `
 		initArg = " $_ip_arg"
 	}
 

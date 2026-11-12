@@ -36,7 +36,9 @@ type BrowserPath struct {
 
 // hubConf : réglages propres à une machine de launcher (hubs: de backends.yaml).
 type hubConf struct {
-	BrowserPaths *[]BrowserPath `yaml:"browser_paths"`
+	BrowserPaths  *[]BrowserPath `yaml:"browser_paths"`
+	BrowserServer *BrowserServer `yaml:"browser_server"`
+	BrowserDevice string         `yaml:"browser_device"` // deviceId imposé (#106, browserpair.go)
 }
 
 // winHostRe : C:\…, C: ou UNC \\serveur\… (dont \\wsl.localhost\…).
@@ -50,6 +52,17 @@ func normBrowserPath(p BrowserPath) (BrowserPath, error) {
 	}
 	if p.Host == "" {
 		return p, fmt.Errorf("container %s : host vide", p.Container)
+	}
+	if strings.HasPrefix(p.Host, "http://") || strings.HasPrefix(p.Host, "https://") || p.OS == "url" {
+		if !strings.HasPrefix(p.Host, "http://") && !strings.HasPrefix(p.Host, "https://") {
+			return p, fmt.Errorf("container %s : os url, host http(s)://… attendu", p.Container)
+		}
+		p.OS = "url" // base d'URL (#106) : host + chemin relatif encodé
+		if c := strings.TrimRight(p.Container, "/"); c != "" {
+			p.Container = c
+		}
+		p.Host = strings.TrimRight(p.Host, "/")
+		return p, nil
 	}
 	win := winHostRe.MatchString(p.Host)
 	if !win && !strings.HasPrefix(p.Host, "/") {
@@ -65,7 +78,7 @@ func normBrowserPath(p BrowserPath) (BrowserPath, error) {
 	case "macos", "darwin":
 		p.OS = "linux" // même forme de chemins
 	default:
-		return p, fmt.Errorf("container %s : os %q (windows ou linux)", p.Container, p.OS)
+		return p, fmt.Errorf("container %s : os %q (windows, linux ou url)", p.Container, p.OS)
 	}
 	if c := strings.TrimRight(p.Container, "/"); c != "" {
 		p.Container = c
@@ -145,7 +158,8 @@ func defaultBrowserPaths(roots []string, wsl bool) []BrowserPath {
 
 // resolveBrowserPaths : correspondance effective, d'où elle vient, entrées
 // ignorées. hubs.<machine> l'emporte sur defaults ; une liste vide déclarée
-// ([]) est gardée : aucun navigateur ne peut ouvrir ces fichiers.
+// ([]) est gardée : aucun navigateur ne peut ouvrir ces fichiers. Sans
+// browser_paths : le serveur web du launcher (#106), sauf browser_server off.
 func resolveBrowserPaths(f backendsFile, host string, roots []string, wsl bool) (ps []BrowserPath, source string, warns []string) {
 	var decl *[]BrowserPath
 	if k, h, ok := pickHub(f.Hubs, host); ok && h.BrowserPaths != nil {
@@ -154,6 +168,10 @@ func resolveBrowserPaths(f backendsFile, host string, roots []string, wsl bool) 
 		decl, source = f.Defaults.BrowserPaths, "defaults.browser_paths"
 	}
 	if decl == nil {
+		// serveur web du launcher (#106) : le chemin de l'URL est le chemin interne
+		if c, err := resolveBrowserServer(f, host); err == nil && !c.Off {
+			return []BrowserPath{{Container: "/", Host: c.Base, OS: "url"}}, "serveur web du launcher (" + c.Listen + ")", nil
+		}
 		source = "défaut : même chemin des deux côtés"
 		if wsl {
 			source = "défaut WSL : wslpath -w"
@@ -209,17 +227,13 @@ func browserPathJSON(ps []BrowserPath) string {
 	return strings.TrimSpace(b.String())
 }
 
-// browserPathEnv : « CL_BROWSER_PATH_MAP=… » pour la session.
-func browserPathEnv() string {
-	ps, _, _ := browserPaths()
-	return browserPathVar + "=" + browserPathJSON(ps)
-}
-
 // exportBrowserPathsHub : projets sur l'hôte — environnement global du tmux du
-// hub, hérité par les fenêtres créées ensuite (teamleader et teammates).
+// hub, hérité par les fenêtres créées ensuite (teamleader et teammates) :
+// CL_BROWSER_PATH_MAP et CL_BROWSER_HINT (#106).
 func exportBrowserPathsHub() {
-	ps, _, _ := browserPaths()
-	_ = dtmux("set-environment", "-g", browserPathVar, browserPathJSON(ps)).Run()
+	for _, v := range browserEnvVars() {
+		_ = dtmux("set-environment", "-g", v.K, v.V).Run()
+	}
 }
 
 // printBrowserPaths : section de « claude-launcher-ng2 backends ».
