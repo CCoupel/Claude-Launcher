@@ -536,6 +536,49 @@ Prérequis de l'image : un gestionnaire de paquets connu et **tmux ≥ 3.2** dan
 ses dépôts (Debian 12, Rocky/Alma 9, Alpine 3.16+ ; pas UBI sans abonnement
 RHEL, ni RHEL 8 et ses dérivés).
 
+### Chemins vus par le navigateur : `browser_paths` (v5.9.0)
+
+Le template ouvre dans Chrome (`claude-in-chrome`) des fichiers du projet en `file://` : maquettes,
+procédures de test, aperçus. Claude les voit au chemin de sa session (`/share/MFS/ROOT/…`), mais
+Chrome tourne sur votre poste et voit ce dossier ailleurs (`\\nas\MFS\ROOT\…`, `C:\…`). Le launcher
+donne cette correspondance à chaque session claude dans la variable **`CL_BROWSER_PATH_MAP`**.
+Le template la lit, et `/init-project` ne pose plus la question.
+
+```yaml
+# ~/.config/claude-launcher-ng2/backends.yaml
+defaults:
+  browser_paths:
+    - { container: /share/MFS/ROOT, host: '\\nas\MFS\ROOT' }   # NAS vu depuis Windows
+hubs:                                     # facultatif : par machine du launcher (hostname)
+  portable:
+    browser_paths:
+      - { container: /share/MFS/ROOT, host: /mnt/mfs/ROOT }     # portable Linux
+```
+
+- `container` : préfixe absolu vu par claude. `host` : le même dossier vu par le navigateur,
+  sous la forme `C:\…`, `\\serveur\partage\…` (dont `\\wsl.localhost\<distro>\…`) ou `/…`. `os`
+  (`windows` ou `linux`, macOS = `linux`) est facultatif : il est déduit de la forme de `host`.
+- **Global, surchargeable par poste, pas par backend** : NG2 monte le stockage partagé au même chemin
+  dans tous les backends, seul le poste où tourne Chrome change le côté `host`. `backends.yaml` étant
+  commun à tous vos hubs, `hubs.<machine>` (nom de la machine du launcher, nom court accepté)
+  l'emporte sur `defaults`. `browser_paths: []` : aucun navigateur ne peut ouvrir ces fichiers,
+  le template affiche seulement leur chemin.
+- **Sans `browser_paths`** : même chemin des deux côtés pour chaque racine de projets et chaque
+  racine partagée des backends ; sous WSL, `host` = `wslpath -w <racine>` et `os: windows`. C'est
+  juste quand Chrome tourne sur la machine du launcher.
+- Entrée invalide (`container` relatif, `host` d'une autre forme, `os` inconnu) : ignorée et signalée
+  par `claude-launcher-ng2 backends`, qui affiche aussi la correspondance effective et sa source.
+- Valeur : tableau JSON compact, préfixe `container` le plus long d'abord, sans séparateur final :
+  `CL_BROWSER_PATH_MAP=[{"container":"/share/MFS/ROOT","host":"\\\\nas\\MFS\\ROOT","os":"windows"}]`.
+  Elle est toujours posée par un launcher v5.9.0 ou plus récent ; son absence signale un launcher
+  plus ancien.
+- **Où elle est posée** : dans l'environnement du tmux du hub pour les projets sur l'hôte, et dans
+  celui de la session tmux du conteneur pour les autres, dès sa création puis à chaque ouverture ou
+  rattachement. Le teamleader et les teammates (panes créés dans ce tmux) en héritent. Elle ne passe
+  ni par le `settings.json` commun à tous les hubs, ni par le spec du conteneur ou du pod : une
+  config modifiée s'applique à la prochaine ouverture du projet, sans recréer le conteneur. Un claude
+  déjà en marche garde l'ancienne valeur jusqu'à sa relance.
+
 ### Clavier dans un projet en conteneur
 
 | Touche | Effet |

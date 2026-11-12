@@ -351,6 +351,7 @@ func runBackends() error {
 		}
 		fmt.Println(line)
 	}
+	printBrowserPaths()
 	return nil
 }
 
