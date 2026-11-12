@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -81,7 +80,7 @@ func selfUpdate() {
 	if binDone {
 		fmt.Println("  ✓ launcher mis à jour. Relancement…")
 		_ = os.Setenv("CL_NO_UPDATE", "1") // le nouveau binaire ne revérifie pas
-		err := syscall.Exec(exe, os.Args, os.Environ())
+		err := execBinary(exe, os.Args, os.Environ())
 		fmt.Fprintln(os.Stderr, "relance impossible :", err)
 		os.Exit(1)
 	}

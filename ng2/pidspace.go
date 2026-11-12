@@ -37,7 +37,9 @@ const (
 	leaderDead
 )
 
-func leaderAliveIn(pid int, space string) leaderState {
+// leaderAliveInHosts : leaderAliveIn, les hostnames des conteneurs locaux étant
+// fournis par l'appelant (localCtrHosts).
+func leaderAliveInHosts(pid int, space string, localCtrHosts func() map[string]bool) leaderState {
 	if pid <= 0 {
 		return leaderDead
 	}
@@ -86,6 +88,10 @@ func leaderAliveIn(pid int, space string) leaderState {
 		return leaderDead // conteneur NG2 local arrêté (« cl- » : hostname d'avant v5.6)
 	}
 	return leaderUnknown // autre machine (ssh, k8s…) : invérifiable d'ici
+}
+
+func leaderAliveIn(pid int, space string) leaderState {
+	return leaderAliveInHosts(pid, space, localCtrHosts)
 }
 
 var localHosts struct {
