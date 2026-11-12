@@ -148,3 +148,18 @@ pre.term { margin: 0; border: 0; border-radius: 0; background: var(--bg); paddin
 .hero-alert:hover { background: rgba(248,81,73,.22); }
 .pitfalls { margin-top: 1rem; display: grid; gap: .5rem; padding-left: 1.1rem; }
 @media (max-width: 640px) { .alert-big { grid-template-columns: 1fr; padding: 1.25rem; } }
+
+/* Schéma : projets pilotés en conteneur (section #containers) */
+.arch-figure { margin: 0 0 2.5rem; background: var(--bg2); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 1.25rem; }
+.arch-scroll { overflow-x: auto; }
+.arch-figure svg { display: block; width: 100%; min-width: 720px; height: auto; }
+.arch-figure text { font-family: var(--font); fill: var(--text); font-size: 13px; }
+.arch-figure .sm { font-size: 12px; }
+.arch-figure .mono { font-family: var(--mono); font-size: 11.5px; }
+.arch-figure .muted { fill: var(--muted); font-size: 11.5px; }
+.arch-figure .ttl { font-weight: 700; font-size: 14px; }
+.arch-figure figcaption { color: var(--muted); font-size: .9rem; margin-top: .9rem; line-height: 1.55; }
+.section-header .version-list { list-style: none; max-width: 600px; margin: 1rem auto 0; padding: 0; text-align: left; color: var(--muted); font-size: 1rem; }
+.section-header .version-list li { position: relative; padding: .2rem 0 .2rem 1.1rem; }
+.section-header .version-list li::before { content: "•"; position: absolute; left: 0; color: var(--accent2); }
+.section-header .version-list strong { color: var(--text); font-weight: 600; }
