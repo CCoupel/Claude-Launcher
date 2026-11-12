@@ -240,6 +240,49 @@ const (
 	TplMissing
 )
 
+// templateRef : version d'un template, « v3.28.0 (8f583bf) », ou ce qui en est connu.
+func templateRef(tag, commit string) string {
+	if len(commit) > 7 {
+		commit = commit[:7]
+	}
+	switch {
+	case tag != "" && commit != "":
+		return tag + " (" + commit + ")"
+	case tag != "":
+		return tag
+	case commit != "":
+		return commit
+	}
+	return "version inconnue"
+}
+
+// projectTemplateRef : version du template du projet (.template-source.json,
+// sinon template_version de project-config.json).
+func projectTemplateRef(proj string) string {
+	var s struct {
+		Tag    string `json:"tag"`
+		Commit string `json:"commit"`
+	}
+	for _, c := range []string{
+		filepath.Join(proj, "TEMPLATE_claude", ".template-source.json"),
+		filepath.Join(proj, ".claude", ".template-source.json"),
+	} {
+		if b, err := os.ReadFile(c); err == nil && json.Unmarshal(b, &s) == nil && (s.Tag != "" || s.Commit != "") {
+			return templateRef(s.Tag, s.Commit)
+		}
+	}
+	var pc struct {
+		TV struct {
+			Tag    string `json:"tag"`
+			Commit string `json:"commit"`
+		} `json:"template_version"`
+	}
+	if b, err := os.ReadFile(filepath.Join(proj, ".claude", "project-config.json")); err == nil && json.Unmarshal(b, &pc) == nil {
+		return templateRef(pc.TV.Tag, pc.TV.Commit)
+	}
+	return templateRef("", "")
+}
+
 func readTemplate(proj, latest string) TemplateState {
 	var src string
 	for _, c := range []string{

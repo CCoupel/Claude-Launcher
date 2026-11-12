@@ -921,7 +921,8 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
 - **Template** (`↑ tpl vX …`) : un clic sur l'annonce verte adopte la version : les caches
   `.template-commit` / `.template-version` (dans `~`) passent au
   tag, `init-project.md` est resynchronisé et les badges `✓`/`⚠` recalculés. Un projet en
-  retard propose ensuite `/init-project` à son lancement. Sans cache (première installation),
+  retard propose ensuite `/init-project` à son lancement, en affichant la version du projet et
+  celle disponible (`↑ template en retard : projet v4.1.0 (e925929) → disponible v5.5.0 (1520308)`). Sans cache (première installation),
   le dernier tag est adopté d'office.
 - **Version majeure commune** : à partir de la v5, launcher et template partagent leur version
   majeure (le template v5 suppose un launcher v5). NG2 ne retient que les tags du template dont
