@@ -88,6 +88,7 @@ func (c Config) exports(inline bool) string {
 // syncLauncherEnv : recopie des variables du launcher dans settings.json ;
 // false si elle a échoué (les secrets sont alors tapés comme avant).
 func syncLauncherEnv(cfg Config) bool {
+	_ = syncBrowserHook(claudeDir()) // consigne navigateur à chaque session (#106)
 	return syncSettingsEnv(claudeDir(), cfg.envVars()) == nil
 }
 

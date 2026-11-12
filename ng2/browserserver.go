@@ -165,6 +165,7 @@ func browserServer() (serverConf, error) {
 type fileServer struct {
 	hosts map[string]bool
 	roots func() []string // racines servies (absolues)
+	token func() string   // jeton d'appariement du hub (browserpair.go)
 }
 
 // under : p est-il r ou dans r ?
@@ -221,6 +222,10 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := path.Clean("/" + r.URL.Path)
+	if p == browserPairPath && s.token != nil {
+		s.servePair(w, r)
+		return
+	}
 	if p == browserHealthPath {
 		_, _ = io.WriteString(w, ngName+" "+ngVersion+"\n")
 		return
@@ -374,7 +379,7 @@ func runBrowserServer() {
 			if err != nil {
 				setServerStatus("écoute impossible sur " + c.Listen + " : " + err.Error())
 			} else {
-				srv = &http.Server{Handler: fileServer{hosts: c.allowedHosts(hubName()), roots: roots}, ReadHeaderTimeout: 10 * time.Second}
+				srv = &http.Server{Handler: fileServer{hosts: c.allowedHosts(hubName()), roots: roots, token: browserToken}, ReadHeaderTimeout: 10 * time.Second}
 				cur = c
 				setServerStatus("à l'écoute sur " + c.Listen + " (" + c.Base + ")")
 				go func(s *http.Server) { _ = s.Serve(ln) }(srv)

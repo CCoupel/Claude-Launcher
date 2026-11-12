@@ -38,6 +38,7 @@ type BrowserPath struct {
 type hubConf struct {
 	BrowserPaths  *[]BrowserPath `yaml:"browser_paths"`
 	BrowserServer *BrowserServer `yaml:"browser_server"`
+	BrowserDevice string         `yaml:"browser_device"` // deviceId imposé (#106, browserpair.go)
 }
 
 // winHostRe : C:\…, C: ou UNC \\serveur\… (dont \\wsl.localhost\…).
@@ -226,17 +227,13 @@ func browserPathJSON(ps []BrowserPath) string {
 	return strings.TrimSpace(b.String())
 }
 
-// browserPathEnv : « CL_BROWSER_PATH_MAP=… » pour la session.
-func browserPathEnv() string {
-	ps, _, _ := browserPaths()
-	return browserPathVar + "=" + browserPathJSON(ps)
-}
-
 // exportBrowserPathsHub : projets sur l'hôte — environnement global du tmux du
-// hub, hérité par les fenêtres créées ensuite (teamleader et teammates).
+// hub, hérité par les fenêtres créées ensuite (teamleader et teammates) :
+// CL_BROWSER_PATH_MAP et CL_BROWSER_HINT (#106).
 func exportBrowserPathsHub() {
-	ps, _, _ := browserPaths()
-	_ = dtmux("set-environment", "-g", browserPathVar, browserPathJSON(ps)).Run()
+	for _, v := range browserEnvVars() {
+		_ = dtmux("set-environment", "-g", v.K, v.V).Run()
+	}
 }
 
 // printBrowserPaths : section de « claude-launcher-ng2 backends ».

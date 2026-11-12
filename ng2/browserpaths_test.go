@@ -224,6 +224,9 @@ exec "${args[@]}"
 	if !strings.Contains(first, `"host":"/mnt/a"`) {
 		t.Fatalf("premier pane : %q", first)
 	}
+	if h, err := e.output("x", tmuxIn("show-environment", "-t", "="+ctrSession, browserHintVar)...); err != nil || !strings.Contains(h, "Claude-Launcher, navigateur") {
+		t.Fatalf("consigne dans la session du conteneur : %v %q", err, h)
+	}
 	setMap("/mnt/b") // config modifiée, conteneur intact
 	e.setCtrBrowserPaths("x")
 	mate := seen([]string{"split-window", "-t", "=" + ctrSession + ":"})

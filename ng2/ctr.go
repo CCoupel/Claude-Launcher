@@ -86,7 +86,11 @@ func tmuxIn(args ...string) []string {
 // variable, posée par setCtrBrowserPaths.
 func (e Engine) newCtrSession(name, proj string, w, h int) error {
 	ns := []string{"new-session", "-d", "-s", ctrSession, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", proj}
-	withEnv := append([]string{"new-session", "-d", "-e", browserPathEnv()}, ns[2:]...)
+	withEnv := []string{"new-session", "-d"}
+	for _, v := range browserEnvVars() {
+		withEnv = append(withEnv, "-e", v.K+"="+v.V)
+	}
+	withEnv = append(withEnv, ns[2:]...)
 	if e.exec(name, false, nil, io.Discard, tmuxIn(withEnv...)...) == nil {
 		return nil
 	}
@@ -100,8 +104,8 @@ func (e Engine) newCtrSession(name, proj string, w, h int) error {
 // jour dans l'environnement de la session : les panes créés ensuite
 // (teammates) la prennent, sans recréer le conteneur ni le pod (#104).
 func (e Engine) setCtrBrowserPaths(name string) {
-	if v, val, ok := strings.Cut(browserPathEnv(), "="); ok {
-		_ = e.exec(name, false, nil, io.Discard, tmuxIn("set-environment", "-t", "="+ctrSession, v, val)...)
+	for _, v := range browserEnvVars() {
+		_ = e.exec(name, false, nil, io.Discard, tmuxIn("set-environment", "-t", "="+ctrSession, v.K, v.V)...)
 	}
 }
 

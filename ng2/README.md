@@ -581,6 +581,32 @@ que le template lit (`/init-project` ne pose plus la question). Avec le serveur,
 `[{"container":"/","host":"http://localhost:8765","os":"url"}]`. Pour une entrée `os: "url"`, l'URL
 est `host` + `/` + le chemin relatif au `container`, chaque segment encodé.
 
+#### Le bon navigateur : appariement (v5.10.0)
+
+L'extension peut être connectée à plusieurs Chrome (autres PC du même compte) ; les sessions
+doivent piloter celui de la machine du launcher. Les noms affichés (« Browser 1 », « Browser 2 »)
+sont renumérotés selon les connexions ; le **`deviceId`** est stable d'un lancement de Chrome à
+l'autre (une 2e fenêtre du même profil garde le même ; un autre profil ou une réinstallation de
+l'extension en donne un autre).
+
+- **Détection** : seul le Chrome de la machine du launcher atteint le serveur web (`127.0.0.1`).
+  La première session claude qui a besoin de Chrome essaie chaque navigateur connecté sur
+  `http://localhost:8765/__claude-launcher__/pair?device=<deviceId>&token=<jeton du hub>` ; la page
+  `✓ navigateur du hub <machine>` désigne le bon, et le serveur enregistre son `deviceId`
+  (`~/.cache/claude-launcher-ng2/browser-device`). Le jeton, tiré une fois par hub, écarte un autre
+  launcher qui écouterait sur le même port d'un autre PC. Plusieurs `✓` (plusieurs profils Chrome) :
+  claude vous demande lequel, une fois.
+- **Ensuite** : chaque session sélectionne directement ce `deviceId`. S'il n'est pas connecté
+  (Chrome fermé), claude le signale au lieu de prendre un autre navigateur.
+- **Imposer un navigateur** : `hubs.<machine>.browser_device: <deviceId>` dans `backends.yaml`.
+  Refaire la détection : supprimer `~/.cache/claude-launcher-ng2/browser-device`.
+- **Rien à faire côté template** : la consigne est donnée par le launcher dans `CL_BROWSER_HINT`
+  (posée avec `CL_BROWSER_PATH_MAP`, dans le tmux du hub et celui des conteneurs), qu'un hook
+  `SessionStart` ajouté au `settings.json` utilisateur affiche au démarrage de chaque session, et
+  après `/clear` ou une compaction. Le hook est en `sh` pur (aucun binaire requis dans les
+  conteneurs), n'affiche rien hors launcher, et vos autres hooks sont conservés.
+- `claude-launcher-ng2 backends` affiche le `deviceId` retenu et sa source.
+
 #### Option avancée : `browser_paths` (v5.9.0)
 
 Pour ouvrir les fichiers par un autre chemin (partage réseau en `file://`, autre serveur web), on
