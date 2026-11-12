@@ -54,7 +54,48 @@ type stateModel struct {
 	msMtime    time.Time // mtime du cache des milestones déjà lu
 	cacheMtime time.Time // mtime du fichier de cache déjà affiché
 	selAt      time.Time
-	fallback   bool // calcul direct si le cache n'arrive pas
+	fallback   bool      // calcul direct si le cache n'arrive pas
+	navAt      time.Time // dernière vérification de la présence du navigateur
+}
+
+// navKeys : commandes du navigateur aussi acceptées dans le pane des cartes —
+// relayées au navigateur (touche tmux), qui prend le focus pour la suite
+// (question de fermeture après Échap, etc.).
+var navKeys = map[string]string{
+	"esc": "Escape", "ctrl+c": "C-c", "f1": "F1", "f2": "F2", "f5": "F5",
+	"ctrl+r": "C-r", "ctrl+u": "C-u", "tab": "Tab", "enter": "Enter", "delete": "DC",
+	"ctrl+left": "C-Left", "ctrl+right": "C-Right",
+}
+
+// forwardToNav : relaie la touche au navigateur et lui donne le focus ; s'il a
+// disparu, il est d'abord recréé (ensureLayout).
+func forwardToNav(key string) tea.Cmd {
+	return func() tea.Msg {
+		nav := outerPane(roleNav)
+		if nav == "" {
+			if exe, err := selfExe(); err == nil && ensureLayout(exe) == nil {
+				nav = outerPane(roleNav)
+				time.Sleep(500 * time.Millisecond) // le temps que le navigateur démarre
+			}
+		}
+		if nav != "" {
+			_ = otmux("select-pane", "-t", nav).Run()
+			_ = otmux("send-keys", "-t", nav, key).Run()
+		}
+		return nil
+	}
+}
+
+// healNavCmd : le navigateur a-t-il disparu de la coque ? Recréé si besoin.
+func healNavCmd() tea.Cmd {
+	return func() tea.Msg {
+		if roles, _ := outerPanes(); len(roles) > 0 && roles[roleNav] == "" {
+			if exe, err := selfExe(); err == nil {
+				_ = ensureLayout(exe)
+			}
+		}
+		return nil
+	}
 }
 
 func (m stateModel) Init() tea.Cmd { return selTickCmd() }
@@ -117,9 +158,11 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.clampScroll()
 	case tea.KeyMsg:
+		if key, ok := navKeys[msg.String()]; ok {
+			// plus de « q » / Ctrl+C qui fermaient ce pane : les commandes vont au navigateur
+			return m, forwardToNav(key)
+		}
 		switch msg.String() {
-		case "ctrl+c", "q":
-			return m, tea.Quit
 		case "up", "k":
 			m.scroll--
 		case "down", "j":
@@ -136,6 +179,10 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampScroll()
 	case selTick:
 		cmds := []tea.Cmd{selTickCmd()}
+		if time.Since(m.navAt) > 3*time.Second {
+			m.navAt = time.Now()
+			cmds = append(cmds, healNavCmd())
+		}
 		s, ok := readSelection()
 		switch {
 		case ok && s.Path != m.sel.Path:
@@ -242,7 +289,7 @@ func (m stateModel) topCards() string {
 		d := m.data.detail
 		pl = append(pl, "", kv("branche", g.Branch))
 		pl = append(pl, kv("version", "locale  "+orNone(d.VerLocal)))
-		pl = append(pl, kv("", "release "+orNone(d.VerRelease)))
+		pl = append(pl, kv("", "release "+releaseText(m.ms, d.VerRelease)))
 		pl = append(pl, kv("dernier", shorten(d.LastMsg, w-16)))
 	}
 	sb.WriteString(m.card("Projet", strings.Join(pl, "\n"), w) + "\n")
