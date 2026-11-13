@@ -240,7 +240,7 @@ body.pdrag, body.pdrag * { user-select: none !important; }
 .modalbox p { color: var(--text2); line-height: 1.5; }
 .modalbox pre { font-family: var(--mono); font-size: 12px; white-space: pre-wrap; background: var(--input); padding: 10px; border-radius: 6px; border: 1px solid var(--line); }
 .modalbox .btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 14px; }
-.btn { background: var(--card-head); color: var(--text); border: 1px solid var(--line2); border-radius: 5px; padding: 6px 12px; font: inherit; cursor: pointer; }
+.btn { white-space: nowrap; background: var(--card-head); color: var(--text); border: 1px solid var(--line2); border-radius: 5px; padding: 6px 12px; font: inherit; cursor: pointer; }
 .btn:hover { border-color: var(--muted); }
 .btn.pri { background: var(--alert-orange); border-color: var(--orange); color: var(--orange); font-weight: 600; }
 .btn.danger { background: var(--alert-red); border-color: var(--red); color: var(--red); font-weight: 600; }
@@ -275,3 +275,30 @@ body.cardsfolded #hsplit { display: none; }
 .seg button.on { background: var(--selbg-focus); color: var(--text); font-weight: 600; }
 .seg button:hover { color: var(--text); }
 .ver .sp { flex: 1; }
+/* ── Éditeur des fichiers de configuration (#117) ── */
+.ver .sp, .cardstitle .sp, .cehead .sp, .cebar .sp { flex: 1; }
+.cfgbtn { cursor: pointer; color: var(--muted); font-family: var(--ui); }
+.cfgbtn:hover, .cfglink:hover { color: var(--orange); }
+.cfglink { cursor: pointer; color: var(--muted); letter-spacing: 0; font-weight: 500; }
+.modalbox.wide { width: min(1280px, 94vw); height: 88vh; max-width: none; max-height: none; display: flex; flex-direction: column; }
+.cehead { display: flex; align-items: center; gap: 10px; flex: none; }
+.cehead h2 { margin: 0; }
+.cebody { flex: 1; min-height: 0; display: flex; gap: 12px; margin-top: 10px; }
+.celist { width: 280px; flex: none; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.ceitem { border: 1px solid var(--line2); border-radius: 6px; padding: 7px 9px; cursor: pointer; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.ceitem.on { border-color: var(--orange); background: var(--selbg-focus); }
+.cepath { font-family: var(--mono); font-size: 11px; color: var(--muted); word-break: break-all; }
+.ceed { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.cebar { display: flex; align-items: center; gap: 8px; flex: none; }
+.cewrap { flex: 1; min-height: 160px; display: flex; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; background: var(--input); }
+.cegut, .cetext { font-family: var(--mono); font-size: 12.5px; line-height: 18px; margin: 0; padding: 8px 6px; }
+.cegut { flex: none; min-width: 42px; text-align: right; color: var(--dim); overflow: hidden; user-select: none; border-right: 1px solid var(--line); }
+.cetext { flex: 1; resize: none; border: 0; outline: none; background: transparent; color: var(--text); white-space: pre; overflow: auto; tab-size: 2; }
+.ceprobs { flex: none; max-height: 120px; overflow-y: auto; font-size: 12px; display: flex; flex-direction: column; gap: 2px; }
+.ceprob { cursor: pointer; }
+.ceprob:hover { text-decoration: underline; }
+.cestatus { flex: none; font-size: 12px; color: var(--text2); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; min-height: 1em; }
+.ceside { flex: none; font-size: 12px; }
+.ceside summary { cursor: pointer; color: var(--muted); }
+.cemerged { max-height: 180px; overflow: auto; font-family: var(--mono); font-size: 12px; background: var(--input); padding: 8px; border-radius: 6px; border: 1px solid var(--line); margin: 6px 0 0; }
+.btn:disabled { opacity: .45; cursor: not-allowed; }

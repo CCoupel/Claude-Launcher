@@ -264,7 +264,9 @@ function renderCards() {
   fold.title = hidden ? 'afficher les cartes' : 'masquer les cartes';
   t.onclick = (e) => { if (e.target.closest('.cfglink')) return; e.stopPropagation(); setCardsHidden(!hidden); };
   t.append(fold, el('span', '', '◈ ÉTAT · ' + c.name));
+  const ce = el('span', 'cfglink', '⚙ env.yaml'); ce.title = 'environnement du projet (.claude-launcher/env.yaml)'; ce.onclick = (e) => { e.stopPropagation(); configEditor(c.path, 'project-env'); };
   if (c.updated) t.append(el('span', c.staleUpd ? 't-yellow' : '', '· mis à jour ' + c.updated));
+  t.append(el('span', 'sp'), ce);
   box.appendChild(t);
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
@@ -453,7 +455,7 @@ $('login').addEventListener('click', () => call('login').then(() => {}).catch(()
 $('cards').addEventListener('click', () => $('nav').focus());
 
 document.addEventListener('keydown', (e) => {
-  if (!$('modal').classList.contains('hidden')) { if (e.key === 'Escape') closeModal(); return; }
+  if (!$('modal').classList.contains('hidden')) { if (e.key === 'Escape') { if (CE.doc) ceClose(); else closeModal(); } return; }
   const inTerm = e.target && e.target.closest && e.target.closest('.xterm');
   if (inTerm) return; // le terminal garde ses touches (raccourcis : attachCustomKeyEventHandler)
   if (S.quit) { onQuitKey(e); return; }
@@ -499,6 +501,7 @@ document.addEventListener('keydown', (e) => {
     if (l === 'r') { call('rescan'); return handled(); }
     if (l === 'u') { call('dismiss', { kind: 'all' }); return handled(); }
     if (l === 'd') { diagBox(); return handled(); }
+    if (k === ',') { configEditor(S.cursor && S.cursor !== 'new' ? S.cursor : '', ''); return handled(); }
     if (l === 'c') { S.quit = 1; renderHead(); return handled(); }
     return;
   }
@@ -949,7 +952,7 @@ function openModal(build) {
   if (f) f.focus();
 }
 function closeModal() { $('modal').classList.add('hidden'); $('nav').focus(); }
-$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) closeModal(); });
+$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {
   openModal((b) => {
@@ -1096,6 +1099,152 @@ async function execF2(path) {
   if (info.exec == null) { flash('F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)'); return; }
   execChoice(info, false);
 }
+
+// ── Éditeur des fichiers de configuration (#117) ───────────────────────────
+// Texte brut, numéros de ligne ; validation par core à la frappe (même code
+// que le chargement réel) : les erreurs bloquent l'enregistrement, pas les
+// avertissements ; .bak, écriture atomique, conflit si le fichier a changé.
+const CE = { project: '', files: [], doc: null, dirty: false, timer: null };
+
+async function configEditor(project, kind) {
+  CE.project = project || '';
+  CE.files = await call('configFiles', { path: CE.project });
+  openModal((b) => {
+    b.classList.add('wide');
+    b.innerHTML = '';
+    const head = el('div', 'cehead');
+    head.append(el('h2', '', '⚙ Fichiers de configuration'), el('span', 'sp'));
+    const close = el('button', 'btn', 'Fermer (Échap)'); close.onclick = () => ceClose();
+    head.appendChild(close);
+    const body = el('div', 'cebody');
+    const list = el('div', 'celist'); list.id = 'celist';
+    const ed = el('div', 'ceed'); ed.id = 'ceed';
+    body.append(list, ed);
+    b.append(head, body);
+    ceRenderList();
+  });
+  const first = CE.files.find((f) => f.kind === kind) || CE.files[0];
+  if (first) ceOpen(first.kind);
+}
+
+function ceRenderList() {
+  const l = $('celist'); if (!l) return;
+  l.textContent = '';
+  for (const f of CE.files) {
+    const it = el('div', 'ceitem' + (CE.doc && CE.doc.kind === f.kind ? ' on' : ''));
+    it.append(el('div', 'b', f.label), el('div', 'cepath', f.path),
+      el('div', f.exists ? 'dim' : 't-yellow', f.exists ? 'modifié le ' + new Date(f.modTime).toLocaleString('fr-FR') : 'absent : créé à l\'enregistrement (modèle proposé)'));
+    it.onclick = () => { if (!CE.dirty || confirm('Abandonner les modifications en cours ?')) ceOpen(f.kind); };
+    l.appendChild(it);
+  }
+}
+
+async function ceOpen(kind) {
+  const d = await call('configOpen', { kind, path: CE.project });
+  CE.doc = d; CE.dirty = false;
+  ceRenderList();
+  const ed = $('ceed'); ed.textContent = '';
+  const bar = el('div', 'cebar');
+  bar.append(el('span', 'cepath', d.path), el('span', 'sp'));
+  const reload = el('button', 'btn', 'Recharger'); reload.onclick = () => { if (!CE.dirty || confirm('Abandonner les modifications ?')) ceOpen(kind); };
+  const save = el('button', 'btn pri', 'Enregistrer (Ctrl+S)'); save.id = 'cesave'; save.onclick = () => ceSave(false);
+  bar.append(reload, save);
+  const wrap = el('div', 'cewrap');
+  const gut = el('pre', 'cegut'); gut.id = 'cegut';
+  const ta = el('textarea', 'cetext'); ta.id = 'cetext'; ta.spellcheck = false; ta.value = d.content;
+  ta.wrap = 'off';
+  ta.addEventListener('input', () => { CE.dirty = true; ceGutter(); clearTimeout(CE.timer); CE.timer = setTimeout(ceValidate, 300); });
+  ta.addEventListener('scroll', () => { gut.scrollTop = ta.scrollTop; });
+  ta.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 's') { e.preventDefault(); ceSave(false); }
+    if (e.key === 'Tab') { e.preventDefault(); const s = ta.selectionStart; ta.setRangeText('  ', s, ta.selectionEnd, 'end'); ta.dispatchEvent(new Event('input')); }
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); ceClose(); }
+  });
+  wrap.append(gut, ta);
+  const probs = el('div', 'ceprobs'); probs.id = 'ceprobs';
+  const status = el('div', 'cestatus'); status.id = 'cestatus';
+  ed.append(bar, wrap, probs, status);
+  if (d.kind === 'project-env') {
+    const side = el('details', 'ceside');
+    side.append(el('summary', '', 'Environnement fusionné (env-template.yaml du template puis ce fichier) — lecture seule'));
+    const m = el('pre', 'cemerged'); m.id = 'cemerged'; m.textContent = d.merged || '';
+    side.appendChild(m);
+    if (d.tplText) {
+      const t = el('details', 'ceside'); t.append(el('summary', '', 'env-template.yaml (fourni par le template) — lecture seule'), el('pre', 'cemerged', d.tplText));
+      ed.appendChild(t);
+    }
+    ed.appendChild(side);
+  }
+  if (d.fromTemp) $('cestatus').textContent = 'Fichier absent : modèle proposé, créé à l\'enregistrement.';
+  ceGutter(); ceProblems(d.problems || []);
+  ta.focus();
+}
+
+function ceGutter() {
+  const ta = $('cetext'), g = $('cegut'); if (!ta || !g) return;
+  const n = ta.value.split('\n').length;
+  let s = ''; for (let i = 1; i <= n; i++) s += i + '\n';
+  g.textContent = s;
+  g.scrollTop = ta.scrollTop;
+}
+
+function ceProblems(ps) {
+  const box = $('ceprobs'); if (!box) return;
+  box.textContent = '';
+  const errs = ps.filter((p) => p.severity === 'error').length;
+  $('cesave').disabled = errs > 0;
+  $('cesave').title = errs ? 'Corriger les erreurs avant d\'enregistrer (le brouillon reste ici)' : '';
+  if (!ps.length) { box.appendChild(el('div', 't-green', '✓ aucun problème')); return; }
+  for (const p of ps) {
+    const r = el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'));
+    r.append(el('span', 'b', (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line : 'fichier')), el('span', '', ' ' + p.message));
+    if (p.line) r.onclick = () => ceGoto(p.line);
+    box.appendChild(r);
+  }
+}
+
+function ceGoto(line) {
+  const ta = $('cetext'); const ls = ta.value.split('\n');
+  let pos = 0; for (let i = 0; i < line - 1 && i < ls.length; i++) pos += ls[i].length + 1;
+  ta.focus(); ta.setSelectionRange(pos, pos + (ls[line - 1] || '').length);
+  const lh = parseFloat(getComputedStyle(ta).lineHeight) || 17;
+  ta.scrollTop = Math.max(0, (line - 4) * lh);
+}
+
+async function ceValidate() {
+  const ta = $('cetext'); if (!ta || !CE.doc) return;
+  const r = await call('configValidate', { kind: CE.doc.kind, path: CE.project, content: ta.value });
+  ceProblems(r.problems || []);
+  const m = $('cemerged'); if (m && r.merged != null) m.textContent = r.merged;
+}
+
+async function ceSave(force) {
+  const ta = $('cetext'); if (!ta || !CE.doc) return;
+  if ($('cesave').disabled) return;
+  const r = await call('configSave', { kind: CE.doc.kind, path: CE.project, content: ta.value, mtime: CE.doc.mtime });
+  if (r.invalid) { ceProblems(r.problems || []); $('cestatus').textContent = 'Erreurs : rien n\'est enregistré.'; return; }
+  if (r.conflict) {
+    const st = $('cestatus'); st.textContent = '';
+    st.append(el('span', 't-orange', 'Le fichier a été modifié sur le disque depuis son ouverture. '));
+    const rel = el('button', 'btn', 'Recharger (perdre mes modifications)'); rel.onclick = () => ceOpen(CE.doc.kind);
+    const ow = el('button', 'btn danger', 'Écraser avec ma version'); ow.onclick = () => { CE.doc.mtime = r.mtime; ceSave(true); };
+    st.append(rel, ow);
+    return;
+  }
+  CE.doc.mtime = r.mtime || ''; CE.doc.fromTemp = false; CE.dirty = false;
+  ceProblems(r.problems || []);
+  $('cestatus').textContent = '✓ Enregistré (version précédente gardée en .bak). ' + (r.note || '');
+  CE.files = await call('configFiles', { path: CE.project });
+  ceRenderList();
+}
+
+function ceClose() {
+  if (CE.dirty && !confirm('Fermer sans enregistrer ? Les modifications seront perdues.')) return;
+  CE.doc = null; CE.dirty = false;
+  $('modalbox').classList.remove('wide');
+  closeModal();
+}
+$('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); configEditor(S.cursor && S.cursor !== 'new' ? S.cursor : '', ''); });
 
 // ── Événements du Go ───────────────────────────────────────────────────────
 // ── Notifications (fenêtre en arrière-plan) : agent en attente, MAJ prête ──
