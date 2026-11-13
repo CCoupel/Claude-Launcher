@@ -807,6 +807,24 @@ class ProjView {
     if (!l.zoomed) for (const id of Object.keys(this.panes)) if (!seen[id]) { this.panes[id].term.dispose(); this.panes[id].box.remove(); this.panes[id].head.remove(); delete this.panes[id]; }
     leaders.update(this.path, l);
   }
+  // zoom (#138) : bascule locale immédiate (le pane prend toute la zone, ou
+  // la mise en page d'avant revient), puis tmux (resize-pane -Z) : la mise en
+  // page et la recapture du pane suivent et corrigent.
+  zoom(id) {
+    const l = this.layout;
+    if (l && this.state === 'ready') {
+      if (!l.zoomed) {
+        const p = l.panes.find((q) => q.id === id);
+        if (p) {
+          this.unzoomed = l;
+          this.applyLayout(Object.assign({}, l, { zoomed: true, panes: [Object.assign({}, p, { x: 0, y: 0, w: l.cols, h: l.rows, active: true })] }));
+        }
+      } else if (this.unzoomed) {
+        this.applyLayout(Object.assign({}, this.unzoomed, { zoomed: false }));
+      }
+    }
+    call('termZoom', { path: this.path, pane: id });
+  }
   makePane(p) {
     const box = el('div', 'pane'), x = el('div', 'xt'); box.appendChild(x);
     const head = el('div', 'phead'); head.append(el('span', 'n'), el('span', 'r'));
@@ -818,13 +836,13 @@ class ProjView {
     term.onBinary((d) => call('termInput', { path: this.path, pane: p.id, data: d, binary: true })); // souris X10 (#135)
     term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
     term.textarea && term.textarea.addEventListener('focus', () => { this.focusPane = p.id; S.focusNav = false; call('termFocus', { path: this.path, pane: p.id }); });
-    head.addEventListener('dblclick', () => call('termZoom', { path: this.path, pane: p.id }));
+    head.addEventListener('dblclick', () => this.zoom(p.id));
     head.addEventListener('click', () => term.focus());
     const pv = { box, head, term, bg: null };
     if (this.pending[p.id]) { for (const c of this.pending[p.id]) this.write(pv, c); delete this.pending[p.id]; }
     return pv;
   }
-  write(pv, c) { if (c.reset) pv.term.reset(); if (c.data) pv.term.write(c.data); }
+  write(pv, c) { if (c.reset && !c.keep) pv.term.reset(); if (c.data) pv.term.write(c.data); }
   out(chunks) {
     for (const c of chunks) {
       const pv = this.panes[c.pane];
@@ -835,7 +853,7 @@ class ProjView {
   input(pane, d) {
     if (S.prefix) {
       S.prefix = false; this.prefixEl.classList.add('hidden');
-      if (d === 'z') return call('termZoom', { path: this.path, pane });
+      if (d === 'z') return this.zoom(pane);
       if (d === 'R' || d === 'r') return call('relayout', { path: this.path });
       if (d === '\x02') return call('termInput', { path: this.path, pane, data: '\x02' });
       return call('termInput', { path: this.path, pane, data: '\x02' + d });
@@ -915,7 +933,7 @@ const leaders = {
     if (t.w !== lp.w || t.h !== lp.h) { t.w = lp.w; t.h = lp.h; t.term.resize(lp.w, lp.h); this.scale(t); }
     t.term.options.theme = Object.assign({}, t.term.options.theme, { background: lp.bg });
   },
-  out(path, c) { const t = this.tiles[path]; if (t && c.pane === t.pane) { if (c.reset) t.term.reset(); if (c.data) t.term.write(c.data); } },
+  out(path, c) { const t = this.tiles[path]; if (t && c.pane === t.pane) { if (c.reset && !c.keep) t.term.reset(); if (c.data) t.term.write(c.data); } },
   drop(path) { const t = this.tiles[path]; if (!t) return; t.term.dispose(); t.tile.remove(); delete this.tiles[path]; this.layout(); },
   layout() {
     const n = Object.keys(this.tiles).length;

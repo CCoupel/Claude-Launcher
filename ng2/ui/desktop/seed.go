@@ -154,9 +154,13 @@ func trackSGR(cur []string, l string) []string {
 // alternatif) ; screen : capture-pane -e -N de l'écran visible.
 func seedData(m paneModes, hist, screen string) string {
 	var b strings.Builder
-	b.WriteString("\x1b[0m")
+	// modes remis à leur état par défaut, puis ceux de l'application : le
+	// terminal n'est pas toujours remis à zéro avant (recapture légère, #138)
+	b.WriteString("\x1b[0m\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?2004l\x1b[?1l\x1b>\x1b[4l\x1b[?7h\x1b[?25h\x1b[r")
 	if m.alt {
 		b.WriteString("\x1b[?1049h") // l'écran normal reste dessous : rendu à la sortie
+	} else {
+		b.WriteString("\x1b[?1049l")
 	}
 	b.WriteString("\x1b[H\x1b[2J")
 	// capture-pane -e n'émet que les changements d'attributs, d'une ligne à

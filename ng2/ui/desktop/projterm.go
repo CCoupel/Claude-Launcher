@@ -69,6 +69,10 @@ type projTerm struct {
 	tmuxVer         string          // version du tmux du projet (drapeaux de client : 3.2)
 	flagged         map[string]bool // clients mis en ignore-size par l'interface (#126)
 	reseed          *time.Timer     // recapture des panes après un redimensionnement
+	reseedSet       map[string]bool // panes à recapturer à l'échéance (nil : tous)
+	pubMu           sync.Mutex      // lecture de la fenêtre → publication (tours lent et rapide, #138)
+	team            *core.TeamConfig
+	zoomAt          time.Time // dernier plein écran demandé (journal, #138)
 }
 
 type watchState struct {
@@ -83,6 +87,9 @@ type Chunk struct {
 	Pane  string `json:"pane"`
 	Data  string `json:"data"`
 	Reset bool   `json:"reset,omitempty"`
+	// Keep : recapture « légère » (taille changée, #138) : l'écran est
+	// réécrit sans remettre le terminal à zéro (historique local gardé)
+	Keep bool `json:"keep,omitempty"`
 }
 
 // PaneView : un pane tel que l'interface le place (cellules) et le colore.
@@ -502,11 +509,21 @@ func (t *projTerm) poke() {
 // seed : amorce un pane avec son contenu actuel (historique et écran tirés de
 // la grille de tmux, modes du terminal : seed.go) ; sa sortie est ignorée
 // jusque-là (elle est dans la capture).
-func (t *projTerm) seed(pane string) {
-	c := t.client
+func (t *projTerm) seed(pane string) { t.seedPane(pane, false) }
+
+// seedPane : light (#138) : pane seulement redimensionné (plein écran,
+// bordure, fenêtre) : écran seul, sans l'historique ni remise à zéro du
+// terminal de l'interface (qui garde le sien) : deux commandes, une capture
+// d'écran ; les commandes partent ensemble (un aller-retour).
+func (t *projTerm) seedPane(pane string, light bool) {
+	c := t.cl()
+	if c == nil {
+		return
+	}
 	t.mu.Lock()
 	t.seeding[pane], t.seen[pane] = true, true
 	t.mu.Unlock()
+	t0 := time.Now()
 	var m paneModes
 	var hist string
 	_ = c.sendCB([]string{"display-message", "-p", "-t", pane, modesFormat}, func(r Reply) {
@@ -515,20 +532,27 @@ func (t *projTerm) seed(pane string) {
 		m.bracket = bracketFor(t.bracket[pane], m.cmd)
 		t.mu.Unlock()
 	})
-	_ = c.sendCB([]string{"capture-pane", "-p", "-e", "-t", pane, "-S", strconv.Itoa(-seedHistory), "-E", "-1"}, func(r Reply) {
-		if !r.Err && m.hist > 0 && !m.alt { // sans historique, tmux renverrait la ligne 0
-			hist = string(r.Body)
-		}
-	})
+	if !light {
+		_ = c.sendCB([]string{"capture-pane", "-p", "-e", "-t", pane, "-S", strconv.Itoa(-seedHistory), "-E", "-1"}, func(r Reply) {
+			if !r.Err && m.hist > 0 && !m.alt { // sans historique, tmux renverrait la ligne 0
+				hist = string(r.Body)
+			}
+		})
+	}
 	err := c.sendCB([]string{"capture-pane", "-p", "-e", "-N", "-t", pane}, func(r Reply) {
 		data := seedData(m, hist, string(r.Body))
 		if r.Err {
 			data = ""
 		}
+		kind := "recapture complète"
+		if light {
+			kind = "recapture (taille)"
+		}
+		t.a.perf.trace(kind, t.name+" "+pane, time.Since(t0), fmt.Sprintf("%d octets", len(data)))
 		t.mu.Lock()
 		t.seeding[pane] = false
 		t.carry[pane] = nil
-		t.push(Chunk{Pane: pane, Data: data, Reset: true})
+		t.push(Chunk{Pane: pane, Data: data, Reset: true, Keep: light})
 		t.mu.Unlock()
 	})
 	if err != nil {
@@ -628,17 +652,39 @@ func clientSize(cols, rows int) string { return fmt.Sprintf("%d,%d", cols, rows)
 // d'un écran exact.
 var reseedDelay = 400 * time.Millisecond
 
-func (t *projTerm) reseedLater() {
+func (t *projTerm) reseedLater(panes ...string) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.reseed != nil {
 		t.reseed.Stop()
 	}
+	switch {
+	case len(panes) == 0:
+		t.reseedSet = nil // tous
+	case t.reseed == nil || t.reseedSet != nil:
+		if t.reseedSet == nil {
+			t.reseedSet = map[string]bool{}
+		}
+		for _, p := range panes {
+			t.reseedSet[p] = true
+		}
+	}
 	t.reseed = time.AfterFunc(reseedDelay, func() {
 		t.mu.Lock()
-		t.seen = map[string]bool{}
+		set := t.reseedSet
+		t.reseed, t.reseedSet = nil, nil
+		var ids []string
+		if t.layout != nil {
+			for _, p := range t.layout.Panes {
+				if set == nil || set[p.ID] {
+					ids = append(ids, p.ID)
+				}
+			}
+		}
 		t.mu.Unlock()
-		t.poke()
+		for _, p := range ids {
+			t.seedPane(p, true)
+		}
 	})
 }
 
@@ -648,8 +694,15 @@ func (t *projTerm) focus(pane string) {
 	}
 }
 
+// zoom : plein écran d'un pane (aller-retour). L'interface a déjà basculé
+// l'affichage ; le tour rapide qui suit publie la mise en page de tmux (sans
+// lecture de fichier), et seul le pane redimensionné est recapturé, aussitôt
+// (#138).
 func (t *projTerm) zoom(pane string) {
 	if c := t.cl(); c != nil && pane != "" {
+		t.mu.Lock()
+		t.zoomAt = time.Now()
+		t.mu.Unlock()
 		_ = c.Send("resize-pane", "-Z", "-t", pane)
 		t.poke()
 	}
@@ -687,6 +740,19 @@ func (t *projTerm) watcher() {
 	poke := make(chan struct{}, 1)
 	pokeKey.Store(t, poke)
 	defer pokeKey.Delete(t)
+	// tours rapides (notification, plein écran) à part : un tour lent qui
+	// lit la team (CLAUDE_CONFIG_DIR, parfois par 9P) ne les retarde pas (#138)
+	go func() {
+		for {
+			select {
+			case <-t.stop:
+				return
+			case <-poke:
+				time.Sleep(15 * time.Millisecond) // regroupe les notifications d'un même changement
+				t.tick(true)
+			}
+		}
+	}()
 	tk := time.NewTicker(time.Second)
 	defer tk.Stop()
 	for {
@@ -695,9 +761,6 @@ func (t *projTerm) watcher() {
 			return
 		case <-tk.C:
 			t.tick(false)
-		case <-poke:
-			time.Sleep(40 * time.Millisecond)
-			t.tick(true)
 		}
 	}
 }
@@ -754,7 +817,30 @@ func sortPanes(p []winPaneFull) {
 // tick : un tour du watcher ; fast : sur notification (sans propriétaire ni team).
 func (t *projTerm) tick(fast bool) {
 	cfg := t.a.cfg
+	// team du projet : lue par le tour lent seulement (fichiers, parfois par
+	// 9P), avant la fenêtre ; le tour rapide reprend la dernière lue
+	var tc *core.TeamConfig
+	if !fast {
+		t0 := time.Now()
+		if tp := t.findTeam(); tp != "" {
+			if x, err := core.ReadTeam(tp); err == nil {
+				tc = &x
+			}
+		}
+		t.a.perf.trace("team (tour)", core.ClaudeDir(), time.Since(t0))
+		t.mu.Lock()
+		t.team = tc
+		t.mu.Unlock()
+	} else {
+		t.mu.Lock()
+		tc = t.team
+		t.mu.Unlock()
+	}
+	t.pubMu.Lock()
+	defer t.pubMu.Unlock()
+	t0 := time.Now()
 	panes, w, h, zoomed, visible, err := t.readWin()
+	t.a.perf.trace("fenêtre (list-panes)", t.name, time.Since(t0))
 	if err != nil || len(panes) == 0 {
 		return
 	}
@@ -773,13 +859,6 @@ func (t *projTerm) tick(fast bool) {
 	}
 	t.mu.Unlock()
 
-	// team du projet : lue une fois par tour
-	var tc *core.TeamConfig
-	if tp := t.findTeam(); tp != "" {
-		if x, err := core.ReadTeam(tp); err == nil {
-			tc = &x
-		}
-	}
 	arranged := false
 	arrange := func() {
 		t.arrange(cps, w, h, leader, tc)
@@ -980,18 +1059,22 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 	// pane redimensionné par tmux (bordure glissée #135, zoom, autre client) :
 	// le terminal de l'interface replie ses lignes autrement que tmux ; il est
 	// recapturé une fois la taille stable
-	paneResized := false
+	// seuls les panes concernés, recapture légère ; plein écran (aller ou
+	// retour) : tout de suite, sans anti-rebond (#138)
+	var resizedPanes []string
+	zoomToggled := t.layout != nil && t.layout.Zoomed != msg.Zoomed
 	if t.layout != nil {
 		old := map[string][2]int{}
 		for _, p := range t.layout.Panes {
 			old[p.ID] = [2]int{p.W, p.H}
 		}
 		for _, p := range msg.Panes {
-			if o, ok := old[p.ID]; ok && o != [2]int{p.W, p.H} {
-				paneResized = true
+			if o, ok := old[p.ID]; ok && o != [2]int{p.W, p.H} && t.seen[p.ID] {
+				resizedPanes = append(resizedPanes, p.ID)
 			}
 		}
 	}
+	zoomAt := t.zoomAt
 	t.layout = msg
 	busyChanged := t.busy != busy
 	t.busy = busy
@@ -1008,8 +1091,15 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 	for _, p := range fresh {
 		t.seed(p)
 	}
-	if paneResized {
-		t.reseedLater()
+	if zoomToggled && !zoomAt.IsZero() {
+		t.a.perf.trace("plein écran : mise en page", t.name, time.Since(zoomAt), fmt.Sprintf("zoom=%v, %d pane(s) à recapturer", msg.Zoomed, len(resizedPanes)))
+	}
+	if zoomToggled {
+		for _, p := range resizedPanes {
+			t.seedPane(p, true)
+		}
+	} else if len(resizedPanes) > 0 {
+		t.reseedLater(resizedPanes...)
 	}
 	if busyChanged {
 		t.a.changed()

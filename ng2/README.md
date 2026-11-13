@@ -936,7 +936,7 @@ dans `window_visible_layout`) et envoie la frappe (`send-keys -H`) et la taille 
 (`refresh-client -C`). Un pane qui apparaît, change de taille ou est recapturé est amorcé
 depuis la grille de tmux : écran par `capture-pane -e -N` (les fins de ligne colorées comprises,
 comme le panneau latéral de Claude Code), historique au-dessus (molette), position du curseur et
-modes de l'application (suivi de la souris, curseur, clavier, écran alternatif ; collage entre crochets, que tmux ne publie pas : suivi dans la sortie du pane, actif pour `claude` à défaut). La mise en page est appliquée au tmux du projet par `core.ArrangeTeam`, comme le
+modes de l'application (suivi de la souris, curseur, clavier, écran alternatif ; collage entre crochets, que tmux ne publie pas : suivi dans la sortie du pane, actif pour `claude` à défaut). Plein écran (double-clic sur l'en-tête, `Ctrl+B z`) : bascule immédiate dans l'interface, puis seul le pane concerné est recapturé (écran seul, sans l'historique) ; la team n'est relue que par le tour lent (toutes les secondes), jamais sur le chemin d'un plein écran. La mise en page est appliquée au tmux du projet par `core.ArrangeTeam`, comme le
 `layout-watch` de la coque, et l'interface place chaque terminal à la géométrie de tmux.
 
 **Construire l'exécutable** (depuis Linux ou Windows, sans cgo ni npm : xterm.js est embarqué) :

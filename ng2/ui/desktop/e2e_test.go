@@ -128,6 +128,7 @@ setup:
 	if o := e.Owner(pt.ctr); o.Id != core.LauncherID() {
 		t.Errorf("propriétaire %q, attendu %q", o.Id, core.LauncherID())
 	}
+	zoomTiming(t, &r, pt)
 
 	// fermeture : /exit, session fermée, conteneur arrêté
 	a.readCtr()
@@ -172,5 +173,77 @@ setup:
 	}
 	if f := running(); f != nil {
 		t.Errorf("conteneur encore en marche : %+v", *f)
+	}
+}
+
+// zoomTiming (#138) : plein écran d'un pane et retour sur un vrai backend,
+// avec 3 autres panes chargés d'historique : bascule visible (mise en page
+// zoomée publiée) et écran utilisable (pane recapturé à sa nouvelle taille).
+func zoomTiming(t *testing.T, r *recorder, pt *projTerm) {
+	t.Helper()
+	c := pt.cl()
+	for i := 0; i < 3; i++ {
+		if _, err := c.Output("split-window", "-d", "-t", pt.win, "seq 1 3000; exec cat"); err != nil {
+			t.Fatalf("split-window : %v", err)
+		}
+	}
+	_, _ = c.Output("select-layout", "-t", pt.win, "tiled")
+	end := time.Now().Add(20 * time.Second)
+	for time.Now().Before(end) && len(pt.lastLayout().Panes) < 4 {
+		time.Sleep(100 * time.Millisecond)
+	}
+	time.Sleep(2 * time.Second) // recaptures des panes nouveaux, mise en page
+	leader := pt.lastLayout().Leader
+	step := func(zoomed bool) (visible, usable time.Duration) {
+		r.mu.Lock()
+		n := len(r.evs)
+		r.mu.Unlock()
+		t0 := time.Now()
+		pt.zoom(leader)
+		end := time.Now().Add(15 * time.Second)
+		for time.Now().Before(end) && (visible == 0 || usable == 0) {
+			r.mu.Lock()
+			evs := r.evs[n:]
+			n = len(r.evs)
+			r.mu.Unlock()
+			for _, e := range evs {
+				if e["_name"] != "term" {
+					continue
+				}
+				if e["kind"] == "layout" && visible == 0 && e["layout"].(map[string]any)["zoomed"] == zoomed {
+					visible = time.Since(t0)
+				}
+				if e["kind"] == "out" && visible != 0 && usable == 0 {
+					for _, ch := range e["chunks"].([]any) {
+						if m := ch.(map[string]any); m["pane"] == leader && m["reset"] == true {
+							usable = time.Since(t0)
+						}
+					}
+				}
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return
+	}
+	for _, z := range []bool{true, false} {
+		v, u := step(z)
+		t.Logf("zoom=%v : bascule visible %s, utilisable %s", z, v.Round(time.Millisecond), u.Round(time.Millisecond))
+		if v == 0 || u == 0 || v > 300*time.Millisecond || u > time.Second {
+			t.Errorf("zoom=%v : bascule %s (objectif < 300 ms), utilisable %s (objectif < 1 s)", z, v, u)
+		}
+		time.Sleep(1500 * time.Millisecond)
+	}
+	// le journal de l'utilisateur dit chaque étape (desktop-perf.log)
+	pt.a.perf.flushTrace()
+	b, _ := os.ReadFile(filepath.Join(core.CacheDir(), "desktop-perf.log"))
+	var steps []string
+	for _, l := range strings.Split(string(b), "\n") {
+		if strings.Contains(l, "plein écran") || strings.Contains(l, "recapture (taille)") {
+			steps = append(steps, l)
+		}
+	}
+	t.Logf("desktop-perf.log :\n%s", strings.Join(steps, "\n"))
+	if len(steps) < 2 {
+		t.Errorf("étapes du plein écran absentes du journal")
 	}
 }
