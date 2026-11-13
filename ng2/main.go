@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
 	"claude-launcher-ng2/core"
 	"claude-launcher-ng2/platform"
+	"claude-launcher-ng2/ui/desktop"
 	"claude-launcher-ng2/ui/tmux"
 )
 
@@ -35,6 +37,18 @@ func main() {
 		}
 	}
 	platform.CleanupOldExe() // Windows : .old laissé par une mise à jour (ailleurs : rien)
+	if runtime.GOOS == "windows" && cmd == "shell" {
+		cmd = "desktop" // Windows : sans argument, l'interface native (#111)
+	}
+	if runtime.GOOS == "windows" {
+		// exécutable graphique : console de l'invite pour la ligne de commande,
+		// console masquée pour la fenêtre (outils lancés sans fenêtre noire)
+		if cmd == "desktop" && !slices.Contains(os.Args, "--web") {
+			platform.HiddenConsole()
+		} else {
+			platform.AttachParentConsole()
+		}
+	}
 	if runtime.GOOS == "windows" && windowsUnsupported[cmd] {
 		fmt.Fprintf(os.Stderr, "« %s » : coque tmux indisponible sous Windows (interface native : #111) — disponibles : backends, configure, help, version\n", cmd)
 		os.Exit(1)
@@ -92,6 +106,17 @@ func main() {
 		}
 	case "ctr-attach": // fenêtre d'un projet en conteneur (lancée par tmux)
 		err = tmux.CtrAttachMain(os.Args[2:])
+	case "desktop": // interface native (Wails), ou web (--web) ; défaut sous Windows
+		core.SelfUpdate()
+		core.LinkUsageCache()
+		core.ResetUsageBackoff()
+		var args []string
+		if len(os.Args) > 1 && os.Args[1] == "desktop" {
+			args = os.Args[2:]
+		} else {
+			args = os.Args[1:]
+		}
+		err = desktop.Run(args)
 	case "backends":
 		err = tmux.RunBackends()
 	case "configure":
@@ -101,7 +126,7 @@ func main() {
 	case "version", "--version", "-v":
 		fmt.Println(core.NgName, core.NgVersion)
 	default:
-		err = fmt.Errorf("usage : claude-launcher-ng2 [shell|configure|relayout WIN_ID|help|version]")
+		err = fmt.Errorf("usage : claude-launcher-ng2 [shell|desktop|configure|relayout WIN_ID|help|version]")
 	}
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)

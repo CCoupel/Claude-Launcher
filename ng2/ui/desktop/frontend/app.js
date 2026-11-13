@@ -1,0 +1,874 @@
+// Claude Launcher — interface native (Wails) ou web (mode --web).
+// Sans framework : l'état vient du Go (événements « state », « cards »,
+// « term »), l'interface ne fait que l'afficher et renvoyer les actions
+// (Dispatch côté Go). Terminaux : xterm.js, un par pane tmux, placés à la
+// géométrie de tmux (mise en page des teams de core).
+'use strict';
+
+// ── Transport : Wails (window.go) ou HTTP + SSE ────────────────────────────
+const transport = (() => {
+  const wails = () => window.go && window.go.desktop && window.go.desktop.Bridge;
+  return {
+    async call(method, args) {
+      if (wails()) {
+        const r = await window.go.desktop.Bridge.Call(method, JSON.stringify(args || {}));
+        return r ? JSON.parse(r) : null;
+      }
+      const res = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args: args || {} }) });
+      const j = await res.json();
+      if (j.error) throw new Error(j.error);
+      return j.result;
+    },
+    listen(cb) {
+      if (window.runtime && window.runtime.EventsOn) {
+        window.runtime.EventsOn('ev', (e) => cb(e.name, e.data));
+        return;
+      }
+      const connect = () => {
+        const es = new EventSource('/api/events');
+        es.onmessage = (m) => { try { const e = JSON.parse(m.data); cb(e.name, e.data); } catch (err) { console.error(err); } };
+        es.onerror = () => { es.close(); setTimeout(() => { connect(); call('init').then(applyInit).catch(() => {}); }, 1500); };
+      };
+      connect();
+    },
+  };
+})();
+const call = (m, a) => transport.call(m, a).catch((e) => { flash('⚠ ' + e.message); throw e; });
+
+// ── Utilitaires ────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+const tone = (t) => (t ? 't-' + (t.color || 'dim') + (t.bold ? ' b' : '') : '');
+const store = {
+  get(k, d) { try { const v = localStorage.getItem('cl.' + k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
+  set(k, v) { try { localStorage.setItem('cl.' + k, JSON.stringify(v)); } catch (e) { /* stockage indisponible */ } },
+};
+const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace';
+const FONT_SIZE = 13;
+
+// ── État ───────────────────────────────────────────────────────────────────
+const S = {
+  snap: null, cards: null, help: null, tools: null,
+  filter: '', cursor: null,      // chemin du projet sous le curseur ('new' : nouveau projet)
+  view: 'leaders',               // onglet affiché : 'leaders' ou chemin d'un projet
+  views: {},                     // chemin -> vue de projet
+  quit: 0,                       // 1 : question l/t ; 2 : confirmer « tout fermer »
+  lastClick: { key: null, at: 0 },
+  prefix: false,                 // Ctrl+B tapé dans un terminal
+  focusNav: true,
+};
+
+function flash(m) { const e = $('msg'); e.textContent = m; }
+
+// ── Mesure des cellules du terminal ────────────────────────────────────────
+let cell = null;
+function measureCell() {
+  const s = el('span');
+  s.style.cssText = `position:absolute;visibility:hidden;white-space:pre;font-family:${MONO};font-size:${FONT_SIZE}px;line-height:normal`;
+  s.textContent = 'W'.repeat(200);
+  document.body.appendChild(s);
+  const r = s.getBoundingClientRect();
+  document.body.removeChild(s);
+  return { w: r.width / 200, h: Math.ceil(r.height) };
+}
+function refineCell(term) {
+  try {
+    const d = term._core._renderService.dimensions.css.cell;
+    if (d && d.width > 0 && d.height > 0) cell = { w: d.width, h: d.height };
+  } catch (e) { /* API interne absente : mesure de repli */ }
+}
+
+function newTerm(opts) {
+  const t = new Terminal(Object.assign({
+    fontFamily: MONO, fontSize: FONT_SIZE, lineHeight: 1, scrollback: 3000, allowProposedApi: true,
+    cursorBlink: true, macOptionIsMeta: true, drawBoldTextInBrightColors: false,
+    theme: { background: '#0A0C10', foreground: '#E6E8EC', cursor: '#F0A868', selectionBackground: '#3A4458' },
+  }, opts || {}));
+  try { t.loadAddon(new Unicode11Addon.Unicode11Addon()); t.unicode.activeVersion = '11'; } catch (e) { /* largeurs Unicode 6 */ }
+  return t;
+}
+
+// ── Colonne gauche : en-tête, arbre, cartes ────────────────────────────────
+function renderHead() {
+  const s = S.snap;
+  $('version').textContent = s.version.replace('Claude-Launcher-', '');
+  $('tplver').textContent = '· tpl ' + s.tpl;
+  const al = $('alerts'); al.textContent = '';
+  for (const a of s.alerts || []) {
+    const d = el('div', 'alert ' + a.color + (a.click ? ' click' : ''));
+    const t = el('span', 'txt', a.text); t.title = a.text;
+    if (a.click) t.onclick = () => call('alert', { kind: a.kind });
+    const x = el('span', 'x', '✕'); x.title = 'masquer (Ctrl+U)'; x.onclick = () => call('dismiss', { kind: a.kind });
+    d.append(t, x); al.appendChild(d);
+  }
+  const u = $('usage'); u.textContent = '';
+  if (!s.usage || !s.usage.length) {
+    u.appendChild(el('span', 'msg', 'consommation Claude : ' + (s.usageMsg || 'chargement…')));
+  } else {
+    const col = { blue: 'var(--blue)', yellow: 'var(--yellow)', red: 'var(--red)', dim: 'var(--dim)' };
+    for (const r of s.usage) {
+      const lab = el('span', 'lab', r.label); lab.title = r.label;
+      const bar = el('div', 'bar'); const f = el('div'); f.style.width = (r.passed ? 0 : r.pct) + '%'; f.style.background = col[r.tone] || col.blue; bar.appendChild(f);
+      const pct = el('span', 'pct t-' + (r.tone === 'blue' ? 'blue' : r.tone), r.passed ? '—' : r.pct + ' %');
+      const rst = el('span', 'rst', r.passed ? 'réinit. passée' : r.reset);
+      u.append(lab, bar, pct, rst);
+    }
+    if (s.stale) u.appendChild(el('span', 'msg t-yellow', s.stale));
+  }
+  const lg = $('login');
+  lg.classList.toggle('hidden', !s.login);
+  lg.textContent = s.login || '';
+  lg.className = 'login ' + (s.loginBad ? 'bad' : 'warn') + (s.login ? '' : ' hidden');
+  $('filter').textContent = S.filter ? 'filtre › ' + S.filter + '▏' : 'Filtrer (frappe)';
+  $('filter').className = S.filter ? '' : 'dim';
+  $('filterbox').classList.toggle('on', !!S.filter);
+  $('status').textContent = s.status || '';
+  $('msg').textContent = quitText() || s.msg || '';
+}
+
+function quitText() {
+  if (S.quit === 1) return '[l] launcher seul (projets gardés) · [t] tout fermer · autre : annuler';
+  if (S.quit === 2) return `Fermer ${(S.snap.tabs || []).length} projet(s) et leur claude ? [o] oui · autre : annuler`;
+  return '';
+}
+
+// visibleRows : arbre, ou projets filtrés (sans hiérarchie, comme la coque).
+function visibleRows() {
+  const rows = (S.snap && S.snap.rows) || [];
+  if (!S.filter) return rows;
+  const f = S.filter.toLowerCase();
+  return rows.filter((r) => r.kind === 'project' && r.name.toLowerCase().includes(f));
+}
+function projectRows() { return visibleRows().filter((r) => r.kind === 'project'); }
+
+function renderTree() {
+  const tree = $('tree'); tree.textContent = '';
+  const rows = visibleRows();
+  if (!rows.length) tree.appendChild(el('div', 'row dim', '  aucun projet'));
+  for (const r of rows) {
+    const d = el('div', 'row ' + r.kind);
+    d.dataset.path = r.path;
+    if (r.kind !== 'project') {
+      d.style.paddingLeft = (8 + r.depth * 14) + 'px';
+      d.append(el('span', 'name', r.kind === 'cat' ? '▾ ' + r.name.toUpperCase() : r.name));
+      if (r.missing) d.classList.add('missing');
+    } else {
+      d.style.paddingLeft = S.filter ? '10px' : (8 + r.depth * 14) + 'px';
+      if (!S.filter) d.appendChild(el('span', 'tw', r.last ? '└' : '├'));
+      const dot = el('span', 'dot ' + tone(r.closing ? { color: 'cyan' } : r.dot), r.closing ? '⏻' : (r.dot ? r.dot.icon : '○'));
+      dot.title = r.closing || (r.dot ? r.dot.text : '');
+      const name = el('span', 'name', r.name);
+      const badges = el('span', 'badges');
+      if (!r.gitOK) badges.appendChild(el('span', 't-dim', '…'));
+      for (const b of r.badges || []) {
+        const sp = el('span', tone(b.tone), b.icon + (b.short ? ' ' + b.short : '')); sp.title = b.text; badges.appendChild(sp);
+      }
+      d.append(dot, name, badges);
+      if (r.release) d.appendChild(el('span', 'rel', r.release));
+      if (r.open) { d.classList.add('open'); d.style.background = r.color; }
+      if (r.path === S.cursor) d.classList.add('cur');
+    }
+    tree.appendChild(d);
+  }
+  $('newproj').classList.toggle('cur', S.cursor === 'new');
+  const cur = tree.querySelector('.row.cur');
+  if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
+
+function renderCards() {
+  const c = S.cards, box = $('cards');
+  box.textContent = '';
+  if (!c || !c.path) { box.appendChild(el('div', 'dim', 'Sélectionnez un projet dans le navigateur.')); return; }
+  const t = el('div', 'cardstitle'); t.append(el('span', '', '◈ ÉTAT · ' + c.name));
+  if (c.updated) t.append(el('span', c.staleUpd ? 't-yellow' : '', '· mis à jour ' + c.updated));
+  box.appendChild(t);
+  const card = (title, sub, body) => {
+    const k = el('div', 'card'); const h = el('div', 'ch', title);
+    if (sub) h.append(el('span', 'dim', ' · ' + sub));
+    k.append(h, body); box.appendChild(k); return k;
+  };
+  // Projet : légende des icônes de la ligne, puis git et versions
+  const pb = el('div', 'cb');
+  const lg = el('div', 'legend');
+  for (const i of c.legend || []) lg.append(el('span', 'i ' + tone(i.tone), i.icon), el('span', 't', i.text));
+  pb.appendChild(lg);
+  if (!c.loaded) pb.appendChild(el('div', 'dim', 'préparation en cours…'));
+  else if (!c.isRepo) pb.appendChild(el('div', 'dim', 'pas un dépôt git'));
+  else {
+    const kv = el('div', 'kv');
+    const rel = el('span'); for (const s of c.release || []) rel.append(el('span', s.tone ? 't-' + s.tone : '', s.text));
+    kv.append(el('span', '', 'branche'), el('span', '', c.branch), el('span', '', 'version'), el('span', '', 'locale ' + c.verLocal),
+      el('span', '', ''), (() => { const s = el('span', '', 'release '); s.append(rel); return s; })(),
+      el('span', '', 'dernier'), el('span', '', c.lastMsg || ''));
+    kv.lastChild.title = c.lastMsg || '';
+    pb.appendChild(kv);
+  }
+  card('Projet', '', pb);
+  // Milestone
+  const m = c.milestone;
+  if (m) {
+    const mb = el('div', 'cb');
+    const pctOf = (a, b) => (b > 0 ? Math.round(a * 100 / b) : 0);
+    const bar = (a, b) => { const x = el('div', 'msbar'); const f = el('div'); f.style.width = pctOf(a, b) + '%'; x.appendChild(f); return x; };
+    if (m.kind === 'working' || m.kind === 'releasing') {
+      const h = el('div', 'mshead');
+      h.append(el('span', m.kind === 'working' ? 't-yellow' : 't-orange', '⚑'), el('span', 't-cyan b', m.title));
+      if (m.kind === 'releasing') h.append(el('span', 't-orange', '— à publier'));
+      h.append(el('span', 'sp'), el('span', 'dim', `${m.closed}/${m.total} · ${pctOf(m.closed, m.total)} %`));
+      mb.append(h, bar(m.closed, m.total));
+      if (m.phases && m.phases.length) {
+        const ph = el('div'); m.phases.forEach((p, i) => { if (i) ph.append(el('span', 'dim', ' · ')); ph.append(el('span', p.tone ? 't-' + p.tone : '', p.text)); });
+        mb.appendChild(ph);
+      }
+      if (m.blocked) mb.appendChild(el('div', 't-red b', `⛔ ${m.blocked} bloquée(s)`));
+    } else if (m.kind === 'idle') {
+      mb.appendChild(el('div', 'dim', '⚑ aucun milestone en cours'));
+      for (const r of m.pending || []) {
+        const row = el('div', 'msrow'); const tt = el('span', 'tt', r.title); tt.title = r.title;
+        const b = bar(r.closed, r.total); b.style.margin = '0';
+        row.append(tt, el('span', 'dim', `${r.closed}/${r.total}`), b, el('span', 'b', pctOf(r.closed, r.total) + '%'));
+        mb.appendChild(row);
+      }
+      if (m.more) mb.appendChild(el('div', 'dim', `  … ${m.more} autre(s)`));
+    } else if (m.kind === 'done') {
+      const d = el('div'); d.append(el('span', 't-green', '⚑ ' + m.title + ' publié'), el('span', 'dim', ' (il y a ' + m.doneAgo + ')'));
+      mb.appendChild(d);
+    }
+    card('Milestone', m.readAgo ? 'lu ' + m.readAgo : '', mb);
+  }
+  // Team
+  const tb = el('div', 'cb');
+  if (!c.team || !c.team.length) tb.appendChild(el('div', 'dim', c.open ? 'Pas de team template.' : 'Pas de team template (Entrée pour lancer).'));
+  else {
+    const g = el('div', 'team');
+    for (const m of c.team) {
+      const on = !!m.claude;
+      g.append(el('span', on ? 't-green' : 't-dim', on ? '●' : '○'), el('span', on ? '' : 'dim', m.name),
+        el('span', '', (m.tag || '—') + (m.companion ? '+' : '')), el('span', 'dim', (m.model || '—') + ' · ' + (m.effort || '—')),
+        el('span', 't-cyan', on ? m.claude + (m.count > 1 ? ' ×' + m.count : '') : (m.count > 1 ? '×' + m.count : '')));
+    }
+    tb.appendChild(g);
+  }
+  card('Team', c.team && c.team.length ? c.team.length + ' teammates' : '', tb);
+  // Fichiers
+  if (c.loaded) {
+    const fb = el('div', 'cb'); const g = el('div', 'files');
+    const mark = (ch) => (!ch ? ['', ''] : ch === 'D' ? ['t-red', ch] : (ch === '?' || ch === 'A') ? ['t-green', ch] : ['t-yellow', ch]);
+    for (const f of c.files || []) {
+      const [cls, ch] = mark(f.change);
+      const n = el('span', 'n' + (f.dir ? ' dir' : ''), f.name + (f.dir ? '/' : '')); n.title = f.name;
+      g.append(el('span', cls, ch), n, el('span', 'dim', f.meta));
+    }
+    if (!c.files || !c.files.length) g.append(el('span'), el('span', 'dim', '(vide)'), el('span'));
+    fb.appendChild(g);
+    card('Fichiers', String((c.files || []).length), fb);
+  }
+}
+
+// ── Navigation au clavier et à la souris ───────────────────────────────────
+function select(path, opts) {
+  if (!path) return;
+  S.cursor = path;
+  if (path !== 'new') {
+    call('select', { path });
+    const v = S.views[path];
+    if (v && opts && opts.showTab) showView(path);
+  }
+  renderTree();
+}
+
+function move(d) {
+  const ps = projectRows().map((r) => r.path).concat(['new']);
+  let i = ps.indexOf(S.cursor);
+  if (i < 0) i = 0; else i = Math.max(0, Math.min(ps.length - 1, i + d));
+  select(ps[i]);
+}
+
+async function openProject(path, mode) {
+  if (path === 'new') return newProject('');
+  const r = await call('open', { path });
+  if (!r) return;
+  if (r.execChoice) return execChoice(r.execChoice, true);
+  if (r.tab) showView(r.tab, true);
+}
+
+async function askClose(path) {
+  const r = await call('close', { path });
+  if (!r) return;
+  if (r.msg) flash(r.msg);
+  if (r.question) {
+    confirmBox(r.question.replace(/ · o\/N$/, ''), 'Fermer', async () => { await call('closeConfirm', { path }); }, true);
+  }
+}
+
+$('tree').addEventListener('click', (e) => {
+  const row = e.target.closest('.row'); $('nav').focus(); S.focusNav = true;
+  if (!row || !row.dataset.path) { showView('leaders'); return; }
+  const path = row.dataset.path;
+  const now = Date.now();
+  const dbl = S.lastClick.key === path && now - S.lastClick.at < 450;
+  S.lastClick = { key: path, at: now };
+  if (!row.classList.contains('project')) {
+    if (dbl) { S.lastClick.key = null; if (row.classList.contains('missing')) flash('⚠ ' + path + ' inaccessible (montage perdu ?)'); else newProject(path); return; }
+    showView('leaders'); return;
+  }
+  if (e.ctrlKey || e.metaKey) { select(path); askClose(path); return; }
+  select(path);
+  const r = S.snap.rows.find((x) => x.path === path);
+  if (dbl || (r && r.open)) { S.lastClick.key = null; openProject(path); }
+});
+$('newproj').addEventListener('click', () => { select('new'); newProject(''); });
+$('login').addEventListener('click', () => call('login').then(() => {}).catch(() => {}));
+$('cards').addEventListener('click', () => $('nav').focus());
+
+document.addEventListener('keydown', (e) => {
+  if (!$('modal').classList.contains('hidden')) { if (e.key === 'Escape') closeModal(); return; }
+  const inTerm = e.target && e.target.closest && e.target.closest('.xterm');
+  if (inTerm) return; // le terminal garde ses touches (raccourcis : attachCustomKeyEventHandler)
+  if (S.quit) { onQuitKey(e); return; }
+  const k = e.key;
+  const handled = () => { e.preventDefault(); e.stopPropagation(); };
+  if (e.ctrlKey && (k === 'ArrowLeft' || k === 'ArrowRight')) { resizeNav(k === 'ArrowLeft' ? -32 : 32); return handled(); }
+  if (e.ctrlKey && k === 'Tab') { cycleTab(e.shiftKey ? -1 : 1); return handled(); }
+  switch (k) {
+    case 'ArrowUp': move(-1); return handled();
+    case 'ArrowDown': move(1); return handled();
+    case 'PageUp': move(-10); return handled();
+    case 'PageDown': move(10); return handled();
+    case 'Enter': if (S.cursor) openProject(S.cursor); return handled();
+    case 'Delete': if (S.cursor && S.cursor !== 'new') askClose(S.cursor); return handled();
+    case 'F1': helpBox(); return handled();
+    case 'F2': if (S.cursor && S.cursor !== 'new') execF2(S.cursor); return handled();
+    case 'F5': call('refresh'); return handled();
+    case 'Tab': focusTerminal(); return handled();
+    case 'Escape':
+      if (S.filter) { S.filter = ''; renderTree(); renderHead(); return handled(); }
+      S.quit = 1; renderHead(); return handled();
+    case 'Backspace':
+      if (S.filter) { S.filter = S.filter.slice(0, -1); afterFilter(); }
+      return handled();
+  }
+  if (e.ctrlKey && !e.altKey) {
+    const l = k.toLowerCase();
+    if (l === 'r') { call('rescan'); return handled(); }
+    if (l === 'u') { call('dismiss', { kind: 'all' }); return handled(); }
+    if (l === 'd') { diagBox(); return handled(); }
+    if (l === 'c') { S.quit = 1; renderHead(); return handled(); }
+    return;
+  }
+  if (k.length === 1 && !e.altKey && !e.metaKey) { S.filter += k; afterFilter(); return handled(); }
+});
+
+function afterFilter() {
+  const ps = projectRows();
+  if (ps.length && !ps.find((r) => r.path === S.cursor)) select(ps[0].path);
+  renderTree(); renderHead();
+}
+
+function onQuitKey(e) {
+  e.preventDefault();
+  const k = e.key.toLowerCase(), step = S.quit;
+  S.quit = 0;
+  if (step === 1 && k === 'l') { call('quit', { mode: 'l' }); flash('fermeture du launcher (projets conservés)…'); return; }
+  if (step === 1 && k === 't') {
+    if (!(S.snap.tabs || []).length) { call('quit', { mode: 't' }); return; }
+    S.quit = 2; renderHead(); return;
+  }
+  if (step === 2 && (k === 'o' || k === 'y')) { call('quit', { mode: 't' }); return; }
+  renderHead();
+}
+
+// largeur du navigateur : bordure glissée ou Ctrl+← Ctrl+→ (mémorisée)
+function setNavW(w) {
+  w = Math.max(280, Math.min(window.innerWidth - 300, w));
+  document.documentElement.style.setProperty('--navw', w + 'px');
+  store.set('navw', w);
+  scheduleFit();
+}
+function resizeNav(d) { setNavW($('nav').getBoundingClientRect().width + d); }
+(() => {
+  const sp = $('splitter'); let drag = false;
+  sp.addEventListener('mousedown', (e) => { drag = true; sp.classList.add('drag'); e.preventDefault(); });
+  window.addEventListener('mousemove', (e) => { if (drag) setNavW(e.clientX); });
+  window.addEventListener('mouseup', () => { if (drag) { drag = false; sp.classList.remove('drag'); } });
+  const w = store.get('navw', 0); if (w) setNavW(w);
+})();
+
+// ── Onglets ────────────────────────────────────────────────────────────────
+function renderTabs() {
+  const bar = $('tabs'); bar.textContent = '';
+  const lt = el('div', 'tab' + (S.view === 'leaders' ? ' on' : ''), '⌗ Teamleaders');
+  if (S.view === 'leaders') lt.style.background = '#1F4FD1';
+  lt.onclick = () => showView('leaders');
+  bar.appendChild(lt);
+  for (const t of (S.snap && S.snap.tabs) || []) {
+    const d = el('div', 'tab'); d.dataset.path = t.path;
+    const on = S.view === t.path;
+    if (on) { d.classList.add('on'); d.style.background = t.color || '#1F4FD1'; }
+    else if (t.busy) { d.classList.add('busy'); d.style.background = lighten(t.color || '#C99A4B'); }
+    d.append(el('span', '', t.name + (t.busy && !on ? ' · agent au travail' : '')));
+    if (t.state === 'opening') d.append(el('span', 'st', '⏳'));
+    if (t.state === 'error') d.append(el('span', 'st t-red', '⚠'));
+    if (t.readOnly) d.append(el('span', 'st', '👁'));
+    const x = el('span', 'x', '×'); x.title = 'détacher (la session continue dans tmux)';
+    x.onclick = (e) => { e.stopPropagation(); detachTab(t.path); };
+    d.appendChild(x);
+    d.onclick = () => showView(t.path, true);
+    bar.appendChild(d);
+  }
+}
+function lighten(hex) {
+  const n = parseInt(hex.slice(1), 16); const f = (v) => Math.min(255, Math.round(v + (255 - v) * 0.45));
+  return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+function cycleTab(d) {
+  const ids = ['leaders'].concat(((S.snap && S.snap.tabs) || []).map((t) => t.path));
+  const i = ids.indexOf(S.view);
+  showView(ids[(i + d + ids.length) % ids.length], true);
+}
+function detachTab(path) {
+  call('detach', { path });
+  dropView(path);
+  if (S.view === path) showView('leaders');
+}
+
+function showView(id, focus) {
+  if (id !== 'leaders' && !S.views[id]) ensureView(id);
+  S.view = id;
+  for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== id);
+  leaders.root.classList.toggle('hidden', id !== 'leaders');
+  renderTabs();
+  if (id === 'leaders') leaders.layout();
+  else { const v = S.views[id]; v.fit(); if (focus) v.focus(); }
+  if (id !== 'leaders' && S.cursor !== id) { S.cursor = id; call('select', { path: id }); renderTree(); }
+}
+
+function focusTerminal() {
+  S.focusNav = false;
+  if (S.view === 'leaders') leaders.focus(); else if (S.views[S.view]) S.views[S.view].focus();
+}
+
+// ── Vue d'un projet : terminal d'ouverture puis panes ──────────────────────
+function ensureView(path) {
+  if (S.views[path]) return S.views[path];
+  const v = new ProjView(path);
+  S.views[path] = v;
+  $('views').appendChild(v.root);
+  call('termSync', { path });
+  return v;
+}
+function dropView(path) {
+  const v = S.views[path]; if (!v) return;
+  v.dispose(); delete S.views[path];
+  leaders.drop(path);
+}
+
+class ProjView {
+  constructor(path) {
+    this.path = path;
+    this.root = el('div', 'view hidden');
+    this.launchBox = el('div', 'launch');
+    this.launchEl = el('div', 'lt');
+    this.launchBox.appendChild(this.launchEl);
+    this.panesEl = el('div', 'panes hidden');
+    this.banner = el('div', 'banner hidden');
+    this.prefixEl = el('div', 'prefix hidden', 'Ctrl+B …');
+    this.root.append(this.launchBox, this.panesEl, this.banner, this.prefixEl);
+    this.panes = {};        // id -> {box, head, term}
+    this.layout = null;
+    this.state = 'opening';
+    this.pending = {};      // sortie arrivée avant le pane
+    this.launch = newTerm({ convertEol: true, cursorBlink: true });
+    this.launch.open(this.launchEl);
+    this.launch.onData((d) => call('launchInput', { path: this.path, data: d }));
+    this.focusPane = null;
+    this.sent = null;
+  }
+  dispose() { this.launch.dispose(); for (const p of Object.values(this.panes)) p.term.dispose(); this.root.remove(); }
+  status(m) {
+    if (m.replay != null) { this.launch.reset(); this.launch.write(m.replay); }
+    this.state = m.state;
+    const ready = m.state === 'ready';
+    const pty = m.state === 'pty';
+    this.launchBox.classList.toggle('hidden', ready);
+    this.panesEl.classList.toggle('hidden', !ready);
+    this.launchBox.style.inset = pty ? '4px' : '';
+    this.banner.classList.toggle('hidden', !m.readOnly);
+    if (m.readOnly) this.banner.textContent = 'lecture seule : un autre launcher a la main — Entrée sur le projet pour la reprendre';
+    this.fit();
+  }
+  // fit : zone des terminaux → taille demandée au client tmux (cellules)
+  // fit : zone des terminaux → taille demandée au client tmux (cellules) ;
+  // calculée sur la zone commune des vues (vue masquée comprise : la session
+  // d'un projet ouvert en arrière-plan a tout de suite la bonne taille).
+  fit() {
+    const vr = $('views').getBoundingClientRect();
+    if (!vr.width) return;
+    if (!cell) cell = measureCell();
+    this.fitLaunch(vr);
+    if (this.state === 'pty') return;
+    const cols = Math.max(20, Math.floor((vr.width - 8) / cell.w));
+    const rows = Math.max(6, Math.floor((vr.height - 8 - cell.h) / cell.h)); // 1 ligne d'en-têtes en haut
+    const key = cols + 'x' + rows;
+    if (this.sent !== key) { this.sent = key; call('termResize', { path: this.path, cols, rows }); }
+  }
+  fitLaunch(vr) {
+    vr = vr || $('views').getBoundingClientRect();
+    if (!vr.width) return;
+    if (!cell) cell = measureCell();
+    const m = this.state === 'pty' ? 8 + 14 : 16 + 14; // marges de la boîte et du terminal
+    const cols = Math.max(20, Math.floor((vr.width - m) / cell.w)), rows = Math.max(5, Math.floor((vr.height - m) / cell.h));
+    if (this.launch.cols !== cols || this.launch.rows !== rows) this.launch.resize(cols, rows);
+    if (this.state === 'pty') call('termResize', { path: this.path, cols, rows });
+  }
+  focus() {
+    if (this.state !== 'ready') { this.launch.focus(); return; }
+    const id = this.focusPane && this.panes[this.focusPane] ? this.focusPane : (this.layout && this.layout.leader);
+    if (id && this.panes[id]) this.panes[id].term.focus();
+  }
+  applyLayout(l) {
+    this.layout = l;
+    if (!cell) cell = measureCell();
+    const seen = {};
+    for (const p of l.panes) {
+      seen[p.id] = true;
+      let pv = this.panes[p.id];
+      if (!pv) pv = this.panes[p.id] = this.makePane(p);
+      const top = cell.h + p.y * cell.h; // ligne d'en-têtes au-dessus
+      Object.assign(pv.box.style, { left: p.x * cell.w + 'px', top: top + 'px', width: p.w * cell.w + 'px', height: p.h * cell.h + 'px', display: '' });
+      Object.assign(pv.head.style, { left: p.x * cell.w + 'px', top: (top - cell.h) + 'px', width: p.w * cell.w + 'px', height: cell.h + 'px', background: shade(p.bg, -0.25), display: '' });
+      pv.head.querySelector('.n').textContent = p.name || p.id;
+      pv.head.querySelector('.r').textContent = p.role === 'leader' ? '· leader' : p.role ? '· ' + p.role : '';
+      pv.head.classList.toggle('focus', !!p.active);
+      if (pv.term.cols !== p.w || pv.term.rows !== p.h) pv.term.resize(p.w, p.h);
+      if (pv.bg !== p.bg) { pv.bg = p.bg; pv.term.options.theme = Object.assign({}, pv.term.options.theme, { background: p.bg }); pv.box.style.background = p.bg; }
+      if (p.active) this.focusPane = p.id;
+    }
+    for (const [id, pv] of Object.entries(this.panes)) {
+      if (!seen[id]) { pv.box.style.display = 'none'; pv.head.style.display = 'none'; }
+    }
+    // panes disparus pour de bon (fenêtre relue sans eux, hors zoom)
+    if (!l.zoomed) for (const id of Object.keys(this.panes)) if (!seen[id]) { this.panes[id].term.dispose(); this.panes[id].box.remove(); this.panes[id].head.remove(); delete this.panes[id]; }
+    leaders.update(this.path, l);
+  }
+  makePane(p) {
+    const box = el('div', 'pane'), x = el('div', 'xt'); box.appendChild(x);
+    const head = el('div', 'phead'); head.append(el('span', 'n'), el('span', 'r'));
+    this.panesEl.append(box, head);
+    const term = newTerm({ cols: p.w, rows: p.h });
+    term.open(x);
+    refineCell(term);
+    term.onData((d) => this.input(p.id, d));
+    term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
+    term.textarea && term.textarea.addEventListener('focus', () => { this.focusPane = p.id; S.focusNav = false; call('termFocus', { path: this.path, pane: p.id }); });
+    head.addEventListener('dblclick', () => call('termZoom', { path: this.path, pane: p.id }));
+    head.addEventListener('click', () => term.focus());
+    const pv = { box, head, term, bg: null };
+    if (this.pending[p.id]) { for (const c of this.pending[p.id]) this.write(pv, c); delete this.pending[p.id]; }
+    return pv;
+  }
+  write(pv, c) { if (c.reset) pv.term.reset(); if (c.data) pv.term.write(c.data); }
+  out(chunks) {
+    for (const c of chunks) {
+      const pv = this.panes[c.pane];
+      if (pv) this.write(pv, c); else (this.pending[c.pane] = this.pending[c.pane] || []).push(c);
+      leaders.out(this.path, c);
+    }
+  }
+  input(pane, d) {
+    if (S.prefix) {
+      S.prefix = false; this.prefixEl.classList.add('hidden');
+      if (d === 'z') return call('termZoom', { path: this.path, pane });
+      if (d === 'R' || d === 'r') return call('relayout', { path: this.path });
+      if (d === '\x02') return call('termInput', { path: this.path, pane, data: '\x02' });
+      return call('termInput', { path: this.path, pane, data: '\x02' + d });
+    }
+    if (d === '\x02') { S.prefix = true; this.prefixEl.classList.remove('hidden'); return; }
+    call('termInput', { path: this.path, pane, data: d });
+  }
+}
+
+// teinte : assombrir (k < 0) ou éclaircir une couleur #rrggbb
+function shade(hex, k) {
+  if (!hex || hex[0] !== '#') return '#172133';
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v) => Math.max(0, Math.min(255, Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k)));
+  return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+// terminalKey : raccourcis de l'application pris dans un terminal (false : pas pour lui).
+function terminalKey(ev) {
+  if (ev.type !== 'keydown') return true;
+  if (ev.ctrlKey && ev.key === 'Tab') { ev.preventDefault(); cycleTab(ev.shiftKey ? -1 : 1); return false; }
+  if (ev.altKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && !ev.ctrlKey) { ev.preventDefault(); $('nav').focus(); S.focusNav = true; return false; }
+  if (ev.ctrlKey && ev.shiftKey && (ev.key === 'W' || ev.key === 'w') && S.view !== 'leaders') { ev.preventDefault(); detachTab(S.view); return false; }
+  if (ev.key === 'F1' && ev.shiftKey) { ev.preventDefault(); helpBox(); return false; }
+  return true;
+}
+
+// ── Onglet ⌗ Teamleaders : vignette interactive du leader de chaque projet ─
+const leaders = {
+  root: (() => { const r = el('div', 'view'); r.append(el('div', 'leaders')); return r; })(),
+  tiles: {}, // projet -> {tile, body, term, pane}
+  get grid() { return this.root.firstChild; },
+  update(path, l) {
+    let t = this.tiles[path];
+    const lp = l.panes.find((p) => p.id === l.leader);
+    if (!lp) return;
+    if (t && t.pane !== l.leader) { this.drop(path); t = null; }
+    if (!t) {
+      const tab = (S.snap.tabs || []).find((x) => x.path === path) || { name: path.split(/[\\/]/).pop(), color: '#1F4FD1' };
+      const tile = el('div', 'tile'), th = el('div', 'th'), body = el('div', 'tb'), cl = el('div', 'clone');
+      th.append(el('span', '', tab.name), el('span', 'dim', '· team-lead'));
+      th.style.background = tab.color;
+      body.appendChild(cl); tile.append(th, body);
+      this.grid.appendChild(tile);
+      const term = newTerm({ cols: lp.w, rows: lp.h, cursorBlink: false });
+      term.open(cl);
+      term.onData((d) => call('termInput', { path, pane: l.leader, data: d }));
+      term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
+      term.textarea && term.textarea.addEventListener('focus', () => tile.classList.add('focus'));
+      term.textarea && term.textarea.addEventListener('blur', () => tile.classList.remove('focus'));
+      th.addEventListener('dblclick', () => showView(path, true));
+      th.addEventListener('click', () => term.focus());
+      t = this.tiles[path] = { tile, body, cl, term, pane: l.leader, w: lp.w, h: lp.h };
+      call('termSync', { path }); // contenu actuel du leader (capture)
+      this.layout();
+    }
+    if (t.w !== lp.w || t.h !== lp.h) { t.w = lp.w; t.h = lp.h; t.term.resize(lp.w, lp.h); this.scale(t); }
+    t.term.options.theme = Object.assign({}, t.term.options.theme, { background: lp.bg });
+  },
+  out(path, c) { const t = this.tiles[path]; if (t && c.pane === t.pane) { if (c.reset) t.term.reset(); if (c.data) t.term.write(c.data); } },
+  drop(path) { const t = this.tiles[path]; if (!t) return; t.term.dispose(); t.tile.remove(); delete this.tiles[path]; this.layout(); },
+  layout() {
+    const n = Object.keys(this.tiles).length;
+    const g = this.grid;
+    g.querySelectorAll('.empty').forEach((e) => e.remove());
+    if (!n) {
+      const e = el('div', 'empty'); e.innerHTML = 'Aucun projet ouvert.<br>Entrée ou double-clic sur un projet pour l\'ouvrir ; ses teamleaders apparaîtront ici.';
+      g.appendChild(e); g.style.gridTemplateColumns = '1fr'; return;
+    }
+    const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols);
+    g.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    g.style.gridTemplateRows = `repeat(${rows}, minmax(0, 1fr))`;
+    requestAnimationFrame(() => { for (const t of Object.values(this.tiles)) this.scale(t); });
+  },
+  scale(t) {
+    if (!cell) cell = measureCell();
+    const r = t.body.getBoundingClientRect();
+    if (!r.width) return;
+    const k = Math.min(1, r.width / (t.w * cell.w), r.height / (t.h * cell.h));
+    t.cl.style.transform = `scale(${k})`;
+  },
+  focus() { const f = Object.values(this.tiles)[0]; if (f) f.term.focus(); },
+};
+$('views').appendChild(leaders.root);
+
+// ── Fenêtres modales ───────────────────────────────────────────────────────
+function openModal(build) {
+  const box = $('modalbox'); box.textContent = '';
+  build(box);
+  $('modal').classList.remove('hidden');
+  const f = box.querySelector('input, select, .btn.pri, .btn');
+  if (f) f.focus();
+}
+function closeModal() { $('modal').classList.add('hidden'); $('nav').focus(); }
+$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) closeModal(); });
+
+function confirmBox(text, ok, fn, danger) {
+  openModal((b) => {
+    b.append(el('h2', '', text));
+    const btns = el('div', 'btns');
+    const no = el('button', 'btn', 'Annuler (N)'); no.onclick = closeModal;
+    const yes = el('button', 'btn ' + (danger ? 'danger' : 'pri'), ok + ' (O)'); yes.onclick = () => { closeModal(); fn(); };
+    btns.append(no, yes); b.appendChild(btns);
+    b.onkeydown = (e) => { const k = e.key.toLowerCase(); if (k === 'o' || k === 'y') { e.preventDefault(); yes.click(); } else if (k === 'n') { e.preventDefault(); closeModal(); } };
+  });
+}
+
+function helpBox() {
+  const h = S.help || {};
+  openModal((b) => {
+    b.append(el('h2', '', 'Aide — commandes et raccourcis'));
+    for (const s of h.sections || []) {
+      b.append(el('h3', '', s.title));
+      const g = el('div', 'helpgrid');
+      for (const r of s.rows) g.append(el('span', 'k', r.key), el('span', '', r.desc));
+      b.appendChild(g);
+    }
+    b.append(el('h3', '', 'Légende des icônes'));
+    const g = el('div', 'helpgrid');
+    for (const l of h.legend || []) g.append(el('span', 'k ' + tone({ color: l.tone, bold: l.bold }), l.icon), el('span', '', l.text));
+    b.appendChild(g);
+    const btns = el('div', 'btns'); const c = el('button', 'btn pri', 'Fermer'); c.onclick = closeModal; btns.appendChild(c); b.appendChild(btns);
+  });
+}
+
+async function diagBox() {
+  openModal((b) => { b.append(el('h2', '', 'Diagnostic des backends'), el('p', 'dim', 'lecture…')); });
+  const txt = await call('diag');
+  openModal((b) => {
+    b.append(el('h2', '', 'Diagnostic des backends'), el('pre', '', txt));
+    const btns = el('div', 'btns'); const c = el('button', 'btn pri', 'Fermer'); c.onclick = closeModal; btns.appendChild(c); b.appendChild(btns);
+  });
+}
+
+function toolsBox(t, force) {
+  if (!t || (!t.missing && !force)) return;
+  openModal((b) => {
+    b.append(el('h2', '', 'Premier lancement — outils requis'));
+    b.append(el('p', '', 'Le launcher pilote les backends par leurs clients en ligne de commande. Ceux qui manquent sont à installer (commande ci-dessous), puis relancer le launcher.'));
+    const g = el('div', 'tools');
+    for (const x of t.tools || []) {
+      g.append(el('span', x.Found ? 't-green' : (x.Optional ? 't-yellow' : 't-red'), x.Found ? '✓' : (x.Optional ? '⚠' : '✗')),
+        el('span', 'b', x.Tool),
+        (() => {
+          const d = el('div');
+          d.append(el('div', 'dim', 'requis par : ' + (x.RequiredBy || []).join(', ') + (x.Optional ? ' (facultatif)' : '')));
+          if (x.Found) d.append(el('div', 'dim', x.Path));
+          else if (x.Install) { const c = el('code', '', x.Install); d.append(c); }
+          return d;
+        })());
+    }
+    b.appendChild(g);
+    const btns = el('div', 'btns');
+    const c = el('button', 'btn pri', 'Continuer'); c.onclick = closeModal;
+    btns.appendChild(c); b.appendChild(btns);
+  });
+}
+
+// création d'un projet : nom, type, remote, puis exécution (hôte ou conteneur)
+async function newProject(base) {
+  const info = await call('newInfo', {});
+  openModal((b) => {
+    b.append(el('h2', '', 'Nouveau projet'));
+    const f = el('div', 'form');
+    let root = null;
+    if (!base) {
+      root = el('select');
+      for (const r of info.roots || []) { const o = el('option', '', r); o.value = r; root.appendChild(o); }
+      f.append(el('label', '', 'Racine'), root);
+    } else {
+      f.append(el('label', '', 'Dans'), el('span', 'dim', base));
+    }
+    const name = el('input'); name.placeholder = 'nom du dossier';
+    const kind = el('select');
+    for (const [v, t] of [['g', 'géré : git init, /init-project au démarrage'], ['b', 'brut : dossier et CLAUDE.md minimal']]) { const o = el('option', '', t); o.value = v; kind.appendChild(o); }
+    const remote = el('input'); remote.placeholder = 'git@github.com:moi/projet.git (facultatif)';
+    f.append(el('label', '', 'Nom'), name, el('label', '', 'Type'), kind, el('label', '', 'Remote git'), remote);
+    const ex = execFields(info, f);
+    kind.onchange = () => { remote.disabled = kind.value === 'b'; };
+    b.appendChild(f);
+    const err = el('div', 'err'); b.appendChild(err);
+    const btns = el('div', 'btns');
+    const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
+    const ok = el('button', 'btn pri', 'Créer et ouvrir');
+    ok.onclick = async () => {
+      err.textContent = '';
+      try {
+        const r = await transport.call('create', Object.assign({ base: base || (root && root.value) || '', name: name.value, raw: kind.value === 'b', remote: remote.value }, ex()));
+        closeModal();
+        if (r && r.tab) showView(r.tab, true);
+      } catch (e) { err.textContent = e.message; }
+    };
+    btns.append(cancel, ok); b.appendChild(btns);
+    b.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ok.click(); } };
+  });
+  setTimeout(() => { const i = $('modalbox').querySelector('input'); if (i) i.focus(); }, 0);
+}
+
+// execFields : choix de l'exécution (hôte, ou socle sur un backend conteneur)
+function execFields(info, f) {
+  if (info.exec == null) return () => ({});
+  const sock = el('select');
+  const h = el('option', '', 'hôte (sans conteneur)'); h.value = ''; sock.appendChild(h);
+  (info.images || []).forEach((im, i) => { const o = el('option', '', '⬡ ' + info.labels[i]); o.value = im; sock.appendChild(o); });
+  sock.selectedIndex = info.exec;
+  const be = el('select');
+  for (const n of info.backends || []) { const o = el('option', '', n); o.value = n; be.appendChild(o); }
+  be.value = info.backend;
+  const sync = () => { be.disabled = !sock.value; };
+  sock.onchange = sync; sync();
+  f.append(el('label', '', 'Exécution'), sock, el('label', '', 'Backend'), be);
+  return () => ({ image: sock.value, backend: be.value });
+}
+
+function execChoice(info, openNext) {
+  openModal((b) => {
+    b.append(el('h2', '', 'Exécution de ' + (info.name || '')));
+    b.append(el('p', 'dim', openNext ? 'Première ouverture : choisir où le projet tourne (F2 pour reconfigurer plus tard).' : 'Reconfigurer l\'exécution du projet (fermé).'));
+    const f = el('div', 'form'); const ex = execFields(info, f); b.appendChild(f);
+    const err = el('div', 'err'); b.appendChild(err);
+    const btns = el('div', 'btns');
+    const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
+    const ok = el('button', 'btn pri', openNext ? 'Enregistrer et ouvrir' : 'Enregistrer');
+    ok.onclick = async () => {
+      try {
+        const r = await transport.call('execApply', Object.assign({ path: info.path, openNext }, ex()));
+        closeModal();
+        if (r && r.tab) showView(r.tab, true);
+      } catch (e) { err.textContent = e.message; }
+    };
+    btns.append(cancel, ok); b.appendChild(btns);
+  });
+}
+
+async function execF2(path) {
+  const r = (S.snap.rows || []).find((x) => x.path === path);
+  if (r && r.open) { flash('F2 : projet ouvert — le fermer avant de changer de backend'); return; }
+  const info = await call('newInfo', { path });
+  if (info.exec == null) { flash('F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)'); return; }
+  execChoice(info, false);
+}
+
+// ── Événements du Go ───────────────────────────────────────────────────────
+function applyState(s) {
+  S.snap = s;
+  if (!S.cursor || (S.cursor !== 'new' && !s.rows.find((r) => r.path === S.cursor))) S.cursor = s.selected || (projectRows()[0] || {}).path || 'new';
+  // onglets disparus (session terminée, détachée)
+  const open = new Set((s.tabs || []).map((t) => t.path));
+  for (const p of Object.keys(S.views)) if (!open.has(p)) { dropView(p); if (S.view === p) S.view = 'leaders'; }
+  for (const p of open) if (!S.views[p]) ensureView(p);
+  if (S.view !== 'leaders' && !open.has(S.view)) S.view = 'leaders';
+  renderHead(); renderTree(); renderTabs();
+  for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
+  leaders.root.classList.toggle('hidden', S.view !== 'leaders');
+  if (S.view === 'leaders') leaders.layout();
+}
+
+function applyInit(r) {
+  S.help = r.help; S.tools = r.tools;
+  applyState(r.state);
+  S.cards = r.cards; renderCards();
+}
+
+function onEvent(name, data) {
+  switch (name) {
+    case 'state': applyState(data); break;
+    case 'cards': S.cards = data; renderCards(); break;
+    case 'term': {
+      const v = ensureView(data.path);
+      switch (data.kind) {
+        case 'launch': v.launch.write(data.data); break;
+        case 'status': v.status(data); renderTabs(); break;
+        case 'layout': v.applyLayout(data.layout); break;
+        case 'out': v.out(data.chunks); break;
+      }
+      break;
+    }
+  }
+}
+
+let fitTimer = null;
+function scheduleFit() {
+  clearTimeout(fitTimer);
+  fitTimer = setTimeout(() => { for (const v of Object.values(S.views)) v.fit(); leaders.layout(); }, 80);
+}
+window.addEventListener('resize', scheduleFit);
+
+transport.listen(onEvent);
+call('init').then((r) => {
+  applyInit(r);
+  if (!store.get('toolsSeen', false) && r.tools && r.tools.missing) { toolsBox(r.tools); store.set('toolsSeen', true); }
+  $('nav').focus();
+});

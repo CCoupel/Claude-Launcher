@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Claude Launcher</title>
+<link rel="stylesheet" href="vendor/xterm.css">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="nav" tabindex="0" aria-label="Projets">
+    <header id="head">
+      <div class="ver"><span id="version">NG2</span><span id="tplver" class="dim"></span></div>
+      <div id="alerts"></div>
+      <div id="usage"></div>
+      <div id="login" class="login hidden"></div>
+      <div id="filterbox" class="filter"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="M20 20l-3.5-3.5"></path></svg><span id="filter" class="dim">Filtrer (frappe)</span></div>
+    </header>
+    <div id="tree" role="listbox"></div>
+    <div id="newproj" class="newproj">✦ Nouveau projet</div>
+    <section id="cards" aria-label="État du projet"></section>
+    <footer id="foot"><span id="hint" class="dim">↵ ouvrir · ^clic/suppr fermer · F1 aide · Échap quitter</span><span id="msg"></span><span id="status" class="dim"></span></footer>
+  </aside>
+  <div id="splitter" title="Glisser pour redimensionner (Ctrl+← Ctrl+→)"></div>
+  <main id="main">
+    <nav id="tabs" role="tablist"></nav>
+    <div id="views"></div>
+  </main>
+</div>
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true"><div id="modalbox" class="modalbox"></div></div>
+<script src="vendor/xterm.js"></script>
+<script src="vendor/addon-unicode11.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

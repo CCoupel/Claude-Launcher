@@ -108,22 +108,19 @@ func (ws winState) has(id string) bool {
 	return false
 }
 
-func (ws winState) styleOf(id string) string {
-	for _, p := range ws.panes {
-		if p.id == id {
-			return p.style
-		}
-	}
-	return ""
-}
-
 // setPaneColor : ne réécrit que si l'état tmux réel diffère. set-option -p (et
 // non select-pane -P) : colore le pane sans lui donner le focus.
 func setPaneColor(p projWin, ws winState, pane, color string) {
-	want := "bg=colour" + color
-	if ws.styleOf(pane) != want {
-		_ = p.t.Run("set-option", "-p", "-t", pane, "window-style", want)
+	core.SetPaneColor(p.t, ws.core(), pane, color)
+}
+
+// core : panes de la fenêtre, pour core.ArrangeTeam / core.SetPaneColor.
+func (ws winState) core() []core.WinPane {
+	out := make([]core.WinPane, len(ws.panes))
+	for i, p := range ws.panes {
+		out[i] = core.WinPane{ID: p.id, Index: p.index, Style: p.style}
 	}
+	return out
 }
 
 // brightenColor / darkenColor : core.BrightenColor / core.DarkenColor.
@@ -178,31 +175,8 @@ func doLayout(cfg core.Config, pw projWin, leader, teamPath string) {
 	}
 	top, bot := classify(ws, leader, tc, orderPath(pw.hubWin))
 
-	// échanges : la position i de l'ordre voulu reçoit l'index physique i
-	at := make([]string, len(ws.panes)) // position -> pane
-	pos := map[string]int{}
-	idxs := make([]int, len(ws.panes))
-	for i, p := range ws.panes {
-		at[i], pos[p.id], idxs[i] = p.id, i, p.index
-	}
-	want := append(append([]string{}, top...), bot...)
-	for i, p := range want {
-		if i >= len(at) || at[i] == p {
-			continue
-		}
-		cur, j := at[i], pos[p]
-		// -d : ne jamais déplacer le focus (seul le teamleader le garde)
-		_ = pw.t.Run("swap-pane", "-d", "-s", p, "-t", cur)
-		at[i], at[j], pos[p], pos[cur] = p, cur, i, j
-	}
-
-	topIdx, botIdx := idxs[:len(top)], idxs[len(top):len(want)]
-	_ = pw.t.Run("select-layout", "-t", pw.win, layoutString(cfg, ws.w, ws.h, topIdx, botIdx))
-
-	color := cfg.ProjectColor(ws.name)
-	for _, p := range want {
-		setPaneColor(pw, ws, p, color)
-	}
+	// échanges, géométrie et couleur de base : core.ArrangeTeam
+	core.ArrangeTeam(cfg, pw.t, pw.win, ws.core(), ws.w, ws.h, top, bot, cfg.ProjectColor(ws.name))
 }
 
 // ── Surveillance ──────────────────────────────────────────────────────────

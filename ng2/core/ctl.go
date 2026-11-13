@@ -148,6 +148,13 @@ func (c *ctlTarget) read() ([]byte, error) {
 	}
 }
 
+// CtlLine : arguments d'UNE commande → ligne de commande tmux (client de
+// contrôle de l'interface native).
+func CtlLine(args []string) string { return ctlLine(args) }
+
+// SplitCommands : « a x ; b y » → [[a x] [b y]].
+func SplitCommands(args []string) [][]string { return splitCommands(args) }
+
 // ctlLine : arguments d'UNE commande → ligne de commande tmux.
 func ctlLine(args []string) string {
 	q := make([]string, len(args))

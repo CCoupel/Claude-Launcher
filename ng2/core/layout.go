@@ -320,3 +320,59 @@ func PaneShade(cfg Config, color string, m *TeamMember, leader bool) string {
 	}
 	return DarkenColor(color, cfg.DarkenStep)
 }
+
+// ── Application à un tmux ─────────────────────────────────────────────────
+
+// WinPane : un pane d'une fenêtre de projet (identifiant, index tmux, option
+// window-style), par index croissant.
+type WinPane struct {
+	ID    string
+	Index int
+	Style string
+}
+
+// SetPaneColor : ne réécrit que si l'état tmux réel diffère. set-option -p (et
+// non select-pane -P) : colore le pane sans lui donner le focus.
+func SetPaneColor(t Target, panes []WinPane, pane, color string) {
+	want := "bg=colour" + color
+	style := ""
+	for _, p := range panes {
+		if p.ID == pane {
+			style = p.Style
+		}
+	}
+	if style != want {
+		_ = t.Run("set-option", "-p", "-t", pane, "window-style", want)
+	}
+}
+
+// ArrangeTeam réordonne physiquement les panes de la fenêtre win (select-layout
+// n'applique que la géométrie, dans l'ordre des index existants : il faut des
+// swap-pane), puis applique la géométrie (LayoutString sur w×h) et la couleur de
+// base du projet. top, bot : classement (Classify).
+func ArrangeTeam(cfg Config, t Target, win string, panes []WinPane, w, h int, top, bot []string, color string) {
+	// échanges : la position i de l'ordre voulu reçoit l'index physique i
+	at := make([]string, len(panes)) // position -> pane
+	pos := map[string]int{}
+	idxs := make([]int, len(panes))
+	for i, p := range panes {
+		at[i], pos[p.ID], idxs[i] = p.ID, i, p.Index
+	}
+	want := append(append([]string{}, top...), bot...)
+	for i, p := range want {
+		if i >= len(at) || at[i] == p {
+			continue
+		}
+		cur, j := at[i], pos[p]
+		// -d : ne jamais déplacer le focus (seul le teamleader le garde)
+		_ = t.Run("swap-pane", "-d", "-s", p, "-t", cur)
+		at[i], at[j], pos[p], pos[cur] = p, cur, i, j
+	}
+
+	topIdx, botIdx := idxs[:len(top)], idxs[len(top):len(want)]
+	_ = t.Run("select-layout", "-t", win, LayoutString(cfg, w, h, topIdx, botIdx))
+
+	for _, p := range want {
+		SetPaneColor(t, panes, p, color)
+	}
+}
