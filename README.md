@@ -256,7 +256,7 @@ l'installation) et le lancer par `claude-launcher-ng2` ; l'ancien script peut ê
 ## Utiliser un autre template
 
 Le launcher fetche `init-project.md` depuis `claude_project_template` par défaut. Pour pointer
-vers un template différent, modifier la constante `templateRepo` de `ng2/update.go` et recompiler —
+vers un template différent, modifier la constante `TemplateRepo` de `ng2/core/update.go` et recompiler —
 ce n'est pas exposé dans la config à ce jour.
 
 ---

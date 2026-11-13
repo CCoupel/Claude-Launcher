@@ -37,7 +37,7 @@ claude-launcher-ng2 version
 ```bash
 cd ng2
 go build -o ~/.local/bin/claude-launcher-ng2 .
-# version : go build -ldflags "-X main.ngVersion=v5.0.0" -o ... .
+# version : go build -ldflags "-X claude-launcher-ng2/core.NgVersion=v6.0.0" -o ... .
 ```
 
 Prérequis : `tmux`, `git`, `bash` (lecture de la config) et `claude`. Pour les projets en
@@ -813,7 +813,7 @@ revenir) uniquement avec tous les projets fermés.**
   La carte **Projet** de la vue `◈ État` (et l'aperçu) commence par la légende des icônes de la ligne
   du projet : chaque icône, dans sa couleur et dans l'ordre du navigateur, suivie de sa signification
   (`!   local : modifié directement sur main`, `↺   session non close (il y a 12 min) : reprise
-  proposée à l'ouverture`…). Ligne et légende sont tirées de la même source (`legend.go`).
+  proposée à l'ouverture`…). Ligne et légende sont tirées de la même source (`ui/tmux/legend.go`).
   La carte **Milestone** de la vue `◈ État` (et l'aperçu) donne le milestone en cours, sa barre
   d'avancement (issues fermées / total ; elle prend la largeur du pane, de 10 à 40 cellules), ses issues ouvertes par phase et les bloquées ; sans milestone
   en cours, la liste des milestones ouverts, une ligne chacun, colonnes alignées : `v1.2.0 — Titre  n/m  ███░░░
@@ -827,7 +827,7 @@ revenir) uniquement avec tous les projets fermés.**
   Un dossier de projet créé, renommé ou supprimé hors du launcher apparaît ou disparaît sans
   `Ctrl+R` : seuls les racines et dossiers de catégorie sont surveillés (inotify sur disque Linux ;
   sur `/mnt/c`, où inotify est muet, leur date comparée toutes les 3 s, soit quelques `stat`), et
-  l'arbre n'est relu qu'après un changement (`treewatch.go`).
+  l'arbre n'est relu qu'après un changement (`core/treewatch.go`).
   Sous la consommation, une ligne jaune `⚠ connexion claude.ai : expiration …` apparaît 3 jours
   avant l'expiration de la connexion claude.ai (jeton de renouvellement, ~30 jours), rouge
   `✗ connexion claude.ai expirée` ensuite ou si l'endpoint refuse le jeton : un clic ouvre une
@@ -933,38 +933,53 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
 
 ## Architecture
 
+### Structure du code (v6)
+
+Le code est réparti en packages, pour partager avec le futur launcher Windows tout ce qui ne
+dépend ni de tmux ni de l'OS :
+
+| Package | Rôle |
+|---|---|
+| `main.go` | aiguillage des sous-commandes (`shell`, `nav`, `state`, `mirror`, `layout-watch`, `ctr-attach`, `backends`, `version`…) |
+| `core/` | config, `backends.yaml`, moteurs et k8s, placement, pools et drain, nommage, `env.yaml`/`env-template.yaml`, bootstrap (`bootstrap.sh`), projets, teams et leader, cache d'état, conso, GitHub (releases, milestones, mises à jour), variables vers `settings.json`, `browser_paths`, serveur web et appariement, sessions tmux **dans les conteneurs** (canal de contrôle `ctl.go`, propriétaire) |
+| `platform/` | ce qui dépend de l'OS : espaces de PID (`/proc`, `kill`), type du système de fichiers (`statfs`), terminal en mode brut (termios), `execve`, chemin du binaire ; implémentation Linux/macOS (`_unix`, `_linux`, `_darwin`) et bouchons Windows (`_windows`) |
+| `ui/tmux/` | la coque tmux : coque et navigateur, cartes (`◈ État`), vignettes (`mirror`, `mirrors`), mise en page (`layout`), `ctr-attach`, aide, légende, relais de touches |
+
+`core` ne dépend ni de `ui/tmux` ni d'un appel système propre à Linux :
+`GOOS=windows go vet ./core/... ./platform/...` doit rester propre.
+
 - Deux serveurs tmux dédiés : l'« intérieur » (socket `claude-ng2`, session `claude-hub-ng2` —
   jamais le serveur par défaut, celui du launcher v4) et une « coque » (socket `claude-ui-ng2`) qui
   découpe le terminal en navigateur + `tmux attach`. La coque n'a pas de préfixe : toutes les
   touches passent au tmux intérieur, dont le préfixe est aiguillé (`Ctrl+B` vers le conteneur pour un
   projet en conteneur).
-- `target.go` : cible tmux d'un projet — le hub lui-même (exécution directe) ou le tmux de son
-  conteneur par canal de contrôle (`ctl.go`, une commande par ligne) ; `backend.go`, `k8s.go`,
-  `ctr.go`, `bootstrap.sh`, `diag.go`, `owner.go`, `pidspace.go` : moteurs, bootstrap, diagnostic,
-  propriétaire, espaces de PID.
-- `cache.go` : état des projets calculé en tâche de fond (2 calculs en parallèle) et écrit
+- `ui/tmux/target.go` : cible tmux d'un projet — le hub lui-même (exécution directe) ou le tmux de son
+  conteneur par canal de contrôle (`core/ctl.go`, une commande par ligne) ; `core/backend.go`, `core/k8s.go`,
+  `core/ctr.go`, `core/bootstrap.sh`, `core/diag.go`, `core/owner.go`, `platform/pidspace*.go` : moteurs, bootstrap, diagnostic,
+  propriétaire, espaces de PID ; `ui/tmux/ctr.go` : `ctr-attach`.
+- `core/cache.go` : état des projets calculé en tâche de fond (2 calculs en parallèle) et écrit
   dans `~/.cache/claude-launcher-ng2/state/`, que le pane `◈ État` lit.
-- `mirrors.go` : gestionnaire de l'onglet `⌗ Teamleaders` (une vignette par projet ouvert,
+- `ui/tmux/mirrors.go` : gestionnaire de l'onglet `⌗ Teamleaders` (une vignette par projet ouvert,
   grille, pane d'attente ; l'onglet garde ses panes terminés jusqu'au passage suivant pour ne
   jamais se vider, ce qui fermerait `claude-hub-ng2`).
-- `mirror.go` : une vignette — terminal en mode brut, un seul appel tmux par rafraîchissement
+- `ui/tmux/mirror.go` : une vignette — terminal en mode brut, un seul appel tmux par rafraîchissement
   (focus, curseur et contenu du leader — plus petit `%id` de la fenêtre, `winState.leader`),
   touches relayées en octets bruts (`send-keys -H`).
-- `layout.go` : mise en page d'une fenêtre projet. Un watcher par fenêtre (1 s) lit la team
+- `ui/tmux/layout.go` : mise en page d'une fenêtre projet. Un watcher par fenêtre (1 s) lit la team
   (`~/.claude/teams/*/config.json`, la plus récente pour le projet) et l'état tmux en un seul
   `list-panes` ; il réordonne (`swap-pane -d`, sans voler le focus), applique la géométrie
   (`select-layout` avec somme de contrôle tmux) et teinte les panes. Ordre MRU des actifs dans
   `$TMPDIR/claude_layout_<win>.order`, verrou par fenêtre partagé avec `relayout`.
-- `update.go` : versions, annonces, resynchronisation de `init-project.md`.
-- `legend.go` : indicateurs d'un projet (icônes de sa ligne et leur signification).
-- `milestone.go` : badge ⚑ (état des milestones GitHub du projet) et badge ⇄N (PR ouvertes).
-- `treewatch.go` : surveillance de l'arborescence (projets ajoutés / supprimés hors du launcher).
-- `resume.go` : reprise après crash (dernière conversation du projet, sa team, question au lancement).
+- `core/update.go` : versions, annonces, resynchronisation de `init-project.md`.
+- `ui/tmux/legend.go` : indicateurs d'un projet (icônes de sa ligne et leur signification).
+- `core/milestone.go` : badge ⚑ (état des milestones GitHub du projet) et badge ⇄N (PR ouvertes).
+- `core/treewatch.go` : surveillance de l'arborescence (projets ajoutés / supprimés hors du launcher).
+- `core/resume.go` : reprise après crash (dernière conversation du projet, sa team, question au lancement).
 
 ### Détection des changements d'un projet
 
 `inotify` ne livre aucun événement sur `/mnt/c` sous WSL (système `9p`), même pour une
-écriture faite depuis Linux (vérifié par `inotify_probe_test.go`). Le NG distingue donc :
+écriture faite depuis Linux (vérifié par `core/inotify_probe_test.go`). Le NG distingue donc :
 
 - **disque Linux natif** : `inotify` récursif sur le projet et `.git` ;
 - **stockage réseau** — 9p (`/mnt/c`…), FUSE (MooseFS, sshfs…), NFS, SMB, Ceph : poser
