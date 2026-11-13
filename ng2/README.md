@@ -931,8 +931,10 @@ contrôle** : un client `tmux -C attach-session` dans le conteneur (`docker`/`po
 exec -i`, `ssh`), de simples tuyaux sans pseudo-terminal ; il reçoit la sortie de chaque pane
 (`%output`, décodée de l'octal), les changements de mise en page (`%layout-change`, géométrie lue
 dans `window_visible_layout`) et envoie la frappe (`send-keys -H`) et la taille de la zone
-(`refresh-client -C`). Un pane qui apparaît est amorcé par `capture-pane -e` et la position du
-curseur. La mise en page est appliquée au tmux du projet par `core.ArrangeTeam`, comme le
+(`refresh-client -C`). Un pane qui apparaît, change de taille ou est recapturé est amorcé
+depuis la grille de tmux : écran par `capture-pane -e -N` (les fins de ligne colorées comprises,
+comme le panneau latéral de Claude Code), historique au-dessus (molette), position du curseur et
+modes de l'application (suivi de la souris, curseur, clavier, écran alternatif). La mise en page est appliquée au tmux du projet par `core.ArrangeTeam`, comme le
 `layout-watch` de la coque, et l'interface place chaque terminal à la géométrie de tmux.
 
 **Construire l'exécutable** (depuis Linux ou Windows, sans cgo ni npm : xterm.js est embarqué) :

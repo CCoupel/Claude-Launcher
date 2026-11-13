@@ -493,24 +493,26 @@ func (t *projTerm) poke() {
 	}
 }
 
-// seed : amorce un pane avec son contenu actuel (capture-pane) et la position
-// du curseur ; sa sortie est ignorée jusque-là (elle est dans la capture).
+// seed : amorce un pane avec son contenu actuel (historique et écran tirés de
+// la grille de tmux, modes du terminal : seed.go) ; sa sortie est ignorée
+// jusque-là (elle est dans la capture).
 func (t *projTerm) seed(pane string) {
 	c := t.client
 	t.mu.Lock()
 	t.seeding[pane], t.seen[pane] = true, true
 	t.mu.Unlock()
-	var cx, cy int
-	_ = c.sendCB([]string{"display-message", "-p", "-t", pane, "#{cursor_x} #{cursor_y}"}, func(r Reply) {
-		f := strings.Fields(string(r.Body))
-		if len(f) == 2 {
-			cx, _ = strconv.Atoi(f[0])
-			cy, _ = strconv.Atoi(f[1])
+	var m paneModes
+	var hist string
+	_ = c.sendCB([]string{"display-message", "-p", "-t", pane, modesFormat}, func(r Reply) {
+		m = parseModes(string(r.Body))
+	})
+	_ = c.sendCB([]string{"capture-pane", "-p", "-e", "-t", pane, "-S", strconv.Itoa(-seedHistory), "-E", "-1"}, func(r Reply) {
+		if !r.Err && m.hist > 0 && !m.alt { // sans historique, tmux renverrait la ligne 0
+			hist = string(r.Body)
 		}
 	})
-	err := c.sendCB([]string{"capture-pane", "-p", "-e", "-t", pane}, func(r Reply) {
-		body := strings.TrimSuffix(string(r.Body), "\n")
-		data := "\x1b[0m\x1b[H\x1b[2J" + strings.ReplaceAll(body, "\n", "\r\n") + "\x1b[0m" + fmt.Sprintf("\x1b[%d;%dH", cy+1, cx+1)
+	err := c.sendCB([]string{"capture-pane", "-p", "-e", "-N", "-t", pane}, func(r Reply) {
+		data := seedData(m, hist, string(r.Body))
 		if r.Err {
 			data = ""
 		}
