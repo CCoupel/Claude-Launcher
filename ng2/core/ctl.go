@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"claude-launcher-ng2/platform"
 	"errors"
 	"fmt"
 	"io"
@@ -82,7 +83,7 @@ func (c *ctlTarget) open() error {
 	if time.Since(c.dead) < 2*time.Second {
 		return errCtlDown
 	}
-	cmd := exec.Command(c.argv[0], c.argv[1:]...)
+	cmd := platform.NoWindow(exec.Command(c.argv[0], c.argv[1:]...))
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return err
@@ -147,6 +148,13 @@ func (c *ctlTarget) read() ([]byte, error) {
 		}
 	}
 }
+
+// CtlLine : arguments d'UNE commande → ligne de commande tmux (client de
+// contrôle de l'interface native).
+func CtlLine(args []string) string { return ctlLine(args) }
+
+// SplitCommands : « a x ; b y » → [[a x] [b y]].
+func SplitCommands(args []string) [][]string { return splitCommands(args) }
 
 // ctlLine : arguments d'UNE commande → ligne de commande tmux.
 func ctlLine(args []string) string {

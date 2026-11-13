@@ -48,6 +48,7 @@ backend ; rien n'est à préinstaller dans les images.
 
 ```bash
 claude-launcher-ng2                    # = claude-launcher-ng2 shell
+claude-launcher-ng2 desktop            # interface native, dans le navigateur sous Linux (v6, voir Windows)
 claude-launcher-ng2 configure          # crée/édite ~/.config/claude-launcher-ng2/config.conf ($EDITOR)
 claude-launcher-ng2 relayout WIN_ID    # remet en ordre les panes d'une fenêtre projet (= Ctrl+B R)
 claude-launcher-ng2 help               # commandes et raccourcis (= F1 dans le launcher)
@@ -788,10 +789,169 @@ revenir) uniquement avec tous les projets fermés.**
 
 ## Windows (v6, en cours)
 
-La v6 porte le launcher en application Windows native (epic #114). Cette branche fournit la
-couche système et le cœur communs (#110) ; l'interface native (Wails + xterm.js) vient avec #111.
-D'ici là, sous Windows, `backends`, `configure`, `help` et `version` fonctionnent ; les
-sous-commandes de la coque tmux (`shell`…) répondent par un message.
+La v6 porte le launcher en application Windows native (epic #114) : un seul `.exe`, qui ouvre
+l'**interface native** (Wails + xterm.js, #111) lancé sans argument. En ligne de commande,
+`backends`, `configure`, `help` et `version` fonctionnent comme sous Linux ; les sous-commandes
+de la coque tmux (`shell`, `nav`…) répondent par un message.
+
+### Interface native (`desktop`)
+
+![Interface native : arbre des projets, cartes ◈ État, team d'un projet](docs/desktop.png)
+
+*Capture du mode web sous Linux (`desktop --web`, faux claude) : même interface que la fenêtre Windows.*
+
+**Lancement**
+
+| Système | Commande | Interface |
+|---|---|---|
+| Windows | `claude-launcher-ng2.exe` (double-clic, ou sans argument) | fenêtre native (WebView2) |
+| Windows | `claude-launcher-ng2.exe desktop --web` | la même interface dans le navigateur |
+| Linux | `claude-launcher-ng2 desktop` | dans le navigateur (binaire de la release, sans cgo) ; fenêtre native si compilé avec `-tags wails,desktop,production` (WebKitGTK) |
+| Linux | `claude-launcher-ng2` | la coque tmux, **inchangée** (défaut) |
+
+`desktop --web` sert l'interface sur `127.0.0.1` (port libre, `--addr HÔTE:PORT` pour le
+fixer), protégée par un jeton aléatoire dans l'URL affichée (puis un cookie) ; `--no-open`
+n'ouvre pas le navigateur. Fermer la fenêtre ou arrêter le serveur **détache** l'interface :
+les sessions des projets continuent dans leur tmux (conteneur, ou tmux local de l'hôte), et sont
+retrouvées au lancement suivant (comme la coque après un arrêt du hub).
+
+**Prérequis Windows** : le runtime **WebView2** (présent sur Windows 10 à jour et Windows 11 ;
+sinon « Evergreen Runtime » de Microsoft, `winget install --id Microsoft.EdgeWebView2Runtime -e`),
+et les outils externes des backends déclarés (voir plus bas ; l'écran « Premier lancement » les
+liste avec leur commande `winget` quand un outil requis manque). L'exécutable est une application
+graphique : en ligne de commande, sa sortie va dans la console de l'invite ; les outils qu'il lance
+(`git`, `docker`, `kubectl`, `ssh`) partagent une console masquée (pas de fenêtre noire).
+
+**Ce qu'on y retrouve de la coque** (mêmes sources dans `core`) :
+
+- à gauche, l'en-tête (versions, annonces de mise à jour orange/jaune/vert, consommation,
+  alerte de connexion claude.ai), le filtre, l'**arbre des projets** par racine et catégorie, avec
+  la pastille et tous les badges de la ligne (`core/legend.go` : même icône, même couleur, même
+  signification au survol), la release GitHub, le bandeau à la couleur du projet ouvert, puis
+  `✦ Nouveau projet` et les **cartes ◈ État** du projet sélectionné (Projet et légende, Milestone,
+  Team, Fichiers) ;
+- à droite, l'onglet **⌗ Teamleaders** (une vignette interactive du leader de chaque projet
+  ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille ;
+- dans l'onglet d'un projet, **un terminal par pane** de sa session tmux (leader, teammates),
+  avec un en-tête « nom · rôle » : la mise en page est celle de la coque (`core/layout.go` :
+  leader et `cdp` en haut ; jusqu'à 5 teammates, le haut sur 50 % et les teammates sur une ligne ;
+  au-delà, 3 lignes 3/7, 2/7 et le reste, la ligne du milieu recevant ⌈n/2⌉ ; actifs en ordre MRU
+  puis inactifs par nom ; actifs éclaircis, inactifs assombris sur la couleur du projet) ;
+- l'**ouverture** passe par le même code que `ctr-attach` (`core.OpenCtr`) : sa sortie (conteneur,
+  bootstrap) et ses questions (serveur d'un groupe, autre launcher propriétaire) s'affichent dans
+  un terminal d'ouverture où l'on répond ; les questions `/init-project` (template en retard ou
+  absent, versions projet → disponible) et de **reprise** sont posées par le script de démarrage
+  **dans le pane du leader**, comme sous Linux ;
+- fermeture (Ctrl+clic, Suppr : même plan et même question o/N, `/exit`, arrêt du conteneur),
+  reprise abandonnée, création de projet (géré / brut, remote, exécution), choix de l'exécution
+  (F2), lecture seule et prise de main (#48), diagnostic des backends, aide et légende.
+
+**Raccourcis**
+
+| Touche | Effet |
+|---|---|
+| `↑` `↓` `PgUp` `PgDn`, clic | sélectionner (clic sur un projet ouvert : son onglet) |
+| `Entrée`, double-clic | ouvrir / rejoindre le projet |
+| `Ctrl`+clic, `Suppr` | fermer le projet (question o/N) |
+| frappe, `Retour arrière` | filtrer ; `Échap` efface le filtre |
+| clic hors projet | onglet ⌗ Teamleaders |
+| double-clic sur une catégorie ou une racine, `✦ Nouveau projet` | créer un projet |
+| `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
+| `Ctrl+R` / `Ctrl+U` / `Ctrl+D` | rescanner / masquer les annonces / diagnostic des backends |
+| `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
+| `←` `→`, clic sur le chevron ou la ligne d'une racine / catégorie | replier / déplier (mémorisé) ; `←` sur un projet : sa catégorie |
+| séparateur arbre / cartes ; clic sur le bandeau d'une carte ou sur « ◈ ÉTAT » | hauteur de l'arbre ; replier une carte ou toute la zone (mémorisé) |
+| `Tab` (navigateur) ; `Alt+←` (terminal) | aller aux terminaux ; revenir au navigateur |
+| `Ctrl+Tab`, `Ctrl+Maj+Tab` | onglet suivant / précédent |
+| clic sur un pane ; double-clic sur son en-tête | focus clavier ; plein écran (aller-retour) |
+| souris dans un pane ; molette | transmise à l'agent s'il la suit (panneau de Claude Code redimensionnable) ; sinon la molette fait défiler l'historique de tmux |
+| glisser une bordure (colonne entre panes, en-tête du pane du dessous) ; `Maj`+glisser | redimensionner le pane (`resize-pane`) ; sélection locale du texte |
+| `Ctrl+B z` / `Ctrl+B R` / `Ctrl+B Ctrl+B` | plein écran / remettre en ordre la team / envoyer `Ctrl+B` à l'agent |
+| `Ctrl+Maj+W`, `×` de l'onglet | détacher l'onglet (la session continue) |
+| `Échap` | quitter : `l` l'interface seule (projets gardés), `t` puis `o` tout fermer |
+
+**Apparence et disposition** (#122, #123, #124) : l'arbre reprend le rendu d'un arbre natif de
+Windows 11 (Explorateur) : hauteur de ligne et indentation, chevrons, survol et sélection Fluent
+(barre d'accent), Segoe UI Variable, badges alignés en colonnes (local, remote, template,
+conteneur, milestone, PR, reprise) avec les icônes et couleurs de la coque ; thème clair si le
+système est en clair. Racines et catégories se replient ; largeur du navigateur, hauteur de
+l'arbre, cartes repliées et zone des cartes masquée sont gardées dans `desktop-ui.json` du cache
+du launcher. L'arbre est compact, à la densité de la coque (#132) : lignes de 17 px, décalage de 9 px par
+niveau, la pastille d'un projet à la place du chevron.
+
+**Projets lus par `\\wsl.localhost` (9P)** (#125) : chaque appel de fichier traverse WSL, et un
+`git status` par projet coûte cher. L'arbre et les badges du lancement précédent
+(`desktop-tree.json`, `desktop-git.json` et le cache d'état) s'affichent tout de suite et sont
+complétés en tâche de fond ; git ne tourne que pour les projets sans état en cache (ouverts et
+sélectionné d'abord, 4 à la fois sur un disque réseau). Le cache d'état du hub Linux peut être lu
+sans y écrire, s'il est plus frais : déclarer son dossier vu du poste ; c'est un chemin Windows,
+sa place est la surcharge `windows` de la machine (config partagée avec le hub Linux du même
+poste, #127) :
+
+```yaml
+hubs:
+  MON-PC:
+    windows:
+      hub_cache: '\\wsl.localhost\Ubuntu\home\moi\.cache\claude-launcher-ng2'
+```
+
+Les clés inconnues de `hubs:` (faute de frappe) sont ignorées et annoncées au démarrage par un
+bandeau jaune (un clic ouvre le diagnostic, qui les liste toutes) ; le serveur web du navigateur
+prend le réglage de son système (`hubs.<machine>.windows.browser_server`, 127.0.0.1:8766 par
+défaut sous Windows, #121).
+
+Les durées de chaque étape (parcours, caches, git, conso, milestones, conteneurs) sont résumées au
+survol du pied et ajoutées à `desktop-perf.log` du cache (à joindre à un signalement de lenteur) :
+une ligne par lecture de plus de 20 ms, « heure étape durée chemin · détail » (démarrage, git
+d'un projet, calcul d'état, team, cache du hub, sessions de `~/.claude`, conso, `gh`, conteneurs,
+cartes au clic). Rien de ce qui peut passer par 9P n'est lu avant l'affichage ni au clic (#130) :
+le cache du hub est lu en tâche de fond et gardé en mémoire, les réglages de `CLAUDE_CONFIG_DIR`
+aussi ; sur un disque réseau, les projets ni ouverts ni sélectionnés sont relus toutes les 30 min
+et les sessions en suspens toutes les 30 s.
+
+**Redimensionnement** (#126) : la taille de la zone des terminaux est transmise au tmux du projet
+(`refresh-client -C L,H`) ; après la dernière taille d'une rafale (fenêtre glissée, maximiser /
+restaurer), chaque pane est recapturé et la team est remise en page à la nouvelle taille.
+
+**Différences avec la coque tmux**
+
+- pas de tmux local sous Windows : les projets tournent dans un conteneur distant (voir
+  ci-dessous) ; sous Linux, un projet sur l'hôte ouvert par `desktop` vit dans un tmux dédié
+  (`tmux -L claude-desk-ng2`, une session par projet), distinct du hub de la coque ;
+- les terminaux sont des widgets : le préfixe `Ctrl+B` du tmux du conteneur n'existe pas, ses
+  commandes utiles ont un équivalent (tableau ci-dessus) ;
+- la vignette ⌗ Teamleaders est le terminal du leader réduit à la taille de la tuile ;
+- notifications (agents passés en attente, nouvelle version prête) par l'API Notification du
+  web, seulement quand la fenêtre est en arrière-plan ; dans la fenêtre WebView2, leur affichage
+  dépend de l'autorisation accordée par WebView2 ;
+- connexion claude.ai : l'alerte ouvre un onglet `login` qui lance `claude /login` **sur ce
+  poste** (claude doit y être installé) ; sinon, `/login` se tape dans le leader d'un projet ouvert.
+
+**Comment ça marche** : l'interface parle à `core` par un seul point d'entrée (`Dispatch`), lié à
+Wails (`window.go.desktop.Bridge.Call`) ou servi en HTTP (`/api/call`), et reçoit l'état par
+événements (Wails, ou flux SSE `/api/events`). Les terminaux passent par **tmux en mode
+contrôle** : un client `tmux -C attach-session` dans le conteneur (`docker`/`podman`/`kubectl
+exec -i`, `ssh`), de simples tuyaux sans pseudo-terminal ; il reçoit la sortie de chaque pane
+(`%output`, décodée de l'octal), les changements de mise en page (`%layout-change`, géométrie lue
+dans `window_visible_layout`) et envoie la frappe (`send-keys -H`) et la taille de la zone
+(`refresh-client -C`). Un pane qui apparaît, change de taille ou est recapturé est amorcé
+depuis la grille de tmux : écran par `capture-pane -e -N` (les fins de ligne colorées comprises,
+comme le panneau latéral de Claude Code), historique au-dessus (molette), position du curseur et
+modes de l'application (suivi de la souris, curseur, clavier, écran alternatif ; collage entre crochets, que tmux ne publie pas : suivi dans la sortie du pane, actif pour `claude` à défaut). Plein écran (double-clic sur l'en-tête, `Ctrl+B z`) : bascule immédiate dans l'interface, puis seul le pane concerné est recapturé (écran seul, sans l'historique) ; la team n'est relue que par le tour lent (toutes les secondes), jamais sur le chemin d'un plein écran. La mise en page est appliquée au tmux du projet par `core.ArrangeTeam`, comme le
+`layout-watch` de la coque, et l'interface place chaque terminal à la géométrie de tmux.
+
+**Construire l'exécutable** (depuis Linux ou Windows, sans cgo ni npm : xterm.js est embarqué) :
+
+```bash
+cd ng2
+GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -trimpath \
+  -ldflags "-s -w -H windowsgui -X claude-launcher-ng2/core.NgVersion=v6.0.0" \
+  -o claude-launcher-ng2.exe .
+```
+
+Les balises `desktop,production` sont celles qu'exige Wails (sans elles, l'exe ne s'ouvre pas et
+le dit) ; la CLI `wails` n'est pas nécessaire. Versions embarquées : Wails v2.17.0, xterm.js 6.0.0,
+`@xterm/addon-unicode11` 0.9.0 (`ui/desktop/frontend/vendor/VERSIONS.txt`).
 
 ### Ce qui tourne où
 
@@ -947,7 +1107,9 @@ Windows ne remontent pas : les projets y sont **relus périodiquement**, comme s
 
 ### Mise à jour automatique
 
-Le binaire Windows de la release s'appellera `claude-launcher-ng2.exe` (#112). Un `.exe` en cours
+La release publie le binaire Windows sous le nom `claude-launcher-ng2.exe` (windows/amd64,
+interface native comprise), avec les binaires Linux et macOS (noms inchangés) et un seul
+`SHA256SUMS` (#112) ; chaque système y prend son fichier. Un `.exe` en cours
 d'exécution ne peut pas être remplacé : il est renommé `claude-launcher-ng2.exe.old`, le nouveau
 est posé à sa place et lancé, puis l'ancien processus se termine ; le `.old` est supprimé au
 démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
@@ -1117,6 +1279,15 @@ dépend ni de tmux ni de l'OS :
 | `core/` | config, `backends.yaml`, moteurs et k8s, placement, pools et drain, nommage, `env.yaml`/`env-template.yaml`, bootstrap (`bootstrap.sh`), projets, teams et leader, cache d'état, conso, GitHub (releases, milestones, mises à jour), variables vers `settings.json`, `browser_paths`, serveur web et appariement, sessions tmux **dans les conteneurs** (canal de contrôle `ctl.go`, propriétaire) |
 | `platform/` | ce qui dépend de l'OS : espaces de PID (`/proc`, `kill`), disque réseau (`statfs` ; Windows : UNC, `GetDriveType`), terminal en mode brut (termios), taille du terminal, verrou de fichier, relance du binaire (`execve` ; Windows : `.exe` renommé `.old`), pseudo-terminal (`pty.go` : creack/pty, ConPTY), chemin du binaire ; implémentation Linux/macOS (`_unix`, `_linux`, `_darwin`) et Windows (`_windows`), la logique restant dans des fichiers communs testés partout |
 | `ui/tmux/` | la coque tmux : coque et navigateur, cartes (`◈ État`), vignettes (`mirror`, `mirrors`), mise en page (`layout`), `ctr-attach`, aide, légende, relais de touches |
+| `ui/desktop/` | l'interface native (v6, #111) : état et appels (`app.go`, `actions.go`, `update.go`), onglet d'un projet (`projterm.go`), client et décodeur du mode contrôle de tmux (`tmuxclient.go`, `ctrlmode.go`), ponts Wails (`wails_on.go`) et web (`web.go`), interface HTML/CSS/JS et xterm.js embarqués (`frontend/`) |
+
+Partagé par les deux interfaces, dans `core` : la légende des icônes (`legend.go` : icône, couleur
+sémantique, signification, sans rendu), la mise en page des teams (`layout.go` : classement,
+`TeamRows` en ratios, `LayoutString`, teintes, `ArrangeTeam`), l'état des conteneurs
+(`ctrview.go`), la cible tmux d'un conteneur (`target.go`), l'ouverture en conteneur
+(`ctropen.go`), le script de démarrage et ses questions (`start.go`), la fermeture
+(`closeproj.go`), la préparation des mises à jour (`prefetch.go`, `CheckUpdatesNow`) et la
+création d'un projet (`newproject.go`).
 
 `core` ne dépend ni de `ui/tmux` ni d'un appel système propre à Linux :
 `GOOS=windows go vet ./core/... ./platform/...` et `GOOS=windows go build ./...` doivent rester
@@ -1221,5 +1392,13 @@ propres. Le workflow `ng2-tests` les vérifie à chaque PR vers `main` et `v6`, 
 `CL_RAW_BASE` (serveur de fichiers bruts), `CL_API_BASE` (API GitHub), `CL_RELEASE_BASE`
 (fichiers de release), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`, `CL_FAKE_TPL_RELEASED`,
 `XDG_CACHE_HOME`.
+
+Interface native (`ui/desktop`) : décodeur du mode contrôle de tmux (séquence réelle de tmux 3.6,
+`%output` en octal, layouts, UTF-8 coupé), état et légende des cartes, appels, et un projet sur
+l'hôte dans un tmux de test (ouverture, saisie, team de 7 rangée en 3 lignes, teintes,
+détachement) ; `CL_DESK_SOCKET` choisit le tmux local de test, `CL_DESKTOP_TOKEN` fixe le jeton du
+mode web. Bout en bout sur un vrai backend avec les variables des e2e de `core` :
+`CL_E2E_POOL=<racine>,tcp://…` (docker, premier serveur) et `CL_E2E_K8S=…` (`TestE2EDesktopContainer` :
+ouverture en conteneur, attache en mode contrôle, saisie dans le leader, fermeture).
 
 `docs/maquette.html` est la maquette interactive d'origine de l'interface.

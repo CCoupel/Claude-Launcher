@@ -1,0 +1,13 @@
+Bibliothèques embarquées dans l'interface (aucune étape npm au build).
+Fichiers copiés tels quels depuis les paquets npm (seule la ligne
+« //# sourceMappingURL= » finale est retirée : les .map ne sont pas livrés).
+
+@xterm/xterm 6.0.0 (2025-12-22, licence MIT : LICENSE-xterm.txt)
+  tarball  https://registry.npmjs.org/@xterm/xterm/-/xterm-6.0.0.tgz
+  integrity sha512-TQwDdQGtwwDt+2cgKDLn0IRaSxYu1tSUjgKarSDkUM0ZNiSRXFpjxEsvc/Zgc5kq5omJ+V0a8/kIM2WD3sMOYg==
+  fichiers lib/xterm.js, css/xterm.css
+
+@xterm/addon-unicode11 0.9.0 (2025-12-22, licence MIT)
+  tarball  https://registry.npmjs.org/@xterm/addon-unicode11/-/addon-unicode11-0.9.0.tgz
+  integrity sha512-FxDnYcyuXhNl+XSqGZL/t0U9eiNb/q3EWT5rYkQT/zuig8Gz/VagnQANKHdDWFM2lTMk9ly0EFQxxxtZUoRetw==
+  fichier lib/addon-unicode11.js (largeurs Unicode 11 : emoji sur 2 colonnes, comme tmux)

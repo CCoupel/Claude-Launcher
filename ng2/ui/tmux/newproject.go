@@ -3,10 +3,8 @@ package tmux
 import (
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -145,13 +143,11 @@ func indexOf(list []string, s string) int {
 // env.yaml, ou change sa ligne image: s'il existe déjà (hôte : env.yaml gardé).
 // Le socle d'env-template.yaml choisi tel quel : env.yaml ni créé ni modifié.
 func applyExec(dir string, f newForm) error {
-	if f.exec <= 0 || f.exec > len(f.images) {
-		return core.WriteAssignment(dir, "host")
+	img := ""
+	if f.exec > 0 && f.exec <= len(f.images) {
+		img = f.images[f.exec-1]
 	}
-	if err := core.ApplyImage(dir, f.images[f.exec-1]); err != nil {
-		return err
-	}
-	return core.WriteAssignment(dir, f.ctrBe)
+	return core.ApplyExec(dir, img, f.ctrBe)
 }
 
 // withSpecial place l'entrée « Nouveau projet » en tête de la liste.
@@ -287,16 +283,7 @@ func dropLast(s string) string {
 	return string(r[:len(r)-1])
 }
 
-func validName(s string) string {
-	s = strings.TrimSpace(s)
-	switch {
-	case s == "":
-		return "nom requis"
-	case strings.ContainsAny(s, `/\`) || strings.HasPrefix(s, "."):
-		return "nom invalide (ni / ni . au début)"
-	}
-	return ""
-}
+func validName(s string) string { return core.ValidProjectName(s) }
 
 func (m model) projectDir() string {
 	return filepath.Join(m.form.base, strings.TrimSpace(m.form.name))
@@ -330,21 +317,10 @@ func (m model) createProject() model {
 	mode := launchNewManaged
 	if m.form.raw {
 		mode = launchNewRaw
-		if err := os.WriteFile(filepath.Join(dir, "CLAUDE.md"), []byte(minimalClaudeMD(filepath.Base(dir))), 0o644); err != nil {
-			m.form.err = "CLAUDE.md : " + err.Error()
-			return m
-		}
-	} else {
-		if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
-			m.form.err = "git init : " + strings.TrimSpace(string(out))
-			return m
-		}
-		if r := strings.TrimSpace(m.form.remote); r != "" {
-			if out, err := exec.Command("git", "-C", dir, "remote", "add", "origin", r).CombinedOutput(); err != nil {
-				m.form.err = "git remote : " + strings.TrimSpace(string(out))
-				return m
-			}
-		}
+	}
+	if err := core.InitProject(dir, m.form.raw, m.form.remote); err != nil {
+		m.form.err = err.Error()
+		return m
 	}
 	m.form = newForm{}
 	m.filter = ""
@@ -393,11 +369,7 @@ func (m model) applyExecExisting() model {
 }
 
 // minimalClaudeMD : contenu du CLAUDE.md d'un projet brut.
-func minimalClaudeMD(name string) string {
-	return "# " + name + "\n\n" +
-		"Projet créé le " + time.Now().Format("2006-01-02") + " par " + core.NgName + ".\n\n" +
-		"## Objectif\n\n_À compléter._\n"
-}
+func minimalClaudeMD(name string) string { return core.MinimalClaudeMD(name) }
 
 // renderExec : liste des socles (0 : hôte).
 func (m model) renderExec(w int) string {

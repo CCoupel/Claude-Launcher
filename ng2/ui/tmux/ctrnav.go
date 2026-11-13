@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -48,124 +47,15 @@ func ctrNowCmd(paths []string, delay time.Duration) tea.Cmd {
 }
 
 func readCtrView(paths []string) ctrView {
-	v := ctrView{env: map[string]bool{}, assign: map[string]string{}, found: map[string]core.Found{}, errs: map[string]string{}, diag: map[string][]core.Problem{}, bad: map[string]string{}, live: map[string]core.LiveSess{},
-		dups: map[string][]string{}, down: map[string]string{}}
-	any := false
-	asg := core.ReadAssignments()
-	for _, p := range paths {
-		if core.HasEnv(p) {
-			v.env[p], any = true, true
-			v.assign[p] = core.ProjectBackend(p).Name
-		}
-		if name, ok := asg[p]; ok && name != "host" {
-			v.assign[p] = name
-			if _, err := core.LaunchBackend(p); err != nil {
-				v.bad[p] = err.Error()
-			}
-		}
-	}
-	bs, _ := core.LoadBackends()
-	for _, b := range bs {
-		e, ok := core.EngineOf(b)
-		if !ok || !any && !usedBackend(b.Name) {
-			continue
-		}
-		if assignedTo(v.assign, b.Name) {
-			if ps := core.DiagnoseCached(b); len(ps) > 0 {
-				v.diag[b.Name] = ps
-				continue
-			}
-		}
-		var fs []core.Found
-		var down map[string]error
-		if b.K8s() {
-			var err error
-			if fs, err = e.K8sList(); err != nil {
-				down = map[string]error{"": err}
-			}
-		} else {
-			fs, down = e.ListPool() // groupe : tous ses serveurs en parallèle (#61)
-		}
-		if len(fs) == 0 && len(down) > 0 && len(down) == len(b.Servers()) {
-			for _, err := range down {
-				v.errs[b.Name] = err.Error()
-			}
-			continue
-		}
-		if len(down) > 0 {
-			v.down[b.Name] = core.DownText(down)
-		}
-		for _, f := range fs {
-			if o, dup := v.found[f.Project]; dup && o.Backend == f.Backend && o.Server != f.Server {
-				v.dups[f.Project] = append(v.dups[f.Project], f.Server)
-				if len(v.dups[f.Project]) == 1 {
-					v.dups[f.Project] = []string{o.Server, f.Server}
-				}
-			}
-			v.found[f.Project] = f
-		}
-		// sessions des conteneurs en marche, en parallèle (un exec chacun ; k8s ~0,5 s)
-		var mu sync.Mutex
-		var wg sync.WaitGroup
-		for _, f := range fs {
-			if !f.Running {
-				continue
-			}
-			wg.Add(1)
-			go func(f core.Found) {
-				defer wg.Done()
-				if l, ok := e.Of(f).ReadLive(f.Name); ok {
-					mu.Lock()
-					v.live[f.Project] = l
-					mu.Unlock()
-				}
-			}(f)
-		}
-		wg.Wait()
-	}
-	return v
-}
-
-func assignedTo(assign map[string]string, name string) bool {
-	for _, b := range assign {
-		if b == name {
-			return true
-		}
-	}
-	return false
-}
-
-func usedBackend(name string) bool {
-	for _, b := range core.ReadAssignments() {
-		if b == name {
-			return true
-		}
-	}
-	return false
+	v := core.ReadCtrView(paths)
+	return ctrView{env: v.Env, assign: v.Assign, found: v.Found, errs: v.Errs, diag: v.Diag, bad: v.Bad,
+		live: v.Live, dups: v.Dups, down: v.Down}
 }
 
 // ctrIndicator : backend du projet sur la ligne du navigateur (projets en conteneur seulement).
 func ctrIndicator(p projInfo) (indicator, bool) {
-	if p.badCfg != "" {
-		return indicator{icon: "⚠", style: core.Red, text: p.badCfg}, true
-	}
-	if p.backend == "" || p.backend == "host" {
-		if p.hasEnv {
-			return indicator{icon: "⬡", style: core.Dim, text: "environnement conteneur présent (env.yaml / env-template.yaml) : exécution locale (F2 : choisir un conteneur)"}, true
-		}
-		return indicator{}, false
-	}
-	switch {
-	case len(p.problems) > 0:
-		return indicator{icon: "⚠", style: core.Yellow, text: "backend " + p.backend + " inutilisable : " + p.problems[0].String() +
-			" (détails : claude-launcher-ng2 backends)"}, true
-	case !p.ctrKnown:
-		return indicator{icon: "⬡", style: core.Dim, text: "conteneur " + p.backend + " pas encore créé (bootstrap à l'ouverture)"}, true
-	case p.ctr.Running:
-		return indicator{icon: "⬢", style: core.Cyan, text: "conteneur " + p.backend + " en marche (" + p.ctr.Name + ")"}, true
-	default:
-		return indicator{icon: "⬢", style: core.Dim, text: "conteneur " + p.backend + " arrêté (redémarré à l'ouverture)"}, true
-	}
+	i, ok := core.CtrIndicator(p.core())
+	return fromCore(i), ok
 }
 
 // cycleBackend (F2) : backend suivant pour le projet sélectionné.

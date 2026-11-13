@@ -1,7 +1,6 @@
 package tmux
 
 import (
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,67 +20,18 @@ import (
 // éclaircis, les inactifs assombris, et l'onglet du projet s'allume tant qu'un
 // agent travaille.
 
-type teamMember struct {
-	Name      string `json:"name"`
-	AgentType string `json:"agentType"`
-	PaneID    string `json:"tmuxPaneId"`
-	IsActive  bool   `json:"isActive"`
-	Cwd       string `json:"cwd"`
-}
+// Team, classement, géométrie et teintes : core/layout.go (partagés avec
+// l'interface native) ; ici, leur application au tmux de la coque.
 
-type teamConfig struct {
-	Members []teamMember `json:"members"`
-}
+type (
+	teamMember = core.TeamMember
+	teamConfig = core.TeamConfig
+)
 
-func readTeam(path string) (teamConfig, error) {
-	var tc teamConfig
-	b, err := os.ReadFile(path)
-	if err == nil {
-		err = json.Unmarshal(b, &tc)
-	}
-	return tc, err
-}
+func readTeam(path string) (teamConfig, error) { return core.ReadTeam(path) }
 
-func (tc teamConfig) leaderCwd() string {
-	for _, m := range tc.Members {
-		if m.Name == "team-lead" {
-			return m.Cwd
-		}
-	}
-	return ""
-}
-
-func normPath(p string) string {
-	if r, err := filepath.EvalSymlinks(p); err == nil {
-		p = r
-	}
-	return strings.ToLower(strings.TrimRight(p, "/"))
-}
-
-// findTeamConfig : config.json de la team du projet. Une session coupée laisse
-// sa team quand la reprise en crée une autre : la plus récemment modifiée gagne.
-func findTeamConfig(projectDir string) string {
-	files, _ := filepath.Glob(filepath.Join(core.ClaudeDir(), "teams", "*", "config.json"))
-	want := normPath(core.ClaudePath(projectDir)) // cwd vu par claude (conteneur : chemin des backends)
-	best, bestT := "", time.Time{}
-	for _, f := range files {
-		st, err := os.Stat(f)
-		if err != nil {
-			continue
-		}
-		tc, err := readTeam(f)
-		if err != nil {
-			continue
-		}
-		if cwd := tc.leaderCwd(); cwd == "" || normPath(cwd) != want {
-			continue
-		}
-		if best == "" || st.ModTime().After(bestT) {
-			best, bestT = f, st.ModTime()
-		}
-	}
-	return best
-}
+// findTeamConfig : config.json de la team du projet (core.FindTeamConfig).
+func findTeamConfig(projectDir string) string { return core.FindTeamConfig(projectDir) }
 
 // winPane : un pane d'une fenêtre projet, vu en un seul list-panes.
 type winPane struct {
@@ -158,111 +108,34 @@ func (ws winState) has(id string) bool {
 	return false
 }
 
-func (ws winState) styleOf(id string) string {
-	for _, p := range ws.panes {
-		if p.id == id {
-			return p.style
-		}
-	}
-	return ""
-}
-
 // setPaneColor : ne réécrit que si l'état tmux réel diffère. set-option -p (et
 // non select-pane -P) : colore le pane sans lui donner le focus.
 func setPaneColor(p projWin, ws winState, pane, color string) {
-	want := "bg=colour" + color
-	if ws.styleOf(pane) != want {
-		_ = p.t.Run("set-option", "-p", "-t", pane, "window-style", want)
-	}
+	core.SetPaneColor(p.t, ws.core(), pane, color)
 }
 
-// brightenColor / darkenColor : variante plus claire / plus sombre d'une couleur
-// tmux 256 en gardant sa teinte. Éclaircir n'allume pas un canal éteint (saut
-// disproportionné) ; assombrir descend jusqu'à 0 (palette déjà proche du noir).
-func brightenColor(c string, step int) string { return shiftColor(c, step, false) }
-func darkenColor(c string, step int) string   { return shiftColor(c, -step, true) }
-
-func shiftColor(c string, step int, toZero bool) string {
-	n, err := strconv.Atoi(c)
-	if err != nil {
-		return c
+// core : panes de la fenêtre, pour core.ArrangeTeam / core.SetPaneColor.
+func (ws winState) core() []core.WinPane {
+	out := make([]core.WinPane, len(ws.panes))
+	for i, p := range ws.panes {
+		out[i] = core.WinPane{ID: p.id, Index: p.index, Style: p.style}
 	}
-	clamp := func(v, lo, hi int) int { return min(hi, max(lo, v)) }
-	switch {
-	case n >= 16 && n <= 231:
-		i := n - 16
-		rgb := []int{i / 36, i / 6 % 6, i % 6}
-		for k, v := range rgb {
-			if v > 0 {
-				lo := 1
-				if toZero {
-					lo = 0
-				}
-				rgb[k] = clamp(v+step, lo, 5)
-			}
-		}
-		return strconv.Itoa(16 + 36*rgb[0] + 6*rgb[1] + rgb[2])
-	case n >= 232 && n <= 255:
-		return strconv.Itoa(clamp(n+2*step, 232, 255))
-	}
-	return c
+	return out
 }
+
+// brightenColor / darkenColor : core.BrightenColor / core.DarkenColor.
+func brightenColor(c string, step int) string { return core.BrightenColor(c, step) }
+func darkenColor(c string, step int) string   { return core.DarkenColor(c, step) }
 
 // ── Géométrie ─────────────────────────────────────────────────────────────
 
-// layoutChecksum : somme de contrôle des chaînes de layout tmux (layout_checksum).
-func layoutChecksum(s string) string {
-	csum := 0
-	for i := 0; i < len(s); i++ {
-		csum = ((csum >> 1) + ((csum & 1) << 15) + int(s[i])) & 0xFFFF
-	}
-	return fmt.Sprintf("%04x", csum)
-}
-
-// buildRow : n panes côte à côte (chaque séparateur prend une colonne).
-func buildRow(w, h, x, y int, idxs []int) string {
-	if len(idxs) == 1 {
-		return fmt.Sprintf("%dx%d,%d,%d,%d", w, h, x, y, idxs[0])
-	}
-	n := len(idxs)
-	colW := (w - n + 1) / n
-	rem := w - colW*n - (n - 1)
-	cells := make([]string, n)
-	cx := x
-	for i, idx := range idxs {
-		pw := colW
-		if i == n-1 {
-			pw += rem
-		}
-		cells[i] = fmt.Sprintf("%dx%d,%d,%d,%d", pw, h, cx, y, idx)
-		cx += pw + 1
-	}
-	return fmt.Sprintf("%dx%d,%d,%d{%s}", w, h, x, y, strings.Join(cells, ","))
-}
+// layoutChecksum : somme de contrôle des chaînes de layout tmux (core.LayoutChecksum).
+func layoutChecksum(s string) string { return core.LayoutChecksum(s) }
 
 // layoutString : leader (et cdp) en haut ; ≤ 5 teammates sur une 2e ligne,
-// au-delà sur deux lignes (la dernière reçoit le reliquat de hauteur).
+// au-delà sur deux lignes (core.LayoutString).
 func layoutString(cfg core.Config, w, h int, top, bot []int) string {
-	var body string
-	switch {
-	case len(bot) == 0:
-		body = buildRow(w, h, 0, 0, top)
-	case len(bot) <= 5:
-		topH := h * cfg.Layout2RowLeaderPct / 100
-		botH := h - topH - 1
-		body = fmt.Sprintf("%dx%d,0,0[%s,%s]", w, h,
-			buildRow(w, topH, 0, 0, top), buildRow(w, botH, 0, topH+1, bot))
-	default:
-		leadH := h * cfg.Layout3RowLeaderNum / cfg.Layout3RowDen
-		midH := h * cfg.Layout3RowMidNum / cfg.Layout3RowDen
-		botH := h - leadH - midH - 2
-		nMid := (len(bot) + 1) / 2
-		body = fmt.Sprintf("%dx%d,0,0[%s,%s,%s]", w, h,
-			buildRow(w, leadH, 0, 0, top),
-			buildRow(w, midH, 0, leadH+1, bot[:nMid]),
-			buildRow(w, botH, 0, leadH+midH+2, bot[nMid:]))
-	}
-	return layoutChecksum(body) + "," + body
+	return core.LayoutString(cfg, w, h, top, bot)
 }
 
 // ── Classement ────────────────────────────────────────────────────────────
@@ -271,69 +144,13 @@ func orderPath(win string) string {
 	return filepath.Join(os.TempDir(), "claude_layout_"+strings.TrimPrefix(win, "@")+".order")
 }
 
-// classify : panes du haut (leader puis cdp) et du bas (teammates actifs en
-// ordre MRU — un agent qui devient actif passe en tête —, inactifs par nom, puis
-// panes sans agent). L'ordre MRU est conservé entre deux appels dans orderPath.
+// classify : panes du haut (leader puis cdp) et du bas (core.Classify).
 func classify(ws winState, leader string, tc *teamConfig, orderFile string) (top, bot []string) {
-	top = []string{leader}
-	seen := map[string]bool{leader: true}
-	if tc != nil {
-		var prev []string
-		if b, err := os.ReadFile(orderFile); err == nil {
-			prev = strings.Fields(string(b))
-		}
-		nameOf, activeOf := map[string]string{}, map[string]bool{}
-		var bots []string
-		for _, m := range tc.Members {
-			if m.PaneID == "" || m.PaneID == leader || !ws.has(m.PaneID) || seen[m.PaneID] {
-				continue
-			}
-			seen[m.PaneID] = true
-			if m.AgentType == "cdp" {
-				top = append(top, m.PaneID)
-				continue
-			}
-			bots = append(bots, m.PaneID)
-			nameOf[m.PaneID], activeOf[m.PaneID] = m.Name, m.IsActive
-		}
-		byName := func(ids []string) {
-			sort.SliceStable(ids, func(i, j int) bool {
-				a, b := nameOf[ids[i]]+"|"+ids[i], nameOf[ids[j]]+"|"+ids[j]
-				return a < b
-			})
-		}
-		wasActive := map[string]bool{}
-		var kept []string
-		for _, p := range prev {
-			wasActive[p] = true
-			if activeOf[p] {
-				kept = append(kept, p)
-			}
-		}
-		var fresh, idle []string
-		for _, p := range bots {
-			switch {
-			case !activeOf[p]:
-				idle = append(idle, p)
-			case !wasActive[p]:
-				fresh = append(fresh, p)
-			}
-		}
-		byName(fresh)
-		byName(idle)
-		active := append(fresh, kept...)
-		_ = os.WriteFile(orderFile, []byte(strings.Join(active, "\n")), 0o644)
-		bot = append(active, idle...)
-		for _, p := range bot {
-			seen[p] = true
-		}
+	ids := make([]string, len(ws.panes))
+	for i, p := range ws.panes {
+		ids[i] = p.id
 	}
-	for _, p := range ws.panes {
-		if !seen[p.id] {
-			bot = append(bot, p.id) // panes ouverts à la main
-		}
-	}
-	return top, bot
+	return core.Classify(ids, leader, tc, orderFile)
 }
 
 // doLayout réordonne physiquement les panes (select-layout n'applique que la
@@ -358,45 +175,13 @@ func doLayout(cfg core.Config, pw projWin, leader, teamPath string) {
 	}
 	top, bot := classify(ws, leader, tc, orderPath(pw.hubWin))
 
-	// échanges : la position i de l'ordre voulu reçoit l'index physique i
-	at := make([]string, len(ws.panes)) // position -> pane
-	pos := map[string]int{}
-	idxs := make([]int, len(ws.panes))
-	for i, p := range ws.panes {
-		at[i], pos[p.id], idxs[i] = p.id, i, p.index
-	}
-	want := append(append([]string{}, top...), bot...)
-	for i, p := range want {
-		if i >= len(at) || at[i] == p {
-			continue
-		}
-		cur, j := at[i], pos[p]
-		// -d : ne jamais déplacer le focus (seul le teamleader le garde)
-		_ = pw.t.Run("swap-pane", "-d", "-s", p, "-t", cur)
-		at[i], at[j], pos[p], pos[cur] = p, cur, i, j
-	}
-
-	topIdx, botIdx := idxs[:len(top)], idxs[len(top):len(want)]
-	_ = pw.t.Run("select-layout", "-t", pw.win, layoutString(cfg, ws.w, ws.h, topIdx, botIdx))
-
-	color := cfg.ProjectColor(ws.name)
-	for _, p := range want {
-		setPaneColor(pw, ws, p, color)
-	}
+	// échanges, géométrie et couleur de base : core.ArrangeTeam
+	core.ArrangeTeam(cfg, pw.t, pw.win, ws.core(), ws.w, ws.h, top, bot, cfg.ProjectColor(ws.name))
 }
 
 // ── Surveillance ──────────────────────────────────────────────────────────
 
-func activeSignature(ws winState, tc teamConfig) string {
-	var ids []string
-	for _, m := range tc.Members {
-		if m.PaneID != "" && m.IsActive {
-			ids = append(ids, m.PaneID)
-		}
-	}
-	sort.Strings(ids)
-	return strings.Join(ids, ",")
-}
+func activeSignature(ws winState, tc teamConfig) string { return core.ActiveSignature(tc) }
 
 // styleBusy : titre de l'onglet allumé (couleur du projet éclaircie) tant qu'un
 // agent travaille, indépendamment du style focus/non-focus.

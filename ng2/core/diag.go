@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/platform"
 	"context"
 	"fmt"
 	"os"
@@ -107,7 +108,7 @@ func (e Engine) checkShared(proj string) error {
 	if e.B.Type == "ssh" && len(ps) == 0 {
 		// les mêmes chemins doivent exister de l'autre côté
 		for _, p := range []string{RemotePath(ClaudeDir()), RemotePath(proj)} {
-			if exec.Command("ssh", append(append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...), e.B.Host, "test -d "+Shq(p))...).Run() != nil {
+			if platform.NoWindow(exec.Command("ssh", append(append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...), e.B.Host, "test -d "+Shq(p))...)).Run() != nil {
 				ps = append(ps, Problem{p + " absent sur " + e.B.Host,
 					"monter le stockage partagé sur " + e.B.Host + " au même chemin qu'ici"})
 			}
@@ -126,7 +127,7 @@ func (e Engine) checkShared(proj string) error {
 func runQuiet(timeout time.Duration, argv ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, argv[0], argv[1:]...).CombinedOutput()
+	out, err := platform.NoWindow(exec.CommandContext(ctx, argv[0], argv[1:]...)).CombinedOutput()
 	if ctx.Err() != nil {
 		return string(out), fmt.Errorf("délai dépassé (%s)", timeout)
 	}

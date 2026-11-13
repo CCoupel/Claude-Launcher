@@ -3,7 +3,6 @@ package tmux
 import (
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -48,37 +47,29 @@ func selfCommand(args ...string) string {
 	return c
 }
 
-// claudeBin : commande lancée dans chaque projet (CL_CLAUDE_BIN : remplaçant de test).
-func claudeBin() string {
-	if b := os.Getenv("CL_CLAUDE_BIN"); b != "" {
-		return core.Shq(b)
-	}
-	return "claude"
-}
+// claudeBin : commande lancée dans chaque projet (core.ClaudeBin).
+func claudeBin() string { return core.ClaudeBin() }
 
 func tmuxOut(args ...string) (string, error) {
 	b, err := dtmux(args...).Output()
 	return strings.TrimSpace(string(b)), err
 }
 
-// syncLauncherEnv : recopie des variables du launcher dans settings.json ;
-// false si elle a échoué (les secrets sont alors tapés comme avant).
-func syncLauncherEnv(cfg core.Config) bool {
-	_ = core.SyncBrowserHook(core.ClaudeDir()) // consigne navigateur à chaque session (#106)
-	return core.SyncSettingsEnv(core.ClaudeDir(), cfg.EnvVars()) == nil
-}
+// syncLauncherEnv : recopie des variables du launcher dans settings.json
+// (core.SyncLauncherEnv).
+func syncLauncherEnv(cfg core.Config) bool { return core.SyncLauncherEnv(cfg) }
 
 // launchProject : fenêtre, styles, couleur du pane, démarrage de claude (avec la
 // confirmation /init-project si le template est en retard ou absent), puis le
 // watcher de mise en page (layout.go).
 // Mode de lancement : normal (ouverture d'un projet), ou juste après sa création
 // depuis le launcher — géré (/init-project d'office) ou brut (ni git ni init-project).
-type launchMode int
+type launchMode = core.LaunchMode
 
 const (
-	launchNormal launchMode = iota
-	launchNewManaged
-	launchNewRaw
+	launchNormal     = core.LaunchNormal
+	launchNewManaged = core.LaunchNewManaged
+	launchNewRaw     = core.LaunchNewRaw
 )
 
 func launchProject(cfg core.Config, session string, n core.Node, latest string, mode launchMode) error {
@@ -147,76 +138,16 @@ func launchProject(cfg core.Config, session string, n core.Node, latest string, 
 		_ = dtmux("set-window-option", "-t", target, "@cl_nested", "1").Run()
 	}
 
-	initCache := core.InitProjectPath()
-	tpl := core.ReadTemplate(n.Path, latest)
-
-	var initPre, initArg string
-	switch {
-	case mode == launchNewManaged:
-		initArg = " /init-project" // projet tout juste créé : pas de question
-	case mode == launchNewRaw: // ni question ni /init-project
-	case tpl == core.TplOutdated:
-		q := "↑ template en retard : projet " + core.ProjectTemplateRef(n.Path) + " → disponible " + core.TemplateRef(core.ReadTrim(core.TplVersionPath()), latest) +
-			" — lancer /init-project ? [o/N] "
-		initPre = `_ip_arg=''; read -rp ` + core.Shq(q) + ` _r; [[ "$_r" == [oOyY]* ]] && _ip_arg='/init-project'; `
-		initArg = " $_ip_arg"
-	case tpl == core.TplMissing:
-		q := "🗑 fichiers template manquants (clone frais) : projet " + core.ProjectTemplateRef(n.Path) + ", disponible " + core.TemplateRef(core.ReadTrim(core.TplVersionPath()), latest) +
-			" — lancer /init-project pour restaurer ? [O/n] "
-		initPre = `_ip_arg='/init-project'; read -rp ` + core.Shq(q) + ` _r; [[ "$_r" == [nN]* ]] && _ip_arg=''; `
-		initArg = " $_ip_arg"
-	}
-
-	// init-project.md est déposé dans le projet, sauf pour un projet brut tout juste créé
-	copyInit := fmt.Sprintf("mkdir -p .claude/commands\n_ip=.claude/commands/init-project.md\n"+
-		"[[ -s %s ]] && cp %s \"$_ip\" || echo '⚠  init-project.md non disponible — relancer le launcher connecté'\n",
-		core.Shq(initCache), core.Shq(initCache))
-	if mode == launchNewRaw {
-		copyInit = ""
-	}
-	start := initPre + claudeBin() + " " + cfg.ClaudeOptions + initArg
-
-	// Reprise de la dernière conversation (resume.go) : si elle est choisie, ni
-	// question ni /init-project, qui viendraient perturber la conversation reprise.
-	if mode == launchNormal {
-		if pre, r, ok := cfg.ResumeShell(n.Path); ok {
-			resume := claudeBin() + " " + cfg.ClaudeOptions + " --resume " + core.Shq(r.ID)
-			if p := core.ResumePrompt(r); p != "" {
-				resume += " " + core.Shq(p)
-			}
-			start = pre + "if [[ -n $_rs ]]; then " + resume + "; else " + start + "; fi"
-		}
-	}
-	// sortie propre : marqueur posé seulement si claude rend la main au shell
-	start += "; " + core.CleanExitShell(n.Path)
-	// projet non géré : /end-session minimal, pour pouvoir le clore comme les autres
-	if mode == launchNewRaw || mode == launchNormal && tpl == core.TplNone {
-		ensureEndSession(n.Path)
-	}
+	// démarrage : questions /init-project et reprise, claude (core/start.go)
+	start, copyInit := core.StartCommands(cfg, n.Path, latest, mode)
 	if inCtr {
-		// même démarrage qu'en local, exécuté par le bash du tmux du conteneur ;
-		// init-project.md est copié depuis l'hôte (le cache n'est pas monté)
-		if mode != launchNewRaw {
-			if b, err := os.ReadFile(initCache); err == nil && len(b) > 0 {
-				d := filepath.Join(n.Path, ".claude", "commands")
-				if os.MkdirAll(d, 0o755) == nil {
-					_ = os.WriteFile(filepath.Join(d, "init-project.md"), b, 0o644)
-				}
-			}
-		}
-		ctrStart := strings.ReplaceAll(start, claudeBin()+" ", "claude ")
-		if cfg.CtrStopOnExit {
-			// sortie propre : la session du conteneur se termine, et ctr-attach
-			// (resté parent de l'attache) arrête le conteneur
-			ctrStart += " && tmux kill-session"
-		}
-		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", core.Shq(core.RemotePath(n.Path)), cfg.Exports(!synced), ctrStart)
+		script := core.CtrStartScript(cfg, n.Path, start, mode, synced)
 		if err := os.WriteFile(startFile, []byte(script), 0o600); err != nil {
 			return err
 		}
 		return dtmux("select-window", "-t", target).Run()
 	}
-	keys := fmt.Sprintf("cd %s%s\n%s%s", core.Shq(n.Path), cfg.Exports(!synced), copyInit, start)
+	keys := core.HostStartKeys(cfg, n.Path, start, copyInit, synced)
 	if err := dtmux("send-keys", "-t", target, keys, "Enter").Run(); err != nil {
 		return fmt.Errorf("send-keys : %w", err)
 	}
@@ -225,25 +156,8 @@ func launchProject(cfg core.Config, session string, n core.Node, latest string, 
 	return dtmux("select-window", "-t", target).Run()
 }
 
-// endSessionCmd : /end-session déposé dans un projet non géré (le template, lui,
-// apporte le sien). Le taper laisse dans la conversation la marque que le
-// navigateur reconnaît (resume.go) : la session n'est plus proposée à la reprise.
-const endSessionCmd = `---
-description: Clore la session (déposé par Claude-Launcher dans un projet non géré)
----
+// endSessionCmd / ensureEndSession : /end-session déposé dans un projet non
+// géré (core.EndSessionCmd, core.EnsureEndSession).
+const endSessionCmd = core.EndSessionCmd
 
-Fin de session. Sans modifier aucun fichier ni lancer de commande, résume en
-quelques lignes ce qui a été fait pendant la session et ce qui reste à faire,
-puis indique que la session peut être quittée (/exit).
-`
-
-// ensureEndSession : dépose .claude/commands/end-session.md s'il n'existe pas.
-func ensureEndSession(path string) {
-	f := filepath.Join(path, ".claude", "commands", "end-session.md")
-	if _, err := os.Stat(f); err == nil {
-		return
-	}
-	if os.MkdirAll(filepath.Dir(f), 0o755) == nil {
-		_ = os.WriteFile(f, []byte(endSessionCmd), 0o644)
-	}
-}
+func ensureEndSession(path string) { core.EnsureEndSession(path) }

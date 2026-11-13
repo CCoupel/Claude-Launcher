@@ -3,7 +3,6 @@ package tmux
 import (
 	"bufio"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -28,86 +27,22 @@ import (
 //     est recréée par reattachContainers au prochain démarrage.
 
 func runCtrAttach(proj, startFile string) error {
-	b := core.ProjectBackend(proj)
-	e, ok := core.EngineOf(b)
-	if !ok {
-		return fmt.Errorf("%s : backend %s sans conteneur", proj, b.Name)
-	}
-	env, err := core.LoadEnvFull(proj)
+	// conteneur, bootstrap, session et propriétaire : core/ctropen.go
+	op, err := core.OpenCtr(proj, core.CtrOpenIO{
+		Out:   os.Stdout,
+		In:    bufio.NewReader(os.Stdin),
+		Start: func() []byte { b, _ := os.ReadFile(startFile); return b },
+		Size:  paneSize,
+		Done:  func() { _ = os.Remove(startFile) },
+		Owner: core.OwnerChoice,
+	})
 	if err != nil {
 		return err
 	}
-	fmt.Printf("\033[1m⬡ %s — %s (%s)\033[0m\n", baseName(proj), b.Name, env.Image)
-	if _, err := os.Stat(core.LauncherEnvPath()); err == nil {
-		fmt.Printf("  + bootstrap du launcher : %s\n", core.LauncherEnvPath())
+	if op.Canceled {
+		return nil
 	}
-	if len(env.Local) > 0 {
-		fmt.Printf("  dossiers privés au conteneur : %s\n", strings.Join(env.Local, ", "))
-	}
-	if ps := core.Diagnose(b); len(ps) > 0 {
-		var s strings.Builder
-		for _, p := range ps {
-			fmt.Fprintf(&s, "\n  ⚠ %s\n    → %s", p.What, p.Fix)
-		}
-		return fmt.Errorf("backend %s inutilisable :%s", b.Name, s.String())
-	}
-	// groupe de serveurs (#61) : serveur du projet, choisi sous verrou s'il est nouveau
-	e, unlock, err := e.Place(proj, core.Asker{Out: os.Stdout, In: bufio.NewReader(os.Stdin)})
-	if err != nil {
-		return err
-	}
-	name, err := e.Ensure(proj, env, os.Stdout)
-	unlock()
-	if err != nil {
-		return err
-	}
-	if err := e.Bootstrap(name, proj, env, os.Stdout); err != nil {
-		return err
-	}
-	// cache de consommation commun (panneau milestone) : voir linkUsageCache
-	_ = e.Exec(name, false, strings.NewReader(core.LinkUsageScript()), io.Discard, "sh", "-s")
-	if l, ok := e.ReadLive(name); ok && !l.Claude {
-		// tmux resté seul après un /exit (point bleu) : la session est recréée
-		// pour que claude redémarre, au lieu de se rattacher à son shell
-		fmt.Println("  claude n'est plus en marche dans la session : redémarrage")
-		_ = e.Exec(name, false, nil, io.Discard, core.TmuxIn("kill-session", "-t", "="+core.CtrSession)...)
-	}
-	if !e.HasSession(name) {
-		if err := e.OnStart(name, proj, env); err != nil {
-			return err
-		}
-		// le script de démarrage est écrit par launchProject juste après la création
-		// de la fenêtre : l'attendre (bootstrap déjà à jour = quelques dixièmes de s)
-		var start []byte
-		for i := 0; i < 50 && len(start) == 0; i++ {
-			if start, _ = os.ReadFile(startFile); len(start) == 0 {
-				time.Sleep(100 * time.Millisecond)
-			}
-		}
-		w, h := paneSize()
-		if err := e.NewCtrSession(name, proj, w, h); err != nil {
-			return err
-		}
-		if len(start) > 0 {
-			_ = e.Exec(name, false, nil, os.Stdout, core.TmuxIn("send-keys", "-t", "="+core.CtrSession+":", string(start), "Enter")...)
-		}
-	}
-	_ = os.Remove(startFile)
-	e.SetCtrBrowserPaths(name)
-	// propriétaire (#48) : un seul launcher pilote la session
-	readOnly := false
-	if o := e.Owner(name); o.Alive() && o.Id != core.LauncherID() {
-		switch core.OwnerChoice(o) {
-		case "l":
-			readOnly = true
-		case "p":
-			e.TakeOver(name)
-		default:
-			return nil
-		}
-	} else {
-		e.ClaimFree(name)
-	}
+	e, name, readOnly := op.E, op.Name, op.ReadOnly
 	if pane := os.Getenv("TMUX_PANE"); pane != "" {
 		if win, err := tout(hub, "display-message", "-p", "-t", pane, "#{window_id}"); err == nil {
 			_ = hub.Run("set-window-option", "-t", win, "@cl_server", e.B.Server)

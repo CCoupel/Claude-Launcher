@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/platform"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -29,7 +30,7 @@ type GitInfo struct {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	out, err := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...).Output()
+	out, err := platform.NoWindow(exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...)).Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -45,7 +46,7 @@ func ReadGit(dir string) GitInfo {
 	g.Main = mainBranch(dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch").Output()
+	out, err := platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch")).Output()
 	if err != nil {
 		return g
 	}
@@ -79,8 +80,8 @@ func ReadGit(dir string) GitInfo {
 		}
 	}
 	if g.Upstream && g.Branch != g.Main {
-		g.Merged = exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
-			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main).Run() == nil
+		g.Merged = platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
+			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main)).Run() == nil
 	}
 	return g
 }
@@ -95,36 +96,48 @@ func mainBranch(dir string) string {
 
 // Local : état de la copie de travail (symbole, libellé, style).
 func (g GitInfo) Local() (string, string, lipgloss.Style) {
+	i, t, tone := g.LocalTone()
+	return i, t, tone.Style()
+}
+
+// LocalTone : état de la copie de travail (symbole, libellé, couleur sémantique).
+func (g GitInfo) LocalTone() (string, string, Tone) {
 	onMain := g.Branch == g.Main
 	switch {
 	case onMain && g.Dirty:
-		return "!", "modifié directement sur " + g.Main, Red
+		return "!", "modifié directement sur " + g.Main, ToneRed
 	case onMain:
-		return "●", "au repos sur " + g.Main, Green.Bold(true)
+		return "●", "au repos sur " + g.Main, ToneGreen.B()
 	case g.Dirty:
-		return "✎", "en cours, non commité", Yellow.Bold(true)
+		return "✎", "en cours, non commité", ToneYellow.B()
 	default:
-		return "◆", "terminé, tout commité", Cyan
+		return "◆", "terminé, tout commité", ToneCyan
 	}
 }
 
 // Remote : état par rapport à origin, le plus urgent d'abord.
 func (g GitInfo) Remote() (string, string, lipgloss.Style) {
+	i, t, tone := g.RemoteTone()
+	return i, t, tone.Style()
+}
+
+// RemoteTone : état par rapport à origin (symbole, libellé, couleur sémantique).
+func (g GitInfo) RemoteTone() (string, string, Tone) {
 	switch {
 	case !g.Upstream:
-		return "○", "jamais poussé", Blue
+		return "○", "jamais poussé", ToneBlue
 	case g.Behind > 0:
-		return fmt.Sprintf("↓%d", g.Behind), fmt.Sprintf("en retard de %d commit(s)", g.Behind), Red
+		return fmt.Sprintf("↓%d", g.Behind), fmt.Sprintf("en retard de %d commit(s)", g.Behind), ToneRed
 	case g.Ahead > 0:
-		return fmt.Sprintf("↑%d", g.Ahead), fmt.Sprintf("%d commit(s) non poussé(s)", g.Ahead), Yellow.Bold(true)
+		return fmt.Sprintf("↑%d", g.Ahead), fmt.Sprintf("%d commit(s) non poussé(s)", g.Ahead), ToneYellow.B()
 	case g.Branch == g.Main:
-		return "✓", "à jour", Green.Bold(true)
+		return "✓", "à jour", ToneGreen.B()
 	case g.Merged:
-		return "✓", "publié, mergé dans " + g.Main, Green.Bold(true)
+		return "✓", "publié, mergé dans " + g.Main, ToneGreen.B()
 	case g.Gone:
-		return "⇡", "amont supprimé, non mergé", Cyan
+		return "⇡", "amont supprimé, non mergé", ToneCyan
 	default:
-		return "⇡", "poussé, non mergé", Cyan
+		return "⇡", "poussé, non mergé", ToneCyan
 	}
 }
 
@@ -145,7 +158,7 @@ func ReadDetail(dir string) GitDetail {
 	defer cancel()
 	d := GitDetail{Changes: map[string]string{}}
 	// Sortie brute : git() retire les espaces de tête, qui font partie du format.
-	if raw, err := exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain").Output(); err == nil {
+	if raw, err := platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain")).Output(); err == nil {
 		for _, l := range strings.Split(string(raw), "\n") {
 			if len(l) < 4 {
 				continue

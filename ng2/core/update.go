@@ -184,7 +184,12 @@ func pickTag(repo string, choose func([]tagRef) int) (name, sha string, err erro
 // d'office : il l'est d'un clic (adoptTplCmd), sauf sans cache (première
 // installation).
 func CheckUpdates(manual bool) tea.Cmd {
-	return func() tea.Msg {
+	return func() tea.Msg { return CheckUpdatesNow(manual) }
+}
+
+// CheckUpdatesNow : la recherche elle-même, sans bubbletea (interface native).
+func CheckUpdatesNow(manual bool) UpdMsg {
+	{
 		out := UpdMsg{Manual: manual}
 		if tag, _, err := latestTag(LauncherRepo, "CL_FAKE_LATEST_LAUNCHER"); err == nil {
 			out.LauncherTag, out.Ok = tag, true
@@ -227,7 +232,12 @@ func adoptTemplate(tag, sha string) (synced bool) {
 
 // AdoptTplCmd : adoption lancée d'un clic sur l'annonce verte du template.
 func AdoptTplCmd(tag, sha string) tea.Cmd {
-	return func() tea.Msg { return TplAdoptedMsg{Tag: tag, Synced: adoptTemplate(tag, sha)} }
+	return func() tea.Msg { return AdoptTemplate(tag, sha) }
+}
+
+// AdoptTemplate : l'adoption elle-même, sans bubbletea (interface native).
+func AdoptTemplate(tag, sha string) TplAdoptedMsg {
+	return TplAdoptedMsg{Tag: tag, Synced: adoptTemplate(tag, sha)}
 }
 
 // tplReleased : la release GitHub du tag de template est-elle publiée ?

@@ -83,6 +83,29 @@ func ReadState(project string) (ps ProjState, mtime time.Time, ok bool) {
 	return ps, st.ModTime(), true
 }
 
+// ReadStateFrom : état d'un projet dans le cache d'un AUTRE launcher (dossier
+// de cache dir, lecture seule ; #125 : le hub Linux, vu de Windows), rangé
+// sous la clé key (le chemin du projet pour ce launcher-là : chemin Linux).
+// Le chemin rendu est celui de project (vu d'ici).
+func ReadStateFrom(dir, key, project string) (ps ProjState, mtime time.Time, ok bool) {
+	h := sha1.Sum([]byte(key))
+	p := filepath.Join(dir, "state", hex.EncodeToString(h[:8])+".json")
+	st, err := os.Stat(p)
+	if err != nil {
+		return ps, mtime, false
+	}
+	b, err := os.ReadFile(p)
+	if err != nil || json.Unmarshal(b, &ps) != nil || ps.Path != key {
+		return ProjState{}, mtime, false
+	}
+	ps.Path = project
+	return ps, st.ModTime(), true
+}
+
+// ComputeState : état d'un projet calculé tout de suite, sans le cache (repli
+// des cartes quand le cache n'est pas encore prêt).
+func ComputeState(project string) ProjState { return computeState(project) }
+
 func computeState(project string) ProjState {
 	latest := ReadTrim(TplCommitPath())
 	return ProjState{
@@ -125,7 +148,13 @@ var gitWatched = map[string]bool{
 }
 
 type StateMgr struct {
-	w *fsnotify.Watcher
+	// ColdLimit : relecture des projets ni ouverts ni sélectionnés (défaut
+	// coldRefresh ; l'interface native l'allonge sur un disque réseau, #130)
+	ColdLimit time.Duration
+	// Computed : appelé après chaque calcul (projet, durée) ; journal des
+	// durées de l'interface native (#130), nil dans la coque
+	Computed func(path string, d time.Duration)
+	w        *fsnotify.Watcher
 
 	mu       sync.Mutex
 	projects []string
@@ -197,7 +226,11 @@ func (m *StateMgr) worker() {
 		m.mu.Lock()
 		m.dur[p] = time.Since(start)
 		m.updated[p] = ps.UpdatedAt
+		cb := m.Computed
 		m.mu.Unlock()
+		if cb != nil {
+			cb(p, time.Since(start))
+		}
 		select {
 		case m.Done <- ps:
 		default: // navigateur en retard : la prochaine lecture du cache suffira
@@ -273,6 +306,9 @@ func (m *StateMgr) periodic() {
 			isHot := m.open[p] || p == m.selected
 			age := time.Since(m.updated[p])
 			limit := coldRefresh
+			if m.ColdLimit > 0 {
+				limit = m.ColdLimit
+			}
 			switch {
 			case p == m.selected:
 				limit = max(selectedRefresh, 3*m.dur[p])
@@ -459,4 +495,12 @@ func (m *StateMgr) schedule(project string) {
 		m.mu.Unlock()
 		m.enqueue(project, true)
 	})
+}
+
+// Tune : relecture des projets froids (0 : défaut) et rappel après chaque
+// calcul (interface native, #130) ; sans effet sur la coque, qui ne l'appelle pas.
+func (m *StateMgr) Tune(cold time.Duration, computed func(path string, d time.Duration)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.ColdLimit, m.Computed = cold, computed
 }
