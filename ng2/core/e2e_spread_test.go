@@ -25,6 +25,7 @@ func TestE2EK8sSpread(t *testing.T) {
 	}
 	h := filepath.Join(f[2], ".cl-e2e-spread-"+strconv.Itoa(os.Getpid()))
 	t.Setenv("HOME", h)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(h, ".claude"))
 	t.Cleanup(func() { os.RemoveAll(h) })
 	_ = os.MkdirAll(filepath.Join(h, ".claude"), 0o755)
 	b := BackendConf{Name: "e2e-spread", Type: "k8s", Context: f[0], Namespace: f[1], Volumes: map[string]string{f[2]: f[3]}, Shared: []string{f[2]}}
