@@ -881,13 +881,21 @@ du launcher.
 (`desktop-tree.json`, `desktop-git.json` et le cache d'état) s'affichent tout de suite et sont
 complétés en tâche de fond ; git ne tourne que pour les projets sans état en cache (ouverts et
 sélectionné d'abord, 4 à la fois sur un disque réseau). Le cache d'état du hub Linux peut être lu
-sans y écrire, s'il est plus frais : déclarer son dossier vu du poste,
+sans y écrire, s'il est plus frais : déclarer son dossier vu du poste ; c'est un chemin Windows,
+sa place est la surcharge `windows` de la machine (config partagée avec le hub Linux du même
+poste, #127) :
 
 ```yaml
 hubs:
   MON-PC:
-    hub_cache: '\\wsl.localhost\Ubuntu\home\moi\.cache\claude-launcher-ng2'
+    windows:
+      hub_cache: '\\wsl.localhost\Ubuntu\home\moi\.cache\claude-launcher-ng2'
 ```
+
+Les clés inconnues de `hubs:` (faute de frappe) sont ignorées et annoncées au démarrage par un
+bandeau jaune (un clic ouvre le diagnostic, qui les liste toutes) ; le serveur web du navigateur
+prend le réglage de son système (`hubs.<machine>.windows.browser_server`, 127.0.0.1:8766 par
+défaut sous Windows, #121).
 
 Les durées de chaque étape (parcours, caches, git, conso, milestones, conteneurs) sont résumées au
 survol du pied et ajoutées à `desktop-perf.log` du cache (à joindre à un signalement de lenteur).

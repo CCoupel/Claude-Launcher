@@ -53,8 +53,9 @@ type App struct {
 	mgr        *core.StateMgr
 	upd        updState
 	perf       perfLog
-	treeCached bool   // arbre repris du lancement précédent (relu en tâche de fond)
-	hubCache   string // cache d'état du hub Linux (hubs.<machine>.hub_cache)
+	treeCached bool     // arbre repris du lancement précédent (relu en tâche de fond)
+	hubCache   string   // cache d'état du hub Linux (hubs.<machine>.hub_cache)
+	hubWarns   []string // clés inconnues de hubs: dans backends.yaml (#127), ignorées
 
 	dirty     chan struct{}
 	cardDirty chan struct{}
@@ -67,7 +68,7 @@ type updState struct {
 	launcherPub, launcherOK, tplOK                bool
 	prefTag, prefStep, prefErr, prefFile, prefSum string
 	prefBusy, updating, checking                  bool
-	hideLauncher, hideTpl                         bool
+	hideLauncher, hideTpl, hideHub                bool
 }
 
 // NewApp : état initial (arborescence, caches) ; Start lance les relectures.
@@ -80,6 +81,7 @@ func NewApp(emit Emitter) *App {
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
 	a.hubCache = core.HubCacheDir()
+	a.hubWarns = core.HubConfigWarnings() // faute de frappe dans hubs: (config partagée) : signalée
 	// arbre du lancement précédent (affiché tout de suite, relu en tâche de
 	// fond) ; à défaut, parcours des racines (#125)
 	if nodes, ok := cachedTree(cfg.Roots); ok {
@@ -646,6 +648,14 @@ func (a *App) alerts() []Alert {
 		}
 		out = append(out, al)
 	}
+	if len(a.hubWarns) > 0 && !u.hideHub {
+		// réglages par machine ignorés (#127) : un clic ouvre le diagnostic
+		t := "⚠ " + a.hubWarns[0]
+		if len(a.hubWarns) > 1 {
+			t += fmt.Sprintf(" (+%d : voir le diagnostic)", len(a.hubWarns)-1)
+		}
+		out = append(out, Alert{Kind: "hubcfg", Text: t, Color: "yellow", Click: true})
+	}
 	if u.newTpl != "" && !u.hideTpl {
 		al := Alert{Kind: "template", Color: "orange", Text: "↑ tpl " + u.newTpl + " · nouvelle version en préparation"}
 		if u.tplOK {
@@ -899,11 +909,14 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		return nil, nil
 	case "dismiss":
 		a.mu.Lock()
-		if arg.Kind == "template" {
+		switch arg.Kind {
+		case "template":
 			a.upd.hideTpl = true
-		} else if arg.Kind == "launcher" {
+		case "launcher":
 			a.upd.hideLauncher = true
-		} else {
+		case "hubcfg":
+			a.upd.hideHub = true
+		default:
 			a.upd.hideTpl, a.upd.hideLauncher = true, true
 		}
 		a.mu.Unlock()

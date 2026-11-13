@@ -97,7 +97,7 @@ function renderHead() {
   for (const a of s.alerts || []) {
     const d = el('div', 'alert ' + a.color + (a.click ? ' click' : ''));
     const t = el('span', 'txt', a.text); t.title = a.text;
-    if (a.click) t.onclick = () => call('alert', { kind: a.kind });
+    if (a.click) t.onclick = () => (a.kind === 'hubcfg' ? diagBox() : call('alert', { kind: a.kind }));
     const x = el('span', 'x', '✕'); x.title = 'masquer (Ctrl+U)'; x.onclick = () => call('dismiss', { kind: a.kind });
     d.append(t, x); al.appendChild(d);
   }

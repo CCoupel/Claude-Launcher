@@ -53,12 +53,22 @@ type hubConf struct {
 	HubCache string `yaml:"hub_cache"`
 }
 
-// HubCacheDir : hubs.<machine>.hub_cache de backends.yaml ("" : aucun).
-func HubCacheDir() string {
-	if _, h, ok := pickHub(readBackendsFile().Hubs, hubName()); ok {
-		return strings.TrimSpace(h.HubCache)
+// HubCacheDir : hubs.<machine>[.<système>].hub_cache de backends.yaml ("" :
+// aucun). C'est un chemin vu de ce système (Windows : \\wsl.localhost\…) :
+// sa place naturelle est hubs.<machine>.windows (#127).
+func HubCacheDir() string { return hubCacheOf(readBackendsFile().Hubs, hubName(), runtime.GOOS) }
+
+// hubCacheOf : hub_cache de la machine host vu de goos, surcharge par système
+// d'abord (logique pure).
+func hubCacheOf(hubs map[string]hubConf, host, goos string) string {
+	v := pickHubOS(hubs, host, goos)
+	if !v.ok {
+		return ""
 	}
-	return ""
+	if v.ov != nil && strings.TrimSpace(v.ov.HubCache) != "" {
+		return strings.TrimSpace(v.ov.HubCache)
+	}
+	return strings.TrimSpace(v.base.HubCache)
 }
 
 // winHostRe : C:\…, C: ou UNC \\serveur\… (dont \\wsl.localhost\…).

@@ -29,11 +29,12 @@ type hubOSConf struct {
 	BrowserDevice string          `yaml:"browser_device"`
 	Paths         []PathMap       `yaml:"paths"`
 	RemoteUser    *RemoteUserConf `yaml:"remote_user"`
+	HubCache      string          `yaml:"hub_cache"` // #125, #127 : cache du hub Linux vu de ce système
 	warns         []string        // clés inconnues ou valeurs illisibles, ignorées
 }
 
 var (
-	hubOSKeys = []string{"browser_server", "browser_paths", "browser_device", "paths", "remote_user"}
+	hubOSKeys = []string{"browser_server", "browser_paths", "browser_device", "paths", "remote_user", "hub_cache"}
 	osKeys    = []string{"windows", "linux", "darwin"}
 	// clés de hubs.<machine> (browserpaths.go, hubConf)
 	hubKeys = append(append([]string{}, hubOSKeys...), osKeys...)
