@@ -792,7 +792,8 @@ class ProjView {
       if (!pv) pv = this.panes[p.id] = this.makePane(p);
       const top = cell.h + p.y * cell.h; // ligne d'en-têtes au-dessus
       Object.assign(pv.box.style, { left: p.x * cell.w + 'px', top: top + 'px', width: p.w * cell.w + 'px', height: p.h * cell.h + 'px', display: '' });
-      Object.assign(pv.head.style, { left: p.x * cell.w + 'px', top: (top - cell.h) + 'px', width: p.w * cell.w + 'px', height: cell.h + 'px', background: shade(p.bg, -0.25), display: '' });
+      Object.assign(pv.head.style, { left: p.x * cell.w + 'px', top: (top - cell.h) + 'px', width: p.w * cell.w + 'px', height: cell.h + 'px', display: '' });
+      pv.head.style.setProperty('--pbg', p.bg || '#1F4FD1'); // en-tête clair, couleur du pane à gauche
       pv.head.querySelector('.n').textContent = p.name || p.id;
       pv.head.querySelector('.r').textContent = p.role === 'leader' ? '· leader' : p.role ? '· ' + p.role : '';
       pv.head.classList.toggle('focus', !!p.active);
@@ -880,14 +881,6 @@ function paneBorder(panes, cx, cy, gap) {
     }
   }
   return null;
-}
-
-// teinte : assombrir (k < 0) ou éclaircir une couleur #rrggbb
-function shade(hex, k) {
-  if (!hex || hex[0] !== '#') return '#172133';
-  const n = parseInt(hex.slice(1), 16);
-  const f = (v) => Math.max(0, Math.min(255, Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k)));
-  return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
 
 // terminalKey : raccourcis de l'application pris dans un terminal (false : pas pour lui).

@@ -76,6 +76,27 @@ func TestTreeCompactIndent(t *testing.T) {
 	}
 }
 
+// En-tête des panes (retour du test de desktop6) : bandeau clair, texte
+// foncé (contraste fort sur le fond coloré des panes), couleur du pane en
+// barre à gauche ; pane actif en blanc, souligné.
+func TestPaneHeaderVisible(t *testing.T) {
+	css, js := asset(t, "style.css"), asset(t, "app.js")
+	m := regexp.MustCompile(`\.phead \{[^}]*background: #([0-9A-Fa-f]{6}); color: #([0-9A-Fa-f]{6});[^}]*border-left: 6px solid var\(--pbg`).FindStringSubmatch(css)
+	if m == nil {
+		t.Fatal("en-tête : fond, texte ou barre de couleur absents")
+	}
+	lum := func(h string) float64 {
+		n, _ := strconv.ParseUint(h, 16, 32)
+		return (0.2126*float64(n>>16) + 0.7152*float64(n>>8&255) + 0.0722*float64(n&255)) / 255
+	}
+	if lum(m[1]) < 0.8 || lum(m[2]) > 0.2 {
+		t.Errorf("contraste de l'en-tête : fond #%s, texte #%s", m[1], m[2])
+	}
+	if !strings.Contains(css, ".phead.focus { background: #FFFFFF;") || !strings.Contains(js, "pv.head.style.setProperty('--pbg', p.bg") {
+		t.Error("pane actif en blanc, couleur du pane transmise à l'en-tête")
+	}
+}
+
 // #133 : thème Auto / Jour / Nuit — Jour et Nuit forcés par data-theme, Auto
 // suit le système (prefers-color-scheme, sans data-theme) ; choix mémorisé,
 // barre de titre de la fenêtre native suivie (setTheme), terminaux compris.
