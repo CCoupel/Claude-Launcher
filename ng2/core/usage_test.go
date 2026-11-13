@@ -62,6 +62,7 @@ func TestLoginAlerte(t *testing.T) {
 // Les identifiants sont ceux de la config claude (CLAUDE_CONFIG_DIR), pas un
 // éventuel ancien ~/.claude/.credentials.json (jeton périmé → 429 sans fin).
 func TestCredentialsDansConfigClaude(t *testing.T) {
+	unixOnly(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfg := filepath.Join(home, "shared", ".claude")

@@ -148,6 +148,7 @@ func withHubPaths(t *testing.T, extra string) {
 // montages, workdir, annotations — sinon le conteneur serait dupliqué.
 func TestSameNamesFromWindowsAndLinux(t *testing.T) {
 	withHubPaths(t, "")
+	t.Setenv("CLAUDE_CONFIG_DIR", wslMFS+`\ROOT\.claude`) // config claude sur le partage
 	win := wslMFS + `\ROOT\CLAUDE_PROJETS\PRO\Mon_Projet`
 	lin := "/share/MFS/ROOT/CLAUDE_PROJETS/PRO/Mon_Projet"
 	if RemotePath(win) != lin || LocalPath(lin) != win {

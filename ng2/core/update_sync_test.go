@@ -9,6 +9,7 @@ import (
 )
 
 func TestSyncInitProject(t *testing.T) {
+	unixOnly(t)
 	dir := t.TempDir()
 	t.Setenv("CL_SCRIPT", filepath.Join(dir, "claude-launcher.sh"))
 	dst := filepath.Join(dir, "init-project.md")

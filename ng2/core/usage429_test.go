@@ -44,6 +44,7 @@ func TestUsage429Backoff(t *testing.T) {
 }
 
 func TestLinkUsageCache(t *testing.T) {
+	unixOnly(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CACHE_HOME", "")

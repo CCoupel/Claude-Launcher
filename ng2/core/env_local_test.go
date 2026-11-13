@@ -17,6 +17,7 @@ func writeEnvFile(t *testing.T, proj, body string) {
 
 // local / watch : chemins relatifs au projet, sans en sortir
 func TestEnvLocalWatchValidation(t *testing.T) {
+	unixOnly(t)
 	proj := t.TempDir()
 	writeEnvFile(t, proj, "image: debian:12\nlocal: [node_modules, ./web/node_modules/, .venv]\nwatch: [package-lock.json]\non_start: [\"true\"]\n")
 	e, err := LoadEnv(proj)
@@ -71,6 +72,7 @@ func TestSetupHashWatch(t *testing.T) {
 
 // conteneur : volume anonyme par dossier local + label ; k8s : emptyDir + annotation
 func TestLocalMounts(t *testing.T) {
+	unixOnly(t)
 	withHome(t)
 	proj := t.TempDir()
 	env := EnvSpec{Image: "debian:12", Local: []string{"node_modules"}}

@@ -74,6 +74,7 @@ func TestPoolMembers(t *testing.T) {
 }
 
 func TestPoolList(t *testing.T) {
+	unixOnly(t)
 	_, put := withFakeDocker(t)
 	put("tcp://a:2375", "cl-p1", "running", "/p/p1")
 	put("tcp://b:2375", "cl-p2", "exited", "/p/p2")
@@ -105,6 +106,7 @@ func TestPoolList(t *testing.T) {
 }
 
 func TestPoolPlace(t *testing.T) {
+	unixOnly(t)
 	state, put := withFakeDocker(t)
 	e := Engine{poolBackend()}
 	proj := t.TempDir()
@@ -236,6 +238,7 @@ func TestPoolConfig(t *testing.T) {
 }
 
 func TestPoolDiagnose(t *testing.T) {
+	unixOnly(t)
 	withFakeDocker(t)
 	root := t.TempDir()
 	b := poolBackend()

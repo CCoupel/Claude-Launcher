@@ -45,6 +45,7 @@ func fakeClaude(t *testing.T, path string, convs map[string]time.Duration) strin
 }
 
 func TestLastSession(t *testing.T) {
+	unixOnly(t)
 	root := fakeClaude(t, "/p/proj", map[string]time.Duration{
 		"aaaaaaaa-1": 3 * time.Hour,
 		"bbbbbbbb-2": 10 * time.Minute,
