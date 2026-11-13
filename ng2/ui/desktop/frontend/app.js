@@ -822,7 +822,26 @@ async function execF2(path) {
 }
 
 // ── Événements du Go ───────────────────────────────────────────────────────
+// ── Notifications (fenêtre en arrière-plan) : agent en attente, MAJ prête ──
+const notified = { busy: {}, upd: '' };
+function notify(title, body) {
+  if (document.hasFocus() || !('Notification' in window)) return;
+  const show = () => { try { new Notification(title, { body }); } catch (e) { /* refusé */ } };
+  if (Notification.permission === 'granted') show();
+  else if (Notification.permission !== 'denied') Notification.requestPermission().then((p) => { if (p === 'granted') show(); });
+}
+function notifyChanges(s) {
+  for (const t of s.tabs || []) {
+    if (notified.busy[t.path] && !t.busy) notify(t.name + ' : agents en attente', 'Plus aucun agent ne travaille : la main est à vous.');
+    notified.busy[t.path] = t.busy;
+  }
+  const g = (s.alerts || []).find((a) => a.kind === 'launcher' && a.color === 'green' && a.click);
+  if (g && notified.upd !== g.text) notify('Claude Launcher', g.text.replace(' · cliquer pour installer', ' prête : cliquer sur l\'annonce pour l\'installer'));
+  notified.upd = g ? g.text : '';
+}
+
 function applyState(s) {
+  notifyChanges(s);
   S.snap = s;
   if (!S.cursor || (S.cursor !== 'new' && !s.rows.find((r) => r.path === S.cursor))) S.cursor = s.selected || (projectRows()[0] || {}).path || 'new';
   // onglets disparus (session terminée, détachée)
