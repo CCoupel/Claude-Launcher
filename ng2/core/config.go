@@ -41,6 +41,10 @@ type Config struct {
 	// projet en conteneur : arrêter le conteneur quand claude se termine
 	// proprement de lui-même (#50 ; la fermeture Ctrl+clic l'arrête toujours)
 	CtrStopOnExit bool
+
+	// Windows : réglages-chemins Linux (/…) sans correspondance déclarée dans
+	// hubs.<machine>.paths (applyConfPaths), « RÉGLAGE chemin »
+	Unmapped []string
 }
 
 // loadConfigScript : config.conf sourcé par bash, réglages imprimés (LoadConfig).
@@ -140,14 +144,21 @@ func LoadConfig() Config {
 				}
 			case "claudedir":
 				if d := strings.TrimSpace(f[1]); d != "" {
-					// « /… » : absolu aussi sous Windows (racine du lecteur, pas relatif au dossier de config)
+					// « /… » : absolu aussi sous Windows (chemin Linux des backends, cf. applyConfPaths)
 					if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, `\`) {
 						d = filepath.Join(filepath.Dir(path), d)
 					}
-					cfg.ClaudeConfigDir = filepath.Clean(d)
+					if runtime.GOOS == "windows" && strings.HasPrefix(d, "/") {
+						cfg.ClaudeConfigDir = d // converti par applyConfPaths, pas filepath.Clean (« \share\… »)
+					} else {
+						cfg.ClaudeConfigDir = filepath.Clean(d)
+					}
 				}
 			}
 		}
+	}
+	if runtime.GOOS == "windows" {
+		applyConfPaths(runtime.GOOS, hubSettings().paths, &cfg)
 	}
 	// Test : CL_ROOTS (séparées par « : », « ; » sous Windows) remplace les
 	// racines du conf, pour ne jamais travailler sur de vrais projets.
@@ -164,6 +175,27 @@ func LoadConfig() Config {
 		cfg.Palette = strings.Fields("17 52 22 53 58 23 54 238 18 59")
 	}
 	return cfg
+}
+
+// applyConfPaths : réglages-chemins de config.conf (racines, CLAUDE_CONFIG_DIR)
+// rendus locaux (confLocalPath) ; ceux qui restent Linux faute de
+// correspondance sont notés dans cfg.Unmapped (signalés une fois par
+// « backends », PrintHubPaths). Logique pure, sans effet hors Windows.
+func applyConfPaths(goos string, m PathMapper, cfg *Config) {
+	for i, r := range cfg.Roots {
+		l, ok := confLocalPath(goos, m, r)
+		if !ok {
+			cfg.Unmapped = append(cfg.Unmapped, "GITHUB_DIR(S) "+l)
+		}
+		cfg.Roots[i] = l
+	}
+	if d := cfg.ClaudeConfigDir; d != "" {
+		l, ok := confLocalPath(goos, m, d)
+		if !ok {
+			cfg.Unmapped = append(cfg.Unmapped, "CLAUDE_CONFIG_DIR "+l)
+		}
+		cfg.ClaudeConfigDir = l
+	}
 }
 
 // atois : entiers séparés par des espaces (nil si l'un ne l'est pas).

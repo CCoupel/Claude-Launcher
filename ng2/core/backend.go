@@ -371,6 +371,7 @@ type BackendConf struct {
 	Volumes   map[string]string `yaml:"volumes"`     // k8s : racine partagée → PVC ReadWriteMany monté à ce chemin
 	Spread    *bool             `yaml:"spread"`      // k8s : répartir les pods NG2 sur les nodes (défaut : oui, #60)
 	Pod       map[string]any    `yaml:"pod"`         // k8s : ajouté au spec du pod (nodeSelector, affinity, tolerations, resources…)
+	implicit  bool              // host ajouté sans déclaration sous Windows (addImplicitHost)
 }
 
 // engine : moteur réellement piloté (podman ou docker).
@@ -441,7 +442,7 @@ func LoadBackends() ([]BackendConf, error) {
 	if f.Backends == nil {
 		f.Backends = map[string]BackendConf{}
 	}
-	f.Backends["host"] = BackendConf{Type: "host"}
+	addImplicitHost(runtime.GOOS, f.Backends)
 	if err := checkPools(f.Pools); err != nil {
 		return nil, err
 	}
@@ -499,6 +500,26 @@ func LoadBackends() ([]BackendConf, error) {
 	})
 	linkMates(out)
 	return out, nil
+}
+
+// addImplicitHost : backend host, toujours présent. Sous Windows, où il est
+// refusé (oslimits.go), celui qui n'est pas déclaré est marqué implicite :
+// les listes affichées l'omettent (Shown), il ne serait que du bruit ; déclaré,
+// il reste affiché avec son refus.
+func addImplicitHost(goos string, bs map[string]BackendConf) {
+	_, declared := bs["host"]
+	bs["host"] = BackendConf{Type: "host", implicit: goos == "windows" && !declared}
+}
+
+// Shown : backends à afficher (sans le host implicite de Windows).
+func Shown(bs []BackendConf) []BackendConf {
+	var out []BackendConf
+	for _, b := range bs {
+		if !b.implicit {
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // DetectedEngines : moteurs du PATH qui répondent (un « docker » de Docker

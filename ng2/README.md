@@ -814,6 +814,11 @@ hubs:
 
 - `local` : préfixe Windows (`\\serveur\…`, `C:\…`), comparé sans tenir compte de la casse ni du
   séparateur ; `remote` : préfixe Linux absolu. Le préfixe le plus long l'emporte.
+- **Chaque entrée vaut pour un système, d'après la forme de `local`** : forme Windows (`\\…`,
+  `C:\…`) → seulement sous Windows ; forme Linux (`/…`) → seulement hors Windows. Une
+  configuration portable peut ainsi être partagée par un hub Linux sous WSL et l'exe Windows du
+  même poste, qui portent **le même nom de machine** (WSL reprend le hostname Windows) : l'entrée
+  `\\wsl.localhost\…` ne change rien pour le hub Linux.
 - `claude-launcher-ng2 backends` affiche la correspondance ; un projet ou un `CLAUDE_CONFIG_DIR`
   hors correspondance est signalé (`aucune correspondance Linux`).
 - **Identité dans les conteneurs** : Windows n'a pas d'uid. Par défaut `1000:1000`,
@@ -838,6 +843,51 @@ Le mode portable (`<dossier du binaire>\.config\claude-launcher-ng2\config.conf`
 `( … )`, `declare -A`, guillemets, `$HOME`). Comme en bash, écrire les chemins UNC entre
 **guillemets simples** : `GITHUB_DIRS=('\\wsl.localhost\Ubuntu\share\MFS\ROOT\CLAUDE_PROJETS')`.
 `CL_ROOTS` sépare les racines par `;`.
+
+### Configuration partagée entre un hub Linux (WSL) et Windows
+
+Avec le mode portable, le hub Linux sous WSL et l'exe Windows peuvent lire **le même**
+dossier de config (`/share/…/.config/claude-launcher-ng2/` vu de Linux,
+`\\wsl.localhost\Ubuntu\share\…\.config\claude-launcher-ng2\` vu de Windows). Elle reste écrite
+en chemins Linux :
+
+```bash
+PROJECT_BASE="/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS/"
+GITHUB_DIRS=("$PROJECT_BASE")
+CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
+```
+
+- Sous Windows, un réglage-chemin de `config.conf` qui commence par `/` (`GITHUB_DIR(S)`,
+  `CLAUDE_CONFIG_DIR`) est un **chemin vu des backends** : variables développées, `.`/`..`
+  résolus en style Linux, puis converti par `hubs.<machine>.paths` pour tout accès local
+  (parcours des projets, lecture de la config de claude) ; les backends reçoivent le chemin Linux
+  d'origine. Il en va de même des chemins de `backends.yaml` (`shared`, clés de `volumes`,
+  `browser_server.allow`).
+- Il suffit donc d'ajouter **une ligne** au `backends.yaml` partagé, sans rien changer pour le hub
+  Linux :
+
+  ```yaml
+  hubs:
+    MSI:                                   # nom commun au poste Windows et à WSL
+      paths:
+        - { local: '\\wsl.localhost\Ubuntu\share\MFS', remote: /share/MFS }
+  ```
+
+- Sans cette correspondance, `backends` le dit **une fois** (section « Chemins poste →
+  backends »), avec la liste des chemins Linux concernés et l'entrée à déclarer.
+- `host` n'est pas affiché sous Windows s'il n'est pas déclaré (il y serait refusé) ; déclaré
+  explicitement, il reste affiché avec son refus.
+- **kubectl** : sous Windows il lit `%USERPROFILE%\.kube\config`, pas le `~/.kube/config` du hub.
+  `context "k8s" does not exist` → copier le fichier du hub (depuis WSL :
+  `cp ~/.kube/config /mnt/c/Users/<vous>/.kube/config`) ou définir `KUBECONFIG` vers lui.
+- **Serveur web du navigateur** : WSL partage le localhost de Windows ; le serveur du hub Linux
+  (`hubs.MSI.browser_server.listen`, commun aux deux) y est donc joignable. Le serveur indique son
+  système (en-tête `X-Claude-Launcher-OS`) : sous Windows, un port tenu par le hub Linux est
+  affiché comme tel (« port tenu par le hub linux »), et le launcher Windows ne cherche pas à le lui
+  disputer. Ce serveur sert les mêmes chemins Linux que ceux des sessions : le navigateur du poste
+  peut s'en servir tant que le hub tourne. Un serveur propre au launcher Windows demanderait un
+  autre port, ce que la configuration partagée sous un même nom de machine ne permet pas encore
+  (surcharge par système à venir).
 
 ### Prérequis : outils externes
 

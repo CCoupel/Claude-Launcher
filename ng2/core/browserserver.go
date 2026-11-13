@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +30,9 @@ import (
 const (
 	defaultBrowserListen = "127.0.0.1:8765"
 	browserHealthPath    = "/__claude-launcher__"
+	// système du launcher qui sert (réponse de browserHealthPath) : sous
+	// Windows, le hub Linux de WSL partage le localhost du poste (#110)
+	browserOSHeader = "X-Claude-Launcher-OS"
 )
 
 // BrowserServer : defaults.browser_server / hubs.<machine>.browser_server.
@@ -249,6 +253,7 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if p == browserHealthPath {
+		w.Header().Set(browserOSHeader, runtime.GOOS)
 		_, _ = io.WriteString(w, NgName+" "+NgVersion+"\n")
 		return
 	}
@@ -397,6 +402,16 @@ func RunBrowserServer() {
 			_ = srv.Close()
 			srv = nil
 		}
+		if srv == nil && !c.Off && runtime.GOOS == "windows" {
+			// port tenu par le hub Linux de WSL (localhost partagé) : ne pas le lui disputer
+			if v, hos, perr := probeBrowserServerOS(c); perr == nil {
+				if who, foreign := foreignHolder(runtime.GOOS, hos); foreign {
+					setServerStatus("port " + c.Listen + " tenu par " + who + " (" + v + ") : pas de serveur propre à ce launcher")
+					time.Sleep(10 * time.Second)
+					continue
+				}
+			}
+		}
 		if srv == nil && !c.Off {
 			ln, err := net.Listen("tcp", c.Listen)
 			if err != nil {
@@ -416,19 +431,44 @@ func RunBrowserServer() {
 
 // probeBrowserServer : version annoncée par le serveur à l'écoute, ou erreur.
 func probeBrowserServer(c serverConf) (string, error) {
+	v, _, err := probeBrowserServerOS(c)
+	return v, err
+}
+
+// foreignHolder : le serveur qui tient le port est-il celui d'un autre
+// launcher que ce système en lancerait un (logique pure) ? holderOS : son
+// en-tête X-Claude-Launcher-OS ("" : launcher antérieur, qui ne le donne pas).
+// Sous Windows, le hub Linux de WSL partage le localhost du poste : le même
+// port, réglé dans la configuration partagée, y est vu tenu.
+func foreignHolder(myOS, holderOS string) (string, bool) {
+	switch {
+	case holderOS == myOS:
+		return "", false
+	case myOS == "windows" && holderOS == "":
+		return "un autre launcher (sans indication de système : vraisemblablement le hub Linux sous WSL, qui partage le localhost de Windows)", true
+	case myOS == "windows":
+		return "le hub " + holderOS + " (WSL partage le localhost de Windows)", true
+	case holderOS == "":
+		return "", false // hors Windows : comportement d'avant
+	}
+	return "le launcher " + holderOS + " du même poste", true
+}
+
+// probeBrowserServerOS : version et système du launcher qui sert, ou erreur.
+func probeBrowserServerOS(c serverConf) (string, string, error) {
 	cl := http.Client{Timeout: 1500 * time.Millisecond}
 	req, _ := http.NewRequest(http.MethodGet, "http://"+c.dialAddr()+browserHealthPath, nil)
 	req.Host = "localhost"
 	resp, err := cl.Do(req)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
 	if resp.StatusCode != http.StatusOK || !strings.HasPrefix(string(b), NgName) {
-		return "", fmt.Errorf("port occupé par un autre service (HTTP %d)", resp.StatusCode)
+		return "", "", fmt.Errorf("port occupé par un autre service (HTTP %d)", resp.StatusCode)
 	}
-	return strings.TrimSpace(string(b)), nil
+	return strings.TrimSpace(string(b)), resp.Header.Get(browserOSHeader), nil
 }
 
 // PrintBrowserServer : section de « claude-launcher-ng2 backends ».
@@ -444,8 +484,14 @@ func PrintBrowserServer() {
 		return
 	}
 	fmt.Printf("  écoute %s, URL %s/<chemin>\n", c.Listen, c.Base)
-	if v, err := probeBrowserServer(c); err == nil {
-		fmt.Println("  actif : " + v)
+	if v, hos, err := probeBrowserServerOS(c); err == nil {
+		if who, foreign := foreignHolder(runtime.GOOS, hos); foreign {
+			fmt.Printf("  ⚠ port tenu par %s : %s\n", who, v)
+			fmt.Println("    → ce n'est pas le serveur de ce launcher. Il sert les mêmes chemins (ceux des backends) : le navigateur de ce poste peut s'en servir tant qu'il tourne.")
+			fmt.Printf("      Pour un serveur propre à ce launcher : un autre port (browser_server.listen) ; hubs.%s vaut pour les deux sous le même nom de machine, voir le README (section Windows).\n", hubName())
+		} else {
+			fmt.Println("  actif : " + v)
+		}
 	} else {
 		fmt.Println("  ⚠ ne répond pas : " + err.Error())
 		if b, e := os.ReadFile(browserServerStatusPath()); e == nil {

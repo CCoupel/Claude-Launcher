@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/user"
+	"path"
 	"runtime"
 	"sort"
 	"strings"
@@ -172,6 +173,7 @@ type hubCacheEntry struct {
 	paths   PathMapper
 	src     string
 	warns   []string
+	skipped int // entrées de paths d'un autre système (pathsForOS)
 	user    *RemoteUserConf
 	userSrc string // hubs.<machine>.remote_user
 }
@@ -189,12 +191,16 @@ var hubCache struct {
 
 var hubRecheck = time.Second
 
+// pathsGOOS : système pour lequel les entrées de hubs.<machine>.paths sont
+// retenues (pathsForOS) ; "" : toutes (tests qui simulent Windows sous Linux).
+var pathsGOOS = runtime.GOOS
+
 // hubLoads : lectures de backends.yaml par hubSettings (tests).
 var hubLoads int
 
 // hubCheapKey : ce qui désigne, sans accès disque, le backends.yaml lu.
 func hubCheapKey() string {
-	k := hubName()
+	k := hubName() + "|" + pathsGOOS
 	for _, v := range []string{"CL_CONFIG_DIR", "HOME", "USERPROFILE", "APPDATA"} {
 		k += "|" + os.Getenv(v)
 	}
@@ -218,7 +224,7 @@ func hubSettings() hubCacheEntry {
 		return hubCache.e
 	}
 	hubLoads++
-	e := resolveHubSettings(readBackendsFile(), host)
+	e := resolveHubSettingsFor(readBackendsFile(), host, pathsGOOS)
 	e.key, e.loaded = key, true
 	hubCache.e = e
 	return e
@@ -226,19 +232,46 @@ func hubSettings() hubCacheEntry {
 
 // hubFileKey : identité de la source (chemin, machine, date, taille).
 func hubFileKey(path, host string) string {
-	key := path + "|" + host
+	key := path + "|" + host + "|" + pathsGOOS
 	if st, err := os.Stat(path); err == nil {
 		key += fmt.Sprintf("|%d|%d", st.ModTime().UnixNano(), st.Size())
 	}
 	return key
 }
 
-// resolveHubSettings : réglages de hubs.<machine> (logique pure).
+// resolveHubSettings : réglages de hubs.<machine> (logique pure), toutes les
+// entrées de paths quelle que soit leur forme.
 func resolveHubSettings(f backendsFile, host string) hubCacheEntry {
+	return resolveHubSettingsFor(f, host, "")
+}
+
+// pathsForOS : entrées de paths qui s'appliquent sur goos ("" : toutes). Une
+// configuration portable est partagée par un hub Linux (WSL) et l'exe Windows
+// du même poste, qui portent le même nom de machine : une entrée dont local est
+// de forme Windows (C:\…, \\serveur\…) ne vaut que sous Windows, une entrée
+// dont local est Linux (/…) qu'ailleurs. Les entrées invalides sont gardées
+// (NewPathMapper les signale).
+func pathsForOS(ps []PathMap, goos string) (keep []PathMap, skipped int) {
+	for _, p := range ps {
+		l := strings.TrimSpace(p.Local)
+		if goos != "" && (winPathForm(l) && goos != "windows" || strings.HasPrefix(l, "/") && goos == "windows") {
+			skipped++
+			continue
+		}
+		keep = append(keep, p)
+	}
+	return keep, skipped
+}
+
+// resolveHubSettingsFor : resolveHubSettings, entrées de paths filtrées pour
+// goos (pathsForOS).
+func resolveHubSettingsFor(f backendsFile, host, goos string) hubCacheEntry {
 	var e hubCacheEntry
 	if k, h, ok := pickHub(f.Hubs, host); ok {
-		if len(h.Paths) > 0 {
-			e.paths, e.warns = NewPathMapper(h.Paths)
+		ps, skipped := pathsForOS(h.Paths, goos)
+		e.skipped = skipped
+		if len(ps) > 0 {
+			e.paths, e.warns = NewPathMapper(ps)
 			e.src = "hubs." + k + ".paths"
 		}
 		if h.RemoteUser != nil {
@@ -253,6 +286,25 @@ func resolveHubSettings(f backendsFile, host string) hubCacheEntry {
 func HubPaths() (PathMapper, string, []string) {
 	e := hubSettings()
 	return e.paths, e.src, e.warns
+}
+
+// confLocalPath : chemin local d'un réglage-chemin de la configuration
+// (config.conf : GITHUB_DIR(S), CLAUDE_CONFIG_DIR). Sous Windows, un chemin
+// Linux absolu (/…) — configuration portable partagée avec un hub Linux — est
+// un chemin vu des backends : « . » et « .. » résolus en style Linux, puis
+// converti par la correspondance de la machine (il redevient le même chemin
+// Linux quand il est transmis aux backends, cf. RemotePath). Sans
+// correspondance : rendu tel quel en forme Linux, ok faux (à signaler, jamais
+// « \share\… », relatif au lecteur courant). Ailleurs : p inchangé.
+func confLocalPath(goos string, m PathMapper, p string) (string, bool) {
+	if goos != "windows" || !strings.HasPrefix(p, "/") || strings.HasPrefix(p, "//") {
+		return p, true
+	}
+	c := path.Clean(p)
+	if l, ok := m.ToLocal(c); ok {
+		return l, true
+	}
+	return c, false
 }
 
 // RemotePath : chemin transmis aux backends pour le chemin local p.
@@ -390,6 +442,58 @@ func CtrUser() RemoteUser {
 	return resolveRemoteUser(runtime.GOOS, localUser(), e.user, e.userSrc)
 }
 
+// windowsUnmapped : chemins Linux de la configuration (config.conf, racines
+// partagées des backends) sans correspondance sur ce poste.
+func windowsUnmapped() []string {
+	out := append([]string(nil), LoadConfig().Unmapped...)
+	m := hubSettings().paths
+	seen := map[string]bool{}
+	bs, _ := LoadBackends()
+	for _, b := range bs {
+		for _, r := range b.Shared {
+			if _, ok := confLocalPath("windows", m, r); !ok && !seen[r] {
+				seen[r] = true
+				out = append(out, "shared "+r)
+			}
+		}
+	}
+	return out
+}
+
+// unmappedLines : avertissement unique pour les chemins Linux sans
+// correspondance (logique pure), avec l'entrée de paths à déclarer.
+func unmappedLines(machine, backendsPath string, unmapped []string) []string {
+	if len(unmapped) == 0 {
+		return nil
+	}
+	out := []string{"⚠ chemins Linux de la configuration sans correspondance sur ce poste :"}
+	remote := ""
+	for _, u := range unmapped {
+		out = append(out, "    "+u)
+		if remote == "" {
+			if i := strings.Index(u, " /"); i >= 0 {
+				remote = linuxPrefix(u[i+1:], 2)
+			}
+		}
+	}
+	if remote == "" {
+		remote = "/share/MFS"
+	}
+	out = append(out, fmt.Sprintf("  → les déclarer une fois dans %s :", backendsPath),
+		fmt.Sprintf("      hubs: { %s: { paths: [{ local: '\\\\wsl.localhost\\<distribution>%s', remote: %s }] } }", machine, strings.ReplaceAll(remote, "/", `\`), remote),
+		"    (une entrée de forme Windows ne s'applique que sous Windows : le hub Linux du même nom n'est pas touché)")
+	return out
+}
+
+// linuxPrefix : n premiers éléments d'un chemin Linux absolu (« /a/b »).
+func linuxPrefix(p string, n int) string {
+	parts := strings.Split(strings.Trim(path.Clean(p), "/"), "/")
+	if len(parts) > n {
+		parts = parts[:n]
+	}
+	return "/" + strings.Join(parts, "/")
+}
+
 // PrintHubPaths : section de « claude-launcher-ng2 backends » (rien sans
 // déclaration, hors Windows).
 func PrintHubPaths() {
@@ -412,6 +516,12 @@ func PrintHubPaths() {
 		fmt.Println("  ⚠ " + w)
 	}
 	if runtime.GOOS == "windows" {
+		if n := hubSettings().skipped; n > 0 {
+			fmt.Printf("  (%d entrée(s) de forme Linux ignorée(s) ici : elles valent pour le hub Linux du même nom)\n", n)
+		}
+		for _, l := range unmappedLines(hubName(), BackendsPath(), windowsUnmapped()) {
+			fmt.Println("  " + l)
+		}
 		u := CtrUser()
 		fmt.Printf("  utilisateur des conteneurs : %s (%d:%d, HOME=%s) — %s\n", u.Name, u.UID, u.GID, u.Home, u.Source)
 	}
