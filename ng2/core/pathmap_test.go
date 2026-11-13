@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -144,6 +145,41 @@ func withHubPaths(t *testing.T, extra string) {
 	}
 }
 
+// cache des réglages : backends.yaml lu une fois tant qu'il ne change pas,
+// contrôlé (stat) au plus une fois par hubRecheck
+func TestHubSettingsCache(t *testing.T) {
+	withHubPaths(t, "")
+	old := hubRecheck
+	defer func() { hubRecheck = old }()
+	hubRecheck = time.Hour
+	n := hubLoads
+	for i := 0; i < 100; i++ {
+		_ = CtrName(wslMFS + `\ROOT\CAT\proj`)
+		_ = CtrUser()
+	}
+	if hubLoads-n != 1 {
+		t.Errorf("lectures : %d, attendu 1", hubLoads-n)
+	}
+	// fichier changé, fenêtre de contrôle non écoulée : pas même un stat
+	y := "hubs:\n  " + hubName() + ":\n    paths:\n      - { local: '" + wslMFS + "', remote: /autre/racine }\n"
+	_ = os.WriteFile(BackendsPath(), []byte(y), 0o644)
+	if RemotePath(wslMFS) != "/share/MFS" || hubLoads-n != 1 {
+		t.Error("relu avant la fin de la fenêtre de contrôle")
+	}
+	// fenêtre écoulée : changement vu
+	hubRecheck = 0
+	if RemotePath(wslMFS) != "/autre/racine" || hubLoads-n != 2 {
+		t.Errorf("changement non vu : %q, %d lectures", RemotePath(wslMFS), hubLoads-n)
+	}
+	// contrôlé à chaque appel mais inchangé : pas relu
+	for i := 0; i < 10; i++ {
+		_ = RemotePath(wslMFS)
+	}
+	if hubLoads-n != 2 {
+		t.Errorf("relu sans changement : %d", hubLoads-n)
+	}
+}
+
 // Même projet vu de Windows (UNC) et d'un hub Linux : mêmes nom, labels,
 // montages, workdir, annotations — sinon le conteneur serait dupliqué.
 func TestSameNamesFromWindowsAndLinux(t *testing.T) {
@@ -188,7 +224,7 @@ func TestSameNamesFromWindowsAndLinux(t *testing.T) {
 	if !strings.Contains(v, "CL_PROJ='"+lin+"'") || !strings.Contains(v, "CL_LOCAL='"+lin+"/node_modules'") {
 		t.Errorf("bootstrapVars : %s", v)
 	}
-	if s := CleanExitShell(win); s != CleanExitShell(lin) || strings.Contains(s, `\`) {
+	if s := cleanExitShellFor(win, true); s != cleanExitShellFor(lin, true) || strings.Contains(s, `\`) { // projet en conteneur
 		t.Errorf("CleanExitShell : %s", s)
 	}
 }

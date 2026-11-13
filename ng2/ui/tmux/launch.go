@@ -210,7 +210,7 @@ func launchProject(cfg core.Config, session string, n core.Node, latest string, 
 			// (resté parent de l'attache) arrête le conteneur
 			ctrStart += " && tmux kill-session"
 		}
-		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", core.Shq(n.Path), cfg.Exports(!synced), ctrStart)
+		script := fmt.Sprintf("cd %s; export PATH=\"$HOME/.local/bin:$PATH\"%s\n%s", core.Shq(core.RemotePath(n.Path)), cfg.Exports(!synced), ctrStart)
 		if err := os.WriteFile(startFile, []byte(script), 0o600); err != nil {
 			return err
 		}

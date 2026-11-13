@@ -186,7 +186,7 @@ func (pl closePlan) sessionTarget() string {
 func runClose(pl closePlan, step func(string)) error {
 	if pl.abandon {
 		// la conversation reste lisible (/resume) ; elle n'est plus proposée à la reprise
-		m := core.CleanExitPath(core.ProjectDirName(pl.node.Path))
+		m := core.CleanExitMarker(pl.node.Path) // au nom que lui donne claude (conteneur : chemin des backends)
 		if err := os.MkdirAll(filepath.Dir(m), 0o755); err == nil {
 			_ = os.WriteFile(m, nil, 0o644)
 			now := time.Now()

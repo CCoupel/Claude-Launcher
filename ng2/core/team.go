@@ -124,7 +124,7 @@ func teamMembers(proj string, live map[string]bool) map[string]member {
 				Cwd        string `json:"cwd"`
 			} `json:"members"`
 		}
-		if json.Unmarshal(b, &cfg) != nil || len(cfg.Members) == 0 || path.Clean(cfg.Members[0].Cwd) != path.Clean(RemotePath(proj)) {
+		if json.Unmarshal(b, &cfg) != nil || len(cfg.Members) == 0 || path.Clean(cfg.Members[0].Cwd) != path.Clean(ClaudePath(proj)) {
 			continue
 		}
 		m := map[string]member{}

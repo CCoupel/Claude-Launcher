@@ -68,6 +68,14 @@ CLAUDE_DISABLE_MOUSE=0
 CLAUDE_CONFIG_DIR='\\wsl.localhost\Ubuntu\share\MFS\ROOT\CLAUDE_PROJETS\.claude'
 `,
 		"dir seul": `GITHUB_DIR="$HOME/projets"`,
+		// tilde : non quoté, en tête de mot ou après = / : d'une affectation
+		"tilde": `GITHUB_DIRS=(~/GITHUB ~ "~/quoté" '~/simple' x~y ~/a:~/b)
+GITHUB_TOKEN=~/tok
+CLAUDE_OPTIONS=a:~/b:~
+GITHUB_DIR=~
+EXTRA_ENVS=(~autre/x "A=~/x")
+`,
+		"tilde dir": `GITHUB_DIR=~/projets`,
 	}
 	for name, src := range cases {
 		want := bashConfLines(t, src, home)
@@ -83,6 +91,9 @@ func TestConfLiteWindowsHome(t *testing.T) {
 	out := confLite("", `C:\Users\moi`)
 	if !strings.Contains(out, "root\tC:\\Users\\moi\\GITHUB\n") {
 		t.Errorf("racine par défaut : %s", out)
+	}
+	if out := confLite("GITHUB_DIRS=(~/GITHUB)", `C:\Users\moi`); !strings.Contains(out, "root\tC:\\Users\\moi/GITHUB\n") {
+		t.Errorf("tilde : %s", out)
 	}
 	out = confLite(`GITHUB_DIRS=('\\wsl.localhost\Ubuntu\share\MFS\ROOT')`, `C:\Users\moi`)
 	if !strings.Contains(out, "root\t\\\\wsl.localhost\\Ubuntu\\share\\MFS\\ROOT\n") {

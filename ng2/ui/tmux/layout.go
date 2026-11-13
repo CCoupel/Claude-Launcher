@@ -62,7 +62,7 @@ func normPath(p string) string {
 // sa team quand la reprise en crée une autre : la plus récemment modifiée gagne.
 func findTeamConfig(projectDir string) string {
 	files, _ := filepath.Glob(filepath.Join(core.ClaudeDir(), "teams", "*", "config.json"))
-	want := normPath(projectDir)
+	want := normPath(core.ClaudePath(projectDir)) // cwd vu par claude (conteneur : chemin des backends)
 	best, bestT := "", time.Time{}
 	for _, f := range files {
 		st, err := os.Stat(f)

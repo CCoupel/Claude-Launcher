@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -389,6 +390,12 @@ func (b BackendConf) engine() string {
 func (b BackendConf) remote() bool {
 	if b.IsPool() {
 		return b.At(b.Hosts[0]).remote() // groupe : distant comme ses serveurs
+	}
+	if runtime.GOOS == "windows" && (b.Type == "docker" || b.Type == "podman") && b.Host == "" {
+		// Windows : un docker/podman sans host admis vise un démon distant
+		// (DOCKER_HOST, CONTAINER_HOST, contexte docker : oslimits.go)
+		_, refused := LocalRefusal(b)
+		return !refused
 	}
 	return b.Type == "ssh" || b.Type == "k8s" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
 }
@@ -1032,14 +1039,10 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	// cache de consommation : plus de montage, un lien vers la config claude
 	// (montée partout) est posé à chaque ouverture (usage.go, linkUsageScript)
 	for _, m := range env.Mounts {
-		p := m.Path
-		if !filepath.IsAbs(p) {
-			p = filepath.Clean(filepath.Join(proj, p))
-		}
-		if _, err := os.Stat(p); err != nil {
+		local, p := mountPaths(proj, m.Path)
+		if _, err := os.Stat(local); err != nil {
 			return nil, fmt.Errorf("montage %s : %w", m.Path, err)
 		}
-		p = RemotePath(p)
 		if e.B.remote() && !underShared(e.B, p) {
 			return nil, fmt.Errorf("montage %s : hors du stockage partagé du backend %s (%s)", p, e.B.Name, strings.Join(e.B.Shared, ", "))
 		}
@@ -1051,6 +1054,20 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 		args = append(args, "-v", p)
 	}
 	return append(args, env.Image, "sh", "-c", pid1), nil
+}
+
+// mountPaths : pour un « mounts » d'env.yaml, chemin à contrôler ici et chemin
+// transmis au moteur. « /… » est un chemin Linux, absolu sur tous les systèmes
+// (sous Windows, filepath.IsAbs le dirait relatif) : contrôlé à son chemin
+// local (pathmap.go). Relatif : par rapport au projet.
+func mountPaths(proj, p string) (local, remote string) {
+	if strings.HasPrefix(p, "/") {
+		return LocalPath(p), RemotePath(p)
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Clean(filepath.Join(proj, p))
+	}
+	return p, RemotePath(p)
 }
 
 // ensureSharedConfig : claude lancé avec CLAUDE_CONFIG_DIR=~/.claude range sa

@@ -167,36 +167,70 @@ func (m PathMapper) remoteChecked(p, goos, machine string) (string, error) {
 // ── Réglages de la machine (hubs.<machine>), relus si backends.yaml change ──
 
 type hubCacheEntry struct {
-	key   string
-	at    time.Time
-	paths PathMapper
-	src   string
-	warns []string
-	user  *RemoteUserConf
+	key     string // source : chemin de backends.yaml, machine, date et taille du fichier
+	loaded  bool
+	paths   PathMapper
+	src     string
+	warns   []string
+	user    *RemoteUserConf
+	userSrc string // hubs.<machine>.remote_user
 }
 
+// hubCache : réglages lus ; cheap/checked : contrôle du fichier (stat) au plus
+// une fois par hubRecheck tant que l'environnement qui désigne le dossier de
+// config et la machine ne changent pas. Appelé sur des chemins chauds (CtrName,
+// ReadAssignments, ExecArgv…), parfois sur un stockage réseau (MooseFS).
 var hubCache struct {
 	sync.Mutex
-	e hubCacheEntry
+	e       hubCacheEntry
+	cheap   string
+	checked time.Time
 }
 
-// hubSettings : correspondance et utilisateur distant de cette machine. Fichier
-// relu quand sa date, sa taille ou la machine changent (au plus toutes les 2 s).
+var hubRecheck = time.Second
+
+// hubLoads : lectures de backends.yaml par hubSettings (tests).
+var hubLoads int
+
+// hubCheapKey : ce qui désigne, sans accès disque, le backends.yaml lu.
+func hubCheapKey() string {
+	k := hubName()
+	for _, v := range []string{"CL_CONFIG_DIR", "HOME", "USERPROFILE", "APPDATA"} {
+		k += "|" + os.Getenv(v)
+	}
+	return k
+}
+
+// hubSettings : correspondance et utilisateur distant de cette machine. Le
+// fichier n'est relu que si sa date, sa taille, son chemin ou la machine
+// changent ; ceux-ci sont contrôlés au plus une fois par seconde.
 func hubSettings() hubCacheEntry {
+	cheap := hubCheapKey()
+	hubCache.Lock()
+	defer hubCache.Unlock()
+	if hubCache.e.loaded && hubCache.cheap == cheap && time.Since(hubCache.checked) < hubRecheck {
+		return hubCache.e
+	}
 	path, host := BackendsPath(), hubName()
+	key := hubFileKey(path, host)
+	hubCache.cheap, hubCache.checked = cheap, time.Now()
+	if hubCache.e.loaded && hubCache.e.key == key {
+		return hubCache.e
+	}
+	hubLoads++
+	e := resolveHubSettings(readBackendsFile(), host)
+	e.key, e.loaded = key, true
+	hubCache.e = e
+	return e
+}
+
+// hubFileKey : identité de la source (chemin, machine, date, taille).
+func hubFileKey(path, host string) string {
 	key := path + "|" + host
 	if st, err := os.Stat(path); err == nil {
 		key += fmt.Sprintf("|%d|%d", st.ModTime().UnixNano(), st.Size())
 	}
-	hubCache.Lock()
-	defer hubCache.Unlock()
-	if hubCache.e.key == key && time.Since(hubCache.e.at) < 2*time.Second {
-		return hubCache.e
-	}
-	e := resolveHubSettings(readBackendsFile(), host)
-	e.key, e.at = key, time.Now()
-	hubCache.e = e
-	return e
+	return key
 }
 
 // resolveHubSettings : réglages de hubs.<machine> (logique pure).
@@ -207,7 +241,9 @@ func resolveHubSettings(f backendsFile, host string) hubCacheEntry {
 			e.paths, e.warns = NewPathMapper(h.Paths)
 			e.src = "hubs." + k + ".paths"
 		}
-		e.user = h.RemoteUser
+		if h.RemoteUser != nil {
+			e.user, e.userSrc = h.RemoteUser, "hubs."+k+".remote_user"
+		}
 	}
 	return e
 }
@@ -229,6 +265,37 @@ func RemotePath(p string) string {
 func LocalPath(p string) string {
 	l, _ := hubSettings().paths.ToLocal(p)
 	return l
+}
+
+// ── Chemin vu par claude ─────────────────────────────────────────────────
+//
+// claude range conversations (~/.claude/projects/<chemin encodé>), teams (cwd)
+// et marqueur de sortie propre d'après SON répertoire de travail : chemin des
+// backends pour un projet en conteneur, chemin local pour un projet de l'hôte
+// (hub Linux à correspondance déclarée). Le launcher doit chercher au même nom.
+
+// claudePathFor : logique pure.
+func claudePathFor(m PathMapper, proj string, inCtr bool) string {
+	if !inCtr {
+		return proj
+	}
+	r, _ := m.ToRemote(proj)
+	return r
+}
+
+// ctrMapped : correspondance déclarée et projet en conteneur (sinon : rien à
+// traduire ; sans correspondance, aucune lecture de l'affectation).
+func ctrMapped(proj string) bool {
+	if hubSettings().paths.Empty() {
+		return false
+	}
+	_, ok := EngineOf(ProjectBackend(proj))
+	return ok
+}
+
+// ClaudePath : chemin du projet tel que le voit claude.
+func ClaudePath(proj string) string {
+	return claudePathFor(hubSettings().paths, proj, ctrMapped(proj))
 }
 
 // RemotePathChecked : RemotePath, ou erreur explicite sous Windows pour un
@@ -320,13 +387,7 @@ func resolveRemoteUser(goos string, local RemoteUser, c *RemoteUserConf, src str
 // CtrUser : identité de l'utilisateur dans les conteneurs de cette machine.
 func CtrUser() RemoteUser {
 	e := hubSettings()
-	src := ""
-	if e.user != nil {
-		if k, _, ok := pickHub(readBackendsFile().Hubs, hubName()); ok {
-			src = "hubs." + k + ".remote_user"
-		}
-	}
-	return resolveRemoteUser(runtime.GOOS, localUser(), e.user, src)
+	return resolveRemoteUser(runtime.GOOS, localUser(), e.user, e.userSrc)
 }
 
 // PrintHubPaths : section de « claude-launcher-ng2 backends » (rien sans

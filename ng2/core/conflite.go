@@ -122,6 +122,11 @@ func confTokens(src string, i int, get func(string) string) (toks []confTok, nex
 		case c == '\n' || c == ';':
 			flush()
 			return append(toks, confTok{';', ""}), i + 1
+		case c == '~' && tildeAt(w.String(), inWord) && tildeEnds(src, i+1):
+			// ~ non quoté en tête de mot, ou après « = » / « : » d'une affectation : $HOME
+			inWord = true
+			w.WriteString(get("HOME"))
+			i++
 		default:
 			inWord = true
 			w.WriteByte(c)
@@ -130,6 +135,30 @@ func confTokens(src string, i int, get func(string) string) (toks []confTok, nex
 	}
 	flush()
 	return toks, i
+}
+
+// tildeAt : un « ~ » à cet endroit est-il développé par bash ? En tête de mot,
+// ou dans une affectation (NOM=…) juste après « = » ou « : ».
+func tildeAt(cur string, inWord bool) bool {
+	if !inWord {
+		return true
+	}
+	name, val, ok := strings.Cut(cur, "=")
+	if !ok || name == "" {
+		return false
+	}
+	for i, r := range name {
+		if !(r == '_' || r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return val == "" || strings.HasSuffix(val, ":")
+}
+
+// tildeEnds : le « ~ » est seul (pas « ~utilisateur ») : suivi de « / », d'un
+// séparateur ou de la fin.
+func tildeEnds(src string, j int) bool {
+	return j >= len(src) || strings.IndexByte("/ \t\r\n;):", src[j]) >= 0
 }
 
 // confLite : lignes « TAG<TAB>valeur » de LoadConfig pour le contenu src.

@@ -2,10 +2,13 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
+	"time"
 )
 
 // ── Backends refusés sous Windows (#110) ──────────────────────────────────
@@ -16,24 +19,59 @@ import (
 // avec un message explicite, au diagnostic comme à l'ouverture d'un projet.
 // Ailleurs : rien n'est refusé.
 
+// engineEnv : ce qui désigne le démon d'un docker/podman sans « host » : les
+// variables DOCKER_HOST / CONTAINER_HOST et le contexte docker actif.
+type engineEnv struct {
+	DockerHost, ContainerHost string
+	DockerContextHost         func() string // adresse du contexte docker actif ("" : inconnue)
+}
+
+// effectiveHost : adresse du démon réellement visée par un client sans host.
+func (ev engineEnv) effectiveHost(engine string) string {
+	switch engine {
+	case "docker":
+		if ev.DockerHost != "" {
+			return ev.DockerHost
+		}
+		if ev.DockerContextHost != nil {
+			return ev.DockerContextHost()
+		}
+	case "podman":
+		return ev.ContainerHost
+	}
+	return ""
+}
+
+// remoteEngineAddr : adresse d'un démon distant (tcp://, ssh://).
+func remoteEngineAddr(h string) bool {
+	h = strings.TrimSpace(h)
+	return strings.HasPrefix(h, "tcp://") || strings.HasPrefix(h, "ssh://")
+}
+
 // localRefusal : logique pure ; ok vrai si b est refusé sur goos.
-func localRefusal(goos string, b BackendConf) (Problem, bool) {
+func localRefusal(goos string, b BackendConf, ev engineEnv) (Problem, bool) {
 	if goos != "windows" {
 		return Problem{}, false
 	}
-	fix := "sous Windows, les projets tournent dans un conteneur distant : backend docker/podman avec host: tcp://… ou ssh://…, type ssh, ou k8s (" + BackendsPath() + ")"
+	fix := "sous Windows, les projets tournent dans un conteneur distant : backend docker/podman avec host: tcp://… ou ssh://… (ou DOCKER_HOST / CONTAINER_HOST / contexte docker distants), type ssh, ou k8s (" + BackendsPath() + ")"
 	switch b.Type {
 	case "host":
 		return Problem{"backend host refusé sous Windows (claude ne tourne pas sur le poste)", fix}, true
 	case "docker", "podman":
 		if b.Type == "docker" && b.Context != "" {
-			return Problem{}, false // contexte docker : sa cible est résolue par docker
+			return Problem{}, false // contexte docker nommé : sa cible est résolue par docker
 		}
 		hosts := b.Hosts
 		if len(hosts) == 0 {
 			hosts = []string{b.Host}
 		}
 		for _, h := range hosts {
+			if h == "" {
+				// client sans adresse : celle de l'environnement ou du contexte actif
+				if eh := ev.effectiveHost(b.Type); remoteEngineAddr(eh) {
+					continue
+				}
+			}
 			if localEngineAddr(h) {
 				what := "socket par défaut"
 				if h != "" {
@@ -52,8 +90,27 @@ func localEngineAddr(h string) bool {
 	return h == "" || strings.HasPrefix(h, "unix://") || strings.HasPrefix(h, "npipe://")
 }
 
+// dockerContextHost : adresse du contexte docker actif, lue une fois (Windows
+// seulement : localRefusal ne l'interroge pas ailleurs).
+var dockerContextHost = sync.OnceValue(func() string {
+	if _, err := exec.LookPath("docker"); err != nil {
+		return ""
+	}
+	out, err := runQuiet(4*time.Second, "docker", "context", "inspect", "--format", "{{.Endpoints.docker.Host}}")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+})
+
+func runtimeEngineEnv() engineEnv {
+	return engineEnv{DockerHost: os.Getenv("DOCKER_HOST"), ContainerHost: os.Getenv("CONTAINER_HOST"), DockerContextHost: dockerContextHost}
+}
+
 // LocalRefusal : b est-il refusé sur ce système (et pourquoi) ?
-func LocalRefusal(b BackendConf) (Problem, bool) { return localRefusal(runtime.GOOS, b) }
+func LocalRefusal(b BackendConf) (Problem, bool) {
+	return localRefusal(runtime.GOOS, b, runtimeEngineEnv())
+}
 
 // refusalErr : erreur d'ouverture d'un projet sur un backend refusé.
 func refusalErr(b BackendConf) error {
@@ -112,7 +169,7 @@ var installCmds = map[string]map[string]string{
 func InstallCmd(goos, tool string) string { return installCmds[goos][tool] }
 
 // toolsFor : outil → ce qui l'exige, pour ces backends (logique pure).
-func toolsFor(goos string, bs []BackendConf) map[string][]string {
+func toolsFor(goos string, bs []BackendConf, ev engineEnv) map[string][]string {
 	need := map[string][]string{}
 	add := func(t, by string) {
 		for _, x := range need[t] {
@@ -125,7 +182,7 @@ func toolsFor(goos string, bs []BackendConf) map[string][]string {
 	add("git", "launcher")
 	add("gh", "launcher")
 	for _, b := range bs {
-		if _, refused := localRefusal(goos, b); refused || b.Type == "host" {
+		if _, refused := localRefusal(goos, b, ev); refused || b.Type == "host" {
 			continue
 		}
 		hosts := b.Hosts
@@ -152,8 +209,8 @@ func toolsFor(goos string, bs []BackendConf) map[string][]string {
 }
 
 // toolsStatus : état de chaque outil requis (logique pure ; look : exec.LookPath).
-func toolsStatus(goos string, bs []BackendConf, look func(string) (string, error)) []ToolStatus {
-	need := toolsFor(goos, bs)
+func toolsStatus(goos string, bs []BackendConf, ev engineEnv, look func(string) (string, error)) []ToolStatus {
+	need := toolsFor(goos, bs, ev)
 	order := map[string]int{"ssh": 0, "git": 1, "docker": 2, "podman": 3, "kubectl": 4, "gh": 5}
 	names := make([]string, 0, len(need))
 	for t := range need {
@@ -175,7 +232,7 @@ func toolsStatus(goos string, bs []BackendConf, look func(string) (string, error
 // Réutilisable par l'interface (écran de premier lancement, #111).
 func CheckTools() []ToolStatus {
 	bs, _ := LoadBackends()
-	return toolsStatus(runtime.GOOS, bs, exec.LookPath)
+	return toolsStatus(runtime.GOOS, bs, runtimeEngineEnv(), exec.LookPath)
 }
 
 // MissingTools : outils requis absents (optionnels compris).
