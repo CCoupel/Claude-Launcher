@@ -8,10 +8,10 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"claude-launcher-ng2/core"
+	"claude-launcher-ng2/platform"
 )
 
 // Mise en page des fenêtres projet (ex-modes --layout-watch / --do-layout /
@@ -344,7 +344,7 @@ func doLayout(cfg core.Config, pw projWin, leader, teamPath string) {
 	if f, err := os.OpenFile(filepath.Join(os.TempDir(), "claude_layout_"+strings.TrimPrefix(pw.hubWin, "@")+".lock"),
 		os.O_CREATE|os.O_RDWR, 0o644); err == nil {
 		defer f.Close()
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		_ = platform.LockFile(f)
 	}
 	ws, err := readWin(pw)
 	if err != nil || len(ws.panes) <= 1 {

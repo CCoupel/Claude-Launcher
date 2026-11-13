@@ -23,3 +23,12 @@ const (
 	LeaderAlive
 	LeaderDead
 )
+
+// leaderVerdictRemoteOnly : verdict d'une machine où aucun leader ne tourne
+// localement (Windows) : PID invalide → mort, sinon invérifiable.
+func leaderVerdictRemoteOnly(pid int) LeaderState {
+	if pid <= 0 {
+		return LeaderDead
+	}
+	return LeaderUnknown
+}
