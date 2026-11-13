@@ -1,8 +1,10 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"time"
@@ -82,6 +84,19 @@ func globEscape(p string) string {
 		}
 	}
 	return string(b)
+}
+
+// exitCode : code de sortie à reprendre d'un processus relancé (Wait) : le sien,
+// 1 s'il n'a pas pu être attendu.
+func exitCode(err error) int {
+	if err == nil {
+		return 0
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() >= 0 {
+		return ee.ExitCode()
+	}
+	return 1
 }
 
 // relaunchArgs : programme et arguments du nouveau processus (Windows : pas

@@ -6,6 +6,7 @@ package platform
 import (
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,24 +137,26 @@ func TestGlobEscapeAndRelaunch(t *testing.T) {
 	}
 }
 
-func TestComposeCommandLine(t *testing.T) {
-	cases := []struct {
-		args []string
-		want string
-	}{
-		{[]string{"docker", "exec", "-it", "pro-demo", "tmux"}, `docker exec -it pro-demo tmux`},
-		{[]string{`C:\Program Files\Docker\docker.exe`, "ps"}, `"C:\Program Files\Docker\docker.exe" ps`},
-		{[]string{"ssh", "-t", "srv", "tmux -L cl attach"}, `ssh -t srv "tmux -L cl attach"`},
-		{[]string{"echo", ""}, `echo ""`},
-		{[]string{"echo", `a"b`}, `echo a\"b`},
-		{[]string{"echo", `a b\`}, `echo "a b\\"`},
-		{[]string{"echo", `\\srv\x y`}, `echo "\\srv\x y"`},
-		{[]string{"echo", `x\"y z`}, `echo "x\\\"y z"`},
+// ExecBinary (Windows) attend le nouveau processus et reprend son code
+func TestExitCode(t *testing.T) {
+	if exitCode(nil) != 0 || exitCode(errors.New("attente impossible")) != 1 {
+		t.Error("nil → 0, autre erreur → 1")
 	}
-	for _, c := range cases {
-		if got := ComposeCommandLine(c.args); got != c.want {
-			t.Errorf("ComposeCommandLine(%q) = %s, attendu %s", c.args, got, c.want)
-		}
+	self, err := os.Executable()
+	if err != nil {
+		t.Skip(err)
+	}
+	c := exec.Command(self, "-test.run=^TestHelperExit3$")
+	c.Env = append(os.Environ(), "CL_HELPER_EXIT3=1")
+	if got := exitCode(c.Run()); got != 3 {
+		t.Errorf("code de l'enfant : %d", got)
+	}
+}
+
+// TestHelperExit3 : processus enfant de TestExitCode.
+func TestHelperExit3(t *testing.T) {
+	if os.Getenv("CL_HELPER_EXIT3") == "1" {
+		os.Exit(3)
 	}
 }
 

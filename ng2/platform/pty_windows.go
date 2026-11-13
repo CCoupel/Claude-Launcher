@@ -2,9 +2,11 @@ package platform
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"sync"
+	"time"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -87,7 +89,7 @@ func (t *winTerm) spawn(app string, s TermSpec) error {
 	if err != nil {
 		return err
 	}
-	cmdW, err := windows.UTF16PtrFromString(ComposeCommandLine(s.Argv))
+	cmdW, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(s.Argv))
 	if err != nil {
 		return err
 	}
@@ -158,9 +160,20 @@ func (t *winTerm) Close() error {
 			_ = windows.TerminateProcess(t.proc, 1)
 		}
 	}
-	// fermer la pseudo-console termine la sortie (Read rend EOF)
-	windows.ClosePseudoConsole(t.hpc)
+	// Avant Windows 11 24H2, ClosePseudoConsole attend que la sortie en attente
+	// soit lue : elle est vidée en tâche de fond pendant la fermeture (la
+	// lecture s'arrête sur EOF, quand la pseudo-console est fermée).
+	drained := make(chan struct{})
+	go func() {
+		_, _ = io.Copy(io.Discard, t.out)
+		close(drained)
+	}()
 	_ = t.in.Close()
+	windows.ClosePseudoConsole(t.hpc)
+	select { // EOF après la fermeture ; borne si un autre lecteur l'a déjà consommé
+	case <-drained:
+	case <-time.After(2 * time.Second):
+	}
 	_ = t.out.Close()
 	if t.attrs != nil {
 		t.attrs.Delete()

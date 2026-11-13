@@ -7,8 +7,11 @@ import (
 )
 
 // ExecBinary : pas d'execve sous Windows — le nouveau binaire est lancé (mêmes
-// arguments, environnement, entrées/sorties) puis le processus courant se
-// termine. Ne revient qu'en cas d'échec du lancement.
+// arguments, environnement, entrées/sorties), le processus courant ATTEND sa
+// fin (sinon le shell reprendrait la console pendant que le nouveau launcher
+// la lit) puis se termine avec son code. Ne revient qu'en cas d'échec du
+// lancement. L'ancien exe (.old) reste verrouillé jusque-là : il est supprimé
+// au démarrage suivant (CleanupOldExe).
 func ExecBinary(argv0 string, argv []string, envv []string) error {
 	name, args := relaunchArgs(argv0, argv)
 	c := exec.Command(name, args...)
@@ -17,7 +20,7 @@ func ExecBinary(argv0 string, argv []string, envv []string) error {
 	if err := c.Start(); err != nil {
 		return err
 	}
-	os.Exit(0)
+	os.Exit(exitCode(c.Wait()))
 	return nil
 }
 

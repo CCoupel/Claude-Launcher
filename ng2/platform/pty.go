@@ -50,64 +50,6 @@ func termSize(cols, rows int) (int, int) {
 	return clamp(cols, 80), clamp(rows, 24)
 }
 
-// ComposeCommandLine : ligne de commande Windows (CreateProcess) des arguments,
-// chacun protégé selon les règles de CommandLineToArgvW (comme syscall.EscapeArg).
-func ComposeCommandLine(args []string) string {
-	q := make([]string, len(args))
-	for i, a := range args {
-		q[i] = escapeWinArg(a)
-	}
-	return strings.Join(q, " ")
-}
-
-func escapeWinArg(s string) string {
-	if s == "" {
-		return `""`
-	}
-	needBS, space := false, false
-	for i := 0; i < len(s); i++ {
-		switch s[i] {
-		case '"', '\\':
-			needBS = true
-		case ' ', '\t':
-			space = true
-		}
-	}
-	if !needBS && !space {
-		return s
-	}
-	if !needBS {
-		return `"` + s + `"`
-	}
-	var b []byte
-	if space {
-		b = append(b, '"')
-	}
-	slashes := 0
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		switch c {
-		case '\\':
-			slashes++
-		case '"':
-			for ; slashes > 0; slashes-- {
-				b = append(b, '\\')
-			}
-			b = append(b, '\\')
-		default:
-			slashes = 0
-		}
-		b = append(b, c)
-	}
-	if space {
-		for ; slashes > 0; slashes-- {
-			b = append(b, '\\')
-		}
-		b = append(b, '"')
-	}
-	return string(b)
-}
-
 // envBlock : bloc d'environnement UTF-16 de CreateProcess (« K=V\0…\0\0 »).
 func envBlock(env []string) []uint16 {
 	var b []uint16

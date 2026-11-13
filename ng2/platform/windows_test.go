@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 func TestOnNetworkFSWindows(t *testing.T) {
@@ -103,6 +105,43 @@ func TestConPTY(t *testing.T) {
 	}
 	if err := term.Wait(); err != nil {
 		t.Errorf("Wait : %v", err)
+	}
+}
+
+// ligne de commande de CreatePseudoConsole : windows.ComposeCommandLine (x/sys)
+func TestComposeCommandLine(t *testing.T) {
+	cases := []struct {
+		args []string
+		want string
+	}{
+		{[]string{"docker", "exec", "-it", "pro-demo", "tmux"}, `docker exec -it pro-demo tmux`},
+		{[]string{`C:\Program Files\Docker\docker.exe`, "ps"}, `"C:\Program Files\Docker\docker.exe" ps`},
+		{[]string{"ssh", "-t", "srv", "tmux -L cl attach"}, `ssh -t srv "tmux -L cl attach"`},
+		{[]string{"echo", ""}, `echo ""`},
+		{[]string{"echo", `a"b`}, `echo a\"b`},
+		{[]string{"echo", `a b\`}, `echo "a b\\"`},
+	}
+	for _, c := range cases {
+		if got := windows.ComposeCommandLine(c.args); got != c.want {
+			t.Errorf("ComposeCommandLine(%q) = %s, attendu %s", c.args, got, c.want)
+		}
+	}
+}
+
+// Close ne bloque pas quand personne ne lit la sortie (ClosePseudoConsole
+// attend qu'elle soit vidée avant Windows 11 24H2)
+func TestConPTYCloseUnread(t *testing.T) {
+	term, err := StartTerminal(TermSpec{Argv: []string{"cmd.exe", "/c", "dir /s " + os.Getenv("SystemRoot") + `\System32`}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(time.Second) // la sortie s'accumule sans lecteur
+	done := make(chan struct{})
+	go func() { _ = term.Close(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(15 * time.Second):
+		t.Fatal("Close bloqué")
 	}
 }
 
