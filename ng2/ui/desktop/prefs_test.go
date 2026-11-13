@@ -11,7 +11,7 @@ import (
 func TestPrefsPersisted(t *testing.T) {
 	sandbox(t, "", "alpha")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	if _, err := a.Dispatch("setPrefs", json.RawMessage(`{"collapsed":["/r/INFRA"],"navW":420}`)); err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func TestPrefsPersisted(t *testing.T) {
 	if _, err := os.Stat(prefsPath()); err != nil {
 		t.Fatalf("fichier : %v", err)
 	}
-	b := NewApp(r.emit) // lancement suivant
+	b := newApp(t, r.emit) // lancement suivant
 	res, _ := b.Dispatch("init", nil)
 	p := res.(map[string]any)["prefs"].(map[string]any)
 	if c, _ := p["collapsed"].([]any); len(c) != 1 || c[0] != "/r/INFRA" || p["treeH"] != 300.0 || p["navW"] != nil {

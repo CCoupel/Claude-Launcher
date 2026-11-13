@@ -44,7 +44,7 @@ func TestCardsDoNotWaitOnTmux(t *testing.T) {
 	}
 	ps := sandbox(t, "", "alpha")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	pt := newProjTerm(a, core.Node{Path: ps[0], Key: "alpha", Name: "alpha"}, core.LaunchNormal)
 	c, err := startClient([]string{"sleep", "30"}, nil) // ne répond jamais
 	if err != nil {

@@ -35,10 +35,21 @@ func TestNothingSlowBeforeDisplay(t *testing.T) {
 	_ = os.WriteFile(core.BackendsPath(), []byte("hubs:\n  "+hostForTest()+":\n    hub_cache: "+strconv.Quote(hub)+"\n"), 0o644)
 
 	done := make(chan time.Duration, 1)
+	// App créée dans la goroutine (qui peut rester bloquée) : arrêtée en fin
+	// de test si elle existe (#141)
+	apps := make(chan *App, 1)
+	t.Cleanup(func() {
+		select {
+		case a := <-apps:
+			stopBg(a)
+		default:
+		}
+	})
 	go func() {
 		t0 := time.Now()
 		var r recorder
 		a := NewApp(r.emit)
+		apps <- a
 		if a.hubCache != hub {
 			t.Errorf("hub_cache : %q", a.hubCache)
 		}

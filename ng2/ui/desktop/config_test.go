@@ -17,7 +17,7 @@ import (
 func TestConfigEditorCalls(t *testing.T) {
 	ps := sandbox(t, "", "alpha")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	call := func(m string, args map[string]any) map[string]any {
 		t.Helper()
 		b, _ := json.Marshal(args)

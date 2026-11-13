@@ -82,7 +82,7 @@ setup:
 	})
 
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	if _, err := a.open(proj, core.LaunchNormal); err != nil {
 		t.Fatal(err)
 	}

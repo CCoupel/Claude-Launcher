@@ -90,7 +90,7 @@ func TestThemeSwitch(t *testing.T) {
 	}
 	sandbox(t, "", "alpha")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	var got []string
 	themeHook = func(m string) { got = append(got, m) }
 	t.Cleanup(func() { themeHook = nil })
