@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -409,6 +410,17 @@ func (e Engine) K8sNodes() map[string]string {
 	return out
 }
 
+// k8sReachFix : remède à un cluster injoignable (logique pure). Sous Windows,
+// un contexte inconnu vient le plus souvent d'un kubeconfig resté sur le hub
+// Linux : kubectl du poste lit %USERPROFILE%\.kube\config (ou KUBECONFIG).
+func k8sReachFix(goos, msg string) string {
+	fix := "vérifier kubectl config get-contexts / ~/.kube/config"
+	if goos == "windows" && strings.Contains(msg, "does not exist") && strings.Contains(msg, "context") {
+		fix += " — sous Windows, kubectl lit %USERPROFILE%\\.kube\\config : y copier le ~/.kube/config du hub Linux (ex. depuis WSL : cp ~/.kube/config /mnt/c/Users/<vous>/.kube/config), ou pointer KUBECONFIG vers lui (setx KUBECONFIG \\\\wsl.localhost\\<distribution>\\home\\<vous>\\.kube\\config)"
+	}
+	return fix
+}
+
 // k8sProblems : kubectl, contexte, namespace, droits, PVC (liés, ReadWriteMany).
 func k8sProblems(b BackendConf) []Problem {
 	if _, err := exec.LookPath("kubectl"); err != nil {
@@ -423,7 +435,8 @@ func k8sProblems(b BackendConf) []Problem {
 		if strings.Contains(out, "NotFound") || strings.Contains(out, "not found") {
 			return []Problem{{"namespace " + ns + " absent", "le créer : kubectl" + ctxArg(b) + " create namespace " + ns}}
 		}
-		return []Problem{{"cluster injoignable (contexte « " + b.Context + " ») : " + firstLine(out, err), "vérifier kubectl config get-contexts / ~/.kube/config"}}
+		msg := firstLine(out, err)
+		return []Problem{{"cluster injoignable (contexte « " + b.Context + " ») : " + msg, k8sReachFix(runtime.GOOS, msg)}}
 	}
 	if out, _ := runQuiet(15*time.Second, e.kubectl("auth", "can-i", "create", "statefulsets")...); strings.TrimSpace(out) != "yes" {
 		return []Problem{{"droit de créer des StatefulSets refusé dans " + ns, "accorder un rôle (ex. edit) sur le namespace " + ns}}

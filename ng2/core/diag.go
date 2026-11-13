@@ -51,6 +51,9 @@ func sharedProblems(b BackendConf, proj string) []Problem {
 	}
 	var out []Problem
 	for _, r := range b.Shared {
+		if proj == "" && unmappedHere(r) {
+			continue // Windows sans correspondance : signalé une seule fois (PrintHubPaths)
+		}
 		// racine Linux : cherchée ici à son chemin local (pathmap.go)
 		if _, err := os.Stat(LocalPath(r)); err != nil {
 			out = append(out, Problem{"racine partagée " + r + " absente sur cette machine",
@@ -76,6 +79,15 @@ func sharedProblems(b BackendConf, proj string) []Problem {
 			"déplacer le projet sous une racine partagée, ou choisir un backend local (F2)"})
 	}
 	return out
+}
+
+// unmappedHere : sous Windows, chemin Linux sans correspondance sur ce poste.
+func unmappedHere(p string) bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+	_, ok := confLocalPath(runtime.GOOS, hubSettings().paths, p)
+	return !ok
 }
 
 // sharedRootFix : comment rendre visible ici la racine partagée r.
