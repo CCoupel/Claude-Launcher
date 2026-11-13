@@ -64,7 +64,9 @@ type projTerm struct {
 	reads, finds    int32           // list-panes et recherches de team (tests)
 	infos           []core.PaneInfo // panes au dernier tour (carte Team, sans appel tmux)
 	stopOnce        sync.Once
-	reseed          *time.Timer // recapture des panes après un redimensionnement
+	tmuxVer         string          // version du tmux du projet (drapeaux de client : 3.2)
+	flagged         map[string]bool // clients mis en ignore-size par l'interface (#126)
+	reseed          *time.Timer     // recapture des panes après un redimensionnement
 }
 
 type watchState struct {
@@ -374,6 +376,12 @@ func (t *projTerm) attach() error {
 	if _, err := c.Output("display-message", "-p", "ok"); err != nil {
 		return fmt.Errorf("%v (%s)", err, c.Why())
 	}
+	if b, err := c.Output("display-message", "-p", "#{version}"); err == nil {
+		t.mu.Lock()
+		t.tmuxVer = strings.TrimSpace(string(b))
+		t.mu.Unlock()
+	}
+	t.govern() // un autre client attaché (hub Linux) ne dispute pas la taille (#126)
 	t.resync()
 	return nil
 }
@@ -401,6 +409,7 @@ func (t *projTerm) ended() {
 
 // detach : l'interface se ferme ou l'onglet est retiré ; la session continue.
 func (t *projTerm) detach() {
+	t.releaseOthers() // les autres clients retrouvent leur rôle dans la taille
 	t.mu.Lock()
 	t.detaching = true
 	c := t.client
@@ -740,10 +749,16 @@ func (t *projTerm) tick(fast bool) {
 		t.arrange(cps, w, h, leader, tc)
 		arranged = true
 	}
-	if !fast && !t.host && !ro {
+	if !fast {
+		// toutes les 5 s : propriétaire (conteneur) et règle de taille (#126)
 		if t.watch.beat++; t.watch.beat%5 == 1 {
-			t.heartbeat()
+			if !t.host && !ro {
+				t.heartbeat()
+			}
+			t.govern()
 		}
+	}
+	if !fast && !t.host && !ro {
 		// Ctrl+B R dans le tmux du conteneur incrémente @cl_relayout (bootstrap.sh)
 		if b, err := t.cl().Output("show-options", "-wqv", "-t", t.win, "@cl_relayout"); err == nil {
 			r := strings.TrimSpace(string(b))
@@ -841,6 +856,7 @@ func (t *projTerm) heartbeat() {
 		t.mu.Unlock()
 		t.a.setMsg("⬢ " + o.Id + " a pris la main sur " + t.name + " : lecture seule — Entrée sur le projet pour la reprendre")
 		t.setState("ready", "")
+		t.govern() // le pilote décide de la taille (#126)
 		return
 	}
 	_ = c.Send("set-option", "-t", t.win, "@cl_owner_at", strconv.FormatInt(time.Now().Unix(), 10))

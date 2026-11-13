@@ -740,6 +740,12 @@ class ProjView {
   applyLayout(l) {
     this.layout = l;
     if (!cell) cell = measureCell();
+    // fenêtre plus grande que la zone (un autre launcher pilote la taille, #126) :
+    // affichée réduite plutôt que coupée
+    const vr = $('views').getBoundingClientRect();
+    const k = Math.min(1, (vr.width - 8) / (l.cols * cell.w), (vr.height - 8) / ((l.rows + 1) * cell.h));
+    this.panesEl.style.transformOrigin = '0 0';
+    this.panesEl.style.transform = k < 0.999 ? 'scale(' + k + ')' : '';
     const seen = {};
     for (const p of l.panes) {
       seen[p.id] = true;
