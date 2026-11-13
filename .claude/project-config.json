@@ -23,8 +23,8 @@
   "initialized_at": "2026-11-13T17:40:00Z",
   "initialized_from": "analysis",
   "template_version": {
-    "tag": "v5.9.1",
-    "commit": "85605a1add92f2f81582023c1c1727a892aae133"
+    "tag": "v5.9.2",
+    "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464"
   },
   "src_dir": "ng2",
   "version_file": "",
@@ -169,32 +169,32 @@
       {
         "name": "cdp",
         "source": "agents/cdp.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
-        "sha256": "24fda70d74eac4eb32fe1f2a7ad348902a69cd7e7e2ffebffd8a48fc5d7d25ba",
-        "changed_in": "v5.9.1"
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
+        "sha256": "18c140211c9f9116115ab355c2b3ebacd0c0121cc0901168bee56bdd7534ec9c",
+        "changed_in": "v5.9.2"
       },
       {
         "name": "code-reviewer",
         "source": "agents/code-reviewer.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "6db56bbdc6483602b9284348bb1f2653fa1bc541ef31681697b6bbf98920b5fe",
         "changed_in": "v5.9.1"
       },
       {
         "name": "deploy",
         "source": "agents/deploy.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "61d55bd55e2b2756ee602c37b4c0bb6cab90f022f353295fcd608a4e2568170b",
         "changed_in": "v5.9.1"
       },
       {
         "name": "dev-backend",
         "source": "templates/dev-backend-go.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "d379ae707ffcb3fc04bd090e72bf89befa4a72a7ba15d25e6688286e23b0b7f3",
         "changed_in": "v5.9.1",
         "role": "Backend Go (ng2 : core, platform, coque tmux, liaison Wails)",
@@ -210,8 +210,8 @@
       {
         "name": "dev-frontend",
         "source": "templates/dev-generic.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "708469470ffc7f7a3569360ec68948532a46ed6c9b44042413c6ee4995693396",
         "changed_in": "v5.9.1",
         "role": "Interface native Windows (Wails : HTML/CSS/JS + xterm.js)",
@@ -222,80 +222,80 @@
       {
         "name": "doc-updater",
         "source": "agents/doc-updater.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "87c296a161f67af7eb441430cf2cb530fa9552b1bb6aa04acb819452ef581074",
         "changed_in": "v5.9.1"
       },
       {
         "name": "generic",
         "source": "agents/generic.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "4157f75529762528a54afbfcc50630d772ca8734c8ab693c913bb0d8933f6be7",
         "changed_in": "v5.9.1"
       },
       {
         "name": "implementation-planner",
         "source": "agents/implementation-planner.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "4691cfee7bce2ce12f6b156022e1c883cbf2ccdcf644a94aab6394875066c308",
         "changed_in": "v5.9.1"
       },
       {
         "name": "infra",
         "source": "agents/infra.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "b62763fbbbdec3b728d8c623ce7f0aedeae9faacacf938bb1644f5064b6cf7b4",
         "changed_in": "v5.9.1"
       },
       {
         "name": "marketing-release",
         "source": "agents/marketing-release.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "763f9ff5f0bba3dd76e135203f316d7517b2f8105ab52622731771c1c8be45de",
         "changed_in": "v5.9.1"
       },
       {
         "name": "pr-reviewer",
         "source": "agents/pr-reviewer.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "399fb28b4180b86be96dbb6dab0c483c287a2a660c403adc0a357977d2acb24b",
         "changed_in": "v5.9.1"
       },
       {
         "name": "qa",
         "source": "agents/qa.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "42858374d994c49190c911bd7d43dbe268a710d4fdc2d0b056585a8582f880a4",
         "changed_in": "v5.9.1"
       },
       {
         "name": "security",
         "source": "agents/security.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "c92fc9d89ba987149dee4e7a7442cae784267ff15e43100bc0e357e21547bc54",
         "changed_in": "v5.9.1"
       },
       {
         "name": "teamleader",
         "source": "agents/teamleader.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "a56d6b2b641ce965297c0b14ef560b0b3759ff3ee8de33b0f99da3229d1bce9b",
         "changed_in": "v5.9.1"
       },
       {
         "name": "test-writer",
         "source": "agents/test-writer.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "b0459ff14215c3f4318954881f9ac2e9f0d8c61b352291f05aeb59a839d342ec",
         "changed_in": "v5.9.1"
       }
@@ -306,112 +306,112 @@
       {
         "name": "agents/context/CDP_PHASES_PLAN_DEV",
         "source": "agents/context/CDP_PHASES_PLAN_DEV.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
-        "sha256": "5f3e688619c824a2674023d09c2357915be31dcce5074daa273ead65bb5e66a0",
-        "changed_in": "v5.9.1"
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
+        "sha256": "2b57f70ec8155122ac2e418143d6c0d719f749a8bda688fed2e8c63a0001e7a1",
+        "changed_in": "v5.9.2"
       },
       {
         "name": "agents/context/CDP_PHASES_RELEASE",
         "source": "agents/context/CDP_PHASES_RELEASE.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
-        "sha256": "522c9d78aadb8f246f08359f746993e783dcc3ded7806725cb8b59702a07f595",
-        "changed_in": "v5.9.1"
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
+        "sha256": "1fcebfdf8f240c14719f528d5b339660622815eece422f8bc0bc417c242b9efd",
+        "changed_in": "v5.9.2"
       },
       {
         "name": "agents/context/CDP_PHASES_REVIEW_QA",
         "source": "agents/context/CDP_PHASES_REVIEW_QA.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "afa83a4988c8852dd2f14d61d077d6fb2bf6c4c60d7cee08c0886fd30cb21833",
         "changed_in": "v5.9.1"
       },
       {
         "name": "agents/context/COMMON",
         "source": "agents/context/COMMON.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "bd121ba4479d4dc190498a57b9bfa1b04c4ba56fb276ea621b69844406829cbd",
         "changed_in": "v5.9.1"
       },
       {
         "name": "agents/context/DEV_COMMON",
         "source": "agents/context/DEV_COMMON.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "8f07e6f262881b602ad87183ff62cc1198a44955cc039cb4e50893286961925a",
         "changed_in": "v5.9.1"
       },
       {
         "name": "agents/context/GITHUB",
         "source": "agents/context/GITHUB.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "9761d7c392500659f0852ef81e9d984bd91860996cd4031d020e5695fcd661f2",
         "changed_in": "v5.9.1"
       },
       {
         "name": "agents/context/MILESTONE_CADRAGE",
         "source": "agents/context/MILESTONE_CADRAGE.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "5c2b58457d8a95c00df088c795d15d2da7a469053125a2a815ba0211b73d056b",
         "changed_in": "v5.9.1"
       },
       {
         "name": "agents/context/TEAMMATES_PROTOCOL",
         "source": "agents/context/TEAMMATES_PROTOCOL.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "39120cd25cf5d0dd591ae3c76623e62386119f75687b8da2779544a513255d34",
         "changed_in": "v5.9.1"
       },
       {
         "name": "agents/context/VALIDATION_COMMON",
         "source": "agents/context/VALIDATION_COMMON.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "5d8a206b7aad38d8289daef43c17b81bd7f2b4ee4410eada5c7d2a1129914c77",
         "changed_in": "v5.9.1"
       },
       {
         "name": "commands/context/CDP_WORKFLOWS",
         "source": "commands/context/CDP_WORKFLOWS.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "9f833847fdd5a0554741209605349381e7cc49e3b38f7637f856c413df31cb00",
         "changed_in": "v5.9.1"
       },
       {
         "name": "commands/context/COMMON",
         "source": "commands/context/COMMON.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
-        "sha256": "b1193a06453cbf293ad23b99f177a75f2540bacd5756bb277c946ecd99384e0c",
-        "changed_in": "v5.9.1"
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
+        "sha256": "aab3a02bbe7f58cf898907cfd62758e16b96b27d620dea9a722c880682776410",
+        "changed_in": "v5.9.2"
       },
       {
         "name": "commands/context/DEVELOPMENT",
         "source": "commands/context/DEVELOPMENT.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "43f10a9db82309eb6b985e17480c3a71eb6d60ef8b58d868171f90a0a1813438",
         "changed_in": "v5.9.1"
       },
       {
         "name": "commands/context/GITHUB",
         "source": "commands/context/GITHUB.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "39c3414b0c118a1908262ee22314d72141ecdcfd1e98d72e5742404ea80ed191",
         "changed_in": "v5.9.1"
       },
       {
         "name": "commands/context/QUALITY",
         "source": "commands/context/QUALITY.md",
-        "tag": "v5.9.1",
-        "commit": "85605a1add92f2f81582023c1c1727a892aae133",
+        "tag": "v5.9.2",
+        "commit": "bedfd8e94f4b4311a9b3dc8310100be046d2c464",
         "sha256": "642a126dc21e6ec77184e9ee916fa7d2f4b252ab6670f8df6beb19681d603b5c",
         "changed_in": "v5.9.1"
       }

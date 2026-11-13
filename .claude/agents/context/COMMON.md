@@ -18,18 +18,12 @@ Ils ne touchent jamais les vrais projets, le vrai `claude`, ni la session `claud
 
 `git -c credential.helper='!gh auth git-credential' push …` (le dépôt est en HTTPS, l'authentification passe par `gh`).
 
-## Fichiers dans Chrome — remplace `commands/context/COMMON.md` §14.9
-
-Pour ce projet, ce paragraphe **remplace** la conversion `file://` du §14.9 du template (`browser_url`) : le launcher
-(≥ v5.10.0) sert les fichiers à `http://localhost:8081<chemin absolu>` (segments encodés), et l'extension Claude in
-Chrome refuse `file://`. `CL_BROWSER_PATH_MAP` vaut alors `[{"container":"/","host":"http://localhost:8081","os":"url"}]`.
-Toute maquette publiée est ouverte dans Chrome, onglet laissé ouvert.
-
 ## Règles permanentes du projet
 
 - **Milestone non démarré** (pas de due date) : ses issues ne portent aucun label de phase ; une issue reportée vers
   un milestone futur perd le sien (sinon le panneau milestone le croit démarré).
-- **Maquette avant le développement** : toute nouvelle interface passe par une maquette validée par l'utilisateur.
+- **Maquette avant le développement** : toute nouvelle interface passe par une maquette validée par l'utilisateur,
+  ouverte dans Chrome par le serveur web du launcher (`commands/context/COMMON.md` §14.9), onglet laissé ouvert.
 - **README dans la PR même** : le README est mis à jour dans la PR qui change le comportement, avant fusion et release.
 
 ## Release
