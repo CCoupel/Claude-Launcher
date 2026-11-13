@@ -138,22 +138,27 @@ html, body { margin: 0; height: 100%; background: var(--bg-deep); color: var(--t
    clavier visible, badges en colonnes fixes calées à droite. */
 #tree { flex: 0 1 auto; min-height: 120px; max-height: 50%; overflow-y: auto; padding: 4px 4px 4px 6px; font-family: var(--ui); }
 /* densité (#132) : compacte par défaut, proche de la coque ; confortable = Explorateur */
-:root { --rowh: 22px; --rowgap: 0px; --rowfont: 12.5px; }
-body.comfortable { --rowh: 30px; --rowgap: 1px; --rowfont: 13px; }
-.row { position: relative; display: flex; align-items: center; gap: 4px; height: var(--rowh); padding: 0 6px 0 4px; margin: var(--rowgap) 0; border-radius: 4px; cursor: default; user-select: none; }
+/* compacte, densité de la coque (#132 rouvert) : une ligne de texte sans
+   marge verticale, décalage d'environ 1,5 caractère par niveau, chevron
+   compris (chevron et pastille plus étroits, espacement réduit) */
+:root { --rowh: 17px; --rowgap: 0px; --rowfont: 12.5px; --indent: 9px; --chevw: 10px; --dotw: 11px; --rowpad: 2px; --rowgapx: 2px; --barh: 11px; }
+body.comfortable { --rowh: 30px; --rowgap: 1px; --rowfont: 13px; --indent: 16px; --chevw: 16px; --dotw: 16px; --rowpad: 4px; --rowgapx: 4px; --barh: 18px; }
+.row { position: relative; display: flex; align-items: center; gap: var(--rowgapx); height: var(--rowh); line-height: var(--rowh); padding: 0 6px 0 var(--rowpad); margin: var(--rowgap) 0; border-radius: 3px; cursor: default; user-select: none; }
 .row:hover { background: var(--hover); }
 .row.cur { background: var(--selbg); }
 #nav:focus .row.cur, #nav:focus-within .row.cur { background: var(--selbg-focus); }
-.row.cur::before { content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: calc(var(--rowh) - 12px); margin-top: calc((var(--rowh) - 12px) / -2); border-radius: 2px; background: var(--accent); }
+.row.cur::before { content: ""; position: absolute; left: 0; top: 50%; width: 3px; height: var(--barh); margin-top: calc(var(--barh) / -2); border-radius: 2px; background: var(--accent); }
 body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset: -1px; }
 .row .ind { flex: none; height: 1px; }
-.row .chev { flex: none; width: 16px; height: 16px; display: inline-flex; align-items: center; justify-content: center; color: var(--chev); border-radius: 3px; transition: transform .15s ease; }
+.row .chev { flex: none; width: var(--chevw); height: var(--chevw); display: inline-flex; align-items: center; justify-content: center; color: var(--chev); border-radius: 3px; transition: transform .15s ease; }
 .row .chev.open { transform: rotate(90deg); }
 .row .chev:hover { background: var(--hover); }
 .row .chev.none { visibility: hidden; }
+/* compacte : la pastille d'un projet prend la place du chevron (#132) */
+body:not(.comfortable) .row .chev.none { display: none; }
 .row.root .name { font-weight: 600; color: var(--text); }
 .row.cat .name { font-weight: 600; color: var(--text2); }
-.row .dot { width: 16px; flex: none; text-align: center; font-family: var(--mono); font-size: 12px; }
+.row .dot { width: var(--dotw); flex: none; text-align: center; font-family: var(--mono); font-size: 12px; }
 .row .name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: var(--rowfont); }
 .row .rel { flex: none; max-width: 76px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-family: var(--mono); font-size: 11px; text-align: right; }
 .row .cols { flex: none; display: flex; font-family: var(--mono); font-size: 12px; }

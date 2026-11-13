@@ -217,7 +217,7 @@ function renderTree() {
     d.dataset.path = r.path;
     d.setAttribute('role', 'treeitem');
     d.setAttribute('aria-level', String(level(r) + 1));
-    const ind = el('span', 'ind'); ind.style.width = (S.filter ? 0 : level(r) * 16) + 'px';
+    const ind = el('span', 'ind'); ind.style.width = 'calc(var(--indent) * ' + (S.filter ? 0 : level(r)) + ')'; // #132
     d.appendChild(ind);
     if (r.kind !== 'project') {
       const chev = el('span', 'chev' + (isCollapsed(r.path) ? '' : ' open'));

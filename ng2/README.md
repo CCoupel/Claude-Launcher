@@ -876,7 +876,9 @@ Windows 11 (Explorateur) : hauteur de ligne et indentation, chevrons, survol et 
 conteneur, milestone, PR, reprise) avec les icônes et couleurs de la coque ; thème clair si le
 système est en clair. Racines et catégories se replient ; largeur du navigateur, hauteur de
 l'arbre, cartes repliées et zone des cartes masquée sont gardées dans `desktop-ui.json` du cache
-du launcher.
+du launcher. Densité de l'arbre (≡ / ☰ dans l'en-tête, #132) : **compacte** par défaut, à la densité de la
+coque (lignes de 17 px, décalage de 9 px par niveau, la pastille d'un projet à la place du
+chevron), ou **confortable** (Explorateur : 30 px, 16 px par niveau).
 
 **Projets lus par `\\wsl.localhost` (9P)** (#125) : chaque appel de fichier traverse WSL, et un
 `git status` par projet coûte cher. L'arbre et les badges du lancement précédent
