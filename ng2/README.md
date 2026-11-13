@@ -1,18 +1,22 @@
-# Claude-Launcher-NG2 (v5)
+# Claude-Launcher-NG2 (v6)
 
 Binaire Go qui pilote plusieurs projets Claude Code dans tmux : navigateur de
 projets à gauche, tmux à droite, une fenêtre par projet (teamleader +
 teammates). La v5 ajoute l'**exécution des projets dans des conteneurs** —
 podman, docker, podman ou docker par ssh, Kubernetes — avec un tmux par
 projet, imbriqué dans le hub et piloté par son canal de contrôle (`tmux -C`).
-Sans configuration, un projet tourne sur l'hôte comme en v4.
+Sans configuration, un projet tourne sur l'hôte comme en v4. La v6 ajoute un
+**launcher Windows natif** (`claude-launcher-ng2.exe`, voir [Windows](#windows-v6)),
+qui partage tout le cœur (`core`) avec la coque tmux ; sous Linux, la coque ne
+change pas.
 
 NG2 a ses propres noms, et peut tourner à côté d'un launcher v4 : binaire
 `claude-launcher-ng2`, coque `claude-ui-ng2`, serveur tmux intérieur
 `claude-ng2` (session `claude-hub-ng2`), config
 `~/.config/claude-launcher-ng2/`, cache `~/.cache/claude-launcher-ng2/`.
-**Changer de version majeure (v4 ↔ v5) uniquement avec tous les projets
-fermés.**
+**Passer de v4 à v5/v6 (ou revenir) uniquement avec tous les projets
+fermés** ; de v5 à v6, la mise à jour se fait seule (voir
+[Changement de version majeure](#changement-de-version-majeure)).
 
 Vue d'ensemble, installation et configuration : [README du repo](../README.md).
 Ce document détaille le fonctionnement et le dépannage.
@@ -22,7 +26,8 @@ Ce document détaille le fonctionnement et le dépannage.
 ### Depuis une release
 
 Chaque tag `v5.*` (et suivants) publie un binaire par plateforme (linux/darwin,
-amd64/arm64) et un `SHA256SUMS` :
+amd64/arm64), depuis la v6 `claude-launcher-ng2.exe` (windows/amd64, interface
+native), et un seul `SHA256SUMS` :
 
 ```bash
 os=$(uname -s | tr A-Z a-z); arch=$(uname -m)
@@ -31,6 +36,10 @@ curl -fsSL "https://github.com/CCoupel/Claude-Launcher/releases/latest/download/
   -o ~/.local/bin/claude-launcher-ng2 && chmod +x ~/.local/bin/claude-launcher-ng2
 claude-launcher-ng2 version
 ```
+
+Windows : télécharger `claude-launcher-ng2.exe` de la même release, dans un dossier où l'on peut
+écrire ; installation pas à pas (WebView2, outils, `backends.yaml`) dans le
+[README du repo — Windows](../README.md#windows).
 
 ### Depuis les sources
 
@@ -42,7 +51,8 @@ go build -o ~/.local/bin/claude-launcher-ng2 .
 
 Prérequis : `tmux`, `git`, `bash` (lecture de la config) et `claude`. Pour les projets en
 conteneur, en plus : le client du moteur (`podman`, `docker`, `kubectl`) ou `ssh`, selon le
-backend ; rien n'est à préinstaller dans les images.
+backend ; rien n'est à préinstaller dans les images. L'exe Windows : voir
+[Construire l'exécutable](#interface-native-desktop).
 
 ## Lancement
 
@@ -557,7 +567,8 @@ URL donnée à Chrome           : http://localhost:8765/share/MFS/ROOT/x/maquett
   `127.0.0.1` est refusée), il n'y a pas de CORS, et les réponses portent `Cache-Control: no-store`
   pour qu'une maquette modifiée se recharge. Un dossier affiche son `index.html` ou, à défaut, la
   liste de ses fichiers ; `.md` et `.yaml` sont affichés en texte.
-- Le serveur tourne dans le pane des cartes du hub, qui est relancé s'il s'arrête. Le réglage est
+- Le serveur tourne dans le pane des cartes du hub, qui est relancé s'il s'arrête (sous Windows :
+  dans l'application, sur son propre port, voir [Windows](#windows-v6)). Le réglage est
   relu toutes les 10 s, et un port occupé est réessayé.
   `claude-launcher-ng2 backends` affiche l'adresse, l'état (`actif : Claude-Launcher-NG2 v…`) et les
   racines servies.
@@ -784,15 +795,45 @@ et écrit ses échecs dans le cache commun : l'arrêter.
 ### Changement de version majeure
 
 v4 ne connaît pas les conteneurs : son nettoyage des teams et sa reprise
-peuvent prendre la session d'un conteneur pour morte. **Passer de v4 à v5 (ou
+peuvent prendre la session d'un conteneur pour morte. **Passer de v4 à v5/v6 (ou
 revenir) uniquement avec tous les projets fermés.**
 
-## Windows (v6, en cours)
+**v5 → v6** : la coque Linux, ses sessions tmux, ses fichiers et sa
+configuration sont les mêmes. Un hub v5 se met à jour en v6 comme pour une
+version mineure (au lancement ou par l'annonce verte), projets conservés. Les
+nouvelles clés de `backends.yaml` (`hubs.<machine>.paths`, `windows:`,
+`hub_cache`…) sont ignorées par un hub v5. Revenir à la v5 : installer la
+v5.10.0 et la lancer avec `--no-update` (sinon elle se remet à jour en v6). Un
+template v6 n'est proposé qu'à un launcher v6
+([Versions](#versions-mises-à-jour-et-template)). Pas à pas :
+[README du repo — Passage à la v6](../README.md#passage-à-la-v6).
+
+## Windows (v6)
 
 La v6 porte le launcher en application Windows native (epic #114) : un seul `.exe`, qui ouvre
 l'**interface native** (Wails + xterm.js, #111) lancé sans argument. En ligne de commande,
-`backends`, `configure`, `help` et `version` fonctionnent comme sous Linux ; les sous-commandes
-de la coque tmux (`shell`, `nav`…) répondent par un message.
+`backends`, `configure` (Bloc-notes), `help` et `version` fonctionnent comme sous Linux ; les
+sous-commandes de la coque tmux (`shell`, `nav`…) répondent par un message.
+
+**Installation** : pas à pas dans le [README du repo — Windows](../README.md#windows) (exe de la
+release, WebView2, outils `winget`, `backends.yaml` partagé). En résumé : le runtime **WebView2**
+(présent sur Windows 10 à jour et Windows 11 ; sinon `winget install --id
+Microsoft.EdgeWebView2Runtime -e`), les [outils externes](#prérequis--outils-externes) des
+backends déclarés (l'écran « Premier lancement » liste ceux qui manquent, avec leur commande
+`winget`), le partage visible du poste et sa [correspondance de chemins](#correspondance-de-chemins--hubsmachinepaths).
+L'exécutable est une application graphique : en ligne de commande, sa sortie va dans la console de
+l'invite ; les outils qu'il lance (`git`, `docker`, `kubectl`, `ssh`) n'ouvrent pas de fenêtre.
+
+### Ce qui tourne où
+
+Les projets tournent **toujours dans un conteneur distant** : docker/podman en `tcp://` ou
+`ssh://` (ou contexte docker), backend `ssh`, `k8s`. `host` et les moteurs locaux (socket par
+défaut, `unix://`, `npipe://` de Docker Desktop) sont **refusés**, avec un message explicite dans
+`claude-launcher-ng2 backends` et à l'ouverture d'un projet.
+
+Le stockage partagé doit être visible du poste (par exemple `\\wsl.localhost\Ubuntu\share\MFS\…`) :
+c'est à l'utilisateur de le rendre accessible avant de lancer le launcher, qui ne démarre pas WSL.
+
 
 ### Interface native (`desktop`)
 
@@ -814,13 +855,6 @@ fixer), protégée par un jeton aléatoire dans l'URL affichée (puis un cookie)
 n'ouvre pas le navigateur. Fermer la fenêtre ou arrêter le serveur **détache** l'interface :
 les sessions des projets continuent dans leur tmux (conteneur, ou tmux local de l'hôte), et sont
 retrouvées au lancement suivant (comme la coque après un arrêt du hub).
-
-**Prérequis Windows** : le runtime **WebView2** (présent sur Windows 10 à jour et Windows 11 ;
-sinon « Evergreen Runtime » de Microsoft, `winget install --id Microsoft.EdgeWebView2Runtime -e`),
-et les outils externes des backends déclarés (voir plus bas ; l'écran « Premier lancement » les
-liste avec leur commande `winget` quand un outil requis manque). L'exécutable est une application
-graphique : en ligne de commande, sa sortie va dans la console de l'invite ; les outils qu'il lance
-(`git`, `docker`, `kubectl`, `ssh`) partagent une console masquée (pas de fenêtre noire).
 
 **Ce qu'on y retrouve de la coque** (mêmes sources dans `core`) :
 
@@ -978,16 +1012,6 @@ GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -tags desktop,production -trimp
 Les balises `desktop,production` sont celles qu'exige Wails (sans elles, l'exe ne s'ouvre pas et
 le dit) ; la CLI `wails` n'est pas nécessaire. Versions embarquées : Wails v2.17.0, xterm.js 6.0.0,
 `@xterm/addon-unicode11` 0.9.0 (`ui/desktop/frontend/vendor/VERSIONS.txt`).
-
-### Ce qui tourne où
-
-Les projets tournent **toujours dans un conteneur distant** : docker/podman en `tcp://` ou
-`ssh://` (ou contexte docker), backend `ssh`, `k8s`. `host` et les moteurs locaux (socket par
-défaut, `unix://`, `npipe://` de Docker Desktop) sont **refusés**, avec un message explicite dans
-`claude-launcher-ng2 backends` et à l'ouverture d'un projet.
-
-Le stockage partagé doit être visible du poste (par exemple `\\wsl.localhost\Ubuntu\share\MFS\…`) :
-c'est à l'utilisateur de le rendre accessible avant de lancer le launcher, qui ne démarre pas WSL.
 
 ### Correspondance de chemins : `hubs.<machine>.paths`
 
@@ -1243,9 +1267,10 @@ les autres : `/init-project` reste possible pour le convertir.)
 
 ## Versions, mises à jour et template
 
-**Au lancement**, le NG se met à jour si la dernière release GitHub est plus récente : binaire
+**Au lancement**, la coque se met à jour si la dernière release GitHub est plus récente : le binaire
 de la plateforme est téléchargé, vérifié contre `SHA256SUMS`, remplacé,
-puis le NG se relance. Un navigateur resté sur l'ancien binaire est redémarré ; les projets
+puis le NG se relance. L'interface native (`desktop`, défaut sous Windows) ne se met pas à jour
+avant d'ouvrir sa fenêtre : l'annonce ci-dessous prépare la version, un clic l'installe. Un navigateur resté sur l'ancien binaire est redémarré ; les projets
 ouverts ne sont pas touchés. Hors ligne ou en cas d'échec, il démarre avec la version en place.
 Désactiver : `claude-launcher-ng2 --no-update` ou `CL_NO_UPDATE=1`. Un binaire compilé à la
 main (version `dev` ou suffixée) ne se remplace jamais.
@@ -1296,8 +1321,8 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
 
 ### Structure du code (v6)
 
-Le code est réparti en packages, pour partager avec le futur launcher Windows tout ce qui ne
-dépend ni de tmux ni de l'OS :
+Le code est réparti en packages, pour partager entre la coque tmux et le launcher Windows tout ce
+qui ne dépend ni de tmux ni de l'OS :
 
 | Package | Rôle |
 |---|---|
@@ -1318,8 +1343,8 @@ création d'un projet (`newproject.go`).
 `core` ne dépend ni de `ui/tmux` ni d'un appel système propre à Linux :
 `GOOS=windows go vet ./core/... ./platform/...` et `GOOS=windows go build ./...` doivent rester
 propres. Le workflow `ng2-tests` les vérifie à chaque PR vers `main` et `v6`, avec
-`go test ./core/... ./platform/...` sur un runner `windows-latest`. Pour l'interface Windows
-(#111), `core` expose notamment `CheckTools` (outils requis et commande winget),
+`go test ./core/... ./platform/...` et les tests de `ui/desktop` sur un runner `windows-latest`.
+Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et commande winget),
 `LocalRefusal`, `HubPaths`/`RemotePath`/`LocalPath`, `CtrUser`, `InstallBinary`, et `platform`
 `StartTerminal` (terminal redimensionnable), `OnNetworkFS`, `CleanupOldExe`.
 
