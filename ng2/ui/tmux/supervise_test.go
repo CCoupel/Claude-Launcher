@@ -57,15 +57,7 @@ func TestEnsureLayoutRecreatesNav(t *testing.T) {
 		t.Setenv("TMUX_TMPDIR", d)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
-	// Enregistré en dernier, donc exécuté en premier (#128) : avant que
-	// TMUX_TMPDIR soit restauré et son dossier effacé, sinon kill-server ne
-	// trouve plus la socket et le serveur, avec ses boucles supervised, survit.
-	t.Cleanup(func() {
-		stopOuterShell()
-		if left := leftovers(sock, 5*time.Second); left != "" {
-			t.Errorf("processus restants après le test (%s) :\n%s", sock, left)
-		}
-	})
+	cleanupOuterShell(t, sock)
 	for _, keepInfo := range []bool{true, false} {
 		stopOuterShell()
 		if out, err := otmux("-f", "/dev/null", "new-session", "-d", "-s", outerSession, "-x", "120", "-y", "40", "sleep 600").CombinedOutput(); err != nil {
@@ -93,6 +85,21 @@ func TestEnsureLayoutRecreatesNav(t *testing.T) {
 			t.Fatalf("keepInfo=%v : navigateur recréé en %s, attendu en haut à gauche", keepInfo, pos)
 		}
 	}
+}
+
+// cleanupOuterShell enregistre l'arrêt de la coque de test, puis vérifie qu'aucun
+// processus citant sock ne survit. À appeler après le t.Setenv de TMUX_TMPDIR
+// et son t.Cleanup : enregistré en dernier, donc exécuté en premier (#128,
+// #144), avant que TMUX_TMPDIR soit restauré et son dossier effacé, sinon
+// kill-server ne trouve plus la socket et le serveur, avec ses panes, survit.
+func cleanupOuterShell(t *testing.T, sock string) {
+	t.Helper()
+	t.Cleanup(func() {
+		stopOuterShell()
+		if left := leftovers(sock, 5*time.Second); left != "" {
+			t.Errorf("processus restants après le test (%s) :\n%s", sock, left)
+		}
+	})
 }
 
 // stopOuterShell arrête les processus des panes de la coque de test (chaque

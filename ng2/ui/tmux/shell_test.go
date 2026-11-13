@@ -18,16 +18,16 @@ func TestShellWithoutNav(t *testing.T) {
 	}
 	sock := fmt.Sprintf("cl-test-outer-%d", os.Getpid())
 	t.Setenv("CL_OUTER_SOCKET", sock)
-	t.Cleanup(func() { _ = otmux("kill-server").Run() })
 	t.Setenv("TMUX", "")
 	t.Setenv("TERM", "xterm-256color")
 	if d, err := os.MkdirTemp("", "cltmux"); err == nil { // court : limite des sockets unix
 		t.Setenv("TMUX_TMPDIR", d)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
+	cleanupOuterShell(t, sock) // en dernier, donc exécuté en premier (#144)
 
 	newShell := func(tag bool) (nav string) {
-		_ = otmux("kill-server").Run()
+		stopOuterShell()
 		if out, err := otmux("-f", "/dev/null", "new-session", "-d", "-s", outerSession, "-x", "120", "-y", "40", "sleep 600").CombinedOutput(); err != nil {
 			// runner sans tmux utilisable (CI) : rien à vérifier ici
 			t.Skipf("tmux inutilisable ici : %v (%s)", err, strings.TrimSpace(string(out)))
@@ -57,7 +57,7 @@ func TestShellWithoutNav(t *testing.T) {
 		t.Fatal("coque d'avant les rôles vue sans navigateur")
 	}
 
-	_ = otmux("kill-server").Run() // plus de coque du tout
+	stopOuterShell() // plus de coque du tout
 	if !shellWithoutNav() {
 		t.Fatal("coque introuvable : doit être recréée")
 	}
