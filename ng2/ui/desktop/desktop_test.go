@@ -95,6 +95,10 @@ func sandbox(t *testing.T, root string, names ...string) (projects []string) {
 	}
 	t.Setenv("CL_ROOTS", filepath.Join(root, "PROJETS"))
 	t.Setenv("CL_NO_UPDATE", "1")
+	// un podman présent (runner de CI) crée son stockage sous XDG_DATA_HOME,
+	// avec des droits que le nettoyage de t.TempDir ne peut pas effacer : hors
+	// du dossier temporaire du test
+	t.Setenv("XDG_DATA_HOME", filepath.Join(os.TempDir(), "cl-desk-test-data"))
 	for _, n := range names {
 		p := filepath.Join(root, "PROJETS", "TEST", n)
 		_ = os.MkdirAll(p, 0o755)
