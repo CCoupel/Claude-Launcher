@@ -46,11 +46,15 @@ type App struct {
 	closing    map[string]string    // projet -> étape de sa fermeture en cours
 	plans      map[string]closePlan // fermetures en attente de confirmation
 	terms      map[string]*projTerm
-	order      []string // onglets, dans l'ordre d'ouverture
+	fromCache  map[string]bool // projets dont l'état vient d'un cache (git en tâche de fond inutile)
+	order      []string        // onglets, dans l'ordre d'ouverture
 	started    time.Time
 	loadedAt   time.Duration
 	mgr        *core.StateMgr
 	upd        updState
+	perf       perfLog
+	treeCached bool   // arbre repris du lancement précédent (relu en tâche de fond)
+	hubCache   string // cache d'état du hub Linux (hubs.<machine>.hub_cache)
 
 	dirty     chan struct{}
 	cardDirty chan struct{}
@@ -72,19 +76,35 @@ func NewApp(emit Emitter) *App {
 	a := &App{cfg: cfg, emit: emit,
 		git: map[string]core.GitInfo{}, tpl: map[string]core.TemplateState{}, detail: map[string]core.GitDetail{},
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
-		terms: map[string]*projTerm{}, started: time.Now(),
+		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
-	a.nodes = core.ScanTree(cfg.Roots)
+	a.hubCache = core.HubCacheDir()
+	// arbre du lancement précédent (affiché tout de suite, relu en tâche de
+	// fond) ; à défaut, parcours des racines (#125)
+	if nodes, ok := cachedTree(cfg.Roots); ok {
+		a.nodes, a.treeCached = nodes, true
+	} else {
+		a.perf.time("parcours", func() { a.nodes = core.ScanTree(cfg.Roots) })
+		saveTree(cfg.Roots, a.nodes)
+	}
 	a.usage = core.ReadUsage()
+	// badges immédiats : état en cache (local ou du hub Linux), sinon les
+	// badges git du lancement précédent
+	a.perf.time("caches", func() {
+		gc := loadGitCache()
+		for _, p := range a.projectPaths() {
+			if ps, ok := bestState(a.hubCache, p); ok {
+				a.git[p], a.tpl[p], a.detail[p] = ps.Git, ps.Tpl, ps.Detail
+				a.fromCache[p] = true
+			} else if g, ok := gc[p]; ok {
+				a.git[p], a.tpl[p] = g.Git, g.Tpl
+			}
+		}
+	})
 	if mgr, err := core.NewStateMgr(); err == nil {
 		a.mgr = mgr
 		mgr.SetProjects(a.projectPaths())
-		for _, p := range a.projectPaths() { // badges immédiats depuis le cache précédent
-			if ps, _, ok := core.ReadState(p); ok {
-				a.git[p], a.tpl[p], a.detail[p] = ps.Git, ps.Tpl, ps.Detail
-			}
-		}
 	}
 	for _, p := range a.projectPaths() {
 		a.sel = p
@@ -141,11 +161,18 @@ func (a *App) Start() {
 	go core.RunBrowserServer() // fichiers pour le navigateur (#106)
 	go a.emitter()
 	go a.treeLoop()
-	go a.gitAll()
+	go func() {
+		if a.treeCached {
+			a.perf.time("parcours", a.rescan)
+		}
+		a.perf.time("git", a.gitAll)
+		a.perf.write(len(a.projectPaths()))
+		a.changed()
+	}()
 	go a.every(10*time.Second, a.readSessions)
-	go a.every(10*time.Second, a.readCtr)
-	go a.every(30*time.Second, a.readUsage)
-	go a.every(time.Minute, func() { a.readMilestones(false) })
+	go a.everyTimed("conteneurs", 10*time.Second, a.readCtr)
+	go a.everyTimed("conso", 30*time.Second, a.readUsage)
+	go a.everyTimed("milestones", time.Minute, func() { a.readMilestones(false) })
 	go a.every(2*time.Second, a.refreshCards)
 	go a.updateLoop()
 	if a.mgr != nil {
@@ -186,6 +213,19 @@ func (a *App) Stop() {
 		go func(t *projTerm) { defer wg.Done(); t.detach() }(t)
 	}
 	wg.Wait()
+}
+
+// everyTimed : every, la première exécution mesurée (journal #125).
+func (a *App) everyTimed(step string, d time.Duration, f func()) {
+	first := true
+	a.every(d, func() {
+		if first {
+			first = false
+			a.perf.time(step, f)
+			return
+		}
+		f()
+	})
 }
 
 func (a *App) every(d time.Duration, f func()) {
@@ -260,7 +300,9 @@ func (a *App) rescan() {
 	if a.mgr != nil {
 		a.mgr.SetProjects(a.projectPaths())
 	}
+	roots := a.cfg.Roots
 	a.mu.Unlock()
+	saveTree(roots, nodes)
 	a.changed()
 	for _, p := range fresh {
 		go a.gitOne(p, latestTemplate())
@@ -271,19 +313,38 @@ var gitSem = make(chan struct{}, 8)
 
 func (a *App) gitAll() {
 	a.mu.Lock()
-	paths := a.projectPaths()
+	first := map[string]bool{a.sel: true}
+	for p := range a.terms {
+		first[p] = true
+	}
+	var paths []string
+	for _, p := range a.projectPaths() {
+		// état déjà en cache : le gestionnaire d'état le tient à jour, inutile
+		// de relancer git ici (sur 9P, un git par projet coûte cher)
+		if !a.fromCache[p] {
+			paths = append(paths, p)
+		}
+	}
 	a.started = time.Now()
+	roots := a.cfg.Roots
 	a.mu.Unlock()
 	latest := latestTemplate()
+	sem := make(chan struct{}, gitWorkers(roots))
 	var wg sync.WaitGroup
-	for _, p := range paths {
+	for _, p := range gitOrder(paths, first) {
 		wg.Add(1)
-		go func(p string) { defer wg.Done(); a.gitOne(p, latest) }(p)
+		sem <- struct{}{}
+		go func(p string) { defer wg.Done(); defer func() { <-sem }(); a.gitOne(p, latest) }(p)
 	}
 	wg.Wait()
 	a.mu.Lock()
 	a.loadedAt = time.Since(a.started)
+	gc := map[string]gitEntry{}
+	for p, g := range a.git {
+		gc[p] = gitEntry{Git: g, Tpl: a.tpl[p]}
+	}
 	a.mu.Unlock()
+	writeJSON(gitCachePath(), gc)
 	a.changed()
 }
 
@@ -432,6 +493,7 @@ type Snapshot struct {
 	Selected string     `json:"selected"`
 	Msg      string     `json:"msg,omitempty"`
 	Status   string     `json:"status"`
+	Perf     string     `json:"perf,omitempty"` // durées du chargement (#125)
 	Tabs     []TabInfo  `json:"tabs"`
 	Roots    []string   `json:"roots"`
 	OS       string     `json:"os"`
@@ -492,6 +554,7 @@ func (a *App) Snapshot() Snapshot {
 		}
 		s.Rows = append(s.Rows, r)
 	}
+	s.Perf = a.perf.summary()
 	if a.loadedAt > 0 {
 		s.Status = fmt.Sprintf("%d projets en %s", len(a.projectPaths()), a.loadedAt.Round(time.Millisecond))
 	} else {
@@ -663,7 +726,7 @@ func (a *App) Cards() Cards {
 	a.mu.Unlock()
 
 	c := Cards{Path: n.Path, Name: n.Name, Open: p.Open}
-	ps, _, loaded := core.ReadState(n.Path)
+	ps, loaded := bestState(a.hubCache, n.Path)
 	if !loaded {
 		// cache pas encore préparé (premier lancement) : calcul direct, gardé 30 s
 		ps, loaded = a.directState(n.Path), true

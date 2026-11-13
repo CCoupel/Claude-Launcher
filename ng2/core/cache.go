@@ -83,6 +83,25 @@ func ReadState(project string) (ps ProjState, mtime time.Time, ok bool) {
 	return ps, st.ModTime(), true
 }
 
+// ReadStateFrom : état d'un projet dans le cache d'un AUTRE launcher (dossier
+// de cache dir, lecture seule ; #125 : le hub Linux, vu de Windows), rangé
+// sous la clé key (le chemin du projet pour ce launcher-là : chemin Linux).
+// Le chemin rendu est celui de project (vu d'ici).
+func ReadStateFrom(dir, key, project string) (ps ProjState, mtime time.Time, ok bool) {
+	h := sha1.Sum([]byte(key))
+	p := filepath.Join(dir, "state", hex.EncodeToString(h[:8])+".json")
+	st, err := os.Stat(p)
+	if err != nil {
+		return ps, mtime, false
+	}
+	b, err := os.ReadFile(p)
+	if err != nil || json.Unmarshal(b, &ps) != nil || ps.Path != key {
+		return ProjState{}, mtime, false
+	}
+	ps.Path = project
+	return ps, st.ModTime(), true
+}
+
 // ComputeState : état d'un projet calculé tout de suite, sans le cache (repli
 // des cartes quand le cache n'est pas encore prêt).
 func ComputeState(project string) ProjState { return computeState(project) }

@@ -48,6 +48,17 @@ type hubConf struct {
 	Linux   *hubOSConf `yaml:"linux"`
 	Darwin  *hubOSConf `yaml:"darwin"`
 	warns   []string   // clés inconnues, ignorées (hubos.go)
+	// cache d'état du hub Linux vu de cette machine (#125, lecture seule) :
+	// les badges et cartes d'un projet en sont repris s'ils sont plus frais
+	HubCache string `yaml:"hub_cache"`
+}
+
+// HubCacheDir : hubs.<machine>.hub_cache de backends.yaml ("" : aucun).
+func HubCacheDir() string {
+	if _, h, ok := pickHub(readBackendsFile().Hubs, hubName()); ok {
+		return strings.TrimSpace(h.HubCache)
+	}
+	return ""
 }
 
 // winHostRe : C:\…, C: ou UNC \\serveur\… (dont \\wsl.localhost\…).
