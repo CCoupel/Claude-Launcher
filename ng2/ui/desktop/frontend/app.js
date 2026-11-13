@@ -251,6 +251,13 @@ function renderCards() {
   const c = S.cards, box = $('cards');
   box.textContent = '';
   if (!c || !c.path) { box.appendChild(el('div', 'dim', 'Sélectionnez un projet dans le navigateur.')); return; }
+  box.dataset.path = c.path; // le titre et les cartes désignent toujours ce projet (#131)
+  if (c.loading) {
+    const t = el('div', 'cardstitle'); t.append(el('span', '', '◈ ÉTAT · ' + c.name));
+    box.append(t, el('div', 'dim cardsload', 'chargement…'));
+    return;
+  }
+  const pend = new Set(c.pending || []);
   const hidden = prefs.get('cardsHidden', false);
   const t = el('div', 'cardstitle');
   const fold = el('span', 'fold' + (hidden ? '' : ' open'), '›');
@@ -278,7 +285,7 @@ function renderCards() {
   const lg = el('div', 'legend');
   for (const i of c.legend || []) lg.append(el('span', 'i ' + tone(i.tone), i.icon), el('span', 't', i.text));
   pb.appendChild(lg);
-  if (!c.loaded) pb.appendChild(el('div', 'dim', 'préparation en cours…'));
+  if (!c.loaded) pb.appendChild(el('div', 'dim', pend.has('état') ? 'lecture du projet…' : 'préparation en cours…'));
   else if (!c.isRepo) pb.appendChild(el('div', 'dim', 'pas un dépôt git'));
   else {
     const kv = el('div', 'kv');
@@ -324,7 +331,8 @@ function renderCards() {
   }
   // Team
   const tb = el('div', 'cb');
-  if (!c.team || !c.team.length) tb.appendChild(el('div', 'dim', c.open ? 'Pas de team template.' : 'Pas de team template (Entrée pour lancer).'));
+  if ((!c.team || !c.team.length) && pend.has('team')) tb.appendChild(el('div', 'dim', 'lecture de la team…'));
+  else if (!c.team || !c.team.length) tb.appendChild(el('div', 'dim', c.open ? 'Pas de team template.' : 'Pas de team template (Entrée pour lancer).'));
   else {
     const g = el('div', 'team');
     for (const m of c.team) {
@@ -357,12 +365,45 @@ function select(path, opts) {
   S.cursor = path;
   const row = rowOf(path);
   if (path !== 'new' && row && row.kind === 'project') {
-    call('select', { path });
+    showCardsOf(path, row.name);
+    call('select', { path }).then((c) => takeCards(c)).catch(() => {});
+    prefetchNeighbors(path);
     const v = S.views[path];
     if (v && opts && opts.showTab) showView(path);
   }
   renderTree();
 }
+
+// ── Cartes du projet sélectionné : jamais celles d'un autre (#131) ─────────
+// Au clic, les cartes précédentes disparaissent aussitôt : celles du projet en
+// cache local (survol, voisins, visite précédente), sinon « chargement… » ;
+// toute réponse porte son projet et n'est affichée que s'il est encore choisi.
+const cardsCache = {};
+function showCardsOf(path, name) {
+  S.cards = cardsCache[path] || { path, name, loading: true };
+  renderCards();
+}
+function takeCards(c) {
+  if (!c || !c.path) return;
+  cardsCache[c.path] = c;
+  if (c.path === S.cursor) { S.cards = c; renderCards(); }
+}
+// préchargement (#130) : projet survolé, voisins de la sélection
+function prefetchCards(path) {
+  if (!path || cardsCache[path]) return;
+  call('cardsFor', { path }).then((c) => { if (c && c.path && !cardsCache[c.path]) cardsCache[c.path] = c; }).catch(() => {});
+}
+function prefetchNeighbors(path) {
+  const ps = projectRows().map((r) => r.path);
+  const i = ps.indexOf(path);
+  [ps[i - 1], ps[i + 1]].forEach((p) => prefetchCards(p));
+}
+let hoverTimer = null;
+$('tree').addEventListener('mouseover', (e) => {
+  const row = e.target.closest('.row.project');
+  clearTimeout(hoverTimer);
+  if (row) hoverTimer = setTimeout(() => prefetchCards(row.dataset.path), 150);
+});
 
 function move(d) {
   const ps = visibleRows().map((r) => r.path).concat(['new']);
@@ -989,13 +1030,13 @@ function applyInit(r) {
   prefs.v = r.prefs || {};
   applyLayoutPrefs();
   applyState(r.state);
-  S.cards = r.cards; renderCards();
+  if (r.cards && r.cards.path) { cardsCache[r.cards.path] = r.cards; if (!S.cursor || S.cursor === r.cards.path) { S.cards = r.cards; renderCards(); } }
 }
 
 function onEvent(name, data) {
   switch (name) {
     case 'state': applyState(data); break;
-    case 'cards': S.cards = data; renderCards(); break;
+    case 'cards': takeCards(data); break;
     case 'term': {
       const v = ensureView(data.path);
       switch (data.kind) {
