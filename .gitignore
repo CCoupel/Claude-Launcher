@@ -1,2 +1,5 @@
 /ng2/claude-launcher-ng2
 /ng/claude-launcher-ng
+
+# Fichiers locaux de Claude Code (worktrees d'agents, mods copiés du template, commandes déposées, verrous)
+/.claude/
