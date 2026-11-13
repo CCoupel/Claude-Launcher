@@ -368,7 +368,7 @@ func (t *projTerm) lastLayout() *LayoutMsg {
 // newInfo : racines, socles et backends pour le formulaire de création, ou pour
 // le choix de l'exécution d'un projet existant (path) prérempli avec son état.
 func (a *App) newInfo(path string) map[string]any {
-	out := map[string]any{"roots": a.cfg.Roots}
+	out := map[string]any{"roots": a.conf().Roots}
 	b, ok := core.DefaultCtrBackend()
 	if !ok {
 		return out
@@ -452,10 +452,10 @@ func (a *App) execApply(path, image, backend string, openNext bool) (any, error)
 // create : nouveau projet dans base (catégorie, racine), puis ouvert.
 func (a *App) create(base, name string, raw bool, remote, image, backend string) (any, error) {
 	if base == "" {
-		if len(a.cfg.Roots) != 1 {
+		if len(a.conf().Roots) != 1 {
 			return nil, fmt.Errorf("racine à choisir")
 		}
-		base = filepath.Clean(a.cfg.Roots[0])
+		base = filepath.Clean(a.conf().Roots[0])
 	}
 	if why := core.ValidProjectName(name); why != "" {
 		return nil, fmt.Errorf("%s", why)

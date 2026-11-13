@@ -857,7 +857,7 @@ graphique : en ligne de commande, sa sortie va dans la console de l'invite ; les
 | clic hors projet | onglet ⌗ Teamleaders |
 | double-clic sur une catégorie ou une racine, `✦ Nouveau projet` | créer un projet |
 | `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
-| `Ctrl+R` / `Ctrl+U` / `Ctrl+D` | rescanner / masquer les annonces / diagnostic des backends |
+| `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fichiers de configuration |
 | `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
 | `←` `→`, clic sur le chevron ou la ligne d'une racine / catégorie | replier / déplier (mémorisé) ; `←` sur un projet : sa catégorie |
 | séparateur arbre / cartes ; clic sur le bandeau d'une carte ou sur « ◈ ÉTAT » | hauteur de l'arbre ; replier une carte ou toute la zone (mémorisé) |
@@ -926,6 +926,32 @@ restaurer), chaque pane est recapturé et la team est remise en page à la nouve
   dépend de l'autorisation accordée par WebView2 ;
 - connexion claude.ai : l'alerte ouvre un onglet `login` qui lance `claude /login` **sur ce
   poste** (claude doit y être installé) ; sinon, `/login` se tape dans le leader d'un projet ouvert.
+
+**Fichiers de configuration** (#117) : `⚙ config` dans l'en-tête (ou `Ctrl+,`), et `⚙ env.yaml`
+dans les cartes d'un projet, ouvrent un éditeur en **texte brut** (commentaires et mise en forme
+gardés) des fichiers du launcher :
+
+| Fichier | Emplacement | Validé par |
+|---|---|---|
+| `config.conf` | dossier de config (`Ng2ConfigDir`) | Linux/macOS : `bash -n`, puis le fichier sourcé comme au chargement (ses messages : avertissements) ; Windows : le lecteur Go (guillemets, parenthèses) ; puis le chargement lui-même (racine introuvable, chemin Linux sans correspondance : avertissements) |
+| `backends.yaml` | dossier de config | le contrôle de `LoadBackends` (YAML, types, `hosts`, pools, `pod`), plus en avertissement les backends refusés sous Windows et les `hubs.<machine>.paths` ignorés ; `browser_server` invalide : erreur |
+| `env.yaml` (outillage) | dossier de config | le lecteur de `env.yaml` (`local`, `watch` dans le projet…) |
+| `env.yaml` du projet | `<projet>/.claude-launcher/` | le lecteur de `env.yaml` et la fusion avec `env-template.yaml` (`image` requise au total) ; l'environnement fusionné et le `env-template.yaml` du template s'affichent en lecture seule |
+
+La liste donne le chemin complet, la présence et la date de chaque fichier ; un fichier absent
+s'ouvre sur un modèle commenté (celui de `configure` pour `config.conf`), créé à l'enregistrement.
+La validation tourne à la frappe : les erreurs s'affichent avec leur ligne (un clic y mène) et
+**bloquent l'enregistrement** (le brouillon reste dans l'éditeur) ; les avertissements, non.
+L'enregistrement (`Ctrl+S`) garde la version précédente en `.bak`, écrit un fichier temporaire puis
+le renomme ; si le fichier a changé sur le disque depuis son ouverture, l'éditeur propose de
+**recharger** ou d'**écraser**. Ensuite, `config.conf` est relu sans redémarrer (options de claude,
+couleurs, mise en page, consommation, reprise ; racines et `CLAUDE_CONFIG_DIR` au prochain
+lancement) et `backends.yaml` aussi (backends, pools, correspondance de chemins, outils requis) ;
+un `env.yaml` sert à la prochaine ouverture du projet. `projects.json` et les caches sont des
+états : pas dans la liste. API de `core` (reprise par l'interface structurée, v6.1.0) :
+`ConfigFiles(projet)`, `ValidateConfig(type, contenu)`, `SaveConfig(type, chemin, contenu,
+date d'ouverture)`. Sous Linux, `claude-launcher-ng2 configure` ouvre toujours `config.conf`
+dans `$EDITOR`.
 
 **Comment ça marche** : l'interface parle à `core` par un seul point d'entrée (`Dispatch`), lié à
 Wails (`window.go.desktop.Bridge.Call`) ou servi en HTTP (`/api/call`), et reçoit l'état par

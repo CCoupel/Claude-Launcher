@@ -230,7 +230,7 @@ func (r *lineReader) Read(p []byte) (int, error) {
 // ── Ouverture ─────────────────────────────────────────────────────────────
 
 func newProjTerm(a *App, n core.Node, mode core.LaunchMode) *projTerm {
-	t := &projTerm{a: a, path: n.Path, key: n.Key, name: n.Name, color: a.cfg.ProjectColor(n.Key), mode: mode,
+	t := &projTerm{a: a, path: n.Path, key: n.Key, name: n.Name, color: a.conf().ProjectColor(n.Key), mode: mode,
 		lines: make(chan string, 16), state: "opening", seen: map[string]bool{}, seeding: map[string]bool{},
 		carry: map[string][]byte{}, flushCh: make(chan struct{}, 1), stop: make(chan struct{})}
 	return t
@@ -260,7 +260,7 @@ func (t *projTerm) run() {
 
 // prepare : backend, script de démarrage, conteneur ou session de l'hôte.
 func (t *projTerm) prepare() error {
-	cfg := t.a.cfg
+	cfg := t.a.conf()
 	be, err := core.LaunchBackend(t.path)
 	if err != nil {
 		return err
@@ -405,7 +405,7 @@ func (t *projTerm) ended() {
 		return
 	}
 	why := t.client.Why()
-	if !t.host && t.a.cfg.CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
+	if !t.host && t.a.conf().CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
 		fmt.Fprintf(t, "\r\n⏻ claude terminé : arrêt du conteneur (CTR_STOP_ON_EXIT)\r\n")
 		_ = t.e.Stop(t.path, t.ctr)
 	}
@@ -816,7 +816,7 @@ func sortPanes(p []winPaneFull) {
 
 // tick : un tour du watcher ; fast : sur notification (sans propriétaire ni team).
 func (t *projTerm) tick(fast bool) {
-	cfg := t.a.cfg
+	cfg := t.a.conf()
 	// team du projet : lue par le tour lent seulement (fichiers, parfois par
 	// 9P), avant la fenêtre ; le tour rapide reprend la dernière lue
 	var tc *core.TeamConfig
@@ -1011,7 +1011,7 @@ func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *co
 		ids[i] = p.ID
 	}
 	top, bot := core.Classify(ids, leader, tc, t.orderFile())
-	core.ArrangeTeam(t.a.cfg, t.cl(), t.win, panes, w, h, top, bot, t.color)
+	core.ArrangeTeam(t.a.conf(), t.cl(), t.win, panes, w, h, top, bot, t.color)
 }
 
 // publish : géométrie, couleurs et noms des panes pour l'interface ; panes

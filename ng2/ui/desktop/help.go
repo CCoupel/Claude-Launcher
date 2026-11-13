@@ -41,6 +41,7 @@ func helpData() map[string]any {
 				{"clic sur l'annonce jaune en échec", "réessayer le téléchargement"},
 				{"clic sur l'alerte connexion", "onglet login qui lance claude /login"},
 				{"Ctrl+D", "diagnostic des backends (claude-launcher-ng2 backends)"},
+				{"Ctrl+,  ⚙ config", "fichiers de configuration (config.conf, backends.yaml, env.yaml, env.yaml du projet)"},
 				{"Esc", "quitter : l application seule (projets gardés) · t puis o tout fermer"},
 				{"F1", "cette aide"},
 			}},

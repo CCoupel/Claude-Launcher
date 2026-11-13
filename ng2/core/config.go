@@ -74,12 +74,15 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 // LoadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
 // celui du launcher actuel (tableaux, $HOME, variables), sans le réimplémenter.
 // Sortie : une ligne « TAG<TAB>valeur » par information.
-func LoadConfig() Config {
+func LoadConfig() Config { return loadConfigAt(ConfigPath()) }
+
+// loadConfigAt : LoadConfig pour le fichier path (validation de l'éditeur de
+// configuration, configedit.go : même lecture que le chargement réel).
+func loadConfigAt(path string) Config {
 	home, _ := os.UserHomeDir()
 	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{},
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
 		BrightenStep: 1, DarkenStep: 1, ResumeMode: "ask", ResumeMaxAgeH: 24}
-	path := ConfigPath()
 
 	var out []byte
 	var err error

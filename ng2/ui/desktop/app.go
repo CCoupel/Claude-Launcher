@@ -28,8 +28,9 @@ type Emitter func(name string, data any)
 
 // App : état du launcher vu par l'interface.
 type App struct {
-	cfg  core.Config
-	emit Emitter
+	cfg    core.Config
+	confMu sync.RWMutex // cfg relue à chaud (config.go)
+	emit   Emitter
 
 	mu         sync.Mutex
 	nodes      []core.Node
@@ -182,7 +183,7 @@ func (a *App) Start() {
 	// partagé, par 9P sous Windows) : en tâche de fond, jamais avant la fenêtre
 	go func() {
 		a.perf.timed("démarrage : liens conso", core.ClaudeDir(), core.LinkUsageCache)
-		a.perf.timed("démarrage : settings.json", core.ClaudeDir(), func() { _ = core.SyncLauncherEnv(a.cfg) })
+		a.perf.timed("démarrage : settings.json", core.ClaudeDir(), func() { _ = core.SyncLauncherEnv(a.conf()) })
 	}()
 	go a.hubCacheLoop()
 	go func() {
@@ -211,7 +212,7 @@ func (a *App) Start() {
 	}()
 	// sessions en suspens : lues dans ~/.claude, toutes les 10 s (30 s sur un disque réseau)
 	sessEvery := 10 * time.Second
-	if gitWorkers(a.cfg.Roots) < 8 {
+	if gitWorkers(a.conf().Roots) < 8 {
 		sessEvery = 30 * time.Second
 	}
 	go a.every(sessEvery, a.readSessions)
@@ -317,7 +318,7 @@ func (a *App) emitter() {
 // ── Relectures ────────────────────────────────────────────────────────────
 
 func (a *App) treeLoop() {
-	ch := core.WatchTree(a.cfg.Roots)
+	ch := core.WatchTree(a.conf().Roots)
 	for {
 		select {
 		case <-a.quit:
@@ -330,7 +331,7 @@ func (a *App) treeLoop() {
 
 // rescan : arborescence relue ; l'état des nouveaux projets est calculé.
 func (a *App) rescan() {
-	nodes := core.ScanTree(a.cfg.Roots)
+	nodes := core.ScanTree(a.conf().Roots)
 	a.mu.Lock()
 	if reflect.DeepEqual(nodes, a.nodes) {
 		a.mu.Unlock()
@@ -357,7 +358,7 @@ func (a *App) rescan() {
 	if a.mgr != nil {
 		a.mgr.SetProjects(a.projectPaths())
 	}
-	roots := a.cfg.Roots
+	roots := a.conf().Roots
 	a.mu.Unlock()
 	saveTree(roots, nodes)
 	a.changed()
@@ -383,7 +384,7 @@ func (a *App) gitAll() {
 		}
 	}
 	a.started = time.Now()
-	roots := a.cfg.Roots
+	roots := a.conf().Roots
 	a.mu.Unlock()
 	latest := latestTemplate()
 	sem := make(chan struct{}, gitWorkers(roots))
@@ -425,7 +426,7 @@ func (a *App) readSessions() {
 	t0, slow, slowD := time.Now(), "", time.Duration(0)
 	for _, p := range paths {
 		t := time.Now()
-		if r, ok := a.cfg.PendingSession(p); ok {
+		if r, ok := a.conf().PendingSession(p); ok {
 			sess[p] = r
 		}
 		if d := time.Since(t); d > slowD {
@@ -455,8 +456,8 @@ func (a *App) readUsage() {
 	var u core.Usage
 	a.perf.timed("conso", core.ClaudeDir(), func() {
 		core.LinkUsageCache()
-		if core.NeedsFetch(a.cfg.UsageRefreshSec) {
-			core.FetchUsage(a.cfg.UsageRefreshSec)
+		if core.NeedsFetch(a.conf().UsageRefreshSec) {
+			core.FetchUsage(a.conf().UsageRefreshSec)
 		}
 		u = core.ReadUsage()
 	})
@@ -486,7 +487,7 @@ func (a *App) readMilestones(force bool) {
 				core.MsSem <- struct{}{}
 				var s core.MsState
 				var err error
-				a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.cfg.GithubToken) })
+				a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
 				<-core.MsSem
 				if err != nil {
 					return
@@ -603,7 +604,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.NgVersion, Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.cfg.Roots, OS: goos}
+		Roots: a.conf().Roots, OS: goos}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -620,7 +621,7 @@ func (a *App) Snapshot() Snapshot {
 			r.Dot, r.Badges, r.GitOK = &d, core.BadgeIndicators(p), p.GitOK
 			r.Release = a.milestones[n.Path].Release
 			r.Open = p.Open
-			r.Color = core.Colour256Hex(a.cfg.ProjectColor(n.Key))
+			r.Color = core.Colour256Hex(a.conf().ProjectColor(n.Key))
 			r.Closing = a.closing[n.Path]
 		}
 		s.Rows = append(s.Rows, r)
@@ -660,7 +661,7 @@ func (a *App) usageRows(s *Snapshot) {
 		}
 		return
 	}
-	if u.Err != "" || time.Since(u.ReadAt) > time.Duration(a.cfg.UsageRefreshSec)*5*time.Second {
+	if u.Err != "" || time.Since(u.ReadAt) > time.Duration(a.conf().UsageRefreshSec)*5*time.Second {
 		s.Stale = "⚠ données de " + u.ReadAt.Format("15:04")
 		if u.Err != "" {
 			s.Stale += " — " + u.Err
@@ -911,6 +912,7 @@ func humanSize(n int64) string {
 func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
+		Content, MTime                                                   string
 		Cols, Rows                                                       int
 		Raw, OpenNext, Binary                                            bool
 	}
@@ -1037,6 +1039,15 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 			go t.resync()
 		}
 		return nil, nil
+	case "configFiles": // éditeur de configuration (#117) ; Path : projet (facultatif)
+		return core.ConfigFiles(arg.Path), nil
+	case "configOpen":
+		return a.configOpen(core.ConfigKind(arg.Kind), arg.Path)
+	case "configValidate":
+		ps, merged := a.configCheck(core.ConfigKind(arg.Kind), arg.Path, arg.Content)
+		return map[string]any{"problems": ps, "merged": merged}, nil
+	case "configSave":
+		return a.configSave(core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
 	case "quit":
 		return nil, a.quitApp(arg.Mode)
 	}

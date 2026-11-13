@@ -440,6 +440,12 @@ func LoadBackends() ([]BackendConf, error) {
 	default:
 		return nil, err
 	}
+	return backendsOf(f)
+}
+
+// backendsOf : backends déclarés dans f, contrôlés et triés (LoadBackends ;
+// validation de l'éditeur de configuration, configedit.go).
+func backendsOf(f backendsFile) ([]BackendConf, error) {
 	if f.Backends == nil {
 		f.Backends = map[string]BackendConf{}
 	}
