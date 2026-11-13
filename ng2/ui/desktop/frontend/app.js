@@ -132,42 +132,76 @@ function quitText() {
   return '';
 }
 
+// ── Arbre des projets (#122 : rendu d'un arbre natif Windows 11) ───────────
+// Lignes à la hauteur et à l'indentation de l'Explorateur, chevron des
+// racines et catégories, pastille, nom, release, puis les badges dans des
+// colonnes fixes (une par sorte d'icône : local, remote, template, conteneur,
+// milestone, PR, reprise) pour qu'ils s'alignent d'une ligne à l'autre.
+const SLOTS = ['local', 'remote', 'tpl', 'ctr', 'ms', 'pr', 'resume'];
+
+// level : niveau dans l'arbre (racine 0, catégorie et projet selon leur profondeur).
+const level = (r) => (r.kind === 'root' ? 0 : r.depth + 1);
+
 // visibleRows : arbre, ou projets filtrés (sans hiérarchie, comme la coque).
 function visibleRows() {
   const rows = (S.snap && S.snap.rows) || [];
-  if (!S.filter) return rows;
-  const f = S.filter.toLowerCase();
-  return rows.filter((r) => r.kind === 'project' && r.name.toLowerCase().includes(f));
+  if (S.filter) {
+    const f = S.filter.toLowerCase();
+    return rows.filter((r) => r.kind === 'project' && r.name.toLowerCase().includes(f));
+  }
+  return rows.filter((r) => !hiddenByCollapse(r, rows));
 }
 function projectRows() { return visibleRows().filter((r) => r.kind === 'project'); }
+// hiddenByCollapse : une ligne sous une racine ou catégorie repliée (#123).
+function hiddenByCollapse() { return false; }
+function isCollapsed() { return false; }
+
+function badgeCells(r) {
+  const cols = el('span', 'cols');
+  const by = {};
+  for (const b of r.badges || []) by[b.slot || 'x'] = b;
+  for (const sl of SLOTS) {
+    const b = by[sl];
+    const c = el('span', 'c c-' + sl + (b ? ' ' + tone(b.tone) : ''), b ? b.icon + (b.short ? ' ' + b.short : '') : '');
+    if (b) c.title = b.text;
+    cols.appendChild(c);
+  }
+  if (!r.gitOK) cols.firstChild.textContent = '…';
+  return cols;
+}
 
 function renderTree() {
   const tree = $('tree'); tree.textContent = '';
   const rows = visibleRows();
-  if (!rows.length) tree.appendChild(el('div', 'row dim', '  aucun projet'));
+  if (!rows.length) tree.appendChild(el('div', 'row empty dim', 'aucun projet'));
   for (const r of rows) {
     const d = el('div', 'row ' + r.kind);
     d.dataset.path = r.path;
+    d.setAttribute('role', 'treeitem');
+    d.setAttribute('aria-level', String(level(r) + 1));
+    const ind = el('span', 'ind'); ind.style.width = (S.filter ? 0 : level(r) * 16) + 'px';
+    d.appendChild(ind);
     if (r.kind !== 'project') {
-      d.style.paddingLeft = (8 + r.depth * 14) + 'px';
-      d.append(el('span', 'name', r.kind === 'cat' ? '▾ ' + r.name.toUpperCase() : r.name));
+      const chev = el('span', 'chev' + (isCollapsed(r.path) ? '' : ' open'));
+      chev.innerHTML = '<svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M3.5 1.5 7 5 3.5 8.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+      d.setAttribute('aria-expanded', String(!isCollapsed(r.path)));
+      const nm = el('span', 'name', r.name);
+      nm.title = r.path;
+      d.append(chev, nm);
       if (r.missing) d.classList.add('missing');
     } else {
-      d.style.paddingLeft = S.filter ? '10px' : (8 + r.depth * 14) + 'px';
-      if (!S.filter) d.appendChild(el('span', 'tw', r.last ? '└' : '├'));
+      d.appendChild(el('span', 'chev none'));
       const dot = el('span', 'dot ' + tone(r.closing ? { color: 'cyan' } : r.dot), r.closing ? '⏻' : (r.dot ? r.dot.icon : '○'));
       dot.title = r.closing || (r.dot ? r.dot.text : '');
       const name = el('span', 'name', r.name);
-      const badges = el('span', 'badges');
-      if (!r.gitOK) badges.appendChild(el('span', 't-dim', '…'));
-      for (const b of r.badges || []) {
-        const sp = el('span', tone(b.tone), b.icon + (b.short ? ' ' + b.short : '')); sp.title = b.text; badges.appendChild(sp);
+      name.title = r.path;
+      d.append(dot, name, el('span', 'rel', r.release || ''), badgeCells(r));
+      if (r.open) {
+        d.classList.add('open');
+        d.style.setProperty('--pc', r.color || '#1F4FD1');
       }
-      d.append(dot, name, badges);
-      if (r.release) d.appendChild(el('span', 'rel', r.release));
-      if (r.open) { d.classList.add('open'); d.style.background = r.color; }
-      if (r.path === S.cursor) d.classList.add('cur');
     }
+    if (r.path === S.cursor) { d.classList.add('cur'); d.setAttribute('aria-selected', 'true'); }
     tree.appendChild(d);
   }
   $('newproj').classList.toggle('cur', S.cursor === 'new');
@@ -884,6 +918,10 @@ function scheduleFit() {
   fitTimer = setTimeout(() => { for (const v of Object.values(S.views)) v.fit(); leaders.layout(); }, 80);
 }
 window.addEventListener('resize', scheduleFit);
+
+// focus clavier visible seulement au clavier (comme Windows : pas après un clic)
+document.addEventListener('keydown', () => document.body.classList.add('kbd'), true);
+document.addEventListener('mousedown', () => document.body.classList.remove('kbd'), true);
 
 transport.listen(onEvent);
 call('init').then((r) => {

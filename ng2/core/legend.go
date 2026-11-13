@@ -40,6 +40,9 @@ type Indicator struct {
 	Tone  Tone   `json:"tone"`
 	Text  string `json:"text"`            // signification, pour la légende
 	Short string `json:"short,omitempty"` // libellé gardé sur la ligne du navigateur (rare)
+	// Slot : colonne de l'icône (local, remote, tpl, ctr, ms, pr, resume), pour
+	// les aligner d'une ligne à l'autre (interface native, #122)
+	Slot string `json:"slot,omitempty"`
 }
 
 // ProjInfo : ce qu'on sait d'un projet pour ses indicateurs.
@@ -151,28 +154,32 @@ func BadgeIndicators(p ProjInfo) []Indicator {
 		if p.Git.IsRepo {
 			ls, lt, lst := p.Git.LocalTone()
 			rs, rt, rst := p.Git.RemoteTone()
-			out = append(out, Indicator{Icon: ls, Tone: lst, Text: "local : " + lt},
-				Indicator{Icon: rs, Tone: rst, Text: "remote : " + rt})
+			out = append(out, Indicator{Icon: ls, Tone: lst, Text: "local : " + lt, Slot: "local"},
+				Indicator{Icon: rs, Tone: rst, Text: "remote : " + rt, Slot: "remote"})
 		}
 		if t, ok := TplIndicator(p); ok {
+			t.Slot = "tpl"
 			out = append(out, t)
 		}
 	}
 	if i, ok := CtrIndicator(p); ok {
+		i.Slot = "ctr"
 		out = append(out, i)
 	}
 	if i, ok := MsIndicator(p.Ms); ok {
+		i.Slot = "ms"
 		out = append(out, i)
 	}
 	if i, ok := PrIndicator(p.Ms); ok {
+		i.Slot = "pr"
 		out = append(out, i)
 	}
 	if p.HasSess && !p.Open {
 		ago := " (il y a " + AgeLabel(time.Since(p.Sess.Mod)) + ")"
 		if p.Sess.Crashed {
-			out = append(out, Indicator{Icon: "↺", Tone: ToneRed, Text: "session interrompue par un crash" + ago + " : reprise proposée à l'ouverture"})
+			out = append(out, Indicator{Icon: "↺", Tone: ToneRed, Text: "session interrompue par un crash" + ago + " : reprise proposée à l'ouverture", Slot: "resume"})
 		} else {
-			out = append(out, Indicator{Icon: "↺", Tone: ToneYellow, Text: "session non close" + ago + " : reprise proposée à l'ouverture"})
+			out = append(out, Indicator{Icon: "↺", Tone: ToneYellow, Text: "session non close" + ago + " : reprise proposée à l'ouverture", Slot: "resume"})
 		}
 	}
 	return out
