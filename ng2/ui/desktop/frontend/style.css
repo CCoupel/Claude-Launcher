@@ -207,6 +207,7 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 #views { flex: 1; min-height: 0; position: relative; background: var(--bg-deep); }
 .view { position: absolute; inset: 0; }
 .panes { position: absolute; inset: 4px; overflow: hidden; }
+body.pdrag, body.pdrag * { user-select: none !important; }
 .pane { position: absolute; overflow: hidden; }
 .pane .xt { position: absolute; inset: 0; }
 .phead { position: absolute; display: flex; align-items: center; gap: 6px; padding: 0 8px; font-size: 11px; white-space: nowrap; overflow: hidden; cursor: default; user-select: none; border-radius: 3px 3px 0 0; }

@@ -912,7 +912,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
 		Cols, Rows                                                       int
-		Raw, OpenNext                                                    bool
+		Raw, OpenNext, Binary                                            bool
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &arg); err != nil {
@@ -996,7 +996,15 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		return a.execApply(arg.Path, arg.Image, arg.Backend, arg.OpenNext)
 	case "termInput":
 		if t := a.term(arg.Path); t != nil {
+			if arg.Binary {
+				arg.Data = binaryBytes(arg.Data)
+			}
 			t.input(arg.Pane, arg.Data)
+		}
+		return nil, nil
+	case "resizePane": // bordure glissée (#135) : Kind « x » / « y », Cols : taille
+		if t := a.term(arg.Path); t != nil {
+			t.resizePane(arg.Pane, arg.Kind, arg.Cols)
 		}
 		return nil, nil
 	case "launchInput":

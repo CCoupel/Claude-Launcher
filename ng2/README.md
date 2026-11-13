@@ -864,6 +864,8 @@ graphique : en ligne de commande, sa sortie va dans la console de l'invite ; les
 | `Tab` (navigateur) ; `Alt+←` (terminal) | aller aux terminaux ; revenir au navigateur |
 | `Ctrl+Tab`, `Ctrl+Maj+Tab` | onglet suivant / précédent |
 | clic sur un pane ; double-clic sur son en-tête | focus clavier ; plein écran (aller-retour) |
+| souris dans un pane ; molette | transmise à l'agent s'il la suit (panneau de Claude Code redimensionnable) ; sinon la molette fait défiler l'historique de tmux |
+| glisser une bordure (colonne entre panes, en-tête du pane du dessous) ; `Maj`+glisser | redimensionner le pane (`resize-pane`) ; sélection locale du texte |
 | `Ctrl+B z` / `Ctrl+B R` / `Ctrl+B Ctrl+B` | plein écran / remettre en ordre la team / envoyer `Ctrl+B` à l'agent |
 | `Ctrl+Maj+W`, `×` de l'onglet | détacher l'onglet (la session continue) |
 | `Échap` | quitter : `l` l'interface seule (projets gardés), `t` puis `o` tout fermer |

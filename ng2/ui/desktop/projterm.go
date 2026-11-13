@@ -560,6 +560,31 @@ func (t *projTerm) input(pane, data string) {
 	}
 }
 
+// binaryBytes : données « binaires » de xterm.js (onBinary : souris en
+// encodage X10 par défaut, coordonnées > 95) : un caractère = un octet, à ne
+// pas réencoder en UTF-8 (#135).
+func binaryBytes(data string) string {
+	b := make([]byte, 0, len(data))
+	for _, r := range data {
+		b = append(b, byte(r))
+	}
+	return string(b)
+}
+
+// resizePane : bordure entre deux panes glissée dans l'interface (#135),
+// comme la souris dans la coque : nouvelle largeur (axis « x ») ou hauteur
+// (« y ») du pane, en cellules.
+func (t *projTerm) resizePane(pane, axis string, n int) {
+	t.mu.Lock()
+	c, ro := t.client, t.readOnly
+	t.mu.Unlock()
+	if c == nil || ro || pane == "" || n < 1 || (axis != "x" && axis != "y") {
+		return
+	}
+	_ = c.Send("resize-pane", "-t", pane, "-"+axis, strconv.Itoa(n))
+	t.poke()
+}
+
 func (t *projTerm) resize(cols, rows int) {
 	if cols < 10 || rows < 4 {
 		return
@@ -943,6 +968,21 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 	}
 	t.mu.Lock()
 	same := t.layout != nil && layoutEqual(*t.layout, *msg)
+	// pane redimensionné par tmux (bordure glissée #135, zoom, autre client) :
+	// le terminal de l'interface replie ses lignes autrement que tmux ; il est
+	// recapturé une fois la taille stable
+	paneResized := false
+	if t.layout != nil {
+		old := map[string][2]int{}
+		for _, p := range t.layout.Panes {
+			old[p.ID] = [2]int{p.W, p.H}
+		}
+		for _, p := range msg.Panes {
+			if o, ok := old[p.ID]; ok && o != [2]int{p.W, p.H} {
+				paneResized = true
+			}
+		}
+	}
 	t.layout = msg
 	busyChanged := t.busy != busy
 	t.busy = busy
@@ -958,6 +998,9 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 	}
 	for _, p := range fresh {
 		t.seed(p)
+	}
+	if paneResized {
+		t.reseedLater()
 	}
 	if busyChanged {
 		t.a.changed()

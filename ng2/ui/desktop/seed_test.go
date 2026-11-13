@@ -155,6 +155,21 @@ func TestSeedMatchesTmuxGrid(t *testing.T) {
 	}
 }
 
+// #135 : les modes demandés par l'application (suivi de la souris en SGR,
+// curseur masqué) survivent à l'amorçage : sans eux, xterm.js ne transmet
+// plus la souris (redimensionnement du panneau de Claude Code impossible).
+func TestSeedKeepsMouseModes(t *testing.T) {
+	orig, ref, leader := seededPane(t)
+	f := "#{mouse_standard_flag}#{mouse_button_flag}#{mouse_all_flag}#{mouse_sgr_flag} #{cursor_flag}"
+	want := strings.TrimSpace(orig("display", "-p", "-t", leader, f))
+	if want != "0101 0" {
+		t.Fatalf("modes de l'original : %q", want)
+	}
+	if got := strings.TrimSpace(ref("display", "-p", f)); got != want {
+		t.Errorf("modes après amorçage : %q, attendu %q", got, want)
+	}
+}
+
 func TestSeedDataModes(t *testing.T) {
 	m := parseModes("3 4 0 1 1 0 0 1 0 1 1 0 0 0 2 9 20")
 	d := seedData(m, "ignoré", "a\x1b[44mb\nc")
@@ -169,5 +184,61 @@ func TestSeedDataModes(t *testing.T) {
 	// vieux tmux sans ces formats : curseur visible, retour à la ligne
 	if d := seedData(parseModes("0 0"), "", "x"); strings.Contains(d, "?25l") || strings.Contains(d, "?7l") {
 		t.Errorf("vieux tmux : %q", d)
+	}
+}
+
+// #135 : une bordure glissée dans l'interface redimensionne le pane dans tmux
+// (resize-pane), et le pane redimensionné est recapturé (le terminal de
+// l'interface replierait ses lignes autrement que tmux) ; la souris X10
+// (onBinary) passe octet pour octet ; l'interface relaie bordures et souris.
+func TestPaneBorderDragAndMouse(t *testing.T) {
+	h := openPanel(t)
+	leader := h.pt.lastLayout().Leader
+	h.tm("split-window", "-h", "-d", "-t", leader, "exec cat")
+	end := time.Now().Add(10 * time.Second)
+	for len(h.pt.lastLayout().Panes) < 2 && time.Now().Before(end) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if len(h.pt.lastLayout().Panes) < 2 {
+		t.Fatal("second pane absent de la mise en page")
+	}
+	w0, _ := strconv.Atoi(strings.TrimSpace(h.tm("display", "-p", "-t", leader, "#{pane_width}")))
+	axis := "x"
+	if strings.TrimSpace(h.tm("display", "-p", "-t", leader, "#{pane_at_right}")) == "1" {
+		axis = "y" // l'un sous l'autre (mise en page du launcher)
+	}
+	want := 20
+	f := "#{pane_width}"
+	if axis == "y" {
+		f = "#{pane_height}"
+	}
+	seed := h.reseeded(t, leader, func() {
+		if _, err := h.a.Dispatch("resizePane", []byte(`{"path":`+strconv.Quote(h.path)+`,"pane":"`+leader+`","kind":"`+axis+`","cols":20}`)); err != nil {
+			t.Fatal(err)
+		}
+	})
+	if got := strings.TrimSpace(h.tm("display", "-p", "-t", leader, f)); got != strconv.Itoa(want) {
+		t.Errorf("%s du leader : %s, attendu %d (largeur avant %d)", axis, got, want, w0)
+	}
+	if !strings.Contains(seed, "\x1b[?1002h") {
+		t.Errorf("recapture sans les modes : %q", seed)
+	}
+	// lecture seule : la bordure ne bouge pas
+	h.pt.mu.Lock()
+	h.pt.readOnly = true
+	h.pt.mu.Unlock()
+	h.pt.resizePane(leader, axis, 30)
+	time.Sleep(300 * time.Millisecond)
+	if got := strings.TrimSpace(h.tm("display", "-p", "-t", leader, f)); got != strconv.Itoa(want) {
+		t.Errorf("lecture seule : %s", got)
+	}
+	if b := binaryBytes("\x1b[M \u00a1\u00ff"); b != "\x1b[M \xa1\xff" {
+		t.Errorf("souris X10 : %q", b)
+	}
+	js := asset(t, "app.js")
+	for _, w := range []string{"term.onBinary(", "call('resizePane'", "function paneBorder("} {
+		if !strings.Contains(js, w) {
+			t.Errorf("%s absent de app.js", w)
+		}
 	}
 }

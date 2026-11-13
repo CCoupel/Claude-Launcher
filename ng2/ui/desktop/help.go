@@ -47,6 +47,9 @@ func helpData() map[string]any {
 			{"Terminaux des projets", []helpRow{
 				{"clic sur un pane", "focus clavier sur cet agent"},
 				{"double-clic sur l'en-tête d'un pane", "plein écran, double-clic à nouveau pour revenir"},
+				{"souris dans un pane", "transmise à l'agent s'il la suit (panneau de Claude Code redimensionnable) ; sinon molette = historique"},
+				{"glisser une bordure (colonne entre panes, en-tête du pane du dessous)", "redimensionner le pane, comme dans la coque"},
+				{"Maj+glisser", "sélection locale du texte, même quand l'agent suit la souris"},
 				{"Ctrl+B z", "idem au clavier"},
 				{"Ctrl+B R", "remettre en ordre les panes de la team"},
 				{"Ctrl+B Ctrl+B", "envoyer Ctrl+B à l'agent"},

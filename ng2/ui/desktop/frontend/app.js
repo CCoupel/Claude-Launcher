@@ -694,6 +694,45 @@ class ProjView {
     this.launch.onData((d) => call('launchInput', { path: this.path, data: d }));
     this.focusPane = null;
     this.sent = null;
+    this.borders();
+  }
+  // bordures entre panes (#135) : glisser une bordure redimensionne le pane
+  // (resize-pane), comme la souris dans la coque. Bordure verticale : la
+  // colonne libre entre deux panes ; horizontale : la ligne d'en-tête du pane
+  // du dessous (un clic sans glisser y garde son effet : focus, zoom).
+  borders() {
+    const at = (e) => {
+      if (!this.layout || !cell) return null;
+      const r = this.panesEl.getBoundingClientRect();
+      const k = this.panesEl.offsetWidth ? r.width / this.panesEl.offsetWidth : 1;
+      const cx = (e.clientX - r.left) / k / cell.w, cy = ((e.clientY - r.top) / k - cell.h) / cell.h;
+      return { cx, cy, b: paneBorder(this.layout.panes, cx, cy, e.target === this.panesEl) };
+    };
+    this.panesEl.addEventListener('mousemove', (e) => {
+      if (this.drag) return;
+      const h = at(e);
+      this.panesEl.style.cursor = h && h.b ? (h.b.axis === 'x' ? 'col-resize' : 'row-resize') : '';
+    });
+    this.panesEl.addEventListener('mousedown', (e) => {
+      const h = at(e);
+      if (!h || !h.b || e.button !== 0) return;
+      if (e.target === this.panesEl) e.preventDefault();
+      const d = this.drag = { b: h.b, x0: e.clientX, y0: e.clientY, on: false, last: 0 };
+      const move = (ev) => {
+        if (!d.on && Math.abs(ev.clientX - d.x0) + Math.abs(ev.clientY - d.y0) < cell.w / 2) return;
+        if (!d.on) { d.on = true; document.body.classList.add('pdrag'); }
+        const g = at(ev);
+        const n = d.b.axis === 'x' ? Math.round(g.cx) - d.b.pane.x : Math.round(g.cy) - d.b.pane.y;
+        if (n >= 1 && n !== d.last) { d.last = n; call('resizePane', { path: this.path, pane: d.b.pane.id, kind: d.b.axis, cols: n }); }
+      };
+      const up = () => {
+        window.removeEventListener('mousemove', move, true); window.removeEventListener('mouseup', up, true);
+        document.body.classList.remove('pdrag');
+        if (d.on) { const stop = (ev) => { ev.stopPropagation(); ev.preventDefault(); }; window.addEventListener('click', stop, { capture: true, once: true }); setTimeout(() => window.removeEventListener('click', stop, true), 0); }
+        this.drag = null;
+      };
+      window.addEventListener('mousemove', move, true); window.addEventListener('mouseup', up, true);
+    });
   }
   dispose() { this.launch.dispose(); for (const p of Object.values(this.panes)) p.term.dispose(); this.root.remove(); }
   status(m) {
@@ -776,6 +815,7 @@ class ProjView {
     term.open(x);
     refineCell(term);
     term.onData((d) => this.input(p.id, d));
+    term.onBinary((d) => call('termInput', { path: this.path, pane: p.id, data: d, binary: true })); // souris X10 (#135)
     term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
     term.textarea && term.textarea.addEventListener('focus', () => { this.focusPane = p.id; S.focusNav = false; call('termFocus', { path: this.path, pane: p.id }); });
     head.addEventListener('dblclick', () => call('termZoom', { path: this.path, pane: p.id }));
@@ -803,6 +843,25 @@ class ProjView {
     if (d === '\x02') { S.prefix = true; this.prefixEl.classList.remove('hidden'); return; }
     call('termInput', { path: this.path, pane, data: d });
   }
+}
+
+// paneBorder : bordure de pane sous la souris (cellules, cy : 0 = première
+// ligne des panes, -1 = ligne d'en-têtes) ; gap : la souris est hors de tout
+// pane (colonne libre entre deux panes). Renvoie {axis, pane} : le pane à
+// gauche (« x ») ou au-dessus (« y ») de la bordure, celui qu'on redimensionne.
+function paneBorder(panes, cx, cy, gap) {
+  const col = Math.floor(cx), row = Math.floor(cy);
+  for (const p of panes) {
+    if (gap && col === p.x + p.w && row >= p.y - 1 && row < p.y + p.h) {
+      if (panes.some((q) => q.x === col + 1)) return { axis: 'x', pane: p };
+    }
+  }
+  for (const p of panes) {
+    if (row === p.y + p.h && col >= p.x && col < p.x + p.w) {
+      if (panes.some((q) => q.y === row + 1 && q.x <= col && col < q.x + q.w)) return { axis: 'y', pane: p };
+    }
+  }
+  return null;
 }
 
 // teinte : assombrir (k < 0) ou éclaircir une couleur #rrggbb
@@ -843,6 +902,7 @@ const leaders = {
       const term = newTerm({ cols: lp.w, rows: lp.h, cursorBlink: false });
       term.open(cl);
       term.onData((d) => call('termInput', { path, pane: l.leader, data: d }));
+      term.onBinary((d) => call('termInput', { path, pane: l.leader, data: d, binary: true }));
       term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
       term.textarea && term.textarea.addEventListener('focus', () => tile.classList.add('focus'));
       term.textarea && term.textarea.addEventListener('blur', () => tile.classList.remove('focus'));
