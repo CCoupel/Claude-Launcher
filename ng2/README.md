@@ -898,7 +898,13 @@ prend le réglage de son système (`hubs.<machine>.windows.browser_server`, 127.
 défaut sous Windows, #121).
 
 Les durées de chaque étape (parcours, caches, git, conso, milestones, conteneurs) sont résumées au
-survol du pied et ajoutées à `desktop-perf.log` du cache (à joindre à un signalement de lenteur).
+survol du pied et ajoutées à `desktop-perf.log` du cache (à joindre à un signalement de lenteur) :
+une ligne par lecture de plus de 20 ms, « heure étape durée chemin · détail » (démarrage, git
+d'un projet, calcul d'état, team, cache du hub, sessions de `~/.claude`, conso, `gh`, conteneurs,
+cartes au clic). Rien de ce qui peut passer par 9P n'est lu avant l'affichage ni au clic (#130) :
+le cache du hub est lu en tâche de fond et gardé en mémoire, les réglages de `CLAUDE_CONFIG_DIR`
+aussi ; sur un disque réseau, les projets ni ouverts ni sélectionnés sont relus toutes les 30 min
+et les sessions en suspens toutes les 30 s.
 
 **Redimensionnement** (#126) : la taille de la zone des terminaux est transmise au tmux du projet
 (`refresh-client -C L,H`) ; après la dernière taille d'une rafale (fenêtre glissée, maximiser /

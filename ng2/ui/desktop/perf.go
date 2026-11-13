@@ -177,3 +177,51 @@ func (p *perfLog) writeLine(msg string) {
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
 	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
 }
+
+// ── Journal détaillé (#130) : une ligne par lecture qui peut traverser 9P ──
+//
+// « HH:MM:SS.mmm étape durée chemin [détail] », tamponné et écrit toutes les
+// 2 s dans desktop-perf.log : le journal de l'utilisateur dit à lui seul quelle
+// étape a lu quel chemin, et combien de temps. Les lectures de moins de 20 ms
+// ne sont pas notées une à une (seulement dans les totaux par étape).
+
+const traceMin = 20 * time.Millisecond
+
+var traceBuf = struct {
+	sync.Mutex
+	lines []string
+}{}
+
+// trace : une lecture (étape, chemin lu, durée).
+func (p *perfLog) trace(step, path string, d time.Duration, detail ...string) {
+	if d < traceMin && len(detail) == 0 {
+		return
+	}
+	l := fmt.Sprintf("%s %-18s %8s %s", time.Now().Format("15:04:05.000"), step, d.Round(time.Millisecond), path)
+	if len(detail) > 0 {
+		l += " · " + strings.Join(detail, " ")
+	}
+	traceBuf.Lock()
+	traceBuf.lines = append(traceBuf.lines, l)
+	traceBuf.Unlock()
+}
+
+// timed : mesure f, notée sous step pour le chemin path.
+func (p *perfLog) timed(step, path string, f func()) time.Duration {
+	t := time.Now()
+	f()
+	d := time.Since(t)
+	p.trace(step, path, d)
+	return d
+}
+
+// flushTrace : écrit les lignes en attente (appelé toutes les 2 s, et à l'arrêt).
+func (p *perfLog) flushTrace() {
+	traceBuf.Lock()
+	lines := traceBuf.lines
+	traceBuf.lines = nil
+	traceBuf.Unlock()
+	for _, l := range lines {
+		p.writeLine(l)
+	}
+}

@@ -52,7 +52,7 @@ func (a *App) cardsFast(path string) Cards {
 	a.mu.Unlock()
 
 	c := Cards{Path: n.Path, Name: n.Name, Open: p.Open}
-	if ps, ok := bestState(a.hubCache, n.Path); ok {
+	if ps, ok := a.cachedState(n.Path); ok {
 		fillState(&c, &p, ps, ms)
 	} else if ps, ok := directCached(n.Path); ok {
 		fillState(&c, &p, ps, ms)
@@ -91,6 +91,7 @@ func (a *App) cardsFull(path string) Cards {
 			t0 := time.Now()
 			ps := a.directState(path)
 			a.perf.add("cartes : état", time.Since(t0))
+			a.perf.trace("cartes : état", path, time.Since(t0))
 			a.mu.Lock()
 			n, _ := a.node(path)
 			p := a.projInfo(n)
@@ -102,6 +103,7 @@ func (a *App) cardsFull(path string) Cards {
 			t0 := time.Now()
 			c.Team = a.readTeam(path)
 			a.perf.add("cartes : team", time.Since(t0))
+			a.perf.trace("cartes : team", path+"/.claude", time.Since(t0))
 		default:
 			pending = append(pending, k)
 		}
@@ -223,4 +225,63 @@ func baseName(p string) string {
 		return p[i+1:]
 	}
 	return p
+}
+
+// ── Cache d'état du hub Linux en mémoire (#130) ───────────────────────────
+// hub_cache est souvent lu par 9P : jamais au clic ni avant l'affichage ; il
+// est relu en tâche de fond (au démarrage puis toutes les minutes) et les
+// cartes le prennent en mémoire.
+
+var hubStates = struct {
+	sync.Mutex
+	m map[string]core.ProjState
+	t map[string]time.Time
+}{m: map[string]core.ProjState{}, t: map[string]time.Time{}}
+
+// cachedState : état le plus frais en cache — local (disque local), ou celui
+// du hub Linux lu en tâche de fond.
+func (a *App) cachedState(p string) (core.ProjState, bool) {
+	ps, mt, ok := core.ReadState(p)
+	hubStates.Lock()
+	hs, hok := hubStates.m[p]
+	ht := hubStates.t[p]
+	hubStates.Unlock()
+	if hok && (!ok || ht.After(mt)) {
+		return hs, true
+	}
+	return ps, ok
+}
+
+// hubCacheLoop : lecture du cache du hub Linux, notée par projet lent.
+func (a *App) hubCacheLoop() {
+	if a.hubCache == "" {
+		return
+	}
+	read := func() {
+		a.mu.Lock()
+		paths := a.projectPaths()
+		a.mu.Unlock()
+		t0, n := time.Now(), 0
+		for _, p := range paths {
+			t := time.Now()
+			hs, hmt, ok := core.ReadStateFrom(a.hubCache, core.RemotePath(p), p)
+			a.perf.trace("cache du hub", a.hubCache+" ← "+p, time.Since(t))
+			if !ok {
+				continue
+			}
+			n++
+			hubStates.Lock()
+			hubStates.m[p], hubStates.t[p] = hs, hmt
+			hubStates.Unlock()
+			a.mu.Lock()
+			if _, mt, lok := core.ReadState(p); !lok || hmt.After(mt) {
+				a.git[p], a.tpl[p], a.detail[p] = hs.Git, hs.Tpl, hs.Detail
+				a.fromCache[p] = true
+			}
+			a.mu.Unlock()
+		}
+		a.perf.trace("cache du hub", a.hubCache, time.Since(t0), fmt.Sprintf("%d états lus sur %d projets", n, len(paths)))
+		a.changed()
+	}
+	a.every(time.Minute, read)
 }

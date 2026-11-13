@@ -1111,6 +1111,7 @@ document.addEventListener('mousedown', () => document.body.classList.remove('kbd
 transport.listen(onEvent);
 call('init').then((r) => {
   applyInit(r);
-  if (!store.get('toolsSeen', false) && r.tools && r.tools.missing) { toolsBox(r.tools); store.set('toolsSeen', true); }
+  // outils requis : lus à part (PATH, contexte docker), jamais avant l'affichage (#130)
+  call('tools').then((t) => { S.tools = t; if (!store.get('toolsSeen', false) && t && t.missing) { toolsBox(t); store.set('toolsSeen', true); } }).catch(() => {});
   $('nav').focus();
 });

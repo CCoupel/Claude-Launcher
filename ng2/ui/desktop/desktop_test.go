@@ -152,8 +152,11 @@ func TestDispatch(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := res.(map[string]any)
-	if _, ok := m["state"].(Snapshot); !ok || m["help"] == nil || m["tools"] == nil {
+	if _, ok := m["state"].(Snapshot); !ok || m["help"] == nil || m["tools"] != nil { // outils : appel à part (#130)
 		t.Errorf("init : %#v", m)
+	}
+	if tl, err := a.Dispatch("tools", nil); err != nil || tl == nil {
+		t.Errorf("tools : %v %v", tl, err)
 	}
 	if _, err := a.Dispatch("inconnu", nil); err == nil {
 		t.Error("appel inconnu accepté")

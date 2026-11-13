@@ -73,39 +73,59 @@ type updState struct {
 
 // NewApp : état initial (arborescence, caches) ; Start lance les relectures.
 func NewApp(emit Emitter) *App {
+	t0 := time.Now()
 	cfg := core.LoadConfig()
+	dConf := time.Since(t0)
 	a := &App{cfg: cfg, emit: emit,
 		git: map[string]core.GitInfo{}, tpl: map[string]core.TemplateState{}, detail: map[string]core.GitDetail{},
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
 		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
+	a.perf.trace("démarrage : config", core.ConfigPath(), dConf)
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
-	a.hubCache = core.HubCacheDir()
-	a.hubWarns = core.HubConfigWarnings() // faute de frappe dans hubs: (config partagée) : signalée
+	a.perf.timed("démarrage : hubs", core.BackendsPath(), func() {
+		a.hubCache = core.HubCacheDir()
+		a.hubWarns = core.HubConfigWarnings() // faute de frappe dans hubs: (config partagée) : signalée
+	})
 	// arbre du lancement précédent (affiché tout de suite, relu en tâche de
 	// fond) ; à défaut, parcours des racines (#125)
 	if nodes, ok := cachedTree(cfg.Roots); ok {
 		a.nodes, a.treeCached = nodes, true
 	} else {
-		a.perf.time("parcours", func() { a.nodes = core.ScanTree(cfg.Roots) })
+		a.perf.time("parcours", func() {
+			a.perf.timed("démarrage : parcours", strings.Join(cfg.Roots, " ; "), func() { a.nodes = core.ScanTree(cfg.Roots) })
+		})
 		saveTree(cfg.Roots, a.nodes)
 	}
-	a.usage = core.ReadUsage()
-	// badges immédiats : état en cache (local ou du hub Linux), sinon les
-	// badges git du lancement précédent
+	// conso : lue en tâche de fond (Start), CLAUDE_CONFIG_DIR peut être sur 9P
+	a.usage.Loading = true
+	// badges immédiats : cache LOCAL seulement (état préparé, badges git du
+	// lancement précédent) ; le cache du hub Linux (hub_cache, souvent par 9P)
+	// est lu ensuite en tâche de fond (#130)
 	a.perf.time("caches", func() {
+		t := time.Now()
 		gc := loadGitCache()
+		n := 0
 		for _, p := range a.projectPaths() {
-			if ps, ok := bestState(a.hubCache, p); ok {
+			if ps, _, ok := core.ReadState(p); ok {
 				a.git[p], a.tpl[p], a.detail[p] = ps.Git, ps.Tpl, ps.Detail
 				a.fromCache[p] = true
+				n++
 			} else if g, ok := gc[p]; ok {
 				a.git[p], a.tpl[p] = g.Git, g.Tpl
 			}
 		}
+		a.perf.trace("démarrage : caches", core.CacheDir(), time.Since(t), fmt.Sprintf("%d états en cache sur %d projets", n, len(a.projectPaths())))
 	})
 	if mgr, err := core.NewStateMgr(); err == nil {
 		a.mgr = mgr
+		// relecture des projets froids espacée sur un disque réseau ; durée de
+		// chaque calcul d'état notée (#130)
+		cold := time.Duration(0)
+		if gitWorkers(cfg.Roots) < 8 {
+			cold = 30 * time.Minute
+		}
+		mgr.Tune(cold, func(path string, d time.Duration) { a.perf.trace("état (git, fichiers)", path, d) })
 		mgr.SetProjects(a.projectPaths())
 	}
 	for _, p := range a.projectPaths() {
@@ -158,8 +178,26 @@ func (a *App) setMsg(m string) {
 
 // Start : relectures en tâche de fond (même rythme que la coque).
 func (a *App) Start() {
-	core.LinkUsageCache()
-	_ = core.SyncLauncherEnv(a.cfg)
+	// liens et réglages dans CLAUDE_CONFIG_DIR (souvent sur le stockage
+	// partagé, par 9P sous Windows) : en tâche de fond, jamais avant la fenêtre
+	go func() {
+		a.perf.timed("démarrage : liens conso", core.ClaudeDir(), core.LinkUsageCache)
+		a.perf.timed("démarrage : settings.json", core.ClaudeDir(), func() { _ = core.SyncLauncherEnv(a.cfg) })
+	}()
+	go a.hubCacheLoop()
+	go func() {
+		t := time.NewTicker(2 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-a.quit:
+				a.perf.flushTrace()
+				return
+			case <-t.C:
+				a.perf.flushTrace()
+			}
+		}
+	}()
 	go core.RunBrowserServer() // fichiers pour le navigateur (#106)
 	go a.emitter()
 	go a.treeLoop()
@@ -171,7 +209,12 @@ func (a *App) Start() {
 		a.perf.write(len(a.projectPaths()))
 		a.changed()
 	}()
-	go a.every(10*time.Second, a.readSessions)
+	// sessions en suspens : lues dans ~/.claude, toutes les 10 s (30 s sur un disque réseau)
+	sessEvery := 10 * time.Second
+	if gitWorkers(a.cfg.Roots) < 8 {
+		sessEvery = 30 * time.Second
+	}
+	go a.every(sessEvery, a.readSessions)
 	go a.everyTimed("conteneurs", 10*time.Second, a.readCtr)
 	go a.everyTimed("conso", 30*time.Second, a.readUsage)
 	go a.everyTimed("milestones", time.Minute, func() { a.readMilestones(false) })
@@ -364,7 +407,9 @@ func (a *App) gitAll() {
 
 func (a *App) gitOne(p, latest string) {
 	gitSem <- struct{}{}
-	g, t := core.ReadGit(p), core.ReadTemplate(p, latest)
+	var g core.GitInfo
+	var t core.TemplateState
+	a.perf.timed("git (badges)", p, func() { g, t = core.ReadGit(p), core.ReadTemplate(p, latest) })
 	<-gitSem
 	a.mu.Lock()
 	a.git[p], a.tpl[p] = g, t
@@ -377,11 +422,17 @@ func (a *App) readSessions() {
 	paths := a.projectPaths()
 	a.mu.Unlock()
 	sess := map[string]core.Resumable{}
+	t0, slow, slowD := time.Now(), "", time.Duration(0)
 	for _, p := range paths {
+		t := time.Now()
 		if r, ok := a.cfg.PendingSession(p); ok {
 			sess[p] = r
 		}
+		if d := time.Since(t); d > slowD {
+			slow, slowD = p, d
+		}
 	}
+	a.perf.trace("sessions (~/.claude)", core.ClaudeDir(), time.Since(t0), fmt.Sprintf("%d projets, le plus lent %s (%s)", len(paths), slow, slowD.Round(time.Millisecond)))
 	a.mu.Lock()
 	a.sessions = sess
 	a.mu.Unlock()
@@ -392,7 +443,8 @@ func (a *App) readCtr() {
 	a.mu.Lock()
 	paths := a.projectPaths()
 	a.mu.Unlock()
-	v := core.ReadCtrView(paths)
+	var v core.CtrView
+	a.perf.timed("conteneurs", core.BackendsPath(), func() { v = core.ReadCtrView(paths) })
 	a.mu.Lock()
 	a.ctr = v
 	a.mu.Unlock()
@@ -400,11 +452,14 @@ func (a *App) readCtr() {
 }
 
 func (a *App) readUsage() {
-	core.LinkUsageCache()
-	if core.NeedsFetch(a.cfg.UsageRefreshSec) {
-		core.FetchUsage(a.cfg.UsageRefreshSec)
-	}
-	u := core.ReadUsage()
+	var u core.Usage
+	a.perf.timed("conso", core.ClaudeDir(), func() {
+		core.LinkUsageCache()
+		if core.NeedsFetch(a.cfg.UsageRefreshSec) {
+			core.FetchUsage(a.cfg.UsageRefreshSec)
+		}
+		u = core.ReadUsage()
+	})
 	a.mu.Lock()
 	a.usage = u
 	a.mu.Unlock()
@@ -429,7 +484,9 @@ func (a *App) readMilestones(force bool) {
 			st := core.MsState{At: time.Now()}
 			if core.OnGitHub(p) {
 				core.MsSem <- struct{}{}
-				s, err := core.ReadMilestones(p, a.cfg.GithubToken)
+				var s core.MsState
+				var err error
+				a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.cfg.GithubToken) })
 				<-core.MsSem
 				if err != nil {
 					return
@@ -867,7 +924,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		a.mu.Lock()
 		sel := a.sel
 		a.mu.Unlock()
-		return map[string]any{"state": a.Snapshot(), "cards": a.selectCards(sel), "help": helpData(), "tools": toolsData(), "prefs": loadPrefs()}, nil
+		return map[string]any{"state": a.Snapshot(), "cards": a.selectCards(sel), "help": helpData(), "prefs": loadPrefs()}, nil
 	case "setPrefs": // préférences d'affichage (#123, #124) : objet fusionné
 		var patch map[string]any
 		if err := json.Unmarshal(raw, &patch); err != nil {
