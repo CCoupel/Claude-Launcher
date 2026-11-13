@@ -29,7 +29,10 @@ import (
 
 const (
 	defaultBrowserListen = "127.0.0.1:8765"
-	browserHealthPath    = "/__claude-launcher__"
+	// exe Windows sans listen (#110) : le hub Linux sous WSL partage le
+	// localhost de Windows et tient 8765 ; le port voisin les laisse cohabiter
+	defaultBrowserListenWindows = "127.0.0.1:8766"
+	browserHealthPath           = "/__claude-launcher__"
 	// système du launcher qui sert (réponse de browserHealthPath) : sous
 	// Windows, le hub Linux de WSL partage le localhost du poste (#110)
 	browserOSHeader = "X-Claude-Launcher-OS"
@@ -49,6 +52,10 @@ type serverConf struct {
 	Base   string // http://hôte:port, sans / final
 	Allow  []string
 	Source string
+	// d'où vient l'adresse d'écoute (diag) : hubs.<machine>[.<système>]
+	// .browser_server.listen, defaults.browser_server.listen, défaut…
+	ListenSrc string
+	PerOS     bool // surcharge hubs.<machine>.<système> présente
 }
 
 func isOff(s string) bool {
@@ -69,15 +76,33 @@ func isLoopback(h string) bool {
 
 // resolveBrowserServer : hubs.<machine> l'emporte champ par champ sur defaults.
 func resolveBrowserServer(f backendsFile, host string) (serverConf, error) {
+	return resolveBrowserServerFor(f, host, "")
+}
+
+// defaultListenFor : adresse d'écoute sans réglage sur goos.
+func defaultListenFor(goos string) (string, string) {
+	if goos == "windows" {
+		return defaultBrowserListenWindows, "défaut Windows"
+	}
+	return defaultBrowserListen, "défaut"
+}
+
+// resolveBrowserServerFor : réglage effectif sur le système goos ("" : sans
+// surcharge par système, défaut commun). hubs.<machine>.<goos>.browser_server
+// l'emporte champ par champ sur hubs.<machine>.browser_server, qui l'emporte
+// sur defaults.browser_server. Sous Windows, sans listen : 127.0.0.1:8766.
+func resolveBrowserServerFor(f backendsFile, host, goos string) (serverConf, error) {
 	var s BrowserServer
-	src := "défaut"
+	src, lsrc := "défaut", ""
 	if d := f.Defaults.BrowserServer; d != nil {
 		s, src = *d, "defaults.browser_server"
+		if s.Listen != "" {
+			lsrc = src
+		}
 	}
-	if k, h, ok := pickHub(f.Hubs, host); ok && h.BrowserServer != nil {
-		o := *h.BrowserServer
+	merge := func(o BrowserServer, blk string) {
 		if o.Listen != "" {
-			s.Listen = o.Listen
+			s.Listen, lsrc = o.Listen, blk
 		}
 		if o.URL != "" {
 			s.URL = o.URL
@@ -85,21 +110,32 @@ func resolveBrowserServer(f backendsFile, host string) (serverConf, error) {
 		if o.Allow != nil {
 			s.Allow = o.Allow
 		}
-		src = "hubs." + k + ".browser_server"
+		src = blk
 	}
-	c := serverConf{Listen: strings.TrimSpace(s.Listen), Allow: s.Allow, Source: src}
+	v := pickHubOS(f.Hubs, host, goos)
+	if v.ok && v.base.BrowserServer != nil {
+		merge(*v.base.BrowserServer, v.src("browser_server", false))
+	}
+	perOS := v.ov != nil && v.ov.BrowserServer != nil
+	if perOS {
+		merge(*v.ov.BrowserServer, v.src("browser_server", true))
+	}
+	if lsrc == "" {
+		lsrc = src // aucun listen déclaré : l'erreur éventuelle vise le bloc
+	}
+	c := serverConf{Listen: strings.TrimSpace(s.Listen), Allow: s.Allow, Source: src, ListenSrc: lsrc + ".listen", PerOS: perOS}
 	if isOff(c.Listen) {
 		c.Off = true
 		return c, nil
 	}
 	if c.Listen == "" {
-		c.Listen = defaultBrowserListen
+		c.Listen, c.ListenSrc = defaultListenFor(goos)
 	} else if !strings.Contains(c.Listen, ":") {
 		c.Listen = "127.0.0.1:" + c.Listen // port seul
 	}
 	h, port, err := net.SplitHostPort(c.Listen)
 	if n, e := strconv.Atoi(port); err != nil || e != nil || n < 1 || n > 65535 {
-		return serverConf{Off: true, Source: src}, fmt.Errorf("%s.listen %q : hôte:port attendu", src, s.Listen)
+		return serverConf{Off: true, Source: src}, fmt.Errorf("%s %q : hôte:port attendu", c.ListenSrc, s.Listen)
 	}
 	if u := strings.TrimRight(strings.TrimSpace(s.URL), "/"); u != "" {
 		if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
@@ -159,9 +195,10 @@ func (c serverConf) allowedHosts(machine string) map[string]bool {
 	return m
 }
 
-// browserServer : réglage effectif de ce launcher.
+// browserServer : réglage effectif de ce launcher, sur son système (surcharge
+// hubs.<machine>.<système> comprise).
 func browserServer() (serverConf, error) {
-	return resolveBrowserServer(readBackendsFile(), hubName())
+	return resolveBrowserServerFor(readBackendsFile(), hubName(), pathsGOOS)
 }
 
 // ── Gestionnaire HTTP ─────────────────────────────────────────────────────
@@ -471,6 +508,34 @@ func probeBrowserServerOS(c serverConf) (string, string, error) {
 	return strings.TrimSpace(string(b)), resp.Header.Get(browserOSHeader), nil
 }
 
+// listenOriginLine : d'où vient l'adresse d'écoute, pour ce système (diag).
+// Rien sans surcharge par système hors Windows : sortie d'avant.
+func listenOriginLine(c serverConf, goos string) string {
+	if !c.PerOS && goos != "windows" {
+		return ""
+	}
+	sys := osKey(goos)
+	if sys == "" {
+		sys = goos
+	}
+	return "réglage pour " + sys + " : listen de " + c.ListenSrc
+}
+
+// ownPortHint : comment donner à ce launcher un serveur propre quand le port
+// est tenu par le launcher d'un autre système du même poste.
+func ownPortHint(machine, goos string) string {
+	sys := osKey(goos)
+	if sys == "" {
+		sys = goos
+	}
+	port := "8766"
+	if goos != "windows" {
+		port = "8765"
+	}
+	return "Pour un serveur propre à ce launcher : un autre port pour ce système, hubs." + machine + "." + sys +
+		".browser_server.listen (ex. 127.0.0.1:" + port + ") ; hubs." + machine + ".browser_server vaut pour les deux systèmes du même nom de machine, voir le README (section Windows)."
+}
+
 // PrintBrowserServer : section de « claude-launcher-ng2 backends ».
 func PrintBrowserServer() {
 	c, err := browserServer()
@@ -484,11 +549,14 @@ func PrintBrowserServer() {
 		return
 	}
 	fmt.Printf("  écoute %s, URL %s/<chemin>\n", c.Listen, c.Base)
+	if l := listenOriginLine(c, runtime.GOOS); l != "" {
+		fmt.Println("  " + l)
+	}
 	if v, hos, err := probeBrowserServerOS(c); err == nil {
 		if who, foreign := foreignHolder(runtime.GOOS, hos); foreign {
 			fmt.Printf("  ⚠ port tenu par %s : %s\n", who, v)
 			fmt.Println("    → ce n'est pas le serveur de ce launcher. Il sert les mêmes chemins (ceux des backends) : le navigateur de ce poste peut s'en servir tant qu'il tourne.")
-			fmt.Printf("      Pour un serveur propre à ce launcher : un autre port (browser_server.listen) ; hubs.%s vaut pour les deux sous le même nom de machine, voir le README (section Windows).\n", hubName())
+			fmt.Println("      " + ownPortHint(hubName(), runtime.GOOS))
 		} else {
 			fmt.Println("  actif : " + v)
 		}

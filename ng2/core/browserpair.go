@@ -63,8 +63,14 @@ func browserToken() string {
 // browserDevice : deviceId du navigateur du hub et sa source ; hubs.<machine>
 // .browser_device l'emporte sur l'appariement enregistré.
 func browserDevice(f backendsFile, host string) (id, source string) {
-	if k, h, ok := pickHub(f.Hubs, host); ok && h.BrowserDevice != "" {
-		return h.BrowserDevice, "hubs." + k + ".browser_device"
+	return browserDeviceFor(f, host, "")
+}
+
+// browserDeviceFor : browserDevice sur le système goos (surcharge
+// hubs.<machine>.<goos>.browser_device comprise).
+func browserDeviceFor(f backendsFile, host, goos string) (id, source string) {
+	if id, src := pickHubOS(f.Hubs, host, goos).browserDevice(); id != "" {
+		return id, src
 	}
 	if b, err := os.ReadFile(browserDevicePath()); err == nil {
 		if id := strings.TrimSpace(string(b)); deviceIDRe.MatchString(id) {
@@ -136,8 +142,10 @@ func browserHint(c serverConf, device, devSource, token, machine string, ps []Br
 func BrowserEnvVars() []envVar {
 	f := readBackendsFile()
 	machine := hubName()
-	ps, _, _ := resolveBrowserPaths(f, machine, knownRoots(), onWSL())
-	c, err := resolveBrowserServer(f, machine)
+	// réglages du système de ce launcher : l'exe Windows et le hub Linux du
+	// même poste ont chacun leur serveur, donc leur port et leur jeton
+	ps, _, _ := resolveBrowserPathsFor(f, machine, knownRoots(), onWSL(), pathsGOOS)
+	c, err := resolveBrowserServerFor(f, machine, pathsGOOS)
 	if err != nil {
 		c.Off = true
 	}
@@ -145,7 +153,7 @@ func BrowserEnvVars() []envVar {
 	if !c.Off {
 		tok = browserToken()
 	}
-	dev, src := browserDevice(f, machine)
+	dev, src := browserDeviceFor(f, machine, pathsGOOS)
 	return []envVar{
 		{browserPathVar, browserPathJSON(ps)},
 		{browserHintVar, browserHint(c, dev, src, tok, machine, ps)},
@@ -256,7 +264,7 @@ func SyncBrowserHook(dir string) error {
 
 // PrintBrowserDevice : section de « claude-launcher-ng2 backends ».
 func PrintBrowserDevice() {
-	dev, src := browserDevice(readBackendsFile(), hubName())
+	dev, src := browserDeviceFor(readBackendsFile(), hubName(), pathsGOOS)
 	fmt.Printf("\nNavigateur du hub (machine %s) :\n", hubName())
 	if dev == "" {
 		fmt.Println("  pas encore identifié : la première session claude qui utilise Chrome fait l'appariement")
