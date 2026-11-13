@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/user"
 	"strconv"
 	"strings"
 )
@@ -16,11 +15,9 @@ var bootstrapScript string
 
 // bootstrapVars : variables CL_* placées en tête du script de bootstrap.
 func bootstrapVars(proj string, env EnvSpec) string {
-	home, _ := os.UserHomeDir()
-	name := "cl"
-	if u, err := user.Current(); err == nil && u.Username != "" {
-		name = u.Username
-	}
+	// identité et chemins vus du conteneur (pathmap.go ; Linux : ceux du launcher)
+	u := CtrUser()
+	home, name := u.Home, u.Name
 	byMgr := func(m string) string { return strings.Join(env.PackagesByManager[m], " ") }
 	setup := ""
 	if len(env.Setup) > 0 {
@@ -31,9 +28,9 @@ func bootstrapVars(proj string, env EnvSpec) string {
 		skip = "1"
 	}
 	vars := [][2]string{
-		{"CL_UID", strconv.Itoa(os.Getuid())}, {"CL_GID", strconv.Itoa(os.Getgid())},
-		{"CL_USER", name}, {"CL_HOME", home}, {"CL_PROJ", proj}, {"CL_HASH", env.hash()},
-		{"CL_SKIP_CLAUDE", skip}, {"CLAUDE_CONFIG_DIR", ClaudeDir()},
+		{"CL_UID", strconv.Itoa(u.UID)}, {"CL_GID", strconv.Itoa(u.GID)},
+		{"CL_USER", name}, {"CL_HOME", home}, {"CL_PROJ", RemotePath(proj)}, {"CL_HASH", env.hash()},
+		{"CL_SKIP_CLAUDE", skip}, {"CLAUDE_CONFIG_DIR", RemotePath(ClaudeDir())},
 		{"CL_PKGS", strings.Join(env.Packages, " ")},
 		{"CL_PKGS_APT", byMgr("apt")}, {"CL_PKGS_DNF", byMgr("dnf")},
 		{"CL_PKGS_APK", byMgr("apk")}, {"CL_PKGS_ZYPPER", byMgr("zypper")},
@@ -63,7 +60,7 @@ func (e Engine) OnStart(name, proj string, env EnvSpec) error {
 		return nil
 	}
 	fmt.Printf("\n\033[1;36m▸ %s\033[0m\n", "étapes de démarrage (on_start : launcher, template, projet)")
-	script := "export PATH=\"$HOME/.local/bin:$PATH\"\ncd " + Shq(proj) + "\n" + strings.Join(env.OnStart, "\n") + "\n"
+	script := "export PATH=\"$HOME/.local/bin:$PATH\"\ncd " + Shq(RemotePath(proj)) + "\n" + strings.Join(env.OnStart, "\n") + "\n"
 	if err := e.Exec(name, false, strings.NewReader(script), os.Stdout, "bash", "-e", "-s"); err != nil {
 		return fmt.Errorf("on_start : %w", err)
 	}
@@ -80,7 +77,7 @@ func TmuxIn(args ...string) []string {
 // -e : session créée sans, seuls les panes suivants (teammates) auront la
 // variable, posée par setCtrBrowserPaths.
 func (e Engine) NewCtrSession(name, proj string, w, h int) error {
-	ns := []string{"new-session", "-d", "-s", CtrSession, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", proj}
+	ns := []string{"new-session", "-d", "-s", CtrSession, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", RemotePath(proj)}
 	withEnv := []string{"new-session", "-d"}
 	for _, v := range BrowserEnvVars() {
 		withEnv = append(withEnv, "-e", v.K+"="+v.V)

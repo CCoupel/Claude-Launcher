@@ -186,7 +186,13 @@ defaults: { backend: podman, image: docker.io/library/debian:12 }
   un **stockage partagé monté aux mêmes chemins** des deux côtés (NFS, MooseFS…) ; le launcher lit
   lui-même conversations, teams et projets.
 - **Un backend inutilisable** est signalé `⚠`, et `claude-launcher-ng2 backends` dit quoi corriger
-  (client absent, démon non exposé, ssh, podman absent, partage non monté, namespace, PVC…).
+  (client absent, démon non exposé, ssh, podman absent, partage non monté, namespace, PVC…) ;
+  elle liste aussi les outils externes (`ssh`, `git`, `docker`/`podman`, `kubectl`, `gh`) qu'exigent
+  les backends déclarés.
+- **Windows (v6, en cours)** : backends distants seulement (`host` et moteurs locaux refusés) ; le
+  partage vu du poste (`\\wsl.localhost\…`) est relié aux chemins Linux par `hubs.<machine>.paths`
+  dans `backends.yaml`, outils installables par `winget`. Détails :
+  [`ng2/README.md` — Windows](ng2/README.md#windows-v6-en-cours).
 - **Launcher arrêté** : la session du conteneur (claude et ses teammates) continue ; au relancement,
   NG2 la retrouve et rattache sa fenêtre.
 - **Plusieurs launchers sur un même projet** : un seul le pilote ; les autres peuvent le rejoindre en

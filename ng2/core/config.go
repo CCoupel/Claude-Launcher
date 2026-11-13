@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 
@@ -42,17 +43,8 @@ type Config struct {
 	CtrStopOnExit bool
 }
 
-// LoadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
-// celui du launcher actuel (tableaux, $HOME, variables), sans le réimplémenter.
-// Sortie : une ligne « TAG<TAB>valeur » par information.
-func LoadConfig() Config {
-	home, _ := os.UserHomeDir()
-	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{},
-		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
-		BrightenStep: 1, DarkenStep: 1, ResumeMode: "ask", ResumeMaxAgeH: 24}
-	path := ConfigPath()
-
-	script := `
+// loadConfigScript : config.conf sourcé par bash, réglages imprimés (LoadConfig).
+const loadConfigScript = `
 GITHUB_DIR="$HOME/GITHUB"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=()
@@ -74,9 +66,28 @@ for e in "${EXTRA_ENVS[@]}"; do printf 'env\t%s\n' "$e"; done
 for k in "${!PROJECT_COLORS[@]}"; do printf 'color\t%s\t%s\n' "$k" "${PROJECT_COLORS[$k]}"; done
 if (( ${#GITHUB_DIRS[@]} )); then for d in "${GITHUB_DIRS[@]}"; do printf 'root\t%s\n' "$d"; done
 else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
-	cmd := exec.Command("bash", "-c", script, "_", path)
-	cmd.Env = EnvWithout("CLAUDE_CONFIG_DIR") // seule la valeur du fichier compte ici
-	out, err := cmd.Output()
+
+// LoadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
+// celui du launcher actuel (tableaux, $HOME, variables), sans le réimplémenter.
+// Sortie : une ligne « TAG<TAB>valeur » par information.
+func LoadConfig() Config {
+	home, _ := os.UserHomeDir()
+	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{},
+		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
+		BrightenStep: 1, DarkenStep: 1, ResumeMode: "ask", ResumeMaxAgeH: 24}
+	path := ConfigPath()
+
+	var out []byte
+	var err error
+	if runtime.GOOS == "windows" {
+		// pas de bash fiable sous Windows (celui de System32 lance WSL) :
+		// lecture du sous-ensemble utile du format, en Go (conflite.go)
+		out = []byte(confLite(readFileOr(path), home))
+	} else {
+		cmd := exec.Command("bash", "-c", loadConfigScript, "_", path)
+		cmd.Env = EnvWithout("CLAUDE_CONFIG_DIR") // seule la valeur du fichier compte ici
+		out, err = cmd.Output()
+	}
 	if err == nil {
 		for _, l := range strings.Split(strings.TrimRight(string(out), "\n"), "\n") {
 			f := strings.SplitN(l, "\t", 3)
@@ -129,7 +140,8 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 				}
 			case "claudedir":
 				if d := strings.TrimSpace(f[1]); d != "" {
-					if !filepath.IsAbs(d) {
+					// « /… » : absolu aussi sous Windows (racine du lecteur, pas relatif au dossier de config)
+					if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, `\`) {
 						d = filepath.Join(filepath.Dir(path), d)
 					}
 					cfg.ClaudeConfigDir = filepath.Clean(d)
@@ -137,10 +149,10 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 			}
 		}
 	}
-	// Test : CL_ROOTS (séparées par « : ») remplace les racines du conf, pour ne
-	// jamais travailler sur de vrais projets.
+	// Test : CL_ROOTS (séparées par « : », « ; » sous Windows) remplace les
+	// racines du conf, pour ne jamais travailler sur de vrais projets.
 	if r := os.Getenv("CL_ROOTS"); r != "" {
-		cfg.Roots = strings.Split(r, ":")
+		cfg.Roots = filepath.SplitList(r)
 	}
 	if cfg.UsageRefreshSec < 60 {
 		cfg.UsageRefreshSec = 60
@@ -186,8 +198,8 @@ func ConfigPath() string { return filepath.Join(Ng2ConfigDir(), "config.conf") }
 // Ng2ConfigDir : dossier de config du launcher (config.conf, backends.yaml).
 // D'abord à côté du binaire — <dossier du binaire>/.config/claude-launcher-ng2,
 // s'il contient un config.conf : launcher portable, posé avec sa config sur un
-// stockage partagé —, sinon ~/.config/claude-launcher-ng2.
-// CL_CONFIG_DIR force un dossier (tests).
+// stockage partagé —, sinon ~/.config/claude-launcher-ng2 (Windows :
+// %AppData%\claude-launcher-ng2). CL_CONFIG_DIR force un dossier (tests).
 func Ng2ConfigDir() string {
 	if d := os.Getenv("CL_CONFIG_DIR"); d != "" {
 		return d
@@ -198,6 +210,18 @@ func Ng2ConfigDir() string {
 		}
 	}
 	home, _ := os.UserHomeDir()
+	ucd := ""
+	if runtime.GOOS == "windows" {
+		ucd, _ = os.UserConfigDir()
+	}
+	return defaultConfigDir(runtime.GOOS, home, ucd)
+}
+
+// defaultConfigDir : dossier de config par défaut (logique pure).
+func defaultConfigDir(goos, home, userConfigDir string) string {
+	if goos == "windows" && userConfigDir != "" {
+		return filepath.Join(userConfigDir, "claude-launcher-ng2")
+	}
 	return filepath.Join(home, ".config", "claude-launcher-ng2")
 }
 
@@ -321,11 +345,24 @@ func RunConfigure() error {
 	if created {
 		fmt.Println("✓ Config créée :", ConfigPath())
 	}
-	editor := os.Getenv("EDITOR")
+	a := editorArgv(runtime.GOOS, os.Getenv("EDITOR"), ConfigPath())
+	c := exec.Command(a[0], a[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	return c.Run()
+}
+
+// editorArgv : commande d'édition de path ($EDITOR, nano par défaut ; Windows :
+// pas de sh, notepad par défaut).
+func editorArgv(goos, editor, path string) []string {
+	if goos == "windows" {
+		a := strings.Fields(editor)
+		if len(a) == 0 {
+			a = []string{"notepad"}
+		}
+		return append(a, path)
+	}
 	if editor == "" {
 		editor = "nano"
 	}
-	c := exec.Command("sh", "-c", editor+` "$1"`, "_", ConfigPath())
-	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
-	return c.Run()
+	return []string{"sh", "-c", editor + ` "$1"`, "_", path}
 }

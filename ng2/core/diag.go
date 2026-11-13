@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
+	"path"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -24,11 +25,12 @@ type Problem struct {
 
 func (p Problem) String() string { return p.What + " — " + p.Fix }
 
-// underShared : p est sous l'une des racines partagées du backend.
+// underShared : p (chemin vu des backends, Linux) est sous l'une des racines
+// partagées du backend.
 func underShared(b BackendConf, p string) bool {
-	p = filepath.Clean(p)
+	p = path.Clean(p)
 	for _, r := range b.Shared {
-		r = filepath.Clean(r)
+		r = path.Clean(r)
 		if p == r || strings.HasPrefix(p, r+"/") {
 			return true
 		}
@@ -49,20 +51,42 @@ func sharedProblems(b BackendConf, proj string) []Problem {
 	}
 	var out []Problem
 	for _, r := range b.Shared {
-		if _, err := os.Stat(r); err != nil {
+		// racine Linux : cherchée ici à son chemin local (pathmap.go)
+		if _, err := os.Stat(LocalPath(r)); err != nil {
 			out = append(out, Problem{"racine partagée " + r + " absente sur cette machine",
-				"monter le stockage partagé ici au même chemin que sur " + b.Host + " (ex. MooseFS : mfsmount " + r + " -H <master>)"})
+				sharedRootFix(r, b.Host)})
 		}
 	}
-	if cd := ClaudeDir(); !underShared(b, cd) {
+	// chemins vus des backends ; sous Windows, un chemin sans correspondance
+	// Linux est signalé tel quel
+	for _, p := range []string{ClaudeDir(), proj} {
+		if p == "" {
+			continue
+		}
+		if _, err := RemotePathChecked(p); err != nil {
+			out = append(out, Problem{err.Error(), "ajouter sa correspondance dans hubs.<machine>.paths (" + BackendsPath() + ")"})
+		}
+	}
+	if cd := RemotePath(ClaudeDir()); !underShared(b, cd) {
 		out = append(out, Problem{cd + " n'est pas sur le stockage partagé (" + strings.Join(b.Shared, ", ") + ")",
 			"y placer la config de claude (CLAUDE_CONFIG_DIR=<racine partagée>/…/.claude) : conversations, teams et connexion doivent être vues des deux côtés"})
 	}
-	if proj != "" && !underShared(b, proj) {
+	if proj != "" && !underShared(b, RemotePath(proj)) {
 		out = append(out, Problem{"projet hors du stockage partagé (" + strings.Join(b.Shared, ", ") + ")",
 			"déplacer le projet sous une racine partagée, ou choisir un backend local (F2)"})
 	}
 	return out
+}
+
+// sharedRootFix : comment rendre visible ici la racine partagée r.
+func sharedRootFix(r, host string) string { return sharedRootFixFor(runtime.GOOS, r, host) }
+
+func sharedRootFixFor(goos, r, host string) string {
+	if goos == "windows" {
+		return "rendre le partage visible sur ce poste (ex. \\\\wsl.localhost\\<distribution>" + strings.ReplaceAll(r, "/", `\`) +
+			") et déclarer sa correspondance : hubs.<machine>.paths: [{ local: '…', remote: " + r + " }] dans " + BackendsPath()
+	}
+	return "monter le stockage partagé ici au même chemin que sur " + host + " (ex. MooseFS : mfsmount " + r + " -H <master>)"
 }
 
 // checkShared : erreur explicite si le projet ne peut pas tourner sur ce backend.
@@ -70,7 +94,7 @@ func (e Engine) checkShared(proj string) error {
 	ps := sharedProblems(e.B, proj)
 	if e.B.Type == "ssh" && len(ps) == 0 {
 		// les mêmes chemins doivent exister de l'autre côté
-		for _, p := range []string{ClaudeDir(), proj} {
+		for _, p := range []string{RemotePath(ClaudeDir()), RemotePath(proj)} {
 			if exec.Command("ssh", append(append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...), e.B.Host, "test -d "+Shq(p))...).Run() != nil {
 				ps = append(ps, Problem{p + " absent sur " + e.B.Host,
 					"monter le stockage partagé sur " + e.B.Host + " au même chemin qu'ici"})
@@ -99,6 +123,9 @@ func runQuiet(timeout time.Duration, argv ...string) (string, error) {
 
 // Diagnose : problèmes du backend (vide : utilisable) — moteur, puis stockage partagé.
 func Diagnose(b BackendConf) []Problem {
+	if p, refused := LocalRefusal(b); refused {
+		return []Problem{p} // backend local sous Windows (oslimits.go)
+	}
 	if b.IsPool() {
 		// groupe (#61) : utilisable tant qu'un serveur l'est ; sinon les problèmes de chacun
 		var all []Problem

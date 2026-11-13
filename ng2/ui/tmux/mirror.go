@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
-	"golang.org/x/sys/unix"
 
 	"claude-launcher-ng2/core"
 	"claude-launcher-ng2/platform"
@@ -154,8 +153,8 @@ func RunMirror(win, name string) error {
 				lines = lines[1:]
 			}
 			rows, cols := 24, 80
-			if ws, err := unix.IoctlGetWinsize(fd, unix.TIOCGWINSZ); err == nil && ws.Row > 0 {
-				rows, cols = int(ws.Row), int(ws.Col)
+			if r, c, err := platform.TermSize(fd); err == nil && r > 0 {
+				rows, cols = r, c
 			}
 			if s := mirrorFrame(name, color, rows, cols, focus, cx, cy, lines); s != prev {
 				prev = s

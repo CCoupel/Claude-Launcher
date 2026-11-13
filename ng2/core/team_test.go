@@ -8,6 +8,7 @@ import (
 )
 
 func TestTeam(t *testing.T) {
+	unixOnly(t)
 	root, proj := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	write := func(p, s string) {

@@ -85,6 +85,7 @@ func TestNamedPoolsErrors(t *testing.T) {
 }
 
 func TestNamedPoolsPlace(t *testing.T) {
+	unixOnly(t)
 	_, put := withFakeDocker(t)
 	// sans ssh-dev : pas de vraie connexion ssh dans ce test
 	writeBackends(t, strings.Replace(poolsYAML, "  ssh-dev:", "  #ssh-dev:", 1))

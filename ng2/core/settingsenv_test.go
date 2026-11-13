@@ -50,6 +50,7 @@ func TestEnvVars(t *testing.T) {
 }
 
 func TestSyncSettingsEnv(t *testing.T) {
+	unixOnly(t)
 	dir := t.TempDir()
 	p := filepath.Join(dir, "settings.json")
 	orig := `{

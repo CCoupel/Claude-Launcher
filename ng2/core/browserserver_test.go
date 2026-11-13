@@ -81,6 +81,7 @@ func TestServedRoots(t *testing.T) {
 // Fichiers servis : racines seulement, liens qui sortent refusés, Host
 // contrôlé, lecture seule, pas de cache, index.html et liste de dossier.
 func TestBrowserFileServer(t *testing.T) {
+	unixOnly(t)
 	d := t.TempDir()
 	root := filepath.Join(d, "share", "PROJ")
 	must := func(err error) {

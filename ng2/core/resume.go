@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -96,10 +97,24 @@ func CleanExitPath(dirName string) string {
 // CleanExitShell : suite bash de la commande claude, qui pose le marqueur du
 // projet path si claude s'est terminé lui-même (ou sur SIGINT, 130) ; tué par
 // un autre signal (OOM, segfault : statut ≥ 128), c'est un crash.
+// Commande exécutée là où tourne claude : projet en conteneur à correspondance
+// déclarée, chemins vus des backends ; sinon chemins locaux (comme avant #110).
 func CleanExitShell(path string) string {
-	m := CleanExitPath(ProjectDirName(path))
-	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + Shq(filepath.Dir(m)) + " && touch " + Shq(m)
+	return cleanExitShellFor(path, ctrMapped(path))
 }
+
+func cleanExitShellFor(path string, inCtr bool) string {
+	if !inCtr {
+		m := CleanExitPath(ProjectDirName(path))
+		return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + Shq(filepath.Dir(m)) + " && touch " + Shq(m)
+	}
+	m := pathpkg.Join(RemotePath(ClaudeDir()), "claude-launcher-ng2", "clean-exit", ProjectDirName(RemotePath(path)))
+	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + Shq(pathpkg.Dir(m)) + " && touch " + Shq(m)
+}
+
+// CleanExitMarker : marqueur de sortie propre du projet (fichier local), au
+// nom que lui donne claude (ClaudePath) — posé aussi par l'abandon d'une reprise.
+func CleanExitMarker(path string) string { return CleanExitPath(ProjectDirName(ClaudePath(path))) }
 
 // cleanExited : le marqueur du projet est postérieur (ou égal) à mod.
 func cleanExited(dirName string, mod time.Time) bool {
@@ -288,7 +303,8 @@ func (c Config) PendingSession(path string) (r Resumable, ok bool) {
 	if maxAge <= 0 {
 		maxAge = 24 * time.Hour
 	}
-	r, ok = lastSession(ClaudeDir(), path)
+	// conversations rangées par claude sous le chemin vu du conteneur (pathmap.go)
+	r, ok = lastSession(ClaudeDir(), ClaudePath(path))
 	if ok && r.InUse && r.Unknown && !r.Ended && time.Since(r.Mod) < maxAge && ctrSessionGone(path) {
 		// leader d'un conteneur distant : son conteneur (ou pod) n'a plus de
 		// session tmux — recréé, arrêté ou disparu — donc le leader est mort

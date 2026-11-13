@@ -120,7 +120,7 @@ func installPrepared(path, sum, dst string) error {
 		_ = os.Remove(path)
 		return fmt.Errorf("binaire préparé modifié : il va être retéléchargé")
 	}
-	return core.WriteAtomic(dst, body)
+	return core.InstallBinary(dst, body)
 }
 
 // installPreparedCmd : clic sur l'annonce verte.

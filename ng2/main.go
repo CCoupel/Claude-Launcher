@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"runtime"
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -14,6 +15,10 @@ import (
 	"claude-launcher-ng2/platform"
 	"claude-launcher-ng2/ui/tmux"
 )
+
+// windowsUnsupported : sous-commandes de la coque tmux (sans objet sous Windows).
+var windowsUnsupported = map[string]bool{"shell": true, "nav": true, "state": true, "fixwidth": true,
+	"mirror": true, "layout-watch": true, "relayout": true, "ctr-attach": true}
 
 func main() {
 	core.ApplyClaudeConfigDir()
@@ -28,6 +33,11 @@ func main() {
 		case "--version", "-v", "--help", "-h":
 			cmd = os.Args[1]
 		}
+	}
+	platform.CleanupOldExe() // Windows : .old laissé par une mise à jour (ailleurs : rien)
+	if runtime.GOOS == "windows" && windowsUnsupported[cmd] {
+		fmt.Fprintf(os.Stderr, "« %s » : coque tmux indisponible sous Windows (interface native : #111) — disponibles : backends, configure, help, version\n", cmd)
+		os.Exit(1)
 	}
 	launch := false
 	for _, a := range os.Args[1:] {

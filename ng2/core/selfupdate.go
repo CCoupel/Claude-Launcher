@@ -37,7 +37,21 @@ var ReleaseBase = func() string {
 
 var ReleaseVerRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
-func NgAsset() string { return "claude-launcher-ng2-" + runtime.GOOS + "-" + runtime.GOARCH }
+// NgAsset : fichier de la release pour ce système (cf. ngAssetFor).
+func NgAsset() string { return ngAssetFor(runtime.GOOS, runtime.GOARCH) }
+
+// ngAssetFor : claude-launcher-ng2-<os>-<arch> (Linux, macOS : inchangé) ;
+// Windows : claude-launcher-ng2.exe (amd64, #112), sinon
+// claude-launcher-ng2-windows-<arch>.exe.
+func ngAssetFor(goos, goarch string) string {
+	if goos == "windows" {
+		if goarch == "amd64" {
+			return "claude-launcher-ng2.exe"
+		}
+		return "claude-launcher-ng2-windows-" + goarch + ".exe"
+	}
+	return "claude-launcher-ng2-" + goos + "-" + goarch
+}
 
 func updateDisabled() bool {
 	if os.Getenv("CL_NO_UPDATE") == "1" {
@@ -127,7 +141,7 @@ func applyUpdate(base, bin, script string) (binDone, scriptDone bool, err error)
 		}
 	}
 	if bin != "" {
-		if err := replaceVerified(base, NgAsset(), sums, bin); err != nil {
+		if err := replaceVerifiedExe(base, NgAsset(), sums, bin); err != nil {
 			errs = append(errs, err.Error())
 		} else {
 			binDone = true
@@ -300,18 +314,43 @@ func FetchSums(url string) (map[string]string, error) {
 }
 
 func replaceVerified(base, name string, sums map[string]string, dst string) error {
+	body, err := fetchVerified(base, name, sums)
+	if err != nil {
+		return err
+	}
+	return WriteAtomic(dst, body)
+}
+
+// replaceVerifiedExe : replaceVerified pour le binaire du launcher, qui tourne
+// (InstallBinary).
+func replaceVerifiedExe(base, name string, sums map[string]string, dst string) error {
+	body, err := fetchVerified(base, name, sums)
+	if err != nil {
+		return err
+	}
+	return InstallBinary(dst, body)
+}
+
+func fetchVerified(base, name string, sums map[string]string) ([]byte, error) {
 	want, ok := sums[name]
 	if !ok {
-		return fmt.Errorf("%s absent de SHA256SUMS", name)
+		return nil, fmt.Errorf("%s absent de SHA256SUMS", name)
 	}
 	body, err := releaseGet(base+"/"+name, 2*time.Minute)
 	if err != nil {
-		return fmt.Errorf("%s : %w", name, err)
+		return nil, fmt.Errorf("%s : %w", name, err)
 	}
 	if SumOf(body) != want {
-		return fmt.Errorf("%s : somme SHA-256 incorrecte", name)
+		return nil, fmt.Errorf("%s : somme SHA-256 incorrecte", name)
 	}
-	return WriteAtomic(dst, body)
+	return body, nil
+}
+
+// InstallBinary : body à la place du binaire en cours d'exécution dst.
+// Linux/macOS : WriteAtomic (rename par-dessus). Windows : l'exe courant est
+// d'abord renommé en .old, supprimé au démarrage suivant (platform.ReplaceExecutable).
+func InstallBinary(dst string, body []byte) error {
+	return platform.ReplaceExecutable(dst, func(d string) error { return WriteAtomic(d, body) })
 }
 
 func SumOf(b []byte) string {

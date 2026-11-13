@@ -65,6 +65,7 @@ func TestWatchTree(t *testing.T) {
 // signale « inaccessible », et elle revient seule au remontage — sans Ctrl+R ni
 // relance (avant : plus surveillée du tout, navigateur vide jusqu'à la relance).
 func TestWatchTreeRootLostAndBack(t *testing.T) {
+	unixOnly(t)
 	parent := t.TempDir()
 	root := filepath.Join(parent, "PROJETS")
 	away := filepath.Join(parent, "PROJETS.demonte")

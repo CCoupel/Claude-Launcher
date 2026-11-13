@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 
@@ -36,9 +37,11 @@ type BrowserPath struct {
 
 // hubConf : réglages propres à une machine de launcher (hubs: de backends.yaml).
 type hubConf struct {
-	BrowserPaths  *[]BrowserPath `yaml:"browser_paths"`
-	BrowserServer *BrowserServer `yaml:"browser_server"`
-	BrowserDevice string         `yaml:"browser_device"` // deviceId imposé (#106, browserpair.go)
+	BrowserPaths  *[]BrowserPath  `yaml:"browser_paths"`
+	BrowserServer *BrowserServer  `yaml:"browser_server"`
+	BrowserDevice string          `yaml:"browser_device"` // deviceId imposé (#106, browserpair.go)
+	Paths         []PathMap       `yaml:"paths"`          // chemins locaux → chemins des backends (#110, pathmap.go)
+	RemoteUser    *RemoteUserConf `yaml:"remote_user"`    // uid/gid/HOME dans les conteneurs (#110, Windows)
 }
 
 // winHostRe : C:\…, C: ou UNC \\serveur\… (dont \\wsl.localhost\…).
@@ -118,6 +121,9 @@ func pickHub(hubs map[string]hubConf, host string) (string, hubConf, bool) {
 
 // onWSL : launcher sous WSL (Chrome tourne alors côté Windows).
 func onWSL() bool {
+	if runtime.GOOS == "windows" {
+		return false // Windows natif (#110) : ni /proc ni WSL_DISTRO_NAME ; Chrome est local
+	}
 	if os.Getenv("WSL_DISTRO_NAME") != "" {
 		return true
 	}
@@ -156,6 +162,29 @@ func defaultBrowserPaths(roots []string, wsl bool) []BrowserPath {
 	return out
 }
 
+// mappedBrowserPaths : pour chaque racine connue (locale ou vue des sessions),
+// chemin des sessions → chemin local selon la correspondance m.
+func mappedBrowserPaths(roots []string, m PathMapper) []BrowserPath {
+	seen := map[string]bool{}
+	var out []BrowserPath
+	for _, r := range roots {
+		c, _ := m.ToRemote(r)
+		c = strings.TrimRight(c, "/")
+		if c == "" || !strings.HasPrefix(c, "/") || seen[c] {
+			continue
+		}
+		seen[c] = true
+		h, _ := m.ToLocal(c)
+		p := BrowserPath{Container: c, Host: h, OS: "linux"}
+		if winPathForm(h) {
+			p.Host, p.OS = strings.TrimRight(h, `\`), "windows"
+		}
+		out = append(out, p)
+	}
+	sortBrowserPaths(out)
+	return out
+}
+
 // resolveBrowserPaths : correspondance effective, d'où elle vient, entrées
 // ignorées. hubs.<machine> l'emporte sur defaults ; une liste vide déclarée
 // ([]) est gardée : aucun navigateur ne peut ouvrir ces fichiers. Sans
@@ -171,6 +200,11 @@ func resolveBrowserPaths(f backendsFile, host string, roots []string, wsl bool) 
 		// serveur web du launcher (#106) : le chemin de l'URL est le chemin interne
 		if c, err := resolveBrowserServer(f, host); err == nil && !c.Off {
 			return []BrowserPath{{Container: "/", Host: c.Base, OS: "url"}}, "serveur web du launcher (" + c.Listen + ")", nil
+		}
+		if hs := resolveHubSettings(f, host); !hs.paths.Empty() {
+			// poste à correspondance déclarée (Windows, #110) : Chrome y voit les
+			// fichiers à leur chemin local
+			return mappedBrowserPaths(roots, hs.paths), "défaut : correspondance " + hs.src, nil
 		}
 		source = "défaut : même chemin des deux côtés"
 		if wsl {

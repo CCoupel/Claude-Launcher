@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"syscall"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -308,7 +307,7 @@ func lastNavError() string {
 func EnsureLayout(exe string) error {
 	if f, err := os.OpenFile(filepath.Join(core.CacheDir(), "layout.lock"), os.O_CREATE|os.O_RDWR, 0o644); err == nil {
 		defer f.Close()
-		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_EX)
+		_ = platform.LockFile(f)
 	}
 	roles, untagged := outerPanes()
 	if len(roles) == 0 && len(untagged) > 0 {

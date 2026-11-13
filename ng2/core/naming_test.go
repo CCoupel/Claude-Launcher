@@ -34,6 +34,7 @@ func withNamingDocker(t *testing.T) (dir string, put func(name, status, proj, ho
 
 // ancien nom en marche : renommé, conservé (sa session continue)
 func TestEnsureRenamesRunningLegacy(t *testing.T) {
+	unixOnly(t)
 	withHome(t)
 	dir, put := withNamingDocker(t)
 	proj := "/p/PRO/Demo"
@@ -50,6 +51,7 @@ func TestEnsureRenamesRunningLegacy(t *testing.T) {
 
 // arrêté avec l'ancien hostname : recréé (rm puis création)
 func TestEnsureRecreatesStaleHost(t *testing.T) {
+	unixOnly(t)
 	withHome(t)
 	dir, put := withNamingDocker(t)
 	proj := "/p/PRO/Demo"
@@ -64,6 +66,7 @@ func TestEnsureRecreatesStaleHost(t *testing.T) {
 
 // même catégorie et même nom sous une autre racine : refusé
 func TestEnsureNameCollision(t *testing.T) {
+	unixOnly(t)
 	withHome(t)
 	_, put := withNamingDocker(t)
 	put("pro-demo", "running", "/autre/PRO/Demo", "demo")

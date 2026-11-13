@@ -10,7 +10,9 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -285,11 +287,13 @@ func LoadEnvFull(proj string) (EnvSpec, error) {
 
 // cleanRel : chemin relatif au projet, sans sortir du projet (ni « : », séparateur de -v).
 func cleanRel(p string) (string, error) {
-	c := filepath.Clean(strings.TrimSpace(p))
+	// forme « / » sur tous les systèmes : mêmes chemins (et même empreinte
+	// cl.local) que le projet soit ouvert de Linux ou de Windows (#110)
+	c := filepath.ToSlash(filepath.Clean(strings.TrimSpace(p)))
 	switch {
 	case c == "." || c == "":
 		return "", fmt.Errorf("chemin vide")
-	case filepath.IsAbs(c):
+	case filepath.IsAbs(c) || strings.HasPrefix(c, "/"):
 		return "", fmt.Errorf("chemin relatif au projet attendu")
 	case c == ".." || strings.HasPrefix(c, "../"):
 		return "", fmt.Errorf("hors du projet")
@@ -299,11 +303,13 @@ func cleanRel(p string) (string, error) {
 	return c, nil
 }
 
-// localPaths : chemins absolus des dossiers « local » du projet.
+// localPaths : chemins absolus des dossiers « local » du projet, vus des
+// backends (chemin Linux du projet, cf. pathmap.go).
 func (e EnvSpec) localPaths(proj string) []string {
+	rp := RemotePath(proj)
 	out := make([]string, len(e.Local))
 	for i, l := range e.Local {
-		out[i] = filepath.Join(proj, l)
+		out[i] = path.Join(rp, l)
 	}
 	return out
 }
@@ -385,6 +391,12 @@ func (b BackendConf) remote() bool {
 	if b.IsPool() {
 		return b.At(b.Hosts[0]).remote() // groupe : distant comme ses serveurs
 	}
+	if runtime.GOOS == "windows" && (b.Type == "docker" || b.Type == "podman") && b.Host == "" {
+		// Windows : un docker/podman sans host admis vise un démon distant
+		// (DOCKER_HOST, CONTAINER_HOST, contexte docker : oslimits.go)
+		_, refused := LocalRefusal(b)
+		return !refused
+	}
 	return b.Type == "ssh" || b.Type == "k8s" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
 }
 
@@ -418,6 +430,9 @@ func LoadBackends() ([]BackendConf, error) {
 	case os.IsNotExist(err):
 		f.Backends = map[string]BackendConf{}
 		for _, t := range DetectedEngines() {
+			if _, refused := LocalRefusal(BackendConf{Type: t}); refused {
+				continue // moteur local : refusé sous Windows (oslimits.go)
+			}
 			f.Backends[t] = BackendConf{Type: t}
 		}
 	default:
@@ -628,11 +643,22 @@ func ReadAssignments() map[string]string {
 	if err == nil {
 		_ = json.Unmarshal(b, &m)
 	}
-	return m
+	// fichier commun à tous les hubs : indexé par le chemin vu des backends
+	return assignKeys(m, LocalPath)
+}
+
+// assignKeys : m avec ses clés passées par conv (pathmap.go ; identité sans
+// correspondance déclarée).
+func assignKeys(m map[string]string, conv func(string) string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[conv(k)] = v
+	}
+	return out
 }
 
 func saveAssignments(m map[string]string) error {
-	b, _ := json.MarshalIndent(m, "", "  ")
+	b, _ := json.MarshalIndent(assignKeys(m, RemotePath), "", "  ")
 	if err := os.MkdirAll(filepath.Dir(assignPath()), 0o755); err != nil {
 		return err
 	}
@@ -691,6 +717,14 @@ func setEnvImage(proj, img string) error {
 // env.yaml absent / illisible pour un backend conteneur → erreur (F2 pour
 // reconfigurer), jamais un repli sur l'hôte.
 func LaunchBackend(proj string) (BackendConf, error) {
+	b, err := launchBackend(proj)
+	if err == nil {
+		err = refusalErr(b) // Windows : host et moteurs locaux refusés (oslimits.go)
+	}
+	return b, err
+}
+
+func launchBackend(proj string) (BackendConf, error) {
 	name, ok := ReadAssignments()[proj]
 	if !ok {
 		return ProjectBackend(proj), nil // jamais configuré (aucun backend conteneur : hôte)
@@ -836,11 +870,16 @@ func dnsSlug(s string, max int, def string) string {
 	return n
 }
 
+// Les noms se calculent sur le chemin vu des backends (pathmap.go) : un projet
+// ouvert de Windows porte le même nom que depuis un hub Linux.
+
 // ctrSlug : nom du projet en label DNS.
-func ctrSlug(proj string) string { return dnsSlug(filepath.Base(proj), 30, "projet") }
+func ctrSlug(proj string) string { return dnsSlug(path.Base(RemotePath(proj)), 30, "projet") }
 
 // catSlug : catégorie du projet (dossier parent) en label DNS.
-func catSlug(proj string) string { return dnsSlug(filepath.Base(filepath.Dir(proj)), 20, "projets") }
+func catSlug(proj string) string {
+	return dnsSlug(path.Base(path.Dir(RemotePath(proj))), 20, "projets")
+}
 
 // CtrName : nom du conteneur (et du StatefulSet k8s) d'un projet :
 // « <catégorie>-<projet> ». Deux projets de même catégorie et même nom sous
@@ -850,7 +889,7 @@ func CtrName(proj string) string { return catSlug(proj) + "-" + ctrSlug(proj) }
 // legacyCtrName : nom d'avant v5.6 (« cl-<projet>-<empreinte du chemin> »),
 // reconnu pour migrer les conteneurs existants.
 func legacyCtrName(proj string) string {
-	h := sha256.Sum256([]byte(proj))
+	h := sha256.Sum256([]byte(RemotePath(proj)))
 	return "cl-" + ctrSlug(proj) + "-" + hex.EncodeToString(h[:])[:8]
 }
 
@@ -907,6 +946,9 @@ const pid1 = `trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done`
 
 // Ensure : conteneur du projet créé (ou recréé si l'image a changé) et démarré.
 func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) {
+	if err := refusalErr(e.B); err != nil {
+		return "", err
+	}
 	if e.B.K8s() {
 		return e.k8sEnsure(proj, env, log)
 	}
@@ -916,7 +958,7 @@ func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 		e.migrateLegacy(proj, name, log)
 		c = e.ctrInfo(name)
 	}
-	if c.status != "" && c.project != "" && c.project != proj {
+	if c.status != "" && c.project != "" && c.project != RemotePath(proj) {
 		return "", fmt.Errorf("nom de conteneur %s déjà pris par le projet %s : renommer la catégorie ou le projet", name, c.project)
 	}
 	status, image, local := c.status, c.image, c.local
@@ -962,8 +1004,10 @@ func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 }
 
 func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
-	home, _ := os.UserHomeDir()
-	cd := ClaudeDir()
+	// chemins et identité vus du moteur (pathmap.go ; Linux : inchangés)
+	home := CtrUser().Home
+	cd := RemotePath(ClaudeDir())
+	rp := RemotePath(proj)
 	if err := ensureSharedConfig(); err != nil {
 		return nil, err
 	}
@@ -983,10 +1027,10 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 		return m
 	}
 	args := []string{"run", "-d", "--name", name, "--hostname", host,
-		"--label", "cl.launcher=ng2", "--label", "cl.project=" + proj,
+		"--label", "cl.launcher=ng2", "--label", "cl.project=" + rp,
 		"--label", "cl.backend=" + e.B.Name, "--label", "cl.image=" + env.Image,
 		"--label", "cl.local=" + env.localKey(),
-		"--mount", bind(cd, false), "--mount", bind(proj, false), "-w", proj,
+		"--mount", bind(cd, false), "--mount", bind(rp, false), "-w", rp,
 		"-e", "HOME=" + home, "-e", "CLAUDE_CONFIG_DIR=" + cd, "-e", "LANG=C.UTF-8",
 		"-e", "DISABLE_AUTOUPDATER=1"}
 	if e.podman() {
@@ -995,11 +1039,8 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 	// cache de consommation : plus de montage, un lien vers la config claude
 	// (montée partout) est posé à chaque ouverture (usage.go, linkUsageScript)
 	for _, m := range env.Mounts {
-		p := m.Path
-		if !filepath.IsAbs(p) {
-			p = filepath.Clean(filepath.Join(proj, p))
-		}
-		if _, err := os.Stat(p); err != nil {
+		local, p := mountPaths(proj, m.Path)
+		if _, err := os.Stat(local); err != nil {
 			return nil, fmt.Errorf("montage %s : %w", m.Path, err)
 		}
 		if e.B.remote() && !underShared(e.B, p) {
@@ -1013,6 +1054,20 @@ func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
 		args = append(args, "-v", p)
 	}
 	return append(args, env.Image, "sh", "-c", pid1), nil
+}
+
+// mountPaths : pour un « mounts » d'env.yaml, chemin à contrôler ici et chemin
+// transmis au moteur. « /… » est un chemin Linux, absolu sur tous les systèmes
+// (sous Windows, filepath.IsAbs le dirait relatif) : contrôlé à son chemin
+// local (pathmap.go). Relatif : par rapport au projet.
+func mountPaths(proj, p string) (local, remote string) {
+	if strings.HasPrefix(p, "/") {
+		return LocalPath(p), RemotePath(p)
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Clean(filepath.Join(proj, p))
+	}
+	return p, RemotePath(p)
 }
 
 // ensureSharedConfig : claude lancé avec CLAUDE_CONFIG_DIR=~/.claude range sa
@@ -1051,7 +1106,7 @@ func (e Engine) ExecArgv(name string, root, tty bool, argv ...string) []string {
 		if root {
 			a = append(a, "-u", "0")
 		} else {
-			a = append(a, "-u", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
+			a = append(a, "-u", ctrUIDGID())
 		}
 		return e.cliT(true, append(append(a, name), argv...)...)
 	}
@@ -1062,7 +1117,7 @@ func (e Engine) ExecArgv(name string, root, tty bool, argv ...string) []string {
 	if root {
 		a = append(a, "-u", "0")
 	} else {
-		a = append(a, "-u", fmt.Sprintf("%d:%d", os.Getuid(), os.Getgid()))
+		a = append(a, "-u", ctrUIDGID())
 	}
 	return e.cli(append(append(a, name), argv...)...)
 }
@@ -1072,6 +1127,12 @@ func (e Engine) Exec(name string, root bool, stdin io.Reader, out io.Writer, arg
 	c := exec.Command(a[0], a[1:]...)
 	c.Stdin, c.Stdout, c.Stderr = stdin, out, out
 	return c.Run()
+}
+
+// ctrUIDGID : « uid:gid » de l'utilisateur dans les conteneurs (pathmap.go).
+func ctrUIDGID() string {
+	u := CtrUser()
+	return fmt.Sprintf("%d:%d", u.UID, u.GID)
 }
 
 func (e Engine) Output(name string, argv ...string) (string, error) {
@@ -1132,7 +1193,7 @@ func (e Engine) listOne() ([]Found, error) {
 		if len(f) != 3 || f[2] == "" {
 			continue
 		}
-		out = append(out, Found{Backend: e.B.Name, Name: strings.TrimPrefix(f[0], "/"), Project: f[2], Running: f[1] == "running",
+		out = append(out, Found{Backend: e.B.Name, Name: strings.TrimPrefix(f[0], "/"), Project: LocalPath(f[2]), Running: f[1] == "running",
 			Failed: f[1] == "dead" || f[1] == "restarting"})
 	}
 	return out, nil

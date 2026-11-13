@@ -56,6 +56,7 @@ func withHome(t *testing.T) string {
 	t.Helper()
 	h := t.TempDir()
 	t.Setenv("HOME", h)
+	winHome(t, h)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, "state"))
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
 	return h
@@ -133,6 +134,7 @@ func TestEnsureSharedConfigCopies(t *testing.T) {
 }
 
 func TestLeaderAliveIn(t *testing.T) {
+	unixOnly(t)
 	host := platform.HostPidSpace()
 	if leaderAliveIn(os.Getpid(), host) != platform.LeaderAlive || leaderAliveIn(os.Getpid(), "") != platform.LeaderAlive {
 		t.Error("PID du launcher non vu vivant")
@@ -236,6 +238,7 @@ func TestK8sArgv(t *testing.T) {
 
 // Un projet configuré se lance sur son backend, jamais ailleurs.
 func TestLaunchBackendNoFallback(t *testing.T) {
+	unixOnly(t)
 	h := withHome(t)
 	_ = os.MkdirAll(filepath.Join(h, ".config", "claude-launcher-ng2"), 0o755)
 	_ = os.WriteFile(BackendsPath(), []byte("backends:\n  pod: {type: podman}\n"), 0o644)
@@ -287,6 +290,7 @@ func TestOwner(t *testing.T) {
 }
 
 func TestClaudeConfigDirFromConfig(t *testing.T) {
+	unixOnly(t)
 	d := t.TempDir()
 	cfgDir := filepath.Join(d, "mfs", ".config", "claude-launcher-ng2")
 	_ = os.MkdirAll(cfgDir, 0o755)
@@ -364,6 +368,7 @@ func TestCtrHostIsProjectName(t *testing.T) {
 
 // conteneur local arrêté, hostname = nom du projet : reconnu par les moteurs locaux
 func TestLeaderLocalStoppedByProjectHost(t *testing.T) {
+	unixOnly(t)
 	old := LocalCtrHosts
 	defer func() { LocalCtrHosts = old }()
 	LocalCtrHosts = func() map[string]bool { return map[string]bool{"mon-projet": true} }

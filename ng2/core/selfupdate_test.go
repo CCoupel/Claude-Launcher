@@ -50,6 +50,7 @@ func readFile(t *testing.T, path string) string {
 }
 
 func TestApplyUpdate(t *testing.T) {
+	unixOnly(t)
 	dir := t.TempDir()
 	bin, script := filepath.Join(dir, "claude-launcher-ng2"), filepath.Join(dir, "claude-launcher.sh")
 	writeFile(t, bin, "ancien binaire", 0o755)

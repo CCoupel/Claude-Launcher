@@ -779,6 +779,93 @@ v4 ne connaît pas les conteneurs : son nettoyage des teams et sa reprise
 peuvent prendre la session d'un conteneur pour morte. **Passer de v4 à v5 (ou
 revenir) uniquement avec tous les projets fermés.**
 
+## Windows (v6, en cours)
+
+La v6 porte le launcher en application Windows native (epic #114). Cette branche fournit la
+couche système et le cœur communs (#110) ; l'interface native (Wails + xterm.js) vient avec #111.
+D'ici là, sous Windows, `backends`, `configure`, `help` et `version` fonctionnent ; les
+sous-commandes de la coque tmux (`shell`…) répondent par un message.
+
+### Ce qui tourne où
+
+Les projets tournent **toujours dans un conteneur distant** : docker/podman en `tcp://` ou
+`ssh://` (ou contexte docker), backend `ssh`, `k8s`. `host` et les moteurs locaux (socket par
+défaut, `unix://`, `npipe://` de Docker Desktop) sont **refusés**, avec un message explicite dans
+`claude-launcher-ng2 backends` et à l'ouverture d'un projet.
+
+Le stockage partagé doit être visible du poste (par exemple `\\wsl.localhost\Ubuntu\share\MFS\…`) :
+c'est à l'utilisateur de le rendre accessible avant de lancer le launcher, qui ne démarre pas WSL.
+
+### Correspondance de chemins : `hubs.<machine>.paths`
+
+Le launcher lit les projets à leur chemin Windows et transmet **toujours** aux backends le chemin
+Linux : montages, workdir, labels `cl.project`, nom `<catégorie>-<projet>`, `CLAUDE_CONFIG_DIR`,
+`HOME`, clés de `projects.json`, contrôle du stockage partagé. Un projet a donc les mêmes nom et
+labels, qu'il soit ouvert de Windows ou d'un hub Linux : pas de doublon. Déclaration par machine
+dans `backends.yaml` (commun à tous les hubs en mode portable) :
+
+```yaml
+hubs:
+  MON-PC:                                  # nom de la machine Windows (hostname)
+    paths:
+      - { local: '\\wsl.localhost\Ubuntu\share\MFS', remote: /share/MFS }
+    remote_user: { uid: 1000, gid: 1000, name: moi }   # facultatif, voir plus bas
+```
+
+- `local` : préfixe Windows (`\\serveur\…`, `C:\…`), comparé sans tenir compte de la casse ni du
+  séparateur ; `remote` : préfixe Linux absolu. Le préfixe le plus long l'emporte.
+- `claude-launcher-ng2 backends` affiche la correspondance ; un projet ou un `CLAUDE_CONFIG_DIR`
+  hors correspondance est signalé (`aucune correspondance Linux`).
+- **Identité dans les conteneurs** : Windows n'a pas d'uid. Par défaut `1000:1000`,
+  `HOME=/home/<nom Windows en minuscules>` ; `remote_user` (`uid`, `gid`, `name`, `home`) les fixe
+  pour qu'ils correspondent au propriétaire des fichiers sur le partage.
+- Sous Linux sans déclaration, rien ne change. Un hub Linux peut aussi déclarer
+  `hubs.<machine>.paths` (partage monté ailleurs qu'aux chemins des conteneurs).
+- Le serveur web du navigateur sert les fichiers via cette correspondance (URL = chemin Linux,
+  fichier lu à son chemin Windows) ; avec `browser_server: { listen: off }`, les `browser_paths`
+  par défaut en sont déduits.
+
+### Config, cache et `config.conf`
+
+| | Linux | Windows |
+|---|---|---|
+| config (`config.conf`, `backends.yaml`, `projects.json`) | `~/.config/claude-launcher-ng2/` | `%AppData%\claude-launcher-ng2\` |
+| cache | `~/.cache/claude-launcher-ng2/` | `%LocalAppData%\claude-launcher-ng2\` |
+
+Le mode portable (`<dossier du binaire>\.config\claude-launcher-ng2\config.conf`) et
+`CL_CONFIG_DIR` restent prioritaires. Sous Windows, `config.conf` n'est pas lu par bash (celui de
+`System32` démarrerait WSL) mais par un lecteur intégré du même format (`NOM=valeur`, tableaux
+`( … )`, `declare -A`, guillemets, `$HOME`). Comme en bash, écrire les chemins UNC entre
+**guillemets simples** : `GITHUB_DIRS=('\\wsl.localhost\Ubuntu\share\MFS\ROOT\CLAUDE_PROJETS')`.
+`CL_ROOTS` sépare les racines par `;`.
+
+### Prérequis : outils externes
+
+Ils ne sont pas embarqués ; `claude-launcher-ng2 backends` liste ceux qu'exigent **les backends
+déclarés**, et pour chaque outil manquant la commande à lancer :
+
+| Outil | Requis par | Installation (Windows) |
+|---|---|---|
+| `ssh` | backend `ssh`, docker en `ssh://` | intégré à Windows 10/11 ; sinon `Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0` |
+| `git` | le launcher (badges, template) | `winget install --id Git.Git -e` |
+| `docker` | backends docker distants (client seul, sans Docker Desktop) | `winget install --id Docker.DockerCLI -e` |
+| `podman` | backends podman distants | `winget install --id RedHat.Podman -e` |
+| `kubectl` | backend `k8s` | `winget install --id Kubernetes.kubectl -e` |
+| `gh` | facultatif (repli par l'API GitHub) | `winget install --id GitHub.cli -e` |
+
+### Surveillance des projets
+
+Sous `\\wsl.localhost\…` (9P) et sur tout chemin UNC ou lecteur réseau, les notifications de
+Windows ne remontent pas : les projets y sont **relus périodiquement**, comme sous Linux sur
+9p/FUSE/NFS (voir [Détection des changements](#détection-des-changements-dun-projet)).
+
+### Mise à jour automatique
+
+Le binaire Windows de la release s'appellera `claude-launcher-ng2.exe` (#112). Un `.exe` en cours
+d'exécution ne peut pas être remplacé : il est renommé `claude-launcher-ng2.exe.old`, le nouveau
+est posé à sa place et lancé, puis l'ancien processus se termine ; le `.old` est supprimé au
+démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
+
 ## Interface
 
 - **Gauche** : navigateur (40 colonnes par défaut). Projets en arbre, deux badges git
@@ -942,11 +1029,16 @@ dépend ni de tmux ni de l'OS :
 |---|---|
 | `main.go` | aiguillage des sous-commandes (`shell`, `nav`, `state`, `mirror`, `layout-watch`, `ctr-attach`, `backends`, `version`…) |
 | `core/` | config, `backends.yaml`, moteurs et k8s, placement, pools et drain, nommage, `env.yaml`/`env-template.yaml`, bootstrap (`bootstrap.sh`), projets, teams et leader, cache d'état, conso, GitHub (releases, milestones, mises à jour), variables vers `settings.json`, `browser_paths`, serveur web et appariement, sessions tmux **dans les conteneurs** (canal de contrôle `ctl.go`, propriétaire) |
-| `platform/` | ce qui dépend de l'OS : espaces de PID (`/proc`, `kill`), type du système de fichiers (`statfs`), terminal en mode brut (termios), `execve`, chemin du binaire ; implémentation Linux/macOS (`_unix`, `_linux`, `_darwin`) et bouchons Windows (`_windows`) |
+| `platform/` | ce qui dépend de l'OS : espaces de PID (`/proc`, `kill`), disque réseau (`statfs` ; Windows : UNC, `GetDriveType`), terminal en mode brut (termios), taille du terminal, verrou de fichier, relance du binaire (`execve` ; Windows : `.exe` renommé `.old`), pseudo-terminal (`pty.go` : creack/pty, ConPTY), chemin du binaire ; implémentation Linux/macOS (`_unix`, `_linux`, `_darwin`) et Windows (`_windows`), la logique restant dans des fichiers communs testés partout |
 | `ui/tmux/` | la coque tmux : coque et navigateur, cartes (`◈ État`), vignettes (`mirror`, `mirrors`), mise en page (`layout`), `ctr-attach`, aide, légende, relais de touches |
 
 `core` ne dépend ni de `ui/tmux` ni d'un appel système propre à Linux :
-`GOOS=windows go vet ./core/... ./platform/...` doit rester propre.
+`GOOS=windows go vet ./core/... ./platform/...` et `GOOS=windows go build ./...` doivent rester
+propres. Le workflow `ng2-tests` les vérifie à chaque PR vers `main` et `v6`, avec
+`go test ./core/... ./platform/...` sur un runner `windows-latest`. Pour l'interface Windows
+(#111), `core` expose notamment `CheckTools` (outils requis et commande winget),
+`LocalRefusal`, `HubPaths`/`RemotePath`/`LocalPath`, `CtrUser`, `InstallBinary`, et `platform`
+`StartTerminal` (terminal redimensionnable), `OnNetworkFS`, `CleanupOldExe`.
 
 - Deux serveurs tmux dédiés : l'« intérieur » (socket `claude-ng2`, session `claude-hub-ng2` —
   jamais le serveur par défaut, celui du launcher v4) et une « coque » (socket `claude-ui-ng2`) qui
