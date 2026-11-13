@@ -1,0 +1,17 @@
+# Généré par le template (/init-project) — NE PAS MODIFIER : réécrit à chaque passage.
+# Ajouts propres au projet : .claude-launcher/env.yaml (fusionné par Claude-Launcher ≥ v5.5.0).
+image: docker.io/library/debian:12
+packages: [jq]
+packages_by_manager:
+  apt: [gh]
+  dnf: [gh]
+  apk: [github-cli]
+setup:
+  - git config --global --get-all include.path | grep -qxF "$PWD/PRIVATE/gitconfig" || git config --global --add include.path "$PWD/PRIVATE/gitconfig"
+  - |
+    V=1.27.3; A=$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+    [ "$(~/.local/go/bin/go env GOVERSION 2>/dev/null)" = "go$V" ] || { rm -rf ~/.local/go; curl -fsSL https://go.dev/dl/go$V.linux-$A.tar.gz | tar -xz -C ~/.local; }
+    ln -sf ~/.local/go/bin/go ~/.local/go/bin/gofmt ~/.local/bin/
+  - (cd ng && go mod download)
+  - (cd ng2 && go mod download)
+watch: [ng/go.sum, ng2/go.sum]

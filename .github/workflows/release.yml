@@ -109,11 +109,9 @@ jobs:
           go-version-file: ng2/go.mod
           cache-dependency-path: ng2/go.sum
 
-      - name: Test Claude-Launcher-NG2
-        working-directory: ng2
-        run: |
-          go vet ./...
-          go test ./...
+      # contrôles bloquants : la CI unique (scripts/ci.sh), comme en pré-validation
+      - name: CI Claude-Launcher-NG2
+        run: scripts/ci.sh
 
       - name: Build Claude-Launcher-NG2
         working-directory: ng2

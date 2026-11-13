@@ -1,0 +1,31 @@
+name: ci-branch
+
+# Pré-validation sans publier (contrat C10 du template) : push d'une branche
+# milestone/* ou lancement manuel. Son verdict conditionne la fermeture des
+# issues DONE et la barrière du deployer avant fusion et tag.
+on:
+  push:
+    branches: ['milestone/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng2/go.mod
+          cache-dependency-path: ng2/go.sum
+      - name: CI (scripts/ci.sh)
+        run: scripts/ci.sh

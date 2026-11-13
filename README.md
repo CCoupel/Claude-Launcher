@@ -462,3 +462,23 @@ commits touchant `claude-launcher.sh` a été préservé lors de la migration (l
 reste consultable dans l'historique git, jusqu'à la v3.0.17 ; NG v4 dans `ng/`).
 
 `claude_project_template` reste la seule source pour `TEMPLATE_claude/` et `/init-project`.
+
+Le launcher est lui-même développé avec ce template (`/init-project`, v5.9.1) : agents et commandes
+dans `.claude/`, milestones et labels de phase sur GitHub, environnements QUALIF (binaires de test
+à côté de celui du hub) et PROD (tag, release, remplacement du binaire du hub).
+
+---
+
+## Développement
+
+Une seule CI, `scripts/ci.sh`, identique en local et sur GitHub Actions : `go vet`, `go test` et
+compilation de l'exe Windows sous Linux ; sous Windows (Git Bash), les couches communes, système et
+l'interface native, puis l'exe lancé en `version`. Elle est appelée par `ng2-tests.yml` (push et PR
+vers `main`), `ci-branch.yml` (pré-validation des branches `milestone/*`, sans publier) et
+`release.yml` (avant de construire les binaires d'un tag).
+
+## Licence
+
+Copyright (C) 2026 ccoupel
+
+Distribué sous licence GPL-3.0-or-later — voir [LICENSE](LICENSE).
