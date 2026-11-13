@@ -49,16 +49,25 @@ func TestEnsureLayoutRecreatesNav(t *testing.T) {
 		t.Skip("tmux absent")
 	}
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
-	t.Setenv("CL_OUTER_SOCKET", fmt.Sprintf("cl-test-heal-%d", os.Getpid()))
-	t.Cleanup(func() { _ = otmux("kill-server").Run() })
+	sock := fmt.Sprintf("cl-test-heal-%d", os.Getpid())
+	t.Setenv("CL_OUTER_SOCKET", sock)
 	t.Setenv("TMUX", "")
 	t.Setenv("TERM", "xterm-256color")
 	if d, err := os.MkdirTemp("", "cltmux"); err == nil {
 		t.Setenv("TMUX_TMPDIR", d)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
+	// Enregistré en dernier, donc exécuté en premier (#128) : avant que
+	// TMUX_TMPDIR soit restauré et son dossier effacé, sinon kill-server ne
+	// trouve plus la socket et le serveur, avec ses boucles supervised, survit.
+	t.Cleanup(func() {
+		stopOuterShell()
+		if left := leftovers(sock, 5*time.Second); left != "" {
+			t.Errorf("processus restants après le test (%s) :\n%s", sock, left)
+		}
+	})
 	for _, keepInfo := range []bool{true, false} {
-		_ = otmux("kill-server").Run()
+		stopOuterShell()
 		if out, err := otmux("-f", "/dev/null", "new-session", "-d", "-s", outerSession, "-x", "120", "-y", "40", "sleep 600").CombinedOutput(); err != nil {
 			t.Skipf("tmux inutilisable ici : %v (%s)", err, strings.TrimSpace(string(out)))
 		}
@@ -83,5 +92,35 @@ func TestEnsureLayoutRecreatesNav(t *testing.T) {
 		if pos != "0,0" {
 			t.Fatalf("keepInfo=%v : navigateur recréé en %s, attendu en haut à gauche", keepInfo, pos)
 		}
+	}
+}
+
+// stopOuterShell arrête les processus des panes de la coque de test (chaque
+// pane est chef de son groupe : la boucle supervised et son enfant tombent
+// ensemble), puis le serveur tmux (#128).
+func stopOuterShell() {
+	if out, err := otmux("list-panes", "-a", "-F", "#{pane_pid}").Output(); err == nil {
+		for _, p := range strings.Fields(string(out)) {
+			_ = exec.Command("kill", "-TERM", "--", "-"+p).Run()
+		}
+	}
+	_ = otmux("kill-server").Run()
+}
+
+// leftovers renvoie les processus dont la ligne de commande cite la socket
+// sock (et pas une autre socket dont le nom la prolonge), après au plus wait.
+func leftovers(sock string, wait time.Duration) string {
+	if _, err := exec.LookPath("pgrep"); err != nil {
+		return ""
+	}
+	pat := sock + "([^0-9]|$)"
+	deadline := time.Now().Add(wait)
+	for {
+		out, _ := exec.Command("pgrep", "-af", pat).Output()
+		left := strings.TrimSpace(string(out))
+		if left == "" || time.Now().After(deadline) {
+			return left
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
 }
