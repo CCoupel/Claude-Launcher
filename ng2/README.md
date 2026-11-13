@@ -859,12 +859,42 @@ graphique : en ligne de commande, sa sortie va dans la console de l'invite ; les
 | `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
 | `Ctrl+R` / `Ctrl+U` / `Ctrl+D` | rescanner / masquer les annonces / diagnostic des backends |
 | `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
+| `←` `→`, clic sur le chevron ou la ligne d'une racine / catégorie | replier / déplier (mémorisé) ; `←` sur un projet : sa catégorie |
+| séparateur arbre / cartes ; clic sur le bandeau d'une carte ou sur « ◈ ÉTAT » | hauteur de l'arbre ; replier une carte ou toute la zone (mémorisé) |
 | `Tab` (navigateur) ; `Alt+←` (terminal) | aller aux terminaux ; revenir au navigateur |
 | `Ctrl+Tab`, `Ctrl+Maj+Tab` | onglet suivant / précédent |
 | clic sur un pane ; double-clic sur son en-tête | focus clavier ; plein écran (aller-retour) |
 | `Ctrl+B z` / `Ctrl+B R` / `Ctrl+B Ctrl+B` | plein écran / remettre en ordre la team / envoyer `Ctrl+B` à l'agent |
 | `Ctrl+Maj+W`, `×` de l'onglet | détacher l'onglet (la session continue) |
 | `Échap` | quitter : `l` l'interface seule (projets gardés), `t` puis `o` tout fermer |
+
+**Apparence et disposition** (#122, #123, #124) : l'arbre reprend le rendu d'un arbre natif de
+Windows 11 (Explorateur) : hauteur de ligne et indentation, chevrons, survol et sélection Fluent
+(barre d'accent), Segoe UI Variable, badges alignés en colonnes (local, remote, template,
+conteneur, milestone, PR, reprise) avec les icônes et couleurs de la coque ; thème clair si le
+système est en clair. Racines et catégories se replient ; largeur du navigateur, hauteur de
+l'arbre, cartes repliées et zone des cartes masquée sont gardées dans `desktop-ui.json` du cache
+du launcher.
+
+**Projets lus par `\\wsl.localhost` (9P)** (#125) : chaque appel de fichier traverse WSL, et un
+`git status` par projet coûte cher. L'arbre et les badges du lancement précédent
+(`desktop-tree.json`, `desktop-git.json` et le cache d'état) s'affichent tout de suite et sont
+complétés en tâche de fond ; git ne tourne que pour les projets sans état en cache (ouverts et
+sélectionné d'abord, 4 à la fois sur un disque réseau). Le cache d'état du hub Linux peut être lu
+sans y écrire, s'il est plus frais : déclarer son dossier vu du poste,
+
+```yaml
+hubs:
+  MON-PC:
+    hub_cache: '\\wsl.localhost\Ubuntu\home\moi\.cache\claude-launcher-ng2'
+```
+
+Les durées de chaque étape (parcours, caches, git, conso, milestones, conteneurs) sont résumées au
+survol du pied et ajoutées à `desktop-perf.log` du cache (à joindre à un signalement de lenteur).
+
+**Redimensionnement** (#126) : la taille de la zone des terminaux est transmise au tmux du projet
+(`refresh-client -C L,H`) ; après la dernière taille d'une rafale (fenêtre glissée, maximiser /
+restaurer), chaque pane est recapturé et la team est remise en page à la nouvelle taille.
 
 **Différences avec la coque tmux**
 

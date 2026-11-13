@@ -123,6 +123,7 @@ function renderHead() {
   $('filter').className = S.filter ? '' : 'dim';
   $('filterbox').classList.toggle('on', !!S.filter);
   $('status').textContent = s.status || '';
+  $('status').title = s.perf ? 'chargement : ' + s.perf : '';
   $('msg').textContent = quitText() || s.msg || '';
 }
 
