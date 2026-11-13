@@ -471,8 +471,8 @@ dans `.claude/`, milestones et labels de phase sur GitHub, environnements QUALIF
 
 ## Développement
 
-Une seule CI, `scripts/ci.sh`, identique en local et sur GitHub Actions : `go vet`, `go test` et
-compilation de l'exe Windows sous Linux ; sous Windows (Git Bash), les couches communes, système et
+Une seule CI, `scripts/ci.sh`, identique en local et sur GitHub Actions : `go vet`, `go test`,
+audit `govulncheck` et compilation de l'exe Windows sous Linux ; sous Windows (Git Bash), les couches communes, système et
 l'interface native, puis l'exe lancé en `version`. Elle est appelée par `ng2-tests.yml` (push et PR
 vers `main`), `ci-branch.yml` (pré-validation des branches `milestone/*`, sans publier) et
 `release.yml` (avant de construire les binaires d'un tag).

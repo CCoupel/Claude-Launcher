@@ -12,10 +12,7 @@
 
 ## Regles critiques
 
-- Tests : jamais de vrais projets, jamais de vrai `claude`, tmux isolés (`.claude/agents/context/COMMON.md`).
-- Milestone non démarré (pas de due date) : ses issues ne portent aucun label de phase.
-- Toute maquette est validée par l'utilisateur, ouverte dans Chrome via `http://localhost:8081<chemin>`, avant le développement.
-- README à jour dans la PR même, avant fusion et release.
+- Règles permanentes du projet (tests isolés, milestone non démarré, maquette, README) : `.claude/agents/context/COMMON.md`.
 
 ## Corrections de comportement
 

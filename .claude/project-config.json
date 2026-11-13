@@ -141,7 +141,7 @@
     "build": "cd ng2 && go build ./...",
     "test": "cd ng2 && go test ./...",
     "lint": "cd ng2 && go vet ./...",
-    "audit": "",
+    "audit": "cd ng2 && go run golang.org/x/vuln/cmd/govulncheck@latest ./...",
     "ci": "scripts/ci.sh",
     "typecheck": "",
     "coverage": "cd ng2 && go test -cover ./...",
