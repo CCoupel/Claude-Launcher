@@ -565,12 +565,19 @@ URL donnée à Chrome           : http://localhost:8765/share/MFS/ROOT/x/maquett
 # ~/.config/claude-launcher-ng2/backends.yaml — tout est facultatif
 defaults:
   browser_server:
-    listen: 127.0.0.1:8765        # défaut ; « 9000 » = 127.0.0.1:9000 ; off = désactivé
+    listen: 127.0.0.1:8765        # défaut (exe Windows : 127.0.0.1:8766) ; « 9000 » = 127.0.0.1:9000 ; off = désactivé
     allow: [/data/maquettes]      # dossiers servis en plus des racines connues
 hubs:
   serveur:                        # par machine du launcher : l'emporte champ par champ
     browser_server: { listen: "0.0.0.0:8765", url: "http://serveur.maison.lan:8765" }
+    windows:                      # par système de cette machine (windows, linux, darwin) :
+      browser_server: { listen: "8081" }   # l'emporte champ par champ sur hubs.serveur
 ```
+
+Ordre de priorité, champ par champ (`listen`, `url`, `allow`) :
+`hubs.<machine>.<système>.browser_server` > `hubs.<machine>.browser_server` >
+`defaults.browser_server` > défaut (`127.0.0.1:8765`, ou `127.0.0.1:8766` pour l'exe Windows,
+voir la section Windows).
 
 `url` est la base annoncée au template. Elle est déduite de `listen` par défaut : `localhost` en
 boucle locale, le nom de la machine si le serveur écoute sur toutes les interfaces. Attention :
@@ -880,14 +887,43 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
 - **kubectl** : sous Windows il lit `%USERPROFILE%\.kube\config`, pas le `~/.kube/config` du hub.
   `context "k8s" does not exist` → copier le fichier du hub (depuis WSL :
   `cp ~/.kube/config /mnt/c/Users/<vous>/.kube/config`) ou définir `KUBECONFIG` vers lui.
-- **Serveur web du navigateur** : WSL partage le localhost de Windows ; le serveur du hub Linux
-  (`hubs.MSI.browser_server.listen`, commun aux deux) y est donc joignable. Le serveur indique son
-  système (en-tête `X-Claude-Launcher-OS`) : sous Windows, un port tenu par le hub Linux est
-  affiché comme tel (« port tenu par le hub linux »), et le launcher Windows ne cherche pas à le lui
-  disputer. Ce serveur sert les mêmes chemins Linux que ceux des sessions : le navigateur du poste
-  peut s'en servir tant que le hub tourne. Un serveur propre au launcher Windows demanderait un
-  autre port, ce que la configuration partagée sous un même nom de machine ne permet pas encore
-  (surcharge par système à venir).
+- **Serveur web du navigateur : un port par système**. WSL partage le localhost de Windows : le
+  hub Linux et l'exe Windows ne peuvent pas écouter sur le même port.
+  - **Sans réglage**, ils cohabitent : le hub Linux écoute sur `127.0.0.1:8765` (inchangé), l'exe
+    Windows sur `127.0.0.1:8766`.
+  - **Surcharge par système** : `hubs.<machine>.windows`, `.linux` et `.darwin` reprennent les
+    réglages de `hubs.<machine>` pour ce système seulement, clé par clé : `browser_server` (champ
+    par champ : `listen`, `url`, `allow`), `browser_paths`, `browser_device`, `paths` et
+    `remote_user`. Un `listen` fixé dans `hubs.MSI.browser_server` vaut pour les deux systèmes :
+    il faut alors donner son port à Windows.
+  - **Fautes de frappe : avertissement, jamais d'erreur** (le fichier est partagé avec le hub de
+    production). Une clé inconnue sous `hubs.<machine>` ou dans un bloc de système est ignorée, le
+    reste du bloc et du fichier s'applique. `backends` la signale avec sa ligne, et une suggestion
+    si elle ressemble à une clé connue :
+    `hubs.MSI : ligne 4 : clé "window" inconnue, ignorée — vouliez-vous dire windows ?`. Le
+    menu du hub (pane de navigation) affiche le premier avertissement au démarrage.
+
+    ```yaml
+    hubs:
+      MSI:
+        browser_server: { listen: 127.0.0.1:8080 }      # hub Linux (WSL)
+        windows:
+          browser_server: { listen: 127.0.0.1:8081 }    # exe Windows
+        paths:
+          - { local: '\\wsl.localhost\Ubuntu\share\MFS', remote: /share/MFS }
+    ```
+
+  - Chaque launcher donne à ses sessions l'URL de **son** serveur (`CL_BROWSER_PATH_MAP` =
+    `http://localhost:8081` pour une session lancée depuis l'exe Windows, `http://localhost:8080`
+    depuis le hub Linux) et son propre jeton d'appariement : la page
+    `/__claude-launcher__/pair` de l'autre launcher refuse ce jeton (« autre launcher »).
+  - `backends` affiche, sous Windows ou avec une surcharge, l'origine du port
+    (« réglage pour windows : listen de hubs.MSI.windows.browser_server.listen », ou
+    « défaut Windows »).
+  - Le serveur indique son système (en-tête `X-Claude-Launcher-OS`). Si le port est malgré tout tenu
+    par le launcher de l'autre système (même `listen` pour les deux), `backends` l'affiche (« port
+    tenu par le hub linux ») avec la clé à déclarer, et le launcher Windows ne cherche pas à le lui
+    disputer.
 
 ### Prérequis : outils externes
 
@@ -1165,7 +1201,8 @@ propres. Le workflow `ng2-tests` les vérifie à chaque PR vers `main` et `v6`, 
   chemin vu au démarrage sert de repli. Contournement : `Esc` `l`, puis relancer le launcher.
 - **Une maquette ne s'ouvre pas dans Chrome** : `claude-launcher-ng2 backends` doit afficher
   `actif` pour le serveur web. `écoute impossible … address already in use` : un autre service tient
-  le port, changez `browser_server.listen`. Le serveur est lancé par le pane des cartes : relancez le
+  le port, changez `browser_server.listen` (hub Linux et exe Windows du même poste : un port
+  par système, `hubs.<machine>.windows.browser_server.listen`). Le serveur est lancé par le pane des cartes : relancez le
   hub après une mise à jour du binaire. 404 : le fichier n'est pas sous une racine connue, ajoutez son
   dossier à `browser_server.allow`. Sous WSL, si `localhost` ne répond pas depuis Windows, vérifiez
   que `localhostForwarding` n'est pas désactivé dans `.wslconfig`.

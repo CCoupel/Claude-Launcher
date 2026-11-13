@@ -266,17 +266,22 @@ func pathsForOS(ps []PathMap, goos string) (keep []PathMap, skipped int) {
 // resolveHubSettingsFor : resolveHubSettings, entrées de paths filtrées pour
 // goos (pathsForOS).
 func resolveHubSettingsFor(f backendsFile, host, goos string) hubCacheEntry {
+	return resolveHubSettingsOS(f, host, goos, goos)
+}
+
+// resolveHubSettingsOS : réglages de hubs.<machine> avec la surcharge
+// hubs.<machine>.<ovGOOS> (hubos.go), entrées de paths filtrées pour filterGOOS.
+func resolveHubSettingsOS(f backendsFile, host, ovGOOS, filterGOOS string) hubCacheEntry {
 	var e hubCacheEntry
-	if k, h, ok := pickHub(f.Hubs, host); ok {
-		ps, skipped := pathsForOS(h.Paths, goos)
+	if v := pickHubOS(f.Hubs, host, ovGOOS); v.ok {
+		decl, src := v.paths()
+		ps, skipped := pathsForOS(decl, filterGOOS)
 		e.skipped = skipped
 		if len(ps) > 0 {
 			e.paths, e.warns = NewPathMapper(ps)
-			e.src = "hubs." + k + ".paths"
+			e.src = src
 		}
-		if h.RemoteUser != nil {
-			e.user, e.userSrc = h.RemoteUser, "hubs."+k+".remote_user"
-		}
+		e.user, e.userSrc = v.remoteUser()
 	}
 	return e
 }

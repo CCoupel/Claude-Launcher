@@ -319,6 +319,7 @@ func RunBackends() error {
 		}
 		fmt.Println(line)
 	}
+	core.PrintHubConfigWarnings()
 	core.PrintBrowserServer()
 	core.PrintBrowserDevice()
 	core.PrintBrowserPaths()

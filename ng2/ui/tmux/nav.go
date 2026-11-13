@@ -121,6 +121,13 @@ func NewModel(launch bool) model {
 		if why := takeNavCrash(); why != "" {
 			m.msg = "⚠ relancé après " + why // détail : nav.err.last (cache)
 		}
+		if ws := core.HubConfigWarnings(); len(ws) > 0 && m.msg == "" {
+			// faute de frappe dans hubs: (config partagée) : ignorée, signalée
+			m.msg = "⚠ " + ws[0]
+			if len(ws) > 1 {
+				m.msg += fmt.Sprintf(" (+%d : voir backends)", len(ws)-1)
+			}
+		}
 	}
 	m.tplVer = core.ReadTrim(core.TplVersionPath())
 	m.nodes = withSpecial(core.ScanTree(cfg.Roots))
