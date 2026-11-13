@@ -4,7 +4,7 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Claude-Launcher-NG2</title>
-<meta name="description" content="Claude-Launcher-NG2 : un hub tmux réactif, 100 % Go, pour piloter plusieurs projets Claude Code en parallèle, sur l'hôte ou en conteneur (podman, docker, ssh, Kubernetes). Navigateur de projets, état de chaque projet en un clic, milestones GitHub, reprise après crash, vue d'ensemble des teamleaders, teams rangées automatiquement." />
+<meta name="description" content="Claude-Launcher-NG2 : un hub réactif, 100 % Go, pour piloter plusieurs projets Claude Code en parallèle, dans tmux sous Linux et macOS ou dans une application Windows native, sur l'hôte ou en conteneur (podman, docker, ssh, Kubernetes). Navigateur de projets, état de chaque projet en un clic, milestones GitHub, reprise après crash, vue d'ensemble des teamleaders, teams rangées automatiquement." />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
@@ -19,6 +19,7 @@
       <li><a href="#problems">Pourquoi</a></li>
       <li><a href="#features">Fonctionnalités</a></li>
       <li><a href="#containers">Conteneurs</a></li>
+      <li><a href="#windows">Windows</a></li>
       <li><a href="#teams">Teams</a></li>
       <li><a href="#install">Installation</a></li>
       <li><a href="#migration">Migration</a></li>
@@ -31,15 +32,18 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v5.0.0</span> · projets en conteneur · compagnon de claude_project_template</div>
-    <h1>Un hub tmux pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
+    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v6.0.0</span> · Linux, macOS et Windows · compagnon de claude_project_template</div>
+    <h1>Un hub pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
     <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil — sur votre machine ou <em>dans un conteneur</em> : podman, docker, ssh, Kubernetes.</p>
-    <p class="hero-sub">Un seul binaire Go, une seule commande, dans tmux. Chaque projet peut avoir son conteneur, ses outils, sa machine : votre OS reste propre.</p>
+    <p class="hero-sub">Un seul binaire Go par système : dans tmux sous Linux et macOS, dans une vraie fenêtre sous Windows. Chaque projet peut avoir son conteneur, ses outils, sa machine : votre OS reste propre.</p>
     <div class="hero-ctas">
       <a href="#install" class="btn btn-primary">Installer</a>
       <a href="https://github.com/CCoupel/Claude-Launcher" class="btn btn-outline">Voir sur GitHub</a>
     </div>
-    <a href="#migration" class="hero-alert">⚠ Vous utilisez la v4 ? Fermez tous vos projets avant de passer en v5 — lire la procédure</a>
+    <div class="hero-links">
+      <a href="#windows" class="hero-new">✦ Nouveau en v6 : le launcher Windows natif — découvrir</a>
+      <a href="#migration" class="hero-alert">⚠ Vous utilisez la v4 ? Fermez tous vos projets avant de passer en v5 ou v6 — lire la procédure</a>
+    </div>
   </div>
 </section>
 
@@ -61,7 +65,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>
-<span style="color:#6e7681" data-ng-term>  NG v5.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -127,16 +131,17 @@
   <div class="container">
     <div class="section-header">
       <h2>Ce que fait Claude-Launcher-NG2</h2>
-      <p>Un hub central en tmux — pas un remplacement de Claude Code, juste l'orchestration autour.</p>
+      <p>Un hub central, en tmux ou en fenêtre Windows — pas un remplacement de Claude Code, juste l'orchestration autour.</p>
     </div>
     <div class="features-grid">
+      <div class="feature-card"><div class="feature-icon">🪟</div><div class="feature-body"><h3>Aussi sous Windows</h3><p>Nouveau en v6 : <code>claude-launcher-ng2.exe</code> ouvre une application Windows native. Même arbre, mêmes cartes, un terminal par agent, des projets qui tournent dans des conteneurs distants, et une configuration partagée avec le hub Linux. <a href="#windows">En savoir plus</a>.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Navigateur de projets</h3><p>Vos projets en arbre par catégorie, un filtre à la frappe, la souris. Chaque ligne commence par le point d'état du projet (<code style="color:#3fb950">▲</code> ouvert ici, <code style="color:#58a6ff">●</code> conteneur prêt, <code style="color:#f0883e">●</code> claude tourne sans launcher…), puis son état git local (<code>●</code> au repos, <code>✎</code> en cours, <code>◆</code> tout commité, <code>!</code> modifié sur main) et remote (<code>○</code> jamais poussé, <code>↑N</code> non poussé, <code>⇡</code> non mergé, <code>✓</code> publié, <code>↓N</code> en retard), son template (<code>✔</code>, <code>⚠</code>, <code>⊘</code>), son milestone (<code>⚑</code>), ses pull requests ouvertes (<code style="color:#a371f7">⇄N</code>) et une session à reprendre (<code>↺</code>). Un projet ouvert s'affiche sur un bandeau à sa couleur tmux, sur toute la largeur de la ligne, et chaque projet montre sa dernière release publiée sur GitHub. Un dossier créé ou supprimé apparaît ou disparaît tout seul.</p></div></div>
       <div class="feature-card"><div class="feature-icon">◈</div><div class="feature-body"><h3>L'état en un clic</h3><p>Sous le navigateur, les infos suivent la sélection : la légende des icônes du projet, branche, version locale et dernière release GitHub avec sa date (un tag git en retard est signalé), template (<code>v3.26.1 → v3.28.0</code>), milestone en cours, composition de la team (version, modèle et effort de chaque teammate) et fichiers avec leur marqueur git. La zone tmux, elle, ne bouge pas.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⚡</div><div class="feature-body"><h3>Prêt avant que vous cliquiez</h3><p>L'état de chaque projet est préparé en tâche de fond et rafraîchi dès qu'il change (commit, nouveau fichier) : la sélection est instantanée, même sur un disque Windows ou un stockage réseau (MooseFS, NFS…).</p></div></div>
       <div class="feature-card"><div class="feature-icon">⌗</div><div class="feature-body"><h3>Tous les teamleaders</h3><p>Un onglet de vue d'ensemble affiche une vignette interactive par projet ouvert, à la couleur du projet : on voit d'un coup d'œil qui travaille, qui attend.</p></div></div>
       <div class="feature-card"><div class="feature-icon">✦</div><div class="feature-body"><h3>Nouveau projet en deux gestes</h3><p>Double-clic sur une catégorie : donnez un nom, un remote git si besoin. Le dossier est créé, initialisé et lancé dans Claude Code.</p></div></div>
       <div class="feature-card"><div class="feature-icon">📊</div><div class="feature-body"><h3>Consommation et connexion</h3><p>Session, semaine, limites par modèle, avec leur réinitialisation ; <code>F5</code> les relit aussitôt. Un seul relevé pour tous vos hubs et vos conteneurs, et une pause qui s'allonge si l'API demande de ralentir. La connexion claude.ai est surveillée : alerte jaune 3 jours avant son expiration, rouge ensuite, et un clic ouvre <code>claude /login</code>.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Toujours à jour</h3><p>Au lancement, le NG installe la dernière release, vérifiée contre <code>SHA256SUMS</code>. Une version sortie entre-temps s'annonce en <span style="color:#f0883e">orange</span> (en préparation), passe au <span style="color:#d29922">jaune</span> le temps d'être téléchargée et contrôlée, étape par étape, puis au <span style="color:#3fb950">vert</span> : un clic l'installe, sans fermer vos projets. Si GitHub fait des siennes, l'annonce dit pourquoi et réessaie seule. Les projets en retard sur le template proposent <code>/init-project</code> ; le template suit la version majeure du launcher (template v5 ↔ NG2 v5).</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Toujours à jour</h3><p>Au lancement, le NG installe la dernière release, vérifiée contre <code>SHA256SUMS</code>. Une version sortie entre-temps s'annonce en <span style="color:#f0883e">orange</span> (en préparation), passe au <span style="color:#d29922">jaune</span> le temps d'être téléchargée et contrôlée, étape par étape, puis au <span style="color:#3fb950">vert</span> : un clic l'installe, sans fermer vos projets. Si GitHub fait des siennes, l'annonce dit pourquoi et réessaie seule. Les projets en retard sur le template proposent <code>/init-project</code> ; un template n'est jamais proposé à un launcher de version majeure inférieure.</p></div></div>
       <div class="feature-card"><div class="feature-icon">↔️</div><div class="feature-body"><h3>Un espace qui s'adapte</h3><p><code>Ctrl+←</code> <code>Ctrl+→</code> ou glissez la bordure : la largeur du navigateur est mémorisée. Double-clic sur un pane d'une team : plein écran, et retour d'un autre double-clic.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🧳</div><div class="feature-body"><h3>Un launcher portable</h3><p>Posez le binaire et sa config (<code>.config/claude-launcher-ng2/</code>) sur un stockage partagé : chaque machine qui le lance retrouve les mêmes projets, la même config claude (<code>CLAUDE_CONFIG_DIR</code>, connexion comprise), les mêmes backends et le même choix d'exécution pour chaque projet. Toujours un seul binaire Go, sans dépendance.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⚑</div><div class="feature-body"><h3>Milestones GitHub</h3><p>Le drapeau dit où en est chaque projet : <span style="color:#d29922">jaune</span> milestone en cours, <span style="color:#f0883e">orange</span> terminé mais à publier, gris aucun en cours, <span style="color:#3fb950">vert</span> publié. Même règle que le panneau milestone du projet ; un clic donne le milestone, sa barre d'avancement et ses issues par phase.</p></div></div>
@@ -159,6 +164,7 @@
         <li><strong>v5.3</strong> : pools de machines partagés entre backends</li>
         <li><strong>v5.5</strong> : environnement fourni par le template selon la stack, que chaque projet complète</li>
         <li><strong>v5.6</strong> : conteneurs et pods nommés d'après le projet</li>
+        <li><strong>v6.0</strong> : les mêmes conteneurs pilotés depuis un poste Windows</li>
       </ul>
     </div>
     <figure class="arch-figure">
@@ -313,6 +319,217 @@
   </div>
 </section>
 
+<section id="windows">
+  <div class="container">
+    <div class="section-header">
+      <span class="new-badge">Nouveau en v6</span>
+      <h2>Le launcher Windows natif</h2>
+      <p>Votre poste est sous Windows, vos projets tournent sur des serveurs Linux ? <code>claude-launcher-ng2.exe</code> ouvre une vraie fenêtre Windows : le même arbre de projets, les mêmes cartes, et un terminal par agent. Pas de tmux sur le poste, pas de WSL à démarrer.</p>
+      <ul class="version-list">
+        <li><strong>v6.0</strong> : application Windows native, configuration partagée avec le hub Linux, éditeur des fichiers de configuration</li>
+      </ul>
+    </div>
+
+    <figure class="win-figure">
+      <div class="win-scroll">
+        <div class="win" role="img" aria-label="Fenêtre du launcher Windows : à gauche, versions, consommation, filtre, arbre des projets avec leurs badges et cartes État du projet web-shop ; à droite, l'onglet du projet web-shop ouvert, avec le leader et l'agent cdp en haut et quatre teammates dessous, actifs éclaircis et inactifs assombris.">
+          <div class="win-title">
+            <span class="win-logo">›_</span><span>Claude Launcher</span><span class="win-sp"></span><span class="win-ctl">—</span><span class="win-ctl">☐</span><span class="win-ctl win-close">✕</span>
+          </div>
+          <div class="win-body">
+            <div class="win-left">
+              <div class="win-head">
+                <div class="win-ver"><b>NG2 <span data-ng-version>v6.0.0</span></b><span class="dim"> · tpl 5.0.0</span><span class="win-sp"></span><span class="win-seg"><span class="on">Auto</span><span>☀</span><span>☾</span></span><span class="win-cfg">⚙ config</span></div>
+                <div class="win-usage">
+                  <span class="dim">session</span><span class="bar"><i style="width:42%;background:#3fb950"></i></span><span class="dim">42 %</span>
+                  <span class="dim">semaine</span><span class="bar"><i style="width:71%;background:#d29922"></i></span><span class="dim">71 %</span>
+                </div>
+                <div class="win-filter">⌕ Filtrer (frappe)</div>
+              </div>
+              <div class="win-tree">
+                <div class="r cat"><span class="chev">⌄</span>PROJETS</div>
+                <div class="r cat l1"><span class="chev">⌄</span>APPS</div>
+                <div class="r p"><span class="dot" style="color:#6e7681">○</span><span class="nm">api-gateway</span><span class="bd"><b style="color:#3fb950">●</b><b style="color:#ff7b72">↓2</b><b style="color:#d29922">⚠</b><b style="color:#d29922">⚑</b><b style="color:#a371f7">⇄2</b><b style="color:#d29922">↺</b></span></div>
+                <div class="r p sel" style="--pc:#005f5f"><span class="dot" style="color:#3fb950">▲</span><span class="nm">web-shop</span><span class="rel">v1.1.0</span><span class="bd"><b style="color:#d29922">✎</b><b style="color:#39c5cf">⇡</b><b style="color:#3fb950">✔</b><b style="color:#39c5cf">⬢</b><b style="color:#d29922">⚑</b><b style="color:#a371f7">⇄1</b></span></div>
+                <div class="r cat l1"><span class="chev">⌄</span>INFRA</div>
+                <div class="r p open" style="--pc:#5f005f"><span class="dot" style="color:#3fb950">▲</span><span class="nm">k8s-cluster</span><span class="rel">v2.3.0</span><span class="bd"><b style="color:#3fb950">●</b><b style="color:#3fb950">✓</b><b style="color:#3fb950">✔</b><b style="color:#39c5cf">⬢</b><b style="color:#f0883e">⚑</b></span></div>
+                <div class="r p"><span class="dot" style="color:#6e7681">○</span><span class="nm">monitoring</span><span class="bd"><b style="color:#3fb950">●</b><b style="color:#3fb950">✓</b><b style="color:#d29922">⚠</b><b style="color:#6e7681">⬡</b><b style="color:#ff7b72">↺</b></span></div>
+                <div class="r cat l1 fold"><span class="chev">›</span>TOOLS <span class="dim">· 3</span></div>
+                <div class="r new">✦ Nouveau projet</div>
+              </div>
+              <div class="win-cards">
+                <div class="cards-ttl">◈ ÉTAT · web-shop</div>
+                <div class="card">
+                  <div class="card-h">Projet</div>
+                  <div class="legend">
+                    <b style="color:#3fb950">▲</b><span>ouvert ici, ce launcher a la main</span>
+                    <b style="color:#d29922">✎</b><span>local : branche, non commité</span>
+                    <b style="color:#39c5cf">⇡</b><span>remote : poussé, non mergé</span>
+                    <b style="color:#39c5cf">⬢</b><span>conteneur en marche · srv1-docker</span>
+                    <b style="color:#d29922">⚑</b><span>milestone v1.2.0 en cours (60 %)</span>
+                  </div>
+                </div>
+                <div class="card">
+                  <div class="card-h">Milestone <span class="dim">· lu il y a 2 min</span></div>
+                  <div class="ms"><span>v1.2.0 — Paiement</span><span class="dim">3/5 · 60 %</span></div>
+                  <div class="bar ms-bar"><i style="width:60%;background:#d29922"></i></div>
+                </div>
+                <div class="card">
+                  <div class="card-h">Team · 6</div>
+                  <div class="team"><span>team-lead</span><span class="dim">opus · high</span><span>dev-backend</span><span class="dim">sonnet · high</span></div>
+                </div>
+              </div>
+              <div class="win-foot">↵ ouvrir · ^clic/Suppr fermer · F1 aide · Échap quitter</div>
+            </div>
+            <div class="win-right">
+              <div class="win-tabs">
+                <span class="tab">⌗ Teamleaders</span>
+                <span class="tab on" style="--pc:#005f5f">web-shop <span class="x">×</span></span>
+                <span class="tab lit">k8s-cluster</span>
+              </div>
+              <div class="win-panes">
+                <div class="row top">
+                  <div class="pane lead act" style="flex:2.2">
+                    <div class="ph" style="--pc:#00afaf"><b>team-lead</b> · leader</div>
+                    <div class="pt" style="background:#005f5f"><span style="color:#ff875f">✻</span> <b>Claude Code</b> · web-shop
+
+<span style="color:#9aa4b1">&gt;</span> intégrer le module de paiement Stripe
+
+<span style="color:#3fb950">●</span> Plan : 3 agents en route
+<span style="color:#d29922">●</span> Lecture de src/pay.ts
+<span style="color:#3fb950">●</span> Update(src/checkout/stripe.ts)
+
+<span style="color:#9aa4b1">&gt;</span> ▌</div>
+                  </div>
+                  <div class="pane" style="flex:1">
+                    <div class="ph" style="--pc:#00afaf"><b>cdp</b> · cdp</div>
+                    <div class="pt" style="background:#004f4f"><span style="color:#3fb950">●</span> Suivi du milestone v1.2.0
+  3/5 issues fermées</div>
+                  </div>
+                </div>
+                <div class="row">
+                  <div class="pane"><div class="ph" style="--pc:#00afaf"><b>dev-backend</b> · actif</div><div class="pt" style="background:#0f7a7a"><span style="color:#3fb950">●</span> Write(src/pay/api.ts)</div></div>
+                  <div class="pane"><div class="ph" style="--pc:#00afaf"><b>dev-frontend</b> · actif</div><div class="pt" style="background:#0b6c6c"><span style="color:#3fb950">●</span> Edit(ui/Cart.tsx)</div></div>
+                  <div class="pane"><div class="ph dimh" style="--pc:#00afaf"><b>qa</b> · inactif</div><div class="pt" style="background:#023838">en attente</div></div>
+                  <div class="pane"><div class="ph dimh" style="--pc:#00afaf"><b>code-reviewer</b> · inactif</div><div class="pt" style="background:#023838">en attente</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <figcaption>Illustration de l'interface, avec des projets fictifs. Chaque agent est un vrai terminal, branché sur le tmux du projet dans son conteneur : fermer la fenêtre ne coupe rien, les sessions sont retrouvées au lancement suivant.</figcaption>
+    </figure>
+
+    <div class="win-grid">
+      <div class="feature-card"><div class="feature-icon">🎯</div><div class="feature-body"><h3>Pour qui ?</h3><p>Ceux qui travaillent sous Windows et font tourner leurs projets dans des conteneurs distants : docker ou podman en <code>tcp://</code> ou par <code>ssh://</code>, une machine <code>ssh</code>, ou Kubernetes. Les projets sont sur un stockage partagé (NFS, MooseFS…) que le poste voit, par exemple sous <code>\\wsl.localhost\…</code>.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>La même chose que sous Linux</h3><p>Même arbre, mêmes badges et mêmes couleurs, cartes ◈ État, onglet ⌗ Teamleaders, un onglet par projet ouvert, allumé quand un agent travaille. Les teams sont rangées par les mêmes règles : leader et <code>cdp</code> en haut, actifs éclaircis, inactifs assombris. Ouverture par double-clic, questions du template et de reprise dans le pane du leader.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🪟</div><div class="feature-body"><h3>Pensé pour Windows</h3><p>Un arbre au rendu de l'Explorateur Windows 11, des zones et des cartes qu'on replie et redimensionne, un thème <strong>Auto / Jour / Nuit</strong> qui suit Windows. La souris et le copier-coller arrivent à Claude Code, un double-clic sur l'en-tête d'un pane le met en plein écran.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⚙</div><div class="feature-body"><h3>La configuration dans l'interface</h3><p><code>⚙ config</code> (<code>Ctrl+,</code>) ouvre <code>config.conf</code>, <code>backends.yaml</code> et le <code>env.yaml</code> d'un projet. Chaque fichier est vérifié pendant la frappe, par le code qui le chargera. Une erreur, avec sa ligne, empêche d'enregistrer ; la version précédente est gardée en <code>.bak</code>.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🚫</div><div class="feature-body"><h3>Ce qui ne s'y fait pas</h3><p>Pas de projet « sur l'hôte » ni de moteur local (Docker Desktop, socket locale) : ils sont refusés avec un message clair. Les projets tournent toujours dans un conteneur distant ; leur tmux y vit, et le poste n'en a pas besoin.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Mises à jour comprises</h3><p>L'exe est publié avec chaque release, dans le même <code>SHA256SUMS</code> que les binaires Linux. Il s'annonce en orange, jaune puis vert comme la coque ; un clic installe la nouvelle version, même si l'exe est en cours d'exécution.</p></div></div>
+    </div>
+
+    <h3 class="sub-h" id="windows-install">Installer sous Windows</h3>
+    <div class="install-steps">
+      <div class="install-step">
+        <div class="step-num">1</div>
+        <div class="step-content">
+          <h3>Télécharger l'exe</h3>
+          <p>Dans un dossier où vous pouvez écrire (la mise à jour remplace l'exe sur place : pas <code>C:\Program Files</code>). Dans PowerShell :</p>
+          <pre><span class="code-cmd">$d</span> = "$env:LOCALAPPDATA\Programs\claude-launcher-ng2"; New-Item -ItemType Directory -Force $d | Out-Null
+<span class="code-cmd">$u</span> = "https://github.com/CCoupel/Claude-Launcher/releases/latest/download"
+<span class="code-cmd">Invoke-WebRequest</span> "$u/claude-launcher-ng2.exe" -OutFile "$d\claude-launcher-ng2.exe"
+<span class="code-cmd">Invoke-WebRequest</span> "$u/SHA256SUMS" -OutFile "$d\SHA256SUMS"
+(<span class="code-cmd">Get-FileHash</span> "$d\claude-launcher-ng2.exe").Hash.ToLower()   <span class="code-comment"># même somme que la ligne ci-dessous</span>
+<span class="code-cmd">Select-String</span> -Path "$d\SHA256SUMS" -Pattern "claude-launcher-ng2.exe"</pre>
+          <p style="margin-top:.75rem">L'exe n'est pas signé : si SmartScreen bloque le premier lancement, « Informations complémentaires » puis « Exécuter quand même ».</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">2</div>
+        <div class="step-content">
+          <h3>WebView2 et les outils des backends</h3>
+          <p>WebView2 est déjà là sur Windows 11 et sur Windows 10 à jour. Les outils ne sont installés que pour les backends que vous déclarez ; au premier lancement, un écran liste ceux qui manquent avec leur commande.</p>
+          <table class="config-table">
+            <tr><th>Outil</th><th>Requis par</th><th>Installation</th></tr>
+            <tr><td><code>WebView2</code></td><td>la fenêtre</td><td><code>winget install --id Microsoft.EdgeWebView2Runtime -e</code></td></tr>
+            <tr><td><code>git</code></td><td>le launcher</td><td><code>winget install --id Git.Git -e</code></td></tr>
+            <tr><td><code>gh</code></td><td>facultatif</td><td><code>winget install --id GitHub.cli -e</code></td></tr>
+            <tr><td><code>ssh</code></td><td>backend <code>ssh</code>, docker en <code>ssh://</code></td><td>intégré à Windows 10/11</td></tr>
+            <tr><td><code>docker</code></td><td>backends docker (client seul)</td><td><code>winget install --id Docker.DockerCLI -e</code></td></tr>
+            <tr><td><code>podman</code></td><td>backends podman</td><td><code>winget install --id RedHat.Podman -e</code></td></tr>
+            <tr><td><code>kubectl</code></td><td>backend <code>k8s</code></td><td><code>winget install --id Kubernetes.kubectl -e</code></td></tr>
+          </table>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">3</div>
+        <div class="step-content">
+          <h3>Relier le poste aux chemins Linux</h3>
+          <p>Le launcher lit les projets par le chemin du poste, mais donne toujours aux backends leur chemin Linux. Déclarez la correspondance pour votre machine dans <code>backends.yaml</code> :</p>
+          <pre><span class="code-cmd">hubs</span>:
+  <span class="code-cmd">MON-PC</span>:                                   <span class="code-comment"># nom de la machine Windows</span>
+    <span class="code-cmd">paths</span>:
+      - { local: '\\wsl.localhost\Ubuntu\share\MFS', remote: /share/MFS }
+    <span class="code-cmd">windows</span>:                                <span class="code-comment"># pour l'exe Windows seulement</span>
+      <span class="code-cmd">browser_server</span>: { listen: 127.0.0.1:8766 }   <span class="code-comment"># défaut sous Windows</span>
+      <span class="code-cmd">hub_cache</span>: '\\wsl.localhost\Ubuntu\home\moi\.cache\claude-launcher-ng2'</pre>
+          <p style="margin-top:.75rem">Config dans <code>%AppData%\claude-launcher-ng2\</code>, cache dans <code>%LocalAppData%\claude-launcher-ng2\</code>, ou à côté de l'exe en mode portable. Pour Kubernetes, kubectl lit <code>%USERPROFILE%\.kube\config</code> : copiez-y celui du hub, ou définissez <code>KUBECONFIG</code>.</p>
+        </div>
+      </div>
+      <div class="install-step">
+        <div class="step-num">4</div>
+        <div class="step-content">
+          <h3>Lancer</h3>
+          <p>Double-clic sur <code>claude-launcher-ng2.exe</code>. Le stockage partagé doit être visible avant le lancement. <code>Ctrl+D</code>, ou <code>claude-launcher-ng2.exe backends</code> dans une invite, affiche le diagnostic : backends, outils, chemins, serveur web, réglages ignorés.</p>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="sub-h">Une configuration pour Linux et Windows</h3>
+    <figure class="arch-figure">
+      <div class="arch-scroll">
+<svg viewBox="0 0 960 300" role="img" aria-label="Le hub Linux sous WSL et l'exe Windows du même poste lisent le même dossier de configuration. Le hub Linux voit les projets sous /share/MFS, l'exe Windows sous \\wsl.localhost\Ubuntu\share\MFS. Chacun a son port pour le serveur web, 8765 et 8766. Les deux transmettent aux backends les mêmes chemins Linux.">
+<defs><marker id="cfg-a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#8b949e"/></marker><marker id="cfg-g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#3fb950"/></marker></defs>
+<rect x="20" y="20" width="300" height="110" rx="12" fill="#161b22" stroke="#a78bfa" stroke-width="1.5"/>
+<text class="ttl" x="36" y="46">Exe Windows</text>
+<text class="muted mono" x="36" y="66">claude-launcher-ng2.exe</text>
+<text class="sm" x="36" y="90">lit les projets sous</text>
+<text class="mono" x="36" y="108">\\wsl.localhost\Ubuntu\share\MFS\…</text>
+<text class="muted" x="304" y="46" text-anchor="end">port 8766</text>
+<rect x="20" y="170" width="300" height="110" rx="12" fill="#161b22" stroke="#30363d" stroke-width="1.5"/>
+<text class="ttl" x="36" y="196">Hub Linux (WSL)</text>
+<text class="muted mono" x="36" y="216">claude-launcher-ng2</text>
+<text class="sm" x="36" y="240">lit les projets sous</text>
+<text class="mono" x="36" y="258">/share/MFS/…</text>
+<text class="muted" x="304" y="196" text-anchor="end">port 8765</text>
+<rect x="372" y="85" width="230" height="130" rx="10" fill="#21262d" stroke="#30363d"/>
+<text class="ttl" x="487" y="110" text-anchor="middle">Config partagée</text>
+<text class="mono" x="487" y="134" text-anchor="middle">config.conf · backends.yaml</text>
+<text class="mono" x="487" y="152" text-anchor="middle">projects.json</text>
+<text class="muted" x="487" y="176" text-anchor="middle">écrite en chemins Linux ;</text>
+<text class="muted" x="487" y="194" text-anchor="middle">hubs.MON-PC.paths fait le lien</text>
+<line x1="320" y1="90" x2="370" y2="125" stroke="#8b949e" stroke-width="1.5" marker-end="url(#cfg-a)"/>
+<line x1="320" y1="215" x2="370" y2="180" stroke="#8b949e" stroke-width="1.5" marker-end="url(#cfg-a)"/>
+<rect x="660" y="60" width="280" height="180" rx="12" fill="#161b22" stroke="#30363d"/>
+<text class="ttl" x="676" y="86">Backends distants</text>
+<text class="muted" x="676" y="106">docker / podman tcp:// ou ssh://, ssh, k8s</text>
+<rect x="676" y="122" width="248" height="30" rx="6" fill="#0d1117" stroke="#39c5cf"/>
+<text class="mono" x="690" y="142">web-shop  ·  /share/MFS/…/web-shop</text>
+<rect x="676" y="160" width="248" height="30" rx="6" fill="#0d1117" stroke="#39c5cf"/>
+<text class="mono" x="690" y="180">k8s-cluster  ·  /share/MFS/…</text>
+<text class="muted" x="676" y="222">mêmes noms, mêmes labels, d'où qu'on ouvre</text>
+<path d="M602 130 C630 130 632 137 658 137" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#cfg-g)"/>
+<path d="M602 170 C630 170 632 175 658 175" fill="none" stroke="#3fb950" stroke-width="2" marker-end="url(#cfg-g)"/>
+<text class="sm" x="630" y="156" text-anchor="middle" style="fill:#3fb950">/share/MFS</text>
+</svg>
+      </div>
+      <figcaption>WSL reprend le nom de la machine Windows : un seul bloc <code>hubs.MON-PC</code> sert aux deux. Une entrée <code>paths</code> de forme Windows ne vaut que sous Windows, le bloc <code>windows:</code> ne s'applique qu'à l'exe, et une clé mal tapée est signalée sans jamais bloquer le hub Linux. Chaque launcher a son serveur web (8765 pour Linux, 8766 pour Windows) : ils cohabitent sans rien déclarer.</figcaption>
+    </figure>
+  </div>
+</section>
+
 <section id="overview">
   <div class="container">
     <div class="section-header">
@@ -335,7 +552,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681" data-ng-term>  NG v5.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -418,15 +635,15 @@
   <div class="container">
     <div class="section-header">
       <h2>Installation</h2>
-      <p>Un seul binaire, aucune configuration obligatoire pour démarrer.</p>
+      <p>Un seul binaire, aucune configuration obligatoire pour démarrer. Ci-dessous Linux et macOS ; sous Windows, voir <a href="#windows-install">Installer sous Windows</a>.</p>
     </div>
     <div class="install-steps">
 
       <div class="install-step">
         <div class="step-num">1</div>
         <div class="step-content">
-          <h3>Installer Claude-Launcher-NG2</h3>
-          <p>Un binaire statique par plateforme (linux et macOS, amd64 et arm64), publié avec chaque release, avec son <code>SHA256SUMS</code>.</p>
+          <h3>Installer Claude-Launcher-NG2 (Linux, macOS)</h3>
+          <p>Un binaire statique par plateforme (linux et macOS, amd64 et arm64), publié avec chaque release avec <code>claude-launcher-ng2.exe</code> pour Windows, dans un seul <code>SHA256SUMS</code>.</p>
           <pre><span class="code-cmd">os</span>=$(uname -s | tr A-Z a-z); <span class="code-cmd">arch</span>=$(uname -m)
 case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 <span class="code-cmd">curl</span> -fsSL \
@@ -470,7 +687,8 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
             <div class="lf-item"><span class="lf-icon">✓</span> Propose <code>/init-project</code> si le template d'un projet est en retard</div>
             <div class="lf-item"><span class="lf-icon">✓</span> Se met à jour tout seul, release vérifiée (<code>--no-update</code> pour s'en passer)</div>
           </div>
-          <p style="margin-top:.75rem"><strong>Vous venez de la v4 ?</strong> La v5 s'installe à côté (binaire, config, cache et tmux distincts) ; la v4 ne passe pas en v5 d'elle-même. Suivez la <a href="#migration">procédure de migration</a> ci-dessous.</p>
+          <p style="margin-top:.75rem"><strong>Vous avez la v5 ?</strong> Elle passe en v6 toute seule, projets conservés.</p>
+          <p style="margin-top:.5rem"><strong>Vous venez de la v4 ?</strong> La v5 s'installe à côté (binaire, config, cache et tmux distincts) ; la v4 ne passe pas en v5 d'elle-même. Suivez la <a href="#migration">procédure de migration</a> ci-dessous.</p>
         </div>
       </div>
 
@@ -481,14 +699,29 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 <section id="migration">
   <div class="container">
     <div class="section-header">
-      <h2>Migrer de la v4 à la v5</h2>
-      <p>La v5 s'installe à côté de la v4 et ne la modifie pas. Le passage se fait une fois, projets fermés.</p>
+      <h2>Changer de version majeure</h2>
+      <p>De la v5 à la v6, rien à faire. De la v4 à la v5 (ou à la v6), une procédure, une seule fois, projets fermés.</p>
     </div>
+
+    <div class="upgrade-ok">
+      <div class="alert-icon">✅</div>
+      <div>
+        <h3>De la v5 à la v6 : la mise à jour se fait seule</h3>
+        <p>Sous Linux, la v6 ne change rien : même coque, mêmes sessions tmux, même configuration. Votre hub v5 l'installe comme une version mineure, au lancement ou d'un clic sur l'annonce verte, sans fermer vos projets.</p>
+        <ul>
+          <li><strong>Poste Windows</strong> : installez l'exe et ajoutez le bloc <code>hubs.&lt;machine&gt;</code> à <code>backends.yaml</code> (<a href="#windows-install">voir plus haut</a>). Un hub v5 qui lirait ce fichier ignore ces clés.</li>
+          <li><strong>Template</strong> : un template v6 ne sera proposé qu'à un launcher v6. Mettez le launcher à jour d'abord.</li>
+          <li><strong>Revenir à la v5</strong> : installez la v5.10.0 et lancez-la avec <code>--no-update</code>, sinon elle repasse en v6.</li>
+        </ul>
+      </div>
+    </div>
+
+    <h3 class="sub-h">De la v4 à la v5 ou à la v6</h3>
 
     <div class="alert-big" role="alert">
       <div class="alert-icon">⚠️</div>
       <div>
-        <h3>Fermez TOUS vos projets avant de passer en v5</h3>
+        <h3>Fermez TOUS vos projets avant de quitter la v4</h3>
         <p>La v4 ne connaît pas les conteneurs. Au lancement, elle supprime les teams qu'elle croit mortes et propose de reprendre les sessions qu'elle croit interrompues : une session v5 en conteneur, dont elle ne voit pas les panes, serait prise pour morte et <strong>sa team supprimée</strong>.</p>
         <ul>
           <li><strong>Ne lancez jamais un même projet avec la v4 et la v5.</strong> Un projet ouvert en v5 est migré : ne le rouvrez plus en v4.</li>
@@ -607,6 +840,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
       <tr><td><code>Esc</code> <code>F1</code> <code>F2</code> <code>F5</code> <code>Entrée</code> <code>Tab</code>… dans le pane des infos</td><td>Relayés au navigateur, qui prend la main (par exemple pour répondre à la question de fermeture)</td></tr>
       <tr><td><code>Esc</code></td><td>Effacer le filtre ; sinon quitter : <code>l</code> launcher seul (projets conservés), <code>t</code> tout fermer</td></tr>
     </table>
+    <p class="screenshot-caption">Sous Windows, les mêmes touches pour l'essentiel, plus <code>Ctrl+D</code> (diagnostic), <code>Ctrl+,</code> (fichiers de configuration), <code>Ctrl+Tab</code> (onglet suivant) et <code>Ctrl+Maj+W</code> (détacher un onglet). <code>F1</code> les donne toutes.</p>
   </div>
 </section>
 
@@ -616,7 +850,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
       <div class="companion-icon">🧩</div>
       <div class="companion-body">
         <h3>claude_project_template</h3>
-        <p>Le launcher récupère <code>init-project.md</code> depuis ce repo par défaut : agents, commandes et workflows prêts à l'emploi pour Claude Code. Launcher et template partagent leur version majeure : le template v5 va avec NG2 v5.</p>
+        <p>Le launcher récupère <code>init-project.md</code> depuis ce repo par défaut : agents, commandes et workflows prêts à l'emploi pour Claude Code. Launcher et template partagent leur version majeure : NG2 ne propose jamais un template d'une majeure plus récente que la sienne.</p>
       </div>
       <a href="https://github.com/CCoupel/claude_project_template" class="btn btn-outline companion-cta">Voir le template →</a>
     </div>
@@ -625,7 +859,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v5.0.0</span> — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v6.0.0</span> — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 
