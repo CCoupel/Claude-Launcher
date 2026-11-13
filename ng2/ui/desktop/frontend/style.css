@@ -35,8 +35,38 @@
   --mono: "JetBrains Mono", "Cascadia Mono", "Cascadia Code", Consolas, "DejaVu Sans Mono", monospace;
   --navw: 400px;
 }
+/* thème (#133) : Jour / Nuit forcés (data-theme), Auto : celui du système, en direct */
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #F3F3F3;
+  --bg-deep: #EBEBEB;
+  --panel: #F9F9F9;
+  --card-head: #EDEDED;
+  --line: #E1E1E1;
+  --line2: #D6D6D6;
+  --text: #1B1B1B;
+  --text2: #2F2F2F;
+  --muted: #616161;
+  --dim: #8A8A8A;
+  --green: #0F7B0F;
+  --blue: #005FB8;
+  --orange: #B4500A;
+  --yellow: #9D5D00;
+  --red: #C42B1C;
+  --cyan: #007C89;
+  --purple: #7A3EC8;
+  --sel: #E5EEF7;
+  --accent: #005FB8;          /* accent Fluent (Windows 11, clair) */
+  --hover: rgba(0, 0, 0, .04);
+  --selbg: rgba(0, 0, 0, .06);
+  --selbg-focus: rgba(0, 95, 184, .12);
+  --chev: #5F5F5F;
+  --bar: #DADADA;
+  --input: #FFFFFF;
+  --alert-green: #DFF6DD; --alert-yellow: #FFF4CE; --alert-orange: #FDE7D4; --alert-red: #FDE7E9;
+}
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme="dark"]) {
     color-scheme: light;
     --bg: #F3F3F3;
     --bg-deep: #EBEBEB;
@@ -183,13 +213,13 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 .phead .n { font-weight: 700; }
 .phead .r { color: rgba(230, 232, 236, .65); }
 .phead.focus { box-shadow: inset 0 -2px 0 var(--orange); }
-.launch { position: absolute; inset: 8px; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; background: #0A0C10; padding: 6px; }
+.launch { position: absolute; inset: 8px; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; background: var(--input); padding: 6px; }
 .launch .lt { position: absolute; inset: 6px; }
 .banner { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 5; padding: 4px 12px; border-radius: 4px; font-size: 12px; background: #3A2818; color: var(--orange); pointer-events: none; }
 .prefix { position: absolute; right: 10px; bottom: 10px; z-index: 6; padding: 3px 8px; border-radius: 4px; background: var(--orange); color: #0B0D11; font-weight: 700; font-size: 11px; }
 .empty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; color: var(--muted); text-align: center; line-height: 1.7; padding: 20px; }
 .leaders { position: absolute; inset: 4px; display: grid; gap: 4px; }
-.tile { position: relative; display: flex; flex-direction: column; border: 1px solid var(--line2); border-radius: 4px; overflow: hidden; background: #0A0C10; min-height: 0; }
+.tile { position: relative; display: flex; flex-direction: column; border: 1px solid var(--line2); border-radius: 4px; overflow: hidden; background: var(--input); min-height: 0; }
 .tile.focus { border-color: var(--orange); }
 .tile .th { padding: 4px 10px; font-size: 12px; font-weight: 700; display: flex; gap: 8px; cursor: pointer; flex: none; color: #fff; }
 .tile .th .dim { color: rgba(255, 255, 255, .7); }

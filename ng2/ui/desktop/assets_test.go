@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"regexp"
 	"strconv"
 	"strings"
@@ -38,5 +39,39 @@ func TestTreeDensity(t *testing.T) {
 	}
 	if !strings.Contains(js, "setDensity(prefs.get('density', 'compact'), true)") {
 		t.Error("densité par défaut : compacte, mémorisée")
+	}
+}
+
+// #133 : thème Auto / Jour / Nuit — Jour et Nuit forcés par data-theme, Auto
+// suit le système (prefers-color-scheme, sans data-theme) ; choix mémorisé,
+// barre de titre de la fenêtre native suivie (setTheme), terminaux compris.
+func TestThemeSwitch(t *testing.T) {
+	css, js := asset(t, "style.css"), asset(t, "app.js")
+	for _, want := range []string{
+		`:root[data-theme="light"] {`,
+		"@media (prefers-color-scheme: light) {\n  :root:not([data-theme=\"dark\"]) {",
+	} {
+		if !strings.Contains(css, want) {
+			t.Errorf("style.css : %q absent", want)
+		}
+	}
+	for _, want := range []string{"setTheme(prefs.get('theme', 'auto'), true)", "darkMQ.addEventListener('change'", "theme: termTheme()"} {
+		if !strings.Contains(js, want) {
+			t.Errorf("app.js : %q absent", want)
+		}
+	}
+	sandbox(t, "", "alpha")
+	var r recorder
+	a := NewApp(r.emit)
+	var got []string
+	themeHook = func(m string) { got = append(got, m) }
+	t.Cleanup(func() { themeHook = nil })
+	for _, m := range []string{"light", "dark", "auto"} {
+		if _, err := a.Dispatch("setTheme", json.RawMessage(`{"mode":"`+m+`"}`)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if strings.Join(got, ",") != "light,dark,auto" {
+		t.Errorf("fenêtre : %v", got)
 	}
 }

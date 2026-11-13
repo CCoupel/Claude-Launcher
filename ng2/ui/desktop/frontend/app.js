@@ -569,7 +569,36 @@ function setDensity(d, keep) {
     seg.appendChild(b);
   }
 }
+// thème (#133) : Auto (celui de Windows, suivi en direct), Jour, Nuit ; couvre
+// toute l'interface, l'éditeur et le thème des terminaux (xterm.js)
+const darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+function setTheme(t, keep) {
+  if (t === 'light' || t === 'dark') document.documentElement.dataset.theme = t;
+  else delete document.documentElement.dataset.theme;
+  if (!keep) prefs.set('theme', t);
+  call('setTheme', { mode: t }).catch(() => {}); // barre de titre de la fenêtre (Wails)
+  const seg = $('themeseg'); seg.textContent = '';
+  for (const [v, label, tip] of [['auto', 'Auto', 'celui de Windows'], ['light', '☀', 'Jour'], ['dark', '☾', 'Nuit']]) {
+    const b = el('button', t === v ? 'on' : '', label); b.title = 'Thème : ' + tip;
+    b.onclick = (e) => { e.stopPropagation(); setTheme(v); };
+    seg.appendChild(b);
+  }
+  retheme();
+}
+if (darkMQ) darkMQ.addEventListener('change', () => retheme());
+// termTheme : couleurs des terminaux sans couleur de pane (ouverture, login,
+// vignettes en attente), tirées du thème
+function termTheme() {
+  const cs = getComputedStyle(document.documentElement);
+  const v = (n) => cs.getPropertyValue(n).trim();
+  return { background: v('--input'), foreground: v('--text'), cursor: v('--accent'), selectionBackground: v('--selbg-focus') };
+}
+function retheme() {
+  const th = termTheme();
+  for (const v of Object.values(S.views)) v.launch.options.theme = Object.assign({}, v.launch.options.theme, th);
+}
 function applyLayoutPrefs() {
+  setTheme(prefs.get('theme', 'auto'), true);
   setDensity(prefs.get('density', 'compact'), true);
   const w = prefs.get('navW', 0); if (w) setNavW(w, true);
   const h = prefs.get('treeH', 0); if (h) setTreeH(h, true);
@@ -660,7 +689,7 @@ class ProjView {
     this.layout = null;
     this.state = 'opening';
     this.pending = {};      // sortie arrivée avant le pane
-    this.launch = newTerm({ convertEol: true, cursorBlink: true });
+    this.launch = newTerm({ convertEol: true, cursorBlink: true, theme: termTheme() });
     this.launch.open(this.launchEl);
     this.launch.onData((d) => call('launchInput', { path: this.path, data: d }));
     this.focusPane = null;

@@ -42,10 +42,23 @@ func runWails() error {
 		OnStartup: func(c context.Context) {
 			ctx = c
 			quitHook = func() { wrt.Quit(c) }
+			themeHook = func(mode string) { windowTheme(c, mode) }
 			b.app.Start()
 		},
 		OnShutdown: func(context.Context) { b.app.Stop() },
 		Bind:       []any{b},
-		Windows:    &windows.Options{Theme: windows.Dark, WebviewIsTransparent: false, WindowIsTranslucent: false},
+		Windows:    &windows.Options{Theme: windows.SystemDefault, WebviewIsTransparent: false, WindowIsTranslucent: false},
 	})
+}
+
+// windowTheme : barre de titre de la fenêtre au thème choisi (#133).
+func windowTheme(ctx context.Context, mode string) {
+	switch mode {
+	case "light":
+		wrt.WindowSetLightTheme(ctx)
+	case "dark":
+		wrt.WindowSetDarkTheme(ctx)
+	default:
+		wrt.WindowSetSystemDefaultTheme(ctx)
+	}
 }

@@ -214,5 +214,9 @@ func relaunch(args ...string) error {
 	return c.Start()
 }
 
+// themeHook : thème de la fenêtre native (« light », « dark », « auto ») ; nil
+// en mode web (le navigateur suit la page).
+var themeHook func(mode string)
+
 // quitHook : fermeture de l'interface (Wails : runtime.Quit ; web : sortie).
 var quitHook = func() { os.Exit(0) }
