@@ -26,11 +26,13 @@ const seedHistory = 2000
 const modesFormat = "#{cursor_x} #{cursor_y} #{history_size} #{alternate_on} " +
 	"#{mouse_standard_flag} #{mouse_button_flag} #{mouse_all_flag} #{mouse_sgr_flag} #{mouse_utf8_flag} " +
 	"#{keypad_cursor_flag} #{keypad_flag} #{insert_flag} #{wrap_flag} #{cursor_flag} " +
-	"#{scroll_region_upper} #{scroll_region_lower} #{pane_height}"
+	"#{scroll_region_upper} #{scroll_region_lower} #{pane_height} #{pane_current_command}"
 
 type paneModes struct {
 	cx, cy, hist                      int
 	alt                               bool
+	bracket                           bool   // collage entre crochets (?2004), suivi par l'interface (#137)
+	cmd                               string // pane_current_command
 	mStd, mBtn, mAll, mSGR, mUTF8     bool
 	ckm, keypad, insert, wrap, cursor bool
 	top, bottom, height               int
@@ -55,7 +57,69 @@ func parseModes(s string) paneModes {
 	if len(f) < 14 {
 		m.wrap, m.cursor = true, true
 	}
+	if len(f) > 17 {
+		m.cmd = strings.Join(f[17:], " ")
+	}
 	return m
+}
+
+// Collage entre crochets (#137) : tmux ne publie pas ce mode d'un pane (pas
+// de format). L'interface le suit dans la sortie du pane (%output, y compris
+// celle qui précède ou accompagne une capture) et le rejoue à l'amorçage ;
+// état inconnu (session ouverte avant l'interface) : actif si le pane exécute
+// claude, qui l'active toujours. Sans lui, xterm.js enverrait un collage de
+// plusieurs lignes comme autant de saisies validées par Entrée.
+
+// pasteTail : octets gardés d'un paquet de sortie au suivant (séquence coupée).
+const pasteTail = 16
+
+// scanBracket : état du collage entre crochets après data (précédé de la
+// fin du paquet précédent, tail) : +1 actif, -1 inactif, prev si rien ne le
+// change ; renvoie aussi la fin à garder.
+func scanBracket(prev int8, tail, data string) (int8, string) {
+	s := tail + data
+	st := prev
+	for i := 0; i < len(s); i++ {
+		if s[i] != 0x1b || i+1 >= len(s) {
+			continue
+		}
+		if s[i+1] == 'c' { // RIS : remise à zéro du terminal
+			st = -1
+			continue
+		}
+		if i+2 >= len(s) || s[i+1] != '[' || s[i+2] != '?' {
+			continue
+		}
+		j := i + 3
+		for j < len(s) && (s[j] >= '0' && s[j] <= '9' || s[j] == ';') {
+			j++
+		}
+		if j >= len(s) || (s[j] != 'h' && s[j] != 'l') {
+			continue
+		}
+		for _, p := range strings.Split(s[i+3:j], ";") {
+			if p == "2004" {
+				st = 1
+				if s[j] == 'l' {
+					st = -1
+				}
+			}
+		}
+		i = j
+	}
+	if len(s) > pasteTail {
+		s = s[len(s)-pasteTail:]
+	}
+	return st, s
+}
+
+// bracketFor : collage entre crochets à rejouer : l'état suivi, sinon actif
+// pour claude.
+func bracketFor(st int8, cmd string) bool {
+	if st != 0 {
+		return st > 0
+	}
+	return strings.Contains(strings.ToLower(cmd), "claude")
 }
 
 // trackSGR : séquences SGR en vigueur après la ligne l (depuis la dernière
@@ -130,6 +194,7 @@ func seedData(m paneModes, hist, screen string) string {
 	set(m.mAll, "1003")
 	set(m.mUTF8, "1005")
 	set(m.mSGR, "1006")
+	set(m.bracket, "2004")
 	set(m.ckm, "1")
 	if m.keypad {
 		b.WriteString("\x1b=")

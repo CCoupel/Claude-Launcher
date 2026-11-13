@@ -54,6 +54,8 @@ type projTerm struct {
 	seen            map[string]bool // panes déjà amorcés (contenu capturé)
 	seeding         map[string]bool
 	carry           map[string][]byte
+	bracket         map[string]int8   // collage entre crochets suivi par pane (#137, seed.go)
+	bracketTail     map[string]string // fin du dernier paquet (séquence coupée)
 	out             []Chunk
 	flushCh         chan struct{}
 	stop            chan struct{}
@@ -426,6 +428,10 @@ func (t *projTerm) onNotif(n Notif) {
 	switch n.Name {
 	case "output":
 		t.mu.Lock()
+		if t.bracket == nil {
+			t.bracket, t.bracketTail = map[string]int8{}, map[string]string{}
+		}
+		t.bracket[n.Pane], t.bracketTail[n.Pane] = scanBracket(t.bracket[n.Pane], t.bracketTail[n.Pane], string(n.Data))
 		if t.seeding[n.Pane] || !t.seen[n.Pane] {
 			t.mu.Unlock()
 			return // avant la capture de son contenu : déjà dedans
@@ -505,6 +511,9 @@ func (t *projTerm) seed(pane string) {
 	var hist string
 	_ = c.sendCB([]string{"display-message", "-p", "-t", pane, modesFormat}, func(r Reply) {
 		m = parseModes(string(r.Body))
+		t.mu.Lock()
+		m.bracket = bracketFor(t.bracket[pane], m.cmd)
+		t.mu.Unlock()
 	})
 	_ = c.sendCB([]string{"capture-pane", "-p", "-e", "-t", pane, "-S", strconv.Itoa(-seedHistory), "-E", "-1"}, func(r Reply) {
 		if !r.Err && m.hist > 0 && !m.alt { // sans historique, tmux renverrait la ligne 0

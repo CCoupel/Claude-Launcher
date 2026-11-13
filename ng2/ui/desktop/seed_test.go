@@ -65,7 +65,10 @@ type panelHost struct {
 	tm         func(...string) string
 }
 
-func openPanel(t *testing.T) *panelHost {
+func openPanel(t *testing.T) *panelHost { t.Helper(); return openWith(t, panelScript) }
+
+// openWith : idem avec un autre faux claude (script).
+func openWith(t *testing.T, script string) *panelHost {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("pas de tmux sous Windows")
@@ -78,7 +81,7 @@ func openPanel(t *testing.T) *panelHost {
 	t.Setenv("CL_DESK_SOCKET", sock)
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() })
 	fake := filepath.Join(t.TempDir(), "claude")
-	_ = os.WriteFile(fake, []byte(panelScript), 0o755)
+	_ = os.WriteFile(fake, []byte(script), 0o755)
 	t.Setenv("CL_CLAUDE_BIN", fake)
 	_ = core.WriteAssignment(ps[0], "host")
 	var r recorder
@@ -240,5 +243,59 @@ func TestPaneBorderDragAndMouse(t *testing.T) {
 		if !strings.Contains(js, w) {
 			t.Errorf("%s absent de app.js", w)
 		}
+	}
+}
+
+// #137 : le collage entre crochets (?2004, que tmux ne publie pas) est suivi
+// dans la sortie du pane et rejoué après une recapture : xterm.js encadre
+// alors un collage de plusieurs lignes, reçu par l'agent en une seule saisie.
+func TestBracketedPasteAfterReseed(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "recu")
+	h := openWith(t, "#!/bin/sh\nsleep 1\nprintf '\\033[?2004hprêt\\n'\nstty raw -echo\nexec cat > "+log+"\n")
+	leader := h.pt.lastLayout().Leader
+	seed := h.reseeded(t, leader, func() { h.pt.resync() })
+	if !strings.Contains(seed, "\x1b[?2004h") {
+		t.Fatalf("recapture sans le collage entre crochets : %q", seed)
+	}
+	// collage de 3 lignes tel que xterm.js l'envoie en mode ?2004
+	paste := "\x1b[200~un\rdeux\rtrois\x1b[201~"
+	h.pt.input(leader, paste)
+	end := time.Now().Add(5 * time.Second)
+	var got []byte
+	for time.Now().Before(end) {
+		got, _ = os.ReadFile(log)
+		if len(got) >= len(paste) {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if string(got) != paste {
+		t.Errorf("reçu par l'agent : %q", got)
+	}
+	// l'application le désactive : plus rejoué
+	h.pt.onNotif(Notif{Name: "output", Pane: leader, Data: []byte("\x1b[?20")})
+	h.pt.onNotif(Notif{Name: "output", Pane: leader, Data: []byte("04l")}) // séquence coupée entre deux paquets
+	if seed := h.reseeded(t, leader, func() { h.pt.resync() }); strings.Contains(seed, "?2004h") {
+		t.Errorf("désactivé puis rejoué : %q", seed)
+	}
+}
+
+func TestScanBracket(t *testing.T) {
+	st, tail := scanBracket(0, "", "abc\x1b[?1004;2004hdef")
+	if st != 1 {
+		t.Errorf("activation (paramètres multiples) : %d", st)
+	}
+	if st, _ = scanBracket(st, tail, "x\x1bc"); st != -1 {
+		t.Errorf("RIS : %d", st)
+	}
+	if st, _ = scanBracket(0, "", "\x1b[?25l"); st != 0 {
+		t.Errorf("autre mode : %d", st)
+	}
+	// état inconnu (session ouverte avant l'interface) : actif pour claude seulement
+	if !bracketFor(0, "claude") || bracketFor(0, "bash") || bracketFor(-1, "claude") || !bracketFor(1, "vim") {
+		t.Error("bracketFor")
+	}
+	if m := parseModes("0 0 0 0 0 0 0 0 0 0 0 0 1 1 0 9 10 claude"); m.cmd != "claude" {
+		t.Errorf("commande : %q", m.cmd)
 	}
 }
