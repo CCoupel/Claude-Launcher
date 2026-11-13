@@ -35,17 +35,23 @@ jobs:
   # tmux (ui/tmux) n'y tourne pas, elle est seulement compilée
   windows:
     runs-on: windows-latest
+    # bash (Git for Windows) : « set -e », chaque commande en échec arrête
+    # l'étape ; PowerShell ne regarderait que le code de sortie de la dernière
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: ng2/go.mod
           cache-dependency-path: ng2/go.sum
-      - name: Vet et build
+      - name: Vet core et platform
         working-directory: ng2
-        run: |
-          go vet ./core/... ./platform/...
-          go build ./...
+        run: go vet ./core/... ./platform/...
+      - name: Build (module entier)
+        working-directory: ng2
+        run: go build ./...
       - name: Test core et platform
         working-directory: ng2
         run: go test ./core/... ./platform/...
