@@ -140,7 +140,8 @@ func LoadConfig() Config {
 				}
 			case "claudedir":
 				if d := strings.TrimSpace(f[1]); d != "" {
-					if !filepath.IsAbs(d) {
+					// « /… » : absolu aussi sous Windows (racine du lecteur, pas relatif au dossier de config)
+					if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, `\`) {
 						d = filepath.Join(filepath.Dir(path), d)
 					}
 					cfg.ClaudeConfigDir = filepath.Clean(d)

@@ -6,6 +6,7 @@ package platform
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -33,15 +34,21 @@ func TestLeaderWindows(t *testing.T) {
 	}
 }
 
-// exe ouvert (comme un exe en cours d'exécution) : remplacé via .old
+// exe EN COURS D'EXÉCUTION (copie de ping.exe) : non remplaçable directement,
+// remplacé via .old
 func TestReplaceExecutableWindows(t *testing.T) {
-	exe := filepath.Join(t.TempDir(), "claude-launcher-ng2.exe")
-	_ = os.WriteFile(exe, []byte("v1"), 0o755)
-	f, err := os.Open(exe) // garde un descripteur, comme le processus en cours
+	src, err := os.ReadFile(filepath.Join(os.Getenv("SystemRoot"), "System32", "PING.EXE"))
 	if err != nil {
+		t.Skip("ping.exe introuvable :", err)
+	}
+	exe := filepath.Join(t.TempDir(), "claude-launcher-ng2.exe")
+	_ = os.WriteFile(exe, src, 0o755)
+	c := exec.Command(exe, "-n", "30", "127.0.0.1")
+	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
-	defer f.Close()
+	defer func() { _ = c.Process.Kill(); _ = c.Wait() }()
+	time.Sleep(300 * time.Millisecond)
 	err = ReplaceExecutable(exe, func(dst string) error { return os.WriteFile(dst, []byte("v2"), 0o755) })
 	if err != nil {
 		t.Fatal(err)
@@ -49,8 +56,18 @@ func TestReplaceExecutableWindows(t *testing.T) {
 	if b, _ := os.ReadFile(exe); string(b) != "v2" {
 		t.Errorf("nouveau : %q", b)
 	}
-	if b, _ := os.ReadFile(OldExe(exe)); string(b) != "v1" {
-		t.Errorf("ancien : %q", b)
+	if b, _ := os.ReadFile(OldExe(exe)); len(b) != len(src) {
+		t.Errorf("ancien : %d octets", len(b))
+	}
+	// .old verrouillé tant que l'ancien tourne : le nettoyage le laisse, puis l'enlève
+	if left := removeOldExes(exe); len(left) != 1 {
+		t.Errorf("ancien encore en marche : %q", left)
+	}
+	_ = c.Process.Kill()
+	_ = c.Wait()
+	time.Sleep(300 * time.Millisecond)
+	if left := removeOldExes(exe); len(left) != 0 {
+		t.Errorf("après l'arrêt : %q", left)
 	}
 }
 

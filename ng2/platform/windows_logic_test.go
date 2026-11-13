@@ -119,7 +119,7 @@ func TestSwapRunningExe(t *testing.T) {
 }
 
 func TestGlobEscapeAndRelaunch(t *testing.T) {
-	d := filepath.Join(t.TempDir(), "a[1]*")
+	d := filepath.Join(t.TempDir(), "a[1]b") // métacaractère de Glob (« * » et « ? » : interdits sous Windows)
 	_ = os.MkdirAll(d, 0o755)
 	exe := filepath.Join(d, "x.exe")
 	_ = os.WriteFile(exe+".123.old", nil, 0o644)

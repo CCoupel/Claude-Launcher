@@ -15,13 +15,16 @@ import (
 
 func isolateCache(t *testing.T) {
 	t.Helper()
-	t.Setenv("HOME", t.TempDir())
+	h := t.TempDir()
+	t.Setenv("HOME", h)
+	winHome(t, h)
 	t.Setenv("XDG_CACHE_HOME", "")
 }
 
 // Jeton tiré une fois et gardé ; appariement accepté seulement avec ce jeton,
 // deviceId enregistré puis repris par browserDevice ; hubs.<machine> l'emporte.
 func TestBrowserPairing(t *testing.T) {
+	unixOnly(t)
 	isolateCache(t)
 	tok := browserToken()
 	if len(tok) != 32 || browserToken() != tok {
@@ -87,6 +90,7 @@ func TestBrowserHint(t *testing.T) {
 // Hook ajouté une fois, hooks de l'utilisateur et autres réglages gardés,
 // ancienne version de la commande remplacée.
 func TestSyncBrowserHook(t *testing.T) {
+	unixOnly(t)
 	d := t.TempDir()
 	p := filepath.Join(d, "settings.json")
 	orig := `{"model":"opus","hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"echo moi"}]},` +
