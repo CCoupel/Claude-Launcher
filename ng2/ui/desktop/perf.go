@@ -162,3 +162,18 @@ func gitOrder(paths []string, first map[string]bool) []string {
 	sort.SliceStable(out, func(i, j int) bool { return first[out[i]] && !first[out[j]] })
 	return out
 }
+
+// writeLine : une ligne datée de plus dans desktop-perf.log (cartes, #130).
+func (p *perfLog) writeLine(msg string) {
+	path := filepath.Join(core.CacheDir(), "desktop-perf.log")
+	var lines []string
+	if b, err := os.ReadFile(path); err == nil {
+		lines = strings.Split(strings.TrimRight(string(b), "\n"), "\n")
+	}
+	lines = append(lines, time.Now().Format("2006-01-02 15:04:05")+" "+msg)
+	if len(lines) > 200 {
+		lines = lines[len(lines)-200:]
+	}
+	_ = os.MkdirAll(filepath.Dir(path), 0o755)
+	_ = os.WriteFile(path, []byte(strings.Join(lines, "\n")+"\n"), 0o644)
+}

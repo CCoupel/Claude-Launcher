@@ -94,6 +94,7 @@ func sandbox(t *testing.T, root string, names ...string) (projects []string) {
 		t.Setenv("USERPROFILE", filepath.Join(root, "home"))
 	}
 	t.Setenv("CL_ROOTS", filepath.Join(root, "PROJETS"))
+	t.Cleanup(cardsBg.Wait) // cartes complétées en tâche de fond : finies avant le nettoyage
 	t.Setenv("CL_NO_UPDATE", "1")
 	// un podman présent (runner de CI) crée son stockage sous XDG_DATA_HOME,
 	// avec des droits que le nettoyage de t.TempDir ne peut pas effacer : hors

@@ -251,8 +251,20 @@ func (a *App) emitter() {
 			a.emit("state", a.Snapshot())
 			time.Sleep(80 * time.Millisecond)
 		case <-a.cardDirty:
-			a.emit("cards", a.Cards())
-			time.Sleep(50 * time.Millisecond)
+			// hors de cette goroutine : une carte lente (projet par 9P) ne doit
+			// pas retarder l'arbre (#130) ; une seule relecture à la fois
+			if cardsMu.TryLock() {
+				go func() {
+					defer cardsMu.Unlock()
+					a.mu.Lock()
+					sel := a.sel
+					a.mu.Unlock()
+					c := a.cardsFull(sel)
+					if a.selected(sel) {
+						a.emit("cards", c)
+					}
+				}()
+			}
 		}
 	}
 }
@@ -663,6 +675,7 @@ type Cards struct {
 	Team      []TeamRow        `json:"team"`
 	Open      bool             `json:"open"`
 	Files     []FileRow        `json:"files"`
+	Pending   []string         `json:"pending,omitempty"` // encore à compléter (état, team) : en cours
 }
 
 // Span : texte et sa couleur (dim, yellow… ; vide : normal).
@@ -712,60 +725,26 @@ type FileRow struct {
 
 func (a *App) refreshCards() { a.cardsChanged() }
 
-// Cards : cartes du projet sélectionné.
+// Cards : cartes complètes du projet sélectionné (cards.go).
 func (a *App) Cards() Cards {
 	a.mu.Lock()
-	n, ok := a.node(a.sel)
-	if !ok {
-		a.mu.Unlock()
-		return Cards{}
-	}
-	p := a.projInfo(n)
-	ms := a.milestones[n.Path]
-	t := a.terms[n.Path]
+	sel := a.sel
 	a.mu.Unlock()
-
-	c := Cards{Path: n.Path, Name: n.Name, Open: p.Open}
-	ps, loaded := bestState(a.hubCache, n.Path)
-	if !loaded {
-		// cache pas encore préparé (premier lancement) : calcul direct, gardé 30 s
-		ps, loaded = a.directState(n.Path), true
-	}
-	if loaded {
-		c.Loaded = true
-		c.Updated = ageText(ps.UpdatedAt)
-		c.StaleUpd = time.Since(ps.UpdatedAt) > 2*time.Minute
-		p.Git, p.GitOK, p.Tpl, p.TplTag = ps.Git, true, ps.Tpl, ps.TplTag
-		c.IsRepo = ps.Git.IsRepo
-		c.Branch = ps.Git.Branch
-		c.VerLocal = core.OrNone(ps.Detail.VerLocal)
-		c.Release = releaseSpans(ms, ps.Detail.VerRelease)
-		c.LastMsg = ps.Detail.LastMsg
-		for _, f := range ps.Files {
-			fr := FileRow{Name: f.Name, Dir: f.Dir, Meta: humanSize(f.Size), Change: ps.Detail.Changes[f.Name]}
-			if f.Dir {
-				fr.Meta = fmt.Sprintf("%d élém.", f.Count)
-			}
-			c.Files = append(c.Files, fr)
-		}
-	}
-	c.Legend = core.Legend(p)
-	c.Milestone = msCard(ms)
-	var panes []core.PaneInfo
-	if t != nil {
-		panes = t.paneInfos()
-	}
-	for _, tm := range core.LiveTeam(core.ReadTeammates(n.Path), n.Path, panes) {
-		c.Team = append(c.Team, TeamRow{Name: tm.Name, Tag: tm.Tag, Companion: tm.Companion,
-			Model: strings.TrimPrefix(tm.Model, "claude-"), Effort: tm.Effort, Claude: tm.Claude, Count: tm.Count})
-	}
-	return c
+	return a.cardsFull(sel)
 }
 
 var direct = struct {
 	sync.Mutex
 	m map[string]core.ProjState
 }{m: map[string]core.ProjState{}}
+
+// directCached : état calculé directement il y a moins de 30 s, sans calcul.
+func directCached(p string) (core.ProjState, bool) {
+	direct.Lock()
+	defer direct.Unlock()
+	ps, ok := direct.m[p]
+	return ps, ok && time.Since(ps.UpdatedAt) < 30*time.Second
+}
 
 func (a *App) directState(p string) core.ProjState {
 	direct.Lock()
@@ -875,7 +854,10 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 	}
 	switch method {
 	case "init":
-		return map[string]any{"state": a.Snapshot(), "cards": a.Cards(), "help": helpData(), "tools": toolsData(), "prefs": loadPrefs()}, nil
+		a.mu.Lock()
+		sel := a.sel
+		a.mu.Unlock()
+		return map[string]any{"state": a.Snapshot(), "cards": a.selectCards(sel), "help": helpData(), "tools": toolsData(), "prefs": loadPrefs()}, nil
 	case "setPrefs": // préférences d'affichage (#123, #124) : objet fusionné
 		var patch map[string]any
 		if err := json.Unmarshal(raw, &patch); err != nil {
@@ -890,9 +872,11 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		if changed && a.mgr != nil {
 			a.mgr.Select(arg.Path)
 		}
-		a.cardsChanged()
 		a.changed()
-		return nil, nil
+		// cartes en cache tout de suite, complétées en tâche de fond (#130)
+		return a.selectCards(arg.Path), nil
+	case "cardsFor": // projet survolé ou voisin : préparé à l'avance (#130)
+		return a.prefetchCards(arg.Path), nil
 	case "open":
 		return a.open(arg.Path, core.LaunchNormal)
 	case "close":
