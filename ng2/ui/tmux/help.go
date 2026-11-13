@@ -1,0 +1,169 @@
+package tmux
+
+import (
+	"fmt"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/lipgloss"
+
+	"claude-launcher-ng2/core"
+	"claude-launcher-ng2/platform"
+)
+
+// Aide (F1) : commandes et raccourcis. Dans la coque, affichée dans un
+// display-popup tmux par-dessus tout le terminal (le navigateur est trop étroit
+// pour un tableau) ; « claude-launcher-ng2 help » l'imprime dans le terminal.
+
+type helpRow struct{ key, desc string }
+
+type helpSection struct {
+	title string
+	rows  []helpRow
+}
+
+var helpSections = []helpSection{
+	{"Navigateur", []helpRow{
+		{"↑ ↓ PgUp PgDn, molette, clic", "sélectionner un projet (clic sur un projet ouvert : sa fenêtre)"},
+		{"Entrée, double-clic", "ouvrir / rejoindre le projet"},
+		{"Ctrl+clic, Suppr", "fermer le projet : /exit à claude, puis arrêt du conteneur (confirmation o/N)"},
+		{"point devant le nom", "○ rien ne tourne · ● bleu conteneur prêt sans claude · ▲ ouvert ici · ● vert lecture seule · ■ orange autre hub · ● orange personne ne pilote · ✕ problème"},
+		{"frappe", "filtrer ; Esc efface le filtre"},
+		{"clic hors projet", "onglet ⌗ Teamleaders"},
+		{"double-clic catégorie", "créer un projet dans ce dossier"},
+		{"Tab, Alt+← Alt+→", "passer du navigateur à tmux et retour"},
+		{"Ctrl+← Ctrl+→, bordure", "largeur du navigateur (mémorisée)"},
+		{"Ctrl+R", "rescanner les projets"},
+		{"F2", "reconfigurer l'exécution du projet fermé (hôte, socle, backend)"},
+		{"F5", "mises à jour, consommation et liste des projets maintenant"},
+		{"Ctrl+U, clic sur ✕", "masquer les annonces de mise à jour"},
+		{"annonce NG orange / jaune", "version en préparation / en téléchargement et contrôle"},
+		{"clic sur l'annonce verte", "installer la nouvelle version, déjà téléchargée (projets conservés)"},
+		{"clic sur l'annonce jaune en échec", "réessayer le téléchargement"},
+		{"clic sur l'alerte connexion", "fenêtre login qui lance claude /login"},
+		{"Esc", "quitter : l launcher seul · t puis o tout fermer"},
+		{"F1", "cette aide"},
+	}},
+	{"Zone tmux", []helpRow{
+		{"double-clic sur un pane", "plein écran, double-clic à nouveau pour revenir"},
+		{"Ctrl+B z", "idem au clavier"},
+		{"Ctrl+B R", "remettre en ordre les panes de la team"},
+		{"projet en conteneur ⬢", "Ctrl+B agit dans le conteneur ; Ctrl+B Ctrl+B = préfixe du hub"},
+	}},
+	{"Commandes", []helpRow{
+		{"claude-launcher-ng2", "lancer le hub (mise à jour auto au passage)"},
+		{"claude-launcher-ng2 --no-update", "sans mise à jour (ou CL_NO_UPDATE=1)"},
+		{"claude-launcher-ng2 configure", "créer / éditer la config ($EDITOR)"},
+		{"claude-launcher-ng2 relayout WIN_ID", "remettre en ordre les panes d'une fenêtre"},
+		{"claude-launcher-ng2 help", "cette aide dans le terminal"},
+		{"claude-launcher-ng2 backends", "backends, pools (machines, drain, charge) et conteneurs des projets"},
+		{"claude-launcher-ng2 version", "version installée"},
+	}},
+	{"Fichiers", []helpRow{
+		{"<binaire>/.config/claude-launcher-ng2/", "config portable, à côté du binaire (si config.conf y est)"},
+		{"~/.config/claude-launcher-ng2/config.conf", "sinon : configuration (GITHUB_DIRS, CLAUDE_OPTIONS, CLAUDE_CONFIG_DIR…)"},
+		{"~/.config/claude-launcher-ng2/backends.yaml", "backends : host, podman, docker, ssh (+docker/podman), k8s ; pools de machines (pools:, drain:)"},
+		{"~/.config/claude-launcher-ng2/env.yaml", "bootstrap du launcher, ajouté à celui de chaque conteneur (paquets, setup, on_start)"},
+		{"<projet>/.claude-launcher/env-template.yaml", "environnement fourni par le template selon la stack (réécrit par /init-project)"},
+		{"<projet>/.claude-launcher/env.yaml", "environnement propre au projet, fusionné après le template (image, paquets, setup)"},
+	}},
+}
+
+// helpText : l'aide mise en forme, sur width colonnes au plus.
+func helpText(width int) string {
+	keyW := 0
+	for _, s := range helpSections {
+		for _, r := range s.rows {
+			keyW = max(keyW, lipgloss.Width(r.key))
+		}
+	}
+	keyW = min(keyW, width/2)
+	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
+	key := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
+	var b strings.Builder
+	b.WriteString(core.Bold.Render(core.NgName+" "+core.NgVersion) + core.Dim.Render("  ·  aide") + "\n")
+	for _, s := range helpSections {
+		b.WriteString("\n" + title.Render(s.title) + "\n")
+		for _, r := range s.rows {
+			k := r.key
+			if lipgloss.Width(k) > keyW {
+				// clé trop longue : description sur la ligne suivante
+				b.WriteString("  " + key.Render(k) + "\n")
+				for _, l := range wrapWords(r.desc, max(width-keyW-4, 20)) {
+					b.WriteString("  " + strings.Repeat(" ", keyW+2) + l + "\n")
+				}
+				continue
+			}
+			for i, l := range wrapWords(r.desc, max(width-keyW-4, 20)) {
+				if i > 0 {
+					k = ""
+				}
+				b.WriteString("  " + key.Render(core.PadRight(k, keyW)) + "  " + l + "\n")
+			}
+		}
+	}
+	return b.String()
+}
+
+// wrapWords coupe s en lignes d'au plus w colonnes, entre les mots.
+func wrapWords(s string, w int) []string {
+	var lines []string
+	cur := ""
+	for _, word := range strings.Fields(s) {
+		switch {
+		case cur == "":
+			cur = word
+		case lipgloss.Width(cur)+1+lipgloss.Width(word) <= w:
+			cur += " " + word
+		default:
+			lines = append(lines, cur)
+			cur = word
+		}
+	}
+	return append(lines, cur)
+}
+
+// RunHelp imprime l'aide ; avec wait (popup), attend une touche avant de rendre la main.
+func RunHelp(wait bool) error {
+	w := 100
+	if s, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && s > 0 {
+		w = s
+	}
+	fmt.Print(helpText(w))
+	if !wait {
+		return nil
+	}
+	fmt.Print("\n" + core.Dim.Render("  une touche pour fermer"))
+	if restore, err := platform.RawMode(int(os.Stdin.Fd())); err == nil {
+		defer restore()
+	}
+	buf := make([]byte, 16)
+	_, _ = os.Stdin.Read(buf)
+	return nil
+}
+
+// openHelp : popup d'aide sur le client attaché à la coque.
+func openHelp() error {
+	out, err := otmux("list-clients", "-t", outerSession, "-F", "#{client_name} #{client_width} #{client_height}").Output()
+	f := strings.Fields(strings.SplitN(string(out), "\n", 2)[0])
+	if err != nil || len(f) != 3 {
+		return fmt.Errorf("aucun terminal attaché")
+	}
+	name := f[0]
+	cw, _ := strconv.Atoi(f[1])
+	ch, _ := strconv.Atoi(f[2])
+	w := min(100, max(cw, 20))
+	tw := w - 2 // intérieur du popup (bordure)
+	exe, err := platform.SelfExe()
+	if err != nil {
+		return err
+	}
+	// aide + ligne vide + « une touche pour fermer » + bordures
+	h := min(strings.Count(helpText(tw), "\n")+4, max(ch, 5))
+	cmd := exec.Command("tmux", "-L", outerSocket(), "display-popup", "-c", name, "-E",
+		"-w", strconv.Itoa(w), "-h", strconv.Itoa(h), "-T", " Aide · F1 ",
+		"COLUMNS="+strconv.Itoa(tw)+" "+core.Shq(strings.TrimSuffix(exe, " (deleted)"))+" help --wait")
+	return cmd.Start() // le popup vit sa vie ; le navigateur reste réactif
+}

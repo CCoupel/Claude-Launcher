@@ -1,0 +1,72 @@
+name: ng2-tests
+
+# Tests de Claude-Launcher-NG2 (ng2/) à chaque push et PR vers main et v6
+# (v6 : branche de développement du launcher Windows, epic #114). La release
+# (release.yml) refait les tests Linux avant de publier.
+on:
+  push:
+    branches: [main, v6]
+    paths: ['ng2/**', '.github/workflows/ng2-tests.yml']
+  pull_request:
+    branches: [main, v6]
+    paths: ['ng2/**', '.github/workflows/ng2-tests.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Linux : mêmes commandes que le job de release
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng2/go.mod
+          cache-dependency-path: ng2/go.sum
+      - name: Test Claude-Launcher-NG2
+        working-directory: ng2
+        run: |
+          go vet ./...
+          go test ./...
+      # même commande que la release : l'exe Windows se compile depuis Linux
+      - name: Build de l'interface native Windows (compilation croisée)
+        working-directory: ng2
+        run: |
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -trimpath \
+            -ldflags "-s -w -H windowsgui" -o /tmp/claude-launcher-ng2.exe .
+
+  # Windows (#112) : couches communes (core) et système (platform), interface
+  # native (ui/desktop, Wails) ; la coque tmux (ui/tmux) n'y tourne pas, elle
+  # est seulement compilée
+  windows:
+    runs-on: windows-latest
+    # bash (Git for Windows) : « set -e », chaque commande en échec arrête
+    # l'étape ; PowerShell ne regarderait que le code de sortie de la dernière
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng2/go.mod
+          cache-dependency-path: ng2/go.sum
+      - name: Vet core, platform et interface native
+        working-directory: ng2
+        run: go vet ./core/... ./platform/... ./ui/desktop/...
+      - name: Build (module entier)
+        working-directory: ng2
+        run: go build ./...
+      - name: Test core, platform et interface native
+        working-directory: ng2
+        run: go test ./core/... ./platform/... ./ui/desktop/...
+      - name: Build de l'interface native (Wails, exécutable graphique)
+        working-directory: ng2
+        run: |
+          CGO_ENABLED=0 go build -tags desktop,production -trimpath -ldflags "-s -w -H windowsgui" -o claude-launcher-ng2.exe .
+          ls -l claude-launcher-ng2.exe
+          # en ligne de commande, la sortie revient à l'invite (console du parent)
+          ./claude-launcher-ng2.exe version | tee version.txt
+          grep -q 'Claude-Launcher-NG2' version.txt

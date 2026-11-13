@@ -1,0 +1,1228 @@
+package core
+
+import (
+	"bytes"
+	"claude-launcher-ng2/platform"
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"gopkg.in/yaml.v3"
+)
+
+// ── Backends d'exécution des projets (#43) ────────────────────────────────
+//
+// Trois niveaux :
+//   - l'environnement du projet : <projet>/.claude-launcher/env.yaml, versionné
+//     (image, paquets, étapes de setup, montages en plus) ;
+//   - les backends de la machine : ~/.config/claude-launcher-ng2/backends.yaml
+//     (host toujours présent ; podman / docker détectés s'il n'y a pas de fichier) ;
+//   - l'affectation projet → backend : état du launcher, choisie dans le
+//     navigateur (F2), ~/.local/state/claude-launcher-ng2/projects.json.
+//
+// Un projet en conteneur vit dans SON conteneur (un projet = un conteneur), dans
+// un tmux à lui (socket ctrSocket, session ctrSession), attaché dans sa fenêtre
+// du hub ; le launcher pilote ce tmux par son canal de contrôle (ctl.go).
+
+const (
+	ctrSocket  = "cl" // socket tmux dans le conteneur
+	CtrSession = "cl" // session du projet dans ce tmux
+	envFile    = ".claude-launcher/env.yaml"
+)
+
+// EnvSpec : <projet>/.claude-launcher/env.yaml.
+type EnvSpec struct {
+	Image             string              `yaml:"image"`
+	Packages          []string            `yaml:"packages"`
+	PackagesByManager map[string][]string `yaml:"packages_by_manager"`
+	Setup             []string            `yaml:"setup"`
+	Watch             []string            `yaml:"watch"`    // fichiers dont le contenu change → setup rejoué
+	OnStart           []string            `yaml:"on_start"` // étapes rejouées à chaque démarrage du projet
+	Local             []string            `yaml:"local"`    // dossiers du projet privés au conteneur (masqués)
+	Mounts            []EnvMount          `yaml:"mounts"`
+	Prefer            string              `yaml:"prefer"`
+	raw               []byte
+}
+
+type EnvMount struct {
+	Path string `yaml:"path"`
+	RO   *bool  `yaml:"ro"` // lecture seule par défaut
+}
+
+func EnvPath(proj string) string { return filepath.Join(proj, envFile) }
+
+// ── Environnement fourni par le template (#79) ────────────────────────────
+//
+// <projet>/.claude-launcher/env-template.yaml : écrit (et réécrit entièrement)
+// par le template selon la stack ; env.yaml reste au projet. Fusion : template
+// puis projet — image et prefer du projet l'emportent (prefer interdit dans le
+// template), listes réunies, étapes du template d'abord, mounts réunis par path
+// (ro du projet l'emporte). Un env.yaml seul se lit comme avant (empreintes
+// inchangées : conteneurs existants non reconstruits).
+
+const envTemplateFile = ".claude-launcher/env-template.yaml"
+
+func envTemplatePath(proj string) string { return filepath.Join(proj, envTemplateFile) }
+
+// HasEnv : le projet décrit un environnement conteneur (l'un des deux fichiers).
+func HasEnv(proj string) bool {
+	for _, p := range []string{EnvPath(proj), envTemplatePath(proj)} {
+		if _, err := os.Stat(p); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+// parseEnvFile : un fichier d'environnement, chemins relatifs contrôlés.
+func parseEnvFile(b []byte, name string) (EnvSpec, error) {
+	var e EnvSpec
+	if err := yaml.Unmarshal(b, &e); err != nil {
+		return e, fmt.Errorf("%s : %w", name, err)
+	}
+	for i, l := range e.Local {
+		c, err := cleanRel(l)
+		if err != nil {
+			return e, fmt.Errorf("%s : local « %s » : %w", name, l, err)
+		}
+		e.Local[i] = c
+	}
+	for i, w := range e.Watch {
+		c, err := cleanRel(w)
+		if err != nil {
+			return e, fmt.Errorf("%s : watch « %s » : %w", name, w, err)
+		}
+		e.Watch[i] = c
+	}
+	e.raw = b
+	return e, nil
+}
+
+// LoadEnv : environnement du projet, env-template.yaml et env.yaml fusionnés.
+// Aucun des deux : erreur « fichier absent » (os.IsNotExist).
+func LoadEnv(proj string) (EnvSpec, error) {
+	var e EnvSpec
+	pb, perr := os.ReadFile(EnvPath(proj))
+	tb, terr := os.ReadFile(envTemplatePath(proj))
+	if perr != nil && terr != nil {
+		if os.IsNotExist(perr) && !os.IsNotExist(terr) {
+			return e, terr
+		}
+		return e, perr
+	}
+	if perr != nil && !os.IsNotExist(perr) {
+		return e, perr
+	}
+	if terr != nil && !os.IsNotExist(terr) {
+		return e, terr
+	}
+	var p, t EnvSpec
+	var err error
+	if perr == nil {
+		if p, err = parseEnvFile(pb, envFile); err != nil {
+			return p, err
+		}
+	}
+	if terr == nil {
+		var keys map[string]any
+		if yaml.Unmarshal(tb, &keys) == nil {
+			if _, ok := keys["prefer"]; ok {
+				return e, fmt.Errorf("%s : « prefer » réservé à %s (choix du backend, propre au projet)", envTemplateFile, envFile)
+			}
+		}
+		if t, err = parseEnvFile(tb, envTemplateFile); err != nil {
+			return t, err
+		}
+		e = t.withProject(p)
+	} else {
+		e = p
+	}
+	if e.Image == "" {
+		where := envFile
+		if terr == nil {
+			where = envFile + " ni " + envTemplateFile
+		}
+		return e, fmt.Errorf("« image » manquante (%s)", where)
+	}
+	return e, nil
+}
+
+// union : éléments de a puis de b, sans doublon, ordre gardé.
+func union(a, b []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, x := range append(append([]string(nil), a...), b...) {
+		if !seen[x] {
+			seen[x], out = true, append(out, x)
+		}
+	}
+	return out
+}
+
+// withProject : environnement du template (e) complété par celui du projet (p).
+func (e EnvSpec) withProject(p EnvSpec) EnvSpec {
+	if p.Image != "" {
+		e.Image = p.Image
+	}
+	e.Prefer = p.Prefer
+	e.Packages = union(e.Packages, p.Packages)
+	if len(p.PackagesByManager) > 0 {
+		m := map[string][]string{}
+		for k, v := range e.PackagesByManager {
+			m[k] = v
+		}
+		for k, v := range p.PackagesByManager {
+			m[k] = union(m[k], v)
+		}
+		e.PackagesByManager = m
+	}
+	e.Setup = append(append([]string(nil), e.Setup...), p.Setup...)
+	e.OnStart = append(append([]string(nil), e.OnStart...), p.OnStart...)
+	e.Watch = union(e.Watch, p.Watch)
+	e.Local = union(e.Local, p.Local)
+	var mounts []EnvMount
+	idx := map[string]int{}
+	for _, m := range append(append([]EnvMount(nil), e.Mounts...), p.Mounts...) {
+		if i, ok := idx[m.Path]; ok {
+			if m.RO != nil {
+				mounts[i].RO = m.RO // le projet l'emporte
+			}
+			continue
+		}
+		idx[m.Path] = len(mounts)
+		mounts = append(mounts, m)
+	}
+	e.Mounts = mounts
+	// empreinte : projet d'abord (identique à un env.yaml seul quand il n'y a pas
+	// de template), puis le template
+	e.raw = append(append(append([]byte(nil), p.raw...), "\x00template\x00"...), e.raw...)
+	return e
+}
+
+// ── Bootstrap du launcher (#57) ───────────────────────────────────────────
+//
+// <config>/env.yaml, à côté de backends.yaml : l'outillage de l'utilisateur
+// (statusline, hooks…) installé dans TOUS ses conteneurs, en plus du env.yaml de
+// chaque projet. Clés : packages, packages_by_manager, setup, on_start — celles
+// qui ne concernent pas un projet en particulier.
+
+func LauncherEnvPath() string { return filepath.Join(Ng2ConfigDir(), "env.yaml") }
+
+var launcherEnvKeys = map[string]bool{"packages": true, "packages_by_manager": true, "setup": true, "on_start": true}
+
+// loadLauncherEnv : env.yaml du launcher ; absent = vide.
+func loadLauncherEnv() (EnvSpec, error) {
+	var e EnvSpec
+	b, err := os.ReadFile(LauncherEnvPath())
+	if os.IsNotExist(err) {
+		return e, nil
+	}
+	if err != nil {
+		return e, err
+	}
+	var keys map[string]any
+	if err := yaml.Unmarshal(b, &keys); err != nil {
+		return e, fmt.Errorf("%s : %w", LauncherEnvPath(), err)
+	}
+	for k := range keys {
+		if !launcherEnvKeys[k] {
+			return e, fmt.Errorf("%s : clé « %s » réservée au env.yaml d'un projet (ici : packages, packages_by_manager, setup, on_start)", LauncherEnvPath(), k)
+		}
+	}
+	if err := yaml.Unmarshal(b, &e); err != nil {
+		return e, fmt.Errorf("%s : %w", LauncherEnvPath(), err)
+	}
+	e.raw = b
+	return e, nil
+}
+
+// withLauncher : environnement du projet complété par celui du launcher —
+// paquets réunis, étapes du launcher d'abord ; ses changements entrent dans les
+// empreintes (bootstrap ou setup rejoués).
+func (e EnvSpec) withLauncher(l EnvSpec) EnvSpec {
+	if len(l.raw) == 0 {
+		return e
+	}
+	e.Packages = union(l.Packages, e.Packages)
+	if len(l.PackagesByManager) > 0 {
+		m := map[string][]string{}
+		for k, v := range e.PackagesByManager {
+			m[k] = v
+		}
+		for k, v := range l.PackagesByManager {
+			m[k] = union(v, m[k])
+		}
+		e.PackagesByManager = m
+	}
+	e.Setup = append(append([]string(nil), l.Setup...), e.Setup...)
+	e.OnStart = append(append([]string(nil), l.OnStart...), e.OnStart...)
+	e.raw = append(append(append([]byte(nil), e.raw...), "\x00launcher\x00"...), l.raw...)
+	return e
+}
+
+// LoadEnvFull : env.yaml du projet complété par celui du launcher (bootstrap).
+func LoadEnvFull(proj string) (EnvSpec, error) {
+	e, err := LoadEnv(proj)
+	if err != nil {
+		return e, err
+	}
+	l, err := loadLauncherEnv()
+	if err != nil {
+		return e, err
+	}
+	return e.withLauncher(l), nil
+}
+
+// cleanRel : chemin relatif au projet, sans sortir du projet (ni « : », séparateur de -v).
+func cleanRel(p string) (string, error) {
+	// forme « / » sur tous les systèmes : mêmes chemins (et même empreinte
+	// cl.local) que le projet soit ouvert de Linux ou de Windows (#110)
+	c := filepath.ToSlash(filepath.Clean(strings.TrimSpace(p)))
+	switch {
+	case c == "." || c == "":
+		return "", fmt.Errorf("chemin vide")
+	case filepath.IsAbs(c) || strings.HasPrefix(c, "/"):
+		return "", fmt.Errorf("chemin relatif au projet attendu")
+	case c == ".." || strings.HasPrefix(c, "../"):
+		return "", fmt.Errorf("hors du projet")
+	case strings.ContainsAny(c, ":,"):
+		return "", fmt.Errorf("« : » et « , » interdits")
+	}
+	return c, nil
+}
+
+// localPaths : chemins absolus des dossiers « local » du projet, vus des
+// backends (chemin Linux du projet, cf. pathmap.go).
+func (e EnvSpec) localPaths(proj string) []string {
+	rp := RemotePath(proj)
+	out := make([]string, len(e.Local))
+	for i, l := range e.Local {
+		out[i] = path.Join(rp, l)
+	}
+	return out
+}
+
+// localKey : empreinte des dossiers « local » (label cl.local du conteneur) ; ils
+// sont posés à la création : une liste changée impose de recréer le conteneur.
+func (e EnvSpec) localKey() string {
+	if len(e.Local) == 0 {
+		return ""
+	}
+	l := append([]string(nil), e.Local...)
+	sort.Strings(l)
+	h := sha256.Sum256([]byte(strings.Join(l, "\n")))
+	return hex.EncodeToString(h[:])[:12]
+}
+
+// setupHash : empreinte des étapes setup et du contenu des fichiers watch ; si
+// elle change (verrou de dépendances modifié…), seules les étapes setup sont
+// rejouées au prochain démarrage, sans refaire tout le bootstrap.
+func (e EnvSpec) setupHash(proj string) string {
+	h := sha256.New()
+	h.Write([]byte(strings.Join(e.Setup, "\n")))
+	for _, w := range e.Watch {
+		fmt.Fprintf(h, "\x00%s\x00", w)
+		if b, err := os.ReadFile(filepath.Join(proj, w)); err == nil {
+			h.Write(b)
+		} else {
+			h.Write([]byte("(absent)"))
+		}
+	}
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// hash : empreinte de l'environnement + du script de bootstrap (rejoué si elle change).
+func (e EnvSpec) hash() string {
+	h := sha256.New()
+	h.Write(e.raw)
+	h.Write([]byte(bootstrapScript))
+	return hex.EncodeToString(h.Sum(nil))[:16]
+}
+
+// ── Config des backends ───────────────────────────────────────────────────
+
+type BackendConf struct {
+	Name      string            `yaml:"-"`
+	Type      string            `yaml:"type"`        // host | podman | docker | ssh
+	Context   string            `yaml:"context"`     // docker : --context
+	Host      string            `yaml:"host"`        // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
+	Hosts     []string          `yaml:"hosts"`       // groupe de serveurs (#61, pool.go) : à la place de host
+	Pool      string            `yaml:"pool"`        // pool de machines nommé (#64) : host sert alors de modèle ({} = machine)
+	Machines  map[string]string `yaml:"-"`           // pool : adresse du serveur → machine
+	Drain     map[string]bool   `yaml:"-"`           // pool : serveurs (adresses) sans nouveaux projets
+	Mates     []BackendConf     `yaml:"-"`           // pool : autres backends du même pool (charge commune)
+	Server    string            `yaml:"-"`           // membre d'un groupe : son serveur (at)
+	Engine    string            `yaml:"engine"`      // ssh : moteur sur la machine distante, podman (défaut) ou docker
+	EngHost   string            `yaml:"engine_host"` // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
+	Shared    []string          `yaml:"shared"`      // distant : racines du stockage partagé (mêmes chemins des deux côtés)
+	Namespace string            `yaml:"namespace"`   // k8s
+	Volumes   map[string]string `yaml:"volumes"`     // k8s : racine partagée → PVC ReadWriteMany monté à ce chemin
+	Spread    *bool             `yaml:"spread"`      // k8s : répartir les pods NG2 sur les nodes (défaut : oui, #60)
+	Pod       map[string]any    `yaml:"pod"`         // k8s : ajouté au spec du pod (nodeSelector, affinity, tolerations, resources…)
+	implicit  bool              // host ajouté sans déclaration sous Windows (addImplicitHost)
+}
+
+// engine : moteur réellement piloté (podman ou docker).
+func (b BackendConf) engine() string {
+	if b.Type == "ssh" {
+		if b.Engine == "" {
+			return "podman"
+		}
+		return b.Engine
+	}
+	return b.Type
+}
+
+// remote : le conteneur tourne sur une autre machine (démon docker distant, ou
+// podman joint par ssh). Ses montages y sont résolus : ~/.claude et le projet
+// doivent être sur le stockage partagé, aux mêmes chemins.
+func (b BackendConf) remote() bool {
+	if b.IsPool() {
+		return b.At(b.Hosts[0]).remote() // groupe : distant comme ses serveurs
+	}
+	if runtime.GOOS == "windows" && (b.Type == "docker" || b.Type == "podman") && b.Host == "" {
+		// Windows : un docker/podman sans host admis vise un démon distant
+		// (DOCKER_HOST, CONTAINER_HOST, contexte docker : oslimits.go)
+		_, refused := LocalRefusal(b)
+		return !refused
+	}
+	return b.Type == "ssh" || b.Type == "k8s" || (b.Type == "docker" || b.Type == "podman") && b.Host != "" && !strings.HasPrefix(b.Host, "unix://")
+}
+
+type backendsFile struct {
+	Pools    map[string]PoolConf    `yaml:"pools"` // pools de machines nommés (#64, pool.go)
+	Backends map[string]BackendConf `yaml:"backends"`
+	Images   []string               `yaml:"images"` // socles proposés à la création (défaut : defaultImages)
+	Defaults struct {
+		Backend string `yaml:"backend"` // mode présélectionné à la création : host ou un backend conteneur
+		Image   string `yaml:"image"`   // socle présélectionné
+		// correspondance session ↔ navigateur (#104, browserpaths.go) ; nil : défaut
+		BrowserPaths *[]BrowserPath `yaml:"browser_paths"`
+		// serveur web des fichiers pour le navigateur (#106, browserserver.go)
+		BrowserServer *BrowserServer `yaml:"browser_server"`
+	} `yaml:"defaults"`
+	Hubs map[string]hubConf `yaml:"hubs"` // réglages par machine du launcher (hostname)
+}
+
+func BackendsPath() string { return filepath.Join(Ng2ConfigDir(), "backends.yaml") }
+
+// LoadBackends : backends déclarés, triés (host en premier). Sans fichier :
+// host + les moteurs de conteneurs trouvés dans le PATH.
+func LoadBackends() ([]BackendConf, error) {
+	var f backendsFile
+	b, err := os.ReadFile(BackendsPath())
+	switch {
+	case err == nil:
+		if err := yaml.Unmarshal(b, &f); err != nil {
+			return nil, fmt.Errorf("backends.yaml : %w", err)
+		}
+	case os.IsNotExist(err):
+		f.Backends = map[string]BackendConf{}
+		for _, t := range DetectedEngines() {
+			if _, refused := LocalRefusal(BackendConf{Type: t}); refused {
+				continue // moteur local : refusé sous Windows (oslimits.go)
+			}
+			f.Backends[t] = BackendConf{Type: t}
+		}
+	default:
+		return nil, err
+	}
+	return backendsOf(f)
+}
+
+// backendsOf : backends déclarés dans f, contrôlés et triés (LoadBackends ;
+// validation de l'éditeur de configuration, configedit.go).
+func backendsOf(f backendsFile) ([]BackendConf, error) {
+	if f.Backends == nil {
+		f.Backends = map[string]BackendConf{}
+	}
+	addImplicitHost(runtime.GOOS, f.Backends)
+	if err := checkPools(f.Pools); err != nil {
+		return nil, err
+	}
+	var out []BackendConf
+	for n, c := range f.Backends {
+		c.Name = n
+		if c.Pool != "" {
+			if err := c.usePool(f.Pools); err != nil {
+				return nil, fmt.Errorf("backends.yaml : backend %q : %w", n, err)
+			}
+		}
+		if len(c.Hosts) > 0 {
+			if c.Type != "podman" && c.Type != "docker" && c.Type != "ssh" {
+				return nil, fmt.Errorf("backends.yaml : backend %q : « hosts » (groupe de serveurs) réservé à podman, docker et ssh", n)
+			}
+			if c.Host != "" {
+				return nil, fmt.Errorf("backends.yaml : backend %q : « host » ou « hosts », pas les deux", n)
+			}
+			seen := map[string]bool{}
+			for _, h := range c.Hosts {
+				if strings.TrimSpace(h) == "" || seen[h] {
+					return nil, fmt.Errorf("backends.yaml : backend %q : serveur vide ou en double dans « hosts »", n)
+				}
+				seen[h] = true
+			}
+		}
+		switch c.Type {
+		case "host", "podman", "docker":
+		case "k8s":
+			c.Shared = nil // les racines partagées sont celles des volumes
+			for r := range c.Volumes {
+				c.Shared = append(c.Shared, r)
+			}
+			sort.Strings(c.Shared)
+			if err := validatePod(c.Pod); err != nil {
+				return nil, fmt.Errorf("backends.yaml : backend %q : %w", n, err)
+			}
+		case "ssh":
+			if c.Host == "" && len(c.Hosts) == 0 {
+				return nil, fmt.Errorf("backends.yaml : backend ssh %q sans « host » (destination ssh)", n)
+			}
+			if c.Engine != "" && c.Engine != "podman" && c.Engine != "docker" {
+				return nil, fmt.Errorf("backends.yaml : backend ssh %q : engine %q (podman ou docker)", n, c.Engine)
+			}
+		default:
+			return nil, fmt.Errorf("backends.yaml : backend %q de type %q non géré (host, podman, docker, ssh, k8s)", n, c.Type)
+		}
+		out = append(out, c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if (out[i].Name == "host") != (out[j].Name == "host") {
+			return out[i].Name == "host"
+		}
+		return out[i].Name < out[j].Name
+	})
+	linkMates(out)
+	return out, nil
+}
+
+// addImplicitHost : backend host, toujours présent. Sous Windows, où il est
+// refusé (oslimits.go), celui qui n'est pas déclaré est marqué implicite :
+// les listes affichées l'omettent (Shown), il ne serait que du bruit ; déclaré,
+// il reste affiché avec son refus.
+func addImplicitHost(goos string, bs map[string]BackendConf) {
+	_, declared := bs["host"]
+	bs["host"] = BackendConf{Type: "host", implicit: goos == "windows" && !declared}
+}
+
+// Shown : backends à afficher (sans le host implicite de Windows).
+func Shown(bs []BackendConf) []BackendConf {
+	var out []BackendConf
+	for _, b := range bs {
+		if !b.implicit {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// DetectedEngines : moteurs du PATH qui répondent (un « docker » de Docker
+// Desktop sans intégration WSL est présent mais inutilisable). Une fois par processus.
+var DetectedEngines = sync.OnceValue(func() []string {
+	var out []string
+	for _, t := range []string{"podman", "docker"} {
+		if _, err := exec.LookPath(t); err != nil {
+			continue
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+		err := platform.NoWindow(exec.CommandContext(ctx, t, "version", "--format", "{{.Client.Version}}")).Run()
+		cancel()
+		if err == nil {
+			out = append(out, t)
+		}
+	}
+	return out
+})
+
+// DefaultImages : socles proposés par défaut (bootstrap vérifié sur chacun).
+var DefaultImages = []string{
+	"docker.io/library/debian:12",
+	"docker.io/library/ubuntu:24.04",
+	"docker.io/library/rockylinux:9",
+	"docker.io/library/alpine:3.20",
+}
+
+// BaseImages : socles proposés (images: de backends.yaml, sinon defaultImages).
+func BaseImages() []string {
+	var f backendsFile
+	if b, err := os.ReadFile(BackendsPath()); err == nil && yaml.Unmarshal(b, &f) == nil && len(f.Images) > 0 {
+		return f.Images
+	}
+	return DefaultImages
+}
+
+// ImageLabel : « debian:12 » pour docker.io/library/debian:12.
+func ImageLabel(img string) string {
+	return strings.TrimPrefix(strings.TrimPrefix(img, "docker.io/"), "library/")
+}
+
+// ExecDefaults : defaults: de backends.yaml (mode et socle présélectionnés).
+func ExecDefaults() (backend, image string) {
+	var f backendsFile
+	if b, err := os.ReadFile(BackendsPath()); err == nil {
+		_ = yaml.Unmarshal(b, &f)
+	}
+	return f.Defaults.Backend, f.Defaults.Image
+}
+
+// CtrBackends : backends à conteneurs (podman, docker, ssh, k8s), dans l'ordre.
+func CtrBackends() []BackendConf {
+	bs, _ := LoadBackends()
+	var out []BackendConf
+	for _, b := range bs {
+		if _, ok := EngineOf(b); ok {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+// DefaultCtrBackend : backend conteneur présélectionné (defaults.backend s'il
+// désigne un conteneur, sinon le premier).
+func DefaultCtrBackend() (BackendConf, bool) {
+	cs := CtrBackends()
+	if len(cs) == 0 {
+		return BackendConf{}, false
+	}
+	def, _ := ExecDefaults()
+	for _, b := range cs {
+		if b.Name == def {
+			return b, true
+		}
+	}
+	return cs[0], true
+}
+
+// writeEnv : env.yaml minimal et commenté pour le socle img (sans écraser un existant).
+func writeEnv(proj, img string) error {
+	p := EnvPath(proj)
+	if _, err := os.Stat(p); err == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(p, []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n"+
+		"# Ajouts propres au projet ; env-template.yaml (s'il existe) vient du template : ne pas le modifier.\n"+
+		"image: "+img+"\n"+
+		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n"+
+		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n"+
+		"# setup: []                 # étapes exécutées une fois, en utilisateur, dans le projet\n"+
+		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n"), 0o644)
+}
+
+func FindBackend(name string) (BackendConf, bool) {
+	bs, err := LoadBackends()
+	if err != nil {
+		return BackendConf{}, false
+	}
+	for _, b := range bs {
+		if b.Name == name {
+			return b, true
+		}
+	}
+	return BackendConf{}, false
+}
+
+// ── Affectation projet → backend ──────────────────────────────────────────
+
+// ng2StateDir : ancien emplacement de projects.json (jusqu'à la v5.4.2), local
+// à la machine ; lu une fois pour la migration.
+func ng2StateDir() string {
+	base := os.Getenv("XDG_STATE_HOME")
+	if base == "" {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".local", "state")
+	}
+	return filepath.Join(base, "claude-launcher-ng2")
+}
+
+// assignPath : affectations projet → backend, à côté de backends.yaml dans le
+// dossier de config (sur le stockage partagé en mode portable) : tous les hubs,
+// sur toutes les machines, savent où vit chaque projet.
+func assignPath() string { return filepath.Join(Ng2ConfigDir(), "projects.json") }
+
+func legacyAssignPath() string { return filepath.Join(ng2StateDir(), "projects.json") }
+
+func ReadAssignments() map[string]string {
+	m := map[string]string{}
+	b, err := os.ReadFile(assignPath())
+	if os.IsNotExist(err) {
+		// migration : reprise de l'ancien fichier local, laissé en place (retour
+		// arrière possible vers une version antérieure)
+		if lb, lerr := os.ReadFile(legacyAssignPath()); lerr == nil && json.Unmarshal(lb, &m) == nil {
+			_ = saveAssignments(m)
+			return m
+		}
+	}
+	if err == nil {
+		_ = json.Unmarshal(b, &m)
+	}
+	// fichier commun à tous les hubs : indexé par le chemin vu des backends
+	return assignKeys(m, LocalPath)
+}
+
+// assignKeys : m avec ses clés passées par conv (pathmap.go ; identité sans
+// correspondance déclarée).
+func assignKeys(m map[string]string, conv func(string) string) map[string]string {
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		out[conv(k)] = v
+	}
+	return out
+}
+
+func saveAssignments(m map[string]string) error {
+	b, _ := json.MarshalIndent(assignKeys(m, RemotePath), "", "  ")
+	if err := os.MkdirAll(filepath.Dir(assignPath()), 0o755); err != nil {
+		return err
+	}
+	tmp := fmt.Sprintf("%s.%d.tmp", assignPath(), os.Getpid()) // plusieurs hubs, plusieurs machines
+	if err := os.WriteFile(tmp, b, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(tmp, assignPath())
+}
+
+func WriteAssignment(proj, backend string) error {
+	m := ReadAssignments()
+	if backend == "" {
+		delete(m, proj)
+	} else {
+		m[proj] = backend // « host » compris : le projet est configuré (plus de question à l'ouverture)
+	}
+	return saveAssignments(m)
+}
+
+// Assigned : le projet a déjà été configuré (backend choisi, host compris).
+func Assigned(proj string) bool {
+	_, ok := ReadAssignments()[proj]
+	return ok
+}
+
+// setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
+// env.yaml absent (template seul, ou rien) : créé avec ce socle.
+func setEnvImage(proj, img string) error {
+	p := EnvPath(proj)
+	b, err := os.ReadFile(p)
+	if os.IsNotExist(err) {
+		return writeEnv(proj, img)
+	}
+	if err != nil {
+		return err
+	}
+	lines := strings.Split(string(b), "\n")
+	done := false
+	for i, l := range lines {
+		if strings.HasPrefix(l, "image:") {
+			lines[i], done = "image: "+img, true
+			break
+		}
+	}
+	if !done {
+		lines = append([]string{"image: " + img}, lines...)
+	}
+	return os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0o644)
+}
+
+// projectBackend : backend affecté au projet ; host sans env.yaml ou sans
+// affectation valide. Une affectation absente reprend « prefer » d'env.yaml.
+// launchBackend : backend sur lequel le projet DOIT être lancé. Un projet
+// configuré ne part jamais ailleurs : backend disparu de backends.yaml, ou
+// env.yaml absent / illisible pour un backend conteneur → erreur (F2 pour
+// reconfigurer), jamais un repli sur l'hôte.
+func LaunchBackend(proj string) (BackendConf, error) {
+	b, err := launchBackend(proj)
+	if err == nil {
+		err = refusalErr(b) // Windows : host et moteurs locaux refusés (oslimits.go)
+	}
+	return b, err
+}
+
+func launchBackend(proj string) (BackendConf, error) {
+	name, ok := ReadAssignments()[proj]
+	if !ok {
+		return ProjectBackend(proj), nil // jamais configuré (aucun backend conteneur : hôte)
+	}
+	if name == "host" {
+		return BackendConf{Name: "host", Type: "host"}, nil
+	}
+	b, found := FindBackend(name)
+	if !found {
+		return b, fmt.Errorf("backend « %s » du projet absent de backends.yaml — F2 pour reconfigurer", name)
+	}
+	if _, ok := EngineOf(b); ok {
+		if !HasEnv(proj) {
+			return b, fmt.Errorf("projet configuré sur « %s » mais ni %s ni %s — F2 pour reconfigurer", name, envFile, envTemplateFile)
+		}
+		if _, err := LoadEnv(proj); err != nil {
+			return b, fmt.Errorf("%v — corriger le fichier ou F2 pour reconfigurer", err)
+		}
+	}
+	return b, nil
+}
+
+func ProjectBackend(proj string) BackendConf {
+	host := BackendConf{Name: "host", Type: "host"}
+	if !HasEnv(proj) {
+		return host
+	}
+	name, ok := ReadAssignments()[proj]
+	if !ok {
+		if e, err := LoadEnv(proj); err == nil && e.Prefer != "" {
+			name = e.Prefer
+		}
+	}
+	if b, ok := FindBackend(name); ok {
+		return b
+	}
+	return host
+}
+
+// ── Moteur de conteneurs (podman / docker) ────────────────────────────────
+
+// Engine : un moteur de conteneurs : podman local, docker (socket local ou démon
+// distant en accès direct), ou podman d'une autre machine joint par ssh. Le conteneur porte les labels
+// cl.launcher=ng2, cl.project, cl.backend, cl.image : c'est par eux que le
+// launcher retrouve ses projets au redémarrage (List).
+type Engine struct{ B BackendConf }
+
+func EngineOf(b BackendConf) (Engine, bool) {
+	switch b.Type {
+	case "podman", "docker", "ssh", "k8s":
+		return Engine{b}, true
+	}
+	return Engine{}, false
+}
+
+// podman : moteur podman (direct ou par ssh) — utilisateur gardé (keep-id).
+func (e Engine) podman() bool { return e.B.engine() == "podman" }
+
+// engineArgv : client du moteur et adresse de son démon / service.
+// sshMux : connexion ssh persistante, partagée par les commandes vers un même
+// serveur (le scan des groupes ne rouvre pas une session toutes les 10 s).
+func sshMux() []string {
+	d := filepath.Join(os.TempDir(), "cl-ssh-"+strconv.Itoa(os.Getuid()))
+	if os.MkdirAll(d, 0o700) != nil {
+		return nil
+	}
+	return []string{"-o", "ControlMaster=auto", "-o", "ControlPath=" + d + "/%C", "-o", "ControlPersist=120"}
+}
+
+func engineArgv(engine, context, host string) []string {
+	out := []string{engine}
+	switch {
+	case engine == "docker" && context != "":
+		out = append(out, "--context", context)
+	case engine == "docker" && host != "":
+		out = append(out, "-H", host)
+	case engine == "podman" && host != "":
+		out = append(out, "--url", host)
+	}
+	return out
+}
+
+func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
+
+// cliT : ligne de commande du moteur ; tty : terminal demandé à ssh (attache).
+// Par ssh, la commande distante est une seule chaîne passée au shell distant :
+// chaque argument y est protégé.
+func (e Engine) cliT(tty bool, args ...string) []string {
+	switch e.B.Type {
+	case "ssh":
+		out := append([]string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...)
+		if tty {
+			out = append(out, "-t")
+		}
+		rem := append(engineArgv(e.B.engine(), "", e.B.EngHost), args...)
+		q := make([]string, len(rem))
+		for i, a := range rem {
+			q[i] = Shq(a)
+		}
+		return append(out, e.B.Host, strings.Join(q, " "))
+	}
+	return append(engineArgv(e.B.Type, e.B.Context, e.B.Host), args...)
+}
+
+// listTimeout : délai d'une commande de listing.
+var listTimeout = 8 * time.Second
+
+// quick : sortie d'une commande du moteur, abandonnée au-delà de listTimeout.
+func (e Engine) quick(args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
+	defer cancel()
+	a := e.cli(args...)
+	out, err := platform.NoWindow(exec.CommandContext(ctx, a[0], a[1:]...)).Output()
+	if ctx.Err() != nil {
+		return nil, fmt.Errorf("%s : pas de réponse en %s", e.B.Host, listTimeout)
+	}
+	return out, err
+}
+
+func (e Engine) cmd(args ...string) *exec.Cmd {
+	a := e.cli(args...)
+	return platform.NoWindow(exec.Command(a[0], a[1:]...))
+}
+
+// dnsSlug : s réduit à un label DNS (minuscules, chiffres, « - »), au plus max
+// caractères ; def si rien ne reste.
+func dnsSlug(s string, max int, def string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('-')
+		}
+	}
+	n := strings.Trim(b.String(), "-")
+	if len(n) > max {
+		n = strings.TrimRight(n[:max], "-")
+	}
+	if n == "" {
+		n = def
+	}
+	return n
+}
+
+// Les noms se calculent sur le chemin vu des backends (pathmap.go) : un projet
+// ouvert de Windows porte le même nom que depuis un hub Linux.
+
+// ctrSlug : nom du projet en label DNS.
+func ctrSlug(proj string) string { return dnsSlug(path.Base(RemotePath(proj)), 30, "projet") }
+
+// catSlug : catégorie du projet (dossier parent) en label DNS.
+func catSlug(proj string) string {
+	return dnsSlug(path.Base(path.Dir(RemotePath(proj))), 20, "projets")
+}
+
+// CtrName : nom du conteneur (et du StatefulSet k8s) d'un projet :
+// « <catégorie>-<projet> ». Deux projets de même catégorie et même nom sous
+// des racines différentes : le second est refusé (label cl.project, cf. ensure).
+func CtrName(proj string) string { return catSlug(proj) + "-" + ctrSlug(proj) }
+
+// legacyCtrName : nom d'avant v5.6 (« cl-<projet>-<empreinte du chemin> »),
+// reconnu pour migrer les conteneurs existants.
+func legacyCtrName(proj string) string {
+	h := sha256.Sum256([]byte(RemotePath(proj)))
+	return "cl-" + ctrSlug(proj) + "-" + hex.EncodeToString(h[:])[:8]
+}
+
+// ctrHost : hostname du conteneur d'un projet : le nom du projet.
+func ctrHost(proj string) string { return ctrSlug(proj) }
+
+// stateLocal : "running", "exited", "created"… ou "" si le conteneur n'existe
+// pas ; son image et l'empreinte des dossiers « local » posés à sa création.
+func (e Engine) stateLocal(name string) (status, image, local string) {
+	c := e.ctrInfo(name)
+	return c.status, c.image, c.local
+}
+
+// ctrState : ce que le launcher lit d'un conteneur (status "" : absent).
+type ctrState struct{ status, image, local, project, host string }
+
+func (e Engine) ctrInfo(name string) ctrState {
+	b, err := e.cmd("inspect", "-f", `{{.State.Status}}|{{index .Config.Labels "cl.image"}}|{{index .Config.Labels "cl.local"}}|{{index .Config.Labels "cl.project"}}|{{.Config.Hostname}}`, name).Output()
+	if err != nil {
+		return ctrState{}
+	}
+	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 5)
+	for len(f) < 5 {
+		f = append(f, "")
+	}
+	for i := range f {
+		if f[i] == "<no value>" {
+			f[i] = ""
+		}
+	}
+	return ctrState{f[0], f[1], f[2], f[3], f[4]}
+}
+
+// migrateLegacy : conteneur au nom d'avant v5.6 → nouveau nom. En marche, il
+// est renommé (sa session continue ; hostname mis à jour à sa prochaine
+// recréation) ; arrêté, il est supprimé et recréé (hostname = nom du projet).
+func (e Engine) migrateLegacy(proj, name string, log io.Writer) {
+	old := legacyCtrName(proj)
+	c := e.ctrInfo(old)
+	switch {
+	case c.status == "":
+	case c.status == "running":
+		if err := e.cmd("rename", old, name).Run(); err == nil {
+			fmt.Fprintf(log, "  conteneur %s renommé %s\n", old, name)
+		}
+	default:
+		fmt.Fprintf(log, "  ancien conteneur %s supprimé : recréé sous le nom %s\n", old, name)
+		_ = e.cmd("rm", "-f", "-v", old).Run()
+	}
+}
+
+// pid1 : processus principal qui ignore tout sauf SIGTERM (arrêt propre, sans --init).
+const pid1 = `trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done`
+
+// Ensure : conteneur du projet créé (ou recréé si l'image a changé) et démarré.
+func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) {
+	if err := refusalErr(e.B); err != nil {
+		return "", err
+	}
+	if e.B.K8s() {
+		return e.k8sEnsure(proj, env, log)
+	}
+	name := CtrName(proj)
+	c := e.ctrInfo(name)
+	if c.status == "" {
+		e.migrateLegacy(proj, name, log)
+		c = e.ctrInfo(name)
+	}
+	if c.status != "" && c.project != "" && c.project != RemotePath(proj) {
+		return "", fmt.Errorf("nom de conteneur %s déjà pris par le projet %s : renommer la catégorie ou le projet", name, c.project)
+	}
+	status, image, local := c.status, c.image, c.local
+	// hostname d'avant v5.6 : corrigé quand le conteneur est arrêté (jamais en marche)
+	staleHost := status != "" && status != "running" && c.host != ctrHost(proj)
+	if status != "" && (image != env.Image || local != env.localKey() || staleHost) {
+		if image != env.Image {
+			fmt.Fprintf(log, "  image changée (%s → %s) : conteneur recréé\n", image, env.Image)
+		} else if local != env.localKey() {
+			fmt.Fprintf(log, "  dossiers « local » changés : conteneur recréé\n")
+		} else {
+			fmt.Fprintf(log, "  hostname %s → %s : conteneur recréé\n", c.host, ctrHost(proj))
+		}
+		// -v : ses volumes anonymes (dossiers « local ») partent avec lui
+		_ = e.cmd("rm", "-f", "-v", name).Run()
+		status = ""
+	}
+	switch status {
+	case "running":
+		return name, nil
+	case "":
+		args, err := e.runArgs(name, proj, env)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(log, "  création du conteneur %s (%s)…\n", name, env.Image)
+		var out bytes.Buffer
+		c := e.cmd(args...)
+		c.Stdout, c.Stderr = io.MultiWriter(log, &out), io.MultiWriter(log, &out)
+		if err := c.Run(); err != nil {
+			if s := out.String(); strings.Contains(s, "bind source path does not exist") || strings.Contains(s, "no such file or directory") {
+				return "", fmt.Errorf("création du conteneur : un dossier monté manque sur la machine du moteur — stockage partagé non monté au même chemin (%s, %s)", ClaudeDir(), proj)
+			}
+			return "", fmt.Errorf("création du conteneur : %w", err)
+		}
+	default:
+		fmt.Fprintf(log, "  démarrage du conteneur %s…\n", name)
+		if out, err := e.cmd("start", name).CombinedOutput(); err != nil {
+			return "", fmt.Errorf("démarrage : %v (%s)", err, strings.TrimSpace(string(out)))
+		}
+	}
+	return name, nil
+}
+
+func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
+	// chemins et identité vus du moteur (pathmap.go ; Linux : inchangés)
+	home := CtrUser().Home
+	cd := RemotePath(ClaudeDir())
+	rp := RemotePath(proj)
+	if err := ensureSharedConfig(); err != nil {
+		return nil, err
+	}
+	if err := e.checkShared(proj); err != nil {
+		return nil, err
+	}
+	// hostname : le nom du projet ; pidspace.go reconnaît un conteneur local
+	// arrêté en le cherchant parmi les conteneurs NG2 des moteurs locaux
+	host := ctrHost(proj)
+	// --mount (et non -v) : échoue si le dossier manque sur la machine du moteur,
+	// au lieu d'y créer un dossier vide (stockage partagé non monté)
+	bind := func(p string, ro bool) string {
+		m := "type=bind,src=" + p + ",dst=" + p
+		if ro {
+			m += ",readonly"
+		}
+		return m
+	}
+	args := []string{"run", "-d", "--name", name, "--hostname", host,
+		"--label", "cl.launcher=ng2", "--label", "cl.project=" + rp,
+		"--label", "cl.backend=" + e.B.Name, "--label", "cl.image=" + env.Image,
+		"--label", "cl.local=" + env.localKey(),
+		"--mount", bind(cd, false), "--mount", bind(rp, false), "-w", rp,
+		"-e", "HOME=" + home, "-e", "CLAUDE_CONFIG_DIR=" + cd, "-e", "LANG=C.UTF-8",
+		"-e", "DISABLE_AUTOUPDATER=1"}
+	if e.podman() {
+		args = append(args, "--userns=keep-id", "--user", "0")
+	}
+	// cache de consommation : plus de montage, un lien vers la config claude
+	// (montée partout) est posé à chaque ouverture (usage.go, linkUsageScript)
+	for _, m := range env.Mounts {
+		local, p := mountPaths(proj, m.Path)
+		if _, err := os.Stat(local); err != nil {
+			return nil, fmt.Errorf("montage %s : %w", m.Path, err)
+		}
+		if e.B.remote() && !underShared(e.B, p) {
+			return nil, fmt.Errorf("montage %s : hors du stockage partagé du backend %s (%s)", p, e.B.Name, strings.Join(e.B.Shared, ", "))
+		}
+		args = append(args, "--mount", bind(p, m.RO == nil || *m.RO))
+	}
+	// dossiers « local » : volume anonyme du conteneur, monté par-dessus le
+	// dossier du projet (masqué) ; supprimé avec le conteneur (rm -v)
+	for _, p := range env.localPaths(proj) {
+		args = append(args, "-v", p)
+	}
+	return append(args, env.Image, "sh", "-c", pid1), nil
+}
+
+// mountPaths : pour un « mounts » d'env.yaml, chemin à contrôler ici et chemin
+// transmis au moteur. « /… » est un chemin Linux, absolu sur tous les systèmes
+// (sous Windows, filepath.IsAbs le dirait relatif) : contrôlé à son chemin
+// local (pathmap.go). Relatif : par rapport au projet.
+func mountPaths(proj, p string) (local, remote string) {
+	if strings.HasPrefix(p, "/") {
+		return LocalPath(p), RemotePath(p)
+	}
+	if !filepath.IsAbs(p) {
+		p = filepath.Clean(filepath.Join(proj, p))
+	}
+	return p, RemotePath(p)
+}
+
+// ensureSharedConfig : claude lancé avec CLAUDE_CONFIG_DIR=~/.claude range sa
+// config dans ~/.claude/.claude.json (un fichier monté seul se détache : il est
+// réécrit par remplacement). Première fois : COPIE de ~/.claude.json, jamais
+// déplacée — les sessions de l'hôte (launcher v4 compris) gardent la leur.
+func ensureSharedConfig() error {
+	dst := filepath.Join(ClaudeDir(), ".claude.json")
+	if _, err := os.Stat(dst); err == nil {
+		return nil
+	}
+	home, _ := os.UserHomeDir()
+	b, err := os.ReadFile(filepath.Join(home, ".claude.json"))
+	if err != nil {
+		return nil // pas de config à reprendre : claude en créera une
+	}
+	if err := os.MkdirAll(ClaudeDir(), 0o755); err != nil {
+		return err
+	}
+	tmp := dst + ".cl-tmp"
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
+}
+
+// ExecArgv : commande exécutée dans le conteneur ; root : en root, sinon en
+// utilisateur de l'hôte (uid:gid) ; tty : terminal interactif (attach).
+func (e Engine) ExecArgv(name string, root, tty bool, argv ...string) []string {
+	if e.B.K8s() {
+		return e.k8sExecArgv(name, root, tty, argv...)
+	}
+	if tty {
+		// attache : TERM et LANG passés au conteneur, terminal demandé à ssh
+		a := []string{"exec", "-i", "-t", "-e", "TERM=tmux-256color", "-e", "LANG=C.UTF-8"}
+		if root {
+			a = append(a, "-u", "0")
+		} else {
+			a = append(a, "-u", ctrUIDGID())
+		}
+		return e.cliT(true, append(append(a, name), argv...)...)
+	}
+	a := []string{"exec", "-i"}
+	if tty {
+		a = append(a, "-t", "-e", "TERM=tmux-256color")
+	}
+	if root {
+		a = append(a, "-u", "0")
+	} else {
+		a = append(a, "-u", ctrUIDGID())
+	}
+	return e.cli(append(append(a, name), argv...)...)
+}
+
+func (e Engine) Exec(name string, root bool, stdin io.Reader, out io.Writer, argv ...string) error {
+	a := e.ExecArgv(name, root, false, argv...)
+	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
+	c.Stdin, c.Stdout, c.Stderr = stdin, out, out
+	return c.Run()
+}
+
+// ctrUIDGID : « uid:gid » de l'utilisateur dans les conteneurs (pathmap.go).
+func ctrUIDGID() string {
+	u := CtrUser()
+	return fmt.Sprintf("%d:%d", u.UID, u.GID)
+}
+
+func (e Engine) Output(name string, argv ...string) (string, error) {
+	var b bytes.Buffer
+	a := e.ExecArgv(name, false, false, argv...)
+	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
+	c.Stdout = &b
+	err := c.Run()
+	return strings.TrimSpace(b.String()), err
+}
+
+// Found : conteneur d'un projet trouvé sur un backend.
+type Found struct {
+	Backend string
+	Name    string
+	Project string
+	Running bool
+	Server  string // groupe de serveurs : serveur où le conteneur a été trouvé
+	Failed  bool   // devrait tourner mais n'y arrive pas (pod pas prêt, conteneur dead/restarting)
+}
+
+// List : conteneurs NG2 du backend — de tous ses serveurs pour un groupe (#61) ;
+// erreur seulement si aucun ne répond (les injoignables : listPool).
+func (e Engine) List() ([]Found, error) {
+	if e.B.K8s() {
+		return e.K8sList()
+	}
+	fs, down := e.ListPool()
+	if len(down) == len(e.B.Servers()) {
+		for _, err := range down {
+			return nil, err
+		}
+	}
+	return fs, nil
+}
+
+// listOne : conteneurs NG2 d'un serveur (par label ; labels relus par inspect,
+// même format pour podman et docker).
+func (e Engine) listOne() ([]Found, error) {
+	// filtre aussi par backend : deux backends peuvent viser le même moteur
+	// délai borné : un serveur éteint ne doit pas bloquer le scan (groupes, #61)
+	b, err := e.quick("ps", "-a", "-q", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.backend="+e.B.Name)
+	if err != nil {
+		return nil, err
+	}
+	ids := strings.Fields(string(b))
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	b, err = e.quick(append([]string{"inspect", "-f",
+		`{{.Name}}|{{.State.Status}}|{{index .Config.Labels "cl.project"}}`}, ids...)...)
+	if err != nil {
+		return nil, err
+	}
+	var out []Found
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		f := strings.SplitN(l, "|", 3)
+		if len(f) != 3 || f[2] == "" {
+			continue
+		}
+		out = append(out, Found{Backend: e.B.Name, Name: strings.TrimPrefix(f[0], "/"), Project: LocalPath(f[2]), Running: f[1] == "running",
+			Failed: f[1] == "dead" || f[1] == "restarting"})
+	}
+	return out, nil
+}

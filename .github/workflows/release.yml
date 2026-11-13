@@ -11,7 +11,7 @@ permissions:
 # Routage par version majeure du tag :
 #   < v4  → legacy : script bash claude-launcher.sh seul
 #   = v4  → ng/    : Claude-Launcher-NG + script de redirection
-#   ≥ v5  → ng2/   : Claude-Launcher-NG2, binaires seuls
+#   ≥ v5  → ng2/   : Claude-Launcher-NG2, binaires seuls (v6 : + claude-launcher-ng2.exe)
 # Rappel : GitHub exécute le workflow présent DANS le commit tagué ; ce routage
 # s'applique donc aux tags posés sur un commit qui contient ce fichier.
 jobs:
@@ -122,14 +122,20 @@ jobs:
           for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
             os=${target%/*}; arch=${target#*/}
             CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath \
-              -ldflags "-s -w -X main.ngVersion=${GITHUB_REF_NAME}" \
+              -ldflags "-s -w -X claude-launcher-ng2/core.NgVersion=${GITHUB_REF_NAME}" \
               -o ../dist/claude-launcher-ng2-$os-$arch .
           done
-          cd ../dist && sha256sum claude-launcher-ng2-* > SHA256SUMS
+          # Windows (#111, #112) : interface native Wails (WebView2), exécutable
+          # graphique ; balises desktop,production exigées par Wails, sans cgo
+          CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -trimpath \
+            -ldflags "-s -w -H windowsgui -X claude-launcher-ng2/core.NgVersion=${GITHUB_REF_NAME}" \
+            -o ../dist/claude-launcher-ng2.exe .
+          cd ../dist && sha256sum claude-launcher-ng2-* claude-launcher-ng2.exe > SHA256SUMS
 
       - uses: softprops/action-gh-release@v2
         with:
           files: |
             dist/claude-launcher-ng2-*
+            dist/claude-launcher-ng2.exe
             dist/SHA256SUMS
           generate_release_notes: true

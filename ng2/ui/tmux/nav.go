@@ -1,0 +1,1434 @@
+package tmux
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"reflect"
+	"strconv"
+	"strings"
+	"time"
+	"unicode/utf8"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
+
+	"claude-launcher-ng2/core"
+	"claude-launcher-ng2/platform"
+)
+
+var gitSem = make(chan struct{}, 8) // au plus 8 git simultanés
+
+type (
+	gitMsg struct {
+		path string
+		info core.GitInfo
+		tpl  core.TemplateState
+	}
+	windowsMsg map[string]bool
+	usageMsg   core.Usage
+	tickMsg    time.Time
+	usageTick  time.Time
+	detailMsg  struct {
+		path string
+		d    core.GitDetail
+	}
+	treeChanged struct{}                  // l'arborescence a bougé sur disque (treewatch.go)
+	treeMsg     []core.Node               // arborescence relue après un tel changement
+	sessMsg     map[string]core.Resumable // sessions en suspens, relues toutes les 10 s
+	msMsg       struct {                  // milestones d'un projet (milestone.go)
+		path string
+		st   core.MsState
+		ok   bool
+	}
+	msTick time.Time
+)
+
+type model struct {
+	cfg          core.Config
+	nodes        []core.Node
+	visible      []int
+	cursor       int
+	top          int
+	filter       string
+	w, h         int
+	git          map[string]core.GitInfo
+	detail       map[string]core.GitDetail
+	asked        map[string]bool
+	tpl          map[string]core.TemplateState
+	latest       string
+	windows      map[string]bool
+	sessions     map[string]core.Resumable // projet -> conversation en suspens (icône ↺)
+	ctr          ctrView                   // backends et conteneurs (ctrnav.go)
+	treeCh       <-chan struct{}           // signal de changement de l'arborescence
+	milestones   map[string]core.MsState   // projet -> état de ses milestones (badge ⚑)
+	usage        core.Usage
+	session      string
+	launch       bool
+	shell        bool
+	lastSel      string
+	lastDot      string            // signification du point écrite avec la sélection
+	closeAsk     *closePlan        // fermeture en attente de confirmation (close.go)
+	closing      map[string]string // projet -> étape de sa fermeture en cours
+	closeCh      chan closeMsg     // avancement des fermetures
+	tplVer       string
+	newLauncher  string
+	launcherPub  bool // release du NG publiée (jaune : en préparation)
+	launcherOK   bool // binaire préparé et contrôlé (vert : un clic l'installe), prefetch.go
+	prefTag      string
+	prefStep     string // étape en cours (stepText)
+	prefErr      string // raison courte du dernier échec (nouvel essai à la vérification suivante)
+	prefBusy     bool
+	prefFile     string // binaire préparé, dans le dossier temporaire
+	prefSum      string
+	prefCh       chan tea.Msg
+	newTpl       string
+	tplSha       string
+	tplOK        bool // release du template publiée : adoptable
+	mgr          *core.StateMgr
+	form         newForm
+	quitStep     int // 0, quitAsk (launcher seul ou tout ?), quitAll (confirmer la fermeture des projets)
+	navW         int // largeur demandée à tmux (appuis rapprochés)
+	navAt        time.Time
+	wantTeam     bool // clic hors projet : bascule sur « ⌗ Teamleaders »
+	lastShow     time.Time
+	hideLauncher bool
+	updating     bool    // mise à jour lancée d'un clic, en cours
+	checking     bool    // recherche de mises à jour demandée par F5, en cours
+	pendingCmd   tea.Cmd // commande produite par onMouse (qui ne renvoie que le modèle)
+	hideTpl      bool
+	lastClickIdx int
+	lastClickAt  time.Time
+	lastWinW     int
+	lastNavW     int
+	msg          string
+	pending      int
+	started      time.Time
+	loadedAt     time.Duration
+}
+
+func NewModel(launch bool) model {
+	cfg := core.LoadConfig()
+	m := model{
+		cfg: cfg, git: map[string]core.GitInfo{}, detail: map[string]core.GitDetail{}, asked: map[string]bool{}, tpl: map[string]core.TemplateState{},
+		windows: map[string]bool{}, launch: launch, started: time.Now(), shell: os.Getenv("CL_SHELL") == "1",
+	}
+	m.session = tmuxSession()
+	if m.shell {
+		_ = syncLauncherEnv(cfg) // variables du launcher pour toutes les sessions claude
+		exportBrowserPathsHub()  // chemins vus par le navigateur (#104), projets sur l'hôte
+		if why := takeNavCrash(); why != "" {
+			m.msg = "⚠ relancé après " + why // détail : nav.err.last (cache)
+		}
+		if ws := core.HubConfigWarnings(); len(ws) > 0 && m.msg == "" {
+			// faute de frappe dans hubs: (config partagée) : ignorée, signalée
+			m.msg = "⚠ " + ws[0]
+			if len(ws) > 1 {
+				m.msg += fmt.Sprintf(" (+%d : voir backends)", len(ws)-1)
+			}
+		}
+	}
+	m.tplVer = core.ReadTrim(core.TplVersionPath())
+	m.nodes = withSpecial(core.ScanTree(cfg.Roots))
+	m.treeCh = core.WatchTree(cfg.Roots)
+	m.milestones = core.ReadMsCache()
+	m.usage = core.ReadUsage()
+	m.refilter()
+	m.cursor = m.firstProject()
+	if m.shell {
+		// cache d'état en tâche de fond (inotify) : la vue « ◈ État » ne fait que lire
+		if mgr, err := core.NewStateMgr(); err == nil {
+			m.mgr = mgr
+			m.mgr.SetProjects(m.projectPaths())
+			for _, p := range m.projectPaths() { // badges immédiats depuis le cache précédent
+				if ps, _, ok := core.ReadState(p); ok {
+					m.git[p], m.tpl[p], m.detail[p] = ps.Git, ps.Tpl, ps.Detail
+				}
+			}
+		}
+	}
+	return m
+}
+
+func (m model) projectPaths() []string {
+	var out []string
+	for _, n := range m.nodes {
+		if n.Project {
+			out = append(out, n.Path)
+		}
+	}
+	return out
+}
+
+type stateDoneMsg core.ProjState
+
+func waitState(ch <-chan core.ProjState) tea.Cmd {
+	return func() tea.Msg { return stateDoneMsg(<-ch) }
+}
+
+func (m *model) refilter() {
+	m.visible = m.visible[:0]
+	f := strings.ToLower(m.filter)
+	for i, n := range m.nodes {
+		if f == "" || (n.Project && strings.Contains(strings.ToLower(n.Name), f)) {
+			m.visible = append(m.visible, i)
+		}
+	}
+	if m.cursor >= len(m.visible) {
+		m.cursor = max(0, len(m.visible)-1)
+	}
+}
+
+func (m model) Init() tea.Cmd {
+	m.latest = readLatestTemplate()
+	cmds := []tea.Cmd{waitTree(m.treeCh), sessCmd(m.cfg, m.projectPaths(), 0), ctrCmd(m.projectPaths(), 0), tickCmd(), usageTickCmd(), windowsCmd(m.session), usageFetchCmd(m.cfg.UsageRefreshSec), core.UpdTickCmd(6 * time.Second)}
+	if m.mgr != nil {
+		cmds = append(cmds, waitState(m.mgr.Done))
+	}
+	if m.shell {
+		// onglet « ⌗ Teamleaders » : une vignette par projet ouvert
+		cfg := m.cfg
+		cmds = append(cmds, func() tea.Msg { runMirrorManager(cfg); return nil })
+		if m.launch {
+			cmds = append(cmds, reattachCmd(m.cfg, m.session, m.nodes))
+		}
+	}
+	for _, n := range m.nodes {
+		if n.Project {
+			cmds = append(cmds, gitCmd(n.Path, readLatestTemplate()))
+		}
+	}
+	cmds = append(cmds, m.msStale(false), msTickCmd())
+	return tea.Batch(cmds...)
+}
+
+func gitCmd(path, latest string) tea.Cmd {
+	return func() tea.Msg {
+		gitSem <- struct{}{}
+		defer func() { <-gitSem }()
+		return gitMsg{path, core.ReadGit(path), core.ReadTemplate(path, latest)}
+	}
+}
+
+// msCmd : relit les milestones GitHub d'un projet (sans remote GitHub : aucun).
+func msCmd(path, token string) tea.Cmd {
+	return func() tea.Msg {
+		if !core.OnGitHub(path) {
+			return msMsg{path, core.MsState{At: time.Now()}, true}
+		}
+		core.MsSem <- struct{}{}
+		defer func() { <-core.MsSem }()
+		st, err := core.ReadMilestones(path, token)
+		if err != nil {
+			return msMsg{path: path}
+		}
+		st.At = time.Now()
+		return msMsg{path, st, true}
+	}
+}
+
+func msTickCmd() tea.Cmd {
+	return tea.Tick(time.Minute, func(t time.Time) tea.Msg { return msTick(t) })
+}
+
+// msStale : relecture des milestones de plus de msRefresh (de tous si force).
+func (m model) msStale(force bool) tea.Cmd {
+	var cmds []tea.Cmd
+	for _, p := range m.projectPaths() {
+		if st, ok := m.milestones[p]; force || !ok || time.Since(st.At) >= core.MsRefresh {
+			cmds = append(cmds, msCmd(p, m.cfg.GithubToken))
+		}
+	}
+	return tea.Batch(cmds...)
+}
+
+// waitTree : attend le prochain changement de l'arborescence (projets ajoutés,
+// renommés ou supprimés hors du launcher).
+func waitTree(ch <-chan struct{}) tea.Cmd {
+	return func() tea.Msg { <-ch; return treeChanged{} }
+}
+
+func scanCmd(roots []string) tea.Cmd {
+	return func() tea.Msg { return treeMsg(withSpecial(core.ScanTree(roots))) }
+}
+
+// sessCmd : sessions en suspens des projets, après delay. Bon marché : ~/.claude
+// est sur disque natif et sessionEnded ne relit un fichier que s'il a changé.
+// sessNowMsg : relecture ponctuelle des sessions en suspens (sans reprogrammer).
+type sessNowMsg map[string]core.Resumable
+
+func sessNowCmd(cfg core.Config, paths []string) tea.Cmd {
+	return func() tea.Msg {
+		sess := map[string]core.Resumable{}
+		for _, p := range paths {
+			if r, ok := cfg.PendingSession(p); ok {
+				sess[p] = r
+			}
+		}
+		return sessNowMsg(sess)
+	}
+}
+
+func sessCmd(cfg core.Config, paths []string, delay time.Duration) tea.Cmd {
+	read := func(time.Time) tea.Msg {
+		sess := map[string]core.Resumable{}
+		for _, p := range paths {
+			if r, ok := cfg.PendingSession(p); ok {
+				sess[p] = r
+			}
+		}
+		return sessMsg(sess)
+	}
+	if delay <= 0 {
+		return func() tea.Msg { return read(time.Now()) }
+	}
+	return tea.Tick(delay, read)
+}
+
+// setNodes : remplace l'arborescence en gardant la sélection sur le même projet ;
+// l'état des projets disparus est oublié, celui des nouveaux est calculé.
+func (m *model) setNodes(nodes []core.Node) tea.Cmd {
+	sel := ""
+	if m.cursor < len(m.visible) {
+		sel = m.nodes[m.visible[m.cursor]].Path
+	}
+	known := map[string]bool{}
+	for _, p := range m.projectPaths() {
+		known[p] = true
+	}
+	m.nodes = nodes
+	if m.mgr != nil {
+		m.mgr.SetProjects(m.projectPaths())
+	}
+	m.refilter()
+	for i, v := range m.visible {
+		if m.nodes[v].Path == sel {
+			m.cursor = i
+			break
+		}
+	}
+	var cmds []tea.Cmd
+	for _, p := range m.projectPaths() {
+		if !known[p] {
+			cmds = append(cmds, gitCmd(p, readLatestTemplate()))
+		}
+		delete(known, p)
+	}
+	cmds = append(cmds, m.msStale(false))
+	for p := range known { // dossier supprimé ou renommé
+		delete(m.milestones, p)
+		delete(m.git, p)
+		delete(m.tpl, p)
+		delete(m.detail, p)
+		delete(m.asked, p)
+	}
+	return tea.Batch(cmds...)
+}
+
+// sameTree : mêmes nœuds, dans le même ordre.
+func sameTree(a, b []core.Node) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func tickCmd() tea.Cmd {
+	return tea.Tick(2*time.Second, func(t time.Time) tea.Msg { return tickMsg(t) })
+}
+func usageTickCmd() tea.Cmd {
+	return tea.Tick(30*time.Second, func(t time.Time) tea.Msg { return usageTick(t) })
+}
+func windowsCmd(session string) tea.Cmd {
+	return func() tea.Msg { return windowsMsg(tmuxWindows(targetSession(session))) }
+}
+
+// usageForceCmd : appel immédiat (F5), sans tenir compte du cache ni d'un échec récent.
+func usageForceCmd() tea.Cmd {
+	return func() tea.Msg {
+		core.FetchUsage(0)
+		return usageMsg(core.ReadUsage())
+	}
+}
+func usageFetchCmd(sec int) tea.Cmd {
+	return func() tea.Msg {
+		core.LinkUsageCache() // liens du contrat (usage.go), rétablis s'ils ont été remplacés
+		if core.NeedsFetch(sec) {
+			core.FetchUsage(sec)
+		}
+		return usageMsg(core.ReadUsage())
+	}
+}
+
+// readLatestTemplate : commit du dernier tag du template. La source de référence est
+// le cache à côté du script (celui que met à jour checkUpdates, comme le bash) ; les
+// autres emplacements ne servent que de repli.
+func readLatestTemplate() string {
+	if c := core.ReadTrim(core.TplCommitPath()); c != "" {
+		return c
+	}
+	home, _ := os.UserHomeDir()
+	exe, _ := platform.SelfExe()
+	for _, p := range []string{
+		filepath.Join(home, ".template-commit"),
+		filepath.Join(filepath.Dir(exe), ".template-commit"),
+		filepath.Join(filepath.Dir(exe), "..", ".template-commit"),
+	} {
+		if b, err := os.ReadFile(p); err == nil {
+			return strings.TrimSpace(string(b))
+		}
+	}
+	return ""
+}
+
+func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.w, m.h = msg.Width, msg.Height
+		if m.shell {
+			return m, winWidthCmd(msg.Width)
+		}
+	case winMsg:
+		// Largeur totale inchangée mais navigateur modifié = bordure glissée à la
+		// souris : on la mémorise. Si le terminal a changé de taille, c'est le hook
+		// fixwidth qui rétablit la largeur mémorisée. Navigateur pleine largeur =
+		// zone tmux fermée, pas un glissement : on ne mémorise pas.
+		if m.lastWinW != 0 && msg.win == m.lastWinW && msg.nav != m.lastNavW && msg.nav < msg.win {
+			saveNavWidth(msg.nav)
+		}
+		m.lastWinW, m.lastNavW = msg.win, msg.nav
+	case gitMsg:
+		m.git[msg.path] = msg.info
+		m.tpl[msg.path] = msg.tpl
+		if len(m.git) == m.countProjects() {
+			m.loadedAt = time.Since(m.started)
+		}
+	case core.UpdTickMsg:
+		return m, core.CheckUpdates(false)
+	case core.UpdMsg:
+		var prepCmd tea.Cmd
+		if msg.Ok {
+			tag := ""
+			if core.VersionNewer(core.NgVersion, msg.LauncherTag) {
+				tag = msg.LauncherTag
+			}
+			// annonce masquée : réaffichée pour un nouveau tag ou quand sa release sort
+			if tag != m.newLauncher || msg.LauncherReady != m.launcherPub {
+				m.hideLauncher = false
+			}
+			if tag != m.newLauncher {
+				m.launcherOK, m.prefFile, m.prefErr = false, "", ""
+			}
+			m.newLauncher, m.launcherPub = tag, msg.LauncherReady
+			// publiée : préparer (télécharger et contrôler) ; nouvel essai après un échec
+			if tag != "" && m.launcherPub && !m.launcherOK && !(m.prefBusy && m.prefTag == tag) {
+				prepCmd = m.startPrefetch(tag)
+			}
+			if msg.TplTag != m.newTpl || msg.TplReady != m.tplOK {
+				m.hideTpl = false
+			}
+			m.newTpl, m.tplSha, m.tplOK = msg.TplTag, msg.TplSha, msg.TplReady
+			m.reloadTemplate()
+		}
+		if msg.Manual {
+			// le cycle de 10 min continue de son côté : pas de second minuteur
+			m.checking = false
+			switch {
+			case !msg.Ok:
+				m.msg = "⚠ GitHub injoignable"
+			case m.newLauncher != "":
+				// annoncée par l'alerte, comme pour la vérification régulière
+				m.msg = ""
+			default:
+				m.msg = "✓ NG à jour"
+			}
+			return m, prepCmd
+		}
+		// release attendue : revérifie plus souvent pour passer au vert
+		if (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK) {
+			return m, tea.Batch(prepCmd, core.UpdTickCmd(2*time.Minute))
+		}
+		return m, tea.Batch(prepCmd, core.UpdTickCmd(10*time.Minute))
+	case prefStepMsg:
+		if msg.tag == m.prefTag {
+			m.prefStep = msg.step
+		}
+		return m, waitPref(m.prefCh)
+	case prefDoneMsg:
+		if msg.tag == m.prefTag {
+			m.prefBusy = false
+			if msg.err != nil {
+				m.prefErr = shortReason(msg.err)
+			} else if msg.tag == m.newLauncher {
+				m.launcherOK, m.prefFile, m.prefSum, m.prefErr = true, msg.path, msg.sum, ""
+				m.hideLauncher = false
+			}
+		}
+		return m, nil
+	case core.TplAdoptedMsg:
+		if m.newTpl == msg.Tag {
+			m.newTpl, m.tplSha, m.tplOK = "", "", false
+		}
+		m.reloadTemplate()
+		m.msg = "✓ template " + msg.Tag + " adopté"
+		if !msg.Synced {
+			m.msg = "⚠ template " + msg.Tag + " : init-project.md non téléchargé"
+		}
+	case detailMsg:
+		m.detail[msg.path] = msg.d
+	case treeChanged:
+		return m, tea.Batch(waitTree(m.treeCh), scanCmd(m.cfg.Roots))
+	case treeMsg:
+		if sameTree(m.nodes, msg) {
+			return m, nil
+		}
+		cmd := m.setNodes(msg)
+		m.syncSelection()
+		return m, tea.Batch(cmd, m.detailCmd(), m.stateCmd())
+	case msMsg:
+		if old := m.milestones[msg.path]; msg.ok && !reflect.DeepEqual(old.WithoutAt(), msg.st.WithoutAt()) {
+			m.milestones[msg.path] = msg.st
+			core.WriteMsCache(m.milestones)
+		}
+		return m, nil
+	case msTick:
+		return m, tea.Batch(msTickCmd(), m.msStale(false))
+	case sessMsg:
+		m.sessions = msg
+		m.syncSelection()
+		return m, sessCmd(m.cfg, m.projectPaths(), 10*time.Second)
+	case ctrMsg:
+		m.ctr = ctrView(msg)
+		m.syncSelection()
+		return m, ctrCmd(m.projectPaths(), 10*time.Second)
+	case ctrNowMsg:
+		m.ctr = ctrView(msg)
+		m.syncSelection()
+		return m, nil
+	case sessNowMsg:
+		m.sessions = msg
+		m.syncSelection()
+		return m, nil
+	case closeMsg:
+		mm, cmd := m.onClose(msg)
+		mm.syncSelection()
+		return mm, cmd
+	case reattachMsg:
+		m.msg = "⬢ sessions de conteneur retrouvées : " + strings.Join(msg, ", ")
+		return m, windowsCmd(m.session)
+	case stateDoneMsg:
+		ps := core.ProjState(msg)
+		m.git[ps.Path], m.tpl[ps.Path], m.detail[ps.Path] = ps.Git, ps.Tpl, ps.Detail
+		return m, waitState(m.mgr.Done)
+	case windowsMsg:
+		m.windows = msg
+		if m.mgr != nil {
+			open := map[string]bool{}
+			for _, n := range m.nodes {
+				if n.Project && m.windows[n.Key] {
+					open[n.Path] = true
+				}
+			}
+			m.mgr.SetOpen(open)
+		}
+	case usageMsg:
+		m.usage = core.Usage(msg)
+	case tickMsg:
+		return m, tea.Batch(tickCmd(), windowsCmd(m.session))
+	case usageTick:
+		return m, tea.Batch(usageTickCmd(), usageFetchCmd(m.cfg.UsageRefreshSec))
+	case tea.MouseMsg:
+		mm := m.onMouse(msg)
+		mm.syncSelection()
+		cmd := mm.pendingCmd
+		mm.pendingCmd = nil
+		return mm, tea.Batch(cmd, mm.detailCmd(), mm.stateCmd())
+	case core.UpdDoneMsg:
+		m.updating = false
+		if msg.Stale && m.newLauncher != "" {
+			m.launcherOK, m.prefFile = false, ""
+			m.msg = "⚠ mise à jour : " + msg.Err.Error()
+			return m, m.startPrefetch(m.newLauncher)
+		}
+		switch {
+		case msg.Err != nil:
+			m.msg = "⚠ mise à jour : " + msg.Err.Error()
+		case msg.BinDone && m.shell:
+			restartOnNewBinary() // ne revient pas : ce pane est relancé
+		case msg.BinDone:
+			m.msg = "✓ " + msg.Tag + " installée — relancer le launcher"
+		default:
+			m.msg = "✓ déjà à jour"
+			m.hideLauncher = true
+		}
+	case tea.KeyMsg:
+		nm, cmd := m.onKey(msg)
+		mm := nm.(model)
+		mm.syncSelection()
+		pc := mm.pendingCmd
+		mm.pendingCmd = nil
+		return mm, tea.Batch(cmd, pc, mm.detailCmd(), mm.stateCmd())
+	}
+	m.syncSelection()
+	return m, m.detailCmd()
+}
+
+// resizeNav : chaque « ] » (Ctrl+→) élargit la zone navigation de 4 colonnes,
+// chaque « [ » (Ctrl+←) la réduit ; la largeur est mémorisée pour les prochains
+// lancements.
+//
+// La largeur n'est connue qu'après la réponse de tmux : pour une touche maintenue
+// ou des appuis rapprochés, on part de la largeur déjà demandée (navW) et non de
+// m.w, sinon les appuis suivants repartent de l'ancienne valeur.
+func (m model) resizeNav(keys string) model {
+	w := m.w
+	if m.navW > 0 && time.Since(m.navAt) < 1500*time.Millisecond {
+		w = m.navW
+	}
+	for _, r := range keys {
+		if r == ']' {
+			w += 4
+		} else if r == '[' {
+			w -= 4
+		}
+	}
+	w = max(20, w)
+	_ = otmux("resize-pane", "-t", outerSession+":0.0", "-x", strconv.Itoa(w)).Run()
+	saveNavWidth(w)
+	m.navW, m.navAt = w, time.Now()
+	return m
+}
+
+// stateCmd : après un clic hors projet, remet tmux sur l'onglet
+// « ⌗ Teamleaders » (le projet sélectionné, lui, est détaillé sous le
+// navigateur sans toucher à la zone tmux). Limité à un appel / 250 ms.
+func (m *model) stateCmd() tea.Cmd {
+	want := m.wantTeam
+	m.wantTeam = false
+	if !want || !m.shell || time.Since(m.lastShow) < 250*time.Millisecond {
+		return nil
+	}
+	m.lastShow = time.Now()
+	return func() tea.Msg {
+		_ = dtmux("select-window", "-t", exactW(hubSession, teamWindow)).Run()
+		return nil
+	}
+}
+
+// openSelected lance (ou rouvre) le projet sous le curseur.
+func (m model) openSelected() model { return m.openSelectedAs(launchNormal) }
+
+func (m model) openSelectedAs(mode launchMode) model {
+	if len(m.visible) == 0 {
+		return m
+	}
+	n := m.nodes[m.visible[m.cursor]]
+	if n.Special == "new" {
+		return m.startNewProject("")
+	}
+	if !n.Project {
+		return m
+	}
+	// première ouverture d'un projet jamais configuré : choisir d'abord son
+	// exécution (hôte ou conteneur), s'il existe un backend conteneur
+	if mode == launchNormal && m.launch && !m.windows[n.Key] && !core.Assigned(n.Path) && len(core.CtrBackends()) > 0 {
+		return m.startExecChoice(n, true)
+	}
+	if m.shell && m.launch && dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
+		// claude-hub fermé entre-temps : la coque le recrée, zone tmux de droite comprise
+		if err := ensureInner(); err == nil {
+			if exe, e := platform.SelfExe(); e == nil {
+				_ = EnsureLayout(exe)
+			}
+		}
+	}
+	m.msg = openProject(m.cfg, m.session, n, m.launch, readLatestTemplate(), mode)
+	m.wantTeam, m.lastShow = false, time.Time{}
+	if m.launch && m.msg == "" && core.HasEnv(n.Path) {
+		// conteneur : propriétaire de la session relu une fois l'attache faite, sans
+		// attendre la relecture périodique (point ▲ aussitôt)
+		m.pendingCmd = tea.Batch(m.pendingCmd, ctrNowCmd(m.projectPaths(), 4*time.Second))
+	}
+	if m.shell && m.launch && m.msg == "" {
+		// le projet est à l'écran à droite : donne-lui le focus clavier
+		_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
+	}
+	return m
+}
+
+// onMouse : clic = sélectionner (ou basculer sur un projet déjà ouvert),
+// double-clic = ouvrir, molette = défiler.
+func (m model) onMouse(e tea.MouseMsg) model {
+	if m.form.mode != formNone {
+		return m
+	}
+	if m.quitStep != 0 {
+		m.quitStep = 0 // un clic annule la sortie
+		return m
+	}
+	if m.closeAsk != nil {
+		if e.Action == tea.MouseActionPress {
+			m.closeAsk, m.msg = nil, "fermeture annulée"
+		}
+		return m
+	}
+	switch {
+	case e.Button == tea.MouseButtonWheelUp:
+		m.move(-3)
+	case e.Button == tea.MouseButtonWheelDown:
+		m.move(3)
+	case e.Button == tea.MouseButtonLeft && e.Action == tea.MouseActionPress:
+		_, bodyH, _ := m.layout()
+		// sous la liste : filtre (bodyH), puis en-tête = session, versions, alertes…
+		if k := e.Y - bodyH - 3; k >= 0 && k < len(m.alerts()) {
+			// annonce verte : le texte installe / adopte ; orange : sans effet ; ✕ masque
+			a := m.alerts()[k]
+			switch {
+			case e.X >= lipgloss.Width(m.alertText(a)):
+				m.dismissAlert(a)
+			case a == "launcher" && m.launcherOK && !m.updating:
+				m.updating, m.msg = true, ""
+				m.pendingCmd = installPreparedCmd(m.newLauncher, m.prefFile, m.prefSum)
+			case a == "launcher" && m.launcherPub && !m.prefBusy && m.prefErr != "":
+				m.pendingCmd = m.startPrefetch(m.newLauncher) // jaune en échec : réessayer
+			case a == "template" && m.tplOK:
+				m.pendingCmd = core.AdoptTplCmd(m.newTpl, m.tplSha)
+			}
+			return m
+		}
+		// connexion claude.ai expirée ou bientôt : ouvre une fenêtre claude /login
+		if e.Y-bodyH-3 == len(m.alerts()) && (m.usage.Expired || !m.usage.LoginBy.IsZero()) {
+			if !m.launch {
+				m.msg = "[dry-run] fenêtre login → claude /login"
+			} else if err := openLogin(m.session); err != nil {
+				m.msg = "⚠ login : " + err.Error()
+			} else if m.shell {
+				_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
+			}
+			return m
+		}
+		// clic hors d'un projet (zone vide, titre de groupe ou de racine, filtre,
+		// en-tête, aide, entrée « Nouveau projet ») : vue d'ensemble des teamleaders
+		if e.Y < 0 || e.Y >= bodyH {
+			m.wantTeam = true
+			return m
+		}
+		idx := m.listTop(bodyH) + e.Y
+		if idx < len(m.visible) {
+			// titre de catégorie (EMBY, INFRA…) ou de racine : double-clic = créer un
+			// projet dans ce dossier ; un clic simple montre les teamleaders
+			if n := m.nodes[m.visible[idx]]; !n.Project && n.Special == "" && n.Path != "" {
+				double := idx == m.lastClickIdx && time.Since(m.lastClickAt) < 450*time.Millisecond
+				m.lastClickIdx, m.lastClickAt = idx, time.Now()
+				if double && n.Missing {
+					m.lastClickAt = time.Time{}
+					m.msg = "⚠ " + n.Path + " inaccessible (montage perdu ?)"
+					return m
+				}
+				if double {
+					m.lastClickAt = time.Time{}
+					return m.startNewProject(n.Path)
+				}
+				m.wantTeam = true
+				return m
+			}
+		}
+		if idx >= len(m.visible) || !(m.nodes[m.visible[idx]].Project || m.nodes[m.visible[idx]].Special != "") {
+			m.wantTeam = true
+			return m
+		}
+		if e.Ctrl && m.nodes[m.visible[idx]].Project {
+			// Ctrl+clic : fermer le projet (close.go)
+			m.cursor = idx
+			mm, cmd := m.askClose(m.nodes[m.visible[idx]])
+			mm.pendingCmd = cmd
+			return mm
+		}
+		double := idx == m.lastClickIdx && time.Since(m.lastClickAt) < 450*time.Millisecond
+		m.cursor = idx
+		m.lastClickIdx, m.lastClickAt = idx, time.Now()
+		// projet déjà ouvert : un clic simple suffit pour basculer sur sa fenêtre
+		if n := m.nodes[m.visible[idx]]; double || (n.Project && m.windows[n.Key]) {
+			m.lastClickAt = time.Time{}
+			return m.openSelected()
+		}
+		if m.nodes[m.visible[idx]].Special != "" {
+			m.wantTeam = true // « Nouveau projet » n'est pas un projet : rien à détailler
+		}
+	}
+	return m
+}
+
+type winMsg struct{ win, nav int }
+
+// winWidthCmd lit la largeur totale de la fenêtre coque (hors client tmux).
+func winWidthCmd(nav int) tea.Cmd {
+	return func() tea.Msg {
+		b, err := otmux("display-message", "-p", "-t", outerSession+":0", "#{window_width}").Output()
+		if err != nil {
+			return winMsg{nav: nav}
+		}
+		w, _ := strconv.Atoi(strings.TrimSpace(string(b)))
+		return winMsg{win: w, nav: nav}
+	}
+}
+
+// syncSelection publie le projet sélectionné pour la vue « ◈ État ».
+func (m *model) syncSelection() {
+	if len(m.visible) == 0 {
+		return
+	}
+	n := m.nodes[m.visible[m.cursor]]
+	if !n.Project {
+		return
+	}
+	p := m.projInfo(n)
+	same := n.Path == m.lastSel
+	if same && p.dotWhy == m.lastDot {
+		return
+	}
+	m.lastSel, m.lastDot = n.Path, p.dotWhy
+	writeSelection(n, p.dot, p.dotWhy)
+	if m.mgr != nil && !same {
+		m.mgr.Select(n.Path)
+	}
+}
+
+func (m model) firstProject() int {
+	for i, idx := range m.visible {
+		if m.nodes[idx].Project {
+			return i
+		}
+	}
+	return 0
+}
+
+// detailCmd charge dirty/dernier commit du projet sélectionné, une seule fois.
+func (m model) detailCmd() tea.Cmd {
+	if m.shell || len(m.visible) == 0 {
+		return nil // en coque, le détail vient du cache d'état
+	}
+	n := m.nodes[m.visible[m.cursor]]
+	if !n.Project || m.asked[n.Path] || !m.git[n.Path].IsRepo {
+		return nil
+	}
+	m.asked[n.Path] = true
+	p := n.Path
+	return func() tea.Msg {
+		gitSem <- struct{}{}
+		defer func() { <-gitSem }()
+		return detailMsg{p, core.ReadDetail(p)}
+	}
+}
+
+func (m model) countProjects() int {
+	c := 0
+	for _, n := range m.nodes {
+		if n.Project {
+			c++
+		}
+	}
+	return c
+}
+
+const (
+	quitAsk = 1
+	quitAll = 2
+)
+
+// openProjects : fenêtres projet ouvertes (hors onglets du launcher).
+func (m model) openProjects() int {
+	c := 0
+	for w := range m.windows {
+		if w != teamWindow {
+			c++
+		}
+	}
+	return c
+}
+
+// quitLauncher : arrête le launcher sans toucher à claude-hub. En mode coque, le
+// serveur claude-ui-ng2 entier est arrêté (et pas seulement détaché) pour que la
+// prochaine relance reparte du binaire installé, par exemple après une mise à jour.
+func (m model) quitLauncher() tea.Cmd {
+	if m.shell {
+		_ = otmux("kill-server").Run()
+	}
+	return tea.Quit
+}
+
+// quitAllProjects : ferme claude-hub (et les sessions groupées avec elle, qui
+// partagent ses fenêtres), puis le launcher.
+func (m model) quitAllProjects() tea.Cmd {
+	group, _ := tmuxOut("display-message", "-p", "-t", exactS(hubSession)+":", "#{session_group}")
+	if group != "" {
+		out, _ := tmuxOut("list-sessions", "-F", "#{session_group}|#{session_name}")
+		for _, l := range strings.Split(out, "\n") {
+			if g, name, ok := strings.Cut(l, "|"); ok && g == group && name != hubSession {
+				_ = dtmux("kill-session", "-t", exactS(name)).Run()
+			}
+		}
+	}
+	_ = dtmux("kill-session", "-t", exactS(hubSession)).Run()
+	return m.quitLauncher()
+}
+
+func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.quitStep != 0 {
+		// toute touche non prévue annule : par défaut on reste
+		step := m.quitStep
+		m.quitStep = 0
+		switch key := strings.ToLower(k.String()); {
+		case step == quitAsk && key == "l":
+			return m, m.quitLauncher()
+		case step == quitAsk && key == "t":
+			if m.openProjects() == 0 {
+				return m, m.quitAllProjects()
+			}
+			m.quitStep = quitAll
+		case step == quitAll && (key == "o" || key == "y"):
+			return m, m.quitAllProjects()
+		}
+		return m, nil
+	}
+	if m.form.mode != formNone {
+		return m.onFormKey(k)
+	}
+	if m.closeAsk != nil {
+		// toute autre touche que o/y annule : par défaut on garde le projet
+		pl := *m.closeAsk
+		m.closeAsk = nil
+		if key := strings.ToLower(k.String()); key == "o" || key == "y" {
+			m.msg = "⏻ " + pl.node.Name + " : fermeture…"
+			return m, m.startClose(pl)
+		}
+		m.msg = "fermeture annulée"
+		return m, nil
+	}
+	switch k.String() {
+	case "ctrl+c", "esc":
+		if m.filter != "" && k.String() == "esc" {
+			m.filter = ""
+			m.refilter()
+			return m, nil
+		}
+		m.quitStep = quitAsk
+		return m, nil
+	case "ctrl+u":
+		m.hideLauncher, m.hideTpl = true, true
+		return m, nil
+	case "f1":
+		if !m.shell {
+			m.msg = "aide : claude-launcher-ng2 help"
+		} else if err := openHelp(); err != nil {
+			m.msg = "⚠ aide : " + err.Error()
+		}
+		return m, nil
+	case "f2":
+		// backend d'exécution du projet (host, conteneurs) : suivant
+		return m.cycleBackend(), ctrNowCmd(m.projectPaths(), 0)
+	case "f5":
+		// recherche immédiate ; les annonces masquées réapparaissent
+		if m.checking {
+			return m, nil
+		}
+		m.checking, m.hideLauncher, m.hideTpl = true, false, false
+		m.msg = "recherche des mises à jour…"
+		// relit aussi l'arborescence (filet de sécurité : dossier remonté…)
+		return m, tea.Batch(core.CheckUpdates(true), usageForceCmd(), m.msStale(true), scanCmd(m.cfg.Roots))
+	case "tab":
+		if m.shell {
+			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()
+		}
+	case "ctrl+left", "ctrl+right":
+		// Ctrl+← réduit, Ctrl+→ élargit la zone du navigateur (4 colonnes par appui)
+		if m.shell {
+			key := "]"
+			if k.String() == "ctrl+left" {
+				key = "["
+			}
+			return m.resizeNav(key), nil
+		}
+		return m, nil
+	case "up", "ctrl+p":
+		m.move(-1)
+	case "down", "ctrl+n":
+		m.move(1)
+	case "pgup":
+		m.move(-10)
+	case "pgdown":
+		m.move(10)
+	case "ctrl+r":
+		m.nodes = withSpecial(core.ScanTree(m.cfg.Roots))
+		if m.mgr != nil {
+			m.mgr.SetProjects(m.projectPaths())
+		}
+		m.refilter()
+		m.git = map[string]core.GitInfo{}
+		m.detail = map[string]core.GitDetail{}
+		m.asked = map[string]bool{}
+		m.started = time.Now()
+		m.loadedAt = 0
+		cmds := []tea.Cmd{windowsCmd(m.session)}
+		latest := readLatestTemplate()
+		for _, n := range m.nodes {
+			if n.Project {
+				cmds = append(cmds, gitCmd(n.Path, latest))
+			}
+		}
+		return m, tea.Batch(cmds...)
+	case "enter":
+		return m.openSelected(), nil
+	case "delete":
+		if len(m.visible) > 0 {
+			return m.askClose(m.nodes[m.visible[m.cursor]])
+		}
+	case "backspace":
+		if m.filter != "" {
+			r := []rune(m.filter)
+			m.filter = string(r[:len(r)-1])
+			m.refilter()
+		}
+	default:
+		if k.Type == tea.KeyRunes {
+			m.filter += string(k.Runes)
+			m.refilter()
+			m.cursor = m.firstProject()
+		}
+	}
+	return m, nil
+}
+
+func (m *model) move(d int) {
+	// le curseur ne s'arrête que sur les projets
+	i := m.cursor
+	for step := 0; step < len(m.visible); step++ {
+		j := i + d
+		if j < 0 || j >= len(m.visible) {
+			break
+		}
+		i = j
+		if n := m.nodes[m.visible[i]]; n.Project || n.Special != "" {
+			m.cursor = i
+			return
+		}
+		if abs(d) > 1 {
+			d = sign(d)
+		}
+	}
+}
+func abs(a int) int {
+	if a < 0 {
+		return -a
+	}
+	return a
+}
+func sign(a int) int {
+	if a < 0 {
+		return -1
+	}
+	return 1
+}
+
+// projInfo : ce que le navigateur sait du projet, pour ses indicateurs (legend.go).
+func (m model) projInfo(n core.Node) projInfo {
+	g, ok := m.git[n.Path]
+	r, hasSess := m.sessions[n.Path]
+	f, ctrKnown := m.ctr.found[n.Path]
+	l, hasLive := m.ctr.live[n.Path]
+	p := projInfo{open: m.windows[n.Key], git: g, gitOK: ok, tpl: m.tpl[n.Path], tplLatest: m.tplVer,
+		ms: m.milestones[n.Path], sess: r, hasSess: hasSess,
+		hasEnv: m.ctr.env[n.Path], backend: m.ctr.assign[n.Path], ctr: f, ctrKnown: ctrKnown,
+		problems: m.ctr.diag[m.ctr.assign[n.Path]], badCfg: m.ctr.bad[n.Path], live: l, hasLive: hasLive, dups: m.ctr.dups[n.Path]}
+	p.dot, p.dotWhy = sessionOf(p)
+	return p
+}
+
+// badges : icônes de la ligne du projet (« … » tant que git n'est pas lu).
+func (m model) badges(n core.Node) string {
+	p := m.projInfo(n)
+	b := badgeLine(badgeIndicators(p))
+	if !p.gitOK {
+		b = core.Dim.Render(" …") + b
+	}
+	return b
+}
+
+func truncLines(s string, w int) string {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		lines[i] = ansi.Truncate(l, w, "…")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// layout : géométrie commune à l'affichage et à la souris. En coque, la preview
+// est toujours retirée : elle ferait doublon avec le pane d'infos sous le navigateur.
+func (m model) layout() (listW, bodyH int, compact bool) {
+	compact = m.shell || m.w < 80
+	listW = m.w * 38 / 100
+	if listW < 30 {
+		listW = min(m.w, 30)
+	}
+	if compact {
+		listW = m.w
+	}
+	hh := lipgloss.Height(truncLines(m.renderHeader(listW-2), m.w))
+	footH := 1
+	if compact {
+		footH = 2
+	}
+	bodyH = max(3, m.h-hh-1-footH)
+	return
+}
+
+// listTop : première ligne visible de la liste (fenêtre centrée sur le curseur).
+func (m model) listTop(h int) int {
+	top := m.cursor - h/2
+	if top < 0 {
+		top = 0
+	}
+	if top+h > len(m.visible) {
+		top = max(0, len(m.visible)-h)
+	}
+	return top
+}
+
+func (m model) View() string {
+	if m.w == 0 {
+		return "chargement…"
+	}
+	listW, bodyH, compact := m.layout()
+	header := truncLines(m.renderHeader(listW-2), m.w)
+	list := m.renderList(listW-2, bodyH)
+	if m.form.mode != formNone {
+		list = m.renderForm(listW - 2)
+	}
+
+	var body string
+	hint := "  ↑↓ naviguer · entrée ouvrir · ^clic/suppr fermer · F1 aide · F5 actualiser · esc quitter"
+	if compact {
+		body = lipgloss.NewStyle().Width(m.w).MaxWidth(m.w).Height(bodyH).Render(list)
+		hint = "  ↵ ouvrir · ^clic/suppr fermer · F1 aide"
+	} else {
+		prev := m.renderPreview(m.w - listW - 3)
+		left := lipgloss.NewStyle().Width(listW).Height(bodyH).Render(list)
+		right := lipgloss.NewStyle().Width(m.w - listW - 1).Height(bodyH).
+			BorderLeft(true).BorderStyle(lipgloss.NormalBorder()).BorderForeground(lipgloss.Color("8")).
+			PaddingLeft(1).Render(prev)
+		body = lipgloss.JoinHorizontal(lipgloss.Top, left, right)
+	}
+
+	filter := core.Dim.Render("  filtre › ") + m.filter + core.Dim.Render("▏")
+	foot := core.Dim.Render(hint)
+	// Sortie : la question occupe les lignes du pied (deux en mode compact, où le
+	// navigateur ne fait souvent que 40 colonnes).
+	var q [2]string
+	switch m.quitStep {
+	case quitAsk:
+		q = [2]string{"  [l] launcher seul (projets gardés)", "  [t] tout fermer · autre : annuler"}
+	case quitAll:
+		q = [2]string{fmt.Sprintf("  Fermer %d projet(s) et leur claude ?", m.openProjects()), "  [o] oui · autre : annuler"}
+	}
+	if m.closeAsk != nil {
+		ask := core.Orange.Bold(true).Reverse(true)
+		if compact {
+			// 40 colonnes : la question sur deux lignes
+			// 40 colonnes : « o/N » reste sur la première ligne, le détail dessous
+			qs, rest, _ := strings.Cut(m.closeAsk.question, " ? ")
+			foot = ask.Render("  "+qs+" ? o/N ") + "\n" + core.Dim.Render("  "+strings.TrimSuffix(rest, " · o/N"))
+		} else {
+			foot = ask.Render("  " + m.closeAsk.question + " ")
+		}
+		return lipgloss.JoinVertical(lipgloss.Left, body, filter, header, truncLines(foot, m.w))
+	}
+	switch {
+	case q[0] != "" && compact:
+		foot = core.Yellow.Render(q[0]) + "\n" + core.Yellow.Render(q[1])
+	case q[0] != "":
+		foot = core.Yellow.Render(q[0] + " ·" + q[1][1:])
+	case compact && m.msg != "":
+		foot += "\n  " + core.Yellow.Render(m.msg) // 40 colonnes : le message seul, sans le décompte
+	case compact:
+		foot += "\n" + m.footStatus()
+	default:
+		foot += m.footStatus()
+	}
+	return lipgloss.JoinVertical(lipgloss.Left, body, filter, header, truncLines(foot, m.w))
+}
+
+func (m model) footStatus() string {
+	s := ""
+	if m.loadedAt > 0 {
+		s = core.Dim.Render(fmt.Sprintf("  · %d projets en %s", m.countProjects(), m.loadedAt.Round(time.Millisecond)))
+	} else {
+		s = core.Dim.Render(fmt.Sprintf("  · git %d/%d", len(m.git), m.countProjects()))
+	}
+	if m.msg != "" {
+		s += "  " + core.Yellow.Render(m.msg)
+	}
+	return s
+}
+
+func (m model) renderList(w, h int) string {
+	if len(m.visible) == 0 {
+		return core.Dim.Render("  aucun projet")
+	}
+	top := m.listTop(h)
+	var sb strings.Builder
+	for i := top; i < len(m.visible) && i < top+h; i++ {
+		n := m.nodes[m.visible[i]]
+		var line string
+		switch {
+		case n.Special != "":
+			line = " " + core.Cyan.Render(n.Name) + core.Dim.Render(" (dbl-clic catégorie)")
+		case n.Root && n.Missing:
+			const tag = " ⚠ inaccessible"
+			line = core.Bold.Render(" "+shorten(n.Name, w-2-utf8.RuneCountInString(tag))) + core.Yellow.Render(tag)
+		case n.Root:
+			line = core.Bold.Render(" " + shorten(n.Name, w-2))
+		default:
+			indent := strings.Repeat("  ", n.Depth)
+			branch := "├─ "
+			if n.Last {
+				branch = "└─ "
+			}
+			if m.filter != "" {
+				indent, branch = "", ""
+			}
+			prefix := " " + core.Dim.Render(indent+branch)
+			if !n.Project {
+				line = prefix + core.Cyan.Render(n.Name)
+			} else {
+				di := dotIndicator(m.projInfo(n))
+				dot, name := di.style.Render(di.icon)+" ", n.Name
+				if _, busy := m.closing[n.Path]; busy {
+					dot = core.Cyan.Render("⏻ ")
+				}
+				badges := m.badges(n)
+				rel := m.milestones[n.Path].Release // dernière release GitHub
+				if m.windows[n.Key] {
+					// ouvert : bandeau à la couleur de son pane tmux, étiré sur toute
+					// la largeur libre de la ligne (badges calés à droite) pour qu'un
+					// projet ouvert saute aux yeux ; la release y est calée à droite.
+					free := w - ansi.StringWidth(prefix+dot) - ansi.StringWidth(badges)
+					bg := lipgloss.Color(m.cfg.ProjectColor(n.Key))
+					tail := ""
+					if rel != "" && free-utf8.RuneCountInString(n.Name)-6 >= utf8.RuneCountInString(rel)+1 {
+						tail = rel + " "
+					}
+					label := "  " + shorten(n.Name, max(free-4-utf8.RuneCountInString(tail), 1)) + "  "
+					pad := max(free-ansi.StringWidth(label)-utf8.RuneCountInString(tail), 0)
+					name = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("15")).Background(bg).
+						Render(label+strings.Repeat(" ", pad)) +
+						lipgloss.NewStyle().Foreground(lipgloss.Color("252")).Background(bg).Render(tail)
+				} else if rel != "" && ansi.StringWidth(prefix+dot+name+badges)+1+utf8.RuneCountInString(rel) <= w-1 {
+					name += core.Dim.Render(" " + rel) // seulement s'il reste la place : les badges d'abord
+				}
+				line = prefix + dot + name + badges
+			}
+		}
+		if i == m.cursor {
+			line = "▶" + strings.TrimPrefix(line, " ")
+		}
+		sb.WriteString(ansi.Truncate(line, w, "…") + "\n")
+	}
+	return strings.TrimRight(sb.String(), "\n")
+}
+
+func (m model) renderPreview(w int) string {
+	if len(m.visible) == 0 {
+		return ""
+	}
+	n := m.nodes[m.visible[m.cursor]]
+	if !n.Project {
+		return core.Dim.Render(n.Path)
+	}
+	var sb strings.Builder
+	sb.WriteString(core.Bold.Render(n.Name) + "\n")
+	sb.WriteString(core.Dim.Render(shorten(n.Path, w)) + "\n\n")
+	p := m.projInfo(n)
+	sb.WriteString(truncLines(strings.Join(legendLines(p, 0), "\n"), w) + "\n")
+	if g := p.git; p.gitOK && g.IsRepo {
+		d := m.detail[n.Path]
+		sb.WriteString("\n" + core.Dim.Render("branche  ") + g.Branch)
+		sb.WriteString("\n" + core.Dim.Render("version  ") + "locale  " + core.OrNone(d.VerLocal))
+		sb.WriteString("\n" + core.Dim.Render("         ") + "release " + core.ReleaseText(p.ms, d.VerRelease))
+		sb.WriteString("\n" + core.Dim.Render("dernier  ") + shorten(d.LastMsg, w-9) + "\n")
+	}
+	if l := core.MsLines(p.ms, w); len(l) > 1 {
+		sb.WriteString("\n" + truncLines(strings.Join(l[1:], "\n"), w) + "\n")
+	}
+	return sb.String()
+}
+
+// bareVer : « v2.29.0 » -> « 2.29.0 » (compact), « ? » si inconnue.
+func bareVer(v string) string { return strings.TrimPrefix(core.OrQ(v), "v") }
+
+// versionLines : versions du launcher et du template, et alertes de mise à jour.
+func (m model) versionLines() string {
+	// 40 colonnes par défaut : libellés courts, complets si la place le permet.
+	line := "NG " + core.NgVersion + " · tpl " + bareVer(m.tplVer)
+	if m.w >= 70 {
+		line = core.NgName + " " + core.NgVersion + " · dernier template " + core.OrQ(m.tplVer)
+	}
+	s := "\n" + core.Dim.Render("  "+line)
+	for _, a := range m.alerts() {
+		switch {
+		case a == "launcher" && m.updating:
+			s += "\n" + core.Green.Render(m.alertText(a))
+		case (a == "launcher" && m.launcherOK) || (a == "template" && m.tplOK):
+			s += "\n" + core.Green.Render(m.alertText(a)) + core.Dim.Render(" ✕")
+		case a == "launcher" && m.launcherPub:
+			s += "\n" + core.Yellow.Render(m.alertText(a)) + core.Dim.Render(" ✕")
+		default:
+			s += "\n" + core.Orange.Render(m.alertText(a)) + core.Dim.Render(" ✕")
+		}
+	}
+	return s
+}
+
+// alertText : texte d'une annonce, avant le ✕ (vert : cliquable).
+func (m model) alertText(a string) string {
+	name, tag, ok := "NG", m.newLauncher, m.launcherOK
+	if a == "template" {
+		name, tag, ok = "tpl", m.newTpl, m.tplOK
+	}
+	wide := m.w >= 70
+	switch {
+	case a == "launcher" && m.updating:
+		return "  ↑ NG " + tag + " : installation…"
+	case ok:
+		return "  ↑ " + name + " " + tag + " · cliquer pour installer"
+	case a == "launcher" && m.launcherPub && m.prefBusy:
+		return "  ↑ NG " + tag + " · " + stepText(m.prefStep, wide)
+	case a == "launcher" && m.launcherPub && m.prefErr != "" && wide:
+		return "  ↑ NG " + tag + " · disponible mais inaccessible (" + m.prefErr + ") · cliquer pour réessayer"
+	case a == "launcher" && m.launcherPub && m.prefErr != "":
+		return "  ↑ NG " + tag + " · " + m.prefErr + " · réessayer"
+	case a == "launcher" && m.launcherPub:
+		return "  ↑ NG " + tag + " · " + stepText("start", wide)
+	default:
+		return "  ↑ " + name + " " + tag + " · nouvelle version en préparation"
+	}
+}
+
+// reloadTemplate : le commit de référence a pu changer (adoption, ou script
+// bash) : réévalue version et badges template.
+func (m *model) reloadTemplate() {
+	m.tplVer = core.ReadTrim(core.TplVersionPath())
+	latest := core.ReadTrim(core.TplCommitPath())
+	for p := range m.tpl {
+		m.tpl[p] = core.ReadTemplate(p, latest)
+	}
+}
+
+// alerts : annonces de mises à jour encore affichées, dans l'ordre d'affichage.
+// Elles se masquent d'un clic (✕) ou avec ctrl+u ; les badges ⚠ par projet
+// restent, eux, tant que le projet n'est pas à jour.
+func (m model) alerts() []string {
+	var a []string
+	if m.newLauncher != "" && !m.hideLauncher {
+		a = append(a, "launcher")
+	}
+	if m.newTpl != "" && !m.hideTpl {
+		a = append(a, "template")
+	}
+	return a
+}
+
+func (m *model) dismissAlert(kind string) {
+	switch kind {
+	case "launcher":
+		m.hideLauncher = true
+	case "template":
+		m.hideTpl = true
+	}
+}
+
+func (m model) renderHeader(w int) string {
+	var sb strings.Builder
+	sb.WriteString(core.Dim.Render("  session : ") + core.Cyan.Render(m.session))
+	sb.WriteString(m.versionLines())
+	u := m.usage
+	// juste sous les annonces (onMouse compte sur cette position)
+	// libellé court si le long ne tient pas (navigateur de 40 colonnes par défaut)
+	fit := func(long, short string) string {
+		if lipgloss.Width(long)+2 > w {
+			return short
+		}
+		return long
+	}
+	switch {
+	case u.Expired:
+		sb.WriteString("\n  " + core.Red.Render(fit("✗ connexion claude.ai expirée · cliquer pour /login", "✗ connexion expirée · /login")))
+	case !u.LoginBy.IsZero():
+		at := core.FormatReset(u.LoginBy.UTC().Format(time.RFC3339))
+		sb.WriteString("\n  " + core.Yellow.Render(fit("⚠ connexion claude.ai : expiration "+at+" · cliquer pour /login", "⚠ /login avant "+at)))
+	}
+	if u.Expired {
+		if u.Err == core.AuthErr {
+			u.Err = "" // déjà dit au-dessus
+		}
+	}
+	if len(u.Limits) == 0 {
+		msg := "chargement…"
+		if u.Expired && u.Err == "" {
+			msg = "indisponible"
+		}
+		if u.Err != "" {
+			msg = u.Err
+		}
+		return sb.String() + "\n" + core.Dim.Render("  consommation Claude : "+msg)
+	}
+	stale := ""
+	if u.Err != "" || time.Since(u.ReadAt) > time.Duration(m.cfg.UsageRefreshSec)*5*time.Second {
+		stale = "⚠ données de " + u.ReadAt.Format("15:04")
+		if u.Err != "" {
+			stale += " — " + u.Err
+		}
+	}
+	lw, rw := 0, 0
+	resets := make([]string, len(u.Limits))
+	for i, l := range u.Limits {
+		resets[i] = core.FormatReset(l.ResetsAt)
+		lw = max(lw, lipgloss.Width(l.Label()))
+		rw = max(rw, lipgloss.Width(resets[i]))
+	}
+	barW := min(40, max(8, m.w-lw-rw-16))
+	for i, l := range u.Limits {
+		pct := int(l.Percent + 0.5)
+		style := core.Blue
+		switch {
+		case stale != "" || resets[i] == "passée":
+			style = core.Dim
+		case l.Severity == "critical" || pct >= 90:
+			style = core.Red
+		case l.Severity == "warning" || pct >= 70:
+			style = core.Yellow
+		}
+		p := min(100, max(0, pct))
+		filled := (p*barW + 50) / 100
+		label := core.Bold.Render(core.PadRight(l.Label(), lw))
+		sb.WriteString("\n  " + label + " ")
+		if resets[i] == "passée" {
+			sb.WriteString(core.Dim.Render(strings.Repeat("░", barW) + "    — réinit. passée"))
+			continue
+		}
+		sb.WriteString(style.Render(strings.Repeat("█", filled)) + core.Dim.Render(strings.Repeat("░", barW-filled)))
+		sb.WriteString(style.Render(fmt.Sprintf(" %3d %%", pct)))
+		if resets[i] != "" {
+			sb.WriteString("  " + core.Dim.Render(resets[i]))
+		}
+	}
+	if stale != "" {
+		sb.WriteString("\n  " + core.Yellow.Render(stale))
+	}
+	return sb.String()
+}
