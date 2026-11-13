@@ -349,6 +349,44 @@ func TestHostProjectWithTmux(t *testing.T) {
 		return false
 	}))
 
+	// redimensionnements en rafale (fenêtre glissée, maximiser / restaurer) :
+	// tmux suit la dernière taille, la team est remise en page et chaque pane
+	// est recapturé une fois la rafale finie
+	resets := func() int {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		n := 0
+		for _, e := range r.evs {
+			if e["_name"] == "term" && e["kind"] == "out" {
+				for _, c := range e["chunks"].([]any) {
+					if cm := c.(map[string]any); cm["pane"] == leader && cm["reset"] == true {
+						n++
+					}
+				}
+			}
+		}
+		return n
+	}
+	before := resets()
+	for _, sz := range [][2]int{{100, 30}, {200, 70}, {90, 28}, {200, 70}, {140, 46}} {
+		pt.resize(sz[0], sz[1])
+		time.Sleep(60 * time.Millisecond)
+	}
+	r.wait(t, 10*time.Second, "taille finale", isTerm(ps[0], "layout", func(e map[string]any) bool {
+		l := e["layout"].(map[string]any)
+		return l["cols"].(float64) == 140 && l["rows"].(float64) == 46
+	}))
+	end = time.Now().Add(5 * time.Second)
+	for resets() == before && time.Now().Before(end) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if resets() == before {
+		t.Error("pas de recapture du leader après le redimensionnement")
+	}
+	if out, _ := exec.Command("tmux", "-L", sock, "display", "-p", "-t", win, "#{window_width}x#{window_height}").Output(); strings.TrimSpace(string(out)) != "140x46" {
+		t.Errorf("taille tmux : %s", out)
+	}
+
 	// un tour lent sans changement : une recherche de team, un seul list-panes
 	time.Sleep(1500 * time.Millisecond) // mise en page des tours précédents faite
 	for i := 0; i < 2; i++ {

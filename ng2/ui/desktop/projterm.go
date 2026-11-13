@@ -64,6 +64,7 @@ type projTerm struct {
 	reads, finds    int32           // list-panes et recherches de team (tests)
 	infos           []core.PaneInfo // panes au dernier tour (carte Team, sans appel tmux)
 	stopOnce        sync.Once
+	reseed          *time.Timer // recapture des panes après un redimensionnement
 }
 
 type watchState struct {
@@ -365,7 +366,7 @@ func (t *projTerm) attach() error {
 	w, h := t.cols, t.rows
 	t.mu.Unlock()
 	if w > 0 && h > 0 {
-		_ = c.Send("refresh-client", "-C", fmt.Sprintf("%dx%d", w, h))
+		_ = c.Send("refresh-client", "-C", clientSize(w, h))
 	}
 	if t.host {
 		_ = c.Send("set-option", "-t", "="+t.sess, "status", "off")
@@ -564,9 +565,36 @@ func (t *projTerm) resize(cols, rows int) {
 	}
 	t.mu.Unlock()
 	if c != nil && changed {
-		_ = c.Send("refresh-client", "-C", fmt.Sprintf("%dx%d", cols, rows))
+		_ = c.Send("refresh-client", "-C", clientSize(cols, rows))
 		t.poke()
+		t.reseedLater()
 	}
+}
+
+// clientSize : taille d'un client de contrôle pour refresh-client -C, sous la
+// forme « L,H » comprise par toutes les versions de tmux (« LxH » n'existe
+// qu'à partir de la 3.1).
+func clientSize(cols, rows int) string { return fmt.Sprintf("%d,%d", cols, rows) }
+
+// reseedDelay : après le dernier redimensionnement (anti-rebond : une fenêtre
+// glissée en envoie des dizaines), le contenu de chaque pane est recapturé :
+// les applications redessinent à leur nouvelle taille, et un terminal resté
+// sur l'ancienne géométrie (lignes repliées, maximiser / restaurer) repart
+// d'un écran exact.
+var reseedDelay = 400 * time.Millisecond
+
+func (t *projTerm) reseedLater() {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.reseed != nil {
+		t.reseed.Stop()
+	}
+	t.reseed = time.AfterFunc(reseedDelay, func() {
+		t.mu.Lock()
+		t.seen = map[string]bool{}
+		t.mu.Unlock()
+		t.poke()
+	})
 }
 
 func (t *projTerm) focus(pane string) {
