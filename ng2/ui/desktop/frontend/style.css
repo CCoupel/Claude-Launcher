@@ -214,3 +214,16 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 .helpgrid .li { font-family: var(--mono); }
 .tools { display: grid; grid-template-columns: 22px 90px minmax(0, 1fr); gap: 6px 10px; align-items: start; font-size: 12px; }
 .tools code { font-family: var(--mono); background: var(--input); padding: 2px 6px; border-radius: 4px; user-select: all; }
+
+/* ── Zones redimensionnables, cartes repliables (#124) ── */
+#hsplit { flex: none; height: 5px; cursor: row-resize; background: var(--line); }
+#hsplit:hover, #hsplit.drag { background: var(--accent); }
+body.treeh #tree { flex: none; height: var(--treeh); max-height: none; }
+body.cardsfolded #cards { flex: none; }
+body.cardsfolded #tree { flex: 1; max-height: none; height: auto; }
+body.cardsfolded #hsplit { display: none; }
+.cardstitle { cursor: pointer; align-items: center; user-select: none; }
+.fold { display: inline-block; width: 12px; color: var(--chev); transition: transform .15s ease; text-align: center; }
+.fold.open { transform: rotate(90deg); }
+.card > .ch { cursor: pointer; user-select: none; display: flex; align-items: center; gap: 4px; }
+.card.closed > .ch { border-bottom: 0; }

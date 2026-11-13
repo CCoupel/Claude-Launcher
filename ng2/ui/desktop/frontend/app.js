@@ -250,13 +250,27 @@ function renderCards() {
   const c = S.cards, box = $('cards');
   box.textContent = '';
   if (!c || !c.path) { box.appendChild(el('div', 'dim', 'Sélectionnez un projet dans le navigateur.')); return; }
-  const t = el('div', 'cardstitle'); t.append(el('span', '', '◈ ÉTAT · ' + c.name));
+  const hidden = prefs.get('cardsHidden', false);
+  const t = el('div', 'cardstitle');
+  const fold = el('span', 'fold' + (hidden ? '' : ' open'), '›');
+  fold.title = hidden ? 'afficher les cartes' : 'masquer les cartes';
+  t.onclick = (e) => { if (e.target.closest('.cfglink')) return; e.stopPropagation(); setCardsHidden(!hidden); };
+  t.append(fold, el('span', '', '◈ ÉTAT · ' + c.name));
   if (c.updated) t.append(el('span', c.staleUpd ? 't-yellow' : '', '· mis à jour ' + c.updated));
   box.appendChild(t);
+  box.classList.toggle('folded', hidden);
+  // carte repliable d'un clic sur son bandeau (#124), état mémorisé
   const card = (title, sub, body) => {
-    const k = el('div', 'card'); const h = el('div', 'ch', title);
+    const closed = !!prefs.get('cardsClosed', {})[title];
+    const k = el('div', 'card' + (closed ? ' closed' : ''));
+    const h = el('div', 'ch');
+    h.append(el('span', 'fold' + (closed ? '' : ' open'), '›'), el('span', '', title));
     if (sub) h.append(el('span', 'dim', ' · ' + sub));
-    k.append(h, body); box.appendChild(k); return k;
+    h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
+    k.append(h);
+    if (!closed) k.append(body);
+    if (!hidden) box.appendChild(k);
+    return k;
   };
   // Projet : légende des icônes de la ligne, puis git et versions
   const pb = el('div', 'cb');
@@ -471,11 +485,24 @@ function onQuitKey(e) {
 }
 
 // largeur du navigateur : bordure glissée ou Ctrl+← Ctrl+→ (mémorisée)
-function setNavW(w) {
+function setNavW(w, keep) {
   w = Math.max(280, Math.min(window.innerWidth - 300, w));
   document.documentElement.style.setProperty('--navw', w + 'px');
-  store.set('navw', w);
+  if (!keep) prefs.set('navW', Math.round(w));
   scheduleFit();
+}
+// hauteur de l'arbre (séparateur horizontal arbre / cartes, #124)
+function setTreeH(h, keep) {
+  const nav = $('nav').getBoundingClientRect().height;
+  h = Math.max(90, Math.min(nav - 160, h));
+  document.documentElement.style.setProperty('--treeh', h + 'px');
+  document.body.classList.add('treeh');
+  if (!keep) prefs.set('treeH', Math.round(h));
+}
+function setCardsHidden(on) {
+  prefs.set('cardsHidden', on);
+  document.body.classList.toggle('cardsfolded', on);
+  renderCards();
 }
 function resizeNav(d) { setNavW($('nav').getBoundingClientRect().width + d); }
 (() => {
@@ -483,8 +510,17 @@ function resizeNav(d) { setNavW($('nav').getBoundingClientRect().width + d); }
   sp.addEventListener('mousedown', (e) => { drag = true; sp.classList.add('drag'); e.preventDefault(); });
   window.addEventListener('mousemove', (e) => { if (drag) setNavW(e.clientX); });
   window.addEventListener('mouseup', () => { if (drag) { drag = false; sp.classList.remove('drag'); } });
-  const w = store.get('navw', 0); if (w) setNavW(w);
+  const hs = $('hsplit'); let hdrag = false;
+  hs.addEventListener('mousedown', (e) => { hdrag = true; hs.classList.add('drag'); e.preventDefault(); });
+  window.addEventListener('mousemove', (e) => { if (hdrag) setTreeH(e.clientY - $('tree').getBoundingClientRect().top); });
+  window.addEventListener('mouseup', () => { if (hdrag) { hdrag = false; hs.classList.remove('drag'); } });
 })();
+// tailles mémorisées (cache du launcher), appliquées à l'initialisation
+function applyLayoutPrefs() {
+  const w = prefs.get('navW', 0); if (w) setNavW(w, true);
+  const h = prefs.get('treeH', 0); if (h) setTreeH(h, true);
+  document.body.classList.toggle('cardsfolded', !!prefs.get('cardsHidden', false));
+}
 
 // ── Onglets ────────────────────────────────────────────────────────────────
 function renderTabs() {
@@ -950,6 +986,7 @@ function applyState(s) {
 function applyInit(r) {
   S.help = r.help; S.tools = r.tools;
   prefs.v = r.prefs || {};
+  applyLayoutPrefs();
   applyState(r.state);
   S.cards = r.cards; renderCards();
 }
