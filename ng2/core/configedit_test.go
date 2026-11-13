@@ -15,6 +15,9 @@ func cfgEditHome(t *testing.T) string {
 	h := withHome(t)
 	t.Setenv("CL_CONFIG_DIR", filepath.Join(h, "cfg"))
 	t.Setenv("CL_ROOTS", "")
+	// un podman présent (runner de CI) crée son stockage sous XDG_DATA_HOME, avec
+	// des droits que le nettoyage de t.TempDir ne peut pas effacer : hors du test
+	t.Setenv("XDG_DATA_HOME", filepath.Join(os.TempDir(), "cl-cfgedit-test-data"))
 	_ = os.MkdirAll(filepath.Join(h, "cfg"), 0o755)
 	return h
 }
