@@ -151,3 +151,20 @@ func TestUTF8Carry(t *testing.T) {
 		t.Errorf("ascii : %q %q", c, r)
 	}
 }
+
+// Une ligne de sortie qui commence par « %end » (capture-pane d'un pane qui
+// l'affiche) ne ferme pas la réponse : seul %end avec l'horodatage et le
+// numéro du %begin la ferme (sinon toutes les réponses suivantes seraient
+// décalées d'un appel).
+func TestDecoderEndMatchesBegin(t *testing.T) {
+	var d decoder
+	var got []Reply
+	for _, l := range []string{"%begin 1700 42 1", "%end 1 2 1", "%error 1700 43 1", "texte", "%end 1700 42 1", "%begin 1700 43 1", "%end 1700 43 1"} {
+		if r, _ := d.feed(l); r != nil {
+			got = append(got, *r)
+		}
+	}
+	if len(got) != 2 || string(got[0].Body) != "%end 1 2 1\n%error 1700 43 1\ntexte\n" || got[0].Err || len(got[1].Body) != 0 {
+		t.Errorf("réponses : %+v", got)
+	}
+}

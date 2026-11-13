@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -163,6 +164,9 @@ func TestDispatch(t *testing.T) {
 	if _, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(filepath.Dir(a.projectPaths()[0]))+`,"name":"../x"}`)); err == nil {
 		t.Error("nom invalide accepté")
 	}
+	if _, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(filepath.Dir(a.projectPaths()[0]))+`,"name":"alpha"}`)); err == nil || !strings.Contains(err.Error(), "existe déjà") {
+		t.Errorf("dossier existant accepté : %v", err)
+	}
 }
 
 func TestReleaseSpansAndMsCard(t *testing.T) {
@@ -219,9 +223,24 @@ func TestHostProjectWithTmux(t *testing.T) {
 
 	var r recorder
 	a := NewApp(r.emit)
-	res, err := a.open(ps[0], core.LaunchNormal)
-	if err != nil || fmt.Sprint(res) != fmt.Sprint(map[string]any{"tab": ps[0]}) {
-		t.Fatalf("open : %v %v", res, err)
+	// ouvertures simultanées (double-clic et Entrée, reattach) : un seul onglet
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			res, err := a.open(ps[0], core.LaunchNormal)
+			if err != nil || fmt.Sprint(res) != fmt.Sprint(map[string]any{"tab": ps[0]}) {
+				t.Errorf("open : %v %v", res, err)
+			}
+		}()
+	}
+	wg.Wait()
+	a.mu.Lock()
+	tabs := len(a.order)
+	a.mu.Unlock()
+	if tabs != 1 {
+		t.Fatalf("ouvertures simultanées : %d onglets", tabs)
 	}
 	pt := a.term(ps[0])
 	pt.resize(120, 40)
@@ -312,6 +331,40 @@ func TestHostProjectWithTmux(t *testing.T) {
 		}
 		return true
 	}))
+
+	// fenêtre redimensionnée : la team est remise en page à la nouvelle taille
+	// (3 lignes : le haut sur 3/7 de la hauteur)
+	pt.resize(150, 60)
+	r.wait(t, 10*time.Second, "mise en page après redimensionnement", isTerm(ps[0], "layout", func(e map[string]any) bool {
+		l := e["layout"].(map[string]any)
+		if l["rows"].(float64) != 60 {
+			return false
+		}
+		for _, p := range l["panes"].([]any) {
+			pm := p.(map[string]any)
+			if pm["id"] == leader {
+				return pm["h"].(float64) == float64(60*cfg.Layout3RowLeaderNum/cfg.Layout3RowDen)
+			}
+		}
+		return false
+	}))
+
+	// un tour lent sans changement : une recherche de team, un seul list-panes
+	time.Sleep(1500 * time.Millisecond) // mise en page des tours précédents faite
+	for i := 0; i < 2; i++ {
+		pt.tick(false)
+	}
+	r0, f0 := atomic.LoadInt32(&pt.reads), atomic.LoadInt32(&pt.finds)
+	pt.tick(false)
+	if dr, df := atomic.LoadInt32(&pt.reads)-r0, atomic.LoadInt32(&pt.finds)-f0; df > 2 || dr > 2 || df < 1 {
+		// le watcher peut glisser un tour pendant la mesure : au plus 2
+		t.Errorf("un tour : %d list-panes, %d recherches de team", dr, df)
+	}
+
+	// carte Team : panes relevés par le watcher, pas d'appel tmux
+	if infos := pt.paneInfos(); len(infos) != 8 || infos[0].PID == "" {
+		t.Errorf("panes en cache : %+v", infos)
+	}
 
 	// détacher l'onglet : la session continue dans tmux
 	a.detachTab(ps[0])

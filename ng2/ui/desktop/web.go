@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 )
@@ -157,7 +158,8 @@ func RunWeb(addr string, open bool) error {
 	}
 	a := NewApp(w.emit)
 	w.app = a
-	ln, err := net.Listen("tcp", addr)
+	// relance après une mise à jour : l'ancien processus vient de libérer le port
+	ln, err := listenRetry(addr, 10*time.Second)
 	if err != nil {
 		return err
 	}
@@ -176,6 +178,19 @@ func RunWeb(addr string, open bool) error {
 		_ = srv.Serve(ln)
 		close(done)
 	}()
+	// mise à jour installée : même adresse et même jeton pour le nouveau
+	// binaire, port libéré avant de le lancer ; l'onglet ouvert se reconnecte
+	// (flux d'événements) au lieu d'en ouvrir un second
+	restartApp = func() {
+		bound := ln.Addr().String()
+		_ = srv.Close()
+		a.Stop()
+		if err := relaunch("desktop", "--web", "--addr", bound, "--no-open"); err != nil {
+			fmt.Fprintln(os.Stderr, "relance impossible :", err)
+		}
+		os.Exit(0)
+	}
+	restartEnv = []string{"CL_DESKTOP_TOKEN=" + w.token}
 	a.Start()
 	if open {
 		openURL(url)
@@ -196,4 +211,17 @@ func openURL(url string) {
 		c = exec.Command("xdg-open", url)
 	}
 	_ = c.Start()
+}
+
+// listenRetry : net.Listen, réessayé jusqu'à d si l'adresse est encore prise
+// (port fixe libéré à l'instant par le processus précédent).
+func listenRetry(addr string, d time.Duration) (net.Listener, error) {
+	end := time.Now().Add(d)
+	for {
+		ln, err := net.Listen("tcp", addr)
+		if err == nil || time.Now().After(end) || strings.HasSuffix(addr, ":0") {
+			return ln, err
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
 }

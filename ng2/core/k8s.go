@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"claude-launcher-ng2/platform"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -40,7 +41,7 @@ func (e Engine) kubectl(args ...string) []string {
 
 func (e Engine) kcmd(args ...string) *exec.Cmd {
 	a := e.kubectl(args...)
-	return exec.Command(a[0], a[1:]...)
+	return platform.NoWindow(exec.Command(a[0], a[1:]...))
 }
 
 // k8sName : nom du StatefulSet d'un projet, « <catégorie>-<projet> » ; son pod

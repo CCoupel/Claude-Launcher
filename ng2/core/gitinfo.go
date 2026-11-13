@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/platform"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -29,7 +30,7 @@ type GitInfo struct {
 }
 
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	out, err := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...).Output()
+	out, err := platform.NoWindow(exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...)).Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -45,7 +46,7 @@ func ReadGit(dir string) GitInfo {
 	g.Main = mainBranch(dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch").Output()
+	out, err := platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch")).Output()
 	if err != nil {
 		return g
 	}
@@ -79,8 +80,8 @@ func ReadGit(dir string) GitInfo {
 		}
 	}
 	if g.Upstream && g.Branch != g.Main {
-		g.Merged = exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
-			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main).Run() == nil
+		g.Merged = platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
+			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main)).Run() == nil
 	}
 	return g
 }
@@ -157,7 +158,7 @@ func ReadDetail(dir string) GitDetail {
 	defer cancel()
 	d := GitDetail{Changes: map[string]string{}}
 	// Sortie brute : git() retire les espaces de tête, qui font partie du format.
-	if raw, err := exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain").Output(); err == nil {
+	if raw, err := platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain")).Output(); err == nil {
 		for _, l := range strings.Split(string(raw), "\n") {
 			if len(l) < 4 {
 				continue

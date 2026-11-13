@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -60,6 +61,9 @@ type projTerm struct {
 	members         map[string]core.TeamMember
 	leader          string
 	watch           watchState
+	reads, finds    int32           // list-panes et recherches de team (tests)
+	infos           []core.PaneInfo // panes au dernier tour (carte Team, sans appel tmux)
+	stopOnce        sync.Once
 }
 
 type watchState struct {
@@ -266,7 +270,7 @@ func (t *projTerm) prepare() error {
 	}
 	if op.Canceled {
 		t.setState("closed", "ouverture annulée")
-		t.a.removeTab(t.path)
+		t.a.removeTab(t.path, t)
 		return nil
 	}
 	t.mu.Lock()
@@ -292,7 +296,7 @@ func deskSocket() string {
 func hostSession(path string) string { return "p-" + core.CtrName(path) }
 
 func (t *projTerm) localTmux(args ...string) *exec.Cmd {
-	c := exec.Command("tmux", append([]string{"-L", t.sock}, args...)...)
+	c := platform.NoWindow(exec.Command("tmux", append([]string{"-L", t.sock}, args...)...))
 	c.Env = core.EnvWithout("TMUX", "TMUX_PANE")
 	return c
 }
@@ -378,11 +382,7 @@ func (t *projTerm) ended() {
 	t.mu.Lock()
 	detaching := t.detaching
 	t.mu.Unlock()
-	select {
-	case <-t.stop:
-	default:
-		close(t.stop)
-	}
+	t.closeStop()
 	if detaching {
 		return
 	}
@@ -392,7 +392,7 @@ func (t *projTerm) ended() {
 		_ = t.e.Stop(t.path, t.ctr)
 	}
 	t.setState("closed", why)
-	t.a.removeTab(t.path)
+	t.a.removeTab(t.path, t)
 	t.a.setMsg("✓ " + t.name + " : " + why)
 	go t.a.readCtr()
 	go t.a.readSessions()
@@ -404,11 +404,7 @@ func (t *projTerm) detach() {
 	t.detaching = true
 	c := t.client
 	t.mu.Unlock()
-	select {
-	case <-t.stop:
-	default:
-		close(t.stop)
-	}
+	t.closeStop()
 	if c != nil {
 		c.Close()
 	}
@@ -594,31 +590,19 @@ func (t *projTerm) cl() *tmuxClient {
 
 // paneInfos : panes du projet, pour la carte Team (version de claude).
 func (t *projTerm) paneInfos() []core.PaneInfo {
-	c := t.cl()
-	if c == nil {
-		return nil
-	}
-	b, err := c.Output("list-panes", "-t", t.win, "-F", "#{pane_id}\t#{pane_pid}\t#{pane_current_command}")
-	if err != nil {
-		return nil
-	}
-	var out []core.PaneInfo
-	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		f := strings.Split(l, "\t")
-		if len(f) == 3 {
-			pid := f[1]
-			if !t.host {
-				pid = "" // conteneur : PID d'un autre espace
-			}
-			out = append(out, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[2]})
-		}
-	}
-	return out
+	// relevés par le watcher (readWin) : jamais d'appel tmux ici, les cartes
+	// sont calculées sur la goroutine d'émission de l'interface
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]core.PaneInfo(nil), t.infos...)
 }
+
+// closeStop : fin de l'onglet (session terminée ou détachement), une seule fois.
+func (t *projTerm) closeStop() { t.stopOnce.Do(func() { close(t.stop) }) }
 
 // ── Mise en page (règles de core, comme le layout-watch de la coque) ──────
 
-const paneFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window_zoomed_flag}|#{pane_active}|#{pane_current_command}|#{window_visible_layout}"
+const paneFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window_zoomed_flag}|#{pane_active}|#{pane_pid}|#{window_visible_layout}|#{pane_current_command}"
 
 func (t *projTerm) orderFile() string {
 	return filepath.Join(os.TempDir(), "claude_desk_"+core.CtrName(t.path)+".order")
@@ -656,13 +640,15 @@ func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visibl
 	if c == nil {
 		return nil, 0, 0, false, "", errClientClosed
 	}
+	atomic.AddInt32(&t.reads, 1)
 	b, err := c.Output("list-panes", "-t", t.win, "-F", paneFormat)
 	if err != nil {
 		return nil, 0, 0, false, "", err
 	}
+	var infos []core.PaneInfo
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		f := strings.SplitN(l, "|", 9)
-		if len(f) != 9 || f[0] == "" {
+		f := strings.SplitN(l, "|", 10) // la commande en dernier (peut contenir « | »)
+		if len(f) != 10 || f[0] == "" {
 			continue
 		}
 		idx, _ := strconv.Atoi(f[1])
@@ -670,9 +656,17 @@ func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visibl
 		h, _ = strconv.Atoi(f[4])
 		zoomed = f[5] == "1"
 		visible = f[8]
-		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[7]})
+		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[9]})
+		pid := f[7]
+		if !t.host {
+			pid = "" // conteneur : PID d'un autre espace
+		}
+		infos = append(infos, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[9]})
 	}
 	sortPanes(panes)
+	t.mu.Lock()
+	t.infos = infos
+	t.mu.Unlock()
 	return panes, w, h, zoomed, visible, nil
 }
 
@@ -699,10 +693,25 @@ func (t *projTerm) tick(fast bool) {
 	leader := leaderID(ids.String())
 	t.mu.Lock()
 	ro := t.readOnly
-	resized := t.resized
-	t.resized = false
+	resized := false
+	if !fast {
+		// consommé par le seul tour lent, qui remet la team en page
+		resized, t.resized = t.resized, false
+	}
 	t.mu.Unlock()
 
+	// team du projet : lue une fois par tour
+	var tc *core.TeamConfig
+	if tp := t.findTeam(); tp != "" {
+		if x, err := core.ReadTeam(tp); err == nil {
+			tc = &x
+		}
+	}
+	arranged := false
+	arrange := func() {
+		t.arrange(cps, w, h, leader, tc)
+		arranged = true
+	}
 	if !fast && !t.host && !ro {
 		if t.watch.beat++; t.watch.beat%5 == 1 {
 			t.heartbeat()
@@ -710,17 +719,10 @@ func (t *projTerm) tick(fast bool) {
 		// Ctrl+B R dans le tmux du conteneur incrémente @cl_relayout (bootstrap.sh)
 		if b, err := t.cl().Output("show-options", "-wqv", "-t", t.win, "@cl_relayout"); err == nil {
 			r := strings.TrimSpace(string(b))
-			if r != t.watch.prevRelayout && (t.watch.prevRelayout != "" || r != "") && len(panes) > 1 {
-				t.arrange(cps, w, h, leader, core.FindTeamConfig(t.path))
+			if r != t.watch.prevRelayout && (t.watch.prevRelayout != "" || r != "") && len(panes) > 1 && tc != nil {
+				arrange()
 			}
 			t.watch.prevRelayout = r
-		}
-	}
-	tp := core.FindTeamConfig(t.path)
-	var tc *core.TeamConfig
-	if tp != "" {
-		if x, err := core.ReadTeam(tp); err == nil {
-			tc = &x
 		}
 	}
 	busy := false
@@ -729,20 +731,7 @@ func (t *projTerm) tick(fast bool) {
 		busy = sig != ""
 		if !ro && !fast && sig != t.watch.prevSig {
 			t.watch.prevSig = sig
-			t.arrange(cps, w, h, leader, tp)
-			if panes, w, h, zoomed, visible, err = t.readWin(); err != nil {
-				return
-			}
-			cps = corePanes(panes)
-		}
-		if !ro {
-			for _, m := range tc.Members {
-				if m.PaneID == "" || m.PaneID == leader || !hasPane(panes, m.PaneID) {
-					continue
-				}
-				m := m
-				core.SetPaneColor(t.cl(), cps, m.PaneID, core.PaneShade(cfg, t.color, &m, false))
-			}
+			arrange()
 		}
 	}
 	// un pane de plus : attendre que la team ait inscrit tous les agents (le
@@ -766,18 +755,48 @@ func (t *projTerm) tick(fast bool) {
 			}
 			if registered >= n-1 || t.watch.wait == 0 {
 				t.watch.wait = 0
-				t.arrange(cps, w, h, leader, tp)
+				arrange()
 			}
 		}
+		// fenêtre redimensionnée : la géométrie de la team (TeamRows) est
+		// réappliquée à la nouvelle taille
 		if resized && n > 1 && (w != t.watch.prevW || h != t.watch.prevH) {
-			t.arrange(cps, w, h, leader, tp)
+			arrange()
 		}
 		t.watch.prevW, t.watch.prevH = w, h
 	}
-	if panes2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(panes2) > 0 {
-		panes, w, h, zoomed, visible = panes2, w2, h2, z2, v2
+	if arranged {
+		// panes échangés et géométrie changée : relus une seule fois
+		if panes2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(panes2) > 0 {
+			panes, w, h, zoomed, visible = panes2, w2, h2, z2, v2
+			cps = corePanes(panes)
+		}
+	}
+	// teintes : actifs éclaircis, inactifs assombris (après la mise en page,
+	// qui remet la couleur de base) ; l'interface les reçoit tout de suite
+	if tc != nil && !ro {
+		for _, m := range tc.Members {
+			if m.PaneID == "" || m.PaneID == leader || !hasPane(panes, m.PaneID) {
+				continue
+			}
+			m := m
+			shade := core.PaneShade(cfg, t.color, &m, false)
+			core.SetPaneColor(t.cl(), cps, m.PaneID, shade)
+			for i := range panes {
+				if panes[i].ID == m.PaneID {
+					panes[i].Style = "bg=colour" + shade
+				}
+			}
+		}
 	}
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
+}
+
+// findTeam : config.json de la team du projet (compté pour les tests : une
+// recherche par tour).
+func (t *projTerm) findTeam() string {
+	atomic.AddInt32(&t.finds, 1)
+	return core.FindTeamConfig(t.path)
 }
 
 // heartbeat : propriétaire (#48) ; si un autre launcher a pris la main,
@@ -814,19 +833,19 @@ func (t *projTerm) relayout(force bool) {
 	if tp == "" && force {
 		t.a.setMsg("Relayout : aucune team trouvée pour " + t.name)
 	}
-	t.arrange(corePanes(panes), w, h, leaderID(ids.String()), tp)
-	t.poke()
-}
-
-func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader, tp string) {
-	if t.isReadOnly() || len(panes) <= 1 {
-		return
-	}
 	var tc *core.TeamConfig
 	if tp != "" {
 		if x, err := core.ReadTeam(tp); err == nil {
 			tc = &x
 		}
+	}
+	t.arrange(corePanes(panes), w, h, leaderID(ids.String()), tc)
+	t.poke()
+}
+
+func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) {
+	if t.isReadOnly() || len(panes) <= 1 {
+		return
 	}
 	ids := make([]string, len(panes))
 	for i, p := range panes {

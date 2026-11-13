@@ -18,16 +18,30 @@ func hostRefused() bool { return runtime.GOOS == "windows" }
 
 // ── Onglets ───────────────────────────────────────────────────────────────
 
-func (a *App) addTab(t *projTerm) {
+// addTab : enregistre t, sauf si le projet a déjà un onglet (deux ouvertures
+// simultanées : double-clic et Entrée, ou reattach) ; false : t n'est pas pris.
+func (a *App) addTab(t *projTerm) bool {
 	a.mu.Lock()
+	if a.terms[t.path] != nil {
+		a.mu.Unlock()
+		return false
+	}
 	a.terms[t.path] = t
 	a.order = append(a.order, t.path)
 	a.mu.Unlock()
 	a.changed()
+	return true
 }
 
-func (a *App) removeTab(path string) {
+// removeTab : retire l'onglet du projet path, s'il est encore celui de t
+// (t nil : quel qu'il soit) — une ancienne session qui se termine ne retire
+// pas l'onglet qui l'a remplacée.
+func (a *App) removeTab(path string, t *projTerm) {
 	a.mu.Lock()
+	if cur := a.terms[path]; cur == nil || t != nil && cur != t {
+		a.mu.Unlock()
+		return
+	}
 	delete(a.terms, path)
 	for i, p := range a.order {
 		if p == path {
@@ -42,10 +56,11 @@ func (a *App) removeTab(path string) {
 
 // detachTab : retire l'onglet sans fermer la session (elle continue dans tmux).
 func (a *App) detachTab(path string) {
-	if t := a.term(path); t != nil {
+	t := a.term(path)
+	if t != nil {
 		t.detach()
 	}
-	a.removeTab(path)
+	a.removeTab(path, t)
 }
 
 // open : Entrée / double-clic sur un projet. Projet déjà ouvert : son onglet
@@ -72,7 +87,9 @@ func (a *App) open(path string, mode core.LaunchMode) (any, error) {
 		}
 	}
 	t = newProjTerm(a, n, mode)
-	a.addTab(t)
+	if !a.addTab(t) {
+		return map[string]any{"tab": path}, nil // ouvert entre-temps par un autre appel
+	}
 	a.setMsg("")
 	go func() {
 		t.run()
@@ -97,7 +114,7 @@ func (a *App) reattach() {
 	a.mu.Unlock()
 	var back []string
 	if !hostRefused() {
-		c := exec.Command("tmux", "-L", deskSocket(), "list-sessions", "-F", "#{session_name}")
+		c := platform.NoWindow(exec.Command("tmux", "-L", deskSocket(), "list-sessions", "-F", "#{session_name}"))
 		c.Env = core.EnvWithout("TMUX", "TMUX_PANE")
 		if out, err := c.Output(); err == nil {
 			for _, s := range strings.Fields(string(out)) {
@@ -444,6 +461,9 @@ func (a *App) create(base, name string, raw bool, remote, image, backend string)
 		return nil, fmt.Errorf("%s", why)
 	}
 	dir := filepath.Join(base, strings.TrimSpace(name))
+	if _, err := os.Stat(dir); err == nil {
+		return nil, fmt.Errorf("ce dossier existe déjà")
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
@@ -519,7 +539,7 @@ func (t *projTerm) runPTY(argv []string) {
 	}
 	_ = term.Wait()
 	_ = term.Close()
-	t.a.removeTab(t.path)
+	t.a.removeTab(t.path, t)
 	go t.a.readUsage()
 }
 
@@ -529,7 +549,7 @@ func diagText() string {
 	if err != nil {
 		return err.Error()
 	}
-	c := exec.Command(exe, "backends")
+	c := platform.NoWindow(exec.Command(exe, "backends"))
 	c.Env = append(os.Environ(), "CL_NO_UPDATE=1")
 	out, err := c.CombinedOutput()
 	if err != nil && len(out) == 0 {
@@ -555,7 +575,7 @@ func toolsData() map[string]any {
 // comme la coque qui ferme claude-hub).
 func (a *App) quitApp(mode string) error {
 	if mode == "t" && !hostRefused() {
-		c := exec.Command("tmux", "-L", deskSocket(), "kill-server")
+		c := platform.NoWindow(exec.Command("tmux", "-L", deskSocket(), "kill-server"))
 		c.Env = core.EnvWithout("TMUX", "TMUX_PANE")
 		_ = c.Run()
 	}

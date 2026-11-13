@@ -4,6 +4,8 @@ package platform
 
 import (
 	"os"
+	"os/exec"
+	"syscall"
 
 	"golang.org/x/sys/windows"
 )
@@ -14,16 +16,13 @@ import (
 //     irait nulle part : AttachParentConsole la rattache à la console de
 //     l'invite qui l'a lancé ;
 //   - chaque outil lancé (git, docker, kubectl, ssh) ouvrirait sa propre
-//     fenêtre de console : HiddenConsole donne à l'application une console
-//     masquée, héritée par ces processus.
+//     fenêtre de console : NoWindow le lance sans console (CREATE_NO_WINDOW).
+//     Pas de console allouée puis masquée : avec Windows Terminal comme
+//     terminal par défaut (Windows 11), elle resterait visible et vide.
 
 var (
-	kernel32         = windows.NewLazySystemDLL("kernel32.dll")
-	user32           = windows.NewLazySystemDLL("user32.dll")
-	procAttach       = kernel32.NewProc("AttachConsole")
-	procAlloc        = kernel32.NewProc("AllocConsole")
-	procGetConsoleWn = kernel32.NewProc("GetConsoleWindow")
-	procShowWindow   = user32.NewProc("ShowWindow")
+	kernel32   = windows.NewLazySystemDLL("kernel32.dll")
+	procAttach = kernel32.NewProc("AttachConsole")
 )
 
 const attachParentProcess = ^uintptr(0) // (DWORD)-1
@@ -63,16 +62,16 @@ func AttachParentConsole() {
 	}
 }
 
-// HiddenConsole : console masquée pour l'interface graphique, héritée par les
-// outils qu'elle lance (pas de fenêtre noire à chaque git ou docker).
-func HiddenConsole() {
-	if w, _, _ := procGetConsoleWn.Call(); w != 0 {
-		return // déjà une console (lancé depuis une invite) : rien à faire
+// noWindowFlags : CREATE_NO_WINDOW, l'outil n'a pas de fenêtre de console.
+const noWindowFlags = windows.CREATE_NO_WINDOW
+
+// NoWindow : c sera lancé sans fenêtre de console (outil en ligne de commande
+// lancé par l'application graphique ; ses entrées/sorties sont des tuyaux).
+func NoWindow(c *exec.Cmd) *exec.Cmd {
+	if c.SysProcAttr == nil {
+		c.SysProcAttr = &syscall.SysProcAttr{}
 	}
-	if r, _, _ := procAlloc.Call(); r == 0 {
-		return
-	}
-	if w, _, _ := procGetConsoleWn.Call(); w != 0 {
-		_, _, _ = procShowWindow.Call(w, 0) // SW_HIDE
-	}
+	c.SysProcAttr.HideWindow = true
+	c.SysProcAttr.CreationFlags |= noWindowFlags
+	return c
 }

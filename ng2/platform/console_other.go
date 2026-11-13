@@ -2,7 +2,11 @@
 
 package platform
 
-// AttachParentConsole / HiddenConsole : propres à l'exécutable graphique
-// Windows (console_windows.go) ; rien à faire ailleurs.
+import "os/exec"
+
+// AttachParentConsole / NoWindow : propres à l'exécutable graphique Windows
+// (console_windows.go) ; rien à faire ailleurs.
 func AttachParentConsole() {}
-func HiddenConsole()       {}
+
+// NoWindow : sans effet hors Windows (c inchangé).
+func NoWindow(c *exec.Cmd) *exec.Cmd { return c }

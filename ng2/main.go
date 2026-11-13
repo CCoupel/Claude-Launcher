@@ -40,14 +40,11 @@ func main() {
 	if runtime.GOOS == "windows" && cmd == "shell" {
 		cmd = "desktop" // Windows : sans argument, l'interface native (#111)
 	}
-	if runtime.GOOS == "windows" {
-		// exécutable graphique : console de l'invite pour la ligne de commande,
-		// console masquée pour la fenêtre (outils lancés sans fenêtre noire)
-		if cmd == "desktop" && !slices.Contains(os.Args, "--web") {
-			platform.HiddenConsole()
-		} else {
-			platform.AttachParentConsole()
-		}
+	if runtime.GOOS == "windows" && !(cmd == "desktop" && !slices.Contains(os.Args, "--web")) {
+		// exécutable graphique : en ligne de commande, la sortie va à la console
+		// de l'invite (la fenêtre, elle, n'en a pas : outils lancés sans console,
+		// platform.NoWindow)
+		platform.AttachParentConsole()
 	}
 	if runtime.GOOS == "windows" && windowsUnsupported[cmd] {
 		fmt.Fprintf(os.Stderr, "« %s » : coque tmux indisponible sous Windows (interface native : #111) — disponibles : backends, configure, help, version\n", cmd)
@@ -62,7 +59,9 @@ func main() {
 	var err error
 	switch cmd {
 	case "shell":
-		core.SelfUpdate()
+		if startupUpdate(cmd) {
+			core.SelfUpdate()
+		}
 		core.LinkUsageCache()
 		core.ResetUsageBackoff()
 		bar := core.StartProgress("Nettoyage des teams")
@@ -107,7 +106,8 @@ func main() {
 	case "ctr-attach": // fenêtre d'un projet en conteneur (lancée par tmux)
 		err = tmux.CtrAttachMain(os.Args[2:])
 	case "desktop": // interface native (Wails), ou web (--web) ; défaut sous Windows
-		core.SelfUpdate()
+		// pas de mise à jour bloquante avant la fenêtre : l'annonce du bandeau
+		// (orange → jaune → vert) la prépare, un clic l'installe (startupUpdate)
 		core.LinkUsageCache()
 		core.ResetUsageBackoff()
 		var args []string
@@ -133,3 +133,8 @@ func main() {
 		os.Exit(1)
 	}
 }
+
+// startupUpdate : mise à jour au lancement, avant l'interface (coque tmux :
+// oui ; fenêtre native : non, elle passe par son bandeau sans faire attendre
+// une fenêtre vide, console cachée).
+func startupUpdate(cmd string) bool { return cmd != "desktop" }

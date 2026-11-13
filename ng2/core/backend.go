@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"claude-launcher-ng2/platform"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -531,7 +532,7 @@ var DetectedEngines = sync.OnceValue(func() []string {
 			continue
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
-		err := exec.CommandContext(ctx, t, "version", "--format", "{{.Client.Version}}").Run()
+		err := platform.NoWindow(exec.CommandContext(ctx, t, "version", "--format", "{{.Client.Version}}")).Run()
 		cancel()
 		if err == nil {
 			out = append(out, t)
@@ -858,7 +859,7 @@ func (e Engine) quick(args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), listTimeout)
 	defer cancel()
 	a := e.cli(args...)
-	out, err := exec.CommandContext(ctx, a[0], a[1:]...).Output()
+	out, err := platform.NoWindow(exec.CommandContext(ctx, a[0], a[1:]...)).Output()
 	if ctx.Err() != nil {
 		return nil, fmt.Errorf("%s : pas de réponse en %s", e.B.Host, listTimeout)
 	}
@@ -867,7 +868,7 @@ func (e Engine) quick(args ...string) ([]byte, error) {
 
 func (e Engine) cmd(args ...string) *exec.Cmd {
 	a := e.cli(args...)
-	return exec.Command(a[0], a[1:]...)
+	return platform.NoWindow(exec.Command(a[0], a[1:]...))
 }
 
 // dnsSlug : s réduit à un label DNS (minuscules, chiffres, « - »), au plus max
@@ -1145,7 +1146,7 @@ func (e Engine) ExecArgv(name string, root, tty bool, argv ...string) []string {
 
 func (e Engine) Exec(name string, root bool, stdin io.Reader, out io.Writer, argv ...string) error {
 	a := e.ExecArgv(name, root, false, argv...)
-	c := exec.Command(a[0], a[1:]...)
+	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
 	c.Stdin, c.Stdout, c.Stderr = stdin, out, out
 	return c.Run()
 }
@@ -1159,7 +1160,7 @@ func ctrUIDGID() string {
 func (e Engine) Output(name string, argv ...string) (string, error) {
 	var b bytes.Buffer
 	a := e.ExecArgv(name, false, false, argv...)
-	c := exec.Command(a[0], a[1:]...)
+	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
 	c.Stdout = &b
 	err := c.Run()
 	return strings.TrimSpace(b.String()), err

@@ -34,29 +34,39 @@ type Reply struct {
 // decoder : lignes → réponses et notifications.
 type decoder struct {
 	in   bool
+	tag  string // « horodatage numéro » du %begin en cours
 	body []byte
-	err  bool
+}
+
+// blockTag : « horodatage numéro » d'une ligne %begin / %end / %error
+// (le drapeau qui suit est ignoré).
+func blockTag(rest string) string {
+	f := strings.Fields(rest)
+	if len(f) < 2 {
+		return ""
+	}
+	return f[0] + " " + f[1]
 }
 
 // feed : une ligne (sans le saut de ligne) ; rend une réponse complète ou une
-// notification (au plus une des deux).
+// notification (au plus une des deux). Dans un bloc, seule la ligne %end ou
+// %error qui porte l'horodatage et le numéro du %begin le ferme : une ligne
+// de sortie qui commence par « %end » (capture-pane…) reste dans la réponse.
 func (d *decoder) feed(line string) (r *Reply, n *Notif) {
 	line = strings.TrimSuffix(line, "\r")
 	if d.in {
-		switch {
-		case strings.HasPrefix(line, "%end ") || line == "%end":
-			d.in = false
-			return &Reply{Body: d.body, Err: false}, nil
-		case strings.HasPrefix(line, "%error ") || line == "%error":
-			d.in = false
-			return &Reply{Body: d.body, Err: true}, nil
+		for _, end := range []string{"%end ", "%error "} {
+			if rest, ok := strings.CutPrefix(line, end); ok && blockTag(rest) == d.tag {
+				d.in = false
+				return &Reply{Body: d.body, Err: end == "%error "}, nil
+			}
 		}
 		d.body = append(d.body, line...)
 		d.body = append(d.body, '\n')
 		return nil, nil
 	}
-	if strings.HasPrefix(line, "%begin") {
-		d.in, d.body = true, nil
+	if rest, ok := strings.CutPrefix(line, "%begin "); ok {
+		d.in, d.body, d.tag = true, nil, blockTag(rest)
 		return nil, nil
 	}
 	if !strings.HasPrefix(line, "%") {

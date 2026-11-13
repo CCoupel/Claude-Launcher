@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/platform"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -302,7 +303,7 @@ func OnGitHub(dir string) bool {
 func ghJSON(dir, token string, v any, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "gh", args...)
+	cmd := platform.NoWindow(exec.CommandContext(ctx, "gh", args...))
 	cmd.Dir = dir
 	cmd.Env = os.Environ()
 	if token != "" && os.Getenv("GH_TOKEN") == "" {

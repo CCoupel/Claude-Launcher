@@ -191,18 +191,27 @@ func (a *App) install(tag, path, sum string) {
 	}
 }
 
-// restartApp : relance le binaire installé (nouvelle fenêtre) et quitte.
+// restartApp : relance le binaire installé (nouvelle fenêtre) et quitte ; le
+// mode web la remplace (même adresse, port libéré d'abord, web.go).
 var restartApp = func() {
-	exe, err := platform.SelfExe()
-	if err != nil {
-		return
-	}
-	c := exec.Command(exe, os.Args[1:]...)
-	c.Env = append(os.Environ(), "CL_NO_UPDATE=1")
-	if c.Start() == nil {
+	if relaunch(os.Args[1:]...) == nil {
 		time.Sleep(300 * time.Millisecond)
 		quitHook()
 	}
+}
+
+// restartEnv : variables ajoutées pour le binaire relancé.
+var restartEnv []string
+
+// relaunch : lance le binaire installé avec args, sans mise à jour au démarrage.
+func relaunch(args ...string) error {
+	exe, err := platform.SelfExe()
+	if err != nil {
+		return err
+	}
+	c := exec.Command(exe, args...)
+	c.Env = append(append(os.Environ(), "CL_NO_UPDATE=1"), restartEnv...)
+	return c.Start()
 }
 
 // quitHook : fermeture de l'interface (Wails : runtime.Quit ; web : sortie).

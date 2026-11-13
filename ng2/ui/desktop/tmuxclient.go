@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bufio"
+	"claude-launcher-ng2/platform"
 	"errors"
 	"fmt"
 	"io"
@@ -43,7 +44,7 @@ type tmuxClient struct {
 // startClient : lance argv (… tmux -C attach-session …) ; notify reçoit les
 // notifications, dans l'ordre, depuis la goroutine de lecture.
 func startClient(argv []string, notify func(Notif)) (*tmuxClient, error) {
-	cmd := exec.Command(argv[0], argv[1:]...)
+	cmd := platform.NoWindow(exec.Command(argv[0], argv[1:]...))
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
