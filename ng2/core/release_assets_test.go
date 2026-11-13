@@ -17,7 +17,7 @@ func TestReleaseAssetsMatchUpdater(t *testing.T) {
 	y := string(b)
 	exe := ngAssetFor("windows", "amd64")
 	for _, want := range []string{
-		"-o ../dist/" + exe + " .",              // build Windows
+		"-o ../dist/" + exe + " .",               // build Windows
 		"sha256sum claude-launcher-ng2-* " + exe, // dans SHA256SUMS
 		"dist/" + exe,                            // publié
 		"-tags desktop,production",               // interface native Wails
