@@ -83,6 +83,10 @@ func ReadState(project string) (ps ProjState, mtime time.Time, ok bool) {
 	return ps, st.ModTime(), true
 }
 
+// ComputeState : état d'un projet calculé tout de suite, sans le cache (repli
+// des cartes quand le cache n'est pas encore prêt).
+func ComputeState(project string) ProjState { return computeState(project) }
+
 func computeState(project string) ProjState {
 	latest := ReadTrim(TplCommitPath())
 	return ProjState{

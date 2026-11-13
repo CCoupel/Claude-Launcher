@@ -698,7 +698,7 @@ function helpBox() {
     }
     b.append(el('h3', '', 'Légende des icônes'));
     const g = el('div', 'helpgrid');
-    for (const l of h.legend || []) g.append(el('span', 'k ' + tone({ color: l.tone, bold: l.bold }), l.icon), el('span', '', l.text));
+    for (const l of h.legend || []) g.append(el('span', 'li ' + tone({ color: l.tone, bold: l.bold }), l.icon), el('span', '', l.text));
     b.appendChild(g);
     const btns = el('div', 'btns'); const c = el('button', 'btn pri', 'Fermer'); c.onclick = closeModal; btns.appendChild(c); b.appendChild(btns);
   });

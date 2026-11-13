@@ -664,6 +664,10 @@ func (a *App) Cards() Cards {
 
 	c := Cards{Path: n.Path, Name: n.Name, Open: p.Open}
 	ps, _, loaded := core.ReadState(n.Path)
+	if !loaded {
+		// cache pas encore préparé (premier lancement) : calcul direct, gardé 30 s
+		ps, loaded = a.directState(n.Path), true
+	}
 	if loaded {
 		c.Loaded = true
 		c.Updated = ageText(ps.UpdatedAt)
@@ -693,6 +697,22 @@ func (a *App) Cards() Cards {
 			Model: strings.TrimPrefix(tm.Model, "claude-"), Effort: tm.Effort, Claude: tm.Claude, Count: tm.Count})
 	}
 	return c
+}
+
+var direct = struct {
+	sync.Mutex
+	m map[string]core.ProjState
+}{m: map[string]core.ProjState{}}
+
+func (a *App) directState(p string) core.ProjState {
+	direct.Lock()
+	defer direct.Unlock()
+	if ps, ok := direct.m[p]; ok && time.Since(ps.UpdatedAt) < 30*time.Second {
+		return ps
+	}
+	ps := core.ComputeState(p)
+	direct.m[p] = ps
+	return ps
 }
 
 // releaseSpans : core.ReleaseText, en morceaux colorés.
