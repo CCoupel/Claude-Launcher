@@ -149,12 +149,49 @@ function visibleRows() {
     const f = S.filter.toLowerCase();
     return rows.filter((r) => r.kind === 'project' && r.name.toLowerCase().includes(f));
   }
-  return rows.filter((r) => !hiddenByCollapse(r, rows));
+  // sous une racine ou catégorie repliée (#123) : masqué jusqu'à la ligne
+  // suivante de même niveau ou de niveau supérieur
+  const out = [];
+  let hide = Infinity;
+  for (const r of rows) {
+    const lv = level(r);
+    if (lv <= hide) hide = Infinity;
+    if (hide !== Infinity) continue;
+    out.push(r);
+    if (r.kind !== 'project' && isCollapsed(r.path)) hide = lv;
+  }
+  return out;
 }
 function projectRows() { return visibleRows().filter((r) => r.kind === 'project'); }
-// hiddenByCollapse : une ligne sous une racine ou catégorie repliée (#123).
-function hiddenByCollapse() { return false; }
-function isCollapsed() { return false; }
+
+// ── Repli des racines et catégories (#123), mémorisé dans le cache du launcher
+const prefs = {
+  v: {}, timer: null, pending: {},
+  get(k, d) { return this.v[k] === undefined ? d : this.v[k]; },
+  set(k, val) {
+    this.v[k] = val; this.pending[k] = val;
+    clearTimeout(this.timer);
+    this.timer = setTimeout(() => { const p = this.pending; this.pending = {}; call('setPrefs', p).catch(() => {}); }, 300);
+  },
+};
+function isCollapsed(path) { return (prefs.get('collapsed', [])).includes(path); }
+function setCollapsed(path, on) {
+  const c = prefs.get('collapsed', []).filter((x) => x !== path);
+  if (on) c.push(path);
+  prefs.set('collapsed', c);
+  renderTree();
+}
+function toggleNode(path) { setCollapsed(path, !isCollapsed(path)); }
+function rowOf(path) { return ((S.snap && S.snap.rows) || []).find((r) => r.path === path); }
+// parentOf : racine ou catégorie qui contient la ligne visible path.
+function parentOf(path) {
+  const rows = visibleRows();
+  const i = rows.findIndex((r) => r.path === path);
+  if (i < 0) return null;
+  const lv = level(rows[i]);
+  for (let j = i - 1; j >= 0; j--) if (level(rows[j]) < lv) return rows[j].path;
+  return null;
+}
 
 function badgeCells(r) {
   const cols = el('span', 'cols');
@@ -303,7 +340,8 @@ function renderCards() {
 function select(path, opts) {
   if (!path) return;
   S.cursor = path;
-  if (path !== 'new') {
+  const row = rowOf(path);
+  if (path !== 'new' && row && row.kind === 'project') {
     call('select', { path });
     const v = S.views[path];
     if (v && opts && opts.showTab) showView(path);
@@ -312,7 +350,7 @@ function select(path, opts) {
 }
 
 function move(d) {
-  const ps = projectRows().map((r) => r.path).concat(['new']);
+  const ps = visibleRows().map((r) => r.path).concat(['new']);
   let i = ps.indexOf(S.cursor);
   if (i < 0) i = 0; else i = Math.max(0, Math.min(ps.length - 1, i + d));
   select(ps[i]);
@@ -343,8 +381,11 @@ $('tree').addEventListener('click', (e) => {
   const dbl = S.lastClick.key === path && now - S.lastClick.at < 450;
   S.lastClick = { key: path, at: now };
   if (!row.classList.contains('project')) {
+    // double-clic : créer un projet ici (comme la coque) ; clic : replier / déplier
     if (dbl) { S.lastClick.key = null; if (row.classList.contains('missing')) flash('⚠ ' + path + ' inaccessible (montage perdu ?)'); else newProject(path); return; }
-    showView('leaders'); return;
+    S.cursor = path;
+    toggleNode(path);
+    return;
   }
   if (e.ctrlKey || e.metaKey) { select(path); askClose(path); return; }
   select(path);
@@ -369,10 +410,25 @@ document.addEventListener('keydown', (e) => {
     case 'ArrowDown': move(1); return handled();
     case 'PageUp': move(-10); return handled();
     case 'PageDown': move(10); return handled();
-    case 'Enter': if (S.cursor) openProject(S.cursor); return handled();
-    case 'Delete': if (S.cursor && S.cursor !== 'new') askClose(S.cursor); return handled();
+    case 'ArrowLeft': {
+      const r = rowOf(S.cursor);
+      if (r && r.kind !== 'project' && !isCollapsed(r.path) && !S.filter) setCollapsed(r.path, true);
+      else { const par = parentOf(S.cursor); if (par) select(par); }
+      return handled();
+    }
+    case 'ArrowRight': {
+      const r = rowOf(S.cursor);
+      if (r && r.kind !== 'project' && !S.filter) { if (isCollapsed(r.path)) setCollapsed(r.path, false); else move(1); }
+      return handled();
+    }
+    case 'Enter': {
+      const r = rowOf(S.cursor);
+      if (r && r.kind !== 'project') toggleNode(r.path); else if (S.cursor) openProject(S.cursor);
+      return handled();
+    }
+    case 'Delete': if (isProject(S.cursor)) askClose(S.cursor); return handled();
     case 'F1': helpBox(); return handled();
-    case 'F2': if (S.cursor && S.cursor !== 'new') execF2(S.cursor); return handled();
+    case 'F2': if (isProject(S.cursor)) execF2(S.cursor); return handled();
     case 'F5': call('refresh'); return handled();
     case 'Tab': focusTerminal(); return handled();
     case 'Escape':
@@ -392,6 +448,8 @@ document.addEventListener('keydown', (e) => {
   }
   if (k.length === 1 && !e.altKey && !e.metaKey) { S.filter += k; afterFilter(); return handled(); }
 });
+
+function isProject(path) { const r = rowOf(path); return !!(r && r.kind === 'project'); }
 
 function afterFilter() {
   const ps = projectRows();
@@ -891,6 +949,7 @@ function applyState(s) {
 
 function applyInit(r) {
   S.help = r.help; S.tools = r.tools;
+  prefs.v = r.prefs || {};
   applyState(r.state);
   S.cards = r.cards; renderCards();
 }

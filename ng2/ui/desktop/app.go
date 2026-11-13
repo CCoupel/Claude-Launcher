@@ -875,7 +875,13 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 	}
 	switch method {
 	case "init":
-		return map[string]any{"state": a.Snapshot(), "cards": a.Cards(), "help": helpData(), "tools": toolsData()}, nil
+		return map[string]any{"state": a.Snapshot(), "cards": a.Cards(), "help": helpData(), "tools": toolsData(), "prefs": loadPrefs()}, nil
+	case "setPrefs": // préférences d'affichage (#123, #124) : objet fusionné
+		var patch map[string]any
+		if err := json.Unmarshal(raw, &patch); err != nil {
+			return nil, fmt.Errorf("setPrefs : %v", err)
+		}
+		return savePrefs(patch), nil
 	case "select":
 		a.mu.Lock()
 		changed := a.sel != arg.Path
