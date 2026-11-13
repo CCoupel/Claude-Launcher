@@ -14,7 +14,7 @@ func asset(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(b)
+	return strings.ReplaceAll(string(b), "\r\n", "\n") // extraction Windows : CRLF possibles
 }
 
 // #132 : arbre compact par défaut (hauteur de ligne proche de la coque),
