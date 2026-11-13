@@ -47,6 +47,7 @@ type hubConf struct {
 	Windows *hubOSConf `yaml:"windows"`
 	Linux   *hubOSConf `yaml:"linux"`
 	Darwin  *hubOSConf `yaml:"darwin"`
+	warns   []string   // clés inconnues, ignorées (hubos.go)
 }
 
 // winHostRe : C:\…, C: ou UNC \\serveur\… (dont \\wsl.localhost\…).

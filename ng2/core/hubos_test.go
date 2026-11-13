@@ -204,31 +204,115 @@ hubs:
 	}
 }
 
-// Clés inconnues d'une surcharge refusées (comme les pools), le reste du
-// fichier lu ; LoadBackends les signale.
+// Fautes de frappe dans une surcharge par système : avertissement avec la
+// ligne, clé ignorée, le reste du bloc et du fichier s'applique ; jamais
+// d'erreur (config partagée avec le hub Linux de production).
 func TestHubOSUnknownKeys(t *testing.T) {
-	for y, want := range map[string]string{
-		"hubs:\n  MSI:\n    browser_server: { listen: \"8080\" }\n    windows:\n      browser_sever: { listen: \"8081\" }\n": `clé "browser_sever" inconnue`,
-		"hubs:\n  MSI:\n    browser_server: { listen: \"8080\" }\n    windows:\n      linux: {}\n":                           `clé "linux" inconnue`,
-		"hubs:\n  MSI:\n    browser_server: { listen: \"8080\" }\n    windows: [8081]\n":                                     "objet attendu",
-	} {
+	head := "hubs:\n  MSI:\n    browser_server: { listen: \"8080\" }\n    windows:\n      browser_device: dev-win\n"
+	cases := []struct{ y, want string }{
+		{head + "      browser_sever: { listen: \"8081\" }\n", `ligne 6 : clé "browser_sever" inconnue, ignorée — vouliez-vous dire browser_server ?`},
+		{head + "      linux: {}\n", `ligne 6 : surcharge "linux" imbriquée`},
+		{head + "      browser_server: nimporte\n", "valeur illisible, ignorée"},
+		{"hubs:\n  MSI:\n    browser_server: { listen: \"8080\" }\n    windows: [8081]\n", "ligne 4 : objet attendu"},
+	}
+	for _, c := range cases {
 		var f backendsFile
-		err := yaml.Unmarshal([]byte(y), &f)
-		if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "ligne ") {
-			t.Errorf("%q : %v", y, err)
+		if err := yaml.Unmarshal([]byte(c.y), &f); err != nil {
+			t.Errorf("%q : erreur %v", c.y, err)
 		}
-		if c, _ := resolveBrowserServerFor(f, "MSI", "linux"); c.Listen != "127.0.0.1:8080" {
-			t.Errorf("%q : reste du fichier perdu : %+v", y, c)
+		ws := hubConfigWarnings(f)
+		if len(ws) != 1 || !strings.HasPrefix(ws[0], "hubs.MSI.windows : ") || !strings.Contains(ws[0], c.want) {
+			t.Errorf("%q : %q", c.y, ws)
 		}
-		writeBackends(t, y+"backends: {}\n")
-		if _, err := LoadBackends(); err == nil || !strings.Contains(err.Error(), want) {
-			t.Errorf("LoadBackends %q : %v", y, err)
+		// valeurs valides appliquées : port Linux commun, Windows sur le défaut
+		if l, _ := resolveBrowserServerFor(f, "MSI", "linux"); l.Listen != "127.0.0.1:8080" {
+			t.Errorf("%q : linux %+v", c.y, l)
+		}
+		if w, _ := resolveBrowserServerFor(f, "MSI", "windows"); w.Listen != "127.0.0.1:8080" {
+			t.Errorf("%q : windows %+v", c.y, w)
+		}
+		if strings.Contains(c.y, "browser_device") {
+			if id, _ := browserDeviceFor(f, "MSI", "windows"); id != "dev-win" {
+				t.Errorf("%q : reste du bloc perdu (%q)", c.y, id)
+			}
+		}
+		writeBackends(t, c.y+"backends: {}\n")
+		if _, err := LoadBackends(); err != nil {
+			t.Errorf("LoadBackends %q : %v", c.y, err)
 		}
 	}
-	// toutes les clés connues
+	// toutes les clés connues : aucun avertissement
 	var f backendsFile
-	if err := yaml.Unmarshal([]byte("hubs:\n  MSI:\n    linux: { browser_server: {}, browser_paths: [], browser_device: x, paths: [], remote_user: {} }\n"), &f); err != nil {
-		t.Error(err)
+	if err := yaml.Unmarshal([]byte("hubs:\n  MSI:\n    linux: { browser_server: {}, browser_paths: [], browser_device: x, paths: [], remote_user: {} }\n"), &f); err != nil || len(hubConfigWarnings(f)) != 0 {
+		t.Error(err, hubConfigWarnings(f))
+	}
+	if ws := hubConfigWarnings(parseBackendsYAML(t, sharedMSI)); len(ws) != 0 {
+		t.Errorf("config valide : %q", ws)
+	}
+}
+
+// Clés inconnues directement sous hubs.<machine> (avant : ignorées en
+// silence) : avertissement avec suggestion, clés connues inchangées.
+func TestHubUnknownKeys(t *testing.T) {
+	y := `
+hubs:
+  MSI:
+    browser_server: { listen: 127.0.0.1:8080 }
+    window:
+      browser_server: { listen: 127.0.0.1:8081 }
+    browser_sever: { listen: "9999" }
+    macos: {}
+    zzz: 1
+    paths:
+      - { local: '\\wsl.localhost\Ubuntu\share\MFS', remote: /share/MFS }
+backends: {}
+`
+	var f backendsFile
+	if err := yaml.Unmarshal([]byte(y), &f); err != nil {
+		t.Fatal(err)
+	}
+	ws := hubConfigWarnings(f)
+	want := []string{
+		`hubs.MSI : ligne 5 : clé "window" inconnue, ignorée — vouliez-vous dire windows ?`,
+		`hubs.MSI : ligne 7 : clé "browser_sever" inconnue, ignorée — vouliez-vous dire browser_server ?`,
+		`hubs.MSI : ligne 8 : clé "macos" inconnue, ignorée — vouliez-vous dire darwin ?`,
+		`hubs.MSI : ligne 9 : clé "zzz" inconnue, ignorée (clés : `,
+	}
+	if len(ws) != len(want) {
+		t.Fatalf("%q", ws)
+	}
+	for i, w := range want {
+		if !strings.HasPrefix(ws[i], w) {
+			t.Errorf("%d : %q, attendu %q", i, ws[i], w)
+		}
+	}
+	// clés connues appliquées, clés inconnues sans effet
+	for _, goos := range []string{"linux", "windows", ""} {
+		if c, _ := resolveBrowserServerFor(f, "MSI", goos); c.Listen != "127.0.0.1:8080" {
+			t.Errorf("%q : %+v", goos, c)
+		}
+	}
+	if hs := resolveHubSettingsFor(f, "MSI", "windows"); hs.paths.Empty() {
+		t.Error("paths perdus")
+	}
+	writeBackends(t, y)
+	if _, err := LoadBackends(); err != nil {
+		t.Errorf("LoadBackends : %v", err)
+	}
+	if ws := HubConfigWarnings(); len(ws) != 4 {
+		t.Errorf("HubConfigWarnings : %q", ws)
+	}
+}
+
+func TestSuggestKey(t *testing.T) {
+	for k, want := range map[string]string{
+		"window": "windows", "Windows": "windows", "linus": "linux", "darwn": "darwin", "win": "windows", "osx": "darwin",
+		"browser_sever": "browser_server", "browserserver": "browser_server", "browser_path": "browser_paths",
+		"path": "paths", "remote_usr": "remote_user", "zzz": "", "listen": "", "url": "",
+	} {
+		if got := suggestKey(k, hubKeys); got != want {
+			t.Errorf("%q : %q, attendu %q", k, got, want)
+		}
 	}
 }
 

@@ -894,9 +894,14 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
   - **Surcharge par système** : `hubs.<machine>.windows`, `.linux` et `.darwin` reprennent les
     réglages de `hubs.<machine>` pour ce système seulement, clé par clé : `browser_server` (champ
     par champ : `listen`, `url`, `allow`), `browser_paths`, `browser_device`, `paths` et
-    `remote_user`. Une clé inconnue y est refusée (`backends` donne la ligne). Un `listen` fixé
-    dans `hubs.MSI.browser_server` vaut pour les deux systèmes : il faut alors donner son port à
-    Windows.
+    `remote_user`. Un `listen` fixé dans `hubs.MSI.browser_server` vaut pour les deux systèmes :
+    il faut alors donner son port à Windows.
+  - **Fautes de frappe : avertissement, jamais d'erreur** (le fichier est partagé avec le hub de
+    production). Une clé inconnue sous `hubs.<machine>` ou dans un bloc de système est ignorée, le
+    reste du bloc et du fichier s'applique. `backends` la signale avec sa ligne, et une suggestion
+    si elle ressemble à une clé connue :
+    `hubs.MSI : ligne 4 : clé "window" inconnue, ignorée — vouliez-vous dire windows ?`. Le
+    menu du hub (pane de navigation) affiche le premier avertissement au démarrage.
 
     ```yaml
     hubs:
