@@ -189,10 +189,16 @@ defaults: { backend: podman, image: docker.io/library/debian:12 }
   (client absent, démon non exposé, ssh, podman absent, partage non monté, namespace, PVC…) ;
   elle liste aussi les outils externes (`ssh`, `git`, `docker`/`podman`, `kubectl`, `gh`) qu'exigent
   les backends déclarés.
-- **Windows (v6, en cours)** : backends distants seulement (`host` et moteurs locaux refusés) ; le
+- **Windows (v6, en cours)** : `claude-launcher-ng2.exe` sans argument ouvre l'**interface
+  native** (Wails + WebView2) : même arbre des projets et mêmes icônes, cartes ◈ État, onglet
+  ⌗ Teamleaders, et un onglet par projet ouvert dont chaque agent est un terminal (tmux du
+  conteneur en mode contrôle, même mise en page des teams que la coque). Sous Linux, la coque tmux
+  reste le défaut ; `claude-launcher-ng2 desktop` ouvre la même interface dans le navigateur.
+  Backends distants seulement sous Windows (`host` et moteurs locaux refusés) ; le
   partage vu du poste (`\\wsl.localhost\…`) est relié aux chemins Linux par `hubs.<machine>.paths`
-  dans `backends.yaml`, outils installables par `winget`. Détails :
-  [`ng2/README.md` — Windows](ng2/README.md#windows-v6-en-cours).
+  dans `backends.yaml`, outils installables par `winget`, runtime WebView2 requis. Détails :
+  [`ng2/README.md` — Windows](ng2/README.md#windows-v6-en-cours) et
+  [Interface native](ng2/README.md#interface-native-desktop).
 - **Launcher arrêté** : la session du conteneur (claude et ses teammates) continue ; au relancement,
   NG2 la retrouve et rattache sa fenêtre.
 - **Plusieurs launchers sur un même projet** : un seul le pilote ; les autres peuvent le rejoindre en
