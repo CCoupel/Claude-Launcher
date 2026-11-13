@@ -17,62 +17,35 @@ func asset(t *testing.T, name string) string {
 	return strings.ReplaceAll(string(b), "\r\n", "\n") // extraction Windows : CRLF possibles
 }
 
-// #132 : arbre compact par défaut (hauteur de ligne proche de la coque),
-// confortable sur demande ; la ligne prend sa hauteur de la densité.
-func TestTreeDensity(t *testing.T) {
-	css, js := asset(t, "style.css"), asset(t, "app.js")
-	px := func(re string) int {
-		m := regexp.MustCompile(re).FindStringSubmatch(css)
-		if m == nil {
-			t.Fatalf("%s absent de style.css", re)
-		}
-		n, _ := strconv.Atoi(m[1])
-		return n
-	}
-	compact := px(`:root \{ --rowh: (\d+)px;`)
-	comfortable := px(`body\.comfortable \{ --rowh: (\d+)px;`)
-	if compact > 24 || comfortable < 28 || compact >= comfortable {
-		t.Errorf("hauteurs : compacte %d px, confortable %d px", compact, comfortable)
-	}
-	if !strings.Contains(css, "height: var(--rowh)") {
-		t.Error("la ligne de l'arbre ne suit pas la densité")
-	}
-	if !strings.Contains(js, "setDensity(prefs.get('density', 'compact'), true)") {
-		t.Error("densité par défaut : compacte, mémorisée")
-	}
-}
-
-// #132 rouvert : compacte à la densité de la coque (une ligne de texte, pas
-// de marge verticale) et décalage d'environ 1 à 1,5 caractère par niveau,
-// chevron compris (la pastille d'un projet prend la place du chevron) ; la
-// densité confortable garde l'Explorateur.
+// #132 : arbre compact à la densité de la coque (une ligne de texte, pas de
+// marge verticale), décalage d'environ 1 à 1,5 caractère par niveau, chevron
+// compris (la pastille d'un projet prend la place du chevron) ; une seule
+// densité (le commutateur a été retiré à la demande de l'utilisateur).
 func TestTreeCompactIndent(t *testing.T) {
-	css, js := asset(t, "style.css"), asset(t, "app.js")
-	vars := func(sel string) map[string]int {
-		m := regexp.MustCompile(sel + ` \{ (--rowh:[^}]*)\}`).FindStringSubmatch(css) // celui de la densité
-		if m == nil {
-			t.Fatalf("%s absent de style.css", sel)
-		}
-		out := map[string]int{}
-		for _, v := range regexp.MustCompile(`--([a-z]+): (\d+)px`).FindAllStringSubmatch(m[1], -1) {
-			out[v[1]], _ = strconv.Atoi(v[2])
-		}
-		return out
+	css, js, html := asset(t, "style.css"), asset(t, "app.js"), asset(t, "index.html")
+	m := regexp.MustCompile(`:root \{ (--rowh:[^}]*)\}`).FindStringSubmatch(css)
+	if m == nil {
+		t.Fatal("variables de l'arbre absentes de style.css")
 	}
-	c, w := vars(`:root`), vars(`body\.comfortable`)
+	c := map[string]int{}
+	for _, v := range regexp.MustCompile(`--([a-z]+): (\d+)px`).FindAllStringSubmatch(m[1], -1) {
+		c[v[1]], _ = strconv.Atoi(v[2])
+	}
 	const char = 8 // largeur moyenne d'un caractère à 12,5 px (7,6 px mesurés)
 	if c["rowh"] > 18 || c["rowgap"] != 0 {
-		t.Errorf("ligne compacte : %d px, marge %d px", c["rowh"], c["rowgap"])
+		t.Errorf("ligne : %d px, marge %d px", c["rowh"], c["rowgap"])
 	}
 	// niveau : décalage ; catégorie → projet : décalage + pastille − chevron
 	if c["indent"] < char || c["indent"] > 3*char/2 || c["indent"]+c["dotw"]-c["chevw"] > 3*char/2 {
-		t.Errorf("décalage compact : %d px par niveau (chevron %d, pastille %d)", c["indent"], c["chevw"], c["dotw"])
+		t.Errorf("décalage : %d px par niveau (chevron %d, pastille %d)", c["indent"], c["chevw"], c["dotw"])
 	}
-	if w["rowh"] < 28 || w["indent"] != 16 || w["chevw"] != 16 {
-		t.Errorf("confortable : %v", w)
+	if !strings.Contains(css, "height: var(--rowh)") || !strings.Contains(js, "calc(var(--indent) * ") || !strings.Contains(css, ".row .chev.none { display: none; }") {
+		t.Error("hauteur, décalage par niveau ou pastille à la place du chevron")
 	}
-	if !strings.Contains(js, "calc(var(--indent) * ") || !strings.Contains(css, "body:not(.comfortable) .row .chev.none { display: none; }") {
-		t.Error("décalage par niveau ou pastille à la place du chevron")
+	for _, w := range []string{"comfortable", "densityseg", "setDensity"} {
+		if strings.Contains(css+js+html, w) {
+			t.Errorf("commutateur de densité encore présent : %s", w)
+		}
 	}
 }
 

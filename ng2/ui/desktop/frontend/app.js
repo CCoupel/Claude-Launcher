@@ -558,17 +558,6 @@ function resizeNav(d) { setNavW($('nav').getBoundingClientRect().width + d); }
   window.addEventListener('mouseup', () => { if (hdrag) { hdrag = false; hs.classList.remove('drag'); } });
 })();
 // tailles mémorisées (cache du launcher), appliquées à l'initialisation
-// densité de l'arbre (#132) : compacte (défaut, proche de la coque) ou confortable
-function setDensity(d, keep) {
-  document.body.classList.toggle('comfortable', d === 'comfortable');
-  if (!keep) prefs.set('density', d);
-  const seg = $('densityseg'); seg.textContent = '';
-  for (const [v, label, tip] of [['compact', '≡', 'compacte'], ['comfortable', '☰', 'confortable']]) {
-    const b = el('button', d === v ? 'on' : '', label); b.title = 'Arbre : densité ' + tip;
-    b.onclick = (e) => { e.stopPropagation(); setDensity(v); };
-    seg.appendChild(b);
-  }
-}
 // thème (#133) : Auto (celui de Windows, suivi en direct), Jour, Nuit ; couvre
 // toute l'interface, l'éditeur et le thème des terminaux (xterm.js)
 const darkMQ = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
@@ -599,7 +588,6 @@ function retheme() {
 }
 function applyLayoutPrefs() {
   setTheme(prefs.get('theme', 'auto'), true);
-  setDensity(prefs.get('density', 'compact'), true);
   const w = prefs.get('navW', 0); if (w) setNavW(w, true);
   const h = prefs.get('treeH', 0); if (h) setTreeH(h, true);
   document.body.classList.toggle('cardsfolded', !!prefs.get('cardsHidden', false));
