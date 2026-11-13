@@ -1,0 +1,51 @@
+name: ng2-tests
+
+# Tests de Claude-Launcher-NG2 (ng2/) à chaque push et PR vers main et v6
+# (v6 : branche de développement du launcher Windows, epic #114). La release
+# (release.yml) refait les tests Linux avant de publier.
+on:
+  push:
+    branches: [main, v6]
+    paths: ['ng2/**', '.github/workflows/ng2-tests.yml']
+  pull_request:
+    branches: [main, v6]
+    paths: ['ng2/**', '.github/workflows/ng2-tests.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  # Linux : mêmes commandes que le job de release
+  linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng2/go.mod
+          cache-dependency-path: ng2/go.sum
+      - name: Test Claude-Launcher-NG2
+        working-directory: ng2
+        run: |
+          go vet ./...
+          go test ./...
+
+  # Windows (#112) : couches communes (core) et système (platform) ; la coque
+  # tmux (ui/tmux) n'y tourne pas, elle est seulement compilée
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: ng2/go.mod
+          cache-dependency-path: ng2/go.sum
+      - name: Vet et build
+        working-directory: ng2
+        run: |
+          go vet ./core/... ./platform/...
+          go build ./...
+      - name: Test core et platform
+        working-directory: ng2
+        run: go test ./core/... ./platform/...
