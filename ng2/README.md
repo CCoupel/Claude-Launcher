@@ -1058,7 +1058,9 @@ Windows ne remontent pas : les projets y sont **relus périodiquement**, comme s
 
 ### Mise à jour automatique
 
-Le binaire Windows de la release s'appellera `claude-launcher-ng2.exe` (#112). Un `.exe` en cours
+La release publie le binaire Windows sous le nom `claude-launcher-ng2.exe` (windows/amd64,
+interface native comprise), avec les binaires Linux et macOS (noms inchangés) et un seul
+`SHA256SUMS` (#112) ; chaque système y prend son fichier. Un `.exe` en cours
 d'exécution ne peut pas être remplacé : il est renommé `claude-launcher-ng2.exe.old`, le nouveau
 est posé à sa place et lancé, puis l'ancien processus se termine ; le `.old` est supprimé au
 démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
