@@ -17,7 +17,7 @@ func TestCardsFromCacheFirst(t *testing.T) {
 	ps := sandbox(t, "", "alpha", "beta")
 	writeStateForTest(t, core.ComputeState(ps[0])) // état préparé (gestionnaire, hub)
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	old := cardsSlow
 	cardsSlow = 2 * time.Second // partie lente simulée
 	t.Cleanup(func() { cardsSlow = old })
@@ -56,7 +56,7 @@ func TestCardsTiming(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(ps[0], "f"+strconv.Itoa(i)+".txt"), []byte("x"), 0o644)
 	}
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	t0 := time.Now()
 	_ = a.cardsFull(ps[0]) // avant : tout calculé avant l'envoi (état, team)
 	before := time.Since(t0)

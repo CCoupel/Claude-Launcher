@@ -32,7 +32,7 @@ func TestStartupFromCaches(t *testing.T) {
 
 	// premier lancement : parcours et git de tous les projets
 	t0 := time.Now()
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	if a.treeCached {
 		t.Fatal("arbre en cache au premier lancement")
 	}
@@ -49,7 +49,7 @@ func TestStartupFromCaches(t *testing.T) {
 
 	// second lancement : tout vient des caches
 	t0 = time.Now()
-	b := NewApp(r.emit)
+	b := newApp(t, r.emit)
 	newWarm := time.Since(t0)
 	if !b.treeCached || len(b.projectPaths()) != 40 {
 		t.Fatalf("arbre du lancement précédent : %v, %d projets", b.treeCached, len(b.projectPaths()))

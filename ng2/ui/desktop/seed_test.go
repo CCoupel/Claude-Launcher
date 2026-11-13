@@ -85,7 +85,7 @@ func openWith(t *testing.T, script string) *panelHost {
 	t.Setenv("CL_CLAUDE_BIN", fake)
 	_ = core.WriteAssignment(ps[0], "host")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	if _, err := a.open(ps[0], core.LaunchNormal); err != nil {
 		t.Fatal(err)
 	}

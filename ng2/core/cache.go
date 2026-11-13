@@ -170,6 +170,10 @@ type StateMgr struct {
 
 	hi, lo chan string
 	Done   chan ProjState // projets recalculés, pour mettre à jour le navigateur
+
+	quit     chan struct{} // fermé par Stop
+	stopOnce sync.Once
+	wg       sync.WaitGroup // tâches de fond, attendues par Stop
 }
 
 func NewStateMgr() (*StateMgr, error) {
@@ -181,14 +185,44 @@ func NewStateMgr() (*StateMgr, error) {
 		w: w, open: map[string]bool{}, pending: map[string]bool{}, updated: map[string]time.Time{}, dur: map[string]time.Duration{},
 		dirOwner: map[string]string{}, timers: map[string]*time.Timer{}, poll: map[string]bool{}, sigs: map[string]string{},
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
+		quit: make(chan struct{}),
 	}
+	m.wg.Add(stateWorkers + 3)
 	for i := 0; i < stateWorkers; i++ {
-		go m.worker()
+		go func() { defer m.wg.Done(); m.worker() }()
 	}
-	go m.events()
-	go m.periodic()
-	go m.poller()
+	go func() { defer m.wg.Done(); m.events() }()
+	go func() { defer m.wg.Done(); m.periodic() }()
+	go func() { defer m.wg.Done(); m.poller() }()
 	return m, nil
+}
+
+// Stop arrête les tâches de fond (surveillance, relectures, calculs) et
+// attend la fin d'un calcul en cours : plus aucune écriture dans le cache
+// ensuite. Sans effet au-delà du premier appel. Utilisé par les tests (#141),
+// dont chaque bac à sable change CacheDir : un gestionnaire resté actif
+// écrirait l'état de ses projets dans le dossier d'un autre test.
+func (m *StateMgr) Stop() {
+	m.stopOnce.Do(func() {
+		close(m.quit)
+		m.mu.Lock()
+		for p, t := range m.timers {
+			t.Stop()
+			delete(m.timers, p)
+		}
+		m.mu.Unlock()
+		_ = m.w.Close()
+		m.wg.Wait()
+	})
+}
+
+func (m *StateMgr) stopped() bool {
+	select {
+	case <-m.quit:
+		return true
+	default:
+		return false
+	}
 }
 
 func (m *StateMgr) enqueue(p string, hi bool) {
@@ -199,10 +233,13 @@ func (m *StateMgr) enqueue(p string, hi bool) {
 	}
 	m.pending[p] = true
 	m.mu.Unlock()
+	q := m.lo
 	if hi {
-		m.hi <- p
-	} else {
-		m.lo <- p
+		q = m.hi
+	}
+	select {
+	case q <- p:
+	case <-m.quit:
 	}
 }
 
@@ -211,11 +248,18 @@ func (m *StateMgr) worker() {
 		var p string
 		select {
 		case p = <-m.hi:
+		case <-m.quit:
+			return
 		default:
 			select {
 			case p = <-m.hi:
 			case p = <-m.lo:
+			case <-m.quit:
+				return
 			}
+		}
+		if m.stopped() {
+			return
 		}
 		m.mu.Lock()
 		delete(m.pending, p) // un changement pendant le calcul replanifie un tour
@@ -298,7 +342,14 @@ func (m *StateMgr) Select(p string) {
 }
 
 func (m *StateMgr) periodic() {
-	for range time.Tick(2 * time.Second) {
+	tick := time.NewTicker(2 * time.Second)
+	defer tick.Stop()
+	for {
+		select {
+		case <-tick.C:
+		case <-m.quit:
+			return
+		}
 		m.mu.Lock()
 		var due []string
 		var hot []bool
@@ -358,7 +409,14 @@ func projectSig(p string) string {
 
 func (m *StateMgr) poller() {
 	tick := 0
-	for range time.Tick(pollSelected) {
+	ticker := time.NewTicker(pollSelected)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+		case <-m.quit:
+			return
+		}
 		tick++
 		m.mu.Lock()
 		var targets []string
@@ -441,6 +499,8 @@ func (m *StateMgr) events() {
 			}
 			m.onEvent(ev)
 		case <-m.w.Errors:
+		case <-m.quit:
+			return
 		}
 	}
 }
@@ -485,6 +545,9 @@ func (m *StateMgr) onEvent(ev fsnotify.Event) {
 func (m *StateMgr) schedule(project string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.stopped() {
+		return
+	}
 	if t, ok := m.timers[project]; ok {
 		t.Reset(debounceDelay)
 		return

@@ -51,7 +51,7 @@ func TestWindowSizeWithTwoClients(t *testing.T) {
 	_ = core.WriteAssignment(ps[0], "host")
 
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	if _, err := a.open(ps[0], core.LaunchNormal); err != nil {
 		t.Fatal(err)
 	}

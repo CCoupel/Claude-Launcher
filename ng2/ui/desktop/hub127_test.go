@@ -15,7 +15,7 @@ func TestHubConfigWarningsBanner(t *testing.T) {
 	sandbox(t, "", "alpha")
 	_ = os.WriteFile(core.BackendsPath(), []byte("hubs:\n  "+hostForTest()+":\n    windows:\n      browser_sever: { listen: 127.0.0.1:9 }\n"), 0o644)
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	var found *Alert
 	for _, al := range a.Snapshot().Alerts {
 		if al.Kind == "hubcfg" {

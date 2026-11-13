@@ -77,6 +77,25 @@ func isTerm(path, kind string, more func(map[string]any) bool) func(map[string]a
 	}
 }
 
+// newApp : NewApp dont les tâches de fond sont arrêtées en fin de test, avant
+// l'effacement des dossiers temporaires (#141). Sans cela, le gestionnaire
+// d'état continue de recalculer ses projets et écrit dans le cache du test
+// suivant (CacheDir suit l'environnement du bac à sable courant) : sous
+// Windows, le nettoyage de t.TempDir échouait (« directory is not empty »).
+func newApp(t *testing.T, emit Emitter) *App {
+	t.Helper()
+	a := NewApp(emit)
+	t.Cleanup(func() { stopBg(a) })
+	return a
+}
+
+// stopBg arrête et attend les tâches de fond d'une App créée par un test.
+func stopBg(a *App) {
+	if a != nil && a.mgr != nil {
+		a.mgr.Stop()
+	}
+}
+
 // sandbox : HOME, config, CLAUDE_CONFIG_DIR et racine de projets isolés ; un
 // projet git par nom.
 func sandbox(t *testing.T, root string, names ...string) (projects []string) {
@@ -117,7 +136,7 @@ func TestSnapshotRowsAndLegend(t *testing.T) {
 	}
 	ps := sandbox(t, "", "alpha", "beta")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	a.gitAll()
 	s := a.Snapshot()
 	var kinds, names []string
@@ -146,7 +165,7 @@ func TestSnapshotRowsAndLegend(t *testing.T) {
 func TestDispatch(t *testing.T) {
 	sandbox(t, "", "alpha")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	res, err := a.Dispatch("init", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -230,7 +249,7 @@ func TestHostProjectWithTmux(t *testing.T) {
 	_ = core.WriteAssignment(ps[0], "host") // pas de question d'exécution (moteurs détectés)
 
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	// ouvertures simultanées (double-clic et Entrée, reattach) : un seul onglet
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {

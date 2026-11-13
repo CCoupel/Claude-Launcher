@@ -12,7 +12,7 @@ import (
 func TestCardsOfPreviousProjectDropped(t *testing.T) {
 	ps := sandbox(t, "", "alpha", "beta")
 	var r recorder
-	a := NewApp(r.emit)
+	a := newApp(t, r.emit)
 	old := cardsSlow
 	cardsSlow = 500 * time.Millisecond
 	t.Cleanup(func() { cardsSlow = old })
