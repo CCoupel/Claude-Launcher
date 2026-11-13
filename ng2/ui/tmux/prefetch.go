@@ -1,13 +1,6 @@
 package tmux
 
 import (
-	"fmt"
-	"os"
-	"path/filepath"
-	"regexp"
-	"strings"
-	"time"
-
 	tea "github.com/charmbracelet/bubbletea"
 
 	"claude-launcher-ng2/core"
@@ -32,10 +25,8 @@ type (
 	}
 )
 
-// prefPath : binaire téléchargé pour tag, dans le dossier temporaire.
-func prefPath(tag string) string {
-	return filepath.Join(os.TempDir(), fmt.Sprintf("claude-launcher-ng2-%s-%s", tag, strings.TrimPrefix(core.NgAsset(), "claude-launcher-ng2-")))
-}
+// prefPath : binaire téléchargé pour tag, dans le dossier temporaire (core.PrefPath).
+func prefPath(tag string) string { return core.PrefPath(tag) }
 
 // startPrefetch : lance la préparation de tag ; l'avancement arrive par m.prefCh.
 func (m *model) startPrefetch(tag string) tea.Cmd {
@@ -58,121 +49,21 @@ func (m *model) startPrefetch(tag string) tea.Cmd {
 
 func waitPref(ch <-chan tea.Msg) tea.Cmd { return func() tea.Msg { return <-ch } }
 
-// prefetch : télécharge le binaire de tag (sauf s'il est déjà là), puis
-// SHA256SUMS, puis contrôle la somme ; renvoie le fichier prêt et sa somme.
+// prefetch : télécharge et contrôle le binaire de tag (core.Prefetch).
 func prefetch(tag string, step func(string)) (path, sum string, err error) {
-	base := core.ReleaseBase + "/" + tag
-	path = prefPath(tag)
-	body, rerr := os.ReadFile(path)
-	if rerr != nil {
-		step("bin:0")
-		last := -1
-		body, err = core.ReleaseGetP(base+"/"+core.NgAsset(), 3*time.Minute, func(n, total int64) {
-			if n < 0 {
-				step("api")
-				last = -1
-				return
-			}
-			if total > 0 {
-				if pc := int(n * 100 / total); pc/5 != last/5 {
-					last = pc
-					step(fmt.Sprintf("bin:%d", pc))
-				}
-			}
-		})
-		if err != nil {
-			return "", "", fmt.Errorf("version : %w", err)
-		}
-	} else {
-		step("cached")
-	}
-	step("sha")
-	sums, err := core.FetchSums(base + "/SHA256SUMS")
-	if err != nil {
-		return "", "", err
-	}
-	step("check")
-	want, ok := sums[core.NgAsset()]
-	if !ok {
-		return "", "", fmt.Errorf("%s absent de SHA256SUMS", core.NgAsset())
-	}
-	if core.SumOf(body) != want {
-		_ = os.Remove(path)
-		return "", "", fmt.Errorf("somme SHA-256 incorrecte")
-	}
-	if rerr != nil {
-		if err := core.WriteAtomic(path, body); err != nil {
-			return "", "", err
-		}
-		_ = os.Chmod(path, 0o755)
-	}
-	return path, want, nil
+	return core.Prefetch(tag, step)
 }
 
-// installPrepared : copie le binaire préparé à la place de dst, après un
-// dernier contrôle de sa somme (le dossier temporaire est partagé).
-func installPrepared(path, sum, dst string) error {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return fmt.Errorf("binaire préparé introuvable (%v) : il va être retéléchargé", err)
-	}
-	if core.SumOf(body) != sum {
-		_ = os.Remove(path)
-		return fmt.Errorf("binaire préparé modifié : il va être retéléchargé")
-	}
-	return core.InstallBinary(dst, body)
-}
+// installPrepared : copie le binaire préparé à la place de dst (core.InstallPrepared).
+func installPrepared(path, sum, dst string) error { return core.InstallPrepared(path, sum, dst) }
 
 // installPreparedCmd : clic sur l'annonce verte.
 func installPreparedCmd(tag, path, sum string) tea.Cmd {
-	return func() tea.Msg {
-		if !core.ReleaseVerRe.MatchString(core.NgVersion) {
-			return core.UpdDoneMsg{Tag: tag, Err: fmt.Errorf("binaire de dev (%s) : non remplacé", core.NgVersion)}
-		}
-		_, bin, _ := core.UpdateTargets(tag)
-		if bin == "" {
-			return core.UpdDoneMsg{Tag: tag}
-		}
-		if err := installPrepared(path, sum, bin); err != nil {
-			return core.UpdDoneMsg{Tag: tag, Err: err, Stale: true}
-		}
-		_ = os.Remove(path)
-		return core.UpdDoneMsg{Tag: tag, BinDone: true}
-	}
+	return func() tea.Msg { return core.InstallPreparedNow(tag, path, sum) }
 }
 
-var httpCodeRe = regexp.MustCompile(`HTTP \d{3}`)
+// shortReason : raison courte d'un échec (core.ShortReason).
+func shortReason(err error) string { return core.ShortReason(err) }
 
-// shortReason : raison courte d'un échec (« HTTP 504 », « délai dépassé »…).
-func shortReason(err error) string {
-	m := err.Error()
-	switch {
-	case httpCodeRe.MatchString(m):
-		return httpCodeRe.FindString(m)
-	case strings.Contains(m, "somme"):
-		return "somme incorrecte"
-	case strings.Contains(m, "Timeout") || strings.Contains(m, "deadline"):
-		return "délai dépassé"
-	default:
-		return "réseau"
-	}
-}
-
-// stepText : étape de la préparation, courte (40 colonnes) ou complète.
-func stepText(step string, wide bool) string {
-	if pc, ok := strings.CutPrefix(step, "bin:"); ok {
-		if wide {
-			return "téléchargement de la version… " + pc + " %"
-		}
-		return "↓ version " + pc + " %"
-	}
-	long := map[string]string{"start": "disponible, préparation…", "cached": "version déjà téléchargée",
-		"sha": "téléchargement de SHA256SUMS…", "check": "contrôle SHA-256…",
-		"api": "lien direct en échec, téléchargement par l'API GitHub…"}
-	short := map[string]string{"start": "préparation…", "cached": "version en cache",
-		"sha": "↓ SHA256SUMS", "check": "contrôle SHA-256", "api": "↓ par l'API GitHub…"}
-	if wide {
-		return long[step]
-	}
-	return short[step]
-}
+// stepText : étape de la préparation, courte ou complète (core.StepText).
+func stepText(step string, wide bool) string { return core.StepText(step, wide) }

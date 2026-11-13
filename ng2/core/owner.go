@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -90,14 +91,19 @@ func (e Engine) rwClients(name string) []string {
 // (dans la fenêtre du projet). Renvoie "l" (lecture seule), "p" (prendre la
 // main) ou "a" (annuler).
 func OwnerChoice(o OwnerInfo) string {
-	fmt.Printf("\n\033[1;33m⚠ projet ouvert par un autre launcher : %s (actif il y a %ds)\033[0m\n",
+	return OwnerChoiceIO(o, os.Stdout, bufio.NewReader(os.Stdin))
+}
+
+// OwnerChoiceIO : OwnerChoice, question posée dans out et réponse lue dans rd
+// (terminal de l'interface native).
+func OwnerChoiceIO(o OwnerInfo, out io.Writer, rd *bufio.Reader) string {
+	fmt.Fprintf(out, "\n\033[1;33m⚠ projet ouvert par un autre launcher : %s (actif il y a %ds)\033[0m\n",
 		o.Id, int(time.Since(o.At).Seconds()))
-	fmt.Println("  l  rejoindre en lecture seule (partage d'écran, sans mise en page)")
-	fmt.Println("  p  prendre la main (l'autre launcher est détaché)")
-	fmt.Println("  a  annuler")
-	rd := bufio.NewReader(os.Stdin)
+	fmt.Fprintln(out, "  l  rejoindre en lecture seule (partage d'écran, sans mise en page)")
+	fmt.Fprintln(out, "  p  prendre la main (l'autre launcher est détaché)")
+	fmt.Fprintln(out, "  a  annuler")
 	for {
-		fmt.Print("choix [l/p/a] : ")
+		fmt.Fprint(out, "choix [l/p/a] : ")
 		l, err := rd.ReadString('\n')
 		if err != nil {
 			return "a"

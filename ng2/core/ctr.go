@@ -56,12 +56,17 @@ func (e Engine) Bootstrap(name, proj string, env EnvSpec, log io.Writer) error {
 // OnStart : étapes on_start de env.yaml, en utilisateur dans le projet, à chaque
 // démarrage d'une session (pas au rattachement à une session vivante).
 func (e Engine) OnStart(name, proj string, env EnvSpec) error {
+	return e.OnStartTo(name, proj, env, os.Stdout)
+}
+
+// OnStartTo : OnStart, sortie dans out (terminal de l'interface native).
+func (e Engine) OnStartTo(name, proj string, env EnvSpec, out io.Writer) error {
 	if len(env.OnStart) == 0 {
 		return nil
 	}
-	fmt.Printf("\n\033[1;36m▸ %s\033[0m\n", "étapes de démarrage (on_start : launcher, template, projet)")
+	fmt.Fprintf(out, "\n\033[1;36m▸ %s\033[0m\n", "étapes de démarrage (on_start : launcher, template, projet)")
 	script := "export PATH=\"$HOME/.local/bin:$PATH\"\ncd " + Shq(RemotePath(proj)) + "\n" + strings.Join(env.OnStart, "\n") + "\n"
-	if err := e.Exec(name, false, strings.NewReader(script), os.Stdout, "bash", "-e", "-s"); err != nil {
+	if err := e.Exec(name, false, strings.NewReader(script), out, "bash", "-e", "-s"); err != nil {
 		return fmt.Errorf("on_start : %w", err)
 	}
 	return nil
@@ -77,6 +82,11 @@ func TmuxIn(args ...string) []string {
 // -e : session créée sans, seuls les panes suivants (teammates) auront la
 // variable, posée par setCtrBrowserPaths.
 func (e Engine) NewCtrSession(name, proj string, w, h int) error {
+	return e.NewCtrSessionTo(name, proj, w, h, os.Stdout)
+}
+
+// NewCtrSessionTo : NewCtrSession, sortie d'erreur de tmux dans out.
+func (e Engine) NewCtrSessionTo(name, proj string, w, h int, out io.Writer) error {
 	ns := []string{"new-session", "-d", "-s", CtrSession, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", RemotePath(proj)}
 	withEnv := []string{"new-session", "-d"}
 	for _, v := range BrowserEnvVars() {
@@ -86,7 +96,7 @@ func (e Engine) NewCtrSession(name, proj string, w, h int) error {
 	if e.Exec(name, false, nil, io.Discard, TmuxIn(withEnv...)...) == nil {
 		return nil
 	}
-	if err := e.Exec(name, false, nil, os.Stdout, TmuxIn(ns...)...); err != nil {
+	if err := e.Exec(name, false, nil, out, TmuxIn(ns...)...); err != nil {
 		return fmt.Errorf("tmux du projet : %w", err)
 	}
 	return nil

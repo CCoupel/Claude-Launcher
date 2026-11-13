@@ -20,12 +20,8 @@ import (
 // canal de contrôle (tmux -C) : il suffira d'une seconde implémentation de
 // Target et de la renvoyer depuis projectOf.
 
-// Target : un serveur tmux auquel on envoie des commandes (même syntaxe que la
-// ligne de commande tmux). Ne couvre pas ce qui demande un terminal (attach).
-type Target interface {
-	Run(args ...string) error
-	Output(args ...string) ([]byte, error)
-}
+// Target : un serveur tmux auquel on envoie des commandes (core.Target).
+type Target = core.Target
 
 // directTarget : serveur intérieur local, via dtmux.
 type directTarget struct{}
@@ -63,19 +59,12 @@ func projectOf(hubWin string) projWin {
 	if len(f) != 4 || strings.HasPrefix(hubWin, "@") && f[0] != hubWin {
 		return direct
 	}
-	be, ctr := f[1], f[2]
-	if be == "" || ctr == "" {
-		return direct
-	}
-	b, ok := core.FindBackend(be)
+	ctr := f[2]
+	t, e, win, ok := core.CtrTarget(f[1], ctr, f[3]) // groupe de serveurs : celui du conteneur (#61)
 	if !ok {
 		return direct
 	}
-	e, ok := core.EngineOf(b.At(f[3])) // groupe de serveurs : celui du conteneur (#61)
-	if !ok {
-		return direct
-	}
-	return projWin{t: core.CtlFor(e, ctr), win: "=" + core.CtrSession + ":", hubWin: hubWin,
+	return projWin{t: t, win: win, hubWin: hubWin,
 		ctrExec: func(argv ...string) (string, error) { return e.Output(ctr, argv...) }}
 }
 
