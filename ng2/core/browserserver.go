@@ -166,6 +166,16 @@ type fileServer struct {
 	hosts map[string]bool
 	roots func() []string // racines servies (absolues)
 	token func() string   // jeton d'appariement du hub (browserpair.go)
+	// chemin de l'URL (vu des sessions, Linux) → chemin local (#110, pathmap.go) ;
+	// nil : le même
+	local func(string) string
+}
+
+func (s fileServer) toLocal(p string) string {
+	if s.local == nil {
+		return p
+	}
+	return s.local(p)
 }
 
 // under : p est-il r ou dans r ?
@@ -174,8 +184,19 @@ func under(p, r string) bool {
 	return r == "" || p == r || strings.HasPrefix(p, r+"/")
 }
 
-// allowed : p (chemin propre) est sous une racine, liens symboliques résolus
-// compris : un lien qui sort des racines est refusé.
+// underLocal : under pour un chemin local, de forme Windows comprise (casse et
+// séparateurs indifférents).
+func underLocal(p, r string) bool {
+	if !winPathForm(r) {
+		return under(p, r)
+	}
+	_, ok := cutLocal(p, r)
+	return ok
+}
+
+// allowed : p (chemin propre de l'URL) est sous une racine, liens symboliques
+// résolus compris : un lien qui sort des racines est refusé. Rend le chemin
+// local du fichier.
 func (s fileServer) allowed(p string) (string, bool) {
 	roots := s.roots()
 	in := false
@@ -188,15 +209,16 @@ func (s fileServer) allowed(p string) (string, bool) {
 	if !in {
 		return "", false
 	}
-	real, err := filepath.EvalSymlinks(p)
+	real, err := filepath.EvalSymlinks(s.toLocal(p))
 	if err != nil {
 		return "", false
 	}
 	for _, r := range roots {
-		if under(real, r) {
+		lr := s.toLocal(r)
+		if underLocal(real, lr) {
 			return real, true
 		}
-		if rr, err := filepath.EvalSymlinks(r); err == nil && under(real, rr) {
+		if rr, err := filepath.EvalSymlinks(lr); err == nil && underLocal(real, rr) {
 			return real, true
 		}
 	}
@@ -341,7 +363,8 @@ func servedRoots(lists ...[]string) []string {
 	var out []string
 	for _, l := range lists {
 		for _, r := range l {
-			r = filepath.Clean(r)
+			// racine dans l'espace des URL : chemin vu des sessions (pathmap.go)
+			r = path.Clean(RemotePath(r))
 			if !strings.HasPrefix(r, "/") || r == "/" || seen[r] {
 				continue // « / » refusé : tout le système de fichiers
 			}
@@ -379,7 +402,7 @@ func RunBrowserServer() {
 			if err != nil {
 				setServerStatus("écoute impossible sur " + c.Listen + " : " + err.Error())
 			} else {
-				srv = &http.Server{Handler: fileServer{hosts: c.allowedHosts(hubName()), roots: roots, token: browserToken}, ReadHeaderTimeout: 10 * time.Second}
+				srv = &http.Server{Handler: fileServer{hosts: c.allowedHosts(hubName()), roots: roots, token: browserToken, local: LocalPath}, ReadHeaderTimeout: 10 * time.Second}
 				cur = c
 				setServerStatus("à l'écoute sur " + c.Listen + " (" + c.Base + ")")
 				go func(s *http.Server) { _ = s.Serve(ln) }(srv)

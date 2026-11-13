@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"sort"
 	"strings"
@@ -90,7 +89,8 @@ func (e Engine) k8sExecArgv(pod string, root, tty bool, argv ...string) []string
 		cmd += " TERM=tmux-256color"
 	}
 	cmd += " " + strings.Join(q, " ")
-	return e.kubectl(append(a, "sh", "-c", k8sAsUser(os.Getuid(), os.Getgid(), tty), "sh", cmd)...)
+	u := CtrUser()
+	return e.kubectl(append(a, "sh", "-c", k8sAsUser(u.UID, u.GID, tty), "sh", cmd)...)
 }
 
 // k8sAsUser : script sh qui exécute "$1" sous l'utilisateur uid (kubectl exec
@@ -168,7 +168,7 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 			_ = e.kcmd("delete", "statefulset", old, "--wait=true", "--timeout=60s").Run()
 		}
 	}
-	if phase != "" && owner != "" && owner != proj {
+	if phase != "" && owner != "" && owner != RemotePath(proj) {
 		return "", fmt.Errorf("StatefulSet %s déjà pris par le projet %s : renommer la catégorie ou le projet", k8sName(proj), owner)
 	}
 	if phase == "Running" && image == env.Image && local == env.localKey() {
@@ -220,7 +220,9 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 }
 
 func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
-	home, _ := os.UserHomeDir()
+	// chemins et identité vus du pod (pathmap.go ; Linux : inchangés)
+	home := CtrUser().Home
+	rp := RemotePath(proj)
 	name := k8sName(proj)
 	roots := make([]string, 0, len(e.B.Volumes))
 	for r := range e.B.Volumes {
@@ -240,8 +242,8 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 		vols = append(vols, map[string]any{"name": v, "emptyDir": map[string]any{}})
 	}
 	labels := map[string]string{"cl.launcher": "ng2", "cl.backend": e.B.Name, "cl.ctr": name}
-	ann := map[string]string{"cl.project": proj, "cl.image": env.Image, "cl.local": env.localKey(), "cl.sched": e.B.schedKey()}
-	envs := []map[string]string{{"name": "HOME", "value": home}, {"name": "CLAUDE_CONFIG_DIR", "value": ClaudeDir()},
+	ann := map[string]string{"cl.project": rp, "cl.image": env.Image, "cl.local": env.localKey(), "cl.sched": e.B.schedKey()}
+	envs := []map[string]string{{"name": "HOME", "value": home}, {"name": "CLAUDE_CONFIG_DIR", "value": RemotePath(ClaudeDir())},
 		{"name": "LANG", "value": "C.UTF-8"}, {"name": "DISABLE_AUTOUPDATER", "value": "1"}}
 	m := map[string]any{
 		"apiVersion": "apps/v1", "kind": "StatefulSet",
@@ -255,7 +257,7 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 					"terminationGracePeriodSeconds": 10,
 					"containers": []map[string]any{e.B.withResources(map[string]any{
 						"name": "main", "image": env.Image, "command": []string{"sh", "-c", pid1},
-						"workingDir": proj, "env": envs, "volumeMounts": mounts,
+						"workingDir": rp, "env": envs, "volumeMounts": mounts,
 						"securityContext": map[string]any{"runAsUser": 0},
 					})},
 					"volumes": vols,
@@ -385,7 +387,7 @@ func (e Engine) K8sList() ([]Found, error) {
 		if len(f) != 4 || f[3] == "" {
 			continue
 		}
-		out = append(out, Found{Backend: e.B.Name, Name: f[0] + "-0", Project: f[3], Running: f[2] == "1",
+		out = append(out, Found{Backend: e.B.Name, Name: f[0] + "-0", Project: LocalPath(f[3]), Running: f[2] == "1",
 			Failed: f[1] == "1" && f[2] != "1"})
 	}
 	return out, nil

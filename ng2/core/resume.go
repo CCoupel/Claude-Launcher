@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -96,9 +97,10 @@ func CleanExitPath(dirName string) string {
 // CleanExitShell : suite bash de la commande claude, qui pose le marqueur du
 // projet path si claude s'est terminé lui-même (ou sur SIGINT, 130) ; tué par
 // un autre signal (OOM, segfault : statut ≥ 128), c'est un crash.
+// Commande exécutée là où tourne claude (conteneur) : chemins vus des backends.
 func CleanExitShell(path string) string {
-	m := CleanExitPath(ProjectDirName(path))
-	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + Shq(filepath.Dir(m)) + " && touch " + Shq(m)
+	m := pathpkg.Join(RemotePath(ClaudeDir()), "claude-launcher-ng2", "clean-exit", ProjectDirName(RemotePath(path)))
+	return "_ce=$?; (( _ce < 128 || _ce == 130 )) && mkdir -p " + Shq(pathpkg.Dir(m)) + " && touch " + Shq(m)
 }
 
 // cleanExited : le marqueur du projet est postérieur (ou égal) à mod.
@@ -288,7 +290,8 @@ func (c Config) PendingSession(path string) (r Resumable, ok bool) {
 	if maxAge <= 0 {
 		maxAge = 24 * time.Hour
 	}
-	r, ok = lastSession(ClaudeDir(), path)
+	// conversations rangées par claude sous le chemin vu du conteneur (pathmap.go)
+	r, ok = lastSession(ClaudeDir(), RemotePath(path))
 	if ok && r.InUse && r.Unknown && !r.Ended && time.Since(r.Mod) < maxAge && ctrSessionGone(path) {
 		// leader d'un conteneur distant : son conteneur (ou pod) n'a plus de
 		// session tmux — recréé, arrêté ou disparu — donc le leader est mort

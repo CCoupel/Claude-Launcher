@@ -322,6 +322,8 @@ func RunBackends() error {
 	core.PrintBrowserServer()
 	core.PrintBrowserDevice()
 	core.PrintBrowserPaths()
+	core.PrintHubPaths()
+	core.PrintTools()
 	return nil
 }
 
