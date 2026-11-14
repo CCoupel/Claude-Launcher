@@ -87,38 +87,64 @@ function stBackendValue(b) {
   if (b.pod && Object.keys(b.pod).length) v.pod = b.pod;
   return v;
 }
+// Renommages d'une section : ordonnés pour qu'aucun ne vise un nom encore pris
+// (A→B pendant que B→C : B→C d'abord) ; un échange ou un cycle passe par un nom
+// temporaire. Rend des changements « rename » sur le chemin [section, nom].
+function stOrderRenames(section, pairs, existing) {
+  const out = [], names = new Set(existing), todo = pairs.map((x) => ({ from: x.from, to: x.to }));
+  let tmp = 0;
+  while (todo.length) {
+    const i = todo.findIndex((x) => !names.has(x.to));
+    if (i >= 0) {
+      const x = todo.splice(i, 1)[0];
+      out.push({ op: 'rename', at: [section, x.from], value: x.to });
+      names.delete(x.from); names.add(x.to);
+    } else {
+      // cycle : le premier passe par un nom temporaire, son renommage final reste à faire
+      const x = todo[0]; let t;
+      do { t = '__renommage_' + (++tmp); } while (names.has(t));
+      out.push({ op: 'rename', at: [section, x.from], value: t });
+      names.delete(x.from); names.add(t); x.from = t;
+    }
+  }
+  return out;
+}
+
 function stBuildChanges() {
-  const d = ST.draft, o = ST.orig, ch = [];
-  if (!d) return ch;
+  const d = ST.draft, o = ST.orig;
+  if (!d) return [];
+  const del = [], ren = { backends: [], pools: [] }, set = [];
   const live = new Set(d.backends.map((b) => b._orig).filter(Boolean));
-  for (const ob of o.backends) if (!ob.implicit && !live.has(ob.name)) ch.push({ op: 'delete', at: ['backends', ob.name] });
+  for (const ob of o.backends) if (!ob.implicit && !live.has(ob.name)) del.push({ op: 'delete', at: ['backends', ob.name] });
   for (const b of d.backends) {
     if (b.implicit) continue;
     const ob = b._orig ? o.backends.find((x) => x.name === b._orig) : null;
     const val = stBackendValue(b);
-    if (!ob) { ch.push({ op: 'set', at: ['backends', b.name], value: val }); continue; }
-    const same = JSON.stringify(val) === JSON.stringify(stBackendValue(ob));
-    if (b.name !== ob.name) ch.push({ op: 'rename', at: ['backends', ob.name], value: b.name });
-    if (!same) ch.push({ op: 'set', at: ['backends', b.name], value: val });
+    if (!ob) { set.push({ op: 'set', at: ['backends', b.name], value: val }); continue; }
+    if (b.name !== ob.name) ren.backends.push({ from: ob.name, to: b.name });
+    if (JSON.stringify(val) !== JSON.stringify(stBackendValue(ob))) set.push({ op: 'set', at: ['backends', b.name], value: val });
   }
   const livep = new Set(d.pools.map((p) => p._orig).filter(Boolean));
-  for (const op of o.pools) if (!livep.has(op.name)) ch.push({ op: 'delete', at: ['pools', op.name] });
+  for (const op of o.pools) if (!livep.has(op.name)) del.push({ op: 'delete', at: ['pools', op.name] });
   for (const p of d.pools) {
     const op = p._orig ? o.pools.find((x) => x.name === p._orig) : null;
     const val = { hosts: p.hosts || [] }; if (p.drain && p.drain.length) val.drain = p.drain;
-    if (!op) { ch.push({ op: 'set', at: ['pools', p.name], value: val }); continue; }
+    if (!op) { set.push({ op: 'set', at: ['pools', p.name], value: val }); continue; }
+    if (p.name !== op.name) ren.pools.push({ from: op.name, to: p.name });
     const same = JSON.stringify(val) === JSON.stringify({ hosts: op.hosts || [], ...(op.drain && op.drain.length ? { drain: op.drain } : {}) });
-    if (p.name !== op.name) ch.push({ op: 'rename', at: ['pools', op.name], value: p.name });
-    if (!same) ch.push({ op: 'set', at: ['pools', p.name], value: val });
+    if (!same) set.push({ op: 'set', at: ['pools', p.name], value: val });
   }
   for (const k of ['backend', 'image']) {
     const a = d.defaults[k] || '', b = (o.defaults || {})[k] || '';
-    if (a !== b) ch.push(a ? { op: 'set', at: ['defaults', k], value: a } : { op: 'delete', at: ['defaults', k] });
+    if (a !== b) set.push(a ? { op: 'set', at: ['defaults', k], value: a } : { op: 'delete', at: ['defaults', k] });
   }
   if (JSON.stringify(d.images) !== JSON.stringify(o.images || [])) {
-    ch.push(d.images.length ? { op: 'set', at: ['images'], value: d.images } : { op: 'delete', at: ['images'] });
+    set.push(d.images.length ? { op: 'set', at: ['images'], value: d.images } : { op: 'delete', at: ['images'] });
   }
-  return ch;
+  // suppressions, puis renommages ordonnés (noms libérés par les suppressions), puis créations et valeurs
+  const delNames = (sec) => new Set(del.filter((c) => c.at[0] === sec).map((c) => c.at[1]));
+  const exist = (sec) => (o[sec] || []).filter((x) => !x.implicit && !delNames(sec).has(x.name)).map((x) => x.name);
+  return del.concat(stOrderRenames('backends', ren.backends, exist('backends')), stOrderRenames('pools', ren.pools, exist('pools')), set);
 }
 
 // problèmes locaux, avant tout envoi : nom vide ou en double, JSON du pod invalide
