@@ -474,6 +474,43 @@ $('tree').addEventListener('click', (e) => {
   const r = S.snap.rows.find((x) => x.path === path);
   if (dbl || (r && r.open)) { S.lastClick.key = null; openProject(path); }
 });
+// ── Menu contextuel d'un projet (#148, LOT-3.2) ────────────────────────────
+function closeCtx() { const m = $('ctxmenu'); if (m) m.remove(); }
+function showProjectMenu(path, x, y) {
+  closeCtx();
+  const r = (S.snap.rows || []).find((v) => v.path === path) || {};
+  const m = el('div', 'ctxmenu'); m.id = 'ctxmenu';
+  const it = (label, key, fn, dis) => {
+    const d = el('div', dis ? 'dis' : '', label);
+    if (key) d.appendChild(el('span', 'k', key));
+    if (!dis) d.onclick = (e) => { e.stopPropagation(); closeCtx(); fn(); };
+    m.appendChild(d);
+  };
+  it('Ouvrir', 'Entrée', () => openProject(path));
+  it('Fermer', 'Suppr', () => askClose(path), !r.open);
+  m.appendChild(el('hr'));
+  it('⚙ Réglages du projet…', '', () => openSettings(path, 'projet'));
+  it('Changer de backend…', 'F2', () => openSettings(path, 'projet', 'pjf-backend'));
+  it('Environnement du conteneur…', '', () => openSettings(path, 'projet', 'pjf-env'));
+  it('Couleur…', '', () => openSettings(path, 'projet', 'pjf-color'));
+  m.appendChild(el('hr'));
+  it('Éditer env.yaml en YAML', '', () => configEditor(path, 'project-env'));
+  document.body.appendChild(m);
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(0, Math.min(x, window.innerWidth - w - 4)) + 'px';
+  m.style.top = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + 'px';
+}
+$('tree').addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('.row.project');
+  if (!row || !row.dataset.path) return;
+  e.preventDefault(); e.stopPropagation();
+  select(row.dataset.path);
+  showProjectMenu(row.dataset.path, e.clientX, e.clientY);
+});
+document.addEventListener('mousedown', (e) => { if (!e.target.closest('#ctxmenu')) closeCtx(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCtx(); }, true);
+window.addEventListener('blur', closeCtx);
+
 $('newproj').addEventListener('click', () => { select('new'); newProject(''); });
 $('login').addEventListener('click', () => call('login').then(() => {}).catch(() => {}));
 $('cards').addEventListener('click', () => $('nav').focus());

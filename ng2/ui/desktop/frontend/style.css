@@ -357,3 +357,18 @@ body.cardsfolded #hsplit { display: none; }
 .stfoot .btn:disabled { opacity: .45; cursor: not-allowed; }
 .btn.sm { padding: 2px 8px; font-size: 12px; }
 .btn.dg { color: var(--red); }
+
+/* Menu contextuel d'un projet et réglages du projet (#148) */
+.ctxmenu { position: fixed; z-index: 1000; background: var(--bg2, var(--panel, #222)); border: 1px solid var(--line2); border-radius: 7px; box-shadow: 0 8px 28px rgba(0,0,0,.45); padding: 4px; font-size: 12.5px; min-width: 250px; }
+.ctxmenu div { padding: 5px 10px; border-radius: 4px; display: flex; gap: 8px; cursor: pointer; }
+.ctxmenu div:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.ctxmenu div.dis { opacity: .45; cursor: default; }
+.ctxmenu div.dis:hover { background: transparent; }
+.ctxmenu .k { margin-left: auto; color: var(--muted); font-family: var(--mono); font-size: 11px; }
+.ctxmenu hr { border: 0; border-top: 1px solid var(--line2); margin: 4px 0; }
+.pjcolors { display: flex; flex-wrap: wrap; gap: 4px; }
+.pjsw { width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--line2); cursor: pointer; font-size: 9px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+.pjsw.on { outline: 2px solid var(--accent); outline-offset: 1px; }
+.pjmerged { font-family: var(--mono); font-size: 12px; white-space: pre; overflow: auto; max-height: 260px; border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; }
+.mg-template { color: #b48cf0; }
+.mg-launcher { color: #5fa8ff; }

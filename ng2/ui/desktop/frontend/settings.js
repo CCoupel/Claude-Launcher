@@ -26,11 +26,11 @@ const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'b
 const stClone = (o) => JSON.parse(JSON.stringify(o));
 const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 
-async function openSettings(project, page) {
+async function openSettings(project, page, focus) {
   ST.project = project || '';
   if (page) ST.page = page;
   ST.result = null; ST.test = null;
-  ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
+  ST.pj = null; ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
   openModal((b) => {
     b.classList.add('wide');
     b.innerHTML = '';
@@ -49,6 +49,7 @@ async function openSettings(project, page) {
   stRender();
   stLoad().then(() => { if (!ST.on) return; ST.loading = false; stRender(); });
   stPoll(); // états des backends : appel séparé, ne retarde jamais l'affichage
+  if (ST.project && ST.project !== 'new') { await pjLoad(); if (!ST.on) return; if (ST.pj && focus) ST.pj.focus = focus; stRenderPage(); stRenderFoot(); }
 }
 
 async function stLoad() {
@@ -187,6 +188,7 @@ function stRenderRail() {
 function stRenderFoot() {
   const f = $('stfoot'); if (!f) return;
   f.textContent = '';
+  if (ST.page === 'projet') return pjFoot(f);
   const ch = stBuildChanges(), local = stLocalProblems();
   const res = ST.result;
   const probs = local.concat(res && res.problems ? res.problems : [], res ? [] : ST.loadProblems);
@@ -217,9 +219,10 @@ function stRenderFoot() {
 }
 
 const stEditable = () => ST.page === 'backends' || ST.page === 'pools' || ST.page === 'defauts';
-const stDirty = () => stBuildChanges().length > 0;
+const stDirty = () => stBuildChanges().length > 0 || pjDirty();
 
 async function stSave() {
+  if (ST.page === 'projet') return pjSave();
   const ch = stBuildChanges();
   if (!ch.length) return;
   let r;
@@ -555,11 +558,197 @@ function stPagePoste(p) {
   p.appendChild(stBox('Affichage', body));
 }
 
+// ── Projet (#148, LOT-3.2) : projectSettings / projectApply ─────────────────
+const PJ_LISTS = ['packages', 'setup', 'on_start', 'watch', 'local'];
+const PJ_LABEL = { packages: 'Paquets', setup: 'setup', on_start: 'on_start', watch: 'watch', local: 'Dossiers local' };
+const PJ_HINT = {
+  packages: 'un paquet par ligne', setup: 'une commande par ligne, jouée à la création', on_start: 'une commande par ligne, jouée à chaque démarrage',
+  watch: 'un chemin par ligne', local: 'un dossier du projet par ligne, gardé dans le conteneur (non partagé)',
+};
+
+function pjColorCss(n) { // indice tmux 256 → couleur CSS
+  n = parseInt(n, 10);
+  if (isNaN(n) || n < 0 || n > 255) return 'transparent';
+  if (n < 16) return ['#000', '#800000', '#008000', '#808000', '#000080', '#800080', '#008080', '#c0c0c0', '#808080', '#f00', '#0f0', '#ff0', '#00f', '#f0f', '#0ff', '#fff'][n];
+  if (n >= 232) { const g = 8 + (n - 232) * 10; return 'rgb(' + g + ',' + g + ',' + g + ')'; }
+  const m = n - 16, c = (v) => (v ? 55 + v * 40 : 0);
+  return 'rgb(' + c(Math.floor(m / 36)) + ',' + c(Math.floor(m / 6) % 6) + ',' + c(m % 6) + ')';
+}
+const pjPbmText = (m) => Object.keys(m || {}).sort().map((k) => k + ': ' + (m[k] || []).join(' ')).join('\n');
+const pjMountsText = (a) => (a || []).map((x) => x.path + (x.ro === false ? ':rw' : '')).join('\n');
+function pjParsePbm(t) {
+  const o = {};
+  for (const l of stLines(t)) { const i = l.indexOf(':'); if (i < 0) continue; const k = l.slice(0, i).trim(), v = l.slice(i + 1).split(/\s+/).filter(Boolean); if (k && v.length) o[k] = v; }
+  return o;
+}
+function pjParseMounts(t) {
+  return stLines(t).map((l) => (/:rw$/.test(l) ? { path: l.replace(/:rw$/, ''), ro: false } : { path: l.replace(/:ro$/, ''), ro: true }));
+}
+const pjSorted = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
+
+async function pjLoad(keepDraft) {
+  const path = ST.project;
+  if (!path || path === 'new') { ST.pj = null; return; }
+  if (!keepDraft) ST.pj = { loading: true, path };
+  try {
+    const r = await call('projectSettings', { path });
+    if (!ST.on || !ST.pj || ST.pj.path !== path) return;
+    const e = r.env || {};
+    const txt = {};
+    for (const k of PJ_LISTS) txt[k] = (e[k] || []).join('\n');
+    txt.pbm = pjPbmText(e.packages_by_manager); txt.mounts = pjMountsText(e.mounts);
+    ST.pj = { path, loading: false, data: r, orig: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), env: { image: e.image || '', prefer: e.prefer || '', txt: stClone(txt) } },
+      d: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), env: { image: e.image || '', prefer: e.prefer || '', txt } },
+      merged: r.merged || [], mergedProblems: null, result: null, mtime: r.envMtime || '' };
+  } catch (e) { ST.pj = { path, loading: false, err: e.message }; }
+}
+
+// changements d'env.yaml du projet (même forme que configApply)
+function pjEnvChanges() {
+  const p = ST.pj; if (!p || !p.d) return [];
+  const o = p.orig.env, n = p.d.env, ch = [];
+  const put = (k, nv, ov, empty) => {
+    if (JSON.stringify(nv) === JSON.stringify(ov)) return;
+    ch.push(empty ? { op: 'delete', at: [k] } : { op: 'set', at: [k], value: nv });
+  };
+  for (const k of ['image', 'prefer']) put(k, n[k].trim(), o[k], !n[k].trim());
+  for (const k of PJ_LISTS) put(k, stLines(n.txt[k]), stLines(o.txt[k]), !stLines(n.txt[k]).length);
+  const nm = pjParsePbm(n.txt.pbm), om = pjParsePbm(o.txt.pbm);
+  if (pjSorted(nm) !== pjSorted(om)) ch.push(Object.keys(nm).length ? { op: 'set', at: ['packages_by_manager'], value: nm } : { op: 'delete', at: ['packages_by_manager'] });
+  const nmo = pjParseMounts(n.txt.mounts), omo = pjParseMounts(o.txt.mounts);
+  put('mounts', nmo, omo, !nmo.length);
+  return ch;
+}
+function pjExecChanged() { const p = ST.pj; return !!(p && p.d && (p.d.backend !== p.orig.backend || p.d.image !== p.orig.image)); }
+const pjColorChanged = () => !!(ST.pj && ST.pj.d && ST.pj.d.color !== ST.pj.orig.color);
+const pjDirty = () => !!(ST.pj && ST.pj.d && (pjEnvChanges().length || pjExecChanged() || pjColorChanged()));
+
+// aperçu fusionné en direct : le Go fusionne, rien n'est écrit
+function pjPreview() {
+  const p = ST.pj; if (!p || !p.d) return;
+  clearTimeout(p.pvTimer);
+  p.pvTimer = setTimeout(async () => {
+    const ch = pjEnvChanges();
+    try {
+      const r = await call('projectSettings', { path: p.path, changes: ch.length ? ch : undefined });
+      if (ST.pj !== p || !ST.on) return;
+      p.merged = r.merged || []; p.mergedProblems = ch.length ? (r.problems || []) : null;
+      pjRenderMerged(); stRenderFoot();
+    } catch (e) { /* l'aperçu reste celui d'avant */ }
+  }, 300);
+}
+function pjRenderMerged() {
+  const m = $('pjmerged'); if (!m || !ST.pj) return;
+  m.textContent = '';
+  for (const l of ST.pj.merged) m.appendChild(el('div', 'mg mg-' + (l.from || 'none'), l.text || ' '));
+}
+
+function pjArea(key, rows) {
+  const d = ST.pj.d.env.txt;
+  return stArea(d[key], (v) => { d[key] = v; pjPreview(); }, rows);
+}
+
 function stPageProjet(p) {
-  p.append(el('h4', '', 'Projet'), el('p', 'ex', 'Réglages du projet sélectionné : backend, environnement du conteneur, couleur.'));
-  const ok = ST.project && ST.project !== 'new';
-  p.appendChild(el('p', 'note', ok ? 'Pas encore de formulaire : l\'environnement du projet se modifie dans l\'éditeur YAML (env.yaml du projet).' : 'Sélectionnez d\'abord un projet dans le navigateur.'));
-  if (ok) p.appendChild(stBtn('Éditer env.yaml en YAML', () => stText('project-env')));
+  const pj = ST.pj;
+  const name = ST.project ? ST.project.split(/[\\/]/).filter(Boolean).pop() : '';
+  if (!ST.project || ST.project === 'new') {
+    p.append(el('h4', '', 'Projet'), el('p', 'note', 'Sélectionnez d\'abord un projet dans le navigateur (ou clic droit sur un projet → « ⚙ Réglages du projet… »).'));
+    return;
+  }
+  const h = el('h4', '', 'Projet — ' + name);
+  if (pj && pj.data) h.appendChild(el('span', 'pill', pj.data.open ? 'ouvert' : 'fermé'));
+  p.append(h, el('p', 'ex', 'Ce qui est propre à ce projet. Le reste vient du template (violet) et du launcher (bleu).'));
+  if (!pj || pj.loading) { p.appendChild(el('p', 'dim', 'Chargement…')); return; }
+  if (pj.err) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + pj.err + ' — utiliser « Éditer en YAML ».')); return; }
+  const r = pj.data, d = pj.d, open = r.open;
+  // Exécution
+  const be = el('select', 'stin'); be.id = 'pjf-backend';
+  const names = (r.backends || []).slice(); if (d.backend && !names.includes(d.backend)) names.push(d.backend);
+  if (!d.backend) be.appendChild(Object.assign(el('option', '', '(non configuré)'), { value: '' }));
+  for (const n of names) be.appendChild(Object.assign(el('option', '', n === 'host' ? 'host (hôte local)' : n), { value: n }));
+  be.value = d.backend; be.disabled = open;
+  be.addEventListener('change', () => { d.backend = be.value; stRenderFoot(); });
+  const im = stInput(d.image, (v) => { d.image = v.trim(); }, 'image de base', 'w'); im.id = 'pjf-image'; im.disabled = open;
+  const dl = el('datalist'); dl.id = 'pjimages'; for (const i of r.images || []) dl.appendChild(Object.assign(el('option'), { value: i }));
+  im.setAttribute('list', 'pjimages');
+  const rows = [['Backend', be, open ? 'projet ouvert : le fermer avant de changer de backend ou d\'image' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
+    ['Image de base', im, 'ignorée pour le backend host'], ['Backend préféré', stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'), 'proposé aux autres postes (prefer, env.yaml)']];
+  const sw = el('span', 'pjcolors'); sw.id = 'pjf-color';
+  const mk = (val, label, css) => {
+    const c = el('span', 'pjsw' + (d.color === val ? ' on' : '')); c.title = label; if (css) c.style.background = css; else c.textContent = 'auto';
+    c.onclick = () => { d.color = val; for (const x of sw.children) x.classList.remove('on'); c.classList.add('on'); stRenderFoot(); };
+    sw.appendChild(c);
+  };
+  mk('', 'couleur automatique', '');
+  for (const c of r.palette || []) mk(String(c), 'couleur ' + c, pjColorCss(c));
+  rows.push(['Couleur', sw, r.colorAuto && !d.color ? 'automatique (aucune couleur fixée)' : '']);
+  const ex = stForm(rows); ex.appendChild(dl);
+  p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
+  // Environnement
+  const env = el('div');
+  const f2 = [['Image', stInput(d.env.image, (v) => { d.env.image = v; pjPreview(); }, 'image du projet (surcharge le template)')]];
+  for (const k of PJ_LISTS) f2.push([PJ_LABEL[k], pjArea(k, k === 'packages' ? 4 : 3), PJ_HINT[k]]);
+  f2.push(['Paquets par gestionnaire', stArea(d.env.txt.pbm, (v) => { d.env.txt.pbm = v; pjPreview(); }, 2), 'une ligne par gestionnaire : apt: git jq']);
+  f2.push(['Montages', stArea(d.env.txt.mounts, (v) => { d.env.txt.mounts = v; pjPreview(); }, 3), 'un chemin par ligne, lecture seule ; « :rw » en fin de ligne pour écrire']);
+  env.appendChild(stForm(f2)); env.id = 'pjf-env';
+  p.appendChild(stBox('Environnement du conteneur', env, el('span', 'dim', r.envPath ? r.envPath.split(/[\\/]/).slice(-2).join('/') + (r.envExists ? '' : ' (absent : créé à l\'enregistrement)') : '')));
+  // Aperçu fusionné
+  const mg = el('div', 'pjmerged'); mg.id = 'pjmerged';
+  const leg = el('p', 'note', ''); leg.append(el('span', 'mg-template', '■ apporté par env-template.yaml'), ' (non modifiable ici) · ', el('span', 'mg-launcher', '■ ajouté par le launcher'), ' · le reste vient du projet.' + (r.hasTemplate ? '' : ' (aucun env-template.yaml pour ce projet)'));
+  const box = el('div'); box.append(mg, leg);
+  p.appendChild(stBox('Environnement fusionné — aperçu en lecture seule', box));
+  pjRenderMerged();
+  if (pj.focus) { const t = $(pj.focus); pj.focus = ''; if (t) { t.scrollIntoView({ block: 'center' }); const f = t.matches('input,select,textarea') ? t : t.querySelector('input,select,textarea'); if (f && !f.disabled) f.focus(); } }
+}
+
+function pjFoot(f) {
+  const pj = ST.pj;
+  const left = el('div', 'stmsg');
+  const dirty = pjDirty();
+  const probs = pj && pj.res && pj.res.problems ? pj.res.problems : (pj && pj.mergedProblems ? pj.mergedProblems : (pj && pj.data ? pj.data.problems || [] : []));
+  const errs = probs.filter((x) => x.severity === 'error').length;
+  const res = pj && pj.res;
+  if (res && res.conflict) {
+    left.append(el('span', 't-orange', 'env.yaml a changé sur le disque depuis son ouverture. '));
+    const rel = el('button', 'btn sm', 'Recharger (perdre mes modifications)'); rel.onclick = async () => { await pjLoad(); stRender(); };
+    const ow = el('button', 'btn sm danger', 'Écraser avec ma version'); ow.onclick = () => { pj.mtime = res.mtime; pj.res = null; pjSave(); };
+    left.append(rel, ow);
+  } else if (res && res.msg) {
+    left.appendChild(el('span', 't-red', '✗ ' + res.msg));
+  } else if (probs.length) {
+    for (const x of probs) left.appendChild(el('div', 'ceprob ' + (x.severity === 'error' ? 't-red' : 't-yellow'), (x.severity === 'error' ? '✗ ' : '⚠ ') + (x.line ? 'ligne ' + x.line + ' : ' : '') + x.message));
+  } else if (res && res.saved) {
+    left.appendChild(el('span', 't-green', '✓ Enregistré. ' + (res.note || '')));
+  } else if (!pj || pj.loading) {
+    left.appendChild(el('span', 'dim', 'Chargement…'));
+  } else left.appendChild(el('span', 't-green', '✓ valide'));
+  const txt = el('button', 'btn', 'Éditer env.yaml en YAML'); txt.onclick = () => stText('project-env');
+  txt.disabled = !ST.project || ST.project === 'new';
+  const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = () => stClose();
+  const save = el('button', 'btn pri', 'Enregistrer'); save.id = 'stsave';
+  save.disabled = !dirty || errs > 0 || !(pj && pj.d);
+  save.title = errs ? 'Corriger les erreurs avant d\'enregistrer' : !dirty ? 'aucun changement' : '';
+  save.onclick = () => pjSave();
+  f.append(left, el('span', 'sp'), txt, cancel, save);
+}
+
+async function pjSave() {
+  const pj = ST.pj; if (!pj || !pj.d) return;
+  const arg = { path: pj.path };
+  if (pjExecChanged()) { arg.backend = pj.d.backend; if (pj.d.backend !== 'host') arg.image = pj.d.image; }
+  if (pjColorChanged()) arg.color = pj.d.color;
+  const ch = pjEnvChanges();
+  if (ch.length) arg.env = { mtime: pj.mtime, changes: ch };
+  let r;
+  try { r = await call('projectApply', arg); } catch (e) { return; }
+  if (!r.ok) {
+    pj.res = r.env ? (r.env.conflict ? { conflict: true, mtime: r.env.mtime } : { problems: r.env.problems || [] }) : { msg: r.msg || 'refusé' };
+    stRenderFoot(); return;
+  }
+  const keep = pj.focus;
+  await pjLoad();
+  if (ST.pj) ST.pj.res = { saved: true, note: r.note || '' };
+  stRender();
 }
 
 $('cfgbtn').title = 'Réglages (Ctrl+,)';
