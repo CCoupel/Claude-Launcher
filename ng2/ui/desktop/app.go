@@ -61,8 +61,10 @@ type App struct {
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
-	openTabs  sync.Map      // projets ouverts (chemin → true), lisible sans a.mu
-	hubGen    atomic.Uint64 // génération de la dernière relecture des avertissements hubs
+	projSet   atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
+	liveSnap  atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
+	openTabs  sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
+	hubGen    atomic.Uint64                   // génération de la dernière relecture des avertissements hubs
 	ctrFounds atomic.Pointer[[]core.Found]
 	bkSnap    atomic.Pointer[[]core.BackendConf]
 
@@ -107,6 +109,7 @@ func NewApp(emit Emitter) *App {
 		})
 		saveTree(cfg.Roots, a.nodes)
 	}
+	a.storeProjects()
 	// conso : lue en tâche de fond (Start), CLAUDE_CONFIG_DIR peut être sur 9P
 	a.usage.Loading = true
 	// badges immédiats : cache LOCAL seulement (état préparé, badges git du
@@ -351,6 +354,7 @@ func (a *App) rescan() {
 		known[p] = true
 	}
 	a.nodes = nodes
+	a.storeProjects()
 	var fresh []string
 	for _, p := range a.projectPaths() {
 		if !known[p] {
@@ -462,6 +466,34 @@ func (a *App) readCtr() {
 	a.changed()
 }
 
+// storeProjects : ensemble des projets de l'arbre, pour vérifier sans verrou
+// qu'un chemin fourni par l'interface (mode --web : le client n'est pas de
+// confiance) désigne bien un projet connu (a.nodes ; a.mu tenu ou démarrage).
+func (a *App) storeProjects() {
+	set := map[string]bool{}
+	for _, n := range a.nodes {
+		if n.Project {
+			set[n.Path] = true
+		}
+	}
+	a.projSet.Store(&set)
+}
+
+// checkProjectArg : quand l'appel vise un projet (need), le chemin fourni par
+// l'interface doit être un projet de l'arbre.
+func (a *App) checkProjectArg(need bool, path string) error {
+	if need && !a.knownProject(path) {
+		return fmt.Errorf("projet inconnu : %s", path)
+	}
+	return nil
+}
+
+// knownProject : le chemin est un projet de l'arbre (sous les racines).
+func (a *App) knownProject(path string) bool {
+	p := a.projSet.Load()
+	return p != nil && (*p)[path]
+}
+
 // storeCtrSnapshots : instantanés des conteneurs et des backends pour la fenêtre
 // Réglages, lisibles sans verrou (backendStates).
 func (a *App) storeCtrSnapshots(v core.CtrView) {
@@ -470,6 +502,11 @@ func (a *App) storeCtrSnapshots(v core.CtrView) {
 		founds = append(founds, f)
 	}
 	a.ctrFounds.Store(&founds)
+	live := make(map[string]bool, len(v.Live))
+	for p := range v.Live {
+		live[p] = true
+	}
+	a.liveSnap.Store(&live)
 	a.storeBackends()
 }
 
@@ -960,7 +997,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 		}
-		return a.projectSettings(in.Path, in.Changes), nil
+		return a.projectSettings(in.Path, in.Changes)
 	case "projectApply":
 		var in struct {
 			Path    string
@@ -979,7 +1016,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		if in.Env != nil {
 			ch.Env = &core.EnvChange{MTime: in.Env.MTime, Changes: in.Env.Changes}
 		}
-		return a.projectApply(in.Path, ch), nil
+		return a.projectApply(in.Path, ch)
 	case "backendTest":
 		var in struct {
 			Backend core.BackendEntry `json:"backend"`
@@ -1138,13 +1175,25 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		}
 		return nil, nil
 	case "configFiles": // éditeur de configuration (#117) ; Path : projet (facultatif)
+		if err := a.checkProjectArg(arg.Path != "", arg.Path); err != nil {
+			return nil, err
+		}
 		return core.ConfigFiles(arg.Path), nil
 	case "configOpen":
+		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
+			return nil, err
+		}
 		return a.configOpen(core.ConfigKind(arg.Kind), arg.Path)
 	case "configValidate":
+		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
+			return nil, err
+		}
 		ps, merged := a.configCheck(core.ConfigKind(arg.Kind), arg.Path, arg.Content)
 		return map[string]any{"problems": ps, "merged": merged}, nil
 	case "configSave":
+		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
+			return nil, err
+		}
 		return a.configSave(core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
 	case "configModel": // écran Réglages (#118) : fichier lu en modèle
 		return a.configModel(core.ConfigKind(arg.Kind), arg.Path)

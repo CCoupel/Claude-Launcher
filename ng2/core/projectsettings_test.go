@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -239,5 +240,142 @@ func TestApplyProjectSettings(t *testing.T) {
 	conf, _ = os.ReadFile(ConfigPath())
 	if strings.Contains(string(conf), "alpha") || !strings.Contains(string(conf), "# ma config") {
 		t.Fatalf("config.conf : %q", conf)
+	}
+}
+
+// MAJEUR : toutes les formes bash d'affectation de PROJECT_COLORS — la couleur
+// des autres projets survit (jamais de seconde déclaration qui écraserait le
+// tableau), relecture par bash vérifiée ; une forme inconnue est refusée.
+func TestSetProjectColorAllBashForms(t *testing.T) {
+	unixOnly(t)
+	colorsOf := func(src string) map[string]string {
+		p := filepath.Join(t.TempDir(), "config.conf")
+		psWrite(t, p, src)
+		return loadConfigAt(p).ProjectColors
+	}
+	forms := map[string]string{
+		"éléments":                   "declare -A PROJECT_COLORS\nPROJECT_COLORS[\"a\"]=\"1\"\nPROJECT_COLORS[b]=2   # deux\n",
+		"littéral après déclaration": "declare -A PROJECT_COLORS\nPROJECT_COLORS=([\"a\"]=\"1\" [b]=2)\n",
+		"typeset":                    "typeset -A PROJECT_COLORS=(\n  [\"a\"]=\"1\"\n  [b]=2\n)\n",
+		"declare -gA":                "declare -gA PROJECT_COLORS=([\"a\"]=\"1\" [\"b\"]=\"2\")\n",
+		"littéral nu":                "PROJECT_COLORS=([\"a\"]=\"1\" [\"b\"]=\"2\")\n",
+		"deux littéraux (+=)":        "declare -A PROJECT_COLORS=([\"a\"]=\"1\")\nPROJECT_COLORS+=([\"b\"]=\"2\")\n",
+		"déclaration seule":          "declare -A PROJECT_COLORS\n",
+		"export":                     "export PROJECT_COLORS=([\"a\"]=\"1\" [\"b\"]=\"2\")\n",
+	}
+	for name, base := range forms {
+		src := "# début\nX=1\n" + base + "Y=2\n"
+		want := colorsOf(src)
+		// ajout : rien ne disparaît, la nouvelle couleur s'ajoute
+		out, err := SetProjectColor(src, "c", "58")
+		if err != nil {
+			t.Errorf("%s : ajout : %v", name, err)
+			continue
+		}
+		got := colorsOf(out)
+		for k, v := range want {
+			if got[k] != v {
+				t.Errorf("%s : couleur de %s perdue (%q → %q)\n%s", name, k, v, got[k], out)
+			}
+		}
+		if got["c"] != "58" || len(got) != len(want)+1 {
+			t.Errorf("%s : ajout : %v\n%s", name, got, out)
+		}
+		if strings.Count(out, "declare -A PROJECT_COLORS=(") > strings.Count(src, "declare -A PROJECT_COLORS=(") {
+			t.Errorf("%s : seconde déclaration ajoutée :\n%s", name, out)
+		}
+		if !strings.HasPrefix(out, "# début\nX=1\n") || !strings.HasSuffix(out, "Y=2\n") {
+			t.Errorf("%s : reste du fichier touché :\n%s", name, out)
+		}
+		// remplacement d'une existante, puis retrait
+		if _, ok := want["a"]; ok {
+			out2, err := SetProjectColor(src, "a", "22")
+			if err != nil || colorsOf(out2)["a"] != "22" || colorsOf(out2)["b"] != want["b"] {
+				t.Errorf("%s : remplacement : %v %v\n%s", name, err, colorsOf(out2), out2)
+			}
+			out3, err := SetProjectColor(src, "a", "")
+			g := colorsOf(out3)
+			if _, still := g["a"]; err != nil || still || g["b"] != want["b"] {
+				t.Errorf("%s : retrait : %v %v\n%s", name, err, g, out3)
+			}
+		}
+		if _, err := SetProjectColor(out, "a", ""); name != "déclaration seule" && err != nil {
+			t.Errorf("%s : retrait après ajout : %v", name, err)
+		}
+	}
+	// formes que l'interface ne sait pas modifier : refus, fichier intact
+	for name, src := range map[string]string{
+		"boucle": "declare -A PROJECT_COLORS\nfor n in a b; do PROJECT_COLORS[$n]=5; done\n",
+		"unset":  "PROJECT_COLORS=([a]=1)\nunset PROJECT_COLORS\n",
+		"eval":   "eval \"PROJECT_COLORS=([a]=1)\"\n",
+	} {
+		if out, err := SetProjectColor(src, "c", "5"); err == nil || out != "" {
+			t.Errorf("%s : accepté : %q", name, out)
+		}
+		if _, err := SetProjectColor(src, "c", ""); err == nil {
+			t.Errorf("%s : retrait accepté", name)
+		}
+	}
+	// une mention en commentaire ne compte pas
+	out, err := SetProjectColor("# declare -A PROJECT_COLORS=(\n#   [\"x\"]=\"1\"\n# )\nZ=1\n", "p", "5")
+	if err != nil || colorsOf(out)["p"] != "5" {
+		t.Errorf("commentaire : %v %v", err, out)
+	}
+}
+
+// MAJEUR 2 : un échec POSTÉRIEUR à l'écriture d'env.yaml rend le résultat
+// partiel (ce qui est écrit, nouveau mtime) avec l'erreur ; un second
+// enregistrement avec ce mtime ne se met pas en conflit avec soi-même.
+func TestApplyProjectSettingsPartialResult(t *testing.T) {
+	unixOnly(t)
+	proj := psEnv(t)
+	str := func(s string) *string { return &s }
+	psWrite(t, EnvPath(proj), "image: docker.io/library/debian:12\npackages: [jq]\n")
+	psWrite(t, ConfigPath(), "eval \"PROJECT_COLORS=([x]=1)\"\n") // forme que l'interface ne modifie pas
+	st, _ := os.Stat(EnvPath(proj))
+	set := ConfigChange{Op: "set", At: []string{"packages"}, Value: []any{"jq", "git"}}
+	r := ApplyProjectSettings(proj, false, ProjectChange{Color: str("22"), Env: &EnvChange{MTime: st.ModTime().Format(time.RFC3339Nano), Changes: []ConfigChange{set}}})
+	if r.OK || r.Msg == "" || r.Env == nil || !r.Env.Saved || r.Env.MTime == "" || r.Color {
+		t.Fatalf("résultat partiel : %+v", r)
+	}
+	if b, _ := os.ReadFile(EnvPath(proj)); !strings.Contains(string(b), "git") {
+		t.Fatal("env.yaml non écrit")
+	}
+	// l'interface rafraîchit son modèle avec ce mtime : l'enregistrement suivant passe
+	next := ConfigChange{Op: "set", At: []string{"packages"}, Value: []any{"jq", "git", "curl"}}
+	r2 := ApplyProjectSettings(proj, false, ProjectChange{Env: &EnvChange{MTime: r.Env.MTime, Changes: []ConfigChange{next}}})
+	if !r2.OK || r2.Env == nil || !r2.Env.Saved {
+		t.Fatalf("second enregistrement : %+v", r2)
+	}
+	// forme JSON : l'env partiel et colorSaved sont dans le résultat
+	if b, _ := json.Marshal(r); !strings.Contains(string(b), `"env":{"saved":true`) || !strings.Contains(string(b), `"ok":false`) {
+		t.Errorf("JSON : %s", b)
+	}
+}
+
+// Mineur (a) : l'image demandée entre dans les changements d'env.yaml — le
+// fichier n'est écrit qu'une fois (le mtime rendu est celui du fichier).
+func TestApplyProjectSettingsImageWrittenOnce(t *testing.T) {
+	unixOnly(t)
+	proj := psEnv(t)
+	str := func(s string) *string { return &s }
+	psWrite(t, BackendsPath(), "backends:\n  lab: { type: docker, host: 'tcp://10.0.0.1:2375', shared: [/share] }\n")
+	psWrite(t, EnvPath(proj), "# mon env\nimage: docker.io/library/debian:12\npackages: [jq]\n")
+	st, _ := os.Stat(EnvPath(proj))
+	r := ApplyProjectSettings(proj, false, ProjectChange{Backend: str("lab"), Image: str("docker.io/library/alpine:3.20"),
+		Env: &EnvChange{MTime: st.ModTime().Format(time.RFC3339Nano), Changes: []ConfigChange{{Op: "set", At: []string{"packages"}, Value: []any{"jq", "git"}}}}})
+	if !r.OK || r.Env == nil || !r.Env.Saved {
+		t.Fatalf("application : %+v", r)
+	}
+	after, _ := os.Stat(EnvPath(proj))
+	if after.ModTime().Format(time.RFC3339Nano) != r.Env.MTime {
+		t.Errorf("env.yaml écrit une seconde fois : %s ≠ %s", after.ModTime().Format(time.RFC3339Nano), r.Env.MTime)
+	}
+	b, _ := os.ReadFile(EnvPath(proj))
+	if !strings.Contains(string(b), "alpine:3.20") || !strings.Contains(string(b), "# mon env") || !strings.Contains(string(b), "git") {
+		t.Fatalf("env.yaml :\n%s", b)
+	}
+	if ReadAssignments()[proj] != "lab" {
+		t.Fatal("affectation non écrite")
 	}
 }

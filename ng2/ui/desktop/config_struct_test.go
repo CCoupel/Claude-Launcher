@@ -335,3 +335,78 @@ func TestProjectSettingsCalls(t *testing.T) {
 		t.Fatal("arguments invalides acceptés")
 	}
 }
+
+// Mode --web : le chemin d'un projet fourni par le client doit être un projet
+// de l'arbre ; un projet ouvert par un autre launcher (session vivante dans son
+// conteneur) est vu ouvert ; un échec après l'écriture d'env.yaml rend le
+// résultat partiel (env et colorSaved dans la réponse).
+func TestProjectCallsKnownPathOpenElsewhereAndPartial(t *testing.T) {
+	ps := sandbox(t, "", "alpha")
+	proj := ps[0]
+	var r recorder
+	a := newApp(t, r.emit)
+	call := func(m string, args map[string]any) (map[string]any, error) {
+		b, _ := json.Marshal(args)
+		res, err := a.Dispatch(m, b)
+		if err != nil {
+			return nil, err
+		}
+		out, _ := json.Marshal(res)
+		var v map[string]any
+		_ = json.Unmarshal(out, &v)
+		return v, nil
+	}
+	// chemins inconnus : refusés partout où un projet est visé
+	outside := filepath.Join(t.TempDir(), "ailleurs")
+	_ = os.MkdirAll(outside, 0o755)
+	for m, args := range map[string]map[string]any{
+		"projectSettings": {"path": outside},
+		"projectApply":    {"path": outside, "color": "5"},
+		"configFiles":     {"path": outside},
+		"configOpen":      {"kind": "project-env", "path": outside},
+		"configValidate":  {"kind": "project-env", "path": outside, "content": "image: x\n"},
+		"configSave":      {"kind": "project-env", "path": outside, "content": "image: x\n", "mtime": ""},
+		"projectApply2":   {"path": "../../etc", "color": "5"},
+	} {
+		m = strings.TrimSuffix(m, "2")
+		if _, err := call(m, args); err == nil || !strings.Contains(err.Error(), "projet inconnu") {
+			t.Errorf("%s %v : %v", m, args["path"], err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(outside, ".claude-launcher")); err == nil {
+		t.Error("écriture hors de l'arbre")
+	}
+	// fichiers globaux sans projet : toujours permis
+	if _, err := call("configFiles", map[string]any{}); err != nil {
+		t.Fatal(err)
+	}
+	// projet ouvert par un autre launcher : session vivante dans un conteneur
+	live := map[string]bool{proj: true}
+	a.liveSnap.Store(&live)
+	s, err := call("projectSettings", map[string]any{"path": proj})
+	if err != nil || s["open"] != true {
+		t.Fatalf("open ailleurs : %v %v", s["open"], err)
+	}
+	ap, _ := call("projectApply", map[string]any{"path": proj, "backend": "host"})
+	if ap["ok"] != false || !strings.Contains(ap["msg"].(string), "projet ouvert") {
+		t.Fatalf("refus : %v", ap)
+	}
+	none := map[string]bool{}
+	a.liveSnap.Store(&none)
+	// résultat partiel : config.conf illisible pour l'interface après l'écriture d'env.yaml
+	envFile := core.EnvPath(proj)
+	_ = os.MkdirAll(filepath.Dir(envFile), 0o755)
+	_ = os.WriteFile(envFile, []byte("image: docker.io/library/debian:12\npackages: [jq]\n"), 0o644)
+	_ = os.WriteFile(core.ConfigPath(), []byte("eval \"PROJECT_COLORS=([x]=1)\"\n"), 0o644)
+	s, _ = call("projectSettings", map[string]any{"path": proj})
+	ap, err = call("projectApply", map[string]any{"path": proj, "color": "22", "env": map[string]any{"mtime": s["envMtime"],
+		"changes": []any{map[string]any{"op": "set", "at": []string{"packages"}, "value": []any{"jq", "git"}}}}})
+	if err != nil || ap["ok"] != false || ap["msg"] == nil || ap["env"] == nil || ap["env"].(map[string]any)["saved"] != true {
+		t.Fatalf("partiel : %v %v", ap, err)
+	}
+	ap2, _ := call("projectApply", map[string]any{"path": proj, "env": map[string]any{"mtime": ap["env"].(map[string]any)["mtime"],
+		"changes": []any{map[string]any{"op": "set", "at": []string{"packages"}, "value": []any{"jq"}}}}})
+	if ap2["ok"] != true {
+		t.Fatalf("second enregistrement en conflit avec le premier : %v", ap2)
+	}
+}

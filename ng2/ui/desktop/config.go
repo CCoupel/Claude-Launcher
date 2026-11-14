@@ -255,24 +255,50 @@ func (a *App) refreshHubWarns(read func() []string) <-chan struct{} {
 
 // ── Réglages d'un projet (#148, LOT-3.2 : contracts/desktop-dispatch.md) ──
 
+// foreignOwner : propriétaire vivant d'une session d'un autre launcher (remplacé
+// dans les tests : aucun accès aux moteurs ni au réseau).
+var foreignOwner = core.ForeignOwner
+
+// projectOpen : le projet est ouvert, ici (onglet) ou par un autre launcher
+// (session tmux vivante dans son conteneur, vue à la dernière lecture des
+// conteneurs). Sans verrou.
+func (a *App) projectOpen(path string) bool {
+	if _, open := a.openTabs.Load(path); open {
+		return true
+	}
+	p := a.liveSnap.Load()
+	return p != nil && (*p)[path]
+}
+
 // projectSettings : backend, image, couleur, env.yaml du projet et aperçu
-// fusionné avec provenance. Sans a.mu : l'état « ouvert » vient d'un
-// ensemble lisible sans verrou, la configuration d'un instantané.
-func (a *App) projectSettings(path string, changes []core.ConfigChange) map[string]any {
+// fusionné avec provenance. Sans a.mu : l'état « ouvert » vient d'ensembles
+// lisibles sans verrou, la configuration d'un instantané. Un chemin qui n'est
+// pas un projet de l'arbre est refusé.
+func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[string]any, error) {
+	if !a.knownProject(path) {
+		return nil, fmt.Errorf("projet inconnu : %s", path)
+	}
 	s := core.ReadProjectSettings(path, a.conf(), changes)
-	_, open := a.openTabs.Load(path)
 	b, _ := json.Marshal(s)
 	var out map[string]any
 	_ = json.Unmarshal(b, &out)
-	out["open"] = open
-	return out
+	out["open"] = a.projectOpen(path)
+	return out, nil
 }
 
 // projectApply : applique les parties demandées (core.ApplyProjectSettings) puis
-// relit à chaud ce qui peut l'être : config.conf après une couleur, les
-// conteneurs après un backend ou une image.
-func (a *App) projectApply(path string, in core.ProjectChange) map[string]any {
-	_, open := a.openTabs.Load(path)
+// relit à chaud ce qui peut l'être : config.conf après une couleur (même si une
+// étape suivante a échoué : elle est écrite), les conteneurs après un backend ou
+// une image. Un projet ouvert par un autre launcher est détecté aussi
+// (instantané des conteneurs, puis propriétaire vivant pour backend et image).
+func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, error) {
+	if !a.knownProject(path) {
+		return nil, fmt.Errorf("projet inconnu : %s", path)
+	}
+	open := a.projectOpen(path)
+	if !open && (in.Backend != nil || in.Image != nil) {
+		open = foreignOwner(path) != "" // session d'un autre launcher, vérifiée à la source
+	}
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {
 		a.configReload(core.ConfConf)
@@ -281,11 +307,11 @@ func (a *App) projectApply(path string, in core.ProjectChange) map[string]any {
 		go a.readCtr()
 		go a.setMsg("⬡ " + filepath.Base(path) + " : réglages enregistrés")
 	}
-	if r.OK && in.Env != nil && r.Env != nil {
+	if r.Env != nil && r.Env.Saved {
 		a.cardsChanged()
 	}
 	b, _ := json.Marshal(r)
 	var out map[string]any
 	_ = json.Unmarshal(b, &out)
-	return out
+	return out, nil
 }

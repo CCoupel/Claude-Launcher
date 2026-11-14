@@ -148,6 +148,20 @@ facultative et indépendante.
 - Ordre : contrôles sans écriture (refus projet ouvert, backend, image, couleur), puis `env`, puis `color`, puis
   `backend`/`image`. Un échec de `env` (invalide, conflit) arrête tout avant toute autre écriture.
 
+**Résultat partiel** : si une étape POSTÉRIEURE à l'écriture d'`env.yaml` échoue (couleur, backend/image), la
+réponse est `{ "ok": false, "msg": "…", "env": { "saved": true, "problems": [], "mtime": "<nouveau mtime>" },
+"colorSaved": true? }` : `env` dit ce qui est écrit (l'interface rafraîchit son modèle et reprend `env.mtime`,
+sinon son enregistrement suivant serait en conflit avec le sien) ; `colorSaved` vaut vrai quand `config.conf` a
+été écrite. Un échec AVANT toute écriture n'a ni `env` ni `colorSaved`.
+L'image demandée entre dans les changements d'`env.yaml` : le fichier n'est écrit qu'une fois.
+**Chemin** : `path` doit être un projet de l'arbre (sous les racines) ; sinon l'appel échoue (`projet inconnu`),
+comme `configFiles` / `configOpen` / `configValidate` / `configSave` quand ils visent un projet. `open` (et le refus
+backend/image) vaut vrai aussi quand un autre launcher a la session du projet vivante dans son conteneur.
+**Couleur** : `PROJECT_COLORS` est modifié dans toutes ses formes bash d'affectation (littéral de tableau avec ou sans
+`declare`/`typeset`/`-gA`, `+=`, affectations d'éléments, déclaration seule) sans toucher aux autres couleurs ; une
+forme non reconnue (boucle, `eval`, `unset`…) est refusée avec un message. Limite : la couleur d'un projet déjà
+ouvert n'est prise qu'à sa prochaine ouverture.
+
 Résultat : `{ "ok": true, "note": "…", "env": { "saved": true, "problems": [], "mtime": "…" } }` (`env` seulement s'il
 y avait des changements) ; refus : `{ "ok": false, "msg": "…" }` ; `env` invalide ou en conflit :
 `{ "ok": false, "env": { "invalid": true, "problems": [...] } }` ou `{ "ok": false, "env": { "conflict": true, "mtime": "…" } }`.

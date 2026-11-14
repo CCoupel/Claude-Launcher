@@ -287,12 +287,30 @@ func ReadProjectSettings(proj string, cfg Config, changes []ConfigChange) Projec
 
 // ── Couleur du projet : PROJECT_COLORS de config.conf ─────────────────────
 
-var projectColorsDecl = regexp.MustCompile(`(?m)^[ \t]*declare[ \t]+-A[ \t]+PROJECT_COLORS=\(`)
+// Formes bash reconnues d'affectation de PROJECT_COLORS :
+//   - un littéral de tableau, seul ou précédé de declare/typeset/local/export
+//     (avec ses options, -A, -gA…) : « PROJECT_COLORS=(["a"]="1" …) », « += » compris ;
+//   - une déclaration sans valeur (« declare -A PROJECT_COLORS ») ;
+//   - des affectations d'éléments (« PROJECT_COLORS["a"]=1 », « PROJECT_COLORS[a]=1 »).
+//
+// Toute autre ligne qui cite PROJECT_COLORS (boucle, eval, unset…) n'est pas
+// reconnue : SetProjectColor refuse plutôt que d'écrire à côté.
+var (
+	colorsLiteral = regexp.MustCompile(`(?m)^[ \t]*(?:(?:declare|typeset|local|export|readonly)[ \t]+(?:-[A-Za-z]+[ \t]+)*)?PROJECT_COLORS\+?=\(`)
+	colorsDeclare = regexp.MustCompile(`^[ \t]*(?:declare|typeset|local)[ \t]+(?:-[A-Za-z]+[ \t]+)+PROJECT_COLORS[ \t]*(?:#.*)?$`)
+	colorsElement = regexp.MustCompile(`^[ \t]*PROJECT_COLORS\[[^\]]+\]\+?=`)
+)
+
+// errColorsForm : forme d'affectation non reconnue.
+var errColorsForm = fmt.Errorf("PROJECT_COLORS est écrit dans config.conf d'une façon que l'interface ne sait pas modifier (boucle, eval, unset…) : modifier le fichier à la main")
 
 // SetProjectColor : config.conf (src) avec la couleur de name dans PROJECT_COLORS ;
 // color vide : l'entrée est retirée (couleur automatique). Seule cette clé est
-// touchée : le reste du fichier, commentaires compris, est conservé. Pas de
-// déclaration : elle est ajoutée en fin de fichier.
+// touchée : le reste du fichier, commentaires compris, et les couleurs des autres
+// projets sont conservés, quelle que soit la forme bash (littéral de tableau,
+// affectations d'éléments, déclaration seule). Forme non reconnue : erreur,
+// jamais une seconde déclaration qui écraserait le tableau. Aucune mention de
+// PROJECT_COLORS : une déclaration est ajoutée en fin de fichier.
 func SetProjectColor(src, name, color string) (string, error) {
 	if name == "" || strings.ContainsAny(name, "\"'\\$`\n\r") {
 		return "", fmt.Errorf("nom de projet « %s » non utilisable comme clé de PROJECT_COLORS", name)
@@ -303,73 +321,164 @@ func SetProjectColor(src, name, color string) (string, error) {
 		}
 	}
 	entry := `["` + name + `"]="` + color + `"`
-	loc := projectColorsDecl.FindStringIndex(src)
-	if loc == nil {
-		if color == "" {
-			return src, nil
-		}
-		if src != "" && !strings.HasSuffix(src, "\n") {
-			src += "\n"
-		}
-		return src + "declare -A PROJECT_COLORS=(\n  " + entry + "\n)\n", nil
-	}
-	open := loc[1]
-	end := open
-	for inQ := byte(0); end < len(src); end++ { // « ) » hors guillemets et commentaires
-		c := src[end]
-		switch {
-		case inQ != 0:
-			if c == inQ {
-				inQ = 0
+	nameRe := `\[[ \t]*["']?` + regexp.QuoteMeta(name) + `["']?[ \t]*\]`
+	valRe := `(?:"[^"]*"|'[^']*'|[^\s)#]*)`
+
+	// 1. littéraux de tableau : étendues [open, end[ (entre « ( » et « ) »)
+	type span struct{ start, open, end int }
+	var blocks []span
+	for _, loc := range colorsLiteral.FindAllStringIndex(src, -1) {
+		end := loc[1]
+		closed := false
+		for inQ := byte(0); end < len(src) && !closed; end++ {
+			c := src[end]
+			switch {
+			case inQ != 0:
+				if c == inQ {
+					inQ = 0
+				}
+			case c == '"' || c == '\'':
+				inQ = c
+			case c == '#':
+				for end < len(src) && src[end] != '\n' {
+					end++
+				}
+				end--
+			case c == ')':
+				closed = true
+				end--
 			}
-		case c == '"' || c == '\'':
-			inQ = c
-		case c == '#':
-			for end < len(src) && src[end] != '\n' {
-				end++
-			}
-		case c == ')':
-			goto found
 		}
+		if !closed {
+			return "", fmt.Errorf("PROJECT_COLORS : parenthèse fermante introuvable")
+		}
+		blocks = append(blocks, span{loc[0], loc[1], end})
 	}
-	return "", fmt.Errorf("PROJECT_COLORS : parenthèse fermante introuvable")
-found:
-	block := src[open:end]
-	re := regexp.MustCompile(`\[[ \t]*["']?` + regexp.QuoteMeta(name) + `["']?[ \t]*\][ \t]*=[ \t]*(?:"[^"]*"|'[^']*'|[^\s)]*)`)
-	if m := re.FindStringIndex(block); m != nil {
-		if color != "" {
-			return src[:open] + block[:m[0]] + entry + block[m[1]:] + src[end:], nil
+	inBlock := func(pos int) bool {
+		for _, b := range blocks {
+			if pos >= b.start && pos <= b.end {
+				return true
+			}
 		}
-		// retrait : la ligne entière si l'entrée y est seule
-		b0, b1 := m[0], m[1]
-		ls := strings.LastIndex(block[:b0], "\n") + 1
-		le := strings.Index(block[b1:], "\n")
-		if le < 0 {
-			le = len(block) - b1
+		return false
+	}
+	// 2. lignes hors littéral : déclaration seule, éléments, ou forme inconnue
+	var declEnd []int // fin des lignes de déclaration / d'élément (pour l'insertion)
+	type elemLine struct{ start, end int }
+	var elems []elemLine
+	for pos := 0; pos < len(src); {
+		le := strings.IndexByte(src[pos:], '\n')
+		next := len(src)
+		if le >= 0 {
+			next = pos + le + 1
 		} else {
-			le++
+			le = len(src) - pos
 		}
-		if strings.TrimSpace(block[ls:b0]) == "" && strings.TrimSpace(block[b1:b1+le]) == "" && strings.Contains(block, "\n") {
-			return src[:open] + block[:ls] + block[b1+le:] + src[end:], nil
+		line := src[pos : pos+le]
+		code := strings.TrimLeft(line, " \t")
+		if code != "" && !strings.HasPrefix(code, "#") && strings.Contains(code, "PROJECT_COLORS") && !inBlock(pos+len(line)-len(code)) {
+			switch {
+			case colorsDeclare.MatchString(line):
+				declEnd = append(declEnd, next)
+			case colorsElement.MatchString(line):
+				declEnd = append(declEnd, next)
+				elems = append(elems, elemLine{pos, next})
+			default:
+				return "", errColorsForm
+			}
 		}
-		return src[:open] + block[:b0] + strings.TrimLeft(block[b1:], " \t") + src[end:], nil
+		pos = next
+	}
+	// 3. l'entrée existe-t-elle ? toutes ses occurrences sont mises à jour (la dernière gagne en bash)
+	found := false
+	var edits []struct {
+		from, to int
+		with     string
+	}
+	for _, b := range blocks {
+		blk := src[b.open:b.end]
+		re := regexp.MustCompile(nameRe + `[ \t]*=[ \t]*` + valRe)
+		for _, m := range re.FindAllStringIndex(blk, -1) {
+			found = true
+			from, to, with := b.open+m[0], b.open+m[1], entry
+			if color == "" { // retrait : la ligne entière si l'entrée y est seule
+				with = ""
+				ls := strings.LastIndex(src[:from], "\n") + 1
+				le := strings.IndexByte(src[to:], '\n')
+				if le >= 0 && strings.TrimSpace(src[ls:from]) == "" && strings.TrimSpace(src[to:to+le]) == "" {
+					from, to = ls, to+le+1
+				}
+			}
+			edits = append(edits, struct {
+				from, to int
+				with     string
+			}{from, to, with})
+		}
+	}
+	for _, e := range elems {
+		line := src[e.start:e.end]
+		re := regexp.MustCompile(`^([ \t]*PROJECT_COLORS)` + nameRe + `(\+?=[ \t]*)` + valRe)
+		if m := re.FindStringSubmatchIndex(line); m != nil {
+			found = true
+			if color == "" {
+				edits = append(edits, struct {
+					from, to int
+					with     string
+				}{e.start, e.end, ""})
+			} else {
+				edits = append(edits, struct {
+					from, to int
+					with     string
+				}{e.start + m[3], e.start + m[1], `["` + name + `"]` + line[m[4]:m[5]] + `"` + color + `"`})
+			}
+		}
+	}
+	apply := func() string {
+		sort.Slice(edits, func(i, j int) bool { return edits[i].from > edits[j].from })
+		out := src
+		for _, e := range edits {
+			out = out[:e.from] + e.with + out[e.to:]
+		}
+		return out
+	}
+	if found {
+		return apply(), nil
 	}
 	if color == "" {
 		return src, nil
 	}
-	if strings.Contains(block, "\n") {
-		// avant la ligne qui porte « ) »
-		ls := strings.LastIndex(block, "\n") + 1
-		if strings.TrimSpace(block[ls:]) == "" {
-			return src[:open] + block[:ls] + "  " + entry + "\n" + block[ls:] + src[end:], nil
+	// 4. entrée absente : dans le dernier littéral, sinon après la dernière
+	//    déclaration / affectation d'élément, sinon nouvelle déclaration
+	if n := len(blocks); n > 0 {
+		b := blocks[n-1]
+		blk := src[b.open:b.end]
+		switch {
+		case strings.Contains(blk, "\n"):
+			ls := strings.LastIndex(blk, "\n") + 1
+			if strings.TrimSpace(blk[ls:]) == "" {
+				return src[:b.open+ls] + "  " + entry + "\n" + src[b.open+ls:], nil
+			}
+			return src[:b.end] + "\n  " + entry + "\n" + src[b.end:], nil
+		case strings.TrimSpace(blk) == "":
+			return src[:b.open] + blk + entry + src[b.end:], nil
 		}
-		return src[:open] + block + "\n  " + entry + "\n" + src[end:], nil
+		return src[:b.end] + " " + entry + src[b.end:], nil
 	}
-	sep := " "
-	if strings.TrimSpace(block) == "" {
-		sep = ""
+	if n := len(declEnd); n > 0 {
+		at := declEnd[0]
+		for _, d := range declEnd {
+			at = max(at, d)
+		}
+		line := `PROJECT_COLORS["` + name + `"]="` + color + `"`
+		if at > 0 && src[at-1] != '\n' {
+			return src + "\n" + line + "\n", nil
+		}
+		return src[:at] + line + "\n" + src[at:], nil
 	}
-	return src[:open] + block + sep + entry + src[end:], nil
+	if src != "" && !strings.HasSuffix(src, "\n") {
+		src += "\n"
+	}
+	return src + "declare -A PROJECT_COLORS=(\n  " + entry + "\n)\n", nil
 }
 
 // ApplyProjectColor : fixe (ou, color vide, retire) la couleur du projet name
@@ -425,8 +534,8 @@ type ProjectResult struct {
 	OK    bool       `json:"ok"`
 	Msg   string     `json:"msg,omitempty"`
 	Note  string     `json:"note,omitempty"`
-	Env   *EnvResult `json:"env,omitempty"`
-	Color bool       `json:"-"` // config.conf écrite (rechargement à chaud côté interface)
+	Env   *EnvResult `json:"env,omitempty"`        // présent aussi sur un échec POSTÉRIEUR à son écriture (résultat partiel)
+	Color bool       `json:"colorSaved,omitempty"` // config.conf écrite (relue à chaud côté interface)
 }
 
 // ApplyProjectSettings applique les parties demandées. open : le projet est
@@ -476,8 +585,12 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		}
 	}
 	res := ProjectResult{OK: true}
-	// 2. env.yaml du projet
+	// 2. env.yaml du projet — l'image demandée y entre par les mêmes changements :
+	//    une seule écriture du fichier
 	if in.Env != nil && len(in.Env.Changes) > 0 {
+		if backend != "" && backend != "host" && image != "" {
+			in.Env.Changes = append(append([]ConfigChange(nil), in.Env.Changes...), ConfigChange{Op: "set", At: []string{"image"}, Value: image})
+		}
 		var expected time.Time
 		if in.Env.MTime != "" {
 			t, err := time.Parse(time.RFC3339Nano, in.Env.MTime)
@@ -516,21 +629,26 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	// 3. couleur
 	if in.Color != nil {
 		if _, err := ApplyProjectColor(filepath.Base(proj), *in.Color); err != nil {
+			// partiel : l'env.yaml est déjà écrit, l'interface doit en connaître le résultat
+			res.OK, res.Msg = false, "config.conf : "+err.Error()
 			if err == ErrConfigInvalid || err == ErrConfigConflict {
-				return fail("config.conf : %v — réessayer, ou « Éditer en YAML »", err)
+				res.Msg += " — réessayer, ou éditer config.conf à la main"
 			}
-			return fail("config.conf : %v", err)
+			return res
 		}
 		res.Color = true
 	}
 	// 4. backend et image
 	if in.Backend != nil || in.Image != nil {
+		var err error
 		if backend == "host" {
-			if err := ApplyExec(proj, "", ""); err != nil {
-				return fail("%v", err)
-			}
-		} else if err := ApplyExec(proj, image, backend); err != nil {
-			return fail("%v", err)
+			err = ApplyExec(proj, "", "")
+		} else {
+			err = ApplyExec(proj, image, backend)
+		}
+		if err != nil {
+			res.OK, res.Msg = false, err.Error() // partiel : env.yaml et couleur déjà écrits
+			return res
 		}
 	}
 	return res
