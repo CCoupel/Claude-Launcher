@@ -171,8 +171,8 @@ func mustJSON(t *testing.T, v any) string {
 }
 
 func TestMaskProblems(t *testing.T) {
-	ps := maskProblems([]core.ConfigProblem{{Message: "ligne 3 : ghp_X1 inattendu"}, {Message: "rien"}}, "ghp_X1")
-	if strings.Contains(ps[0].Message, "ghp_X1") || !strings.Contains(ps[0].Message, "***") || ps[1].Message != "rien" {
+	ps := maskProblems([]core.ConfigProblem{{Message: "ligne 3 : ghp_X1234567 inattendu"}, {Message: "rien"}}, "ghp_X1234567")
+	if strings.Contains(ps[0].Message, "ghp_X1234567") || !strings.Contains(ps[0].Message, "***") || ps[1].Message != "rien" {
 		t.Fatalf("%+v", ps)
 	}
 	if got := maskProblems([]core.ConfigProblem{{Message: "a"}}, ""); got[0].Message != "a" {

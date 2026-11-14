@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strconv"
@@ -1250,5 +1251,45 @@ func noOptionLike(name string, c BackendConf) error {
 			return err
 		}
 	}
+	// « ssh://-oProxyCommand=… » : la destination ssh d'une adresse docker/podman
+	for field, v := range map[string]string{"host": c.Host, "engine_host": c.EngHost} {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(v), "ssh://"); ok {
+			if i := strings.LastIndex(rest, "@"); i >= 0 {
+				rest = rest[i+1:]
+			}
+			if err := check(field+" (destination ssh)", rest); err != nil {
+				return err
+			}
+		}
+	}
+	for _, h := range c.Hosts {
+		if rest, ok := strings.CutPrefix(strings.TrimSpace(h), "ssh://"); ok {
+			if i := strings.LastIndex(rest, "@"); i >= 0 {
+				rest = rest[i+1:]
+			}
+			if err := check("hosts (destination ssh)", rest); err != nil {
+				return err
+			}
+		}
+	}
+	if c.Type == "k8s" {
+		if c.Namespace != "" && !dns1123Label.MatchString(c.Namespace) {
+			return fmt.Errorf("backends.yaml : backend %q : namespace %q invalide (minuscules, chiffres et « - », 63 caractères au plus)", name, c.Namespace)
+		}
+		if c.Context != "" && !k8sContextRe.MatchString(c.Context) {
+			return fmt.Errorf("backends.yaml : backend %q : context %q invalide (lettres, chiffres et . _ : @ / -)", name, c.Context)
+		}
+		for r, pvc := range c.Volumes {
+			if !dns1123Sub.MatchString(pvc) {
+				return fmt.Errorf("backends.yaml : backend %q : volume %q : nom de PVC %q invalide", name, r, pvc)
+			}
+		}
+	}
 	return nil
 }
+
+var (
+	dns1123Label = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+	dns1123Sub   = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$`)
+	k8sContextRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,252}$`)
+)

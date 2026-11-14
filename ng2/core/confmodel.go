@@ -376,6 +376,22 @@ var (
 // checkConfString : valeur sûre pour une chaîne entre guillemets doubles d'un
 // fichier sourcé par bash : ni guillemet, ni antislash, ni guillemet inverse, ni
 // retour à la ligne, ni substitution de commande ; « $NOM » et « ${NOM} » seuls.
+// confAllowedVars : variables développables dans une valeur (« $NOM », « ${NOM} ») :
+// l'environnement de base et les réglages de chemin ; jamais un secret
+// (GITHUB_TOKEN, GH_TOKEN…) qui serait recopié dans une autre valeur.
+var confAllowedVars = map[string]bool{
+	"HOME": true, "USER": true, "LOGNAME": true, "PWD": true, "XDG_CONFIG_HOME": true, "XDG_CACHE_HOME": true,
+	"XDG_DATA_HOME": true, "XDG_STATE_HOME": true, "GITHUB_DIR": true, "CLAUDE_CONFIG_DIR": true,
+}
+
+func confVarName(rest string) string {
+	i := 0
+	for i < len(rest) && (rest[i] == '_' || rest[i] >= 'A' && rest[i] <= 'Z' || rest[i] >= 'a' && rest[i] <= 'z' || i > 0 && rest[i] >= '0' && rest[i] <= '9') {
+		i++
+	}
+	return rest[:i]
+}
+
 func checkConfString(v string) error {
 	if strings.ContainsAny(v, "\"\\`\n\r\x00") {
 		return fmt.Errorf("guillemet, antislash, guillemet inverse et retour à la ligne interdits")
@@ -391,7 +407,13 @@ func checkConfString(v string) error {
 			if e < 0 || !confSimpleVar.MatchString(rest[1:e]) {
 				return fmt.Errorf("« ${…} » : seul un nom de variable est permis")
 			}
-		case rest != "" && (rest[0] == '_' || rest[0] >= 'A' && rest[0] <= 'Z' || rest[0] >= 'a' && rest[0] <= 'z'):
+			if !confAllowedVars[rest[1:e]] {
+				return fmt.Errorf("variable « %s » non autorisée dans une valeur (permises : HOME, USER, LOGNAME, PWD, XDG_*, GITHUB_DIR, CLAUDE_CONFIG_DIR)", rest[1:e])
+			}
+		case confVarName(rest) != "":
+			if n := confVarName(rest); !confAllowedVars[n] {
+				return fmt.Errorf("variable « %s » non autorisée dans une valeur (permises : HOME, USER, LOGNAME, PWD, XDG_*, GITHUB_DIR, CLAUDE_CONFIG_DIR)", n)
+			}
 		default:
 			return fmt.Errorf("« $ » : seul « $NOM » ou « ${NOM} » est permis (pas de substitution de commande)")
 		}
@@ -508,8 +530,13 @@ func renderConfValue(s confSetting, v any, multiline bool, eol string) (string, 
 			if err := checkConfString(it); err != nil {
 				return fail("« %s » : %v", it, err)
 			}
-			if s.Key == "EXTRA_ENVS" && !confEnvRe.MatchString(it) {
-				return fail("« %s » : la forme NOM=valeur est attendue", it)
+			if s.Key == "EXTRA_ENVS" {
+				if !confEnvRe.MatchString(it) {
+					return fail("« %s » : la forme NOM=valeur est attendue", it)
+				}
+				if name, _, _ := strings.Cut(it, "="); confDangerousEnv(name) {
+					return fail("variable « %s » interdite : elle permet d'exécuter du code au lancement de claude", name)
+				}
 			}
 		}
 		q := make([]string, len(items))
@@ -632,4 +659,65 @@ func confInsertStmt(src, key, txt, eol string) string {
 		src += eol
 	}
 	return src + line
+}
+
+// confDangerousEnv : variables d'environnement qui changent ce qui s'exécute
+// (chargement de bibliothèques, shell, PATH, options de node ou de git…) : refusées
+// dans EXTRA_ENVS, passé à claude et aux teammates.
+func confDangerousEnv(name string) bool {
+	n := strings.ToUpper(name)
+	switch n {
+	case "PATH", "BASH_ENV", "ENV", "IFS", "PS4", "PROMPT_COMMAND", "SHELLOPTS", "BASHOPTS", "GIT_EXEC_PATH",
+		"NODE_OPTIONS", "NODE_PATH", "PYTHONSTARTUP", "PYTHONPATH", "PERL5OPT", "RUBYOPT":
+		return true
+	}
+	return strings.HasPrefix(n, "LD_") || strings.HasPrefix(n, "DYLD_") || strings.HasPrefix(n, "GIT_SSH")
+}
+
+// ── Jeton GitHub dans l'éditeur de texte ──────────────────────────────────
+
+// ConfTokenKeep : valeur affichée à la place du jeton dans l'éditeur de texte ;
+// la laisser telle quelle à l'enregistrement conserve le jeton actuel.
+const ConfTokenKeep = "__GARDER__"
+
+// MaskConfToken : src avec la valeur de GITHUB_TOKEN remplacée par ConfTokenKeep
+// (le jeton ne quitte jamais le poste). Sans jeton écrit : src inchangé.
+func MaskConfToken(src string) string {
+	stmts, _ := scanConf(src)
+	for i := len(stmts) - 1; i >= 0; i-- {
+		st := stmts[i]
+		if st.Name == "GITHUB_TOKEN" && !st.Array && !st.PlusEq && !st.Compound && st.Scalar != "" && st.Scalar != ConfTokenKeep {
+			src = src[:st.ValStart] + `"` + ConfTokenKeep + `"` + src[st.End:]
+		}
+	}
+	return src
+}
+
+// RestoreConfToken : le texte rendu par l'éditeur (edited) où GITHUB_TOKEN vaut
+// encore ConfTokenKeep reprend le jeton écrit dans current ; sans jeton actuel,
+// la valeur devient vide (le marqueur n'est jamais enregistré comme jeton). Un
+// jeton remplacé, ou vidé, par l'utilisateur est laissé tel quel.
+func RestoreConfToken(edited, current string) string {
+	cur := ConfTokenValue(current)
+	stmts, _ := scanConf(edited)
+	for i := len(stmts) - 1; i >= 0; i-- {
+		st := stmts[i]
+		if st.Name == "GITHUB_TOKEN" && !st.Array && !st.PlusEq && st.Scalar == ConfTokenKeep {
+			edited = edited[:st.ValStart] + `"` + cur + `"` + edited[st.End:]
+		}
+	}
+	return edited
+}
+
+// MaskSecret : msg sans la valeur du jeton. Un jeton court (moins de 8
+// caractères : tout autre texte le contiendrait) ne se masque pas par
+// remplacement : le message est alors remplacé en entier par un texte générique.
+func MaskSecret(msg, token string) string {
+	switch {
+	case token == "" || !strings.Contains(msg, token):
+		return msg
+	case len(token) < 8:
+		return "problème dans config.conf (détail masqué)"
+	}
+	return strings.ReplaceAll(msg, token, "***")
 }

@@ -254,12 +254,14 @@ func TestCheckConfStringEdgeCases(t *testing.T) {
 	for _, v := range []string{
 		"a$", "$", "$1", "$$", "$?", "$@", "$*", "$-", "${HOME:-x}", "${!HOME}", "${#HOME}", "${HOME", "${}", "${1}",
 		"$((1+1))", "$'x'", `$"x"`, "$(id)", "a`id`", `a\b`, `a"b`, "x\ry", "x\ny", "x\x00y", "${HOME}${",
+		// variables hors liste blanche : jamais un secret recopié dans une autre valeur
+		"$GITHUB_TOKEN", "${GITHUB_TOKEN}", "x=$GH_TOKEN", "${_x1}", "a$B_c-d", "$PATH",
 	} {
 		if err := checkConfString(v); err == nil {
 			t.Errorf("%q accepté", v)
 		}
 	}
-	for _, v := range []string{"$HOME", "${HOME}", "${_x1}", "a$B_c-d", "'simple'", "tab\tdedans", "100%", "a b  c", "é$HOME", "", "x # y", "a;b&c|d"} {
+	for _, v := range []string{"$HOME", "${HOME}", "${XDG_CACHE_HOME}", "a$USER-d", "$GITHUB_DIR/x", "${CLAUDE_CONFIG_DIR}", "'simple'", "tab\tdedans", "100%", "a b  c", "é$HOME", "", "x # y", "a;b&c|d"} {
 		if err := checkConfString(v); err != nil {
 			t.Errorf("%q refusé : %v", v, err)
 		}

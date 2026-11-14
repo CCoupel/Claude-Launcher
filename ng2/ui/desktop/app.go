@@ -1033,6 +1033,10 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 		}
+		// le chemin d'un projet fourni par le client doit être un projet de l'arbre
+		if err := a.checkProjectArg(core.ConfigKind(in.Kind) == core.ConfProjectEnv, in.Path); err != nil {
+			return nil, err
+		}
 		return a.configApply(core.ConfigKind(in.Kind), in.Path, in.MTime, in.Changes)
 	}
 	var arg struct {

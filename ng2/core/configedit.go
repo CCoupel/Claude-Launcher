@@ -564,9 +564,14 @@ func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time
 		if rerr != nil {
 			return ps, rerr
 		}
-		if werr := os.WriteFile(path+".bak", old, mode); werr != nil {
+		bak := path + ".bak"
+		if lst, lerr := os.Lstat(bak); lerr == nil && lst.Mode()&os.ModeSymlink != 0 {
+			_ = os.Remove(bak) // jamais écrire à travers un lien
+		}
+		if werr := os.WriteFile(bak, old, mode); werr != nil {
 			return ps, fmt.Errorf("copie .bak : %w", werr)
 		}
+		_ = os.Chmod(bak, mode) // une copie préexistante plus ouverte (config.conf.bak d'avant) est resserrée
 	}
 	return ps, writeFileAtomic(path, content, mode)
 }

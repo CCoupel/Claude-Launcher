@@ -255,3 +255,26 @@ opérations et résultat que pour `backends.yaml` (fichier, validation et confli
 4. **env.yaml du launcher** : `at` = `["packages"]`, `["setup"]`, `["on_start"]` ou `["packages_by_manager"]` (toute
    autre clé est refusée par la validation).
 
+### Sécurité (LOT-3.3, audit)
+
+- **Éditeur de texte et jeton** : `configOpen` d'un `config.conf` remplace la valeur de `GITHUB_TOKEN` par le marqueur
+  `__GARDER__` (`GITHUB_TOKEN="__GARDER__"`) ; à l'enregistrement (`configSave`), une ligne qui vaut encore le marqueur
+  reprend le jeton actuel (le jeton ne quitte jamais le poste) ; une nouvelle valeur le remplace, une valeur vide le
+  retire ; sans jeton actuel, le marqueur n'est jamais écrit. L'interface peut l'indiquer : « jeton masqué : laisser
+  `__GARDER__` le conserve ». Les messages de problème (`configOpen`, `configValidate`, `configSave`, `configApply`)
+  ne contiennent jamais le jeton (un jeton de moins de 8 caractères remplace le message entier).
+- **Chemins** : `configApply` (comme `projectSettings` / `projectApply` / `config*` visant un projet) n'accepte qu'un
+  projet de l'arbre ; sinon `projet inconnu`.
+- **Valeurs de `config.conf`** : `$NOM` / `${NOM}` ne développent que `HOME`, `USER`, `LOGNAME`, `PWD`, `XDG_*`,
+  `GITHUB_DIR`, `CLAUDE_CONFIG_DIR` (jamais un secret) ; `EXTRA_ENVS` refuse `LD_*`, `DYLD_*`, `PATH`, `BASH_ENV`, `ENV`,
+  `IFS`, `PS4`, `PROMPT_COMMAND`, `SHELLOPTS`, `BASHOPTS`, `GIT_SSH*`, `GIT_EXEC_PATH`, `NODE_OPTIONS`, `NODE_PATH`,
+  `PYTHONSTARTUP`, `PYTHONPATH`, `PERL5OPT`, `RUBYOPT`.
+- **backends.yaml** : `namespace` (DNS-1123), noms de PVC et `context` k8s validés ; `ssh://` dont la destination
+  commence par « - » refusé (`host`, `hosts`, `engine_host`). `backendTest` : deux tests à la fois au plus ; au-delà de
+  3 s d'attente : une étape `{ "label": "test refusé", "ok": false }`.
+- **Mode `--web`** : l'en-tête `Host` doit désigner la boucle locale (`127.0.0.1`, `localhost`, `[::1]`, et le port
+  d'écoute) quand le serveur écoute sur la boucle locale ; le jeton de l'URL n'est accepté que par la page
+  d'amorçage (puis cookie) — `/api/call` et `/api/events` n'acceptent que le cookie ; en-têtes `Referrer-Policy:
+  no-referrer`, `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy: frame-ancestors 'none'`.
+- **Droits** : `config.conf.bak` préexistant plus ouvert que `0600` est resserré ; un `.bak` qui est un lien est remplacé.
+

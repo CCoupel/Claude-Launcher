@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"gopkg.in/yaml.v3"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -338,5 +339,163 @@ func TestLauncherEnvModelAndApply(t *testing.T) {
 	bad, _ := ApplyConfigChanges(ConfLauncherEnv, []byte(src), []ConfigChange{{Op: "set", At: []string{"image"}, Value: "x"}})
 	if !HasErrors(ValidateConfig(ConfLauncherEnv, bad)) {
 		t.Error("« image » acceptée dans l'env.yaml du launcher")
+	}
+}
+
+// Sécurité (#149) : EXTRA_ENVS refuse les variables qui changent ce qui
+// s'exécute ; une valeur ne recopie jamais un secret ($GITHUB_TOKEN).
+func TestSecurityEnvAndVariables(t *testing.T) {
+	for _, name := range []string{"LD_PRELOAD", "LD_LIBRARY_PATH", "ld_preload", "DYLD_INSERT_LIBRARIES", "BASH_ENV", "ENV", "PATH", "PROMPT_COMMAND",
+		"GIT_SSH_COMMAND", "GIT_SSH", "GIT_EXEC_PATH", "IFS", "PS4", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS"} {
+		if _, err := ApplyConfConfChanges("", []ConfigChange{cset("EXTRA_ENVS", []any{name + "=x"})}); err == nil || !strings.Contains(err.Error(), "interdite") {
+			t.Errorf("%s accepté : %v", name, err)
+		}
+	}
+	if _, err := ApplyConfConfChanges("", []ConfigChange{cset("EXTRA_ENVS", []any{"MY_API_URL=https://x", "ANTHROPIC_BASE_URL=https://y", "HTTP_PROXY=http://p:3128"})}); err != nil {
+		t.Errorf("variables ordinaires refusées : %v", err)
+	}
+	for name, ch := range map[string]ConfigChange{
+		"jeton dans une option":    cset("CLAUDE_OPTIONS", "$GITHUB_TOKEN"),
+		"jeton dans une variable":  cset("EXTRA_ENVS", []any{"X=${GITHUB_TOKEN}"}),
+		"GH_TOKEN":                 cset("GITHUB_DIR", "$GH_TOKEN"),
+		"variable quelconque":      cset("GITHUB_DIR", "$SECRET_THING/x"),
+		"jeton recopié dans liste": cset("GITHUB_DIRS", []any{"/a", "$GITHUB_TOKEN"}),
+	} {
+		if _, err := ApplyConfConfChanges("", []ConfigChange{ch}); err == nil || !strings.Contains(err.Error(), "non autorisée") {
+			t.Errorf("%s : accepté : %v", name, err)
+		}
+	}
+	for _, v := range []string{"$HOME/GITHUB", "${HOME}/x", "$XDG_CONFIG_HOME/c", "$GITHUB_DIR/p", "$USER"} {
+		if _, err := ApplyConfConfChanges("", []ConfigChange{cset("GITHUB_DIR", v)}); err != nil {
+			t.Errorf("%s refusé : %v", v, err)
+		}
+	}
+}
+
+// Éditeur de texte : le jeton est remplacé par un marqueur ; le laisser tel
+// quel conserve le jeton actuel, le remplacer ou le vider fonctionne.
+func TestConfTokenKeepMarker(t *testing.T) {
+	cur := "# c\nGITHUB_TOKEN=\"ghp_REALTOKEN1234\"   # mon jeton\nTEAM_HIDE_IDLE=45\n"
+	masked := MaskConfToken(cur)
+	if strings.Contains(masked, "REALTOKEN") || !strings.Contains(masked, `GITHUB_TOKEN="__GARDER__"   # mon jeton`) || !strings.Contains(masked, "TEAM_HIDE_IDLE=45") {
+		t.Fatalf("masquage : %q", masked)
+	}
+	// non touché : restauré à l'identique
+	if got := RestoreConfToken(masked, cur); got != cur {
+		t.Errorf("restauration : %q", got)
+	}
+	// modifié ailleurs : le jeton reste
+	if got := RestoreConfToken(strings.Replace(masked, "=45", "=60", 1), cur); !strings.Contains(got, "ghp_REALTOKEN1234") || !strings.Contains(got, "TEAM_HIDE_IDLE=60") {
+		t.Errorf("autre réglage : %q", got)
+	}
+	// remplacé, vidé : respecté
+	if got := RestoreConfToken(strings.Replace(masked, "__GARDER__", "ghp_NEWNEWNEW99", 1), cur); !strings.Contains(got, "ghp_NEWNEWNEW99") || strings.Contains(got, "REALTOKEN") {
+		t.Errorf("remplacement : %q", got)
+	}
+	if got := RestoreConfToken(strings.Replace(masked, `"__GARDER__"`, `""`, 1), cur); strings.Contains(got, "REALTOKEN") || strings.Contains(got, "__GARDER__") {
+		t.Errorf("vidage : %q", got)
+	}
+	// marqueur sans jeton actuel : jamais enregistré comme jeton
+	if got := RestoreConfToken("GITHUB_TOKEN=\"__GARDER__\"\n", "A=1\n"); strings.Contains(got, "__GARDER__") || !strings.Contains(got, `GITHUB_TOKEN=""`) {
+		t.Errorf("sans jeton actuel : %q", got)
+	}
+	// sans jeton, forme composée ou déjà masqué : inchangé
+	for _, s := range []string{"A=1\n", "GITHUB_TOKEN=\"\"\n", "GITHUB_TOKEN=\"$(pass gh)\"\n", "GITHUB_TOKEN=\"__GARDER__\"\n"} {
+		if MaskConfToken(s) != s {
+			t.Errorf("%q modifié", s)
+		}
+	}
+	// jeton nu
+	if got := MaskConfToken("GITHUB_TOKEN=ghp_bare12345\n"); strings.Contains(got, "bare") || !strings.Contains(got, "__GARDER__") {
+		t.Errorf("jeton nu : %q", got)
+	}
+}
+
+func TestMaskSecret(t *testing.T) {
+	tok := "ghp_0123456789"
+	if got := MaskSecret("ligne 3 : "+tok+" inattendu", tok); strings.Contains(got, tok) || !strings.Contains(got, "***") {
+		t.Errorf("long : %q", got)
+	}
+	// jeton court : pas de remplacement (il dégraderait n'importe quel message) — message générique
+	if got := MaskSecret("erreur à la ligne 1 près de a", "a"); strings.Contains(got, "ligne") || got == "" {
+		t.Errorf("court : %q", got)
+	}
+	if got := MaskSecret("rien", "abc"); got != "rien" { // il n'y figure pas : intact
+		t.Errorf("absent : %q", got)
+	}
+	if got := MaskSecret("x", ""); got != "x" {
+		t.Errorf("sans jeton : %q", got)
+	}
+}
+
+// .bak préexistant (plus ouvert, ou lien) : resserré en 0600, jamais écrit à travers un lien.
+func TestSaveConfigBakMode(t *testing.T) {
+	unixOnly(t)
+	dir := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", dir)
+	path := ConfigPath()
+	_ = os.WriteFile(path, []byte("A=1\n"), 0o600)
+	_ = os.WriteFile(path+".bak", []byte("vieux\n"), 0o644)
+	_ = os.Chmod(path+".bak", 0o644)
+	st, _ := os.Stat(path)
+	if _, err := SaveConfig(ConfConf, path, []byte("A=2\n"), st.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if bst, _ := os.Stat(path + ".bak"); bst.Mode().Perm() != 0o600 {
+		t.Errorf(".bak préexistant : %v", bst.Mode().Perm())
+	}
+	if b, _ := os.ReadFile(path + ".bak"); string(b) != "A=1\n" {
+		t.Errorf(".bak : %q", b)
+	}
+	// .bak qui est un lien : remplacé, la cible n'est pas écrite
+	target := filepath.Join(dir, "cible")
+	_ = os.WriteFile(target, []byte("intact"), 0o644)
+	_ = os.Remove(path + ".bak")
+	if err := os.Symlink(target, path+".bak"); err != nil {
+		t.Skip("liens symboliques indisponibles")
+	}
+	st, _ = os.Stat(path)
+	if _, err := SaveConfig(ConfConf, path, []byte("A=3\n"), st.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(target); string(b) != "intact" {
+		t.Errorf("cible du lien écrasée : %q", b)
+	}
+	if lst, _ := os.Lstat(path + ".bak"); lst.Mode()&os.ModeSymlink != 0 {
+		t.Error(".bak toujours un lien")
+	}
+}
+
+// Backends k8s : noms invalides (injection d'option ou syntaxe hors DNS-1123) refusés
+// avant tout appel ; « ssh://-oProxyCommand=… » aussi.
+func TestBackendNamesDNS1123AndSSHAuthority(t *testing.T) {
+	for _, y := range []string{
+		"backends:\n  k: { type: k8s, namespace: 'Mauvais_NS' }\n",
+		"backends:\n  k: { type: k8s, namespace: '-x' }\n",
+		"backends:\n  k: { type: k8s, namespace: ok, volumes: { /a: 'PVC_Maj' } }\n",
+		"backends:\n  k: { type: k8s, context: 'a b' }\n",
+		"backends:\n  k: { type: k8s, context: 'x;y' }\n",
+		"backends:\n  d: { type: docker, host: 'ssh://-oProxyCommand=x' }\n",
+		"backends:\n  d: { type: docker, host: 'ssh://u@-oProxyCommand=x' }\n",
+		"backends:\n  d: { type: ssh, host: srv1, engine_host: 'ssh://-x' }\n",
+		"backends:\n  d: { type: docker, hosts: ['ssh://-x'] }\n",
+	} {
+		if !HasErrors(ValidateConfig(ConfBackends, []byte(y))) {
+			t.Errorf("accepté : %s", y)
+		}
+		var f backendsFile
+		_ = yaml.Unmarshal([]byte(y), &f)
+		if _, err := backendsOf(f); err == nil {
+			t.Errorf("backendsOf accepte : %s", y)
+		}
+	}
+	for _, y := range []string{
+		"backends:\n  k: { type: k8s, context: 'k8s', namespace: claude-ng2, volumes: { /share/MFS/ROOT: claude-shared } }\n",
+		"backends:\n  k: { type: k8s, context: 'admin@cluster.local', namespace: a, volumes: { /x: pvc.v1-b } }\n",
+		"backends:\n  d: { type: docker, host: 'ssh://user@srv1' }\n",
+	} {
+		if HasErrors(ValidateConfig(ConfBackends, []byte(y))) {
+			t.Errorf("refusé : %s → %v", y, ValidateConfig(ConfBackends, []byte(y)))
+		}
 	}
 }

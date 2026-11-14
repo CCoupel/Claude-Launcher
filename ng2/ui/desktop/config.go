@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -59,6 +58,9 @@ func (a *App) configOpen(kind core.ConfigKind, project string) (ConfigDoc, error
 			}
 		}
 	}
+	if kind == core.ConfConf {
+		d.Content = core.MaskConfToken(d.Content) // le jeton ne quitte jamais le poste : marqueur « __GARDER__ »
+	}
 	d.Problems, d.Merged = a.configCheck(kind, project, d.Content)
 	if f.Template != "" {
 		if b, err := os.ReadFile(f.Template); err == nil {
@@ -78,7 +80,20 @@ func (a *App) configCheck(kind core.ConfigKind, project, content string) ([]core
 		}
 		return ps, m
 	}
-	return core.ValidateConfig(kind, []byte(content)), ""
+	ps := core.ValidateConfig(kind, []byte(content))
+	if kind == core.ConfConf {
+		ps = maskProblems(ps, core.ConfTokenValue(content), a.currentToken())
+	}
+	return ps, ""
+}
+
+// currentToken : jeton GitHub actuellement écrit dans config.conf (jamais renvoyé :
+// sert à masquer les messages).
+func (a *App) currentToken() string {
+	if b, err := os.ReadFile(core.ConfigPath()); err == nil {
+		return core.ConfTokenValue(string(b))
+	}
+	return ""
 }
 
 // configSave : enregistre ; conflit : rend {conflict, mtime actuel} pour
@@ -94,9 +109,17 @@ func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (
 			return nil, fmt.Errorf("date d'ouverture invalide : %v", err)
 		}
 	}
+	cur := ""
+	if kind == core.ConfConf {
+		// l'éditeur de texte ne reçoit jamais le jeton : « __GARDER__ » le conserve
+		if b, rerr := os.ReadFile(f.Path); rerr == nil {
+			cur = string(b)
+		}
+		content = core.RestoreConfToken(content, cur)
+	}
 	ps, err := core.SaveConfig(kind, f.Path, []byte(content), expected)
 	if kind == core.ConfConf {
-		ps = maskProblems(ps, core.ConfTokenValue(content)) // le jeton n'apparaît dans aucun message
+		ps = maskProblems(ps, core.ConfTokenValue(content), core.ConfTokenValue(cur)) // le jeton n'apparaît dans aucun message
 	}
 	switch {
 	case errors.Is(err, core.ErrConfigConflict):
@@ -186,7 +209,7 @@ func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any,
 		model, merr = core.ReadBackendsModel([]byte(content))
 	case core.ConfConf:
 		model = core.ReadConfModel(content) // le jeton n'y figure jamais
-		d.Problems = maskProblems(d.Problems, core.ConfTokenValue(content))
+		d.Problems = maskProblems(d.Problems, a.currentToken())
 	case core.ConfLauncherEnv:
 		model, merr = core.ReadLauncherEnvModel([]byte(content))
 	case kindHub:
@@ -214,14 +237,14 @@ func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any,
 // kindHub : « Ce poste » — la section hubs.<machine> de backends.yaml.
 const kindHub core.ConfigKind = "hub"
 
-// maskProblems : messages sans la valeur du jeton GitHub (jamais montrée).
-func maskProblems(ps []core.ConfigProblem, token string) []core.ConfigProblem {
-	if token == "" {
-		return ps
-	}
+// maskProblems : messages sans la valeur du jeton GitHub (jamais montrée ; un
+// jeton de moins de 8 caractères remplace tout le message : core.MaskSecret).
+func maskProblems(ps []core.ConfigProblem, tokens ...string) []core.ConfigProblem {
 	out := make([]core.ConfigProblem, len(ps))
 	for i, p := range ps {
-		p.Message = strings.ReplaceAll(p.Message, token, "***")
+		for _, t := range tokens {
+			p.Message = core.MaskSecret(p.Message, t)
+		}
 		out[i] = p
 	}
 	return out
@@ -268,13 +291,10 @@ func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes [
 		out, err = core.ApplyConfigChanges(kind, []byte(content), changes)
 	}
 	if err != nil {
-		msg := err.Error()
-		if token != "" {
-			msg = strings.ReplaceAll(msg, token, "***")
-		}
+		msg := core.MaskSecret(err.Error(), token)
 		for _, ch := range changes { // le jeton qu'on vient de saisir non plus
 			if s, ok := ch.Value.(string); ok && s != "" && len(ch.At) == 1 && ch.At[0] == "GITHUB_TOKEN" {
-				msg = strings.ReplaceAll(msg, s, "***")
+				msg = core.MaskSecret(msg, s)
 			}
 		}
 		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: msg}}}, nil
@@ -284,7 +304,18 @@ func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes [
 
 // backendTest : étapes du test d'un backend du formulaire (pas forcément
 // enregistré) ; ses pools sont ceux du fichier.
+// backendTestSem : au plus deux tests de backend à la fois (chacun lance ssh,
+// docker ou kubectl pendant jusqu'à 45 s).
+var backendTestSem = make(chan struct{}, 2)
+
 func (a *App) backendTest(be core.BackendEntry) map[string]any {
+	select {
+	case backendTestSem <- struct{}{}:
+		defer func() { <-backendTestSem }()
+	case <-time.After(3 * time.Second):
+		return map[string]any{"steps": []core.TestStep{{Label: "test refusé", Detail: "trop de tests de backend en cours",
+			Fix: "attendre la fin des tests en cours, puis recommencer"}}}
+	}
 	var pools []core.PoolEntry
 	if b, err := os.ReadFile(core.BackendsPath()); err == nil {
 		if m, err := core.ReadBackendsModel(b); err == nil {
