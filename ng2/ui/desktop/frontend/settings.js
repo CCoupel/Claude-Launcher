@@ -309,7 +309,9 @@ function stPageBackends(p) {
     }),
     stBtn('Supprimer', () => {
       const b = d.backends[ST.sel.backend]; if (!b || b.implicit) return;
-      if (!confirm('Supprimer le backend « ' + b.name + ' » ?')) return;
+      const isDef = !!b.name && d.defaults.backend === b.name;
+      if (!confirm('Supprimer le backend « ' + b.name + ' » ?' + (isDef ? '\nC\'est le backend par défaut : il sera retiré des défauts dans le même enregistrement.' : ''))) return;
+      if (isDef) d.defaults.backend = '';
       d.backends.splice(ST.sel.backend, 1); ST.test = null; stRenderPage(); stRenderFoot();
     }, 'dg'));
   left.appendChild(bar);
