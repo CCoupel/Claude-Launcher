@@ -921,6 +921,27 @@ func humanSize(n int64) string {
 // Dispatch : un appel de l'interface (méthode, arguments JSON) ; la réponse est
 // sérialisée en JSON. Seul point d'entrée, commun à Wails et au mode web.
 func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
+	// méthodes aux arguments structurés (le décodage générique ci-dessous
+	// attend des chaînes : « backend » y est un nom, ici un objet)
+	switch method {
+	case "backendTest":
+		var in struct {
+			Backend core.BackendEntry `json:"backend"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		return a.backendTest(in.Backend), nil
+	case "configApply":
+		var in struct {
+			Kind, Path, MTime string
+			Changes           []core.ConfigChange
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		return a.configApply(core.ConfigKind(in.Kind), in.Path, in.MTime, in.Changes)
+	}
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
 		Content, MTime                                                   string
@@ -1069,6 +1090,10 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		return map[string]any{"problems": ps, "merged": merged}, nil
 	case "configSave":
 		return a.configSave(core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
+	case "configModel": // écran Réglages (#118) : fichier lu en modèle
+		return a.configModel(core.ConfigKind(arg.Kind), arg.Path)
+	case "backendStates": // états et charge des pools, depuis le cache du diagnostic
+		return a.backendStates(), nil
 	case "quit":
 		return nil, a.quitApp(arg.Mode)
 	}

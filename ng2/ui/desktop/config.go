@@ -135,8 +135,93 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		a.changed()
 		a.cardsChanged()
 	case core.ConfBackends:
+		// avertissements de hubs: relus : une faute corrigée (ou introduite) se voit
+		// tout de suite, pas seulement au prochain démarrage
+		w := core.HubConfigWarnings()
+		a.mu.Lock()
+		a.hubWarns = w
+		a.mu.Unlock()
 		go a.readCtr()
 		a.changed()
 	}
 	return core.ConfigReloadNote(kind)
+}
+
+// ── Écriture structurée (#118, LOT-3.1 : contracts/desktop-dispatch.md) ───
+
+// configModel : backends.yaml lu en modèle (backends et pools dans l'ordre du
+// fichier, défauts, images) avec les problèmes de validation et la date
+// d'ouverture, pour l'écran Réglages. Fichier absent : modèle vide.
+func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any, error) {
+	if kind != core.ConfBackends {
+		return nil, fmt.Errorf("pas de modèle structuré pour %s (voir « Éditer en texte »)", kind)
+	}
+	d, err := a.configOpen(kind, project)
+	if err != nil {
+		return nil, err
+	}
+	content := d.Content
+	if d.FromTemp {
+		content = "" // fichier absent : l'exemple commenté n'est pas une configuration
+	}
+	model, merr := core.ReadBackendsModel([]byte(content))
+	if merr != nil && len(d.Problems) == 0 {
+		d.Problems = []core.ConfigProblem{{Severity: core.SevError, Message: merr.Error()}}
+	}
+	if d.Problems == nil {
+		d.Problems = []core.ConfigProblem{}
+	}
+	return map[string]any{"path": d.Path, "mtime": d.MTime, "exists": d.Exists, "problems": d.Problems, "model": model}, nil
+}
+
+// configApply : applique des changements structurés au texte du fichier
+// (commentaires et ordre conservés), puis le même enregistrement que
+// l'éditeur de texte : validation de core, contrôle de conflit, copie .bak.
+// Résultat : celui de configSave.
+func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes []core.ConfigChange) (map[string]any, error) {
+	f, err := a.configFile(kind, "", project)
+	if err != nil {
+		return nil, err
+	}
+	content := ""
+	if b, err := os.ReadFile(f.Path); err == nil {
+		content = string(b)
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	out, err := core.ApplyConfigChanges(kind, []byte(content), changes)
+	if err != nil {
+		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: err.Error()}}}, nil
+	}
+	return a.configSave(kind, project, string(out), mtime)
+}
+
+// backendTest : étapes du test d'un backend du formulaire (pas forcément
+// enregistré) ; ses pools sont ceux du fichier.
+func (a *App) backendTest(be core.BackendEntry) map[string]any {
+	var pools []core.PoolEntry
+	if b, err := os.ReadFile(core.BackendsPath()); err == nil {
+		if m, err := core.ReadBackendsModel(b); err == nil {
+			pools = m.Pools
+		}
+	}
+	conf, err := be.Conf(pools)
+	if err != nil {
+		return map[string]any{"steps": []core.TestStep{{Label: "configuration du backend", Detail: err.Error(),
+			Fix: "corriger le formulaire (les mêmes règles s'appliquent à l'enregistrement)"}}}
+	}
+	return map[string]any{"steps": core.TestBackend(conf)}
+}
+
+// backendStates : état de chaque backend et charge des pools, depuis le cache
+// du diagnostic et la dernière lecture des conteneurs ; ne bloque pas.
+func (a *App) backendStates() map[string]any {
+	bs, _ := core.LoadBackends()
+	a.mu.Lock()
+	founds := make([]core.Found, 0, len(a.ctr.Found))
+	for _, f := range a.ctr.Found {
+		founds = append(founds, f)
+	}
+	a.mu.Unlock()
+	return map[string]any{"states": core.BackendStates(bs), "load": core.PoolLoads(bs, founds)}
 }

@@ -66,9 +66,28 @@ Résultat : `{ "steps": [ { "label": "outil requis : docker", "ok": true, "detai
 Étapes : outil requis, moteur joignable (mêmes contrôles que le diagnostic existant), stockage partagé ; pour
 `k8s` : namespace, droits, PVC.
 
+### Précisions d'implémentation (LOT-3.1)
+
+- `configModel` : `kind` seulement `backends.yaml` pour l'instant (autre : erreur d'appel). Fichier absent :
+  `exists: false`, modèle vide (l'exemple commenté du modèle n'est pas lu). `model.backends` et `model.pools` sont
+  dans l'ordre du fichier ; `pools[].usedBy` liste les backends qui citent le pool ; `defaults.browser_paths` /
+  `browser_server` absents quand non déclarés.
+- `configApply` : `changes[].op` = `set` (crée ou remplace la valeur au chemin `at` ; un objet est fusionné clé à
+  clé, les clés absentes de la valeur sont retirées, les valeurs vides omises), `delete`, `rename` (`value` : nouveau
+  nom de la dernière clé). Un changement impossible (chemin inconnu, nom pris…) rend `{ "invalid": true,
+  "problems": [...] }` comme une erreur de validation. Les changements sont appliqués au contenu **sur disque** ; un
+  fichier modifié depuis `mtime` rend `{ "conflict": true, "mtime" }`.
+- `backendTest` : `backend` porte les champs du formulaire (`name`, `type`, `context`, `host`, `hosts`, `pool`,
+  `engine`, `engine_host`, `shared`, `namespace`, `volumes`, `spread`, `pod`) ; ses pools sont ceux du fichier. Une
+  forme invalide rend une seule étape en échec. Délai global 45 s (étape « délai »). Étapes : `outil requis : <outil>`
+  (arrêt s'il manque), `moteur joignable`, `stockage partagé` ; k8s : `cluster joignable, namespace …`, `droits dans
+  …`, `volumes partagés`, `PVC … (<racine>)`. Pool : étapes préfixées par le serveur.
+- `backendStates` : `pending: true` = diagnostic jamais fait ou expiré, lancé en tâche de fond (relire quelques
+  secondes plus tard) ; `load` : conteneurs en marche par machine de chaque pool, tous backends du pool confondus.
+
 ### `backendStates` **[NEW]**
 
-Arguments : aucun. Résultat : `{ "states": { "<backend>": { "ok": true, "text": "joignable" } },
+Arguments : aucun. Résultat : `{ "states": { "<backend>": { "ok": true, "text": "joignable", "pending": false } },
 "load": { "<pool>": { "<machine>": 3 } } }` — depuis le cache du diagnostic, sans bloquer l'affichage.
 
 ## v6.1.0 — LOT-3.2 : réglages d'un projet (issue fille de #118)
