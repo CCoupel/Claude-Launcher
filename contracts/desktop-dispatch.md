@@ -304,3 +304,39 @@ opérations et résultat que pour `backends.yaml` (fichier, validation et confli
   différente de celle du fichier) ; un élément déjà écrit tel quel (`HTTPS_PROXY`, `ANTHROPIC_BASE_URL`…) ne bloque pas
   l'édition du reste de la liste, et peut être retiré. Les ajouts restent refusés ; « Éditer en YAML » reste la voie.
 
+## v6.1.0 — LOT-4 : presse-papiers et collage dans les terminaux (#155)
+
+### `clipboardWrite` **[NEW]**
+
+Arguments : `{ "text": "…" }`. Copie `text` dans le presse-papiers du poste.
+Résultat :
+- `{ "ok": true }` ;
+- `{ "ok": false, "unavailable": true, "msg": "…" }` : pas de presse-papiers côté Go (mode `--web`, ou binaire sans
+  Wails) — le frontend prend alors `navigator.clipboard` du navigateur (contexte sécurisé : `localhost` convient ; en
+  `http` sur une autre adresse il est indisponible : afficher le `msg`) ;
+- `{ "ok": false, "msg": "…" }` : refus ou échec (texte de plus de 8 Mo, erreur du système) — à afficher tel quel.
+
+### `clipboardRead` **[NEW]**
+
+Arguments : aucun. Résultat : `{ "ok": true, "text": "…" }` (chaîne vide si le presse-papiers ne contient pas de texte),
+`{ "ok": false, "unavailable": true, "msg": "…" }` (comme ci-dessus) ou `{ "ok": false, "msg": "…" }` (échec, ou
+contenu de plus de 4 Mo : taille maximale d'un collage).
+
+- **Fenêtre native Wails** (Windows) : presse-papiers du poste lu et écrit par le runtime Wails, côté Go — pas d'invite
+  d'autorisation de WebView2.
+- **Mode `--web` et binaire sans Wails** : les deux méthodes répondent toujours `unavailable` ; le presse-papiers de la
+  machine qui héberge le serveur n'est **jamais** lu ni écrit pour un client web (même si le serveur tourne sur un poste
+  qui en a un).
+- Aucune dépendance au projet ni à l'état de lecture seule : copier est toujours permis, y compris dans un onglet en
+  lecture seule (le collage, lui, est refusé par `termInput`).
+
+### `termInput` **[CHANGED]**
+
+Retour (auparavant toujours vide) : vide quand la saisie est partie ; sinon `{ "ok": false, "reason": "readonly" |
+"toobig", "msg": "…" }` :
+- `readonly` : le projet est piloté par un autre launcher (lecture seule) — la saisie n'est plus ignorée en silence : le
+  message est renvoyé ET affiché en pied de volet (au plus une fois par seconde par onglet) ;
+- `toobig` : `data` dépasse 4 Mo (taille maximale d'un collage), rien n'est envoyé.
+Un collage volumineux (milliers de lignes) est envoyé en commandes `send-keys -H` de 256 octets au plus, dans l'ordre,
+sans perte ; le frontend applique le collage entre crochets (`term.paste`) avant d'appeler `termInput`.
+
