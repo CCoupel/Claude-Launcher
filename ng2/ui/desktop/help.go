@@ -52,7 +52,7 @@ func helpData() map[string]any {
 				{"glisser une bordure (colonne entre panes, en-tête du pane du dessous)", "redimensionner le pane, comme dans la coque"},
 				{"glisser (Maj+glisser si l'agent suit la souris)", "sélectionner du texte dans un pane : le relâcher le copie dans le presse-papiers"},
 				{"Ctrl+Maj+C", "recopier la sélection (Ctrl+C reste l'interruption de l'agent)"},
-				{"Ctrl+V, Ctrl+Maj+V, clic droit", "coller dans le pane actif (plusieurs lignes en un bloc ; clic droit : Maj+clic droit si l'agent suit la souris) ; refusé en lecture seule, avec un message"},
+				{"Ctrl+V, Ctrl+Maj+V, Maj+Inser, clic droit", "coller dans le pane actif (plusieurs lignes en un bloc ; clic droit : Maj+clic droit si l'agent suit la souris) ; refusé en lecture seule, avec un message"},
 				{"Ctrl+B z", "idem au clavier"},
 				{"Ctrl+B R", "remettre en ordre les panes de la team"},
 				{"Ctrl+B Ctrl+B", "envoyer Ctrl+B à l'agent"},
