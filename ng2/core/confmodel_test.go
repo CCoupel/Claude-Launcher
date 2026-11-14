@@ -451,11 +451,18 @@ func TestSaveConfigBakMode(t *testing.T) {
 	_ = os.WriteFile(path+".bak", []byte("vieux\n"), 0o644)
 	_ = os.Chmod(path+".bak", 0o644)
 	st, _ := os.Stat(path)
+	keep := filepath.Join(dir, "autre-nom-du-bak") // lien dur vers l'ancienne copie : écrite sur place, il changerait
+	if err := os.Link(path+".bak", keep); err != nil {
+		t.Skip("liens durs indisponibles")
+	}
 	if _, err := SaveConfig(ConfConf, path, []byte("A=2\n"), st.ModTime()); err != nil {
 		t.Fatal(err)
 	}
 	if bst, _ := os.Stat(path + ".bak"); bst.Mode().Perm() != 0o600 {
 		t.Errorf(".bak préexistant : %v", bst.Mode().Perm())
+	}
+	if b, _ := os.ReadFile(keep); string(b) != "vieux\n" {
+		t.Errorf(".bak réécrit sur place (large) puis resserré : il doit être recréé en 0600 d'emblée (%q)", b)
 	}
 	if b, _ := os.ReadFile(path + ".bak"); string(b) != "A=1\n" {
 		t.Errorf(".bak : %q", b)
@@ -556,5 +563,69 @@ func TestConfTokenMaskEverywhereAndRestoreOnlyInKey(t *testing.T) {
 	// sans marqueur : rien à restaurer, aucune erreur
 	if out, err := RestoreConfToken("A=1\n", "GITHUB_TOKEN='a$(id)'\n"); err != nil || out != "A=1\n" {
 		t.Errorf("sans marqueur : %q %v", out, err)
+	}
+}
+
+// M2 : le marqueur de l'éditeur de texte n'est jamais enregistré comme jeton par le
+// chemin structuré (il écraserait le jeton actuel).
+func TestSetTokenRefusesKeepMarker(t *testing.T) {
+	src := "GITHUB_TOKEN=\"ghp_REALTOKEN1234\"\n"
+	for _, v := range []string{ConfTokenKeep, "x" + ConfTokenKeep, ConfTokenKeep + "y"} {
+		if out, err := ApplyConfConfChanges(src, []ConfigChange{cset("GITHUB_TOKEN", v)}); err == nil || out != "" || strings.Contains(err.Error(), "REALTOKEN") {
+			t.Errorf("%q accepté : %q %v", v, out, err)
+		}
+	}
+	if out := confApply(t, src, cset("GITHUB_TOKEN", "ghp_AUTRE12345678")); !strings.Contains(out, "ghp_AUTRE12345678") {
+		t.Errorf("jeton valide refusé : %q", out)
+	}
+}
+
+// M3 : une mise en page déjà incohérente dans le fichier ne bloque pas les autres
+// réglages ; elle n'est contrôlée que si l'une des trois clés change.
+func TestLayoutCheckOnlyWhenTouched(t *testing.T) {
+	src := "LAYOUT_3ROW_LEADER_NUM=5\nLAYOUT_3ROW_MID_NUM=4\nLAYOUT_3ROW_DEN=7\n"
+	if _, err := ApplyConfConfChanges(src, []ConfigChange{cset("TEAM_HIDE_IDLE", 10)}); err != nil {
+		t.Errorf("autre réglage bloqué par une mise en page invalide : %v", err)
+	}
+	if _, err := ApplyConfConfChanges(src, []ConfigChange{cset("LAYOUT_3ROW_MID_NUM", 3)}); err == nil {
+		t.Error("5 + 3 ≥ 7 accepté")
+	}
+	if out, err := ApplyConfConfChanges(src, []ConfigChange{cset("LAYOUT_3ROW_DEN", 12)}); err != nil || !strings.Contains(out, "DEN=12") {
+		t.Errorf("correction de la mise en page refusée : %v", err)
+	}
+}
+
+// M1 : le jeton recopié dans une autre valeur ne ressort pas du modèle structuré
+// (champ masqué en lecture seule) ; un ancien jeton en commentaire est masqué dans
+// l'éditeur de texte par sa forme.
+func TestTokenMaskedInModelAndShapedTokensInComments(t *testing.T) {
+	const tok = "ghp_ABCDEFGH12345678ABCD"
+	src := "GITHUB_TOKEN=\"" + tok + "\"\nEXTRA_ENVS=(\"GH_TOKEN=" + tok + "\" \"A=1\")\nCLAUDE_OPTIONS=\"--t " + tok + "\"\n"
+	m := ReadConfModel(src)
+	b, _ := json.Marshal(m)
+	if strings.Contains(string(b), tok) {
+		t.Fatalf("jeton dans le modèle : %s", b)
+	}
+	for _, k := range []string{"EXTRA_ENVS", "CLAUDE_OPTIONS"} {
+		s := settingOf(m, k)
+		if s.Editable || !strings.Contains(s.Why, "jeton") {
+			t.Errorf("%s : %+v", k, s)
+		}
+	}
+	if got := settingOf(m, "EXTRA_ENVS").Value; !reflect.DeepEqual(got, []string{"GH_TOKEN=***", "A=1"}) {
+		t.Errorf("valeur masquée : %v", got)
+	}
+	if !settingOf(m, "GITHUB_TOKEN").Set || settingOf(m, "TEAM_HIDE_IDLE").Editable != true {
+		t.Error("jeton ou autres réglages abîmés")
+	}
+	// ancien jeton (d'une autre valeur) laissé en commentaire : masqué par sa forme
+	old := "# ancien GITHUB_TOKEN=\"ghp_ZZZZZZZZ99999999ZZZZ\"\n# pat github_pat_11ABCDEFG0123456789abcdef_xyz\nGITHUB_TOKEN=\"" + tok + "\"\n"
+	masked := MaskConfToken(old)
+	if strings.Contains(masked, "ZZZZZZZZ") || strings.Contains(masked, "github_pat_") || strings.Contains(masked, tok) || strings.Count(masked, ConfTokenKeep) != 3 {
+		t.Errorf("masquage par forme :\n%s", masked)
+	}
+	// le marqueur laissé dans les commentaires est accepté à l'enregistrement
+	if got, err := RestoreConfToken(masked, old); err != nil || !strings.Contains(got, `GITHUB_TOKEN="`+tok+`"`) || strings.Contains(got, "ZZZZZZZZ") {
+		t.Errorf("restauration : %v\n%s", err, got)
 	}
 }

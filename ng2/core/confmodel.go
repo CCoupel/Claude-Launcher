@@ -288,6 +288,10 @@ func confItems(inner string) []string {
 // ReadConfModel : modèle de config.conf (src vide ou fichier absent : valeurs par défaut).
 func ReadConfModel(src string) ConfModel {
 	stmts, other := scanConf(src)
+	tok := ConfTokenValue(src)
+	if len(tok) < 8 {
+		tok = ""
+	}
 	m := ConfModel{Groups: confGroups, Settings: []ConfSettingView{}, Unrecognized: []string{}}
 	for _, s := range confSettings {
 		v := ConfSettingView{Key: s.Key, Group: s.Group, Label: s.Label, Help: s.Help, Type: s.Type, Default: s.Default,
@@ -346,6 +350,11 @@ func ReadConfModel(src string) ConfModel {
 		}
 		if s.Type == "secret" {
 			v.Value, v.Default = nil, nil
+		} else if tok != "" && confValueHas(v.Value, tok) {
+			// le jeton recopié dans une autre valeur ne sort pas : valeur masquée, champ en lecture seule
+			v.Value = confMaskValue(v.Value, tok)
+			v.Editable, v.Why = false, "contient le jeton GitHub : à modifier dans « Éditer en YAML »"
+			m.Unrecognized = append(m.Unrecognized, s.Key)
 		}
 		m.Settings = append(m.Settings, v)
 	}
@@ -511,6 +520,9 @@ func renderConfValue(s confSetting, v any, multiline bool, eol string) (string, 
 		if !ok || str == "" || !confTokenRe.MatchString(str) {
 			return fail("jeton invalide (lettres, chiffres et _ . - = / + seulement)")
 		}
+		if strings.Contains(str, ConfTokenKeep) {
+			return fail("« %s » est le marqueur de l'éditeur de texte, pas un jeton : il écraserait le jeton actuel", ConfTokenKeep)
+		}
 		return `"` + str + `"`, nil
 	case "list", "intlist":
 		items, ok := confStrings(v)
@@ -605,7 +617,16 @@ func ApplyConfConfChanges(src string, changes []ConfigChange) (string, error) {
 			return "", fmt.Errorf("changement %d : opération %q inconnue (set, delete)", i+1, ch.Op)
 		}
 	}
-	// cohérence de la mise en page des teams (comme au chargement)
+	// cohérence de la mise en page des teams (comme au chargement) — seulement si
+	// ces changements touchent l'une des trois clés : une combinaison déjà
+	// invalide dans le fichier ne doit pas bloquer les autres réglages
+	touched := false
+	for _, ch := range changes {
+		touched = touched || len(ch.At) == 1 && strings.HasPrefix(ch.At[0], "LAYOUT_3ROW_")
+	}
+	if !touched {
+		return src, nil
+	}
 	m := ReadConfModel(src)
 	get := func(k string) (int, bool) {
 		for _, s := range m.Settings {
@@ -711,7 +732,8 @@ func MaskConfToken(src string) string {
 	if len(tok) >= 8 {
 		src = strings.ReplaceAll(src, tok, ConfTokenKeep)
 	}
-	return src
+	// un ancien jeton laissé en commentaire (ou recopié) : masqué aussi, par sa forme
+	return confTokenShape.ReplaceAllString(src, ConfTokenKeep)
 }
 
 // RestoreConfToken : le texte rendu par l'éditeur (edited) où GITHUB_TOKEN vaut
@@ -771,3 +793,34 @@ func MaskSecret(msg, token string) string {
 	}
 	return strings.ReplaceAll(msg, token, "***")
 }
+
+func confValueHas(v any, tok string) bool {
+	switch x := v.(type) {
+	case string:
+		return strings.Contains(x, tok)
+	case []string:
+		for _, e := range x {
+			if strings.Contains(e, tok) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func confMaskValue(v any, tok string) any {
+	switch x := v.(type) {
+	case string:
+		return strings.ReplaceAll(x, tok, "***")
+	case []string:
+		out := make([]string, len(x))
+		for i, e := range x {
+			out[i] = strings.ReplaceAll(e, tok, "***")
+		}
+		return out
+	}
+	return v
+}
+
+// confTokenShape : formes de jetons GitHub, masquées même en commentaire (un ancien jeton).
+var confTokenShape = regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})`)

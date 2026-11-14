@@ -294,4 +294,10 @@ opérations et résultat que pour `backends.yaml` (fichier, validation et confli
   `PERL5LIB`, `RUBYLIB`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `LUA_INIT`, `NODE_EXTRA_CA_CERTS`, `CURL_HOME`,
   `OPENSSL_CONF`. La liste reste une barrière partielle : le champ garde la portée de « code au lancement » pour qui
   édite le fichier en texte (« Éditer en YAML »), qui accepte toutes les variables, `ANTHROPIC_API_KEY` comprise.
+- **Revue (LOT-3.3)** : `set GITHUB_TOKEN` refuse le marqueur `__GARDER__` (il écraserait le jeton actuel) ; le jeton
+  recopié dans une autre valeur (`EXTRA_ENVS`, `CLAUDE_OPTIONS`…) ne sort pas de `configModel` : valeur masquée (`***`),
+  `editable: false` (« contient le jeton GitHub »), clé dans `unrecognized` ; un ancien jeton de forme `ghp_…` /
+  `github_pat_…` laissé en commentaire est masqué par `__GARDER__` dans l'éditeur de texte ; la cohérence de la mise en
+  page des teams n'est contrôlée que si l'une des trois clés `LAYOUT_3ROW_*` change (une combinaison déjà invalide ne
+  bloque pas les autres réglages) ; la copie `.bak` est recréée en `0600` d'emblée (l'ancienne est supprimée avant).
 
