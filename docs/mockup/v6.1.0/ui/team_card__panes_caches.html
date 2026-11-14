@@ -1,0 +1,189 @@
+<!--
+mockup:
+  composant: team_card
+  feature: panes_caches
+  version: 6.1.0
+  type: ui
+  issue: "#136"
+  validee_le: 2026-11-14
+  proposition_retenue: "A — Liste unique"
+  complete: []
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #136 — carte TEAM et panes cachés (v6.1.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.tabs{display:flex;gap:6px;border-bottom:1px solid var(--line2);margin-bottom:10px}
+.tabs button{background:var(--panel);color:var(--muted);border:1px solid var(--line2);border-bottom:0;border-radius:6px 6px 0 0;padding:8px 16px;font:600 13px var(--ui);cursor:pointer}
+.tabs button.on{background:var(--head);color:var(--text);box-shadow:inset 0 2px 0 var(--orange)}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.win{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;height:450px;background:var(--deep);max-width:1320px}
+.nav{width:400px;flex:none;background:var(--panel);display:flex;flex-direction:column;border-right:4px solid var(--line)}
+.fake{padding:8px 12px;color:var(--dim);border-bottom:1px solid var(--line);font-size:12px}
+.cards{flex:1;background:var(--bg);padding:8px 10px;overflow:auto}
+.card{border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+.ch{padding:5px 10px;background:var(--head);font-weight:600}
+.ch .d{font-weight:400;color:var(--muted)}
+.cb{padding:7px 6px;font-size:12px}
+.team{font-family:var(--mono);font-size:12px}
+.tr{display:grid;grid-template-columns:14px minmax(0,1fr) 62px 96px;gap:0 8px;padding:1px 4px;border-radius:3px;cursor:default;user-select:none;align-items:center;white-space:nowrap}
+.tr.b{grid-template-columns:14px minmax(0,1fr) 104px 62px}
+.tr:hover{background:rgba(255,255,255,.055)}
+.tr.vis{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent)}
+.tr.off{color:var(--dim)}
+.tr.off:hover{background:none}
+.tr .n{overflow:hidden;text-overflow:ellipsis}
+.tr .m{color:var(--muted)}
+.tr .v{color:var(--cyan);text-align:right}
+.g{color:var(--green)}.o{color:var(--orange)}.dm{color:var(--dim)}.mu{color:var(--muted)}.y{color:var(--yellow)}
+.grp{font:600 11px var(--ui);color:var(--muted);letter-spacing:.05em;margin:6px 4px 2px}
+.grp:first-child{margin-top:0}
+.foot{padding:6px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--yellow);min-height:26px}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.tabbar{height:30px;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--line);font-weight:700;font-size:12px}
+.panes{flex:1;position:relative;margin:4px}
+.pane{position:absolute;border-radius:3px;overflow:hidden;font:11px var(--mono);color:rgba(255,255,255,.75);padding:22px 8px 4px;transition:all .18s ease}
+.ph{position:absolute;left:0;top:0;right:0;height:18px;background:#DDE1E7;color:#15181D;font:11px var(--ui);padding:2px 8px;border-left:6px solid #1F4FD1;white-space:nowrap;overflow:hidden}
+.ph b{font-weight:700}.ph i{font-style:normal;color:#4A5160}
+.pane.fold{padding:0;background:none!important}
+.pane.fold .ph{background:#AEB4BE;color:#2A2F38;border-radius:3px}
+.tui{background:#000;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;font:12.5px/1.35 var(--mono);white-space:pre;overflow:auto;color:#d0d0d0;max-width:620px}
+.tui .hl{background:#12384a;color:#fff}
+.tui .fd{background:#3a3a3a;color:#ddd}
+.sim{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:8px 0 0;font-size:12px;color:var(--muted)}
+.sim button{background:var(--head);color:var(--text2);border:1px solid var(--line2);border-radius:5px;padding:3px 9px;font:12px var(--ui);cursor:pointer}
+.sim button.act{border-color:var(--green);color:var(--green)}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+.two{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+</style>
+</head>
+<body>
+<h1>Carte TEAM — teammates cachés / visibles <span style="color:var(--muted);font-weight:400">· #136 · v6.1.0 · maquette retenue (A — Liste unique)</span></h1>
+<p class="sub">Composant : carte <b>Team</b> du volet d'état (interface native Windows et coque Linux) et son effet sur la fenêtre du projet. Un teammate inactif peut être <b>caché</b> : son pane quitte la fenêtre du projet, le teammate continue de tourner et reçoit ses messages ; il revient dès qu'il redevient actif. La maquette est <b>manipulable</b> : double-cliquer sur un teammate dans la carte, et utiliser la barre « Simulation » pour rendre un teammate actif ou inactif et faire passer le délai.</p>
+
+<section data-proposition="A" class="on">
+  <div class="mock"></div>
+</section>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li>La carte liste <b>chaque teammate</b> (une ligne par instance lancée, plus les teammates du template non démarrés) — plus de regroupement « ×N ».</li>
+  <li><span class="g">●</span> démarré, <span class="dm">○</span> non démarré. Ligne <b>en surbrillance</b> = son pane est visible dans la fenêtre du projet.</li>
+  <li>Un teammate <b>actif</b> est toujours visible : le double-clic est refusé (message en pied de volet). Caché, il réapparaît dès qu'il redevient actif.</li>
+  <li>Un teammate <b>inactif</b> se bascule par <b>double-clic</b> sur sa ligne : visible ↔ caché.</li>
+  <li>Masquage automatique : un inactif est caché après <code>TEAM_HIDE_IDLE</code> secondes (30 par défaut, 0 = jamais).</li>
+  <li>Un inactif rendu visible à la main <b>reste visible jusqu'à un second double-clic</b>. S'il redevient actif, il reprend la règle normale (caché 30 s après la fin de son activité).</li>
+  <li>Le leader (et un agent « cdp ») n'est jamais caché ; un pane ouvert à la main non plus ; l'inactif qui a le focus clavier n'est pas caché automatiquement.</li>
+  <li>Les panes visibles se partagent toute la fenêtre selon la règle actuelle (leader en haut ; ≤ 5 teammates sur une ligne, au-delà sur deux).</li>
+  <li>Un teammate caché continue de tourner et de recevoir ses messages ; fermer le projet ferme aussi ses teammates cachés.</li>
+  <li>Pas de raccourci clavier, pas d'indicateur « N cachés ». Projet en lecture seule (un autre launcher a la main) : le double-clic est refusé avec un message.</li>
+  <li>Même état sous Linux et Windows (option tmux <code>@cl_panevis</code>) : ce qui est caché d'un côté l'est de l'autre.</li>
+</ul>
+
+<script>
+(function(){
+const COLORS={lead:'#1F4FD1',act:'#3F6FF1',idle:'#12308a'};
+function initial(){return [
+ {n:'team-lead',lead:1,st:1,act:1,vis:1,m:'opus · medium',v:'2.1.87'},
+ {n:'planner',st:1,act:0,vis:1,left:12,m:'fable · high',v:'2.1.87'},
+ {n:'dev-backend',st:1,act:1,vis:1,m:'sonnet · medium',v:'2.1.87'},
+ {n:'dev-frontend',st:1,act:0,vis:1,pin:1,m:'sonnet · medium',v:'2.1.87'},
+ {n:'test-writer',st:1,act:0,vis:0,m:'sonnet · medium',v:'2.1.87'},
+ {n:'code-reviewer',st:1,act:1,vis:1,m:'sonnet · medium',v:'2.1.87'},
+ {n:'qa',st:1,act:0,vis:0,m:'sonnet · medium',v:'2.1.87'},
+ {n:'doc-updater',st:0,m:'haiku · low'},
+ {n:'deployer',st:1,act:0,vis:0,m:'sonnet · medium',v:'2.1.87'},
+ {n:'security',st:0,m:'sonnet · high'}];}
+function el(t,c,h){const e=document.createElement(t);if(c)e.className=c;if(h!=null)e.innerHTML=h;return e;}
+function state(t){return !t.st?'non démarré':t.lead?'leader':t.act?'actif':t.vis?(t.pin?'visible (fixé)':'visible · '+t.left+' s'):'caché';}
+function setup(sec){
+  const P=sec.dataset.proposition,T=initial(),root=sec.querySelector('.mock');let msg='';
+  root.innerHTML='<h2>Interface native Windows</h2><div class="win"><div class="nav"><div class="fake">NG2 6.1.0 · arbre des projets (inchangé)</div><div class="cards"><div class="card"><div class="ch">▾ Team <span class="d">· 10 teammates</span></div><div class="cb"><div class="team"></div></div></div></div><div class="foot"></div></div><div class="main"><div class="tabbar">● Claude-Launcher</div><div class="panes"></div></div></div><div class="sim"></div><h2>Coque Linux — carte (pane ◈ État, double-clic à la souris) et fenêtre tmux du projet (schéma)</h2><div class="two"><div class="tui card-tui"></div><div class="tui win-tui"></div></div>';
+  const team=root.querySelector('.team'),panes=root.querySelector('.panes'),foot=root.querySelector('.foot'),sim=root.querySelector('.sim'),tui=root.querySelector('.card-tui'),wtui=root.querySelector('.win-tui');
+  function toggle(t){
+    if(!t.st){msg='';}
+    else if(t.lead){msg='Le leader est toujours visible.';}
+    else if(t.act){msg=t.n+' est actif : toujours visible (il pourra être caché quand il sera inactif).';}
+    else{t.vis=t.vis?0:1;t.pin=t.vis;msg='';}
+    draw();
+  }
+  function row(t){
+    const mark=t.st?'<span class="g">●</span>':'<span class="dm">○</span>';
+    const r=el('div','tr'+(P==='B'?' b':'')+(t.st&&t.vis?' vis':'')+(t.st?'':' off'));
+    if(P==='B'){
+      const s=state(t),cls=t.act||t.lead?'g':!t.st?'dm':t.vis?(t.pin?'':'y'):'mu';
+      r.innerHTML=mark+'<span class="n">'+t.n+'</span><span class="'+cls+'">'+s+'</span><span class="v">'+(t.v||'')+'</span>';
+      r.title=t.m;
+    }else{
+      r.innerHTML=mark+'<span class="n">'+t.n+'</span><span class="v">'+(t.v||'')+'</span><span class="m">'+t.m+'</span>';
+      r.title=state(t);
+    }
+    r.ondblclick=function(){toggle(t);};
+    return r;
+  }
+  function groups(){return [['VISIBLES',T.filter(function(t){return t.st&&t.vis;})],['CACHÉS — double-clic pour afficher',T.filter(function(t){return t.st&&!t.vis;})],['NON DÉMARRÉS',T.filter(function(t){return !t.st;})]];}
+  function draw(){
+    team.innerHTML='';
+    if(P==='C'){groups().forEach(function(g){if(!g[1].length)return;team.appendChild(el('div','grp',g[0]));g[1].forEach(function(t){team.appendChild(row(t));});});}
+    else T.forEach(function(t){team.appendChild(row(t));});
+    foot.textContent=msg;
+    // fenêtre : seuls les panes visibles, selon la règle actuelle
+    panes.innerHTML='';
+    const W=panes.clientWidth||700,HT=panes.clientHeight||400,bot=T.filter(function(t){return t.st&&t.vis&&!t.lead;}),fold=T.filter(function(t){return t.st&&!t.vis;});
+    const H=HT;
+    function place(t,x,y,w,h){const col=t.lead?COLORS.lead:t.act?COLORS.act:COLORS.idle;const p=el('div','pane');p.style.cssText='left:'+x+'px;top:'+y+'px;width:'+(w-3)+'px;height:'+(h-3)+'px;background:'+col;
+      p.innerHTML='<div class="ph" style="border-left-color:'+col+'"><b>'+t.n+'</b> <i>· '+(t.lead?'leader':t.act?'actif':'inactif')+'</i></div>'+(t.act||t.lead?'● travaille…':'en attente');panes.appendChild(p);}
+    const lead=T[0];
+    if(!bot.length)place(lead,0,0,W,H);
+    else if(bot.length<=5){place(lead,0,0,W,H/2);bot.forEach(function(t,i){place(t,i*W/bot.length,H/2,W/bot.length,H/2);});}
+    else{const nm=Math.ceil(bot.length/2),h1=H*3/7,h2=H*2/7;place(lead,0,0,W,h1);bot.slice(0,nm).forEach(function(t,i){place(t,i*W/nm,h1,W/nm,h2);});const r=bot.slice(nm);r.forEach(function(t,i){place(t,i*W/r.length,h1+h2,W/r.length,H-h1-h2);});}
+    // simulation
+    sim.innerHTML='Simulation (hors maquette) — rendre actif / inactif : ';
+    T.filter(function(t){return t.st&&!t.lead;}).forEach(function(t){const b=el('button',t.act?'act':'',t.n);b.onclick=function(){t.act=t.act?0:1;if(t.act){t.vis=1;t.pin=0;}else{t.left=30;}msg='';draw();};sim.appendChild(b);});
+    const tk=el('button','','⏩ +30 s');tk.title='Faire passer le délai de masquage automatique';tk.onclick=function(){T.forEach(function(t){if(t.st&&!t.lead&&!t.act&&t.vis&&!t.pin){t.vis=0;}});msg='';draw();};sim.appendChild(tk);
+    const rs=el('button','','↺ réinitialiser');rs.onclick=function(){const n=initial();T.length=0;n.forEach(function(x){T.push(x);});msg='';draw();};sim.appendChild(rs);
+    // coque Linux : carte
+    function pad(s,n){return (s+new Array(n+1).join(' ')).slice(0,n);}
+    function line(t){const mk=t.st?'<span class="g">●</span>':'<span class="dm">○</span>';
+      let body;
+      if(P==='B')body=pad(t.n,14)+' '+pad(state(t),16)+' '+(t.v||'');
+      else body=pad(t.n,14)+' '+pad(t.m.split(' · ')[0],7)+pad(t.m.split(' · ')[1],7)+(t.v||'');
+      body=pad(body,42);
+      return ' '+mk+' '+(t.st&&t.vis?'<span class="hl">'+body+'</span>':t.st?body:'<span class="dm">'+body+'</span>');}
+    let out='╭─ Team · 10 teammates ───────────────────────╮\n';
+    if(P==='C'){groups().forEach(function(g){if(!g[1].length)return;out+=' <span class="mu">'+g[0].split(' — ')[0]+'</span>\n';g[1].forEach(function(t){out+=line(t)+'\n';});});}
+    else T.forEach(function(t){out+=line(t)+'\n';});
+    out+='╰─────────────────────────────────────────────╯';
+    if(msg)out+='\n <span class="y">'+msg+'</span>';
+    tui.innerHTML=out;
+    // coque Linux : fenêtre tmux (schéma)
+    const bar=new Array(57).join('━');
+    let w='┏'+bar+'┓\n┃ '+pad('team-lead',54)+' ┃\n┃ '+pad('',54)+' ┃\n';
+    if(bot.length){w+='┣'+bar+'┫\n┃ '+pad(bot.map(function(t){return t.n;}).join(' ┃ '),54)+' ┃\n┃ '+pad('',54)+' ┃\n';}
+    w+='┗'+bar+'┛\n<span class="mu"> '+(fold.length?fold.length+' teammate(s) caché(s), hors de la fenêtre : '+fold.map(function(t){return t.n;}).join(', '):'aucun teammate caché')+'</span>';
+    wtui.innerHTML=w;
+  }
+  sec._draw=draw;draw();
+}
+Array.prototype.forEach.call(document.querySelectorAll('section[data-proposition]'),setup);
+window.addEventListener('resize',function(){Array.prototype.forEach.call(document.querySelectorAll('section[data-proposition].on'),function(s){s._draw();});});
+})();
+</script>
+</body>
+</html>

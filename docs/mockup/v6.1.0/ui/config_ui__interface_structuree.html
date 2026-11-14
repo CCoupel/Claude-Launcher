@@ -1,0 +1,277 @@
+<!--
+mockup:
+  composant: config_ui
+  feature: interface_structuree
+  version: 6.1.0
+  type: ui
+  issue: "#118"
+  validee_le: 2026-11-14
+  proposition_retenue: "A — Fenêtre Réglages à rubriques"
+  complete: []
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #118 — interface structurée de configuration (v6.1.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--purple:#C4A1FF;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--ao:#3A2818;--ag:#183A2A;--ay:#3A3418;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.ptabs{display:flex;gap:6px;border-bottom:1px solid var(--line2);margin-bottom:10px}
+.ptabs button{background:var(--panel);color:var(--muted);border:1px solid var(--line2);border-bottom:0;border-radius:6px 6px 0 0;padding:8px 16px;font:600 13px var(--ui);cursor:pointer}
+.ptabs button.on{background:var(--head);color:var(--text);box-shadow:inset 0 2px 0 var(--orange)}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:20px 0 8px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+.g{color:var(--green)}.o{color:var(--orange)}.y{color:var(--yellow)}.r{color:var(--red)}.mu{color:var(--muted)}.dm{color:var(--dim)}.c{color:var(--cyan)}
+/* fenêtre de l'application */
+.app{display:flex;border:1px solid var(--line2);border-radius:8px;overflow:hidden;height:640px;background:var(--deep);position:relative;max-width:1320px}
+.nav{width:250px;flex:none;background:var(--panel);border-right:4px solid var(--line);display:flex;flex-direction:column}
+.nvh{padding:9px 12px;border-bottom:1px solid var(--line);font:12px var(--mono);display:flex;gap:8px}
+.nvh .sp{flex:1}.nvh .cfg{color:var(--orange);font-family:var(--ui);cursor:pointer}
+.tree{padding:6px;font-size:12.5px}
+.trow{padding:1px 8px;border-radius:3px;white-space:nowrap}
+.trow.cat{font-weight:600;color:var(--text2)}
+.trow.p{padding-left:22px}
+.trow.sel{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent)}
+.trow.open{background:#1F4FD1;color:#fff;font-weight:700}
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.tabbar{height:32px;flex:none;display:flex;align-items:stretch;border-bottom:1px solid var(--line);font-size:12px}
+.tabbar span{padding:0 14px;display:flex;align-items:center;border-right:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.tabbar span.on{color:#fff;font-weight:700;box-shadow:inset 0 -2px 0 var(--orange)}
+.term{flex:1;margin:4px;background:#12308a;border-radius:3px;padding:10px;font:12px var(--mono);color:rgba(255,255,255,.6)}
+.veil{position:absolute;inset:0;background:rgba(5,6,8,.65);display:flex;align-items:center;justify-content:center}
+.modal{background:var(--panel);border:1px solid var(--line2);border-radius:8px;width:94%;height:92%;display:flex;flex-direction:column;box-shadow:0 10px 40px rgba(0,0,0,.5);overflow:hidden}
+.mh{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.mh h3{margin:0;font-size:15px}.mh .sp{flex:1}
+.mb{flex:1;min-height:0;display:flex}
+.rail{width:190px;flex:none;border-right:1px solid var(--line);padding:8px;overflow:auto;background:var(--bg)}
+.rail .rg{font:600 11px var(--ui);color:var(--muted);letter-spacing:.06em;margin:10px 6px 4px}
+.rail .rg:first-child{margin-top:2px}
+.rail .ri{padding:5px 8px;border-radius:5px;cursor:pointer;display:flex;gap:6px;align-items:center}
+.rail .ri:hover{background:rgba(255,255,255,.055)}
+.rail .ri.on{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent);font-weight:600}
+.rail .ri .bd{margin-left:auto;font:11px var(--mono);color:var(--yellow)}
+.htabs{display:flex;gap:2px;padding:6px 12px 0;border-bottom:1px solid var(--line);background:var(--bg);flex:none;flex-wrap:wrap}
+.htabs .ri{padding:6px 12px;border-radius:5px 5px 0 0;cursor:pointer;color:var(--muted)}
+.htabs .ri.on{color:var(--text);font-weight:600;box-shadow:inset 0 -2px 0 var(--orange);background:var(--head)}
+.htabs .sep{width:1px;background:var(--line2);margin:4px 8px}
+.htabs .lbl{font:600 11px var(--ui);color:var(--dim);letter-spacing:.06em;align-self:center;margin-right:4px}
+.pg{flex:1;min-width:0;overflow:auto;padding:14px 18px}
+.pg h4{margin:0 0 4px;font-size:14px}
+.pg .ex{color:var(--muted);margin:0 0 12px;line-height:1.45;max-width:820px}
+.mf{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--line);font-size:12px}
+.mf .sp{flex:1}
+.btn{white-space:nowrap;background:var(--head);color:var(--text);border:1px solid var(--line2);border-radius:5px;padding:5px 11px;font:13px var(--ui);cursor:pointer}
+.btn.pri{background:var(--ao);border-color:var(--orange);color:var(--orange);font-weight:600}
+.btn.sm{padding:2px 8px;font-size:12px}
+.btn.dg{color:var(--red)}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:600;padding:4px 8px;border-bottom:1px solid var(--line2);font-size:12px}
+td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr.on td{background:var(--hl)}
+td.m,.mono{font-family:var(--mono);font-size:12px}
+.split{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px;align-items:start}
+.box{border:1px solid var(--line2);border-radius:6px;overflow:hidden}
+.box>.bh{background:var(--head);padding:5px 10px;font-weight:600;display:flex;gap:8px;align-items:center}
+.box>.bh .sp{flex:1}
+.box>.bb{padding:10px}
+.form{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 10px;align-items:center}
+.form label{color:var(--text2)}
+.form .hint{grid-column:2;color:var(--muted);font-size:11.5px;margin-top:-4px}
+.in{background:var(--input);color:var(--text);border:1px solid var(--line2);border-radius:5px;padding:4px 8px;font:12.5px var(--mono);min-height:26px;display:flex;align-items:center;gap:6px}
+.in.sel::after{content:"▾";margin-left:auto;color:var(--muted)}
+.in.w{display:inline-flex;min-width:70px}
+.chk{display:inline-flex;align-items:center;gap:6px}
+.chk i{width:14px;height:14px;border:1px solid var(--muted);border-radius:3px;display:inline-block}
+.chk.on i{background:var(--accent);border-color:var(--accent)}
+.tests{font:12px var(--mono);line-height:1.6;background:var(--input);border:1px solid var(--line);border-radius:6px;padding:8px 10px;margin-top:10px}
+.pill{font:11px var(--mono);padding:1px 6px;border-radius:9px;border:1px solid var(--line2);color:var(--muted)}
+.pill.g{border-color:var(--green);color:var(--green)}.pill.y{border-color:var(--yellow);color:var(--yellow)}.pill.o{border-color:var(--orange);color:var(--orange)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.grid1>*+*{margin-top:12px}
+.probs{background:var(--ay);color:var(--yellow);border-radius:5px;padding:5px 10px;font-size:12px}
+.ctx{position:absolute;background:var(--head);border:1px solid var(--line2);border-radius:7px;box-shadow:0 8px 28px rgba(0,0,0,.55);padding:4px;font-size:12.5px;min-width:250px;z-index:5}
+.ctx div{padding:5px 10px;border-radius:4px;display:flex;gap:8px;cursor:pointer}
+.ctx div:hover,.ctx div.on{background:var(--hl)}
+.ctx div .k{margin-left:auto;color:var(--muted);font:11px var(--mono)}
+.ctx hr{border:0;border-top:1px solid var(--line2);margin:4px 0}
+.drawer{position:absolute;top:0;right:0;bottom:0;width:520px;background:var(--panel);border-left:1px solid var(--line2);box-shadow:-10px 0 30px rgba(0,0,0,.45);display:flex;flex-direction:column}
+.cfgview{flex:1;min-height:0;display:flex;flex-direction:column;background:var(--panel)}
+.scope{max-width:1250px}
+.scope td{white-space:normal;vertical-align:top}
+.scope td:first-child{white-space:nowrap;font-weight:600}
+.tpl{color:var(--purple)}
+.yaml{font:12px/1.5 var(--mono);background:var(--input);border:1px solid var(--line);border-radius:6px;padding:8px 10px;white-space:pre;overflow:auto;max-height:230px}
+.steps{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 10px}
+.steps button{background:var(--head);color:var(--text2);border:1px solid var(--line2);border-radius:5px;padding:4px 10px;font:12px var(--ui);cursor:pointer}
+.steps button.on{border-color:var(--orange);color:var(--orange)}
+.note{color:var(--muted);font-size:12px;line-height:1.5;max-width:1250px}
+</style>
+</head>
+<body>
+<h1>Interface structurée de configuration <span style="color:var(--muted);font-weight:400">· #118 · v6.1.0 · interface native Windows · maquette retenue (A — Fenêtre Réglages à rubriques)</span></h1>
+<p class="sub">Composant : gestion de la configuration du launcher dans l'interface native (Windows ; le mode <code>--web</code> sert la même interface au navigateur, pour les tests). La maquette est <b>navigable</b> : cliquer sur les rubriques, sur les boutons « Écran » au-dessus de la fenêtre (menu contextuel d'un projet, réglages du projet). Une seule fenêtre « Réglages » (modale large, ouverte par <b>⚙ config</b> ou <code>Ctrl+,</code>, à la place de l'éditeur de texte actuel qui reste accessible par « Éditer en texte ») ; le menu contextuel d'un projet ouvre cette même fenêtre sur la rubrique du projet.</p>
+
+<section data-proposition="A" class="on">
+  <div class="steps"></div>
+  <div class="stage"></div>
+</section>
+
+<h2>Ce qui est configurable, et à quel niveau</h2>
+<table class="scope">
+<tr><th>Niveau</th><th>Rubrique</th><th>Réglages</th><th>Fichier</th></tr>
+<tr><td rowspan="5">Global<br><span class="mu" style="font-weight:400">tous les postes</span></td><td>Backends</td><td>Nom, type (hôte, podman, docker, ssh, k8s) ; adresse ou groupe de serveurs ou pool ; contexte ; moteur ssh ; stockage partagé ; k8s : contexte, namespace, volumes → PVC, répartition, options du pod. Ajouter, dupliquer, supprimer, <b>Tester</b>.</td><td class="m">backends.yaml → backends</td></tr>
+<tr><td>Pools</td><td>Machines d'un pool, drain par machine ; charge en cours (lecture seule).</td><td class="m">backends.yaml → pools</td></tr>
+<tr><td>Défauts</td><td>Backend par défaut, image par défaut, liste des images proposées ; correspondances navigateur par défaut.</td><td class="m">backends.yaml → defaults, images</td></tr>
+<tr><td>Launcher</td><td>Racines des projets ; options de claude, teams, souris, dossier de config de claude, variables ajoutées, jeton GitHub ; reprise des sessions ; mise en page des teams et masquage des inactifs (<code>TEAM_HIDE_IDLE</code>, #136) ; palette et teintes ; arrêt du conteneur ; rafraîchissement de la consommation.</td><td class="m">config.conf</td></tr>
+<tr><td>Conteneurs</td><td>Paquets, <code>setup</code> et <code>on_start</code> ajoutés à tous les conteneurs.</td><td class="m">env.yaml (launcher)</td></tr>
+<tr><td>Ce poste<br><span class="mu" style="font-weight:400">cette machine</span></td><td>Ce poste</td><td>Correspondance de chemins (local ↔ distant), chemins et serveur web pour le navigateur, utilisateur distant, cache du hub ; surcharges par système. <b>Taille des caractères des terminaux</b> (#140).</td><td class="m">backends.yaml → hubs.&lt;machine&gt; ; desktop-ui.json</td></tr>
+<tr><td rowspan="3">Projet<br><span class="mu" style="font-weight:400">menu contextuel</span></td><td>Exécution</td><td><b>Backend du projet</b> (reconfiguration) et image de base — projet fermé seulement.</td><td class="m">projects.json ; env.yaml du projet</td></tr>
+<tr><td>Environnement</td><td>Image, backend préféré, paquets (et par gestionnaire), <code>setup</code>, <code>on_start</code>, <code>watch</code>, dossiers <code>local</code>, montages ; <b>aperçu fusionné</b> avec <code>env-template.yaml</code> (lecture seule, apports du template repérés).</td><td class="m">&lt;projet&gt;/.claude-launcher/env.yaml</td></tr>
+<tr><td>Couleur</td><td>Couleur du projet (palette).</td><td class="m">config.conf → PROJECT_COLORS</td></tr>
+</table>
+
+<h2>Règles communes</h2>
+<p class="note">Enregistrer réécrit le fichier <b>en conservant ses commentaires</b> et passe par la même validation que le chargement réel : les problèmes s'affichent en bas de l'écran, une erreur bloque l'enregistrement. « Éditer en texte » ouvre l'éditeur de texte actuel sur le fichier de la rubrique. Les changements sont appliqués à chaud quand c'est possible (même note qu'aujourd'hui sinon). Si le fichier a changé sur disque entre-temps, l'enregistrement le signale (recharger / écraser), comme l'éditeur actuel. Le jeton GitHub est masqué. Changer le backend d'un projet ouvert est refusé avec un message (fermer d'abord), comme F2 aujourd'hui.</p>
+
+<script>
+(function(){
+const chk=(on,t)=>'<span class="chk'+(on?' on':'')+'"><i></i>'+t+'</span>';
+const inp=(v,cls)=>'<div class="in'+(cls?' '+cls:'')+'">'+v+'</div>';
+const foot=(file,probs)=>'<div class="mf">'+(probs?'<span class="probs">'+probs+'</span>':'<span class="g">✓ valide</span>')+'<span class="mu">'+file+'</span><span class="sp"></span><button class="btn">Éditer en texte</button><button class="btn">Annuler</button><button class="btn pri">Enregistrer</button></div>';
+const PAGES={
+backends:{t:'Backends',file:'backends.yaml',html:()=>`<h4>Backends</h4><p class="ex">Où s'exécutent les projets : sur l'hôte, dans un conteneur local ou distant, ou dans un pod Kubernetes.</p>
+<div class="split"><div><table><tr><th>Nom</th><th>Type</th><th>Adresse</th><th>Pool</th><th>État</th></tr>
+<tr><td class="m">podman-local</td><td>podman</td><td class="m mu">(local)</td><td></td><td class="g">● joignable</td></tr>
+<tr class="on"><td class="m">srv1-docker <span class="pill o">défaut</span></td><td>docker</td><td class="m">ssh://cyril@srv1</td><td></td><td class="g">● joignable</td></tr>
+<tr><td class="m">ferme</td><td>docker</td><td class="m">tcp://{}:2375</td><td class="m">salle-a</td><td class="y">● 2/3 · 1 en drain</td></tr>
+<tr><td class="m">k8s-lab</td><td>k8s</td><td class="m">lab / claude</td><td></td><td class="r">⚠ PVC non lié</td></tr></table>
+<div style="display:flex;gap:6px;margin-top:8px"><button class="btn sm">+ Ajouter</button><button class="btn sm">Dupliquer</button><button class="btn sm dg">Supprimer</button></div>
+<div class="box" style="margin-top:14px"><div class="bh">Formulaire selon le type</div><div class="bb note" style="margin:0"><b>podman / docker</b> : adresse (<code>tcp://</code> ou <code>ssh://</code>) ou groupe de serveurs ou pool, contexte, stockage partagé.<br><b>ssh</b> : destination(s) ou pool, moteur (podman / docker), adresse du démon distant, stockage partagé.<br><b>k8s</b> : contexte, namespace, volumes (racine → PVC), répartition des pods, options du pod.<br><b>hôte</b> : aucun champ.</div></div></div>
+<div class="box"><div class="bh">srv1-docker <span class="sp"></span><button class="btn sm pri">Tester</button></div><div class="bb"><div class="form">
+<label>Nom</label>${inp('srv1-docker')}
+<label>Type</label>${inp('docker','sel')}
+<label>Serveurs</label><span>${chk(true,'une adresse')} &nbsp; ${chk(false,'groupe')} &nbsp; ${chk(false,'pool')}</span>
+<label>Adresse</label>${inp('ssh://cyril@srv1')}<span class="hint">tcp://hôte:port ou ssh://utilisateur@hôte</span>
+<label>Contexte docker</label>${inp('<span class="dm">(aucun)</span>')}
+<label>Stockage partagé</label>${inp('/share/MFS/ROOT')}<span class="hint">racines vues à l'identique par le launcher et le serveur ; une par ligne</span>
+<label></label><span>${chk(true,'backend par défaut')}</span></div>
+<div class="tests"><span class="g">✓</span> outil requis : docker (C:\\Program Files\\Docker\\docker.exe)<br><span class="g">✓</span> démon joignable : docker 27.3.1<br><span class="g">✓</span> stockage partagé : /share/MFS/ROOT présent des deux côtés<br><span class="mu">testé il y a 4 s</span></div></div></div></div>`},
+pools:{t:'Pools',file:'backends.yaml',html:()=>`<h4>Pools de machines</h4><p class="ex">Un pool est une liste de machines que plusieurs backends se partagent ; un nouveau conteneur va sur la machine la moins chargée, hors drain.</p>
+<div class="split"><div><table><tr><th>Pool</th><th>Machines</th><th>Utilisé par</th></tr><tr class="on"><td class="m">salle-a</td><td>3 · 1 en drain</td><td class="m">ferme, ferme-ssh</td></tr><tr><td class="m">gpu</td><td>2</td><td class="m mu">(aucun backend)</td></tr></table>
+<div style="display:flex;gap:6px;margin-top:8px"><button class="btn sm">+ Ajouter</button><button class="btn sm dg">Supprimer</button></div></div>
+<div class="box"><div class="bh">salle-a</div><div class="bb"><table><tr><th>Machine</th><th>Drain</th><th>Charge commune</th><th>État</th><th></th></tr>
+<tr><td class="m">node1</td><td>${chk(false,'')}</td><td class="m">3 conteneurs</td><td class="g">● joignable</td><td><button class="btn sm dg">✕</button></td></tr>
+<tr><td class="m">node2</td><td>${chk(true,'')}</td><td class="m">1 conteneur</td><td class="y">● en drain</td><td><button class="btn sm dg">✕</button></td></tr>
+<tr><td class="m">node3</td><td>${chk(false,'')}</td><td class="m mu">—</td><td class="r">⚠ injoignable</td><td><button class="btn sm dg">✕</button></td></tr></table>
+<div style="display:flex;gap:6px;margin-top:8px">${inp('<span class="dm">nouvelle machine</span>','w')}<button class="btn sm">+ Ajouter</button></div>
+<p class="note" style="margin:10px 0 0">Drain : la machine ne reçoit plus de nouveau conteneur ; ceux en cours continuent. La charge compte les conteneurs de tous les backends du pool.</p></div></div></div>`},
+defauts:{t:'Défauts',file:'backends.yaml',html:()=>`<h4>Défauts</h4><p class="ex">Valeurs proposées à la création d'un projet et à la première ouverture d'un projet non configuré.</p>
+<div class="grid2"><div class="box"><div class="bh">Exécution</div><div class="bb"><div class="form"><label>Backend par défaut</label>${inp('srv1-docker','sel')}<label>Image par défaut</label>${inp('debian:12','sel')}</div>
+<p class="mu" style="margin:12px 0 6px">Images proposées</p><table><tr><td class="m">debian:12</td><td><button class="btn sm dg">✕</button></td></tr><tr><td class="m">ubuntu:24.04</td><td><button class="btn sm dg">✕</button></td></tr><tr><td class="m">rockylinux:9</td><td><button class="btn sm dg">✕</button></td></tr><tr><td class="m">alpine:3.20</td><td><button class="btn sm dg">✕</button></td></tr></table>
+<div style="display:flex;gap:6px;margin-top:8px">${inp('<span class="dm">image:tag</span>','w')}<button class="btn sm">+ Ajouter</button></div></div></div>
+<div class="box"><div class="bh">Navigateur (défaut de tous les postes)</div><div class="bb"><p class="note" style="margin:0 0 8px">Utilisé quand « Ce poste » ne définit rien.</p><div class="form"><label>Serveur web</label>${inp('127.0.0.1:8765')}<label>URL publiée</label>${inp('<span class="dm">(déduite)</span>')}</div>
+<p class="mu" style="margin:12px 0 6px">Chemins pour le navigateur</p><table><tr><th>Vu par claude</th><th>Vu par le navigateur</th><th>Forme</th></tr><tr><td class="m">/</td><td class="m">http://localhost:8765</td><td>url</td></tr></table></div></div></div>`},
+launcher:{t:'Launcher',file:'config.conf',probs:'⚠ ligne 12 : racine /home/cyril/GITHUB2 introuvable',html:()=>`<h4>Launcher</h4><p class="ex">Réglages généraux du launcher, communs aux interfaces Linux et Windows.</p>
+<div class="grid2"><div>
+<div class="box"><div class="bh">Projets</div><div class="bb"><p class="mu" style="margin:0 0 6px">Racines des projets</p><table><tr><td class="m">/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS</td><td><button class="btn sm dg">✕</button></td></tr><tr><td class="m y">/home/cyril/GITHUB2 ⚠</td><td><button class="btn sm dg">✕</button></td></tr></table><div style="margin-top:8px"><button class="btn sm">+ Ajouter une racine</button></div></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Claude</div><div class="bb"><div class="form"><label>Options de claude</label>${inp('--allow-dangerously-skip-permissions')}<label>Dossier de config</label>${inp('../.claude')}<span class="hint">relatif au dossier de config.conf</span><label>Jeton GitHub</label>${inp('ghp_••••••••••••••••  <span class="mu">afficher</span>')}<label>Variables ajoutées</label>${inp('2 variables <span class="mu">— modifier</span>')}<label></label><span>${chk(true,'teams expérimentales')} &nbsp; ${chk(true,'souris de claude désactivée')}</span></div></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Reprise des sessions</div><div class="bb"><div class="form"><label>Reprendre</label>${inp('demander','sel')}<label>Âge maximal</label><span>${inp('24','w')} heures</span></div></div></div></div>
+<div><div class="box"><div class="bh">Mise en page des teams</div><div class="bb"><div class="form"><label>Leader (≤ 5 teammates)</label><span>${inp('50','w')} % de la hauteur</span><label>Leader / milieu (&gt; 5)</label><span>${inp('3','w')} et ${inp('2','w')} sur ${inp('7','w')}</span><label>Cacher les inactifs</label><span>après ${inp('30','w')} s <span class="mu">(0 = jamais)</span></span><span class="hint">nouveau en 6.1 (#136)</span><label>Teinte actif / inactif</label><span>+${inp('1','w')} / −${inp('1','w')} <span class="mu">(1 à 5)</span></span></div></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Couleurs des projets</div><div class="bb"><p class="mu" style="margin:0 0 6px">Palette</p><div style="display:flex;gap:4px">${['#00005f','#5f0000','#005f00','#5f005f','#5f5f00','#005f5f','#5f0087','#444','#000087','#5f5f5f'].map(c=>'<span style="width:22px;height:22px;border-radius:4px;background:'+c+';border:1px solid var(--line2)"></span>').join('')}</div><p class="note" style="margin:8px 0 0">La couleur d'un projet se règle depuis son menu contextuel.</p></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Divers</div><div class="bb"><div class="form"><label>Consommation</label><span>relue toutes les ${inp('120','w')} s</span><label>Conteneur</label><span>${chk(false,'arrêter quand claude se termine')}</span></div></div></div></div></div>`},
+conteneurs:{t:'Conteneurs',file:'env.yaml (launcher)',html:()=>`<h4>Conteneurs — ajouts communs</h4><p class="ex">Ajouté à l'environnement de <b>chaque</b> conteneur, avant ce que demandent le template et le projet.</p>
+<div class="grid2"><div class="box"><div class="bh">Paquets</div><div class="bb"><div class="form"><label>Paquets</label>${inp('git  curl  jq  tmux')}<label>Par gestionnaire</label>${inp('apt : fonts-dejavu <span class="mu">— modifier</span>')}</div></div></div>
+<div class="box"><div class="bh">Étapes</div><div class="bb"><p class="mu" style="margin:0 0 4px">setup (une fois, à la création)</p><div class="yaml">curl -fsSL https://claude.ai/install.sh | bash</div><p class="mu" style="margin:10px 0 4px">on_start (à chaque démarrage)</p><div class="yaml">git config --global --add safe.directory '*'</div></div></div></div>`},
+poste:{t:'Ce poste',file:'backends.yaml → hubs.MSI',html:()=>`<h4>Ce poste — MSI <span class="pill">Windows</span></h4><p class="ex">Réglages propres à cette machine. Les autres postes ne sont pas touchés.</p>
+<div class="grid2"><div>
+<div class="box"><div class="bh">Correspondance de chemins</div><div class="bb"><table><tr><th>Ici (local)</th><th>Sur les serveurs (distant)</th><th></th></tr><tr><td class="m">\\\\nas\\MFS\\ROOT</td><td class="m">/share/MFS/ROOT</td><td><button class="btn sm dg">✕</button></td></tr><tr><td class="m">C:\\Users\\cyril\\GITHUB</td><td class="m">/home/cyril/GITHUB</td><td><button class="btn sm dg">✕</button></td></tr></table><div style="margin-top:8px"><button class="btn sm">+ Ajouter</button></div></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Utilisateur distant</div><div class="bb"><div class="form"><label>Nom</label>${inp('cyril')}<label>uid : gid</label><span>${inp('1000','w')} : ${inp('1000','w')}</span><label>Dossier personnel</label>${inp('/home/cyril')}</div></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Affichage <span class="pill g">mémorisé sur ce poste</span></div><div class="bb"><div class="form"><label>Taille des caractères</label><span style="display:flex;gap:6px;align-items:center"><button class="btn sm">−</button>${inp('13','w')}<button class="btn sm">+</button> <span class="mu">terminaux seulement · défaut 13</span></span><span class="hint">nouveau en 6.1 (#140) — aussi par Ctrl+molette sur un terminal</span></div></div></div></div>
+<div><div class="box"><div class="bh">Navigateur</div><div class="bb"><div class="form"><label>Serveur web</label>${inp('127.0.0.1:8766')}<span class="hint">hôte:port, port seul, ou « off »</span><label>URL publiée</label>${inp('http://localhost:8766')}<label>Accès autorisés</label>${inp('<span class="dm">(local seulement)</span>')}<label>Navigateur apparié</label>${inp('a3f9…c21 <span class="mu">— oublier</span>')}</div>
+<p class="mu" style="margin:12px 0 6px">Chemins pour le navigateur</p><table><tr><th>Vu par claude</th><th>Vu par le navigateur</th><th>Forme</th></tr><tr><td class="m">/</td><td class="m">http://localhost:8766</td><td>url</td></tr></table><div style="margin-top:8px"><button class="btn sm">+ Ajouter</button></div></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Cache du hub Linux</div><div class="bb"><div class="form"><label>Dossier</label>${inp('\\\\nas\\MFS\\ROOT\\CLAUDE_PROJETS\\.cache')}</div></div></div>
+<p class="note">Une surcharge par système (<code>windows</code>, <code>linux</code>, <code>darwin</code>) présente dans le fichier est indiquée par une pastille à côté du champ et reste modifiable en texte.</p></div></div>`},
+projet:{t:'Projet',file:'Claude-Launcher/.claude-launcher/env.yaml',html:()=>`<h4>Projet — Claude-Launcher <span class="pill">fermé</span></h4><p class="ex">Ce qui est propre à ce projet. Le reste vient du template (<span class="tpl">violet</span>) et du launcher.</p>
+<div class="grid2"><div>
+<div class="box"><div class="bh">Exécution <span class="sp"></span><span class="mu" style="font-weight:400">projects.json</span></div><div class="bb"><div class="form"><label>Backend</label>${inp('srv1-docker','sel')}<span class="hint">hôte, ou un backend conteneur ; modifiable projet fermé</span><label>Image de base</label>${inp('debian:12','sel')}<label>Backend préféré</label>${inp('<span class="dm">(aucun)</span>','sel')}<span class="hint">proposé aux autres postes (prefer)</span><label>Couleur</label><span style="display:flex;gap:4px">${['#00005f','#5f0000','#005f00','#5f005f'].map((c,i)=>'<span style="width:22px;height:22px;border-radius:4px;background:'+c+';border:'+(i==0?'2px solid var(--accent)':'1px solid var(--line2)')+'"></span>').join('')}<span class="mu" style="align-self:center">…</span></span></div></div></div>
+<div class="box" style="margin-top:12px"><div class="bh">Environnement du conteneur</div><div class="bb"><div class="form"><label>Paquets</label>${inp('golang-go  nodejs')}<label>Par gestionnaire</label>${inp('<span class="dm">(aucun)</span>')}<label>Dossiers locaux</label>${inp('ng2/build')}<span class="hint">privés au conteneur (non partagés)</span><label>Surveillés</label>${inp('ng2/go.mod')}<span class="hint">leur changement rejoue setup</span><label>Montages</label>${inp('/share/MFS/ROOT/outils <span class="pill">lecture seule</span>')}</div><p class="mu" style="margin:10px 0 4px">setup</p><div class="yaml">cd ng2 &amp;&amp; go mod download</div><p class="mu" style="margin:10px 0 4px">on_start</p><div class="yaml"><span class="dm">(vide)</span></div></div></div></div>
+<div class="box"><div class="bh">Aperçu fusionné <span class="sp"></span><span class="mu" style="font-weight:400">lecture seule</span></div><div class="bb"><div class="yaml" style="max-height:none">image: debian:12
+packages:
+<span class="tpl">  - gh            # template</span>
+<span class="tpl">  - ripgrep       # template</span>
+  - golang-go
+  - nodejs
+setup:
+<span class="c">  - curl -fsSL https://claude.ai/install.sh | bash   # launcher</span>
+<span class="tpl">  - npm i -g @anthropic-ai/claude-code   # template</span>
+  - cd ng2 &amp;&amp; go mod download
+watch:
+  - ng2/go.mod
+local:
+  - ng2/build
+mounts:
+  - path: /share/MFS/ROOT/outils
+    ro: true</div><p class="note" style="margin:8px 0 0"><span class="tpl">■</span> apporté par <code>env-template.yaml</code> (non modifiable ici) · <span class="c">■</span> ajouté par le launcher · le reste vient du projet.</p></div></div></div>`}
+};
+const RAIL=[['GLOBAL',['backends','pools','defauts','launcher','conteneurs']],['CE POSTE',['poste']],['PROJET SÉLECTIONNÉ',['projet']]];
+const tree=(sel)=>'<div class="nav"><div class="nvh"><b>NG2 6.1.0</b><span class="sp"></span><span class="cfg">⚙ config</span></div><div class="tree"><div class="trow cat">▾ CLAUDE_LAUNCHER</div><div class="trow p'+(sel?' sel':'')+'" data-proj>● Claude-Launcher</div><div class="trow p open">● Claude-Template</div><div class="trow cat">▾ PERSO</div><div class="trow p">● site-web</div><div class="trow p">● notes</div></div></div>';
+const ctx=(top,left,on)=>'<div class="ctx" style="top:'+top+'px;left:'+left+'px"><div>Ouvrir<span class="k">Entrée</span></div><div>Fermer<span class="k">Suppr</span></div><hr><div'+(on?' class="on"':'')+' data-go="projet">⚙ Réglages du projet…</div><div data-go="projet">Changer de backend…<span class="k">F2</span></div><div data-go="projet">Environnement du conteneur…</div><div data-go="projet">Couleur…</div><hr><div>Éditer env.yaml en texte</div></div>';
+function setup(sec){
+  const P=sec.dataset.proposition,steps=sec.querySelector('.steps'),stage=sec.querySelector('.stage');
+  let page='backends',screen='config';
+  const SCREENS=P==='A'?[['config','Écran : fenêtre Réglages'],['menu','Écran : menu contextuel d\'un projet'],['projet','Écran : réglages du projet']]:[['config','Écran : onglet Configuration'],['menu','Écran : menu contextuel d\'un projet'],['projet','Écran : panneau du projet']];
+  function nav(kind){
+    let h='';
+    for(const [g,items] of RAIL){
+      if(P==='B'&&g==='PROJET SÉLECTIONNÉ')continue;
+      if(kind==='rail')h+='<div class="rg">'+g+'</div>';else h+=(h?'<span class="sep"></span>':'')+'<span class="lbl">'+g+'</span>';
+      for(const k of items)h+='<div class="ri'+(k===page?' on':'')+'" data-page="'+k+'">'+PAGES[k].t+(k==='launcher'?'<span class="bd">⚠</span>':'')+'</div>';
+    }
+    return h;
+  }
+  function draw(){
+    steps.innerHTML=SCREENS.map(([k,t])=>'<button data-screen="'+k+'" class="'+(k===screen?'on':'')+'">'+t+'</button>').join('');
+    const pg=PAGES[page];let h;
+    if(P==='A'){
+      const modal='<div class="veil"><div class="modal"><div class="mh"><h3>Réglages</h3><span class="mu">'+pg.file+'</span><span class="sp"></span><button class="btn sm">Fichiers en texte…</button><button class="btn sm">✕</button></div><div class="mb"><div class="rail">'+nav('rail')+'</div><div class="pg">'+pg.html()+'</div></div>'+foot(pg.file,pg.probs)+'</div></div>';
+      const base=tree(screen!=='config')+'<div class="main"><div class="tabbar"><span>⌗ Teamleaders</span><span class="on">● Claude-Template</span></div><div class="term">team-lead — en attente</div></div>';
+      h='<div class="app">'+base+(screen==='menu'?ctx(58,120,true):modal)+'</div>';
+    }else{
+      const cfgTab='<div class="cfgview"><div class="htabs">'+nav('tabs')+'</div><div class="pg">'+pg.html()+'</div>'+foot(pg.file,pg.probs)+'</div>';
+      const term='<div class="term">team-lead — en attente</div>';
+      const tabs=(on)=>'<div class="tabbar"><span>⌗ Teamleaders</span><span'+(on==='cfg'?' class="on"':'')+'>⚙ Configuration</span><span'+(on==='p'?' class="on"':'')+'>● Claude-Template</span></div>';
+      if(screen==='config')h='<div class="app">'+tree(false)+'<div class="main">'+tabs('cfg')+cfgTab+'</div></div>';
+      else if(screen==='menu')h='<div class="app">'+tree(true)+'<div class="main">'+tabs('p')+term+'</div>'+ctx(58,120,true)+'</div>';
+      else{const pj=PAGES.projet;h='<div class="app">'+tree(true)+'<div class="main">'+tabs('p')+term+'</div><div class="drawer"><div class="mh"><h3>Claude-Launcher</h3><span class="mu">réglages du projet</span><span class="sp"></span><button class="btn sm">✕</button></div><div class="pg">'+pj.html().replace(/class="grid2"/,'class="grid1"')+'</div>'+foot('env.yaml du projet','')+'</div></div>';}
+    }
+    stage.innerHTML=h;
+  }
+  sec.addEventListener('click',e=>{
+    const s=e.target.closest('[data-screen]'),p=e.target.closest('[data-page]'),g=e.target.closest('[data-go]'),pr=e.target.closest('[data-proj]'),cf=e.target.closest('.cfg');
+    if(s){screen=s.dataset.screen;if(screen==='projet'&&P==='A')page='projet';if(screen==='config'&&page==='projet')page='backends';}
+    else if(p){page=p.dataset.page;}
+    else if(g){screen='projet';if(P==='A')page='projet';}
+    else if(pr){screen='menu';}
+    else if(cf){screen='config';if(page==='projet')page='backends';}
+    else return;
+    draw();
+  });
+  sec.addEventListener('contextmenu',e=>{if(e.target.closest('[data-proj]')){e.preventDefault();screen='menu';draw();}});
+  draw();
+}
+document.querySelectorAll('section[data-proposition]').forEach(setup);
+})();
+</script>
+</body>
+</html>
