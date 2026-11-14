@@ -88,8 +88,18 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	if _, err := a.Dispatch("select", selRaw); err != nil {
 		t.Fatal(err)
 	}
-	// laisser passer un tour du watcher (team lue, recensement fait)
-	time.Sleep(2500 * time.Millisecond)
+	// attendre un tour du watcher : team lue et recensement fait (condition, pas une durée)
+	for end := time.Now().Add(15 * time.Second); ; time.Sleep(50 * time.Millisecond) {
+		pt.mu.Lock()
+		ready := pt.team != nil && len(pt.vis) >= 3
+		pt.mu.Unlock()
+		if ready {
+			break
+		}
+		if time.Now().After(end) {
+			t.Fatal("team non lue par le watcher")
+		}
+	}
 	cardHidden := func(from int, pane string, hidden bool) bool {
 		r.mu.Lock()
 		defer r.mu.Unlock()
@@ -120,7 +130,7 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	if df := atomic.LoadInt32(&pt.finds) - f0; df > 1 { // au plus un tour du watcher glissé pendant la mesure
 		t.Errorf("%d recherches de team pendant la bascule : un tour complet a été attendu", df)
 	}
-	if d := time.Since(t0); d > 2*time.Second { // borne large : machine chargée (CI)
+	if d := time.Since(t0); d > time.Second { // borne large : machine chargée (CI)
 		t.Errorf("bascule en %v : lente", d)
 	}
 	if l := pt.lastLayout(); l == nil || len(l.Panes) != 2 {
@@ -150,7 +160,7 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	if res := toggle(calme); res["ok"] != true {
 		t.Fatalf("second basculement : %v", res)
 	}
-	if d := time.Since(t1); d > 2*time.Second {
+	if d := time.Since(t1); d > time.Second {
 		t.Errorf("retour en %v : lent", d)
 	}
 	if l := pt.lastLayout(); l == nil || len(l.Panes) != 3 {

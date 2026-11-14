@@ -1042,7 +1042,7 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	tc := t.team // team du dernier tour : pas de relecture des fichiers (parfois lents)
 	t.mu.Unlock()
 	if tc == nil {
-		return false, "team pas encore lue (ou absente) : réessayer dans un instant"
+		return false, "team en cours de lecture, réessayez"
 	}
 	f, inCtr := t.tmuxFn(), !t.host
 	home := core.ProjectHome(f, t.win, inCtr)

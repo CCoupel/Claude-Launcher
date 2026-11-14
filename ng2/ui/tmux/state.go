@@ -136,6 +136,7 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 		pd.sess, pd.hasS = cfg.PendingSession(s.Path)
 		pd.open = tmuxWindows(hubSession)[s.Key]
 		reg := cachedTeammates(s.Path)
+		tc := cachedTeam(s.Path)
 		var panes []core.ProjPane
 		var choices map[string]string
 		if pd.open {
@@ -156,7 +157,7 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 				}
 			}
 		}
-		pd.lines = core.TeamLines(reg, s.Path, panes, choices, cfg.TeamHideIdle, time.Now().Unix())
+		pd.lines = core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.TeamHideIdle, time.Now().Unix())
 		return pd
 	}
 }
@@ -185,6 +186,41 @@ func cachedTeammates(path string) []core.Teammate {
 	regCache.m[path] = regEntry{time.Now(), reg}
 	regCache.Unlock()
 	return reg
+}
+
+// cachedTeam : team du projet. Le chemin de son config.json est gardé 60 s (le
+// chercher relit tous les teams/*/config.json, coûteux sur MooseFS/9P) ; le
+// fichier lui-même est relu à chaque appel (activité des agents).
+var teamPathCache = struct {
+	sync.Mutex
+	m map[string]regEntryPath
+}{m: map[string]regEntryPath{}}
+
+type regEntryPath struct {
+	at   time.Time
+	path string
+}
+
+func cachedTeam(proj string) *core.TeamConfig {
+	teamPathCache.Lock()
+	e, ok := teamPathCache.m[proj]
+	teamPathCache.Unlock()
+	if ok && e.path != "" && time.Since(e.at) < time.Minute {
+		if tc, err := readTeam(e.path); err == nil {
+			return &tc
+		}
+	}
+	path := findTeamConfig(proj)
+	teamPathCache.Lock()
+	teamPathCache.m[proj] = regEntryPath{time.Now(), path}
+	teamPathCache.Unlock()
+	if path == "" {
+		return nil
+	}
+	if tc, err := readTeam(path); err == nil {
+		return &tc
+	}
+	return nil
 }
 
 // toggleCmd : double-clic sur le teammate pane de la carte Team : bascule
