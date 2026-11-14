@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -37,54 +38,59 @@ func TestBackend(b BackendConf) []TestStep {
 }
 
 func testBackend(b BackendConf, goos string, ev engineEnv, look func(string) (string, error)) []TestStep {
+	// les étapes vont dans une liste protégée, jamais dans un canal : la
+	// goroutine du test ne se bloque pas quand le délai a expiré et que plus
+	// personne ne lit (elle finit son travail, puis s'arrête)
+	var mu sync.Mutex
 	var steps []TestStep
 	done := make(chan struct{})
-	progress := make(chan TestStep, 64)
 	go func() {
 		defer close(done)
-		defer close(progress)
-		for _, st := range testSteps(b, goos, ev, look) {
-			progress <- st
-		}
+		testStepsTo(b, goos, ev, look, func(st TestStep) {
+			mu.Lock()
+			steps = append(steps, st)
+			mu.Unlock()
+		})
 	}()
 	timer := time.NewTimer(TestBackendTimeout)
 	defer timer.Stop()
-	for {
-		select {
-		case st, ok := <-progress:
-			if !ok {
-				return steps
-			}
-			steps = append(steps, st)
-		case <-timer.C:
-			return append(steps, TestStep{Label: "délai", Detail: fmt.Sprintf("test interrompu après %d s", int(TestBackendTimeout.Seconds())),
-				Fix: "le backend répond trop lentement : vérifier le réseau, le démon ou le cluster"})
-		}
+	select {
+	case <-done:
+		mu.Lock()
+		defer mu.Unlock()
+		return steps
+	case <-timer.C:
+		mu.Lock()
+		defer mu.Unlock()
+		return append(append([]TestStep(nil), steps...), TestStep{Label: "délai", Detail: fmt.Sprintf("test interrompu après %d s", int(TestBackendTimeout.Seconds())),
+			Fix: "le backend répond trop lentement : vérifier le réseau, le démon ou le cluster"})
 	}
 }
 
-// testSteps : le test lui-même (sans délai global).
-func testSteps(b BackendConf, goos string, ev engineEnv, look func(string) (string, error)) []TestStep {
+// testStepsTo : le test lui-même (sans délai global) ; chaque étape est remise
+// dès qu'elle est connue, pour que le délai garde ce qui a été vérifié.
+func testStepsTo(b BackendConf, goos string, ev engineEnv, look func(string) (string, error), emit func(TestStep)) {
 	if b.IsPool() {
-		var all []TestStep
 		for _, h := range b.Servers() {
-			for _, st := range testSteps(b.At(h), goos, ev, look) {
+			testStepsTo(b.At(h), goos, ev, look, func(st TestStep) {
 				st.Label = h + " : " + st.Label
-				all = append(all, st)
-			}
+				emit(st)
+			})
 		}
-		return all
+		return
 	}
 	if b.Type == "host" {
 		if p, refused := localRefusal(goos, b, ev); refused {
-			return []TestStep{{Label: "exécution sur l'hôte", Detail: p.What, Fix: p.Fix}}
+			emit(TestStep{Label: "exécution sur l'hôte", Detail: p.What, Fix: p.Fix})
+			return
 		}
-		return []TestStep{{Label: "exécution sur l'hôte", OK: true, Detail: "aucun conteneur : rien à vérifier"}}
+		emit(TestStep{Label: "exécution sur l'hôte", OK: true, Detail: "aucun conteneur : rien à vérifier"})
+		return
 	}
 	if p, refused := localRefusal(goos, b, ev); refused {
-		return []TestStep{{Label: "backend utilisable sur ce système", Detail: p.What, Fix: p.Fix}}
+		emit(TestStep{Label: "backend utilisable sur ce système", Detail: p.What, Fix: p.Fix})
+		return
 	}
-	var steps []TestStep
 	missing := false
 	for _, t := range toolsStatus(goos, []BackendConf{b}, ev, look) {
 		if t.Optional || t.Tool == "git" { // ce que le backend exige, pas le launcher
@@ -94,38 +100,37 @@ func testSteps(b BackendConf, goos string, ev engineEnv, look func(string) (stri
 		if !t.Found {
 			st.Detail, st.Fix, missing = t.Tool+" absent de cette machine", t.Install, true
 		}
-		steps = append(steps, st)
+		emit(st)
 	}
 	if missing {
-		return steps // sans l'outil, le reste ne peut pas être contrôlé
+		return // sans l'outil, le reste ne peut pas être contrôlé
 	}
 	if b.Type == "k8s" {
 		// k8sSteps rejoue le contrôle de kubectl : déjà fait ci-dessus
 		for _, st := range k8sSteps(b) {
 			if st.Label != "outil requis : kubectl" {
-				steps = append(steps, st)
+				emit(st)
 			}
 		}
-		return steps
+		return
 	}
 	if ps := engineProblems(b); len(ps) > 0 {
 		for _, p := range ps {
-			steps = append(steps, TestStep{Label: "moteur joignable", Detail: p.What, Fix: p.Fix})
+			emit(TestStep{Label: "moteur joignable", Detail: p.What, Fix: p.Fix})
 		}
-		return steps
+		return
 	}
-	steps = append(steps, TestStep{Label: "moteur joignable", OK: true, Detail: engineLabel(b)})
+	emit(TestStep{Label: "moteur joignable", OK: true, Detail: engineLabel(b)})
 	switch ps := sharedProblems(b, ""); {
 	case !b.remote():
-		steps = append(steps, TestStep{Label: "stockage partagé", OK: true, Detail: "non requis (backend local)"})
+		emit(TestStep{Label: "stockage partagé", OK: true, Detail: "non requis (backend local)"})
 	case len(ps) == 0:
-		steps = append(steps, TestStep{Label: "stockage partagé", OK: true, Detail: strings.Join(b.Shared, ", ")})
+		emit(TestStep{Label: "stockage partagé", OK: true, Detail: strings.Join(b.Shared, ", ")})
 	default:
 		for _, p := range ps {
-			steps = append(steps, TestStep{Label: "stockage partagé", Detail: p.What, Fix: p.Fix})
+			emit(TestStep{Label: "stockage partagé", Detail: p.What, Fix: p.Fix})
 		}
 	}
-	return steps
 }
 
 func engineLabel(b BackendConf) string {

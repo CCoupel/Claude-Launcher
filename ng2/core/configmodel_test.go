@@ -234,3 +234,28 @@ func TestValidateDanglingReferences(t *testing.T) {
 		t.Fatal("pool inconnu accepté")
 	}
 }
+
+// « set » d'un backend depuis le formulaire : les clés que le formulaire ne
+// connaît pas sont conservées (ajoutées à la main, ou par une version plus
+// récente) ; une clé connue absente de la valeur est retirée.
+func TestSetBackendKeepsUnknownKeys(t *testing.T) {
+	src := "backends:\n  # mon docker\n  d:\n    type: docker\n    host: tcp://1.2.3.4:2375\n    shared: [/a]\n    custom_key: précieux   # noté à la main\n    futur: { a: 1 }\n"
+	out := apply(t, src, ConfigChange{Op: "set", At: []string{"backends", "d"}, Value: map[string]any{
+		"type": "docker", "host": "tcp://9.9.9.9:2375"}}) // shared omis : retiré
+	for _, want := range []string{"custom_key: précieux", "# noté à la main", "futur:", "# mon docker", "9.9.9.9"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("« %s » perdu :\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "shared") || strings.Contains(out, "1.2.3.4") {
+		t.Errorf("clé connue omise conservée :\n%s", out)
+	}
+	if HasErrors(ValidateConfig(ConfBackends, []byte(out))) {
+		t.Errorf("invalide : %v", ValidateConfig(ConfBackends, []byte(out)))
+	}
+	// un backend neuf n'a que les clés envoyées ; les pools ne conservent rien d'inconnu (clés connues seulement)
+	n := apply(t, src, ConfigChange{Op: "set", At: []string{"backends", "e"}, Value: map[string]any{"type": "podman"}})
+	if strings.Count(n, "custom_key") != 1 {
+		t.Errorf("clé inconnue copiée ailleurs :\n%s", n)
+	}
+}

@@ -230,7 +230,7 @@ func setAt(root *yaml.Node, at []string, value any) error {
 	key := at[len(at)-1]
 	nv := toNode(value, at)
 	if i := keyIndex(parent, key); i >= 0 {
-		mergeNode(parent.Content[i+1], nv)
+		mergeNode(parent.Content[i+1], nv, unknownKeyKeeper(at))
 		return nil
 	}
 	parent.Content = append(parent.Content, scalarKey(key), nv)
@@ -353,16 +353,34 @@ func emptyValue(v any) bool {
 	return false
 }
 
+// unknownKeyKeeper : pour le « set » d'un backend (backends.<nom>), les clés que
+// le formulaire ne connaît pas (hors backendKeyOrder) sont conservées : une clé
+// ajoutée à la main ou par une version plus récente ne disparaît pas à
+// l'enregistrement. Les clés connues absentes de la valeur sont retirées.
+func unknownKeyKeeper(at []string) func(string) bool {
+	if len(at) != 2 || at[0] != "backends" {
+		return nil
+	}
+	return func(k string) bool {
+		for _, o := range backendKeyOrder {
+			if o == k {
+				return false
+			}
+		}
+		return true
+	}
+}
+
 // mergeNode remplace old par nv en gardant les commentaires de old ; deux
 // objets sont fusionnés clé à clé (commentaires des clés conservées gardés, clés
 // absentes de nv retirées).
-func mergeNode(old, nv *yaml.Node) {
+func mergeNode(old, nv *yaml.Node, keep func(string) bool) {
 	if old.Kind == yaml.MappingNode && nv.Kind == yaml.MappingNode {
 		var content []*yaml.Node
 		for i := 0; i+1 < len(nv.Content); i += 2 {
 			k, v := nv.Content[i], nv.Content[i+1]
 			if j := keyIndex(old, k.Value); j >= 0 {
-				mergeNode(old.Content[j+1], v)
+				mergeNode(old.Content[j+1], v, nil)
 				content = append(content, old.Content[j], old.Content[j+1])
 			} else {
 				content = append(content, k, v)
@@ -372,6 +390,11 @@ func mergeNode(old, nv *yaml.Node) {
 		kept := map[string]bool{}
 		for i := 0; i+1 < len(content); i += 2 {
 			kept[content[i].Value] = true
+		}
+		for i := 0; keep != nil && i+1 < len(old.Content); i += 2 {
+			if k := old.Content[i].Value; keep(k) {
+				kept[k] = true // clé que l'appelant ne connaît pas : conservée
+			}
 		}
 		var ordered, added []*yaml.Node
 		for i := 0; i+1 < len(old.Content); i += 2 {

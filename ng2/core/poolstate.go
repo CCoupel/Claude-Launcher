@@ -1,7 +1,6 @@
 package core
 
 import (
-	"fmt"
 	"sync"
 	"time"
 )
@@ -20,7 +19,7 @@ type BackendState struct {
 
 // peekDiagnose : diagnostic en cache et encore valide.
 func peekDiagnose(b BackendConf) ([]Problem, bool) {
-	key := fmt.Sprintf("%+v", b)
+	key := backendKey(b)
 	diagCache.Lock()
 	defer diagCache.Unlock()
 	e, ok := diagCache.m[key]
@@ -58,7 +57,7 @@ func BackendStates(bs []BackendConf) map[string]BackendState {
 			continue
 		}
 		out[b.Name] = BackendState{Pending: true, Text: "vérification…"}
-		key := fmt.Sprintf("%+v", b)
+		key := backendKey(b)
 		diagInflight.Lock()
 		busy := diagInflight.m[key]
 		diagInflight.m[key] = true

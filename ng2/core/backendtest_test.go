@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -89,8 +90,8 @@ func TestBackendStatesFromCache(t *testing.T) {
 	ok := BackendConf{Name: "ok", Type: "docker", Host: "tcp://cache-ok:2375"}
 	ko := BackendConf{Name: "ko", Type: "docker", Host: "tcp://cache-ko:2375"}
 	diagCache.Lock()
-	diagCache.m[fmt.Sprintf("%+v", ok)] = diagEntry{time.Now(), nil}
-	diagCache.m[fmt.Sprintf("%+v", ko)] = diagEntry{time.Now(), []Problem{{"démon injoignable", "le démarrer"}}}
+	diagCache.m[backendKey(ok)] = diagEntry{time.Now(), nil}
+	diagCache.m[backendKey(ko)] = diagEntry{time.Now(), []Problem{{"démon injoignable", "le démarrer"}}}
 	diagCache.Unlock()
 	st := BackendStates([]BackendConf{{Name: "host", Type: "host"}, ok, ko})
 	if !st["host"].OK || !st["ok"].OK || st["ok"].Text != "joignable" || st["ko"].OK || st["ko"].Text != "démon injoignable" || st["ko"].Pending {
@@ -129,5 +130,106 @@ func TestPoolLoads(t *testing.T) {
 	})
 	if len(loads) != 1 || loads["labo"]["s1"] != 2 || loads["labo"]["s2"] != 0 {
 		t.Fatalf("charges : %v", loads)
+	}
+}
+
+// Clé du cache de diagnostic : deux lectures du même fichier donnent des
+// backends égaux dont les pointeurs (spread) diffèrent ; la clé ne doit pas en
+// dépendre, sinon le diagnostic (kubectl) serait relancé à chaque lecture.
+func TestBackendKeyIgnoresPointers(t *testing.T) {
+	yes, yes2, no := true, true, false
+	mk := func(sp *bool) BackendConf {
+		return BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "x", Spread: sp,
+			Volumes: map[string]string{"/a": "p1", "/b": "p2"}, Pod: map[string]any{"nodeSelector": map[string]any{"a": "b"}}}
+	}
+	if backendKey(mk(&yes)) != backendKey(mk(&yes2)) {
+		t.Fatal("clés différentes pour des valeurs égales")
+	}
+	if backendKey(mk(&yes)) == backendKey(mk(&no)) || backendKey(mk(&yes)) == backendKey(mk(nil)) {
+		t.Fatal("spread true / false / absent confondus")
+	}
+	// le cache rend la même entrée pour l'autre lecture : pas de second diagnostic
+	diagCache.Lock()
+	diagCache.m[backendKey(mk(&yes))] = diagEntry{time.Now(), nil}
+	diagCache.Unlock()
+	if ps, ok := peekDiagnose(mk(&yes2)); !ok || ps != nil {
+		t.Fatalf("cache manqué : %v %v", ps, ok)
+	}
+	launched := make(chan string, 2)
+	old := diagnoseBg
+	diagnoseBg = func(b BackendConf) { launched <- b.Name }
+	t.Cleanup(func() { diagnoseBg = old })
+	if s := BackendStates([]BackendConf{mk(&yes2)})["lab"]; s.Pending || !s.OK {
+		t.Fatalf("état : %+v", s)
+	}
+	select {
+	case n := <-launched:
+		t.Fatalf("diagnostic relancé pour %s", n)
+	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// Une adresse ou un contexte qui commence par « - » serait pris pour une
+// option : refusé par la validation et avant tout test, et « -- » précède la
+// destination dans les commandes ssh.
+func TestOptionLikeAddressRefused(t *testing.T) {
+	for _, y := range []string{
+		"backends:\n  s: { type: ssh, host: '-oProxyCommand=touch /tmp/x' }\n",
+		"backends:\n  d: { type: docker, host: '-H' }\n",
+		"backends:\n  d: { type: docker, hosts: ['tcp://a:1', '-x'] }\n",
+		"backends:\n  s: { type: ssh, host: srv1, engine_host: '--evil' }\n",
+		"backends:\n  k: { type: k8s, context: '--kubeconfig=/etc/passwd' }\n",
+	} {
+		ps := ValidateConfig(ConfBackends, []byte(y))
+		if !HasErrors(ps) || !strings.Contains(ps[0].Message, "commencer par « - »") {
+			t.Errorf("accepté : %s → %+v", y, ps)
+		}
+	}
+	for _, e := range []BackendEntry{{Type: "ssh", Host: "-oProxyCommand=x"}, {Type: "k8s", Context: "-x"}, {Type: "docker", Hosts: []string{"-y"}}} {
+		if _, err := e.Conf(nil); err == nil {
+			t.Errorf("backendTest : %+v accepté", e)
+		}
+	}
+	// pool : une machine en « - » donne une adresse en « - »
+	if _, err := (BackendEntry{Type: "ssh", Pool: "p"}).Conf([]PoolEntry{{Name: "p", Hosts: []string{"-bad"}}}); err == nil {
+		t.Error("machine de pool « -bad » acceptée")
+	}
+	argv := Engine{BackendConf{Type: "ssh", Host: "srv1"}}.cli("info")
+	i := -1
+	for k, a := range argv {
+		if a == "srv1" {
+			i = k
+		}
+	}
+	if i < 1 || argv[i-1] != "--" {
+		t.Errorf("« -- » absent avant la destination : %v", argv)
+	}
+}
+
+// Le délai ne laisse pas la goroutine du test bloquée : même avec plus d'étapes
+// que n'en contiendrait un canal tamponné, elle va au bout et s'arrête.
+func TestTestBackendTimeoutLeavesNoGoroutine(t *testing.T) {
+	old := TestBackendTimeout
+	TestBackendTimeout = 5 * time.Millisecond
+	t.Cleanup(func() { TestBackendTimeout = old })
+	hosts := make([]string, 200)
+	for i := range hosts {
+		hosts[i] = fmt.Sprintf("srv%d", i)
+	}
+	look := func(string) (string, error) { time.Sleep(time.Millisecond); return "", fmt.Errorf("absent") }
+	before := runtime.NumGoroutine()
+	st := testBackend(BackendConf{Name: "p", Type: "ssh", Hosts: hosts}, "linux", engineEnv{}, look)
+	if len(st) == 0 || st[len(st)-1].Label != "délai" {
+		t.Fatalf("délai : %d étapes", len(st))
+	}
+	if len(st) >= 200 {
+		t.Fatalf("le test n'a pas été interrompu : %d étapes", len(st))
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if n := runtime.NumGoroutine(); n > before {
+		t.Fatalf("goroutine du test encore là : %d > %d", n, before)
 	}
 }
