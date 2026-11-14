@@ -43,7 +43,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 | 4 | Changer le type en `k8s` | Contexte, namespace, volumes → PVC, repartition, options du pod | | |
 | 5 | Dupliquer un backend | Copie avec un nom propose distinct ; nom en doublon refuse avec message | | |
 | 6 | Nom vide ou invalide | Erreur en pied ; Enregistrer bloque | | |
-| 7 | Supprimer le backend designe par `defaults.backend`, puis un backend utilise par un projet | Avertissement explicite de l'interface (la validation du fichier ne le refuse pas) ; suppression d'un pool cite par un backend refusee | | |
+| 7 | Supprimer le backend designe par `defaults.backend`, puis un backend utilise par un projet | Comportement attendu : retire des defauts dans le meme enregistrement, ou refus explicite (voir commits 0f486f0 / 60bfadc) ; suppression d'un pool cite par un backend refusee | | |
 | 8 | Annuler | Aucun changement dans le fichier | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL

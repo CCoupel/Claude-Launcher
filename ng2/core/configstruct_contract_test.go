@@ -20,6 +20,18 @@ func modelOf(t *testing.T, s string) BackendsModel {
 	return m
 }
 
+// declared : backends déclarés dans le fichier, dans son ordre — sous Windows le
+// modèle ajoute en tête un « host » implicite qui n'y figure pas.
+func declared(m BackendsModel) []BackendEntry {
+	var out []BackendEntry
+	for _, b := range m.Backends {
+		if b.Name != "host" { // aucun « host » déclaré dans les fichiers de ces tests
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
 // critical : aucune modification = même modèle et mêmes commentaires ; une
 // seconde application à la sortie de la première ne change plus rien.
 func TestApplyNoChangeIsStable(t *testing.T) {
@@ -128,15 +140,14 @@ func TestApplyWindowsLineEndings(t *testing.T) {
 // Dupliquer un backend (set sous un nouveau nom avec les champs du premier) :
 // l'original reste intact, la copie est à la fin, les deux relus égaux.
 func TestDuplicateBackend(t *testing.T) {
-	m := modelOf(t, modelSample)
-	src := m.Backends[0]
+	src := declared(modelOf(t, modelSample))[0]
 	out := apply(t, modelSample, ConfigChange{Op: "set", At: []string{"backends", src.Name + "-bis"}, Value: map[string]any{
 		"type": src.Type, "host": src.Host, "shared": []any{src.Shared[0]}}})
-	m2 := modelOf(t, out)
-	if len(m2.Backends) != 4 || m2.Backends[3].Name != "srv1-docker-bis" {
-		t.Fatalf("copie : %+v", m2.Backends)
+	m2 := declared(modelOf(t, out))
+	if len(m2) != 4 || m2[3].Name != "srv1-docker-bis" {
+		t.Fatalf("copie : %+v", m2)
 	}
-	a, b := m2.Backends[0], m2.Backends[3]
+	a, b := m2[0], m2[3]
 	b.Name = a.Name
 	if !reflect.DeepEqual(a, b) || !reflect.DeepEqual(a, src) {
 		t.Errorf("copie ≠ original : %+v / %+v / %+v", a, b, src)
@@ -151,14 +162,13 @@ func TestDuplicateBackend(t *testing.T) {
 
 // Suppression d'un élément encore cité : le fichier produit est refusé par la
 // validation existante — pool utilisé par un backend, dernier hôte d'un pool,
-// drain hors du pool. NB : supprimer le backend désigné par defaults.backend
-// n'est PAS refusé par ValidateConfig : l'interface doit l'avertir (procédure
-// config-backends, scénario 2).
+// drain hors du pool, backend désigné par defaults.backend.
 func TestDeleteReferencedIsRefusedByValidation(t *testing.T) {
 	cases := map[string][]ConfigChange{
-		"pool cité par un backend":   {{Op: "delete", At: []string{"pools", "labo"}}},
-		"dernière machine d'un pool": {{Op: "set", At: []string{"pools", "labo", "hosts"}, Value: []any{}}},
-		"drain hors du pool":         {{Op: "set", At: []string{"pools", "labo", "drain"}, Value: []any{"inconnue"}}},
+		"pool cité par un backend":    {{Op: "delete", At: []string{"pools", "labo"}}},
+		"dernière machine d'un pool":  {{Op: "set", At: []string{"pools", "labo", "hosts"}, Value: []any{}}},
+		"backend par défaut supprimé": {{Op: "delete", At: []string{"backends", "srv1-docker"}}},
+		"drain hors du pool":          {{Op: "set", At: []string{"pools", "labo", "drain"}, Value: []any{"inconnue"}}},
 	}
 	for name, ch := range cases {
 		out, err := ApplyConfigChanges(ConfBackends, []byte(modelSample), ch)
@@ -174,9 +184,9 @@ func TestDeleteReferencedIsRefusedByValidation(t *testing.T) {
 // Renommer un backend : même place, commentaires accrochés conservés.
 func TestRenameKeepsPositionAndComments(t *testing.T) {
 	out := apply(t, modelSample, ConfigChange{Op: "rename", At: []string{"backends", "srv1-docker"}, Value: "principal"})
-	m := modelOf(t, out)
-	if m.Backends[0].Name != "principal" || m.Backends[1].Name != "lab" || len(m.Backends) != 3 {
-		t.Fatalf("ordre après renommage : %+v", m.Backends)
+	m := declared(modelOf(t, out))
+	if len(m) != 3 || m[0].Name != "principal" || m[1].Name != "lab" {
+		t.Fatalf("ordre après renommage : %+v", m)
 	}
 	if !strings.Contains(out, "# le principal") || !strings.Contains(out, "# IP fixe") {
 		t.Errorf("commentaires perdus :\n%s", out)
