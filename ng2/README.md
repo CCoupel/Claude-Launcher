@@ -867,7 +867,9 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
 - **carte Team** : mêmes lignes, surbrillance et règles que la coque Linux (voir [Interface](#interface)) :
   double-clic sur un inactif = visible ↔ caché, refus en pied de volet pour un teammate actif ou un projet en
   lecture seule ; même état sous Linux et Windows (option tmux `@cl_panevis`) : ce qui est caché d'un côté l'est
-  de l'autre ;
+  de l'autre ; même état du template (`●` vert à jour, `▲` orange en retard, `○` non démarré, `+` devant le nom
+  si compagnon) ; **infobulle** de la ligne : actif / inactif, version du template, version cible (ou « version
+  cible inconnue »), compagnon (oui, avec son fichier, ou non) ;
 - à droite, l'onglet **⌗ Teamleaders** (une vignette interactive du leader de chaque projet
   ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille ;
 - dans l'onglet d'un projet, **un terminal par pane** de sa session tmux (leader, teammates),
@@ -1239,6 +1241,11 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   jusqu'au second double-clic ; s'il redevient actif, il reprend la règle normale. Le leader n'est jamais caché.
   En lecture seule (un autre launcher a la main), le double-clic est refusé avec un message. Fermer le projet
   ferme aussi ses teammates cachés.
+  **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `▲` orange = template en
+  retard sur la version cible (le launcher a adopté une version plus récente) ; `○` = non démarré. La colonne de
+  version affiche `v5.8.0→v5.9.2` en jaune quand l'agent est en retard, sinon sa seule version. `+` devant le nom
+  = l'agent a un compagnon projet (`.claude/agents/<agent>.md`, ou `generic.<nom>.md` pour une instance générique).
+  Un projet sans registre d'agents (`agents.registry`) garde l'affichage d'avant : ● neutre, pas de version.
   *Limites (v6.1.0)* : lors d'une prise de main sur un conteneur, deux launchers peuvent appliquer la règle
   pendant au plus 5 s (effet borné : une opération en erreur est ignorée et rejouée au tour suivant). Un launcher
   antérieur à v6.1.0 ignore les teammates cachés : ils restent vivants dans la réserve jusqu'au retour d'un
