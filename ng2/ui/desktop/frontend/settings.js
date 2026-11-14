@@ -741,6 +741,12 @@ async function pjSave() {
   if (ch.length) arg.env = { mtime: pj.mtime, changes: ch };
   let r;
   try { r = await call('projectApply', arg); } catch (e) { return; }
+  if (!r.ok && r.env && r.env.saved) { // résultat partiel : env.yaml écrit, la suite a échoué — relire (nouvelle date) et dire quoi
+    const msg = (r.msg || 'refusé') + ' — env.yaml enregistré' + (r.colorSaved ? ', couleur enregistrée' : '') + '.';
+    await pjLoad();
+    if (ST.pj) ST.pj.res = { msg };
+    stRender(); return;
+  }
   if (!r.ok) {
     pj.res = r.env ? (r.env.conflict ? { conflict: true, mtime: r.env.mtime } : { problems: r.env.problems || [] }) : { msg: r.msg || 'refusé' };
     stRenderFoot(); return;
