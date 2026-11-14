@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -116,8 +115,11 @@ func (m model) teammates(p projInfo, pl closePlan) int {
 	case p.hasLive:
 		n = p.live.Panes
 	case pl.window:
-		s, _ := tmuxOut("display-message", "-p", "-t", pl.hubTgt, "#{window_panes}")
-		n, _ = strconv.Atoi(s)
+		// fenêtre du projet et panes cachés de la réserve (#136)
+		t := core.SessionTmux(func(args ...string) (string, error) { return tmuxOut(args...) })
+		if ps, _, err := core.ProjectPanes(t, pl.hubTgt, core.ProjectHome(t, pl.hubTgt, false), false); err == nil {
+			n = len(ps)
+		}
 	}
 	return max(n-1, 0)
 }

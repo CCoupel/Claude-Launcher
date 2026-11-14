@@ -175,11 +175,13 @@ func ProjectPanes(t SessionTmux, win, home string, inCtr bool) ([]ProjPane, map[
 	return panes, choices, nil
 }
 
-const paneFmt = "#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_active}\t#{@cl_idle_at}\t#{@cl_home}\t#{@cl_panevis}"
+// paneFmt : le « . » final protège les champs vides de fin de ligne, que certains
+// appelants (tmuxOut) rognent avec TrimSpace.
+const paneFmt = "#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_active}\t#{@cl_idle_at}\t#{@cl_home}\t#{@cl_panevis}\t."
 
 func parsePaneLine(l string, inCtr bool) (ProjPane, string, bool) {
 	f := strings.Split(l, "\t")
-	if len(f) < 7 || !strings.HasPrefix(f[0], "%") {
+	if len(f) < 8 || !strings.HasPrefix(f[0], "%") {
 		return ProjPane{}, "", false
 	}
 	p := ProjPane{PaneInfo: PaneInfo{ID: f[0], PID: f[1], Cmd: f[2]}, Focus: f[3] == "1"}

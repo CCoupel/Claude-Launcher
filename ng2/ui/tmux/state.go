@@ -32,10 +32,13 @@ type (
 	paneData struct {
 		path  string
 		open  bool
-		panes []core.PaneInfo
-		team  []core.Teammate
-		sess  core.Resumable // session en suspens (badge ↺)
+		lines []core.TeamLine // carte Team : une ligne par instance (#136)
+		sess  core.Resumable  // session en suspens (badge ↺)
 		hasS  bool
+	}
+	// toggleMsg : issue d'un double-clic sur un teammate de la carte Team.
+	toggleMsg struct {
+		path, msg string // msg : raison du refus, vide si la bascule a eu lieu
 	}
 )
 
@@ -57,6 +60,12 @@ type stateModel struct {
 	selAt      time.Time
 	fallback   bool      // calcul direct si le cache n'arrive pas
 	navAt      time.Time // dernière vérification de la présence du navigateur
+
+	// carte Team : double-clic sur un teammate (même détection que le navigateur)
+	lastClickPane string
+	lastClickAt   time.Time
+	teamMsg       string // refus de la dernière bascule, affiché 6 s sous la liste
+	teamMsgAt     time.Time
 }
 
 // navKeys : commandes du navigateur aussi acceptées dans le pane des cartes —
@@ -125,24 +134,57 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 		pd := paneData{path: s.Path}
 		pd.sess, pd.hasS = cfg.PendingSession(s.Path)
 		pd.open = tmuxWindows(hubSession)[s.Key]
+		reg := core.ReadTeammates(s.Path)
+		var panes []core.ProjPane
+		var choices map[string]string
 		if pd.open {
 			pw := projectOf(exactW(hubSession, s.Key))
-			b, err := pw.t.Output("list-panes", "-t", pw.win, "-F",
-				"#{pane_id}\t#{pane_pid}\t#{pane_current_command}")
-			if err == nil {
-				for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-					f := strings.Split(l, "\t")
-					if len(f) == 3 {
-						pd.panes = append(pd.panes, core.PaneInfo{ID: f[0], PID: f[1], Cmd: f[2]})
-					}
-				}
+			t := tmuxFn(pw.t)
+			// recensement unique : fenêtre du projet et réserve des panes cachés
+			if ps, ch, err := core.ProjectPanes(t, pw.win, core.ProjectHome(t, pw.win, pw.isCtr()), pw.isCtr()); err == nil {
+				panes, choices = ps, ch
 			}
 			if pw.ctrExec != nil {
-				ctrPaneVersions(pw, pd.panes)
+				infos := make([]core.PaneInfo, len(panes))
+				for i, p := range panes {
+					infos[i] = p.PaneInfo
+				}
+				ctrPaneVersions(pw, infos)
+				for i := range panes {
+					panes[i].PaneInfo = infos[i]
+				}
 			}
 		}
-		pd.team = core.LiveTeam(core.ReadTeammates(s.Path), s.Path, pd.panes)
+		pd.lines = core.TeamLines(reg, s.Path, panes, choices, cfg.TeamHideIdle, time.Now().Unix())
 		return pd
+	}
+}
+
+// toggleCmd : double-clic sur le teammate pane de la carte Team : bascule
+// visible ↔ caché (inactif seulement), puis application immédiate. Refus
+// (message affiché) : actif, leader, cdp, pane sans agent, lecture seule.
+func toggleCmd(s Selection, cfg core.Config, pane string) tea.Cmd {
+	return func() tea.Msg {
+		pw := projectOf(exactW(hubSession, s.Key))
+		if ro, _ := tout(hub, "display-message", "-p", "-t", pw.hubWin, "#{@cl_readonly}"); ro == "1" {
+			return toggleMsg{path: s.Path, msg: "lecture seule : un autre launcher a la main sur ce projet"}
+		}
+		teamPath := findTeamConfig(s.Path)
+		var tc *core.TeamConfig
+		if teamPath != "" {
+			if t, err := readTeam(teamPath); err == nil {
+				tc = &t
+			}
+		}
+		t := tmuxFn(pw.t)
+		res := core.TogglePane(t, pw.win, core.ProjectHome(t, pw.win, pw.isCtr()), tc, pane, pw.isCtr())
+		if !res.OK {
+			return toggleMsg{path: s.Path, msg: res.Msg}
+		}
+		if ws, err := readWin(pw); err == nil && teamPath != "" {
+			applyVis(cfg, pw, ws.leader(), teamPath, time.Now())
+		}
+		return toggleMsg{path: s.Path}
 	}
 }
 
@@ -151,6 +193,18 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.w, m.h = msg.Width, msg.Height
 	case tea.MouseMsg:
+		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && m.loaded {
+			if i := msg.Y - m.teamTop(); i >= 0 && i < len(m.panes.lines) {
+				if l := m.panes.lines[i]; l.Started {
+					double := l.Pane == m.lastClickPane && time.Since(m.lastClickAt) < 450*time.Millisecond
+					m.lastClickPane, m.lastClickAt = l.Pane, time.Now()
+					if double {
+						m.lastClickAt = time.Time{}
+						return m, toggleCmd(m.sel, m.cfg, l.Pane)
+					}
+				}
+			}
+		}
 		switch msg.Button {
 		case tea.MouseButtonWheelUp:
 			m.scroll -= 3
@@ -217,6 +271,11 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.path == m.sel.Path {
 			m.panes = msg
 		}
+	case toggleMsg:
+		if msg.path == m.sel.Path {
+			m.teamMsg, m.teamMsgAt = msg.msg, time.Now()
+			return m, loadPanesCmd(m.sel, m.cfg)
+		}
 	}
 	return m, nil
 }
@@ -259,7 +318,13 @@ func (m *stateModel) clampScroll() {
 }
 
 // topCards : en-tête + cartes fixes (tout sauf les fichiers).
-func (m stateModel) topCards() string {
+func (m stateModel) topCards() string { s, _ := m.topCardsAt(); return s }
+
+// teamTop : ligne d'écran de la première ligne de la carte Team (-1 : absente).
+func (m stateModel) teamTop() int { _, y := m.topCardsAt(); return y }
+
+// topCardsAt : topCards et la ligne où commence la liste de la carte Team.
+func (m stateModel) topCardsAt() (string, int) {
 	w := min(m.w-2, 110)
 	var sb strings.Builder
 	sb.WriteString(" " + lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14")).Render("◈ "+m.sel.Name) + "\n")
@@ -272,7 +337,7 @@ func (m stateModel) topCards() string {
 	}
 	sb.WriteString(" " + core.Dim.Render(shorten(m.sel.Path, m.w-2-lipgloss.Width(age))) + age + "\n")
 	if !m.loaded {
-		return sb.String() + "\n " + core.Dim.Render("préparation en cours…")
+		return sb.String() + "\n " + core.Dim.Render("préparation en cours…"), -1
 	}
 
 	// légende : les icônes de la ligne du navigateur, dans le même ordre
@@ -302,12 +367,22 @@ func (m stateModel) topCards() string {
 		sb.WriteString(m.card(title, strings.Join(l, "\n"), w) + "\n")
 	}
 
+	// la liste commence sous le cadre (bordure + bandeau) ou sous le bandeau seul
+	top := strings.Count(sb.String(), "\n") + 2
+	if m.narrow() {
+		top--
+	}
 	sb.WriteString(m.card(m.teamTitle(), m.teamBody(w), w) + "\n")
-	return sb.String()
+	return sb.String(), top
 }
 
 func (m stateModel) teamTitle() string {
-	n := len(m.panes.team)
+	n := 0
+	for _, l := range m.panes.lines {
+		if l.Started && l.Name != "leader" {
+			n++
+		}
+	}
 	if n == 0 {
 		return "Team"
 	}
@@ -322,7 +397,7 @@ func (m stateModel) teamTitle() string {
 // ou si elles diffèrent). En pane étroit, elle passe dans le titre.
 func (m stateModel) teamClaude() string {
 	v := ""
-	for _, t := range m.panes.team {
+	for _, t := range m.panes.lines {
 		switch {
 		case t.Claude == "":
 		case v == "":
@@ -345,10 +420,31 @@ func shortEffort(e string) string {
 	return e
 }
 
-// teamBody : une ligne par teammate : nom, version du template (+ si
-// compagnon), modèle et effort, version de claude s'il est lancé.
+var teamShown = lipgloss.NewStyle().Bold(true) // nom d'un pane visible : surbrillance
+
+// teamState : état d'un teammate lancé, en fin de ligne.
+func teamState(l core.TeamLine) string {
+	switch {
+	case l.Hidden && l.Pinned:
+		return core.Dim.Render("caché")
+	case l.Hidden:
+		return core.Dim.Render("caché")
+	case l.Pinned:
+		return core.Cyan.Render("fixé")
+	case l.Active:
+		return core.Green.Render("actif")
+	case l.IdleLeft > 0:
+		return core.Yellow.Render(fmt.Sprintf("−%d s", l.IdleLeft))
+	}
+	return ""
+}
+
+// teamBody : une ligne par instance de teammate (la liste est cliquable, une
+// ligne d'écran chacune) : ● lancé / ○ non lancé, surbrillance si son pane est
+// visible, nom, version du template (+ si compagnon), modèle et effort, version
+// de claude, état (actif, caché, fixé, délai avant masquage).
 func (m stateModel) teamBody(w int) string {
-	tm := m.panes.team
+	tm := m.panes.lines
 	if len(tm) == 0 {
 		if !m.panes.open {
 			return core.Dim.Render("Pas de team template (Entrée pour lancer).")
@@ -356,24 +452,28 @@ func (m stateModel) teamBody(w int) string {
 		return core.Dim.Render("Pas de team template.")
 	}
 	narrow, common := m.narrow(), m.teamClaude()
+	inner := w - 4 // largeur utile : carte encadrée (bordure + marge), ou marge de 1 colonne
+	if narrow {
+		inner = w - 1
+	}
 	effW := 6
 	if narrow {
 		effW = 4
 	}
-	nameW, multi := 0, 0
+	nameW := 0
 	for _, t := range tm {
 		nameW = max(nameW, len(t.Name))
-		if t.Count > 1 {
-			multi = 3 // « ×N » en fin de ligne
-		}
 	}
-	// w-1 : la carte étroite garde une colonne de marge à gauche
-	nameW = min(nameW, max(8, w-1-2-1-9-7-effW-multi))
+	nameW = min(nameW, max(8, w-1-2-1-9-7-effW))
 	var lines []string
 	for _, t := range tm {
-		mark, name := core.Dim.Render("○"), core.Dim.Render(core.PadRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
-		if t.Claude != "" {
-			mark, name = core.Green.Render("●"), core.PadRight(ansi.Truncate(t.Name, nameW, "…"), nameW)
+		mark := core.Dim.Render("○")
+		name := core.Dim.Render(core.PadRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
+		if t.Started {
+			mark, name = core.Green.Render("●"), core.Dim.Render(core.PadRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
+			if !t.Hidden {
+				name = teamShown.Render(core.PadRight(ansi.Truncate(t.Name, nameW, "…"), nameW))
+			}
 		}
 		tag := t.Tag
 		if tag == "" {
@@ -388,15 +488,16 @@ func (m stateModel) teamBody(w int) string {
 		}
 		l := mark + " " + name + " " + core.PadRight(tag, 9) + core.PadRight(orDash(model), 7) + core.Dim.Render(core.PadRight(orDash(effort), effW))
 		if t.Claude != "" && !(narrow && common != "") {
-			c := t.Claude
-			if t.Count > 1 {
-				c += fmt.Sprintf(" ×%d", t.Count)
-			}
-			l += " " + core.Cyan.Render(c)
-		} else if t.Count > 1 {
-			l += " " + core.Cyan.Render(fmt.Sprintf("×%d", t.Count))
+			l += " " + core.Cyan.Render(t.Claude)
 		}
-		lines = append(lines, strings.TrimRight(l, " "))
+		if st := teamState(t); st != "" {
+			l += " " + st
+		}
+		l = ansi.Truncate(strings.TrimRight(l, " "), inner, "…")
+		lines = append(lines, l)
+	}
+	if m.teamMsg != "" && time.Since(m.teamMsgAt) < 6*time.Second {
+		lines = append(lines, core.Yellow.Render(ansi.Truncate("⚠ "+m.teamMsg, inner, "…")))
 	}
 	return strings.Join(lines, "\n")
 }

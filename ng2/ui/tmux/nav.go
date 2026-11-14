@@ -876,6 +876,7 @@ func (m model) quitAllProjects() tea.Cmd {
 		}
 	}
 	_ = dtmux("kill-session", "-t", exactS(hubSession)).Run()
+	_ = dtmux("kill-session", "-t", "="+core.HiddenSession).Run() // teammates cachés (#136)
 	return m.quitLauncher()
 }
 
