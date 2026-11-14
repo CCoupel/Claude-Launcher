@@ -50,13 +50,13 @@ func TestReadBackendsModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	var names []string
-	for _, b := range m.Backends {
+	for _, b := range declared(m) { // sous Windows, un « host » implicite est en tête du modèle
 		names = append(names, b.Name)
 	}
 	if strings.Join(names, ",") != "srv1-docker,lab,pooled" { // ordre du fichier
 		t.Fatalf("ordre : %v", names)
 	}
-	if b := m.Backends[1]; b.Type != "k8s" || b.Namespace != "claude-ng2" || b.Volumes["/share/MFS/ROOT"] != "claude-shared" {
+	if b := declared(m)[1]; b.Type != "k8s" || b.Namespace != "claude-ng2" || b.Volumes["/share/MFS/ROOT"] != "claude-shared" {
 		t.Fatalf("lab : %+v", b)
 	}
 	if len(m.Pools) != 1 || m.Pools[0].Name != "labo" || len(m.Pools[0].UsedBy) != 1 || m.Pools[0].UsedBy[0] != "pooled" {
@@ -68,12 +68,10 @@ func TestReadBackendsModel(t *testing.T) {
 	if _, err := ReadBackendsModel([]byte("backends: [")); err == nil {
 		t.Fatal("YAML invalide accepté")
 	}
-	if m, err := ReadBackendsModel(nil); err != nil || len(m.Backends) != 0 && runtimeNotWindows() {
+	if m, err := ReadBackendsModel(nil); err != nil || len(declared(m)) != 0 {
 		t.Fatalf("vide : %+v %v", m, err)
 	}
 }
-
-func runtimeNotWindows() bool { return filepath.Separator == '/' }
 
 // critical : les commentaires, l'ordre et les clés non touchées survivent aux
 // changements structurés.
@@ -106,7 +104,7 @@ func TestApplyChangesKeepsComments(t *testing.T) {
 		t.Errorf("résultat invalide : %v\n%s", ValidateConfig(ConfBackends, []byte(out)), out)
 	}
 	m, err := ReadBackendsModel([]byte(out))
-	if err != nil || len(m.Backends) != 4 || m.Backends[3].Name != "nouveau" || m.Backends[3].Engine != "docker" {
+	if d := declared(m); err != nil || len(d) != 4 || d[3].Name != "nouveau" || d[3].Engine != "docker" {
 		t.Fatalf("modèle relu : %+v %v", m.Backends, err)
 	}
 }
