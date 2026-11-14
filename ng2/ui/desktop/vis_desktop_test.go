@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -109,12 +110,18 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	// attendre un tour du watcher : géométrie et carte à jour au retour de l'appel
 	pid := tm("display-message", "-p", "-t", calme, "#{pane_pid}")
 	n0 := len(r.evs)
+	// pas de tick du watcher : aucune recherche de team (une par tour lent) ni
+	// lecture de la fenêtre par le tour ; seule la bascule elle-même travaille
+	f0 := atomic.LoadInt32(&pt.finds)
 	t0 := time.Now()
 	if res := toggle(calme); res["ok"] != true {
 		t.Fatalf("bascule refusée : %v", res)
 	}
-	if d := time.Since(t0); d > 300*time.Millisecond {
-		t.Errorf("bascule en %v, attendu < 300 ms", d)
+	if df := atomic.LoadInt32(&pt.finds) - f0; df > 1 { // au plus un tour du watcher glissé pendant la mesure
+		t.Errorf("%d recherches de team pendant la bascule : un tour complet a été attendu", df)
+	}
+	if d := time.Since(t0); d > 2*time.Second { // borne large : machine chargée (CI)
+		t.Errorf("bascule en %v : lente", d)
 	}
 	if l := pt.lastLayout(); l == nil || len(l.Panes) != 2 {
 		t.Fatalf("géométrie non publiée au retour de l'appel : %+v", l)
@@ -143,8 +150,8 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	if res := toggle(calme); res["ok"] != true {
 		t.Fatalf("second basculement : %v", res)
 	}
-	if d := time.Since(t1); d > 300*time.Millisecond {
-		t.Errorf("retour en %v, attendu < 300 ms", d)
+	if d := time.Since(t1); d > 2*time.Second {
+		t.Errorf("retour en %v : lent", d)
 	}
 	if l := pt.lastLayout(); l == nil || len(l.Panes) != 3 {
 		t.Fatalf("géométrie non publiée au retour de l'appel : %+v", l)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -134,7 +135,7 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 		pd := paneData{path: s.Path}
 		pd.sess, pd.hasS = cfg.PendingSession(s.Path)
 		pd.open = tmuxWindows(hubSession)[s.Key]
-		reg := core.ReadTeammates(s.Path)
+		reg := cachedTeammates(s.Path)
 		var panes []core.ProjPane
 		var choices map[string]string
 		if pd.open {
@@ -158,6 +159,32 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 		pd.lines = core.TeamLines(reg, s.Path, panes, choices, cfg.TeamHideIdle, time.Now().Unix())
 		return pd
 	}
+}
+
+// registre du template par projet, relu au plus toutes les 60 s : la carte est
+// sondée chaque seconde, le registre (fichiers du projet) ne change presque jamais.
+var regCache = struct {
+	sync.Mutex
+	m map[string]regEntry
+}{m: map[string]regEntry{}}
+
+type regEntry struct {
+	at  time.Time
+	reg []core.Teammate
+}
+
+func cachedTeammates(path string) []core.Teammate {
+	regCache.Lock()
+	e, ok := regCache.m[path]
+	regCache.Unlock()
+	if ok && time.Since(e.at) < time.Minute {
+		return e.reg
+	}
+	reg := core.ReadTeammates(path)
+	regCache.Lock()
+	regCache.m[path] = regEntry{time.Now(), reg}
+	regCache.Unlock()
+	return reg
 }
 
 // toggleCmd : double-clic sur le teammate pane de la carte Team : bascule

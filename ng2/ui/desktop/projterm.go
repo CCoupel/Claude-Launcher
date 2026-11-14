@@ -1041,6 +1041,9 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	t.mu.Lock()
 	tc := t.team // team du dernier tour : pas de relecture des fichiers (parfois lents)
 	t.mu.Unlock()
+	if tc == nil {
+		return false, "team pas encore lue (ou absente) : réessayer dans un instant"
+	}
 	f, inCtr := t.tmuxFn(), !t.host
 	home := core.ProjectHome(f, t.win, inCtr)
 	t.pubMu.Lock() // @cl_panevis écrit hors d'un tour du watcher

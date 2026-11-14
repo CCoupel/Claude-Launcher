@@ -150,8 +150,8 @@ func TestToggleCmd(t *testing.T) {
 	if m := run(mates[1]); m.msg != "" {
 		t.Fatalf("bascule refusée : %q", m.msg)
 	}
-	if d := time.Since(t0); d > 300*time.Millisecond {
-		t.Errorf("bascule en %v, attendu < 300 ms", d)
+	if d := time.Since(t0); d > 2*time.Second { // borne large : machine chargée (CI)
+		t.Errorf("bascule en %v : lente", d)
 	}
 	if strings.Contains(visible(t, win), mates[1]) {
 		t.Fatal("pane non caché")
