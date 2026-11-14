@@ -115,7 +115,10 @@ func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (
 		if b, rerr := os.ReadFile(f.Path); rerr == nil {
 			cur = string(b)
 		}
-		content = core.RestoreConfToken(content, cur)
+		var rerr error
+		if content, rerr = core.RestoreConfToken(content, cur); rerr != nil {
+			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: rerr.Error()}}}, nil
+		}
 	}
 	ps, err := core.SaveConfig(kind, f.Path, []byte(content), expected)
 	if kind == core.ConfConf {

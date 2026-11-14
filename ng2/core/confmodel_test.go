@@ -346,12 +346,17 @@ func TestLauncherEnvModelAndApply(t *testing.T) {
 // s'exécute ; une valeur ne recopie jamais un secret ($GITHUB_TOKEN).
 func TestSecurityEnvAndVariables(t *testing.T) {
 	for _, name := range []string{"LD_PRELOAD", "LD_LIBRARY_PATH", "ld_preload", "DYLD_INSERT_LIBRARIES", "BASH_ENV", "ENV", "PATH", "PROMPT_COMMAND",
-		"GIT_SSH_COMMAND", "GIT_SSH", "GIT_EXEC_PATH", "IFS", "PS4", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS"} {
+		"GIT_SSH_COMMAND", "GIT_SSH", "GIT_EXEC_PATH", "IFS", "PS4", "SHELLOPTS", "BASHOPTS", "NODE_OPTIONS",
+		// R3 : configuration de git, askpass, proxys, éditeur, shell, répertoire personnel, fonctions exportées, clés Anthropic
+		"GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_ASKPASS", "SSH_ASKPASS",
+		"GIT_PROXY_COMMAND", "GIT_EXTERNAL_DIFF", "GIT_PAGER", "PAGER", "MANPAGER", "EDITOR", "VISUAL", "GIT_EDITOR", "BROWSER", "SHELL", "HOME",
+		"PYTHONHOME", "PERL5LIB", "RUBYLIB", "JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "LUA_INIT", "BASH_FUNC_foo", "NODE_EXTRA_CA_CERTS",
+		"ANTHROPIC_BASE_URL", "ANTHROPIC_API_KEY", "anthropic_auth_token", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "NO_PROXY"} {
 		if _, err := ApplyConfConfChanges("", []ConfigChange{cset("EXTRA_ENVS", []any{name + "=x"})}); err == nil || !strings.Contains(err.Error(), "interdite") {
 			t.Errorf("%s accepté : %v", name, err)
 		}
 	}
-	if _, err := ApplyConfConfChanges("", []ConfigChange{cset("EXTRA_ENVS", []any{"MY_API_URL=https://x", "ANTHROPIC_BASE_URL=https://y", "HTTP_PROXY=http://p:3128"})}); err != nil {
+	if _, err := ApplyConfConfChanges("", []ConfigChange{cset("EXTRA_ENVS", []any{"MY_API_URL=https://x", "MON_SERVICE_URL=https://y", "TZ=Europe/Paris", "LANG=fr_FR.UTF-8"})}); err != nil {
 		t.Errorf("variables ordinaires refusées : %v", err)
 	}
 	for name, ch := range map[string]ConfigChange{
@@ -381,22 +386,30 @@ func TestConfTokenKeepMarker(t *testing.T) {
 		t.Fatalf("masquage : %q", masked)
 	}
 	// non touché : restauré à l'identique
-	if got := RestoreConfToken(masked, cur); got != cur {
+	rest := func(edited, current string) string {
+		t.Helper()
+		got, err := RestoreConfToken(edited, current)
+		if err != nil {
+			t.Fatalf("RestoreConfToken : %v", err)
+		}
+		return got
+	}
+	if got := rest(masked, cur); got != cur {
 		t.Errorf("restauration : %q", got)
 	}
 	// modifié ailleurs : le jeton reste
-	if got := RestoreConfToken(strings.Replace(masked, "=45", "=60", 1), cur); !strings.Contains(got, "ghp_REALTOKEN1234") || !strings.Contains(got, "TEAM_HIDE_IDLE=60") {
+	if got := rest(strings.Replace(masked, "=45", "=60", 1), cur); !strings.Contains(got, "ghp_REALTOKEN1234") || !strings.Contains(got, "TEAM_HIDE_IDLE=60") {
 		t.Errorf("autre réglage : %q", got)
 	}
 	// remplacé, vidé : respecté
-	if got := RestoreConfToken(strings.Replace(masked, "__GARDER__", "ghp_NEWNEWNEW99", 1), cur); !strings.Contains(got, "ghp_NEWNEWNEW99") || strings.Contains(got, "REALTOKEN") {
+	if got := rest(strings.Replace(masked, "__GARDER__", "ghp_NEWNEWNEW99", 1), cur); !strings.Contains(got, "ghp_NEWNEWNEW99") || strings.Contains(got, "REALTOKEN") {
 		t.Errorf("remplacement : %q", got)
 	}
-	if got := RestoreConfToken(strings.Replace(masked, `"__GARDER__"`, `""`, 1), cur); strings.Contains(got, "REALTOKEN") || strings.Contains(got, "__GARDER__") {
+	if got := rest(strings.Replace(masked, `"__GARDER__"`, `""`, 1), cur); strings.Contains(got, "REALTOKEN") || strings.Contains(got, "__GARDER__") {
 		t.Errorf("vidage : %q", got)
 	}
 	// marqueur sans jeton actuel : jamais enregistré comme jeton
-	if got := RestoreConfToken("GITHUB_TOKEN=\"__GARDER__\"\n", "A=1\n"); strings.Contains(got, "__GARDER__") || !strings.Contains(got, `GITHUB_TOKEN=""`) {
+	if got := rest("GITHUB_TOKEN=\"__GARDER__\"\n", "A=1\n"); strings.Contains(got, "__GARDER__") || !strings.Contains(got, `GITHUB_TOKEN=""`) {
 		t.Errorf("sans jeton actuel : %q", got)
 	}
 	// sans jeton, forme composée ou déjà masqué : inchangé
@@ -497,5 +510,51 @@ func TestBackendNamesDNS1123AndSSHAuthority(t *testing.T) {
 		if HasErrors(ValidateConfig(ConfBackends, []byte(y))) {
 			t.Errorf("refusé : %s → %v", y, ValidateConfig(ConfBackends, []byte(y)))
 		}
+	}
+}
+
+// R1 : le jeton est masqué partout où il figure dans l'éditeur de texte (commentaire,
+// autre clé, tableau) ; le marqueur ne se restaure que dans GITHUB_TOKEN. R2 : un
+// jeton actuel de forme dangereuse n'est pas réécrit.
+func TestConfTokenMaskEverywhereAndRestoreOnlyInKey(t *testing.T) {
+	const tok = "ghp_ABCDEFGH12345678"
+	cur := "# GITHUB_TOKEN=\"" + tok + "\"   # ancien\nGITHUB_TOKEN=\"" + tok + "\"\nCLAUDE_OPTIONS=\"--t " + tok + "\"\nEXTRA_ENVS=(\"GH_TOKEN=" + tok + "\")\nexport GH_TOKEN=" + tok + "\n"
+	masked := MaskConfToken(cur)
+	if strings.Contains(masked, tok) || strings.Count(masked, ConfTokenKeep) != 5 {
+		t.Fatalf("jeton encore visible (%d marqueurs) :\n%s", strings.Count(masked, ConfTokenKeep), masked)
+	}
+	// un jeton court n'est masqué que dans GITHUB_TOKEN (sinon n'importe quel texte le serait)
+	if got := MaskConfToken("GITHUB_TOKEN=\"abc\"\nA=abcd\n"); !strings.Contains(got, "A=abcd") || strings.Contains(got, `GITHUB_TOKEN="abc"`) {
+		t.Errorf("jeton court : %q", got)
+	}
+	// restauration : le jeton revient dans GITHUB_TOKEN seulement ; les autres occurrences refusées
+	if _, err := RestoreConfToken(masked, cur); err == nil || !strings.Contains(err.Error(), "ne convient que pour GITHUB_TOKEN") {
+		t.Errorf("marqueur dans une autre clé accepté : %v", err)
+	}
+	ok := "# GITHUB_TOKEN=\"" + ConfTokenKeep + "\"   # ancien\nGITHUB_TOKEN=\"" + ConfTokenKeep + "\"\nTEAM_HIDE_IDLE=5\n"
+	got, err := RestoreConfToken(ok, cur)
+	if err != nil || strings.Count(got, tok) != 1 || !strings.Contains(got, "GITHUB_TOKEN=\""+tok+"\"\nTEAM_HIDE_IDLE=5") || !strings.Contains(got, `# GITHUB_TOKEN="__GARDER__"`) {
+		t.Errorf("restauration : %v\n%s", err, got)
+	}
+	for name, edited := range map[string]string{
+		"tableau":   "GITHUB_TOKEN=\"__GARDER__\"\nEXTRA_ENVS=(\"X=__GARDER__\")\n",
+		"commande":  "GITHUB_TOKEN=\"__GARDER__\"\necho __GARDER__\n",
+		"autre clé": "GITHUB_TOKEN=\"__GARDER__\"\nGH_TOKEN=\"__GARDER__\"\n",
+		"composée":  "GITHUB_TOKEN=\"__GARDER__\"\nA=\"x__GARDER__y\"\n",
+	} {
+		if _, err := RestoreConfToken(edited, "GITHUB_TOKEN=\"ghp_X12345678\"\n"); err == nil {
+			t.Errorf("%s : accepté", name)
+		}
+	}
+	// R2 : jeton actuel écrit à la main entre apostrophes avec « $ », guillemet ou « ` »
+	for _, cur := range []string{"GITHUB_TOKEN='a$(id)bbbb'\n", "GITHUB_TOKEN='a\"b;touch x'\n", "GITHUB_TOKEN='a`id`bbbbb'\n"} {
+		out, err := RestoreConfToken("GITHUB_TOKEN=\"__GARDER__\"\n", cur)
+		if err == nil || out != "" || strings.Contains(err.Error(), "id") {
+			t.Errorf("%q : %q %v", cur, out, err)
+		}
+	}
+	// sans marqueur : rien à restaurer, aucune erreur
+	if out, err := RestoreConfToken("A=1\n", "GITHUB_TOKEN='a$(id)'\n"); err != nil || out != "A=1\n" {
+		t.Errorf("sans marqueur : %q %v", out, err)
 	}
 }

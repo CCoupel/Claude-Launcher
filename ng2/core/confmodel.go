@@ -667,11 +667,23 @@ func confInsertStmt(src, key, txt, eol string) string {
 func confDangerousEnv(name string) bool {
 	n := strings.ToUpper(name)
 	switch n {
-	case "PATH", "BASH_ENV", "ENV", "IFS", "PS4", "PROMPT_COMMAND", "SHELLOPTS", "BASHOPTS", "GIT_EXEC_PATH",
-		"NODE_OPTIONS", "NODE_PATH", "PYTHONSTARTUP", "PYTHONPATH", "PERL5OPT", "RUBYOPT":
+	case "PATH", "HOME", "SHELL", "BASH_ENV", "ENV", "IFS", "PS4", "PROMPT_COMMAND", "SHELLOPTS", "BASHOPTS",
+		"EDITOR", "VISUAL", "BROWSER", "GIT_EXEC_PATH", "GIT_EXTERNAL_DIFF", "NODE_OPTIONS", "NODE_PATH", "NODE_EXTRA_CA_CERTS",
+		"PYTHONSTARTUP", "PYTHONPATH", "PYTHONHOME", "PERL5OPT", "PERL5LIB", "RUBYOPT", "RUBYLIB",
+		"JAVA_TOOL_OPTIONS", "_JAVA_OPTIONS", "LUA_INIT", "CURL_HOME", "OPENSSL_CONF":
 		return true
 	}
-	return strings.HasPrefix(n, "LD_") || strings.HasPrefix(n, "DYLD_") || strings.HasPrefix(n, "GIT_SSH")
+	for _, p := range []string{"LD_", "DYLD_", "GIT_SSH", "GIT_CONFIG", "GIT_PROXY", "BASH_FUNC_", "ANTHROPIC_"} {
+		if strings.HasPrefix(n, p) {
+			return true
+		}
+	}
+	for _, sfx := range []string{"_ASKPASS", "_PROXY", "_PROXY_COMMAND", "PAGER", "_EDITOR"} {
+		if strings.HasSuffix(n, sfx) {
+			return true
+		}
+	}
+	return false
 }
 
 // ── Jeton GitHub dans l'éditeur de texte ──────────────────────────────────
@@ -680,15 +692,24 @@ func confDangerousEnv(name string) bool {
 // la laisser telle quelle à l'enregistrement conserve le jeton actuel.
 const ConfTokenKeep = "__GARDER__"
 
-// MaskConfToken : src avec la valeur de GITHUB_TOKEN remplacée par ConfTokenKeep
-// (le jeton ne quitte jamais le poste). Sans jeton écrit : src inchangé.
+// MaskConfToken : src avec le jeton GitHub remplacé par ConfTokenKeep partout où
+// il figure — la valeur de GITHUB_TOKEN, mais aussi un commentaire, un tableau ou
+// une autre clé qui le recopie (jeton d'au moins 8 caractères : une chaîne plus
+// courte masquerait n'importe quel texte). Le jeton ne quitte jamais le poste.
 func MaskConfToken(src string) string {
 	stmts, _ := scanConf(src)
+	tok := ""
 	for i := len(stmts) - 1; i >= 0; i-- {
 		st := stmts[i]
 		if st.Name == "GITHUB_TOKEN" && !st.Array && !st.PlusEq && !st.Compound && st.Scalar != "" && st.Scalar != ConfTokenKeep {
+			if tok == "" {
+				tok = st.Scalar
+			}
 			src = src[:st.ValStart] + `"` + ConfTokenKeep + `"` + src[st.End:]
 		}
+	}
+	if len(tok) >= 8 {
+		src = strings.ReplaceAll(src, tok, ConfTokenKeep)
 	}
 	return src
 }
@@ -697,16 +718,45 @@ func MaskConfToken(src string) string {
 // encore ConfTokenKeep reprend le jeton écrit dans current ; sans jeton actuel,
 // la valeur devient vide (le marqueur n'est jamais enregistré comme jeton). Un
 // jeton remplacé, ou vidé, par l'utilisateur est laissé tel quel.
-func RestoreConfToken(edited, current string) string {
+//
+// Le jeton n'est JAMAIS réécrit ailleurs que dans GITHUB_TOKEN : le marqueur
+// laissé dans un commentaire y reste (le commentaire perd l'ancien jeton) ; dans
+// toute autre instruction (autre clé, tableau, commande), l'enregistrement est
+// refusé. Un jeton actuel dont la forme sortirait des guillemets doubles (écrit à
+// la main entre apostrophes avec « $ », « ` » ou « " ») est refusé aussi.
+func RestoreConfToken(edited, current string) (string, error) {
 	cur := ConfTokenValue(current)
-	stmts, _ := scanConf(edited)
+	stmts, other := scanConf(edited)
+	restore := false
+	for _, st := range stmts {
+		if st.Name == "GITHUB_TOKEN" && !st.Array && !st.PlusEq && st.Scalar == ConfTokenKeep {
+			restore = true
+			continue
+		}
+		hit := strings.Contains(st.Scalar, ConfTokenKeep)
+		for _, it := range st.Items {
+			hit = hit || strings.Contains(it, ConfTokenKeep)
+		}
+		if hit {
+			return "", fmt.Errorf("le marqueur %s ne convient que pour GITHUB_TOKEN (ligne %d) : saisir la valeur voulue", ConfTokenKeep, 1+strings.Count(edited[:st.Start], "\n"))
+		}
+	}
+	if strings.Contains(other, ConfTokenKeep) {
+		return "", fmt.Errorf("le marqueur %s ne convient que pour GITHUB_TOKEN : il figure dans une autre instruction", ConfTokenKeep)
+	}
+	if !restore {
+		return edited, nil
+	}
+	if cur != "" && !confTokenRe.MatchString(cur) {
+		return "", fmt.Errorf("le jeton actuel a une forme que l'éditeur ne sait pas conserver : le remplacer par un nouveau jeton, ou éditer le fichier à la main")
+	}
 	for i := len(stmts) - 1; i >= 0; i-- {
 		st := stmts[i]
 		if st.Name == "GITHUB_TOKEN" && !st.Array && !st.PlusEq && st.Scalar == ConfTokenKeep {
 			edited = edited[:st.ValStart] + `"` + cur + `"` + edited[st.End:]
 		}
 	}
-	return edited
+	return edited, nil
 }
 
 // MaskSecret : msg sans la valeur du jeton. Un jeton court (moins de 8

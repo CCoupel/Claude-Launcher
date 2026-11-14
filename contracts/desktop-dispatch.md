@@ -278,3 +278,20 @@ opérations et résultat que pour `backends.yaml` (fichier, validation et confli
   no-referrer`, `X-Content-Type-Options`, `X-Frame-Options`, `Content-Security-Policy: frame-ancestors 'none'`.
 - **Droits** : `config.conf.bak` préexistant plus ouvert que `0600` est resserré ; un `.bak` qui est un lien est remplacé.
 
+### Sécurité — compléments (contrôle LOT-3.3)
+
+- **`/api/call` (mode `--web`)** exige `Content-Type: application/json` (sinon `415` : une requête « simple » n'a pas de
+  pré-requête CORS) et refuse (`403`) un appel dont l'en-tête `Origin`, s'il est présent, n'est pas exactement
+  `http://<Host servi>` (même schéma, hôte et port) : une autre page de la machine — même sur `127.0.0.1` — ne peut pas
+  émettre d'appel avec le cookie. Même contrôle d'`Origin` pour `/api/events`. L'interface envoie du JSON (vérifié par test).
+- **Éditeur de texte et jeton** : le jeton est masqué (`__GARDER__`) partout où il figure — commentaire, tableau, autre
+  clé comprise — pour un jeton d'au moins 8 caractères. À l'enregistrement le marqueur ne se restaure que dans
+  `GITHUB_TOKEN` : laissé dans un commentaire il y reste (le commentaire perd l'ancien jeton) ; dans toute autre
+  instruction l'enregistrement est refusé (`invalid`, « le marqueur __GARDER__ ne convient que pour GITHUB_TOKEN »).
+  Un jeton actuel de forme dangereuse (écrit à la main avec `$`, `` ` `` ou `"`) n'est pas réécrit : refus explicite.
+- **`EXTRA_ENVS`** refuse en plus : `GIT_CONFIG*`, `GIT_PROXY*`, `*_ASKPASS`, `*_PROXY` (`HTTP_PROXY`, `ALL_PROXY`…),
+  `*PAGER`, `*_EDITOR`, `EDITOR`, `VISUAL`, `BROWSER`, `SHELL`, `HOME`, `BASH_FUNC_*`, `ANTHROPIC_*`, `PYTHONHOME`,
+  `PERL5LIB`, `RUBYLIB`, `JAVA_TOOL_OPTIONS`, `_JAVA_OPTIONS`, `LUA_INIT`, `NODE_EXTRA_CA_CERTS`, `CURL_HOME`,
+  `OPENSSL_CONF`. La liste reste une barrière partielle : le champ garde la portée de « code au lancement » pour qui
+  édite le fichier en texte (« Éditer en YAML »), qui accepte toutes les variables, `ANTHROPIC_API_KEY` comprise.
+

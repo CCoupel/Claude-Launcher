@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -142,20 +143,7 @@ func TestWebHostCheckHeadersAndTokenOnlyInCookieForCalls(t *testing.T) {
 	defer srv.Close()
 	do := func(method, path, host, cookie, body string) (*http.Response, string) {
 		t.Helper()
-		req, _ := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
-		if host != "" {
-			req.Host = host
-		}
-		if cookie != "" {
-			req.AddCookie(&http.Cookie{Name: "cl_token", Value: cookie})
-		}
-		resp, err := http.DefaultClient.Do(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		defer resp.Body.Close()
-		b, _ := io.ReadAll(resp.Body)
-		return resp, string(b)
+		return doWith(t, srv.URL, method, path, host, cookie, body, "application/json", "")
 	}
 	port := srv.Listener.Addr().String()[strings.LastIndex(srv.Listener.Addr().String(), ":")+1:]
 	// page d'amorçage : jeton de l'URL accepté, cookie posé, en-têtes de sécurité
@@ -218,5 +206,92 @@ func TestWebHostCheckHeadersAndTokenOnlyInCookieForCalls(t *testing.T) {
 	w.strictHost = false
 	if resp, _ := do("POST", "/api/call", "mon-serveur.lan:"+port, "tok123", call); resp.StatusCode != 200 {
 		t.Errorf("hôte refusé hors mode strict : %d", resp.StatusCode)
+	}
+}
+
+// doWith : requête HTTP avec en-têtes choisis (Host, cookie, Content-Type, Origin).
+func doWith(t *testing.T, base, method, path, host, cookie, body, contentType, origin string) (*http.Response, string) {
+	t.Helper()
+	req, _ := http.NewRequest(method, base+path, strings.NewReader(body))
+	if host != "" {
+		req.Host = host
+	}
+	if cookie != "" {
+		req.AddCookie(&http.Cookie{Name: "cl_token", Value: cookie})
+	}
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
+	if origin != "" {
+		req.Header.Set("Origin", origin)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	return resp, string(b)
+}
+
+// R4 : une requête « simple » (text/plain, formulaire) ou venue d'une autre
+// origine — une autre page de la machine, même sur 127.0.0.1 — est refusée, même
+// avec le cookie ; l'appel normal de l'interface (JSON, même origine ou sans
+// Origin) passe.
+func TestWebCallRequiresJSONAndSameOrigin(t *testing.T) {
+	sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	w := &webBridge{app: a, token: "tok123", subs: map[chan []byte]bool{}, strictHost: true}
+	srv := httptest.NewServer(w.handler())
+	defer srv.Close()
+	host := srv.Listener.Addr().String()
+	call := `{"method":"configFiles","args":{}}`
+	post := func(ct, origin string) int {
+		resp, _ := doWith(t, srv.URL, "POST", "/api/call", "", "tok123", call, ct, origin)
+		return resp.StatusCode
+	}
+	// appels normaux : JSON, avec ou sans Origin de la même page
+	for _, c := range []struct{ ct, origin string }{{"application/json", ""}, {"application/json; charset=utf-8", ""},
+		{"application/json", "http://" + host}, {"Application/JSON", "http://" + host}} {
+		if got := post(c.ct, c.origin); got != 200 {
+			t.Errorf("appel normal refusé (%q, %q) : %d", c.ct, c.origin, got)
+		}
+	}
+	// requêtes simples : pas de pré-requête CORS, donc refusées ici
+	for _, ct := range []string{"text/plain", "text/plain;charset=UTF-8", "application/x-www-form-urlencoded", "multipart/form-data; boundary=x", "", "application/jsonx", "application/json-seq"} {
+		if got := post(ct, ""); got != http.StatusUnsupportedMediaType {
+			t.Errorf("Content-Type %q accepté : %d", ct, got)
+		}
+	}
+	// autre origine : autre port de la machine (serveur de maquettes 8765), autre hôte, « null », autre schéma
+	for _, origin := range []string{"http://127.0.0.1:8765", "http://127.0.0.1:9999", "http://localhost:" + host[strings.LastIndex(host, ":")+1:],
+		"http://evil.example.com", "null", "https://" + host, "http://" + host + ".evil.com"} {
+		if got := post("application/json", origin); got != 403 {
+			t.Errorf("Origin %q accepté : %d", origin, got)
+		}
+		if got := post("text/plain", origin); got == 200 {
+			t.Errorf("Origin %q + text/plain accepté", origin)
+		}
+	}
+	// le flux d'événements refuse aussi une autre origine
+	if resp, _ := doWith(t, srv.URL, "GET", "/api/events", "", "tok123", "", "", "http://127.0.0.1:9999"); resp.StatusCode != 403 {
+		t.Errorf("/api/events depuis une autre origine : %d", resp.StatusCode)
+	}
+	// sans Origin (même origine, GET) : accepté ; le corps du test ne lit pas le flux
+	req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
+	req.AddCookie(&http.Cookie{Name: "cl_token", Value: "tok123"})
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	if resp, err := http.DefaultClient.Do(req.WithContext(ctx)); err == nil {
+		if resp.StatusCode != 200 {
+			t.Errorf("/api/events sans Origin : %d", resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	// le frontend envoie bien du JSON
+	b, err := os.ReadFile("frontend/app.js")
+	if err != nil || !strings.Contains(string(b), "'Content-Type': 'application/json'") {
+		t.Errorf("le frontend n'envoie pas application/json : %v", err)
 	}
 }

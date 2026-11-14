@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"os"
@@ -74,6 +75,22 @@ func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
 	return allowQuery && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("t")), []byte(w.token)) == 1
 }
 
+// sameOrigin : refuse un appel dont l'en-tête Origin, s'il est présent, n'est pas
+// celui du serveur (même schéma, hôte et port). Une page d'un autre port de la
+// machine — serveur de maquettes, serveur de développement d'un projet — est du
+// même « site » : SameSite=Strict ne la retient pas.
+func sameOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	return o == "" || strings.EqualFold(o, "http://"+r.Host)
+}
+
+// jsonRequest : le corps est annoncé en JSON. Une requête « simple » (text/plain,
+// formulaire) n'a pas de pré-requête CORS : elle part sans contrôle du navigateur.
+func jsonRequest(r *http.Request) bool {
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mt == "application/json"
+}
+
 // hostOK : l'en-tête Host désigne bien la boucle locale (et le port d'écoute).
 func (w *webBridge) hostOK(r *http.Request) bool {
 	if !w.strictHost {
@@ -123,8 +140,12 @@ func (w *webBridge) handler() http.Handler {
 		files.ServeHTTP(rw, r)
 	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !w.authorized(r, false) {
+		if r.Method != http.MethodPost || !w.authorized(r, false) || !sameOrigin(r) {
 			http.Error(rw, "refusé", http.StatusForbidden)
+			return
+		}
+		if !jsonRequest(r) {
+			http.Error(rw, "Content-Type: application/json attendu", http.StatusUnsupportedMediaType)
 			return
 		}
 		var req struct {
@@ -145,7 +166,7 @@ func (w *webBridge) handler() http.Handler {
 		_ = json.NewEncoder(rw).Encode(out)
 	})
 	mux.HandleFunc("/api/events", func(rw http.ResponseWriter, r *http.Request) {
-		if !w.authorized(r, false) {
+		if !w.authorized(r, false) || !sameOrigin(r) {
 			http.Error(rw, "refusé", http.StatusForbidden)
 			return
 		}
