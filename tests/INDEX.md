@@ -13,3 +13,4 @@
 | tests/integration/ui-tmux/panes-caches/ | integration | ui-tmux | Technique des panes caches : break-pane/join-pane, %id conserves, reserve (#136) | feature | critical |
 | tests/procedures/ui-desktop/config-backends/ | procedure | ui-desktop | Reglages : Backends, Pools, Defauts (#118) | feature | |
 | tests/procedures/ui-desktop/reglages-projet/ | procedure | ui-desktop | Menu contextuel et reglages d'un projet (#148) | feature | |
+| tests/procedures/ui-desktop/config-poste-launcher/ | procedure | ui-desktop | Reglages : Ce poste, Launcher, Conteneurs (#149) | feature | |
