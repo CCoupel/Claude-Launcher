@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -102,35 +103,21 @@ func ReadTeammates(proj string) []Teammate {
 	return out
 }
 
-type member struct{ AgentType, Model string }
-
-// teamMembers : pane tmux → teammate, pour la team du projet dont un pane est
-// vivant (la plus récente si plusieurs).
-func teamMembers(proj string, live map[string]bool) map[string]member {
+// teamMembers : pane tmux → membre de la team, pour la team du projet dont un
+// pane est vivant (la plus récente si plusieurs).
+func teamMembers(proj string, live map[string]bool) map[string]TeamMember {
 	dirs, _ := filepath.Glob(filepath.Join(ClaudeDir(), "teams", "*", "config.json"))
-	var best map[string]member
+	var best map[string]TeamMember
 	var bestT int64
 	for _, f := range dirs {
-		b, err := os.ReadFile(f)
-		if err != nil {
+		cfg, err := ReadTeam(f)
+		if err != nil || len(cfg.Members) == 0 || path.Clean(cfg.Members[0].Cwd) != path.Clean(ClaudePath(proj)) {
 			continue
 		}
-		var cfg struct {
-			Members []struct {
-				Name       string `json:"name"`
-				AgentType  string `json:"agentType"`
-				Model      string `json:"model"`
-				TmuxPaneID string `json:"tmuxPaneId"`
-				Cwd        string `json:"cwd"`
-			} `json:"members"`
-		}
-		if json.Unmarshal(b, &cfg) != nil || len(cfg.Members) == 0 || path.Clean(cfg.Members[0].Cwd) != path.Clean(ClaudePath(proj)) {
-			continue
-		}
-		m := map[string]member{}
+		m := map[string]TeamMember{}
 		for _, mb := range cfg.Members {
-			if live[mb.TmuxPaneID] {
-				m[mb.TmuxPaneID] = member{mb.AgentType, mb.Model}
+			if live[mb.PaneID] {
+				m[mb.PaneID] = mb
 			}
 		}
 		st, _ := os.Stat(f)
@@ -211,4 +198,102 @@ func LiveTeam(tm []Teammate, proj string, panes []PaneInfo) []Teammate {
 		tm = append(tm, Teammate{Name: n, Model: rs[0].model, Claude: rs[0].ver, Count: len(rs)})
 	}
 	return tm
+}
+
+// TeamLine : une ligne de la carte TEAM, par instance de teammate (#136) : les
+// instances lancées (fenêtre du projet et réserve), puis les teammates du
+// registre non démarrés.
+type TeamLine struct {
+	Name, Tag     string
+	Companion     bool
+	Model, Effort string
+	Claude        string // version de claude si lancé
+	Pane          string // %id, vide si non démarré
+	Started       bool
+	Active        bool
+	Hidden        bool // mis de côté dans la réserve
+	Pinned        bool // visible fixé à la main
+	IdleLeft      int  // secondes avant masquage automatique (0 : sans objet)
+}
+
+// TeamLines : lignes de la carte TEAM. tm : registre (ReadTeammates), panes :
+// recensement unique (ProjectPanes : fenêtre + réserve), choices : @cl_panevis,
+// hideIdle : TEAM_HIDE_IDLE, now : heure Unix. Le leader (pane hors team) vient
+// en premier sous le nom « leader » ; les instances suivent par pane.
+func TeamLines(tm []Teammate, proj string, panes []ProjPane, choices map[string]string, hideIdle int, now int64) []TeamLine {
+	live := map[string]bool{}
+	for _, p := range panes {
+		live[p.ID] = true
+	}
+	members := teamMembers(proj, live)
+	reg := map[string]Teammate{}
+	for _, t := range tm {
+		reg[t.Name] = t
+	}
+	tc := TeamConfig{}
+	for _, mb := range members {
+		tc.Members = append(tc.Members, mb)
+	}
+	vp := visPanes(panes, &tc)
+	prot := map[string]bool{}
+	for _, v := range vp {
+		prot[v.ID] = v.Protected
+	}
+	sorted := append([]ProjPane(nil), panes...)
+	sort.SliceStable(sorted, func(i, j int) bool { return paneNum(sorted[i].ID) < paneNum(sorted[j].ID) })
+	leaderID := ""
+	if len(sorted) > 0 {
+		leaderID = sorted[0].ID
+	}
+	var lines, leaders []TeamLine
+	started := map[string]bool{}
+	for _, p := range sorted {
+		mb, ok := members[p.ID]
+		name, typ := mb.Name, mb.AgentType
+		if !ok && p.ID != leaderID {
+			continue // pane ouvert à la main : pas un teammate
+		}
+		if !ok || name == "team-lead" {
+			name, typ = "leader", "teamleader"
+		}
+		t := reg[typ]
+		if t.Name == "" {
+			t = reg[name]
+		}
+		started[typ], started[name] = true, true
+		l := TeamLine{Name: name, Tag: t.Tag, Companion: t.Companion, Model: cmp.Or(mb.Model, t.Model), Effort: t.Effort,
+			Claude: claudeVersion(p.Cmd, p.PID), Pane: p.ID, Started: true, Hidden: p.Hidden,
+			Pinned: choices[p.ID] == visPinned}
+		l.Active = ok && mb.IsActive
+		if !prot[p.ID] && !l.Active && choices[p.ID] == "" && hideIdle > 0 && !p.Hidden {
+			l.IdleLeft = max(hideIdle-int(now-cmpIdle(p.IdleAt, now)), 0)
+		}
+		if prot[p.ID] {
+			leaders = append(leaders, l)
+		} else {
+			lines = append(lines, l)
+		}
+	}
+	lines = append(leaders, lines...)
+	for _, t := range tm {
+		if !started[t.Name] {
+			lines = append(lines, TeamLine{Name: t.Name, Tag: t.Tag, Companion: t.Companion, Model: t.Model, Effort: t.Effort})
+		}
+	}
+	return lines
+}
+
+func cmpIdle(at, now int64) int64 {
+	if at == 0 {
+		return now
+	}
+	return at
+}
+
+func paneNum(id string) int {
+	n, err := strconv.Atoi(strings.TrimPrefix(id, "%"))
+	if err != nil {
+		return 1 << 30
+	}
+	return n
 }
