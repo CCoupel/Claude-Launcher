@@ -39,8 +39,8 @@ func TestConfigStructuredCalls(t *testing.T) {
 	if m["exists"] != false || len(m["problems"].([]any)) != 0 || m["model"] == nil {
 		t.Fatalf("modèle d'un fichier absent : %v", m)
 	}
-	if _, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"config.conf"}`)); err == nil {
-		t.Fatal("modèle de config.conf (LOT-3.3) accepté")
+	if _, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"project-env"}`)); err == nil {
+		t.Fatal("modèle d'un type sans modèle structuré accepté")
 	}
 	// création par changements, puis relecture du modèle
 	s := call("configApply", map[string]any{"kind": "backends.yaml", "mtime": "", "changes": []any{

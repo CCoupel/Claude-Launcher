@@ -264,7 +264,18 @@ func validateConfig(kind ConfigKind, content []byte) []ConfigProblem {
 		if _, err := parseEnvFile(content, "env.yaml"); err != nil {
 			return []ConfigProblem{problemFromErr(err, content, quotedNames(err.Error())...)}
 		}
-		return nil
+		// mêmes clés que loadLauncherEnv : les autres sont réservées au env.yaml d'un
+		// projet, et le bootstrap des conteneurs échouerait au lancement suivant
+		var keys map[string]any
+		_ = yaml.Unmarshal(content, &keys)
+		var ps []ConfigProblem
+		for k := range keys {
+			if !launcherEnvKeys[k] {
+				ps = append(ps, ConfigProblem{Line: keyLine(content, k), Severity: SevError,
+					Message: "clé « " + k + " » réservée au env.yaml d'un projet (ici : packages, packages_by_manager, setup, on_start)"})
+			}
+		}
+		return ps
 	case ConfProjectEnv:
 		return validateProjectEnv(content, "")
 	}
@@ -388,6 +399,8 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 // parenthèses (lecture de confLite). Puis le chargement lui-même : racines
 // introuvables, chemins Linux sans correspondance.
 func validateConf(content []byte) []ConfigProblem {
+	// fichier écrit sous Windows (CRLF) : jugé sur ses lignes, bash ne lit pas le « \r »
+	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
 	dir, err := os.MkdirTemp("", "cl-conf-")
 	if err != nil {
 		return []ConfigProblem{{Severity: SevError, Message: err.Error()}}
@@ -544,7 +557,9 @@ func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time
 		mode = 0o600 // jeton GitHub possible
 	}
 	if err == nil {
-		mode = st.Mode().Perm()
+		if kind != ConfConf { // config.conf : toujours 0600 (jeton), même si elle était plus ouverte
+			mode = st.Mode().Perm()
+		}
 		old, rerr := os.ReadFile(path)
 		if rerr != nil {
 			return ps, rerr

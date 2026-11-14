@@ -127,7 +127,7 @@ var backendKeyOrder = []string{"type", "context", "host", "hosts", "pool", "engi
 // commentaires, ordre et clés non touchées conservés. Le texte rendu n'est pas
 // validé ici (ValidateConfig puis SaveConfig s'en chargent).
 func ApplyConfigChanges(kind ConfigKind, content []byte, changes []ConfigChange) ([]byte, error) {
-	if kind != ConfBackends && kind != ConfProjectEnv {
+	if kind != ConfBackends && kind != ConfProjectEnv && kind != ConfLauncherEnv {
 		return nil, fmt.Errorf("écriture structurée non prévue pour %s", kind)
 	}
 	var doc yaml.Node

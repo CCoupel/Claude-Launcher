@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -94,6 +95,9 @@ func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (
 		}
 	}
 	ps, err := core.SaveConfig(kind, f.Path, []byte(content), expected)
+	if kind == core.ConfConf {
+		ps = maskProblems(ps, core.ConfTokenValue(content)) // le jeton n'apparaît dans aucun message
+	}
 	switch {
 	case errors.Is(err, core.ErrConfigConflict):
 		cur := ""
@@ -155,10 +159,19 @@ func (a *App) configReload(kind core.ConfigKind) string {
 // fichier, défauts, images) avec les problèmes de validation et la date
 // d'ouverture, pour l'écran Réglages. Fichier absent : modèle vide.
 func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any, error) {
-	if kind != core.ConfBackends {
+	switch kind {
+	case core.ConfBackends, core.ConfConf, core.ConfLauncherEnv, kindHub:
+	default:
 		return nil, fmt.Errorf("pas de modèle structuré pour %s (voir « Éditer en YAML »)", kind)
 	}
-	d, err := a.configOpen(kind, project)
+	if kind != core.ConfBackends {
+		project = "" // fichiers du poste : jamais un chemin fourni par le client
+	}
+	fileKind := kind
+	if kind == kindHub {
+		fileKind = core.ConfBackends // « Ce poste » est une section de backends.yaml
+	}
+	d, err := a.configOpen(fileKind, project)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +179,29 @@ func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any,
 	if d.FromTemp {
 		content = "" // fichier absent : l'exemple commenté n'est pas une configuration
 	}
-	model, merr := core.ReadBackendsModel([]byte(content))
+	var model any
+	var merr error
+	switch kind {
+	case core.ConfBackends:
+		model, merr = core.ReadBackendsModel([]byte(content))
+	case core.ConfConf:
+		model = core.ReadConfModel(content) // le jeton n'y figure jamais
+		d.Problems = maskProblems(d.Problems, core.ConfTokenValue(content))
+	case core.ConfLauncherEnv:
+		model, merr = core.ReadLauncherEnvModel([]byte(content))
+	case kindHub:
+		var hm core.HubModel
+		if hm, merr = core.ReadHubModel([]byte(content), core.HubHost(), core.CurrentGOOS()); merr == nil {
+			size := 13
+			if n, ok := loadPrefs()["termFontSize"].(float64); ok {
+				size = int(n)
+			}
+			model = struct {
+				core.HubModel
+				TermFontSize int `json:"termFontSize"`
+			}{hm, size}
+		}
+	}
 	if merr != nil && len(d.Problems) == 0 {
 		d.Problems = []core.ConfigProblem{{Severity: core.SevError, Message: merr.Error()}}
 	}
@@ -176,12 +211,36 @@ func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any,
 	return map[string]any{"path": d.Path, "mtime": d.MTime, "exists": d.Exists, "problems": d.Problems, "model": model}, nil
 }
 
+// kindHub : « Ce poste » — la section hubs.<machine> de backends.yaml.
+const kindHub core.ConfigKind = "hub"
+
+// maskProblems : messages sans la valeur du jeton GitHub (jamais montrée).
+func maskProblems(ps []core.ConfigProblem, token string) []core.ConfigProblem {
+	if token == "" {
+		return ps
+	}
+	out := make([]core.ConfigProblem, len(ps))
+	for i, p := range ps {
+		p.Message = strings.ReplaceAll(p.Message, token, "***")
+		out[i] = p
+	}
+	return out
+}
+
 // configApply : applique des changements structurés au texte du fichier
 // (commentaires et ordre conservés), puis le même enregistrement que
 // l'éditeur de texte : validation de core, contrôle de conflit, copie .bak.
 // Résultat : celui de configSave.
 func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes []core.ConfigChange) (map[string]any, error) {
-	f, err := a.configFile(kind, "", project)
+	fileKind := kind
+	switch kind {
+	case kindHub:
+		fileKind = core.ConfBackends
+		project = ""
+	case core.ConfConf, core.ConfLauncherEnv:
+		project = "" // fichiers du poste : jamais un chemin fourni par le client
+	}
+	f, err := a.configFile(fileKind, "", project)
 	if err != nil {
 		return nil, err
 	}
@@ -191,11 +250,36 @@ func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes [
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
-	out, err := core.ApplyConfigChanges(kind, []byte(content), changes)
-	if err != nil {
-		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: err.Error()}}}, nil
+	var out []byte
+	token := ""
+	switch kind {
+	case core.ConfConf:
+		base := content
+		if base == "" && !f.Exists {
+			base = core.ConfigTemplate(core.ConfConf) // absent (Windows) : créé depuis le modèle
+		}
+		token = core.ConfTokenValue(base)
+		var s string
+		s, err = core.ApplyConfConfChanges(base, changes)
+		out = []byte(s)
+	case kindHub:
+		out, err = core.ApplyHubChanges([]byte(content), core.HubHost(), changes)
+	default:
+		out, err = core.ApplyConfigChanges(kind, []byte(content), changes)
 	}
-	return a.configSave(kind, project, string(out), mtime)
+	if err != nil {
+		msg := err.Error()
+		if token != "" {
+			msg = strings.ReplaceAll(msg, token, "***")
+		}
+		for _, ch := range changes { // le jeton qu'on vient de saisir non plus
+			if s, ok := ch.Value.(string); ok && s != "" && len(ch.At) == 1 && ch.At[0] == "GITHUB_TOKEN" {
+				msg = strings.ReplaceAll(msg, s, "***")
+			}
+		}
+		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: msg}}}, nil
+	}
+	return a.configSave(fileKind, project, string(out), mtime)
 }
 
 // backendTest : étapes du test d'un backend du formulaire (pas forcément
