@@ -191,6 +191,33 @@ prefer: podman                       # backend proposé par défaut (facultatif)
 Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
 l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
 
+**Éditer le projet** (v6.1.0, #148) : clic droit sur un projet de l'arbre, puis **Ouvrir**, **Fermer** (grisé si
+fermé), **⚙ Réglages du projet…**, **Changer de backend…** (F2), **Environnement du conteneur…**, **Couleur…**,
+**Éditer env.yaml en YAML**. Les réglages ouvrent la rubrique **Projet** de la fenêtre Réglages
+(`⚙ config`) ; « Changer de backend… », « Environnement du conteneur… » et « Couleur… » y placent le curseur sur
+leur champ. « Éditer env.yaml en YAML » ouvre l'éditeur de texte sur le fichier du projet.
+
+La rubrique **Projet** contient :
+
+- **Exécution** : le backend (`host` ou backend conteneur) et l'image de base, modifiables **projet fermé
+  seulement** (ouvert ici, ou par l'autre launcher qui le tient, ils sont désactivés avec un message) ; le backend
+  préféré ; la couleur du projet (pastilles de la palette `COLOR_PALETTE`, ou automatique).
+- **Environnement du conteneur** : image, paquets (par gestionnaire, `apt: git jq`), `setup`, `on_start`, `watch`,
+  `local`, montages (`chemin[:rw]`). Un montage sans `:rw` est **en lecture seule**. Un backend `host` n'a pas
+  d'image : le champ est ignoré.
+- **Aperçu fusionné** : l'environnement tel qu'il sera lancé, ligne par ligne, avec la provenance de chaque élément
+  (`template` en violet, `launcher` en bleu, sinon le projet) ; il se rafraîchit pendant la saisie.
+
+**Enregistrer** contrôle d'abord le fichier `env.yaml` (validation, conflit, copie `.bak`) : une erreur ou un conflit
+(**recharger** ou **écraser**) arrête tout, rien n'est écrit. Le backend, l'image et la couleur sont écrits ensuite.
+Si une étape échoue après l'écriture de `env.yaml`, la fenêtre indique ce qui a été enregistré et ce qui ne l'a pas
+été. Seule la couleur du projet est écrite dans `config.conf` (les autres lignes, commentaires compris, sont
+conservées). Le pied de la rubrique propose « Éditer env.yaml en YAML », Annuler et Enregistrer.
+
+Limites : la couleur d'un projet déjà ouvert n'est prise qu'à sa prochaine ouverture ; la liste des montages est
+réécrite en bloc (ses commentaires internes sont perdus) ; `env.yaml` est reformaté à l'enregistrement, sans diff
+minimal.
+
 #### Environnement fourni par le template : `env-template.yaml` (v5.5.0)
 
 Deux fichiers versionnés, chacun avec **un seul propriétaire** :
