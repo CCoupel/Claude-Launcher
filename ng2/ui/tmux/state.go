@@ -177,7 +177,9 @@ func toggleCmd(s Selection, cfg core.Config, pane string) tea.Cmd {
 			}
 		}
 		t := tmuxFn(pw.t)
+		unlock := lockWin(pw) // @cl_panevis écrit sous le verrou de la fenêtre, comme le watcher
 		res := core.TogglePane(t, pw.win, core.ProjectHome(t, pw.win, pw.isCtr()), tc, pane, pw.isCtr())
+		unlock()
 		if !res.OK {
 			return toggleMsg{path: s.Path, msg: res.Msg}
 		}
@@ -425,8 +427,6 @@ var teamShown = lipgloss.NewStyle().Bold(true) // nom d'un pane visible : surbri
 // teamState : état d'un teammate lancé, en fin de ligne.
 func teamState(l core.TeamLine) string {
 	switch {
-	case l.Hidden && l.Pinned:
-		return core.Dim.Render("caché")
 	case l.Hidden:
 		return core.Dim.Render("caché")
 	case l.Pinned:

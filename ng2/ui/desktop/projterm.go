@@ -1056,7 +1056,10 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	}
 	f, inCtr := t.tmuxFn(), !t.host
 	home := core.ProjectHome(f, t.win, inCtr)
-	if r := core.TogglePane(f, t.win, home, tc, pane, inCtr); !r.OK {
+	t.pubMu.Lock() // @cl_panevis écrit hors d'un tour du watcher
+	r := core.TogglePane(f, t.win, home, tc, pane, inCtr)
+	t.pubMu.Unlock()
+	if !r.OK {
 		return false, r.Msg
 	}
 	t.tick(false) // règle appliquée, visibles remis en page, cartes renvoyées

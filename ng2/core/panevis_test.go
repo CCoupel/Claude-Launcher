@@ -447,3 +447,54 @@ func TestApplyPaneVisReturnInCompactWindow(t *testing.T) {
 		t.Fatal("pane non revenu dans la fenêtre")
 	}
 }
+
+func waitProcs(t *testing.T, i isoTmux, want string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		out, _ := exec.Command("pgrep", "-fc", "^sleep "+i.marker+"$").Output()
+		if strings.TrimSpace(string(out)) == want {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("processus « sleep » = %s, attendu %s", strings.TrimSpace(string(out)), want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// critical : le leader est déjà parti (sa fenêtre avec lui) quand la fermeture
+// arrive : les panes cachés ne restent pas orphelins (hub, puis conteneur).
+func TestStopSessionLeaderAlreadyGone(t *testing.T) {
+	i := newIsoTmux(t)
+	if _, err := i.run("new-session", "-d", "-s", "hub", "-x", "120", "-y", "40", "-n", "autre", i.sleepCmd()); err != nil {
+		t.Skipf("tmux inutilisable ici : %v", err)
+	}
+	i.must(t, "new-window", "-d", "-t", "=hub:", "-n", "proj", i.sleepCmd())
+	win := "=hub:=proj"
+	leader := i.must(t, "display-message", "-p", "-t", win, "#{pane_id}")
+	b := i.must(t, "split-window", "-d", "-P", "-F", "#{pane_id}", "-t", leader, i.sleepCmd())
+	if err := hidePane(i.run, win, b, ProjectHome(i.run, win, false)); err != nil {
+		t.Fatal(err)
+	}
+	i.must(t, "kill-pane", "-t", leader) // seul pane visible : la fenêtre disparaît
+	waitProcs(t, i, "2")                 // autre + pane caché
+	if err := StopSession(i.run, win, false, time.Second, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	waitProcs(t, i, "1")
+	if _, err := i.run("has-session", "-t", "="+HiddenSession); err == nil {
+		t.Fatal("réserve conservée")
+	}
+
+	// conteneur : session « cl » disparue, pane caché rattaché à « ctr »
+	w2 := i.must(t, "new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "=hub:", i.sleepCmd())
+	c := i.must(t, "split-window", "-d", "-P", "-F", "#{pane_id}", "-t", w2, i.sleepCmd())
+	if err := hidePane(i.run, "=hub:"+w2, c, HomeCtr); err != nil {
+		t.Fatal(err)
+	}
+	if err := StopSession(i.run, "="+CtrSession+":", true, time.Second, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	waitProcs(t, i, "2") // autre + w2 ; le pane caché est parti
+}
