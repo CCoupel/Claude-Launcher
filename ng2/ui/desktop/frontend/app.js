@@ -92,9 +92,15 @@ async function clipRead() {
   try { return { ok: true, text: await navigator.clipboard.readText() }; } catch (e) { return { ok: false, msg: 'lecture refusée par le navigateur : ' + e.message }; }
 }
 // Résultat de termInput : vide si la saisie est partie ; sinon {ok:false, msg}.
+const termInLast = {}; // motif -> date du dernier message (au plus un par seconde et par motif, comme côté Go)
+const isMouseInput = (a) => a.binary || /^\x1b\[(<|M)/.test(a.data || ''); // souris X10 / SGR : jamais de message
 const termIn = (a) => call('termInput', a).then((r) => {
-  if (r && r.ok === false) { // reason : 'readonly' (un autre launcher a la main) | 'toobig' (collage > 4 Mo)
-    flashBrief('⚠ ' + (r.msg || (r.reason === 'readonly' ? 'lecture seule : saisie refusée' : 'saisie refusée')), 4000);
+  if (r && r.ok === false && !isMouseInput(a)) { // reason : 'readonly' (un autre launcher a la main) | 'toobig' (collage > 4 Mo)
+    const k = r.reason || 'refus', now = Date.now();
+    if (!termInLast[k] || now - termInLast[k] >= 1000) {
+      termInLast[k] = now;
+      flashBrief('⚠ ' + (r.msg || (r.reason === 'readonly' ? 'lecture seule : saisie refusée' : 'saisie refusée')), 4000);
+    }
   }
   return r;
 });
