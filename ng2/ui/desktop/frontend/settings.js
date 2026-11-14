@@ -741,8 +741,9 @@ async function pjSave() {
   if (ch.length) arg.env = { mtime: pj.mtime, changes: ch };
   let r;
   try { r = await call('projectApply', arg); } catch (e) { return; }
-  if (!r.ok && r.env && r.env.saved) { // résultat partiel : env.yaml écrit, la suite a échoué — relire (nouvelle date) et dire quoi
-    const msg = (r.msg || 'refusé') + ' — env.yaml enregistré' + (r.colorSaved ? ', couleur enregistrée' : '') + '.';
+  if (!r.ok && ((r.env && r.env.saved) || r.colorSaved)) { // résultat partiel : env.yaml et/ou couleur écrits, la suite a échoué — relire (nouvelle date) et dire quoi
+    const done = [(r.env && r.env.saved) ? 'env.yaml' : '', r.colorSaved ? 'couleur' : ''].filter(Boolean).join(' et ');
+    const msg = (r.msg || 'refusé') + ' — ' + done + ' enregistré' + (done.includes(' et ') ? 's' : '') + '.';
     await pjLoad();
     if (ST.pj) ST.pj.res = { msg };
     stRender(); return;
