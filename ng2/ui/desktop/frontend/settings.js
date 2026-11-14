@@ -628,14 +628,14 @@ function docChanges(id) {
     const bp = (t) => stLines(t).map((l) => { const [a, rest] = l.split('=>'); const [h, os] = (rest || '').split('|'); const r = { container: (a || '').trim(), host: (h || '').trim() }; if (os && os.trim()) r.os = os.trim(); return r; });
     put(['paths'], pa(d.txt.paths), pa(o.txt.paths), !pa(d.txt.paths).length);
     put(['browser_paths'], bp(d.txt.browser_paths), bp(o.txt.browser_paths), !bp(d.txt.browser_paths).length);
-    // objets : un changement par clé (un `set` d'objet fusionne côté Go, il ne retirerait pas une clé vidée)
-    const sub = (obj, k, nv, ov) => { if (JSON.stringify(nv) !== JSON.stringify(ov)) ch.push(nv === undefined ? { op: 'delete', at: [obj, k] } : { op: 'set', at: [obj, k], value: nv }); };
+    // objets entiers : le Go fusionne clé à clé et retire les clés vides ou absentes ; delete seulement si le fichier avait des clés
     const str = (v) => (v.trim() ? v.trim() : undefined), num = (v) => (v === '' ? undefined : Number(v));
-    for (const k of ['listen', 'url']) sub('browser_server', k, str(d.f[k]), str(o.f[k]));
+    const clean = (o2) => { const r = {}; for (const k of Object.keys(o2)) if (o2[k] !== undefined) r[k] = o2[k]; return r; };
     const al = (t) => { const a = stLines(t); return a.length ? a : undefined; };
-    sub('browser_server', 'allow', al(d.txt.allow), al(o.txt.allow));
-    for (const k of ['uid', 'gid']) sub('remote_user', k, num(d.f[k]), num(o.f[k]));
-    for (const k of ['name', 'home']) sub('remote_user', k, str(d.f[k]), str(o.f[k]));
+    const bsv = (D2) => clean({ listen: str(D2.f.listen), url: str(D2.f.url), allow: al(D2.txt.allow) });
+    const ruv = (f) => clean({ uid: num(f.uid), gid: num(f.gid), name: str(f.name), home: str(f.home) });
+    put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
+    put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
     for (const k of ['hub_cache', 'browser_device']) put([k], d.f[k].trim(), o.f[k].trim(), !d.f[k].trim());
   }
   return ch;
