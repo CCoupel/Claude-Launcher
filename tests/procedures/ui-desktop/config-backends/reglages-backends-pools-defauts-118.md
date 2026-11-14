@@ -131,9 +131,30 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 
 ---
 
+### Scenario 8 — Echange de noms et chaine de renommages dans un meme enregistrement
+
+**Validation** : HUMAIN — **Issues** : #118
+
+**Objectif** : l'ordonnancement des renommages de l'interface (`stOrderRenames`, JS, sans test automatique) ne perd ni n'ecrase aucun backend. Prerequis : trois backends factices `A`, `B`, `C` de types differents (ex. `A` docker, `B` podman, `C` ssh), `defaults.backend: A`, et si possible un pool cite par `A`. Sauvegarde du fichier avant (`cp backends.yaml avant.yaml`).
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Sans enregistrer : renommer `A` en `B` et `B` en `A` (echange), puis Enregistrer | Pas de refus « nom pris » ; le fichier contient `A` (ancien contenu de `B`, podman) et `B` (ancien contenu de `A`, docker) ; trois backends ; commentaires conserves | | |
+| 2 | Verifier les references (`defaults.backend`, pool, backend par defaut affiche) | Suivent le renommage voulu par l'interface (ou restent coherentes) : aucune reference pendante, fichier « ✓ valide » | | |
+| 3 | Restaurer `avant.yaml`, puis renommer `A`→`B` et `B`→`C` (chaine) dans le meme enregistrement | Resultat : l'ancien `B` s'appelle `C`, l'ancien `A` s'appelle `B` ; aucun ecrase ; trois backends | | |
+| 4 | Chaine plus longue `A`→`B`, `B`→`C`, `C`→`D` | Quatre noms finaux corrects (`B`, `C`, `D` + inchange) sans perte | | |
+| 5 | Cycle a trois `A`→`B`, `B`→`C`, `C`→`A` | Contenus permutes correctement, aucun backend perdu | | |
+| 6 | Renommage vers un nom deja existant sans que ce dernier soit renomme (`A`→`B` seul) | Refus clair (nom pris), fichier inchange | | |
+| 7 | `diff avant.yaml backends.yaml` apres chaque cas accepte | Seuls les noms (et les references suivies) changent ; contenu de chaque backend rattache au bon nom ; commentaires conserves | | |
+| 8 | Backend `.bak` | Copie de l'etat precedent | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Criteres de Validation
 
-- [ ] Scenarios 1 a 7 passent sur Windows natif
+- [ ] Scenarios 1 a 8 passent sur Windows natif
 - [ ] Aucun commentaire ni ordre perdu, jamais de fichier invalide ecrit
 - [ ] « Editer en texte » reste fonctionnel pour les rubriques non couvertes
 
