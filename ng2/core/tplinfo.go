@@ -1,6 +1,7 @@
 package core
 
 import (
+	"cmp"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -86,10 +87,7 @@ func ReadTplInfo(proj string) TplInfo {
 func (ti TplInfo) Apply(lines []TeamLine) []TeamLine {
 	for i := range lines {
 		l := &lines[i]
-		name := l.Name
-		if name == "leader" {
-			name = "teamleader"
-		}
+		name := cmp.Or(l.Agent, registryName[l.Name], l.Name) // entrée du registre, pas le nom d'instance
 		l.TplTarget = ti.Target
 		l.CompanionFile = ti.Files[name]
 		l.Companion = l.Companion || l.CompanionFile != ""

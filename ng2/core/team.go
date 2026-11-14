@@ -205,6 +205,7 @@ func LiveTeam(tm []Teammate, proj string, panes []PaneInfo) []Teammate {
 // registre non démarrés.
 type TeamLine struct {
 	Name, Tag     string
+	Agent         string // entrée du registre du template (deploy pour « deployer »)
 	Companion     bool
 	Model, Effort string
 	Claude        string // version de claude si lancé
@@ -230,6 +231,13 @@ func TeamLines(tm []Teammate, proj string, panes []ProjPane, choices map[string]
 		live[p.ID] = true
 	}
 	return TeamLinesFor(tm, teamMembers(proj, live), panes, choices, hideIdle, now)
+}
+
+// registryName : nom de teammate dans la team → entrée du registre du template,
+// quand ils diffèrent (CLAUDE.md, table « Agents Disponibles » : colonne Fichier).
+var registryName = map[string]string{
+	"deployer": "deploy", "planner": "implementation-planner", "marketing": "marketing-release",
+	"teamleader": "teamleader", "leader": "teamleader",
 }
 
 // LiveMembers : membres d'une team déjà lue (tc) dont le pane est vivant ; pour
@@ -283,11 +291,14 @@ func TeamLinesFor(tm []Teammate, members map[string]TeamMember, panes []ProjPane
 			name, typ = "leader", "teamleader"
 		}
 		t := reg[typ]
-		if t.Name == "" {
-			t = reg[name]
+		for _, k := range []string{name, registryName[name], registryName[typ]} {
+			if t.Name == "" {
+				t = reg[k]
+			}
 		}
-		started[typ], started[name] = true, true
-		l := TeamLine{Name: name, Tag: t.Tag, Companion: t.Companion, Model: cmp.Or(mb.Model, t.Model), Effort: t.Effort,
+		agent := cmp.Or(t.Name, typ)
+		started[typ], started[name], started[agent] = true, true, true
+		l := TeamLine{Name: name, Agent: agent, Tag: t.Tag, Companion: t.Companion, Model: cmp.Or(mb.Model, t.Model), Effort: t.Effort,
 			Claude: claudeVersion(p.Cmd, p.PID), Pane: p.ID, Started: true, Hidden: p.Hidden,
 			Pinned: choices[p.ID] == visPinned}
 		l.Active = ok && mb.IsActive
