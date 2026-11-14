@@ -1001,8 +1001,9 @@ restaurer), chaque pane est recapturé et la team est remise en page à la nouve
 - connexion claude.ai : l'alerte ouvre un onglet `login` qui lance `claude /login` **sur ce
   poste** (claude doit y être installé) ; sinon, `/login` se tape dans le leader d'un projet ouvert.
 
-**Fichiers de configuration** (#117) : « Éditer en YAML » (pied de la fenêtre Réglages, #118), « Fichiers YAML » et `⚙ env.yaml` dans les cartes d'un projet ouvrent un éditeur en **texte brut (YAML)**, d'où « ← Réglages » ramène à la fenêtre Réglages (sur la rubrique d'origine ; proposition d'enregistrer si le texte a changé), (commentaires et mise en forme
-gardés) des fichiers du launcher :
+**Fichiers de configuration** (#117) : « Éditer en YAML » (pied de la fenêtre Réglages, #118), « Fichiers YAML » et `⚙ env.yaml` dans les cartes d'un projet ouvrent un éditeur en **texte brut** (commentaires et mise en forme gardés) des fichiers du launcher ;
+« ← Réglages » y ramène à la fenêtre Réglages, sur la rubrique d'origine, avec une proposition d'enregistrer si le
+texte a changé :
 
 | Fichier | Emplacement | Validé par |
 |---|---|---|
