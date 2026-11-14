@@ -269,3 +269,30 @@ func TestCloseProjectKillsHiddenTeammates(t *testing.T) {
 		}
 	}
 }
+
+// Carte Team : ● vert si le template est à jour (ou neutre), ▲ orange s'il est
+// en retard (version enregistrée → cible), « + » devant le nom avec compagnon.
+func TestTeamCardTemplateState(t *testing.T) {
+	m := stateModel{cfg: visCfg(), w: 100, h: 60, loaded: true, hasSel: true, sel: Selection{Name: "p", Key: "p", Path: t.TempDir()}}
+	m.panes = paneData{open: true, lines: []core.TeamLine{
+		{Name: "dev-a", Pane: "%2", Started: true, Tag: "v5.9.2", TplState: core.TplLineOK, TplTarget: "v5.9.2"},
+		{Name: "dev-b", Pane: "%3", Started: true, Tag: "v5.8.0", TplState: core.TplLineLate, TplTarget: "v5.9.2", Companion: true, CompanionFile: "dev-b.md"},
+		{Name: "qa", Tag: "v5.9.2", TplState: core.TplLineOK},
+		{Name: "neutre", Pane: "%4", Started: true},
+	}}
+	rows := strings.Split(m.teamBody(98), "\n")
+	if len(rows) != 4 {
+		t.Fatalf("lignes : %q", rows)
+	}
+	for i, want := range []string{"●", "▲", "○", "●"} {
+		if !strings.Contains(rows[i], want) {
+			t.Errorf("ligne %d : %q sans %s", i, rows[i], want)
+		}
+	}
+	if !strings.Contains(rows[1], "+dev-b") || !strings.Contains(rows[1], "v5.8.0→v5.9.2") {
+		t.Errorf("retard : %q", rows[1])
+	}
+	if strings.Contains(rows[0], "+dev-a") || strings.Contains(rows[0], "→") {
+		t.Errorf("à jour : %q", rows[0])
+	}
+}

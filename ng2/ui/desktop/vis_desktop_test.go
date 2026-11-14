@@ -202,3 +202,19 @@ func TestTeamToggleHidesPane(t *testing.T) {
 		t.Fatalf("lecture seule : %v", res)
 	}
 }
+
+// Champs du contrat (cycle 4) : état du template, cible et compagnon repris des
+// lignes de la carte.
+func TestTeamRowsTemplateFields(t *testing.T) {
+	rows := teamRows([]core.TeamLine{
+		{Name: "dev-b", Started: true, Tag: "v5.8.0", TplState: core.TplLineLate, TplTarget: "v5.9.2", Companion: true, CompanionFile: "dev-b.md"},
+		{Name: "qa"},
+	})
+	if r := rows[0]; r.TplState != "late" || r.TplTarget != "v5.9.2" || r.CompanionFile != "dev-b.md" || !r.Companion {
+		t.Fatalf("ligne : %+v", r)
+	}
+	b, _ := json.Marshal(rows[1])
+	if !strings.Contains(string(b), `"tplState":""`) {
+		t.Fatalf("tplState absent du JSON neutre : %s", b)
+	}
+}
