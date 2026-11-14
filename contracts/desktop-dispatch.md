@@ -138,9 +138,13 @@ facultative et indépendante.
 - `env.changes` : mêmes opérations que `configApply` (`set` / `delete` / `rename`), appliquées à l'`env.yaml` du
   projet (commentaires et ordre conservés, reformatage accepté) ; `env.mtime` : date à l'ouverture
   (`envMtime`), conflit si le fichier a changé depuis.
-- Confirmé (cycle frontend) : un montage sans `ro` est en lecture seule (le modèle ne rend `ro` que s'il est écrit
-  dans le fichier) ; `color: ""` = couleur automatique, `color` absent = inchangé ; `backend: "host"` n'a pas besoin
-  d'`image` (ignorée) ; `image` seule garde le backend actuel (refus s'il n'y en a pas).
+- **Règles figées** :
+  1. un montage sans `ro` est en lecture seule (le modèle ne rend `ro` que s'il est écrit dans le fichier) ;
+  2. `color: ""` = couleur automatique (l'entrée est retirée de `PROJECT_COLORS`), `color` absent = inchangé ;
+  3. `backend: "host"` : l'image est ignorée ; backend conteneur sans `image` : l'image de l'environnement actuel
+     est reprise, et s'il n'y en a pas, refus `{ "ok": false, "msg": "image de base à choisir pour un backend
+     conteneur" }`. `image` seule (sans `backend`) garde le backend actuel (refus « backend à choisir avec l'image »
+     s'il n'y en a pas ou s'il est `host`).
 - Ordre : contrôles sans écriture (refus projet ouvert, backend, image, couleur), puis `env`, puis `color`, puis
   `backend`/`image`. Un échec de `env` (invalide, conflit) arrête tout avant toute autre écriture.
 
