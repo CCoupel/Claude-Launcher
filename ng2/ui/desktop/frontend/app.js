@@ -64,6 +64,74 @@ const S = {
 
 function flash(m) { const e = $('msg'); e.textContent = m; }
 
+// Message bref dans le pied de volet : s'efface seul s'il n'a pas été remplacé entre-temps.
+let flashTimer = null;
+function flashBrief(m, ms) {
+  flash(m);
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { if ($('msg').textContent === m) flash(''); }, ms || 2500);
+}
+
+// ── Presse-papiers et collage dans les terminaux (#155, LOT-4) ──────────────
+// Fenêtre native : clipboardWrite / clipboardRead du Go (presse-papiers du poste, sans invite
+// WebView2). « unavailable » (--web) : navigator.clipboard, en contexte sécurisé seulement.
+async function clipCall(method, args) {
+  try { return (await transport.call(method, args)) || { ok: false, unavailable: true }; }
+  catch (e) { return { ok: false, unavailable: true, msg: e.message }; }
+}
+async function clipWrite(text) {
+  const r = await clipCall('clipboardWrite', { text });
+  if (r.ok || !r.unavailable) return r;
+  if (!window.isSecureContext || !navigator.clipboard) return { ok: false, msg: r.msg || 'presse-papiers indisponible : page hors contexte sécurisé (utiliser http://localhost)' };
+  try { await navigator.clipboard.writeText(text); return { ok: true }; } catch (e) { return { ok: false, msg: 'copie refusée par le navigateur : ' + e.message }; }
+}
+async function clipRead() {
+  const r = await clipCall('clipboardRead', {});
+  if (r.ok || !r.unavailable) return r;
+  if (!window.isSecureContext || !navigator.clipboard) return { ok: false, msg: r.msg || 'presse-papiers indisponible : page hors contexte sécurisé (utiliser http://localhost)' };
+  try { return { ok: true, text: await navigator.clipboard.readText() }; } catch (e) { return { ok: false, msg: 'lecture refusée par le navigateur : ' + e.message }; }
+}
+// Résultat de termInput : vide si la saisie est partie ; sinon {ok:false, msg}.
+const termIn = (a) => call('termInput', a).then((r) => {
+  if (r && r.ok === false) { // reason : 'readonly' (un autre launcher a la main) | 'toobig' (collage > 4 Mo)
+    flashBrief('⚠ ' + (r.msg || (r.reason === 'readonly' ? 'lecture seule : saisie refusée' : 'saisie refusée')), 4000);
+  }
+  return r;
+});
+
+// Copie / collage d'un terminal. clip = { term, readOnly(): bool } ; la saisie collée passe par term.paste
+// (collage entre crochets si le programme l'a demandé), donc par le onData du terminal.
+async function clipCopy(term) {
+  if (!term.hasSelection()) return;
+  const r = await clipWrite(term.getSelection());
+  if (r.ok) flashBrief('Copié'); else flashBrief('⚠ Copie impossible : ' + (r.msg || 'refusée'), 4000);
+}
+async function clipPaste(clip) {
+  if (clip.readOnly()) { flashBrief('⚠ Collage refusé : projet en lecture seule (un autre launcher a la main)', 4000); return; }
+  const r = await clipRead();
+  if (!r.ok) { flashBrief('⚠ Collage impossible : ' + (r.msg || 'refusé'), 4000); return; }
+  if (!r.text) { flashBrief('Presse-papiers vide (pas de texte)'); return; }
+  clip.term.paste(r.text);
+}
+function attachClip(clip) {
+  const term = clip.term, el0 = term.element;
+  if (!el0) return;
+  // copie à la fin de la sélection (bouton relâché, même hors du terminal)
+  el0.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const up = () => { document.removeEventListener('mouseup', up, true); setTimeout(() => clipCopy(term), 0); };
+    document.addEventListener('mouseup', up, true);
+  });
+  // clic droit : coller ; si le programme suit la souris, Maj+clic droit
+  el0.addEventListener('contextmenu', (e) => {
+    let tracking = false;
+    try { tracking = term.modes.mouseTrackingMode !== 'none'; } catch (err) { /* API absente : collage */ }
+    if (tracking && !e.shiftKey) return;
+    e.preventDefault();
+    clipPaste(clip);
+  });
+}
+
 // ── Mesure des cellules du terminal ────────────────────────────────────────
 let cell = null;
 function measureCell() {
@@ -745,6 +813,9 @@ class ProjView {
     this.launch = newTerm({ convertEol: true, cursorBlink: true, theme: termTheme() });
     this.launch.open(this.launchEl);
     this.launch.onData((d) => call('launchInput', { path: this.path, data: d }));
+    const lclip = { term: this.launch, readOnly: () => !!this.ro };
+    this.launch.attachCustomKeyEventHandler((ev) => terminalKey(ev, lclip));
+    attachClip(lclip);
     this.focusPane = null;
     this.sent = null;
     this.borders();
@@ -796,6 +867,7 @@ class ProjView {
     this.launchBox.classList.toggle('hidden', ready);
     this.panesEl.classList.toggle('hidden', !ready);
     this.launchBox.style.inset = pty ? '4px' : '';
+    this.ro = !!m.readOnly;
     this.banner.classList.toggle('hidden', !m.readOnly);
     if (m.readOnly) this.banner.textContent = 'lecture seule : un autre launcher a la main — Entrée sur le projet pour la reprendre';
     this.fit();
@@ -887,8 +959,10 @@ class ProjView {
     term.open(x);
     refineCell(term);
     term.onData((d) => this.input(p.id, d));
-    term.onBinary((d) => call('termInput', { path: this.path, pane: p.id, data: d, binary: true })); // souris X10 (#135)
-    term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
+    term.onBinary((d) => termIn({ path: this.path, pane: p.id, data: d, binary: true })); // souris X10 (#135)
+    const clip = { term, readOnly: () => !!this.ro };
+    term.attachCustomKeyEventHandler((ev) => terminalKey(ev, clip));
+    attachClip(clip);
     term.textarea && term.textarea.addEventListener('focus', () => { this.focusPane = p.id; S.focusNav = false; call('termFocus', { path: this.path, pane: p.id }); });
     head.addEventListener('dblclick', () => this.zoom(p.id));
     head.addEventListener('click', () => term.focus());
@@ -909,11 +983,11 @@ class ProjView {
       S.prefix = false; this.prefixEl.classList.add('hidden');
       if (d === 'z') return this.zoom(pane);
       if (d === 'R' || d === 'r') return call('relayout', { path: this.path });
-      if (d === '\x02') return call('termInput', { path: this.path, pane, data: '\x02' });
-      return call('termInput', { path: this.path, pane, data: '\x02' + d });
+      if (d === '\x02') return termIn({ path: this.path, pane, data: '\x02' });
+      return termIn({ path: this.path, pane, data: '\x02' + d });
     }
     if (d === '\x02') { S.prefix = true; this.prefixEl.classList.remove('hidden'); return; }
-    call('termInput', { path: this.path, pane, data: d });
+    termIn({ path: this.path, pane, data: d });
   }
 }
 
@@ -937,8 +1011,15 @@ function paneBorder(panes, cx, cy, gap) {
 }
 
 // terminalKey : raccourcis de l'application pris dans un terminal (false : pas pour lui).
-function terminalKey(ev) {
+function terminalKey(ev, clip) {
   if (ev.type !== 'keydown') return true;
+  if (clip) {
+    // Ctrl+Maj+C copie la sélection (Ctrl+C reste l'interruption) ; Ctrl+V, Ctrl+Maj+V et Maj+Inser collent par
+    // ce seul chemin (preventDefault : pas de second collage par l'évènement natif « paste »)
+    const k = ev.key;
+    if (ev.ctrlKey && ev.shiftKey && !ev.altKey && (k === 'C' || k === 'c')) { ev.preventDefault(); clipCopy(clip.term); return false; }
+    if ((ev.ctrlKey && !ev.altKey && (k === 'V' || k === 'v')) || (ev.shiftKey && !ev.ctrlKey && k === 'Insert')) { ev.preventDefault(); clipPaste(clip); return false; }
+  }
   if (ev.ctrlKey && ev.key === 'Tab') { ev.preventDefault(); cycleTab(ev.shiftKey ? -1 : 1); return false; }
   if (ev.altKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && !ev.ctrlKey) { ev.preventDefault(); $('nav').focus(); S.focusNav = true; return false; }
   if (ev.ctrlKey && ev.shiftKey && (ev.key === 'W' || ev.key === 'w') && S.view !== 'leaders') { ev.preventDefault(); detachTab(S.view); return false; }
@@ -965,9 +1046,11 @@ const leaders = {
       this.grid.appendChild(tile);
       const term = newTerm({ cols: lp.w, rows: lp.h, cursorBlink: false });
       term.open(cl);
-      term.onData((d) => call('termInput', { path, pane: l.leader, data: d }));
-      term.onBinary((d) => call('termInput', { path, pane: l.leader, data: d, binary: true }));
-      term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
+      term.onData((d) => termIn({ path, pane: l.leader, data: d }));
+      term.onBinary((d) => termIn({ path, pane: l.leader, data: d, binary: true }));
+      const clip = { term, readOnly: () => !!((S.snap.tabs || []).find((x) => x.path === path) || {}).readOnly };
+      term.attachCustomKeyEventHandler((ev) => terminalKey(ev, clip));
+      attachClip(clip);
       term.textarea && term.textarea.addEventListener('focus', () => tile.classList.add('focus'));
       term.textarea && term.textarea.addEventListener('blur', () => tile.classList.remove('focus'));
       th.addEventListener('dblclick', () => showView(path, true));
