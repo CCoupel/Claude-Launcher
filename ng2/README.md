@@ -977,6 +977,7 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 | glisser dans un pane (`Maj`+glisser si l'agent suit la souris) | sélectionner du texte ; au relâcher, il est copié dans le presse-papiers (#155) |
 | `Ctrl+Maj+C` | recopier la sélection (`Ctrl+C` reste l'interruption de l'agent) |
 | `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser`, clic droit (`Maj`+clic droit si l'agent suit la souris) | coller dans le pane actif ; refusé en lecture seule, avec un message |
+| `Ctrl+B` puis `Ctrl+V` | envoyer `^V` brut au programme du pane (collage d'image de Claude Code, vim, nano) |
 | `Ctrl+B z` / `Ctrl+B R` / `Ctrl+B Ctrl+B` | plein écran / remettre en ordre la team / envoyer `Ctrl+B` à l'agent |
 | `Ctrl+Maj+W`, `×` de l'onglet | détacher l'onglet (la session continue) |
 | `Échap` | quitter : `l` l'interface seule (projets gardés), `t` puis `o` tout fermer |
@@ -987,10 +988,9 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
   `Ctrl+Maj+C` la recopie. `Ctrl+C` n'est pas une copie : il envoie l'interruption à l'agent ;
 - coller se fait par `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser` ou clic droit, dans le pane actif. Le texte arrive en un
   bloc (plusieurs lignes d'un coup, sans perte) ;
-- **`Ctrl+V` ne parvient plus au programme du pane** : il colle le presse-papiers du poste. Un programme qui lit son
-  propre presse-papiers (vim, nano, collage d'image de Claude Code) ne reçoit donc pas la touche depuis l'interface
-  native. Aucun chemin d'envoi n'existe aujourd'hui : `Ctrl+B` puis `Ctrl+V` ne l'envoie pas (la saisie est
-  interceptée avant le préfixe, qui reste armé pour la touche suivante) ; `Ctrl+B Ctrl+B` n'envoie que `Ctrl+B` ;
+- **`Ctrl+V` colle le presse-papiers du poste, il n'est pas envoyé au programme du pane.** Pour envoyer un `^V` brut
+  (collage d'image de Claude Code, vim, nano), taper **`Ctrl+B` puis `Ctrl+V`** : le programme du pane reçoit `^V`
+  (`Ctrl+B Ctrl+B` n'envoie que `Ctrl+B`) ;
 - lecture seule (projet piloté par un autre launcher) et vignettes Teamleaders : **copier reste permis**, **coller
   est refusé** avec un message en pied de volet ; le presse-papiers n'est pas lu dans ce cas ;
 - texte seulement ; un collage est limité à **4 Mo** et une copie à **8 Mo** (au-delà, refus avec message) ;
