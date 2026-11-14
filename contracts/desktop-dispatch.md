@@ -239,3 +239,19 @@ launcher). `configApply` : mêmes `changes` que `projectApply.env` (`set` / `del
 `configApply` : `at` est relatif à la section de la machine (`["paths"]`, `["windows", "hub_cache"]`) ; mêmes
 opérations et résultat que pour `backends.yaml` (fichier, validation et conflit communs : `mtime` est celui de
 `backends.yaml`).
+
+### Règles figées (LOT-3.3)
+
+1. **Formes des valeurs envoyées** (config.conf) : `int` en nombre, `bool` en booléen, `string`/`path`/`enum` en
+   chaîne, `list` en tableau de chaînes, `intlist` (`COLOR_PALETTE`) en tableau de nombres OU de chaînes numériques
+   (le modèle les rend en chaînes `["17","52"]`).
+2. **Valeur vide = `delete`** : pour retirer un réglage, envoyer `{ "op": "delete", "at": [clé] }` (config.conf :
+   retour au défaut, sans effet si la clé n'est pas écrite). Pour `hub`, `env.yaml` et `backends.yaml`, un `delete`
+   d'une clé ABSENTE est une erreur (`invalid`, « introuvable ») : ne le demander que si le modèle la montre écrite.
+3. **Objets entiers** : `browser_server` (`{ listen, url, allow }`) et `remote_user` (`{ uid, gid, name, home }`) sont
+   envoyés en un seul `set` d'objet ; il est fusionné clé à clé (les clés absentes ou vides sont retirées, `uid` et
+   `gid` en nombres). `paths` : `[ { local, remote } ]` ; `browser_paths` : `[ { container, host, os? } ]` ; les listes
+   sont remplacées en bloc.
+4. **env.yaml du launcher** : `at` = `["packages"]`, `["setup"]`, `["on_start"]` ou `["packages_by_manager"]` (toute
+   autre clé est refusée par la validation).
+
