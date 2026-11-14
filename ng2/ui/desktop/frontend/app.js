@@ -347,9 +347,17 @@ function renderCards() {
     for (const m of c.team) {
       const on = !!m.started || !!m.claude;
       const r = el('div', 'tr' + (on && !m.hidden ? ' vis' : '') + (on ? '' : ' off'));
-      r.append(el('span', on ? 't-green' : 't-dim', on ? '●' : '○'), el('span', 'n', m.name),
+      // état du template (#136) : ● vert à jour, ▲ orange en retard (○ pour un non démarré, mêmes couleurs) ; neutre : comme avant
+      const late = m.tplState === 'late', ok = m.tplState === 'ok';
+      const mark = el('span', late ? 't-orange' : ok ? 't-green' : on ? 't-green' : 't-dim', late && on ? '▲' : on ? '●' : '○');
+      r.append(mark, el('span', 'n', (m.companion ? '+ ' : '') + m.name),
         el('span', 'v', on ? (m.claude || '') : ''), el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')));
-      r.title = !on ? 'non démarré' : m.name === 'leader' ? 'leader' : m.active ? 'actif' : m.hidden ? 'caché' : m.pinned ? 'visible (fixé)' : 'visible' + (m.idleLeft ? ' · ' + m.idleLeft + ' s' : '');
+      const st = !on ? 'non démarré' : m.name === 'leader' ? 'leader' : m.active ? 'actif' : m.hidden ? 'caché' : m.pinned ? 'visible (fixé)' : 'visible' + (m.idleLeft ? ' · ' + m.idleLeft + ' s' : '');
+      const tip = [st];
+      if (m.tplState) tip.push('template ' + (m.tag || '?') + (m.tplTarget ? ' — cible ' + m.tplTarget : ' — version cible inconnue') + (late ? ' (en retard)' : ' (à jour)'));
+      else if (m.tag && !m.tplTarget) tip.push('template ' + m.tag + ' — version cible inconnue');
+      if (m.tplState || m.tag || m.tplTarget) tip.push(m.companion ? 'compagnon : oui' + (m.companionFile ? ' (' + m.companionFile + ')' : '') : 'compagnon : non');
+      r.title = tip.join('\n');
       if (on && m.pane) r.onclick = () => {
         const now = Date.now(), k = c.path + '|' + m.pane;
         if (teamClick.key === k && now - teamClick.at < 450) {
