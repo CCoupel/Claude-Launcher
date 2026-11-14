@@ -154,7 +154,7 @@ func (a *App) configReload(kind core.ConfigKind) string {
 // d'ouverture, pour l'écran Réglages. Fichier absent : modèle vide.
 func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any, error) {
 	if kind != core.ConfBackends {
-		return nil, fmt.Errorf("pas de modèle structuré pour %s (voir « Éditer en texte »)", kind)
+		return nil, fmt.Errorf("pas de modèle structuré pour %s (voir « Éditer en YAML »)", kind)
 	}
 	d, err := a.configOpen(kind, project)
 	if err != nil {
