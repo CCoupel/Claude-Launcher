@@ -106,21 +106,27 @@ func TestConfigStructuredCalls(t *testing.T) {
 	if _, err := a.configSave(core.ConfBackends, "", "backends: {}\nhubs:\n  PC1:\n    pathz: []\n", c["mtime"].(string)); err != nil {
 		t.Fatal(err)
 	}
-	a.mu.Lock()
-	n := len(a.hubWarns)
-	a.mu.Unlock()
-	if n == 0 {
+	warns := func() int { // relus hors de la réponse (a.mu) : attente conditionnelle
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		return len(a.hubWarns)
+	}
+	waitWarns := func(want func(int) bool) int {
+		end := time.Now().Add(5 * time.Second)
+		for !want(warns()) && time.Now().Before(end) {
+			time.Sleep(20 * time.Millisecond)
+		}
+		return warns()
+	}
+	if waitWarns(func(n int) bool { return n > 0 }) == 0 {
 		t.Fatal("faute de frappe dans hubs: non signalée après l'enregistrement")
 	}
 	st, _ = os.Stat(path)
 	if _, err := a.configSave(core.ConfBackends, "", "backends: {}\n", st.ModTime().Format(time.RFC3339Nano)); err != nil {
 		t.Fatal(err)
 	}
-	a.mu.Lock()
-	n = len(a.hubWarns)
-	a.mu.Unlock()
-	if n != 0 {
-		t.Fatalf("avertissement conservé après correction : %v", a.hubWarns)
+	if n := waitWarns(func(n int) bool { return n == 0 }); n != 0 {
+		t.Fatalf("avertissement conservé après correction : %d", n)
 	}
 }
 
@@ -164,4 +170,54 @@ func TestBackendTestAndStatesCalls(t *testing.T) {
 	if h, ok := v.States["host"]; ok && !h.OK {
 		t.Fatalf("host : %+v", h)
 	}
+}
+
+// Réglages (#118) : les méthodes de la fenêtre ne doivent attendre aucun
+// verrou tenu pendant une opération lente (rafraîchissement des conteneurs,
+// partage réseau). a.mu est tenu 3 s : chaque appel répond tout de suite.
+func TestSettingsCallsDoNotWaitForAppLock(t *testing.T) {
+	sandbox(t, "", "alpha")
+	t.Setenv("PATH", t.TempDir())
+	var r recorder
+	a := newApp(t, r.emit)
+	a.storeBackends() // lecture des conteneurs déjà passée
+	release := make(chan struct{})
+	held := make(chan struct{})
+	go func() {
+		a.mu.Lock()
+		close(held)
+		<-release
+		a.mu.Unlock()
+	}()
+	<-held
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	calls := map[string]string{
+		"configModel":   `{"kind":"backends.yaml"}`,
+		"backendStates": `null`,
+		"backendTest":   `{"backend":{"name":"x","type":"docker","host":"tcp://10.9.9.9:2375"}}`,
+		"configApply":   `{"kind":"backends.yaml","mtime":"","changes":[{"op":"set","at":["backends","a"],"value":{"type":"podman"}}]}`,
+	}
+	for _, m := range []string{"configModel", "backendStates", "backendTest", "configApply"} {
+		done := make(chan error, 1)
+		t0 := time.Now()
+		go func() { _, err := a.Dispatch(m, json.RawMessage(calls[m])); done <- err }()
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("%s : %v", m, err)
+			}
+			if d := time.Since(t0); d > time.Second {
+				t.Errorf("%s : %v avec a.mu tenu", m, d)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatalf("%s attend a.mu", m)
+		}
+	}
+	close(release)
 }

@@ -103,6 +103,15 @@ var dockerContextHost = sync.OnceValue(func() string {
 	return strings.TrimSpace(out)
 })
 
+// WarmEngineEnv : lit d'avance le contexte docker actif (Windows seulement :
+// ailleurs rien ne l'interroge), pour que la première validation de
+// backends.yaml ne paie pas « docker context inspect ».
+func WarmEngineEnv() {
+	if runtime.GOOS == "windows" {
+		_ = dockerContextHost()
+	}
+}
+
 func runtimeEngineEnv() engineEnv {
 	return engineEnv{DockerHost: os.Getenv("DOCKER_HOST"), ContainerHost: os.Getenv("CONTAINER_HOST"), DockerContextHost: dockerContextHost}
 }

@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -58,6 +59,11 @@ type App struct {
 	hubCache   string   // cache d'état du hub Linux (hubs.<machine>.hub_cache)
 	hubWarns   []string // clés inconnues de hubs: dans backends.yaml (#127), ignorées
 
+	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
+	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
+	ctrFounds atomic.Pointer[[]core.Found]
+	bkSnap    atomic.Pointer[[]core.BackendConf]
+
 	dirty     chan struct{}
 	cardDirty chan struct{}
 	quit      chan struct{}
@@ -84,6 +90,7 @@ func NewApp(emit Emitter) *App {
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
 	a.perf.trace("démarrage : config", core.ConfigPath(), dConf)
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
+	go core.WarmEngineEnv() // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
 	a.perf.timed("démarrage : hubs", core.BackendsPath(), func() {
 		a.hubCache = core.HubCacheDir()
 		a.hubWarns = core.HubConfigWarnings() // faute de frappe dans hubs: (config partagée) : signalée
@@ -449,7 +456,26 @@ func (a *App) readCtr() {
 	a.mu.Lock()
 	a.ctr = v
 	a.mu.Unlock()
+	a.storeCtrSnapshots(v)
 	a.changed()
+}
+
+// storeCtrSnapshots : instantanés des conteneurs et des backends pour la fenêtre
+// Réglages, lisibles sans verrou (backendStates).
+func (a *App) storeCtrSnapshots(v core.CtrView) {
+	founds := make([]core.Found, 0, len(v.Found))
+	for _, f := range v.Found {
+		founds = append(founds, f)
+	}
+	a.ctrFounds.Store(&founds)
+	a.storeBackends()
+}
+
+// storeBackends : backends déclarés, relus (après un enregistrement de
+// backends.yaml, et à chaque lecture des conteneurs).
+func (a *App) storeBackends() {
+	bs, _ := core.LoadBackends()
+	a.bkSnap.Store(&bs)
 }
 
 func (a *App) readUsage() {

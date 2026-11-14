@@ -110,7 +110,7 @@ func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (
 	if st != nil {
 		out["mtime"] = st.ModTime().Format(time.RFC3339Nano)
 	}
-	a.setMsg("✓ " + f.Path + " enregistré (copie .bak)")
+	go a.setMsg("✓ " + f.Path + " enregistré (copie .bak)") // message de pied : sans attendre a.mu
 	return out, nil
 }
 
@@ -137,10 +137,16 @@ func (a *App) configReload(kind core.ConfigKind) string {
 	case core.ConfBackends:
 		// avertissements de hubs: relus : une faute corrigée (ou introduite) se voit
 		// tout de suite, pas seulement au prochain démarrage
-		w := core.HubConfigWarnings()
-		a.mu.Lock()
-		a.hubWarns = w
-		a.mu.Unlock()
+		// hors de la réponse : a.mu peut être tenu par une lecture lente, l'écran
+		// Réglages n'a pas à l'attendre
+		a.storeBackends()
+		go func() {
+			w := core.HubConfigWarnings()
+			a.mu.Lock()
+			a.hubWarns = w
+			a.mu.Unlock()
+			a.changed()
+		}()
 		go a.readCtr()
 		a.changed()
 	}
@@ -216,12 +222,17 @@ func (a *App) backendTest(be core.BackendEntry) map[string]any {
 // backendStates : état de chaque backend et charge des pools, depuis le cache
 // du diagnostic et la dernière lecture des conteneurs ; ne bloque pas.
 func (a *App) backendStates() map[string]any {
-	bs, _ := core.LoadBackends()
-	a.mu.Lock()
-	founds := make([]core.Found, 0, len(a.ctr.Found))
-	for _, f := range a.ctr.Found {
-		founds = append(founds, f)
+	// instantanés : ni a.mu ni lecture du fichier sur le chemin de la réponse
+	var bs []core.BackendConf
+	if p := a.bkSnap.Load(); p != nil {
+		bs = *p
+	} else {
+		bs, _ = core.LoadBackends() // avant la première lecture des conteneurs
+		a.bkSnap.Store(&bs)
 	}
-	a.mu.Unlock()
+	var founds []core.Found
+	if p := a.ctrFounds.Load(); p != nil {
+		founds = *p
+	}
 	return map[string]any{"states": core.BackendStates(bs), "load": core.PoolLoads(bs, founds)}
 }
