@@ -52,6 +52,7 @@ var helpSections = []helpSection{
 	}},
 	{"Zone tmux", []helpRow{
 		{"double-clic sur un pane", "plein écran, double-clic à nouveau pour revenir"},
+		{"Maj+glisser (terminal hôte)", "sélectionner du texte en contournant tmux (la souris est captée par tmux) ; la sélection traverse les panes, bordures comprises"},
 		{"Ctrl+B z", "idem au clavier"},
 		{"Ctrl+B R", "remettre en ordre les panes de la team"},
 		{"projet en conteneur ⬢", "Ctrl+B agit dans le conteneur ; Ctrl+B Ctrl+B = préfixe du hub"},

@@ -220,6 +220,7 @@ func RunWeb(addr string, open bool) error {
 		w.token = t
 	}
 	a := NewApp(w.emit)
+	a.web = true // le presse-papiers de cette machine n'est jamais exposé à un client web
 	w.app = a
 	// relance après une mise à jour : l'ancien processus vient de libérer le port
 	ln, err := listenRetry(addr, 10*time.Second)

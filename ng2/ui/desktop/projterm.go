@@ -76,6 +76,8 @@ type projTerm struct {
 	vis             []core.ProjPane   // panes du projet, cachés compris (carte Team, #136)
 	visChoices      map[string]string // choix manuels (@cl_panevis)
 	visSig          string            // état visible/caché/actif des panes : change → cartes renvoyées
+	refusedAt       time.Time         // dernier refus de saisie dit en pied de volet…
+	refusedWhy      string            // … et son motif
 	reg             []core.Teammate   // registre du template (cache 60 s)
 	regAt           time.Time
 }
@@ -586,21 +588,27 @@ func (t *projTerm) resync() {
 
 // ── Saisie et commandes de l'interface ────────────────────────────────────
 
-func (t *projTerm) input(pane, data string) {
+func (t *projTerm) input(pane, data string) (refused string) {
 	t.mu.Lock()
 	c, ro := t.client, t.readOnly
 	t.mu.Unlock()
-	if c == nil || ro || pane == "" {
-		return
+	switch {
+	case c == nil || pane == "":
+		return ""
+	case ro:
+		return "readonly"
+	case len(data) > maxPaste:
+		return "toobig"
 	}
+	// découpé en send-keys -H de 256 octets au plus (hexKeys), envoyés dans
+	// l'ordre sur le même canal de contrôle : un collage de milliers de lignes
+	// arrive entier et dans l'ordre
 	for _, hex := range hexKeys([]byte(data)) {
 		_ = c.Send(append([]string{"send-keys", "-t", pane, "-H"}, hex...)...)
 	}
+	return ""
 }
 
-// binaryBytes : données « binaires » de xterm.js (onBinary : souris en
-// encodage X10 par défaut, coordonnées > 95) : un caractère = un octet, à ne
-// pas réencoder en UTF-8 (#135).
 func binaryBytes(data string) string {
 	b := make([]byte, 0, len(data))
 	for _, r := range data {

@@ -63,6 +63,7 @@ type App struct {
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
 	projSet   atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
 	liveSnap  atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
+	web       bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
 	openTabs  sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
 	hubGen    atomic.Uint64                   // génération de la dernière relecture des avertissements hubs
 	ctrFounds atomic.Pointer[[]core.Found]
@@ -1041,7 +1042,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 	}
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
-		Content, MTime                                                   string
+		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
 		Raw, OpenNext, Binary                                            bool
 	}
@@ -1130,9 +1131,15 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 			if arg.Binary {
 				arg.Data = binaryBytes(arg.Data)
 			}
-			t.input(arg.Pane, arg.Data)
+			if why := t.input(arg.Pane, arg.Data); why != "" {
+				return a.inputRefusal(t, why), nil // saisie refusée : dite, plus ignorée en silence
+			}
 		}
 		return nil, nil
+	case "clipboardWrite": // presse-papiers du poste (Wails) ; « unavailable » en --web (#155)
+		return a.clipboardWrite(arg.Text), nil
+	case "clipboardRead":
+		return a.clipboardRead(), nil
 	case "resizePane": // bordure glissée (#135) : Kind « x » / « y », Cols : taille
 		if t := a.term(arg.Path); t != nil {
 			t.resizePane(arg.Pane, arg.Kind, arg.Cols)

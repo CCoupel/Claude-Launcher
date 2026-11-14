@@ -43,6 +43,9 @@ func runWails() error {
 			ctx = c
 			quitHook = func() { wrt.Quit(c) }
 			themeHook = func(mode string) { windowTheme(c, mode) }
+			// presse-papiers du poste par le runtime Wails, côté Go (#155)
+			clipboardSetHook = func(text string) error { return wrt.ClipboardSetText(c, text) }
+			clipboardGetHook = func() (string, error) { return wrt.ClipboardGetText(c) }
 			b.app.Start()
 		},
 		OnShutdown: func(context.Context) { b.app.Stop() },
