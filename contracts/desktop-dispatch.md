@@ -153,6 +153,11 @@ réponse est `{ "ok": false, "msg": "…", "env": { "saved": true, "problems": [
 "colorSaved": true? }` : `env` dit ce qui est écrit (l'interface rafraîchit son modèle et reprend `env.mtime`,
 sinon son enregistrement suivant serait en conflit avec le sien) ; `colorSaved` vaut vrai quand `config.conf` a
 été écrite. Un échec AVANT toute écriture n'a ni `env` ni `colorSaved`.
+`colorSaved` s'applique aussi SANS changement d'env : `{ "ok": false, "msg": "…", "colorSaved": true }` (couleur
+écrite puis backend/image en échec : l'interface recharge, sans `env`).
+La vérification « projet ouvert par un autre launcher » est bornée à 5 s ; au délai, backend/image sont refusés :
+`{ "ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)" }` (couleur et
+`env.yaml` ne passent pas par cette vérification).
 L'image demandée entre dans les changements d'`env.yaml` : le fichier n'est écrit qu'une fois.
 **Chemin** : `path` doit être un projet de l'arbre (sous les racines) ; sinon l'appel échoue (`projet inconnu`),
 comme `configFiles` / `configOpen` / `configValidate` / `configSave` quand ils visent un projet. `open` (et le refus

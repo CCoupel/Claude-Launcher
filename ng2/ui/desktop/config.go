@@ -259,6 +259,9 @@ func (a *App) refreshHubWarns(read func() []string) <-chan struct{} {
 // dans les tests : aucun accès aux moteurs ni au réseau).
 var foreignOwner = core.ForeignOwner
 
+// foreignOwnerTimeout : délai global de la vérification du propriétaire.
+var foreignOwnerTimeout = 5 * time.Second
+
 // projectOpen : le projet est ouvert, ici (onglet) ou par un autre launcher
 // (session tmux vivante dans son conteneur, vue à la dernière lecture des
 // conteneurs). Sans verrou.
@@ -297,7 +300,17 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	}
 	open := a.projectOpen(path)
 	if !open && (in.Backend != nil || in.Image != nil) {
-		open = foreignOwner(path) != "" // session d'un autre launcher, vérifiée à la source
+		// session d'un autre launcher, vérifiée à la source — bornée : un backend
+		// injoignable ne doit pas bloquer l'écran ; au délai, on refuse plutôt que
+		// de laisser passer un changement sur un projet peut-être ouvert ailleurs
+		res := make(chan string, 1)
+		go func() { res <- foreignOwner(path) }()
+		select {
+		case who := <-res:
+			open = who != ""
+		case <-time.After(foreignOwnerTimeout):
+			return map[string]any{"ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)"}, nil
+		}
 	}
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {

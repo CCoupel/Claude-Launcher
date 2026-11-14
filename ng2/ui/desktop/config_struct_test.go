@@ -410,3 +410,57 @@ func TestProjectCallsKnownPathOpenElsewhereAndPartial(t *testing.T) {
 		t.Fatalf("second enregistrement en conflit avec le premier : %v", ap2)
 	}
 }
+
+// La vérification d'un projet ouvert par un autre launcher est bornée : au délai,
+// backend et image sont refusés (jamais laissés passer) ; la couleur et env.yaml
+// ne dépendent pas de cette vérification.
+func TestProjectApplyForeignOwnerTimeout(t *testing.T) {
+	ps := sandbox(t, "", "alpha")
+	proj := ps[0]
+	var r recorder
+	a := newApp(t, r.emit)
+	_ = os.WriteFile(core.BackendsPath(), []byte("backends:\n  lab: { type: docker, host: 'tcp://10.0.0.1:2375', shared: [/share] }\n"), 0o644)
+	release := make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	oldO, oldT := foreignOwner, foreignOwnerTimeout
+	foreignOwner = func(string) string { <-release; return "" } // moteur injoignable : ne répond pas
+	foreignOwnerTimeout = 150 * time.Millisecond
+	t.Cleanup(func() { foreignOwner, foreignOwnerTimeout = oldO, oldT })
+	t0 := time.Now()
+	res, err := a.projectApply(proj, core.ProjectChange{Backend: ptr("lab"), Image: ptr("docker.io/library/debian:12")})
+	if err != nil || res["ok"] != false || !strings.Contains(res["msg"].(string), "impossible de vérifier si le projet est ouvert ailleurs") {
+		t.Fatalf("délai : %v %v", res, err)
+	}
+	if d := time.Since(t0); d > 2*time.Second {
+		t.Errorf("la vérification n'est pas bornée : %v", d)
+	}
+	if core.Assigned(proj) {
+		t.Fatal("affectation écrite malgré l'impossibilité de vérifier")
+	}
+	// la couleur ne passe pas par cette vérification
+	if res, _ := a.projectApply(proj, core.ProjectChange{Color: ptr("22")}); res["ok"] != true {
+		t.Fatalf("couleur : %v", res)
+	}
+}
+
+func ptr(s string) *string { return &s }
+
+// Couleur écrite puis backend en échec SANS changement d'env : la réponse
+// partielle dit colorSaved (et pas d'env), config.conf est relue à chaud.
+func TestProjectApplyColorSavedWhenBackendFails(t *testing.T) {
+	ps := sandbox(t, "", "alpha")
+	proj := ps[0]
+	var r recorder
+	a := newApp(t, r.emit)
+	// projects.json est un dossier : l'écriture de l'affectation échoue
+	if err := os.MkdirAll(filepath.Join(core.Ng2ConfigDir(), "projects.json"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	res, err := a.projectApply(proj, core.ProjectChange{Color: ptr("22"), Backend: ptr("host")})
+	if err != nil || res["ok"] != false || res["msg"] == nil || res["colorSaved"] != true || res["env"] != nil {
+		t.Fatalf("partiel : %v %v", res, err)
+	}
+	if a.conf().ProjectColors["alpha"] != "22" {
+		t.Errorf("config.conf non relue à chaud : %v", a.conf().ProjectColors)
+	}
+}
