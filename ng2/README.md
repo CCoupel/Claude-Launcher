@@ -913,6 +913,13 @@ n'ouvre pas le navigateur. Fermer la fenêtre ou arrêter le serveur **détache*
 les sessions des projets continuent dans leur tmux (conteneur, ou tmux local de l'hôte), et sont
 retrouvées au lancement suivant (comme la coque après un arrêt du hub).
 
+**Sécurité du mode `--web`** (v6.1.0, #149) : le jeton de l'URL n'est accepté que par la page d'amorçage, qui pose
+ensuite un cookie ; `/api/call` et `/api/events` n'acceptent que le cookie. Quand le serveur écoute sur la boucle
+locale, l'en-tête `Host` doit désigner la boucle locale et le port d'écoute. `/api/call` exige du JSON
+(`Content-Type: application/json`) et une origine égale à `http://<Host>` : une autre page ouverte sur la machine,
+même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponses portent `Referrer-Policy: no-referrer`,
+`X-Content-Type-Options`, `X-Frame-Options` et `Content-Security-Policy: frame-ancestors 'none'`.
+
 **Ce qu'on y retrouve de la coque** (mêmes sources dans `core`) :
 
 - à gauche, l'en-tête (versions, annonces de mise à jour orange/jaune/vert, consommation,
@@ -1127,6 +1134,46 @@ Le mode portable (`<dossier du binaire>\.config\claude-launcher-ng2\config.conf`
 `( … )`, `declare -A`, guillemets, `$HOME`). Comme en bash, écrire les chemins UNC entre
 **guillemets simples** : `GITHUB_DIRS=('\\wsl.localhost\Ubuntu\share\MFS\ROOT\CLAUDE_PROJETS')`.
 `CL_ROOTS` sépare les racines par `;`.
+
+**Fenêtre Réglages : rubriques Launcher, Conteneurs, Ce poste** (v6.1.0, #149). `⚙ config` dans l'en-tête (ou
+`Ctrl+,`) ouvre les réglages en formulaires, avec les rubriques Backends, Pools et Défauts décrites plus haut
+([Réglages](#réglages--fenêtre--config-v610-118)) et :
+
+- **Launcher** : `config.conf`, réglages groupés, avec aide et valeur par défaut ; « ↺ défaut » retire la clé. Le
+  jeton GitHub est un champ masqué : il n'est jamais affiché ni renvoyé à l'interface (« Retirer » le supprime).
+- **Conteneurs** : l'`env.yaml` du launcher (paquets par gestionnaire, `setup`, `on_start`), ajouté à tous les
+  conteneurs.
+- **Ce poste** : `hubs.<machine>` de `backends.yaml` (chemins « local => distant », chemins navigateur « conteneur
+  => hôte [| os] », serveur web, appariement du navigateur, utilisateur distant, cache du hub) et la taille des
+  caractères des terminaux. Les surcharges propres à un autre système sont signalées (bandeau ⚠) et restent en
+  lecture seule.
+
+Ce qui n'a pas de formulaire (une clé d'une forme bash non reconnue, une clé inconnue, `unrecognized`) reste dans
+« Éditer en YAML ».
+
+**Enregistrement** : même validation que le chargement réel ; une erreur bloque l'enregistrement. Un fichier modifié
+sur le disque depuis son ouverture ouvre le conflit (recharger ou écraser). La version précédente est gardée en
+`.bak`. `config.conf` et son `.bak` sont écrits en `0600` : un `config.conf.bak` préexistant plus ouvert est resserré,
+et un `.bak` qui est un lien est remplacé. Dans `config.conf`, seule la ligne de la clé change : commentaires et
+autres lignes sont conservés ; une clé absente est ajoutée sous son exemple commenté, sinon en fin de fichier.
+**`env.yaml` et `backends.yaml` sont en revanche reformatés** à l'enregistrement (commentaires et ordre conservés,
+lignes vides entre entrées retirées, alignement et guillemets normalisés) : ne pas attendre un diff minimal.
+
+**Jeton GitHub dans « Éditer en YAML »** : il est masqué (`GITHUB_TOKEN="__GARDER__"`, y compris dans un commentaire
+ou un tableau). À l'enregistrement, le marqueur conserve le jeton actuel, une autre valeur le remplace, et `""` le
+retire. Le marqueur n'a de sens que dans `GITHUB_TOKEN` : ailleurs, l'enregistrement est refusé. Sans jeton actuel,
+le marqueur n'est jamais écrit. Les messages d'erreur ne contiennent jamais le jeton.
+
+**`EXTRA_ENVS` en saisie structurée** : les variables qui font charger du code au lancement, ou qui modifient
+l'outillage ou la sortie, sont refusées : `LD_*`, `DYLD_*`, `PATH`, `BASH_ENV`, `IFS`, `PROMPT_COMMAND`,
+`NODE_OPTIONS`, `PYTHONPATH`, `GIT_SSH*`, `GIT_CONFIG*`, `GIT_PROXY*`, `*_ASKPASS`, les proxys (`*_PROXY`), les
+éditeurs, pagers, shells et `HOME`, `ANTHROPIC_*`, et d'autres encore (liste dans le code). Une variable déjà écrite
+telle quelle dans le fichier reste et peut être retirée ; un ajout passe par « Éditer en YAML ». Cette liste n'est pas
+une barrière complète : l'éditeur de texte accepte toutes les variables, `ANTHROPIC_API_KEY` comprise.
+
+**Substitution dans `config.conf`** : `$NOM` et `${NOM}` ne développent que `HOME`, `USER`, `LOGNAME`, `PWD`, `XDG_*`,
+`GITHUB_DIR` et `CLAUDE_CONFIG_DIR` ; un secret n'entre jamais par là. Une valeur ne peut contenir ni `"`, ni `\`, ni
+guillemet inverse, ni `$(`, ni retour à la ligne.
 
 ### Configuration partagée entre un hub Linux (WSL) et Windows
 

@@ -300,4 +300,7 @@ opérations et résultat que pour `backends.yaml` (fichier, validation et confli
   `github_pat_…` laissé en commentaire est masqué par `__GARDER__` dans l'éditeur de texte ; la cohérence de la mise en
   page des teams n'est contrôlée que si l'une des trois clés `LAYOUT_3ROW_*` change (une combinaison déjà invalide ne
   bloque pas les autres réglages) ; la copie `.bak` est recréée en `0600` d'emblée (l'ancienne est supprimée avant).
+- **`EXTRA_ENVS` existant (M6)** : la liste de refus ne vise que les éléments NOUVEAUX ou MODIFIÉS (chaîne `NOM=valeur`
+  différente de celle du fichier) ; un élément déjà écrit tel quel (`HTTPS_PROXY`, `ANTHROPIC_BASE_URL`…) ne bloque pas
+  l'édition du reste de la liste, et peut être retiré. Les ajouts restent refusés ; « Éditer en YAML » reste la voie.
 

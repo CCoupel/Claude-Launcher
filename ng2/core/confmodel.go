@@ -465,7 +465,7 @@ func confStrings(v any) ([]string, bool) {
 }
 
 // renderConfValue : texte à écrire après « = » (valeur contrôlée par type).
-func renderConfValue(s confSetting, v any, multiline bool, eol string) (string, error) {
+func renderConfValue(s confSetting, v any, multiline bool, eol string, current []string) (string, error) {
 	fail := func(f string, a ...any) (string, error) {
 		return "", fmt.Errorf("%s : %s", s.Key, fmt.Sprintf(f, a...))
 	}
@@ -546,7 +546,10 @@ func renderConfValue(s confSetting, v any, multiline bool, eol string) (string, 
 				if !confEnvRe.MatchString(it) {
 					return fail("« %s » : la forme NOM=valeur est attendue", it)
 				}
-				if name, _, _ := strings.Cut(it, "="); confDangerousEnv(name) {
+				// la liste de refus ne vise que les éléments nouveaux ou modifiés : un
+				// élément déjà écrit tel quel (HTTPS_PROXY, ANTHROPIC_BASE_URL…) ne
+				// bloque pas l'édition du reste de la liste
+				if name, _, _ := strings.Cut(it, "="); confDangerousEnv(name) && !confHas(current, it) {
 					return fail("variable « %s » interdite : elle permet d'exécuter du code au lancement de claude", name)
 				}
 			}
@@ -603,7 +606,14 @@ func ApplyConfConfChanges(src string, changes []ConfigChange) (string, error) {
 			}
 		case "set":
 			multi := len(mine) > 0 && mine[len(mine)-1].ArrayLines
-			txt, err := renderConfValue(s, ch.Value, multi, eol)
+			var current []string
+			if n := len(mine); n > 0 {
+				current = mine[n-1].Items
+				if !mine[n-1].Array && mine[n-1].Scalar != "" {
+					current = []string{mine[n-1].Scalar}
+				}
+			}
+			txt, err := renderConfValue(s, ch.Value, multi, eol, current)
 			if err != nil {
 				return "", fmt.Errorf("changement %d : %w", i+1, err)
 			}
@@ -824,3 +834,12 @@ func confMaskValue(v any, tok string) any {
 
 // confTokenShape : formes de jetons GitHub, masquées même en commentaire (un ancien jeton).
 var confTokenShape = regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,})`)
+
+func confHas(list []string, v string) bool {
+	for _, x := range list {
+		if x == v {
+			return true
+		}
+	}
+	return false
+}

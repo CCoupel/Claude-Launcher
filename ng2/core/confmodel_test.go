@@ -629,3 +629,37 @@ func TestTokenMaskedInModelAndShapedTokensInComments(t *testing.T) {
 		t.Errorf("restauration : %v\n%s", err, got)
 	}
 }
+
+// M6 : la liste de refus d'EXTRA_ENVS ne vise que les éléments nouveaux ou
+// modifiés ; un élément déjà présent tel quel ne bloque pas l'édition de la liste.
+func TestExtraEnvsExistingDangerousItemsDoNotBlockEditing(t *testing.T) {
+	src := "EXTRA_ENVS=(\"HTTPS_PROXY=http://p:3128\" \"ANTHROPIC_BASE_URL=https://x\" \"A=1\")\n"
+	// retirer ou ajouter un élément ordinaire, garder les existants : accepté
+	out, err := ApplyConfConfChanges(src, []ConfigChange{cset("EXTRA_ENVS", []any{"HTTPS_PROXY=http://p:3128", "ANTHROPIC_BASE_URL=https://x", "B=2"})})
+	if err != nil || !strings.Contains(out, "HTTPS_PROXY=http://p:3128") || !strings.Contains(out, "B=2") || strings.Contains(out, "A=1") {
+		t.Fatalf("édition de la liste : %v\n%s", err, out)
+	}
+	// supprimer un élément dangereux : accepté
+	if out, err := ApplyConfConfChanges(src, []ConfigChange{cset("EXTRA_ENVS", []any{"A=1"})}); err != nil || strings.Contains(out, "PROXY") {
+		t.Errorf("retrait : %v %q", err, out)
+	}
+	// ajouter un élément dangereux, ou en modifier un existant : refusé
+	for name, items := range map[string][]any{
+		"ajout":       {"HTTPS_PROXY=http://p:3128", "ANTHROPIC_BASE_URL=https://x", "A=1", "LD_PRELOAD=/x.so"},
+		"valeur":      {"HTTPS_PROXY=http://autre:3128", "ANTHROPIC_BASE_URL=https://x", "A=1"},
+		"autre proxy": {"HTTPS_PROXY=http://p:3128", "ALL_PROXY=http://q", "A=1"},
+		"clé":         {"HTTPS_PROXY=http://p:3128", "ANTHROPIC_API_KEY=sk-ant-1"},
+	} {
+		if _, err := ApplyConfConfChanges(src, []ConfigChange{cset("EXTRA_ENVS", items)}); err == nil || !strings.Contains(err.Error(), "interdite") {
+			t.Errorf("%s accepté : %v", name, err)
+		}
+	}
+	// forme scalaire d'une liste (EXTRA_ENVS="X=1") : l'élément existant compte aussi
+	if _, err := ApplyConfConfChanges("EXTRA_ENVS=\"HTTP_PROXY=http://p\"\n", []ConfigChange{cset("EXTRA_ENVS", []any{"HTTP_PROXY=http://p", "C=3"})}); err != nil {
+		t.Errorf("scalaire : %v", err)
+	}
+	// sans fichier : tout est nouveau
+	if _, err := ApplyConfConfChanges("", []ConfigChange{cset("EXTRA_ENVS", []any{"HTTPS_PROXY=http://p:3128"})}); err == nil {
+		t.Error("ajout dans un fichier sans liste accepté")
+	}
+}
