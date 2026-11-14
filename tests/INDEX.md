@@ -14,3 +14,4 @@
 | tests/procedures/ui-desktop/config-backends/ | procedure | ui-desktop | Reglages : Backends, Pools, Defauts (#118) | feature | |
 | tests/procedures/ui-desktop/reglages-projet/ | procedure | ui-desktop | Menu contextuel et reglages d'un projet (#148) | feature | |
 | tests/procedures/ui-desktop/config-poste-launcher/ | procedure | ui-desktop | Reglages : Ce poste, Launcher, Conteneurs (#149) | feature | |
+| tests/procedures/ui-desktop/copier-coller/ | procedure | ui-desktop | Selection, copier / coller dans les terminaux (#155) | feature | |
