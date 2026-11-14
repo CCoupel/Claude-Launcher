@@ -87,7 +87,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 
 ---
 
-### Scenario 5 — Validation, conflit et « Editer en texte »
+### Scenario 5 — Validation, conflit, « Editer en YAML » et retour « ← Reglages »
 
 **Validation** : HUMAIN — **Issues** : #118
 
@@ -95,8 +95,14 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 |-------|--------|-----------------|----------------|------|
 | 1 | Saisir une valeur invalide (type inconnu, pool sans machine, drain hors pool) | Probleme en pied, Enregistrer bloque, fichier inchange | | |
 | 2 | Ouvrir les Reglages, modifier le fichier a la main dans un editeur, puis Enregistrer dans la fenetre | Conflit signale (recharger / ecraser) ; « recharger » reprend le fichier modifie ; « ecraser » ecrit mes changements | | |
-| 3 | « Editer en texte » | Ouvre l'editeur de texte actuel sur `backends.yaml` ; retour a la fenetre rafraichi | | |
+| 3 | « Editer en YAML » | Ouvre l'editeur de texte (YAML) sur `backends.yaml` ; bouton « ← Reglages » visible | | |
 | 4 | Fichier edite a la main avec une erreur de syntaxe YAML | Fenetre ouverte avec le probleme signale, pas de plantage | | |
+| 5 | Dans l'editeur YAML, texte **non modifie** : « ← Reglages » | Retour immediat a la rubrique d'origine (Backends, Pools ou Defauts selon la source), sans question ; contenu rafraichi | | |
+| 6 | Texte **modifie** (ex. commentaire ajoute), « ← Reglages », accepter d'enregistrer | Confirmation d'enregistrement ; fichier ecrit ; retour a la rubrique d'origine avec le changement visible | | |
+| 7 | Texte **modifie**, « ← Reglages », refuser (abandon) | Modifications abandonnees ; fichier inchange sur disque ; retour a la rubrique d'origine | | |
+| 8 | Texte modifie en **erreur de validation** (ex. type de backend inconnu), « ← Reglages » puis accepter d'enregistrer | Reste dans l'editeur, probleme(s) affiche(s) ; fichier inchange | | |
+| 9 | Texte modifie, fichier change sur disque entre-temps (conflit), « ← Reglages » puis accepter d'enregistrer | Reste dans l'editeur, conflit signale (recharger / ecraser) ; aucun ecrasement silencieux | | |
+| 10 | Ouvrir l'editeur depuis l'ecran « Fichiers YAML » (liste des fichiers) | Le libelle est « Fichiers YAML » (plus « Fichiers en texte… ») ; « ← Reglages » ramene a la fenetre Reglages | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -156,7 +162,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 
 - [ ] Scenarios 1 a 8 passent sur Windows natif
 - [ ] Aucun commentaire ni ordre perdu, jamais de fichier invalide ecrit
-- [ ] « Editer en texte » reste fonctionnel pour les rubriques non couvertes
+- [ ] « Editer en YAML » et « ← Reglages » restent fonctionnels pour les rubriques non couvertes
 
 ## Notes QA
 
