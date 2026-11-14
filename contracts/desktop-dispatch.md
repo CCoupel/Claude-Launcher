@@ -173,8 +173,69 @@ y avait des changements) ; refus : `{ "ok": false, "msg": "…" }` ; `env` inval
 
 ## v6.1.0 — LOT-3.3 : ce poste, launcher, conteneurs (issue fille de #118)
 
-- `configModel` / `configApply` acceptent `config.conf` (réglages groupés ; `GITHUB_TOKEN` n'est **jamais** renvoyé
-  en clair : `{ "set": true }` ; il n'est écrit que si l'utilisateur en saisit un nouveau), `env.yaml` du launcher et
-  la section `hubs.<machine>` de `backends.yaml` (`hub` : nom de la machine résolue, surcharges par système
-  signalées).
-- Taille des caractères : préférence par poste `termFontSize` (méthodes existantes `init` / `setPrefs`).
+`configModel` et `configApply` (LOT-3.1) acceptent trois `kind` de plus ; mêmes résultats que pour `backends.yaml`
+(`{ path, mtime, exists, problems, model }` / `{ saved, problems, note, mtime }` | `{ conflict, mtime }` |
+`{ invalid, problems }`), même validation que le chargement réel, même contrôle de conflit, copie `.bak`. Aucun chemin
+ni nom de projet n'est fourni par le client : les fichiers sont ceux du poste.
+
+### `kind: "config.conf"` — réglages du launcher
+
+`model` : `{ "groups": [ { "id": "teams", "label": "Teams et panes" } ], "settings": [ … ], "unrecognized": [ "KEY" ] }`.
+Chaque réglage :
+```json
+{ "key": "TEAM_HIDE_IDLE", "group": "teams", "label": "Cacher les teammates inactifs après (s)",
+  "help": "0 = jamais", "type": "int", "value": 30, "default": 30, "set": false, "editable": true,
+  "min": 0, "max": null, "options": [] }
+```
+- `type` : `string`, `path`, `int`, `bool` (fichier : `1`/`0`), `enum` (`options`), `list` (valeur : tableau de
+  chaînes), `intlist` (`COLOR_PALETTE`), `secret` (`GITHUB_TOKEN`).
+- `value` : valeur écrite dans le fichier telle quelle (`$HOME/GITHUB` n'est pas développé), sinon la valeur par défaut ;
+  `set` : le fichier l'écrit. `editable: false` (+ `why`) : forme bash non reconnue (boucle, `eval`, `+=`, valeur
+  composée…) → champ en lecture seule avec renvoi à « Éditer en YAML ». `unrecognized` : leurs clés.
+- **`GITHUB_TOKEN` n'est jamais renvoyé** : `{ "key": "GITHUB_TOKEN", "type": "secret", "set": true }` sans `value`.
+  Il n'est écrit que par un `set` explicite avec la nouvelle valeur ; `delete` le retire. Aucun message de
+  problème ne le contient (remplacé par `***`).
+- Réglages : `GITHUB_DIR`, `GITHUB_DIRS`, `GITHUB_TOKEN`, `CLAUDE_OPTIONS`, `CLAUDE_DISABLE_MOUSE`,
+  `CLAUDE_EXPERIMENTAL_TEAMS`, `CLAUDE_CONFIG_DIR`, `EXTRA_ENVS`, `RESUME_MODE`, `RESUME_MAX_AGE_H`, `TEAM_HIDE_IDLE`,
+  `LAYOUT_2ROW_LEADER_PCT`, `LAYOUT_3ROW_LEADER_NUM`, `LAYOUT_3ROW_MID_NUM`, `LAYOUT_3ROW_DEN`,
+  `PANE_ACTIVE_BRIGHTEN_STEP`, `PANE_INACTIVE_DARKEN_STEP`, `COLOR_PALETTE`, `CTR_STOP_ON_EXIT`, `USAGE_REFRESH_SEC`.
+  `PROJECT_COLORS` est réglé par projet (`projectApply`).
+
+`configApply` : `changes` = `{ "op": "set", "at": ["KEY"], "value": … }` (valeur typée : nombre, booléen, chaîne ou
+tableau) ou `{ "op": "delete", "at": ["KEY"] }` (retour à la valeur par défaut : l'affectation est retirée). La
+valeur est contrôlée avant toute écriture (type, bornes, cohérence de la mise en page des teams, syntaxe d'une
+variable) ; une valeur refusée rend `{ "invalid": true, "problems": [ … ] }`. Seule la ligne de la clé est réécrite :
+commentaires et autres lignes conservés ; clé absente : ajoutée sous son exemple commenté, sinon en fin de fichier.
+Les valeurs ne peuvent contenir ni `"`, ni antislash, ni guillemet inverse, ni `$(`, ni retour à la ligne ; `$NOM` et
+`${NOM}` restent permis. Le fichier est écrit en `0600`. `config.conf` absent (Windows) : créé depuis le modèle par
+défaut à l'enregistrement.
+
+### `kind: "env.yaml"` — outillage ajouté à tous les conteneurs
+
+`model` : `{ "packages": [], "packages_by_manager": {}, "setup": [], "on_start": [] }` (seules clés du fichier du
+launcher). `configApply` : mêmes `changes` que `projectApply.env` (`set` / `delete` / `rename` par chemin, par
+`yaml.v3` Node : commentaires et ordre conservés).
+
+### `kind: "hub"` — ce poste (`hubs.<machine>` de `backends.yaml`)
+
+`model` :
+```json
+{ "hub": "MON-PC", "present": true, "goos": "windows",
+  "settings": { "paths": [ { "local": "…", "remote": "…" } ], "browser_paths": [ { "container": "…", "host": "…", "os": "…" } ],
+                "browser_server": { "listen": "", "url": "", "allow": [] },
+                "remote_user": { "uid": null, "gid": null, "name": "", "home": "" },
+                "hub_cache": "", "browser_device": "" },
+  "overrides": { "windows": { "keys": ["paths"], "settings": { … } }, "linux": …, "darwin": … },
+  "effective": { "paths": "windows" },
+  "termFontSize": 13 }
+```
+- `hub` : nom de la machine résolu (clé existante du fichier, insensible à la casse et au domaine, sinon le nom de
+  l'ordinateur) ; `present` faux : la section n'existe pas encore (créée au premier `set`).
+- `settings` : réglages communs ; `overrides.<système>` : surcharges propres à un système (clé à clé, `keys` les
+  nomme) — celle du système courant (`goos`) prime : `effective` dit, par clé, quelle source s'applique (`""` :
+  réglage commun, sinon le système). Une surcharge se modifie par `at` : `["windows", "paths"]`.
+- `termFontSize` : préférence d'affichage par poste (`desktop-ui.json`), lue ici pour l'écran ; elle s'écrit par
+  `setPrefs` (inchangé).
+`configApply` : `at` est relatif à la section de la machine (`["paths"]`, `["windows", "hub_cache"]`) ; mêmes
+opérations et résultat que pour `backends.yaml` (fichier, validation et conflit communs : `mtime` est celui de
+`backends.yaml`).
