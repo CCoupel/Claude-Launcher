@@ -318,6 +318,36 @@ backends:
   docker: { type: docker, context: default }
 ```
 
+#### Réglages : fenêtre `⚙ config` (v6.1.0, #118)
+
+`⚙ config` dans l'en-tête, ou `Ctrl+,`, ouvre la fenêtre **Réglages** : `backends.yaml` s'édite par formulaires,
+sans passer par le texte. Rubriques :
+
+- **Backends** : la liste avec son état (joignable, ou diagnostic en attente) ; un formulaire par type (`host`,
+  `podman`, `docker`, `ssh`, `k8s`) avec ses serveurs (adresse, groupe, pool) ; ajouter, dupliquer, supprimer,
+  renommer, choisir le défaut. **Tester** lance les étapes du backend sans rien enregistrer : outil requis, moteur
+  joignable, stockage partagé ; pour `k8s`, namespace, droits, PVC. Délai global de 45 s ; une étape en échec
+  propose son correctif.
+- **Pools** : les machines d'un pool, le drain, la charge commune (conteneurs en marche par machine). Renommer un
+  pool le renomme aussi dans les backends qui le citent.
+- **Défauts** : backend et image par défaut, images proposées. Le serveur web et les chemins navigateur s'affichent
+  en lecture seule.
+- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en texte » pour l'instant. **Ce poste** : taille des
+  caractères des terminaux (voir ci-dessous), le reste renvoie à « Éditer en texte ».
+
+**Enregistrer** : le brouillon est validé comme au chargement réel. Une erreur **bloque** l'enregistrement (les
+problèmes s'affichent en pied, rien n'est écrit). Si le fichier a changé sur le disque depuis son ouverture, la
+fenêtre propose de **recharger** ou d'**écraser**. La version précédente est gardée en `.bak`. Un backend par défaut
+supprimé ou renommé est mis à jour dans le même enregistrement ; une référence restante à un backend ou un pool
+inconnu est refusée. Une adresse ou un contexte commençant par `-` est refusé. L'application se fait à chaud quand
+c'est possible, et une note le précise.
+
+Les commentaires et les clés inconnues sont conservés, mais **le fichier est reformaté** à l'enregistrement : lignes
+vides entre entrées retirées, alignement et guillemets normalisés. Ne pas attendre un diff minimal.
+
+Limites : le `host` du backend implicite Windows n'est pas éditable ; les volumes `k8s` s'écrivent une ligne
+`racine=PVC` par volume.
+
 #### Backends distants
 
 Quatre façons d'atteindre un moteur de conteneurs, plus Kubernetes :
@@ -901,7 +931,7 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
 | clic hors projet | onglet ⌗ Teamleaders |
 | double-clic sur une catégorie ou une racine, `✦ Nouveau projet` | créer un projet |
 | `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
-| `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fichiers de configuration |
+| `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fenêtre Réglages (`⚙ config`) |
 | `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
 | `←` `→`, clic sur le chevron ou la ligne d'une racine / catégorie | replier / déplier (mémorisé) ; `←` sur un projet : sa catégorie |
 | séparateur arbre / cartes ; clic sur le bandeau d'une carte ou sur « ◈ ÉTAT » | hauteur de l'arbre ; replier une carte ou toute la zone (mémorisé) |
@@ -971,8 +1001,8 @@ restaurer), chaque pane est recapturé et la team est remise en page à la nouve
 - connexion claude.ai : l'alerte ouvre un onglet `login` qui lance `claude /login` **sur ce
   poste** (claude doit y être installé) ; sinon, `/login` se tape dans le leader d'un projet ouvert.
 
-**Fichiers de configuration** (#117) : `⚙ config` dans l'en-tête (ou `Ctrl+,`), et `⚙ env.yaml`
-dans les cartes d'un projet, ouvrent un éditeur en **texte brut** (commentaires et mise en forme
+**Fichiers de configuration** (#117) : « Éditer en texte » (pied de la fenêtre Réglages, #118), « Fichiers en
+texte… » et `⚙ env.yaml` dans les cartes d'un projet ouvrent un éditeur en **texte brut** (commentaires et mise en forme
 gardés) des fichiers du launcher :
 
 | Fichier | Emplacement | Validé par |
