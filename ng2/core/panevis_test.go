@@ -409,3 +409,41 @@ func TestTeamLines(t *testing.T) {
 		t.Fatalf("qa : %+v", l)
 	}
 }
+
+// Fenêtre compacte (120x40, leader et 4 panes coupés depuis le leader, qui n'a
+// plus que quelques lignes) : le retour d'un teammate redevenu actif réussit
+// toujours (« create pane failed: pane too small » en coupant le leader).
+func TestApplyPaneVisReturnInCompactWindow(t *testing.T) {
+	i := newIsoTmux(t)
+	if _, err := i.run("new-session", "-d", "-s", "hub", "-x", "120", "-y", "40", "-n", "proj", i.sleepCmd()); err != nil {
+		t.Skipf("tmux inutilisable ici : %v", err)
+	}
+	win := "=hub:=proj"
+	leader := i.must(t, "display-message", "-p", "-t", win, "#{pane_id}")
+	var mates []string
+	for n := 0; n < 4; n++ {
+		mates = append(mates, i.must(t, "split-window", "-d", "-v", "-P", "-F", "#{pane_id}", "-t", leader, i.sleepCmd()))
+	}
+	members := []TeamMember{{Name: "team-lead", AgentType: "team-lead", PaneID: leader}}
+	for k, m := range mates {
+		members = append(members, TeamMember{Name: fmt.Sprintf("dev-%d", k), AgentType: fmt.Sprintf("dev-%d", k), PaneID: m})
+	}
+	tc := &TeamConfig{Members: members}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	home := ProjectHome(i.run, win, false)
+	hidden := mates[0]
+	i.must(t, "set-option", "-w", "-t", win, optVis, hidden+":h")
+	if r, err := ApplyPaneVis(i.run, win, home, tc, 0, 1000, false); err != nil || len(r.Hid) != 1 {
+		t.Fatalf("masquage : %+v %v", r, err)
+	}
+	h := i.must(t, "display-message", "-p", "-t", leader, "#{pane_height}")
+	t.Logf("hauteur du leader : %s", h)
+	tc.Members[1].IsActive = true // redevenu actif : retour obligatoire
+	r, err := ApplyPaneVis(i.run, win, home, tc, 0, 1001, false)
+	if err != nil || len(r.Shown) != 1 || r.Shown[0] != hidden {
+		t.Fatalf("retour impossible : %+v %v", r, err)
+	}
+	if !strings.Contains(i.must(t, "list-panes", "-t", win, "-F", "#{pane_id}"), hidden) {
+		t.Fatal("pane non revenu dans la fenêtre")
+	}
+}

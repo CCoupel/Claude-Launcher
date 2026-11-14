@@ -144,6 +144,7 @@ type ProjPane struct {
 	Focus  bool
 	IdleAt int64
 	Hidden bool
+	W, H   int // taille du pane (cellules)
 }
 
 // ProjectPanes : recensement des panes d'un projet — la fenêtre win et les
@@ -177,11 +178,11 @@ func ProjectPanes(t SessionTmux, win, home string, inCtr bool) ([]ProjPane, map[
 
 // paneFmt : le « . » final protège les champs vides de fin de ligne, que certains
 // appelants (tmuxOut) rognent avec TrimSpace.
-const paneFmt = "#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_active}\t#{@cl_idle_at}\t#{@cl_home}\t#{@cl_panevis}\t."
+const paneFmt = "#{pane_id}\t#{pane_pid}\t#{pane_current_command}\t#{pane_active}\t#{@cl_idle_at}\t#{@cl_home}\t#{@cl_panevis}\t#{pane_width}\t#{pane_height}\t."
 
 func parsePaneLine(l string, inCtr bool) (ProjPane, string, bool) {
 	f := strings.Split(l, "\t")
-	if len(f) < 8 || !strings.HasPrefix(f[0], "%") {
+	if len(f) < 10 || !strings.HasPrefix(f[0], "%") {
 		return ProjPane{}, "", false
 	}
 	p := ProjPane{PaneInfo: PaneInfo{ID: f[0], PID: f[1], Cmd: f[2]}, Focus: f[3] == "1"}
@@ -190,6 +191,8 @@ func parsePaneLine(l string, inCtr bool) (ProjPane, string, bool) {
 	}
 	p.IdleAt, _ = strconv.ParseInt(f[4], 10, 64)
 	p.Hidden = f[5] != ""
+	p.W, _ = strconv.Atoi(f[7])
+	p.H, _ = strconv.Atoi(f[8])
 	return p, f[6], true
 }
 
@@ -291,22 +294,12 @@ func ApplyPaneVisOn(t SessionTmux, win, home string, panes []ProjPane, choices m
 			_, _ = t("set-option", "-w", "-t", win, optVis, want)
 		}
 	}
-	anchor := "" // pane visible qui accueille un retour
-	for _, p := range vp {
-		if !p.Hidden && (anchor == "" || p.Protected) {
-			anchor = p.ID
-		}
-	}
 	for _, p := range vp {
 		switch {
 		case p.Hidden && !d.Hide[p.ID]:
-			if anchor == "" {
-				continue
-			}
-			if _, err := t("join-pane", "-d", "-s", p.ID, "-t", anchor); err != nil {
+			if err := joinBack(t, win, p.ID); err != nil {
 				return res, fmt.Errorf("retour du pane %s : %w", p.ID, err)
 			}
-			_, _ = t("set-option", "-p", "-u", "-t", p.ID, optHome)
 			res.Shown = append(res.Shown, p.ID)
 		case !p.Hidden && d.Hide[p.ID] && !p.Focus:
 			if err := hidePane(t, win, p.ID, home); err != nil {
@@ -316,6 +309,51 @@ func ApplyPaneVisOn(t SessionTmux, win, home string, panes []ProjPane, choices m
 		}
 	}
 	return res, nil
+}
+
+// joinBack ramène le pane dans la fenêtre : un teammate redevenu actif doit
+// toujours revenir. Le pane est joint au plus grand pane visible (les
+// recensements sont relus : chaque retour change les tailles) ; si aucun n'est
+// assez grand pour être coupé, la fenêtre est d'abord remise en tuiles égales,
+// la remise en page de l'appelant rétablissant ensuite la géométrie voulue.
+func joinBack(t SessionTmux, win, pane string) error {
+	try := func() error {
+		cur, _, err := ProjectPanes(t, win, "", false)
+		if err != nil {
+			return err
+		}
+		var vis []ProjPane
+		for _, p := range cur {
+			if !p.Hidden {
+				vis = append(vis, p)
+			}
+		}
+		if len(vis) == 0 {
+			return fmt.Errorf("aucun pane visible")
+		}
+		sort.SliceStable(vis, func(i, j int) bool { return vis[i].W*vis[i].H > vis[j].W*vis[j].H })
+		var last error
+		for _, a := range vis {
+			// coupure dans le sens où il reste le plus de place
+			dir := "-v"
+			if a.W > 2*a.H {
+				dir = "-h"
+			}
+			if _, last = t("join-pane", "-d", dir, "-s", pane, "-t", a.ID); last == nil {
+				return nil
+			}
+		}
+		return last
+	}
+	err := try()
+	if err != nil {
+		_, _ = t("select-layout", "-t", win, "tiled")
+		err = try()
+	}
+	if err == nil {
+		_, _ = t("set-option", "-p", "-u", "-t", pane, optHome)
+	}
+	return err
 }
 
 // hidePane : met le pane de côté dans la réserve (créée à la demande, à la
