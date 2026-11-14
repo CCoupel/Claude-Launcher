@@ -1227,6 +1227,7 @@ async function ceOpen(kind) {
   const probs = el('div', 'ceprobs'); probs.id = 'ceprobs';
   const status = el('div', 'cestatus'); status.id = 'cestatus';
   ed.append(bar, wrap, probs, status);
+  if (d.kind === 'config.conf') ed.appendChild(el('p', 'dim', 'Jeton masqué : laisser GITHUB_TOKEN="__GARDER__" le conserve ; saisir une autre valeur le remplace ; "" le retire.'));
   if (d.kind === 'project-env') {
     const side = el('details', 'ceside');
     side.append(el('summary', '', 'Environnement fusionné (env-template.yaml du template puis ce fichier) — lecture seule'));
