@@ -990,6 +990,7 @@ class ProjView {
       if (d === 'z') return this.zoom(pane);
       if (d === 'R' || d === 'r') return call('relayout', { path: this.path });
       if (d === '\x02') return termIn({ path: this.path, pane, data: '\x02' });
+      if (d === '\x16') return termIn({ path: this.path, pane, data: '\x16' }); // Ctrl+B Ctrl+V : ^V seul, sans préfixe tmux
       return termIn({ path: this.path, pane, data: '\x02' + d });
     }
     if (d === '\x02') { S.prefix = true; this.prefixEl.classList.remove('hidden'); return; }
@@ -1024,6 +1025,8 @@ function terminalKey(ev, clip) {
     // ce seul chemin (preventDefault : pas de second collage par l'évènement natif « paste »)
     const k = ev.key;
     if (ev.ctrlKey && ev.shiftKey && !ev.altKey && (k === 'C' || k === 'c')) { ev.preventDefault(); clipCopy(clip.term); return false; }
+    // Ctrl+B puis Ctrl+V : ^V brut au programme (collage d'image de Claude Code, vim, nano) — préfixe armé : on laisse xterm l'envoyer
+    if (S.prefix && ev.ctrlKey && !ev.shiftKey && !ev.altKey && (k === 'V' || k === 'v')) { ev.preventDefault(); return true; }
     if ((ev.ctrlKey && !ev.altKey && (k === 'V' || k === 'v')) || (ev.shiftKey && !ev.ctrlKey && k === 'Insert')) { ev.preventDefault(); clipPaste(clip); return false; }
   }
   if (ev.ctrlKey && ev.key === 'Tab') { ev.preventDefault(); cycleTab(ev.shiftKey ? -1 : 1); return false; }
