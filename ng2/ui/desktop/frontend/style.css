@@ -343,7 +343,8 @@ body.cardsfolded #hsplit { display: none; }
 .sttable td { padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .sttable td.m { font-family: var(--mono); font-size: 12px; }
 .sttable tr { cursor: default; }
-.stleft { min-width: 0; overflow: hidden; }
+.stleft { min-width: 0; overflow-x: auto; }
+.sttable td.sta { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
 .sttable td.stst { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
 .stst > span { display: block; overflow: hidden; text-overflow: ellipsis; }
 .sttable tr.on td { background: color-mix(in srgb, var(--accent) 16%, transparent); }

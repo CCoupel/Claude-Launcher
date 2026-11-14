@@ -202,6 +202,8 @@ function stRenderFoot() {
       (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
   } else if (res && res.saved) {
     left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+  } else if (ST.loading) {
+    left.appendChild(el('span', 'dim', 'Chargement…'));
   } else {
     left.appendChild(el('span', 't-green', '✓ valide'));
   }
@@ -324,7 +326,7 @@ function stPageBackends(p) {
     const r = el('tr', i === ST.sel.backend ? 'on' : '');
     const n = el('td', 'm', b.name || '(sans nom)');
     if (d.defaults.backend && d.defaults.backend === b.name) n.appendChild(el('span', 'pill', 'défaut'));
-    r.append(n, el('td', '', b.type), el('td', 'm', stAddr(b)), el('td', 'm', b.pool || ''), el('td'));
+    r.append(n, el('td', '', b.type), (() => { const c = el('td', 'm sta', stAddr(b)); c.title = stAddr(b); return c; })(), el('td', 'm', b.pool || ''), el('td'));
     r.lastChild.className = 'stst'; r.lastChild.appendChild(b._orig ? stStateCell(b._orig) : el('span', 'dim', 'nouveau'));
     r.onclick = () => { ST.sel.backend = i; ST.test = null; stRenderPage(); };
     t.appendChild(r);
