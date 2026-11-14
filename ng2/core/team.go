@@ -214,6 +214,10 @@ type TeamLine struct {
 	Hidden        bool // mis de côté dans la réserve
 	Pinned        bool // visible fixé à la main
 	IdleLeft      int  // secondes avant masquage automatique (0 : sans objet)
+
+	// état du template (TplInfo.Apply) : ok / late / "" (neutre), version
+	// cible ("" si inconnue), fichier compagnon ("" si aucun)
+	TplState, TplTarget, CompanionFile string
 }
 
 // TeamLines : lignes de la carte TEAM. tm : registre (ReadTeammates), panes :

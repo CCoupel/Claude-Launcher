@@ -787,6 +787,11 @@ type TeamRow struct {
 	Hidden    bool   `json:"hidden"`
 	Pinned    bool   `json:"pinned"`
 	IdleLeft  int    `json:"idleLeft"`
+
+	// état du template (cycle 4) : ok / late / "" ; version cible ; compagnon
+	TplState      string `json:"tplState"`
+	TplTarget     string `json:"tplTarget,omitempty"`
+	CompanionFile string `json:"companionFile,omitempty"`
 }
 
 // FileRow : une entrée de premier niveau du projet.

@@ -20,6 +20,14 @@ Une ligne par teammate : chaque instance lancée, puis les teammates du template
 - `pane` : identifiant tmux, vide si non démarré. `hidden` : pane caché (mis de côté). `pinned` : visible fixé à la main.
 - `idleLeft` : secondes avant masquage automatique (0 si sans objet).
 - `count` est retiré (plus de regroupement par type).
+- **[cycle 4] État du template** (ajoute à la ligne) : `"tplState": "ok"|"late"|""`, `"tplTarget": "v5.9.2"`,
+  `"companionFile": "dev-backend.md"`. `tag` reste la version enregistrée de l'agent
+  (`agents.registry[].tag`). `tplState` : `ok` = `tag` égal à `tplTarget` (● vert), `late` = différent (▲ orange),
+  `""` = neutre (projet sans registre d'agents, `tag` ou cible inconnus). `tplTarget` : version cible (tag du
+  template adopté par le launcher, `.template-version`), vide si inconnue (infobulle « version cible inconnue »).
+  `companionFile` : fichier compagnon existant (`<nom>.md`, `generic.<nom>.md` pour une instance générique),
+  vide s'il n'y en a pas ; `companion` (existant) vaut vrai dès qu'il y en a un (« + » devant le nom). Les
+  teammates non démarrés portent les mêmes champs.
 
 ### `teamToggle` **[NEW]**
 

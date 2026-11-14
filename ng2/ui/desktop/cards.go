@@ -119,7 +119,7 @@ func (a *App) readTeam(path string) []TeamRow {
 	} else {
 		lines = core.TeamLines(core.ReadTeammates(path), path, nil, nil, a.conf().TeamHideIdle, time.Now().Unix())
 	}
-	rows := teamRows(lines)
+	rows := teamRows(core.ReadTplInfo(path).Apply(lines))
 	teamCache.Lock()
 	teamCache.m[path] = teamEntry{time.Now(), rows}
 	teamCache.Unlock()
@@ -131,7 +131,8 @@ func teamRows(lines []core.TeamLine) []TeamRow {
 	for _, l := range lines {
 		rows = append(rows, TeamRow{Name: l.Name, Tag: l.Tag, Companion: l.Companion,
 			Model: strings.TrimPrefix(l.Model, "claude-"), Effort: l.Effort, Claude: l.Claude, Pane: l.Pane,
-			Started: l.Started, Active: l.Active, Hidden: l.Hidden, Pinned: l.Pinned, IdleLeft: l.IdleLeft})
+			Started: l.Started, Active: l.Active, Hidden: l.Hidden, Pinned: l.Pinned, IdleLeft: l.IdleLeft,
+			TplState: l.TplState, TplTarget: l.TplTarget, CompanionFile: l.CompanionFile})
 	}
 	return rows
 }
