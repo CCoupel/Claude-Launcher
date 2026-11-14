@@ -1332,14 +1332,24 @@ function setFontSize(n, keep) {
   };
   redo();
   // cellule réelle d'xterm, connue après son rendu : remesure puis recalcul
-  requestAnimationFrame(() => { if (terms.length) { const o = cell; refineCell(terms[0]); if (!o || o.w !== cell.w || o.h !== cell.h) redo(); } });
+  requestAnimationFrame(() => {
+    // un terminal visible (offsetParent nul : vue ou vignette masquée, mesure nulle)
+    const vis = terms.find((t) => t.element && t.element.offsetParent !== null);
+    if (vis) { const o = cell; refineCell(vis); if (!o || o.w !== cell.w || o.h !== cell.h) redo(); }
+  });
   if (!keep) prefs.set('termFontSize', n);
   flash('Taille des caractères : ' + n);
 }
+let wheelAcc = 0;
 $('views').addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
   e.preventDefault(); e.stopPropagation();
-  if (e.deltaY) setFontSize(FONT_SIZE + (e.deltaY < 0 ? 1 : -1));
+  // pavé tactile / pincement : deltaY cumulé, un cran par tranche de 50 (molette : un cran par encoche)
+  wheelAcc += e.deltaMode === 0 ? e.deltaY : e.deltaY * 50;
+  if (Math.abs(wheelAcc) < 50) return;
+  const dir = wheelAcc < 0 ? 1 : -1;
+  wheelAcc = 0;
+  setFontSize(FONT_SIZE + dir);
 }, { passive: false, capture: true });
 
 let fitTimer = null;
