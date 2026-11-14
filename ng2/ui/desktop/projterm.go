@@ -72,7 +72,14 @@ type projTerm struct {
 	reseedSet       map[string]bool // panes à recapturer à l'échéance (nil : tous)
 	pubMu           sync.Mutex      // lecture de la fenêtre → publication (tours lent et rapide, #138)
 	team            *core.TeamConfig
-	zoomAt          time.Time // dernier plein écran demandé (journal, #138)
+	zoomAt          time.Time         // dernier plein écran demandé (journal, #138)
+	vis             []core.ProjPane   // panes du projet, cachés compris (carte Team, #136)
+	visChoices      map[string]string // choix manuels (@cl_panevis)
+	visSig          string            // état visible/caché/actif des panes : change → cartes renvoyées
+	refusedAt       time.Time         // dernier refus de saisie dit en pied de volet…
+	refusedWhy      string            // … et son motif
+	reg             []core.Teammate   // registre du template (cache 60 s)
+	regAt           time.Time
 }
 
 type watchState struct {
@@ -581,21 +588,28 @@ func (t *projTerm) resync() {
 
 // ── Saisie et commandes de l'interface ────────────────────────────────────
 
-func (t *projTerm) input(pane, data string) {
+func (t *projTerm) input(pane, data string) (refused string) {
 	t.mu.Lock()
 	c, ro := t.client, t.readOnly
 	t.mu.Unlock()
-	if c == nil || ro || pane == "" {
-		return
+	switch {
+	case c == nil || pane == "":
+		return ""
+	case ro:
+		return "readonly"
+	case len(data) > maxPaste:
+		return "toobig"
 	}
-	for _, hex := range hexKeys([]byte(data)) {
+	// découpé en send-keys -H de 256 octets au plus (eachHexChunk), envoyés dans
+	// l'ordre sur le même canal de contrôle : un collage de milliers de lignes
+	// arrive entier et dans l'ordre
+	eachHexChunk([]byte(data), func(hex []string) bool {
 		_ = c.Send(append([]string{"send-keys", "-t", pane, "-H"}, hex...)...)
-	}
+		return true
+	})
+	return ""
 }
 
-// binaryBytes : données « binaires » de xterm.js (onBinary : souris en
-// encodage X10 par défaut, coordonnées > 95) : un caractère = un octet, à ne
-// pas réencoder en UTF-8 (#135).
 func binaryBytes(data string) string {
 	b := make([]byte, 0, len(data))
 	for _, r := range data {
@@ -892,6 +906,20 @@ func (t *projTerm) tick(fast bool) {
 			arrange()
 		}
 	}
+	// panes cachés (#136) : recensement unique (fenêtre + réserve) pour la carte
+	// Team ; la règle n'est appliquée que par le launcher qui a la main
+	if !fast {
+		if t.refreshVis(tc, cfg, !ro) {
+			// panes cachés ou ramenés : fenêtre relue, visibles remis en page ; la
+			// variation du nombre de panes n'est pas un nouveau teammate
+			if panes2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(panes2) > 0 {
+				panes, w, h, zoomed, visible = panes2, w2, h2, z2, v2
+				cps = corePanes(panes)
+			}
+			t.watch.prevCount, t.watch.wait = len(panes), 0
+			arrange()
+		}
+	}
 	// un pane de plus : attendre que la team ait inscrit tous les agents (le
 	// leader n'a pas de tmuxPaneId), au plus 10 tours, puis mise en page
 	if n := len(panes); !fast && !ro {
@@ -932,22 +960,192 @@ func (t *projTerm) tick(fast bool) {
 	}
 	// teintes : actifs éclaircis, inactifs assombris (après la mise en page,
 	// qui remet la couleur de base) ; l'interface les reçoit tout de suite
-	if tc != nil && !ro {
-		for _, m := range tc.Members {
-			if m.PaneID == "" || m.PaneID == leader || !hasPane(panes, m.PaneID) {
-				continue
-			}
-			m := m
-			shade := core.PaneShade(cfg, t.color, &m, false)
-			core.SetPaneColor(t.cl(), cps, m.PaneID, shade)
-			for i := range panes {
-				if panes[i].ID == m.PaneID {
-					panes[i].Style = "bg=colour" + shade
-				}
+	if !ro {
+		t.shade(cfg, panes, cps, leader, tc)
+	}
+	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
+}
+
+// tmuxFn : le client de contrôle sous la forme attendue par core (panes cachés).
+func (t *projTerm) tmuxFn() core.SessionTmux {
+	return func(args ...string) (string, error) {
+		c := t.cl()
+		if c == nil {
+			return "", errClientClosed
+		}
+		b, err := c.Output(args...)
+		return string(b), err
+	}
+}
+
+// refreshVis : relève les panes du projet (fenêtre et réserve), applique la
+// règle si own (le launcher a la main) et dit si des panes ont bougé. Les cartes
+// sont renvoyées quand l'état visible / caché / actif d'un pane change.
+func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bool {
+	f, inCtr := t.tmuxFn(), !t.host
+	home := core.ProjectHome(f, t.win, inCtr)
+	panes, choices, err := core.ProjectPanes(f, t.win, home, inCtr)
+	if err != nil {
+		return false
+	}
+	moved := false
+	if own && tc != nil {
+		if res, err := core.ApplyPaneVisOn(f, t.win, home, panes, choices, tc, cfg.TeamHideIdle, time.Now().Unix()); err == nil && res.Changed() {
+			moved = true
+			if p2, c2, err := core.ProjectPanes(f, t.win, home, inCtr); err == nil {
+				panes, choices = p2, c2
 			}
 		}
 	}
+	var sig strings.Builder
+	for _, p := range panes {
+		fmt.Fprintf(&sig, "%s:%v:%s;", p.ID, p.Hidden, choices[p.ID])
+	}
+	if tc != nil {
+		sig.WriteString(core.ActiveSignature(*tc))
+	}
+	t.mu.Lock()
+	t.vis, t.visChoices = panes, choices
+	changed := t.visSig != sig.String()
+	t.visSig = sig.String()
+	t.mu.Unlock()
+	if changed {
+		t.a.pushTeam(t.path) // carte Team tout de suite, depuis la mémoire
+	}
+	return moved
+}
+
+// teamPanes : panes du projet cachés compris, relevés par le watcher (carte Team).
+func (t *projTerm) teamPanes() ([]core.ProjPane, map[string]string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ch := map[string]string{}
+	for k, v := range t.visChoices {
+		ch[k] = v
+	}
+	return append([]core.ProjPane(nil), t.vis...), ch
+}
+
+// hiddenCount : panes cachés du projet (question de fermeture).
+func (t *projTerm) hiddenCount() int {
+	n := 0
+	for _, p := range func() []core.ProjPane { ps, _ := t.teamPanes(); return ps }() {
+		if p.Hidden {
+			n++
+		}
+	}
+	return n
+}
+
+// teamToggle : double-clic sur un teammate de la carte Team : bascule visible ↔
+// caché d'un inactif ; refus (actif, leader, cdp, lecture seule, projet fermé)
+// rendu en message. Appliqué tout de suite.
+func (t *projTerm) teamToggle(pane string) (bool, string) {
+	if t.isReadOnly() {
+		return false, "lecture seule : un autre launcher a la main sur ce projet"
+	}
+	if t.cl() == nil {
+		return false, "projet fermé"
+	}
+	t.mu.Lock()
+	tc := t.team // team du dernier tour : pas de relecture des fichiers (parfois lents)
+	t.mu.Unlock()
+	if tc == nil {
+		return false, "team en cours de lecture, réessayez"
+	}
+	f, inCtr := t.tmuxFn(), !t.host
+	home := core.ProjectHome(f, t.win, inCtr)
+	t.pubMu.Lock() // @cl_panevis écrit hors d'un tour du watcher
+	r := core.TogglePane(f, t.win, home, tc, pane, inCtr)
+	t.pubMu.Unlock()
+	if !r.OK {
+		return false, r.Msg
+	}
+	t.applyNow() // règle appliquée, visibles remis en page, géométrie et carte publiées
+	return true, ""
+}
+
+// shade : teinte des panes de la team (actifs éclaircis, inactifs assombris).
+func (t *projTerm) shade(cfg core.Config, panes []winPaneFull, cps []core.WinPane, leader string, tc *core.TeamConfig) {
+	if tc == nil {
+		return
+	}
+	for _, m := range tc.Members {
+		if m.PaneID == "" || m.PaneID == leader || !hasPane(panes, m.PaneID) {
+			continue
+		}
+		m := m
+		shade := core.PaneShade(cfg, t.color, &m, false)
+		core.SetPaneColor(t.cl(), cps, m.PaneID, shade)
+		for i := range panes {
+			if panes[i].ID == m.PaneID {
+				panes[i].Style = "bg=colour" + shade
+			}
+		}
+	}
+}
+
+// applyNow : applique la règle des panes cachés et publie tout de suite la
+// géométrie et la carte Team, sans attendre le tour du watcher (bascule
+// manuelle). Utilise la team déjà lue (pas de relecture des fichiers, parfois
+// lents) ; sous pubMu comme un tour.
+func (t *projTerm) applyNow() {
+	t.pubMu.Lock()
+	defer t.pubMu.Unlock()
+	t.mu.Lock()
+	tc, ro := t.team, t.readOnly
+	t.mu.Unlock()
+	panes, w, h, zoomed, visible, err := t.readWin()
+	if err != nil || len(panes) == 0 {
+		return
+	}
+	cfg := t.a.conf()
+	var ids strings.Builder
+	for _, p := range panes {
+		ids.WriteString(p.ID + "\n")
+	}
+	leader := leaderID(ids.String())
+	if t.refreshVis(tc, cfg, !ro) {
+		if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
+			panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+		}
+		t.watch.prevCount, t.watch.wait = len(panes), 0
+		t.arrange(corePanes(panes), w, h, leader, tc)
+		if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
+			panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+		}
+	}
+	if !ro {
+		t.shade(cfg, panes, corePanes(panes), leader, tc)
+	}
+	busy := tc != nil && core.ActiveSignature(*tc) != ""
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
+}
+
+// registry : registre des teammates du template, relu au plus toutes les 60 s.
+func (t *projTerm) registry() []core.Teammate {
+	t.mu.Lock()
+	if t.reg != nil && time.Since(t.regAt) < time.Minute {
+		r := t.reg
+		t.mu.Unlock()
+		return r
+	}
+	t.mu.Unlock()
+	r := core.ReadTeammates(t.path)
+	t.mu.Lock()
+	t.reg, t.regAt = r, time.Now()
+	t.mu.Unlock()
+	return r
+}
+
+// teamRows : lignes de la carte Team depuis la mémoire du watcher (panes, team,
+// registre en cache) : aucun accès disque lent, utilisable à chaque changement.
+func (t *projTerm) teamRows() []core.TeamLine {
+	panes, choices := t.teamPanes()
+	t.mu.Lock()
+	tc := t.team
+	t.mu.Unlock()
+	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.a.conf().TeamHideIdle, time.Now().Unix())
 }
 
 // findTeam : config.json de la team du projet (compté pour les tests : une
@@ -1071,6 +1269,19 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 		for _, p := range msg.Panes {
 			if o, ok := old[p.ID]; ok && o != [2]int{p.W, p.H} && t.seen[p.ID] {
 				resizedPanes = append(resizedPanes, p.ID)
+			}
+		}
+	}
+	// pane qui quitte la fenêtre (caché, #136) : le client en mode contrôle ne
+	// reçoit plus sa sortie ; oublié, il est recapturé à son retour
+	if t.layout != nil {
+		cur := map[string]bool{}
+		for _, p := range panes {
+			cur[p.ID] = true
+		}
+		for _, p := range t.layout.Panes {
+			if !cur[p.ID] {
+				delete(t.seen, p.ID)
 			}
 		}
 	}

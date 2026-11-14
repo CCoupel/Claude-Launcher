@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Coque dont le navigateur a disparu : détectée (et donc recréée à la relance au
@@ -18,13 +19,21 @@ func TestShellWithoutNav(t *testing.T) {
 	}
 	sock := fmt.Sprintf("cl-test-outer-%d", os.Getpid())
 	t.Setenv("CL_OUTER_SOCKET", sock)
-	t.Cleanup(func() { _ = otmux("kill-server").Run() })
 	t.Setenv("TMUX", "")
 	t.Setenv("TERM", "xterm-256color")
 	if d, err := os.MkdirTemp("", "cltmux"); err == nil { // court : limite des sockets unix
 		t.Setenv("TMUX_TMPDIR", d)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
+	// Enregistré en dernier, donc exécuté en premier (#144) : avant que
+	// TMUX_TMPDIR soit restauré et son dossier effacé, sinon kill-server ne
+	// trouve plus la socket et le serveur survit.
+	t.Cleanup(func() {
+		stopOuterShell()
+		if left := leftovers(sock, 5*time.Second); left != "" {
+			t.Errorf("processus restants après le test (%s) :\n%s", sock, left)
+		}
+	})
 
 	newShell := func(tag bool) (nav string) {
 		_ = otmux("kill-server").Run()

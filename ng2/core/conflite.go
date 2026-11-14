@@ -168,7 +168,7 @@ func confLite(src, home string) string {
 		"CLAUDE_DISABLE_MOUSE": "1", "CLAUDE_EXPERIMENTAL_TEAMS": "1", "CLAUDE_OPTIONS": "",
 		"LAYOUT_2ROW_LEADER_PCT": "50", "LAYOUT_3ROW_LEADER_NUM": "3", "LAYOUT_3ROW_MID_NUM": "2", "LAYOUT_3ROW_DEN": "7",
 		"PANE_ACTIVE_BRIGHTEN_STEP": "1", "PANE_INACTIVE_DARKEN_STEP": "1", "RESUME_MODE": "ask", "RESUME_MAX_AGE_H": "24",
-		"CTR_STOP_ON_EXIT": "0",
+		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30",
 	}
 	if strings.Contains(home, `\`) {
 		vars["GITHUB_DIR"] = home + `\GITHUB`
@@ -240,6 +240,7 @@ func confLite(src, home string) string {
 	p := func(tag, v string) { fmt.Fprintf(&b, "%s\t%s\n", tag, v) }
 	p("layout", strings.Join([]string{vars["LAYOUT_2ROW_LEADER_PCT"], vars["LAYOUT_3ROW_LEADER_NUM"], vars["LAYOUT_3ROW_MID_NUM"], vars["LAYOUT_3ROW_DEN"]}, " "))
 	p("steps", vars["PANE_ACTIVE_BRIGHTEN_STEP"]+" "+vars["PANE_INACTIVE_DARKEN_STEP"])
+	p("hideidle", vars["TEAM_HIDE_IDLE"])
 	p("usage", vars["USAGE_REFRESH_SEC"])
 	p("resume", vars["RESUME_MODE"]+" "+vars["RESUME_MAX_AGE_H"])
 	p("token", vars["GITHUB_TOKEN"])

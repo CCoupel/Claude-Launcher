@@ -46,8 +46,13 @@ var helpSections = []helpSection{
 		{"Esc", "quitter : l launcher seul · t puis o tout fermer"},
 		{"F1", "cette aide"},
 	}},
+	{"Carte Team (volet d'état)", []helpRow{
+		{"double-clic sur un teammate", "inactif : le cacher / l'afficher (actif, leader : refusé) ; caché, il continue de tourner"},
+		{"surbrillance", "pane visible dans la fenêtre du projet ; TEAM_HIDE_IDLE (30 s) : masquage automatique, 0 = jamais"},
+	}},
 	{"Zone tmux", []helpRow{
 		{"double-clic sur un pane", "plein écran, double-clic à nouveau pour revenir"},
+		{"Maj+glisser (terminal hôte)", "sélectionner du texte en contournant tmux (la souris est captée par tmux) ; la sélection traverse les panes, bordures comprises"},
 		{"Ctrl+B z", "idem au clavier"},
 		{"Ctrl+B R", "remettre en ordre les panes de la team"},
 		{"projet en conteneur ⬢", "Ctrl+B agit dans le conteneur ; Ctrl+B Ctrl+B = préfixe du hub"},

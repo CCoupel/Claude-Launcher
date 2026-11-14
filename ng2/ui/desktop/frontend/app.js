@@ -44,7 +44,11 @@ const store = {
   set(k, v) { try { localStorage.setItem('cl.' + k, JSON.stringify(v)); } catch (e) { /* stockage indisponible */ } },
 };
 const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace';
-const FONT_SIZE = 13;
+// Taille des caractères des terminaux (#140) : préférence termFontSize du poste,
+// changée par Ctrl+molette (setFontSize).
+const FONT_DEFAULT = 13, MIN_FONT = 8, MAX_FONT = 28;
+let FONT_SIZE = FONT_DEFAULT;
+const clampFont = (n) => { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.min(MAX_FONT, Math.max(MIN_FONT, n)) : FONT_DEFAULT; };
 
 // ── État ───────────────────────────────────────────────────────────────────
 const S = {
@@ -59,6 +63,80 @@ const S = {
 };
 
 function flash(m) { const e = $('msg'); e.textContent = m; }
+
+// Message bref dans le pied de volet : s'efface seul s'il n'a pas été remplacé entre-temps.
+let flashTimer = null;
+function flashBrief(m, ms) {
+  flash(m);
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { if ($('msg').textContent === m) flash(''); }, ms || 2500);
+}
+
+// ── Presse-papiers et collage dans les terminaux (#155, LOT-4) ──────────────
+// Fenêtre native : clipboardWrite / clipboardRead du Go (presse-papiers du poste, sans invite
+// WebView2). « unavailable » (--web) : navigator.clipboard, en contexte sécurisé seulement.
+async function clipCall(method, args) {
+  try { return (await transport.call(method, args)) || { ok: false, unavailable: true }; }
+  catch (e) { return { ok: false, unavailable: true, msg: e.message }; }
+}
+async function clipWrite(text) {
+  const r = await clipCall('clipboardWrite', { text });
+  if (r.ok || !r.unavailable) return r;
+  if (!window.isSecureContext || !navigator.clipboard) return { ok: false, msg: r.msg || 'presse-papiers indisponible : page hors contexte sécurisé (utiliser http://localhost)' };
+  try { await navigator.clipboard.writeText(text); return { ok: true }; } catch (e) { return { ok: false, msg: 'copie refusée par le navigateur : ' + e.message }; }
+}
+async function clipRead() {
+  const r = await clipCall('clipboardRead', {});
+  if (r.ok || !r.unavailable) return r;
+  if (!window.isSecureContext || !navigator.clipboard) return { ok: false, msg: r.msg || 'presse-papiers indisponible : page hors contexte sécurisé (utiliser http://localhost)' };
+  try { return { ok: true, text: await navigator.clipboard.readText() }; } catch (e) { return { ok: false, msg: 'lecture refusée par le navigateur : ' + e.message }; }
+}
+// Résultat de termInput : vide si la saisie est partie ; sinon {ok:false, msg}.
+const termInLast = {}; // motif -> date du dernier message (au plus un par seconde et par motif, comme côté Go)
+const isMouseInput = (a) => a.binary || /^\x1b\[(<|M)/.test(a.data || ''); // souris X10 / SGR : jamais de message
+const termIn = (a) => call('termInput', a).then((r) => {
+  if (r && r.ok === false && !isMouseInput(a)) { // reason : 'readonly' (un autre launcher a la main) | 'toobig' (collage > 4 Mo)
+    const k = r.reason || 'refus', now = Date.now();
+    if (!termInLast[k] || now - termInLast[k] >= 1000) {
+      termInLast[k] = now;
+      flashBrief('⚠ ' + (r.msg || (r.reason === 'readonly' ? 'lecture seule : saisie refusée' : 'saisie refusée')), 4000);
+    }
+  }
+  return r;
+});
+
+// Copie / collage d'un terminal. clip = { term, readOnly(): bool } ; la saisie collée passe par term.paste
+// (collage entre crochets si le programme l'a demandé), donc par le onData du terminal.
+async function clipCopy(term) {
+  if (!term.hasSelection()) return;
+  const r = await clipWrite(term.getSelection());
+  if (r.ok) flashBrief('Copié'); else flashBrief('⚠ Copie impossible : ' + (r.msg || 'refusée'), 4000);
+}
+async function clipPaste(clip) {
+  if (clip.readOnly()) { flashBrief('⚠ Collage refusé : projet en lecture seule (un autre launcher a la main)', 4000); return; }
+  const r = await clipRead();
+  if (!r.ok) { flashBrief('⚠ Collage impossible : ' + (r.msg || 'refusé'), 4000); return; }
+  if (!r.text) { flashBrief('Presse-papiers vide (pas de texte)'); return; }
+  clip.term.paste(r.text);
+}
+function attachClip(clip) {
+  const term = clip.term, el0 = term.element;
+  if (!el0) return;
+  // copie à la fin de la sélection (bouton relâché, même hors du terminal)
+  el0.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return;
+    const up = () => { document.removeEventListener('mouseup', up, true); setTimeout(() => clipCopy(term), 0); };
+    document.addEventListener('mouseup', up, true);
+  });
+  // clic droit : coller ; si le programme suit la souris, Maj+clic droit
+  el0.addEventListener('contextmenu', (e) => {
+    let tracking = false;
+    try { tracking = term.modes.mouseTrackingMode !== 'none'; } catch (err) { /* API absente : collage */ }
+    if (tracking && !e.shiftKey) return;
+    e.preventDefault();
+    clipPaste(clip);
+  });
+}
 
 // ── Mesure des cellules du terminal ────────────────────────────────────────
 let cell = null;
@@ -247,6 +325,7 @@ function renderTree() {
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
 
+let teamClick = { key: null, at: 0 };
 function renderCards() {
   const c = S.cards, box = $('cards');
   box.textContent = '';
@@ -336,12 +415,31 @@ function renderCards() {
   if ((!c.team || !c.team.length) && pend.has('team')) tb.appendChild(el('div', 'dim', 'lecture de la team…'));
   else if (!c.team || !c.team.length) tb.appendChild(el('div', 'dim', c.open ? 'Pas de team template.' : 'Pas de team template (Entrée pour lancer).'));
   else {
+    // une ligne par teammate (#136) : ● démarré / ○ non ; surbrillance = pane visible ;
+    // double-clic (450 ms, détecté à la main : la carte est redessinée à chaque évènement)
     const g = el('div', 'team');
     for (const m of c.team) {
-      const on = !!m.claude;
-      g.append(el('span', on ? 't-green' : 't-dim', on ? '●' : '○'), el('span', on ? '' : 'dim', m.name),
-        el('span', '', (m.tag || '—') + (m.companion ? '+' : '')), el('span', 'dim', (m.model || '—') + ' · ' + (m.effort || '—')),
-        el('span', 't-cyan', on ? m.claude + (m.count > 1 ? ' ×' + m.count : '') : (m.count > 1 ? '×' + m.count : '')));
+      const on = !!m.started || !!m.claude;
+      const r = el('div', 'tr' + (on && !m.hidden ? ' vis' : '') + (on ? '' : ' off'));
+      // état du template (#136) : ● vert à jour, ▲ orange en retard (○ pour un non démarré, mêmes couleurs) ; neutre : comme avant
+      const late = m.tplState === 'late', ok = m.tplState === 'ok';
+      const mark = el('span', late ? 't-orange' : ok ? 't-green' : on ? 't-green' : 't-dim', late && on ? '▲' : on ? '●' : '○');
+      r.append(mark, el('span', 'n', (m.companion ? '+ ' : '') + m.name),
+        el('span', 'v', on ? (m.claude || '') : ''), el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')));
+      const st = !on ? 'non démarré' : m.name === 'leader' ? 'leader' : m.active ? 'actif' : m.hidden ? 'caché' : m.pinned ? 'visible (fixé)' : 'visible' + (m.idleLeft ? ' · ' + m.idleLeft + ' s' : '');
+      const tip = [st];
+      if (m.tplState) tip.push('template ' + (m.tag || '?') + (m.tplTarget ? ' — cible ' + m.tplTarget : ' — version cible inconnue') + (late ? ' (en retard)' : ' (à jour)'));
+      else if (m.tag && !m.tplTarget) tip.push('template ' + m.tag + ' — version cible inconnue');
+      if (m.tplState || m.tag || m.tplTarget) tip.push(m.companion ? 'compagnon : oui' + (m.companionFile ? ' (' + m.companionFile + ')' : '') : 'compagnon : non');
+      r.title = tip.join('\n');
+      if (on && m.pane) r.onclick = () => {
+        const now = Date.now(), k = c.path + '|' + m.pane;
+        if (teamClick.key === k && now - teamClick.at < 450) {
+          teamClick = { key: null, at: 0 };
+          call('teamToggle', { path: c.path, pane: m.pane }).then((res) => flash(res && res.ok === false ? (res.msg || 'refusé') : '')).catch(() => {});
+        } else teamClick = { key: k, at: now };
+      };
+      g.appendChild(r);
     }
     tb.appendChild(g);
   }
@@ -450,12 +548,49 @@ $('tree').addEventListener('click', (e) => {
   const r = S.snap.rows.find((x) => x.path === path);
   if (dbl || (r && r.open)) { S.lastClick.key = null; openProject(path); }
 });
+// ── Menu contextuel d'un projet (#148, LOT-3.2) ────────────────────────────
+function closeCtx() { const m = $('ctxmenu'); if (m) m.remove(); }
+function showProjectMenu(path, x, y) {
+  closeCtx();
+  const r = (S.snap.rows || []).find((v) => v.path === path) || {};
+  const m = el('div', 'ctxmenu'); m.id = 'ctxmenu';
+  const it = (label, key, fn, dis) => {
+    const d = el('div', dis ? 'dis' : '', label);
+    if (key) d.appendChild(el('span', 'k', key));
+    if (!dis) d.onclick = (e) => { e.stopPropagation(); closeCtx(); fn(); };
+    m.appendChild(d);
+  };
+  it('Ouvrir', 'Entrée', () => openProject(path));
+  it('Fermer', 'Suppr', () => askClose(path), !r.open);
+  m.appendChild(el('hr'));
+  it('⚙ Réglages du projet…', '', () => openSettings(path, 'projet'));
+  it('Changer de backend…', 'F2', () => openSettings(path, 'projet', 'pjf-backend'));
+  it('Environnement du conteneur…', '', () => openSettings(path, 'projet', 'pjf-env'));
+  it('Couleur…', '', () => openSettings(path, 'projet', 'pjf-color'));
+  m.appendChild(el('hr'));
+  it('Éditer env.yaml en YAML', '', () => configEditor(path, 'project-env'));
+  document.body.appendChild(m);
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(0, Math.min(x, window.innerWidth - w - 4)) + 'px';
+  m.style.top = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + 'px';
+}
+$('tree').addEventListener('contextmenu', (e) => {
+  const row = e.target.closest('.row.project');
+  if (!row || !row.dataset.path) return;
+  e.preventDefault(); e.stopPropagation();
+  select(row.dataset.path);
+  showProjectMenu(row.dataset.path, e.clientX, e.clientY);
+});
+document.addEventListener('mousedown', (e) => { if (!e.target.closest('#ctxmenu')) closeCtx(); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCtx(); }, true);
+window.addEventListener('blur', closeCtx);
+
 $('newproj').addEventListener('click', () => { select('new'); newProject(''); });
 $('login').addEventListener('click', () => call('login').then(() => {}).catch(() => {}));
 $('cards').addEventListener('click', () => $('nav').focus());
 
 document.addEventListener('keydown', (e) => {
-  if (!$('modal').classList.contains('hidden')) { if (e.key === 'Escape') { if (CE.doc) ceClose(); else closeModal(); } return; }
+  if (!$('modal').classList.contains('hidden')) { if (e.key === 'Escape') { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } return; }
   const inTerm = e.target && e.target.closest && e.target.closest('.xterm');
   if (inTerm) return; // le terminal garde ses touches (raccourcis : attachCustomKeyEventHandler)
   if (S.quit) { onQuitKey(e); return; }
@@ -501,7 +636,7 @@ document.addEventListener('keydown', (e) => {
     if (l === 'r') { call('rescan'); return handled(); }
     if (l === 'u') { call('dismiss', { kind: 'all' }); return handled(); }
     if (l === 'd') { diagBox(); return handled(); }
-    if (k === ',') { configEditor(S.cursor && S.cursor !== 'new' ? S.cursor : '', ''); return handled(); }
+    if (k === ',') { openSettings(S.cursor && S.cursor !== 'new' ? S.cursor : ''); return handled(); }
     if (l === 'c') { S.quit = 1; renderHead(); return handled(); }
     return;
   }
@@ -593,6 +728,7 @@ function applyLayoutPrefs() {
   setTheme(prefs.get('theme', 'auto'), true);
   const w = prefs.get('navW', 0); if (w) setNavW(w, true);
   const h = prefs.get('treeH', 0); if (h) setTreeH(h, true);
+  FONT_SIZE = clampFont(prefs.get('termFontSize', FONT_DEFAULT));
   document.body.classList.toggle('cardsfolded', !!prefs.get('cardsHidden', false));
 }
 
@@ -683,6 +819,9 @@ class ProjView {
     this.launch = newTerm({ convertEol: true, cursorBlink: true, theme: termTheme() });
     this.launch.open(this.launchEl);
     this.launch.onData((d) => call('launchInput', { path: this.path, data: d }));
+    const lclip = { term: this.launch, readOnly: () => !!this.ro };
+    this.launch.attachCustomKeyEventHandler((ev) => terminalKey(ev, lclip));
+    attachClip(lclip);
     this.focusPane = null;
     this.sent = null;
     this.borders();
@@ -734,6 +873,7 @@ class ProjView {
     this.launchBox.classList.toggle('hidden', ready);
     this.panesEl.classList.toggle('hidden', !ready);
     this.launchBox.style.inset = pty ? '4px' : '';
+    this.ro = !!m.readOnly;
     this.banner.classList.toggle('hidden', !m.readOnly);
     if (m.readOnly) this.banner.textContent = 'lecture seule : un autre launcher a la main — Entrée sur le projet pour la reprendre';
     this.fit();
@@ -825,8 +965,10 @@ class ProjView {
     term.open(x);
     refineCell(term);
     term.onData((d) => this.input(p.id, d));
-    term.onBinary((d) => call('termInput', { path: this.path, pane: p.id, data: d, binary: true })); // souris X10 (#135)
-    term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
+    term.onBinary((d) => termIn({ path: this.path, pane: p.id, data: d, binary: true })); // souris X10 (#135)
+    const clip = { term, readOnly: () => !!this.ro };
+    term.attachCustomKeyEventHandler((ev) => terminalKey(ev, clip));
+    attachClip(clip);
     term.textarea && term.textarea.addEventListener('focus', () => { this.focusPane = p.id; S.focusNav = false; call('termFocus', { path: this.path, pane: p.id }); });
     head.addEventListener('dblclick', () => this.zoom(p.id));
     head.addEventListener('click', () => term.focus());
@@ -847,11 +989,12 @@ class ProjView {
       S.prefix = false; this.prefixEl.classList.add('hidden');
       if (d === 'z') return this.zoom(pane);
       if (d === 'R' || d === 'r') return call('relayout', { path: this.path });
-      if (d === '\x02') return call('termInput', { path: this.path, pane, data: '\x02' });
-      return call('termInput', { path: this.path, pane, data: '\x02' + d });
+      if (d === '\x02') return termIn({ path: this.path, pane, data: '\x02' });
+      if (d === '\x16') return termIn({ path: this.path, pane, data: '\x16' }); // Ctrl+B Ctrl+V : ^V seul, sans préfixe tmux
+      return termIn({ path: this.path, pane, data: '\x02' + d });
     }
     if (d === '\x02') { S.prefix = true; this.prefixEl.classList.remove('hidden'); return; }
-    call('termInput', { path: this.path, pane, data: d });
+    termIn({ path: this.path, pane, data: d });
   }
 }
 
@@ -875,8 +1018,17 @@ function paneBorder(panes, cx, cy, gap) {
 }
 
 // terminalKey : raccourcis de l'application pris dans un terminal (false : pas pour lui).
-function terminalKey(ev) {
+function terminalKey(ev, clip) {
   if (ev.type !== 'keydown') return true;
+  if (clip) {
+    // Ctrl+Maj+C copie la sélection (Ctrl+C reste l'interruption) ; Ctrl+V, Ctrl+Maj+V et Maj+Inser collent par
+    // ce seul chemin (preventDefault : pas de second collage par l'évènement natif « paste »)
+    const k = ev.key;
+    if (ev.ctrlKey && ev.shiftKey && !ev.altKey && (k === 'C' || k === 'c')) { ev.preventDefault(); clipCopy(clip.term); return false; }
+    // Ctrl+B puis Ctrl+V : ^V brut au programme (collage d'image de Claude Code, vim, nano) — préfixe armé : on laisse xterm l'envoyer
+    if (S.prefix && ev.ctrlKey && !ev.shiftKey && !ev.altKey && (k === 'V' || k === 'v')) { ev.preventDefault(); return true; }
+    if ((ev.ctrlKey && !ev.altKey && (k === 'V' || k === 'v')) || (ev.shiftKey && !ev.ctrlKey && k === 'Insert')) { ev.preventDefault(); clipPaste(clip); return false; }
+  }
   if (ev.ctrlKey && ev.key === 'Tab') { ev.preventDefault(); cycleTab(ev.shiftKey ? -1 : 1); return false; }
   if (ev.altKey && (ev.key === 'ArrowLeft' || ev.key === 'ArrowRight') && !ev.ctrlKey) { ev.preventDefault(); $('nav').focus(); S.focusNav = true; return false; }
   if (ev.ctrlKey && ev.shiftKey && (ev.key === 'W' || ev.key === 'w') && S.view !== 'leaders') { ev.preventDefault(); detachTab(S.view); return false; }
@@ -903,9 +1055,11 @@ const leaders = {
       this.grid.appendChild(tile);
       const term = newTerm({ cols: lp.w, rows: lp.h, cursorBlink: false });
       term.open(cl);
-      term.onData((d) => call('termInput', { path, pane: l.leader, data: d }));
-      term.onBinary((d) => call('termInput', { path, pane: l.leader, data: d, binary: true }));
-      term.attachCustomKeyEventHandler((ev) => terminalKey(ev));
+      term.onData((d) => termIn({ path, pane: l.leader, data: d }));
+      term.onBinary((d) => termIn({ path, pane: l.leader, data: d, binary: true }));
+      const clip = { term, readOnly: () => !!((S.snap.tabs || []).find((x) => x.path === path) || {}).readOnly };
+      term.attachCustomKeyEventHandler((ev) => terminalKey(ev, clip));
+      attachClip(clip);
       term.textarea && term.textarea.addEventListener('focus', () => tile.classList.add('focus'));
       term.textarea && term.textarea.addEventListener('blur', () => tile.classList.remove('focus'));
       th.addEventListener('dblclick', () => showView(path, true));
@@ -951,8 +1105,8 @@ function openModal(build) {
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
-function closeModal() { $('modal').classList.add('hidden'); $('nav').focus(); }
-$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else closeModal(); } });
+function closeModal() { if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
+$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {
   openModal((b) => {
@@ -1107,15 +1261,16 @@ async function execF2(path) {
 const CE = { project: '', files: [], doc: null, dirty: false, timer: null };
 
 async function configEditor(project, kind) {
-  CE.project = project || '';
+  CE.project = project || ''; CE.fromPage = '';
   CE.files = await call('configFiles', { path: CE.project });
   openModal((b) => {
     b.classList.add('wide');
     b.innerHTML = '';
     const head = el('div', 'cehead');
-    head.append(el('h2', '', '⚙ Fichiers de configuration'), el('span', 'sp'));
+    head.append(el('h2', '', '⚙ Fichiers YAML'), el('span', 'sp'));
     const close = el('button', 'btn', 'Fermer (Échap)'); close.onclick = () => ceClose();
-    head.appendChild(close);
+    const back = el('button', 'btn', '← Réglages'); back.id = 'ceback'; back.title = 'Revenir à la fenêtre Réglages'; back.onclick = () => ceBack();
+    head.append(back, close);
     const body = el('div', 'cebody');
     const list = el('div', 'celist'); list.id = 'celist';
     const ed = el('div', 'ceed'); ed.id = 'ceed';
@@ -1164,6 +1319,7 @@ async function ceOpen(kind) {
   const probs = el('div', 'ceprobs'); probs.id = 'ceprobs';
   const status = el('div', 'cestatus'); status.id = 'cestatus';
   ed.append(bar, wrap, probs, status);
+  if (d.kind === 'config.conf') ed.appendChild(el('p', 'dim', 'Jeton masqué : laisser GITHUB_TOKEN="__GARDER__" le conserve ; saisir une autre valeur le remplace ; "" le retire.'));
   if (d.kind === 'project-env') {
     const side = el('details', 'ceside');
     side.append(el('summary', '', 'Environnement fusionné (env-template.yaml du template puis ce fichier) — lecture seule'));
@@ -1238,13 +1394,33 @@ async function ceSave(force) {
   ceRenderList();
 }
 
+// ← Réglages : retour à la fenêtre de configuration structurée, sur la rubrique
+// d'origine (CE.fromPage) ; texte modifié : proposer de l'enregistrer d'abord.
+async function ceBack() {
+  if (CE.dirty) {
+    if (confirm('Le texte a été modifié. Enregistrer avant de revenir aux Réglages ?\n\nOK : enregistrer — Annuler : autre choix')) {
+      const sv = $('cesave');
+      if (sv && sv.disabled) { // erreurs déjà affichées : l'enregistrement est sans effet
+        const st = $('cestatus'); if (st) st.textContent = '';
+        st.appendChild(el('span', 't-red', 'Enregistrement impossible : corriger les erreurs ci-dessous.'));
+        return;
+      }
+      await ceSave(false);
+      if (CE.dirty) return; // erreurs ou conflit : rester dans l'éditeur
+    } else if (!confirm('Revenir aux Réglages SANS enregistrer (modifications perdues) ?')) return;
+  }
+  const page = CE.fromPage, project = CE.project;
+  CE.doc = null; CE.dirty = false; CE.fromPage = '';
+  openSettings(project, page || undefined); // recharge le modèle : il montre le fichier tel qu'enregistré
+}
+
 function ceClose() {
   if (CE.dirty && !confirm('Fermer sans enregistrer ? Les modifications seront perdues.')) return;
-  CE.doc = null; CE.dirty = false;
+  CE.doc = null; CE.dirty = false; CE.fromPage = '';
   $('modalbox').classList.remove('wide');
   closeModal();
 }
-$('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); configEditor(S.cursor && S.cursor !== 'new' ? S.cursor : '', ''); });
+$('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); openSettings(S.cursor && S.cursor !== 'new' ? S.cursor : ''); });
 
 // ── Événements du Go ───────────────────────────────────────────────────────
 // ── Notifications (fenêtre en arrière-plan) : agent en attente, MAJ prête ──
@@ -1304,6 +1480,48 @@ function onEvent(name, data) {
     }
   }
 }
+
+// Ctrl+molette (#140) : taille des caractères de tous les terminaux. Seule la
+// molette avec Ctrl est prise (aucune touche retirée aux terminaux) ; la page
+// ne zoome pas (preventDefault).
+function allTerms() {
+  const a = [];
+  for (const v of Object.values(S.views)) { a.push(v.launch); for (const p of Object.values(v.panes)) a.push(p.term); }
+  for (const t of Object.values(leaders.tiles)) a.push(t.term);
+  return a;
+}
+function setFontSize(n, keep) {
+  n = clampFont(n);
+  if (n === FONT_SIZE) return;
+  FONT_SIZE = n;
+  const terms = allTerms();
+  for (const t of terms) t.options.fontSize = n;
+  cell = measureCell();
+  const redo = () => {
+    for (const v of Object.values(S.views)) { v.sent = null; v.fit(); if (v.layout) v.applyLayout(v.layout); }
+    leaders.layout();
+  };
+  redo();
+  // cellule réelle d'xterm, connue après son rendu : remesure puis recalcul
+  requestAnimationFrame(() => {
+    // un terminal visible (offsetParent nul : vue ou vignette masquée, mesure nulle)
+    const vis = terms.find((t) => t.element && t.element.offsetParent !== null);
+    if (vis) { const o = cell; refineCell(vis); if (!o || o.w !== cell.w || o.h !== cell.h) redo(); }
+  });
+  if (!keep) prefs.set('termFontSize', n);
+  flash('Taille des caractères : ' + n);
+}
+let wheelAcc = 0;
+$('views').addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault(); e.stopPropagation();
+  // pavé tactile / pincement : deltaY cumulé, un cran par tranche de 50 (molette : un cran par encoche)
+  wheelAcc += e.deltaMode === 0 ? e.deltaY : e.deltaY * 50;
+  if (Math.abs(wheelAcc) < 50) return;
+  const dir = wheelAcc < 0 ? 1 : -1;
+  wheelAcc = 0;
+  setFontSize(FONT_SIZE + dir);
+}, { passive: false, capture: true });
 
 let fitTimer = null;
 function scheduleFit() {

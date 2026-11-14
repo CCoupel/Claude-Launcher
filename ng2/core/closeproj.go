@@ -18,8 +18,16 @@ type SessionTmux func(args ...string) (string, error)
 func StopSession(t SessionTmux, target string, inCtr bool, closeWait time.Duration, step func(string)) error {
 	leader, cmd := LeaderPane(t, target, inCtr)
 	if leader == "" {
-		return nil // plus de session
+		// plus de session : le leader est parti avant nous, sa fenêtre avec lui si
+		// elle ne tenait que par lui ; les panes cachés, eux, tournent encore (#136)
+		if inCtr {
+			KillHiddenPanes(t, HomeCtr)
+		} else {
+			KillOrphanHidden(t)
+		}
+		return nil
 	}
+	home := ProjectHome(t, target, inCtr) // avant la fermeture : retrouver les panes cachés (#136)
 	start := time.Now()
 	if !Shells[cmd] {
 		// Échap interrompt une réponse en cours ; /exit est ensuite tapé seul
@@ -42,6 +50,10 @@ func StopSession(t SessionTmux, target string, inCtr bool, closeWait time.Durati
 		} else {
 			step(fmt.Sprintf("pas de réponse en %d s : arrêt forcé", int(closeWait.Seconds())))
 		}
+	}
+	// les panes cachés vivent dans la réserve, hors de la session : fermés aussi
+	if n := KillHiddenPanes(t, home); n > 0 {
+		step(fmt.Sprintf("%d pane(s) caché(s) fermé(s)", n))
 	}
 	if inCtr {
 		_, _ = t("kill-session", "-t", "="+CtrSession)

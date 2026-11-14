@@ -27,6 +27,7 @@ func (a *App) addTab(t *projTerm) bool {
 		return false
 	}
 	a.terms[t.path] = t
+	a.openTabs.Store(t.path, true)
 	a.order = append(a.order, t.path)
 	a.mu.Unlock()
 	a.changed()
@@ -43,6 +44,7 @@ func (a *App) removeTab(path string, t *projTerm) {
 		return
 	}
 	delete(a.terms, path)
+	a.openTabs.Delete(path)
 	for i, p := range a.order {
 		if p == path {
 			a.order = append(a.order[:i], a.order[i+1:]...)
@@ -257,7 +259,7 @@ func (a *App) teammates(p core.ProjInfo, t *projTerm) int {
 		n = p.Live.Panes
 	case t != nil:
 		if l := t.lastLayout(); l != nil {
-			n = len(l.Panes)
+			n = len(l.Panes) + t.hiddenCount() // teammates cachés compris (#136)
 		}
 	}
 	return max(n-1, 0)

@@ -22,6 +22,7 @@ type TeamMember struct {
 	AgentType string `json:"agentType"`
 	PaneID    string `json:"tmuxPaneId"`
 	IsActive  bool   `json:"isActive"`
+	Model     string `json:"model"`
 	Cwd       string `json:"cwd"`
 }
 

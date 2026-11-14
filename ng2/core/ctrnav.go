@@ -9,7 +9,8 @@ import (
 // de panes (claude et ses teammates) et claude encore en marche dans le leader.
 type LiveSess struct {
 	Owner  OwnerInfo
-	Panes  int
+	Panes  int  // fenêtre du projet et panes cachés (#136)
+	Hidden int  // dont panes cachés, dans la réserve
 	Claude bool // le leader (plus petit %id) n'est pas revenu à son shell
 }
 
@@ -17,7 +18,7 @@ type LiveSess struct {
 // propriétaire et panes, puis la liste des panes).
 func (e Engine) ReadLive(name string) (LiveSess, bool) {
 	s, err := e.Output(name, TmuxIn("display-message", "-p", "-t", "="+CtrSession+":", OwnerFormat+"|#{window_panes}", ";",
-		"list-panes", "-s", "-t", "="+CtrSession, "-F", "#{pane_id} #{pane_current_command}")...)
+		"list-panes", "-a", "-F", "#{?#{@cl_home},H,#{?#{==:#{session_name},"+CtrSession+"},P,X}} #{pane_id} #{pane_current_command}")...)
 	if err != nil {
 		return LiveSess{}, false
 	}
@@ -31,8 +32,23 @@ func ParseLive(s string) (LiveSess, bool) {
 		return LiveSess{}, false
 	}
 	n, _ := strconv.Atoi(head[i+1:])
-	l := LiveSess{Owner: ParseOwner(head[:i]), Panes: n}
-	if id, cmd := LeaderOf(panes); id != "" {
+	l := LiveSess{Owner: ParseOwner(head[:i])}
+	// lignes « P|H|X %id commande » (fenêtre du projet, réserve, autre) ; sans
+	// marqueur : tous les panes de la fenêtre
+	var win []string
+	for _, ln := range strings.Split(panes, "\n") {
+		switch {
+		case strings.HasPrefix(ln, "H "):
+			l.Hidden++
+		case strings.HasPrefix(ln, "P "):
+			win = append(win, ln[2:])
+		case strings.HasPrefix(ln, "X "):
+		default:
+			win = append(win, ln)
+		}
+	}
+	l.Panes = n + l.Hidden
+	if id, cmd := LeaderOf(strings.Join(win, "\n")); id != "" {
 		l.Claude = !Shells[cmd]
 	}
 	return l, true

@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -58,6 +59,16 @@ type App struct {
 	hubCache   string   // cache d'état du hub Linux (hubs.<machine>.hub_cache)
 	hubWarns   []string // clés inconnues de hubs: dans backends.yaml (#127), ignorées
 
+	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
+	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
+	projSet   atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
+	liveSnap  atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
+	web       bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
+	openTabs  sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
+	hubGen    atomic.Uint64                   // génération de la dernière relecture des avertissements hubs
+	ctrFounds atomic.Pointer[[]core.Found]
+	bkSnap    atomic.Pointer[[]core.BackendConf]
+
 	dirty     chan struct{}
 	cardDirty chan struct{}
 	quit      chan struct{}
@@ -84,6 +95,7 @@ func NewApp(emit Emitter) *App {
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
 	a.perf.trace("démarrage : config", core.ConfigPath(), dConf)
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
+	go core.WarmEngineEnv() // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
 	a.perf.timed("démarrage : hubs", core.BackendsPath(), func() {
 		a.hubCache = core.HubCacheDir()
 		a.hubWarns = core.HubConfigWarnings() // faute de frappe dans hubs: (config partagée) : signalée
@@ -98,6 +110,7 @@ func NewApp(emit Emitter) *App {
 		})
 		saveTree(cfg.Roots, a.nodes)
 	}
+	a.storeProjects()
 	// conso : lue en tâche de fond (Start), CLAUDE_CONFIG_DIR peut être sur 9P
 	a.usage.Loading = true
 	// badges immédiats : cache LOCAL seulement (état préparé, badges git du
@@ -342,6 +355,7 @@ func (a *App) rescan() {
 		known[p] = true
 	}
 	a.nodes = nodes
+	a.storeProjects()
 	var fresh []string
 	for _, p := range a.projectPaths() {
 		if !known[p] {
@@ -449,7 +463,59 @@ func (a *App) readCtr() {
 	a.mu.Lock()
 	a.ctr = v
 	a.mu.Unlock()
+	a.storeCtrSnapshots(v)
 	a.changed()
+}
+
+// storeProjects : ensemble des projets de l'arbre, pour vérifier sans verrou
+// qu'un chemin fourni par l'interface (mode --web : le client n'est pas de
+// confiance) désigne bien un projet connu (a.nodes ; a.mu tenu ou démarrage).
+func (a *App) storeProjects() {
+	set := map[string]bool{}
+	for _, n := range a.nodes {
+		if n.Project {
+			set[n.Path] = true
+		}
+	}
+	a.projSet.Store(&set)
+}
+
+// checkProjectArg : quand l'appel vise un projet (need), le chemin fourni par
+// l'interface doit être un projet de l'arbre.
+func (a *App) checkProjectArg(need bool, path string) error {
+	if need && !a.knownProject(path) {
+		return fmt.Errorf("projet inconnu : %s", path)
+	}
+	return nil
+}
+
+// knownProject : le chemin est un projet de l'arbre (sous les racines).
+func (a *App) knownProject(path string) bool {
+	p := a.projSet.Load()
+	return p != nil && (*p)[path]
+}
+
+// storeCtrSnapshots : instantanés des conteneurs et des backends pour la fenêtre
+// Réglages, lisibles sans verrou (backendStates).
+func (a *App) storeCtrSnapshots(v core.CtrView) {
+	founds := make([]core.Found, 0, len(v.Found))
+	for _, f := range v.Found {
+		founds = append(founds, f)
+	}
+	a.ctrFounds.Store(&founds)
+	live := make(map[string]bool, len(v.Live))
+	for p := range v.Live {
+		live[p] = true
+	}
+	a.liveSnap.Store(&live)
+	a.storeBackends()
+}
+
+// storeBackends : backends déclarés, relus (après un enregistrement de
+// backends.yaml, et à chaque lecture des conteneurs).
+func (a *App) storeBackends() {
+	bs, _ := core.LoadBackends()
+	a.bkSnap.Store(&bs)
 }
 
 func (a *App) readUsage() {
@@ -772,7 +838,8 @@ type MsRowOut struct {
 	Total  int    `json:"total"`
 }
 
-// TeamRow : un teammate du registre du template.
+// TeamRow : un teammate de la carte Team (#136) : chaque instance lancée, puis
+// les teammates du template non démarrés (contracts/desktop-dispatch.md).
 type TeamRow struct {
 	Name      string `json:"name"`
 	Tag       string `json:"tag"`
@@ -780,7 +847,17 @@ type TeamRow struct {
 	Model     string `json:"model"`
 	Effort    string `json:"effort"`
 	Claude    string `json:"claude,omitempty"`
-	Count     int    `json:"count,omitempty"`
+	Pane      string `json:"pane,omitempty"`
+	Started   bool   `json:"started"`
+	Active    bool   `json:"active"`
+	Hidden    bool   `json:"hidden"`
+	Pinned    bool   `json:"pinned"`
+	IdleLeft  int    `json:"idleLeft"`
+
+	// état du template (cycle 4) : ok / late / "" ; version cible ; compagnon
+	TplState      string `json:"tplState"`
+	TplTarget     string `json:"tplTarget,omitempty"`
+	CompanionFile string `json:"companionFile,omitempty"`
 }
 
 // FileRow : une entrée de premier niveau du projet.
@@ -910,9 +987,62 @@ func humanSize(n int64) string {
 // Dispatch : un appel de l'interface (méthode, arguments JSON) ; la réponse est
 // sérialisée en JSON. Seul point d'entrée, commun à Wails et au mode web.
 func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
+	// méthodes aux arguments structurés (le décodage générique ci-dessous
+	// attend des chaînes : « backend » y est un nom, ici un objet)
+	switch method {
+	case "projectSettings":
+		var in struct {
+			Path    string
+			Changes []core.ConfigChange
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		return a.projectSettings(in.Path, in.Changes)
+	case "projectApply":
+		var in struct {
+			Path    string
+			Backend *string
+			Image   *string
+			Color   *string
+			Env     *struct {
+				MTime   string
+				Changes []core.ConfigChange
+			}
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color}
+		if in.Env != nil {
+			ch.Env = &core.EnvChange{MTime: in.Env.MTime, Changes: in.Env.Changes}
+		}
+		return a.projectApply(in.Path, ch)
+	case "backendTest":
+		var in struct {
+			Backend core.BackendEntry `json:"backend"`
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		return a.backendTest(in.Backend), nil
+	case "configApply":
+		var in struct {
+			Kind, Path, MTime string
+			Changes           []core.ConfigChange
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		// le chemin d'un projet fourni par le client doit être un projet de l'arbre
+		if err := a.checkProjectArg(core.ConfigKind(in.Kind) == core.ConfProjectEnv, in.Path); err != nil {
+			return nil, err
+		}
+		return a.configApply(core.ConfigKind(in.Kind), in.Path, in.MTime, in.Changes)
+	}
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
-		Content, MTime                                                   string
+		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
 		Raw, OpenNext, Binary                                            bool
 	}
@@ -1001,9 +1131,15 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 			if arg.Binary {
 				arg.Data = binaryBytes(arg.Data)
 			}
-			t.input(arg.Pane, arg.Data)
+			if why := t.input(arg.Pane, arg.Data); why != "" {
+				return a.inputRefusal(t, why), nil // saisie refusée : dite, plus ignorée en silence
+			}
 		}
 		return nil, nil
+	case "clipboardWrite": // presse-papiers du poste (Wails) ; « unavailable » en --web (#155)
+		return a.clipboardWrite(arg.Text), nil
+	case "clipboardRead":
+		return a.clipboardRead(), nil
 	case "resizePane": // bordure glissée (#135) : Kind « x » / « y », Cols : taille
 		if t := a.term(arg.Path); t != nil {
 			t.resizePane(arg.Pane, arg.Kind, arg.Cols)
@@ -1029,6 +1165,16 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 			t.zoom(arg.Pane)
 		}
 		return nil, nil
+	case "teamToggle": // double-clic sur un teammate de la carte Team (#136)
+		t := a.term(arg.Path)
+		if t == nil {
+			return map[string]any{"ok": false, "msg": "projet fermé"}, nil
+		}
+		ok, msg := t.teamToggle(arg.Pane)
+		if ok {
+			return map[string]any{"ok": true}, nil
+		}
+		return map[string]any{"ok": false, "msg": msg}, nil
 	case "relayout":
 		if t := a.term(arg.Path); t != nil {
 			go t.relayout(true)
@@ -1040,14 +1186,30 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		}
 		return nil, nil
 	case "configFiles": // éditeur de configuration (#117) ; Path : projet (facultatif)
+		if err := a.checkProjectArg(arg.Path != "", arg.Path); err != nil {
+			return nil, err
+		}
 		return core.ConfigFiles(arg.Path), nil
 	case "configOpen":
+		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
+			return nil, err
+		}
 		return a.configOpen(core.ConfigKind(arg.Kind), arg.Path)
 	case "configValidate":
+		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
+			return nil, err
+		}
 		ps, merged := a.configCheck(core.ConfigKind(arg.Kind), arg.Path, arg.Content)
 		return map[string]any{"problems": ps, "merged": merged}, nil
 	case "configSave":
+		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
+			return nil, err
+		}
 		return a.configSave(core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
+	case "configModel": // écran Réglages (#118) : fichier lu en modèle
+		return a.configModel(core.ConfigKind(arg.Kind), arg.Path)
+	case "backendStates": // états et charge des pools, depuis le cache du diagnostic
+		return a.backendStates(), nil
 	case "quit":
 		return nil, a.quitApp(arg.Mode)
 	}

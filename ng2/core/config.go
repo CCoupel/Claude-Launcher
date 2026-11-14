@@ -34,6 +34,9 @@ type Config struct {
 	Layout3RowLeaderNum, Layout3RowMidNum, Layout3RowDen int
 	BrightenStep, DarkenStep                             int
 
+	// teammates inactifs cachés après ce délai en secondes (0 : jamais), #136
+	TeamHideIdle int
+
 	// config de claude (CLAUDE_CONFIG_DIR) imposée à toutes les sessions du
 	// launcher ; relative : par rapport au dossier de config.conf
 	ClaudeConfigDir string
@@ -53,10 +56,11 @@ GITHUB_DIR="$HOME/GITHUB"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN="
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=()
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
-PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0
+PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; TEAM_HIDE_IDLE=30
 [[ -f "$1" ]] && source "$1" >/dev/null 2>&1
 printf 'layout\t%s %s %s %s\n' "$LAYOUT_2ROW_LEADER_PCT" "$LAYOUT_3ROW_LEADER_NUM" "$LAYOUT_3ROW_MID_NUM" "$LAYOUT_3ROW_DEN"
 printf 'steps\t%s %s\n' "$PANE_ACTIVE_BRIGHTEN_STEP" "$PANE_INACTIVE_DARKEN_STEP"
+printf 'hideidle\t%s\n' "$TEAM_HIDE_IDLE"
 printf 'usage\t%s\n' "$USAGE_REFRESH_SEC"
 printf 'resume\t%s %s\n' "$RESUME_MODE" "$RESUME_MAX_AGE_H"
 printf 'token\t%s\n' "$GITHUB_TOKEN"
@@ -82,7 +86,7 @@ func loadConfigAt(path string) Config {
 	home, _ := os.UserHomeDir()
 	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{},
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
-		BrightenStep: 1, DarkenStep: 1, ResumeMode: "ask", ResumeMaxAgeH: 24}
+		BrightenStep: 1, DarkenStep: 1, TeamHideIdle: 30, ResumeMode: "ask", ResumeMaxAgeH: 24}
 
 	var out []byte
 	var err error
@@ -105,6 +109,10 @@ func loadConfigAt(path string) Config {
 			case "usage":
 				if n, e := strconv.Atoi(f[1]); e == nil {
 					cfg.UsageRefreshSec = n
+				}
+			case "hideidle":
+				if n, e := strconv.Atoi(strings.TrimSpace(f[1])); e == nil && n >= 0 {
+					cfg.TeamHideIdle = n
 				}
 			case "resume":
 				if v := strings.Fields(f[1]); len(v) == 2 {
@@ -337,6 +345,11 @@ EXTRA_ENVS=()
 # Assombrissement des panes teammates inactifs (agent en IDLE) :
 # variante assombrie de la couleur du projet. 1 = léger, 5 = quasi-noir.
 # PANE_INACTIVE_DARKEN_STEP=1
+
+# Teammates inactifs : cachés (mis de côté, ils continuent de tourner) après ce
+# délai en secondes sans activité ; ramenés dès qu'ils travaillent. 0 = jamais.
+# Double-clic sur un teammate de la carte TEAM : l'afficher / le cacher à la main.
+# TEAM_HIDE_IDLE=30
 # Mise en page des teams : part du leader sur 2 lignes (≤ 5 teammates), en %,
 # et fractions leader / ligne du milieu sur 3 lignes (la dernière a le reste).
 # LAYOUT_2ROW_LEADER_PCT=50

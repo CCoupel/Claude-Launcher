@@ -127,7 +127,7 @@ CLAUDE_CONFIG_DIR="../../.claude"          # = /share/MFS/ROOT/CLAUDE_PROJETS/.c
 ```
 
 La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
-`CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
+`CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `TEAM_HIDE_IDLE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
 premier lancement : **copie de la config v4** (`~/.config/claude-launcher.conf`) si elle existe, sinon les
 valeurs par défaut. Les backends d'exécution sont dans `~/.config/claude-launcher-ng2/backends.yaml`
 (voir [Projets en conteneur](#projets-en-conteneur-v5)).
@@ -190,6 +190,33 @@ prefer: podman                       # backend proposé par défaut (facultatif)
 
 Le conteneur ne monte que **le dossier du projet** (au même chemin que sur
 l'hôte) et `~/.claude` (conversations, teams, réglages, connexion : partagés).
+
+**Éditer le projet** (v6.1.0, #148) : clic droit sur un projet de l'arbre, puis **Ouvrir**, **Fermer** (grisé si
+fermé), **⚙ Réglages du projet…**, **Changer de backend…** (F2), **Environnement du conteneur…**, **Couleur…**,
+**Éditer env.yaml en YAML**. Les réglages ouvrent la rubrique **Projet** de la fenêtre Réglages
+(`⚙ config`) ; « Changer de backend… », « Environnement du conteneur… » et « Couleur… » y placent le curseur sur
+leur champ. « Éditer env.yaml en YAML » ouvre l'éditeur de texte sur le fichier du projet.
+
+La rubrique **Projet** contient :
+
+- **Exécution** : le backend (`host` ou backend conteneur) et l'image de base, modifiables **projet fermé
+  seulement** (ouvert ici, ou par l'autre launcher qui le tient, ils sont désactivés avec un message) ; le backend
+  préféré ; la couleur du projet (pastilles de la palette `COLOR_PALETTE`, ou automatique).
+- **Environnement du conteneur** : image, paquets (par gestionnaire, `apt: git jq`), `setup`, `on_start`, `watch`,
+  `local`, montages (`chemin[:rw]`). Un montage sans `:rw` est **en lecture seule**. Un backend `host` n'a pas
+  d'image : le champ est ignoré.
+- **Aperçu fusionné** : l'environnement tel qu'il sera lancé, ligne par ligne, avec la provenance de chaque élément
+  (`template` en violet, `launcher` en bleu, sinon le projet) ; il se rafraîchit pendant la saisie.
+
+**Enregistrer** contrôle d'abord le fichier `env.yaml` (validation, conflit, copie `.bak`) : une erreur ou un conflit
+(**recharger** ou **écraser**) arrête tout, rien n'est écrit. Le backend, l'image et la couleur sont écrits ensuite.
+Si une étape échoue après l'écriture de `env.yaml`, la fenêtre indique ce qui a été enregistré et ce qui ne l'a pas
+été. Seule la couleur du projet est écrite dans `config.conf` (les autres lignes, commentaires compris, sont
+conservées). Le pied de la rubrique propose « Éditer env.yaml en YAML », Annuler et Enregistrer.
+
+Limites : la couleur d'un projet déjà ouvert n'est prise qu'à sa prochaine ouverture ; la liste des montages est
+réécrite en bloc (ses commentaires internes sont perdus) ; `env.yaml` est reformaté à l'enregistrement, sans diff
+minimal.
 
 #### Environnement fourni par le template : `env-template.yaml` (v5.5.0)
 
@@ -317,6 +344,36 @@ backends:
   podman: { type: podman }
   docker: { type: docker, context: default }
 ```
+
+#### Réglages : fenêtre `⚙ config` (v6.1.0, #118)
+
+`⚙ config` dans l'en-tête, ou `Ctrl+,`, ouvre la fenêtre **Réglages** : `backends.yaml` s'édite par formulaires,
+sans passer par le texte. Rubriques :
+
+- **Backends** : la liste avec son état (joignable, ou diagnostic en attente) ; un formulaire par type (`host`,
+  `podman`, `docker`, `ssh`, `k8s`) avec ses serveurs (adresse, groupe, pool) ; ajouter, dupliquer, supprimer,
+  renommer, choisir le défaut. **Tester** lance les étapes du backend sans rien enregistrer : outil requis, moteur
+  joignable, stockage partagé ; pour `k8s`, namespace, droits, PVC. Délai global de 45 s ; une étape en échec
+  propose son correctif.
+- **Pools** : les machines d'un pool, le drain, la charge commune (conteneurs en marche par machine). Renommer un
+  pool le renomme aussi dans les backends qui le citent.
+- **Défauts** : backend et image par défaut, images proposées. Le serveur web et les chemins navigateur s'affichent
+  en lecture seule.
+- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en YAML » pour l'instant. **Ce poste** : taille des
+  caractères des terminaux (voir ci-dessous), le reste renvoie à « Éditer en YAML ».
+
+**Enregistrer** : le brouillon est validé comme au chargement réel. Une erreur **bloque** l'enregistrement (les
+problèmes s'affichent en pied, rien n'est écrit). Si le fichier a changé sur le disque depuis son ouverture, la
+fenêtre propose de **recharger** ou d'**écraser**. La version précédente est gardée en `.bak`. Un backend par défaut
+supprimé ou renommé est mis à jour dans le même enregistrement ; une référence restante à un backend ou un pool
+inconnu est refusée. Une adresse ou un contexte commençant par `-` est refusé. L'application se fait à chaud quand
+c'est possible, et une note le précise.
+
+Les commentaires et les clés inconnues sont conservés, mais **le fichier est reformaté** à l'enregistrement : lignes
+vides entre entrées retirées, alignement et guillemets normalisés. Ne pas attendre un diff minimal.
+
+Limites : le `host` du backend implicite Windows n'est pas éditable ; les volumes `k8s` s'écrivent une ligne
+`racine=PVC` par volume.
 
 #### Backends distants
 
@@ -712,7 +769,7 @@ qu'`o` annule. La fermeture, ensuite :
 1. `/exit` est envoyé à claude (après un Échap qui interrompt une réponse en
    cours) : sortie propre, marqueur posé, pas de `↺` ensuite ;
 2. attente de la fin de claude (30 s), puis fermeture de la session tmux,
-   teammates compris — forcée si claude ne répond pas ;
+   teammates compris, cachés compris (voir [Interface](#interface)) — forcée si claude ne répond pas ;
 3. arrêt du conteneur : `podman`/`docker stop` ; k8s : StatefulSet à **0
    réplique** (le pod est libéré, tout est sur le stockage partagé). L'ouverture
    suivante le redémarre (k8s : remise à 1 réplique, ~20 s).
@@ -856,6 +913,13 @@ n'ouvre pas le navigateur. Fermer la fenêtre ou arrêter le serveur **détache*
 les sessions des projets continuent dans leur tmux (conteneur, ou tmux local de l'hôte), et sont
 retrouvées au lancement suivant (comme la coque après un arrêt du hub).
 
+**Sécurité du mode `--web`** (v6.1.0, #149) : le jeton de l'URL n'est accepté que par la page d'amorçage, qui pose
+ensuite un cookie ; `/api/call` et `/api/events` n'acceptent que le cookie. Quand le serveur écoute sur la boucle
+locale, l'en-tête `Host` doit désigner la boucle locale et le port d'écoute. `/api/call` exige du JSON
+(`Content-Type: application/json`) et une origine égale à `http://<Host>` : une autre page ouverte sur la machine,
+même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponses portent `Referrer-Policy: no-referrer`,
+`X-Content-Type-Options`, `X-Frame-Options` et `Content-Security-Policy: frame-ancestors 'none'`.
+
 **Ce qu'on y retrouve de la coque** (mêmes sources dans `core`) :
 
 - à gauche, l'en-tête (versions, annonces de mise à jour orange/jaune/vert, consommation,
@@ -864,6 +928,12 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
   signification au survol), la release GitHub, le bandeau à la couleur du projet ouvert, puis
   `✦ Nouveau projet` et les **cartes ◈ État** du projet sélectionné (Projet et légende, Milestone,
   Team, Fichiers) ;
+- **carte Team** : mêmes lignes, surbrillance et règles que la coque Linux (voir [Interface](#interface)) :
+  double-clic sur un inactif = visible ↔ caché, refus en pied de volet pour un teammate actif ou un projet en
+  lecture seule ; même état sous Linux et Windows (option tmux `@cl_panevis`) : ce qui est caché d'un côté l'est
+  de l'autre ; même état du template (`●` vert à jour, `▲` orange en retard, `○` non démarré, `+` devant le nom
+  si compagnon) ; **infobulle** de la ligne : actif / inactif, version du template, version cible (ou « version
+  cible inconnue »), compagnon (oui, avec son fichier, ou non) ;
 - à droite, l'onglet **⌗ Teamleaders** (une vignette interactive du leader de chaque projet
   ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille ;
 - dans l'onglet d'un projet, **un terminal par pane** de sa session tmux (leader, teammates),
@@ -871,6 +941,10 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
   leader et `cdp` en haut ; jusqu'à 5 teammates, le haut sur 50 % et les teammates sur une ligne ;
   au-delà, 3 lignes 3/7, 2/7 et le reste, la ligne du milieu recevant ⌈n/2⌉ ; actifs en ordre MRU
   puis inactifs par nom ; actifs éclaircis, inactifs assombris sur la couleur du projet) ;
+- **Ctrl+molette** sur la zone des terminaux : taille des caractères (8 à 28, 13 par défaut ; un cran par encoche de molette, le pavé tactile
+  cumule ses petits déplacements) de tous les terminaux (projets, ouverture, vignettes Teamleaders) ; la taille est renvoyée à tmux (`refresh-client -C`),
+  mémorisée par poste (clé `termFontSize` de `desktop-ui.json`) et la page ne zoome pas. L'arbre et les cartes
+  gardent leur taille ; aucune touche n'est retirée aux terminaux ;
 - l'**ouverture** passe par le même code que `ctr-attach` (`core.OpenCtr`) : sa sortie (conteneur,
   bootstrap) et ses questions (serveur d'un groupe, autre launcher propriétaire) s'affichent dans
   un terminal d'ouverture où l'on répond ; les questions `/init-project` (template en retard ou
@@ -891,7 +965,7 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
 | clic hors projet | onglet ⌗ Teamleaders |
 | double-clic sur une catégorie ou une racine, `✦ Nouveau projet` | créer un projet |
 | `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
-| `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fichiers de configuration |
+| `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fenêtre Réglages (`⚙ config`) |
 | `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
 | `←` `→`, clic sur le chevron ou la ligne d'une racine / catégorie | replier / déplier (mémorisé) ; `←` sur un projet : sa catégorie |
 | séparateur arbre / cartes ; clic sur le bandeau d'une carte ou sur « ◈ ÉTAT » | hauteur de l'arbre ; replier une carte ou toute la zone (mémorisé) |
@@ -899,10 +973,31 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
 | `Ctrl+Tab`, `Ctrl+Maj+Tab` | onglet suivant / précédent |
 | clic sur un pane ; double-clic sur son en-tête | focus clavier ; plein écran (aller-retour) |
 | souris dans un pane ; molette | transmise à l'agent s'il la suit (panneau de Claude Code redimensionnable) ; sinon la molette fait défiler l'historique de tmux |
-| glisser une bordure (colonne entre panes, en-tête du pane du dessous) ; `Maj`+glisser | redimensionner le pane (`resize-pane`) ; sélection locale du texte |
+| glisser une bordure (colonne entre panes, en-tête du pane du dessous) | redimensionner le pane (`resize-pane`) |
+| glisser dans un pane (`Maj`+glisser si l'agent suit la souris) | sélectionner du texte ; au relâcher, il est copié dans le presse-papiers (#155) |
+| `Ctrl+Maj+C` | recopier la sélection (`Ctrl+C` reste l'interruption de l'agent) |
+| `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser`, clic droit (`Maj`+clic droit si l'agent suit la souris) | coller dans le pane actif ; refusé en lecture seule, avec un message |
+| `Ctrl+B` puis `Ctrl+V` | envoyer `^V` brut au programme du pane (collage d'image de Claude Code, vim, nano) |
 | `Ctrl+B z` / `Ctrl+B R` / `Ctrl+B Ctrl+B` | plein écran / remettre en ordre la team / envoyer `Ctrl+B` à l'agent |
 | `Ctrl+Maj+W`, `×` de l'onglet | détacher l'onglet (la session continue) |
 | `Échap` | quitter : `l` l'interface seule (projets gardés), `t` puis `o` tout fermer |
+
+**Copier / coller dans les terminaux** (#155) :
+
+- la sélection reste dans un pane ; elle est copiée au relâchement de la souris, même hors du terminal, et
+  `Ctrl+Maj+C` la recopie. `Ctrl+C` n'est pas une copie : il envoie l'interruption à l'agent ;
+- coller se fait par `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser` ou clic droit, dans le pane actif. Le texte arrive en un
+  bloc (plusieurs lignes d'un coup, sans perte) ;
+- **`Ctrl+V` colle le presse-papiers du poste, il n'est pas envoyé au programme du pane.** Pour envoyer un `^V` brut
+  (collage d'image de Claude Code, vim, nano), taper **`Ctrl+B` puis `Ctrl+V`** : le programme du pane reçoit `^V`
+  (`Ctrl+B Ctrl+B` n'envoie que `Ctrl+B`) ;
+- lecture seule (projet piloté par un autre launcher) et vignettes Teamleaders : **copier reste permis**, **coller
+  est refusé** avec un message en pied de volet ; le presse-papiers n'est pas lu dans ce cas ;
+- texte seulement ; un collage est limité à **4 Mo** et une copie à **8 Mo** (au-delà, refus avec message) ;
+- fenêtre Windows (Wails) : le presse-papiers du poste est lu et écrit côté Go, sans invite de WebView2 ;
+- mode `--web` : le presse-papiers du **navigateur** est utilisé, dans un contexte sécurisé (`localhost` convient ;
+  en `http` sur une autre adresse, il est indisponible et le message le dit). Le presse-papiers de la machine qui
+  héberge le serveur n'est **jamais** lu ni écrit pour un client web.
 
 **Apparence et disposition** (#122, #123, #124) : l'arbre reprend le rendu d'un arbre natif de
 Windows 11 (Explorateur) : hauteur de ligne et indentation, chevrons, survol et sélection Fluent
@@ -961,9 +1056,9 @@ restaurer), chaque pane est recapturé et la team est remise en page à la nouve
 - connexion claude.ai : l'alerte ouvre un onglet `login` qui lance `claude /login` **sur ce
   poste** (claude doit y être installé) ; sinon, `/login` se tape dans le leader d'un projet ouvert.
 
-**Fichiers de configuration** (#117) : `⚙ config` dans l'en-tête (ou `Ctrl+,`), et `⚙ env.yaml`
-dans les cartes d'un projet, ouvrent un éditeur en **texte brut** (commentaires et mise en forme
-gardés) des fichiers du launcher :
+**Fichiers de configuration** (#117) : « Éditer en YAML » (pied de la fenêtre Réglages, #118) et `⚙ env.yaml` dans les cartes d'un projet ouvrent un éditeur en **texte brut** (commentaires et mise en forme gardés) ; sa liste donne les fichiers du launcher, `config.conf` compris ;
+« ← Réglages » y ramène à la fenêtre Réglages, sur la rubrique d'origine, avec une proposition d'enregistrer si le
+texte a changé :
 
 | Fichier | Emplacement | Validé par |
 |---|---|---|
@@ -1060,6 +1155,46 @@ Le mode portable (`<dossier du binaire>\.config\claude-launcher-ng2\config.conf`
 `( … )`, `declare -A`, guillemets, `$HOME`). Comme en bash, écrire les chemins UNC entre
 **guillemets simples** : `GITHUB_DIRS=('\\wsl.localhost\Ubuntu\share\MFS\ROOT\CLAUDE_PROJETS')`.
 `CL_ROOTS` sépare les racines par `;`.
+
+**Fenêtre Réglages : rubriques Launcher, Conteneurs, Ce poste** (v6.1.0, #149). `⚙ config` dans l'en-tête (ou
+`Ctrl+,`) ouvre les réglages en formulaires, avec les rubriques Backends, Pools et Défauts décrites plus haut
+([Réglages](#réglages--fenêtre--config-v610-118)) et :
+
+- **Launcher** : `config.conf`, réglages groupés, avec aide et valeur par défaut ; « ↺ défaut » retire la clé. Le
+  jeton GitHub est un champ masqué : il n'est jamais affiché ni renvoyé à l'interface (« Retirer » le supprime).
+- **Conteneurs** : l'`env.yaml` du launcher (paquets par gestionnaire, `setup`, `on_start`), ajouté à tous les
+  conteneurs.
+- **Ce poste** : `hubs.<machine>` de `backends.yaml` (chemins « local => distant », chemins navigateur « conteneur
+  => hôte [| os] », serveur web, appariement du navigateur, utilisateur distant, cache du hub) et la taille des
+  caractères des terminaux. Les surcharges propres à un autre système sont signalées (bandeau ⚠) et restent en
+  lecture seule.
+
+Ce qui n'a pas de formulaire (une clé d'une forme bash non reconnue, une clé inconnue, `unrecognized`) reste dans
+« Éditer en YAML ».
+
+**Enregistrement** : même validation que le chargement réel ; une erreur bloque l'enregistrement. Un fichier modifié
+sur le disque depuis son ouverture ouvre le conflit (recharger ou écraser). La version précédente est gardée en
+`.bak`. `config.conf` et son `.bak` sont écrits en `0600` : un `config.conf.bak` préexistant plus ouvert est resserré,
+et un `.bak` qui est un lien est remplacé. Dans `config.conf`, seule la ligne de la clé change : commentaires et
+autres lignes sont conservés ; une clé absente est ajoutée sous son exemple commenté, sinon en fin de fichier.
+**`env.yaml` et `backends.yaml` sont en revanche reformatés** à l'enregistrement (commentaires et ordre conservés,
+lignes vides entre entrées retirées, alignement et guillemets normalisés) : ne pas attendre un diff minimal.
+
+**Jeton GitHub dans « Éditer en YAML »** : il est masqué (`GITHUB_TOKEN="__GARDER__"`, y compris dans un commentaire
+ou un tableau). À l'enregistrement, le marqueur conserve le jeton actuel, une autre valeur le remplace, et `""` le
+retire. Le marqueur n'a de sens que dans `GITHUB_TOKEN` : ailleurs, l'enregistrement est refusé. Sans jeton actuel,
+le marqueur n'est jamais écrit. Les messages d'erreur ne contiennent jamais le jeton.
+
+**`EXTRA_ENVS` en saisie structurée** : les variables qui font charger du code au lancement, ou qui modifient
+l'outillage ou la sortie, sont refusées : `LD_*`, `DYLD_*`, `PATH`, `BASH_ENV`, `IFS`, `PROMPT_COMMAND`,
+`NODE_OPTIONS`, `PYTHONPATH`, `GIT_SSH*`, `GIT_CONFIG*`, `GIT_PROXY*`, `*_ASKPASS`, les proxys (`*_PROXY`), les
+éditeurs, pagers, shells et `HOME`, `ANTHROPIC_*`, et d'autres encore (liste dans le code). Une variable déjà écrite
+telle quelle dans le fichier reste et peut être retirée ; un ajout passe par « Éditer en YAML ». Cette liste n'est pas
+une barrière complète : l'éditeur de texte accepte toutes les variables, `ANTHROPIC_API_KEY` comprise.
+
+**Substitution dans `config.conf`** : `$NOM` et `${NOM}` ne développent que `HOME`, `USER`, `LOGNAME`, `PWD`, `XDG_*`,
+`GITHUB_DIR` et `CLAUDE_CONFIG_DIR` ; un secret n'entre jamais par là. Une valeur ne peut contenir ni `"`, ni `\`, ni
+guillemet inverse, ni `$(`, ni retour à la ligne.
 
 ### Configuration partagée entre un hub Linux (WSL) et Windows
 
@@ -1222,6 +1357,24 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 - **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, team —
   teammates du registre du template, version de leur copie, `+` si compagnon, modèle et effort,
   version de claude des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
+- **Carte Team** (dans `◈ État`) : une ligne par teammate lancé, plus les teammates du template non démarrés
+  (`●` démarré, `○` non démarré), sans regroupement ; **surbrillance** = son pane est visible dans la fenêtre du
+  projet. Double-clic sur un teammate inactif : visible ↔ caché. Un teammate caché sort de la fenêtre du projet,
+  mais continue de tourner et reçoit ses messages. Règle : un teammate **actif est toujours visible** (double-clic
+  refusé, message dans la carte) ; un inactif est caché après `TEAM_HIDE_IDLE` secondes (`config.conf`, 30 par
+  défaut, `0` = jamais) et revient dès qu'il redevient actif. Un inactif rendu visible à la main reste visible
+  jusqu'au second double-clic ; s'il redevient actif, il reprend la règle normale. Le leader n'est jamais caché.
+  En lecture seule (un autre launcher a la main), le double-clic est refusé avec un message. Fermer le projet
+  ferme aussi ses teammates cachés.
+  **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `▲` orange = template en
+  retard sur la version cible (le launcher a adopté une version plus récente) ; `○` = non démarré. La colonne de
+  version affiche `v5.8.0→v5.9.2` en jaune quand l'agent est en retard, sinon sa seule version. `+` devant le nom
+  = l'agent a un compagnon projet (`.claude/agents/<agent>.md`, ou `generic.<nom>.md` pour une instance générique).
+  Un projet sans registre d'agents (`agents.registry`) garde l'affichage d'avant : ● neutre, pas de version.
+  *Limites (v6.1.0)* : lors d'une prise de main sur un conteneur, deux launchers peuvent appliquer la règle
+  pendant au plus 5 s (effet borné : une opération en erreur est ignorée et rejouée au tour suivant). Un launcher
+  antérieur à v6.1.0 ignore les teammates cachés : ils restent vivants dans la réserve jusqu'au retour d'un
+  launcher v6.1.0, et sa fermeture de projet ne les tue pas.
 - **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
   vignette interactive par projet ouvert). Le teamleader d'une fenêtre est son premier pane
   créé (plus petit `%id`), jamais le pane actif ni le premier par position : rouvrir un projet
@@ -1242,6 +1395,8 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | `Ctrl+B R` dans un projet | remettre en ordre les panes de la team |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
+| `Maj`+glisser (terminal hôte) | sélectionner en contournant tmux (la souris est captée par tmux) ; la sélection traverse les panes, bordures comprises. Copie dans le presse-papiers : renvoi à #156 |
+| double-clic sur un teammate inactif (carte Team) | visible ↔ caché ; refusé pour un teammate actif (message dans la carte) |
 | clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version, déjà téléchargée et contrôlée, et redémarrer le navigateur (projets conservés) |
 | clic sur `↑ NG … réessayer` (jaune) | relancer tout de suite le téléchargement de la nouvelle version |
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |

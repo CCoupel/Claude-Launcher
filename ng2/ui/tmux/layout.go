@@ -158,11 +158,24 @@ func classify(ws winState, leader string, tc *teamConfig, orderFile string) (top
 // applique la géométrie et la couleur de base du projet. Un verrou par fenêtre
 // sérialise le watcher et un relayout manuel.
 func doLayout(cfg core.Config, pw projWin, leader, teamPath string) {
-	if f, err := os.OpenFile(filepath.Join(os.TempDir(), "claude_layout_"+strings.TrimPrefix(pw.hubWin, "@")+".lock"),
-		os.O_CREATE|os.O_RDWR, 0o644); err == nil {
-		defer f.Close()
-		_ = platform.LockFile(f)
+	defer lockWin(pw)()
+	layoutLocked(cfg, pw, leader, teamPath)
+}
+
+// lockWin : verrou de la fenêtre (watcher, relayout manuel, bascule d'un pane) ;
+// rend la fonction qui le libère.
+func lockWin(pw projWin) func() {
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "claude_layout_"+strings.TrimPrefix(pw.hubWin, "@")+".lock"),
+		os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return func() {}
 	}
+	_ = platform.LockFile(f)
+	return func() { f.Close() }
+}
+
+// layoutLocked : doLayout, verrou de la fenêtre déjà pris par l'appelant.
+func layoutLocked(cfg core.Config, pw projWin, leader, teamPath string) {
 	ws, err := readWin(pw)
 	if err != nil || len(ws.panes) <= 1 {
 		return
@@ -177,6 +190,40 @@ func doLayout(cfg core.Config, pw projWin, leader, teamPath string) {
 
 	// échanges, géométrie et couleur de base : core.ArrangeTeam
 	core.ArrangeTeam(cfg, pw.t, pw.win, ws.core(), ws.w, ws.h, top, bot, cfg.ProjectColor(ws.name))
+}
+
+// tmuxFn : une cible tmux sous la forme attendue par core (panes cachés).
+func tmuxFn(t Target) core.SessionTmux {
+	return func(args ...string) (string, error) {
+		b, err := t.Output(args...)
+		return string(b), err
+	}
+}
+
+// isCtr : les panes du projet sont dans le tmux d'un conteneur.
+func (p projWin) isCtr() bool { return !p.direct() }
+
+// applyVis : applique la règle des panes cachés (core.ApplyPaneVis) puis, si des
+// panes ont bougé, remet en page les visibles. L'appelant a la main sur le projet
+// (le watcher s'efface sinon ; la bascule refuse en lecture seule). Rend vrai si
+// la fenêtre a changé.
+func applyVis(cfg core.Config, pw projWin, leader, teamPath string, now time.Time) bool {
+	tc, err := readTeam(teamPath)
+	if err != nil {
+		return false
+	}
+	defer lockWin(pw)()
+	t := tmuxFn(pw.t)
+	home := core.ProjectHome(t, pw.win, pw.isCtr())
+	if home == "" {
+		return false
+	}
+	res, err := core.ApplyPaneVis(t, pw.win, home, &tc, cfg.TeamHideIdle, now.Unix(), pw.isCtr())
+	if err != nil || !res.Changed() {
+		return false
+	}
+	layoutLocked(cfg, pw, leader, teamPath)
+	return true
 }
 
 // ── Surveillance ──────────────────────────────────────────────────────────
@@ -202,6 +249,9 @@ func RunLayoutWatch(win, leader, projectDir string) {
 	pw := projectOf(win)
 	prevCount, prevSig, prevRelayout := 1, "", ""
 	beat := 0
+	if pw.direct() {
+		core.KillOrphanHidden(tmuxFn(pw.t)) // panes cachés dont le projet a été fermé hors launcher
+	}
 	server := ""
 	for {
 		time.Sleep(time.Second)
@@ -238,6 +288,14 @@ func RunLayoutWatch(win, leader, projectDir string) {
 			}
 		}
 		if path := findTeamConfig(projectDir); path != "" {
+			// panes cachés (#136) : règle rejouée à chaque tour ; un pane qui bouge
+			// remet les visibles en page et ne compte pas comme un pane ouvert
+			if applyVis(cfg, pw, leader, path, time.Now()) {
+				if ws, err = readWin(pw); err != nil {
+					return
+				}
+				prevCount = len(ws.panes)
+			}
 			tc, _ := readTeam(path)
 			color := cfg.ProjectColor(ws.name)
 			// avant la teinte : doLayout remet tous les panes à la couleur de base

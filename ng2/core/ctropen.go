@@ -84,6 +84,9 @@ func OpenCtr(proj string, t CtrOpenIO) (CtrOpen, error) {
 		// tmux resté seul après un /exit (point bleu) : la session est recréée
 		// pour que claude redémarre, au lieu de se rattacher à son shell
 		fmt.Fprintln(out, "  claude n'est plus en marche dans la session : redémarrage")
+		// les teammates cachés de l'ancienne session sont tués aussi, sinon une
+		// ancienne team serait réadoptée (#136)
+		KillHiddenPanes(func(args ...string) (string, error) { return e.Output(name, TmuxIn(args...)...) }, HomeCtr)
 		_ = e.Exec(name, false, nil, io.Discard, TmuxIn("kill-session", "-t", "="+CtrSession)...)
 	}
 	if !e.HasSession(name) {

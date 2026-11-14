@@ -113,19 +113,48 @@ func (a *App) cardsFull(path string) Cards {
 }
 
 func (a *App) readTeam(path string) []TeamRow {
-	var panes []core.PaneInfo
+	var lines []core.TeamLine
 	if t := a.term(path); t != nil {
-		panes = t.paneInfos()
+		lines = t.teamRows() // projet ouvert : depuis la mémoire du watcher
+	} else {
+		lines = core.TeamLines(core.ReadTeammates(path), path, nil, nil, a.conf().TeamHideIdle, time.Now().Unix())
 	}
-	var rows []TeamRow
-	for _, tm := range core.LiveTeam(core.ReadTeammates(path), path, panes) {
-		rows = append(rows, TeamRow{Name: tm.Name, Tag: tm.Tag, Companion: tm.Companion,
-			Model: strings.TrimPrefix(tm.Model, "claude-"), Effort: tm.Effort, Claude: tm.Claude, Count: tm.Count})
-	}
+	rows := teamRows(core.ReadTplInfo(path).Apply(lines))
 	teamCache.Lock()
 	teamCache.m[path] = teamEntry{time.Now(), rows}
 	teamCache.Unlock()
 	return rows
+}
+
+func teamRows(lines []core.TeamLine) []TeamRow {
+	var rows []TeamRow
+	for _, l := range lines {
+		rows = append(rows, TeamRow{Name: l.Name, Tag: l.Tag, Companion: l.Companion,
+			Model: strings.TrimPrefix(l.Model, "claude-"), Effort: l.Effort, Claude: l.Claude, Pane: l.Pane,
+			Started: l.Started, Active: l.Active, Hidden: l.Hidden, Pinned: l.Pinned, IdleLeft: l.IdleLeft,
+			TplState: l.TplState, TplTarget: l.TplTarget, CompanionFile: l.CompanionFile})
+	}
+	return rows
+}
+
+// pushTeam : carte Team du projet sélectionné renvoyée tout de suite (état d'un
+// pane changé), depuis la mémoire : ni relecture des fichiers ni attente de la
+// relecture complète des cartes.
+func (a *App) pushTeam(path string) {
+	rows := a.readTeam(path)
+	if !a.selected(path) {
+		return
+	}
+	c := a.cardsFast(path)
+	c.Team = rows
+	pend := c.Pending[:0:0]
+	for _, k := range c.Pending {
+		if k != "team" {
+			pend = append(pend, k)
+		}
+	}
+	c.Pending = pend
+	a.emit("cards", c)
 }
 
 func fillState(c *Cards, p *core.ProjInfo, ps core.ProjState, ms core.MsState) {

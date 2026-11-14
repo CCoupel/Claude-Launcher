@@ -8,11 +8,13 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"mime"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -30,6 +32,11 @@ import (
 type webBridge struct {
 	app   *App
 	token string
+	// strictHost : l'écoute est sur la boucle locale — l'en-tête Host doit alors
+	// désigner 127.0.0.1, localhost ou [::1] (parade au DNS rebinding) ; sinon
+	// (adresse explicite hors boucle locale) tous les noms sont admis.
+	strictHost bool
+	port       string // port d'écoute, "" : inconnu (tests)
 
 	mu   sync.Mutex
 	subs map[chan []byte]bool
@@ -58,11 +65,63 @@ func (w *webBridge) emit(name string, data any) {
 	}
 }
 
-func (w *webBridge) authorized(r *http.Request) bool {
+// authorized : cookie, ou — pour la page d'amorçage seulement (allowQuery) —
+// jeton de l'URL. Les appels (/api/call, /api/events) n'acceptent que le cookie :
+// le jeton d'une URL traîne dans l'historique, les journaux et l'en-tête Referer.
+func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
 	if c, err := r.Cookie("cl_token"); err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(w.token)) == 1 {
 		return true
 	}
-	return subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("t")), []byte(w.token)) == 1
+	return allowQuery && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("t")), []byte(w.token)) == 1
+}
+
+// sameOrigin : refuse un appel dont l'en-tête Origin, s'il est présent, n'est pas
+// celui du serveur (même schéma, hôte et port). Une page d'un autre port de la
+// machine — serveur de maquettes, serveur de développement d'un projet — est du
+// même « site » : SameSite=Strict ne la retient pas.
+func sameOrigin(r *http.Request) bool {
+	o := r.Header.Get("Origin")
+	return o == "" || strings.EqualFold(o, "http://"+r.Host)
+}
+
+// jsonRequest : le corps est annoncé en JSON. Une requête « simple » (text/plain,
+// formulaire) n'a pas de pré-requête CORS : elle part sans contrôle du navigateur.
+func jsonRequest(r *http.Request) bool {
+	mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	return err == nil && mt == "application/json"
+}
+
+// hostOK : l'en-tête Host désigne bien la boucle locale (et le port d'écoute).
+func (w *webBridge) hostOK(r *http.Request) bool {
+	if !w.strictHost {
+		return true
+	}
+	h, port, err := net.SplitHostPort(r.Host)
+	if err != nil { // sans port : « localhost »
+		h, port = strings.Trim(r.Host, "[]"), ""
+	}
+	switch strings.ToLower(h) {
+	case "127.0.0.1", "localhost", "::1":
+	default:
+		return false
+	}
+	return port == "" || w.port == "" || port == w.port
+}
+
+// secured : contrôle de l'en-tête Host et en-têtes de sécurité de toutes les réponses.
+func (w *webBridge) secured(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if !w.hostOK(r) {
+			http.Error(rw, "hôte refusé", http.StatusForbidden)
+			return
+		}
+		h := rw.Header()
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		next.ServeHTTP(rw, r)
+	})
 }
 
 func (w *webBridge) handler() http.Handler {
@@ -71,7 +130,7 @@ func (w *webBridge) handler() http.Handler {
 	files := http.FileServer(http.FS(assets))
 	mux.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			if !w.authorized(r) {
+			if !w.authorized(r, true) {
 				http.Error(rw, "jeton manquant : ouvrir l'URL affichée au lancement", http.StatusForbidden)
 				return
 			}
@@ -81,8 +140,12 @@ func (w *webBridge) handler() http.Handler {
 		files.ServeHTTP(rw, r)
 	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !w.authorized(r) {
+		if r.Method != http.MethodPost || !w.authorized(r, false) || !sameOrigin(r) {
 			http.Error(rw, "refusé", http.StatusForbidden)
+			return
+		}
+		if !jsonRequest(r) {
+			http.Error(rw, "Content-Type: application/json attendu", http.StatusUnsupportedMediaType)
 			return
 		}
 		var req struct {
@@ -103,7 +166,7 @@ func (w *webBridge) handler() http.Handler {
 		_ = json.NewEncoder(rw).Encode(out)
 	})
 	mux.HandleFunc("/api/events", func(rw http.ResponseWriter, r *http.Request) {
-		if !w.authorized(r) {
+		if !w.authorized(r, false) || !sameOrigin(r) {
 			http.Error(rw, "refusé", http.StatusForbidden)
 			return
 		}
@@ -146,7 +209,7 @@ func (w *webBridge) handler() http.Handler {
 			}
 		}
 	})
-	return mux
+	return w.secured(mux)
 }
 
 // RunWeb : interface servie sur addr (« 127.0.0.1:0 » : port libre) ; open :
@@ -157,11 +220,15 @@ func RunWeb(addr string, open bool) error {
 		w.token = t
 	}
 	a := NewApp(w.emit)
+	a.web = true // le presse-papiers de cette machine n'est jamais exposé à un client web
 	w.app = a
 	// relance après une mise à jour : l'ancien processus vient de libérer le port
 	ln, err := listenRetry(addr, 10*time.Second)
 	if err != nil {
 		return err
+	}
+	if ta, ok := ln.Addr().(*net.TCPAddr); ok {
+		w.strictHost, w.port = ta.IP.IsLoopback(), strconv.Itoa(ta.Port)
 	}
 	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.token)
 	fmt.Println("Claude Launcher (interface web) :", url)

@@ -424,9 +424,24 @@ func k8sReachFix(goos, msg string) string {
 
 // k8sProblems : kubectl, contexte, namespace, droits, PVC (liés, ReadWriteMany).
 func k8sProblems(b BackendConf) []Problem {
-	if _, err := exec.LookPath("kubectl"); err != nil {
-		return []Problem{{"kubectl absent de cette machine", "l'installer (https://kubernetes.io/docs/tasks/tools/) et configurer ~/.kube/config"}}
+	var out []Problem
+	for _, st := range k8sSteps(b) {
+		if !st.OK {
+			out = append(out, Problem{st.Detail, st.Fix})
+		}
 	}
+	return out
+}
+
+// k8sSteps : contrôles d'un backend k8s, dans l'ordre (kubectl, namespace,
+// droits, volumes déclarés, un PVC par volume). Le premier échec parmi les
+// quatre premiers arrête la suite ; chaque PVC est jugé séparément.
+func k8sSteps(b BackendConf) []TestStep {
+	if _, err := exec.LookPath("kubectl"); err != nil {
+		return []TestStep{{Label: "outil requis : kubectl", Detail: "kubectl absent de cette machine",
+			Fix: "l'installer (https://kubernetes.io/docs/tasks/tools/) et configurer ~/.kube/config"}}
+	}
+	steps := []TestStep{{Label: "outil requis : kubectl", OK: true}}
 	e := Engine{b}
 	ns := b.Namespace
 	if ns == "" {
@@ -434,31 +449,47 @@ func k8sProblems(b BackendConf) []Problem {
 	}
 	if out, err := runQuiet(15*time.Second, e.kubectl("get", "namespace", ns, "-o", "name")...); err != nil {
 		if strings.Contains(out, "NotFound") || strings.Contains(out, "not found") {
-			return []Problem{{"namespace " + ns + " absent", "le créer : kubectl" + ctxArg(b) + " create namespace " + ns}}
+			return append(steps, TestStep{Label: "namespace " + ns, Detail: "namespace " + ns + " absent",
+				Fix: "le créer : kubectl" + ctxArg(b) + " create namespace " + ns})
 		}
 		msg := firstLine(out, err)
-		return []Problem{{"cluster injoignable (contexte « " + b.Context + " ») : " + msg, k8sReachFix(runtime.GOOS, msg)}}
+		return append(steps, TestStep{Label: "cluster joignable", Detail: "cluster injoignable (contexte « " + b.Context + " ») : " + msg,
+			Fix: k8sReachFix(runtime.GOOS, msg)})
 	}
+	steps = append(steps, TestStep{Label: "cluster joignable, namespace " + ns, OK: true})
 	if out, _ := runQuiet(15*time.Second, e.kubectl("auth", "can-i", "create", "statefulsets")...); strings.TrimSpace(out) != "yes" {
-		return []Problem{{"droit de créer des StatefulSets refusé dans " + ns, "accorder un rôle (ex. edit) sur le namespace " + ns}}
+		return append(steps, TestStep{Label: "droits dans " + ns, Detail: "droit de créer des StatefulSets refusé dans " + ns,
+			Fix: "accorder un rôle (ex. edit) sur le namespace " + ns})
 	}
+	steps = append(steps, TestStep{Label: "droits dans " + ns, OK: true, Detail: "création de StatefulSets autorisée"})
 	if len(b.Volumes) == 0 {
-		return []Problem{{"aucun volume partagé déclaré", "« volumes: { /racine/partagée: <pvc ReadWriteMany> } » dans " + BackendsPath()}}
+		return append(steps, TestStep{Label: "volumes partagés", Detail: "aucun volume partagé déclaré",
+			Fix: "« volumes: { /racine/partagée: <pvc ReadWriteMany> } » dans " + BackendsPath()})
 	}
-	var out []Problem
-	for r, pvc := range b.Volumes {
+	roots := make([]string, 0, len(b.Volumes))
+	for r := range b.Volumes {
+		roots = append(roots, r)
+	}
+	sort.Strings(roots)
+	for _, r := range roots {
+		pvc := b.Volumes[r]
+		label := "PVC " + pvc + " (" + r + ")"
 		s, err := runQuiet(15*time.Second, e.kubectl("get", "pvc", pvc, "-o", "jsonpath={.status.phase} {.spec.accessModes}")...)
 		switch {
 		case err != nil:
-			out = append(out, Problem{"PVC " + pvc + " (pour " + r + ") absent de " + ns,
-				"créer un PVC ReadWriteMany sur le stockage partagé (ex. MooseFS : PV csi.moosefs.com, volumeAttributes.mfsSubDir = le dossier qui correspond à " + r + ")"})
+			steps = append(steps, TestStep{Label: label, Detail: "PVC " + pvc + " (pour " + r + ") absent de " + ns,
+				Fix: "créer un PVC ReadWriteMany sur le stockage partagé (ex. MooseFS : PV csi.moosefs.com, volumeAttributes.mfsSubDir = le dossier qui correspond à " + r + ")"})
 		case !strings.HasPrefix(s, "Bound"):
-			out = append(out, Problem{"PVC " + pvc + " non lié (" + s + ")", "vérifier son PV : kubectl" + ctxArg(b) + " -n " + ns + " describe pvc " + pvc})
+			steps = append(steps, TestStep{Label: label, Detail: "PVC " + pvc + " non lié (" + s + ")",
+				Fix: "vérifier son PV : kubectl" + ctxArg(b) + " -n " + ns + " describe pvc " + pvc})
 		case !strings.Contains(s, "ReadWriteMany"):
-			out = append(out, Problem{"PVC " + pvc + " sans ReadWriteMany (" + s + ")", "le recréer en ReadWriteMany : plusieurs pods et la machine du launcher y accèdent"})
+			steps = append(steps, TestStep{Label: label, Detail: "PVC " + pvc + " sans ReadWriteMany (" + s + ")",
+				Fix: "le recréer en ReadWriteMany : plusieurs pods et la machine du launcher y accèdent"})
+		default:
+			steps = append(steps, TestStep{Label: label, OK: true, Detail: s})
 		}
 	}
-	return out
+	return steps
 }
 
 func ctxArg(b BackendConf) string {

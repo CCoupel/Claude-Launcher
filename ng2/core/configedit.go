@@ -264,7 +264,18 @@ func validateConfig(kind ConfigKind, content []byte) []ConfigProblem {
 		if _, err := parseEnvFile(content, "env.yaml"); err != nil {
 			return []ConfigProblem{problemFromErr(err, content, quotedNames(err.Error())...)}
 		}
-		return nil
+		// mêmes clés que loadLauncherEnv : les autres sont réservées au env.yaml d'un
+		// projet, et le bootstrap des conteneurs échouerait au lancement suivant
+		var keys map[string]any
+		_ = yaml.Unmarshal(content, &keys)
+		var ps []ConfigProblem
+		for k := range keys {
+			if !launcherEnvKeys[k] {
+				ps = append(ps, ConfigProblem{Line: keyLine(content, k), Severity: SevError,
+					Message: "clé « " + k + " » réservée au env.yaml d'un projet (ici : packages, packages_by_manager, setup, on_start)"})
+			}
+		}
+		return ps
 	case ConfProjectEnv:
 		return validateProjectEnv(content, "")
 	}
@@ -342,6 +353,28 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 		return []ConfigProblem{problemFromErr(err, content, quotedNames(err.Error())...)}
 	}
 	var ps []ConfigProblem
+	// références : le backend par défaut doit exister (une suppression ou un
+	// renommage qui l'oublie est refusé, par l'éditeur texte comme par Réglages)
+	if d := f.Defaults.Backend; d != "" {
+		known := false
+		for _, b := range bs {
+			known = known || b.Name == d
+		}
+		if !known {
+			ps = append(ps, ConfigProblem{Line: lineOf(content, d), Severity: SevError,
+				Message: "defaults.backend désigne un backend inexistant : " + d})
+		}
+	}
+	if d := f.Defaults.Image; d != "" && len(f.Images) > 0 {
+		in := false
+		for _, im := range f.Images {
+			in = in || im == d
+		}
+		if !in {
+			ps = append(ps, ConfigProblem{Line: lineOf(content, d), Severity: SevWarning,
+				Message: "defaults.image « " + d + " » n'est pas dans la liste images (elle sera proposée en plus)"})
+		}
+	}
 	ev := runtimeEngineEnv()
 	for _, b := range bs {
 		if b.Name == "host" && goos == "windows" {
@@ -366,6 +399,8 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 // parenthèses (lecture de confLite). Puis le chargement lui-même : racines
 // introuvables, chemins Linux sans correspondance.
 func validateConf(content []byte) []ConfigProblem {
+	// fichier écrit sous Windows (CRLF) : jugé sur ses lignes, bash ne lit pas le « \r »
+	content = bytes.ReplaceAll(content, []byte("\r\n"), []byte("\n"))
 	dir, err := os.MkdirTemp("", "cl-conf-")
 	if err != nil {
 		return []ConfigProblem{{Severity: SevError, Message: err.Error()}}
@@ -522,14 +557,28 @@ func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time
 		mode = 0o600 // jeton GitHub possible
 	}
 	if err == nil {
-		mode = st.Mode().Perm()
+		if kind != ConfConf { // config.conf : toujours 0600 (jeton), même si elle était plus ouverte
+			mode = st.Mode().Perm()
+		}
 		old, rerr := os.ReadFile(path)
 		if rerr != nil {
 			return ps, rerr
 		}
-		if werr := os.WriteFile(path+".bak", old, mode); werr != nil {
-			return ps, fmt.Errorf("copie .bak : %w", werr)
+		bak := path + ".bak"
+		// créée en 0600 d'emblée : l'ancienne copie (peut-être plus ouverte, ou un lien)
+		// est supprimée avant, jamais écrite puis resserrée
+		_ = os.Remove(bak)
+		bf, berr := os.OpenFile(bak, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
+		if berr == nil {
+			_, berr = bf.Write(old)
+			if cerr := bf.Close(); berr == nil {
+				berr = cerr
+			}
 		}
+		if berr != nil {
+			return ps, fmt.Errorf("copie .bak : %w", berr)
+		}
+		_ = os.Chmod(bak, mode) // une copie préexistante plus ouverte (config.conf.bak d'avant) est resserrée
 	}
 	return ps, writeFileAtomic(path, content, mode)
 }
