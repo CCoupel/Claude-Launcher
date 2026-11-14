@@ -582,7 +582,7 @@ function pjParsePbm(t) {
   return o;
 }
 function pjParseMounts(t) {
-  return stLines(t).map((l) => (/:rw$/.test(l) ? { path: l.replace(/:rw$/, ''), ro: false } : { path: l.replace(/:ro$/, ''), ro: true }));
+  return stLines(t).map((l) => (/:rw$/.test(l) ? { path: l.replace(/:rw$/, ''), ro: false } : { path: l.replace(/:ro$/, '') }));
 }
 const pjSorted = (o) => JSON.stringify(Object.keys(o).sort().map((k) => [k, o[k]]));
 
