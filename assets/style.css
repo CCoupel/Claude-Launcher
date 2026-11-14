@@ -240,3 +240,42 @@ pre.term { margin: 0; border: 0; border-radius: 0; background: var(--bg); paddin
 .upgrade-ok ul { margin: .25rem 0 0 1.1rem; display: grid; gap: .35rem; }
 .upgrade-ok code { font-family: var(--mono); color: var(--accent2); font-size: .85em; }
 @media (max-width: 640px) { .upgrade-ok { grid-template-columns: 1fr; padding: 1.25rem; } .win-grid { grid-template-columns: 1fr; } }
+
+.shots { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 1.5rem; align-items: start; }
+.shot { margin: 0; min-width: 0; }
+.shot-cap { text-align: center; font-weight: 600; margin-bottom: .6rem; color: var(--text); }
+.shot .term-wrap img { display: block; width: 100%; height: auto; }
+@media (max-width: 900px) { .shots { grid-template-columns: 1fr; } }
+
+.plat-pills { list-style: none; display: flex; flex-wrap: wrap; justify-content: center; gap: .6rem; margin: 1.25rem 0 0; padding: 0; }
+.plat-pills li { border: 1px solid var(--border); background: var(--bg2); border-radius: 999px; padding: .35rem 1rem; font-weight: 600; font-size: .95rem; }
+.trio-title { font-size: 1.3rem; margin: 2rem 0 1rem; text-align: center; }
+.trio { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 1rem; text-align: left; }
+.trio-card { display: flex; flex-direction: column; gap: .4rem; padding: 1.1rem 1.2rem; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); color: var(--text); text-decoration: none; }
+.trio-card:hover { border-color: rgba(16,185,129,.6); text-decoration: none; }
+.trio-ico { font-size: 1.8rem; }
+.trio-card em { font-style: normal; color: var(--green); font-size: .9rem; margin-top: auto; }
+@media (max-width: 800px) { .trio { grid-template-columns: 1fr; } }
+
+.plat-matrix { margin: 1.5rem auto 0; border-collapse: collapse; font-size: .9rem; max-width: 100%; }
+.plat-matrix th, .plat-matrix td { border: 1px solid var(--border); padding: .45rem .9rem; text-align: center; }
+.plat-matrix tbody th { text-align: left; white-space: nowrap; }
+.plat-matrix td { color: var(--green); font-weight: 700; }
+.plat-matrix td:empty, .plat-matrix td { }
+.plat-note { max-width: 46rem; margin: .8rem auto 0; font-size: .85rem; opacity: .85; }
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+.archmap { margin: 0 0 2.5rem; --p1:#a78bfa; --p2:#38bdf8; --p3:#f472b6; --p4:#34d399; }
+.archmap-scroll { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg2); }
+.archmap-svg { display: block; width: 100%; min-width: 640px; height: auto; }
+.archmap-svg text { fill: var(--text); font-family: var(--font); font-size: 14px; }
+.archmap-svg .m { fill: var(--muted); font-size: 12px; }
+.archmap-svg .ye { fill: var(--yellow); font-size: 12px; font-weight: 600; }
+.archmap-svg .nd { fill: var(--bg3); stroke: var(--border); }
+.archmap-svg .hb { fill: var(--bg3); stroke: var(--accent2); stroke-width: 2; }
+.archmap-svg .pl { fill: var(--bg3); stroke: var(--cyan); }
+.archmap-svg .ln { stroke: var(--muted); stroke-width: 1.5; fill: none; }
+.archmap-svg .ro2 { stroke: var(--yellow); stroke-width: 2; stroke-dasharray: 6 5; fill: none; animation: archflow 1.2s linear infinite; }
+@keyframes archflow { to { stroke-dashoffset: -22; } }
+@media (prefers-reduced-motion: reduce) { .archmap-svg .ro2 { animation: none; } }
+.archmap figcaption { margin-top: .6rem; font-size: .85rem; color: var(--muted); text-align: center; }

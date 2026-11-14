@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
+<meta name="current-major" content="6">
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Claude-Launcher-NG2</title>
@@ -32,10 +33,21 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v6.0.0</span> · Linux, macOS et Windows · compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v6.1.0</span> · Linux, macOS et Windows · compagnon de claude_project_template</div>
     <h1>Un hub pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
     <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil — sur votre machine ou <em>dans un conteneur</em> : podman, docker, ssh, Kubernetes.</p>
     <p class="hero-sub">Un seul binaire Go par système : dans tmux sous Linux et macOS, dans une vraie fenêtre sous Windows. Chaque projet peut avoir son conteneur, ses outils, sa machine : votre OS reste propre.</p>
+    <ul class="plat-pills" aria-label="Systèmes pris en charge">
+      <li><span aria-hidden="true">🪟</span> Windows</li>
+      <li><span aria-hidden="true">🍎</span> macOS</li>
+      <li><span aria-hidden="true">🐧</span> Linux</li>
+    </ul>
+    <h2 class="trio-title">Une seule app, trois façons de s'en servir</h2>
+    <div class="trio">
+      <a class="trio-card" href="#screenshot"><span class="trio-ico" aria-hidden="true">⌨️</span><strong>Dans votre terminal</strong><span>La coque tmux : tout le hub au clavier, sans quitter le terminal.</span><em>Voir la coque →</em></a>
+      <a class="trio-card" href="#windows"><span class="trio-ico" aria-hidden="true">🪟</span><strong>En fenêtre native</strong><span>Une vraie application Windows : arbre, cartes et un terminal par agent.</span><em>Voir l'app Windows →</em></a>
+      <a class="trio-card" href="#web-mode"><span class="trio-ico" aria-hidden="true">🌐</span><strong>Dans votre navigateur</strong><span>La même interface dans Chrome, Edge ou Firefox, avec <code>desktop --web</code>.</span><em>Voir le mode web →</em></a>
+    </div>
     <div class="hero-ctas">
       <a href="#install" class="btn btn-primary">Installer</a>
       <a href="https://github.com/CCoupel/Claude-Launcher" class="btn btn-outline">Voir sur GitHub</a>
@@ -49,6 +61,8 @@
 
 <section id="screenshot">
   <div class="container">
+    <div class="shots">
+    <figure class="shot"><figcaption class="shot-cap">Linux (tmux)</figcaption>
     <div class="term-wrap">
 <pre class="term" role="img" aria-label="Claude-Launcher-NG : en haut à gauche, le navigateur de projets avec ses badges git local, remote, template, milestone, pull requests et session, l’alerte de connexion et la consommation du compte ; dessous, les infos du projet sélectionné : légende de ses icônes, branche, versions, milestone en cours et son avancement, team, fichiers ; à droite, tmux avec le projet web-shop ouvert."> <span style="color:#39c5cf;font-weight:700">✦ Nouveau projet</span><span style="color:#6e7681"> (dbl-clic catégorie)</span>  <span style="color:#005fff">┃</span><span style="color:#484f58;background:#3fb950">0:⌗ Teamleaders  </span><span style="color:#eeeeee;background:#005fff;font-weight:700">1:web-shop*</span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">2:k8s-cluster </span><span style="color:#484f58;background:#3fb950"> </span><span style="color:#6c6c6c;background:#303030">3:cli-toolbox-</span><span style="color:#484f58;background:#3fb950">                                             </span><span style="color:#808080;background:#3fb950">09:38</span>
 <span style="font-weight:700"> ~/PROJETS                           </span>   <span style="color:#005fff">┃</span>
@@ -65,7 +79,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>
-<span style="color:#6e7681" data-ng-term>  NG v6.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.1.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -107,6 +121,11 @@
    README.md      <span style="color:#6e7681">11 o      </span>            <span style="color:#444444">┃</span>
                                         <span style="color:#444444">┃</span></pre>
     </div>
+    </figure>
+    <figure class="shot"><figcaption class="shot-cap">Windows (natif)</figcaption>
+    <div class="term-wrap"><img src="assets/capture-windows-v6.1.0.png" width="1600" height="1000" loading="lazy" alt="Launcher Windows natif v6.1.0 avec des projets fictifs : à gauche l'arbre des projets et leurs cartes d'état, à droite l'onglet d'un projet ouvert avec un terminal par agent, le leader et ses teammates."></div>
+    </figure>
+    </div>
     <p class="screenshot-caption">À gauche, le navigateur et, dessous, les infos du projet sélectionné — sans avoir à l'ouvrir ; <code style="color:#39c5cf">⬢</code> signale un projet dont le conteneur tourne, et le point devant le nom son état (<code style="color:#3fb950">▲</code> ouvert ici, <code style="color:#58a6ff">●</code> conteneur prêt, <code style="color:#f0883e">●</code> claude tourne sans launcher). À droite, tmux : un onglet par projet ouvert.</p>
   </div>
 </section>
@@ -133,6 +152,10 @@
       <h2>Ce que fait Claude-Launcher-NG2</h2>
       <p>Un hub central, en tmux ou en fenêtre Windows — pas un remplacement de Claude Code, juste l'orchestration autour.</p>
     </div>
+    <figure class="archmap">
+      <div class="archmap-scroll"><svg class="archmap-svg" viewBox="0 0 900 470" role="img" aria-label="Schéma : quatre accès (terminal tmux Linux, terminal tmux macOS, fenêtre native Windows, navigateur) mènent à Claude-Launcher, qui pilote des projets sur un conteneur local, un pool de serveurs docker ou Kubernetes. Un autre launcher, sur un autre poste ou hub, suit le projet appli-mobile en lecture seule."><text class="m" x="105" y="28" text-anchor="middle">Accès</text><text class="m" x="325" y="28" text-anchor="middle">Launcher</text><text class="m" x="555" y="28" text-anchor="middle">Plateformes d'exécution</text><text class="m" x="790" y="28" text-anchor="middle">Projets</text><rect class="hb" x="250" y="50" width="150" height="270" rx="8"/><text x="325.0" y="190.0" text-anchor="middle"></text><text x="325" y="180" text-anchor="middle">Claude-</text><text x="325" y="200" text-anchor="middle">Launcher</text><text class="m" x="325" y="222" text-anchor="middle">le hub</text><rect class="nd" x="20" y="60" width="170" height="50" rx="8"/><text x="105.0" y="83.0" text-anchor="middle">Terminal tmux</text><text class="m" x="105.0" y="100.0" text-anchor="middle">Linux</text><path class="ln" d="M190 85 L250 85"/><rect class="nd" x="20" y="130" width="170" height="50" rx="8"/><text x="105.0" y="153.0" text-anchor="middle">Terminal tmux</text><text class="m" x="105.0" y="170.0" text-anchor="middle">macOS</text><path class="ln" d="M190 155 L250 155"/><rect class="nd" x="20" y="200" width="170" height="50" rx="8"/><text x="105.0" y="223.0" text-anchor="middle">Fenêtre native</text><text class="m" x="105.0" y="240.0" text-anchor="middle">Windows</text><path class="ln" d="M190 225 L250 225"/><rect class="nd" x="20" y="270" width="170" height="50" rx="8"/><text x="105.0" y="293.0" text-anchor="middle">Navigateur</text><text class="m" x="105.0" y="310.0" text-anchor="middle">tous systèmes</text><path class="ln" d="M190 295 L250 295"/><path class="ln" d="M400 120.0 L470 120.0"/><rect class="pl" x="470" y="60" width="170" height="120" rx="8"/><text x="555.0" y="118.0" text-anchor="middle">Conteneur local</text><text class="m" x="555.0" y="135.0" text-anchor="middle">podman / docker</text><path class="ln" d="M400 225.0 L470 225.0"/><rect class="pl" x="470" y="200" width="170" height="50" rx="8"/><text x="555.0" y="223.0" text-anchor="middle">Pool de serveurs</text><text class="m" x="555.0" y="240.0" text-anchor="middle">docker réparti</text><path class="ln" d="M400 295.0 L470 295.0"/><rect class="pl" x="470" y="270" width="170" height="50" rx="8"/><text x="555.0" y="293.0" text-anchor="middle">Kubernetes</text><text class="m" x="555.0" y="310.0" text-anchor="middle">pods</text><path class="ln" d="M640 85 L700 85"/><rect x="700" y="60" width="180" height="50" rx="8" fill="var(--bg)" stroke="var(--p1)" stroke-width="2"/><circle cx="718" cy="85.0" r="7" fill="var(--p1)"/><text x="734" y="83.0">site-web</text><text class="m" x="734" y="100.0">conteneur local</text><path class="ln" d="M640 155 L700 155"/><rect x="700" y="130" width="180" height="50" rx="8" fill="var(--bg)" stroke="var(--p2)" stroke-width="2"/><circle cx="718" cy="155.0" r="7" fill="var(--p2)"/><text x="734" y="153.0">outil-cli</text><text class="m" x="734" y="170.0">conteneur local</text><path class="ln" d="M640 225 L700 225"/><rect x="700" y="200" width="180" height="50" rx="8" fill="var(--bg)" stroke="var(--p3)" stroke-width="2"/><circle cx="718" cy="225.0" r="7" fill="var(--p3)"/><text x="734" y="223.0">api-paiement</text><text class="m" x="734" y="240.0">pool de serveurs</text><path class="ln" d="M640 295 L700 295"/><rect x="700" y="270" width="180" height="50" rx="8" fill="var(--bg)" stroke="var(--p4)" stroke-width="2"/><circle cx="718" cy="295.0" r="7" fill="var(--p4)"/><text x="734" y="293.0">appli-mobile</text><text class="m" x="734" y="310.0">Kubernetes</text><text class="ye" x="870" y="286" text-anchor="end">👁 suivi</text><rect class="nd" x="250" y="370" width="150" height="50" rx="8"/><text x="325.0" y="393.0" text-anchor="middle">Autre launcher</text><text class="m" x="325.0" y="410.0" text-anchor="middle">autre poste ou hub</text><path class="ro2" d="M400 395 L790 395 L790 320"/><text class="m" x="595" y="415" text-anchor="middle">suit appli-mobile en lecture seule</text><text class="m" x="20" y="455">— — lecture seule : l'autre launcher suit appli-mobile et peut prendre la main, le premier passe alors en lecture seule</text></svg></div>
+      <figcaption>Plusieurs launchers, plusieurs plateformes d'exécution. Un projet ouvert à un endroit se suit ailleurs en lecture seule. Illustration avec des projets fictifs.</figcaption>
+    </figure>
     <div class="features-grid">
       <div class="feature-card"><div class="feature-icon">🪟</div><div class="feature-body"><h3>Aussi sous Windows</h3><p>Nouveau en v6 : <code>claude-launcher-ng2.exe</code> ouvre une application Windows native. Même arbre, mêmes cartes, un terminal par agent, des projets qui tournent dans des conteneurs distants, et une configuration partagée avec le hub Linux. <a href="#windows">En savoir plus</a>.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>Navigateur de projets</h3><p>Vos projets en arbre par catégorie, un filtre à la frappe, la souris. Chaque ligne commence par le point d'état du projet (<code style="color:#3fb950">▲</code> ouvert ici, <code style="color:#58a6ff">●</code> conteneur prêt, <code style="color:#f0883e">●</code> claude tourne sans launcher…), puis son état git local (<code>●</code> au repos, <code>✎</code> en cours, <code>◆</code> tout commité, <code>!</code> modifié sur main) et remote (<code>○</code> jamais poussé, <code>↑N</code> non poussé, <code>⇡</code> non mergé, <code>✓</code> publié, <code>↓N</code> en retard), son template (<code>✔</code>, <code>⚠</code>, <code>⊘</code>), son milestone (<code>⚑</code>), ses pull requests ouvertes (<code style="color:#a371f7">⇄N</code>) et une session à reprendre (<code>↺</code>). Un projet ouvert s'affiche sur un bandeau à sa couleur tmux, sur toute la largeur de la ligne, et chaque projet montre sa dernière release publiée sur GitHub. Un dossier créé ou supprimé apparaît ou disparaît tout seul.</p></div></div>
@@ -146,7 +169,7 @@
       <div class="feature-card"><div class="feature-icon">🧳</div><div class="feature-body"><h3>Un launcher portable</h3><p>Posez le binaire et sa config (<code>.config/claude-launcher-ng2/</code>) sur un stockage partagé : chaque machine qui le lance retrouve les mêmes projets, la même config claude (<code>CLAUDE_CONFIG_DIR</code>, connexion comprise), les mêmes backends et le même choix d'exécution pour chaque projet. Toujours un seul binaire Go, sans dépendance.</p></div></div>
       <div class="feature-card"><div class="feature-icon">⚑</div><div class="feature-body"><h3>Milestones GitHub</h3><p>Le drapeau dit où en est chaque projet : <span style="color:#d29922">jaune</span> milestone en cours, <span style="color:#f0883e">orange</span> terminé mais à publier, gris aucun en cours, <span style="color:#3fb950">vert</span> publié. Même règle que le panneau milestone du projet ; un clic donne le milestone, sa barre d'avancement et ses issues par phase.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🛟</div><div class="feature-body"><h3>Un navigateur qui ne tombe pas</h3><p>Plantage, stockage réseau démonté sous le binaire : le navigateur et le pane des infos repartent seuls en deux secondes, et le navigateur dit pourquoi il a été relancé. Si son pane a été fermé, il est recréé à sa place. Ses commandes (<code>Esc</code>, <code>F5</code>, <code>F1</code>, <code>Entrée</code>…) marchent aussi depuis le pane des infos.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🌐</div><div class="feature-body"><h3>Vos maquettes dans votre Chrome</h3><p>Maquettes, pages de test, aperçus : claude les ouvre dans le Chrome de la machine du launcher, même quand le projet tourne dans un conteneur ou sur Kubernetes, et même si d'autres Chrome sont connectés à votre compte. Il le reconnaît seul la première fois, puis s'en souvient. Rien à configurer.</p></div></div>
+      <div class="feature-card" id="web-mode"><div class="feature-icon">🌐</div><div class="feature-body"><h3>Vos maquettes dans votre Chrome</h3><p>Maquettes, pages de test, aperçus : claude les ouvre dans le Chrome de la machine du launcher, même quand le projet tourne dans un conteneur ou sur Kubernetes, et même si d'autres Chrome sont connectés à votre compte. Il le reconnaît seul la première fois, puis s'en souvient. Rien à configurer.</p></div></div>
       <div class="feature-card"><div class="feature-icon">↺</div><div class="feature-body"><h3>Reprise après crash</h3><p>Terminal fermé, crash, launcher quitté : à l'ouverture, le projet propose de reprendre la conversation, sa team et ses tâches, et le teamleader relance toute son équipe — pas seulement les agents des tâches en cours : une correction demandée par la QA trouvera ses développeurs. Une session close par <code>/end-session</code> ou quittée proprement (<code>Ctrl+C</code>, <code>/exit</code>) n'est plus proposée, et les projets sans template reçoivent leur <code>/end-session</code> ; <code>↺</code> ne signale que les vraies interruptions.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🔎</div><div class="feature-body"><h3>Chaque icône expliquée</h3><p>Dans la vue du projet, chaque icône de sa ligne revient avec sa couleur et son sens, dans le même ordre : <code>!</code> modifié directement sur main, <code>⚑</code> milestone v1.2.0 en cours (60 %), <code style="color:#a371f7">⇄1</code> pull request ouverte, <code>↺</code> session non close… Plus besoin de connaître les symboles par cœur.</p></div></div>
     </div>
@@ -165,6 +188,7 @@
         <li><strong>v5.5</strong> : environnement fourni par le template selon la stack, que chaque projet complète</li>
         <li><strong>v5.6</strong> : conteneurs et pods nommés d'après le projet</li>
         <li><strong>v6.0</strong> : les mêmes conteneurs pilotés depuis un poste Windows</li>
+        <li><strong>v6.1</strong> : réglages à rubriques, backends et pools configurables dans la fenêtre</li>
       </ul>
     </div>
     <figure class="arch-figure">
@@ -327,6 +351,7 @@
       <p>Votre poste est sous Windows, vos projets tournent sur des serveurs Linux ? <code>claude-launcher-ng2.exe</code> ouvre une vraie fenêtre Windows : le même arbre de projets, les mêmes cartes, et un terminal par agent. Pas de tmux sur le poste, pas de WSL à démarrer.</p>
       <ul class="version-list">
         <li><strong>v6.0</strong> : application Windows native, configuration partagée avec le hub Linux, éditeur des fichiers de configuration</li>
+        <li><strong>v6.1</strong> : fenêtre Réglages à rubriques, copier-coller dans les terminaux, taille des caractères à la molette, teammates inactifs masqués</li>
       </ul>
     </div>
 
@@ -339,7 +364,7 @@
           <div class="win-body">
             <div class="win-left">
               <div class="win-head">
-                <div class="win-ver"><b>NG2 <span data-ng-version>v6.0.0</span></b><span class="dim"> · tpl 5.0.0</span><span class="win-sp"></span><span class="win-seg"><span class="on">Auto</span><span>☀</span><span>☾</span></span><span class="win-cfg">⚙ config</span></div>
+                <div class="win-ver"><b>NG2 <span data-ng-version>v6.1.0</span></b><span class="dim"> · tpl 5.0.0</span><span class="win-sp"></span><span class="win-seg"><span class="on">Auto</span><span>☀</span><span>☾</span></span><span class="win-cfg">⚙ config</span></div>
                 <div class="win-usage">
                   <span class="dim">session</span><span class="bar"><i style="width:42%;background:#3fb950"></i></span><span class="dim">42 %</span>
                   <span class="dim">semaine</span><span class="bar"><i style="width:71%;background:#d29922"></i></span><span class="dim">71 %</span>
@@ -424,8 +449,11 @@
     <div class="win-grid">
       <div class="feature-card"><div class="feature-icon">🎯</div><div class="feature-body"><h3>Pour qui ?</h3><p>Ceux qui travaillent sous Windows et font tourner leurs projets dans des conteneurs distants : docker ou podman en <code>tcp://</code> ou par <code>ssh://</code>, une machine <code>ssh</code>, ou Kubernetes. Les projets sont sur un stockage partagé (NFS, MooseFS…) que le poste voit, par exemple sous <code>\\wsl.localhost\…</code>.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🧭</div><div class="feature-body"><h3>La même chose que sous Linux</h3><p>Même arbre, mêmes badges et mêmes couleurs, cartes ◈ État, onglet ⌗ Teamleaders, un onglet par projet ouvert, allumé quand un agent travaille. Les teams sont rangées par les mêmes règles : leader et <code>cdp</code> en haut, actifs éclaircis, inactifs assombris. Ouverture par double-clic, questions du template et de reprise dans le pane du leader.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">🪟</div><div class="feature-body"><h3>Pensé pour Windows</h3><p>Un arbre au rendu de l'Explorateur Windows 11, des zones et des cartes qu'on replie et redimensionne, un thème <strong>Auto / Jour / Nuit</strong> qui suit Windows. La souris et le copier-coller arrivent à Claude Code, un double-clic sur l'en-tête d'un pane le met en plein écran.</p></div></div>
-      <div class="feature-card"><div class="feature-icon">⚙</div><div class="feature-body"><h3>La configuration dans l'interface</h3><p><code>⚙ config</code> (<code>Ctrl+,</code>) ouvre <code>config.conf</code>, <code>backends.yaml</code> et le <code>env.yaml</code> d'un projet. Chaque fichier est vérifié pendant la frappe, par le code qui le chargera. Une erreur, avec sa ligne, empêche d'enregistrer ; la version précédente est gardée en <code>.bak</code>.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🪟</div><div class="feature-body"><h3>Pensé pour Windows</h3><p>Un arbre au rendu de l'Explorateur Windows 11, des zones et des cartes qu'on replie et redimensionne, un thème <strong>Auto / Jour / Nuit</strong> qui suit Windows. La souris arrive à Claude Code, un double-clic sur l'en-tête d'un pane le met en plein écran, <code>Ctrl</code>+molette règle la taille des caractères.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">🌐</div><div class="feature-body"><h3>L'interface dans un navigateur</h3><p><code>claude-launcher-ng2 desktop --web</code> (Linux) ou <code>claude-launcher-ng2.exe desktop --web</code> (Windows) sert la même interface à Chrome, Edge ou Firefox. Elle écoute sur <code>127.0.0.1</code>, sur un port libre (<code>--addr HÔTE:PORT</code> pour le fixer, <code>--no-open</code> pour ne pas ouvrir le navigateur). L'URL affichée porte un jeton, remplacé ensuite par un cookie ; les appels JSON restent de même origine, et le presse-papiers est celui du navigateur. Fermer l'onglet détache seulement l'interface : les sessions continuent dans leur tmux.</p><p><strong>Sécurité renforcée en v6.1 :</strong> une autre page ouverte sur la machine, même via <code>127.0.0.1</code>, ne peut pas émettre d'appel avec votre cookie. <span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.1.0">Nouveau v6.1.0</span></p><p style="margin-top:.5rem">Une adresse hors boucle locale expose l'interface au réseau : le jeton reste exigé, mais il n'y a pas de HTTPS.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">⚙</div><div class="feature-body"><h3>La configuration dans l'interface</h3><p><code>⚙ config</code> (<code>Ctrl+,</code>) ouvre <code>config.conf</code>, <code>backends.yaml</code> et le <code>env.yaml</code> d'un projet. Chaque fichier est vérifié pendant la frappe, par le code qui le chargera. Une erreur, avec sa ligne, empêche d'enregistrer ; la version précédente est gardée en <code>.bak</code>.</p><p><strong>Nouveau en v6.1 :</strong> une fenêtre <strong>Réglages</strong> à rubriques — backends, pools et valeurs par défaut ; menu contextuel et rubrique Projet ; Ce poste, Launcher et Conteneurs. Le jeton n'est jamais affiché. <span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.1.0">Nouveau v6.1.0</span></p></div></div>
+      <div class="feature-card"><div class="feature-icon">📋</div><div class="feature-body"><h3>Copier-coller dans les terminaux <span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.1.0">Nouveau v6.1.0</span></h3><p>Sélectionnez pour copier, <code>Ctrl+V</code> ou clic droit pour coller, y compris de longs textes. Un pane en lecture seule vous le dit sans vous submerger. <code>Ctrl+B</code> puis <code>Ctrl+V</code> envoie un vrai <code>^V</code> au programme du pane.</p></div></div>
+      <div class="feature-card"><div class="feature-icon">👥</div><div class="feature-body"><h3>Une carte par teammate <span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.1.0">Nouveau v6.1.0</span></h3><p>Les panes des teammates inactifs sont masqués et réapparaissent quand ils travaillent ; chaque teammate a sa carte TEAM. L'écran reste lisible, même avec une grosse équipe.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🚫</div><div class="feature-body"><h3>Ce qui ne s'y fait pas</h3><p>Pas de projet « sur l'hôte » ni de moteur local (Docker Desktop, socket locale) : ils sont refusés avec un message clair. Les projets tournent toujours dans un conteneur distant ; leur tmux y vit, et le poste n'en a pas besoin.</p></div></div>
       <div class="feature-card"><div class="feature-icon">🔔</div><div class="feature-body"><h3>Mises à jour comprises</h3><p>L'exe est publié avec chaque release, dans le même <code>SHA256SUMS</code> que les binaires Linux. Il s'annonce en orange, jaune puis vert comme la coque ; un clic installe la nouvelle version, même si l'exe est en cours d'exécution.</p></div></div>
     </div>
@@ -552,7 +580,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681" data-ng-term>  NG v6.0.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.1.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -637,6 +665,17 @@
       <h2>Installation</h2>
       <p>Un seul binaire, aucune configuration obligatoire pour démarrer. Ci-dessous Linux et macOS ; sous Windows, voir <a href="#windows-install">Installer sous Windows</a>.</p>
     </div>
+    <h3 class="sub-h">Quelle interface sur quel système ?</h3>
+    <table class="plat-matrix">
+      <caption class="sr-only">Interfaces disponibles selon le système</caption>
+      <thead><tr><th scope="col"></th><th scope="col">Terminal (tmux)</th><th scope="col">Fenêtre native</th><th scope="col">Navigateur</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">🪟 Windows</th><td>—</td><td>✓</td><td>✓</td></tr>
+        <tr><th scope="row">🍎 macOS</th><td>✓</td><td>—</td><td>✓</td></tr>
+        <tr><th scope="row">🐧 Linux</th><td>✓</td><td>—</td><td>✓</td></tr>
+      </tbody>
+    </table>
+    <p class="plat-note">Le terminal demande tmux. Sous Windows, les projets tournent dans un conteneur distant. Un projet ouvert sur un autre poste ou un autre hub se rejoint en lecture seule, ou on prend la main : l'autre passe alors en lecture seule.</p>
     <div class="install-steps">
 
       <div class="install-step">
@@ -859,7 +898,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v6.0.0</span> — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v6.1.0</span> — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 
