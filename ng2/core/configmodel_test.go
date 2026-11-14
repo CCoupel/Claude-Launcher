@@ -187,3 +187,52 @@ func TestApplyThroughSaveConfig(t *testing.T) {
 		t.Fatalf("fichier écrit : %s", b)
 	}
 }
+
+// Références pendantes : defaults.backend vers un backend supprimé ou renommé est
+// une erreur (un seul code pour l'éditeur texte et les Réglages) ; une image par
+// défaut hors de la liste images est un avertissement ; un pool cité mais absent
+// reste refusé par le chargement.
+func TestValidateDanglingReferences(t *testing.T) {
+	errs := func(content string) []ConfigProblem {
+		var out []ConfigProblem
+		for _, p := range ValidateConfig(ConfBackends, []byte(content)) {
+			out = append(out, p)
+		}
+		return out
+	}
+	if HasErrors(errs(modelSample)) {
+		t.Fatalf("modèle valide refusé : %v", errs(modelSample))
+	}
+	// suppression du backend par défaut
+	del := apply(t, modelSample, ConfigChange{Op: "delete", At: []string{"backends", "srv1-docker"}})
+	ps := errs(del)
+	if !HasErrors(ps) || !strings.Contains(ps[0].Message, "defaults.backend désigne un backend inexistant : srv1-docker") || ps[0].Line == 0 {
+		t.Fatalf("suppression : %+v", ps)
+	}
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	if _, err := SaveConfig(ConfBackends, BackendsPath(), []byte(del), time.Time{}); err != ErrConfigInvalid {
+		t.Fatalf("enregistrement : %v", err)
+	}
+	// renommage sans mise à jour de defaults.backend, puis avec
+	ren := apply(t, modelSample, ConfigChange{Op: "rename", At: []string{"backends", "srv1-docker"}, Value: "srv1"})
+	if !HasErrors(errs(ren)) {
+		t.Fatal("renommage sans defaults.backend accepté")
+	}
+	fixed := apply(t, ren, ConfigChange{Op: "set", At: []string{"defaults", "backend"}, Value: "srv1"})
+	if HasErrors(errs(fixed)) {
+		t.Fatalf("renommage complet refusé : %v", errs(fixed))
+	}
+	// « host » est toujours un backend valide
+	if HasErrors(errs("backends: {}\ndefaults:\n  backend: host\n")) {
+		t.Fatal("defaults.backend: host refusé")
+	}
+	// image par défaut hors liste : avertissement seulement
+	w := errs("backends: {}\ndefaults:\n  image: autre:1\nimages: [debian:12]\n")
+	if HasErrors(w) || len(w) != 1 || w[0].Severity != SevWarning {
+		t.Fatalf("image : %+v", w)
+	}
+	// pool cité mais inconnu : refusé (chargement)
+	if !HasErrors(errs("backends:\n  p: { type: docker, pool: absent, host: 'tcp://{}:1' }\n")) {
+		t.Fatal("pool inconnu accepté")
+	}
+}

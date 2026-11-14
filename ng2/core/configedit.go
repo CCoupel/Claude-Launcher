@@ -342,6 +342,28 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 		return []ConfigProblem{problemFromErr(err, content, quotedNames(err.Error())...)}
 	}
 	var ps []ConfigProblem
+	// références : le backend par défaut doit exister (une suppression ou un
+	// renommage qui l'oublie est refusé, par l'éditeur texte comme par Réglages)
+	if d := f.Defaults.Backend; d != "" {
+		known := false
+		for _, b := range bs {
+			known = known || b.Name == d
+		}
+		if !known {
+			ps = append(ps, ConfigProblem{Line: lineOf(content, d), Severity: SevError,
+				Message: "defaults.backend désigne un backend inexistant : " + d})
+		}
+	}
+	if d := f.Defaults.Image; d != "" && len(f.Images) > 0 {
+		in := false
+		for _, im := range f.Images {
+			in = in || im == d
+		}
+		if !in {
+			ps = append(ps, ConfigProblem{Line: lineOf(content, d), Severity: SevWarning,
+				Message: "defaults.image « " + d + " » n'est pas dans la liste images (elle sera proposée en plus)"})
+		}
+	}
 	ev := runtimeEngineEnv()
 	for _, b := range bs {
 		if b.Name == "host" && goos == "windows" {
