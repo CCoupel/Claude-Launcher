@@ -30,7 +30,7 @@ async function openSettings(project, page, focus) {
   ST.project = project || '';
   if (page) ST.page = page;
   ST.result = null; ST.test = null;
-  ST.pj = null; ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
+  ST.pj = null; ST.docs = {}; ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
   openModal((b) => {
     b.classList.add('wide');
     b.innerHTML = '';
@@ -48,6 +48,7 @@ async function openSettings(project, page, focus) {
   ST.on = true;
   stRender();
   stLoad().then(() => { if (!ST.on) return; ST.loading = false; stRender(); });
+  for (const id of Object.keys(DOCS)) docLoad(id); // chargements en parallèle, sans bloquer l'affichage
   stPoll(); // états des backends : appel séparé, ne retarde jamais l'affichage
   if (ST.project && ST.project !== 'new') { await pjLoad(); if (!ST.on) return; if (ST.pj && focus) ST.pj.focus = focus; stRenderPage(); stRenderFoot(); }
 }
@@ -189,6 +190,7 @@ function stRenderFoot() {
   const f = $('stfoot'); if (!f) return;
   f.textContent = '';
   if (ST.page === 'projet') return pjFoot(f);
+  if (docOfPage()) return docFoot(f, docOfPage());
   const ch = stBuildChanges(), local = stLocalProblems();
   const res = ST.result;
   const probs = local.concat(res && res.problems ? res.problems : [], res ? [] : ST.loadProblems);
@@ -219,10 +221,11 @@ function stRenderFoot() {
 }
 
 const stEditable = () => ST.page === 'backends' || ST.page === 'pools' || ST.page === 'defauts';
-const stDirty = () => stBuildChanges().length > 0 || pjDirty();
+const stDirty = () => stBuildChanges().length > 0 || pjDirty() || docDirty();
 
 async function stSave() {
   if (ST.page === 'projet') return pjSave();
+  if (docOfPage()) return docSave(docOfPage());
   const ch = stBuildChanges();
   if (!ch.length) return;
   let r;
@@ -300,7 +303,7 @@ function stRenderPage(soft) {
   p.textContent = '';
   if (ST.loading && stEditable()) { p.appendChild(el('p', 'dim', 'Chargement…')); return; }
   if (!ST.draft && stEditable()) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + ((ST.loadProblems[0] || {}).message || 'erreur') + ' — utiliser « Éditer en YAML ».')); return; }
-  const fn = { backends: stPageBackends, pools: stPagePools, defauts: stPageDefaults, launcher: stPageText, conteneurs: stPageText, poste: stPagePoste, projet: stPageProjet }[ST.page];
+  const fn = { backends: stPageBackends, pools: stPagePools, defauts: stPageDefaults, launcher: stPageConf, conteneurs: stPageEnv, poste: stPageHub, projet: stPageProjet }[ST.page];
   fn(p);
   p.scrollTop = top;
 }
@@ -539,23 +542,275 @@ function stPageDefaults(p) {
 }
 
 // ── Rubriques des sous-lots suivants : renvoi à l'éditeur de texte ──────────
-function stPageText(p) {
-  const t = { launcher: ['Launcher', 'config.conf', 'Réglages généraux du launcher : racines, options de claude, teams, masquage des inactifs, palette…'], conteneurs: ['Conteneurs', 'env.yaml du launcher', 'Paquets, setup et on_start ajoutés à tous les conteneurs.'] }[ST.page];
-  p.append(el('h4', '', t[0]), el('p', 'ex', t[2]), el('p', 'note', 'Cette rubrique n\'a pas encore de formulaire : elle se modifie dans l\'éditeur YAML (' + t[1] + ').'));
-  p.appendChild(stBtn('Éditer en YAML', () => stText(ST_KIND[ST.page])));
+// ── Launcher, Conteneurs, Ce poste (#149, LOT-3.3) ──────────────────────────
+// Trois documents lus par configModel (config.conf, env.yaml du launcher, hub =
+// hubs.<machine> de backends.yaml) et écrits par configApply, chacun avec son
+// brouillon, sa date, son résultat : même comportement que backends.yaml.
+const DOCS = { conf: { kind: 'config.conf', page: 'launcher' }, env: { kind: 'env.yaml', page: 'conteneurs' }, hub: { kind: 'hub', page: 'poste' } };
+const docOfPage = () => Object.keys(DOCS).find((k) => DOCS[k].page === ST.page) || '';
+
+function docDraftOf(id, m) {
+  const d = {};
+  if (id === 'conf') {
+    d.v = {}; d.reset = {}; d.token = ''; d.tokenDel = false;
+    for (const x of m.settings || []) d.v[x.key] = confDisplay(x, x.value);
+  } else if (id === 'env') {
+    d.txt = { packages: (m.packages || []).join('\n'), setup: (m.setup || []).join('\n'), on_start: (m.on_start || []).join('\n'), pbm: pjPbmText(m.packages_by_manager) };
+  } else {
+    const s = m.settings || {};
+    d.txt = {
+      paths: (s.paths || []).map((x) => x.local + ' => ' + x.remote).join('\n'),
+      browser_paths: (s.browser_paths || []).map((x) => x.container + ' => ' + x.host + (x.os ? ' | ' + x.os : '')).join('\n'),
+      allow: ((s.browser_server || {}).allow || []).join('\n'),
+    };
+    const bs = s.browser_server || {}, ru = s.remote_user || {};
+    d.f = { listen: bs.listen || '', url: bs.url || '', uid: ru.uid == null ? '' : String(ru.uid), gid: ru.gid == null ? '' : String(ru.gid), name: ru.name || '', home: ru.home || '', hub_cache: s.hub_cache || '', browser_device: s.browser_device || '' };
+  }
+  return d;
+}
+function confDisplay(x, v) {
+  switch (x.type) {
+    case 'bool': return !!v && v !== '0' && v !== 0;
+    case 'int': return v == null ? '' : String(v);
+    case 'list': return (v || []).join('\n');
+    case 'intlist': return (v || []).join(' ');
+    default: return v == null ? '' : String(v);
+  }
+}
+function confValue(x, v) {
+  switch (x.type) {
+    case 'bool': return !!v;
+    case 'int': return Number(v);
+    case 'list': return stLines(v);
+    case 'intlist': return String(v).split(/[\s,]+/).filter(Boolean).map(Number);
+    default: return String(v);
+  }
 }
 
-function stPagePoste(p) {
-  p.append(el('h4', '', 'Ce poste'), el('p', 'ex', 'Réglages propres à cette machine. Les autres postes ne sont pas touchés.'));
-  const body = el('div');
-  const inp = el('input', 'stin w'); inp.type = 'number'; inp.min = MIN_FONT; inp.max = MAX_FONT; inp.value = FONT_SIZE;
-  inp.addEventListener('change', () => { setFontSize(inp.value); inp.value = FONT_SIZE; });
-  const row = el('span', 'stfont');
-  row.append(stBtn('−', () => { setFontSize(FONT_SIZE - 1); inp.value = FONT_SIZE; }), inp, stBtn('+', () => { setFontSize(FONT_SIZE + 1); inp.value = FONT_SIZE; }),
-    el('span', 'dim', 'terminaux seulement · défaut ' + FONT_DEFAULT + ' · aussi par Ctrl+molette'));
-  body.appendChild(stForm([['Taille des caractères', row]]));
-  body.appendChild(el('p', 'note', 'Mémorisée sur ce poste (appliquée tout de suite, sans « Enregistrer »). Correspondance de chemins, navigateur et cache du hub : pas encore de formulaire, voir « Éditer en YAML » (backends.yaml → hubs).'));
-  p.appendChild(stBox('Affichage', body));
+async function docLoad(id, keep) {
+  const dd = DOCS[id];
+  if (!keep || !ST.docs[id]) ST.docs[id] = { loading: true };
+  try {
+    const r = await call('configModel', { kind: dd.kind });
+    if (!ST.on) return;
+    const old = ST.docs[id];
+    ST.docs[id] = { loading: false, model: r.model, path: r.path, mtime: r.mtime, exists: r.exists, problems: r.problems || [], d: docDraftOf(id, r.model), o: docDraftOf(id, r.model), res: keep && old ? old.res : null };
+  } catch (e) { ST.docs[id] = { loading: false, err: e.message }; }
+  if (ST.on && ST.page === dd.page) { stRenderPage(true); stRenderFoot(); }
+}
+
+function docChanges(id) {
+  const D = ST.docs[id]; if (!D || !D.d) return [];
+  const d = D.d, o = D.o, ch = [], put = (at, nv, ov, empty) => {
+    if (JSON.stringify(nv) === JSON.stringify(ov)) return;
+    ch.push(empty ? { op: 'delete', at } : { op: 'set', at, value: nv });
+  };
+  if (id === 'conf') {
+    for (const x of D.model.settings || []) {
+      if (!x.editable) continue;
+      if (x.type === 'secret') {
+        if (d.tokenDel && x.set) ch.push({ op: 'delete', at: [x.key] });
+        else if (d.token) ch.push({ op: 'set', at: [x.key], value: d.token });
+        continue;
+      }
+      if (d.reset[x.key] && x.set) { ch.push({ op: 'delete', at: [x.key] }); continue; }
+      if (d.v[x.key] !== o.v[x.key]) {
+        const val = confValue(x, d.v[x.key]);
+        if (!(x.type === 'int' && isNaN(val))) ch.push({ op: 'set', at: [x.key], value: val });
+      }
+    }
+  } else if (id === 'env') {
+    for (const k of ['packages', 'setup', 'on_start']) put([k], stLines(d.txt[k]), stLines(o.txt[k]), !stLines(d.txt[k]).length);
+    const nm = pjParsePbm(d.txt.pbm), om = pjParsePbm(o.txt.pbm);
+    if (pjSorted(nm) !== pjSorted(om)) ch.push(Object.keys(nm).length ? { op: 'set', at: ['packages_by_manager'], value: nm } : { op: 'delete', at: ['packages_by_manager'] });
+  } else {
+    const pa = (t) => stLines(t).map((l) => { const [a, b] = l.split('=>'); return { local: (a || '').trim(), remote: (b || '').trim() }; });
+    const bp = (t) => stLines(t).map((l) => { const [a, rest] = l.split('=>'); const [h, os] = (rest || '').split('|'); const r = { container: (a || '').trim(), host: (h || '').trim() }; if (os && os.trim()) r.os = os.trim(); return r; });
+    put(['paths'], pa(d.txt.paths), pa(o.txt.paths), !pa(d.txt.paths).length);
+    put(['browser_paths'], bp(d.txt.browser_paths), bp(o.txt.browser_paths), !bp(d.txt.browser_paths).length);
+    const bsv = (D2) => { const v = {}; if (D2.f.listen.trim()) v.listen = D2.f.listen.trim(); if (D2.f.url.trim()) v.url = D2.f.url.trim(); const a = stLines(D2.txt.allow); if (a.length) v.allow = a; return v; };
+    put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
+    const ruv = (f) => { const v = {}; if (f.uid !== '') v.uid = Number(f.uid); if (f.gid !== '') v.gid = Number(f.gid); if (f.name.trim()) v.name = f.name.trim(); if (f.home.trim()) v.home = f.home.trim(); return v; };
+    put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
+    for (const k of ['hub_cache', 'browser_device']) put([k], d.f[k].trim(), o.f[k].trim(), !d.f[k].trim());
+  }
+  return ch;
+}
+function docLocalProblems(id) {
+  const D = ST.docs[id], ps = [];
+  if (!D || !D.d) return ps;
+  if (id === 'conf') {
+    for (const x of D.model.settings || []) {
+      if (!x.editable || x.type !== 'int' || D.d.reset[x.key]) continue;
+      const v = D.d.v[x.key], n = Number(v);
+      if (v === '' || isNaN(n) || !Number.isInteger(n) || (x.min != null && n < x.min) || (x.max != null && n > x.max))
+        ps.push({ severity: 'error', message: x.label + ' : entier' + (x.min != null ? ' ≥ ' + x.min : '') + (x.max != null ? ' ≤ ' + x.max : '') + ' attendu' });
+    }
+  } else if (id === 'hub') {
+    for (const k of ['uid', 'gid']) if (D.d.f[k] !== '' && !/^\d+$/.test(D.d.f[k])) ps.push({ severity: 'error', message: 'utilisateur distant : ' + k + ' numérique attendu' });
+  }
+  return ps;
+}
+const docDirty = () => Object.keys(DOCS).some((id) => docChanges(id).length > 0);
+
+async function docSave(id) {
+  const D = ST.docs[id]; const ch = docChanges(id); if (!D || !ch.length) return;
+  let r;
+  try { r = await call('configApply', { kind: DOCS[id].kind, path: '', mtime: D.mtime, changes: ch }); } catch (e) { return; }
+  if (r.conflict) { D.res = { conflict: true, mtime: r.mtime }; stRenderFoot(); return; }
+  if (r.invalid) { D.res = { problems: r.problems || [] }; stRenderFoot(); return; }
+  const warn = (r.problems || []).filter((p) => p.severity !== 'error');
+  await docLoad(id);
+  if (ST.docs[id]) ST.docs[id].res = { saved: true, note: r.note || '', problems: warn };
+  stRender();
+}
+
+function docFoot(f, id) {
+  const D = ST.docs[id] || { loading: true };
+  const left = el('div', 'stmsg');
+  const res = D.res;
+  const probs = docLocalProblems(id).concat(res && res.problems ? res.problems : [], res ? [] : D.problems || []);
+  const errs = probs.filter((p) => p.severity === 'error').length;
+  if (res && res.conflict) {
+    left.append(el('span', 't-orange', 'Le fichier a changé sur le disque depuis son ouverture. '));
+    const rel = el('button', 'btn sm', 'Recharger (perdre mes modifications)'); rel.onclick = async () => { await docLoad(id); stRender(); };
+    const ow = el('button', 'btn sm danger', 'Écraser avec ma version'); ow.onclick = () => { D.mtime = res.mtime; D.res = null; docSave(id); };
+    left.append(rel, ow);
+  } else if (probs.length) {
+    for (const p of probs) left.appendChild(el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'), (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
+  } else if (res && res.saved) {
+    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+  } else if (D.loading) left.appendChild(el('span', 'dim', 'Chargement…'));
+  else left.appendChild(el('span', 't-green', '✓ valide'));
+  const txt = el('button', 'btn', 'Éditer en YAML'); txt.onclick = () => stText(ST_KIND[ST.page]);
+  const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = () => stClose();
+  const save = el('button', 'btn pri', 'Enregistrer'); save.id = 'stsave';
+  const n = docChanges(id).length;
+  save.disabled = !n || errs > 0 || !D.d;
+  save.title = errs ? 'Corriger les erreurs avant d\'enregistrer' : !n ? 'aucun changement' : '';
+  save.onclick = () => docSave(id);
+  f.append(left, el('span', 'sp'), txt, cancel, save);
+}
+
+// page d'un document : en-tête, état de chargement ou d'erreur
+function docPage(p, id, title, intro, build) {
+  const D = ST.docs[id];
+  p.append(el('h4', '', title), el('p', 'ex', intro));
+  if (!D || D.loading) { p.appendChild(el('p', 'dim', 'Chargement…')); return; }
+  if (D.err) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + D.err + ' — utiliser « Éditer en YAML ».')); return; }
+  build(D);
+}
+
+function confField(D, x) {
+  const d = D.d;
+  const touch = (v) => { d.v[x.key] = v; d.reset[x.key] = false; };
+  let node;
+  if (!x.editable) {
+    node = el('span', 'dim', 'forme non reconnue' + (x.why ? ' (' + x.why + ')' : '') + ' : à modifier par « Éditer en YAML »');
+    return node;
+  }
+  if (x.type === 'secret') {
+    const w = el('span', 'stfont');
+    const i = el('input', 'stin'); i.type = 'password'; i.autocomplete = 'off'; i.placeholder = x.set ? '•••••• (défini — saisir pour remplacer)' : '(non défini)';
+    i.addEventListener('input', () => { d.token = i.value; d.tokenDel = false; stRenderFoot(); });
+    w.appendChild(i);
+    if (x.set) w.appendChild(stBtn('Retirer', () => { d.tokenDel = true; d.token = ''; i.value = ''; i.placeholder = 'sera retiré à l\'enregistrement'; stRenderFoot(); }));
+    return w;
+  }
+  if (x.type === 'bool') node = stCheck(d.v[x.key], 'activé', (c) => { touch(c); stRenderFoot(); });
+  else if (x.type === 'enum') node = stSelect(d.v[x.key], (x.options || []).map((o) => [o, o]), (v) => touch(v));
+  else if (x.type === 'list') node = stArea(d.v[x.key], (v) => touch(v), 2);
+  else if (x.type === 'int') { node = stInput(d.v[x.key], (v) => touch(v), '', 'w'); node.inputMode = 'numeric'; }
+  else node = stInput(d.v[x.key], (v) => touch(v), x.type === 'intlist' ? 'nombres séparés par des espaces' : '');
+  return node;
+}
+
+function stPageConf(p) {
+  docPage(p, 'conf', 'Launcher', 'Réglages généraux du launcher, communs aux interfaces Linux et Windows.', (D) => {
+    const bySet = {};
+    for (const x of D.model.settings || []) (bySet[x.group] = bySet[x.group] || []).push(x);
+    for (const g of D.model.groups || []) {
+      const rows = [];
+      for (const x of bySet[g.id] || []) {
+        const hint = [x.help, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
+        const cell = el('div'); cell.appendChild(confField(D, x));
+        if (x.editable && x.type !== 'secret' && x.set) {
+          const r = stBtn('↺ défaut', () => { D.d.v[x.key] = confDisplay(x, x.default); D.d.reset[x.key] = true; stRenderPage(); stRenderFoot(); }, 'dim');
+          r.title = 'retirer la ligne du fichier (valeur par défaut : ' + confShow(x) + ')'; cell.appendChild(r);
+        }
+        rows.push([x.label, cell, hint]);
+      }
+      if (rows.length) p.appendChild(stBox(g.label, stForm(rows)));
+    }
+    if ((D.model.unrecognized || []).length) {
+      const b = el('div');
+      b.append(el('p', 'note', 'Variables de config.conf écrites sous une forme non reconnue (boucle, eval, +=, valeur composée…) : elles sont conservées telles quelles et ne se modifient que dans l\'éditeur YAML.'), el('p', 'm', D.model.unrecognized.join(', ')));
+      b.appendChild(stBtn('Éditer en YAML', () => stText('config.conf')));
+      p.appendChild(stBox('Non modifiables ici', b));
+    }
+    if (!D.exists) p.appendChild(el('p', 'note', 'config.conf n\'existe pas encore : il sera créé à l\'enregistrement.'));
+  });
+}
+function confShow(x) {
+  const v = x.default;
+  if (x.type === 'bool') return v && v !== '0' ? 'activé' : 'désactivé';
+  if (Array.isArray(v)) return v.length ? v.join(' ') : '(vide)';
+  return v == null || v === '' ? '(vide)' : String(v);
+}
+
+function stPageEnv(p) {
+  docPage(p, 'env', 'Conteneurs — ajouts communs', 'Ajouté à l\'environnement de chaque conteneur, avant ce que demandent le template et le projet.', (D) => {
+    const t = D.d.txt, f = [];
+    f.push(['Paquets', stArea(t.packages, (v) => { t.packages = v; }, 4), 'un paquet par ligne']);
+    f.push(['Paquets par gestionnaire', stArea(t.pbm, (v) => { t.pbm = v; }, 2), 'une ligne par gestionnaire : apt: git jq']);
+    f.push(['setup', stArea(t.setup, (v) => { t.setup = v; }, 3), 'une commande par ligne, jouée à la création du conteneur']);
+    f.push(['on_start', stArea(t.on_start, (v) => { t.on_start = v; }, 3), 'une commande par ligne, jouée à chaque démarrage']);
+    p.appendChild(stBox('Outillage du launcher', stForm(f), el('span', 'dim', 'env.yaml (launcher)')));
+  });
+}
+
+function stPageHub(p) {
+  const D0 = ST.docs.hub;
+  const title = 'Ce poste' + (D0 && D0.model ? ' — ' + D0.model.hub : '');
+  docPage(p, 'hub', title, 'Réglages propres à cette machine. Les autres postes ne sont pas touchés.', (D) => {
+    const m = D.model, d = D.d, t = d.txt, f = d.f;
+    if (!m.present) p.appendChild(el('p', 'note', 'Aucune section pour ce poste dans backends.yaml : elle sera créée à l\'enregistrement.'));
+    const eff = m.effective || {}, over = Object.keys(eff).filter((k) => eff[k]);
+    if (over.length) p.appendChild(el('p', 't-yellow', '⚠ Surcharges propres au système (' + m.goos + ') : ' + over.map((k) => k + ' (' + eff[k] + ')').join(', ') + ' — la valeur commune ci-dessous est ignorée sur ce poste pour ces clés ; la surcharge se modifie par « Éditer en YAML ».'));
+    const ovHint = (k) => (eff[k] ? '⚠ surchargé par le système ' + eff[k] : '');
+    // affichage
+    const inp = el('input', 'stin w'); inp.type = 'number'; inp.min = MIN_FONT; inp.max = MAX_FONT; inp.value = FONT_SIZE;
+    inp.addEventListener('change', () => { setFontSize(inp.value); inp.value = FONT_SIZE; });
+    const row = el('span', 'stfont');
+    row.append(stBtn('−', () => { setFontSize(FONT_SIZE - 1); inp.value = FONT_SIZE; }), inp, stBtn('+', () => { setFontSize(FONT_SIZE + 1); inp.value = FONT_SIZE; }),
+      el('span', 'dim', 'terminaux seulement · défaut ' + FONT_DEFAULT + ' · aussi par Ctrl+molette'));
+    p.appendChild(stBox('Affichage', stForm([['Taille des caractères', row, 'mémorisée sur ce poste (desktop-ui.json), appliquée tout de suite, sans « Enregistrer »']])));
+    // correspondance de chemins
+    p.appendChild(stBox('Correspondance de chemins', stForm([['Chemins', stArea(t.paths, (v) => { t.paths = v; }, 3), 'un par ligne : chemin local => chemin dans le conteneur ' + ovHint('paths')]])));
+    // navigateur
+    const nav = stForm([
+      ['Chemins du navigateur', stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3), 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + ovHint('browser_paths')],
+      ['Serveur web : écoute', stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765'), ovHint('browser_server')],
+      ['Serveur web : URL', stInput(f.url, (v) => { f.url = v; }, 'http://…'), 'adresse vue du navigateur'],
+      ['Serveur web : autorisés', stArea(t.allow, (v) => { t.allow = v; }, 2), 'une adresse par ligne'],
+      ['Navigateur (appariement)', stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur'), ovHint('browser_device')],
+    ]);
+    p.appendChild(stBox('Navigateur', nav));
+    // utilisateur distant, cache
+    const ru = stForm([
+      ['uid', stInput(f.uid, (v) => { f.uid = v; }, '', 'w'), ovHint('remote_user')], ['gid', stInput(f.gid, (v) => { f.gid = v; }, '', 'w')],
+      ['Nom', stInput(f.name, (v) => { f.name = v; })], ['Dossier personnel', stInput(f.home, (v) => { f.home = v; })],
+      ['Cache du hub', stInput(f.hub_cache, (v) => { f.hub_cache = v; }, '(par défaut)'), 'dossier du cache de ce poste ' + ovHint('hub_cache')],
+    ]);
+    p.appendChild(stBox('Utilisateur distant et cache', ru));
+    const ovs = Object.keys(m.overrides || {});
+    if (ovs.length) {
+      const b = el('div');
+      for (const os of ovs) b.appendChild(el('p', 'm', os + ' : ' + ((m.overrides[os].keys) || []).join(', ')));
+      b.appendChild(el('p', 'note', 'Surcharges propres à un système : lecture seule ici, à modifier par « Éditer en YAML ».'));
+      p.appendChild(stBox('Surcharges par système', b));
+    }
+  });
 }
 
 // ── Projet (#148, LOT-3.2) : projectSettings / projectApply ─────────────────

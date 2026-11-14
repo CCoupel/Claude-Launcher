@@ -372,3 +372,5 @@ body.cardsfolded #hsplit { display: none; }
 .pjmerged { font-family: var(--mono); font-size: 12px; white-space: pre; overflow: auto; max-height: 260px; border: 1px solid var(--line); border-radius: 5px; padding: 6px 8px; }
 .mg-template { color: #b48cf0; }
 .mg-launcher { color: #5fa8ff; }
+.stbox .m { font-family: var(--mono); font-size: 12px; margin: 2px 0; }
+.stform .btn.dim { margin-top: 4px; opacity: .8; }
