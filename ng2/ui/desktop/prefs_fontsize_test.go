@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"regexp"
+	"strings"
 	"testing"
 )
 
@@ -48,20 +49,21 @@ func TestTermFontSizeRoundTrip(t *testing.T) {
 }
 
 // #140 : défaut 13 et bornes 8 à 28 portés par l'interface (le Go garde toute
-// valeur) ; le test vérifie les constantes et le branchement Ctrl+molette.
+// valeur) ; le test ancre les déclarations exactes et le branchement
+// Ctrl+molette (écouteur wheel testant ctrlKey, sans zoom de la page).
 func TestTermFontSizeBoundsInFrontend(t *testing.T) {
 	js := asset(t, "app.js")
-	if !regexp.MustCompile(`termFontSize`).MatchString(js) {
-		t.Fatal("préférence termFontSize absente de app.js")
+	if !strings.Contains(js, "termFontSize") {
+		t.Error("préférence termFontSize absente de app.js")
 	}
-	if !regexp.MustCompile(`\b13\b`).MatchString(js) {
-		t.Error("défaut 13 absent de app.js")
+	if !regexp.MustCompile(`const FONT_DEFAULT = 13, MIN_FONT = 8, MAX_FONT = 28;`).MatchString(js) {
+		t.Error("déclarations `FONT_DEFAULT = 13, MIN_FONT = 8, MAX_FONT = 28` absentes de app.js")
 	}
-	if !regexp.MustCompile(`(?s)Math\.max\(\s*8\b.*?\b28\b|Math\.min\(\s*28\b.*?\b8\b|\b8\b\s*,\s*28\b|\bMIN_FONT\b.*?=\s*8|\bMAX_FONT\b.*?=\s*28`).MatchString(js) {
-		t.Error("bornes 8 et 28 absentes de app.js")
+	m := regexp.MustCompile(`(?s)addEventListener\(\s*['"]wheel['"].{0,400}`).FindString(js)
+	if m == "" {
+		t.Fatal("écouteur wheel absent de app.js")
 	}
-	if !regexp.MustCompile(`addEventListener\(\s*['"]wheel['"]`).MatchString(js) ||
-		!regexp.MustCompile(`ctrlKey`).MatchString(js) || !regexp.MustCompile(`preventDefault`).MatchString(js) {
-		t.Error("écouteur wheel avec Ctrl et preventDefault absent de app.js")
+	if !strings.Contains(m, "ctrlKey") || !strings.Contains(m, "preventDefault") {
+		t.Error("l'écouteur wheel doit tester ctrlKey et appeler preventDefault")
 	}
 }
