@@ -251,6 +251,7 @@ function renderTree() {
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
 
+let teamClick = { key: null, at: 0 };
 function renderCards() {
   const c = S.cards, box = $('cards');
   box.textContent = '';
@@ -340,12 +341,23 @@ function renderCards() {
   if ((!c.team || !c.team.length) && pend.has('team')) tb.appendChild(el('div', 'dim', 'lecture de la team…'));
   else if (!c.team || !c.team.length) tb.appendChild(el('div', 'dim', c.open ? 'Pas de team template.' : 'Pas de team template (Entrée pour lancer).'));
   else {
+    // une ligne par teammate (#136) : ● démarré / ○ non ; surbrillance = pane visible ;
+    // double-clic (450 ms, détecté à la main : la carte est redessinée à chaque évènement)
     const g = el('div', 'team');
     for (const m of c.team) {
-      const on = !!m.claude;
-      g.append(el('span', on ? 't-green' : 't-dim', on ? '●' : '○'), el('span', on ? '' : 'dim', m.name),
-        el('span', '', (m.tag || '—') + (m.companion ? '+' : '')), el('span', 'dim', (m.model || '—') + ' · ' + (m.effort || '—')),
-        el('span', 't-cyan', on ? m.claude + (m.count > 1 ? ' ×' + m.count : '') : (m.count > 1 ? '×' + m.count : '')));
+      const on = !!m.started || !!m.claude;
+      const r = el('div', 'tr' + (on && !m.hidden ? ' vis' : '') + (on ? '' : ' off'));
+      r.append(el('span', on ? 't-green' : 't-dim', on ? '●' : '○'), el('span', 'n', m.name),
+        el('span', 'v', on ? (m.claude || '') : ''), el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')));
+      r.title = !on ? 'non démarré' : m.name === 'leader' ? 'leader' : m.active ? 'actif' : m.hidden ? 'caché' : m.pinned ? 'visible (fixé)' : 'visible' + (m.idleLeft ? ' · ' + m.idleLeft + ' s' : '');
+      if (on && m.pane) r.onclick = () => {
+        const now = Date.now(), k = c.path + '|' + m.pane;
+        if (teamClick.key === k && now - teamClick.at < 450) {
+          teamClick = { key: null, at: 0 };
+          call('teamToggle', { path: c.path, pane: m.pane }).then((res) => flash(res && res.ok === false ? (res.msg || 'refusé') : '')).catch(() => {});
+        } else teamClick = { key: k, at: now };
+      };
+      g.appendChild(r);
     }
     tb.appendChild(g);
   }

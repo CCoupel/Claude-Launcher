@@ -188,7 +188,15 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 .mshead .sp { flex: 1; }
 .msrow { display: grid; grid-template-columns: minmax(0, 1fr) auto 60px 36px; gap: 8px; align-items: center; font-family: var(--mono); margin-top: 3px; }
 .msrow .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.team { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto auto; gap: 2px 8px; font-family: var(--mono); font-size: 12px; }
+.team { font-family: var(--mono); font-size: 12px; }
+.team .tr { display: grid; grid-template-columns: 12px minmax(0, 1fr) 62px 110px; gap: 0 8px; padding: 1px 4px; border-radius: 3px; user-select: none; align-items: center; white-space: nowrap; }
+.team .tr:hover { background: rgba(255,255,255,.055); }
+.team .tr.vis { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); }
+.team .tr.off { color: var(--dim); }
+.team .tr.off:hover { background: none; }
+.team .n { overflow: hidden; text-overflow: ellipsis; }
+.team .m { color: var(--muted); }
+.team .v { color: var(--cyan); text-align: right; }
 .files { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; gap: 1px 8px; font-family: var(--mono); font-size: 12px; }
 .files .dir { color: var(--cyan); }
 .files .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
