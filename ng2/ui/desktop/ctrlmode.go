@@ -234,19 +234,45 @@ func (p *layoutParser) cell() (layoutCell, error) {
 
 // ── Commandes ─────────────────────────────────────────────────────────────
 
-// hexKeys : arguments de « send-keys -H » pour des octets (au plus 256 par
-// commande : les longues saisies sont découpées).
-func hexKeys(b []byte) [][]string {
-	var out [][]string
+// hexTable : « 00 » … « ff », construit une fois (aucune allocation par octet).
+var hexTable = func() (t [256]string) {
+	for i := range t {
+		t[i] = fmt.Sprintf("%02x", i)
+	}
+	return
+}()
+
+// hexChunkSize : octets par commande « send-keys -H ».
+const hexChunkSize = 256
+
+// eachHexChunk : arguments de « send-keys -H » pour des octets, morceau par
+// morceau (au plus hexChunkSize octets par commande) : seul le morceau courant
+// existe en mémoire — un collage de 4 Mo n'est pas matérialisé en millions de
+// chaînes. args n'est valable que pendant l'appel de fn (le tableau est réutilisé) ;
+// fn rend faux pour arrêter.
+func eachHexChunk(b []byte, fn func(args []string) bool) {
+	args := make([]string, 0, hexChunkSize)
 	for len(b) > 0 {
-		n := min(len(b), 256)
-		args := make([]string, 0, n)
+		n := min(len(b), hexChunkSize)
+		args = args[:0]
 		for _, c := range b[:n] {
-			args = append(args, fmt.Sprintf("%02x", c))
+			args = append(args, hexTable[c])
 		}
-		out = append(out, args)
+		if !fn(args) {
+			return
+		}
 		b = b[n:]
 	}
+}
+
+// hexKeys : tous les morceaux d'eachHexChunk (copiés) — pour les tests et les
+// petites saisies ; un collage passe par eachHexChunk.
+func hexKeys(b []byte) [][]string {
+	var out [][]string
+	eachHexChunk(b, func(args []string) bool {
+		out = append(out, append([]string(nil), args...))
+		return true
+	})
 	return out
 }
 

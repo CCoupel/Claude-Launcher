@@ -247,3 +247,49 @@ func TestPasteBigLinesReadOnlyAndTooBig(t *testing.T) {
 		}
 	}
 }
+
+// Un collage de 4 Mo n'est pas matérialisé : les arguments sont produits morceau
+// par morceau (mémoire retenue bornée), et rendent exactement les mêmes commandes.
+func TestPasteStreamsChunksWithoutMaterializing(t *testing.T) {
+	data := []byte(strings.Repeat("ligne de collage é€ — 0123456789\n", maxPaste/38+1)[:maxPaste])
+	var base runtime.MemStats
+	runtime.GC()
+	runtime.ReadMemStats(&base)
+	var peak uint64
+	chunks, total := 0, 0
+	eachHexChunk(data, func(args []string) bool {
+		if len(args) == 0 || len(args) > hexChunkSize {
+			t.Fatalf("morceau de %d arguments", len(args))
+		}
+		chunks++
+		total += len(args)
+		if chunks%1000 == 0 {
+			var m runtime.MemStats
+			runtime.GC()
+			runtime.ReadMemStats(&m)
+			peak = max(peak, m.HeapAlloc)
+		}
+		return true
+	})
+	if total != len(data) || chunks != (len(data)+hexChunkSize-1)/hexChunkSize {
+		t.Fatalf("%d octets en %d morceaux", total, chunks)
+	}
+	// données comprises (4 Mo) : la mémoire retenue en plus reste très en deçà de la
+	// matérialisation (millions de chaînes de 2 octets + en-têtes ≈ 100 Mo)
+	if grown := int64(peak) - int64(base.HeapAlloc); grown > 8<<20 {
+		t.Errorf("mémoire retenue pendant le flux : +%d Mo", grown>>20)
+	}
+	// mêmes commandes que la forme complète
+	small := []byte("a\x1bé\n" + strings.Repeat("z", 600))
+	var streamed [][]string
+	eachHexChunk(small, func(args []string) bool { streamed = append(streamed, append([]string(nil), args...)); return true })
+	if fmt.Sprint(streamed) != fmt.Sprint(hexKeys(small)) || len(streamed) != 3 {
+		t.Errorf("flux et forme complète différents : %d morceaux", len(streamed))
+	}
+	// arrêt demandé : le flux s'interrompt
+	n := 0
+	eachHexChunk(data, func([]string) bool { n++; return n < 3 })
+	if n != 3 {
+		t.Errorf("arrêt non respecté : %d", n)
+	}
+}

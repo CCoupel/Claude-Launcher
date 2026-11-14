@@ -600,12 +600,13 @@ func (t *projTerm) input(pane, data string) (refused string) {
 	case len(data) > maxPaste:
 		return "toobig"
 	}
-	// découpé en send-keys -H de 256 octets au plus (hexKeys), envoyés dans
+	// découpé en send-keys -H de 256 octets au plus (eachHexChunk), envoyés dans
 	// l'ordre sur le même canal de contrôle : un collage de milliers de lignes
 	// arrive entier et dans l'ordre
-	for _, hex := range hexKeys([]byte(data)) {
+	eachHexChunk([]byte(data), func(hex []string) bool {
 		_ = c.Send(append([]string{"send-keys", "-t", pane, "-H"}, hex...)...)
-	}
+		return true
+	})
 	return ""
 }
 
