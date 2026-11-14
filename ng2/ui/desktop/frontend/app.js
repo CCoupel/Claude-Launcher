@@ -44,7 +44,11 @@ const store = {
   set(k, v) { try { localStorage.setItem('cl.' + k, JSON.stringify(v)); } catch (e) { /* stockage indisponible */ } },
 };
 const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono').trim() || 'monospace';
-const FONT_SIZE = 13;
+// Taille des caractères des terminaux (#140) : préférence termFontSize du poste,
+// changée par Ctrl+molette (setFontSize).
+const FONT_DEFAULT = 13, MIN_FONT = 8, MAX_FONT = 28;
+let FONT_SIZE = FONT_DEFAULT;
+const clampFont = (n) => { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.min(MAX_FONT, Math.max(MIN_FONT, n)) : FONT_DEFAULT; };
 
 // ── État ───────────────────────────────────────────────────────────────────
 const S = {
@@ -593,6 +597,7 @@ function applyLayoutPrefs() {
   setTheme(prefs.get('theme', 'auto'), true);
   const w = prefs.get('navW', 0); if (w) setNavW(w, true);
   const h = prefs.get('treeH', 0); if (h) setTreeH(h, true);
+  FONT_SIZE = clampFont(prefs.get('termFontSize', FONT_DEFAULT));
   document.body.classList.toggle('cardsfolded', !!prefs.get('cardsHidden', false));
 }
 
@@ -1304,6 +1309,38 @@ function onEvent(name, data) {
     }
   }
 }
+
+// Ctrl+molette (#140) : taille des caractères de tous les terminaux. Seule la
+// molette avec Ctrl est prise (aucune touche retirée aux terminaux) ; la page
+// ne zoome pas (preventDefault).
+function allTerms() {
+  const a = [];
+  for (const v of Object.values(S.views)) { a.push(v.launch); for (const p of Object.values(v.panes)) a.push(p.term); }
+  for (const t of Object.values(leaders.tiles)) a.push(t.term);
+  return a;
+}
+function setFontSize(n, keep) {
+  n = clampFont(n);
+  if (n === FONT_SIZE) return;
+  FONT_SIZE = n;
+  const terms = allTerms();
+  for (const t of terms) t.options.fontSize = n;
+  cell = measureCell();
+  const redo = () => {
+    for (const v of Object.values(S.views)) { v.sent = null; v.fit(); if (v.layout) v.applyLayout(v.layout); }
+    leaders.layout();
+  };
+  redo();
+  // cellule réelle d'xterm, connue après son rendu : remesure puis recalcul
+  requestAnimationFrame(() => { if (terms.length) { const o = cell; refineCell(terms[0]); if (!o || o.w !== cell.w || o.h !== cell.h) redo(); } });
+  if (!keep) prefs.set('termFontSize', n);
+  flash('Taille des caractères : ' + n);
+}
+$('views').addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault(); e.stopPropagation();
+  if (e.deltaY) setFontSize(FONT_SIZE + (e.deltaY < 0 ? 1 : -1));
+}, { passive: false, capture: true });
 
 let fitTimer = null;
 function scheduleFit() {

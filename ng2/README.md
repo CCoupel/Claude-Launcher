@@ -871,6 +871,10 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
   leader et `cdp` en haut ; jusqu'à 5 teammates, le haut sur 50 % et les teammates sur une ligne ;
   au-delà, 3 lignes 3/7, 2/7 et le reste, la ligne du milieu recevant ⌈n/2⌉ ; actifs en ordre MRU
   puis inactifs par nom ; actifs éclaircis, inactifs assombris sur la couleur du projet) ;
+- **Ctrl+molette** sur la zone des terminaux : taille des caractères (8 à 28, 13 par défaut) de tous les
+  terminaux (projets, ouverture, vignettes Teamleaders) ; la taille est renvoyée à tmux (`refresh-client -C`),
+  mémorisée par poste (clé `termFontSize` de `desktop-ui.json`) et la page ne zoome pas. L'arbre et les cartes
+  gardent leur taille ; aucune touche n'est retirée aux terminaux ;
 - l'**ouverture** passe par le même code que `ctr-attach` (`core.OpenCtr`) : sa sortie (conteneur,
   bootstrap) et ses questions (serveur d'un groupe, autre launcher propriétaire) s'affichent dans
   un terminal d'ouverture où l'on répond ; les questions `/init-project` (template en retard ou
