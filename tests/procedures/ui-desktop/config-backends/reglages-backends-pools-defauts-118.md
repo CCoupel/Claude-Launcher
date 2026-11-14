@@ -43,7 +43,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 | 4 | Changer le type en `k8s` | Contexte, namespace, volumes → PVC, repartition, options du pod | | |
 | 5 | Dupliquer un backend | Copie avec un nom propose distinct ; nom en doublon refuse avec message | | |
 | 6 | Nom vide ou invalide | Erreur en pied ; Enregistrer bloque | | |
-| 7 | Supprimer un backend utilise par un projet / par `defaults.backend` | Avertissement ou refus explicite, pas de suppression silencieuse | | |
+| 7 | Supprimer le backend designe par `defaults.backend`, puis un backend utilise par un projet | Avertissement explicite de l'interface (la validation du fichier ne le refuse pas) ; suppression d'un pool cite par un backend refusee | | |
 | 8 | Annuler | Aucun changement dans le fichier | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -77,7 +77,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 |-------|--------|-----------------|----------------|------|
 | 1 | Copier `backends.yaml` (`cp backends.yaml avant.yaml`) | | | |
 | 2 | Modifier un champ d'un backend (ex. namespace), Enregistrer | Message d'enregistrement + note de rechargement a chaud | | |
-| 3 | `diff avant.yaml backends.yaml` | Seule la ligne modifiee differe ; tous les commentaires et l'ordre des backends intacts | | |
+| 3 | `diff avant.yaml backends.yaml` | La valeur modifiee differe ; tous les commentaires et l'ordre des backends intacts. Bruit de mise en forme tolere sur les autres lignes (lignes vides retirees, alignement des commentaires, espaces des `{ }`, guillemets ajoutes) : aucun commentaire ni valeur ne change | | |
 | 4 | Ajouter un backend en fin, Enregistrer, diff | Ajout seul ; commentaires intacts | | |
 | 5 | Dupliquer puis supprimer le doublon, Enregistrer, diff | Fichier revenu a l'etat precedent (hors espaces) | | |
 | 6 | Renommer un backend, Enregistrer | Nom change a sa place, references mises a jour si le contrat le prevoit | | |
