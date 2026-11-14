@@ -550,7 +550,7 @@ func renderConfValue(s confSetting, v any, multiline bool, eol string, current [
 				// élément déjà écrit tel quel (HTTPS_PROXY, ANTHROPIC_BASE_URL…) ne
 				// bloque pas l'édition du reste de la liste
 				if name, _, _ := strings.Cut(it, "="); confDangerousEnv(name) && !confHas(current, it) {
-					return fail("variable « %s » interdite : elle permet d'exécuter du code au lancement de claude", name)
+					return fail("variable « %s » interdite dans cet écran (sensible : exécution de code, proxy ou authentification) — « Éditer en YAML » permet de l'ajouter à la main", name)
 				}
 			}
 		}

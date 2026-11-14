@@ -663,3 +663,13 @@ func TestExtraEnvsExistingDangerousItemsDoNotBlockEditing(t *testing.T) {
 		t.Error("ajout dans un fichier sans liste accepté")
 	}
 }
+
+// Message de refus d'un ajout : nomme la variable et indique la voie (« Éditer en YAML »).
+func TestExtraEnvsRefusalMessageNamesVariableAndWay(t *testing.T) {
+	for _, name := range []string{"HTTPS_PROXY", "ANTHROPIC_API_KEY", "LD_PRELOAD"} {
+		_, err := ApplyConfConfChanges("", []ConfigChange{cset("EXTRA_ENVS", []any{name + "=x"})})
+		if err == nil || !strings.Contains(err.Error(), "« "+name+" »") || !strings.Contains(err.Error(), "Éditer en YAML") || strings.Contains(err.Error(), "permet d'exécuter") {
+			t.Errorf("%s : %v", name, err)
+		}
+	}
+}
