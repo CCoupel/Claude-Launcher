@@ -144,12 +144,27 @@ func TestToggleCmd(t *testing.T) {
 			t.Fatalf("bascule permise sur %s", p)
 		}
 	}
-	// inactif visible → caché à la main (sans délai)
+	// inactif visible → caché à la main (sans délai), effet immédiat : le pane a
+	// quitté la fenêtre et la carte relue au retour de l'appel le dit caché
+	t0 := time.Now()
 	if m := run(mates[1]); m.msg != "" {
 		t.Fatalf("bascule refusée : %q", m.msg)
 	}
+	if d := time.Since(t0); d > 300*time.Millisecond {
+		t.Errorf("bascule en %v, attendu < 300 ms", d)
+	}
 	if strings.Contains(visible(t, win), mates[1]) {
 		t.Fatal("pane non caché")
+	}
+	pd := loadPanesCmd(sel, visCfg())().(paneData)
+	hiddenRow := false
+	for _, l := range pd.lines {
+		if l.Pane == mates[1] && l.Hidden {
+			hiddenRow = true
+		}
+	}
+	if !hiddenRow {
+		t.Fatalf("carte : %+v", pd.lines)
 	}
 	// second double-clic : visible fixé
 	if m := run(mates[1]); m.msg != "" {

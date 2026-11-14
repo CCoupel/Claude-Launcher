@@ -249,7 +249,7 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.panes = paneData{}
 			m.paneAt, m.selAt = time.Now(), time.Now()
 			cmds = append(cmds, loadPanesCmd(s, m.cfg))
-		case ok && time.Since(m.paneAt) > 2*time.Second:
+		case ok && time.Since(m.paneAt) > time.Second:
 			m.sel.Dot, m.sel.DotWhy = s.Dot, s.DotWhy // point d'état mis à jour par le navigateur
 			m.paneAt = time.Now()
 			cmds = append(cmds, loadPanesCmd(s, m.cfg))

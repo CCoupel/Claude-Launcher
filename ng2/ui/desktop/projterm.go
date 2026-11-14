@@ -76,6 +76,8 @@ type projTerm struct {
 	vis             []core.ProjPane   // panes du projet, cachés compris (carte Team, #136)
 	visChoices      map[string]string // choix manuels (@cl_panevis)
 	visSig          string            // état visible/caché/actif des panes : change → cartes renvoyées
+	reg             []core.Teammate   // registre du template (cache 60 s)
+	regAt           time.Time
 }
 
 type watchState struct {
@@ -949,20 +951,8 @@ func (t *projTerm) tick(fast bool) {
 	}
 	// teintes : actifs éclaircis, inactifs assombris (après la mise en page,
 	// qui remet la couleur de base) ; l'interface les reçoit tout de suite
-	if tc != nil && !ro {
-		for _, m := range tc.Members {
-			if m.PaneID == "" || m.PaneID == leader || !hasPane(panes, m.PaneID) {
-				continue
-			}
-			m := m
-			shade := core.PaneShade(cfg, t.color, &m, false)
-			core.SetPaneColor(t.cl(), cps, m.PaneID, shade)
-			for i := range panes {
-				if panes[i].ID == m.PaneID {
-					panes[i].Style = "bg=colour" + shade
-				}
-			}
-		}
+	if !ro {
+		t.shade(cfg, panes, cps, leader, tc)
 	}
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
 }
@@ -1011,7 +1001,7 @@ func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bo
 	t.visSig = sig.String()
 	t.mu.Unlock()
 	if changed {
-		t.a.cardsChanged()
+		t.a.pushTeam(t.path) // carte Team tout de suite, depuis la mémoire
 	}
 	return moved
 }
@@ -1048,12 +1038,9 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	if t.cl() == nil {
 		return false, "projet fermé"
 	}
-	var tc *core.TeamConfig
-	if tp := t.findTeam(); tp != "" {
-		if x, err := core.ReadTeam(tp); err == nil {
-			tc = &x
-		}
-	}
+	t.mu.Lock()
+	tc := t.team // team du dernier tour : pas de relecture des fichiers (parfois lents)
+	t.mu.Unlock()
 	f, inCtr := t.tmuxFn(), !t.host
 	home := core.ProjectHome(f, t.win, inCtr)
 	t.pubMu.Lock() // @cl_panevis écrit hors d'un tour du watcher
@@ -1062,8 +1049,91 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	if !r.OK {
 		return false, r.Msg
 	}
-	t.tick(false) // règle appliquée, visibles remis en page, cartes renvoyées
+	t.applyNow() // règle appliquée, visibles remis en page, géométrie et carte publiées
 	return true, ""
+}
+
+// shade : teinte des panes de la team (actifs éclaircis, inactifs assombris).
+func (t *projTerm) shade(cfg core.Config, panes []winPaneFull, cps []core.WinPane, leader string, tc *core.TeamConfig) {
+	if tc == nil {
+		return
+	}
+	for _, m := range tc.Members {
+		if m.PaneID == "" || m.PaneID == leader || !hasPane(panes, m.PaneID) {
+			continue
+		}
+		m := m
+		shade := core.PaneShade(cfg, t.color, &m, false)
+		core.SetPaneColor(t.cl(), cps, m.PaneID, shade)
+		for i := range panes {
+			if panes[i].ID == m.PaneID {
+				panes[i].Style = "bg=colour" + shade
+			}
+		}
+	}
+}
+
+// applyNow : applique la règle des panes cachés et publie tout de suite la
+// géométrie et la carte Team, sans attendre le tour du watcher (bascule
+// manuelle). Utilise la team déjà lue (pas de relecture des fichiers, parfois
+// lents) ; sous pubMu comme un tour.
+func (t *projTerm) applyNow() {
+	t.pubMu.Lock()
+	defer t.pubMu.Unlock()
+	t.mu.Lock()
+	tc, ro := t.team, t.readOnly
+	t.mu.Unlock()
+	panes, w, h, zoomed, visible, err := t.readWin()
+	if err != nil || len(panes) == 0 {
+		return
+	}
+	cfg := t.a.conf()
+	var ids strings.Builder
+	for _, p := range panes {
+		ids.WriteString(p.ID + "\n")
+	}
+	leader := leaderID(ids.String())
+	if t.refreshVis(tc, cfg, !ro) {
+		if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
+			panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+		}
+		t.watch.prevCount, t.watch.wait = len(panes), 0
+		t.arrange(corePanes(panes), w, h, leader, tc)
+		if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
+			panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+		}
+	}
+	if !ro {
+		t.shade(cfg, panes, corePanes(panes), leader, tc)
+	}
+	busy := tc != nil && core.ActiveSignature(*tc) != ""
+	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
+}
+
+// registry : registre des teammates du template, relu au plus toutes les 60 s.
+func (t *projTerm) registry() []core.Teammate {
+	t.mu.Lock()
+	if t.reg != nil && time.Since(t.regAt) < time.Minute {
+		r := t.reg
+		t.mu.Unlock()
+		return r
+	}
+	t.mu.Unlock()
+	r := core.ReadTeammates(t.path)
+	t.mu.Lock()
+	t.reg, t.regAt = r, time.Now()
+	t.mu.Unlock()
+	return r
+}
+
+// teamRows : lignes de la carte Team depuis la mémoire du watcher (panes, team,
+// registre en cache) : aucun accès disque lent, utilisable à chaque changement.
+func (t *projTerm) teamRows() []core.TeamLine {
+	panes, choices := t.teamPanes()
+	t.mu.Lock()
+	tc := t.team
+	t.mu.Unlock()
+	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.a.conf().TeamHideIdle, time.Now().Unix())
 }
 
 // findTeam : config.json de la team du projet (compté pour les tests : une

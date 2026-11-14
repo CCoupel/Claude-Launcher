@@ -82,10 +82,45 @@ func TestTeamToggleHidesPane(t *testing.T) {
 			t.Fatalf("bascule permise sur %s : %v", p, res)
 		}
 	}
-	// inactif : caché, il quitte la mise en page mais tourne toujours
+	// la carte Team du projet sélectionné est renvoyée tout de suite
+	selRaw, _ := json.Marshal(map[string]string{"path": ps[0]})
+	if _, err := a.Dispatch("select", selRaw); err != nil {
+		t.Fatal(err)
+	}
+	// laisser passer un tour du watcher (team lue, recensement fait)
+	time.Sleep(2500 * time.Millisecond)
+	cardHidden := func(from int, pane string, hidden bool) bool {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for _, e := range r.evs[from:] {
+			if e["_name"] != "cards" {
+				continue
+			}
+			tm, _ := e["team"].([]any)
+			for _, x := range tm {
+				if m := x.(map[string]any); m["pane"] == pane && m["hidden"] == hidden {
+					return true
+				}
+			}
+		}
+		return false
+	}
+	// inactif : caché, il quitte la mise en page mais tourne toujours — sans
+	// attendre un tour du watcher : géométrie et carte à jour au retour de l'appel
 	pid := tm("display-message", "-p", "-t", calme, "#{pane_pid}")
+	n0 := len(r.evs)
+	t0 := time.Now()
 	if res := toggle(calme); res["ok"] != true {
 		t.Fatalf("bascule refusée : %v", res)
+	}
+	if d := time.Since(t0); d > 300*time.Millisecond {
+		t.Errorf("bascule en %v, attendu < 300 ms", d)
+	}
+	if l := pt.lastLayout(); l == nil || len(l.Panes) != 2 {
+		t.Fatalf("géométrie non publiée au retour de l'appel : %+v", l)
+	}
+	if !cardHidden(n0, calme, true) {
+		t.Fatal("carte Team non renvoyée (caché) au retour de l'appel")
 	}
 	r.wait(t, 10*time.Second, "2 panes", isTerm(ps[0], "layout", panesIn(2)))
 	if exec.Command("kill", "-0", pid).Run() != nil {
@@ -104,8 +139,18 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	}
 	// retour : visible fixé, terminal recapturé (Reset)
 	nev := len(r.evs)
+	t1 := time.Now()
 	if res := toggle(calme); res["ok"] != true {
 		t.Fatalf("second basculement : %v", res)
+	}
+	if d := time.Since(t1); d > 300*time.Millisecond {
+		t.Errorf("retour en %v, attendu < 300 ms", d)
+	}
+	if l := pt.lastLayout(); l == nil || len(l.Panes) != 3 {
+		t.Fatalf("géométrie non publiée au retour de l'appel : %+v", l)
+	}
+	if !cardHidden(nev, calme, false) {
+		t.Fatal("carte Team non renvoyée (visible) au retour de l'appel")
 	}
 	r.wait(t, 10*time.Second, "3 panes au retour", isTerm(ps[0], "layout", panesIn(3)))
 	deadline := time.Now().Add(10 * time.Second)

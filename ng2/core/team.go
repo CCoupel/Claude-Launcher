@@ -225,7 +225,29 @@ func TeamLines(tm []Teammate, proj string, panes []ProjPane, choices map[string]
 	for _, p := range panes {
 		live[p.ID] = true
 	}
-	members := teamMembers(proj, live)
+	return TeamLinesFor(tm, teamMembers(proj, live), panes, choices, hideIdle, now)
+}
+
+// LiveMembers : membres d'une team déjà lue (tc) dont le pane est vivant ; pour
+// les appelants qui gardent la team en mémoire (pas de relecture des fichiers).
+func LiveMembers(tc *TeamConfig, panes []ProjPane) map[string]TeamMember {
+	live := map[string]bool{}
+	for _, p := range panes {
+		live[p.ID] = true
+	}
+	m := map[string]TeamMember{}
+	if tc != nil {
+		for _, mb := range tc.Members {
+			if mb.PaneID != "" && live[mb.PaneID] {
+				m[mb.PaneID] = mb
+			}
+		}
+	}
+	return m
+}
+
+// TeamLinesFor : TeamLines avec les membres déjà connus (LiveMembers).
+func TeamLinesFor(tm []Teammate, members map[string]TeamMember, panes []ProjPane, choices map[string]string, hideIdle int, now int64) []TeamLine {
 	reg := map[string]Teammate{}
 	for _, t := range tm {
 		reg[t.Name] = t
