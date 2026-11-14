@@ -53,6 +53,7 @@ func helpData() map[string]any {
 				{"glisser (Maj+glisser si l'agent suit la souris)", "sélectionner du texte dans un pane : le relâcher le copie dans le presse-papiers"},
 				{"Ctrl+Maj+C", "recopier la sélection (Ctrl+C reste l'interruption de l'agent)"},
 				{"Ctrl+V, Ctrl+Maj+V, Maj+Inser, clic droit", "coller dans le pane actif (plusieurs lignes en un bloc ; clic droit : Maj+clic droit si l'agent suit la souris) ; refusé en lecture seule, avec un message"},
+				{"Ctrl+B puis Ctrl+V", "envoyer ^V brut au programme du pane (collage d'image de Claude Code, vim, nano) : Ctrl+V colle et n'est plus transmis au programme"},
 				{"Ctrl+B z", "idem au clavier"},
 				{"Ctrl+B R", "remettre en ordre les panes de la team"},
 				{"Ctrl+B Ctrl+B", "envoyer Ctrl+B à l'agent"},
