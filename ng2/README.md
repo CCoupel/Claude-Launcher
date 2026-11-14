@@ -987,6 +987,10 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
   `Ctrl+Maj+C` la recopie. `Ctrl+C` n'est pas une copie : il envoie l'interruption à l'agent ;
 - coller se fait par `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser` ou clic droit, dans le pane actif. Le texte arrive en un
   bloc (plusieurs lignes d'un coup, sans perte) ;
+- **`Ctrl+V` ne parvient plus au programme du pane** : il colle le presse-papiers du poste. Un programme qui lit son
+  propre presse-papiers (vim, nano, collage d'image de Claude Code) ne reçoit donc pas la touche depuis l'interface
+  native. Aucun chemin d'envoi n'existe aujourd'hui : `Ctrl+B` puis `Ctrl+V` ne l'envoie pas (la saisie est
+  interceptée avant le préfixe, qui reste armé pour la touche suivante) ; `Ctrl+B Ctrl+B` n'envoie que `Ctrl+B` ;
 - lecture seule (projet piloté par un autre launcher) et vignettes Teamleaders : **copier reste permis**, **coller
   est refusé** avec un message en pied de volet ; le presse-papiers n'est pas lu dans ce cas ;
 - texte seulement ; un collage est limité à **4 Mo** et une copie à **8 Mo** (au-delà, refus avec message) ;
