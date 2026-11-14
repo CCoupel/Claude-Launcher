@@ -92,7 +92,9 @@ lecture seule : copie permise, collage refuse avec un message.
 | 3 | Clic droit (le shell ne suit pas la souris) | Colle ; pas de menu contextuel du navigateur | | |
 | 4 | Copier les 20 lignes numerotees, `Ctrl+V` dans le shell (`cat > /tmp/essai`) | Les 20 lignes arrivent en un bloc, dans l'ordre, sans doublon ni perte ; pas de validation ligne par ligne parasite | | |
 | 5 | `Ctrl+Maj+V`, `Maj+Inser` puis clic droit avec le meme texte | Meme resultat (un seul collage a chaque fois, jamais deux) | | |
-| 5b | Dans le shell, `cat -v` puis `Ctrl+V` avec un presse-papiers vide ou une image | `^V` n'apparait **pas** : `Ctrl+V` n'est plus transmis au programme (il colle ; presse-papiers vide = rien) ; `Ctrl+B` puis la touche reste le chemin d'envoi brut ; consigne dans l'aide et le README | | |
+| 5b | Dans le shell, `cat -v`, puis `Ctrl+V` seul (presse-papiers vide ou contenant une image) | `^V` n'apparait **pas** : `Ctrl+V` colle et n'est plus transmis au programme (presse-papiers vide = rien) | | |
+| 5d | Toujours sous `cat -v` : `Ctrl+B` puis `Ctrl+V` | `^V` s'affiche : le seul octet `^V` est envoye au programme du pane (chemin d'envoi brut) ; rien n'est colle ; aucun `^B` n'apparait | | |
+| 5e | `Ctrl+B` puis `Ctrl+V` dans Claude Code (vrai claude, projet factice) avec une image dans le presse-papiers | Le programme recoit `^V` (collage d'image de Claude Code) ; consigne presente dans l'aide (`F1`) et le README | | |
 | 5c | Collage de plus de 4 Mo (ex. fichier de 5 Mo ouvert dans le Bloc-notes, tout selectionner, copier, coller) | Collage **refuse** avec un message du type « collage trop volumineux (4 Mo au plus) : rien n'a ete envoye » ; aucun octet envoye au pane, aucune frappe fantome ; le terminal reste utilisable | | |
 | 6 | Verifier le fichier (`wc -l`, `head`, `tail`) | 20 lignes, `ligne 01` … `ligne 20` | | |
 | 7 | Caracteres speciaux : accents, `$`, guillemets, tabulation, emoji | Inseres tels quels | | |
@@ -110,7 +112,7 @@ lecture seule : copie permise, collage refuse avec un message.
 | 1 | Coller 1 ligne (`Ctrl+V`, `Ctrl+Maj+V`, clic droit avec `Maj`) | Texte dans la zone de saisie, pas d'envoi | | |
 | 2 | Coller 20 lignes | Un seul bloc (« [Pasted text #1 +20 lines] » ou equivalent), pas de validation ligne par ligne ; le contenu complet est envoye a la validation de l'utilisateur | | |
 | 3 | Clic droit **sans** `Maj` dans Claude Code (suit la souris) | Pas de collage involontaire : le clic va au programme ; `Maj`+clic droit colle | | |
-| 4 | Collage d'une image (Ctrl+V avec une image dans le presse-papiers) | Comportement note (le plan retire `Ctrl+V` au programme) : consigne au README ; `Ctrl+B` puis touche reste un chemin d'envoi brut | | |
+| 4 | Collage d'une image : `Ctrl+V` avec une image dans le presse-papiers, puis `Ctrl+B` puis `Ctrl+V` | `Ctrl+V` seul ne colle pas l'image (texte seulement, `Ctrl+V` n'est plus transmis) ; `Ctrl+B` puis `Ctrl+V` envoie `^V` a Claude Code, qui colle l'image | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
