@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // #149 (LOT-3.3) — compléments à confmodel_test.go : ce que bash relit vraiment
@@ -244,5 +245,119 @@ func TestHubModelSystemsAndHostMatching(t *testing.T) {
 	s := string(out)
 	if !strings.Contains(s, "AUTRE:") || !strings.Contains(s, "/z") || !strings.Contains(s, "Mon-PC:") || strings.Count(s, "Mon-PC:") != 1 {
 		t.Errorf("section de la machine dupliquée ou autre machine abîmée :\n%s", s)
+	}
+}
+
+// Liste blanche contre l'injection : valeurs refusées / permises (cas limites de
+// `$`), et clés ou formes de changement refusées avant toute écriture.
+func TestCheckConfStringEdgeCases(t *testing.T) {
+	for _, v := range []string{
+		"a$", "$", "$1", "$$", "$?", "$@", "$*", "$-", "${HOME:-x}", "${!HOME}", "${#HOME}", "${HOME", "${}", "${1}",
+		"$((1+1))", "$'x'", `$"x"`, "$(id)", "a`id`", `a\b`, `a"b`, "x\ry", "x\ny", "x\x00y", "${HOME}${",
+	} {
+		if err := checkConfString(v); err == nil {
+			t.Errorf("%q accepté", v)
+		}
+	}
+	for _, v := range []string{"$HOME", "${HOME}", "${_x1}", "a$B_c-d", "'simple'", "tab\tdedans", "100%", "a b  c", "é$HOME", "", "x # y", "a;b&c|d"} {
+		if err := checkConfString(v); err != nil {
+			t.Errorf("%q refusé : %v", v, err)
+		}
+	}
+}
+
+func TestConfApplyRefusesBadKeysAndShapes(t *testing.T) {
+	src := "# c\nTEAM_HIDE_IDLE=45\n"
+	for name, ch := range map[string]ConfigChange{
+		"clé inconnue":           cset("PATH", "/x"),
+		"clé minuscule":          cset("team_hide_idle", 1),
+		"clé avec point-virgule": cset("TEAM_HIDE_IDLE; touch /tmp/x", 1),
+		"clé avec espace":        cset("TEAM_HIDE_IDLE ", 1),
+		"clé gérée ailleurs":     cset("PROJECT_COLORS", "x"),
+		"LD_PRELOAD":             cset("LD_PRELOAD", "/x.so"),
+		"chemin de 2 niveaux":    {Op: "set", At: []string{"TEAM_HIDE_IDLE", "x"}, Value: 1},
+		"chemin vide":            {Op: "set", At: nil, Value: 1},
+		"opération inconnue":     {Op: "append", At: []string{"TEAM_HIDE_IDLE"}, Value: 1},
+		"rename":                 {Op: "rename", At: []string{"TEAM_HIDE_IDLE"}, Value: "AUTRE"},
+		"delete inconnue":        {Op: "delete", At: []string{"PATH"}},
+		"entier en objet":        cset("TEAM_HIDE_IDLE", map[string]any{"a": 1}),
+		"liste d'objets":         cset("GITHUB_DIRS", []any{map[string]any{"a": 1}}),
+		"liste pour un entier":   cset("TEAM_HIDE_IDLE", []any{1}),
+		"texte pour bool":        cset("CTR_STOP_ON_EXIT", "1; touch x"),
+		"enum avec injection":    cset("RESUME_MODE", "never; touch x"),
+	} {
+		out, err := ApplyConfConfChanges(src, []ConfigChange{ch})
+		if err == nil {
+			t.Errorf("%s accepté :\n%s", name, out)
+		}
+	}
+	// atomique : un changement valide suivi d'un refusé ne rend rien d'écrit
+	out, err := ApplyConfConfChanges(src, []ConfigChange{cset("TEAM_HIDE_IDLE", 5), cset("PATH", "/x")})
+	if err == nil || strings.Contains(out, "TEAM_HIDE_IDLE=5") {
+		t.Errorf("changements partiels : %v\n%s", err, out)
+	}
+}
+
+// env.yaml du launcher : chaque clé réservée aux projets est refusée par la
+// validation, et SaveConfig n'écrit rien (fichier inchangé).
+func TestLauncherEnvRejectsProjectOnlyKeys(t *testing.T) {
+	unixOnly(t)
+	dir := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", dir)
+	path := LauncherEnvPath()
+	const orig = "# outillage commun\npackages: [gh]\n"
+	if err := os.WriteFile(path, []byte(orig), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	st, _ := os.Stat(path)
+	for _, key := range []string{"image", "prefer", "watch", "local", "mounts", "inconnue"} {
+		var val any = "x"
+		switch key {
+		case "watch", "local":
+			val = []any{"y"}
+		case "mounts":
+			val = []any{map[string]any{"path": "/x"}}
+		}
+		bad, err := ApplyConfigChanges(ConfLauncherEnv, []byte(orig), []ConfigChange{{Op: "set", At: []string{key}, Value: val}})
+		if err != nil {
+			continue // refusé dès l'application : acceptable
+		}
+		ps := ValidateConfig(ConfLauncherEnv, bad)
+		if !HasErrors(ps) {
+			t.Errorf("« %s » acceptée dans l'env.yaml du launcher", key)
+			continue
+		}
+		if !strings.Contains(ps[0].Message, key) {
+			t.Errorf("« %s » : le problème ne nomme pas la clé : %q", key, ps[0].Message)
+		}
+		if _, err := SaveConfig(ConfLauncherEnv, path, bad, st.ModTime()); err != ErrConfigInvalid {
+			t.Errorf("« %s » : SaveConfig = %v, attendu ErrConfigInvalid", key, err)
+		}
+		if b, _ := os.ReadFile(path); string(b) != orig {
+			t.Fatalf("« %s » : fichier modifié malgré le refus :\n%s", key, b)
+		}
+	}
+	// clés permises, types invalides refusés
+	ok := "packages: [a]\npackages_by_manager: {apt: [b]}\nsetup: [c]\non_start: [d]\n"
+	if HasErrors(ValidateConfig(ConfLauncherEnv, []byte(ok))) {
+		t.Errorf("clés permises refusées : %v", ValidateConfig(ConfLauncherEnv, []byte(ok)))
+	}
+	if !HasErrors(ValidateConfig(ConfLauncherEnv, []byte("packages: gh\n"))) {
+		t.Error("packages en chaîne accepté")
+	}
+}
+
+// Fichiers du launcher en 0600 à l'écriture (config.conf et sa copie, déjà vu) :
+// un fichier créé par SaveConfig l'est aussi, y compris sous un dossier à créer.
+func TestSaveConfigCreatesFileIs0600(t *testing.T) {
+	unixOnly(t)
+	dir := filepath.Join(t.TempDir(), "neuf", "cfg")
+	t.Setenv("CL_CONFIG_DIR", dir)
+	path := ConfigPath()
+	if _, err := SaveConfig(ConfConf, path, []byte("TEAM_HIDE_IDLE=9\nGITHUB_TOKEN=\"ghp_FACTICE\"\n"), time.Time{}); err != nil {
+		t.Fatalf("création : %v", err)
+	}
+	if st, err := os.Stat(path); err != nil || st.Mode().Perm() != 0o600 {
+		t.Errorf("fichier créé : %v %v", st, err)
 	}
 }
