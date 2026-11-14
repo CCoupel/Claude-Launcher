@@ -1269,6 +1269,12 @@ async function ceSave(force) {
 async function ceBack() {
   if (CE.dirty) {
     if (confirm('Le texte a été modifié. Enregistrer avant de revenir aux Réglages ?\n\nOK : enregistrer — Annuler : autre choix')) {
+      const sv = $('cesave');
+      if (sv && sv.disabled) { // erreurs déjà affichées : l'enregistrement est sans effet
+        const st = $('cestatus'); if (st) st.textContent = '';
+        st.appendChild(el('span', 't-red', 'Enregistrement impossible : corriger les erreurs ci-dessous.'));
+        return;
+      }
       await ceSave(false);
       if (CE.dirty) return; // erreurs ou conflit : rester dans l'éditeur
     } else if (!confirm('Revenir aux Réglages SANS enregistrer (modifications perdues) ?')) return;
