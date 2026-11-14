@@ -25,7 +25,8 @@ teammate continue de tourner et de recevoir ses messages (essai réel du 2026-11
   (carte TEAM, comptage à la fermeture, versions de claude) ajoute les panes de la réserve dont `@cl_home` désigne
   ce projet.
 - Le pane caché survit à `kill-session` / `kill-window` du projet : la fermeture d'un projet tue aussi ses panes de
-  la réserve, puis la session de réserve si elle est vide.
+  la réserve, puis la session de réserve par un `kill-session` explicite dès qu'aucun pane caché d'aucun projet n'y
+  reste (tmux ne la ferme pas : `new-session` crée une fenêtre d'amorce, sans `@cl_home`, jamais comptée).
 
 ### `@cl_home` (option de pane) — fenêtre d'origine
 
