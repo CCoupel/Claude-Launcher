@@ -127,7 +127,7 @@ CLAUDE_CONFIG_DIR="../../.claude"          # = /share/MFS/ROOT/CLAUDE_PROJETS/.c
 ```
 
 La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
-`CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
+`CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `TEAM_HIDE_IDLE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
 premier lancement : **copie de la config v4** (`~/.config/claude-launcher.conf`) si elle existe, sinon les
 valeurs par défaut. Les backends d'exécution sont dans `~/.config/claude-launcher-ng2/backends.yaml`
 (voir [Projets en conteneur](#projets-en-conteneur-v5)).
@@ -712,7 +712,7 @@ qu'`o` annule. La fermeture, ensuite :
 1. `/exit` est envoyé à claude (après un Échap qui interrompt une réponse en
    cours) : sortie propre, marqueur posé, pas de `↺` ensuite ;
 2. attente de la fin de claude (30 s), puis fermeture de la session tmux,
-   teammates compris — forcée si claude ne répond pas ;
+   teammates compris, cachés compris (voir [Interface](#interface)) — forcée si claude ne répond pas ;
 3. arrêt du conteneur : `podman`/`docker stop` ; k8s : StatefulSet à **0
    réplique** (le pod est libéré, tout est sur le stockage partagé). L'ouverture
    suivante le redémarre (k8s : remise à 1 réplique, ~20 s).
@@ -864,6 +864,10 @@ retrouvées au lancement suivant (comme la coque après un arrêt du hub).
   signification au survol), la release GitHub, le bandeau à la couleur du projet ouvert, puis
   `✦ Nouveau projet` et les **cartes ◈ État** du projet sélectionné (Projet et légende, Milestone,
   Team, Fichiers) ;
+- **carte Team** : mêmes lignes, surbrillance et règles que la coque Linux (voir [Interface](#interface)) :
+  double-clic sur un inactif = visible ↔ caché, refus en pied de volet pour un teammate actif ou un projet en
+  lecture seule ; même état sous Linux et Windows (option tmux `@cl_panevis`) : ce qui est caché d'un côté l'est
+  de l'autre ;
 - à droite, l'onglet **⌗ Teamleaders** (une vignette interactive du leader de chaque projet
   ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille ;
 - dans l'onglet d'un projet, **un terminal par pane** de sa session tmux (leader, teammates),
@@ -1226,6 +1230,19 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 - **Sous le navigateur** : `◈ État`, qui suit la sélection (git, versions, template, team —
   teammates du registre du template, version de leur copie, `+` si compagnon, modèle et effort,
   version de claude des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
+- **Carte Team** (dans `◈ État`) : une ligne par teammate lancé, plus les teammates du template non démarrés
+  (`●` démarré, `○` non démarré), sans regroupement ; **surbrillance** = son pane est visible dans la fenêtre du
+  projet. Double-clic sur un teammate inactif : visible ↔ caché. Un teammate caché sort de la fenêtre du projet,
+  mais continue de tourner et reçoit ses messages. Règle : un teammate **actif est toujours visible** (double-clic
+  refusé, message dans la carte) ; un inactif est caché après `TEAM_HIDE_IDLE` secondes (`config.conf`, 30 par
+  défaut, `0` = jamais) et revient dès qu'il redevient actif. Un inactif rendu visible à la main reste visible
+  jusqu'au second double-clic ; s'il redevient actif, il reprend la règle normale. Le leader n'est jamais caché.
+  En lecture seule (un autre launcher a la main), le double-clic est refusé avec un message. Fermer le projet
+  ferme aussi ses teammates cachés.
+  *Limites (v6.1.0)* : lors d'une prise de main sur un conteneur, deux launchers peuvent appliquer la règle
+  pendant au plus 5 s (effet borné : une opération en erreur est ignorée et rejouée au tour suivant). Un launcher
+  antérieur à v6.1.0 ignore les teammates cachés : ils restent vivants dans la réserve jusqu'au retour d'un
+  launcher v6.1.0, et sa fermeture de projet ne les tue pas.
 - **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
   vignette interactive par projet ouvert). Le teamleader d'une fenêtre est son premier pane
   créé (plus petit `%id`), jamais le pane actif ni le premier par position : rouvrir un projet
@@ -1246,6 +1263,7 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | `Ctrl+B R` dans un projet | remettre en ordre les panes de la team |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
+| double-clic sur un teammate inactif (carte Team) | visible ↔ caché ; refusé pour un teammate actif (message dans la carte) |
 | clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version, déjà téléchargée et contrôlée, et redémarrer le navigateur (projets conservés) |
 | clic sur `↑ NG … réessayer` (jaune) | relancer tout de suite le téléchargement de la nouvelle version |
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
