@@ -108,7 +108,7 @@ Reference : `contracts/desktop-dispatch.md` (LOT-3.3), maquette `docs/mockup/v6.
 | 5 | « afficher » (si propose) | Affichage volontaire seulement ; refermer la fenetre le re-masque | | |
 | 6 | Droits de `config.conf` **et de `config.conf.bak`** apres ecriture (`ls -l` ; sous Windows : ACL de l'utilisateur seul) | 0600 (lecture/ecriture proprietaire uniquement) pour les deux | | |
 | 7 | Mode `--web` : reponse de `configModel` dans l'onglet reseau du navigateur | Aucune trace du jeton en clair (`{ "set": true }` seulement) ; idem pour `configOpen config.conf` (sentinelle `__GARDER__`) | | |
-| 7b | Mode `--web` : requete `/api/call` avec cookie valide mais `Content-Type: text/plain` (ou formulaire) | 415 ; aucune action | | |
+| 7b | Mode `--web` : requete `/api/call` avec cookie valide mais `Content-Type: text/plain`, formulaire, ou sans en-tete Content-Type | 415 ; aucune action | | |
 | 7c | Mode `--web` : requete `/api/call` et `/api/events` avec cookie valide et un en-tete `Origin` different de `http://<Host servi>` (autre site, autre port, `127.0.0.1` au lieu de `localhost`) | 403 ; une requete sans `Origin` ou avec le bon `Origin` en JSON est acceptee ; l'interface fonctionne normalement dans le navigateur | | |
 | 8 | Mode `--web` : requete `/api/call` avec un en-tete `Host` inconnu (ex. `curl -H 'Host: evil.example' …`) puis sans cookie de session | 403 dans les deux cas | | |
 | 9 | Mode `--web` : `configApply` d'un `env.yaml` de projet avec un chemin hors de l'arbre des projets (ex. `/etc`) | Refuse (« projet inconnu ») ; aucun fichier ecrit | | |
