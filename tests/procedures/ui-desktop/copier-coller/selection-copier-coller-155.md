@@ -6,7 +6,7 @@
 
 Reference : `_work/reports/plan-lot4.md` (options recommandees), `contracts/desktop-dispatch.md` (`clipboardWrite`, `clipboardRead`).
 
-Raccourcis du plan : copie a la fin de la selection + `Ctrl+Maj+C` ; collage par `Ctrl+V`, `Ctrl+Maj+V` et clic droit
+Raccourcis du plan : copie a la fin de la selection + `Ctrl+Maj+C` ; collage par `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser` et clic droit
 (le clic droit ne colle que si le programme ne suit pas la souris : sinon `Maj`+clic droit) ; selection dans un seul pane ;
 lecture seule : copie permise, collage refuse avec un message.
 
@@ -27,7 +27,7 @@ lecture seule : copie permise, collage refuse avec un message.
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | Dans le shell : `printf 'alpha beta\ngamma delta\n'`, puis glisser sur « beta » | Texte surligne (couleur de selection) | | |
-| 2 | Relacher le bouton | Message bref « Copie » ; presse-papiers = « beta » | | |
+| 2 | Relacher le bouton | Message bref « Copié » ; presse-papiers = « beta » | | |
 | 3 | Coller dans le Bloc-notes (Ctrl+V) | « beta » exactement, sans retour a la ligne ni espace en trop | | |
 | 4 | Selection sur plusieurs lignes | Colle dans le Bloc-notes sur 2 lignes (retours a la ligne conserves, pas de remplissage d'espaces en fin de ligne) | | |
 | 5 | Clic simple sans selection | Presse-papiers **inchange** (pas ecrase par une selection vide) | | |
@@ -59,7 +59,7 @@ lecture seule : copie permise, collage refuse avec un message.
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | Selectionner un mot, puis copier autre chose dans le Bloc-notes (presse-papiers ecrase) | | | |
-| 2 | `Ctrl+Maj+C` dans le terminal (selection toujours visible) | Le mot selectionne revient dans le presse-papiers ; message « Copie » | | |
+| 2 | `Ctrl+Maj+C` dans le terminal (selection toujours visible) | Le mot selectionne revient dans le presse-papiers ; message « Copié » | | |
 | 3 | `Ctrl+Maj+C` sans selection | Rien copie, presse-papiers inchange, pas d'erreur | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -88,9 +88,12 @@ lecture seule : copie permise, collage refuse avec un message.
 |-------|--------|-----------------|----------------|------|
 | 1 | Copier `echo ok1` depuis le Bloc-notes, `Ctrl+V` dans le shell | Texte insere a la ligne de commande, **sans** validation automatique | | |
 | 2 | `Ctrl+Maj+V` | Meme resultat | | |
+| 2b | `Maj+Inser` | Meme resultat (colle aussi) ; un seul collage, jamais deux | | |
 | 3 | Clic droit (le shell ne suit pas la souris) | Colle ; pas de menu contextuel du navigateur | | |
 | 4 | Copier les 20 lignes numerotees, `Ctrl+V` dans le shell (`cat > /tmp/essai`) | Les 20 lignes arrivent en un bloc, dans l'ordre, sans doublon ni perte ; pas de validation ligne par ligne parasite | | |
-| 5 | `Ctrl+Maj+V` puis clic droit avec le meme texte | Meme resultat (un seul collage a chaque fois, jamais deux) | | |
+| 5 | `Ctrl+Maj+V`, `Maj+Inser` puis clic droit avec le meme texte | Meme resultat (un seul collage a chaque fois, jamais deux) | | |
+| 5b | Dans le shell, `cat -v` puis `Ctrl+V` avec un presse-papiers vide ou une image | `^V` n'apparait **pas** : `Ctrl+V` n'est plus transmis au programme (il colle ; presse-papiers vide = rien) ; `Ctrl+B` puis la touche reste le chemin d'envoi brut ; consigne dans l'aide et le README | | |
+| 5c | Collage de plus de 4 Mo (ex. fichier de 5 Mo ouvert dans le Bloc-notes, tout selectionner, copier, coller) | Collage **refuse** avec un message du type « collage trop volumineux (4 Mo au plus) : rien n'a ete envoye » ; aucun octet envoye au pane, aucune frappe fantome ; le terminal reste utilisable | | |
 | 6 | Verifier le fichier (`wc -l`, `head`, `tail`) | 20 lignes, `ligne 01` … `ligne 20` | | |
 | 7 | Caracteres speciaux : accents, `$`, guillemets, tabulation, emoji | Inseres tels quels | | |
 
@@ -123,6 +126,8 @@ lecture seule : copie permise, collage refuse avec un message.
 | 2 | Selectionner du texte | Selection et copie permises (presse-papiers rempli) | | |
 | 3 | `Ctrl+V`, `Ctrl+Maj+V`, clic droit | Collage **refuse** avec un message en pied de volet ; rien envoye au pane (verifier cote hub : aucune frappe) | | |
 | 4 | Saisie clavier normale en lecture seule | Toujours ignoree comme avant, mais le message l'explique | | |
+| 5 | Taper rapidement 10 touches en une seconde, puis coller plusieurs fois | Le message « lecture seule » n'est affiche **qu'une fois par seconde** au plus (pas de clignotement ni d'empilement) | | |
+| 6 | Deplacer la souris, cliquer, faire defiler la molette sur un pane en lecture seule (programme qui suit la souris) | **Aucun** message « lecture seule » sur simple mouvement ou clic de souris ; le message n'apparait que pour une saisie clavier ou un collage | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -198,7 +203,7 @@ lecture seule : copie permise, collage refuse avec un message.
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | `F1` dans l'interface native | Les raccourcis de copie et de collage sont listes (selection, `Maj`+glisser, `Ctrl+Maj+C`, `Ctrl+V`, `Ctrl+Maj+V`, clic droit, lecture seule) | | |
+| 1 | `F1` (focus hors terminal) puis `Maj+F1` (terminal qui a le focus) | L'aide s'ouvre dans les deux cas ; les raccourcis de copie et de collage sont listes (selection, `Maj`+glisser, `Ctrl+Maj+C`, `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser`, clic droit, lecture seule, limite de 4 Mo, `Ctrl+V` non transmis au programme) | | |
 | 2 | README (section « Interface native ») | Meme liste, limites Windows, consigne Linux (`Maj`+glisser dans le terminal hote, selection qui traverse les panes) | | |
 | 3 | Coque Linux (hub) | Comportement inchange : aucun changement de souris ni de presse-papiers | | |
 
@@ -209,7 +214,7 @@ lecture seule : copie permise, collage refuse avec un message.
 ## Criteres de Validation
 
 - [ ] Scenarios 1 a 12 passent sur l'exe Windows reel (scenario 11 : `localhost`)
-- [ ] `Ctrl+C` interrompt toujours ; aucun collage double ; collage de 20 lignes en un seul bloc
+- [ ] `Ctrl+C` interrompt toujours ; collage > 4 Mo refuse sans rien envoyer ; aucun collage double ; collage de 20 lignes en un seul bloc
 - [ ] Lecture seule : copie oui, collage refuse avec message, rien envoye au pane
 - [ ] Aucune regression : bordures, en-tete, `Ctrl`+molette, souris du programme, menu de l'arbre
 
