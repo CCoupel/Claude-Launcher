@@ -4,7 +4,7 @@
 // modale large à rubriques). Rubriques Backends, Pools, Défauts (backends.yaml)
 // lues par configModel et écrites par configApply (liste de changements : les
 // commentaires du fichier sont conservés côté Go) ; les autres rubriques
-// renvoient pour l'instant à l'éditeur de texte (« Éditer en texte »).
+// renvoient pour l'instant à l'éditeur YAML (« Éditer en YAML »).
 // Chargé après app.js : utilise ses globales (el, $, call, flash, openModal,
 // closeModal, configEditor, prefs, setFontSize, S).
 const ST = {
@@ -36,7 +36,7 @@ async function openSettings(project, page) {
     b.innerHTML = '';
     const head = el('div', 'cehead');
     const ttl = el('h2', '', 'Réglages'); const path = el('span', 'cepath'); path.id = 'stpath';
-    const txt = el('button', 'btn sm', 'Fichiers en texte…'); txt.onclick = () => stText('');
+    const txt = el('button', 'btn sm', 'Fichiers YAML'); txt.onclick = () => stText('');
     const x = el('button', 'btn sm', '✕'); x.onclick = () => stClose();
     head.append(ttl, path, el('span', 'sp'), txt, x);
     const body = el('div', 'stbody');
@@ -205,7 +205,7 @@ function stRenderFoot() {
   } else {
     left.appendChild(el('span', 't-green', '✓ valide'));
   }
-  const txt = el('button', 'btn', 'Éditer en texte'); txt.onclick = () => stText(ST_KIND[ST.page]);
+  const txt = el('button', 'btn', 'Éditer en YAML'); txt.onclick = () => stText(ST_KIND[ST.page]);
   const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = () => stClose();
   const save = el('button', 'btn pri', 'Enregistrer'); save.id = 'stsave';
   save.disabled = !ch.length || errs > 0 || !ST.draft || !stEditable();
@@ -234,9 +234,10 @@ async function stSave() {
 
 async function stText(kind) {
   if (stDirty() && !confirm('Abandonner les modifications non enregistrées de cette fenêtre ?')) return;
-  const project = ST.project;
+  const project = ST.project, from = ST.page;
   stClose(true);
-  configEditor(project, kind || '');
+  await configEditor(project, kind || '');
+  CE.fromPage = from; // retour « ← Réglages » sur la rubrique d'où l'on vient
 }
 
 function stClose(force) {
@@ -292,7 +293,7 @@ function stRenderPage(soft) {
   if (soft && p.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
   const top = p.scrollTop;
   p.textContent = '';
-  if (!ST.draft && stEditable()) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + ((ST.loadProblems[0] || {}).message || 'erreur') + ' — utiliser « Éditer en texte ».')); return; }
+  if (!ST.draft && stEditable()) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + ((ST.loadProblems[0] || {}).message || 'erreur') + ' — utiliser « Éditer en YAML ».')); return; }
   const fn = { backends: stPageBackends, pools: stPagePools, defauts: stPageDefaults, launcher: stPageText, conteneurs: stPageText, poste: stPagePoste, projet: stPageProjet }[ST.page];
   fn(p);
   p.scrollTop = top;
@@ -515,10 +516,10 @@ function stPageDefaults(p) {
   ni.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doAdd(); } });
   add.append(ni, stBtn('+ Ajouter', doAdd)); a.appendChild(add);
   g.appendChild(stBox('Exécution', a));
-  // navigateur : affiché, modifiable en texte (rubrique « Ce poste » au sous-lot suivant)
+  // navigateur : affiché, modifiable en YAML (rubrique « Ce poste » au sous-lot suivant)
   const n = el('div');
   const bs = (d.defaults.browser_server) || null, bp = (d.defaults.browser_paths) || [];
-  n.appendChild(el('p', 'note', 'Défaut de tous les postes, utilisé quand « Ce poste » ne définit rien. Modifiable pour l\'instant par « Éditer en texte ».'));
+  n.appendChild(el('p', 'note', 'Défaut de tous les postes, utilisé quand « Ce poste » ne définit rien. Modifiable pour l\'instant par « Éditer en YAML ».'));
   n.appendChild(stForm([['Serveur web', el('span', 'm', bs && bs.listen ? bs.listen : '(défaut)')], ['URL publiée', el('span', 'm', bs && bs.url ? bs.url : '(déduite)')]]));
   n.appendChild(el('p', 'stsub', 'Chemins pour le navigateur'));
   if (bp.length) {
@@ -532,8 +533,8 @@ function stPageDefaults(p) {
 // ── Rubriques des sous-lots suivants : renvoi à l'éditeur de texte ──────────
 function stPageText(p) {
   const t = { launcher: ['Launcher', 'config.conf', 'Réglages généraux du launcher : racines, options de claude, teams, masquage des inactifs, palette…'], conteneurs: ['Conteneurs', 'env.yaml du launcher', 'Paquets, setup et on_start ajoutés à tous les conteneurs.'] }[ST.page];
-  p.append(el('h4', '', t[0]), el('p', 'ex', t[2]), el('p', 'note', 'Cette rubrique n\'a pas encore de formulaire : elle se modifie dans l\'éditeur de texte (' + t[1] + ').'));
-  p.appendChild(stBtn('Éditer en texte', () => stText(ST_KIND[ST.page])));
+  p.append(el('h4', '', t[0]), el('p', 'ex', t[2]), el('p', 'note', 'Cette rubrique n\'a pas encore de formulaire : elle se modifie dans l\'éditeur YAML (' + t[1] + ').'));
+  p.appendChild(stBtn('Éditer en YAML', () => stText(ST_KIND[ST.page])));
 }
 
 function stPagePoste(p) {
@@ -545,15 +546,15 @@ function stPagePoste(p) {
   row.append(stBtn('−', () => { setFontSize(FONT_SIZE - 1); inp.value = FONT_SIZE; }), inp, stBtn('+', () => { setFontSize(FONT_SIZE + 1); inp.value = FONT_SIZE; }),
     el('span', 'dim', 'terminaux seulement · défaut ' + FONT_DEFAULT + ' · aussi par Ctrl+molette'));
   body.appendChild(stForm([['Taille des caractères', row]]));
-  body.appendChild(el('p', 'note', 'Mémorisée sur ce poste (appliquée tout de suite, sans « Enregistrer »). Correspondance de chemins, navigateur et cache du hub : pas encore de formulaire, voir « Éditer en texte » (backends.yaml → hubs).'));
+  body.appendChild(el('p', 'note', 'Mémorisée sur ce poste (appliquée tout de suite, sans « Enregistrer »). Correspondance de chemins, navigateur et cache du hub : pas encore de formulaire, voir « Éditer en YAML » (backends.yaml → hubs).'));
   p.appendChild(stBox('Affichage', body));
 }
 
 function stPageProjet(p) {
   p.append(el('h4', '', 'Projet'), el('p', 'ex', 'Réglages du projet sélectionné : backend, environnement du conteneur, couleur.'));
   const ok = ST.project && ST.project !== 'new';
-  p.appendChild(el('p', 'note', ok ? 'Pas encore de formulaire : l\'environnement du projet se modifie dans l\'éditeur de texte (env.yaml du projet).' : 'Sélectionnez d\'abord un projet dans le navigateur.'));
-  if (ok) p.appendChild(stBtn('Éditer env.yaml en texte', () => stText('project-env')));
+  p.appendChild(el('p', 'note', ok ? 'Pas encore de formulaire : l\'environnement du projet se modifie dans l\'éditeur YAML (env.yaml du projet).' : 'Sélectionnez d\'abord un projet dans le navigateur.'));
+  if (ok) p.appendChild(stBtn('Éditer env.yaml en YAML', () => stText('project-env')));
 }
 
 $('cfgbtn').title = 'Réglages (Ctrl+,)';

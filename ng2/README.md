@@ -332,8 +332,8 @@ sans passer par le texte. Rubriques :
   pool le renomme aussi dans les backends qui le citent.
 - **Défauts** : backend et image par défaut, images proposées. Le serveur web et les chemins navigateur s'affichent
   en lecture seule.
-- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en texte » pour l'instant. **Ce poste** : taille des
-  caractères des terminaux (voir ci-dessous), le reste renvoie à « Éditer en texte ».
+- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en YAML » pour l'instant. **Ce poste** : taille des
+  caractères des terminaux (voir ci-dessous), le reste renvoie à « Éditer en YAML ».
 
 **Enregistrer** : le brouillon est validé comme au chargement réel. Une erreur **bloque** l'enregistrement (les
 problèmes s'affichent en pied, rien n'est écrit). Si le fichier a changé sur le disque depuis son ouverture, la
@@ -1001,8 +1001,7 @@ restaurer), chaque pane est recapturé et la team est remise en page à la nouve
 - connexion claude.ai : l'alerte ouvre un onglet `login` qui lance `claude /login` **sur ce
   poste** (claude doit y être installé) ; sinon, `/login` se tape dans le leader d'un projet ouvert.
 
-**Fichiers de configuration** (#117) : « Éditer en texte » (pied de la fenêtre Réglages, #118), « Fichiers en
-texte… » et `⚙ env.yaml` dans les cartes d'un projet ouvrent un éditeur en **texte brut** (commentaires et mise en forme
+**Fichiers de configuration** (#117) : « Éditer en YAML » (pied de la fenêtre Réglages, #118), « Fichiers YAML » et `⚙ env.yaml` dans les cartes d'un projet ouvrent un éditeur en **texte brut (YAML)**, d'où « ← Réglages » ramène à la fenêtre Réglages (sur la rubrique d'origine ; proposition d'enregistrer si le texte a changé), (commentaires et mise en forme
 gardés) des fichiers du launcher :
 
 | Fichier | Emplacement | Validé par |

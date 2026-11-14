@@ -1132,15 +1132,16 @@ async function execF2(path) {
 const CE = { project: '', files: [], doc: null, dirty: false, timer: null };
 
 async function configEditor(project, kind) {
-  CE.project = project || '';
+  CE.project = project || ''; CE.fromPage = '';
   CE.files = await call('configFiles', { path: CE.project });
   openModal((b) => {
     b.classList.add('wide');
     b.innerHTML = '';
     const head = el('div', 'cehead');
-    head.append(el('h2', '', '⚙ Fichiers de configuration'), el('span', 'sp'));
+    head.append(el('h2', '', '⚙ Fichiers YAML'), el('span', 'sp'));
     const close = el('button', 'btn', 'Fermer (Échap)'); close.onclick = () => ceClose();
-    head.appendChild(close);
+    const back = el('button', 'btn', '← Réglages'); back.id = 'ceback'; back.title = 'Revenir à la fenêtre Réglages'; back.onclick = () => ceBack();
+    head.append(back, close);
     const body = el('div', 'cebody');
     const list = el('div', 'celist'); list.id = 'celist';
     const ed = el('div', 'ceed'); ed.id = 'ceed';
@@ -1263,9 +1264,23 @@ async function ceSave(force) {
   ceRenderList();
 }
 
+// ← Réglages : retour à la fenêtre de configuration structurée, sur la rubrique
+// d'origine (CE.fromPage) ; texte modifié : proposer de l'enregistrer d'abord.
+async function ceBack() {
+  if (CE.dirty) {
+    if (confirm('Le texte a été modifié. Enregistrer avant de revenir aux Réglages ?\n\nOK : enregistrer — Annuler : autre choix')) {
+      await ceSave(false);
+      if (CE.dirty) return; // erreurs ou conflit : rester dans l'éditeur
+    } else if (!confirm('Revenir aux Réglages SANS enregistrer (modifications perdues) ?')) return;
+  }
+  const page = CE.fromPage, project = CE.project;
+  CE.doc = null; CE.dirty = false; CE.fromPage = '';
+  openSettings(project, page || undefined); // recharge le modèle : il montre le fichier tel qu'enregistré
+}
+
 function ceClose() {
   if (CE.dirty && !confirm('Fermer sans enregistrer ? Les modifications seront perdues.')) return;
-  CE.doc = null; CE.dirty = false;
+  CE.doc = null; CE.dirty = false; CE.fromPage = '';
   $('modalbox').classList.remove('wide');
   closeModal();
 }
