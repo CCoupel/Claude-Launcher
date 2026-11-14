@@ -41,10 +41,13 @@ Reference : `contracts/desktop-dispatch.md` (LOT-3.3), maquette `docs/mockup/v6.
 | 2 | Modifier « Reprendre » (demander → jamais) et « Age maximal », Enregistrer | Message d'enregistrement ; note de prise en compte (a chaud ou redemarrage) | | |
 | 3 | `diff avant.conf config.conf` | Seules les lignes des cles modifiees different ; commentaires, tableaux, autres cles et ordre intacts | | |
 | 4 | Ajouter une racine de projets, en retirer une | Tableau `GITHUB_DIRS` mis a jour sans toucher le reste ; racine introuvable signalee mais non bloquante | | |
-| 5 | Variables ajoutees (ajouter / modifier / supprimer) | Ecrites dans `EXTRA_ENVS` ; relues identiques apres fermeture/reouverture | | |
+| 5 | Variables ajoutees (ajouter / modifier / supprimer) au format `NOM=valeur` | Ecrites dans `EXTRA_ENVS` ; relues identiques apres fermeture/reouverture ; une entree sans `=` est refusee | | |
+| 5b | Ajouter des variables dangereuses : `PATH=/x`, `LD_PRELOAD=/x.so`, `LD_LIBRARY_PATH=/x`, `DYLD_INSERT_LIBRARIES=/x`, `GIT_SSH_COMMAND=x`, `BASH_ENV=/x`, `NODE_OPTIONS=--require=/x` | Chacune refusee avec un message du type « variable … interdite : elle permet d'executer du code » ; fichier inchange ; `FOO=bar` reste accepte | | |
 | 6 | Valeur invalide (entier non numerique, teinte hors 1 a 5, palette hors 0–255) | Probleme en pied, Enregistrer bloque, fichier inchange | | |
+| 6b | Valeur texte contenant `$HOME` puis `${HOME}` (ex. dossier de config) | Acceptee ; ecrite telle quelle (non developpee) ; relue par le launcher | | |
+| 6c | Valeur texte contenant une substitution de commande `$(id)`, des guillemets, un antislash, une apostrophe inverse `` `id` `` ou un retour a la ligne ; aussi `${HOME:-x}`, `$1`, `$$` | Chacune refusee avec un message clair ; fichier inchange ; aucun effet de bord sur la machine | | |
 | 7 | Fichier modifie a la main pendant que l'ecran est ouvert, puis Enregistrer | Conflit signale (recharger / ecraser) | | |
-| 8 | `config.conf.bak` | Copie de l'etat precedent | | |
+| 8 | `config.conf.bak` | Copie de l'etat precedent, en 0600 comme `config.conf` (le jeton y figure) | | |
 | 9 | Fichier `config.conf` aux fins de ligne CRLF (Windows) | Enregistrement OK, lignes d'origine conservees, fichier relu par le launcher | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -75,7 +78,8 @@ Reference : `contracts/desktop-dispatch.md` (LOT-3.3), maquette `docs/mockup/v6.
 |-------|--------|-----------------|----------------|------|
 | 1 | `config.conf` contenant une forme que l'interface ne sait pas lire (ex. `OPTS="$(commande)"`, valeur calculee, `source autre.conf`, tableau construit par boucle) | La rubrique affiche la valeur en **lecture seule** avec une indication (« modifier en YAML/texte ») ; aucune erreur | | |
 | 2 | Modifier une autre cle et Enregistrer | La ligne non reconnue est **conservee a l'identique** (diff) | | |
-| 3 | « Editer en YAML » (texte) sur `config.conf` | Editeur sur le fichier pour modifier la forme a la main | | |
+| 3 | « Editer en YAML » (texte) sur `config.conf` | Editeur sur le fichier pour modifier la forme a la main ; le jeton n'y figure jamais en clair : la ligne est `GITHUB_TOKEN="__GARDER__"` (sentinelle) et la note de l'editeur explique que le jeton est masque | | |
+| 4 | Enregistrer le texte tel quel (autre cle modifiee), puis lire `config.conf` | Le jeton d'origine est **conserve** dans le fichier (la sentinelle `__GARDER__` n'est jamais ecrite) ; remplacer la sentinelle par un nouveau jeton = nouveau jeton ecrit ; supprimer la ligne = jeton retire | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -87,13 +91,15 @@ Reference : `contracts/desktop-dispatch.md` (LOT-3.3), maquette `docs/mockup/v6.
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Ouvrir Launcher avec un jeton factice present | Champ affiche « ghp_•••••• » (ou « defini ») ; jamais la valeur en clair a l'ecran, ni dans la barre d'etat, ni dans les messages | | |
+| 1 | Ouvrir Launcher avec un jeton factice present | Champ indiquant seulement que le jeton est **defini** (le modele renvoie `set: true`, sans valeur) ; jamais la valeur, meme partielle, a l'ecran, dans la barre d'etat, les messages ni les problemes de validation | | |
 | 2 | Enregistrer sans toucher au jeton | `GITHUB_TOKEN` inchange dans le fichier (diff vide sur cette ligne) | | |
 | 3 | Saisir un nouveau jeton factice, Enregistrer | Ecrit ; le champ reste masque apres reouverture | | |
 | 4 | Vider le jeton (action explicite) | Cle retiree ou videe selon la regle ; jamais ecrasee sans action | | |
 | 5 | « afficher » (si propose) | Affichage volontaire seulement ; refermer la fenetre le re-masque | | |
-| 6 | Droits du fichier `config.conf` apres ecriture (`ls -l` ; sous Windows : ACL de l'utilisateur seul) | 0600 (lecture/ecriture proprietaire uniquement) | | |
-| 7 | Mode `--web` : reponse de `configModel` dans l'onglet reseau du navigateur | Aucune trace du jeton en clair (`{ "set": true }` seulement) | | |
+| 6 | Droits de `config.conf` **et de `config.conf.bak`** apres ecriture (`ls -l` ; sous Windows : ACL de l'utilisateur seul) | 0600 (lecture/ecriture proprietaire uniquement) pour les deux | | |
+| 7 | Mode `--web` : reponse de `configModel` dans l'onglet reseau du navigateur | Aucune trace du jeton en clair (`{ "set": true }` seulement) ; idem pour `configOpen config.conf` (sentinelle `__GARDER__`) | | |
+| 8 | Mode `--web` : requete `/api/call` avec un en-tete `Host` inconnu (ex. `curl -H 'Host: evil.example' …`) puis sans cookie de session | 403 dans les deux cas | | |
+| 9 | Mode `--web` : `configApply` d'un `env.yaml` de projet avec un chemin hors de l'arbre des projets (ex. `/etc`) | Refuse (« projet inconnu ») ; aucun fichier ecrit | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
