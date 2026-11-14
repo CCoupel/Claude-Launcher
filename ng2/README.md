@@ -973,10 +973,27 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 | `Ctrl+Tab`, `Ctrl+Maj+Tab` | onglet suivant / précédent |
 | clic sur un pane ; double-clic sur son en-tête | focus clavier ; plein écran (aller-retour) |
 | souris dans un pane ; molette | transmise à l'agent s'il la suit (panneau de Claude Code redimensionnable) ; sinon la molette fait défiler l'historique de tmux |
-| glisser une bordure (colonne entre panes, en-tête du pane du dessous) ; `Maj`+glisser | redimensionner le pane (`resize-pane`) ; sélection locale du texte |
+| glisser une bordure (colonne entre panes, en-tête du pane du dessous) | redimensionner le pane (`resize-pane`) |
+| glisser dans un pane (`Maj`+glisser si l'agent suit la souris) | sélectionner du texte ; au relâcher, il est copié dans le presse-papiers (#155) |
+| `Ctrl+Maj+C` | recopier la sélection (`Ctrl+C` reste l'interruption de l'agent) |
+| `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser`, clic droit (`Maj`+clic droit si l'agent suit la souris) | coller dans le pane actif ; refusé en lecture seule, avec un message |
 | `Ctrl+B z` / `Ctrl+B R` / `Ctrl+B Ctrl+B` | plein écran / remettre en ordre la team / envoyer `Ctrl+B` à l'agent |
 | `Ctrl+Maj+W`, `×` de l'onglet | détacher l'onglet (la session continue) |
 | `Échap` | quitter : `l` l'interface seule (projets gardés), `t` puis `o` tout fermer |
+
+**Copier / coller dans les terminaux** (#155) :
+
+- la sélection reste dans un pane ; elle est copiée au relâchement de la souris, même hors du terminal, et
+  `Ctrl+Maj+C` la recopie. `Ctrl+C` n'est pas une copie : il envoie l'interruption à l'agent ;
+- coller se fait par `Ctrl+V`, `Ctrl+Maj+V`, `Maj+Inser` ou clic droit, dans le pane actif. Le texte arrive en un
+  bloc (plusieurs lignes d'un coup, sans perte) ;
+- lecture seule (projet piloté par un autre launcher) et vignettes Teamleaders : **copier reste permis**, **coller
+  est refusé** avec un message en pied de volet ; le presse-papiers n'est pas lu dans ce cas ;
+- texte seulement ; un collage est limité à **4 Mo** et une copie à **8 Mo** (au-delà, refus avec message) ;
+- fenêtre Windows (Wails) : le presse-papiers du poste est lu et écrit côté Go, sans invite de WebView2 ;
+- mode `--web` : le presse-papiers du **navigateur** est utilisé, dans un contexte sécurisé (`localhost` convient ;
+  en `http` sur une autre adresse, il est indisponible et le message le dit). Le presse-papiers de la machine qui
+  héberge le serveur n'est **jamais** lu ni écrit pour un client web.
 
 **Apparence et disposition** (#122, #123, #124) : l'arbre reprend le rendu d'un arbre natif de
 Windows 11 (Explorateur) : hauteur de ligne et indentation, chevrons, survol et sélection Fluent
@@ -1374,6 +1391,7 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 | `Tab`, `Alt+←/→` | passer du navigateur à tmux |
 | `Ctrl+B R` dans un projet | remettre en ordre les panes de la team |
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
+| `Maj`+glisser (terminal hôte) | sélectionner en contournant tmux (la souris est captée par tmux) ; la sélection traverse les panes, bordures comprises. Copie dans le presse-papiers : renvoi à #156 |
 | double-clic sur un teammate inactif (carte Team) | visible ↔ caché ; refusé pour un teammate actif (message dans la carte) |
 | clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version, déjà téléchargée et contrôlée, et redémarrer le navigateur (projets conservés) |
 | clic sur `↑ NG … réessayer` (jaune) | relancer tout de suite le téléchargement de la nouvelle version |
