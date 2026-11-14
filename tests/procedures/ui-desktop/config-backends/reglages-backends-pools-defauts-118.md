@@ -26,6 +26,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 | 4 | Rubrique Defauts | Backend par defaut, image par defaut, liste des images, correspondances navigateur | | |
 | 5 | Fichier absent (renommer `backends.yaml`) puis rouvrir | Fenetre ouverte sans erreur, listes vides, hote seul | | |
 | 6 | Pied de fenetre | « ✓ valide » et le nom du fichier ; si le fichier a des problemes, ils sont listes | | |
+| 7 | Chronometrer l'ouverture (⚙ config et Ctrl+,) | La fenetre s'ouvre en moins d'une demi-seconde, « Chargement… » affiche pendant la lecture, puis le contenu ; interface non figee | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -45,6 +46,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 | 6 | Nom vide ou invalide | Erreur en pied ; Enregistrer bloque | | |
 | 7 | Supprimer le backend designe par `defaults.backend`, puis un backend utilise par un projet | Comportement attendu : retire des defauts dans le meme enregistrement, ou refus explicite (voir commits 0f486f0 / 60bfadc) ; suppression d'un pool cite par un backend refusee | | |
 | 8 | Annuler | Aucun changement dans le fichier | | |
+| 9 | Backend dont la ligne d'etat est tres longue (ex. erreur de connexion detaillee) ; fenetre etroite puis large | La ligne est coupee par « … » avec l'etat complet en infobulle ; elle ne deborde pas sur la carte voisine ni ne casse la liste | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -102,7 +104,7 @@ Reference : `contracts/desktop-dispatch.md` (configModel, configApply, backendTe
 | 7 | Texte **modifie**, « ← Reglages », refuser (abandon) | Modifications abandonnees ; fichier inchange sur disque ; retour a la rubrique d'origine | | |
 | 8 | Texte modifie en **erreur de validation** (ex. type de backend inconnu), « ← Reglages » puis accepter d'enregistrer | Reste dans l'editeur, probleme(s) affiche(s) ; fichier inchange | | |
 | 9 | Texte modifie, fichier change sur disque entre-temps (conflit), « ← Reglages » puis accepter d'enregistrer | Reste dans l'editeur, conflit signale (recharger / ecraser) ; aucun ecrasement silencieux | | |
-| 10 | Ouvrir l'editeur depuis l'ecran « Fichiers YAML » (liste des fichiers) | Le libelle est « Fichiers YAML » (plus « Fichiers en texte… ») ; « ← Reglages » ramene a la fenetre Reglages | | |
+| 10 | Dans l'en-tete de la fenetre Reglages | Aucun bouton « Fichiers YAML » (supprime) ; « Editer en YAML » n'existe qu'en pied de fenetre ; « ← Reglages » ramene a la fenetre Reglages | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
