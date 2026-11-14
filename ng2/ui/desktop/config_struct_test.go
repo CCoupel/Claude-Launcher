@@ -221,3 +221,22 @@ func TestSettingsCallsDoNotWaitForAppLock(t *testing.T) {
 	}
 	close(release)
 }
+
+// Deux relectures des avertissements hubs qui se chevauchent : l'ancienne, qui
+// finit après la récente, ne l'écrase pas.
+func TestHubWarnsOnlyLatestGenerationApplies(t *testing.T) {
+	sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	slow := make(chan struct{})
+	first := a.refreshHubWarns(func() []string { <-slow; return []string{"ancien"} })
+	second := a.refreshHubWarns(func() []string { return []string{"récent"} })
+	<-second
+	close(slow) // l'ancienne finit après la récente
+	<-first
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if len(a.hubWarns) != 1 || a.hubWarns[0] != "récent" {
+		t.Fatalf("avertissements : %v (l'ancienne relecture a écrasé la récente)", a.hubWarns)
+	}
+}

@@ -61,6 +61,7 @@ type App struct {
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
+	hubGen    atomic.Uint64 // génération de la dernière relecture des avertissements hubs
 	ctrFounds atomic.Pointer[[]core.Found]
 	bkSnap    atomic.Pointer[[]core.BackendConf]
 

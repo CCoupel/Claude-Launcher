@@ -140,13 +140,7 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		// hors de la réponse : a.mu peut être tenu par une lecture lente, l'écran
 		// Réglages n'a pas à l'attendre
 		a.storeBackends()
-		go func() {
-			w := core.HubConfigWarnings()
-			a.mu.Lock()
-			a.hubWarns = w
-			a.mu.Unlock()
-			a.changed()
-		}()
+		a.refreshHubWarns(core.HubConfigWarnings)
 		go a.readCtr()
 		a.changed()
 	}
@@ -235,4 +229,24 @@ func (a *App) backendStates() map[string]any {
 		founds = *p
 	}
 	return map[string]any{"states": core.BackendStates(bs), "load": core.PoolLoads(bs, founds)}
+}
+
+// refreshHubWarns : relit les avertissements de hubs: en tâche de fond. Chaque
+// relecture reçoit un numéro de génération à son lancement ; seule la plus
+// récente s'applique, une relecture plus ancienne qui finit après elle (deux
+// enregistrements rapprochés) ne l'écrase pas. Rend un canal fermé à la fin.
+func (a *App) refreshHubWarns(read func() []string) <-chan struct{} {
+	gen := a.hubGen.Add(1)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		w := read()
+		a.mu.Lock()
+		if a.hubGen.Load() == gen {
+			a.hubWarns = w
+		}
+		a.mu.Unlock()
+		a.changed()
+	}()
+	return done
 }
