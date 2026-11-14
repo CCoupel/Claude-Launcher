@@ -582,7 +582,7 @@ function confValue(x, v) {
     case 'bool': return !!v;
     case 'int': return Number(v);
     case 'list': return stLines(v);
-    case 'intlist': return String(v).split(/[\s,]+/).filter(Boolean).map(Number);
+    case 'intlist': return String(v).split(/[\s,]+/).filter(Boolean); // tableau de chaînes (contrat)
     default: return String(v);
   }
 }
@@ -628,10 +628,14 @@ function docChanges(id) {
     const bp = (t) => stLines(t).map((l) => { const [a, rest] = l.split('=>'); const [h, os] = (rest || '').split('|'); const r = { container: (a || '').trim(), host: (h || '').trim() }; if (os && os.trim()) r.os = os.trim(); return r; });
     put(['paths'], pa(d.txt.paths), pa(o.txt.paths), !pa(d.txt.paths).length);
     put(['browser_paths'], bp(d.txt.browser_paths), bp(o.txt.browser_paths), !bp(d.txt.browser_paths).length);
-    const bsv = (D2) => { const v = {}; if (D2.f.listen.trim()) v.listen = D2.f.listen.trim(); if (D2.f.url.trim()) v.url = D2.f.url.trim(); const a = stLines(D2.txt.allow); if (a.length) v.allow = a; return v; };
-    put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
-    const ruv = (f) => { const v = {}; if (f.uid !== '') v.uid = Number(f.uid); if (f.gid !== '') v.gid = Number(f.gid); if (f.name.trim()) v.name = f.name.trim(); if (f.home.trim()) v.home = f.home.trim(); return v; };
-    put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
+    // objets : un changement par clé (un `set` d'objet fusionne côté Go, il ne retirerait pas une clé vidée)
+    const sub = (obj, k, nv, ov) => { if (JSON.stringify(nv) !== JSON.stringify(ov)) ch.push(nv === undefined ? { op: 'delete', at: [obj, k] } : { op: 'set', at: [obj, k], value: nv }); };
+    const str = (v) => (v.trim() ? v.trim() : undefined), num = (v) => (v === '' ? undefined : Number(v));
+    for (const k of ['listen', 'url']) sub('browser_server', k, str(d.f[k]), str(o.f[k]));
+    const al = (t) => { const a = stLines(t); return a.length ? a : undefined; };
+    sub('browser_server', 'allow', al(d.txt.allow), al(o.txt.allow));
+    for (const k of ['uid', 'gid']) sub('remote_user', k, num(d.f[k]), num(o.f[k]));
+    for (const k of ['name', 'home']) sub('remote_user', k, str(d.f[k]), str(o.f[k]));
     for (const k of ['hub_cache', 'browser_device']) put([k], d.f[k].trim(), o.f[k].trim(), !d.f[k].trim());
   }
   return ch;
