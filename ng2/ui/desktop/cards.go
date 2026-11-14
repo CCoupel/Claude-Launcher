@@ -113,14 +113,16 @@ func (a *App) cardsFull(path string) Cards {
 }
 
 func (a *App) readTeam(path string) []TeamRow {
-	var panes []core.PaneInfo
+	var panes []core.ProjPane
+	var choices map[string]string
 	if t := a.term(path); t != nil {
-		panes = t.paneInfos()
+		panes, choices = t.teamPanes()
 	}
 	var rows []TeamRow
-	for _, tm := range core.LiveTeam(core.ReadTeammates(path), path, panes) {
-		rows = append(rows, TeamRow{Name: tm.Name, Tag: tm.Tag, Companion: tm.Companion,
-			Model: strings.TrimPrefix(tm.Model, "claude-"), Effort: tm.Effort, Claude: tm.Claude, Count: tm.Count})
+	for _, l := range core.TeamLines(core.ReadTeammates(path), path, panes, choices, a.conf().TeamHideIdle, time.Now().Unix()) {
+		rows = append(rows, TeamRow{Name: l.Name, Tag: l.Tag, Companion: l.Companion,
+			Model: strings.TrimPrefix(l.Model, "claude-"), Effort: l.Effort, Claude: l.Claude, Pane: l.Pane,
+			Started: l.Started, Active: l.Active, Hidden: l.Hidden, Pinned: l.Pinned, IdleLeft: l.IdleLeft})
 	}
 	teamCache.Lock()
 	teamCache.m[path] = teamEntry{time.Now(), rows}

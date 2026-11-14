@@ -772,7 +772,8 @@ type MsRowOut struct {
 	Total  int    `json:"total"`
 }
 
-// TeamRow : un teammate du registre du template.
+// TeamRow : un teammate de la carte Team (#136) : chaque instance lancée, puis
+// les teammates du template non démarrés (contracts/desktop-dispatch.md).
 type TeamRow struct {
 	Name      string `json:"name"`
 	Tag       string `json:"tag"`
@@ -780,7 +781,12 @@ type TeamRow struct {
 	Model     string `json:"model"`
 	Effort    string `json:"effort"`
 	Claude    string `json:"claude,omitempty"`
-	Count     int    `json:"count,omitempty"`
+	Pane      string `json:"pane,omitempty"`
+	Started   bool   `json:"started"`
+	Active    bool   `json:"active"`
+	Hidden    bool   `json:"hidden"`
+	Pinned    bool   `json:"pinned"`
+	IdleLeft  int    `json:"idleLeft"`
 }
 
 // FileRow : une entrée de premier niveau du projet.
@@ -1029,6 +1035,16 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 			t.zoom(arg.Pane)
 		}
 		return nil, nil
+	case "teamToggle": // double-clic sur un teammate de la carte Team (#136)
+		t := a.term(arg.Path)
+		if t == nil {
+			return map[string]any{"ok": false, "msg": "projet fermé"}, nil
+		}
+		ok, msg := t.teamToggle(arg.Pane)
+		if ok {
+			return map[string]any{"ok": true}, nil
+		}
+		return map[string]any{"ok": false, "msg": msg}, nil
 	case "relayout":
 		if t := a.term(arg.Path); t != nil {
 			go t.relayout(true)

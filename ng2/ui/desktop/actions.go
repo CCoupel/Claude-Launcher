@@ -257,7 +257,7 @@ func (a *App) teammates(p core.ProjInfo, t *projTerm) int {
 		n = p.Live.Panes
 	case t != nil:
 		if l := t.lastLayout(); l != nil {
-			n = len(l.Panes)
+			n = len(l.Panes) + t.hiddenCount() // teammates cachés compris (#136)
 		}
 	}
 	return max(n-1, 0)

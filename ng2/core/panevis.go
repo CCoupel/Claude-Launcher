@@ -263,11 +263,17 @@ func (r ApplyResult) Changed() bool { return len(r.Hid)+len(r.Shown) > 0 }
 // break-pane -d vers la réserve, join-pane -d dans la fenêtre. Le pane qui a le
 // focus n'est jamais caché. Aucun effet sur les panes protégés.
 func ApplyPaneVis(t SessionTmux, win, home string, tc *TeamConfig, hideIdle int, now int64, inCtr bool) (ApplyResult, error) {
-	var res ApplyResult
 	panes, choices, err := ProjectPanes(t, win, home, inCtr)
 	if err != nil {
-		return res, err
+		return ApplyResult{}, err
 	}
+	return ApplyPaneVisOn(t, win, home, panes, choices, tc, hideIdle, now)
+}
+
+// ApplyPaneVisOn : ApplyPaneVis sur un recensement déjà lu (ProjectPanes), pour
+// les appelants qui s'en servent aussi ailleurs (carte Team).
+func ApplyPaneVisOn(t SessionTmux, win, home string, panes []ProjPane, choices map[string]string, tc *TeamConfig, hideIdle int, now int64) (ApplyResult, error) {
+	var res ApplyResult
 	vp := visPanes(panes, tc)
 	d := DecidePaneVis(vp, choices, hideIdle, now)
 	for id, at := range d.IdleAt {

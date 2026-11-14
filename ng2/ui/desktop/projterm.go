@@ -72,7 +72,10 @@ type projTerm struct {
 	reseedSet       map[string]bool // panes à recapturer à l'échéance (nil : tous)
 	pubMu           sync.Mutex      // lecture de la fenêtre → publication (tours lent et rapide, #138)
 	team            *core.TeamConfig
-	zoomAt          time.Time // dernier plein écran demandé (journal, #138)
+	zoomAt          time.Time         // dernier plein écran demandé (journal, #138)
+	vis             []core.ProjPane   // panes du projet, cachés compris (carte Team, #136)
+	visChoices      map[string]string // choix manuels (@cl_panevis)
+	visSig          string            // état visible/caché/actif des panes : change → cartes renvoyées
 }
 
 type watchState struct {
@@ -892,6 +895,20 @@ func (t *projTerm) tick(fast bool) {
 			arrange()
 		}
 	}
+	// panes cachés (#136) : recensement unique (fenêtre + réserve) pour la carte
+	// Team ; la règle n'est appliquée que par le launcher qui a la main
+	if !fast {
+		if t.refreshVis(tc, cfg, !ro) {
+			// panes cachés ou ramenés : fenêtre relue, visibles remis en page ; la
+			// variation du nombre de panes n'est pas un nouveau teammate
+			if panes2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(panes2) > 0 {
+				panes, w, h, zoomed, visible = panes2, w2, h2, z2, v2
+				cps = corePanes(panes)
+			}
+			t.watch.prevCount, t.watch.wait = len(panes), 0
+			arrange()
+		}
+	}
 	// un pane de plus : attendre que la team ait inscrit tous les agents (le
 	// leader n'a pas de tmuxPaneId), au plus 10 tours, puis mise en page
 	if n := len(panes); !fast && !ro {
@@ -948,6 +965,102 @@ func (t *projTerm) tick(fast bool) {
 		}
 	}
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
+}
+
+// tmuxFn : le client de contrôle sous la forme attendue par core (panes cachés).
+func (t *projTerm) tmuxFn() core.SessionTmux {
+	return func(args ...string) (string, error) {
+		c := t.cl()
+		if c == nil {
+			return "", errClientClosed
+		}
+		b, err := c.Output(args...)
+		return string(b), err
+	}
+}
+
+// refreshVis : relève les panes du projet (fenêtre et réserve), applique la
+// règle si own (le launcher a la main) et dit si des panes ont bougé. Les cartes
+// sont renvoyées quand l'état visible / caché / actif d'un pane change.
+func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bool {
+	f, inCtr := t.tmuxFn(), !t.host
+	home := core.ProjectHome(f, t.win, inCtr)
+	panes, choices, err := core.ProjectPanes(f, t.win, home, inCtr)
+	if err != nil {
+		return false
+	}
+	moved := false
+	if own && tc != nil {
+		if res, err := core.ApplyPaneVisOn(f, t.win, home, panes, choices, tc, cfg.TeamHideIdle, time.Now().Unix()); err == nil && res.Changed() {
+			moved = true
+			if p2, c2, err := core.ProjectPanes(f, t.win, home, inCtr); err == nil {
+				panes, choices = p2, c2
+			}
+		}
+	}
+	var sig strings.Builder
+	for _, p := range panes {
+		fmt.Fprintf(&sig, "%s:%v:%s;", p.ID, p.Hidden, choices[p.ID])
+	}
+	if tc != nil {
+		sig.WriteString(core.ActiveSignature(*tc))
+	}
+	t.mu.Lock()
+	t.vis, t.visChoices = panes, choices
+	changed := t.visSig != sig.String()
+	t.visSig = sig.String()
+	t.mu.Unlock()
+	if changed {
+		t.a.cardsChanged()
+	}
+	return moved
+}
+
+// teamPanes : panes du projet cachés compris, relevés par le watcher (carte Team).
+func (t *projTerm) teamPanes() ([]core.ProjPane, map[string]string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	ch := map[string]string{}
+	for k, v := range t.visChoices {
+		ch[k] = v
+	}
+	return append([]core.ProjPane(nil), t.vis...), ch
+}
+
+// hiddenCount : panes cachés du projet (question de fermeture).
+func (t *projTerm) hiddenCount() int {
+	n := 0
+	for _, p := range func() []core.ProjPane { ps, _ := t.teamPanes(); return ps }() {
+		if p.Hidden {
+			n++
+		}
+	}
+	return n
+}
+
+// teamToggle : double-clic sur un teammate de la carte Team : bascule visible ↔
+// caché d'un inactif ; refus (actif, leader, cdp, lecture seule, projet fermé)
+// rendu en message. Appliqué tout de suite.
+func (t *projTerm) teamToggle(pane string) (bool, string) {
+	if t.isReadOnly() {
+		return false, "lecture seule : un autre launcher a la main sur ce projet"
+	}
+	if t.cl() == nil {
+		return false, "projet fermé"
+	}
+	var tc *core.TeamConfig
+	if tp := t.findTeam(); tp != "" {
+		if x, err := core.ReadTeam(tp); err == nil {
+			tc = &x
+		}
+	}
+	f, inCtr := t.tmuxFn(), !t.host
+	home := core.ProjectHome(f, t.win, inCtr)
+	if r := core.TogglePane(f, t.win, home, tc, pane, inCtr); !r.OK {
+		return false, r.Msg
+	}
+	t.tick(false) // règle appliquée, visibles remis en page, cartes renvoyées
+	return true, ""
 }
 
 // findTeam : config.json de la team du projet (compté pour les tests : une
@@ -1071,6 +1184,19 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 		for _, p := range msg.Panes {
 			if o, ok := old[p.ID]; ok && o != [2]int{p.W, p.H} && t.seen[p.ID] {
 				resizedPanes = append(resizedPanes, p.ID)
+			}
+		}
+	}
+	// pane qui quitte la fenêtre (caché, #136) : le client en mode contrôle ne
+	// reçoit plus sa sortie ; oublié, il est recapturé à son retour
+	if t.layout != nil {
+		cur := map[string]bool{}
+		for _, p := range panes {
+			cur[p.ID] = true
+		}
+		for _, p := range t.layout.Panes {
+			if !cur[p.ID] {
+				delete(t.seen, p.ID)
 			}
 		}
 	}
