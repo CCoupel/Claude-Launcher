@@ -30,15 +30,14 @@ async function openSettings(project, page) {
   ST.project = project || '';
   if (page) ST.page = page;
   ST.result = null; ST.test = null;
-  await stLoad();
+  ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
   openModal((b) => {
     b.classList.add('wide');
     b.innerHTML = '';
     const head = el('div', 'cehead');
     const ttl = el('h2', '', 'Réglages'); const path = el('span', 'cepath'); path.id = 'stpath';
-    const txt = el('button', 'btn sm', 'Fichiers YAML'); txt.onclick = () => stText('');
     const x = el('button', 'btn sm', '✕'); x.onclick = () => stClose();
-    head.append(ttl, path, el('span', 'sp'), txt, x);
+    head.append(ttl, path, el('span', 'sp'), x);
     const body = el('div', 'stbody');
     const rail = el('div', 'strail'); rail.id = 'strail';
     const pg = el('div', 'stpg'); pg.id = 'stpg';
@@ -48,7 +47,8 @@ async function openSettings(project, page) {
   });
   ST.on = true;
   stRender();
-  stPoll();
+  stLoad().then(() => { if (!ST.on) return; ST.loading = false; stRender(); });
+  stPoll(); // états des backends : appel séparé, ne retarde jamais l'affichage
 }
 
 async function stLoad() {
@@ -293,6 +293,7 @@ function stRenderPage(soft) {
   if (soft && p.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
   const top = p.scrollTop;
   p.textContent = '';
+  if (ST.loading && stEditable()) { p.appendChild(el('p', 'dim', 'Chargement…')); return; }
   if (!ST.draft && stEditable()) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + ((ST.loadProblems[0] || {}).message || 'erreur') + ' — utiliser « Éditer en YAML ».')); return; }
   const fn = { backends: stPageBackends, pools: stPagePools, defauts: stPageDefaults, launcher: stPageText, conteneurs: stPageText, poste: stPagePoste, projet: stPageProjet }[ST.page];
   fn(p);
@@ -304,7 +305,9 @@ function stStateCell(name) {
   const s = ST.states[name];
   if (!s) return el('span', 'dim', '…');
   if (s.pending) return el('span', 'dim', '… test en cours');
-  return el('span', s.ok ? 't-green' : 't-yellow', (s.ok ? '● ' : '⚠ ') + (s.text || ''));
+  const c = el('span', s.ok ? 't-green' : 't-yellow', (s.ok ? '● ' : '⚠ ') + (s.text || ''));
+  c.title = s.text || ''; // texte complet en infobulle (la cellule le coupe par « … »)
+  return c;
 }
 function stAddr(b) { return b.host || (b.hosts && b.hosts.length ? b.hosts.join(', ') : '') || (b.type === 'k8s' ? [b.context, b.namespace].filter(Boolean).join(' / ') : (b.type === 'host' ? '' : '(local)')); }
 
@@ -312,7 +315,7 @@ function stPageBackends(p) {
   const d = ST.draft;
   p.append(el('h4', '', 'Backends'), el('p', 'ex', 'Où s\'exécutent les projets : sur l\'hôte, dans un conteneur local ou distant, ou dans un pod Kubernetes.'));
   const split = el('div', 'stsplit'); p.appendChild(split);
-  const left = el('div'); split.appendChild(left);
+  const left = el('div', 'stleft'); split.appendChild(left);
   const t = el('table', 'sttable'); const hr = el('tr');
   for (const h of ['Nom', 'Type', 'Adresse', 'Pool', 'État']) hr.appendChild(el('th', '', h));
   t.appendChild(hr);
@@ -322,7 +325,7 @@ function stPageBackends(p) {
     const n = el('td', 'm', b.name || '(sans nom)');
     if (d.defaults.backend && d.defaults.backend === b.name) n.appendChild(el('span', 'pill', 'défaut'));
     r.append(n, el('td', '', b.type), el('td', 'm', stAddr(b)), el('td', 'm', b.pool || ''), el('td'));
-    r.lastChild.appendChild(b._orig ? stStateCell(b._orig) : el('span', 'dim', 'nouveau'));
+    r.lastChild.className = 'stst'; r.lastChild.appendChild(b._orig ? stStateCell(b._orig) : el('span', 'dim', 'nouveau'));
     r.onclick = () => { ST.sel.backend = i; ST.test = null; stRenderPage(); };
     t.appendChild(r);
   });

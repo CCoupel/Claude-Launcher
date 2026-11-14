@@ -343,6 +343,9 @@ body.cardsfolded #hsplit { display: none; }
 .sttable td { padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
 .sttable td.m { font-family: var(--mono); font-size: 12px; }
 .sttable tr { cursor: default; }
+.stleft { min-width: 0; overflow: hidden; }
+.sttable td.stst { max-width: 200px; overflow: hidden; text-overflow: ellipsis; }
+.stst > span { display: block; overflow: hidden; text-overflow: ellipsis; }
 .sttable tr.on td { background: color-mix(in srgb, var(--accent) 16%, transparent); }
 .stbar { display: flex; gap: 6px; margin-top: 8px; }
 .pill { font: 11px var(--mono); padding: 1px 6px; border-radius: 9px; border: 1px solid var(--orange); color: var(--orange); margin-left: 6px; }
