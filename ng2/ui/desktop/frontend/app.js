@@ -479,7 +479,7 @@ $('login').addEventListener('click', () => call('login').then(() => {}).catch(()
 $('cards').addEventListener('click', () => $('nav').focus());
 
 document.addEventListener('keydown', (e) => {
-  if (!$('modal').classList.contains('hidden')) { if (e.key === 'Escape') { if (CE.doc) ceClose(); else closeModal(); } return; }
+  if (!$('modal').classList.contains('hidden')) { if (e.key === 'Escape') { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } return; }
   const inTerm = e.target && e.target.closest && e.target.closest('.xterm');
   if (inTerm) return; // le terminal garde ses touches (raccourcis : attachCustomKeyEventHandler)
   if (S.quit) { onQuitKey(e); return; }
@@ -525,7 +525,7 @@ document.addEventListener('keydown', (e) => {
     if (l === 'r') { call('rescan'); return handled(); }
     if (l === 'u') { call('dismiss', { kind: 'all' }); return handled(); }
     if (l === 'd') { diagBox(); return handled(); }
-    if (k === ',') { configEditor(S.cursor && S.cursor !== 'new' ? S.cursor : '', ''); return handled(); }
+    if (k === ',') { openSettings(S.cursor && S.cursor !== 'new' ? S.cursor : ''); return handled(); }
     if (l === 'c') { S.quit = 1; renderHead(); return handled(); }
     return;
   }
@@ -976,8 +976,8 @@ function openModal(build) {
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
-function closeModal() { $('modal').classList.add('hidden'); $('nav').focus(); }
-$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else closeModal(); } });
+function closeModal() { if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
+$('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {
   openModal((b) => {
@@ -1269,7 +1269,7 @@ function ceClose() {
   $('modalbox').classList.remove('wide');
   closeModal();
 }
-$('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); configEditor(S.cursor && S.cursor !== 'new' ? S.cursor : '', ''); });
+$('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); openSettings(S.cursor && S.cursor !== 'new' ? S.cursor : ''); });
 
 // ── Événements du Go ───────────────────────────────────────────────────────
 // ── Notifications (fenêtre en arrière-plan) : agent en attente, MAJ prête ──
