@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -238,5 +239,99 @@ func TestHubWarnsOnlyLatestGenerationApplies(t *testing.T) {
 	defer a.mu.Unlock()
 	if len(a.hubWarns) != 1 || a.hubWarns[0] != "récent" {
 		t.Fatalf("avertissements : %v (l'ancienne relecture a écrasé la récente)", a.hubWarns)
+	}
+}
+
+// Réglages d'un projet (#148) par les appels de l'interface : lecture, écriture
+// de env.yaml (commentaires conservés), couleur dans config.conf relue à chaud,
+// backend refusé sur un projet ouvert, sans attendre a.mu.
+func TestProjectSettingsCalls(t *testing.T) {
+	ps := sandbox(t, "", "alpha")
+	proj := ps[0]
+	var r recorder
+	a := newApp(t, r.emit)
+	call := func(m string, args map[string]any) map[string]any {
+		t.Helper()
+		b, _ := json.Marshal(args)
+		res, err := a.Dispatch(m, b)
+		if err != nil {
+			t.Fatalf("%s : %v", m, err)
+		}
+		out, _ := json.Marshal(res)
+		var v map[string]any
+		_ = json.Unmarshal(out, &v)
+		return v
+	}
+	envFile := core.EnvPath(proj)
+	_ = os.MkdirAll(filepath.Dir(envFile), 0o755)
+	if err := os.WriteFile(envFile, []byte("# env du projet\nimage: docker.io/library/debian:12\npackages: [jq]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(core.BackendsPath(), []byte("backends:\n  lab: { type: docker, host: 'tcp://10.0.0.1:2375', shared: [/share] }\n"), 0o644)
+
+	// a.mu tenu : les appels répondent quand même tout de suite
+	release := make(chan struct{})
+	held := make(chan struct{})
+	go func() {
+		a.mu.Lock()
+		close(held)
+		<-release
+		a.mu.Unlock()
+	}()
+	<-held
+	t.Cleanup(func() {
+		select {
+		case <-release:
+		default:
+			close(release)
+		}
+	})
+	t0 := time.Now()
+	s := call("projectSettings", map[string]any{"path": proj})
+	if d := time.Since(t0); d > time.Second {
+		t.Errorf("projectSettings : %v avec a.mu tenu", d)
+	}
+	if s["open"] != false || s["envExists"] != true || s["image"] != "docker.io/library/debian:12" || s["colorAuto"] != true ||
+		len(s["merged"].([]any)) == 0 || s["envMtime"] == "" {
+		t.Fatalf("réglages : %v", s)
+	}
+	t0 = time.Now()
+	ap := call("projectApply", map[string]any{"path": proj, "color": "22", "env": map[string]any{
+		"mtime": s["envMtime"], "changes": []any{map[string]any{"op": "set", "at": []string{"packages"}, "value": []any{"jq", "git"}}}}})
+	if d := time.Since(t0); d > time.Second {
+		t.Errorf("projectApply : %v avec a.mu tenu", d)
+	}
+	if ap["ok"] != true || ap["env"].(map[string]any)["saved"] != true {
+		t.Fatalf("écriture : %v", ap)
+	}
+	if b, _ := os.ReadFile(envFile); !strings.Contains(string(b), "# env du projet") || !strings.Contains(string(b), "git") {
+		t.Fatalf("env.yaml :\n%s", b)
+	}
+	if a.conf().ProjectColors["alpha"] != "22" {
+		t.Errorf("couleur non relue à chaud : %v", a.conf().ProjectColors)
+	}
+	// backend refusé sur un projet ouvert, accepté fermé
+	a.openTabs.Store(proj, true)
+	if ap := call("projectApply", map[string]any{"path": proj, "backend": "lab", "image": "docker.io/library/debian:12"}); ap["ok"] != false || !strings.Contains(ap["msg"].(string), "projet ouvert") {
+		t.Fatalf("projet ouvert : %v", ap)
+	}
+	if s := call("projectSettings", map[string]any{"path": proj}); s["open"] != true {
+		t.Fatalf("open : %v", s["open"])
+	}
+	a.openTabs.Delete(proj)
+	close(release)
+	if ap := call("projectApply", map[string]any{"path": proj, "backend": "lab", "image": "docker.io/library/debian:12"}); ap["ok"] != true {
+		t.Fatalf("backend : %v", ap)
+	}
+	if s := call("projectSettings", map[string]any{"path": proj}); s["backend"] != "lab" || s["assigned"] != true {
+		t.Fatalf("backend attribué : %v", s)
+	}
+	// conflit : env.yaml changé depuis l'ouverture
+	if ap := call("projectApply", map[string]any{"path": proj, "env": map[string]any{"mtime": "2020-01-01T00:00:00Z",
+		"changes": []any{map[string]any{"op": "set", "at": []string{"packages"}, "value": []any{"x"}}}}}); ap["ok"] != false || ap["env"].(map[string]any)["conflict"] != true {
+		t.Fatalf("conflit : %v", ap)
+	}
+	if _, err := a.Dispatch("projectApply", json.RawMessage(`{"path":1}`)); err == nil {
+		t.Fatal("arguments invalides acceptés")
 	}
 }

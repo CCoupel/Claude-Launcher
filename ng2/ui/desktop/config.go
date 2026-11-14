@@ -1,9 +1,11 @@
 package desktop
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -249,4 +251,41 @@ func (a *App) refreshHubWarns(read func() []string) <-chan struct{} {
 		a.changed()
 	}()
 	return done
+}
+
+// ── Réglages d'un projet (#148, LOT-3.2 : contracts/desktop-dispatch.md) ──
+
+// projectSettings : backend, image, couleur, env.yaml du projet et aperçu
+// fusionné avec provenance. Sans a.mu : l'état « ouvert » vient d'un
+// ensemble lisible sans verrou, la configuration d'un instantané.
+func (a *App) projectSettings(path string, changes []core.ConfigChange) map[string]any {
+	s := core.ReadProjectSettings(path, a.conf(), changes)
+	_, open := a.openTabs.Load(path)
+	b, _ := json.Marshal(s)
+	var out map[string]any
+	_ = json.Unmarshal(b, &out)
+	out["open"] = open
+	return out
+}
+
+// projectApply : applique les parties demandées (core.ApplyProjectSettings) puis
+// relit à chaud ce qui peut l'être : config.conf après une couleur, les
+// conteneurs après un backend ou une image.
+func (a *App) projectApply(path string, in core.ProjectChange) map[string]any {
+	_, open := a.openTabs.Load(path)
+	r := core.ApplyProjectSettings(path, open, in)
+	if r.Color {
+		a.configReload(core.ConfConf)
+	}
+	if r.OK && (in.Backend != nil || in.Image != nil) {
+		go a.readCtr()
+		go a.setMsg("⬡ " + filepath.Base(path) + " : réglages enregistrés")
+	}
+	if r.OK && in.Env != nil && r.Env != nil {
+		a.cardsChanged()
+	}
+	b, _ := json.Marshal(r)
+	var out map[string]any
+	_ = json.Unmarshal(b, &out)
+	return out
 }

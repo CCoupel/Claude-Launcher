@@ -127,12 +127,12 @@ var backendKeyOrder = []string{"type", "context", "host", "hosts", "pool", "engi
 // commentaires, ordre et clés non touchées conservés. Le texte rendu n'est pas
 // validé ici (ValidateConfig puis SaveConfig s'en chargent).
 func ApplyConfigChanges(kind ConfigKind, content []byte, changes []ConfigChange) ([]byte, error) {
-	if kind != ConfBackends {
+	if kind != ConfBackends && kind != ConfProjectEnv {
 		return nil, fmt.Errorf("écriture structurée non prévue pour %s", kind)
 	}
 	var doc yaml.Node
 	if err := yaml.Unmarshal(content, &doc); err != nil {
-		return nil, fmt.Errorf("backends.yaml : %w", err)
+		return nil, fmt.Errorf("%s : %w", kind, err)
 	}
 	if doc.Kind == 0 { // fichier vide ou que des commentaires
 		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
@@ -142,7 +142,7 @@ func ApplyConfigChanges(kind ConfigKind, content []byte, changes []ConfigChange)
 	}
 	root := docRoot(&doc)
 	if root == nil {
-		return nil, fmt.Errorf("backends.yaml : la racine doit être un objet")
+		return nil, fmt.Errorf("%s : la racine doit être un objet", kind)
 	}
 	for i, ch := range changes {
 		if len(ch.At) == 0 {
@@ -417,7 +417,32 @@ func mergeNode(old, nv *yaml.Node, keep func(string) bool) {
 		}
 		return
 	}
+	if old.Kind == yaml.SequenceNode && nv.Kind == yaml.SequenceNode && allScalars(old) && allScalars(nv) {
+		// liste de valeurs simples : les éléments conservés gardent leur nœud, donc
+		// leurs commentaires (« - ripgrep   # recherche ») ; le style de la liste aussi
+		prev := map[string]*yaml.Node{}
+		for _, c := range old.Content {
+			prev[c.Value] = c
+		}
+		content := make([]*yaml.Node, len(nv.Content))
+		for i, c := range nv.Content {
+			if o, ok := prev[c.Value]; ok && o.Tag == c.Tag {
+				content[i] = o
+			} else {
+				content[i] = c
+			}
+		}
+		old.Content = content
+		if len(content) == 0 {
+			old.Style = yaml.FlowStyle
+		}
+		return
+	}
 	head, line, foot := old.HeadComment, old.LineComment, old.FootComment
+	style := old.Style
 	*old = *nv
+	if old.Kind == yaml.SequenceNode && style != 0 {
+		old.Style = style // la liste garde son écriture (en ligne ou en bloc) quand le fichier l'avait
+	}
 	old.HeadComment, old.LineComment, old.FootComment = head, line, foot
 }

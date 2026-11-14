@@ -61,6 +61,7 @@ type App struct {
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
+	openTabs  sync.Map      // projets ouverts (chemin → true), lisible sans a.mu
 	hubGen    atomic.Uint64 // génération de la dernière relecture des avertissements hubs
 	ctrFounds atomic.Pointer[[]core.Found]
 	bkSnap    atomic.Pointer[[]core.BackendConf]
@@ -951,6 +952,34 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 	// méthodes aux arguments structurés (le décodage générique ci-dessous
 	// attend des chaînes : « backend » y est un nom, ici un objet)
 	switch method {
+	case "projectSettings":
+		var in struct {
+			Path    string
+			Changes []core.ConfigChange
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		return a.projectSettings(in.Path, in.Changes), nil
+	case "projectApply":
+		var in struct {
+			Path    string
+			Backend *string
+			Image   *string
+			Color   *string
+			Env     *struct {
+				MTime   string
+				Changes []core.ConfigChange
+			}
+		}
+		if err := json.Unmarshal(raw, &in); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color}
+		if in.Env != nil {
+			ch.Env = &core.EnvChange{MTime: in.Env.MTime, Changes: in.Env.Changes}
+		}
+		return a.projectApply(in.Path, ch), nil
 	case "backendTest":
 		var in struct {
 			Backend core.BackendEntry `json:"backend"`

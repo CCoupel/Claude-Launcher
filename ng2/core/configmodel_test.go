@@ -259,3 +259,28 @@ func TestSetBackendKeepsUnknownKeys(t *testing.T) {
 		t.Errorf("clé inconnue copiée ailleurs :\n%s", n)
 	}
 }
+
+// Une liste de valeurs simples réécrite garde les commentaires de ses éléments
+// conservés (« - ripgrep # recherche ») et son écriture ; les neufs s'ajoutent.
+func TestSetScalarListKeepsItemComments(t *testing.T) {
+	src := "image: x:1\npackages:\n  - jq        # json\n  - ripgrep   # recherche\n  - fd\nlocal: [a, b]   # privés\n"
+	out, err := ApplyConfigChanges(ConfProjectEnv, []byte(src), []ConfigChange{
+		{Op: "set", At: []string{"packages"}, Value: []any{"ripgrep", "jq", "curl"}},
+		{Op: "set", At: []string{"local"}, Value: []any{"a", "c"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, want := range []string{"# json", "# recherche", "curl", "# privés", "[a, c]"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("« %s » perdu :\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "fd") || strings.Contains(s, "b]") {
+		t.Errorf("élément retiré conservé :\n%s", s)
+	}
+	if strings.Index(s, "ripgrep") > strings.Index(s, "jq") {
+		t.Errorf("ordre demandé non respecté :\n%s", s)
+	}
+}

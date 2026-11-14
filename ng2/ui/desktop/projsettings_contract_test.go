@@ -68,6 +68,7 @@ func (f projFix) open() {
 	f.t.Helper()
 	f.a.mu.Lock()
 	f.a.terms[f.proj] = newProjTerm(f.a, core.Node{Path: f.proj, Key: "alpha", Name: "alpha"}, core.LaunchNormal)
+	f.a.openTabs.Store(f.proj, true) // l'état « ouvert » des Réglages est lu sans a.mu
 	f.a.mu.Unlock()
 }
 
