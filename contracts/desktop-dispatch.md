@@ -340,3 +340,182 @@ Retour (auparavant toujours vide) : vide quand la saisie est partie ; sinon `{ "
 Un collage volumineux (milliers de lignes) est envoyé en commandes `send-keys -H` de 256 octets au plus, dans l'ordre,
 sans perte ; le frontend applique le collage entre crochets (`term.paste`) avant d'appeler `termInput`.
 
+## v6.2.0 — LOT-1 : taille des caractères par zone (#150)
+
+### Préférences `treeFontSize`, `cardsFontSize` **[NEW]**
+
+Deux clés de `desktop-ui.json`, écrites par `setPrefs` (inchangé) et rendues par `init` avec les autres préférences.
+Nombres entiers, mêmes bornes que `termFontSize` (8 à 28). Absentes : tailles actuelles (arbre 12,5 px, cartes 12 px),
+ce qui correspond à la valeur 13 pour l'arbre et 12 pour les cartes. `termFontSize` est inchangée.
+
+- `treeFontSize` : zone du navigateur (en-tête, filtre, arbre, « Nouveau projet », pied de volet).
+- `cardsFontSize` : zone des cartes ◈ État.
+- `configModel` `kind: "hub"` rend aussi `treeFontSize` et `cardsFontSize` à côté de `termFontSize` (lecture pour
+  l'écran « Ce poste » ; écriture par `setPrefs`).
+
+## v6.2.0 — LOT-2 : carte TEAM, en-têtes de panes, onglet Teamleaders (#151, #152, #162)
+
+### `cards` — champ `teamHead` **[NEW]** et `team[].odd` **[NEW]** (#151)
+
+```json
+"teamHead": { "tpl": "v5.9.4", "claude": "2.1.87", "odd": 2 }
+```
+
+- `tpl` : version cible du template du projet (`tplTarget`), vide si inconnue. `claude` : version de claude du
+  leader, vide si le projet est fermé. `odd` : nombre de teammates non conformes.
+- Chaque ligne de `team` reçoit `"odd": ["tpl", "claude"]` (liste vide ou absente si conforme) : `tpl` quand son
+  `tag` diffère de `teamHead.tpl` (les deux connus), `claude` quand il est démarré et que sa version diffère de
+  `teamHead.claude` (les deux connues). Les champs existants (`tag`, `claude`, `tplState`, `tplTarget`…) sont
+  conservés pour l'infobulle.
+- Calcul dans `core` (même résultat pour la carte de la coque Linux).
+
+### Évènement `term` / `layout` — `panes[].state` **[NEW]** (#152)
+
+`"state": "lead" | "active" | "idle" | ""` — `lead` : leader ou agent `cdp` ; `active` / `idle` : teammate selon
+`isActive` ; `""` : pane sans agent. `role` (texte affiché) et `active` (pane qui a le clavier) sont inchangés.
+Le frontend ne déduit plus l'état du texte de `role`. Rendu de l'en-tête : maquette retenue
+(`docs/mockup/v6.2.0/ui/pane_header__etat_activite.html`).
+
+### Onglet Teamleaders (#162)
+
+Aucun changement de contrat : `tabs` ne contient toujours que les projets ; la vue `leaders` reste côté frontend.
+Si la maquette retenue affiche un compteur : il se déduit de `tabs` (`busy`, longueur).
+
+## v6.2.0 — LOT-3 : rafraîchissement d'un projet et fermeture forcée (#158)
+
+### `refreshProject` **[NEW]**
+
+Arguments : `{ "path": "<projet>" }`. Résultat immédiat : `{ "ok": true }`, ou `{ "ok": false, "msg": "…" }` si un
+rafraîchissement de ce projet est déjà en cours. Le travail se fait en arrière-plan ; l'avancement arrive par
+l'évènement `refresh` :
+
+```json
+{ "path": "<projet>", "steps": [ { "id": "ctr", "state": "ok" }, { "id": "git", "state": "run" } ],
+  "done": false, "msg": "" }
+```
+
+- Étapes (`id`), dans l'ordre : `ctr` (existence et état du conteneur ou du pod, diagnostic du backend), `session`
+  (session tmux, propriétaire, reprise en attente), `git`, `github` (milestone et issues), `tpl` (version du
+  template, registre des agents, team), `usage` (consommation). `state` : `wait` | `run` | `ok` | `err`.
+- Chaque étape ignore son cache (diagnostic 60 s, template 60 s, registre 60 s, team 10 s, état direct 30 s,
+  milestones) et réécrit le cache avec la valeur relue. `usage` respecte le délai minimal entre deux appels à l'API
+  (`usageMinBackoff`) : dans ce délai, l'étape rend `ok` avec la valeur en cache.
+- Dernier évènement : `done: true`, toujours émis (y compris sur erreur ou dépassement de délai — 30 s au total) ;
+  `msg` résume (« pod absent — projet fermé », « GitHub non relu : délai dépassé »). Un instantané (`snapshot`) et
+  les cartes à jour suivent.
+- Un onglet dont la session ou le conteneur n'existe plus est retiré ; la ligne du projet reprend l'état relu.
+- La ligne du projet porte `"refreshing": true` dans l'instantané pendant l'opération.
+- `refresh` (F5, global) est inchangé ; le frontend appelle en plus `refreshProject` sur le projet sélectionné.
+
+### `forceClose` **[NEW]** et `forceCloseConfirm` **[NEW]**
+
+`forceClose` — arguments `{ "path" }`. Résultat : `{ "question": "…", "items": ["onglet", "session tmux locale", …] }`
+(ce qui sera nettoyé), ou `{ "msg": "…" }` si l'action est refusée ou sans objet.
+`forceCloseConfirm` — arguments `{ "path" }`. Résultat : `{ "ok": true, "msg": "…" }` ou `{ "ok": false, "msg": "…" }`.
+
+- Proposée (ligne du projet : `"canForce": true`) quand le projet est affiché ouvert ou en erreur — onglet présent,
+  ou pastille `✕`, `▲`, `●` orange — alors que son conteneur, son pod ou sa session n'existe plus ou ne répond pas.
+  `refreshProject` recalcule `canForce`.
+- Refusée si un autre launcher vivant pilote le projet (`SessElse`, `SessReadOnly`) : message « prendre la main
+  d'abord ».
+- Effet, sans `/exit` ni attente : onglet retiré ; session tmux locale tuée (projet sur l'hôte : `p-<nom>`) ; panes
+  cachés du projet tués ; marque de sortie propre posée (la reprise `↺` est abandonnée, la conversation reste dans
+  `/resume`) ; verrou de création `<projet>/.claude-launcher/.lock` supprimé s'il est périmé ou posé par ce
+  launcher ; fichier d'ordre des panes supprimé ; arrêt du conteneur demandé s'il existe encore (`Engine.Stop`,
+  erreur ignorée et rapportée dans `msg`).
+- `projects.json` (attribution du backend) n'est **pas** modifié : il ne porte aucun état d'ouverture.
+- `close` / `closeConfirm` sont inchangés.
+
+## v6.2.0 — LOT-4 : interface web servie par la fenêtre native (#163)
+
+### Réglage `desktop_web` **[NEW]** (`backends.yaml`)
+
+Même emplacement et même priorité que `browser_server` : `hubs.<machine>.<système>.desktop_web` >
+`hubs.<machine>.desktop_web` > `defaults.desktop_web` > défaut (`listen: off`).
+
+```yaml
+hubs:
+  MON-PC:
+    desktop_web: { listen: "127.0.0.1:8770" }   # « 8770 » = 127.0.0.1:8770 ; off = désactivé (défaut)
+```
+
+- `listen` : `off`, un port seul (boucle locale) ou `hôte:port`. Un `listen` identique à celui de `browser_server`
+  est refusé à la validation (deux serveurs distincts : fichiers en lecture seule sans jeton / interface complète
+  avec jeton).
+- Fenêtre native : le serveur de l'interface démarre **dans le même processus**, sur la même `App` ; réglage relu à
+  chaud (démarrage, arrêt, changement de port). `desktop --web` sans `--addr` utilise ce `listen` s'il est fixé
+  (sinon `127.0.0.1:0`, inchangé) ; `--addr` l'emporte.
+- `configModel` `kind: "hub"` : `settings.desktop_web: { "listen": "" }` (et dans `overrides.<système>`).
+- Sécurité : toutes les règles du mode `--web` s'appliquent sans changement (jeton accepté par la page d'amorçage
+  seule, cookie `HttpOnly` `SameSite=Strict`, `/api/call` en JSON et même origine, en-têtes). Écoute hors boucle
+  locale : contrôle de `Host` sur l'hôte d'écoute, le nom de la machine et `localhost` (comme `browser_server`),
+  avertissement à l'enregistrement et dans `backends`. Le jeton est tiré une fois par poste et conservé
+  (`CacheDir()/desktop-web-token`, `0600`) pour qu'un navigateur déjà ouvert reste valable après une relance.
+
+### Instantané — champ `webUI` **[NEW]**
+
+`"webUI": { "state": "off" | "on" | "error", "listen": "127.0.0.1:8770", "msg": "" }` — jamais le jeton.
+
+### `webUIOpen` **[NEW]**
+
+Sans argument ; fenêtre native seulement (refusé pour un client web). Ouvre l'interface dans le navigateur par
+défaut du poste, avec l'adresse d'amorçage (jeton) construite côté Go. Résultat : `{ "ok": true }` ou
+`{ "ok": false, "msg": "…" }`.
+
+### Appels d'un client web dans le processus de la fenêtre native
+
+- Chaque appel porte son origine (fenêtre ou web) : `clipboardRead` / `clipboardWrite` répondent `unavailable` à un
+  client web (règle du LOT-4 de la v6.1.0, appliquée par appel et non plus par processus) ; `quit`, `setTheme`,
+  `webUIOpen` sont refusés à un client web.
+- Les évènements sont émis aux deux interfaces. La sélection, les onglets et l'état des projets sont communs.
+- Taille des terminaux : `termResize` du dernier client qui a redimensionné ou pris le clavier s'applique ; l'autre
+  affiche la géométrie reçue (`layout.cols`, `layout.rows`) sans renvoyer la sienne tant qu'il n'a pas le clavier.
+
+## v6.2.0 — LOT-5 : organisations de la fenêtre d'un projet (#153)
+
+Choix du 2026-11-15 : deux organisations, réglage global avec exception par projet, pas de mise en page libre.
+Maquette : `docs/mockup/v6.2.0/ui/project_layout__organisations.html`.
+
+### Valeurs
+
+| Valeur | Libellé | Disposition des panes **visibles** |
+|---|---|---|
+| `top` (défaut) | Leader en haut | Règle actuelle, inchangée : leader en haut ; teammates dessous, une ligne jusqu'à 5, deux au-delà (`LAYOUT_2ROW_*`, `LAYOUT_3ROW_*`) |
+| `left` | Leader à gauche | Leader à gauche sur toute la hauteur (`LAYOUT_LEFT_LEADER_PCT` % de la largeur, défaut 46) ; teammates à droite, une colonne jusqu'à 4, deux colonnes égales à partir de 5 (la première reçoit ⌈n/2⌉ teammates) |
+
+Sans teammate visible : le leader occupe toute la fenêtre, dans les deux cas. Les panes du haut de `Classify`
+(leader, puis agents `cdp`) forment la zone du leader : en `left`, ils s'empilent dans la colonne de gauche.
+L'ordre des teammates (`Classify`) est le même pour les deux valeurs ; en `left`, il se lit de haut en bas, colonne
+après colonne.
+
+### Clés de `config.conf` **[NEW]**
+
+- `LAYOUT_MODE` : `top` | `left` (défaut `top`). Valeur inconnue : `top`, avec un problème de validation.
+- `LAYOUT_LEFT_LEADER_PCT` : entier 20 à 80 (défaut 46).
+- `PROJECT_LAYOUTS` : tableau associatif `["<nom du projet>"]="top|left"`, mêmes formes d'écriture et mêmes règles
+  que `PROJECT_COLORS` (seule cette clé est écrite, commentaires conservés, forme non reconnue refusée).
+- Lues par bash (`loadConfigScript`) et par `confLite` ; présentes dans `defaultConfig` (en commentaire pour
+  `PROJECT_LAYOUTS`) et dans le modèle `kind: "config.conf"` (`LAYOUT_MODE` : `enum`, groupe de la mise en page).
+- Organisation effective d'un projet : `PROJECT_LAYOUTS[nom]` si présent et valide, sinon `LAYOUT_MODE`. Une seule
+  fonction de `core`, appelée par la coque Linux et par l'interface native.
+- Prise en compte : au tour suivant du surveillant de mise en page de chaque projet ouvert (relecture de la
+  configuration quand le fichier change), sans relance ; `relayout` (Ctrl+B R) l'applique tout de suite.
+
+### `projectSettings` — champs **[NEW]**
+
+`"layout": "left"`, `"layoutAuto": false`, `"layouts": [ { "id": "top", "label": "Leader en haut" },
+{ "id": "left", "label": "Leader à gauche" } ]` — `layout` : organisation effective ; `layoutAuto` vrai tant
+qu'aucune entrée n'existe dans `PROJECT_LAYOUTS` (le projet suit le réglage global).
+
+### `projectApply` — argument `layout` **[NEW]**
+
+`"layout": "top" | "left"` : écrit l'entrée de `PROJECT_LAYOUTS` ; `"layout": ""` : retire l'entrée (« Comme le
+réglage global ») ; absent : inchangé. Permis sur un projet ouvert (appliqué au tour suivant). Écrit dans la même
+passe que `color` (un seul enregistrement de `config.conf`) ; `colorSaved` devient vrai dès que `config.conf` a été
+écrite, pour la couleur ou pour l'organisation. Valeur inconnue : `{ "ok": false, "msg": "…" }` avant toute écriture.
+
+### Plusieurs launchers
+
+L'organisation est appliquée par le launcher qui a la main, avec **sa** configuration ; un launcher en lecture seule
+affiche la disposition reçue. Aucune option tmux nouvelle.
+

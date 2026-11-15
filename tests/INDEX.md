@@ -15,3 +15,4 @@
 | tests/procedures/ui-desktop/reglages-projet/ | procedure | ui-desktop | Menu contextuel et reglages d'un projet (#148) | feature | |
 | tests/procedures/ui-desktop/config-poste-launcher/ | procedure | ui-desktop | Reglages : Ce poste, Launcher, Conteneurs (#149) | feature | |
 | tests/procedures/ui-desktop/copier-coller/ | procedure | ui-desktop | Selection, copier / coller dans les terminaux (#155) | feature | |
+| tests/procedures/ui-desktop/taille-zones-150/ | procedure | ui-desktop | Taille des caracteres par zone : arbre, cartes, terminaux (#150) | feature | |
