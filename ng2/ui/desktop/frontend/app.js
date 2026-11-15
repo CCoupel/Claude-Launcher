@@ -48,7 +48,11 @@ const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono
 // changée par Ctrl+molette (setFontSize).
 const FONT_DEFAULT = 13, MIN_FONT = 8, MAX_FONT = 28;
 let FONT_SIZE = FONT_DEFAULT;
-const clampFont = (n) => { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.min(MAX_FONT, Math.max(MIN_FONT, n)) : FONT_DEFAULT; };
+// Taille des caractères de l'arbre (zone du navigateur) et des cartes (#150) : préférences
+// treeFontSize / cardsFontSize, mêmes bornes que les terminaux ; la page suit --tfs / --cfs.
+const TREE_DEFAULT = 13, CARDS_DEFAULT = 12;
+let TREE_SIZE = TREE_DEFAULT, CARDS_SIZE = CARDS_DEFAULT;
+const clampFont = (n, d) => { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.min(MAX_FONT, Math.max(MIN_FONT, n)) : (d || FONT_DEFAULT); };
 
 // ── État ───────────────────────────────────────────────────────────────────
 const S = {
@@ -729,6 +733,8 @@ function applyLayoutPrefs() {
   const w = prefs.get('navW', 0); if (w) setNavW(w, true);
   const h = prefs.get('treeH', 0); if (h) setTreeH(h, true);
   FONT_SIZE = clampFont(prefs.get('termFontSize', FONT_DEFAULT));
+  setZoneSize('tree', prefs.get('treeFontSize', TREE_DEFAULT), true);
+  setZoneSize('cards', prefs.get('cardsFontSize', CARDS_DEFAULT), true);
   document.body.classList.toggle('cardsfolded', !!prefs.get('cardsHidden', false));
 }
 
@@ -1511,16 +1517,43 @@ function setFontSize(n, keep) {
   if (!keep) prefs.set('termFontSize', n);
   flash('Taille des caractères : ' + n);
 }
-let wheelAcc = 0;
+// Terminaux (#140) : Ctrl+molette sur les vues
 $('views').addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
   e.preventDefault(); e.stopPropagation();
-  // pavé tactile / pincement : deltaY cumulé, un cran par tranche de 50 (molette : un cran par encoche)
-  wheelAcc += e.deltaMode === 0 ? e.deltaY : e.deltaY * 50;
-  if (Math.abs(wheelAcc) < 50) return;
-  const dir = wheelAcc < 0 ? 1 : -1;
-  wheelAcc = 0;
-  setFontSize(FONT_SIZE + dir);
+  wheelStep(e, 'term', setFontSize, () => FONT_SIZE);
+}, { passive: false, capture: true });
+// Arbre / cartes (#150) : même mécanique, tailles portées par les variables CSS de zone.
+const ZONES = {
+  tree: { key: 'treeFontSize', css: '--tfs', def: TREE_DEFAULT, label: "Taille de l'arbre : " },
+  cards: { key: 'cardsFontSize', css: '--cfs', def: CARDS_DEFAULT, label: 'Taille des cartes : ' },
+};
+const zoneSize = (z) => (z === 'tree' ? TREE_SIZE : CARDS_SIZE);
+function setZoneSize(z, n, keep) {
+  const Z = ZONES[z];
+  n = clampFont(n, Z.def);
+  if (!keep && n === zoneSize(z)) return;
+  if (z === 'tree') TREE_SIZE = n; else CARDS_SIZE = n;
+  document.documentElement.style.setProperty(Z.css, n + 'px');
+  if (keep) return;
+  prefs.set(Z.key, n);
+  flashBrief(Z.label + n);
+}
+// Ctrl+molette : un cran par tranche de 50 (pavé tactile / pincement), accumulé par zone
+const wheelAccs = new Map();
+function wheelStep(e, k, apply, cur) {
+  let acc = (wheelAccs.get(k) || 0) + (e.deltaMode === 0 ? e.deltaY : e.deltaY * 50);
+  if (Math.abs(acc) < 50) { wheelAccs.set(k, acc); return; }
+  const dir = acc < 0 ? 1 : -1;
+  wheelAccs.set(k, 0);
+  apply(cur() + dir);
+}
+// toute la colonne gauche : la zone des cartes → cartes, le reste (en-tête, arbre, pied) → arbre
+$('nav').addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault(); e.stopPropagation();
+  if ($('cards').contains(e.target)) wheelStep(e, 'cards', (n) => setZoneSize('cards', n), () => CARDS_SIZE);
+  else wheelStep(e, 'tree', (n) => setZoneSize('tree', n), () => TREE_SIZE);
 }, { passive: false, capture: true });
 
 let fitTimer = null;

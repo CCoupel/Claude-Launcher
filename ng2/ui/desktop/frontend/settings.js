@@ -788,7 +788,19 @@ function stPageHub(p) {
     const row = el('span', 'stfont');
     row.append(stBtn('−', () => { setFontSize(FONT_SIZE - 1); inp.value = FONT_SIZE; }), inp, stBtn('+', () => { setFontSize(FONT_SIZE + 1); inp.value = FONT_SIZE; }),
       el('span', 'dim', 'terminaux seulement · défaut ' + FONT_DEFAULT + ' · aussi par Ctrl+molette'));
-    p.appendChild(stBox('Affichage', stForm([['Taille des caractères', row, 'mémorisée sur ce poste (desktop-ui.json), appliquée tout de suite, sans « Enregistrer »']])));
+    const zoneRow = (z, def, hint) => {
+      const zi = el('input', 'stin w'); zi.type = 'number'; zi.min = MIN_FONT; zi.max = MAX_FONT; zi.value = zoneSize(z);
+      const set = (n) => { setZoneSize(z, n); zi.value = zoneSize(z); };
+      zi.addEventListener('change', () => set(zi.value));
+      const r = el('span', 'stfont');
+      r.append(stBtn('−', () => set(zoneSize(z) - 1)), zi, stBtn('+', () => set(zoneSize(z) + 1)), el('span', 'dim', hint + ' · défaut ' + def + ' · aussi par Ctrl+molette'));
+      return r;
+    };
+    p.appendChild(stBox('Affichage', stForm([
+      ['Taille des caractères', row, 'mémorisée sur ce poste (desktop-ui.json), appliquée tout de suite, sans « Enregistrer »'],
+      ['Taille de l\'arbre', zoneRow('tree', TREE_DEFAULT, 'navigateur : arbre, filtre, pied'), 'mémorisée sur ce poste, appliquée tout de suite'],
+      ['Taille des cartes', zoneRow('cards', CARDS_DEFAULT, 'cartes ◈ État'), 'mémorisée sur ce poste, appliquée tout de suite'],
+    ])));
     // correspondance de chemins
     p.appendChild(stBox('Correspondance de chemins', stForm([['Chemins', stArea(t.paths, (v) => { t.paths = v; }, 3), 'un par ligne : chemin local => chemin dans le conteneur ' + ovHint('paths')]])));
     // navigateur
