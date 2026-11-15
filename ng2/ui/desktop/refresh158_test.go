@@ -245,6 +245,32 @@ func (f fakeProj) hasTab() bool {
 	return ok
 }
 
+// deadButShown rend déterministe l'état « affiché mais mort » (projet affiché ouvert dont la
+// session n'existe plus) : projTerm.ended() retire l'onglet de lui-même ~6 ms après la mort du
+// client tmux (comportement existant, conservé). On marque donc l'onglet « en détachement » avant
+// de tuer le serveur tmux — ended() rend la main sans rien retirer — puis on pose l'état
+// « closed » que l'onglet aurait affiché : l'onglet reste dans a.terms, session morte.
+func (f fakeProj) deadButShown(t *testing.T) {
+	t.Helper()
+	pt := f.a.term(f.path)
+	if pt == nil {
+		t.Fatal("onglet absent avant la mort de la session")
+	}
+	pt.mu.Lock()
+	pt.detaching = true
+	pt.mu.Unlock()
+	f.tmux("kill-server")
+	end := time.Now().Add(5 * time.Second)
+	for f.sessionAlive() && time.Now().Before(end) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond) // laisse ended() constater le détachement et rendre la main
+	pt.setState("closed", "session tmux disparue")
+	if !f.hasTab() {
+		t.Fatal("onglet retiré malgré detaching : état « affiché mais mort » non reproduit")
+	}
+}
+
 func (f fakeProj) waitTabGone(t *testing.T, d time.Duration) {
 	t.Helper()
 	end := time.Now().Add(d)
@@ -333,7 +359,7 @@ func TestForceCloseGoneSessionThenReopen(t *testing.T) {
 		t.Fatal("projects.json absent (affectation du projet factice)")
 	}
 
-	f.tmux("kill-server") // la session disparaît ; l'onglet reste affiché
+	f.deadButShown(t) // la session disparaît ; l'onglet reste affiché (état « ecagent »)
 	res, err := f.a.Dispatch("forceClose", rawPath(f.path))
 	if err != nil {
 		t.Fatal(err)
