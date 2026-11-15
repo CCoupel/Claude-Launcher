@@ -45,7 +45,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ### Notes de lot — LOT-2 (#158)
 
 - Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
-- QA (`_work/reports/qa-lot2-cycle5-v6.2.0.md`, HEAD `ecea4aa`, cycle 5) : **VALIDATED WITH RESERVATIONS** — code vert ; réserve : la procédure Windows ne couvre pas encore « dubious ownership » (scénario 9 à ajouter). Le cycle 5 remplace le verdict du cycle 4.
+- QA (`_work/reports/qa-lot2-cycle5-v6.2.0.md`, HEAD `ecea4aa`, cycle 5) : **VALIDATED WITH RESERVATIONS** — code vert ; réserve résolue en `c069b8c` : la procédure Windows couvre désormais « dubious ownership » (scénario 9 : UNC, cas résiduel, non-régression). Le cycle 5 remplace le verdict du cycle 4.
   - Tests #158 ciblés (core, desktop, tmux) : PASS, y compris les tests de l'étape GitHub (`TestRefreshGitHubNotLoggedInIsNotRed`, `TestRefreshGitHubRealFailureShowsCause`, `TestForcedMilestoneReadDoesNotQueueBehindBulkRead`).
   - `CGO_ENABLED=1 go test -race ./...` : PASS sur toutes les suites, aucune race ; `TestProjectApplyForeignOwnerTimeout` est vert (#164).
   - `scripts/ci.sh` (désormais en `-race`) : CI OK (57 s), govulncheck sans vulnérabilité, build croisé Windows OK. Résidus #154 : aucun socket `cl-*` nouveau dans `/tmp/tmux-1000`, aucun serveur `cl-desk*`, aucun index.lock.
