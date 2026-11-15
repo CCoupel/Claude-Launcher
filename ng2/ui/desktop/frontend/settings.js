@@ -743,7 +743,7 @@ function confField(D, x) {
     return w;
   }
   if (x.type === 'bool') node = stCheck(d.v[x.key], 'activé', (c) => { touch(c); stRenderFoot(); });
-  else if (x.type === 'enum') node = stSelect(d.v[x.key], (x.options || []).map((o) => [o, o]), (v) => touch(v));
+  else if (x.type === 'enum') node = stSelect(d.v[x.key], (x.options || []).map((o) => [o, (x.key === 'LAYOUT_MODE' && LAYOUT_LABELS[o]) || o]), (v) => touch(v));
   else if (x.type === 'list') node = stArea(d.v[x.key], (v) => touch(v), 2);
   else if (x.type === 'int') { node = stInput(d.v[x.key], (v) => touch(v), '', 'w'); node.inputMode = 'numeric'; }
   else node = stInput(d.v[x.key], (v) => touch(v), x.type === 'intlist' ? 'nombres séparés par des espaces' : '');
@@ -888,6 +888,8 @@ function stPageHub(p) {
   });
 }
 
+const LAYOUT_LABELS = { top: 'Leader en haut', left: 'Leader à gauche' }; // #153
+
 // ── Projet (#148, LOT-3.2) : projectSettings / projectApply ─────────────────
 const PJ_LISTS = ['packages', 'setup', 'on_start', 'watch', 'local'];
 const PJ_LABEL = { packages: 'Paquets', setup: 'setup', on_start: 'on_start', watch: 'watch', local: 'Dossiers local' };
@@ -927,8 +929,8 @@ async function pjLoad(keepDraft) {
     const txt = {};
     for (const k of PJ_LISTS) txt[k] = (e[k] || []).join('\n');
     txt.pbm = pjPbmText(e.packages_by_manager); txt.mounts = pjMountsText(e.mounts);
-    ST.pj = { path, loading: false, data: r, orig: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), env: { image: e.image || '', prefer: e.prefer || '', txt: stClone(txt) } },
-      d: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), env: { image: e.image || '', prefer: e.prefer || '', txt } },
+    ST.pj = { path, loading: false, data: r, orig: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), layout: r.layoutAuto ? '' : String(r.layout || ''), env: { image: e.image || '', prefer: e.prefer || '', txt: stClone(txt) } },
+      d: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), layout: r.layoutAuto ? '' : String(r.layout || ''), env: { image: e.image || '', prefer: e.prefer || '', txt } },
       merged: r.merged || [], mergedProblems: null, result: null, mtime: r.envMtime || '' };
   } catch (e) { ST.pj = { path, loading: false, err: e.message }; }
 }
@@ -951,7 +953,8 @@ function pjEnvChanges() {
 }
 function pjExecChanged() { const p = ST.pj; return !!(p && p.d && (p.d.backend !== p.orig.backend || p.d.image !== p.orig.image)); }
 const pjColorChanged = () => !!(ST.pj && ST.pj.d && ST.pj.d.color !== ST.pj.orig.color);
-const pjDirty = () => !!(ST.pj && ST.pj.d && (pjEnvChanges().length || pjExecChanged() || pjColorChanged()));
+const pjLayoutChanged = () => !!(ST.pj && ST.pj.d && ST.pj.d.layout !== ST.pj.orig.layout);
+const pjDirty = () => !!(ST.pj && ST.pj.d && (pjEnvChanges().length || pjExecChanged() || pjColorChanged() || pjLayoutChanged()));
 
 // aperçu fusionné en direct : le Go fusionne, rien n'est écrit
 function pjPreview() {
@@ -1012,6 +1015,15 @@ function stPageProjet(p) {
   mk('', 'couleur automatique', '');
   for (const c of r.palette || []) mk(String(c), 'couleur ' + c, pjColorCss(c));
   rows.push(['Couleur', sw, r.colorAuto && !d.color ? 'automatique (aucune couleur fixée)' : '']);
+  // Mise en page (#153) : « Comme le réglage global » retire l'exception du projet (PROJECT_LAYOUTS)
+  const lays = r.layouts || [{ id: 'top', label: 'Leader en haut' }, { id: 'left', label: 'Leader à gauche' }];
+  const eff = (lays.find((l) => l.id === r.layout) || {}).label || r.layout || '';
+  const ls = el('select', 'stin'); ls.id = 'pjf-layout';
+  ls.appendChild(Object.assign(el('option', '', 'Comme le réglage global' + (r.layoutAuto && eff ? ' (' + eff + ')' : '')), { value: '' }));
+  for (const l of lays) ls.appendChild(Object.assign(el('option', '', l.label), { value: l.id }));
+  ls.value = d.layout || '';
+  ls.addEventListener('change', () => { d.layout = ls.value; stRenderFoot(); });
+  rows.push(['Mise en page', ls, 'appliquée aux fenêtres ouvertes sans relance (au tour suivant du surveillant) ; réglage global : Réglages › Launcher']);
   const ex = stForm(rows); ex.appendChild(dl);
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
   // Environnement
@@ -1067,12 +1079,13 @@ async function pjSave() {
   const arg = { path: pj.path };
   if (pjExecChanged()) { arg.backend = pj.d.backend; if (pj.d.backend !== 'host') arg.image = pj.d.image; }
   if (pjColorChanged()) arg.color = pj.d.color;
+  if (pjLayoutChanged()) arg.layout = pj.d.layout; // '' : retire l'exception
   const ch = pjEnvChanges();
   if (ch.length) arg.env = { mtime: pj.mtime, changes: ch };
   let r;
   try { r = await call('projectApply', arg); } catch (e) { return; }
   if (!r.ok && ((r.env && r.env.saved) || r.colorSaved)) { // résultat partiel : env.yaml et/ou couleur écrits, la suite a échoué — relire (nouvelle date) et dire quoi
-    const done = [(r.env && r.env.saved) ? 'env.yaml' : '', r.colorSaved ? 'couleur' : ''].filter(Boolean).join(' et ');
+    const done = [(r.env && r.env.saved) ? 'env.yaml' : '', r.colorSaved ? 'config.conf (couleur / mise en page)' : ''].filter(Boolean).join(' et ');
     const msg = (r.msg || 'refusé') + ' — ' + done + ' enregistré' + (done.includes(' et ') ? 's' : '') + '.';
     await pjLoad();
     if (ST.pj) ST.pj.res = { msg };
