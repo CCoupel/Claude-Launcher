@@ -86,6 +86,7 @@ type projTerm struct {
 
 type watchState struct {
 	prevSig, prevRelayout string
+	layoutMode            string // organisation effective au tour précédent (#153)
 	prevCount, beat, wait int
 	prevW, prevH          int
 }
@@ -841,6 +842,9 @@ func sortPanes(p []winPaneFull) {
 
 // tick : un tour du watcher ; fast : sur notification (sans propriétaire ni team).
 func (t *projTerm) tick(fast bool) {
+	if !fast && t.a.confChangedOnDisk() { // config.conf modifié ailleurs : relu à chaud (#153)
+		t.a.configReload(core.ConfConf)
+	}
 	cfg := t.a.conf()
 	// team du projet : lue par le tour lent seulement (fichiers, parfois par
 	// 9P), avant la fenêtre ; le tour rapide reprend la dernière lue
@@ -907,6 +911,13 @@ func (t *projTerm) tick(fast bool) {
 			}
 			t.watch.prevRelayout = r
 		}
+	}
+	// organisation effective changée (réglage global ou du projet) : remise en page, sans relance (#153)
+	if eff := cfg.LayoutOf(t.key); !fast {
+		if t.watch.layoutMode != "" && eff != t.watch.layoutMode && !ro && len(panes) > 1 {
+			arrange()
+		}
+		t.watch.layoutMode = eff
 	}
 	busy := false
 	if tc != nil {
@@ -1242,7 +1253,11 @@ func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *co
 		ids[i] = p.ID
 	}
 	top, bot := core.Classify(ids, leader, tc, t.orderFile())
-	core.ArrangeTeam(t.a.conf(), t.cl(), t.win, panes, w, h, top, bot, t.color)
+	cfg := t.a.conf()
+	cfg.LayoutMode = cfg.LayoutOf(t.key) // organisation effective du projet (PROJECT_LAYOUTS, puis LAYOUT_MODE, #153)
+	if core.ArrangeTeamChecked(cfg, t.cl(), t.win, panes, w, h, top, bot, t.color) {
+		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
+	}
 }
 
 // publish : géométrie, couleurs et noms des panes pour l'interface ; panes

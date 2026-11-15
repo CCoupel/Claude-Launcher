@@ -31,6 +31,7 @@ type Emitter func(name string, data any)
 type App struct {
 	cfg    core.Config
 	confMu sync.RWMutex // cfg relue à chaud (config.go)
+	confAt time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
 	emit   Emitter
 	// mirror : second destinataire des évènements (le navigateur servi par la fenêtre, #163)
 	mirror atomic.Pointer[Emitter]
@@ -98,6 +99,7 @@ func NewApp(emit Emitter) *App {
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
 		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
+	a.confAt = confMtime()
 	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
 		emit(name, data)
 		if m := a.mirror.Load(); m != nil {
@@ -1066,6 +1068,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 			Backend *string
 			Image   *string
 			Color   *string
+			Layout  *string
 			Env     *struct {
 				MTime   string
 				Changes []core.ConfigChange
@@ -1074,7 +1077,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 		}
-		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color}
+		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout}
 		if in.Env != nil {
 			ch.Env = &core.EnvChange{MTime: in.Env.MTime, Changes: in.Env.Changes}
 		}

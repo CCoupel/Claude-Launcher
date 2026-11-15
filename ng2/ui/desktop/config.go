@@ -169,12 +169,35 @@ func (a *App) conf() core.Config {
 	return a.cfg
 }
 
+// confMtime : date de config.conf (zéro s'il est absent).
+func confMtime() time.Time {
+	if st, err := os.Stat(core.ConfigPath()); err == nil {
+		return st.ModTime()
+	}
+	return time.Time{}
+}
+
+// confChangedOnDisk : config.conf a changé depuis la dernière lecture (modification extérieure à
+// l'interface) ; la date est retenue, un seul appelant le voit.
+func (a *App) confChangedOnDisk() bool {
+	at := confMtime()
+	a.confMu.Lock()
+	defer a.confMu.Unlock()
+	if at.Equal(a.confAt) {
+		return false
+	}
+	a.confAt = at
+	return true
+}
+
 // configReload : ce qui est relu sans redémarrer.
 func (a *App) configReload(kind core.ConfigKind) string {
 	switch kind {
 	case core.ConfConf:
+		at := confMtime()
 		cfg := core.LoadConfig()
 		a.confMu.Lock()
+		a.confAt = at
 		cfg.Roots = a.cfg.Roots // la surveillance de l'arborescence garde ses racines
 		a.cfg = cfg
 		a.confMu.Unlock()
