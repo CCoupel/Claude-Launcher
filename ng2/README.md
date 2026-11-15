@@ -1604,12 +1604,12 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 (fichiers de release), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`, `CL_FAKE_TPL_RELEASED`,
 `XDG_CACHE_HOME`.
 
-`scripts/ci.sh` (la CI) isole tmux : les tests reçoivent un `TMUX_TMPDIR` et un `TMPDIR` dédiés, courts, créés
-sous `/tmp` (limite `sun_path` de 108 octets : le dossier du projet est trop long). Le script échoue si un socket de
-test `cl-*` reste dans ce dossier, ou si un `index.lock` subsiste dans le dépôt après les tests (un git concurrent
-bref est toléré ; le verrou est celui de `git rev-parse --git-path index.lock`, valable en worktree). Les sockets du
-launcher réel (`/tmp/tmux-<uid>`) ne sont jamais regardés. `$TMPDIR` ne doit donc pas pointer dans le projet pour
-les tests tmux. Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
+`scripts/ci.sh` (la CI) isole tmux : il crée un dossier dédié et court sous `/tmp` (en dur, `mktemp -d /tmp/clci.XXXXXX`,
+indépendamment de `$TMPDIR` ; limite `sun_path` de 108 octets : le dossier du projet est trop long), et les tests
+reçoivent ce dossier comme `TMUX_TMPDIR` et `TMPDIR`. Le script échoue si un socket de test `cl-*` reste dans ce dossier,
+ou si un `index.lock` subsiste dans le dépôt après les tests (un git concurrent bref est toléré ; le verrou est celui de
+`git rev-parse --git-path index.lock`, valable en worktree). Les sockets du launcher réel (`/tmp/tmux-<uid>`) ne sont
+jamais regardés. Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
 `git describe --dirty` : le suffixe `-dirty` vient de `git status --porcelain`.
 
 Interface native (`ui/desktop`) : décodeur du mode contrôle de tmux (séquence réelle de tmux 3.6,
