@@ -86,3 +86,16 @@ func TestRefreshGitHubRealFailureShowsCause(t *testing.T) {
 		t.Errorf("msg = %q, attendu la cause réelle de gh", msg)
 	}
 }
+
+// « dubious ownership » (projet d'un autre compte sur le partage) malgré safe.directory par
+// appel : étape rouge, avec la commande d'aide à lancer.
+func TestRefreshGitHubOwnershipRedWithHelp(t *testing.T) {
+	a, r, path := githubProject(t, `echo "fatal: detected dubious ownership in repository at '/x'" >&2; exit 128`)
+	state, msg := githubStep(t, r, a, path)
+	if state != "err" {
+		t.Errorf("étape github = %q, attendu err (rouge : pas un cas légitime)", state)
+	}
+	if !strings.Contains(msg, "git config --global --add safe.directory '") || !strings.Contains(msg, "dubious ownership") {
+		t.Errorf("msg = %q, attendu la cause et la commande d'aide", msg)
+	}
+}

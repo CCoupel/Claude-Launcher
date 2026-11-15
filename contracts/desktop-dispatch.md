@@ -401,7 +401,7 @@ l'évènement `refresh` :
   milestones) et réécrit le cache avec la valeur relue. `usage` respecte le délai minimal entre deux appels à l'API
   (`usageMinBackoff`) : dans ce délai, l'étape rend `ok` avec la valeur en cache.
 - Dernier évènement : `done: true`, toujours émis (y compris sur erreur ou dépassement de délai — 30 s au total) ;
-  `msg` résume (« pod absent — projet fermé », « GitHub non relu : délai dépassé »). Un instantané (`snapshot`) et
+  `msg` résume (« pod absent — projet fermé », « GitHub non relu : délai dépassé »). Étape `github` : gh absent ou non connecté, dépôt hors GitHub = cas légitime (`ok`, raison dans `msg`) ; « dubious ownership » (projet d'un autre compte sur un partage, git refuse malgré le `safe.directory` posé par appel) = `err` avec la commande d'aide `git config --global --add safe.directory '<projet>'`. Un instantané (`snapshot`) et
   les cartes à jour suivent.
 - Un onglet dont la session ou le conteneur n'existe plus est retiré ; la ligne du projet reprend l'état relu.
 - La ligne du projet porte `"refreshing": true` dans l'instantané pendant l'opération.

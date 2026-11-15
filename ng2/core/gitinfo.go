@@ -39,7 +39,7 @@ const gitStopWait = 2 * time.Second
 // index.lock) et n'est tué qu'après gitStopWait — jamais de SIGKILL immédiat (#154).
 func gitCmd(ctx context.Context, dir string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...)
-	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	cmd.Env = WithSafeDirectory(append(os.Environ(), "GIT_OPTIONAL_LOCKS=0"), dir)
 	cmd.Cancel = func() error {
 		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil { // Windows : pas de signal, arrêt direct
 			return cmd.Process.Kill()
