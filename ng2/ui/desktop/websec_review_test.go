@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
-	"os/user"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -187,9 +186,6 @@ func TestTokenRotationIsPersisted(t *testing.T) {
 }
 
 func TestTokenRotationWriteFailureIsReported(t *testing.T) {
-	if u, _ := user.Current(); u != nil && u.Uid == "0" {
-		t.Skip("droits de dossier sans effet pour root")
-	}
 	sandbox(t, "", "alpha")
 	var r recorder
 	a := newApp(t, r.emit)
@@ -197,11 +193,15 @@ func TestTokenRotationWriteFailureIsReported(t *testing.T) {
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p)+"\" }\n")
 	a.applyWebUI()
 	l4WaitWebUI(t, a, "on", 5*time.Second)
-	dir := filepath.Dir(desktopWebTokenPath())
-	if err := os.Chmod(dir, 0o500); err != nil {
-		t.Skip("chmod impossible : ", err)
+	// échec d'écriture, portable (pas de droits de dossier, sans effet sous Windows) : un dossier non vide
+	// à la place du fichier du jeton — ni le renommage ni la suppression de l'ancien ne peuvent aboutir
+	tp := desktopWebTokenPath()
+	if err := os.Remove(tp); err != nil {
+		t.Fatal(err)
 	}
-	defer os.Chmod(dir, 0o755)
+	if err := os.MkdirAll(filepath.Join(tp, "occupe"), 0o755); err != nil {
+		t.Fatal(err)
+	}
 	res := a.webUIRegen()
 	if m, _ := res["msg"].(string); res["ok"] != true || !strings.Contains(m, "jeton") {
 		t.Errorf("échec d'écriture non dit : %v", res)

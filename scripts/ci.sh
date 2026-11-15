@@ -20,7 +20,21 @@ for f in ui/desktop/frontend/*.js; do
 done
 
 out=$(mktemp -d)
-trap 'rm -rf "$out"' EXIT
+# nettoyage des dossiers temporaires : un stockage de conteneurs rootless laissé par un test (podman :
+# couches overlay aux droits restreints) résiste à « rm -rf » ; chmod puis, à défaut, « podman unshare ».
+# Un échec ne fait pas échouer une CI verte (le dossier est sous /tmp) : il est signalé.
+cleanup_tmp() {
+  local d
+  for d in "$@"; do
+    [ -n "$d" ] && [ -e "$d" ] || continue
+    chmod -R u+rwX "$d" 2>/dev/null || true
+    rm -rf "$d" 2>/dev/null && continue
+    if command -v podman >/dev/null 2>&1; then podman unshare rm -rf "$d" 2>/dev/null || true; fi
+    rm -rf "$d" 2>/dev/null || echo "⚠ nettoyage incomplet de $d (stockage de conteneurs d'un test ?) : à supprimer à la main" >&2
+  done
+  return 0
+}
+trap 'cleanup_tmp "$out"' EXIT
 
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*)
@@ -41,7 +55,7 @@ case "$(uname -s)" in
     # TMUX_TMPDIR et TMPDIR : tout tmux des tests y place son socket ; les sockets du
     # launcher réel (/tmp/tmux-<uid>) ne sont regardés que par le filet ci-dessous (préfixes de test).
     tdir=$(mktemp -d /tmp/clci.XXXXXX)
-    trap 'rm -rf "$out" "$tdir"' EXIT
+    trap 'cleanup_tmp "$out" "$tdir"' EXIT
     # verrou : chemin valable aussi en worktree ; un verrou déjà là au départ n'est pas le nôtre
     lock=$(git rev-parse --path-format=absolute --git-path index.lock)
     lock_before=0; [ -e "$lock" ] && lock_before=1

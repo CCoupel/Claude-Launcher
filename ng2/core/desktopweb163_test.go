@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -127,9 +128,11 @@ func TestValidateBackendsDesktopWeb(t *testing.T) {
 		t.Errorf("« 8770 » et 127.0.0.1:8770 sont la même adresse : refus attendu : %v", ps)
 	}
 	// identique au serveur des fichiers PAR DÉFAUT (browser_server non déclaré)
-	ps = val("defaults:\n  desktop_web: { listen: '" + defaultBrowserListen + "' }\n")
+	// (le défaut de browser_server dépend du système : 8765, 8766 sous Windows — celui du système courant)
+	dl, _ := defaultListenFor(runtime.GOOS)
+	ps = val("defaults:\n  desktop_web: { listen: '" + dl + "' }\n")
 	if len(problemsOf(ps, SevError)) == 0 {
-		t.Errorf("listen égal au port par défaut du serveur des fichiers (%s) accepté : %v", defaultBrowserListen, ps)
+		t.Errorf("listen égal au port par défaut du serveur des fichiers (%s) accepté : %v", dl, ps)
 	}
 	// ports différents : rien
 	ps = val("defaults:\n  browser_server: { listen: '127.0.0.1:8770' }\n  desktop_web: { listen: '127.0.0.1:8771' }\n")
