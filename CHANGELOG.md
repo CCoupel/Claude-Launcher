@@ -26,6 +26,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Carte TEAM : les colonnes de version disparaissent des lignes, la carte est plus étroite (#151)
 
 ### Fixed
+- Bascule de mise en page (#153) : la latence dépassait 15 s sur un partage réseau Windows ; elle est désormais immédiate dans l'interface native (`50101a7`, `d1bd4d2`)
 - Course de données sur `InitSynced` et `init-project.md` pendant les vérifications de mises à jour concurrentes : protégés par un verrou (`fa200eb`)
 - Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus `git describe --dirty` : plus de `index.lock` laissé par le launcher (#154)
 - Tests : les sockets tmux de test sont isolés dans un dossier dédié ; `scripts/ci.sh` échoue sur un socket de test résiduel ou sur un `index.lock` orphelin (#154)
@@ -101,3 +102,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Procédures à jouer à la main en QUALIF (`tests/procedures/`) :
   - Windows (`ui-desktop/organisations-153/organisations-windows.md`) : S1 à S4 (réglage global, exception par projet, 1 à 6 teammates avec panes cachés, deux launchers). La parité `confLite` de `PROJECT_LAYOUTS` ne se teste pas hors Windows.
   - Linux (`ui-tmux/organisations-153/organisations-linux.md`) : S1 à S4 (global avec `Ctrl+B R`, exception, panes cachés avec lignes de titre, deux launchers).
+- Cycle 2 (latence de la bascule, `_work/reports/qa-lot5-cycle2-v6.2.0.md`, HEAD `50101a7`) : **VALIDATED WITH RESERVATIONS**.
+  - Latence mesurée sur disque local : leader à gauche ou en haut en ~20 ms (critère < 1 s) ; la remise en page est faite tout de suite, sans attendre le tour du surveillant (`d1bd4d2`).
+  - R-G aggravée : `scripts/ci.sh` à 96 s, `-race` ui/desktop à 90 s, au-dessus du budget indicatif de ~60 s (suivi par l'issue #179).
+  - La latence sous Windows vers `\\wsl.localhost` (> 15 s avant correctif) reste à confirmer en QUALIF ; côté Linux, la coque réagit en 1 à 2 s (relecture de la date de `config.conf`).
+- QUALIF sur 6.2.0.9 : Windows S1–S6, Linux S1–S4 (procédures ci-dessus).

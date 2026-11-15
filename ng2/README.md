@@ -363,7 +363,9 @@ declare -A PROJECT_LAYOUTS=(
 ```
 
 Le changement s'applique aux projets ouverts sans relance : la coque et l'interface native relisent `config.conf`, et
-la fenêtre est remise en page quand son organisation effective change. Seuls les panes visibles sont disposés. Si tmux
+la fenêtre est remise en page quand son organisation effective change. Dans l'interface native, ce changement (bouton de
+bascule, Réglages, ou `config.conf` modifié à la main) est appliqué **immédiatement** ; dans la coque Linux, en 1 à 2 s.
+Seuls les panes visibles sont disposés. Si tmux
 refuse la disposition `left` (fenêtre trop petite), le projet revient à `top` avec un message ; `Ctrl+B R` remet en
 ordre dans les deux cas.
 
