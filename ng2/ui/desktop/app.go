@@ -1036,18 +1036,18 @@ func (a *App) DispatchFrom(from origin, method string, raw json.RawMessage) (any
 		switch method {
 		case "clipboardRead", "clipboardWrite":
 			return clipboardUnavailable(), nil
-		case "webUIOpen":
-			return nil, fmt.Errorf("webUIOpen : réservé à la fenêtre native")
+		case "webUIOpen", "webUIRegenerateToken":
+			return nil, fmt.Errorf("%s : réservé à la fenêtre native", method)
 		case "quit", "setTheme":
 			if !a.web { // « desktop --web » : le navigateur est la seule interface, ils y restent permis
 				return nil, fmt.Errorf("%s : réservé à la fenêtre native", method)
 			}
 		}
 	}
-	return a.dispatch(method, raw)
+	return a.dispatch(from == originWeb, method, raw)
 }
 
-func (a *App) dispatch(method string, raw json.RawMessage) (any, error) {
+func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error) {
 	// méthodes aux arguments structurés (le décodage générique ci-dessous
 	// attend des chaînes : « backend » y est un nom, ici un objet)
 	switch method {
@@ -1099,7 +1099,7 @@ func (a *App) dispatch(method string, raw json.RawMessage) (any, error) {
 		if err := a.checkProjectArg(core.ConfigKind(in.Kind) == core.ConfProjectEnv, in.Path); err != nil {
 			return nil, err
 		}
-		return a.configApply(core.ConfigKind(in.Kind), in.Path, in.MTime, in.Changes)
+		return a.configApplyAs(web, core.ConfigKind(in.Kind), in.Path, in.MTime, in.Changes)
 	}
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
@@ -1272,7 +1272,7 @@ func (a *App) dispatch(method string, raw json.RawMessage) (any, error) {
 		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
 			return nil, err
 		}
-		return a.configSave(core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
+		return a.configSaveAs(web, core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
 	case "configModel": // écran Réglages (#118) : fichier lu en modèle
 		return a.configModel(core.ConfigKind(arg.Kind), arg.Path)
 	case "backendStates": // états et charge des pools, depuis le cache du diagnostic
@@ -1281,6 +1281,8 @@ func (a *App) dispatch(method string, raw json.RawMessage) (any, error) {
 		return nil, a.quitApp(arg.Mode)
 	case "webUIOpen": // #163 : interface web de la fenêtre dans le navigateur du poste
 		return a.webUIOpen(), nil
+	case "webUIRegenerateToken": // jeton régénéré : sessions et flux des navigateurs révoqués
+		return a.webUIRegenerateToken(), nil
 	}
 	return nil, fmt.Errorf("appel inconnu : %s", method)
 }

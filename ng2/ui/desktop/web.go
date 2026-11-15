@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"claude-launcher-ng2/core"
 )
 
 // ── Mode web : la même interface dans le navigateur ───────────────────────
@@ -41,8 +43,66 @@ type webBridge struct {
 	// strictHost du mode --web
 	hosts map[string]bool
 
-	mu   sync.Mutex
-	subs map[chan []byte]bool
+	mu       sync.Mutex
+	subs     map[chan []byte]bool
+	sessions map[string]bool // identifiants de session en mémoire (le cookie porte l'un d'eux, jamais le jeton)
+}
+
+// maxSubscribers : plafond de flux d'évènements ouverts (un navigateur en ouvre un).
+const maxSubscribers = 32
+
+// setToken : nouveau jeton ; sessions et flux ouverts révoqués.
+func (w *webBridge) setToken(t string) {
+	w.mu.Lock()
+	w.token = t
+	w.mu.Unlock()
+	w.revokeAll()
+}
+
+func (w *webBridge) tokenNow() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.token
+}
+
+// revokeAll : sessions oubliées, flux d'évènements fermés (les navigateurs doivent se ré-amorcer).
+func (w *webBridge) revokeAll() {
+	w.mu.Lock()
+	w.sessions = nil
+	w.mu.Unlock()
+	w.closeAll()
+}
+
+// cookieName : « cl_session_<port> » — un cookie ne distingue pas les ports d'un même hôte, le
+// nom évite les collisions entre deux serveurs de l'interface de la machine.
+func (w *webBridge) cookieName(r *http.Request) string {
+	port := w.port
+	if port == "" {
+		if _, p, err := net.SplitHostPort(r.Host); err == nil {
+			port = p
+		}
+	}
+	if port == "" {
+		return "cl_session"
+	}
+	return "cl_session_" + port
+}
+
+func (w *webBridge) newSession() string {
+	id := newToken() + newToken()
+	w.mu.Lock()
+	if w.sessions == nil {
+		w.sessions = map[string]bool{}
+	}
+	w.sessions[id] = true
+	w.mu.Unlock()
+	return id
+}
+
+func (w *webBridge) validSession(id string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.sessions[id]
 }
 
 func newToken() string {
@@ -72,10 +132,10 @@ func (w *webBridge) emit(name string, data any) {
 // jeton de l'URL. Les appels (/api/call, /api/events) n'acceptent que le cookie :
 // le jeton d'une URL traîne dans l'historique, les journaux et l'en-tête Referer.
 func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
-	if c, err := r.Cookie("cl_token"); err == nil && subtle.ConstantTimeCompare([]byte(c.Value), []byte(w.token)) == 1 {
+	if c, err := r.Cookie(w.cookieName(r)); err == nil && c.Value != "" && w.validSession(c.Value) {
 		return true
 	}
-	return allowQuery && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("t")), []byte(w.token)) == 1
+	return allowQuery && subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("t")), []byte(w.tokenNow())) == 1
 }
 
 // sameOrigin : refuse un appel dont l'en-tête Origin, s'il est présent, n'est pas
@@ -140,7 +200,9 @@ func (w *webBridge) handler() http.Handler {
 				http.Error(rw, "jeton manquant : ouvrir l'URL affichée au lancement", http.StatusForbidden)
 				return
 			}
-			http.SetCookie(rw, &http.Cookie{Name: "cl_token", Value: w.token, Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire,
+			// révoqué à l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton
+			http.SetCookie(rw, &http.Cookie{Name: w.cookieName(r), Value: w.newSession(), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
 		}
 		rw.Header().Set("Cache-Control", "no-store")
 		files.ServeHTTP(rw, r)
@@ -185,6 +247,11 @@ func (w *webBridge) handler() http.Handler {
 		rw.Header().Set("Cache-Control", "no-store")
 		ch := make(chan []byte, 4096)
 		w.mu.Lock()
+		if len(w.subs) >= maxSubscribers {
+			w.mu.Unlock()
+			http.Error(rw, "trop de flux d'évènements ouverts", http.StatusServiceUnavailable)
+			return
+		}
 		w.subs[ch] = true
 		w.mu.Unlock()
 		defer func() {
@@ -218,6 +285,27 @@ func (w *webBridge) handler() http.Handler {
 	return w.secured(mux)
 }
 
+// configureListener : port, contrôle de Host selon l'écoute. Boucle locale : 127.0.0.1, localhost,
+// [::1] ; toute autre écoute : les noms de desktop_web (hôte d'écoute, nom de la machine, localhost)
+// et un avertissement à afficher (« hors boucle locale »).
+func (w *webBridge) configureListener(ln net.Listener) (warn string) {
+	ta, ok := ln.Addr().(*net.TCPAddr)
+	if !ok {
+		return ""
+	}
+	w.strictHost, w.port = ta.IP.IsLoopback(), strconv.Itoa(ta.Port)
+	if !w.strictHost {
+		w.hosts = core.DesktopWebConf{Listen: ln.Addr().String()}.AllowedHosts(core.HubHost())
+		return core.LANWarning(ln.Addr().String())
+	}
+	return ""
+}
+
+// newHTTPServer : serveur avec ses délais (en-têtes, inactivité) et la taille des en-têtes bornés.
+func newHTTPServer(h http.Handler) *http.Server {
+	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 16}
+}
+
 // RunWeb : interface servie sur addr (« 127.0.0.1:0 » : port libre) ; open :
 // ouvrir le navigateur par défaut. Bloque jusqu'à la sortie.
 func RunWeb(addr string, open bool) error {
@@ -233,13 +321,13 @@ func RunWeb(addr string, open bool) error {
 	if err != nil {
 		return err
 	}
-	if ta, ok := ln.Addr().(*net.TCPAddr); ok {
-		w.strictHost, w.port = ta.IP.IsLoopback(), strconv.Itoa(ta.Port)
+	if warn := w.configureListener(ln); warn != "" {
+		fmt.Println("⚠ " + warn)
 	}
-	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.token)
+	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.tokenNow())
 	fmt.Println("Claude Launcher (interface web) :", url)
 	fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
-	srv := &http.Server{Handler: w.handler(), ReadHeaderTimeout: 10 * time.Second}
+	srv := newHTTPServer(w.handler())
 	done := make(chan struct{})
 	quitHook = func() {
 		go func() {

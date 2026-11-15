@@ -99,9 +99,24 @@ func (a *App) currentToken() string {
 // configSave : enregistre ; conflit : rend {conflict, mtime actuel} pour
 // proposer de recharger ou d'écraser.
 func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (map[string]any, error) {
+	return a.configSaveAs(false, kind, project, content, mtime)
+}
+
+// errWebDesktopWeb : un client web ne modifie pas desktop_web (interface web, allow_lan).
+const errWebDesktopWeb = "le réglage desktop_web (interface web, allow_lan) ne se modifie que depuis la fenêtre native"
+
+// configSaveAs : configSave ; web : appel d'un client web du processus de la fenêtre — il ne peut
+// pas modifier les réglages desktop_web (un client web rouvrirait l'interface sur le réseau).
+func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mtime string) (map[string]any, error) {
 	f, err := a.configFile(kind, "", project)
 	if err != nil {
 		return nil, err
+	}
+	if web && kind == core.ConfBackends {
+		old, _ := os.ReadFile(f.Path)
+		if core.DesktopWebChanged(old, []byte(content)) {
+			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: errWebDesktopWeb}}}, nil
+		}
 	}
 	var expected time.Time
 	if mtime != "" {
@@ -264,6 +279,11 @@ func maskProblems(ps []core.ConfigProblem, tokens ...string) []core.ConfigProble
 // l'éditeur de texte : validation de core, contrôle de conflit, copie .bak.
 // Résultat : celui de configSave.
 func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes []core.ConfigChange) (map[string]any, error) {
+	return a.configApplyAs(false, kind, project, mtime, changes)
+}
+
+// configApplyAs : configApply ; web : voir configSaveAs.
+func (a *App) configApplyAs(web bool, kind core.ConfigKind, project, mtime string, changes []core.ConfigChange) (map[string]any, error) {
 	fileKind := kind
 	switch kind {
 	case kindHub:
@@ -308,7 +328,7 @@ func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes [
 		}
 		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: msg}}}, nil
 	}
-	return a.configSave(fileKind, project, string(out), mtime)
+	return a.configSaveAs(web, fileKind, project, string(out), mtime)
 }
 
 // backendTest : étapes du test d'un backend du formulaire (pas forcément

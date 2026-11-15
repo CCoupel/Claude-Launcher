@@ -3,13 +3,14 @@ package desktop
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
 	"claude-launcher-ng2/core"
 )
@@ -43,27 +44,48 @@ type webUI struct {
 	srv    *http.Server
 	bridge *webBridge
 	listen string // adresse réellement écoutée (vide : arrêté)
+	last   string // dernière adresse écoutée, même arrêtée : un changement d'adresse renouvelle le jeton
 	state  WebUIState
 }
 
-// desktopWebToken : jeton de l'interface web, tiré une fois par poste et conservé
-// (CacheDir()/desktop-web-token, 0600) : un navigateur déjà ouvert reste valable après
-// une relance de la fenêtre.
-func desktopWebToken() string {
-	p := filepath.Join(core.CacheDir(), "desktop-web-token")
+// desktopWebTokenPath : jeton de l'interface web, tiré une fois par poste.
+func desktopWebTokenPath() string { return filepath.Join(core.CacheDir(), "desktop-web-token") }
+
+// desktopWebToken : jeton conservé (CacheDir()/desktop-web-token, 0600) pour qu'un navigateur
+// qui a le lien reste valable après une relance de la fenêtre ; créé atomiquement (O_EXCL, 0600).
+// Erreur : le jeton rendu n'est alors pas conservé (la raison est dite dans webUI.msg).
+func desktopWebToken() (string, error) {
+	p := desktopWebTokenPath()
 	if b, err := os.ReadFile(p); err == nil {
 		if t := strings.TrimSpace(string(b)); len(t) >= 32 {
-			return t
+			return t, nil
 		}
+		_ = os.Remove(p) // illisible ou trop court : retiré, retiré au tirage suivant
 	}
 	b := make([]byte, 24)
 	_, _ = rand.Read(b)
 	t := hex.EncodeToString(b)
 	_ = os.MkdirAll(filepath.Dir(p), 0o755)
-	if err := os.WriteFile(p, []byte(t+"\n"), 0o600); err == nil {
-		_ = os.Chmod(p, 0o600) // droits restreints même si le fichier existait
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		if errors.Is(err, os.ErrExist) { // tiré à l'instant par un autre : celui-là fait foi
+			if b, e := os.ReadFile(p); e == nil && len(strings.TrimSpace(string(b))) >= 32 {
+				return strings.TrimSpace(string(b)), nil
+			}
+		}
+		return t, fmt.Errorf("jeton non conservé (%v) : il ne survivra pas à une relance", err)
 	}
-	return t
+	defer f.Close()
+	if _, err := f.WriteString(t + "\n"); err != nil {
+		return t, fmt.Errorf("jeton non conservé (%v) : il ne survivra pas à une relance", err)
+	}
+	return t, nil
+}
+
+// rotateDesktopWebToken : jeton remplacé (fichier supprimé, nouveau tirage).
+func rotateDesktopWebToken() (string, error) {
+	_ = os.Remove(desktopWebTokenPath())
+	return desktopWebToken()
 }
 
 // WebUI : état courant du serveur de l'interface.
@@ -110,11 +132,21 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf) {
 		return
 	}
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
-	b := &webBridge{app: a, token: desktopWebToken(), subs: map[chan []byte]bool{}, port: port,
-		hosts: conf.AllowedHosts(core.HubHost())}
-	srv := &http.Server{Handler: b.handler(), ReadHeaderTimeout: 10 * time.Second}
-	w.srv, w.bridge, w.listen = srv, b, conf.Listen
-	w.state = WebUIState{State: "on", Listen: conf.Listen, Msg: conf.Warn}
+	var tok string
+	var terr error
+	if w.last != "" && w.last != conf.Listen { // adresse changée (surtout hors boucle locale) : nouveau jeton
+		tok, terr = rotateDesktopWebToken()
+	} else {
+		tok, terr = desktopWebToken()
+	}
+	b := &webBridge{app: a, token: tok, subs: map[chan []byte]bool{}, port: port, hosts: conf.AllowedHosts(core.HubHost())}
+	srv := newHTTPServer(b.handler())
+	w.srv, w.bridge, w.listen, w.last = srv, b, conf.Listen, conf.Listen
+	msg := conf.Warn
+	if terr != nil {
+		msg = strings.TrimSpace(msg + " " + terr.Error())
+	}
+	w.state = WebUIState{State: "on", Listen: conf.Listen, Msg: msg}
 	mirror := Emitter(b.emit)
 	a.mirror.Store(&mirror) // les évènements partent aussi au navigateur
 	go func() { _ = srv.Serve(ln) }()
@@ -127,7 +159,7 @@ func (a *App) stopWebUILocked() {
 	}
 	a.mirror.Store(nil)
 	_ = w.srv.Close()
-	w.bridge.closeAll() // verrou propre au pont : pas celui de w
+	w.bridge.revokeAll() // sessions révoquées, flux fermés (verrou propre au pont : pas celui de w)
 	w.srv, w.bridge, w.listen = nil, nil, ""
 }
 
@@ -145,6 +177,10 @@ func (a *App) webUIOpen() map[string]any {
 	w := &a.webui
 	w.mu.Lock()
 	on, listen := w.srv != nil, w.listen
+	var tok string
+	if w.bridge != nil {
+		tok = w.bridge.tokenNow() // le jeton du serveur : un seul tirage
+	}
 	w.mu.Unlock()
 	if !on {
 		return map[string]any{"ok": false, "msg": "l'interface web est désactivée (Réglages › Ce poste › Interface web)"}
@@ -153,7 +189,7 @@ func (a *App) webUIOpen() map[string]any {
 	if h == "" || h == "0.0.0.0" || h == "::" {
 		h = "localhost"
 	}
-	openURL("http://" + net.JoinHostPort(h, port) + "/?t=" + desktopWebToken())
+	openURL("http://" + net.JoinHostPort(h, port) + "/?t=" + tok)
 	return map[string]any{"ok": true}
 }
 
@@ -178,4 +214,23 @@ func (w *webBridge) hostAllowed(r *http.Request) bool {
 		return false
 	}
 	return port == "" || w.port == "" || port == w.port
+}
+
+// webUIRegenerateToken : nouveau jeton — l'ancien lien ne marche plus, les sessions et flux des
+// navigateurs connectés sont révoqués. Fenêtre native seulement. Serveur arrêté : le fichier est
+// supprimé, le prochain démarrage en tire un nouveau.
+func (a *App) webUIRegenerateToken() map[string]any {
+	w := &a.webui
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	tok, err := rotateDesktopWebToken()
+	if w.bridge != nil {
+		w.bridge.setToken(tok)
+	}
+	if err != nil {
+		w.state.Msg = err.Error()
+		go a.changed()
+		return map[string]any{"ok": true, "msg": err.Error()}
+	}
+	return map[string]any{"ok": true}
 }
