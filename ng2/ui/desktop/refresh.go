@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"fmt"
+	"maps"
 	"os/exec"
 	"strings"
 	"sync"
@@ -220,13 +221,11 @@ func (a *App) refreshSummary(r *refreshRun, timedOut bool) string {
 func (a *App) refreshCtr(path string) (bool, error) {
 	v := core.ReadCtrViewForced([]string{path})
 	be := v.Assign[path]
+	// copie à l'écriture : les maps de a.ctr sont partagées avec des lecteurs hors
+	// verrou (readCtr / storeCtrSnapshots itèrent la vue qu'ils viennent de
+	// publier) ; une vue publiée n'est donc jamais modifiée en place
 	a.mu.Lock()
-	if a.ctr.Env == nil { // avant la première lecture
-		a.ctr = core.CtrView{Env: map[string]bool{}, Assign: map[string]string{}, Found: map[string]core.Found{},
-			Errs: map[string]string{}, Diag: map[string][]core.Problem{}, Bad: map[string]string{},
-			Live: map[string]core.LiveSess{}, Dups: map[string][]string{}, Down: map[string]string{}}
-	}
-	c := &a.ctr
+	c := cloneCtrView(a.ctr)
 	c.Env[path], c.Assign[path] = v.Env[path], v.Assign[path]
 	if !v.Env[path] {
 		delete(c.Env, path)
@@ -257,6 +256,7 @@ func (a *App) refreshCtr(path string) (bool, error) {
 		dn, ok := v.Down[be]
 		setOrDel(ok, func() { c.Down[be] = dn }, func() { delete(c.Down, be) })
 	}
+	a.ctr = c
 	a.mu.Unlock()
 	a.storeCtrSnapshots(a.ctrCopy())
 	a.changed()
@@ -268,6 +268,23 @@ func (a *App) refreshCtr(path string) (bool, error) {
 		return false, fmt.Errorf("état du conteneur inconnu — %s", bad)
 	}
 	return true, nil
+}
+
+// cloneCtrView : copie de chaque map de la vue (valeurs copiées telles quelles :
+// tranches et structures ne sont jamais modifiées en place).
+func cloneCtrView(v core.CtrView) core.CtrView {
+	return core.CtrView{
+		Env: maps.Clone(orEmpty(v.Env)), Assign: maps.Clone(orEmpty(v.Assign)), Found: maps.Clone(orEmpty(v.Found)),
+		Errs: maps.Clone(orEmpty(v.Errs)), Diag: maps.Clone(orEmpty(v.Diag)), Bad: maps.Clone(orEmpty(v.Bad)),
+		Live: maps.Clone(orEmpty(v.Live)), Dups: maps.Clone(orEmpty(v.Dups)), Down: maps.Clone(orEmpty(v.Down)),
+	}
+}
+
+func orEmpty[K comparable, V any](m map[K]V) map[K]V {
+	if m == nil {
+		return map[K]V{}
+	}
+	return m
 }
 
 func (a *App) ctrCopy() core.CtrView {
