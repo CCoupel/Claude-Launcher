@@ -62,13 +62,19 @@
           "credentials_env": [],
           "verified": {
             "status": "ok",
-            "at": "2026-11-15T10:31:07Z",
+            "at": "2026-11-15T12:49:52Z",
             "checks": [
               "target-dir",
               "target-writable",
               "disk-space",
               "go-toolchain",
-              "build-dir-ignored"
+              "build-dir-ignored",
+              "qualif-artefacts-sha",
+              "k8s-context",
+              "k8s-namespace",
+              "k8s-pvc-rwx-bound",
+              "k8s-rbac-sts",
+              "k8s-exec"
             ]
           }
         }
