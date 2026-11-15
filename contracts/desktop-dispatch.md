@@ -476,6 +476,9 @@ hubs:
   - **Sessions** : 64 au plus (la plus ancienne est évincée), expirées après 8 h d'inactivité. **Flux d'évènements** :
     émission sans attente (un client dont le tampon est plein est abandonné et se reconnecte), verrou distinct de
     l'authentification.
+  - Un flux d'évènements est fermé avec sa session (expiration — un flux ouvert n'est pas une activité —, éviction,
+    révocation) ; chaque envoi a une échéance d'écriture de 10 s (connexion figée = flux fermé) et un gestionnaire compte dans
+    le plafond de 32 flux jusqu'à sa vraie sortie.
   - **Jeton persisté** : la régénération est réécrite atomiquement sur disque ; la dernière adresse d'écoute est gardée
     (`desktop-web-listen`) : un changement d'adresse entre deux lancements renouvelle aussi le jeton. Un échec d'écriture
     est dit dans `webUI.msg`.

@@ -17,6 +17,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -46,8 +47,10 @@ type webBridge struct {
 	mu       sync.Mutex           // jeton et sessions (authentification, appels)
 	sessions map[string]time.Time // identifiants de session en mémoire → dernier usage (le cookie porte l'un d'eux, jamais le jeton)
 
-	subMu sync.Mutex // abonnés SSE : jamais tenu en même temps que mu, jamais pendant une attente
-	subs  map[chan []byte]bool
+	subMu   sync.Mutex // abonnés SSE : jamais tenu en même temps que mu, jamais pendant une attente
+	subs    map[chan []byte]bool
+	subSess map[chan []byte]string // session de chaque abonné : fermé avec elle (expiration, éviction, révocation)
+	active  atomic.Int32           // gestionnaires de flux vivants (jusqu'à leur vraie sortie, même retirés de subs)
 }
 
 const (
@@ -57,8 +60,11 @@ const (
 // sessionIdle : durée d'inactivité au-delà de laquelle une session expire (variable : tests).
 var sessionIdle = 8 * time.Hour
 
-// maxSubscribers : plafond de flux d'évènements ouverts (un navigateur en ouvre un).
-const maxSubscribers = 32
+// maxSubscribers : plafond de flux d'évènements ouverts (un navigateur en ouvre un) ; variable : tests.
+var maxSubscribers = 32
+
+// sseWriteTimeout : échéance de chaque envoi d'évènement ; au-delà (connexion figée) le flux est fermé.
+var sseWriteTimeout = 10 * time.Second
 
 // setToken : nouveau jeton ; sessions et flux ouverts révoqués.
 func (w *webBridge) setToken(t string) {
@@ -100,14 +106,15 @@ func (w *webBridge) cookieName(r *http.Request) string {
 func (w *webBridge) newSession() string {
 	id := newToken() + newToken()
 	now := time.Now()
+	var gone []string
 	w.mu.Lock()
-	defer w.mu.Unlock()
 	if w.sessions == nil {
 		w.sessions = map[string]time.Time{}
 	}
 	for k, at := range w.sessions { // expirées d'abord
 		if now.Sub(at) > sessionIdle {
 			delete(w.sessions, k)
+			gone = append(gone, k)
 		}
 	}
 	for len(w.sessions) >= maxSessions { // puis la plus ancienne
@@ -118,9 +125,52 @@ func (w *webBridge) newSession() string {
 			}
 		}
 		delete(w.sessions, oldest)
+		gone = append(gone, oldest)
 	}
 	w.sessions[id] = now
+	w.mu.Unlock()
+	w.dropSubs(gone...) // les flux des sessions perdues sont fermés (verrous pris l'un après l'autre)
 	return id
+}
+
+// sessionAlive : la session existe et n'a pas expiré — sans la prolonger (un flux ouvert n'est pas une activité).
+func (w *webBridge) sessionAlive(id string) bool {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	at, ok := w.sessions[id]
+	return ok && time.Since(at) <= sessionIdle
+}
+
+// dropSubs : ferme les flux rattachés aux sessions ids.
+func (w *webBridge) dropSubs(ids ...string) {
+	if len(ids) == 0 {
+		return
+	}
+	gone := map[string]bool{}
+	for _, id := range ids {
+		gone[id] = true
+	}
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
+	for ch, id := range w.subSess {
+		if gone[id] && w.subs[ch] {
+			delete(w.subs, ch)
+			delete(w.subSess, ch)
+			close(ch)
+		}
+	}
+}
+
+// checkEvery : période de contrôle de la session d'un flux ouvert (courte si l'inactivité tolérée l'est).
+func checkEvery() time.Duration {
+	d := sessionIdle / 4
+	if d > 5*time.Second {
+		d = 5 * time.Second
+	}
+	if d < 20*time.Millisecond {
+		d = 20 * time.Millisecond
+	}
+	return d
 }
 
 // validSession : la session existe et n'a pas expiré ; chaque usage la prolonge.
@@ -160,6 +210,7 @@ func (w *webBridge) emit(name string, data any) {
 		case ch <- b:
 		default:
 			delete(w.subs, ch)
+			delete(w.subSess, ch)
 			close(ch)
 		}
 	}
@@ -275,47 +326,74 @@ func (w *webBridge) handler() http.Handler {
 			http.Error(rw, "refusé", http.StatusForbidden)
 			return
 		}
-		fl, ok := rw.(http.Flusher)
-		if !ok {
+		rc := http.NewResponseController(rw)
+		if _, ok := rw.(http.Flusher); !ok {
 			http.Error(rw, "flux impossible", http.StatusInternalServerError)
 			return
+		}
+		// plafond : un gestionnaire compte jusqu'à sa vraie sortie, même si emit l'a retiré des abonnés
+		if int(w.active.Add(1)) > maxSubscribers {
+			w.active.Add(-1)
+			http.Error(rw, "trop de flux d'évènements ouverts", http.StatusServiceUnavailable)
+			return
+		}
+		defer w.active.Add(-1)
+		sid := ""
+		if c, err := r.Cookie(w.cookieName(r)); err == nil {
+			sid = c.Value
 		}
 		rw.Header().Set("Content-Type", "text/event-stream")
 		rw.Header().Set("Cache-Control", "no-store")
 		ch := make(chan []byte, 4096)
 		w.subMu.Lock()
-		if len(w.subs) >= maxSubscribers {
-			w.subMu.Unlock()
-			http.Error(rw, "trop de flux d'évènements ouverts", http.StatusServiceUnavailable)
-			return
+		if w.subSess == nil {
+			w.subSess = map[chan []byte]string{}
 		}
-		w.subs[ch] = true
+		w.subs[ch], w.subSess[ch] = true, sid
 		w.subMu.Unlock()
 		defer func() {
 			w.subMu.Lock()
 			if w.subs[ch] {
 				delete(w.subs, ch)
+				delete(w.subSess, ch)
 				close(ch)
 			}
 			w.subMu.Unlock()
 		}()
-		fmt.Fprint(rw, ": ok\n\n")
-		fl.Flush()
+		// chaque envoi a son échéance : une connexion figée fait échouer l'écriture au lieu de bloquer le gestionnaire
+		send := func(format string, args ...any) bool {
+			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+			if _, err := fmt.Fprintf(rw, format, args...); err != nil {
+				return false
+			}
+			return rc.Flush() == nil
+		}
+		if !send(": ok\n\n") {
+			return
+		}
 		ping := time.NewTicker(20 * time.Second)
 		defer ping.Stop()
+		check := time.NewTicker(checkEvery())
+		defer check.Stop()
 		for {
 			select {
 			case <-r.Context().Done():
 				return
+			case <-check.C:
+				if !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
+					return
+				}
 			case <-ping.C:
-				fmt.Fprint(rw, ": ping\n\n")
-				fl.Flush()
+				if !send(": ping\n\n") {
+					return
+				}
 			case b, ok := <-ch:
 				if !ok {
 					return
 				}
-				fmt.Fprintf(rw, "data: %s\n\n", b)
-				fl.Flush()
+				if !send("data: %s\n\n", b) {
+					return
+				}
 			}
 		}
 	})

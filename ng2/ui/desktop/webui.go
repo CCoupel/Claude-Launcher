@@ -246,6 +246,7 @@ func (w *webBridge) closeAll() {
 	defer w.subMu.Unlock()
 	for ch := range w.subs {
 		delete(w.subs, ch)
+		delete(w.subSess, ch)
 		close(ch)
 	}
 }
