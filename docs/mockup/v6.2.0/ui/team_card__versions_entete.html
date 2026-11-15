@@ -1,0 +1,135 @@
+<!--
+mockup:
+  composant: team_card
+  feature: versions_entete
+  version: 6.2.0
+  type: ui
+  issue: "#151"
+  validee_le: 2026-11-15
+  proposition_retenue: "A — Versions dans le titre"
+  complete: ["docs/mockup/v6.1.0/ui/team_card__panes_caches.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #151 — carte TEAM : versions en en-tête (v6.2.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.cols{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.col h3{font:600 12px var(--ui);color:var(--muted);margin:0 0 6px}
+.w{font:11px var(--mono);color:var(--yellow);margin-top:5px}
+.card{border:1px solid var(--line2);border-radius:6px;overflow:hidden;background:var(--bg);width:max-content;max-width:100%}
+.ch{padding:5px 10px;background:var(--head);font-weight:600;white-space:nowrap}
+.ch .d{font-weight:400;color:var(--muted)}
+.ch .ver{font-weight:400;color:var(--cyan);font-family:var(--mono);font-size:12px}
+.ch2{padding:3px 10px 4px;background:var(--head);border-top:1px solid var(--line2);font:12px var(--mono);color:var(--cyan);white-space:nowrap}
+.ch2 .o{color:var(--orange)}
+.cb{padding:7px 6px}
+.team{font:12px var(--mono)}
+.tr{display:grid;gap:0 8px;padding:1px 4px;border-radius:3px;cursor:default;white-space:nowrap;align-items:center}
+.tr.vis{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent)}
+.tr.off{color:var(--dim)}
+.tr .m{color:var(--muted)}
+.tr .v{color:var(--cyan);text-align:right}
+.g{color:var(--green)}.o{color:var(--orange)}.dm{color:var(--dim)}.mu{color:var(--muted)}.y{color:var(--yellow)}.c{color:var(--cyan)}
+.tui{background:#000;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;font:12.5px/1.35 var(--mono);white-space:pre;overflow:auto;color:#d0d0d0;width:max-content;max-width:100%}
+.tui .bar{background:#1F4FD1;color:#fff;font-weight:700}
+.tui .hl{background:#12384a;color:#fff}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+.tip{display:inline-block;margin-top:8px;background:#2A2F38;border:1px solid var(--line2);border-radius:4px;padding:5px 8px;font:12px var(--ui);color:var(--text2);line-height:1.45}
+</style>
+</head>
+<body>
+<h1>Carte TEAM — versions en en-tête <span style="color:var(--muted);font-weight:400">· #151 · v6.2.0 · maquette retenue (A — Versions dans le titre)</span></h1>
+<p class="sub">Composant : carte <b>Team</b> du volet d'état, interface native Windows et coque Linux. Aujourd'hui chaque ligne porte une ou plusieurs versions (version de claude sous Windows ; version du template <i>et</i> de claude sous Linux), ce qui élargit la carte. Les versions ne sont plus affichées qu'<b>une fois, dans l'en-tête</b> ; un teammate dont une version diffère de celle de l'en-tête porte un <span class="o">⚠</span> orange. Tout le reste de la carte (surbrillance du pane visible, double-clic caché ↔ visible, <code>+</code> du compagnon, <code>○</code> non démarré) est inchangé — maquette v6.1.0 complétée. Exemple : <b>test-writer</b> a un template en retard (v5.9.2), <b>qa</b> tourne avec un autre claude (2.1.85).</p>
+
+<section data-proposition="A" class="on">
+  <div class="parti"><b>Parti pris :</b> les deux versions rejoignent le titre de la carte ; les lignes gardent « modèle · effort » et un <span class="o">⚠</span> en bout de ligne. <b>Avantage :</b> rien n'est perdu à la lecture, une seule colonne retirée. <b>Inconvénient :</b> gain de largeur modéré ; le titre est long (il se tronque en dernier sur la version de claude).</div>
+  <div class="mock"></div>
+</section>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li>Version du <b>template</b> de l'en-tête : la version cible du projet (celle que le launcher a adoptée). Version de <b>claude</b> de l'en-tête : celle du leader.</li>
+  <li><span class="o">⚠</span> orange : le template du teammate n'est pas à la version de l'en-tête, <b>ou</b> son claude n'est pas celui de l'en-tête. L'infobulle (Windows) ou la ligne (Linux, pane large) dit lequel et donne la version.</li>
+  <li>Le <span class="o">⚠</span> remplace le <span class="o">▲</span> de la v6.1.0 (un seul signe pour « pas conforme »). <span class="g">●</span> démarré et conforme, <span class="dm">○</span> non démarré.</li>
+  <li>Un teammate non démarré est comparé sur son template seulement (il n'a pas de claude).</li>
+  <li>Version cible inconnue (projet sans registre d'agents) : pas de version de template dans l'en-tête, aucun <span class="o">⚠</span> pour le template.</li>
+  <li>Inchangé : surbrillance = pane visible ; double-clic = caché ↔ visible ; <code>+</code> = fichier compagnon ; états et délais dans l'infobulle.</li>
+</ul>
+
+<script>
+(function(){
+const TPL='v5.9.4',CL='2.1.87';
+const T=[
+ {n:'team-lead',st:1,vis:1,m:'opus · medium',s:'opu·med',tag:TPL,cl:CL},
+ {n:'planner',st:1,vis:1,m:'fable · high',s:'fab·hig',tag:TPL,cl:CL},
+ {n:'dev-backend',st:1,vis:1,comp:1,m:'sonnet · medium',s:'son·med',tag:TPL,cl:CL},
+ {n:'dev-frontend',st:1,vis:0,comp:1,m:'sonnet · medium',s:'son·med',tag:TPL,cl:CL},
+ {n:'test-writer',st:1,vis:0,m:'sonnet · medium',s:'son·med',tag:'v5.9.2',cl:CL},
+ {n:'code-reviewer',st:1,vis:1,m:'sonnet · medium',s:'son·med',tag:TPL,cl:CL},
+ {n:'qa',st:1,vis:0,m:'sonnet · medium',s:'son·med',tag:TPL,cl:'2.1.85'},
+ {n:'doc-updater',st:0,m:'haiku · low',s:'hai·low',tag:TPL},
+ {n:'deployer',st:1,vis:0,m:'sonnet · medium',s:'son·med',tag:TPL,cl:CL}];
+function bad(t){const r=[];if(t.tag!==TPL)r.push('tpl '+t.tag);if(t.st&&t.cl!==CL)r.push('claude '+t.cl);return r;}
+function mark(t){return !t.st?'<span class="dm">○</span>':'<span class="g">●</span>';}
+function name(t){return (t.comp?'+ ':'')+t.n;}
+function before(){
+  let h='<div class="card"><div class="ch">▾ Team <span class="d">· 9 teammates</span></div><div class="cb"><div class="team">';
+  T.forEach(function(t){const late=t.tag!==TPL&&t.st;
+    h+='<div class="tr'+(t.st&&t.vis?' vis':'')+(t.st?'':' off')+'" style="grid-template-columns:12px 132px 62px 110px">'+(late?'<span class="o">▲</span>':mark(t))+'<span>'+name(t)+'</span><span class="v">'+(t.cl||'')+'</span><span class="m">'+t.m+'</span></div>';});
+  return h+'</div></div></div><div class="w">≈ 345 px</div>';
+}
+function win(P){
+  let h='<div class="card">';
+  const nb=T.filter(function(t){return bad(t).length;}).length;
+  if(P==='B') h+='<div class="ch">▾ Team <span class="d">· 9 teammates</span></div><div class="ch2">tpl '+TPL+' · claude '+CL+' <span class="o">· '+nb+' ⚠</span></div>';
+  else h+='<div class="ch">▾ Team <span class="d">· 9 ·</span> <span class="ver">tpl '+TPL+' · claude '+CL+'</span></div>';
+  h+='<div class="cb"><div class="team">';
+  T.forEach(function(t){const b=bad(t),cls='tr'+(t.st&&t.vis?' vis':'')+(t.st?'':' off');
+    if(P==='A') h+='<div class="'+cls+'" style="grid-template-columns:12px 132px 110px 12px">'+mark(t)+'<span>'+name(t)+'</span><span class="m">'+t.m+'</span><span class="o">'+(b.length?'⚠':'')+'</span></div>';
+    if(P==='B') h+='<div class="'+cls+'" style="grid-template-columns:12px 132px 12px">'+mark(t)+'<span>'+name(t)+'</span><span class="o">'+(b.length?'⚠':'')+'</span></div>';
+    if(P==='C') h+='<div class="'+cls+'" style="grid-template-columns:12px 132px auto">'+(b.length?'<span class="o">⚠</span>':mark(t))+'<span>'+name(t)+'</span>'+(b.length?'<span class="o">'+b.join(' · ')+'</span>':'<span class="m">'+t.s+'</span>')+'</div>';
+  });
+  h+='</div></div></div><div class="w">≈ '+({A:'300',B:'185',C:'265 (lignes en écart : jusqu’à 290)'}[P])+' px</div>';
+  h+='<div class="tip">Infobulle de <b>test-writer</b> : template v5.9.2 — cible '+TPL+' (en retard) · claude '+CL+' · sonnet · medium · compagnon : non · caché</div>';
+  return h;
+}
+function pad(s,n){s=String(s);while(s.length<n)s+=' ';return s;}
+function tui(P){
+  const nb=T.filter(function(t){return bad(t).length;}).length;
+  let h='';
+  if(P==='B') h+='<span class="bar">'+pad(' TEAM · 9 TEAMMATES',36)+'</span>\n<span class="c"> tpl '+TPL+' · claude '+CL+'</span> <span class="o">· '+nb+' ⚠</span>\n';
+  else h+='<span class="bar">'+pad(' TEAM · 9 · TPL '+TPL.toUpperCase()+' · CLAUDE '+CL,P==='A'?44:42)+'</span>\n';
+  T.forEach(function(t){const b=bad(t);let l;
+    const mk=!t.st?'<span class="dm">○</span>':(P==='C'&&b.length)?'<span class="o">⚠</span>':'<span class="g">●</span>';
+    const st=!t.st?'':t.n==='team-lead'?'':t.vis?'<span class="g">actif</span>':'<span class="mu">caché</span>';
+    if(P==='A') l=' '+mk+' '+pad(name(t),16)+'<span class="mu">'+pad(t.m,16)+'</span>'+(b.length?'<span class="o">⚠</span> ':'  ')+st;
+    if(P==='B') l=' '+mk+' '+pad(name(t),16)+(b.length?'<span class="o">⚠</span> ':'  ')+st;
+    if(P==='C') l=' '+mk+' '+pad(name(t),16)+(b.length?'<span class="o">'+pad(b.join(' · '),15)+'</span>':'<span class="mu">'+pad(t.s,15)+'</span>')+st;
+    h+=(t.st&&t.vis?'<span class="hl">'+l+' </span>':(t.st?l:'<span class="dm">'+l.replace(/<[^>]+>/g,'')+'</span>'))+'\n';});
+  return h;
+}
+document.querySelectorAll('section[data-proposition]').forEach(function(sec){
+  const P=sec.dataset.proposition;
+  sec.querySelector('.mock').innerHTML='<h2>Interface native Windows</h2><div class="cols"><div class="col"><h3>Aujourd’hui (v6.1.0), pour comparaison</h3>'+before()+'</div><div class="col"><h3>v6.2.0</h3>'+win(P)+'</div></div><h2>Coque Linux — carte du pane ◈ État</h2><div class="tui">'+tui(P)+'</div>';
+});
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,157 @@
+<!--
+mockup:
+  composant: project_menu
+  feature: rafraichir_forcer
+  version: 6.2.0
+  type: ui
+  issue: "#158"
+  validee_le: 2026-11-15
+  proposition_retenue: "B — Bandeau d'étapes dans les cartes"
+  complete: ["docs/mockup/v6.1.0/ui/config_ui__interface_structuree.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #158 — menu du projet : Rafraîchir, Forcer la fermeture (v6.2.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--red:#F27D7D;--accent:#60CDFF;--input:#0A0C10;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.frames{display:grid;grid-template-columns:repeat(auto-fill,minmax(400px,1fr));gap:18px;max-width:1320px}
+.fr h3{font:600 12px var(--ui);color:var(--text2);margin:0 0 6px}
+.nav{position:relative;height:330px;background:var(--panel);border:1px solid var(--line2);border-radius:8px;overflow:hidden;display:flex;flex-direction:column}
+.hd{padding:6px 12px;color:var(--dim);border-bottom:1px solid var(--line);font-size:12px}
+.tree{padding:4px 0;font-size:12.5px;flex:none}
+.row{display:flex;align-items:center;gap:6px;height:19px;padding:0 10px 0 22px;white-space:nowrap}
+.row.cat{padding-left:10px;color:var(--muted);font-weight:600}
+.row.sel{background:rgba(96,205,255,.16);box-shadow:inset 3px 0 0 var(--accent)}
+.row .b{color:var(--muted);font-size:11px;margin-left:auto}
+.g{color:var(--green)}.o{color:var(--orange)}.r{color:var(--red)}.dm{color:var(--dim)}.mu{color:var(--muted)}.y{color:var(--yellow)}.c{color:var(--cyan)}
+.spin{display:inline-block;color:var(--cyan);animation:sp 1s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.cards{flex:1;background:var(--bg);border-top:4px solid var(--line);padding:6px 8px;overflow:hidden;font-size:12px}
+.card{border:1px solid var(--line2);border-radius:6px;overflow:hidden;margin-bottom:6px}
+.ch{padding:4px 10px;background:var(--head);font-weight:600}
+.cb{padding:5px 10px;color:var(--text2);line-height:1.5}
+.foot{padding:5px 12px;border-top:1px solid var(--line);font-size:11px;color:var(--yellow);min-height:25px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ctx{position:absolute;left:120px;top:58px;z-index:5;background:#1A1E26;border:1px solid var(--line2);border-radius:7px;box-shadow:0 8px 28px rgba(0,0,0,.55);padding:4px;font-size:12.5px;min-width:250px}
+.ctx div{padding:5px 10px;border-radius:4px;display:flex;gap:8px}
+.ctx div.hov{background:rgba(96,205,255,.22)}
+.ctx div.dis{opacity:.45}
+.ctx div.new::after{content:"nouveau";font:600 9px var(--ui);color:#1b1206;background:var(--orange);border-radius:3px;padding:1px 4px;align-self:center}
+.ctx div.danger{color:var(--red)}
+.ctx .k{margin-left:auto;color:var(--muted)}
+.ctx hr{border:0;border-top:1px solid var(--line2);margin:4px 2px}
+.steps{border:1px solid var(--cyan);border-radius:6px;padding:5px 10px;margin-bottom:6px;background:rgba(103,212,232,.08);line-height:1.6}
+.steps b{color:var(--text)}
+.steps.err{border-color:var(--red);background:rgba(242,125,125,.08)}
+.toast{position:absolute;right:10px;bottom:36px;z-index:6;width:290px;background:#1A1E26;border:1px solid var(--line2);border-left:4px solid var(--cyan);border-radius:7px;box-shadow:0 8px 28px rgba(0,0,0,.55);padding:8px 12px;font-size:12px;line-height:1.5}
+.toast.ok{border-left-color:var(--green)}.toast.warn{border-left-color:var(--red)}
+.toast b{display:block;color:var(--text)}
+.prog{height:3px;background:var(--line2);border-radius:2px;margin-top:6px;overflow:hidden}
+.prog i{display:block;height:100%;width:60%;background:var(--cyan)}
+.btns{display:flex;gap:8px;justify-content:flex-end;margin-top:8px}
+.btn{border:1px solid var(--line2);background:var(--head);color:var(--text2);border-radius:5px;padding:3px 12px;font:12px var(--ui)}
+.btn.red{background:#7A2626;border-color:#A33;color:#fff}
+.veil{position:absolute;inset:0;background:rgba(0,0,0,.5);z-index:7;display:flex;align-items:center;justify-content:center}
+.dlg{width:340px;background:#1A1E26;border:1px solid var(--line2);border-radius:8px;box-shadow:0 12px 40px rgba(0,0,0,.6);padding:14px 16px;font-size:12.5px;line-height:1.5}
+.dlg b{color:var(--text)}
+.dlg ul{margin:6px 0 0;padding-left:18px;color:var(--text2)}
+.tui{background:#000;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;font:12.5px/1.4 var(--mono);white-space:pre;overflow:auto;color:#d0d0d0;max-width:900px}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<h1>Menu du projet — « Rafraîchir » et « Forcer la fermeture » <span style="color:var(--muted);font-weight:400">· #158 · v6.2.0 · maquette retenue (B — Bandeau d'étapes dans les cartes)</span></h1>
+<p class="sub">Composant : menu contextuel d'un projet (clic droit dans l'arbre, interface native Windows), avec l'indication affichée pendant l'opération et la confirmation de « Forcer la fermeture ». Les entrées existantes du menu sont inchangées. L'avancement s'affiche dans un <b>bandeau d'étapes en tête des cartes</b> du projet ; la fermeture forcée se confirme dans une <b>boîte de dialogue</b>. Cas montré : le projet <b>ecagent</b> est affiché avec une croix rouge alors que son pod k8s n'existe plus. L'équivalent de la coque Linux, validé le 2026-11-15, est en bas de page.</p>
+
+<section data-proposition="B" class="on">
+  <div class="parti"><b>Parti pris :</b> un bandeau d'étapes s'ouvre en tête des cartes du projet et coche chaque lecture (conteneur, session, git, GitHub, template) ; la confirmation de fermeture forcée est une boîte de dialogue qui liste ce qui sera nettoyé. <b>Avantage :</b> on voit ce qui est relu et ce qui a échoué ; la confirmation est explicite. <b>Inconvénient :</b> le bandeau décale les cartes pendant quelques secondes ; une fenêtre modale de plus.</div>
+  <div class="mock"></div>
+</section>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li><b>Rafraîchir</b> relit tout de suite, sans attendre les caches : existence et état du conteneur ou du pod, session et propriétaire, état git, milestone et issues GitHub, version du template, team, cartes. Raccourci : <code>F5</code> sur le projet sélectionné (F5 garde en plus son effet global actuel).</li>
+  <li>La consommation du compte est redemandée, mais le délai minimal entre deux appels à l'API d'usage est respecté (protection contre les refus 429).</li>
+  <li>Après Rafraîchir, un projet dont le pod ou la session a disparu apparaît fermé (<span class="dm">○</span>) ; son onglet éventuel est retiré.</li>
+  <li>L'indicateur disparaît à la fin, <b>y compris en cas d'erreur</b> : un message dit alors ce qui n'a pas pu être relu.</li>
+  <li><b>Forcer la fermeture</b> n'est proposée que si le projet est affiché ouvert ou en erreur alors que son conteneur, son pod ou sa session n'existe plus (ou ne répond plus). Sinon l'entrée est grisée ; « Fermer » reste l'action normale.</li>
+  <li>Elle nettoie l'état local : onglet, session tmux locale, panes cachés, marque de reprise, verrou de création resté en place ; elle demande l'arrêt du conteneur s'il existe encore. Rien n'est supprimé dans le projet ; l'attribution du backend (<code>projects.json</code>) est conservée.</li>
+  <li>Elle est refusée si un autre launcher pilote le projet (message : prendre la main d'abord).</li>
+  <li>« Fermer » devient disponible dès que quelque chose peut être fermé (aujourd'hui grisé si le projet n'a pas d'onglet dans cette fenêtre).</li>
+</ul>
+
+<h2>Équivalent dans la coque Linux (validé)</h2>
+<div class="tui"><span class="mu">Navigateur du hub — pas de menu contextuel : deux touches existantes sont étendues.</span>
+
+<span class="c">F5</span>     sur un projet : rafraîchissement complet de ce projet (mêmes lectures), en plus de l'effet actuel
+       pied du navigateur :  <span class="c">⟳ ecagent : relecture…</span>   puis   <span class="g">ecagent : pod absent — projet fermé</span>
+
+<span class="c">Suppr</span>  sur un projet <span class="r">✕</span> ou ouvert dont le conteneur / la session n'existe plus :
+       pied du navigateur :  <span class="y">Forcer la fermeture de ecagent ? état local nettoyé (fenêtre, session, reprise) · o/N</span>
+       (un projet sain garde la question de fermeture actuelle)</div>
+
+<script>
+(function(){
+function tree(mode){
+  // mode : 'x' croix, 'spin' en cours, 'closed' fermé
+  const m=mode==='spin'?'<span class="spin">⟳</span>':mode==='closed'?'<span class="dm">○</span>':'<span class="r">✕</span>';
+  return '<div class="hd">NG2 6.2.0 · arbre des projets</div><div class="tree">'+
+  '<div class="row cat">▾ CLIENTS</div>'+
+  '<div class="row"><span class="g">▲</span> web-shop <span class="b">⬢ k8s</span></div>'+
+  '<div class="row sel">'+m+' ecagent <span class="b">'+(mode==='closed'?'⬡ k8s':'⬢ k8s')+'</span></div>'+
+  '<div class="row"><span class="dm">○</span> domotique <span class="b">⬡ srv1</span></div>'+
+  '<div class="row cat">▾ OUTILS</div>'+
+  '<div class="row"><span class="g">▲</span> Claude-Launcher</div></div>';
+}
+function cards(top,closed){
+  return '<div class="cards">'+(top||'')+'<div class="card"><div class="ch">▾ Projet <span class="mu" style="font-weight:400">· ecagent</span></div><div class="cb">'+(closed?'<span class="dm">○</span> fermé · pod k8s absent':'<span class="r">✕</span> session interrompue ↺ · pod k8s')+'<br>main · v1.4.2 · tpl v5.9.4</div></div><div class="card"><div class="ch">▾ Milestone</div><div class="cb">v1.5.0 · 3/7</div></div></div>';
+}
+function menu(hov){
+  return '<div class="ctx"><div>Ouvrir <span class="k">Entrée</span></div><div>Fermer <span class="k">Suppr</span></div>'+
+  '<div class="new'+(hov==='r'?' hov':'')+'">⟳ Rafraîchir <span class="k">F5</span></div>'+
+  '<div class="new danger'+(hov==='f'?' hov':'')+'">Forcer la fermeture…</div><hr>'+
+  '<div>⚙ Réglages du projet…</div><div>Changer de backend… <span class="k">F2</span></div><div>Environnement du conteneur…</div><div>Couleur…</div><hr><div>Éditer env.yaml en YAML</div></div>';
+}
+function nav(inner,foot){return '<div class="nav">'+inner+'<div class="foot">'+(foot||'')+'</div></div>';}
+function fr(t,h){return '<div class="fr"><h3>'+t+'</h3>'+h+'</div>';}
+const steps='<div class="steps"><b>⟳ Rafraîchissement de ecagent</b><br><span class="g">✓</span> conteneur / pod &nbsp; <span class="g">✓</span> session &nbsp; <span class="spin">⟳</span> git &nbsp; <span class="dm">·</span> GitHub &nbsp; <span class="dm">·</span> template</div>';
+const stepsErr='<div class="steps err"><b>Rafraîchi, avec une erreur</b> &nbsp;<span class="mu">×</span><br><span class="g">✓</span> pod absent → projet fermé &nbsp; <span class="r">✕</span> GitHub : délai dépassé</div>';
+const F={
+ A:[
+  fr('1 · Menu ouvert (clic droit)',nav(tree('x')+menu('r')+cards())),
+  fr('2 · Pendant le rafraîchissement',nav(tree('spin')+cards(),'<span class="c">⟳ ecagent : relecture du conteneur, de git, de GitHub…</span>')),
+  fr('3 · Terminé (avec une erreur partielle)',nav(tree('closed')+cards('',1),'ecagent : pod absent — projet fermé · <span class="r">GitHub non relu (délai dépassé)</span>')),
+  fr('4 · Forcer la fermeture : confirmation',nav(tree('x')+cards(),'Forcer la fermeture de ecagent ? état local nettoyé (onglet, session, reprise) · o/N'))],
+ B:[
+  fr('1 · Menu ouvert (clic droit)',nav(tree('x')+menu('r')+cards())),
+  fr('2 · Pendant le rafraîchissement',nav(tree('x')+cards(steps))),
+  fr('3 · Terminé (avec une erreur partielle)',nav(tree('closed')+cards(stepsErr,1))),
+  fr('4 · Forcer la fermeture : confirmation',nav(tree('x')+cards()+'<div class="veil"><div class="dlg"><b>Forcer la fermeture de ecagent ?</b><br>Son pod k8s n’existe plus. L’état local sera nettoyé :<ul><li>onglet et session tmux locale</li><li>panes de teammates cachés</li><li>reprise de session (la conversation reste dans /resume)</li><li>verrou de création resté en place</li></ul><div class="btns"><span class="btn">Annuler</span><span class="btn red">Forcer la fermeture</span></div></div></div>'))],
+ C:[
+  fr('1 · Menu ouvert (clic droit)',nav(tree('x')+menu('r')+cards())),
+  fr('2 · Pendant le rafraîchissement',nav(tree('x')+cards()+'<div class="toast"><b>⟳ Rafraîchissement de ecagent</b>conteneur ✓ · session ✓ · git…<div class="prog"><i></i></div></div>')),
+  fr('3 · Terminé (avec une erreur partielle)',nav(tree('closed')+cards('',1)+'<div class="toast warn"><b>ecagent rafraîchi, avec une erreur &nbsp;<span class="mu">×</span></b>pod absent → projet fermé<br><span class="r">GitHub non relu : délai dépassé</span></div>')),
+  fr('4 · Forcer la fermeture : confirmation',nav(tree('x')+cards()+'<div class="toast warn"><b>Forcer la fermeture de ecagent ?</b>Pod k8s absent. Onglet, session locale, panes cachés et reprise seront nettoyés.<div class="btns"><span class="btn">Annuler</span><span class="btn red">Forcer</span></div></div>'))]
+};
+document.querySelectorAll('section[data-proposition]').forEach(function(sec){
+  sec.querySelector('.mock').innerHTML='<h2>Interface native Windows — volet de gauche (arbre, cartes, pied de volet)</h2><div class="frames">'+F[sec.dataset.proposition].join('')+'</div>';
+});
+})();
+</script>
+</body>
+</html>

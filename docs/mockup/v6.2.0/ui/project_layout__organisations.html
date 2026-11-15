@@ -1,0 +1,128 @@
+<!--
+mockup:
+  composant: project_layout
+  feature: organisations
+  version: 6.2.0
+  type: ui
+  issue: "#153"
+  validee_le: 2026-11-15
+  proposition_retenue: "A — Horizontal · Leader en haut, bandeau de teammates (actuel) ; E — Vertical · Leader à gauche, teammates en deux colonnes"
+  complete: []
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #153 — organisations de la fenêtre d'un projet (v6.2.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--accent:#60CDFF;--input:#0A0C10;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.sim{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 10px;font-size:12px;color:var(--muted)}
+.sim button{background:var(--head);color:var(--text2);border:1px solid var(--line2);border-radius:5px;padding:3px 10px;font:12px var(--ui);cursor:pointer}
+.sim button.on{border-color:var(--green);color:var(--green)}
+.duo{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.duo h3{font:600 12px var(--ui);color:var(--muted);margin:0 0 6px}
+.win{border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--deep)}
+.tabbar{height:26px;display:flex;align-items:center;padding:0 12px;font-weight:700;font-size:12px;background:#1F4FD1;color:#fff}
+.panes{position:relative;margin:4px}
+.pane{position:absolute;border-radius:3px;overflow:hidden;padding:2px}
+.pane>div{position:absolute;inset:2px;border-radius:3px;font:11px var(--mono);color:rgba(255,255,255,.7);padding:21px 6px 2px;overflow:hidden}
+.ph{position:absolute;left:0;top:0;right:0;height:17px;background:#DDE1E7;color:#15181D;font:11px var(--ui);padding:1px 6px;border-left:5px solid #1F4FD1;white-space:nowrap;overflow:hidden}
+.ph b{font-weight:700}.ph i{font-style:normal;color:#4A5160}
+.opts{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px;max-width:1250px}
+.opt{background:var(--panel);border:1px solid var(--line2);border-radius:8px;padding:10px 14px;line-height:1.5;color:var(--text2)}
+.opt h3{margin:0 0 4px;font-size:13px;color:var(--text)}
+.opt .tag{font:600 10px var(--ui);color:#1b1206;background:var(--orange);border-radius:3px;padding:1px 5px;margin-left:6px;vertical-align:middle}
+.opt .pv{margin-top:8px;background:var(--bg);border:1px solid var(--line2);border-radius:6px;padding:6px 8px;font-size:12px}
+.pv .l{display:flex;gap:8px;align-items:center;padding:2px 0}
+.pv select,.pv .sel{background:var(--input);color:var(--text);border:1px solid var(--line2);border-radius:4px;padding:2px 6px;font:12px var(--ui)}
+.pv .k{margin-left:auto;color:var(--muted)}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<h1>Fenêtre d'un projet — organisations au choix <span style="color:var(--muted);font-weight:400">· #153 · v6.2.0 · maquette retenue (A — horizontale, E — verticale)</span></h1>
+<p class="sub">Composant : disposition du leader et des teammates dans la fenêtre d'un projet — même résultat sous Windows (interface native) et sous Linux (coque tmux). Aujourd'hui une seule règle existe (organisation A). Deux organisations sont retenues : <b>A</b> (horizontale, la règle actuelle) et <b>E</b> (verticale). Le choix se fait par un <b>réglage global, avec exception par projet</b>. Seuls les panes <b>visibles</b> sont disposés (les teammates cachés de la v6.1.0 ne comptent pas). Les boutons « teammates visibles » montrent comment chaque organisation se comporte quand leur nombre change.</p>
+
+<div class="sim">Teammates visibles :
+  <button data-n="2">2</button><button data-n="4" class="on">4</button><button data-n="6">6</button><button data-n="9">9</button>
+</div>
+
+<section data-proposition="A" class="on">
+  <div class="parti"><b>A — Horizontal · Leader en haut, bandeau de teammates (règle actuelle).</b> Le leader occupe le haut sur toute la largeur ; les teammates sont en dessous, sur une ligne jusqu'à 5, sur deux au-delà. <b>Avantage :</b> équilibre connu, lignes longues lisibles chez le leader. <b>Inconvénient :</b> au-delà de 5 teammates le leader perd beaucoup de hauteur.</div>
+  <div class="mock"></div>
+</section>
+<section data-proposition="E" class="on">
+  <div class="parti"><b>E — Vertical · Leader à gauche, teammates en deux colonnes.</b> Le leader occupe la gauche sur toute la hauteur ; les teammates s'empilent à droite, en une colonne jusqu'à 4, en deux colonnes à partir de 5. <b>Avantage :</b> tient mieux les grandes équipes sans réduire le leader. <b>Inconvénient :</b> teammates plus étroits ; la bascule une colonne → deux colonnes déplace les panes quand un cinquième arrive.</div>
+  <div class="mock"></div>
+</section>
+
+<h2>Où se fait le choix, et sa portée</h2>
+<div class="opts">
+  <div class="opt"><h3>Réglage global — Réglages › Launcher</h3>Donne l'organisation de tous les projets. Clé <code>LAYOUT_MODE</code> de <code>config.conf</code> (éditable au fichier sous Linux), commune à tous les postes qui partagent la configuration.
+    <div class="pv"><div class="l">Mise en page des projets <span class="sel">Leader en haut ▾</span></div><div class="l" style="color:var(--muted)">Leader en haut · Leader à gauche</div></div></div>
+  <div class="opt"><h3>Exception par projet — Réglages du projet</h3>Un projet peut avoir la sienne (menu contextuel › Réglages du projet), rangée avec sa couleur ; « Comme le réglage global » la retire. Vaut sous Windows et sous Linux.
+    <div class="pv"><div class="l">Mise en page <span class="sel">Comme le réglage global ▾</span></div><div class="l" style="color:var(--muted)">Comme le réglage global · Leader en haut · Leader à gauche</div></div></div>
+</div>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li>Une seule règle, calculée au même endroit pour Windows et Linux : ce qui est choisi d'un côté s'applique de l'autre.</li>
+  <li>Seuls les panes visibles sont disposés ; un teammate caché ne prend pas de place, et son retour applique la même organisation.</li>
+  <li>Pas de mise en page libre : une bordure déplacée à la main est reprise à la remise en page suivante, comme aujourd'hui.</li>
+  <li>Le changement de réglage s'applique aux projets ouverts sans relance, au tour suivant du surveillant de mise en page.</li>
+  <li>Quand le nombre de teammates change, l'organisation choisie est recalculée (pas de bascule vers une autre).</li>
+  <li>L'ordre des teammates est inchangé : les actifs d'abord, du plus récemment actif au plus ancien, puis les inactifs.</li>
+  <li>Le défaut reste l'organisation A : sans réglage, rien ne change pour les projets existants.</li>
+  <li>Un projet en lecture seule affiche la disposition du launcher qui a la main.</li>
+</ul>
+
+<script>
+(function(){
+const NAMES=['dev-backend','dev-frontend','test-writer','code-reviewer','qa','doc-updater','deployer','planner','security'];
+let N=4;
+function split(n,x,y,w,h,dir){const r=[];for(let i=0;i<n;i++)r.push(dir==='h'?[x+w*i/n,y,w/n,h]:[x,y+h*i/n,w,h/n]);return r;}
+function layout(P,n){
+  let L,T=[];
+  if(n===0) return {L:[0,0,1,1],T:[]};
+  if(P==='A'){ if(n<=5){L=[0,0,1,.55];T=split(n,0,.55,1,.45,'h');} else {const a=Math.ceil(n/2);L=[0,0,1,.4];T=split(a,0,.4,1,.3,'h').concat(split(n-a,0,.7,1,.3,'h'));} }
+  if(P==='B'){ L=[0,0,1,.74];T=split(n,0,.74,1,.26,'h'); }
+  if(P==='C'){ const lw=Math.max(.3,1.6/(n+1.6));L=[0,0,lw,1];T=split(n,lw,0,1-lw,1,'h'); }
+  if(P==='D'){ L=[0,0,.5,1];T=split(n,.5,0,.5,1,'v'); }
+  if(P==='E'){ L=[0,0,.46,1]; if(n<=4)T=split(n,.46,0,.54,1,'v'); else {const a=Math.ceil(n/2);T=split(a,.46,0,.27,1,'v').concat(split(n-a,.73,0,.27,1,'v'));} }
+  if(P==='F'){ const c=Math.max(1,Math.floor(Math.sqrt(n+1))),rws=Math.ceil((n+1)/c);const cells=[];for(let i=0;i<n+1;i++){const rr=Math.floor(i/c),cc=i%c;const inRow=(rr===rws-1)?(n+1-c*(rws-1)):c;cells.push([cc/inRow,rr/rws,1/inRow,1/rws]);}L=cells[0];T=cells.slice(1); }
+  return {L:L,T:T};
+}
+function win(P,n,W,H){
+  const g=layout(P,n);
+  function box(r,name,role,bg){return '<div class="pane" style="left:'+(r[0]*100)+'%;top:'+(r[1]*100)+'%;width:'+(r[2]*100)+'%;height:'+(r[3]*100)+'%"><div style="background:'+bg+'"><div class="ph"><b>'+name+'</b> <i>· '+role+'</i></div></div></div>';}
+  let h='<div class="win" style="width:'+W+'px"><div class="tabbar">● Claude-Launcher</div><div class="panes" style="height:'+H+'px">'+box(g.L,'team-lead','leader','#1F4FD1');
+  g.T.forEach(function(r,i){const act=i<Math.ceil(n/2);h+=box(r,NAMES[i],act?'actif':'inactif',act?'#3F6FF1':'#12308A');});
+  return h+'</div></div>';
+}
+function draw(){
+  document.querySelectorAll('section[data-proposition]').forEach(function(sec){
+    const P=sec.dataset.proposition;
+    sec.querySelector('.mock').innerHTML='<div class="duo"><div><h3>Fenêtre large (écran 16:9)</h3>'+win(P,N,760,400)+'</div><div><h3>Fenêtre haute (demi-écran)</h3>'+win(P,N,380,400)+'</div></div>';
+  });
+}
+document.querySelectorAll('.sim button').forEach(function(b){b.onclick=function(){N=+b.dataset.n;
+  document.querySelectorAll('.sim button').forEach(function(x){x.classList.toggle('on',x===b);});draw();};});
+draw();
+})();
+</script>
+</body>
+</html>

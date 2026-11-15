@@ -409,8 +409,9 @@ l'évènement `refresh` :
 
 ### `forceClose` **[NEW]** et `forceCloseConfirm` **[NEW]**
 
-`forceClose` — arguments `{ "path" }`. Résultat : `{ "question": "…", "items": ["onglet", "session tmux locale", …] }`
-(ce qui sera nettoyé), ou `{ "msg": "…" }` si l'action est refusée ou sans objet.
+`forceClose` — arguments `{ "path" }`. Résultat : `{ "question": "…", "why": "son pod k8s n'existe plus",
+"items": ["onglet", "session tmux locale", …] }` (`why` : raison affichée dans la boîte de confirmation ; `items` : ce
+qui sera nettoyé), ou `{ "msg": "…" }` si l'action est refusée ou sans objet.
 `forceCloseConfirm` — arguments `{ "path" }`. Résultat : `{ "ok": true, "msg": "…" }` ou `{ "ok": false, "msg": "…" }`.
 
 - Proposée (ligne du projet : `"canForce": true`) quand le projet est affiché ouvert ou en erreur — onglet présent,
