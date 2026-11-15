@@ -27,6 +27,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Rafraîchissement des conteneurs : plus de course entre la relecture et la lecture de l'état des conteneurs (#158)
 - Rafraîchissement, étape GitHub : le milestone est relu sans attendre la relecture de masse ; `gh` absent, non connecté ou dépôt sans remote GitHub = étape verte avec la raison ; une panne réelle = étape rouge avec la cause renvoyée par `gh` (#158)
 - Test `TestProjectApplyForeignOwnerTimeout` : race de test corrigée (la goroutine est attendue avant de restaurer `foreignOwner`) (#164)
+- Windows, dépôt sur un partage : git refusait « dubious ownership » ; le launcher autorise désormais ce seul dossier de projet, pour ses appels `git` et `gh` (`safe.directory` par appel, configuration globale inchangée). Si git refuse encore, l'étape affiche la commande à exécuter pour vos propres dépôts (#158)
 
 ### Notes de lot — LOT-1 (#150, #154)
 
@@ -44,12 +45,12 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ### Notes de lot — LOT-2 (#158)
 
 - Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
-- QA (`_work/reports/qa-lot2-cycle4-v6.2.0.md`, HEAD `6a51072`, cycle 4) : **VALIDATED WITH RESERVATIONS** (cycles 2 et 4 successifs ; le cycle 4 remplace le verdict du cycle 2).
+- QA (`_work/reports/qa-lot2-cycle5-v6.2.0.md`, HEAD `ecea4aa`, cycle 5) : **VALIDATED WITH RESERVATIONS** — code vert ; réserve : la procédure Windows ne couvre pas encore « dubious ownership » (scénario 9 à ajouter). Le cycle 5 remplace le verdict du cycle 4.
   - Tests #158 ciblés (core, desktop, tmux) : PASS, y compris les tests de l'étape GitHub (`TestRefreshGitHubNotLoggedInIsNotRed`, `TestRefreshGitHubRealFailureShowsCause`, `TestForcedMilestoneReadDoesNotQueueBehindBulkRead`).
   - `CGO_ENABLED=1 go test -race ./...` : PASS sur toutes les suites, aucune race ; `TestProjectApplyForeignOwnerTimeout` est vert (#164).
   - `scripts/ci.sh` (désormais en `-race`) : CI OK (57 s), govulncheck sans vulnérabilité, build croisé Windows OK. Résidus #154 : aucun socket `cl-*` nouveau dans `/tmp/tmux-1000`, aucun serveur `cl-desk*`, aucun index.lock.
 - Réserve :
   - R-C (résolue en `56603a8`) : la procédure Windows `tests/procedures/ui-desktop/rafraichir-forcer-158/rafraichir-forcer-windows.md` reçoit le scénario 8 (étape GitHub : cause affichée quand elle est rouge, cas légitimes verts).
-- Procédures à jouer à la main en QUALIF sur 6.2.0.3 (`tests/procedures/`) :
-  - Windows : S1, S2, S3 (pod supprimé à la main, projet k8s jetable), S4, S6 (backend injoignable : Rafraîchir conserve l'onglet, Forcer avec avertissement, nettoyage local seul, annulation, rétablissement), S7 (le projet revit entre la question et la confirmation : refus, rien tué, reprise ↺ conservée), S8 (étape GitHub du rafraîchissement). S5 est couvert par un test automatique.
+- Procédures à jouer à la main en QUALIF sur 6.2.0.4 (`tests/procedures/`) :
+  - Windows : S1, S2, S3 (pod supprimé à la main, projet k8s jetable), S4, S6 (backend injoignable : Rafraîchir conserve l'onglet, Forcer avec avertissement, nettoyage local seul, annulation, rétablissement), S7 (le projet revit entre la question et la confirmation : refus, rien tué, reprise ↺ conservée), S8 (étape GitHub du rafraîchissement), S9 (« dubious ownership » sur un dépôt du partage). S5 est couvert par un test automatique.
   - Linux (hub) : S1 à S4.

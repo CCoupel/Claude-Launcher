@@ -804,6 +804,13 @@ est ouverte ou que sa pastille n'est pas `○`.
   revit entre la question et la confirmation (la question expire au bout de 2 min).
 - **Backend injoignable** : la fermeture forcée est proposée avec l'avertissement « le projet tourne peut-être encore ».
   Seul le nettoyage local est fait : aucun arrêt du conteneur n'est demandé au backend.
+- **« dubious ownership » (Windows, dépôt sur un partage)** : git refuse les dépôts dont le propriétaire est un autre
+  compte (typiquement le compte Linux qui a créé le dépôt sur le partage). Le launcher n'autorise alors ce dépôt que pour
+  ses propres appels `git` et `gh`, et seulement pour le dossier du projet : `safe.directory` est passé à chaque appel,
+  la configuration globale n'est jamais modifiée. **Risque accepté** : lever cette protection laisse git appliquer la
+  configuration du dépôt (`core.fsmonitor`, `core.sshCommand`…). À réserver à vos propres projets. Si git refuse encore
+  (git < 2.31, lecteur mappé), l'étape affiche la commande `git config --global --add safe.directory '<projet>'` : ne
+  l'exécutez que pour vos propres dépôts.
 
 Dans la coque Linux, `Suppr` sur un projet propose la fermeture forcée (`o/N`) quand elle est possible ; `F1` la décrit.
 
@@ -1583,6 +1590,9 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 - **Un projet ne se ferme plus** (pod k8s disparu, backend injoignable, session déjà morte) : menu du projet →
   « Forcer la fermeture… » (ou `Suppr` dans la coque Linux). Elle ne touche ni à `projects.json` ni au backend
   quand celui-ci est injoignable ; voir [Rafraîchir et forcer la fermeture](#rafraîchir-et-forcer-la-fermeture-v620-158).
+- **Windows : « dubious ownership » sur un dépôt du partage** : l'étape git du rafraîchissement l'affiche ; voir la
+  dernière puce de [Rafraîchir et forcer la fermeture](#rafraîchir-et-forcer-la-fermeture-v620-158) (exception `safe.directory`
+  limitée au dossier du projet, risque à accepter pour vos propres dépôts seulement).
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
 - **Panes d'une team en désordre** : `Ctrl+B R` dans l'onglet du projet, ou
