@@ -25,20 +25,31 @@ case "$(uname -s)" in
     ;;
   *)
     go vet ./...
-    # #154 : les tests ne laissent ni verrou git ni socket tmux de test
-    tmuxdir="/tmp/tmux-$(id -u)"
-    socks_before=$(ls "$tmuxdir" 2>/dev/null | grep '^cl-' | sort || true)
-    go test ./...
-    if [ -e ../.git/index.lock ]; then
-      echo "ECHEC : .git/index.lock présent après les tests (#154)" >&2
+    # #154 : les tests ne laissent ni verrou git ni socket tmux de test.
+    # Dossier dédié et COURT (sun_path ≤ 108 : le dossier du projet est trop long) pour
+    # TMUX_TMPDIR et TMPDIR : tout tmux des tests y place son socket ; les sockets du
+    # launcher réel (/tmp/tmux-<uid>) ne sont jamais regardés.
+    tdir=$(mktemp -d "${TMPDIR:-/tmp}/clci.XXXXXX")
+    trap 'rm -rf "$out" "$tdir"' EXIT
+    # verrou : chemin valable aussi en worktree ; un verrou déjà là au départ n'est pas le nôtre
+    lock=$(git rev-parse --path-format=absolute --git-path index.lock)
+    lock_before=0; [ -e "$lock" ] && lock_before=1
+    TMUX_TMPDIR="$tdir" TMPDIR="$tdir" go test ./...
+    socks=$(find "$tdir" -type s 2>/dev/null || true)
+    if [ -n "$socks" ]; then
+      echo "ECHEC : sockets tmux laissés par les tests (#154) :" >&2
+      echo "$socks" >&2
+      while read -r sk; do tmux -S "$sk" kill-server 2>/dev/null || true; done <<<"$socks"
       exit 1
     fi
-    socks_after=$(ls "$tmuxdir" 2>/dev/null | grep '^cl-' | sort || true)
-    new_socks=$(comm -13 <(printf '%s\n' "$socks_before") <(printf '%s\n' "$socks_after") | sed '/^$/d')
-    if [ -n "$new_socks" ]; then
-      echo "ECHEC : sockets tmux de test laissés dans $tmuxdir (#154) :" >&2
-      echo "$new_socks" >&2
-      exit 1
+    # un git concurrent (launcher, autre terminal) tient le verrou un instant : on lui laisse 3 s ;
+    # échec seulement si le verrou, absent au départ, persiste sans aucun processus git vivant
+    if [ "$lock_before" = 0 ]; then
+      for _ in 1 2 3 4 5 6; do [ -e "$lock" ] || break; sleep 0.5; done
+      if [ -e "$lock" ] && ! pgrep -x git >/dev/null 2>&1; then
+        echo "ECHEC : $lock laissé par les tests (#154)" >&2
+        exit 1
+      fi
     fi
     # audit des dépendances et de la bibliothèque standard (commands.audit)
     go run golang.org/x/vuln/cmd/govulncheck@latest ./...
