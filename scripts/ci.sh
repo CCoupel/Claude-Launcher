@@ -8,6 +8,17 @@
 set -euo pipefail
 cd "$(dirname "$0")/../ng2"
 
+# syntaxe du JS de l'interface native : une faute de frappe n'apparaît sinon qu'à l'exécution,
+# dans la fenêtre (les tests Go ne parsent pas le JS) ; node requis, comme gcc pour -race
+if ! command -v node >/dev/null 2>&1; then
+  echo "ECHEC : node est requis pour contrôler la syntaxe du JS de l'interface (node --check) :" >&2
+  echo "        l'installer (apt install nodejs / winget install OpenJS.NodeJS), ou le déclarer dans .claude-launcher/env.yaml" >&2
+  exit 1
+fi
+for f in ui/desktop/frontend/*.js; do
+  node --check "$f" || { echo "ECHEC : erreur de syntaxe dans ng2/$f (node --check)" >&2; exit 1; }
+done
+
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
