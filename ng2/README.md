@@ -359,8 +359,8 @@ sans passer par le texte. Rubriques :
   pool le renomme aussi dans les backends qui le citent.
 - **Défauts** : backend et image par défaut, images proposées. Le serveur web et les chemins navigateur s'affichent
   en lecture seule.
-- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en YAML » pour l'instant. **Ce poste** : taille des
-  caractères des terminaux (voir ci-dessous), le reste renvoie à « Éditer en YAML ».
+- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en YAML » pour l'instant. **Ce poste** : tailles de texte
+  de l'arbre, des cartes et des terminaux (rubrique Affichage, voir ci-dessous), le reste renvoie à « Éditer en YAML ».
 
 **Enregistrer** : le brouillon est validé comme au chargement réel. Une erreur **bloque** l'enregistrement (les
 problèmes s'affichent en pied, rien n'est écrit). Si le fichier a changé sur le disque depuis son ouverture, la
@@ -941,10 +941,14 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
   leader et `cdp` en haut ; jusqu'à 5 teammates, le haut sur 50 % et les teammates sur une ligne ;
   au-delà, 3 lignes 3/7, 2/7 et le reste, la ligne du milieu recevant ⌈n/2⌉ ; actifs en ordre MRU
   puis inactifs par nom ; actifs éclaircis, inactifs assombris sur la couleur du projet) ;
-- **Ctrl+molette** sur la zone des terminaux : taille des caractères (8 à 28, 13 par défaut ; un cran par encoche de molette, le pavé tactile
-  cumule ses petits déplacements) de tous les terminaux (projets, ouverture, vignettes Teamleaders) ; la taille est renvoyée à tmux (`refresh-client -C`),
-  mémorisée par poste (clé `termFontSize` de `desktop-ui.json`) et la page ne zoome pas. L'arbre et les cartes
-  gardent leur taille ; aucune touche n'est retirée aux terminaux ;
+- **Ctrl+molette** : trois tailles de texte indépendantes, chacune bornée à 8–28 et mémorisée **par poste** (clé
+  `desktop-ui.json`, défauts : terminaux `termFontSize` 13, arbre `treeFontSize` 13, cartes `cardsFontSize` 12). Un cran
+  par encoche de molette, le pavé tactile cumule ses petits déplacements ; la page ne zoome pas.
+  - sur la **zone des terminaux** : taille de tous les terminaux (projets, ouverture, vignettes Teamleaders) ; la taille
+    est renvoyée à tmux (`refresh-client -C`). Aucune touche n'est retirée aux terminaux ;
+  - sur l'**arbre** des projets, ou sur les **cartes** ◈ État : taille de cette zone seule, l'autre garde la sienne.
+    Le message bref « Taille de l'arbre : N » / « Taille des cartes : N » confirme le cran.
+  - les mêmes réglages sont dans **Réglages › Ce poste › Affichage** (une ligne −/champ/+ par zone).
 - l'**ouverture** passe par le même code que `ctr-attach` (`core.OpenCtr`) : sa sortie (conteneur,
   bootstrap) et ses questions (serveur d'un groupe, autre launcher propriétaire) s'affichent dans
   un terminal d'ouverture où l'on répond ; les questions `/init-project` (template en retard ou
@@ -966,6 +970,7 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 | double-clic sur une catégorie ou une racine, `✦ Nouveau projet` | créer un projet |
 | `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
 | `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fenêtre Réglages (`⚙ config`) |
+| `Ctrl`+molette sur l'arbre, les cartes ou les terminaux | taille du texte de la zone, 8–28, mémorisée par poste (`Réglages › Ce poste › Affichage`) |
 | `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
 | `←` `→`, clic sur le chevron ou la ligne d'une racine / catégorie | replier / déplier (mémorisé) ; `←` sur un projet : sa catégorie |
 | séparateur arbre / cartes ; clic sur le bandeau d'une carte ou sur « ◈ ÉTAT » | hauteur de l'arbre ; replier une carte ou toute la zone (mémorisé) |
@@ -1165,8 +1170,8 @@ Le mode portable (`<dossier du binaire>\.config\claude-launcher-ng2\config.conf`
 - **Conteneurs** : l'`env.yaml` du launcher (paquets par gestionnaire, `setup`, `on_start`), ajouté à tous les
   conteneurs.
 - **Ce poste** : `hubs.<machine>` de `backends.yaml` (chemins « local => distant », chemins navigateur « conteneur
-  => hôte [| os] », serveur web, appariement du navigateur, utilisateur distant, cache du hub) et la taille des
-  caractères des terminaux. Les surcharges propres à un autre système sont signalées (bandeau ⚠) et restent en
+  => hôte [| os] », serveur web, appariement du navigateur, utilisateur distant, cache du hub) et les tailles de texte
+  de l'arbre, des cartes et des terminaux (Affichage). Les surcharges propres à un autre système sont signalées (bandeau ⚠) et restent en
   lecture seule.
 
 Ce qui n'a pas de formulaire (une clé d'une forme bash non reconnue, une clé inconnue, `unrecognized`) reste dans
@@ -1308,7 +1313,7 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   - **remote** (état du dernier fetch) : `○` jamais poussé · `↑N` non poussé · `⇡` poussé,
     non mergé dans main · `✓` à jour / mergé · `↓N` en retard.
 
-  Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
+  Le détail affiche aussi la version locale (`git describe --tags`, suffixe `-dirty` déduit de `git status`) et la dernière
   release publiée sur GitHub, avec sa date (`v5.7.4 GitHub, il y a 2 j`) ; un dernier tag git
   d'`origin/main` différent est signalé en jaune (`· tag git v5.7.1` : tags pas récupérés, ou tag
   sans release). Sans release GitHub connue (dépôt hors GitHub, pas encore lue), le tag git seul,
@@ -1598,6 +1603,14 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 `CL_RAW_BASE` (serveur de fichiers bruts), `CL_API_BASE` (API GitHub), `CL_RELEASE_BASE`
 (fichiers de release), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`, `CL_FAKE_TPL_RELEASED`,
 `XDG_CACHE_HOME`.
+
+`scripts/ci.sh` (la CI) isole tmux : les tests reçoivent un `TMUX_TMPDIR` et un `TMPDIR` dédiés, courts, créés
+sous `/tmp` (limite `sun_path` de 108 octets : le dossier du projet est trop long). Le script échoue si un socket de
+test `cl-*` reste dans ce dossier, ou si un `index.lock` subsiste dans le dépôt après les tests (un git concurrent
+bref est toléré ; le verrou est celui de `git rev-parse --git-path index.lock`, valable en worktree). Les sockets du
+launcher réel (`/tmp/tmux-<uid>`) ne sont jamais regardés. `$TMPDIR` ne doit donc pas pointer dans le projet pour
+les tests tmux. Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
+`git describe --dirty` : le suffixe `-dirty` vient de `git status --porcelain`.
 
 Interface native (`ui/desktop`) : décodeur du mode contrôle de tmux (séquence réelle de tmux 3.6,
 `%output` en octal, layouts, UTF-8 coupé), état et légende des cartes, appels, et un projet sur
