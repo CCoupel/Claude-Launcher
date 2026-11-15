@@ -41,12 +41,13 @@ type RefreshEvent struct {
 
 // refreshRun : état d'un rafraîchissement en cours (un seul par projet).
 type refreshRun struct {
-	a    *App
-	path string
-	mu   sync.Mutex
-	st   []RefreshStep
-	errs map[string]string // étape -> message
-	fin  bool              // dernier évènement émis : plus rien n'est émis ensuite
+	a     *App
+	path  string
+	mu    sync.Mutex
+	st    []RefreshStep
+	errs  map[string]string // étape -> message
+	notes []string          // étapes « sans objet » : la raison, sans erreur rouge
+	fin   bool              // dernier évènement émis : plus rien n'est émis ensuite
 }
 
 func (r *refreshRun) emit(done bool, msg string) {
@@ -158,6 +159,12 @@ func (a *App) runRefresh(path string) {
 	step("git", func() (string, error) { a.refreshGit(path); return "", nil })
 	step("github", func() (string, error) {
 		if err := a.fetchMilestone(path, true); err != nil {
+			if _, benign := core.GHKind(err); benign { // gh absent ou non connecté, dépôt hors GitHub : sans objet
+				r.mu.Lock()
+				r.notes = append(r.notes, "GitHub : "+err.Error())
+				r.mu.Unlock()
+				return "", nil
+			}
 			return "", fmt.Errorf("GitHub non relu : %v", err)
 		}
 		return "", nil
@@ -195,9 +202,13 @@ func (a *App) refreshSummary(r *refreshRun, timedOut bool) string {
 			}
 		}
 	}
+	notes := append([]string(nil), r.notes...)
 	r.mu.Unlock()
 	if len(bad) > 0 {
 		return strings.Join(bad, " · ")
+	}
+	if len(notes) > 0 {
+		return strings.Join(notes, " · ")
 	}
 	a.mu.Lock()
 	n, ok := a.node(r.path)

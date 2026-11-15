@@ -563,11 +563,18 @@ func (a *App) readMilestones(force bool) {
 func (a *App) fetchMilestone(p string, force bool) error {
 	st := core.MsState{At: time.Now()}
 	if core.OnGitHub(p) {
-		core.MsSem <- struct{}{}
+		// la relecture de masse partage core.MsSem (3 places) ; une relecture forcée d'un
+		// seul projet (Rafraîchir) ne fait pas la queue derrière elle : sous Windows avec
+		// beaucoup de projets, elle dépassait le délai global (étape rouge, #158)
+		if !force {
+			core.MsSem <- struct{}{}
+		}
 		var s core.MsState
 		var err error
 		a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
-		<-core.MsSem
+		if !force {
+			<-core.MsSem
+		}
 		if err != nil {
 			return err
 		}
