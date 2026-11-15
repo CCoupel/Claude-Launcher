@@ -792,7 +792,10 @@ est ouverte ou que sa pastille n'est pas `○`.
 - **⟳ Rafraîchir** (`F5` sur le projet sélectionné dans l'interface native ; `F5` dans la coque Linux) : relit tout le projet
   sans les caches — conteneur ou pod, session, git, GitHub, template, consommation (le délai minimal de l'API après un
   échec est conservé). Un bandeau d'étapes en tête des cartes montre l'avancement (`✓` fait, `⟳` en cours, `✕` erreur,
-  `·` en attente). Une erreur reste affichée jusqu'à `×` ou au rafraîchissement suivant. Rafraîchir ne retire pas
+  `·` en attente). Une erreur reste affichée jusqu'à `×` ou au rafraîchissement suivant. L'étape GitHub relit le
+  milestone **sans attendre** la relecture de masse des projets. Si `gh` est absent, non connecté, ou si le dépôt n'a
+  pas de remote GitHub, l'étape est **verte** avec la raison affichée (cas sans objet, pas une panne) ; une vraie panne
+  est **rouge** et affiche la cause renvoyée par `gh` (authentification, réseau, dépôt introuvable, limite d'API…). Rafraîchir ne retire pas
   l'onglet d'un projet ouvert.
 - **Forcer la fermeture…** : proposée quand le projet est affiché ouvert ou en erreur **et** qu'il n'a plus de conteneur,
   de pod ni de session (cas typique : un pod k8s disparu). Une boîte de confirmation indique la raison et liste ce qui
@@ -1628,7 +1631,8 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 (fichiers de release), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`, `CL_FAKE_TPL_RELEASED`,
 `XDG_CACHE_HOME`.
 
-`scripts/ci.sh` (la CI) isole tmux : il crée un dossier dédié et court sous `/tmp` (en dur, `mktemp -d /tmp/clci.XXXXXX`,
+`scripts/ci.sh` (la CI) lance `go test -race ./...` sous Linux : il exige un compilateur C (`gcc`, cgo) et s'arrête avec un
+message explicite s'il manque (`apt install gcc` / `dnf install gcc`). Il isole tmux : il crée un dossier dédié et court sous `/tmp` (en dur, `mktemp -d /tmp/clci.XXXXXX`,
 indépendamment de `$TMPDIR` ; limite `sun_path` de 108 octets : le dossier du projet est trop long), et les tests
 reçoivent ce dossier comme `TMUX_TMPDIR` et `TMPDIR`. Le script échoue si un socket de test `cl-*` reste dans ce dossier,
 ou si un socket de test tombe dans `/tmp/tmux-<uid>` (garde limitée aux préfixes produits par les tests seulement :

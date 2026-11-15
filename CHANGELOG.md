@@ -17,6 +17,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ### Changed
 - « Fermer » du menu projet est disponible dès que la ligne est ouverte ou que sa pastille n'est pas `○` (#158)
+- `scripts/ci.sh` lance `go test -race ./...` sous Linux ; il exige gcc (cgo) et signale explicitement son absence (#164)
 
 ### Fixed
 - Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus `git describe --dirty` : plus de `index.lock` laissé par le launcher (#154)
@@ -24,6 +25,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - `scripts/ci.sh` échoue aussi sur un socket de test laissé dans `/tmp/tmux-<uid>` (préfixes des tests seulement) (#154)
 - Backend injoignable : la fermeture forcée est proposée avec un avertissement, le nettoyage reste local et aucun arrêt du conteneur n'est demandé (#158)
 - Rafraîchissement des conteneurs : plus de course entre la relecture et la lecture de l'état des conteneurs (#158)
+- Rafraîchissement, étape GitHub : le milestone est relu sans attendre la relecture de masse ; `gh` absent, non connecté ou dépôt sans remote GitHub = étape verte avec la raison ; une panne réelle = étape rouge avec la cause renvoyée par `gh` (#158)
+- Test `TestProjectApplyForeignOwnerTimeout` : race de test corrigée (la goroutine est attendue avant de restaurer `foreignOwner`) (#164)
 
 ### Notes de lot — LOT-1 (#150, #154)
 
@@ -41,12 +44,12 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ### Notes de lot — LOT-2 (#158)
 
 - Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
-- QA (`_work/reports/qa-lot2-cycle2-v6.2.0.md`, HEAD `55a7b3c`, cycle 2) : **VALIDATED WITH RESERVATIONS**.
-  - Tests #158 ciblés (core, desktop, tmux) : PASS, y compris les deux tests adaptés au cas « backend injoignable ».
-  - `CGO_ENABLED=1 go test -race` : core et ui/tmux PASS ; ui/desktop PASS sauf un échec toléré (R-1). La course sur le rafraîchissement des conteneurs (DEF-1) est corrigée.
-  - `scripts/ci.sh` : CI OK (54 s), govulncheck sans vulnérabilité, build croisé Windows OK. Résidus #154 : aucun socket `cl-*` nouveau dans `/tmp/tmux-1000`, aucun index.lock (DEF-2 corrigé). La garde élargie échoue bien sur un socket de test laissé dans `/tmp/tmux-<uid>` et ignore les sessions du launcher réel.
+- QA (`_work/reports/qa-lot2-cycle4-v6.2.0.md`, HEAD `6a51072`, cycle 4) : **VALIDATED WITH RESERVATIONS** (cycles 2 et 4 successifs ; le cycle 4 remplace le verdict du cycle 2).
+  - Tests #158 ciblés (core, desktop, tmux) : PASS, y compris les tests de l'étape GitHub (`TestRefreshGitHubNotLoggedInIsNotRed`, `TestRefreshGitHubRealFailureShowsCause`, `TestForcedMilestoneReadDoesNotQueueBehindBulkRead`).
+  - `CGO_ENABLED=1 go test -race ./...` : PASS sur toutes les suites, aucune race ; `TestProjectApplyForeignOwnerTimeout` est vert (#164).
+  - `scripts/ci.sh` (désormais en `-race`) : CI OK (57 s), govulncheck sans vulnérabilité, build croisé Windows OK. Résidus #154 : aucun socket `cl-*` nouveau dans `/tmp/tmux-1000`, aucun serveur `cl-desk*`, aucun index.lock.
 - Réserve :
-  - R-1 (hors lot, à traiter par une issue dédiée) : `TestProjectApplyForeignOwnerTimeout` (#148) a une race test-only, préexistante sur `c85fa82` ; elle fait échouer `go test -race ./ui/desktop`.
-- Procédures à jouer à la main en QUALIF (`tests/procedures/`, S1 à S7 du cycle 2) :
+  - R-C : la procédure Windows `tests/procedures/ui-desktop/rafraichir-forcer-158/rafraichir-forcer-windows.md` ne dit pas quoi relever quand l'étape GitHub est rouge (message affiché, capture, `gh auth status`, `gh api repos/<dépôt>/milestones`) ni le résultat attendu des cas légitimes (`gh` absent ou non connecté : étape verte). Scénario 8 Windows à ajouter (test-writer).
+- Procédures à jouer à la main en QUALIF (`tests/procedures/`, S1 à S7 des cycles 2 et 4) :
   - Windows : S1, S2, S3 (pod supprimé à la main, projet k8s jetable), S4, S6 (backend injoignable : Rafraîchir conserve l'onglet, Forcer avec avertissement, nettoyage local seul, annulation, rétablissement), S7 (le projet revit entre la question et la confirmation : refus, rien tué, reprise ↺ conservée). S5 est couvert par un test automatique.
   - Linux (hub) : S1 à S4.
