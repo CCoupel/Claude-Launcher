@@ -62,9 +62,13 @@
           "credentials_env": [],
           "verified": {
             "status": "ok",
-            "at": "2026-11-13T17:40:00Z",
+            "at": "2026-11-15T10:31:07Z",
             "checks": [
-              "target-dir"
+              "target-dir",
+              "target-writable",
+              "disk-space",
+              "go-toolchain",
+              "build-dir-ignored"
             ]
           }
         }
