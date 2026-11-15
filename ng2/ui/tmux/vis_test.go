@@ -270,8 +270,9 @@ func TestCloseProjectKillsHiddenTeammates(t *testing.T) {
 	}
 }
 
-// Carte Team : ● vert si le template est à jour (ou neutre), ▲ orange s'il est
-// en retard (version enregistrée → cible), « + » devant le nom avec compagnon.
+// Carte Team : ● démarré, ○ non démarré, ⚠ orange en bout de ligne quand le template est en retard
+// (v6.2.0, #151 maquette A : le ⚠ remplace le ▲ de la v6.1.0 et les versions passent dans le titre — plus
+// de « v5.8.0→v5.9.2 » dans la ligne), « + » devant le nom avec compagnon.
 func TestTeamCardTemplateState(t *testing.T) {
 	m := stateModel{cfg: visCfg(), w: 100, h: 60, loaded: true, hasSel: true, sel: Selection{Name: "p", Key: "p", Path: t.TempDir()}}
 	m.panes = paneData{open: true, lines: []core.TeamLine{
@@ -284,15 +285,23 @@ func TestTeamCardTemplateState(t *testing.T) {
 	if len(rows) != 4 {
 		t.Fatalf("lignes : %q", rows)
 	}
-	for i, want := range []string{"●", "▲", "○", "●"} {
+	for i, want := range []string{"●", "●", "○", "●"} {
 		if !strings.Contains(rows[i], want) {
 			t.Errorf("ligne %d : %q sans %s", i, rows[i], want)
 		}
 	}
-	if !strings.Contains(rows[1], "+dev-b") || !strings.Contains(rows[1], "v5.8.0→v5.9.2") {
+	if !strings.Contains(rows[1], "+dev-b") || !strings.Contains(rows[1], "⚠") {
 		t.Errorf("retard : %q", rows[1])
 	}
-	if strings.Contains(rows[0], "+dev-a") || strings.Contains(rows[0], "→") {
-		t.Errorf("à jour : %q", rows[0])
+	for i, r := range rows {
+		if i != 1 && strings.Contains(r, "⚠") {
+			t.Errorf("ligne %d conforme avec ⚠ : %q", i, r)
+		}
+		if strings.Contains(r, "→") || strings.Contains(r, "▲") {
+			t.Errorf("ligne %d : ancienne marque ou version dans la ligne : %q", i, r)
+		}
+	}
+	if strings.Contains(rows[0], "+dev-a") {
+		t.Errorf("sans compagnon : %q", rows[0])
 	}
 }

@@ -18,3 +18,5 @@
 | tests/procedures/ui-desktop/taille-zones-150/ | procedure | ui-desktop | Taille des caracteres par zone : arbre, cartes, terminaux (#150) | feature | |
 | tests/procedures/ui-desktop/rafraichir-forcer-158/ | procedure | ui-desktop | Rafraichir un projet, Forcer la fermeture : menu, bandeau, pod supprime (#158) | feature | critical |
 | tests/procedures/ui-tmux/rafraichir-forcer-158/ | procedure | ui-tmux | Coque Linux : F5 relit le projet, Suppr propose la fermeture forcee (#158) | feature | |
+| tests/procedures/ui-desktop/team-lisible-151-152-162/ | procedure | ui-desktop | Carte TEAM (versions en en-tete), en-tetes de panes par etat, onglet Teamleaders isole (#151, #152, #162) | feature | |
+| tests/procedures/ui-tmux/team-lisible-151-152/ | procedure | ui-tmux | Coque Linux : carte TEAM, ligne de titre par pane, deux launchers (#151, #152) | feature | |
