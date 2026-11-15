@@ -49,7 +49,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   - `CGO_ENABLED=1 go test -race ./...` : PASS sur toutes les suites, aucune race ; `TestProjectApplyForeignOwnerTimeout` est vert (#164).
   - `scripts/ci.sh` (désormais en `-race`) : CI OK (57 s), govulncheck sans vulnérabilité, build croisé Windows OK. Résidus #154 : aucun socket `cl-*` nouveau dans `/tmp/tmux-1000`, aucun serveur `cl-desk*`, aucun index.lock.
 - Réserve :
-  - R-C : la procédure Windows `tests/procedures/ui-desktop/rafraichir-forcer-158/rafraichir-forcer-windows.md` ne dit pas quoi relever quand l'étape GitHub est rouge (message affiché, capture, `gh auth status`, `gh api repos/<dépôt>/milestones`) ni le résultat attendu des cas légitimes (`gh` absent ou non connecté : étape verte). Scénario 8 Windows à ajouter (test-writer).
-- Procédures à jouer à la main en QUALIF (`tests/procedures/`, S1 à S7 des cycles 2 et 4) :
-  - Windows : S1, S2, S3 (pod supprimé à la main, projet k8s jetable), S4, S6 (backend injoignable : Rafraîchir conserve l'onglet, Forcer avec avertissement, nettoyage local seul, annulation, rétablissement), S7 (le projet revit entre la question et la confirmation : refus, rien tué, reprise ↺ conservée). S5 est couvert par un test automatique.
+  - R-C (résolue en `56603a8`) : la procédure Windows `tests/procedures/ui-desktop/rafraichir-forcer-158/rafraichir-forcer-windows.md` reçoit le scénario 8 (étape GitHub : cause affichée quand elle est rouge, cas légitimes verts).
+- Procédures à jouer à la main en QUALIF sur 6.2.0.3 (`tests/procedures/`) :
+  - Windows : S1, S2, S3 (pod supprimé à la main, projet k8s jetable), S4, S6 (backend injoignable : Rafraîchir conserve l'onglet, Forcer avec avertissement, nettoyage local seul, annulation, rétablissement), S7 (le projet revit entre la question et la confirmation : refus, rien tué, reprise ↺ conservée), S8 (étape GitHub du rafraîchissement). S5 est couvert par un test automatique.
   - Linux (hub) : S1 à S4.
