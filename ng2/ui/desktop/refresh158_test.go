@@ -238,6 +238,20 @@ func (f fakeProj) sessionAlive() bool {
 	return exec.Command("tmux", "-L", f.sock, "has-session", "-t", "="+hostSession(f.path)).Run() == nil
 }
 
+// waitReopened : la session tmux du projet rouvert existe (le serveur tmux est donc démarré sous le
+// TMUX_TMPDIR isolé, et le Cleanup de openFakeProject le tuera).
+func (f fakeProj) waitReopened(t *testing.T) {
+	t.Helper()
+	end := time.Now().Add(20 * time.Second)
+	for time.Now().Before(end) {
+		if f.sessionAlive() {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatal("session tmux non recréée par la réouverture")
+}
+
 func (f fakeProj) hasTab() bool {
 	f.a.mu.Lock()
 	defer f.a.mu.Unlock()
@@ -299,10 +313,14 @@ func TestRefreshProjectRemovesTabOfKilledSession(t *testing.T) {
 			t.Error("la ligne du projet reste « ouverte » après le rafraîchissement")
 		}
 	}
-	// rouvrable
+	// rouvrable. open() rend la main avant que projTerm.run ait lancé tmux (asynchrone) : sans attente,
+	// le serveur démarrerait après les Cleanup (kill-server, restauration de TMUX_TMPDIR, suppression du
+	// dossier isolé) et resterait dans /tmp/tmux-<uid>. On attend donc la session rouverte ; le Cleanup
+	// de openFakeProject (kill-server) la tue ensuite, avant l'effacement du dossier.
 	if res, err := f.a.open(f.path, core.LaunchNormal); err != nil || fmt.Sprint(res) != fmt.Sprint(map[string]any{"tab": f.path}) {
 		t.Errorf("réouverture : %v %v", res, err)
 	}
+	f.waitReopened(t)
 }
 
 // snapDir : hash de chaque fichier du projet (chemin relatif), hors fichiers exclus.
@@ -416,9 +434,7 @@ func TestForceCloseGoneSessionThenReopen(t *testing.T) {
 	if res, err := f.a.open(f.path, core.LaunchNormal); err != nil || fmt.Sprint(res) != fmt.Sprint(map[string]any{"tab": f.path}) {
 		t.Fatalf("réouverture après fermeture forcée : %v %v", res, err)
 	}
-	f.r.wait(t, 20*time.Second, "ready (réouverture)", func(e map[string]any) bool {
-		return e["_name"] == "term" && e["path"] == f.path && e["kind"] == "status" && e["state"] == "ready" && f.sessionAlive()
-	})
+	f.waitReopened(t)
 }
 
 // CRITICAL — jamais sur un projet piloté par un autre launcher vivant : refus (« prendre la main

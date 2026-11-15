@@ -88,12 +88,45 @@
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 6 — Backend injoignable : fermeture forcee avec avertissement, nettoyage local seul
+
+**Validation** : HUMAIN — **Issues** : #158 — **Prerequis** : projet k8s jetable ouvert (onglet), pod en marche
+(equivalents automatises : `TestForceCloseWarnsWhenBackendReadFailed`, `TestRefreshProjectKeepsTabWhenBackendReadFails`)
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Couper l'acces au backend du projet (reseau du cluster, VPN ou contexte kubectl invalide) ; le pod, lui, continue de tourner | Le projet reste affiche ouvert | | |
+| 2 | « Rafraichir » | L'etape conteneur/pod passe en erreur (bandeau rouge) ; **l'onglet est conserve** (jamais detache sur une lecture echouee) | | |
+| 3 | Menu › « Forcer la fermeture… » | Proposee ; la boite affiche l'avertissement « backend injoignable : le projet tourne peut-etre encore » | | |
+| 4 | Lire la liste de ce qui sera nettoye | Etat local seulement (onglet, session locale, marque de sortie propre) ; **aucun arret de conteneur ou de pod** annonce | | |
+| 5 | Annuler | Rien n'est change ; onglet toujours present | | |
+| 6 | Rouvrir la boite et confirmer | Onglet retire, nettoyage local fait ; message de fin sans arret du conteneur | | |
+| 7 | Retablir l'acces au backend, Rafraichir | Le pod est toujours en marche (aucun arret demande par la fermeture forcee) ; le projet est affiche ouvert/ouvrable selon l'etat reel | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 7 — Le projet revit entre la question et la confirmation
+
+**Validation** : HUMAIN — **Issues** : #158 — (equivalents automatises : `TestForceCloseConfirmRefusedWhenHostSessionRevives`, `TestForceCloseConfirmRefusedWhenLiveSessionAppears`)
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Projet dont le pod a disparu : « Forcer la fermeture… », boite de confirmation ouverte (ne pas confirmer) | Question affichee | | |
+| 2 | Pendant que la boite est ouverte, faire revivre le projet (le pod est recree, ou le projet est rouvert depuis un autre moyen) | | | |
+| 3 | Confirmer | **Refus** avec un message (le projet est de nouveau vivant) ; ni session tuee, ni conteneur arrete, ni marque de sortie propre ; la reprise ↺ reste proposee | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] Rafraichir relit sans attendre les caches ; l'indicateur disparait toujours, y compris sur erreur
 - [ ] Un projet dont le pod a disparu apparait ferme apres Rafraichir ; son onglet est retire
 - [ ] Forcer la fermeture : proposee seulement si pertinente, refusee si un autre launcher pilote, projet ouvrable ensuite
 - [ ] Aucun fichier du projet supprime ; `projects.json` intact
+- [ ] Backend injoignable : Rafraichir conserve l'onglet ; fermeture forcee proposee avec avertissement, nettoyage local seul, aucun arret du conteneur
+- [ ] Un projet qui revit entre la question et la confirmation n'est jamais ferme de force
 
 ## Notes QA
 

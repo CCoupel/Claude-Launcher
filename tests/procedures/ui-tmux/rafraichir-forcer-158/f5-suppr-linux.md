@@ -41,10 +41,40 @@
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 3 — Backend injoignable : Suppr propose la fermeture forcee avec avertissement
+
+**Validation** : HUMAIN — **Issues** : #158 — **Prerequis** : projet en conteneur ouvert (fenetre du hub)
+(equivalent automatise : `TestForceCloseWarnsWhenBackendReadFailed` dans `ng2/ui/tmux/refresh158_major_test.go`)
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Couper l'acces au backend du projet (moteur distant injoignable) ; le conteneur continue de tourner | Projet toujours affiche ouvert | | |
+| 2 | F5 sur le projet | Pied : « ⟳ … » puis resultat mentionnant « backend injoignable » ; la fenetre du projet est conservee | | |
+| 3 | Suppr | Question de fermeture forcee avec l'avertissement « backend injoignable : le projet tourne peut-etre encore » (o/N) | | |
+| 4 | Repondre o | Fenetre et etat local nettoyes ; **aucun arret du conteneur** demande (verifier cote moteur apres retablissement de l'acces) | | |
+| 5 | Retablir l'acces, F5 | Le conteneur tourne toujours ; etat relu coherent | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 4 — Le projet revit entre la question et la reponse
+
+**Validation** : HUMAIN — **Issues** : #158 — (equivalent automatise : `TestForceCloseConfirmRefusedWhenProjectRevives`)
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Projet dont le conteneur a disparu : Suppr (question affichee, ne pas repondre) | Question de fermeture forcee | | |
+| 2 | Faire revivre le projet (conteneur recree, session de nouveau vivante) puis repondre o | Refus avec message ; aucune fenetre fermee, aucune session tuee, aucune marque de sortie propre | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] F5 relit le projet selectionne, avec « ⟳ … » puis le resultat
 - [ ] Suppr pose la question de fermeture forcee seulement quand elle est proposable
+- [ ] Backend injoignable : proposee avec avertissement, nettoyage local seul, aucun arret du conteneur
+- [ ] Un projet qui revit entre la question et la reponse n'est jamais ferme de force
 
 ## Notes QA
 
