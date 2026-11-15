@@ -797,6 +797,9 @@ type winPaneFull struct {
 }
 
 func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visible string, err error) {
+	if readWinFail.Load() {
+		return nil, 0, 0, false, "", errClientClosed
+	}
 	c := t.cl()
 	if c == nil {
 		return nil, 0, 0, false, "", errClientClosed
@@ -841,18 +844,25 @@ func sortPanes(p []winPaneFull) {
 }
 
 // tick : un tour du watcher ; fast : sur notification (sans propriétaire ni team).
+// arrangeCalls : mises en page demandées (tests : une bascule ne doit en provoquer qu'une) ; readWinFail : tests,
+// lecture de la fenêtre en échec.
+var (
+	arrangeCalls atomic.Int64
+	readWinFail  atomic.Bool
+)
+
 // tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
 // de la team et de tmux prend plusieurs secondes) ; nul en production.
 var tickSlow atomic.Int64 // durée en ns ; atomique : lue par les surveillants pendant qu'un test la fixe
 
 func (t *projTerm) tick(fast bool) {
-	if d := time.Duration(tickSlow.Load()); !fast && d > 0 {
-		time.Sleep(d)
-	}
 	if !fast && t.a.confChangedOnDisk() { // config.conf modifié ailleurs : relu à chaud (#153)
 		t.a.configReload(core.ConfConf)
 	}
 	cfg := t.a.conf()
+	if d := time.Duration(tickSlow.Load()); !fast && d > 0 {
+		time.Sleep(d) // simule la lecture lente de la team (après la lecture de cfg, comme en production)
+	}
 	// team du projet : lue par le tour lent seulement (fichiers, parfois par
 	// 9P), avant la fenêtre ; le tour rapide reprend la dernière lue
 	var tc *core.TeamConfig
@@ -920,7 +930,9 @@ func (t *projTerm) tick(fast bool) {
 		}
 	}
 	// organisation effective changée (réglage global ou du projet) : remise en page, sans relance (#153)
-	if sig := layoutSig(cfg, t.key); !fast {
+	// configuration relue SOUS pubMu : une bascule arrivée pendant un tour lent est déjà prise en compte par
+	// relayoutNow (même signature), ce tour ne remet pas en page une seconde fois ni ne ramène l'ancienne valeur
+	if sig := layoutSig(t.a.conf(), t.key); !fast {
 		if t.watch.layoutSig != "" && sig != t.watch.layoutSig && !ro && len(panes) > 1 {
 			arrange()
 		}
@@ -1157,9 +1169,12 @@ func (t *projTerm) relayoutNow() {
 	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
 		return
 	}
-	t.watch.layoutSig = sig
 	panes, w, h, zoomed, visible, err := t.readWin()
-	if err != nil || len(panes) <= 1 {
+	if err != nil { // fenêtre illisible : la signature reste l'ancienne, le tour du surveillant retente
+		return
+	}
+	if len(panes) <= 1 { // rien à disposer : la nouvelle organisation s'appliquera à l'arrivée des panes
+		t.watch.layoutSig = sig
 		return
 	}
 	var ids strings.Builder
@@ -1171,6 +1186,7 @@ func (t *projTerm) relayoutNow() {
 	tc := t.team
 	t.mu.Unlock()
 	t.arrange(corePanes(panes), w, h, leader, tc)
+	t.watch.layoutSig = sig // seulement après la mise en page
 	if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
 		panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
 	}
@@ -1310,6 +1326,7 @@ func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *co
 	if t.isReadOnly() || len(panes) <= 1 {
 		return
 	}
+	arrangeCalls.Add(1)
 	ids := make([]string, len(panes))
 	for i, p := range panes {
 		ids[i] = p.ID
