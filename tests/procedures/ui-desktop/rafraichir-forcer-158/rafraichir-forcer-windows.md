@@ -119,6 +119,21 @@
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 8 — Etape GitHub du rafraichissement
+
+**Validation** : HUMAIN — **Issues** : #158 — **Prerequis** : projet k8s (ou conteneur) ouvert ; `gh` installe et connecte sur le poste Windows pour l'etape 1 (`gh auth status` OK) ; acces pour desinstaller/renommer `gh` et se deconnecter (`gh auth logout`) pour les cas legitimes
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Cas nominal : `gh` connecte, projet avec remote GitHub. « Rafraichir » | Etape GitHub (milestone et issues) **verte** ; message final sans erreur GitHub | | |
+| 2 | `gh` absent (le renommer ou le sortir du PATH), « Rafraichir » | Etape GitHub **verte** ; la raison est dite dans le message final (ex. « gh absent ») ; aucun bandeau rouge | | |
+| 3 | `gh` present mais non connecte (`gh auth logout`), « Rafraichir » | Etape GitHub **verte** ; message final : non connecte | | |
+| 4 | Projet sans remote GitHub (depot local ou remote non GitHub), « Rafraichir » | Etape GitHub **verte** ; message final : pas de depot GitHub | | |
+| 5 | Retablir `gh` et la connexion, « Rafraichir » | Retour au cas nominal (etape verte, milestone relu) | | |
+| 6 | Si l'etape est **rouge** dans l'un des cas ci-dessus (ou en nominal) : relever le message exact du bandeau et du message final (cause renvoyee par `gh`), puis lancer `gh auth status` dans un terminal du poste Windows et noter sa sortie complete | Message et sortie de `gh auth status` consignes dans « Resultat Obtenu » et les Notes QA ; anomalie a ouvrir | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] Rafraichir relit sans attendre les caches ; l'indicateur disparait toujours, y compris sur erreur
@@ -127,6 +142,7 @@
 - [ ] Aucun fichier du projet supprime ; `projects.json` intact
 - [ ] Backend injoignable : Rafraichir conserve l'onglet ; fermeture forcee proposee avec avertissement, nettoyage local seul, aucun arret du conteneur
 - [ ] Un projet qui revit entre la question et la confirmation n'est jamais ferme de force
+- [ ] Etape GitHub : verte en nominal et dans les cas legitimes (gh absent, non connecte, pas de remote GitHub), avec la raison dans le message final ; rouge seulement sur une vraie erreur, dont le message exact est releve
 
 ## Notes QA
 
