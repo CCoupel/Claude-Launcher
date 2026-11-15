@@ -564,7 +564,7 @@ function docDraftOf(id, m) {
       allow: ((s.browser_server || {}).allow || []).join('\n'),
     };
     const bs = s.browser_server || {}, ru = s.remote_user || {};
-    d.f = { listen: bs.listen || '', url: bs.url || '', uid: ru.uid == null ? '' : String(ru.uid), gid: ru.gid == null ? '' : String(ru.gid), name: ru.name || '', home: ru.home || '', hub_cache: s.hub_cache || '', browser_device: s.browser_device || '' };
+    d.f = { listen: bs.listen || '', url: bs.url || '', uid: ru.uid == null ? '' : String(ru.uid), gid: ru.gid == null ? '' : String(ru.gid), name: ru.name || '', home: ru.home || '', hub_cache: s.hub_cache || '', browser_device: s.browser_device || '', dweb: (s.desktop_web || {}).listen || '' };
   }
   return d;
 }
@@ -635,10 +635,22 @@ function docChanges(id) {
     const bsv = (D2) => clean({ listen: str(D2.f.listen), url: str(D2.f.url), allow: al(D2.txt.allow) });
     const ruv = (f) => clean({ uid: num(f.uid), gid: num(f.gid), name: str(f.name), home: str(f.home) });
     put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
+    const dwv = (D2) => clean({ listen: str(D2.f.dweb || '') });
+    put(['desktop_web'], dwv(d), dwv(o), !Object.keys(dwv(d)).length);
     put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
     for (const k of ['hub_cache', 'browser_device']) put([k], d.f[k].trim(), o.f[k].trim(), !d.f[k].trim());
   }
   return ch;
+}
+// adresse d'écoute normalisée : '' pour off/vide, port seul = boucle locale
+function dwNorm(v) {
+  v = (v || '').trim();
+  if (!v || v.toLowerCase() === 'off') return '';
+  return /^\d+$/.test(v) ? '127.0.0.1:' + v : v;
+}
+function dwLoopback(a) {
+  const h = a.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '::1' || /^127\./.test(h);
 }
 function docLocalProblems(id) {
   const D = ST.docs[id], ps = [];
@@ -651,6 +663,12 @@ function docLocalProblems(id) {
         ps.push({ severity: 'error', message: x.label + ' : entier' + (x.min != null ? ' ≥ ' + x.min : '') + (x.max != null ? ' ≤ ' + x.max : '') + ' attendu' });
     }
   } else if (id === 'hub') {
+    // Interface web (#163) : refus si même adresse que le serveur des fichiers ; avertissement hors boucle locale
+    const dw = dwNorm(D.d.f.dweb);
+    if (dw) {
+      if (dw === dwNorm(D.d.f.listen || '127.0.0.1:8765')) ps.push({ severity: 'error', message: 'Interface web : même adresse que le serveur web des fichiers (' + dw + ') — deux serveurs distincts, choisir un autre port' });
+      else if (!dwLoopback(dw)) ps.push({ severity: 'warning', message: '⚠ Interface web : écoute hors de la boucle locale (' + dw + ') — toute machine qui atteint cette adresse peut présenter le jeton et piloter ce poste (terminaux, projets). À réserver à un réseau de confiance.' });
+    }
     for (const k of ['uid', 'gid']) if (D.d.f[k] !== '' && !/^\d+$/.test(D.d.f[k])) ps.push({ severity: 'error', message: 'utilisateur distant : ' + k + ' numérique attendu' });
   }
   return ps;
@@ -773,6 +791,20 @@ function stPageEnv(p) {
   });
 }
 
+// état courant de l'interface web (instantané `webUI`) et ouverture dans le navigateur (fenêtre native seulement)
+function dwStatus() {
+  const w = (S.snap && S.snap.webUI) || { state: 'off' };
+  const box = el('span', 'stfont');
+  const txt = w.state === 'on' ? '● active sur ' + w.listen + (w.msg ? ' — ' + w.msg : '') : w.state === 'error' ? '✕ ' + (w.msg || 'erreur') : '○ désactivée';
+  box.append(el('span', w.state === 'on' ? 't-green' : w.state === 'error' ? 't-red' : 'dim', txt));
+  if (w.state === 'on' && !isWebClient()) {
+    box.append(stBtn('Ouvrir dans le navigateur', async () => {
+      try { const r = await call('webUIOpen', {}); if (r && r.ok === false) flash('⚠ ' + (r.msg || 'ouverture impossible')); } catch (e) { /* signalé par call */ }
+    }));
+  }
+  return box;
+}
+
 function stPageHub(p) {
   const D0 = ST.docs.hub;
   const title = 'Ce poste' + (D0 && D0.model ? ' — ' + D0.model.hub : '');
@@ -807,6 +839,8 @@ function stPageHub(p) {
     const nav = stForm([
       ['Chemins du navigateur', stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3), 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + ovHint('browser_paths')],
       ['Serveur web : écoute', stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765'), ovHint('browser_server')],
+      ['Interface web : écoute', stInput(f.dweb, (v) => { f.dweb = v; }, 'off'), 'off (défaut), un port (boucle locale) ou hôte:port · interface complète, avec jeton · différente du serveur des fichiers ' + ovHint('desktop_web')],
+      ['Interface web : état', dwStatus(), ''],
       ['Serveur web : URL', stInput(f.url, (v) => { f.url = v; }, 'http://…'), 'adresse vue du navigateur'],
       ['Serveur web : autorisés', stArea(t.allow, (v) => { t.allow = v; }, 2), 'une adresse par ligne'],
       ['Navigateur (appariement)', stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur'), ovHint('browser_device')],

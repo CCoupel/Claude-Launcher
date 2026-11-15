@@ -33,6 +33,15 @@ const transport = (() => {
     },
   };
 })();
+// Client web ou fenêtre native (#163) : la fenêtre native est celle qui expose Wails.
+const isWebClient = () => !(window.go && window.go.desktop && window.go.desktop.Bridge);
+// Client web d'une fenêtre native qui sert l'interface web (webUI actif) : quit, setTheme, webUIOpen et le
+// presse-papiers du poste lui sont refusés par le Go (« desktop --web » seul : webUI inactif, tout y reste permis).
+const webOfNative = () => isWebClient() && !!(S.snap && S.snap.webUI && S.snap.webUI.state === 'on');
+// Plusieurs clients possibles sur les mêmes terminaux : seul celui qui a le clavier (fenêtre au premier plan)
+// fixe la taille ; un client seul (webUI inactif) la fixe toujours.
+const sharedTerms = () => !!(S.snap && S.snap.webUI && S.snap.webUI.state === 'on');
+const hasKeyboard = () => !sharedTerms() || document.hasFocus();
 const call = (m, a) => transport.call(m, a).catch((e) => { flash('⚠ ' + e.message); throw e; });
 
 // ── Utilitaires ────────────────────────────────────────────────────────────
@@ -717,6 +726,7 @@ document.addEventListener('keydown', (e) => {
     case 'Tab': focusTerminal(); return handled();
     case 'Escape':
       if (S.filter) { S.filter = ''; renderTree(); renderHead(); return handled(); }
+      if (webOfNative()) { flash('quitter : réservé à la fenêtre native'); return handled(); }
       S.quit = 1; renderHead(); return handled();
     case 'Backspace':
       if (S.filter) { S.filter = S.filter.slice(0, -1); afterFilter(); }
@@ -1010,6 +1020,7 @@ class ProjView {
     const cols = Math.max(20, Math.floor((vr.width - 8) / cell.w));
     const rows = Math.max(6, Math.floor((vr.height - 8 - cell.h) / cell.h)); // 1 ligne d'en-têtes en haut
     const key = cols + 'x' + rows;
+    if (!hasKeyboard()) return; // sans le clavier : géométrie reçue affichée telle quelle (applyLayout), la nôtre n'est pas renvoyée
     if (this.sent !== key) { this.sent = key; call('termResize', { path: this.path, cols, rows }); }
   }
   fitLaunch(vr) {
@@ -1019,7 +1030,7 @@ class ProjView {
     const m = this.state === 'pty' ? 8 + 14 : 16 + 14; // marges de la boîte et du terminal
     const cols = Math.max(20, Math.floor((vr.width - m) / cell.w)), rows = Math.max(5, Math.floor((vr.height - m) / cell.h));
     if (this.launch.cols !== cols || this.launch.rows !== rows) this.launch.resize(cols, rows);
-    if (this.state === 'pty') call('termResize', { path: this.path, cols, rows });
+    if (this.state === 'pty' && hasKeyboard()) call('termResize', { path: this.path, cols, rows });
   }
   focus() {
     if (this.state !== 'ready') { this.launch.focus(); return; }
@@ -1680,6 +1691,8 @@ function scheduleFit() {
   fitTimer = setTimeout(() => { for (const v of Object.values(S.views)) v.fit(); leaders.layout(); }, 80);
 }
 window.addEventListener('resize', scheduleFit);
+// un client qui prend le clavier fixe la taille : sa géométrie est renvoyée
+window.addEventListener('focus', () => { if (!sharedTerms()) return; for (const v of Object.values(S.views)) { v.sent = null; v.fit(); } });
 
 // focus clavier visible seulement au clavier (comme Windows : pas après un clic)
 document.addEventListener('keydown', () => document.body.classList.add('kbd'), true);
