@@ -863,6 +863,17 @@ function fitLeadersTab() {
   const on = sc.querySelector('.tab.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 window.addEventListener('resize', () => fitLeadersTab());
+// largeur de la barre changée sans évènement de fenêtre (séparateur du panneau gauche…) : recalcul, sans boucle
+// (la hauteur et les changements de pastille ne comptent pas : seule la largeur observée déclenche)
+if (typeof ResizeObserver === 'function') {
+  let tabsW = -1;
+  new ResizeObserver((es) => {
+    const w = Math.round(es[0].contentRect.width);
+    if (w === tabsW) return;
+    tabsW = w;
+    fitLeadersTab();
+  }).observe($('tabs'));
+}
 function lighten(hex) {
   const n = parseInt(hex.slice(1), 16); const f = (v) => Math.min(255, Math.round(v + (255 - v) * 0.45));
   return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
