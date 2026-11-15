@@ -961,13 +961,18 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 - **carte Team** : mêmes lignes, surbrillance et règles que la coque Linux (voir [Interface](#interface)) :
   double-clic sur un inactif = visible ↔ caché, refus en pied de volet pour un teammate actif ou un projet en
   lecture seule ; même état sous Linux et Windows (option tmux `@cl_panevis`) : ce qui est caché d'un côté l'est
-  de l'autre ; même état du template (`●` vert à jour, `▲` orange en retard, `○` non démarré, `+` devant le nom
-  si compagnon) ; **infobulle** de la ligne : actif / inactif, version du template, version cible (ou « version
-  cible inconnue »), compagnon (oui, avec son fichier, ou non) ;
+  de l'autre ; même état du template (`●` vert à jour, `○` non démarré, `⚠` orange sur un écart de version, `+` devant le nom
+  si compagnon) ; son titre porte « TEAM · N · TPL vX · CLAUDE Y » (versions une seule fois), les lignes n'ont plus de
+  colonne de version, la carte est plus étroite (#151) ; **infobulle** de la ligne : actif / inactif, version du template,
+  version cible (ou « version cible inconnue »), écart tpl / claude, compagnon (oui, avec son fichier, ou non) ;
 - à droite, l'onglet **⌗ Teamleaders** (une vignette interactive du leader de chaque projet
-  ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille ;
+  ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille. L'onglet Teamleaders
+  est isolé : épinglé à gauche, séparé des onglets de projets (qui défilent sans lui), sans `×`. Quand les onglets de
+  projets débordent, il se réduit à son icône (infobulle « Teamleaders ») ; `Ctrl+Tab` est inchangé (#162). La barre
+  d'état du hub Linux n'est pas modifiée ;
 - dans l'onglet d'un projet, **un terminal par pane** de sa session tmux (leader, teammates),
-  avec un en-tête « nom · rôle » : la mise en page est celle de la coque (`core/layout.go` :
+  avec un en-tête « nom · état » (bandeau vert si actif, gris si inactif, neutre pour le leader, suit l'état sans relance ; #152) :
+  la mise en page est celle de la coque (`core/layout.go` :
   leader et `cdp` en haut ; jusqu'à 5 teammates, le haut sur 50 % et les teammates sur une ligne ;
   au-delà, 3 lignes 3/7, 2/7 et le reste, la ligne du milieu recevant ⌈n/2⌉ ; actifs en ordre MRU
   puis inactifs par nom ; actifs éclaircis, inactifs assombris sur la couleur du projet) ;
@@ -1394,7 +1399,10 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   teammates du registre du template, version de leur copie, `+` si compagnon, modèle et effort,
   version de claude des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
 - **Carte Team** (dans `◈ État`) : une ligne par teammate lancé, plus les teammates du template non démarrés
-  (`●` démarré, `○` non démarré), sans regroupement ; **surbrillance** = son pane est visible dans la fenêtre du
+  (`●` démarré, `○` non démarré), sans regroupement ; son titre porte les versions une seule fois, « TEAM · N · TPL vX ·
+  CLAUDE Y » (template, claude du leader), et les lignes n'ont plus de colonne de version : la carte est plus étroite (#151).
+  `⚠` orange sur un teammate dont la version diffère (template ou claude) ; sous Windows, le détail est en infobulle.
+  **Surbrillance** = son pane est visible dans la fenêtre du
   projet. Double-clic sur un teammate inactif : visible ↔ caché. Un teammate caché sort de la fenêtre du projet,
   mais continue de tourner et reçoit ses messages. Règle : un teammate **actif est toujours visible** (double-clic
   refusé, message dans la carte) ; un inactif est caché après `TEAM_HIDE_IDLE` secondes (`config.conf`, 30 par
@@ -1402,9 +1410,9 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   jusqu'au second double-clic ; s'il redevient actif, il reprend la règle normale. Le leader n'est jamais caché.
   En lecture seule (un autre launcher a la main), le double-clic est refusé avec un message. Fermer le projet
   ferme aussi ses teammates cachés.
-  **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `▲` orange = template en
-  retard sur la version cible (le launcher a adopté une version plus récente) ; `○` = non démarré. La colonne de
-  version affiche `v5.8.0→v5.9.2` en jaune quand l'agent est en retard, sinon sa seule version. `+` devant le nom
+  **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `⚠` orange = écart de version
+  (template en retard sur la version cible, le launcher ayant adopté une version plus récente, ou claude différent de
+  celui du leader) ; `○` = non démarré. Les versions sont dans le titre de la carte (#151). `+` devant le nom
   = l'agent a un compagnon projet (`.claude/agents/<agent>.md`, ou `generic.<nom>.md` pour une instance générique).
   Un projet sans registre d'agents (`agents.registry`) garde l'affichage d'avant : ● neutre, pas de version.
   *Limites (v6.1.0)* : lors d'une prise de main sur un conteneur, deux launchers peuvent appliquer la règle
@@ -1418,6 +1426,10 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   La vignette relit aussi toutes les 2 s si la fenêtre est en conteneur : née avant que
   l'ouverture du pod pose `@cl_backend`/`@cl_ctr`, elle ne reste plus figée sur le pane du hub
   (toute la fenêtre du conteneur, dont elle ne montrait que le bas : les teammates) (v5.7.2).
+- **En-tête des panes de teammates** (#152) : une ligne de titre tmux en tête de chaque pane (`pane-border-status top`,
+  posé par le launcher qui a la main sur le projet). Bandeau vert si le teammate est actif, gris s'il est inactif, neutre
+  pour le leader ; l'état suit la mise en page sans relance. Un launcher antérieur ignore ces options : il n'affiche pas
+  les bandeaux, sans autre effet.
 
 | Action | Effet |
 |---|---|

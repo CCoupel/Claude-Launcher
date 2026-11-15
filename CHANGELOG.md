@@ -14,10 +14,14 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Menu du projet « ⟳ Rafraîchir » (`F5`) : relit tout le projet sans les caches (conteneur ou pod, session, git, GitHub, template, consommation), avec un bandeau d'étapes en tête des cartes ; une erreur reste affichée jusqu'à `×` (#158)
 - Menu du projet « Forcer la fermeture… » : proposée quand un projet ouvert ou en erreur n'a plus de conteneur, de pod ni de session (pod k8s disparu) ; confirmation avec la raison et le détail du nettoyage local ; `projects.json` n'est jamais modifié (#158)
 - Coque Linux : `F5` relit le projet sélectionné, `Suppr` propose la fermeture forcée (#158)
+- Carte TEAM : titre « TEAM · N · TPL vX · CLAUDE Y » (versions une seule fois), `⚠` orange sur un teammate dont la version diffère (template ou claude ; détail en infobulle sous Windows) (#151)
+- En-tête des panes de teammates : bandeau vert si actif, gris si inactif, neutre pour le leader ; suit l'état sans relance ; sous Linux, une ligne de titre tmux en tête de chaque pane (`pane-border-status top`) (#152)
+- Onglet Teamleaders (interface native) isolé, épinglé à gauche, sans `×` ; réduit à son icône quand les onglets de projets débordent (#162)
 
 ### Changed
 - « Fermer » du menu projet est disponible dès que la ligne est ouverte ou que sa pastille n'est pas `○` (#158)
 - `scripts/ci.sh` lance `go test -race ./...` sous Linux ; il exige gcc (cgo) et signale explicitement son absence (#164)
+- Carte TEAM : les colonnes de version disparaissent des lignes, la carte est plus étroite (#151)
 
 ### Fixed
 - Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus `git describe --dirty` : plus de `index.lock` laissé par le launcher (#154)
@@ -54,3 +58,18 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Procédures à jouer à la main en QUALIF sur 6.2.0.4 (`tests/procedures/`) :
   - Windows : S1, S2, S3 (pod supprimé à la main, projet k8s jetable), S4, S6 (backend injoignable : Rafraîchir conserve l'onglet, Forcer avec avertissement, nettoyage local seul, annulation, rétablissement), S7 (le projet revit entre la question et la confirmation : refus, rien tué, reprise ↺ conservée), S8 (étape GitHub du rafraîchissement), S9 (« dubious ownership » sur un dépôt du partage). S5 est couvert par un test automatique.
   - Linux (hub) : S1 à S4.
+
+### Notes de lot — LOT-3 (#151, #152, #162)
+
+- Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
+- QA (`_work/reports/qa-lot3-v6.2.0.md`, HEAD `9b4598c`, puis re-QA ciblée sur `5763b66`) : **VALIDATED WITH RESERVATIONS**.
+  - Tests feature #151, #152, #162 (core, ui/tmux, ui/desktop) : PASS ; `CGO_ENABLED=1 go test -race ./...` PASS sans tolérance ; `scripts/ci.sh` CI OK (60 s, au budget indicatif de ~60 s).
+  - Rendu réel du format des bordures de pane dans un client tmux : `teamleader · leader`, `dev-backend · actif`, `qa · inactif`, sans chaîne cassée.
+  - Correctif de revue `5763b66` : le surveillant de mise en page rend la main quand la fenêtre disparaît (`TestLayoutWatchReturnsWhenWindowGone`), aucun processus survivant.
+  - Le JavaScript de l'onglet Teamleaders (`app.js`) n'a pas été exécuté : `node` est absent du conteneur de QA ; la non-oscillation est couverte côté Go et reste à voir au scénario Windows S4.
+- Tests adaptés :
+  - `TestTeamCardTemplateState` (décision du GATE 2) : la ligne de la carte TEAM ne porte plus `▲` ni `vA→vB` (les versions sont dans le titre).
+  - `TestHostProjectWithTmux` (décision utilisateur, LOT-3) : avec `pane-border-status top`, le leader de la rangée du haut fait une ligne de moins (cellule − 1), `y` reste la cellule.
+- Procédures à jouer à la main en QUALIF (`tests/procedures/`) :
+  - Windows (`ui-desktop/team-lisible-151-152-162/team-lisible-windows.md`) : S1 à S5 (carte TEAM, en-têtes de panes, onglet Teamleaders, réduction à l'icône sans oscillation, deux launchers sur un projet en conteneur).
+  - Linux (`ui-tmux/team-lisible-151-152/team-lisible-linux.md`) : S1 à S4 (carte TEAM, ligne de titre par pane, launcher antérieur ou lecture seule, deux launchers en QUALIF).
