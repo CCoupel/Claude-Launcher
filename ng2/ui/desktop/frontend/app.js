@@ -364,10 +364,17 @@ function onRefresh(ev) {
 }
 async function refreshProject(path) {
   const r0 = rowOf(path);
-  const r = await call('refreshProject', { path });
-  if (r && r.ok === false) { flash(r.msg || 'rafraîchissement impossible'); return; }
+  // bandeau posé avant l'appel : un évènement `done` arrivé avant le retour du call le remplace/l'efface correctement
+  const prev = refreshBands[path];
   refreshBands[path] = { name: r0 ? r0.name : '', steps: REFRESH_IDS.map((id) => ({ id, state: 'wait' })), done: false, msg: '' };
   if (path === S.cursor) renderCards();
+  let r;
+  try { r = await call('refreshProject', { path }); } catch (e) { r = { ok: false, msg: e.message }; }
+  if (r && r.ok === false) {
+    if (prev) refreshBands[path] = prev; else delete refreshBands[path];
+    if (path === S.cursor) renderCards();
+    flash(r.msg || 'rafraîchissement impossible');
+  }
 }
 
 let teamClick = { key: null, at: 0 };
