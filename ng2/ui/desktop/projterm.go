@@ -86,7 +86,7 @@ type projTerm struct {
 
 type watchState struct {
 	prevSig, prevRelayout string
-	layoutMode            string // organisation effective au tour précédent (#153)
+	layoutSig             string // organisation effective (et largeur du leader) à la dernière mise en page (#153)
 	prevCount, beat, wait int
 	prevW, prevH          int
 }
@@ -841,7 +841,14 @@ func sortPanes(p []winPaneFull) {
 }
 
 // tick : un tour du watcher ; fast : sur notification (sans propriétaire ni team).
+// tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
+// de la team et de tmux prend plusieurs secondes) ; nul en production.
+var tickSlow atomic.Int64 // durée en ns ; atomique : lue par les surveillants pendant qu'un test la fixe
+
 func (t *projTerm) tick(fast bool) {
+	if d := time.Duration(tickSlow.Load()); !fast && d > 0 {
+		time.Sleep(d)
+	}
 	if !fast && t.a.confChangedOnDisk() { // config.conf modifié ailleurs : relu à chaud (#153)
 		t.a.configReload(core.ConfConf)
 	}
@@ -913,11 +920,11 @@ func (t *projTerm) tick(fast bool) {
 		}
 	}
 	// organisation effective changée (réglage global ou du projet) : remise en page, sans relance (#153)
-	if eff := cfg.LayoutOf(t.key); !fast {
-		if t.watch.layoutMode != "" && eff != t.watch.layoutMode && !ro && len(panes) > 1 {
+	if sig := layoutSig(cfg, t.key); !fast {
+		if t.watch.layoutSig != "" && sig != t.watch.layoutSig && !ro && len(panes) > 1 {
 			arrange()
 		}
-		t.watch.layoutMode = eff
+		t.watch.layoutSig = sig
 	}
 	busy := false
 	if tc != nil {
@@ -1126,6 +1133,61 @@ func (t *projTerm) syncHeaders(panes []winPaneFull, leader string, tc *core.Team
 	core.SetWindowHeaders(cl, t.win)
 	core.SyncPaneHeaders(cl, t.win, hs)
 	t.hdrSig, t.hdrAt = sig, time.Now()
+}
+
+// layoutSig : organisation effective du projet key, avec la largeur du leader quand elle compte (« left »).
+func layoutSig(cfg core.Config, key string) string {
+	m := cfg.LayoutOf(key)
+	if m == core.LayoutLeft {
+		return fmt.Sprintf("%s/%d", m, cfg.LayoutLeftLeaderPct)
+	}
+	return m
+}
+
+// relayoutNow : remet le projet en page tout de suite si son organisation effective a changé depuis la
+// dernière mise en page (bascule du bouton, LAYOUT_MODE enregistré) — sans attendre le tour du surveillant,
+// qui peut durer plusieurs secondes sur un partage réseau (#153). Sous pubMu comme un tour.
+func (t *projTerm) relayoutNow() {
+	if t.isReadOnly() {
+		return
+	}
+	t.pubMu.Lock()
+	defer t.pubMu.Unlock()
+	sig := layoutSig(t.a.conf(), t.key)
+	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
+		return
+	}
+	t.watch.layoutSig = sig
+	panes, w, h, zoomed, visible, err := t.readWin()
+	if err != nil || len(panes) <= 1 {
+		return
+	}
+	var ids strings.Builder
+	for _, p := range panes {
+		ids.WriteString(p.ID + "\n")
+	}
+	leader := leaderID(ids.String())
+	t.mu.Lock()
+	tc := t.team
+	t.mu.Unlock()
+	t.arrange(corePanes(panes), w, h, leader, tc)
+	if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
+		panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+	}
+	t.publish(panes, w, h, zoomed, visible, leader, tc, tc != nil && core.ActiveSignature(*tc) != "")
+}
+
+// relayoutOpen : relayoutNow de chaque projet ouvert (après un enregistrement de config.conf).
+func (a *App) relayoutOpen() {
+	a.mu.Lock()
+	terms := make([]*projTerm, 0, len(a.terms))
+	for _, t := range a.terms {
+		terms = append(terms, t)
+	}
+	a.mu.Unlock()
+	for _, t := range terms {
+		go t.relayoutNow()
+	}
 }
 
 // applyNow : applique la règle des panes cachés et publie tout de suite la

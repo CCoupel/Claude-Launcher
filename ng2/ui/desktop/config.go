@@ -202,6 +202,7 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		a.cfg = cfg
 		a.confMu.Unlock()
 		go a.readUsage()
+		go a.relayoutOpen() // organisation des fenêtres de projet changée : remise en page tout de suite (#153)
 		a.changed()
 		a.cardsChanged()
 	case core.ConfBackends:
