@@ -25,7 +25,21 @@ case "$(uname -s)" in
     ;;
   *)
     go vet ./...
+    # #154 : les tests ne laissent ni verrou git ni socket tmux de test
+    tmuxdir="/tmp/tmux-$(id -u)"
+    socks_before=$(ls "$tmuxdir" 2>/dev/null | grep '^cl-' | sort || true)
     go test ./...
+    if [ -e ../.git/index.lock ]; then
+      echo "ECHEC : .git/index.lock présent après les tests (#154)" >&2
+      exit 1
+    fi
+    socks_after=$(ls "$tmuxdir" 2>/dev/null | grep '^cl-' | sort || true)
+    new_socks=$(comm -13 <(printf '%s\n' "$socks_before") <(printf '%s\n' "$socks_after") | sed '/^$/d')
+    if [ -n "$new_socks" ]; then
+      echo "ECHEC : sockets tmux de test laissés dans $tmuxdir (#154) :" >&2
+      echo "$new_socks" >&2
+      exit 1
+    fi
     # audit des dépendances et de la bibliothèque standard (commands.audit)
     go run golang.org/x/vuln/cmd/govulncheck@latest ./...
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -trimpath \
