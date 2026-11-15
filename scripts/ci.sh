@@ -28,18 +28,30 @@ case "$(uname -s)" in
     # #154 : les tests ne laissent ni verrou git ni socket tmux de test.
     # Dossier dédié sous /tmp en dur (sun_path ≤ 108 ; un TMPDIR dans le projet est trop long, exception de confinement autorisée) pour
     # TMUX_TMPDIR et TMPDIR : tout tmux des tests y place son socket ; les sockets du
-    # launcher réel (/tmp/tmux-<uid>) ne sont jamais regardés.
+    # launcher réel (/tmp/tmux-<uid>) ne sont regardés que par le filet ci-dessous (préfixes de test).
     tdir=$(mktemp -d /tmp/clci.XXXXXX)
     trap 'rm -rf "$out" "$tdir"' EXIT
     # verrou : chemin valable aussi en worktree ; un verrou déjà là au départ n'est pas le nôtre
     lock=$(git rev-parse --path-format=absolute --git-path index.lock)
     lock_before=0; [ -e "$lock" ] && lock_before=1
+    # filet : un tmux démarré après la suppression de TMUX_TMPDIR retombe sur /tmp/tmux-<uid> ;
+    # sockets de TEST seulement (préfixes des tests du dépôt), jamais cl, cl-hidden ni le launcher réel
+    defdir="/tmp/tmux-$(id -u)"
+    testsocks() { find "$defdir" -maxdepth 1 -type s \( -name 'cl-test-*' -o -name 'cl-desk-*' -o -name 'cl-e2e-*' -o -name 'cl-ansible-secagent-*' \) 2>/dev/null | sort || true; }
+    defsocks_before=$(testsocks)
     TMUX_TMPDIR="$tdir" TMPDIR="$tdir" go test ./...
     socks=$(find "$tdir" -type s 2>/dev/null || true)
     if [ -n "$socks" ]; then
       echo "ECHEC : sockets tmux laissés par les tests (#154) :" >&2
       echo "$socks" >&2
       while read -r sk; do tmux -S "$sk" kill-server 2>/dev/null || true; done <<<"$socks"
+      exit 1
+    fi
+    new_defsocks=$(comm -13 <(printf '%s\n' "$defsocks_before") <(testsocks) | sed '/^$/d')
+    if [ -n "$new_defsocks" ]; then
+      echo "ECHEC : sockets tmux de test laissés dans $defdir (#154) :" >&2
+      echo "$new_defsocks" >&2
+      while read -r sk; do tmux -S "$sk" kill-server 2>/dev/null || true; done <<<"$new_defsocks"
       exit 1
     fi
     # un git concurrent (launcher, autre terminal) tient le verrou un instant : on lui laisse 3 s ;
