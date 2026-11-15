@@ -143,8 +143,21 @@ esac`
 // changé (index à rafraîchir).
 func TestReadsDoNotWriteGitDir(t *testing.T) {
 	dir := fakeGitRepo(t)
+	// fichier suivi, contenu identique mais date changée : un rafraîchissement de
+	// l'index en réécrit les octets (a.txt, lui, est modifié : son entrée ne change pas)
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "b.txt"}, {"commit", "-q", "-m", "b"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
 	stale := time.Now().Add(-time.Hour)
-	_ = os.Chtimes(filepath.Join(dir, "a.txt"), stale, stale) // stat périmé : l'index serait réécrit
+	_ = os.Chtimes(filepath.Join(dir, "b.txt"), stale, stale)
 	gitDir := filepath.Join(dir, ".git")
 	snap := func() map[string]string {
 		m := map[string]string{}
