@@ -381,3 +381,13 @@ body.cardsfolded #hsplit { display: none; }
 .mg-launcher { color: #5fa8ff; }
 .stbox .m { font-family: var(--mono); font-size: 12px; margin: 2px 0; }
 .stform .btn.dim { margin-top: 4px; opacity: .8; }
+
+/* ── Rafraîchir un projet : bandeau d'étapes en tête des cartes (#158) — hauteur fixe, sans animation ── */
+.steps { flex: none; box-sizing: border-box; height: calc(46 * var(--cu)); border: 1px solid var(--cyan); border-radius: calc(6 * var(--cu)); padding: calc(5 * var(--cu)) calc(10 * var(--cu)); background: color-mix(in srgb, var(--cyan) 8%, transparent); line-height: 1.6; overflow: hidden; white-space: nowrap; }
+.steps.err { border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
+.steps .sthead { display: flex; gap: calc(8 * var(--cu)); }
+.steps .sthead b { color: var(--text); }
+.steps .stx { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 calc(4 * var(--cu)); }
+.steps .stline { font-family: var(--mono); font-size: calc(12 * var(--cu)); overflow: hidden; text-overflow: ellipsis; }
+.modalbox .why { margin: 0 0 4px; color: var(--text2); }
+.modalbox .fcitems { margin: 4px 0 0; padding-left: 18px; color: var(--text2); line-height: 1.6; }

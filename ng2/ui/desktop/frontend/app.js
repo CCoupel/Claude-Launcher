@@ -329,6 +329,47 @@ function renderTree() {
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
 
+// ── Rafraîchir un projet, bandeau d'étapes (#158) ───────────────────────────
+// Un bandeau par projet rafraîchi, en tête de ses cartes : une coche par étape de l'évènement `refresh`.
+// Fin sans erreur : il disparaît ; avec erreur : il reste en rouge jusqu'à × ou au rafraîchissement suivant.
+const REFRESH_LABELS = { ctr: 'conteneur / pod', session: 'session', git: 'git', github: 'GitHub', tpl: 'template', usage: 'consommation' };
+const REFRESH_IDS = ['ctr', 'session', 'git', 'github', 'tpl', 'usage'];
+const refreshBands = {};
+function refreshBand(path) {
+  const b = refreshBands[path];
+  if (!b) return null;
+  const err = b.done && b.steps.some((s) => s.state === 'err');
+  const d = el('div', 'steps' + (err ? ' err' : ''));
+  const head = el('div', 'sthead');
+  head.append(el('b', '', err ? 'Rafraîchi, avec une erreur' : '⟳ Rafraîchissement de ' + (b.name || '')));
+  if (err) { const x = el('span', 'stx', '×'); x.title = 'fermer'; x.onclick = (e) => { e.stopPropagation(); delete refreshBands[path]; renderCards(); }; head.append(x); }
+  const line = el('div', 'stline');
+  for (const s of b.steps) {
+    const ic = { ok: ['✓', 't-green'], run: ['⟳', 't-cyan'], err: ['✕', 't-red'] }[s.state] || ['·', 't-dim'];
+    line.append(el('span', ic[1], ic[0]), el('span', '', ' ' + (REFRESH_LABELS[s.id] || s.id) + '  '));
+  }
+  d.append(head, line);
+  if (err && b.msg) d.title = b.msg;
+  return d;
+}
+function onRefresh(ev) {
+  if (!ev || !ev.path) return;
+  const r = rowOf(ev.path);
+  const name = r ? r.name : ev.path.split('/').pop();
+  const err = (ev.steps || []).some((s) => s.state === 'err');
+  if (ev.done && !err) delete refreshBands[ev.path];
+  else refreshBands[ev.path] = { name, steps: ev.steps || [], done: !!ev.done, msg: ev.msg || '' };
+  if (ev.done && ev.msg) flashBrief(name + ' : ' + ev.msg, 6000);
+  if (ev.path === S.cursor) renderCards();
+}
+async function refreshProject(path) {
+  const r0 = rowOf(path);
+  const r = await call('refreshProject', { path });
+  if (r && r.ok === false) { flash(r.msg || 'rafraîchissement impossible'); return; }
+  refreshBands[path] = { name: r0 ? r0.name : '', steps: REFRESH_IDS.map((id) => ({ id, state: 'wait' })), done: false, msg: '' };
+  if (path === S.cursor) renderCards();
+}
+
 let teamClick = { key: null, at: 0 };
 function renderCards() {
   const c = S.cards, box = $('cards');
@@ -338,6 +379,7 @@ function renderCards() {
   if (c.loading) {
     const t = el('div', 'cardstitle'); t.append(el('span', '', '◈ ÉTAT · ' + c.name));
     box.append(t, el('div', 'dim cardsload', 'chargement…'));
+    const bl = refreshBand(c.path); if (bl) box.insertBefore(bl, t.nextSibling);
     return;
   }
   const pend = new Set(c.pending || []);
@@ -351,6 +393,7 @@ function renderCards() {
   if (c.updated) t.append(el('span', c.staleUpd ? 't-yellow' : '', '· mis à jour ' + c.updated));
   t.append(el('span', 'sp'), ce);
   box.appendChild(t);
+  const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
   const card = (title, sub, body) => {
@@ -533,6 +576,29 @@ async function askClose(path) {
   }
 }
 
+// Forcer la fermeture (#158) : boîte de confirmation (raison, ce qui est nettoyé).
+async function askForceClose(path) {
+  const r = await call('forceClose', { path });
+  if (!r) return;
+  if (r.msg) flash(r.msg);
+  if (!r.question) return;
+  openModal((b) => {
+    b.append(el('h2', '', r.question.replace(/ · o\/N$/, '')));
+    if (r.why) b.append(el('p', 'why', r.why + '. L\'état local sera nettoyé :'));
+    if ((r.items || []).length) { const ul = el('ul', 'fcitems'); for (const i of r.items) ul.append(el('li', '', i)); b.append(ul); }
+    const btns = el('div', 'btns');
+    const no = el('button', 'btn', 'Annuler'); no.onclick = closeModal;
+    const yes = el('button', 'btn danger', 'Forcer la fermeture');
+    yes.onclick = async () => {
+      closeModal();
+      const c = await call('forceCloseConfirm', { path });
+      if (c && c.msg) flash(c.msg);
+    };
+    btns.append(no, yes); b.appendChild(btns);
+    no.focus(); // défaut sûr : Entrée annule ; Échap aussi (gestion générale des modales)
+  });
+}
+
 $('tree').addEventListener('click', (e) => {
   const row = e.target.closest('.row'); $('nav').focus(); S.focusNav = true;
   if (!row || !row.dataset.path) { showView('leaders'); return; }
@@ -565,7 +631,10 @@ function showProjectMenu(path, x, y) {
     m.appendChild(d);
   };
   it('Ouvrir', 'Entrée', () => openProject(path));
-  it('Fermer', 'Suppr', () => askClose(path), !r.open);
+  // Fermer : selon l'état de la ligne (ouvert ou pastille autre que ○), plus selon la présence d'un onglet (#158)
+  it('Fermer', 'Suppr', () => askClose(path), !(r.open || (r.dot && r.dot.icon && r.dot.icon !== '○')));
+  it('⟳ Rafraîchir', 'F5', () => refreshProject(path), !!r.refreshing);
+  it('Forcer la fermeture…', '', () => askForceClose(path), !r.canForce);
   m.appendChild(el('hr'));
   it('⚙ Réglages du projet…', '', () => openSettings(path, 'projet'));
   it('Changer de backend…', 'F2', () => openSettings(path, 'projet', 'pjf-backend'));
@@ -626,7 +695,7 @@ document.addEventListener('keydown', (e) => {
     case 'Delete': if (isProject(S.cursor)) askClose(S.cursor); return handled();
     case 'F1': helpBox(); return handled();
     case 'F2': if (isProject(S.cursor)) execF2(S.cursor); return handled();
-    case 'F5': call('refresh'); return handled();
+    case 'F5': call('refresh'); if (isProject(S.cursor)) refreshProject(S.cursor); return handled();
     case 'Tab': focusTerminal(); return handled();
     case 'Escape':
       if (S.filter) { S.filter = ''; renderTree(); renderHead(); return handled(); }
@@ -1026,6 +1095,7 @@ function paneBorder(panes, cx, cy, gap) {
 // terminalKey : raccourcis de l'application pris dans un terminal (false : pas pour lui).
 function terminalKey(ev, clip) {
   if (ev.type !== 'keydown') return true;
+  if (!$('modal').classList.contains('hidden')) return false; // boîte ouverte : rien ne part au terminal (#158)
   if (clip) {
     // Ctrl+Maj+C copie la sélection (Ctrl+C reste l'interruption) ; Ctrl+V, Ctrl+Maj+V et Maj+Inser collent par
     // ce seul chemin (preventDefault : pas de second collage par l'évènement natif « paste »)
@@ -1474,6 +1544,7 @@ function onEvent(name, data) {
   switch (name) {
     case 'state': applyState(data); break;
     case 'cards': takeCards(data); break;
+    case 'refresh': onRefresh(data); break;
     case 'term': {
       const v = ensureView(data.path);
       switch (data.kind) {
