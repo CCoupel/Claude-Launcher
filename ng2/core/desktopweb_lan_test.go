@@ -65,3 +65,21 @@ func TestDesktopWebChanged(t *testing.T) {
 		}
 	}
 }
+
+// browser_server (serveur de fichiers) est couvert par la même empreinte : un client web ne l'ouvre pas au réseau.
+func TestWebExposureCoversBrowserServer(t *testing.T) {
+	base := "defaults:\n  browser_server: { listen: \"127.0.0.1:8765\" }\nhubs:\n  PC:\n    windows: { browser_server: { listen: \"127.0.0.1:8766\" } }\n"
+	for name, to := range map[string]string{
+		"défauts":  strings.Replace(base, "127.0.0.1:8765", "0.0.0.0:8765", 1),
+		"système":  strings.Replace(base, "127.0.0.1:8766", "0.0.0.0:8766", 1),
+		"machine":  strings.Replace(base, "hubs:\n  PC:\n", "hubs:\n  PC:\n    browser_server: { allow: [/] }\n", 1),
+		"supprimé": "hubs:\n  PC:\n    windows: { browser_server: { listen: \"127.0.0.1:8766\" } }\n",
+	} {
+		if !WebExposureChanged([]byte(base), []byte(to)) {
+			t.Errorf("%s : changement de browser_server non détecté", name)
+		}
+	}
+	if WebExposureChanged([]byte(base), []byte("# c\n"+base)) {
+		t.Error("commentaire seul : changement détecté à tort")
+	}
+}

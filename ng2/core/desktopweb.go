@@ -82,7 +82,7 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 	if !c.Loopback {
 		if !allowLAN {
 			return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf(
-				"%s %q : écoute hors de la boucle locale refusée sans confirmation — l'interface complète (projets, terminaux) serait atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement ; ajouter allow_lan: true à desktop_web pour l'accepter (l'accès se fait par le nom de la machine, pas par son IP)", src, listen)
+				"%s %q : écoute hors de la boucle locale refusée sans confirmation — l'interface complète (projets, terminaux) serait atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement ; ajouter allow_lan: true à desktop_web pour l'accepter (accès par le nom de la machine ; sur une écoute 0.0.0.0 ou ::, l'adresse IP est refusée par le contrôle de Host)", src, listen)
 		}
 		c.Warn = LANWarning(listen)
 	}
@@ -91,7 +91,7 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 
 // LANWarning : avertissement d'une écoute hors de la boucle locale confirmée par allow_lan.
 func LANWarning(listen string) string {
-	return "desktop_web écoute sur " + listen + ", hors de la boucle locale : l'interface complète (projets, terminaux) est atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement — préférer 127.0.0.1 ou un tunnel ; accès par le nom de la machine (l'IP est refusée)"
+	return "desktop_web écoute sur " + listen + ", hors de la boucle locale : l'interface complète (projets, terminaux) est atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement — préférer 127.0.0.1 ou un tunnel ; accès par le nom de la machine (sur une écoute 0.0.0.0 ou ::, l'adresse IP est refusée par le contrôle de Host)"
 }
 
 // sameListen : deux adresses d'écoute qui se disputent le même port (même hôte,
@@ -104,6 +104,26 @@ func sameListen(a, b string) bool {
 	}
 	wild := func(h string) bool { return h == "" || h == "0.0.0.0" || h == "::" }
 	return wild(ah) || wild(bh) || strings.EqualFold(ah, bh) || isLoopback(ah) && isLoopback(bh)
+}
+
+// DesktopWebAllowsLAN : allow_lan est posé pour ce launcher (quel que soit listen).
+func DesktopWebAllowsLAN() bool {
+	f, host, goos := readBackendsFile(), hubName(), pathsGOOS
+	allow := false
+	merge := func(d *DesktopWeb) {
+		if d != nil && d.AllowLAN != nil {
+			allow = *d.AllowLAN
+		}
+	}
+	merge(f.Defaults.DesktopWeb)
+	v := pickHubOS(f.Hubs, host, goos)
+	if v.ok {
+		merge(v.base.DesktopWeb)
+	}
+	if v.ov != nil {
+		merge(v.ov.DesktopWeb)
+	}
+	return allow
 }
 
 // DesktopWebSetting : réglage effectif de ce launcher (machine et système courants).
@@ -138,10 +158,16 @@ func PrintDesktopWeb() {
 	}
 }
 
-// DesktopWebChanged : les réglages desktop_web (défauts, machines, surcharges par système) de
-// deux contenus de backends.yaml diffèrent. Un client web ne peut pas les modifier (décision
-// de l'audit sécurité LOT-4) : les autres réglages restent permis.
+// DesktopWebChanged : voir WebExposureChanged (nom conservé).
 func DesktopWebChanged(oldContent, newContent []byte) bool {
+	return WebExposureChanged(oldContent, newContent)
+}
+
+// WebExposureChanged : les réglages qui exposent un serveur web — desktop_web (interface complète) et
+// browser_server (fichiers en lecture seule) : défauts, machines, surcharges par système — de deux contenus
+// de backends.yaml diffèrent. Un client web ne peut modifier ni l'un ni l'autre ; les autres réglages restent
+// permis. Contenu illisible : l'empreinte vide diffère, donc refus (fail-closed).
+func WebExposureChanged(oldContent, newContent []byte) bool {
 	return desktopWebPrint(oldContent) != desktopWebPrint(newContent)
 }
 
@@ -151,12 +177,18 @@ func desktopWebPrint(content []byte) string {
 	if yaml.Unmarshal(content, &f) != nil {
 		return ""
 	}
-	one := func(d *DesktopWeb) string {
-		if d == nil {
-			return "-"
+	one := func(d *DesktopWeb, bs *BrowserServer) string {
+		x := "-"
+		if d != nil {
+			b, _ := json.Marshal(d)
+			x = string(b)
 		}
-		b, _ := json.Marshal(d)
-		return string(b)
+		y := "-"
+		if bs != nil {
+			b, _ := json.Marshal(bs)
+			y = string(b)
+		}
+		return x + "|" + y
 	}
 	var names []string
 	for k := range f.Hubs {
@@ -164,16 +196,16 @@ func desktopWebPrint(content []byte) string {
 	}
 	sort.Strings(names)
 	var sb strings.Builder
-	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb))
+	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb, f.Defaults.BrowserServer))
 	for _, k := range names {
 		h := f.Hubs[k]
-		sb.WriteString(";" + k + "=" + one(h.DesktopWeb))
+		sb.WriteString(";" + k + "=" + one(h.DesktopWeb, h.BrowserServer))
 		for _, o := range []struct {
 			n string
 			b *hubOSConf
 		}{{"windows", h.Windows}, {"linux", h.Linux}, {"darwin", h.Darwin}} {
 			if o.b != nil {
-				sb.WriteString("," + o.n + "=" + one(o.b.DesktopWeb))
+				sb.WriteString("," + o.n + "=" + one(o.b.DesktopWeb, o.b.BrowserServer))
 			} else {
 				sb.WriteString("," + o.n + "=-")
 			}

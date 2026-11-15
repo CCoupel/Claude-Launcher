@@ -471,8 +471,16 @@ hubs:
   - **Écoute hors boucle locale** : refusée tant que `desktop_web.allow_lan: true` n'est pas posé (résolution,
     validation de `backends.yaml` et modèle « Ce poste » : `settings.desktop_web.allow_lan`). Acceptée, elle applique le
     contrôle de `Host` (hôte d'écoute, nom de la machine, `localhost`, sur le port — aussi dans `desktop --web`) et
-    `webUI.lan` vaut vrai et `webUI.warn` porte l'avertissement (HTTP en clair, jeton seul) ; l'accès se fait **par le nom de la machine,
-    pas par son IP** (l'IP est refusée par le contrôle de `Host`).
+    `webUI.lan` vaut vrai et `webUI.warn` porte l'avertissement (HTTP en clair, jeton seul) ; accès par le nom de la machine ; sur une écoute
+    joker (`0.0.0.0`, `::`) l'adresse IP est refusée par le contrôle de `Host`.
+  - **Sessions** : 64 au plus (la plus ancienne est évincée), expirées après 8 h d'inactivité. **Flux d'évènements** :
+    émission sans attente (un client dont le tampon est plein est abandonné et se reconnecte), verrou distinct de
+    l'authentification.
+  - **Jeton persisté** : la régénération est réécrite atomiquement sur disque ; la dernière adresse d'écoute est gardée
+    (`desktop-web-listen`) : un changement d'adresse entre deux lancements renouvelle aussi le jeton. Un échec d'écriture
+    est dit dans `webUI.msg`.
+  - `desktop --web --addr <hors boucle locale>` reste permis (choix explicite de la ligne de commande) mais avertit si
+    `allow_lan` n'est pas posé.
   - Serveur HTTP : délais d'en-têtes (10 s) et d'inactivité (2 min), en-têtes limités à 64 Ko, 32 flux d'évènements au plus
     (503 au-delà).
 
@@ -498,7 +506,7 @@ défaut du poste, avec l'adresse d'amorçage (jeton) construite côté Go. Résu
 - Chaque appel porte son origine (fenêtre ou web) : `clipboardRead` / `clipboardWrite` répondent `unavailable` à un
   client web (règle du LOT-4 de la v6.1.0, appliquée par appel et non plus par processus) ; `quit`, `setTheme`,
   `webUIOpen` sont refusés à un client web, ainsi que `webUIRegen` et toute modification des réglages
-  `desktop_web` (`configSave` / `configApply` sur `backends.yaml` ou le modèle « Ce poste » : refus
+  `desktop_web` **et `browser_server`** (serveur de fichiers : mêmes garde et empreinte, fail-closed) (`configSave` / `configApply` sur `backends.yaml` ou le modèle « Ce poste » : refus
   `{ "invalid": true }` avec la raison) — un navigateur ne rouvre pas l'interface sur le réseau. Mise à jour du
   binaire, autres réglages, fermeture forcée : permis (le binaire installé vient toujours de la release officielle :
   le client ne fournit que le type d'annonce).
