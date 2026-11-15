@@ -37,7 +37,11 @@ case "$(uname -s)" in
     # filet : un tmux démarré après la suppression de TMUX_TMPDIR retombe sur /tmp/tmux-<uid> ;
     # sockets de TEST seulement (préfixes des tests du dépôt), jamais cl, cl-hidden ni le launcher réel
     defdir="/tmp/tmux-$(id -u)"
-    testsocks() { find "$defdir" -maxdepth 1 -type s \( -name 'cl-test-*' -o -name 'cl-desk-*' -o -name 'cl-e2e-*' -o -name 'cl-ansible-secagent-*' \) 2>/dev/null | sort || true; }
+    # préfixes produits UNIQUEMENT par les tests (grep des *_test.go) : le socket du launcher réel
+    # (deskSocket() : « claude-desk-ng2 », ou CL_DESK_SOCKET de l'utilisateur) n'y correspond pas
+    testsocks() { find "$defdir" -maxdepth 1 -type s \( -name 'cl-test-*' -o -name 'cl-e2e-*' -o -name 'cl-ansible-secagent-*' \
+      -o -name 'cl-desk-test-*' -o -name 'cl-desk-paste-*' -o -name 'cl-desk-seed-*' -o -name 'cl-desk-size-*' \
+      -o -name 'cl-desk-vis-*' -o -name 'cl-desk-r158-*' \) 2>/dev/null | sort || true; }
     defsocks_before=$(testsocks)
     TMUX_TMPDIR="$tdir" TMPDIR="$tdir" go test ./...
     socks=$(find "$tdir" -type s 2>/dev/null || true)
