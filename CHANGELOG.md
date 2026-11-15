@@ -62,11 +62,11 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ### Notes de lot — LOT-3 (#151, #152, #162)
 
 - Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
-- QA (`_work/reports/qa-lot3-v6.2.0.md`, HEAD `9b4598c`, puis re-QA ciblée sur `5763b66`) : **VALIDATED WITH RESERVATIONS**.
+- QA final (`_work/reports/qa-lot3-v6.2.0.md`, sur `5763b66`, après la revue) : **VALIDATED WITH RESERVATIONS** (réserves : scénarios manuels en QUALIF).
   - Tests feature #151, #152, #162 (core, ui/tmux, ui/desktop) : PASS ; `CGO_ENABLED=1 go test -race ./...` PASS sans tolérance ; `scripts/ci.sh` CI OK (60 s, au budget indicatif de ~60 s).
   - Rendu réel du format des bordures de pane dans un client tmux : `teamleader · leader`, `dev-backend · actif`, `qa · inactif`, sans chaîne cassée.
-  - Correctif de revue `5763b66` : le surveillant de mise en page rend la main quand la fenêtre disparaît (`TestLayoutWatchReturnsWhenWindowGone`), aucun processus survivant.
-  - Le JavaScript de l'onglet Teamleaders (`app.js`) n'a pas été exécuté : `node` est absent du conteneur de QA ; la non-oscillation est couverte côté Go et reste à voir au scénario Windows S4.
+  - Correctifs de revue : `d12de8c` (onglet Teamleaders recalculé à toute variation de largeur de la barre, #162) et `5763b66` (le surveillant de mise en page rend la main quand la fenêtre disparaît, `TestLayoutWatchReturnsWhenWindowGone`, aucun processus survivant ; titre de la carte TEAM avec la cible du template, #151/#152).
+  - Le JavaScript de l'onglet Teamleaders (`app.js`) n'a pas été exécuté en QA : `node` est absent du conteneur. Le comportement est couvert par un test Go (`TestTeamleadersTabOutsideScrollAndNoOscillation`) ; l'absence d'oscillation reste à voir au scénario Windows S4.
 - Tests adaptés :
   - `TestTeamCardTemplateState` (décision du GATE 2) : la ligne de la carte TEAM ne porte plus `▲` ni `vA→vB` (les versions sont dans le titre).
   - `TestHostProjectWithTmux` (décision utilisateur, LOT-3) : avec `pane-border-status top`, le leader de la rangée du haut fait une ligne de moins (cellule − 1), `y` reste la cellule.
