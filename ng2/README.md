@@ -952,7 +952,7 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 
 **Interface web dans la fenêtre native** (v6.2.0, #163) : la fenêtre Windows peut aussi servir son interface dans un
 navigateur. Réglage `desktop_web` (Réglages › Ce poste › Navigateur, ou `backends.yaml`), **désactivé par défaut**,
-appliqué sans relance. Un port seul (`:8770`) écoute sur la boucle locale. Une adresse hors boucle locale
+appliqué sans relance. Un port seul (`8770`) écoute sur la boucle locale. Une adresse hors boucle locale
 (`0.0.0.0:8770`) est **refusée sans `allow_lan: true`** (case « Autoriser l'accès depuis le réseau »), puis signalée par
 une bannière orange tant qu'elle est active. Le même port que le serveur des fichiers (`browser_server`, 8765 par défaut)
 est refusé. Le bouton « Ouvrir dans le navigateur » ouvre l'URL d'amorçage (fenêtre native seulement).
@@ -1308,9 +1308,6 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
     si elle ressemble à une clé connue :
     `hubs.MSI : ligne 4 : clé "window" inconnue, ignorée — vouliez-vous dire windows ?`. Le
     menu du hub (pane de navigation) affiche le premier avertissement au démarrage.
-- **Interface web de la fenêtre native (`desktop_web`)** (v6.2.0, #163) : désactivée par défaut. Comme `browser_server`,
-  elle se déclare dans `hubs.<machine>` et se surcharge par système (`.windows`, `.linux`). Une écoute hors boucle
-  locale exige `allow_lan: true` ; le même port que `browser_server` du même système est refusé.
 
     ```yaml
     hubs:
@@ -1333,6 +1330,21 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
     par le launcher de l'autre système (même `listen` pour les deux), `backends` l'affiche (« port
     tenu par le hub linux ») avec la clé à déclarer, et le launcher Windows ne cherche pas à le lui
     disputer.
+- **Interface web de la fenêtre native (`desktop_web`)** (v6.2.0, #163) : désactivée par défaut. Comme `browser_server`,
+  elle se déclare dans `defaults`, `hubs.<machine>` et se surcharge par système (`.windows`, `.linux`, `.darwin`), champ par
+  champ. Une écoute hors boucle locale exige `allow_lan: true` ; le même port que `browser_server` du même système est refusé.
+
+  ```yaml
+  defaults:
+    desktop_web: { listen: "8770" }                 # port seul = boucle locale (127.0.0.1:8770)
+  hubs:
+    MSI:
+      desktop_web: { listen: "0.0.0.0:8770", allow_lan: true }   # réseau : accès par le nom de la machine
+      windows:
+        desktop_web: { listen: "127.0.0.1:8771" }   # ce système seulement
+  ```
+
+  Une écoute `":8770"` (sans hôte) n'est pas reconnue comme boucle locale : elle est refusée sans `allow_lan: true`.
 
 ### Prérequis : outils externes
 
