@@ -817,10 +817,12 @@ function applyLayoutPrefs() {
 // ── Onglets ────────────────────────────────────────────────────────────────
 function renderTabs() {
   const bar = $('tabs'); bar.textContent = '';
-  const lt = el('div', 'tab' + (S.view === 'leaders' ? ' on' : ''), '⌗ Teamleaders');
-  if (S.view === 'leaders') lt.style.background = '#1F4FD1';
+  // Teamleaders (#162) : pastille à contour épinglée à gauche, hors de la zone qui défile, suivie d'un filet, sans ×
+  const lt = el('div', 'tl' + (S.view === 'leaders' ? ' on' : ''));
+  lt.append(el('span', 'tlic', '⌗'), el('span', 'tltx', ' Teamleaders'));
   lt.onclick = () => showView('leaders');
-  bar.appendChild(lt);
+  const scroll = el('div', 'tscroll');
+  bar.append(lt, el('div', 'tsep'), scroll);
   for (const t of (S.snap && S.snap.tabs) || []) {
     const d = el('div', 'tab'); d.dataset.path = t.path;
     const on = S.view === t.path;
@@ -834,9 +836,22 @@ function renderTabs() {
     x.onclick = (e) => { e.stopPropagation(); detachTab(t.path); };
     d.appendChild(x);
     d.onclick = () => showView(t.path, true);
-    bar.appendChild(d);
+    scroll.appendChild(d);
   }
+  fitLeadersTab();
 }
+// Réduction à l'icône (#162) : les onglets de projets sont mesurés contre la place restante **avec la pastille à sa
+// largeur complète** (mesurée pastille étendue) — sinon réduire ; pas d'oscillation réduit/étendu.
+function fitLeadersTab() {
+  const bar = $('tabs'), lt = bar.querySelector('.tl'), sc = bar.querySelector('.tscroll'), sep = bar.querySelector('.tsep');
+  if (!lt || !sc) return;
+  lt.classList.remove('ico'); lt.removeAttribute('title');
+  const full = lt.offsetWidth + parseFloat(getComputedStyle(lt).marginLeft || 0) + parseFloat(getComputedStyle(lt).marginRight || 0);
+  const sp = sep.offsetWidth + parseFloat(getComputedStyle(sep).marginLeft || 0) + parseFloat(getComputedStyle(sep).marginRight || 0);
+  if (sc.scrollWidth > bar.clientWidth - full - sp + 1) { lt.classList.add('ico'); lt.title = 'Teamleaders'; }
+  const on = sc.querySelector('.tab.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+window.addEventListener('resize', () => fitLeadersTab());
 function lighten(hex) {
   const n = parseInt(hex.slice(1), 16); const f = (v) => Math.min(255, Math.round(v + (255 - v) * 0.45));
   return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');

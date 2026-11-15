@@ -213,7 +213,17 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 
 /* ── Droite : onglets et terminaux ── */
 #main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-#tabs { height: 34px; flex: none; display: flex; align-items: stretch; background: var(--bg-deep); border-bottom: 1px solid var(--line); font-size: 12px; overflow-x: auto; }
+#tabs { height: 34px; flex: none; display: flex; align-items: stretch; background: var(--bg-deep); border-bottom: 1px solid var(--line); font-size: 12px; overflow: hidden; }
+.tscroll { display: flex; align-items: stretch; flex: 1; min-width: 0; overflow-x: auto; scrollbar-width: none; }
+.tscroll::-webkit-scrollbar { display: none; }
+.tscroll .tab { flex: none; }
+/* Teamleaders (#162) : pastille à contour, épinglée, filet séparateur */
+.tl { flex: none; display: flex; align-items: center; margin: 5px 0 5px 8px; padding: 0 12px; border: 1px solid var(--muted); border-radius: 12px; color: var(--text2); font-weight: 600; white-space: nowrap; cursor: pointer; user-select: none; }
+.tl:hover { color: var(--text); }
+.tl.on { background: #1F4FD1; border-color: #1F4FD1; color: #fff; }
+.tl.ico { padding: 0 10px; font-size: 14px; }
+.tl.ico .tltx { display: none; }
+.tsep { flex: none; width: 1px; background: var(--muted); margin: 3px 10px; opacity: .7; }
 .tab { padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
 .tab:hover { color: var(--text); }
 .tab.on { color: #fff; font-weight: 700; }
