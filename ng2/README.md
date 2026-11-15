@@ -784,6 +784,26 @@ le projet) : la session du conteneur se termine et la fenêtre se ferme. Un
 simple détachement, lui, n'arrête rien. Sans cette option, le projet passe au
 `●` bleu.
 
+### Rafraîchir et forcer la fermeture (v6.2.0, #158)
+
+Le menu du projet (fenêtre native et navigateur) propose deux actions. « Fermer » est disponible dès que la ligne
+est ouverte ou que sa pastille n'est pas `○`.
+
+- **⟳ Rafraîchir** (`F5` sur le projet sélectionné dans l'interface native ; `F5` dans la coque Linux) : relit tout le projet
+  sans les caches — conteneur ou pod, session, git, GitHub, template, consommation (le délai minimal de l'API après un
+  échec est conservé). Un bandeau d'étapes en tête des cartes montre l'avancement (`✓` fait, `⟳` en cours, `✕` erreur,
+  `·` en attente). Une erreur reste affichée jusqu'à `×` ou au rafraîchissement suivant. Rafraîchir ne retire pas
+  l'onglet d'un projet ouvert.
+- **Forcer la fermeture…** : proposée quand le projet est affiché ouvert ou en erreur **et** qu'il n'a plus de conteneur,
+  de pod ni de session (cas typique : un pod k8s disparu). Une boîte de confirmation indique la raison et liste ce qui
+  sera nettoyé. Le nettoyage est local : marque de sortie, verrou périmé, fichier d'ordre, panes cachés orphelins.
+  `projects.json` n'est jamais modifié. La fermeture est refusée si un autre launcher pilote le projet, ou si le projet
+  revit entre la question et la confirmation (la question expire au bout de 2 min).
+- **Backend injoignable** : la fermeture forcée est proposée avec l'avertissement « le projet tourne peut-être encore ».
+  Seul le nettoyage local est fait : aucun arrêt du conteneur n'est demandé au backend.
+
+Dans la coque Linux, `Suppr` sur un projet propose la fermeture forcée (`o/N`) quand elle est possible ; `F1` la décrit.
+
 ### Plusieurs launchers sur un même projet
 
 Un projet en conteneur (surtout distant) peut être atteint par plusieurs
@@ -964,11 +984,11 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 |---|---|
 | `↑` `↓` `PgUp` `PgDn`, clic | sélectionner (clic sur un projet ouvert : son onglet) |
 | `Entrée`, double-clic | ouvrir / rejoindre le projet |
-| `Ctrl`+clic, `Suppr` | fermer le projet (question o/N) |
+| `Ctrl`+clic, `Suppr` | fermer le projet (question o/N) ; sur un projet sans conteneur, pod ni session, `Suppr` propose la fermeture forcée ([détail](#rafraîchir-et-forcer-la-fermeture-v620-158)) |
 | frappe, `Retour arrière` | filtrer ; `Échap` efface le filtre |
 | clic hors projet | onglet ⌗ Teamleaders |
 | double-clic sur une catégorie ou une racine, `✦ Nouveau projet` | créer un projet |
-| `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
+| `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant ; `F5` relit aussi le projet sélectionné ([Rafraîchir](#rafraîchir-et-forcer-la-fermeture-v620-158)) |
 | `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fenêtre Réglages (`⚙ config`) |
 | `Ctrl`+molette sur l'arbre, les cartes ou les terminaux | taille du texte de la zone, 8–28, mémorisée par poste (`Réglages › Ce poste › Affichage`) |
 | `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
@@ -1322,7 +1342,8 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   Le point devant le nom est l'état du projet : `○` rien ne tourne, `●` bleu conteneur prêt sans
   claude, `▲` vert ouvert ici (bandeau à la couleur de son pane tmux sur toute la largeur de la ligne, badges à droite), `●` vert lecture seule,
   `■` orange piloté par un autre hub, `●` orange personne ne pilote, `✕` rouge problème (voir
-  [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet.
+  [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet ; sans conteneur, pod ni session, Suppr
+  propose la fermeture forcée (voir [Rafraîchir et forcer la fermeture](#rafraîchir-et-forcer-la-fermeture-v620-158)).
   Badge milestone `⚑` (projets GitHub), calculé avec **la règle du panneau milestone des projets**
   (`skills/milestone-panel`), pour que launcher et projet ouvert soient d'accord : **jaune** = milestone
   en cours : le milestone ouvert portant une **due date** (posée par MILESTONE START, la plus ancienne) ;
@@ -1407,7 +1428,7 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
-| `F5` | rechercher les mises à jour, relire la consommation et la liste des projets maintenant (réaffiche les annonces masquées) |
+| `F5` | rechercher les mises à jour, relire la consommation et la liste des projets maintenant (réaffiche les annonces masquées) ; relit aussi le projet sélectionné, pied « ⟳ … relu » (#158) |
 | `F1` | aide : commandes et raccourcis, dans un `display-popup` tmux par-dessus la coque |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
@@ -1556,6 +1577,9 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 - **`Ctrl+←/→` ne fait rien** : votre terminal les intercepte. Glissez la bordure à la souris.
 - **Ctrl+clic ne ferme pas le projet** : votre terminal le garde pour lui (ouverture de liens).
   Sélectionnez le projet et appuyez sur `Suppr`.
+- **Un projet ne se ferme plus** (pod k8s disparu, backend injoignable, session déjà morte) : menu du projet →
+  « Forcer la fermeture… » (ou `Suppr` dans la coque Linux). Elle ne touche ni à `projects.json` ni au backend
+  quand celui-ci est injoignable ; voir [Rafraîchir et forcer la fermeture](#rafraîchir-et-forcer-la-fermeture-v620-158).
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
 - **Panes d'une team en désordre** : `Ctrl+B R` dans l'onglet du projet, ou
@@ -1607,9 +1631,10 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 `scripts/ci.sh` (la CI) isole tmux : il crée un dossier dédié et court sous `/tmp` (en dur, `mktemp -d /tmp/clci.XXXXXX`,
 indépendamment de `$TMPDIR` ; limite `sun_path` de 108 octets : le dossier du projet est trop long), et les tests
 reçoivent ce dossier comme `TMUX_TMPDIR` et `TMPDIR`. Le script échoue si un socket de test `cl-*` reste dans ce dossier,
-ou si un `index.lock` subsiste dans le dépôt après les tests (un git concurrent bref est toléré ; le verrou est celui de
-`git rev-parse --git-path index.lock`, valable en worktree). Les sockets du launcher réel (`/tmp/tmux-<uid>`) ne sont
-jamais regardés. Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
+ou si un socket de test tombe dans `/tmp/tmux-<uid>` (garde limitée aux préfixes produits par les tests seulement :
+`cl-test-*`, `cl-e2e-*`, `cl-ansible-secagent-*`, `cl-desk-{test,paste,seed,size,vis,r158}-*` ; les sessions du launcher
+réel `cl`, `cl-hidden` et le serveur `claude-desk-ng2` sont ignorés), ou si un `index.lock` subsiste dans le dépôt après les tests (un git concurrent bref est toléré ; le verrou est celui de
+`git rev-parse --git-path index.lock`, valable en worktree). Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
 `git describe --dirty` : le suffixe `-dirty` vient de `git status --porcelain`.
 
 Interface native (`ui/desktop`) : décodeur du mode contrôle de tmux (séquence réelle de tmux 3.6,
