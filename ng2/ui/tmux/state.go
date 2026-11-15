@@ -34,6 +34,7 @@ type (
 		path  string
 		open  bool
 		lines []core.TeamLine // carte Team : une ligne par instance (#136)
+		tpl   string          // version cible du template du projet (titre de la carte, #151)
 		sess  core.Resumable  // session en suspens (badge ↺)
 		hasS  bool
 	}
@@ -158,6 +159,7 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 			}
 		}
 		ti := core.ReadTplInfo(s.Path)
+		pd.tpl = ti.Target
 		pd.lines, _ = core.ApplyTeamHead(ti.Apply(
 			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.TeamHideIdle, time.Now().Unix())), ti.Target)
 		return pd
@@ -458,7 +460,7 @@ func (m stateModel) teamTitle() string {
 	if n > 0 {
 		t += fmt.Sprintf(" · %d", n)
 	}
-	_, head := core.ApplyTeamHead(append([]core.TeamLine(nil), m.panes.lines...), "")
+	_, head := core.ApplyTeamHead(append([]core.TeamLine(nil), m.panes.lines...), m.panes.tpl)
 	if head.Tpl != "" {
 		t += " · TPL " + head.Tpl
 	}
@@ -523,7 +525,7 @@ func (m stateModel) teamBody(w int) string {
 		}
 		return core.Dim.Render("Pas de team template.")
 	}
-	tm, _ = core.ApplyTeamHead(append([]core.TeamLine(nil), tm...), "") // écarts avec l'en-tête (⚠)
+	tm, _ = core.ApplyTeamHead(append([]core.TeamLine(nil), tm...), m.panes.tpl) // écarts avec l'en-tête (⚠)
 	narrow := m.narrow()
 	inner := w - 4 // largeur utile : carte encadrée (bordure + marge), ou marge de 1 colonne
 	if narrow {

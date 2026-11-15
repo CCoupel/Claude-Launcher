@@ -274,6 +274,7 @@ func RunLayoutWatch(win, leader, projectDir string) {
 		tick++
 		ws, err := readWin(pw)
 		if err != nil {
+			return // fenêtre fermée
 		}
 		// hub tué puis recréé : il redonne les mêmes @N à d'autres fenêtres (ou à
 		// la même, rattachée, qui a son propre watcher) — ce watcher-ci s'arrête
