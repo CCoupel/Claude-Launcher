@@ -20,3 +20,4 @@
 | tests/procedures/ui-tmux/rafraichir-forcer-158/ | procedure | ui-tmux | Coque Linux : F5 relit le projet, Suppr propose la fermeture forcee (#158) | feature | |
 | tests/procedures/ui-desktop/team-lisible-151-152-162/ | procedure | ui-desktop | Carte TEAM (versions en en-tete), en-tetes de panes par etat, onglet Teamleaders isole (#151, #152, #162) | feature | |
 | tests/procedures/ui-tmux/team-lisible-151-152/ | procedure | ui-tmux | Coque Linux : carte TEAM, ligne de titre par pane, deux launchers (#151, #152) | feature | |
+| tests/procedures/ui-desktop/interface-web-163/ | procedure | ui-desktop | Interface web servie par la fenetre native : reglage a chaud, jeton, hors boucle locale, presse-papiers (#163) | feature | critical |
