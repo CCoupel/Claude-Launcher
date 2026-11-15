@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -135,36 +137,44 @@ esac`
 	}
 }
 
-// Aucune écriture dans .git par les lectures : index inchangé (contenu et date),
-// aucun verrou, même avec un fichier dont la date a changé (index à rafraîchir).
+// Aucune écriture dans .git par les lectures : contenu de chaque fichier (hash
+// SHA-256, pas la date : granularité mtime trop grossière sur MooseFS/9p) inchangé,
+// aucun fichier créé ou supprimé, aucun verrou, même avec un fichier dont la date a
+// changé (index à rafraîchir).
 func TestReadsDoNotWriteGitDir(t *testing.T) {
 	dir := fakeGitRepo(t)
-	future := time.Now().Add(-time.Hour)
-	_ = os.Chtimes(filepath.Join(dir, "a.txt"), future, future) // stat périmé : l'index serait réécrit
-	idx := filepath.Join(dir, ".git", "index")
-	before, err := os.Stat(idx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	snap := func() map[string]time.Time {
-		m := map[string]time.Time{}
-		_ = filepath.Walk(filepath.Join(dir, ".git"), func(p string, fi os.FileInfo, err error) error {
-			if err == nil && !fi.IsDir() {
-				m[p] = fi.ModTime()
+	stale := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(filepath.Join(dir, "a.txt"), stale, stale) // stat périmé : l'index serait réécrit
+	gitDir := filepath.Join(dir, ".git")
+	snap := func() map[string]string {
+		m := map[string]string{}
+		_ = filepath.Walk(gitDir, func(p string, fi os.FileInfo, err error) error {
+			if err != nil || fi.IsDir() {
+				return nil
 			}
+			b, rerr := os.ReadFile(p)
+			if rerr != nil {
+				return nil
+			}
+			sum := sha256.Sum256(b)
+			m[p] = hex.EncodeToString(sum[:])
 			return nil
 		})
 		return m
 	}
 	b := snap()
+	idx := filepath.Join(gitDir, "index")
+	if b[idx] == "" {
+		t.Fatal("index absent avant les lectures")
+	}
 	ReadGit(dir)
 	ReadDetail(dir)
 	a := snap()
-	for p, mt := range a {
+	for p, h := range a {
 		if old, ok := b[p]; !ok {
 			t.Errorf("fichier créé dans .git par une lecture : %s", p)
-		} else if !mt.Equal(old) {
-			t.Errorf("fichier modifié dans .git par une lecture : %s", p)
+		} else if h != old {
+			t.Errorf("fichier modifié dans .git par une lecture (hash différent) : %s", p)
 		}
 	}
 	for p := range b {
@@ -172,11 +182,10 @@ func TestReadsDoNotWriteGitDir(t *testing.T) {
 			t.Errorf("fichier supprimé de .git par une lecture : %s", p)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".git", "index.lock")); err == nil {
-		t.Error("index.lock présent après les lectures")
+	if a[idx] != b[idx] {
+		t.Error("index modifié par une lecture (hash SHA-256 avant/après différent)")
 	}
-	after, _ := os.Stat(idx)
-	if !after.ModTime().Equal(before.ModTime()) || after.Size() != before.Size() {
-		t.Error("index modifié par une lecture")
+	if _, err := os.Stat(filepath.Join(gitDir, "index.lock")); err == nil {
+		t.Error("index.lock présent après les lectures")
 	}
 }
