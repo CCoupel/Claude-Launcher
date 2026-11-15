@@ -110,7 +110,7 @@ func TestForceCloseableMatrix(t *testing.T) {
 		refused string // fragment attendu ; « - » : aucune raison de refus
 	}{
 		{"projet fermé sain", ForceInput{P: ProjInfo{Dot: SessNone}}, false, "", "-"},
-		{"ouvert, backend en panne", ForceInput{P: ProjInfo{Open: true, HasEnv: true, Backend: "lab", Problems: []Problem{{}}, Dot: SessAnomaly}, Tab: true}, true, "backend lab", "-"},
+		{"ouvert, backend en panne", ForceInput{P: ProjInfo{Open: true, HasEnv: true, Backend: "lab", Problems: []Problem{{}}, Dot: SessAnomaly}, Tab: true}, true, "backend injoignable", "-"},
 		{"ouvert, conteneur arrêté", ForceInput{P: ProjInfo{Open: true, HasEnv: true, CtrKnown: true, Dot: SessHere}, Tab: true}, true, "conteneur est arrêté", "-"},
 		{"ouvert, pod en échec", ForceInput{P: ProjInfo{HasEnv: true, CtrKnown: true, Ctr: Found{Failed: true}, Dot: SessAnomaly}, K8s: true}, true, "pod k8s est en échec", "-"},
 		{"conteneur en marche, session perdue", ForceInput{P: ProjInfo{Open: true, HasEnv: true, CtrKnown: true, Ctr: Found{Running: true}, Dot: SessHere}, Tab: true}, true, "session tmux n'existe plus", "-"},
@@ -292,5 +292,25 @@ func TestForceDiagnoseReplacesCache(t *testing.T) {
 	cached := DiagnoseCached(b)
 	if len(cached) != len(ps) || (len(ps) > 0 && cached[0].What != ps[0].What) {
 		t.Errorf("la valeur relue n'a pas remplacé le cache : %v / %v", cached, ps)
+	}
+}
+
+// Backend qui ne répond pas (Problems) : fermeture proposée AVEC avertissement ; rien n'est annoncé
+// comme arrêté côté conteneur ou pod (l'état réel est inconnu).
+func TestForceCloseableWarnsWhenBackendDown(t *testing.T) {
+	in := ForceInput{P: ProjInfo{Open: true, HasEnv: true, Backend: "lab", CtrKnown: true, Ctr: Found{Running: true},
+		Problems: []Problem{{What: "daemon injoignable"}}, Dot: SessAnomaly}, Tab: true}
+	ok, why, refused := ForceCloseable(in)
+	if !ok || refused != "" {
+		t.Fatalf("ok=%v refused=%q : proposée attendue", ok, refused)
+	}
+	if !strings.Contains(why, "backend injoignable") || !strings.Contains(why, "tourne peut-être encore") {
+		t.Errorf("why = %q, attendu « backend injoignable : le projet tourne peut-être encore »", why)
+	}
+	for _, it := range ForceItems(in) {
+		l := strings.ToLower(it)
+		if strings.Contains(l, "conteneur") || strings.Contains(l, "pod") || strings.Contains(l, "arrêt") {
+			t.Errorf("ForceItems annonce un arrêt côté backend : %q", it)
+		}
 	}
 }

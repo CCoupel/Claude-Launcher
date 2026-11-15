@@ -80,9 +80,10 @@ func TestForceCloseConfirmRefusedWhenProjectRevives(t *testing.T) {
 	}
 }
 
-// (2) Lecture du backend non aboutie : Suppr ne pose pas la question de fermeture forcée, et F5 ne la
-// recommande pas.
-func TestForceCloseNotProposedWhenBackendReadFailed(t *testing.T) {
+// (2) Lecture du backend non aboutie (décision utilisateur) : la fermeture forcée est PROPOSÉE AVEC
+// AVERTISSEMENT (« backend injoignable : le projet tourne peut-être encore »), sans aucun arrêt côté
+// backend (pas de moteur dans le plan), et F5 le signale.
+func TestForceCloseWarnsWhenBackendReadFailed(t *testing.T) {
 	cases := []struct {
 		name string
 		set  func(v *ctrView, path string)
@@ -91,21 +92,37 @@ func TestForceCloseNotProposedWhenBackendReadFailed(t *testing.T) {
 		{"serveur injoignable (down)", func(v *ctrView, p string) { v.down["lab"] = "srv1" }},
 		{"backend inutilisable (diag)", func(v *ctrView, p string) { v.diag["lab"] = []core.Problem{{What: "daemon injoignable"}} }},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			isolerCoque(t)
-			m, n := containerGoneModel()
-			tc.set(&m.ctr, n.Path)
-			m2, _ := press(m, tea.KeyDelete)
-			if m2.closeAsk != nil && m2.closeAsk.force {
-				t.Errorf("fermeture forcée proposée alors que la lecture du backend n'a pas abouti : %q", m2.closeAsk.question)
+	for _, withFound := range []bool{false, true} {
+		for _, tc := range cases {
+			name := tc.name
+			if withFound {
+				name += " + conteneur connu d'avant la panne"
 			}
-			t.Cleanup(func() { drain(m2) })
-			// F5 : le résultat de la relecture ne recommande pas non plus la fermeture forcée
-			m3 := m.onRefreshed(refreshedMsg{node: n, ctr: m.ctr, has: false})
-			if strings.Contains(m3.msg, "fermeture forcée") {
-				t.Errorf("pied après F5 : %q, ne doit pas recommander la fermeture forcée", m3.msg)
-			}
-		})
+			t.Run(name, func(t *testing.T) {
+				isolerCoque(t)
+				_ = os.WriteFile(core.BackendsPath(), []byte("backends:\n  lab: { type: docker, host: 'tcp://127.0.0.1:9', shared: [/share] }\n"), 0o644)
+				m, n := containerGoneModel()
+				if withFound {
+					m.ctr.found[n.Path] = core.Found{Name: "p-alpha", Running: true}
+				}
+				tc.set(&m.ctr, n.Path)
+				m2, _ := press(m, tea.KeyDelete)
+				t.Cleanup(func() { drain(m2) })
+				if m2.closeAsk == nil || !m2.closeAsk.force {
+					t.Fatalf("fermeture forcée non proposée (msg=%q), attendue avec avertissement", m2.msg)
+				}
+				q := m2.closeAsk.question
+				if !strings.Contains(q, "backend injoignable") || !strings.Contains(q, "tourne peut-être encore") {
+					t.Errorf("question = %q, attendu l'avertissement « backend injoignable : le projet tourne peut-être encore »", q)
+				}
+				if m2.closeAsk.engine != nil {
+					t.Error("plan avec moteur : la fermeture forcée arrêterait le conteneur d'un projet qui tourne peut-être encore")
+				}
+				m3 := m.onRefreshed(refreshedMsg{node: n, ctr: m.ctr, has: false})
+				if !strings.Contains(m3.msg, "injoignable") {
+					t.Errorf("pied après F5 : %q, attendu l'avertissement « backend injoignable »", m3.msg)
+				}
+			})
+		}
 	}
 }

@@ -2,9 +2,12 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -143,9 +146,11 @@ func canForceOf(t *testing.T, a *App, path string) bool {
 	return false
 }
 
-// Liste des conteneurs non revenue (erreur du backend, serveur injoignable, backend inutilisable) :
-// le conteneur n'est pas connu, sans preuve qu'il a disparu → fermeture forcée NON proposée.
-func TestForceCloseNotProposedWhenBackendReadFailed(t *testing.T) {
+// Lecture du backend non aboutie (Errs, Down, Diag) : décision utilisateur — la fermeture forcée est
+// PROPOSÉE AVEC AVERTISSEMENT : `why` annonce « backend injoignable : le projet tourne peut-être
+// encore », `items` ne contient AUCUN arrêt de conteneur, et la confirmation ne nettoie que l'état
+// local (aucun stop/kill/rm demandé au backend, session ou conteneur laissés tels quels).
+func TestForceCloseWarnsWhenBackendReadFailed(t *testing.T) {
 	cases := []struct {
 		name string
 		set  func(c *core.CtrView)
@@ -154,33 +159,82 @@ func TestForceCloseNotProposedWhenBackendReadFailed(t *testing.T) {
 		{"serveur injoignable (Down)", func(c *core.CtrView) { c.Down["lab"] = "srv1, srv2" }},
 		{"backend inutilisable (Diag)", func(c *core.CtrView) { c.Diag["lab"] = []core.Problem{{What: "daemon injoignable"}} }},
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			path := containerProject(t)
-			var r recorder
-			a := newApp(t, r.emit)
-			containerTab(t, a, path)
-			a.mu.Lock()
-			a.ctr = core.CtrView{Env: map[string]bool{path: true}, Assign: map[string]string{path: "lab"}, Found: map[string]core.Found{},
-				Errs: map[string]string{}, Diag: map[string][]core.Problem{}, Bad: map[string]string{}, Live: map[string]core.LiveSess{},
-				Dups: map[string][]string{}, Down: map[string]string{}}
-			tc.set(&a.ctr)
-			a.mu.Unlock()
-			if canForceOf(t, a, path) {
-				t.Error("canForce:true alors que la lecture du backend n'a pas abouti")
+	for _, withFound := range []bool{false, true} {
+		for _, tc := range cases {
+			name := tc.name
+			if withFound {
+				name += " + conteneur connu d'avant la panne"
 			}
-			res, err := a.Dispatch("forceClose", rawPath(path))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if m, _ := res.(map[string]any); m == nil || m["question"] != nil {
-				t.Errorf("forceClose : %v, attendu {msg} sans question (état inconnu : rien de destructif)", res)
-			}
-			if _, err := os.Stat(core.CleanExitMarker(path)); err == nil {
-				t.Error("marque de sortie propre posée")
-			}
-		})
+			t.Run(name, func(t *testing.T) {
+				path := containerProject(t)
+				calls := filepath.Join(t.TempDir(), "docker.log") // appels au faux docker : aucun stop/kill/rm attendu
+				bin := t.TempDir()
+				_ = os.WriteFile(filepath.Join(bin, "docker"), []byte("#!/bin/sh\necho \"$*\" >> '"+calls+"'\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n"), 0o755)
+				t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+				var r recorder
+				a := newApp(t, r.emit)
+				containerTab(t, a, path)
+				a.mu.Lock()
+				a.ctr = core.CtrView{Env: map[string]bool{path: true}, Assign: map[string]string{path: "lab"}, Found: map[string]core.Found{},
+					Errs: map[string]string{}, Diag: map[string][]core.Problem{}, Bad: map[string]string{}, Live: map[string]core.LiveSess{},
+					Dups: map[string][]string{}, Down: map[string]string{}}
+				if withFound {
+					a.ctr.Found[path] = core.Found{Name: "p-alpha", Running: true}
+				}
+				tc.set(&a.ctr)
+				a.mu.Unlock()
+				if !canForceOf(t, a, path) {
+					t.Error("canForce:false : la fermeture forcée doit être proposée (avec avertissement)")
+				}
+				res, err := a.Dispatch("forceClose", rawPath(path))
+				if err != nil {
+					t.Fatal(err)
+				}
+				q, _ := res.(map[string]any)
+				if q == nil || q["question"] == nil {
+					t.Fatalf("forceClose : %v, attendu une question avec avertissement", res)
+				}
+				why, _ := q["why"].(string)
+				if !strings.Contains(why, "backend injoignable") || !strings.Contains(why, "tourne peut-être encore") {
+					t.Errorf("why = %q, attendu « backend injoignable : le projet tourne peut-être encore »", why)
+				}
+				items, _ := q["items"].([]any)
+				for _, it := range items {
+					l := strings.ToLower(it.(string))
+					if strings.Contains(l, "conteneur") || strings.Contains(l, "pod") || strings.Contains(l, "arrêt") {
+						t.Errorf("items contient un arrêt côté backend : %q (état inconnu : nettoyage local seulement)", it)
+					}
+				}
+				if len(items) == 0 || !strings.Contains(strings.ToLower(strings.Join(anyStrings(items), " ")), "onglet") {
+					t.Errorf("items = %v, attendu au moins le nettoyage local (onglet)", items)
+				}
+				res, err = a.Dispatch("forceCloseConfirm", rawPath(path))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if m, _ := res.(map[string]any); m == nil || m["ok"] != true {
+					t.Fatalf("forceCloseConfirm : %v, attendu {ok:true}", res)
+				}
+				a.mu.Lock()
+				_, still := a.terms[path]
+				a.mu.Unlock()
+				if still {
+					t.Error("onglet conservé : l'état local doit être nettoyé")
+				}
+				if b, _ := os.ReadFile(calls); regexp.MustCompile(`(?m)\b(stop|kill|rm|rmi|restart|exec)\b`).Match(b) {
+					t.Errorf("appel destructif au backend pendant la fermeture forcée : %q", b)
+				}
+			})
+		}
 	}
+}
+
+func anyStrings(l []any) []string {
+	out := make([]string, 0, len(l))
+	for _, v := range l {
+		out = append(out, fmt.Sprint(v))
+	}
+	return out
 }
 
 // refreshProject pendant une panne du backend : l'onglet d'un projet qui vit peut-être n'est pas
@@ -200,10 +254,5 @@ func TestRefreshProjectKeepsTabWhenBackendReadFails(t *testing.T) {
 	a.mu.Unlock()
 	if !still {
 		t.Error("onglet détaché par refreshProject alors que la lecture du backend n'a pas abouti")
-	}
-	if res, _ := a.Dispatch("forceClose", rawPath(path)); res != nil {
-		if m, _ := res.(map[string]any); m != nil && m["question"] != nil {
-			t.Errorf("fermeture forcée proposée après une lecture en échec : %v", m["question"])
-		}
 	}
 }
