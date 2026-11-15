@@ -172,6 +172,7 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		// hors de la réponse : a.mu peut être tenu par une lecture lente, l'écran
 		// Réglages n'a pas à l'attendre
 		a.storeBackends()
+		go a.applyWebUI() // desktop_web relu à chaud (#163)
 		a.refreshHubWarns(core.HubConfigWarnings)
 		go a.readCtr()
 		a.changed()

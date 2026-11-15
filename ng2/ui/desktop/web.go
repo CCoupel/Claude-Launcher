@@ -37,6 +37,9 @@ type webBridge struct {
 	// (adresse explicite hors boucle locale) tous les noms sont admis.
 	strictHost bool
 	port       string // port d'écoute, "" : inconnu (tests)
+	// hosts : noms admis dans l'en-tête Host (serveur de la fenêtre native, #163) ; nil : règle
+	// strictHost du mode --web
+	hosts map[string]bool
 
 	mu   sync.Mutex
 	subs map[chan []byte]bool
@@ -93,6 +96,9 @@ func jsonRequest(r *http.Request) bool {
 
 // hostOK : l'en-tête Host désigne bien la boucle locale (et le port d'écoute).
 func (w *webBridge) hostOK(r *http.Request) bool {
+	if w.hosts != nil {
+		return w.hostAllowed(r)
+	}
 	if !w.strictHost {
 		return true
 	}
@@ -157,7 +163,7 @@ func (w *webBridge) handler() http.Handler {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		res, err := w.app.Dispatch(req.Method, req.Args)
+		res, err := w.app.DispatchFrom(originWeb, req.Method, req.Args)
 		out := map[string]any{"result": res}
 		if err != nil {
 			out["error"] = err.Error()

@@ -32,6 +32,9 @@ type App struct {
 	cfg    core.Config
 	confMu sync.RWMutex // cfg relue à chaud (config.go)
 	emit   Emitter
+	// mirror : second destinataire des évènements (le navigateur servi par la fenêtre, #163)
+	mirror atomic.Pointer[Emitter]
+	webui  webUI
 
 	mu         sync.Mutex
 	nodes      []core.Node
@@ -90,11 +93,17 @@ func NewApp(emit Emitter) *App {
 	t0 := time.Now()
 	cfg := core.LoadConfig()
 	dConf := time.Since(t0)
-	a := &App{cfg: cfg, emit: emit,
+	a := &App{cfg: cfg,
 		git: map[string]core.GitInfo{}, tpl: map[string]core.TemplateState{}, detail: map[string]core.GitDetail{},
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
 		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
+	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
+		emit(name, data)
+		if m := a.mirror.Load(); m != nil {
+			(*m)(name, data)
+		}
+	}
 	a.perf.trace("démarrage : config", core.ConfigPath(), dConf)
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
 	go core.WarmEngineEnv() // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
@@ -194,6 +203,7 @@ func (a *App) setMsg(m string) {
 
 // Start : relectures en tâche de fond (même rythme que la coque).
 func (a *App) Start() {
+	go a.applyWebUI() // interface web de la fenêtre (desktop_web, #163)
 	// liens et réglages dans CLAUDE_CONFIG_DIR (souvent sur le stockage
 	// partagé, par 9P sous Windows) : en tâche de fond, jamais avant la fenêtre
 	go func() {
@@ -262,6 +272,7 @@ func (a *App) Stop() {
 	default:
 		close(a.quit)
 	}
+	a.stopWebUI()
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
 	for _, t := range a.terms {
@@ -655,6 +666,7 @@ type Snapshot struct {
 	Tabs     []TabInfo  `json:"tabs"`
 	Roots    []string   `json:"roots"`
 	OS       string     `json:"os"`
+	WebUI    WebUIState `json:"webUI"` // interface web servie par la fenêtre (#163) ; jamais le jeton
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -690,7 +702,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.NgVersion, Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -1013,6 +1025,29 @@ func humanSize(n int64) string {
 // Dispatch : un appel de l'interface (méthode, arguments JSON) ; la réponse est
 // sérialisée en JSON. Seul point d'entrée, commun à Wails et au mode web.
 func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
+	return a.DispatchFrom(originWindow, method, raw)
+}
+
+// DispatchFrom : un appel et son origine. Le presse-papiers du poste n'est jamais servi à un
+// navigateur ; quit, setTheme et webUIOpen ne sont pas ceux d'un client web du processus de la
+// fenêtre (#163).
+func (a *App) DispatchFrom(from origin, method string, raw json.RawMessage) (any, error) {
+	if from == originWeb {
+		switch method {
+		case "clipboardRead", "clipboardWrite":
+			return clipboardUnavailable(), nil
+		case "webUIOpen":
+			return nil, fmt.Errorf("webUIOpen : réservé à la fenêtre native")
+		case "quit", "setTheme":
+			if !a.web { // « desktop --web » : le navigateur est la seule interface, ils y restent permis
+				return nil, fmt.Errorf("%s : réservé à la fenêtre native", method)
+			}
+		}
+	}
+	return a.dispatch(method, raw)
+}
+
+func (a *App) dispatch(method string, raw json.RawMessage) (any, error) {
 	// méthodes aux arguments structurés (le décodage générique ci-dessous
 	// attend des chaînes : « backend » y est un nom, ici un objet)
 	switch method {
@@ -1244,6 +1279,8 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		return a.backendStates(), nil
 	case "quit":
 		return nil, a.quitApp(arg.Mode)
+	case "webUIOpen": // #163 : interface web de la fenêtre dans le navigateur du poste
+		return a.webUIOpen(), nil
 	}
 	return nil, fmt.Errorf("appel inconnu : %s", method)
 }

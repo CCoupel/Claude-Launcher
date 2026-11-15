@@ -25,7 +25,7 @@ import (
 // réglage `desktop_web` (origine « web », portée par chaque appel). Ports libres tirés au hasard, jamais de
 // vrai moteur, de vrai projet ni de presse-papiers du poste (hooks de test).
 
-func freePort(t *testing.T) int {
+func l4FreePort(t *testing.T) int {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -35,9 +35,9 @@ func freePort(t *testing.T) int {
 	return ln.Addr().(*net.TCPAddr).Port
 }
 
-// writeBackends : backends.yaml du bac à sable (le serveur des fichiers est éteint : seul le serveur de
+// l4WriteBackends : backends.yaml du bac à sable (le serveur des fichiers est éteint : seul le serveur de
 // l'interface est en jeu), complété par extra.
-func writeBackends(t *testing.T, extra string) {
+func l4WriteBackends(t *testing.T, extra string) {
 	t.Helper()
 	y := "defaults:\n  browser_server: { listen: off }\n" + extra
 	if err := os.WriteFile(core.BackendsPath(), []byte(y), 0o644); err != nil {
@@ -45,7 +45,7 @@ func writeBackends(t *testing.T, extra string) {
 	}
 }
 
-func webUIOf(t *testing.T, a *App) map[string]any {
+func l4WebUIOf(t *testing.T, a *App) map[string]any {
 	t.Helper()
 	b, _ := json.Marshal(a.Snapshot())
 	var s map[string]any
@@ -57,12 +57,12 @@ func webUIOf(t *testing.T, a *App) map[string]any {
 	return w
 }
 
-func waitWebUI(t *testing.T, a *App, state string, d time.Duration) map[string]any {
+func l4WaitWebUI(t *testing.T, a *App, state string, d time.Duration) map[string]any {
 	t.Helper()
 	end := time.Now().Add(d)
 	var w map[string]any
 	for time.Now().Before(end) {
-		w = webUIOf(t, a)
+		w = l4WebUIOf(t, a)
 		if w["state"] == state {
 			return w
 		}
@@ -72,37 +72,44 @@ func waitWebUI(t *testing.T, a *App, state string, d time.Duration) map[string]a
 	return nil
 }
 
-// startNative : « fenêtre native » de test — App démarrée (Start lit le réglage desktop_web) ; arrêtée en fin
+// l4StartNative : « fenêtre native » de test — App démarrée (Start lit le réglage desktop_web) ; arrêtée en fin
 // de test. Le presse-papiers du poste est remplacé par des crochets de test.
-func startNative(t *testing.T) *App {
+func l4StartNative(t *testing.T) *App {
 	t.Helper()
 	var r recorder
 	a := newApp(t, r.emit)
 	a.Start()
-	t.Cleanup(a.Stop)
+	t.Cleanup(func() { stopNative(a) })
 	return a
 }
 
-func tokenFile() string { return filepath.Join(core.CacheDir(), "desktop-web-token") }
+// stopNative : arrête l'App démarrée et laisse les tâches de fond (écriture de la trace de performance à la
+// sortie, serveur web) finir avant l'effacement des dossiers temporaires du test (comme stopBg, #141).
+func stopNative(a *App) {
+	a.Stop()
+	time.Sleep(300 * time.Millisecond)
+}
 
-func webToken(t *testing.T) string {
+func l4TokenFile() string { return filepath.Join(core.CacheDir(), "desktop-web-token") }
+
+func l4WebToken(t *testing.T) string {
 	t.Helper()
-	b, err := os.ReadFile(tokenFile())
+	b, err := os.ReadFile(l4TokenFile())
 	if err != nil {
-		t.Fatalf("jeton du poste absent (%s) : %v", tokenFile(), err)
+		t.Fatalf("jeton du poste absent (%s) : %v", l4TokenFile(), err)
 	}
 	return strings.TrimSpace(string(b))
 }
 
-func doWeb(t *testing.T, addr, method, path, host, cookie, body, ctype, origin string) (*http.Response, string) {
+func l4DoWeb(t *testing.T, addr, method, path, host, cookie, body, ctype, origin string) (*http.Response, string) {
 	t.Helper()
 	return doWith(t, "http://"+addr, method, path, host, cookie, body, ctype, origin)
 }
 
-func webCall(t *testing.T, addr, tok, method string, args any) map[string]any {
+func l4WebCall(t *testing.T, addr, tok, method string, args any) map[string]any {
 	t.Helper()
 	b, _ := json.Marshal(map[string]any{"method": method, "args": args})
-	resp, body := doWeb(t, addr, "POST", "/api/call", "", tok, string(b), "application/json", "")
+	resp, body := l4DoWeb(t, addr, "POST", "/api/call", "", tok, string(b), "application/json", "")
 	if resp.StatusCode != 200 {
 		t.Fatalf("%s : HTTP %d %s", method, resp.StatusCode, body)
 	}
@@ -116,15 +123,15 @@ func webCall(t *testing.T, addr, tok, method string, args any) map[string]any {
 // Par défaut (aucun réglage) et `off` : rien n'écoute, webUI.state = off.
 func TestDesktopWebOffByDefaultAndExplicit(t *testing.T) {
 	sandbox(t, "", "alpha")
-	writeBackends(t, "")
-	a := startNative(t)
-	if w := waitWebUI(t, a, "off", 5*time.Second); w["listen"] != "" && w["listen"] != nil {
+	l4WriteBackends(t, "")
+	a := l4StartNative(t)
+	if w := l4WaitWebUI(t, a, "off", 5*time.Second); w["listen"] != "" && w["listen"] != nil {
 		t.Errorf("défaut : webUI = %v, attendu off sans adresse", w)
 	}
-	p := freePort(t)
-	writeBackends(t, "  desktop_web: { listen: off }\n")
-	a2 := startNative(t)
-	waitWebUI(t, a2, "off", 5*time.Second)
+	p := l4FreePort(t)
+	l4WriteBackends(t, "  desktop_web: { listen: off }\n")
+	a2 := l4StartNative(t)
+	l4WaitWebUI(t, a2, "off", 5*time.Second)
 	if c, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(p), 300*time.Millisecond); err == nil {
 		c.Close()
 		t.Errorf("quelque chose écoute sur %d avec desktop_web off", p)
@@ -134,7 +141,7 @@ func TestDesktopWebOffByDefaultAndExplicit(t *testing.T) {
 // Priorité : hubs.<machine>.<système> > hubs.<machine> > defaults ; « 8770 » = 127.0.0.1:8770.
 func TestDesktopWebPriorityAndListenForms(t *testing.T) {
 	sandbox(t, "", "alpha")
-	pDef, pHub, pOS := freePort(t), freePort(t), freePort(t)
+	pDef, pHub, pOS := l4FreePort(t), l4FreePort(t), l4FreePort(t)
 	host := strings.ToLower(core.HubHost())
 	for _, tc := range []struct {
 		name, yaml string
@@ -145,13 +152,13 @@ func TestDesktopWebPriorityAndListenForms(t *testing.T) {
 		{"système > machine > défaut", fmt.Sprintf("  desktop_web: { listen: \"%d\" }\nhubs:\n  %s:\n    desktop_web: { listen: \"127.0.0.1:%d\" }\n    %s:\n      desktop_web: { listen: \"127.0.0.1:%d\" }\n", pDef, host, pHub, runtime.GOOS, pOS), pOS},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			writeBackends(t, tc.yaml)
-			a := startNative(t)
-			w := waitWebUI(t, a, "on", 8*time.Second)
+			l4WriteBackends(t, tc.yaml)
+			a := l4StartNative(t)
+			w := l4WaitWebUI(t, a, "on", 8*time.Second)
 			if want := "127.0.0.1:" + strconv.Itoa(tc.port); w["listen"] != want {
 				t.Errorf("webUI.listen = %v, attendu %s", w["listen"], want)
 			}
-			resp, _ := doWeb(t, "127.0.0.1:"+strconv.Itoa(tc.port), "GET", "/?t="+webToken(t), "", "", "", "", "")
+			resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(tc.port), "GET", "/?t="+l4WebToken(t), "", "", "", "", "")
 			if resp.StatusCode != 200 {
 				t.Errorf("amorçage sur %d : %d", tc.port, resp.StatusCode)
 			}
@@ -163,10 +170,10 @@ func TestDesktopWebPriorityAndListenForms(t *testing.T) {
 // le jeton, lui, reste celui du poste.
 func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 	sandbox(t, "", "alpha")
-	writeBackends(t, "")
-	a := startNative(t)
-	waitWebUI(t, a, "off", 5*time.Second)
-	p1, p2 := freePort(t), freePort(t)
+	l4WriteBackends(t, "")
+	a := l4StartNative(t)
+	l4WaitWebUI(t, a, "off", 5*time.Second)
+	p1, p2 := l4FreePort(t), l4FreePort(t)
 	setListen := func(v string) {
 		t.Helper()
 		m, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"hub"}`))
@@ -185,7 +192,7 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 		}
 	}
 	reach := func(p int) bool {
-		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/?t=" + webToken(t))
+		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/?t=" + l4WebToken(t))
 		if err != nil {
 			return false
 		}
@@ -204,17 +211,17 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 		t.Errorf("port %d : joignable = %v attendu %v", p, !want, want)
 	}
 	setListen("127.0.0.1:" + strconv.Itoa(p1)) // démarrage
-	waitWebUI(t, a, "on", 8*time.Second)
+	l4WaitWebUI(t, a, "on", 8*time.Second)
 	waitReach(p1, true)
-	tok1 := webToken(t)
+	tok1 := l4WebToken(t)
 	setListen("127.0.0.1:" + strconv.Itoa(p2)) // déplacement
 	waitReach(p2, true)
 	waitReach(p1, false)
-	if webToken(t) != tok1 {
+	if l4WebToken(t) != tok1 {
 		t.Error("le jeton a changé au déplacement du serveur")
 	}
 	setListen("off") // arrêt
-	waitWebUI(t, a, "off", 8*time.Second)
+	l4WaitWebUI(t, a, "off", 8*time.Second)
 	waitReach(p2, false)
 }
 
@@ -227,9 +234,9 @@ func TestDesktopWebPortBusyReportsError(t *testing.T) {
 	}
 	defer ln.Close()
 	p := ln.Addr().(*net.TCPAddr).Port
-	writeBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
-	a := startNative(t)
-	w := waitWebUI(t, a, "error", 20*time.Second)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
+	a := l4StartNative(t)
+	w := l4WaitWebUI(t, a, "error", 20*time.Second)
 	if msg, _ := w["msg"].(string); msg == "" {
 		t.Errorf("webUI en erreur sans message : %v", w)
 	}
@@ -239,19 +246,20 @@ func TestDesktopWebPortBusyReportsError(t *testing.T) {
 
 func TestDesktopWebTokenPerHostKeptAndPrivate(t *testing.T) {
 	sandbox(t, "", "alpha")
-	p := freePort(t)
-	writeBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
 	var r recorder
 	a := newApp(t, r.emit)
 	a.Start()
-	waitWebUI(t, a, "on", 8*time.Second)
-	tok := webToken(t)
+	t.Cleanup(func() { stopNative(a) })
+	l4WaitWebUI(t, a, "on", 8*time.Second)
+	tok := l4WebToken(t)
 	if len(tok) < 16 {
 		t.Fatalf("jeton trop court : %q", tok)
 	}
 	if runtime.GOOS != "windows" {
-		if st, err := os.Stat(tokenFile()); err != nil || st.Mode().Perm() != 0o600 {
-			t.Errorf("%s : %v %v, attendu 0600", tokenFile(), st, err)
+		if st, err := os.Stat(l4TokenFile()); err != nil || st.Mode().Perm() != 0o600 {
+			t.Errorf("%s : %v %v, attendu 0600", l4TokenFile(), st, err)
 		}
 	}
 	// jamais dans l'instantané, ni dans le modèle « Ce poste »
@@ -263,17 +271,17 @@ func TestDesktopWebTokenPerHostKeptAndPrivate(t *testing.T) {
 			t.Errorf("le jeton figure dans %s", what)
 		}
 	}
-	a.Stop()
+	stopNative(a)
 	// relance : même jeton, un navigateur déjà ouvert reste valable
 	var r2 recorder
 	b := newApp(t, r2.emit)
 	b.Start()
-	t.Cleanup(b.Stop)
-	waitWebUI(t, b, "on", 20*time.Second)
-	if webToken(t) != tok {
+	t.Cleanup(func() { stopNative(b) })
+	l4WaitWebUI(t, b, "on", 20*time.Second)
+	if l4WebToken(t) != tok {
 		t.Error("jeton changé après relance : un navigateur déjà ouvert ne serait plus valable")
 	}
-	if resp, _ := doWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+tok, "", "", "", "", ""); resp.StatusCode != 200 {
+	if resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+tok, "", "", "", "", ""); resp.StatusCode != 200 {
 		t.Errorf("ancien jeton refusé après relance : %d", resp.StatusCode)
 	}
 }
@@ -282,13 +290,13 @@ func TestDesktopWebTokenPerHostKeptAndPrivate(t *testing.T) {
 
 func TestDesktopWebProtectionsLoopback(t *testing.T) {
 	sandbox(t, "", "alpha")
-	p := freePort(t)
-	writeBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
-	a := startNative(t)
-	waitWebUI(t, a, "on", 8*time.Second)
-	addr, tok := "127.0.0.1:"+strconv.Itoa(p), webToken(t)
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
+	a := l4StartNative(t)
+	l4WaitWebUI(t, a, "on", 8*time.Second)
+	addr, tok := "127.0.0.1:"+strconv.Itoa(p), l4WebToken(t)
 	do := func(method, path, host, cookie, body, ctype, origin string) *http.Response {
-		resp, _ := doWeb(t, addr, method, path, host, cookie, body, ctype, origin)
+		resp, _ := l4DoWeb(t, addr, method, path, host, cookie, body, ctype, origin)
 		return resp
 	}
 	// page d'amorçage : jeton de l'URL accepté ; cookie HttpOnly SameSite=Strict ; en-têtes de sécurité
@@ -359,31 +367,31 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 // les autres noms sont refusés ; le jeton reste exigé.
 func TestDesktopWebProtectionsNonLoopback(t *testing.T) {
 	sandbox(t, "", "alpha")
-	p := freePort(t)
-	writeBackends(t, fmt.Sprintf("  desktop_web: { listen: \"0.0.0.0:%d\" }\n", p))
-	a := startNative(t)
-	waitWebUI(t, a, "on", 8*time.Second)
-	addr, tok := "127.0.0.1:"+strconv.Itoa(p), webToken(t)
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"0.0.0.0:%d\" }\n", p))
+	a := l4StartNative(t)
+	l4WaitWebUI(t, a, "on", 8*time.Second)
+	addr, tok := "127.0.0.1:"+strconv.Itoa(p), l4WebToken(t)
 	machine, _ := os.Hostname()
 	sp := strconv.Itoa(p)
 	for _, h := range []string{"localhost:" + sp, machine + ":" + sp} {
-		if resp, _ := doWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != 200 {
+		if resp, _ := l4DoWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != 200 {
 			t.Errorf("Host %q refusé en écoute hors boucle locale : %d", h, resp.StatusCode)
 		}
 	}
 	for _, h := range []string{"evil.example:" + sp, "evil.example", "attaquant.lan:" + sp} {
-		if resp, _ := doWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != 403 {
+		if resp, _ := l4DoWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != 403 {
 			t.Errorf("Host %q accepté en écoute hors boucle locale : %d (DNS rebinding)", h, resp.StatusCode)
 		}
 	}
-	if resp, _ := doWeb(t, addr, "GET", "/", "localhost:"+sp, "", "", "", ""); resp.StatusCode != 403 {
+	if resp, _ := l4DoWeb(t, addr, "GET", "/", "localhost:"+sp, "", "", "", ""); resp.StatusCode != 403 {
 		t.Errorf("sans jeton : %d", resp.StatusCode)
 	}
-	if resp, _ := doWeb(t, addr, "POST", "/api/call", "localhost:"+sp, "", `{"method":"configFiles","args":{}}`, "application/json", ""); resp.StatusCode != 403 {
+	if resp, _ := l4DoWeb(t, addr, "POST", "/api/call", "localhost:"+sp, "", `{"method":"configFiles","args":{}}`, "application/json", ""); resp.StatusCode != 403 {
 		t.Errorf("appel sans cookie : %d", resp.StatusCode)
 	}
 	// l'avertissement est aussi dit dans l'instantané (jamais le jeton)
-	if w := webUIOf(t, a); strings.Contains(fmt.Sprint(w), tok) {
+	if w := l4WebUIOf(t, a); strings.Contains(fmt.Sprint(w), tok) {
 		t.Errorf("webUI contient le jeton : %v", w)
 	}
 }
@@ -394,8 +402,8 @@ func TestDesktopWebProtectionsNonLoopback(t *testing.T) {
 // processus, y a accès ; quit, setTheme et webUIOpen sont refusés à un client web.
 func TestDesktopWebOriginPerCall(t *testing.T) {
 	sandbox(t, "", "alpha")
-	p := freePort(t)
-	writeBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
 
 	var clip atomic.Value
 	clip.Store("secret du poste")
@@ -408,22 +416,22 @@ func TestDesktopWebOriginPerCall(t *testing.T) {
 	themeHook = func(string) { themes.Add(1) }
 	t.Cleanup(func() { clipboardSetHook, clipboardGetHook, quitHook, themeHook = oldSet, oldGet, oldQuit, oldTheme })
 
-	a := startNative(t)
-	waitWebUI(t, a, "on", 8*time.Second)
-	addr, tok := "127.0.0.1:"+strconv.Itoa(p), webToken(t)
+	a := l4StartNative(t)
+	l4WaitWebUI(t, a, "on", 8*time.Second)
+	addr, tok := "127.0.0.1:"+strconv.Itoa(p), l4WebToken(t)
 
 	// la fenêtre (même App, même processus) a le presse-papiers
 	if res := a.clipboardRead(); res["ok"] != true || res["text"] != "secret du poste" {
 		t.Fatalf("fenêtre : clipboardRead = %v (précondition)", res)
 	}
 	// le client web, non
-	read := webCall(t, addr, tok, "clipboardRead", map[string]any{})
+	read := l4WebCall(t, addr, tok, "clipboardRead", map[string]any{})
 	body, _ := json.Marshal(read)
 	res, _ := read["result"].(map[string]any)
 	if res["ok"] != false || res["unavailable"] != true || strings.Contains(string(body), "secret du poste") {
 		t.Errorf("clipboardRead web : %s — le presse-papiers du poste ne doit jamais être servi", body)
 	}
-	w := webCall(t, addr, tok, "clipboardWrite", map[string]any{"text": "écrit par le navigateur"})
+	w := l4WebCall(t, addr, tok, "clipboardWrite", map[string]any{"text": "écrit par le navigateur"})
 	res, _ = w["result"].(map[string]any)
 	if res["ok"] != false || res["unavailable"] != true {
 		t.Errorf("clipboardWrite web : %v, attendu unavailable", w)
@@ -441,7 +449,7 @@ func TestDesktopWebOriginPerCall(t *testing.T) {
 		name string
 		args any
 	}{{"quit", map[string]any{"mode": "t"}}, {"quit", map[string]any{}}, {"setTheme", map[string]any{"mode": "dark"}}, {"webUIOpen", map[string]any{}}} {
-		v := webCall(t, addr, tok, m.name, m.args)
+		v := l4WebCall(t, addr, tok, m.name, m.args)
 		res, _ := v["result"].(map[string]any)
 		refused := v["error"] != nil || res != nil && res["ok"] == false
 		if !refused {
@@ -471,14 +479,14 @@ func TestDesktopWebOriginPerCall(t *testing.T) {
 
 func TestDesktopWebTwoClientsShareState(t *testing.T) {
 	ps := sandbox(t, "", "alpha", "beta")
-	p := freePort(t)
-	writeBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
 	var r recorder
 	a := newApp(t, r.emit) // émetteur de la fenêtre simulée
 	a.Start()
-	t.Cleanup(a.Stop)
-	waitWebUI(t, a, "on", 8*time.Second)
-	addr, tok := "127.0.0.1:"+strconv.Itoa(p), webToken(t)
+	t.Cleanup(func() { stopNative(a) })
+	l4WaitWebUI(t, a, "on", 8*time.Second)
+	addr, tok := "127.0.0.1:"+strconv.Itoa(p), l4WebToken(t)
 
 	// flux d'évènements du client web
 	req, _ := http.NewRequest("GET", "http://"+addr+"/api/events", nil)
@@ -512,13 +520,13 @@ func TestDesktopWebTwoClientsShareState(t *testing.T) {
 	if _, err := a.Dispatch("select", json.RawMessage(`{"path":`+strconv.Quote(ps[0])+`}`)); err != nil {
 		t.Fatal(err)
 	}
-	if got := webCall(t, addr, tok, "init", map[string]any{}); fmt.Sprint(got["result"]) == "" {
+	if got := l4WebCall(t, addr, tok, "init", map[string]any{}); fmt.Sprint(got["result"]) == "" {
 		t.Fatal("init web vide")
 	} else if b, _ := json.Marshal(got); !strings.Contains(string(b), strconv.Quote(ps[0])[1:len(strconv.Quote(ps[0]))-1]) {
 		t.Errorf("le client web ne voit pas la sélection de la fenêtre (%s) : %.300s", ps[0], b)
 	}
 	// le web sélectionne beta : la fenêtre (même App) le voit
-	webCall(t, addr, tok, "select", map[string]any{"path": ps[1]})
+	l4WebCall(t, addr, tok, "select", map[string]any{"path": ps[1]})
 	if s := a.Snapshot().Selected; s != ps[1] {
 		t.Errorf("sélection de l'App après un select web : %q, attendu %q (état commun)", s, ps[1])
 	}
@@ -554,13 +562,13 @@ collect:
 // vraies pour les appels de configuration (chemin hors arbre refusé depuis le web aussi).
 func TestDesktopWebCallsKeepDispatchGuards(t *testing.T) {
 	sandbox(t, "", "alpha")
-	p := freePort(t)
-	writeBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
-	a := startNative(t)
-	waitWebUI(t, a, "on", 8*time.Second)
-	addr, tok := "127.0.0.1:"+strconv.Itoa(p), webToken(t)
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"127.0.0.1:%d\" }\n", p))
+	a := l4StartNative(t)
+	l4WaitWebUI(t, a, "on", 8*time.Second)
+	addr, tok := "127.0.0.1:"+strconv.Itoa(p), l4WebToken(t)
 	outside := t.TempDir()
-	v := webCall(t, addr, tok, "configApply", map[string]any{"kind": "project-env", "path": outside, "mtime": "", "changes": []any{
+	v := l4WebCall(t, addr, tok, "configApply", map[string]any{"kind": "project-env", "path": outside, "mtime": "", "changes": []any{
 		map[string]any{"op": "set", "at": []string{"image"}, "value": "docker.io/library/debian:12"}}})
 	if e, _ := v["error"].(string); !strings.Contains(e, "projet inconnu") {
 		t.Errorf("configApply hors arbre via le web : %v", v)
@@ -569,7 +577,7 @@ func TestDesktopWebCallsKeepDispatchGuards(t *testing.T) {
 		t.Error("écriture hors de l'arbre via le web")
 	}
 	// appel inconnu : erreur propre
-	if v := webCall(t, addr, tok, "inconnu", map[string]any{}); v["error"] == nil {
+	if v := l4WebCall(t, addr, tok, "inconnu", map[string]any{}); v["error"] == nil {
 		t.Errorf("appel inconnu accepté : %v", v)
 	}
 	_ = io.Discard

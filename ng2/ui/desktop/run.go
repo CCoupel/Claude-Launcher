@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"claude-launcher-ng2/core"
 )
 
 // frontendFS : l'interface (HTML, CSS, JS, xterm.js), embarquée dans le binaire.
@@ -19,7 +21,7 @@ var frontendFS embed.FS
 // Sans Wails dans le binaire (Linux compilé sans la balise « wails »), le mode
 // web est pris d'office.
 func Run(args []string) error {
-	web, open, addr := false, true, "127.0.0.1:0"
+	web, open, addr, addrSet := false, true, "127.0.0.1:0", false
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--web":
@@ -27,10 +29,10 @@ func Run(args []string) error {
 		case a == "--no-open":
 			open = false
 		case a == "--addr" && i+1 < len(args):
-			addr = args[i+1]
+			addr, addrSet = args[i+1], true
 			i++
 		case strings.HasPrefix(a, "--addr="):
-			addr = strings.TrimPrefix(a, "--addr=")
+			addr, addrSet = strings.TrimPrefix(a, "--addr="), true
 		case a == "--launch" || a == "--no-update":
 		default:
 			return fmt.Errorf("desktop : option inconnue %q (--web, --addr HÔTE:PORT, --no-open)", a)
@@ -41,6 +43,9 @@ func Run(args []string) error {
 		web = true
 	}
 	if web {
+		if s, err := core.DesktopWebSetting(); !addrSet && err == nil && !s.Off { // --addr l'emporte ; sinon desktop_web.listen s'il est fixé
+			addr = s.Listen
+		}
 		return RunWeb(addr, open)
 	}
 	return runWails()
