@@ -157,8 +157,9 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 				}
 			}
 		}
-		pd.lines = core.ReadTplInfo(s.Path).Apply(
-			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.TeamHideIdle, time.Now().Unix()))
+		ti := core.ReadTplInfo(s.Path)
+		pd.lines, _ = core.ApplyTeamHead(ti.Apply(
+			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.TeamHideIdle, time.Now().Unix())), ti.Target)
 		return pd
 	}
 }
@@ -442,6 +443,10 @@ func (m stateModel) topCardsAt() (string, int) {
 	return sb.String(), top
 }
 
+// teamTitle : « TEAM · N · TPL vX · CLAUDE Y » (#151) — N teammates lancés, version
+// cible du template, version de claude du leader ; un élément inconnu est omis.
+// Trop long pour le pane, la carte le tronque par la droite : la version de claude
+// part en premier.
 func (m stateModel) teamTitle() string {
 	n := 0
 	for _, l := range m.panes.lines {
@@ -449,30 +454,18 @@ func (m stateModel) teamTitle() string {
 			n++
 		}
 	}
-	if n == 0 {
-		return "Team"
+	t := "TEAM"
+	if n > 0 {
+		t += fmt.Sprintf(" · %d", n)
 	}
-	t := fmt.Sprintf("Team · %d teammates", n)
-	if v := m.teamClaude(); v != "" && m.narrow() {
-		t += " · claude " + v
+	_, head := core.ApplyTeamHead(append([]core.TeamLine(nil), m.panes.lines...), "")
+	if head.Tpl != "" {
+		t += " · TPL " + head.Tpl
+	}
+	if head.Claude != "" {
+		t += " · CLAUDE " + head.Claude
 	}
 	return t
-}
-
-// teamClaude : version de claude commune aux teammates lancés ("" si aucun
-// ou si elles diffèrent). En pane étroit, elle passe dans le titre.
-func (m stateModel) teamClaude() string {
-	v := ""
-	for _, t := range m.panes.lines {
-		switch {
-		case t.Claude == "":
-		case v == "":
-			v = t.Claude
-		case v != t.Claude:
-			return ""
-		}
-	}
-	return v
 }
 
 // shortEffort : effort abrégé pour le pane étroit.
@@ -511,18 +504,6 @@ func teamName(t core.TeamLine) string {
 	return t.Name
 }
 
-// teamTag : version du template de l'agent ; « v5.8.0→v5.9.2 » s'il est en retard
-// (version enregistrée → version cible).
-func teamTag(t core.TeamLine) string {
-	switch {
-	case t.Tag == "":
-		return "—"
-	case t.TplState == core.TplLineLate && t.TplTarget != "":
-		return t.Tag + "→" + t.TplTarget
-	}
-	return t.Tag
-}
-
 var tplLate = lipgloss.NewStyle().Foreground(lipgloss.Color("208")) // orange
 
 // tplMark : ● vert (copie à jour ou état neutre), ▲ orange (template en retard).
@@ -535,8 +516,9 @@ func tplMark(t core.TeamLine) string {
 
 // teamBody : une ligne par instance de teammate (la liste est cliquable, une
 // ligne d'écran chacune) : ● lancé / ○ non lancé, surbrillance si son pane est
-// visible, nom, version du template (+ si compagnon), modèle et effort, version
-// de claude, état (actif, caché, fixé, délai avant masquage).
+// visible, nom (+ si compagnon), modèle et effort, ⚠ si la ligne s'écarte de l'en-tête
+// (template ou claude), état (actif, caché, fixé, délai avant masquage). Les versions
+// sont dans le titre de la carte (#151).
 func (m stateModel) teamBody(w int) string {
 	tm := m.panes.lines
 	if len(tm) == 0 {
@@ -545,7 +527,8 @@ func (m stateModel) teamBody(w int) string {
 		}
 		return core.Dim.Render("Pas de team template.")
 	}
-	narrow, common := m.narrow(), m.teamClaude()
+	tm, _ = core.ApplyTeamHead(append([]core.TeamLine(nil), tm...), "") // écarts avec l'en-tête (⚠)
+	narrow := m.narrow()
 	inner := w - 4 // largeur utile : carte encadrée (bordure + marge), ou marge de 1 colonne
 	if narrow {
 		inner = w - 1
@@ -554,12 +537,11 @@ func (m stateModel) teamBody(w int) string {
 	if narrow {
 		effW = 4
 	}
-	nameW, tagW := 0, 9
+	nameW := 0
 	for _, t := range tm {
 		nameW = max(nameW, len(teamName(t)))
-		tagW = max(tagW, len(teamTag(t))+1)
 	}
-	nameW = min(nameW, max(8, w-1-2-1-tagW-7-effW))
+	nameW = min(nameW, max(8, w-1-2-1-7-effW-2))
 	var lines []string
 	for _, t := range tm {
 		nm := ansi.Truncate(teamName(t), nameW, "…")
@@ -570,17 +552,13 @@ func (m stateModel) teamBody(w int) string {
 				name = teamShown.Render(core.PadRight(nm, nameW))
 			}
 		}
-		tag := teamTag(t)
-		if t.TplState == core.TplLineLate {
-			tag = core.Yellow.Render(tag)
-		}
 		model, effort := strings.TrimPrefix(t.Model, "claude-"), t.Effort
 		if narrow {
 			effort = shortEffort(effort)
 		}
-		l := mark + " " + name + " " + core.PadRight(tag, tagW) + core.PadRight(orDash(model), 7) + core.Dim.Render(core.PadRight(orDash(effort), effW))
-		if t.Claude != "" && !(narrow && common != "") {
-			l += " " + core.Cyan.Render(t.Claude)
+		l := mark + " " + name + " " + core.PadRight(orDash(model), 7) + core.Dim.Render(core.PadRight(orDash(effort), effW))
+		if len(t.Odd) > 0 {
+			l += " " + tplLate.Render("⚠")
 		}
 		if st := teamState(t); st != "" {
 			l += " " + st

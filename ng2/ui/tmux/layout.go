@@ -253,11 +253,27 @@ func RunLayoutWatch(win, leader, projectDir string) {
 		core.KillOrphanHidden(tmuxFn(pw.t)) // panes cachés dont le projet a été fermé hors launcher
 	}
 	server := ""
+	prevHdr, tick := "", 0
+	// en-tête des panes (#152) : options de fenêtre à chaque (ré)attachement du surveillant,
+	// @cl_state / @cl_name au tour de la teinte, seulement quand l'état change (relu de
+	// tmux toutes les 30 s au cas où un pane aurait été recréé)
+	syncHeaders := func(ws winState, tc *teamConfig, leader string) {
+		ids := make([]string, len(ws.panes))
+		for i, p := range ws.panes {
+			ids[i] = p.id
+		}
+		hs := core.PaneHeaders(ids, leader, tc)
+		if sig := core.HeaderSignature(hs); sig != prevHdr || tick%30 == 0 {
+			core.SetWindowHeaders(pw.t, pw.win)
+			core.SyncPaneHeaders(pw.t, pw.win, hs)
+			prevHdr = sig
+		}
+	}
 	for {
 		time.Sleep(time.Second)
+		tick++
 		ws, err := readWin(pw)
 		if err != nil {
-			return // fenêtre fermée
 		}
 		// hub tué puis recréé : il redonne les mêmes @N à d'autres fenêtres (ou à
 		// la même, rattachée, qui a son propre watcher) — ce watcher-ci s'arrête
@@ -297,6 +313,7 @@ func RunLayoutWatch(win, leader, projectDir string) {
 				prevCount = len(ws.panes)
 			}
 			tc, _ := readTeam(path)
+			syncHeaders(ws, &tc, leader)
 			color := cfg.ProjectColor(ws.name)
 			// avant la teinte : doLayout remet tous les panes à la couleur de base
 			if sig := activeSignature(ws, tc); sig != prevSig {
@@ -318,6 +335,7 @@ func RunLayoutWatch(win, leader, projectDir string) {
 			}
 			styleBusy(cfg, pw, ws, prevSig != "", color)
 		} else {
+			syncHeaders(ws, nil, leader)
 			styleBusy(cfg, pw, ws, false, "")
 		}
 
