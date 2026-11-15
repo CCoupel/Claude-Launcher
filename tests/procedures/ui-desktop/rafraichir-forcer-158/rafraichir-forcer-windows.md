@@ -136,15 +136,16 @@
 
 ### Scenario 9 — « dubious ownership » : projet du partage ouvert depuis Windows
 
-**Validation** : HUMAIN — **Issues** : #158 — **Prerequis** : projet git du partage (hote Linux/WSL) possede par un autre utilisateur que le compte Windows ; `git` installe sur le poste Windows ; un lecteur reseau mappe (ex. `Z:`) sur le meme partage, si l'utilisateur en a un
+**Validation** : HUMAIN — **Issues** : #158 — **Prerequis** : projet git du partage (hote Linux/WSL, chemin `\\wsl.localhost\…` ou UNC `\\serveur\partage\…`) possede par un autre utilisateur que le compte Windows ; `git` installe sur le poste Windows ; un lecteur reseau mappe (ex. `Z:`) sur le meme partage, si l'utilisateur en a un
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | Noter, avant tout : `git config --global --get-all safe.directory` et `git --version` | Sorties consignees (reference) | | |
-| 2 | Ouvrir le projet par son chemin `\\wsl.localhost\<distribution>\…` (racine des projets du launcher), selectionner le projet, « Rafraichir » | Etape GitHub **verte** ; la carte milestone est affichee ; aucun message « dubious ownership » ; **aucune commande `git config` lancee** par l'utilisateur ni par le launcher | | |
+| 2 | Ouvrir le projet par son chemin `\\wsl.localhost\<distribution>\…` (racine des projets du launcher), selectionner le projet, « Rafraichir » | Etape git et etape GitHub **vertes** (branche/version lues, milestone et issues relus par `gh`) ; la carte milestone est affichee ; aucun message « dubious ownership » ; **aucune commande `git config` lancee** par l'utilisateur ni par le launcher | | |
 | 3 | Si l'utilisateur a un lecteur mappe : configurer la racine des projets sur `Z:\…`, relancer le launcher, « Rafraichir » le meme projet | Meme resultat qu'a l'etape 2 : etape GitHub verte, carte milestone affichee | | |
 | 4 | Relancer `git config --global --get-all safe.directory` | Sortie **identique** a l'etape 1 (le launcher n'a ajoute aucune entree) | | |
-| 5 | Si l'etape GitHub est **rouge** avec « dubious ownership » : relever le message exact du bandeau et du message final (il doit contenir la commande d'aide pour declarer le depot sur), et noter `git --version` | Message et version consignes dans « Resultat Obtenu » et les Notes QA ; anomalie a ouvrir | | |
+| 5 | Si l'etape GitHub est **rouge** avec « dubious ownership » (refus residuel) : relever le message exact du bandeau et du message final (il doit contenir la commande d'aide `git config --global --add safe.directory '<chemin>'`), `git --version`, le chemin vu par git (`git rev-parse --show-toplevel` dans le projet), `whoami` et le proprietaire du dossier (`icacls <dossier>`) | Tout est consigne dans « Resultat Obtenu » et les Notes QA ; anomalie a ouvrir | | |
+| 6 | Non-regression : « Rafraichir » un projet **local** (disque du poste) ; relire `~/.gitconfig` | Resultat inchange ; l'application n'ecrit jamais dans `.gitconfig` | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -157,7 +158,7 @@
 - [ ] Backend injoignable : Rafraichir conserve l'onglet ; fermeture forcee proposee avec avertissement, nettoyage local seul, aucun arret du conteneur
 - [ ] Un projet qui revit entre la question et la confirmation n'est jamais ferme de force
 - [ ] Etape GitHub : verte en nominal et dans les cas legitimes (gh absent, non connecte, pas de remote GitHub), avec la raison dans le message final ; rouge seulement sur une vraie erreur, dont le message exact est releve
-- [ ] Projet du partage ouvert depuis Windows (`\\\\wsl.localhost\\…`, lecteur mappe) : etape GitHub verte, milestone affiche, `safe.directory` global inchange ; si « dubious ownership », le message contient la commande d'aide
+- [ ] Projet du partage ouvert depuis Windows (`\\wsl.localhost\…`, lecteur mappe) : etape GitHub verte, milestone affiche, `safe.directory` global inchange ; si « dubious ownership », le message contient la commande d'aide
 
 ## Notes QA
 
