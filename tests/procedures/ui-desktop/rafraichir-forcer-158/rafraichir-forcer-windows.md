@@ -134,6 +134,20 @@
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 9 — « dubious ownership » : projet du partage ouvert depuis Windows
+
+**Validation** : HUMAIN — **Issues** : #158 — **Prerequis** : projet git du partage (hote Linux/WSL) possede par un autre utilisateur que le compte Windows ; `git` installe sur le poste Windows ; un lecteur reseau mappe (ex. `Z:`) sur le meme partage, si l'utilisateur en a un
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Noter, avant tout : `git config --global --get-all safe.directory` et `git --version` | Sorties consignees (reference) | | |
+| 2 | Ouvrir le projet par son chemin `\\wsl.localhost\<distribution>\…` (racine des projets du launcher), selectionner le projet, « Rafraichir » | Etape GitHub **verte** ; la carte milestone est affichee ; aucun message « dubious ownership » ; **aucune commande `git config` lancee** par l'utilisateur ni par le launcher | | |
+| 3 | Si l'utilisateur a un lecteur mappe : configurer la racine des projets sur `Z:\…`, relancer le launcher, « Rafraichir » le meme projet | Meme resultat qu'a l'etape 2 : etape GitHub verte, carte milestone affichee | | |
+| 4 | Relancer `git config --global --get-all safe.directory` | Sortie **identique** a l'etape 1 (le launcher n'a ajoute aucune entree) | | |
+| 5 | Si l'etape GitHub est **rouge** avec « dubious ownership » : relever le message exact du bandeau et du message final (il doit contenir la commande d'aide pour declarer le depot sur), et noter `git --version` | Message et version consignes dans « Resultat Obtenu » et les Notes QA ; anomalie a ouvrir | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] Rafraichir relit sans attendre les caches ; l'indicateur disparait toujours, y compris sur erreur
@@ -143,6 +157,7 @@
 - [ ] Backend injoignable : Rafraichir conserve l'onglet ; fermeture forcee proposee avec avertissement, nettoyage local seul, aucun arret du conteneur
 - [ ] Un projet qui revit entre la question et la confirmation n'est jamais ferme de force
 - [ ] Etape GitHub : verte en nominal et dans les cas legitimes (gh absent, non connecte, pas de remote GitHub), avec la raison dans le message final ; rouge seulement sur une vraie erreur, dont le message exact est releve
+- [ ] Projet du partage ouvert depuis Windows (`\\\\wsl.localhost\\…`, lecteur mappe) : etape GitHub verte, milestone affiche, `safe.directory` global inchange ; si « dubious ownership », le message contient la commande d'aide
 
 ## Notes QA
 
