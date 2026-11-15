@@ -215,10 +215,22 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 	waitReach(p1, true)
 	tok1 := l4WebToken(t)
 	setListen("127.0.0.1:" + strconv.Itoa(p2)) // déplacement
+	end := time.Now().Add(8 * time.Second)
+	for l4WebToken(t) == tok1 && time.Now().Before(end) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	// décision sécurité (M2) : le jeton est renouvelé à chaque changement d'adresse d'écoute ; l'ancien ne
+	// vaut plus, les sessions sont révoquées
+	if l4WebToken(t) == tok1 {
+		t.Error("le jeton n'a pas été renouvelé au déplacement du serveur")
+	}
 	waitReach(p2, true)
 	waitReach(p1, false)
-	if l4WebToken(t) != tok1 {
-		t.Error("le jeton a changé au déplacement du serveur")
+	if r, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p2) + "/?t=" + tok1); err == nil {
+		r.Body.Close()
+		if r.StatusCode == 200 {
+			t.Error("l'ancien jeton ouvre encore le serveur déplacé")
+		}
 	}
 	setListen("off") // arrêt
 	l4WaitWebUI(t, a, "off", 8*time.Second)
@@ -306,12 +318,25 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 	}
 	var ck *http.Cookie
 	for _, c := range resp.Cookies() {
-		if c.Name == "cl_token" {
+		if strings.Contains(c.Value, tok) || strings.Contains(c.Name, tok) {
+			t.Errorf("le cookie %q contient le jeton (M2) : %+v", c.Name, c)
+		}
+		if strings.HasPrefix(c.Name, "cl_session_") {
 			ck = c
 		}
 	}
-	if ck == nil || ck.Value != tok || !ck.HttpOnly || ck.SameSite != http.SameSiteStrictMode {
-		t.Errorf("cookie : %+v, attendu cl_token=jeton, HttpOnly, SameSite=Strict", ck)
+	if ck == nil || ck.Name != "cl_session_"+strconv.Itoa(p) || ck.Value == tok || len(ck.Value) < 32 || !ck.HttpOnly || ck.SameSite != http.SameSiteStrictMode {
+		t.Errorf("cookie : %+v, attendu cl_session_%d (identifiant de session ≠ jeton), HttpOnly, SameSite=Strict", ck, p)
+	}
+	// l'ancien cookie « cl_token = jeton » n'ouvre plus rien
+	if r, _ := doWith(t, "http://"+addr, "POST", "/api/call", "", "", `{"method":"configFiles","args":{}}`, "application/json", ""); r.StatusCode != 403 {
+		t.Errorf("appel sans session : %d", r.StatusCode)
+	}
+	oldReq, _ := http.NewRequest("POST", "http://"+addr+"/api/call", strings.NewReader(`{"method":"configFiles","args":{}}`))
+	oldReq.Header.Set("Content-Type", "application/json")
+	oldReq.AddCookie(&http.Cookie{Name: "cl_token", Value: tok})
+	if r, err := http.DefaultClient.Do(oldReq); err != nil || r.StatusCode != 403 {
+		t.Errorf("cookie cl_token=jeton : %v %v, attendu 403", r, err)
 	}
 	for k, v := range map[string]string{"Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY"} {
 		if resp.Header.Get(k) != v {
@@ -363,12 +388,29 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 	}
 }
 
-// Écoute hors boucle locale : le contrôle de Host porte sur l'hôte d'écoute, le nom de la machine et localhost ;
+// Écoute hors boucle locale SANS allow_lan : refusée — webUI.state = error, message citant allow_lan, rien
+// n'écoute (le serveur ne démarre pas).
+func TestDesktopWebNonLoopbackRefusedWithoutAllowLAN(t *testing.T) {
+	sandbox(t, "", "alpha")
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"0.0.0.0:%d\" }\n", p))
+	a := l4StartNative(t)
+	w := l4WaitWebUI(t, a, "error", 10*time.Second)
+	if msg, _ := w["msg"].(string); !strings.Contains(msg, "allow_lan") {
+		t.Errorf("message = %q, attendu une mention de allow_lan", msg)
+	}
+	if c, err := net.DialTimeout("tcp", "127.0.0.1:"+strconv.Itoa(p), 300*time.Millisecond); err == nil {
+		c.Close()
+		t.Errorf("le port %d écoute alors que allow_lan est absent", p)
+	}
+}
+
+// Écoute hors boucle locale (allow_lan: true) : le contrôle de Host porte sur l'hôte d'écoute, le nom de la machine et localhost ;
 // les autres noms sont refusés ; le jeton reste exigé.
 func TestDesktopWebProtectionsNonLoopback(t *testing.T) {
 	sandbox(t, "", "alpha")
 	p := l4FreePort(t)
-	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"0.0.0.0:%d\" }\n", p))
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { listen: \"0.0.0.0:%d\", allow_lan: true }\n", p))
 	a := l4StartNative(t)
 	l4WaitWebUI(t, a, "on", 8*time.Second)
 	addr, tok := "127.0.0.1:"+strconv.Itoa(p), l4WebToken(t)
@@ -490,7 +532,7 @@ func TestDesktopWebTwoClientsShareState(t *testing.T) {
 
 	// flux d'évènements du client web
 	req, _ := http.NewRequest("GET", "http://"+addr+"/api/events", nil)
-	req.AddCookie(&http.Cookie{Name: "cl_token", Value: tok})
+	req.AddCookie(scBootstrap(t, "http://"+addr, tok))
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("flux d'évènements : %v %v", resp, err)

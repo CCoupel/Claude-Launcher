@@ -36,7 +36,7 @@ func dig(v any, path ...string) any {
 
 // Modèle « Ce poste » : settings.desktop_web.listen et overrides.<système>.settings.desktop_web.listen.
 func TestHubModelDesktopWeb(t *testing.T) {
-	src := "# postes\nhubs:\n  mon-pc:\n    desktop_web: { listen: '127.0.0.1:8770' }   # interface web\n    hub_cache: /x\n    windows:\n      desktop_web: { listen: '9001' }\n"
+	src := "# postes\nhubs:\n  mon-pc:\n    desktop_web: { listen: '127.0.0.1:8770', allow_lan: true }   # interface web\n    hub_cache: /x\n    windows:\n      desktop_web: { listen: '9001' }\n"
 	m, err := ReadHubModel([]byte(src), "MON-PC.domaine", "windows")
 	if err != nil {
 		t.Fatal(err)
@@ -44,6 +44,9 @@ func TestHubModelDesktopWeb(t *testing.T) {
 	v := hubJSON(t, m)
 	if got := dig(v, "settings", "desktop_web", "listen"); got != "127.0.0.1:8770" {
 		t.Errorf("settings.desktop_web.listen = %v, attendu 127.0.0.1:8770", got)
+	}
+	if got := dig(v, "settings", "desktop_web", "allow_lan"); got != true {
+		t.Errorf("settings.desktop_web.allow_lan = %v, attendu true", got)
 	}
 	if got := dig(v, "overrides", "windows", "settings", "desktop_web", "listen"); got != "9001" {
 		t.Errorf("overrides.windows.settings.desktop_web.listen = %v, attendu 9001", got)
@@ -143,14 +146,33 @@ func TestValidateBackendsDesktopWeb(t *testing.T) {
 	if ps := val("defaults:\n  desktop_web: { listen: 'nimporte' }\n"); len(problemsOf(ps, SevError)) == 0 {
 		t.Errorf("listen illisible accepté : %v", ps)
 	}
-	// hors boucle locale : avertissement, pas d'erreur ; boucle locale : aucun avertissement
+	// hors boucle locale SANS allow_lan : REFUSÉ (erreur citant allow_lan) ; avec allow_lan: true : accepté avec
+	// avertissement ; boucle locale : ni erreur ni avertissement
 	ps = val("defaults:\n  browser_server: { listen: off }\n  desktop_web: { listen: '0.0.0.0:8770' }\n")
+	if e := problemsOf(ps, SevError); len(e) == 0 || !strings.Contains(strings.Join(e, " "), "allow_lan") {
+		t.Errorf("0.0.0.0:8770 sans allow_lan : erreur citant allow_lan attendue, obtenu %v", ps)
+	}
+	ps = val("defaults:\n  browser_server: { listen: off }\n  desktop_web: { listen: '0.0.0.0:8770', allow_lan: false }\n")
+	if len(problemsOf(ps, SevError)) == 0 {
+		t.Errorf("allow_lan: false : refus attendu, obtenu %v", ps)
+	}
+	ps = val("defaults:\n  browser_server: { listen: off }\n  desktop_web: { listen: '0.0.0.0:8770', allow_lan: true }\n")
 	if len(problemsOf(ps, SevError)) != 0 || len(problemsOf(ps, SevWarning)) == 0 {
-		t.Errorf("0.0.0.0:8770 : attendu un avertissement sans erreur, obtenu %v", ps)
+		t.Errorf("0.0.0.0:8770 avec allow_lan: attendu un avertissement sans erreur, obtenu %v", ps)
+	}
+	// nom de machine / adresse privée : même règle (tout ce qui n'est pas la boucle locale)
+	ps = val("defaults:\n  browser_server: { listen: off }\n  desktop_web: { listen: '192.168.1.10:8770' }\n")
+	if len(problemsOf(ps, SevError)) == 0 {
+		t.Errorf("192.168.1.10:8770 sans allow_lan accepté : %v", ps)
 	}
 	ps = val("defaults:\n  browser_server: { listen: off }\n  desktop_web: { listen: '127.0.0.1:8770' }\n")
-	if w := problemsOf(ps, SevWarning); len(w) != 0 {
-		t.Errorf("boucle locale : avertissement inattendu %v", w)
+	if w := problemsOf(ps, SevWarning); len(w) != 0 || len(problemsOf(ps, SevError)) != 0 {
+		t.Errorf("boucle locale : problème inattendu %v", ps)
+	}
+	// allow_lan posé sur la machine : s'applique à son listen (fusion champ par champ avec defaults)
+	hm := "hubs:\n  " + strings.ToLower(HubHost()) + ":\n    desktop_web: { listen: '0.0.0.0:8770', allow_lan: true }\n"
+	if ps := val("defaults:\n  browser_server: { listen: off }\n" + hm); len(problemsOf(ps, SevError)) != 0 {
+		t.Errorf("allow_lan de la machine ignoré : %v", ps)
 	}
 	// conflit propre à une machine (priorité par machine) : listen du poste = browser_server du poste
 	y := "hubs:\n  " + strings.ToLower(HubHost()) + ":\n    browser_server: { listen: '127.0.0.1:8770' }\n    desktop_web: { listen: '127.0.0.1:8770' }\n"
