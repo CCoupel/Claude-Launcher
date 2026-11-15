@@ -33,6 +33,7 @@ type closePlan struct {
 	session  bool         // une session claude est à fermer
 	window   bool         // fenêtre du hub à fermer
 	abandon  bool         // session interrompue : la reprise est abandonnée
+	force    bool         // fermeture forcée (#158) : conteneur, pod ou session disparu, ni /exit ni attente
 	engine   *core.Engine // projet en conteneur
 	ctr      string       // … son conteneur (ou pod)
 	hubSess  string       // session du hub…
@@ -64,6 +65,19 @@ func (m model) planClose(n core.Node) (closePlan, string) {
 			e = e.Of(p.ctr) // groupe de serveurs : celui du conteneur (#61)
 			pl.engine, pl.ctr = &e, p.ctr.Name
 		}
+	}
+	// #158 : affiché ouvert ou en erreur alors que le conteneur, le pod ou la session
+	// n'existe plus : fermeture forcée (jamais si un autre launcher pilote : refusé plus haut)
+	k8s := false
+	if b, ok := core.FindBackend(p.backend); ok {
+		k8s = b.K8s()
+	}
+	// (la reprise interrompue d'un projet sans session garde son « Abandonner » ci-dessous)
+	abandonCase := p.dot == sessAnomaly && p.hasSess && !pl.session
+	if ok, why, _ := core.ForceCloseable(core.ForceInput{P: p.core(), Tab: p.open, K8s: k8s}); ok && !abandonCase {
+		pl.force = true
+		pl.question = "Forcer la fermeture de " + n.Name + " ? " + why + " (sans attente) · o/N"
+		return pl, ""
 	}
 	running := pl.engine != nil && (p.ctr.Running || p.ctr.Failed)
 	stopText := ""
@@ -186,6 +200,9 @@ func (pl closePlan) sessionTarget() string {
 }
 
 func runClose(pl closePlan, step func(string)) error {
+	if pl.force {
+		return runForceClose(pl, step)
+	}
 	if pl.abandon {
 		// la conversation reste lisible (/resume) ; elle n'est plus proposée à la reprise
 		m := core.CleanExitMarker(pl.node.Path) // au nom que lui donne claude (conteneur : chemin des backends)
@@ -254,4 +271,38 @@ func (m model) askClose(n core.Node) (model, tea.Cmd) {
 	}
 	m.closeAsk = &pl
 	return m, nil
+}
+
+// runForceClose (#158) : sans /exit ni attente — fenêtre du hub fermée, panes
+// cachés orphelins tués, marque de sortie propre (la reprise ↺ est abandonnée),
+// verrou de création périmé et fichier d'ordre supprimés (nettoyage commun
+// core.CleanupProject), arrêt du conteneur demandé s'il existe encore.
+func runForceClose(pl closePlan, step func(string)) error {
+	var orders []string
+	if id, err := tmuxOut("display-message", "-p", "-t", pl.hubTgt, "#{window_id}"); err == nil && strings.TrimSpace(id) != "" {
+		orders = append(orders, orderPath(strings.TrimSpace(id)))
+	}
+	if pl.window && dtmux("kill-window", "-t", pl.hubTgt).Run() == nil {
+		step("fenêtre fermée")
+	}
+	hub := core.SessionTmux(func(args ...string) (string, error) { return tmuxOut(args...) })
+	r := core.CleanupProject(pl.node.Path, hub, orders...)
+	if r.Hidden > 0 {
+		step(fmt.Sprintf("%d pane(s) caché(s) tué(s)", r.Hidden))
+	}
+	if r.Lock {
+		step("verrou de création supprimé")
+	}
+	step("reprise abandonnée (marque de sortie propre)")
+	if pl.engine != nil {
+		if n := core.KillHiddenPanes(pl.tmux(), core.HomeCtr); n > 0 {
+			step(fmt.Sprintf("%d pane(s) caché(s) du conteneur tué(s)", n))
+		}
+		step("arrêt du conteneur…")
+		if err := pl.engine.Stop(pl.node.Path, pl.ctr); err != nil {
+			return err
+		}
+		step("arrêt du conteneur demandé")
+	}
+	return nil
 }

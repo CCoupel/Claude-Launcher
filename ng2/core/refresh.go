@@ -106,6 +106,10 @@ type ForceInput struct {
 	HostGone bool     // projet sur l'hôte : sa session tmux locale n'existe plus ou ne répond pas
 }
 
+// ContainerProject : le projet s'exécute dans un conteneur ou un pod (env.yaml,
+// ou backend affecté autre que l'hôte).
+func ContainerProject(p ProjInfo) bool { return p.HasEnv || p.Backend != "" && p.Backend != "host" }
+
 // ForceCloseable dit si la fermeture forcée est proposable, et pourquoi.
 // Proposée quand le projet est affiché ouvert ou en erreur (onglet, ✕, ▲ ou ●
 // orange) alors que son conteneur, son pod ou sa session n'existe plus ou ne
@@ -131,8 +135,9 @@ func ForceCloseable(in ForceInput) (ok bool, why, refused string) {
 	if in.K8s {
 		unit = "pod k8s"
 	}
+	ctr := ContainerProject(p)
 	switch {
-	case p.HasEnv && !p.CtrKnown && len(p.Problems) == 0:
+	case ctr && !p.CtrKnown && len(p.Problems) == 0:
 		return true, "son " + unit + " n'existe plus", ""
 	case len(p.Problems) > 0:
 		return true, "son backend " + p.Backend + " ne répond pas", ""
@@ -140,11 +145,11 @@ func ForceCloseable(in ForceInput) (ok bool, why, refused string) {
 		return true, "son " + unit + " est en échec", ""
 	case p.CtrKnown && !p.Ctr.Running:
 		return true, "son " + unit + " est arrêté", ""
-	case p.HasEnv && p.CtrKnown && p.Ctr.Running && !p.HasLive:
+	case ctr && p.CtrKnown && p.Ctr.Running && !p.HasLive:
 		return true, "sa session tmux n'existe plus dans le " + unit, ""
-	case !p.HasEnv && in.HostGone:
+	case !ctr && in.HostGone:
 		return true, "sa session tmux locale n'existe plus", ""
-	case p.HasSess && !p.HasEnv:
+	case p.HasSess && !ctr:
 		return true, "sa reprise est interrompue", ""
 	}
 	return false, "", ""
@@ -156,7 +161,7 @@ func ForceItems(in ForceInput) []string {
 	if in.Tab {
 		it = append(it, "onglet")
 	}
-	if !in.P.HasEnv {
+	if !ContainerProject(in.P) {
 		it = append(it, "session tmux locale")
 	}
 	it = append(it, "panes cachés", "marque de sortie propre (reprise abandonnée)")

@@ -511,6 +511,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.ctr = ctrView(msg)
 		m.syncSelection()
 		return m, nil
+	case refreshedMsg:
+		return m.onRefreshed(msg), nil
 	case sessNowMsg:
 		m.sessions = msg
 		m.syncSelection()
@@ -942,7 +944,15 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.checking, m.hideLauncher, m.hideTpl = true, false, false
 		m.msg = "recherche des mises à jour…"
 		// relit aussi l'arborescence (filet de sécurité : dossier remonté…)
-		return m, tea.Batch(core.CheckUpdates(true), usageForceCmd(), m.msStale(true), scanCmd(m.cfg.Roots))
+		cmds := []tea.Cmd{core.CheckUpdates(true), usageForceCmd(), m.msStale(true), scanCmd(m.cfg.Roots)}
+		// #158 : et relit à fond le projet sélectionné (conteneurs, sessions, fenêtres, git, diagnostic forcé)
+		if len(m.visible) > 0 {
+			if n := m.nodes[m.visible[m.cursor]]; n.Project {
+				m.msg = "⟳ " + n.Name + " : relecture complète…"
+				cmds = append(cmds, windowsCmd(m.session), refreshProjectCmd(n, m.cfg, m.projectPaths()))
+			}
+		}
+		return m, tea.Batch(cmds...)
 	case "tab":
 		if m.shell {
 			_ = otmux("select-pane", "-t", outerPane(roleHub)).Run()

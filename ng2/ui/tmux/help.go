@@ -28,7 +28,7 @@ var helpSections = []helpSection{
 	{"Navigateur", []helpRow{
 		{"↑ ↓ PgUp PgDn, molette, clic", "sélectionner un projet (clic sur un projet ouvert : sa fenêtre)"},
 		{"Entrée, double-clic", "ouvrir / rejoindre le projet"},
-		{"Ctrl+clic, Suppr", "fermer le projet : /exit à claude, puis arrêt du conteneur (confirmation o/N)"},
+		{"Ctrl+clic, Suppr", "fermer le projet : /exit à claude, puis arrêt du conteneur (confirmation o/N) ; conteneur, pod ou session disparu : fermeture forcée proposée, sans /exit"},
 		{"point devant le nom", "○ rien ne tourne · ● bleu conteneur prêt sans claude · ▲ ouvert ici · ● vert lecture seule · ■ orange autre hub · ● orange personne ne pilote · ✕ problème"},
 		{"frappe", "filtrer ; Esc efface le filtre"},
 		{"clic hors projet", "onglet ⌗ Teamleaders"},
@@ -37,7 +37,7 @@ var helpSections = []helpSection{
 		{"Ctrl+← Ctrl+→, bordure", "largeur du navigateur (mémorisée)"},
 		{"Ctrl+R", "rescanner les projets"},
 		{"F2", "reconfigurer l'exécution du projet fermé (hôte, socle, backend)"},
-		{"F5", "mises à jour, consommation et liste des projets maintenant"},
+		{"F5", "mises à jour, consommation, liste des projets et relecture complète du projet sélectionné (conteneurs, sessions, git, diagnostic)"},
 		{"Ctrl+U, clic sur ✕", "masquer les annonces de mise à jour"},
 		{"annonce NG orange / jaune", "version en préparation / en téléchargement et contrôle"},
 		{"clic sur l'annonce verte", "installer la nouvelle version, déjà téléchargée (projets conservés)"},

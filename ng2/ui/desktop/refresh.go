@@ -471,7 +471,7 @@ func (a *App) runForceClose(path string, p core.ProjInfo, t *projTerm) (notes []
 		notes = append(notes, "onglet retiré")
 	}
 	var local core.SessionTmux
-	if !p.HasEnv { // projet sur l'hôte : tmux local dédié
+	if !core.ContainerProject(p) { // projet sur l'hôte : tmux local dédié
 		sock, sess := deskSocket(), hostSession(path)
 		local = func(args ...string) (string, error) {
 			c := platform.NoWindow(exec.Command("tmux", append([]string{"-L", sock}, args...)...))
