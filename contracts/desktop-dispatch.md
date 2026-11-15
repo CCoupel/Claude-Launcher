@@ -465,25 +465,27 @@ hubs:
     régénération du jeton ; un navigateur doit alors repasser par l'URL d'amorçage (`webUIOpen`). Dans
     `desktop --web` (processus seul), la relance après une mise à jour révoque aussi les sessions.
   - **Jeton** : tiré une fois par poste et conservé (`CacheDir()/desktop-web-token`, créé `O_EXCL`, `0600`) ; **renouvelé
-    à chaque changement d'adresse d'écoute** ; action `webUIRegenerateToken` (fenêtre native seulement) : fichier
+    à chaque changement d'adresse d'écoute** ; action `webUIRegen` (fenêtre native seulement) : fichier
     supprimé, nouveau tirage, sessions et flux révoqués. Une erreur d'écriture du fichier est dite dans `webUI.msg`
     (le jeton tiré reste valable jusqu'à l'arrêt).
   - **Écoute hors boucle locale** : refusée tant que `desktop_web.allow_lan: true` n'est pas posé (résolution,
     validation de `backends.yaml` et modèle « Ce poste » : `settings.desktop_web.allow_lan`). Acceptée, elle applique le
     contrôle de `Host` (hôte d'écoute, nom de la machine, `localhost`, sur le port — aussi dans `desktop --web`) et
-    `webUI.msg` porte l'avertissement (HTTP en clair, jeton seul) ; l'accès se fait **par le nom de la machine,
+    `webUI.lan` vaut vrai et `webUI.warn` porte l'avertissement (HTTP en clair, jeton seul) ; l'accès se fait **par le nom de la machine,
     pas par son IP** (l'IP est refusée par le contrôle de `Host`).
   - Serveur HTTP : délais d'en-têtes (10 s) et d'inactivité (2 min), en-têtes limités à 64 Ko, 32 flux d'évènements au plus
     (503 au-delà).
 
 ### Instantané — champ `webUI` **[NEW]**
 
-`"webUI": { "state": "off" | "on" | "error", "listen": "127.0.0.1:8770", "msg": "" }` — jamais le jeton.
+`"webUI": { "state": "off" | "on" | "error", "listen": "127.0.0.1:8770", "lan": false, "warn": "", "msg": "" }` — jamais
+le jeton. `lan` : écoute hors de la boucle locale active (confirmée par `allow_lan`) ; `warn` : texte de l'avertissement
+qui l'accompagne (bannière) ; `msg` : erreur (écoute impossible, réglage refusé, jeton non conservé).
 
-### `webUIRegenerateToken` **[NEW]**
+### `webUIRegen` **[NEW]**
 
 Sans argument ; fenêtre native seulement. Régénère le jeton de l'interface web : l'ancien lien meurt, les sessions et
-flux des navigateurs sont révoqués. Résultat : `{ "ok": true }` (`msg` si le fichier n'a pas pu être écrit).
+flux des navigateurs sont révoqués. Résultat : `{ "ok": true, "msg": "…" }` (`msg` : le fichier n'a pas pu être écrit, sinon vide).
 
 ### `webUIOpen` **[NEW]**
 
@@ -495,7 +497,7 @@ défaut du poste, avec l'adresse d'amorçage (jeton) construite côté Go. Résu
 
 - Chaque appel porte son origine (fenêtre ou web) : `clipboardRead` / `clipboardWrite` répondent `unavailable` à un
   client web (règle du LOT-4 de la v6.1.0, appliquée par appel et non plus par processus) ; `quit`, `setTheme`,
-  `webUIOpen` sont refusés à un client web, ainsi que `webUIRegenerateToken` et toute modification des réglages
+  `webUIOpen` sont refusés à un client web, ainsi que `webUIRegen` et toute modification des réglages
   `desktop_web` (`configSave` / `configApply` sur `backends.yaml` ou le modèle « Ce poste » : refus
   `{ "invalid": true }` avec la raison) — un navigateur ne rouvre pas l'interface sur le réseau. Mise à jour du
   binaire, autres réglages, fermeture forcée : permis (le binaire installé vient toujours de la release officielle :
