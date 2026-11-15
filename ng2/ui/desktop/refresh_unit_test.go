@@ -13,10 +13,10 @@ func TestRefreshProjectEmitsFinalEvent(t *testing.T) {
 	var r recorder
 	a := newApp(t, r.emit)
 
-	if res, err := a.Dispatch("refreshProject", []byte(`{"path":"/hors/arbre"}`)); err == nil {
+	if res, err := a.Dispatch("refreshProject", rawPath("/hors/arbre")); err == nil {
 		t.Errorf("projet inconnu accepté : %v", res)
 	}
-	res, err := a.Dispatch("refreshProject", []byte(`{"path":"`+ps[0]+`"}`))
+	res, err := a.Dispatch("refreshProject", rawPath(ps[0]))
 	if err != nil || res.(map[string]any)["ok"] != true {
 		t.Fatalf("refreshProject : %v %v", res, err)
 	}
@@ -44,7 +44,7 @@ func TestRefreshProjectOnlyOnceAtATime(t *testing.T) {
 	var r recorder
 	a := newApp(t, r.emit)
 	a.refreshing.Store(ps[0], true) // un rafraîchissement est en cours
-	res, err := a.Dispatch("refreshProject", []byte(`{"path":"`+ps[0]+`"}`))
+	res, err := a.Dispatch("refreshProject", rawPath(ps[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -60,14 +60,14 @@ func TestForceCloseNothingToForce(t *testing.T) {
 	ps := sandbox(t, "", "alpha")
 	var r recorder
 	a := newApp(t, r.emit)
-	res, err := a.Dispatch("forceClose", []byte(`{"path":"`+ps[0]+`"}`))
+	res, err := a.Dispatch("forceClose", rawPath(ps[0]))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if m := res.(map[string]any); m["msg"] == "" || m["question"] != nil {
 		t.Errorf("projet fermé : %v", m)
 	}
-	res, _ = a.Dispatch("forceCloseConfirm", []byte(`{"path":"`+ps[0]+`"}`)) // sans question en attente
+	res, _ = a.Dispatch("forceCloseConfirm", rawPath(ps[0])) // sans question en attente
 	if m := res.(map[string]any); m["ok"] != false {
 		t.Errorf("confirmation sans objet : %v", m)
 	}

@@ -293,7 +293,7 @@ func TestTeamLinesCountdownAndInstances(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	_ = os.MkdirAll(root+"/teams/s1", 0o755)
 	_ = os.WriteFile(root+"/teams/s1/config.json", []byte(`{"members":[
-		{"name":"team-lead","agentType":"team-lead","tmuxPaneId":"%1","cwd":"`+proj+`"},
+		{"name":"team-lead","agentType":"team-lead","tmuxPaneId":"%1","cwd":`+jsonq(proj)+`},
 		{"name":"dev-1","agentType":"dev-backend","tmuxPaneId":"%10"},
 		{"name":"dev-2","agentType":"dev-backend","tmuxPaneId":"%9"}]}`), 0o644)
 	pane := func(id string, idle int64) ProjPane {

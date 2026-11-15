@@ -24,7 +24,10 @@ import (
 
 var refreshStepIDs = []string{"ctr", "session", "git", "github", "tpl", "usage"}
 
-func rawPath(p string) json.RawMessage { return json.RawMessage(`{"path":` + strconv.Quote(p) + `}`) }
+func rawPath(p string) json.RawMessage {
+	b, _ := json.Marshal(map[string]string{"path": p}) // jamais concaténé : un chemin Windows contient des « \ »
+	return b
+}
 
 // refreshEvents : tous les évènements « refresh » du projet, dans l'ordre.
 func (r *recorder) refreshEvents(path string) []map[string]any {
