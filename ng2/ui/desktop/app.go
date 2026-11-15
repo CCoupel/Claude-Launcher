@@ -61,13 +61,15 @@ type App struct {
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
-	projSet   atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
-	liveSnap  atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
-	web       bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
-	openTabs  sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
-	hubGen    atomic.Uint64                   // génération de la dernière relecture des avertissements hubs
-	ctrFounds atomic.Pointer[[]core.Found]
-	bkSnap    atomic.Pointer[[]core.BackendConf]
+	projSet    atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
+	liveSnap   atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
+	web        bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
+	openTabs   sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
+	forceAsked sync.Map                        // fermetures forcées dont la question est posée (#158)
+	refreshing sync.Map                        // projets en cours de rafraîchissement (#158), lisible sans a.mu
+	hubGen     atomic.Uint64                   // génération de la dernière relecture des avertissements hubs
+	ctrFounds  atomic.Pointer[[]core.Found]
+	bkSnap     atomic.Pointer[[]core.BackendConf]
 
 	dirty     chan struct{}
 	cardDirty chan struct{}
@@ -548,33 +550,41 @@ func (a *App) readMilestones(force bool) {
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
-			st := core.MsState{At: time.Now()}
-			if core.OnGitHub(p) {
-				core.MsSem <- struct{}{}
-				var s core.MsState
-				var err error
-				a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
-				<-core.MsSem
-				if err != nil {
-					return
-				}
-				st, st.At = s, time.Now()
-			}
-			a.mu.Lock()
-			old := a.milestones[p]
-			if !reflect.DeepEqual(old.WithoutAt(), st.WithoutAt()) || old.At.IsZero() {
-				a.milestones[p] = st
-				core.WriteMsCache(a.milestones)
-			}
-			sel := a.sel == p
-			a.mu.Unlock()
-			if sel {
-				a.cardsChanged()
-			}
+			_ = a.fetchMilestone(p, false)
 		}(p)
 	}
 	wg.Wait()
 	a.changed()
+}
+
+// fetchMilestone : relit les milestones GitHub du projet p. force : la valeur
+// relue remplace toujours le cache (date comprise) ; sinon seulement si elle a
+// changé.
+func (a *App) fetchMilestone(p string, force bool) error {
+	st := core.MsState{At: time.Now()}
+	if core.OnGitHub(p) {
+		core.MsSem <- struct{}{}
+		var s core.MsState
+		var err error
+		a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
+		<-core.MsSem
+		if err != nil {
+			return err
+		}
+		st, st.At = s, time.Now()
+	}
+	a.mu.Lock()
+	old := a.milestones[p]
+	if force || !reflect.DeepEqual(old.WithoutAt(), st.WithoutAt()) || old.At.IsZero() {
+		a.milestones[p] = st
+		core.WriteMsCache(a.milestones)
+	}
+	sel := a.sel == p
+	a.mu.Unlock()
+	if sel {
+		a.cardsChanged()
+	}
+	return nil
 }
 
 // latestTemplate : commit du dernier tag du template adopté.
@@ -598,6 +608,9 @@ type Row struct {
 	Open    bool             `json:"open,omitempty"`
 	Color   string           `json:"color,omitempty"` // couleur du projet (#rrggbb)
 	Closing string           `json:"closing,omitempty"`
+	// #158 : rafraîchissement du projet en cours ; fermeture forcée proposable
+	Refreshing bool `json:"refreshing,omitempty"`
+	CanForce   bool `json:"canForce,omitempty"`
 }
 
 // Alert : annonce de mise à jour.
@@ -689,6 +702,8 @@ func (a *App) Snapshot() Snapshot {
 			r.Open = p.Open
 			r.Color = core.Colour256Hex(a.conf().ProjectColor(n.Key))
 			r.Closing = a.closing[n.Path]
+			_, r.Refreshing = a.refreshing.Load(n.Path)
+			r.CanForce = a.canForce(n.Path, p)
 		}
 		s.Rows = append(s.Rows, r)
 	}
@@ -1083,6 +1098,12 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		return a.prefetchCards(arg.Path), nil
 	case "open":
 		return a.open(arg.Path, core.LaunchNormal)
+	case "refreshProject": // #158
+		return a.refreshProject(arg.Path)
+	case "forceClose":
+		return a.forceClose(arg.Path)
+	case "forceCloseConfirm":
+		return a.forceCloseConfirm(arg.Path)
 	case "close":
 		return a.askClose(arg.Path)
 	case "closeConfirm":

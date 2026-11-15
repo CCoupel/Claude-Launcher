@@ -745,7 +745,12 @@ func (t *projTerm) closeStop() { t.stopOnce.Do(func() { close(t.stop) }) }
 const paneFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window_zoomed_flag}|#{pane_active}|#{pane_pid}|#{window_visible_layout}|#{pane_current_command}"
 
 func (t *projTerm) orderFile() string {
-	return filepath.Join(os.TempDir(), "claude_desk_"+core.CtrName(t.path)+".order")
+	return orderFilePath(t.path)
+}
+
+// orderFilePath : fichier d'ordre des panes d'un projet (MRU).
+func orderFilePath(path string) string {
+	return filepath.Join(os.TempDir(), "claude_desk_"+core.CtrName(path)+".order")
 }
 
 // watcher : toutes les secondes (et à chaque changement de mise en page) :
