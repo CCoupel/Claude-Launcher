@@ -938,7 +938,7 @@ c'est à l'utilisateur de le rendre accessible avant de lancer le launcher, qui 
 | Linux | `claude-launcher-ng2` | la coque tmux, **inchangée** (défaut) |
 
 `desktop --web` sert l'interface sur `127.0.0.1` (port libre, `--addr HÔTE:PORT` pour le
-fixer), protégée par un jeton aléatoire dans l'URL affichée (puis un cookie) ; `--no-open`
+fixer), protégée par un jeton aléatoire dans l'URL affichée (puis un cookie de session) ; `--no-open`
 n'ouvre pas le navigateur. Fermer la fenêtre ou arrêter le serveur **détache** l'interface :
 les sessions des projets continuent dans leur tmux (conteneur, ou tmux local de l'hôte), et sont
 retrouvées au lancement suivant (comme la coque après un arrêt du hub).
@@ -949,6 +949,27 @@ locale, l'en-tête `Host` doit désigner la boucle locale et le port d'écoute. 
 (`Content-Type: application/json`) et une origine égale à `http://<Host>` : une autre page ouverte sur la machine,
 même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponses portent `Referrer-Policy: no-referrer`,
 `X-Content-Type-Options`, `X-Frame-Options` et `Content-Security-Policy: frame-ancestors 'none'`.
+
+**Interface web dans la fenêtre native** (v6.2.0, #163) : la fenêtre Windows peut aussi servir son interface dans un
+navigateur. Réglage `desktop_web` (Réglages › Ce poste › Navigateur, ou `backends.yaml`), **désactivé par défaut**,
+appliqué sans relance. Un port seul (`:8770`) écoute sur la boucle locale. Une adresse hors boucle locale
+(`0.0.0.0:8770`) est **refusée sans `allow_lan: true`** (case « Autoriser l'accès depuis le réseau »), puis signalée par
+une bannière orange tant qu'elle est active. Le même port que le serveur des fichiers (`browser_server`, 8765 par défaut)
+est refusé. Le bouton « Ouvrir dans le navigateur » ouvre l'URL d'amorçage (fenêtre native seulement).
+
+- **Accès** : `127.0.0.1` ou `localhost` sur le port ; hors boucle locale, le **nom de la machine**. L'adresse IP brute
+  est refusée sur une écoute `0.0.0.0` / `::` (contrôle de `Host`). En HTTP, le jeton circule en clair : préférer un
+  tunnel SSH ou TLS.
+- **Sessions** : le jeton d'URL n'est accepté que par la page d'amorçage, qui l'échange contre une session (cookie
+  `cl_session_<port>`, jamais le jeton). 64 sessions au plus ; une session expire après 8 h sans appel, donc un onglet
+  resté ouvert sans appel repasse par l'URL d'amorçage. Le jeton est conservé par poste ; il est renouvelé quand
+  l'adresse d'écoute change. « Régénérer le jeton » (fenêtre native seulement) révoque les sessions et les flux SSE.
+- **Client web** : il n'a pas le presse-papiers du poste, `quit`, le thème du poste, l'ouverture du navigateur, la
+  régénération du jeton, ni la modification de `desktop_web` et `browser_server`. Le reste (terminaux, autres réglages,
+  mise à jour) lui est permis : **le jeton donne accès aux terminaux, il faut le garder secret**.
+- **Taille des terminaux** : fixée par le client qui a le focus ; un client sans clavier ne renvoie pas la sienne.
+- `desktop --web` sans `--addr` prend `desktop_web.listen` s'il est fixé ; `--addr` vers le réseau sans `allow_lan`
+  affiche un avertissement sur stderr.
 
 **Ce qu'on y retrouve de la coque** (mêmes sources dans `core`) :
 
@@ -1287,6 +1308,9 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
     si elle ressemble à une clé connue :
     `hubs.MSI : ligne 4 : clé "window" inconnue, ignorée — vouliez-vous dire windows ?`. Le
     menu du hub (pane de navigation) affiche le premier avertissement au démarrage.
+- **Interface web de la fenêtre native (`desktop_web`)** (v6.2.0, #163) : désactivée par défaut. Comme `browser_server`,
+  elle se déclare dans `hubs.<machine>` et se surcharge par système (`.windows`, `.linux`). Une écoute hors boucle
+  locale exige `allow_lan: true` ; le même port que `browser_server` du même système est refusé.
 
     ```yaml
     hubs:
@@ -1654,7 +1678,8 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 `XDG_CACHE_HOME`.
 
 `scripts/ci.sh` (la CI) lance `go test -race ./...` sous Linux : il exige un compilateur C (`gcc`, cgo) et s'arrête avec un
-message explicite s'il manque (`apt install gcc` / `dnf install gcc`). Il isole tmux : il crée un dossier dédié et court sous `/tmp` (en dur, `mktemp -d /tmp/clci.XXXXXX`,
+message explicite s'il manque (`apt install gcc` / `dnf install gcc`). Il contrôle aussi la syntaxe du JS du frontend
+(`node --check` sur `ng2/ui/desktop/frontend/*.js`, node requis). Il isole tmux : il crée un dossier dédié et court sous `/tmp` (en dur, `mktemp -d /tmp/clci.XXXXXX`,
 indépendamment de `$TMPDIR` ; limite `sun_path` de 108 octets : le dossier du projet est trop long), et les tests
 reçoivent ce dossier comme `TMUX_TMPDIR` et `TMPDIR`. Le script échoue si un socket de test `cl-*` reste dans ce dossier,
 ou si un socket de test tombe dans `/tmp/tmux-<uid>` (garde limitée aux préfixes produits par les tests seulement :

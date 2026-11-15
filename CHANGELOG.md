@@ -17,6 +17,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Carte TEAM : titre « TEAM · N · TPL vX · CLAUDE Y » (versions une seule fois), `⚠` orange sur un teammate dont la version diffère (template ou claude ; détail en infobulle sous Windows) (#151)
 - En-tête des panes de teammates : bandeau vert si actif, gris si inactif, neutre pour le leader ; suit l'état sans relance ; sous Linux, une ligne de titre tmux en tête de chaque pane (`pane-border-status top`) (#152)
 - Onglet Teamleaders (interface native) isolé, épinglé à gauche, sans `×` ; réduit à son icône quand les onglets de projets débordent (#162)
+- Interface web dans la fenêtre native : réglage `desktop_web` (désactivé par défaut, Réglages › Ce poste › Navigateur), écoute hors boucle locale refusée sans `allow_lan: true`, bannière, régénération du jeton, sessions par cookie (`cl_session_<port>`), lecture seule pour un client web (#163)
 
 ### Changed
 - « Fermer » du menu projet est disponible dès que la ligne est ouverte ou que sa pastille n'est pas `○` (#158)
@@ -24,6 +25,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Carte TEAM : les colonnes de version disparaissent des lignes, la carte est plus étroite (#151)
 
 ### Fixed
+- Course de données sur `InitSynced` et `init-project.md` pendant les vérifications de mises à jour concurrentes : protégés par un verrou (`fa200eb`)
 - Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus `git describe --dirty` : plus de `index.lock` laissé par le launcher (#154)
 - Tests : les sockets tmux de test sont isolés dans un dossier dédié ; `scripts/ci.sh` échoue sur un socket de test résiduel ou sur un `index.lock` orphelin (#154)
 - `scripts/ci.sh` échoue aussi sur un socket de test laissé dans `/tmp/tmux-<uid>` (préfixes des tests seulement) (#154)
@@ -73,3 +75,13 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Procédures à jouer à la main en QUALIF (`tests/procedures/`) :
   - Windows (`ui-desktop/team-lisible-151-152-162/team-lisible-windows.md`) : S1 à S5 (carte TEAM, en-têtes de panes, onglet Teamleaders, réduction à l'icône sans oscillation, deux launchers sur un projet en conteneur).
   - Linux (`ui-tmux/team-lisible-151-152/team-lisible-linux.md`) : S1 à S4 (carte TEAM, ligne de titre par pane, launcher antérieur ou lecture seule, deux launchers en QUALIF).
+
+### Notes de lot — LOT-4 (#163)
+
+- Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
+- Audit sécurité (`_work/reports/security-lot4-v6.2.0.md`) : **78/100**, aucun critique, deux majeurs. M1 (contrôle de `Host` désactivé sur une écoute hors boucle locale réglée dans `desktop_web`) et M2 (jeton permanent envoyé à tous les ports de `localhost`) sont corrigés : `f2e71e3` (Host hors boucle locale, session en mémoire, rotation du jeton, `O_EXCL`, serveur HTTP borné), `0b2166d` (allow_lan obligatoire hors boucle locale), `d120710` (sessions bornées et expirées, abonnés SSE, jeton réécrit atomiquement). Les mineurs restants sont listés dans le rapport d'audit.
+- QA (`_work/reports/qa-lot4-v6.2.0.md`, HEAD `6429c86`) : **VALIDATED WITH RESERVATIONS**.
+  - Tests feature (core `desktopweb*`, ui/desktop `web163`, `websec_*`, `security_lot33`) : PASS ; `CGO_ENABLED=1 go test -race ./...` PASS sans tolérance ; `scripts/ci.sh` CI OK (70 s, au-dessus du budget indicatif de ~60 s : à découper si la tendance continue).
+  - Contrôle par mutation : 9/9 protections détectées (Host, cookie de session, `desktop_web`/`browser_server` refusés au client web, `webUIRegen`/`webUIOpen` refusés au web, plafond de sessions, verrou `InitSynced` sous `-race`, `allow_lan`, `sameOrigin`).
+  - La procédure Windows `interface-web-163/interface-web-windows.md`, obsolète à la date du QA, est mise à jour par `0f4e322` (scénario 5 : `allow_lan`, bannière, régénération du jeton, lecture seule au client web, cookie de session). Réserve levée.
+- Procédures à jouer à la main en QUALIF (`tests/procedures/ui-desktop/interface-web-163/`) : Windows S1 à S7 et les scénarios ajoutés (S5 réécrit : `allow_lan`) ; un second poste réseau est nécessaire pour S5. S4 a un équivalent automatique (`TestValidateBackendsDesktopWeb`).
