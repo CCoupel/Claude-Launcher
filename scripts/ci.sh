@@ -26,10 +26,10 @@ case "$(uname -s)" in
   *)
     go vet ./...
     # #154 : les tests ne laissent ni verrou git ni socket tmux de test.
-    # Dossier dédié et COURT (sun_path ≤ 108 : le dossier du projet est trop long) pour
+    # Dossier dédié sous /tmp en dur (sun_path ≤ 108 ; un TMPDIR dans le projet est trop long, exception de confinement autorisée) pour
     # TMUX_TMPDIR et TMPDIR : tout tmux des tests y place son socket ; les sockets du
     # launcher réel (/tmp/tmux-<uid>) ne sont jamais regardés.
-    tdir=$(mktemp -d "${TMPDIR:-/tmp}/clci.XXXXXX")
+    tdir=$(mktemp -d /tmp/clci.XXXXXX)
     trap 'rm -rf "$out" "$tdir"' EXIT
     # verrou : chemin valable aussi en worktree ; un verrou déjà là au départ n'est pas le nôtre
     lock=$(git rev-parse --path-format=absolute --git-path index.lock)
