@@ -196,14 +196,13 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 .msrow { display: grid; grid-template-columns: minmax(0, 1fr) auto calc(60 * var(--cu)) calc(36 * var(--cu)); gap: calc(8 * var(--cu)); align-items: center; font-family: var(--mono); margin-top: calc(3 * var(--cu)); }
 .msrow .tt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .team { font-family: var(--mono); font-size: calc(12 * var(--cu)); }
-.team .tr { display: grid; grid-template-columns: calc(12 * var(--cu)) minmax(0, 1fr) calc(62 * var(--cu)) calc(110 * var(--cu)); gap: 0 calc(8 * var(--cu)); padding: 1px calc(4 * var(--cu)); border-radius: calc(3 * var(--cu)); user-select: none; align-items: center; white-space: nowrap; }
+.team .tr { display: grid; grid-template-columns: calc(12 * var(--cu)) minmax(0, 1fr) calc(110 * var(--cu)) calc(12 * var(--cu)); gap: 0 calc(8 * var(--cu)); padding: 1px calc(4 * var(--cu)); border-radius: calc(3 * var(--cu)); user-select: none; align-items: center; white-space: nowrap; }
 .team .tr:hover { background: rgba(255,255,255,.055); }
 .team .tr.vis { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset calc(3 * var(--cu)) 0 0 var(--accent); }
 .team .tr.off { color: var(--dim); }
 .team .tr.off:hover { background: none; }
 .team .n { overflow: hidden; text-overflow: ellipsis; }
 .team .m { color: var(--muted); }
-.team .v { color: var(--cyan); text-align: right; }
 .files { display: grid; grid-template-columns: calc(12 * var(--cu)) minmax(0, 1fr) auto; gap: 1px calc(8 * var(--cu)); font-family: var(--mono); font-size: calc(12 * var(--cu)); }
 .files .dir { color: var(--cyan); }
 .files .n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -244,6 +243,13 @@ body.pdrag, body.pdrag * { user-select: none !important; }
 .phead .r { color: #4A5160; }
 .phead.focus { background: #FFFFFF; box-shadow: inset 0 -2px 0 var(--orange); }
 .phead.focus .n { color: #000; }
+/* état d'activité (#152, maquette A) : vert actif (texte sombre), gris sombre inactif ; lead et sans agent : clair inchangé */
+.phead.active { background: #5BC98A; color: #0B1F14; }
+.phead.active .r, .phead.active .n { color: #0B1F14; }
+.phead.idle { background: #3A404B; color: #C9CED6; }
+.phead.idle .r { color: #A7AEBB; } .phead.idle .n { color: #E6E8EC; }
+.phead.active.focus, .phead.idle.focus { box-shadow: inset 0 -2px 0 var(--orange); }
+.phead.active.focus { background: #5BC98A; } .phead.idle.focus { background: #3A404B; }
 .launch { position: absolute; inset: 8px; border: 1px solid var(--line2); border-radius: 6px; overflow: hidden; background: var(--input); padding: 6px; }
 .launch .lt { position: absolute; inset: 6px; }
 .banner { position: absolute; left: 50%; top: 8px; transform: translateX(-50%); z-index: 5; padding: 4px 12px; border-radius: 4px; font-size: 12px; background: #3A2818; color: var(--orange); pointer-events: none; }

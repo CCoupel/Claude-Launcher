@@ -476,15 +476,22 @@ function renderCards() {
       const on = !!m.started || !!m.claude;
       const r = el('div', 'tr' + (on && !m.hidden ? ' vis' : '') + (on ? '' : ' off'));
       // état du template (#136) : ● vert à jour, ▲ orange en retard (○ pour un non démarré, mêmes couleurs) ; neutre : comme avant
+      // #151 : la version n'a plus de colonne (elle est dans le titre de la carte) ; ⚠ orange en dernière colonne
+      // quand la ligne s'écarte de l'en-tête (m.odd : tpl, claude), détail en infobulle
       const late = m.tplState === 'late', ok = m.tplState === 'ok';
-      const mark = el('span', late ? 't-orange' : ok ? 't-green' : on ? 't-green' : 't-dim', late && on ? '▲' : on ? '●' : '○');
+      const odd = m.odd || [];
+      const mark = el('span', ok || on ? 't-green' : 't-dim', on ? '●' : '○');
+      const warn = el('span', 't-orange', odd.length ? '⚠' : '');
       r.append(mark, el('span', 'n', (m.companion ? '+ ' : '') + m.name),
-        el('span', 'v', on ? (m.claude || '') : ''), el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')));
+        el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')), warn);
       const st = !on ? 'non démarré' : m.name === 'leader' ? 'leader' : m.active ? 'actif' : m.hidden ? 'caché' : m.pinned ? 'visible (fixé)' : 'visible' + (m.idleLeft ? ' · ' + m.idleLeft + ' s' : '');
       const tip = [st];
       if (m.tplState) tip.push('template ' + (m.tag || '?') + (m.tplTarget ? ' — cible ' + m.tplTarget : ' — version cible inconnue') + (late ? ' (en retard)' : ' (à jour)'));
       else if (m.tag && !m.tplTarget) tip.push('template ' + m.tag + ' — version cible inconnue');
       if (m.tplState || m.tag || m.tplTarget) tip.push(m.companion ? 'compagnon : oui' + (m.companionFile ? ' (' + m.companionFile + ')' : '') : 'compagnon : non');
+      if (odd.includes('tpl')) tip.push('⚠ template ' + (m.tag || '?') + ' ≠ ' + ((c.teamHead && c.teamHead.tpl) || '?'));
+      if (odd.includes('claude')) tip.push('⚠ claude ' + (m.claude || '?') + ' ≠ ' + ((c.teamHead && c.teamHead.claude) || '?'));
+      if (on && m.claude) tip.push('claude ' + m.claude);
       r.title = tip.join('\n');
       if (on && m.pane) r.onclick = () => {
         const now = Date.now(), k = c.path + '|' + m.pane;
@@ -497,7 +504,11 @@ function renderCards() {
     }
     tb.appendChild(g);
   }
-  card('Team', c.team && c.team.length ? c.team.length + ' teammates' : '', tb);
+  // titre « Team · N · tpl vX · claude Y » (#151) : versions de l'en-tête (teamHead), omises si inconnues
+  const th = c.teamHead || {};
+  const vt = (s) => (/^v/.test(s) ? s : 'v' + s);
+  const sub = c.team && c.team.length ? [String(c.team.length)].concat(th.tpl ? ['tpl ' + vt(th.tpl)] : [], th.claude ? ['claude ' + th.claude] : []).join(' · ') : '';
+  card('Team', sub, tb);
   // Fichiers
   if (c.loaded) {
     const fb = el('div', 'cb'); const g = el('div', 'files');
@@ -1025,6 +1036,9 @@ class ProjView {
       pv.head.querySelector('.n').textContent = p.name || p.id;
       pv.head.querySelector('.r').textContent = p.role === 'leader' ? '· leader' : p.role ? '· ' + p.role : '';
       pv.head.classList.toggle('focus', !!p.active);
+      // #152 : bandeau selon panes[].state (lead, active, idle, vide), plus déduit du texte de role
+      pv.head.classList.toggle('active', p.state === 'active');
+      pv.head.classList.toggle('idle', p.state === 'idle');
       if (pv.term.cols !== p.w || pv.term.rows !== p.h) pv.term.resize(p.w, p.h);
       if (pv.bg !== p.bg) { pv.bg = p.bg; pv.term.options.theme = Object.assign({}, pv.term.options.theme, { background: p.bg }); pv.box.style.background = p.bg; }
       if (p.active) this.focusPane = p.id;
