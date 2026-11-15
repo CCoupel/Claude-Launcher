@@ -390,6 +390,12 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 	if _, err := resolveBrowserServer(f, host); err != nil {
 		ps = append(ps, ConfigProblem{Line: lineOf(content, "browser_server"), Severity: SevError, Message: err.Error()})
 	}
+	// desktop_web (#163) : valeur illisible ou adresse de browser_server = erreur ; hors boucle locale = avertissement
+	if dw, err := resolveDesktopWebFor(f, host, goos); err != nil {
+		ps = append(ps, ConfigProblem{Line: lineOf(content, "desktop_web"), Severity: SevError, Message: err.Error()})
+	} else if dw.Warn != "" {
+		ps = append(ps, ConfigProblem{Line: lineOf(content, "desktop_web"), Severity: SevWarning, Message: dw.Warn})
+	}
 	return ps
 }
 

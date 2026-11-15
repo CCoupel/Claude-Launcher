@@ -39,6 +39,7 @@ type BrowserPath struct {
 type hubConf struct {
 	BrowserPaths  *[]BrowserPath  `yaml:"browser_paths"`
 	BrowserServer *BrowserServer  `yaml:"browser_server"`
+	DesktopWeb    *DesktopWeb     `yaml:"desktop_web"`    // interface web de la fenêtre native (#163)
 	BrowserDevice string          `yaml:"browser_device"` // deviceId imposé (#106, browserpair.go)
 	Paths         []PathMap       `yaml:"paths"`          // chemins locaux → chemins des backends (#110, pathmap.go)
 	RemoteUser    *RemoteUserConf `yaml:"remote_user"`    // uid/gid/HOME dans les conteneurs (#110, Windows)
