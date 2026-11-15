@@ -18,6 +18,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - En-tête des panes de teammates : bandeau vert si actif, gris si inactif, neutre pour le leader ; suit l'état sans relance ; sous Linux, une ligne de titre tmux en tête de chaque pane (`pane-border-status top`) (#152)
 - Onglet Teamleaders (interface native) isolé, épinglé à gauche, sans `×` ; réduit à son icône quand les onglets de projets débordent (#162)
 - Interface web dans la fenêtre native : réglage `desktop_web` (désactivé par défaut, Réglages › Ce poste › Navigateur), écoute hors boucle locale refusée sans `allow_lan: true`, bannière, régénération du jeton, sessions par cookie (`cl_session_<port>`), lecture seule pour un client web (#163)
+- Organisation « leader à gauche » des panes de projet (leader et `cdp` empilés à gauche, teammates à droite) : réglage global `LAYOUT_MODE` (`top` | `left`, défaut `top`), largeur `LAYOUT_LEFT_LEADER_PCT` (20–80), exception par projet `PROJECT_LAYOUTS` (champ « Mise en page » des Réglages du projet) ; remise en page sans relance, repli sur `top` si tmux refuse (#153)
 
 ### Changed
 - « Fermer » du menu projet est disponible dès que la ligne est ouverte ou que sa pastille n'est pas `○` (#158)
@@ -85,3 +86,18 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   - Contrôle par mutation : 9/9 protections détectées (Host, cookie de session, `desktop_web`/`browser_server` refusés au client web, `webUIRegen`/`webUIOpen` refusés au web, plafond de sessions, verrou `InitSynced` sous `-race`, `allow_lan`, `sameOrigin`).
   - La procédure Windows `interface-web-163/interface-web-windows.md`, obsolète à la date du QA, est mise à jour par `0f4e322` (scénario 5 : `allow_lan`, bannière, régénération du jeton, lecture seule au client web, cookie de session). Réserve levée.
 - Procédures à jouer à la main en QUALIF (`tests/procedures/ui-desktop/interface-web-163/`) : Windows S1 à S7 et les scénarios ajoutés (S5 réécrit : `allow_lan`) ; un second poste réseau est nécessaire pour S5. S4 a un équivalent automatique (`TestValidateBackendsDesktopWeb`).
+
+### Notes de lot — LOT-5 (#153)
+
+- Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
+- Revue de code (`_work/reports/code-reviewer-lot5-v6.2.0.md`) : **APPROUVE AVEC RÉSERVES** (0 critique, 0 majeur, 5 mineurs, dont : repli `top` déclenché pour toute erreur de `select-layout` et répété à chaque remise en page ; écriture non atomique de `config.conf` lue à moitié ; clé de projet indexée par nom de dossier, comme la couleur).
+- QA (`_work/reports/qa-lot5-v6.2.0.md`, HEAD `32b6558`) : **VALIDATED WITH RESERVATIONS**.
+  - Tests feature PASS ; `CGO_ENABLED=1 go test -race ./...` PASS sans tolérance ; `scripts/ci.sh` CI OK.
+  - Organisation `top` identique à la v6.1.0 : 165 chaînes de layout comparées octet pour octet (5 tailles de fenêtre × 0–10 teammates × 1–3 panes du haut).
+  - Rendu réel « leader à gauche » dans tmux isolé : 1, 4, 5 et 8 teammates, aucun chevauchement, fenêtre couverte.
+- Réserves :
+  - R-F : le repli sur `top` quand tmux refuse la chaîne n'est couvert par aucun test ; à ajouter (test unitaire avec une cible factice dont le premier `select-layout` échoue).
+  - R-G : `scripts/ci.sh` à 83 s, au-dessus du budget indicatif de ~60 s ; suivi par l'issue #179 (découpage ou parallélisation des tests `ui/desktop`).
+- Procédures à jouer à la main en QUALIF (`tests/procedures/`) :
+  - Windows (`ui-desktop/organisations-153/organisations-windows.md`) : S1 à S4 (réglage global, exception par projet, 1 à 6 teammates avec panes cachés, deux launchers). La parité `confLite` de `PROJECT_LAYOUTS` ne se teste pas hors Windows.
+  - Linux (`ui-tmux/organisations-153/organisations-linux.md`) : S1 à S4 (global avec `Ctrl+B R`, exception, panes cachés avec lignes de titre, deux launchers).

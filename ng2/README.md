@@ -333,6 +333,37 @@ images:                                   # socles proposés (facultatif)
 Sans `images`, ce sont ces quatre-là (bootstrap vérifié sur chacun). Un
 `defaults.image` hors de la liste y est ajouté en tête.
 
+#### Organisation des panes : `top` ou `left` (v6.2.0, #153)
+
+La fenêtre d'un projet (coque tmux et interface native) a deux organisations :
+
+- **`top`** (défaut, inchangé) : leader et `cdp` en haut ; les teammates sur une ligne jusqu'à 5, le haut sur 50 % ;
+  au-delà, 3 lignes 3/7, 2/7 et le reste.
+- **`left`** : leader et `cdp` empilés à gauche, teammates à droite ; une colonne jusqu'à 4 teammates, deux colonnes à
+  partir de 5 (la première reçoit ⌈n/2⌉).
+
+Réglages :
+
+- **Global** : `LAYOUT_MODE` (`top` | `left`, défaut `top`) et la largeur du leader `LAYOUT_LEFT_LEADER_PCT` (20 à 80,
+  défaut 46). Dans `config.conf` ou dans Réglages › Launcher.
+- **Par projet** : `PROJECT_LAYOUTS`, champ « Mise en page » de **⚙ Réglages du projet…** (« Comme le réglage global »
+  retire l'exception). La clé est le **nom du dossier** du projet, comme `PROJECT_COLORS` : deux projets de même nom
+  partagent l'exception. Priorité : `PROJECT_LAYOUTS` > `LAYOUT_MODE` > `top`.
+
+```bash
+# ~/.config/claude-launcher-ng2/config.conf
+LAYOUT_MODE=left
+LAYOUT_LEFT_LEADER_PCT=45
+declare -A PROJECT_LAYOUTS=(
+  ["mon-projet"]="top"
+)
+```
+
+Le changement s'applique aux projets ouverts sans relance : la coque et l'interface native relisent `config.conf`, et
+la fenêtre est remise en page quand son organisation effective change. Seuls les panes visibles sont disposés. Si tmux
+refuse la disposition `left` (fenêtre trop petite), le projet revient à `top` avec un message ; `Ctrl+B R` remet en
+ordre dans les deux cas.
+
 ### Backends : `backends.yaml`
 
 Sans `~/.config/claude-launcher-ng2/backends.yaml`, les backends conteneur sont podman et docker
@@ -993,7 +1024,8 @@ est refusé. Le bouton « Ouvrir dans le navigateur » ouvre l'URL d'amorçage (
   d'état du hub Linux n'est pas modifiée ;
 - dans l'onglet d'un projet, **un terminal par pane** de sa session tmux (leader, teammates),
   avec un en-tête « nom · état » (bandeau vert si actif, gris si inactif, neutre pour le leader, suit l'état sans relance ; #152) :
-  la mise en page est celle de la coque (`core/layout.go` :
+  la mise en page est celle de la coque (`core/layout.go`, organisation `top` par défaut, ou `left` :
+  voir [Organisation des panes](#organisation-des-panes--top-ou-left-v620-153)) :
   leader et `cdp` en haut ; jusqu'à 5 teammates, le haut sur 50 % et les teammates sur une ligne ;
   au-delà, 3 lignes 3/7, 2/7 et le reste, la ligne du milieu recevant ⌈n/2⌉ ; actifs en ordre MRU
   puis inactifs par nom ; actifs éclaircis, inactifs assombris sur la couleur du projet) ;
@@ -1221,7 +1253,8 @@ Le mode portable (`<dossier du binaire>\.config\claude-launcher-ng2\config.conf`
 `Ctrl+,`) ouvre les réglages en formulaires, avec les rubriques Backends, Pools et Défauts décrites plus haut
 ([Réglages](#réglages--fenêtre--config-v610-118)) et :
 
-- **Launcher** : `config.conf`, réglages groupés, avec aide et valeur par défaut ; « ↺ défaut » retire la clé. Le
+- **Launcher** : `config.conf`, réglages groupés, avec aide et valeur par défaut (dont l'organisation des panes,
+  `LAYOUT_MODE` et `LAYOUT_LEFT_LEADER_PCT`) ; « ↺ défaut » retire la clé. Le
   jeton GitHub est un champ masqué : il n'est jamais affiché ni renvoyé à l'interface (« Retirer » le supprime).
 - **Conteneurs** : l'`env.yaml` du launcher (paquets par gestionnaire, `setup`, `on_start`), ajouté à tous les
   conteneurs.
@@ -1466,6 +1499,8 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   posé par le launcher qui a la main sur le projet). Bandeau vert si le teammate est actif, gris s'il est inactif, neutre
   pour le leader ; l'état suit la mise en page sans relance. Un launcher antérieur ignore ces options : il n'affiche pas
   les bandeaux, sans autre effet.
+- **Mise en page des panes** (#153) : `top` (défaut) ou `left` (leader à gauche), réglable globalement et par projet ;
+  voir [Organisation des panes](#organisation-des-panes--top-ou-left-v620-153).
 
 | Action | Effet |
 |---|---|
