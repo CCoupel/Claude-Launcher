@@ -1268,6 +1268,13 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 		if !ok {
 			continue // masqué (zoom d'un autre pane)
 		}
+		// ligne de titre (pane-border-status top, #152) : la cellule de la mise en page garde sa
+		// hauteur, mais un pane de la rangée du haut perd sa première ligne (pane_top = Y+1) : le
+		// terminal de l'interface a une ligne de moins, comme le pane tmux (sinon une ligne vide
+		// en bas). Y reste la cellule : l'en-tête de l'interface prend la place du titre.
+		if d := p.top - g.Y; d > 0 && d <= 1 && g.H > d {
+			g.H -= d
+		}
 		v := PaneView{ID: p.ID, X: g.X, Y: g.Y, W: g.W, H: g.H, Active: p.active, Name: p.cmd,
 			Bg: core.Colour256Hex(strings.TrimPrefix(styleBg(p.Style), "colour"))}
 		if v.Bg == "" {
