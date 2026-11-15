@@ -417,6 +417,16 @@ qui sera nettoyé), ou `{ "msg": "…" }` si l'action est refusée ou sans objet
 - Proposée (ligne du projet : `"canForce": true`) quand le projet est affiché ouvert ou en erreur — onglet présent,
   ou pastille `✕`, `▲`, `●` orange — alors que son conteneur, son pod ou sa session n'existe plus ou ne répond pas.
   `refreshProject` recalcule `canForce`.
+- Backend qui ne répond pas (lecture des conteneurs non aboutie : `Errs`, `Down` ou `Diag`) : « absent » n'est pas
+  prouvé. La fermeture forcée est quand même **proposée, avec avertissement** : `why` =
+  « backend injoignable : le projet tourne peut-être encore », `items` sans arrêt ni kill côté backend (onglet,
+  marque de sortie propre, nettoyage de l'état local). La confirmation ne fait que ce nettoyage local : aucun
+  `Engine.Stop`, aucune session tuée côté backend. `refreshProject` ne retire **jamais** l'onglet si la lecture a
+  échoué (état inconnu : la raison est dans l'étape `ctr` / `session`).
+- Re-vérification à la confirmation : l'état est relu juste avant d'agir ; si le projet a revécu depuis la question
+  (session locale ou de conteneur de nouveau vivante, conteneur de nouveau en marche) → `{ "ok": false, "msg": "… rien
+  n'a été fermé" }`. Un conteneur en marche et sain n'est jamais arrêté par la fermeture forcée. Une question
+  non confirmée au bout de 2 minutes est abandonnée.
 - Refusée si un autre launcher vivant pilote le projet (`SessElse`, `SessReadOnly`) : message « prendre la main
   d'abord ».
 - Effet, sans `/exit` ni attente : onglet retiré ; session tmux locale tuée (projet sur l'hôte : `p-<nom>`) ; panes

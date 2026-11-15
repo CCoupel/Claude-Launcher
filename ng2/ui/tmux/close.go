@@ -80,6 +80,9 @@ func (m model) planClose(n core.Node) (closePlan, string) {
 		Unreliable: core.CtrUnreliable(p.backend, m.ctr.errs, m.ctr.down, m.ctr.diag)}); ok && !abandonCase {
 		pl.force, pl.wasRun, pl.backend = true, p.ctrKnown && p.ctr.Running, p.backend
 		pl.question = "Forcer la fermeture de " + n.Name + " ? " + why + " (sans attente) · o/N"
+		if why == core.ForceWhyUnreachable {
+			pl.question = "Forcer la fermeture de " + n.Name + " ? " + why + " — état local nettoyé seulement, rien côté backend · o/N"
+		}
 		return pl, ""
 	}
 	running := pl.engine != nil && (p.ctr.Running || p.ctr.Failed)
@@ -284,9 +287,7 @@ func runForceClose(pl closePlan, step func(string)) error {
 	// juste avant d'agir : état relu à la source ; le projet a pu revivre depuis la
 	// question, ou la lecture échouer — rien n'est alors tué ni arrêté
 	v := core.ReadCtrViewForced([]string{pl.node.Path})
-	if why := core.CtrUnreliable(pl.backend, v.Errs, v.Down, v.Diag); why != "" {
-		return fmt.Errorf("état du conteneur non relu (%s) : fermeture forcée annulée, rien n'a été fermé", why)
-	}
+	localOnly := core.CtrUnreliable(pl.backend, v.Errs, v.Down, v.Diag) != "" // backend injoignable : état local seulement
 	if l, ok := v.Live[pl.node.Path]; ok && l.Claude || ok && l.Panes > 0 {
 		return fmt.Errorf("une session est de nouveau vivante : fermeture forcée annulée, rien n'a été fermé")
 	}
@@ -310,6 +311,10 @@ func runForceClose(pl closePlan, step func(string)) error {
 		step("verrou de création supprimé")
 	}
 	step("reprise abandonnée (marque de sortie propre)")
+	if localOnly {
+		step("état local seulement (backend injoignable) : rien n'est arrêté côté backend")
+		return nil
+	}
 	if pl.engine != nil {
 		if n := core.KillHiddenPanes(pl.tmux(), core.HomeCtr); n > 0 {
 			step(fmt.Sprintf("%d pane(s) caché(s) du conteneur tué(s)", n))

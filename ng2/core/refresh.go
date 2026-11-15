@@ -107,7 +107,13 @@ type ForceInput struct {
 	// Unreliable : la lecture du backend n'a pas abouti sans erreur (CtrUnreliable) ;
 	// l'état « conteneur absent » n'est alors qu'inconnu : rien n'est proposé
 	Unreliable string
+	// NotRead : les conteneurs n'ont pas encore été lus (démarrage) : rien n'est proposé
+	NotRead bool
 }
+
+// ForceWhyUnreachable : raison affichée quand le backend ne répond pas — la
+// fermeture forcée n'est alors qu'un nettoyage de l'état local.
+const ForceWhyUnreachable = "backend injoignable : le projet tourne peut-être encore"
 
 // CtrUnreliable : pourquoi l'état du conteneur du projet (backend be) n'est pas
 // fiable — diagnostic en défaut, listing en erreur, serveurs du groupe
@@ -144,8 +150,8 @@ func ForceCloseable(in ForceInput) (ok bool, why, refused string) {
 		}
 		return false, "", "piloté par " + o + " — prendre la main d'abord"
 	}
-	if in.Unreliable != "" {
-		return false, "", "" // lecture non fiable : « inconnu », jamais « absent »
+	if in.NotRead {
+		return false, "", ""
 	}
 	shown := in.Tab || p.Open
 	switch p.Dot {
@@ -155,6 +161,11 @@ func ForceCloseable(in ForceInput) (ok bool, why, refused string) {
 	if !shown || p.HasLive {
 		return false, "", "" // affiché fermé, ou une session vit encore : rien à forcer
 	}
+	if in.Unreliable != "" {
+		// lecture non aboutie : « absent » n'est pas prouvé. Proposée avec avertissement,
+		// pour nettoyer l'état local seulement (rien n'est arrêté côté backend)
+		return true, ForceWhyUnreachable, ""
+	}
 	unit := "conteneur"
 	if in.K8s {
 		unit = "pod k8s"
@@ -163,8 +174,8 @@ func ForceCloseable(in ForceInput) (ok bool, why, refused string) {
 	switch {
 	case ctr && !p.CtrKnown && len(p.Problems) == 0:
 		return true, "son " + unit + " n'existe plus", ""
-	case len(p.Problems) > 0: // diagnostic en défaut : les appelants passent aussi Unreliable, qui prime
-		return true, "son backend " + p.Backend + " ne répond pas", ""
+	case len(p.Problems) > 0: // diagnostic en défaut (les appelants passent aussi Unreliable)
+		return true, ForceWhyUnreachable, ""
 	case p.CtrKnown && p.Ctr.Failed:
 		return true, "son " + unit + " est en échec", ""
 	case p.CtrKnown && !p.Ctr.Running:
@@ -184,6 +195,9 @@ func ForceItems(in ForceInput) []string {
 	var it []string
 	if in.Tab {
 		it = append(it, "onglet")
+	}
+	if in.Unreliable != "" || len(in.P.Problems) > 0 { // état local seulement : rien côté backend
+		return append(it, "marque de sortie propre (reprise abandonnée)", "nettoyage de l'état local seulement")
 	}
 	if !ContainerProject(in.P) {
 		it = append(it, "session tmux locale")

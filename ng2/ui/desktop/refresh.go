@@ -367,7 +367,7 @@ func (a *App) refreshUsage() {
 func (a *App) forceInput(p core.ProjInfo, t *projTerm) core.ForceInput {
 	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend)}
 	a.mu.Lock()
-	in.Unreliable = a.ctrUnreliableLocked(p.Backend)
+	in.Unreliable, in.NotRead = a.ctrUnreliableLocked(p.Backend), a.ctr.Env == nil
 	a.mu.Unlock()
 	if t != nil && t.host {
 		in.HostGone = t.info().State != "opening" && !hostSessionAlive(t.sock, t.sess)
@@ -390,9 +390,6 @@ func (a *App) backendIsK8s(name string) bool {
 // ctrUnreliableLocked : la dernière lecture des conteneurs n'est pas fiable (a.mu
 // tenu) : jamais lue, ou backend en défaut, en erreur ou serveurs injoignables.
 func (a *App) ctrUnreliableLocked(be string) string {
-	if a.ctr.Env == nil {
-		return "conteneurs pas encore lus"
-	}
 	return core.CtrUnreliable(be, a.ctr.Errs, a.ctr.Down, a.ctr.Diag)
 }
 
@@ -400,7 +397,8 @@ func (a *App) ctrUnreliableLocked(be string) string {
 // pas d'appel tmux ici, seulement l'état de l'onglet.
 func (a *App) canForce(path string, p core.ProjInfo) bool {
 	t := a.terms[path]
-	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend), Unreliable: a.ctrUnreliableLocked(p.Backend)}
+	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend),
+		Unreliable: a.ctrUnreliableLocked(p.Backend), NotRead: a.ctr.Env == nil}
 	if t != nil && t.host {
 		st := t.info().State
 		in.HostGone = st == "closed" || st == "error"
@@ -489,9 +487,7 @@ func (a *App) forceCloseConfirm(path string) (any, error) {
 	}
 	_, p0, _, _ := a.forceState(path)
 	if core.ContainerProject(p0) { // projet sur l'hôte : pas de conteneur à relire
-		if reliable, err := a.refreshCtr(path); !reliable {
-			return refuse("état du conteneur non relu (" + err.Error() + ")")
-		}
+		_, _ = a.refreshCtr(path) // lecture non aboutie : nettoyage local seulement (ci-dessous)
 	}
 	n, p, t, _ := a.forceState(path)
 	if !core.ContainerProject(p) && hostSessionAlive(deskSocket(), hostSession(path)) {
@@ -514,7 +510,7 @@ func (a *App) forceCloseConfirm(path string) (any, error) {
 	a.closing[path] = "fermeture forcée…"
 	a.mu.Unlock()
 	a.changed()
-	notes, err := a.runForceClose(path, p, t)
+	notes, err := a.runForceClose(path, p, t, in.Unreliable != "" || len(p.Problems) > 0)
 	a.mu.Lock()
 	delete(a.closing, path)
 	a.mu.Unlock()
@@ -537,7 +533,7 @@ func (a *App) forceCloseConfirm(path string) (any, error) {
 // sortie propre, verrou périmé et fichier d'ordre supprimés, arrêt du conteneur
 // demandé s'il existe encore (erreur rapportée, jamais bloquante). notes : ce
 // qui a été fait.
-func (a *App) runForceClose(path string, p core.ProjInfo, t *projTerm) (notes []string, stopErr error) {
+func (a *App) runForceClose(path string, p core.ProjInfo, t *projTerm, localOnly bool) (notes []string, stopErr error) {
 	if t != nil {
 		a.detachTab(path)
 		notes = append(notes, "onglet retiré")
@@ -561,6 +557,9 @@ func (a *App) runForceClose(path string, p core.ProjInfo, t *projTerm) (notes []
 	}
 	if r.Lock {
 		notes = append(notes, "verrou de création supprimé")
+	}
+	if localOnly { // backend injoignable : rien n'est tué ni arrêté de son côté
+		return append(notes, "état local seulement (backend injoignable)"), nil
 	}
 	if be, ok := core.FindBackend(p.Backend); ok && p.CtrKnown {
 		if e, ok := core.EngineOf(be); ok {
