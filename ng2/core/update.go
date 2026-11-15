@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -210,9 +211,7 @@ func CheckUpdatesNow(manual bool) UpdMsg {
 		}
 		// init-project.md : à chaque démarrage (comme le sync_init_project du bash),
 		// au commit adopté
-		if c := ReadTrim(TplCommitPath()); !InitSynced && c != "" && syncInitProject(c) {
-			InitSynced = true
-		}
+		ensureInitSynced()
 		return out
 	}
 }
@@ -224,7 +223,7 @@ func adoptTemplate(tag, sha string) (synced bool) {
 	_ = os.WriteFile(TplCommitPath(), []byte(sha), 0o644)
 	_ = os.WriteFile(TplVersionPath(), []byte(tag), 0o644)
 	if syncInitProject(sha) {
-		InitSynced = true
+		initSyncedSet()
 		return true
 	}
 	return false
@@ -265,8 +264,33 @@ var RawBase = func() string {
 	return "https://raw.githubusercontent.com"
 }()
 
-// InitSynced : init-project.md a été resynchronisé depuis le démarrage.
+// InitSynced : init-project.md a été resynchronisé depuis le démarrage. Lu et écrit par des
+// vérifications de mises à jour concurrentes (F5, tour périodique) : seulement par
+// initSyncedGet / initSyncedSet (initMu) ; les tests la remplacent à l'arrêt de toute vérification.
 var InitSynced bool
+
+// initMu protège InitSynced et sérialise syncInitProject (fichier temporaire commun).
+var initMu sync.Mutex
+
+func initSyncedGet() bool {
+	initMu.Lock()
+	defer initMu.Unlock()
+	return InitSynced
+}
+
+func initSyncedSet() {
+	initMu.Lock()
+	InitSynced = true
+	initMu.Unlock()
+}
+
+// ensureInitSynced : init-project.md au commit adopté, une fois par démarrage (comme le
+// sync_init_project du bash).
+func ensureInitSynced() {
+	if c := ReadTrim(TplCommitPath()); c != "" && !initSyncedGet() && syncInitProject(c) {
+		initSyncedSet()
+	}
+}
 
 func InitProjectPath() string { return filepath.Join(cacheBase(), "init-project.md") }
 
@@ -276,6 +300,8 @@ func InitProjectPath() string { return filepath.Join(cacheBase(), "init-project.
 // ligne, l'ancienne version est conservée. Le script bash le faisait à chaque
 // lancement ; avec la redirection vers le NG, c'est maintenant le NG.
 func syncInitProject(ref string) bool {
+	initMu.Lock() // un seul téléchargement à la fois : le fichier temporaire est commun
+	defer initMu.Unlock()
 	url := RawBase + "/" + TemplateRepo + "/" + ref + "/init-project.md"
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
