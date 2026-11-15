@@ -44,6 +44,7 @@ var helpSections = []helpSection{
 		{"clic sur l'annonce jaune en échec", "réessayer le téléchargement"},
 		{"clic sur l'alerte connexion", "fenêtre login qui lance claude /login"},
 		{"Esc", "quitter : l launcher seul · t puis o tout fermer"},
+		{"LAYOUT_MODE, PROJECT_LAYOUTS", "config.conf : organisation des fenêtres de projet — top (leader en haut, défaut) ou left (leader à gauche, teammates à droite) ; par projet avec PROJECT_LAYOUTS ; prise en compte sans relance"},
 		{"F1", "cette aide"},
 	}},
 	{"Carte Team (volet d'état)", []helpRow{
