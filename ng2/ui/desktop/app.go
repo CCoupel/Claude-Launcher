@@ -1036,7 +1036,7 @@ func (a *App) DispatchFrom(from origin, method string, raw json.RawMessage) (any
 		switch method {
 		case "clipboardRead", "clipboardWrite":
 			return clipboardUnavailable(), nil
-		case "webUIOpen", "webUIRegenerateToken":
+		case "webUIOpen", "webUIRegen":
 			return nil, fmt.Errorf("%s : réservé à la fenêtre native", method)
 		case "quit", "setTheme":
 			if !a.web { // « desktop --web » : le navigateur est la seule interface, ils y restent permis
@@ -1281,8 +1281,8 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		return nil, a.quitApp(arg.Mode)
 	case "webUIOpen": // #163 : interface web de la fenêtre dans le navigateur du poste
 		return a.webUIOpen(), nil
-	case "webUIRegenerateToken": // jeton régénéré : sessions et flux des navigateurs révoqués
-		return a.webUIRegenerateToken(), nil
+	case "webUIRegen": // jeton régénéré : sessions et flux des navigateurs révoqués
+		return a.webUIRegen(), nil
 	}
 	return nil, fmt.Errorf("appel inconnu : %s", method)
 }

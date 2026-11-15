@@ -181,13 +181,13 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	base2 := "http://127.0.0.1:" + itoa(p2)
 	tok2, _ := desktopWebToken()
 	c2 := scBootstrap(t, base2, tok2)
-	if _, err := a.DispatchFrom(originWeb, "webUIRegenerateToken", nil); err == nil {
-		t.Error("webUIRegenerateToken accepté d'un client web")
+	if _, err := a.DispatchFrom(originWeb, "webUIRegen", nil); err == nil {
+		t.Error("webUIRegen accepté d'un client web")
 	}
 	if st := scCall(t, base2, c2, call); st != 200 {
 		t.Fatalf("session avant régénération : %d", st)
 	}
-	if res, err := a.DispatchFrom(originWindow, "webUIRegenerateToken", nil); err != nil || res.(map[string]any)["ok"] != true {
+	if res, err := a.DispatchFrom(originWindow, "webUIRegen", nil); err != nil || res.(map[string]any)["ok"] != true {
 		t.Fatalf("régénération : %v %v", res, err)
 	}
 	if st := scCall(t, base2, c2, call); st != 403 {
@@ -305,5 +305,25 @@ func TestWebSubscribersAreCapped(t *testing.T) {
 	}
 	if last != http.StatusServiceUnavailable {
 		t.Errorf("flux n° %d : %d, attendu 503 au-delà du plafond", maxSubscribers+1, last)
+	}
+}
+
+// webUI.lan / webUI.warn : écoute hors boucle locale confirmée par allow_lan ; l'avertissement n'est pas une erreur.
+func TestWebUIStateLanAndWarn(t *testing.T) {
+	sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	p := l4FreePort(t)
+	l4WriteBackends(t, "  desktop_web: { listen: \"0.0.0.0:"+itoa(p)+"\", allow_lan: true }\n")
+	a.applyWebUI()
+	s := l4WaitWebUI(t, a, "on", 5*time.Second)
+	if s["lan"] != true || s["warn"] == "" || s["msg"] != "" {
+		t.Errorf("webUI = %v, attendu lan, warn renseigné, msg vide", s)
+	}
+	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p)+"\" }\n")
+	a.applyWebUI()
+	s = l4WaitWebUI(t, a, "on", 5*time.Second)
+	if s["lan"] == true || s["warn"] != "" {
+		t.Errorf("boucle locale : %v, attendu lan faux, pas d'avertissement", s)
 	}
 }

@@ -35,7 +35,9 @@ const (
 type WebUIState struct {
 	State  string `json:"state"` // off, on, error
 	Listen string `json:"listen"`
-	Msg    string `json:"msg"`
+	Lan    bool   `json:"lan"`  // écoute hors de la boucle locale active (confirmée par allow_lan)
+	Warn   string `json:"warn"` // avertissement qui l'accompagne
+	Msg    string `json:"msg"`  // erreur : écoute impossible, réglage refusé, jeton non conservé
 }
 
 // webUI : serveur de l'interface attaché à l'App (a.webui).
@@ -142,11 +144,10 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf) {
 	b := &webBridge{app: a, token: tok, subs: map[chan []byte]bool{}, port: port, hosts: conf.AllowedHosts(core.HubHost())}
 	srv := newHTTPServer(b.handler())
 	w.srv, w.bridge, w.listen, w.last = srv, b, conf.Listen, conf.Listen
-	msg := conf.Warn
+	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn}
 	if terr != nil {
-		msg = strings.TrimSpace(msg + " " + terr.Error())
+		w.state.Msg = terr.Error()
 	}
-	w.state = WebUIState{State: "on", Listen: conf.Listen, Msg: msg}
 	mirror := Emitter(b.emit)
 	a.mirror.Store(&mirror) // les évènements partent aussi au navigateur
 	go func() { _ = srv.Serve(ln) }()
@@ -216,10 +217,10 @@ func (w *webBridge) hostAllowed(r *http.Request) bool {
 	return port == "" || w.port == "" || port == w.port
 }
 
-// webUIRegenerateToken : nouveau jeton — l'ancien lien ne marche plus, les sessions et flux des
+// webUIRegen : nouveau jeton — l'ancien lien ne marche plus, les sessions et flux des
 // navigateurs connectés sont révoqués. Fenêtre native seulement. Serveur arrêté : le fichier est
 // supprimé, le prochain démarrage en tire un nouveau.
-func (a *App) webUIRegenerateToken() map[string]any {
+func (a *App) webUIRegen() map[string]any {
 	w := &a.webui
 	w.mu.Lock()
 	defer w.mu.Unlock()
