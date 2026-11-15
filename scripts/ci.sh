@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # CI unique de Claude-Launcher (contrat C11 du template) : appelée par
 # ng2-tests.yml, ci-branch.yml et release.yml, et en local par qa et deployer.
-# Linux : vet, tests, audit govulncheck, compilation croisée de l'interface native Windows.
+# Linux : vet, tests (-race), audit govulncheck, compilation croisée de l'interface native Windows.
 # Windows (Git Bash) : couches communes (core), système (platform) et interface
 # native (ui/desktop) ; la coque tmux (ui/tmux) n'y tourne pas, elle est
 # seulement compilée ; l'exe est construit puis lancé (« version »).
@@ -43,7 +43,14 @@ case "$(uname -s)" in
       -o -name 'cl-desk-test-*' -o -name 'cl-desk-paste-*' -o -name 'cl-desk-seed-*' -o -name 'cl-desk-size-*' \
       -o -name 'cl-desk-vis-*' -o -name 'cl-desk-r158-*' \) 2>/dev/null | sort || true; }
     defsocks_before=$(testsocks)
-    TMUX_TMPDIR="$tdir" TMPDIR="$tdir" go test ./...
+    # -race À LA PLACE de go test (une seule passe : le détecteur de courses coûte peu ici, ~+5 %
+    # sur la suite, et les courses de production sont de vrais défauts — DEF-1 #158) ; il exige cgo, donc gcc
+    if ! command -v "${CC:-gcc}" >/dev/null 2>&1 && ! command -v cc >/dev/null 2>&1; then
+      echo "ECHEC : go test -race exige un compilateur C (gcc) : l'installer (apt install gcc / dnf install gcc)," >&2
+      echo "        ou le déclarer dans .claude-launcher/env.yaml (outil manquant)" >&2
+      exit 1
+    fi
+    CGO_ENABLED=1 TMUX_TMPDIR="$tdir" TMPDIR="$tdir" go test -race ./...
     socks=$(find "$tdir" -type s 2>/dev/null || true)
     if [ -n "$socks" ]; then
       echo "ECHEC : sockets tmux laissés par les tests (#154) :" >&2
