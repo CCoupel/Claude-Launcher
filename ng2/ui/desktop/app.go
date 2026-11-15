@@ -829,6 +829,7 @@ type Cards struct {
 	LastMsg   string           `json:"lastMsg,omitempty"`
 	Milestone *MsCard          `json:"milestone,omitempty"`
 	Team      []TeamRow        `json:"team"`
+	TeamHead  *core.TeamHead   `json:"teamHead,omitempty"` // en-tête de la carte TEAM (#151)
 	Open      bool             `json:"open"`
 	Files     []FileRow        `json:"files"`
 	Pending   []string         `json:"pending,omitempty"` // encore à compléter (état, team) : en cours
@@ -880,6 +881,9 @@ type TeamRow struct {
 	TplState      string `json:"tplState"`
 	TplTarget     string `json:"tplTarget,omitempty"`
 	CompanionFile string `json:"companionFile,omitempty"`
+
+	// écarts avec l'en-tête de la carte (#151) : tpl, claude
+	Odd []string `json:"odd,omitempty"`
 }
 
 // FileRow : une entrée de premier niveau du projet.

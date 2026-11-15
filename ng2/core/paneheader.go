@@ -82,11 +82,12 @@ func HeaderSignature(hs []PaneHeader) string {
 	return b.String()
 }
 
-// Couleurs de l'en-tête (maquette retenue, variante A : bandeau plein par état).
+// Couleurs de l'en-tête (maquette retenue, variante A : bandeau plein par état). Séparées par
+// des espaces, jamais des virgules : elles sont dans un #{?…,…,…} dont la virgule sépare les branches.
 const (
-	headerActive = "fg=#06281a,bg=#6ee7a8" // vert, texte sombre
-	headerIdle   = "fg=#aeb4be,bg=#3a404b" // gris sombre
-	headerLead   = "fg=#15181d,bg=#dde1e7" // clair, neutre
+	headerActive = "fg=#06281a bg=#6ee7a8" // vert, texte sombre
+	headerIdle   = "fg=#aeb4be bg=#3a404b" // gris sombre
+	headerLead   = "fg=#15181d bg=#dde1e7" // clair, neutre
 )
 
 // PaneBorderStatus : valeur de pane-border-status posée sur la fenêtre du projet.

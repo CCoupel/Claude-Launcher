@@ -30,6 +30,7 @@ var cardsSlow time.Duration
 type teamEntry struct {
 	at   time.Time
 	rows []TeamRow
+	head core.TeamHead
 }
 
 var teamCache = struct {
@@ -65,9 +66,9 @@ func (a *App) cardsFast(path string) Cards {
 	te, ok := teamCache.m[n.Path]
 	teamCache.Unlock()
 	if ok && time.Since(te.at) < teamTTL && t == nil {
-		c.Team = te.rows
+		c.Team, c.TeamHead = te.rows, &te.head
 	} else if ok {
-		c.Team = te.rows // affichée, relue en tâche de fond
+		c.Team, c.TeamHead = te.rows, &te.head // affichée, relue en tâche de fond
 		c.Pending = append(c.Pending, "team")
 	} else {
 		c.Pending = append(c.Pending, "team")
@@ -101,7 +102,7 @@ func (a *App) cardsFull(path string) Cards {
 			c.Legend = core.Legend(p)
 		case "team":
 			t0 := time.Now()
-			c.Team = a.readTeam(path)
+			c.Team, c.TeamHead = a.readTeamHead(path)
 			a.perf.add("cartes : team", time.Since(t0))
 			a.perf.trace("cartes : team", path+"/.claude", time.Since(t0))
 		default:
@@ -113,17 +114,26 @@ func (a *App) cardsFull(path string) Cards {
 }
 
 func (a *App) readTeam(path string) []TeamRow {
+	rows, _ := a.readTeamHead(path)
+	return rows
+}
+
+// readTeamHead : lignes de la carte TEAM et son en-tête (version cible du template,
+// claude du leader, écarts — core.ApplyTeamHead, #151).
+func (a *App) readTeamHead(path string) ([]TeamRow, *core.TeamHead) {
 	var lines []core.TeamLine
 	if t := a.term(path); t != nil {
 		lines = t.teamRows() // projet ouvert : depuis la mémoire du watcher
 	} else {
 		lines = core.TeamLines(core.ReadTeammates(path), path, nil, nil, a.conf().TeamHideIdle, time.Now().Unix())
 	}
-	rows := teamRows(core.ReadTplInfo(path).Apply(lines))
+	ti := core.ReadTplInfo(path)
+	lines, head := core.ApplyTeamHead(ti.Apply(lines), ti.Target)
+	rows := teamRows(lines)
 	teamCache.Lock()
-	teamCache.m[path] = teamEntry{time.Now(), rows}
+	teamCache.m[path] = teamEntry{time.Now(), rows, head}
 	teamCache.Unlock()
-	return rows
+	return rows, &head
 }
 
 func teamRows(lines []core.TeamLine) []TeamRow {
@@ -132,7 +142,7 @@ func teamRows(lines []core.TeamLine) []TeamRow {
 		rows = append(rows, TeamRow{Name: l.Name, Tag: l.Tag, Companion: l.Companion,
 			Model: strings.TrimPrefix(l.Model, "claude-"), Effort: l.Effort, Claude: l.Claude, Pane: l.Pane,
 			Started: l.Started, Active: l.Active, Hidden: l.Hidden, Pinned: l.Pinned, IdleLeft: l.IdleLeft,
-			TplState: l.TplState, TplTarget: l.TplTarget, CompanionFile: l.CompanionFile})
+			TplState: l.TplState, TplTarget: l.TplTarget, CompanionFile: l.CompanionFile, Odd: l.Odd})
 	}
 	return rows
 }

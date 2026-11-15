@@ -70,6 +70,8 @@ type projTerm struct {
 	flagged         map[string]bool // clients mis en ignore-size par l'interface (#126)
 	reseed          *time.Timer     // recapture des panes après un redimensionnement
 	reseedSet       map[string]bool // panes à recapturer à l'échéance (nil : tous)
+	hdrSig          string          // en-têtes de panes (#152) : dernière signature posée…
+	hdrAt           time.Time       // … et quand (relue de tmux toutes les 30 s)
 	pubMu           sync.Mutex      // lecture de la fenêtre → publication (tours lent et rapide, #138)
 	team            *core.TeamConfig
 	zoomAt          time.Time         // dernier plein écran demandé (journal, #138)
@@ -110,6 +112,8 @@ type PaneView struct {
 	Name   string `json:"name"`   // agent (team-lead, go-dev…) ou commande
 	Role   string `json:"role"`   // leader, cdp, actif, inactif, ""
 	Active bool   `json:"active"` // pane actif de tmux
+	// State : lead (leader, agent cdp), active, idle, "" (pane sans agent) — contrat #152
+	State string `json:"state"`
 }
 
 // LayoutMsg : géométrie de la fenêtre du projet.
@@ -742,7 +746,7 @@ func (t *projTerm) closeStop() { t.stopOnce.Do(func() { close(t.stop) }) }
 
 // ── Mise en page (règles de core, comme le layout-watch de la coque) ──────
 
-const paneFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window_zoomed_flag}|#{pane_active}|#{pane_pid}|#{window_visible_layout}|#{pane_current_command}"
+const paneFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window_zoomed_flag}|#{pane_active}|#{pane_pid}|#{window_visible_layout}|#{pane_top}|#{pane_current_command}"
 
 func (t *projTerm) orderFile() string {
 	return orderFilePath(t.path)
@@ -788,6 +792,7 @@ type winPaneFull struct {
 	core.WinPane
 	active bool
 	cmd    string
+	top    int // pane_top : première ligne du contenu du pane (1 pour un pane de la rangée du haut quand tmux porte une ligne de titre)
 }
 
 func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visible string, err error) {
@@ -802,8 +807,8 @@ func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visibl
 	}
 	var infos []core.PaneInfo
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		f := strings.SplitN(l, "|", 10) // la commande en dernier (peut contenir « | »)
-		if len(f) != 10 || f[0] == "" {
+		f := strings.SplitN(l, "|", 11) // la commande en dernier (peut contenir « | »)
+		if len(f) != 11 || f[0] == "" {
 			continue
 		}
 		idx, _ := strconv.Atoi(f[1])
@@ -811,12 +816,13 @@ func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visibl
 		h, _ = strconv.Atoi(f[4])
 		zoomed = f[5] == "1"
 		visible = f[8]
-		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[9]})
+		top, _ := strconv.Atoi(f[9])
+		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[10], top: top})
 		pid := f[7]
 		if !t.host {
 			pid = "" // conteneur : PID d'un autre espace
 		}
-		infos = append(infos, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[9]})
+		infos = append(infos, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[10]})
 	}
 	sortPanes(panes)
 	t.mu.Lock()
@@ -967,6 +973,7 @@ func (t *projTerm) tick(fast bool) {
 	// qui remet la couleur de base) ; l'interface les reçoit tout de suite
 	if !ro {
 		t.shade(cfg, panes, cps, leader, tc)
+		t.syncHeaders(panes, leader, tc)
 	}
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
 }
@@ -1090,6 +1097,26 @@ func (t *projTerm) shade(cfg core.Config, panes []winPaneFull, cps []core.WinPan
 	}
 }
 
+// syncHeaders : mêmes options tmux que la coque Linux quand l'interface native a la
+// main (#152) — une ligne de titre par pane (options de fenêtre) et @cl_state /
+// @cl_name de chaque pane, posés seulement quand l'état change (relu de tmux toutes
+// les 30 s au cas où un pane aurait été recréé). Appelé sous pubMu.
+func (t *projTerm) syncHeaders(panes []winPaneFull, leader string, tc *core.TeamConfig) {
+	ids := make([]string, len(panes))
+	for i, p := range panes {
+		ids[i] = p.ID
+	}
+	hs := core.PaneHeaders(ids, leader, tc)
+	sig := core.HeaderSignature(hs)
+	if sig == t.hdrSig && time.Since(t.hdrAt) < 30*time.Second {
+		return
+	}
+	cl := t.cl()
+	core.SetWindowHeaders(cl, t.win)
+	core.SyncPaneHeaders(cl, t.win, hs)
+	t.hdrSig, t.hdrAt = sig, time.Now()
+}
+
 // applyNow : applique la règle des panes cachés et publie tout de suite la
 // géométrie et la carte Team, sans attendre le tour du watcher (bascule
 // manuelle). Utilise la team déjà lue (pas de relecture des fichiers, parfois
@@ -1122,6 +1149,7 @@ func (t *projTerm) applyNow() {
 	}
 	if !ro {
 		t.shade(cfg, panes, corePanes(panes), leader, tc)
+		t.syncHeaders(panes, leader, tc)
 	}
 	busy := tc != nil && core.ActiveSignature(*tc) != ""
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
@@ -1245,6 +1273,11 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 		if v.Bg == "" {
 			v.Bg = core.Colour256Hex(t.color)
 		}
+		var mp *core.TeamMember
+		if m, ok := members[p.ID]; ok {
+			mp = &m
+		}
+		v.State = core.PaneState(mp, p.ID == leader) // même source que la teinte et la carte TEAM
 		switch m, ok := members[p.ID]; {
 		case p.ID == leader:
 			v.Name, v.Role = "team-lead", "leader"

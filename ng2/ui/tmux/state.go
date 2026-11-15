@@ -506,13 +506,9 @@ func teamName(t core.TeamLine) string {
 
 var tplLate = lipgloss.NewStyle().Foreground(lipgloss.Color("208")) // orange
 
-// tplMark : ● vert (copie à jour ou état neutre), ▲ orange (template en retard).
-func tplMark(t core.TeamLine) string {
-	if t.TplState == core.TplLineLate {
-		return tplLate.Render("▲")
-	}
-	return core.Green.Render("●")
-}
+// tplMark : ● vert pour un teammate lancé ; l'écart (template en retard, claude
+// différent) est signalé par le ⚠ de la ligne (#151).
+func tplMark(core.TeamLine) string { return core.Green.Render("●") }
 
 // teamBody : une ligne par instance de teammate (la liste est cliquable, une
 // ligne d'écran chacune) : ● lancé / ○ non lancé, surbrillance si son pane est
