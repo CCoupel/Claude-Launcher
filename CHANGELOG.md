@@ -37,3 +37,16 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   - R-A (résolue en `667d2b3`) : `scripts/ci.sh` suivait `$TMPDIR` ; le dossier de sockets est désormais créé sous `/tmp` en dur.
   - R-B (ouverte, à décider par l'utilisateur) : `/tmp/tmux-1000` contient environ 965 sockets `cl-*` périmés issus d'anciennes passes ; non supprimés.
 - Procédure à jouer à la main sur un poste Windows (QUALIF, `tests/procedures/ui-desktop/taille-zones-150/ctrl-molette-zones.md`) : Ctrl+molette sur l'arbre, sur les cartes, sur les terminaux (non-régression #140), bornes 8–28 par zone, Réglages › Ce poste (−/+, saisie 40 → 28), reprise au démarrage (couverte par test automatique, relance réelle à confirmer), aucune touche retirée aux terminaux. Aussi à rejouer : `tests/procedures/ui-desktop/taille-caracteres/` (#140).
+
+### Notes de lot — LOT-2 (#158)
+
+- Version non modifiée par cette documentation ; le numéro de build QUALIF exact est rapporté par `deployer`.
+- QA (`_work/reports/qa-lot2-cycle2-v6.2.0.md`, HEAD `55a7b3c`, cycle 2) : **VALIDATED WITH RESERVATIONS**.
+  - Tests #158 ciblés (core, desktop, tmux) : PASS, y compris les deux tests adaptés au cas « backend injoignable ».
+  - `CGO_ENABLED=1 go test -race` : core et ui/tmux PASS ; ui/desktop PASS sauf un échec toléré (R-1). La course sur le rafraîchissement des conteneurs (DEF-1) est corrigée.
+  - `scripts/ci.sh` : CI OK (54 s), govulncheck sans vulnérabilité, build croisé Windows OK. Résidus #154 : aucun socket `cl-*` nouveau dans `/tmp/tmux-1000`, aucun index.lock (DEF-2 corrigé). La garde élargie échoue bien sur un socket de test laissé dans `/tmp/tmux-<uid>` et ignore les sessions du launcher réel.
+- Réserve :
+  - R-1 (hors lot, à traiter par une issue dédiée) : `TestProjectApplyForeignOwnerTimeout` (#148) a une race test-only, préexistante sur `c85fa82` ; elle fait échouer `go test -race ./ui/desktop`.
+- Procédures à jouer à la main en QUALIF (`tests/procedures/`, S1 à S7 du cycle 2) :
+  - Windows : S1, S2, S3 (pod supprimé à la main, projet k8s jetable), S4, S6 (backend injoignable : Rafraîchir conserve l'onglet, Forcer avec avertissement, nettoyage local seul, annulation, rétablissement), S7 (le projet revit entre la question et la confirmation : refus, rien tué, reprise ↺ conservée). S5 est couvert par un test automatique.
+  - Linux (hub) : S1 à S4.
