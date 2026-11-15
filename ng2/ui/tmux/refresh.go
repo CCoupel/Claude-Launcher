@@ -54,7 +54,8 @@ func (m model) onRefreshed(r refreshedMsg) model {
 		k8s = b.K8s()
 	}
 	m.msg = "✓ " + r.node.Name + " relu"
-	if ok, why, _ := core.ForceCloseable(core.ForceInput{P: p.core(), Tab: p.open, K8s: k8s}); ok {
+	if ok, why, _ := core.ForceCloseable(core.ForceInput{P: p.core(), Tab: p.open, K8s: k8s,
+		Unreliable: core.CtrUnreliable(p.backend, m.ctr.errs, m.ctr.down, m.ctr.diag)}); ok {
 		m.msg += " : " + why + " — Suppr propose la fermeture forcée"
 	}
 	return m

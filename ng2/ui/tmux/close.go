@@ -34,6 +34,8 @@ type closePlan struct {
 	window   bool         // fenêtre du hub à fermer
 	abandon  bool         // session interrompue : la reprise est abandonnée
 	force    bool         // fermeture forcée (#158) : conteneur, pod ou session disparu, ni /exit ni attente
+	wasRun   bool         // … le conteneur tournait déjà à la question (relu avant d'agir)
+	backend  string       // … son backend, pour relire l'état à la source
 	engine   *core.Engine // projet en conteneur
 	ctr      string       // … son conteneur (ou pod)
 	hubSess  string       // session du hub…
@@ -74,8 +76,9 @@ func (m model) planClose(n core.Node) (closePlan, string) {
 	}
 	// (la reprise interrompue d'un projet sans session garde son « Abandonner » ci-dessous)
 	abandonCase := p.dot == sessAnomaly && p.hasSess && !pl.session
-	if ok, why, _ := core.ForceCloseable(core.ForceInput{P: p.core(), Tab: p.open, K8s: k8s}); ok && !abandonCase {
-		pl.force = true
+	if ok, why, _ := core.ForceCloseable(core.ForceInput{P: p.core(), Tab: p.open, K8s: k8s,
+		Unreliable: core.CtrUnreliable(p.backend, m.ctr.errs, m.ctr.down, m.ctr.diag)}); ok && !abandonCase {
+		pl.force, pl.wasRun, pl.backend = true, p.ctrKnown && p.ctr.Running, p.backend
 		pl.question = "Forcer la fermeture de " + n.Name + " ? " + why + " (sans attente) · o/N"
 		return pl, ""
 	}
@@ -278,6 +281,19 @@ func (m model) askClose(n core.Node) (model, tea.Cmd) {
 // verrou de création périmé et fichier d'ordre supprimés (nettoyage commun
 // core.CleanupProject), arrêt du conteneur demandé s'il existe encore.
 func runForceClose(pl closePlan, step func(string)) error {
+	// juste avant d'agir : état relu à la source ; le projet a pu revivre depuis la
+	// question, ou la lecture échouer — rien n'est alors tué ni arrêté
+	v := core.ReadCtrViewForced([]string{pl.node.Path})
+	if why := core.CtrUnreliable(pl.backend, v.Errs, v.Down, v.Diag); why != "" {
+		return fmt.Errorf("état du conteneur non relu (%s) : fermeture forcée annulée, rien n'a été fermé", why)
+	}
+	if l, ok := v.Live[pl.node.Path]; ok && l.Claude || ok && l.Panes > 0 {
+		return fmt.Errorf("une session est de nouveau vivante : fermeture forcée annulée, rien n'a été fermé")
+	}
+	cur, known := v.Found[pl.node.Path]
+	if known && cur.Running && !pl.wasRun {
+		return fmt.Errorf("son conteneur est de nouveau en marche : fermeture forcée annulée, rien n'a été fermé")
+	}
 	var orders []string
 	if id, err := tmuxOut("display-message", "-p", "-t", pl.hubTgt, "#{window_id}"); err == nil && strings.TrimSpace(id) != "" {
 		orders = append(orders, orderPath(strings.TrimSpace(id)))
@@ -297,6 +313,10 @@ func runForceClose(pl closePlan, step func(string)) error {
 	if pl.engine != nil {
 		if n := core.KillHiddenPanes(pl.tmux(), core.HomeCtr); n > 0 {
 			step(fmt.Sprintf("%d pane(s) caché(s) du conteneur tué(s)", n))
+		}
+		if known && cur.Running && !cur.Failed { // en marche et sain : jamais arrêté d'ici
+			step("conteneur en marche laissé tel quel")
+			return nil
 		}
 		step("arrêt du conteneur…")
 		if err := pl.engine.Stop(pl.node.Path, pl.ctr); err != nil {

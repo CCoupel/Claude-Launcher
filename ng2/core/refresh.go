@@ -104,6 +104,27 @@ type ForceInput struct {
 	Tab      bool     // un onglet (interface native) ou une fenêtre (coque) est ouvert
 	K8s      bool     // backend du projet : k8s (« pod ») ou non (« conteneur »)
 	HostGone bool     // projet sur l'hôte : sa session tmux locale n'existe plus ou ne répond pas
+	// Unreliable : la lecture du backend n'a pas abouti sans erreur (CtrUnreliable) ;
+	// l'état « conteneur absent » n'est alors qu'inconnu : rien n'est proposé
+	Unreliable string
+}
+
+// CtrUnreliable : pourquoi l'état du conteneur du projet (backend be) n'est pas
+// fiable — diagnostic en défaut, listing en erreur, serveurs du groupe
+// injoignables — ou "" si la lecture a abouti sans erreur.
+func CtrUnreliable(be string, errs, down map[string]string, diag map[string][]Problem) string {
+	if be == "" || be == "host" {
+		return ""
+	}
+	switch {
+	case len(diag[be]) > 0:
+		return "backend " + be + " en défaut : " + diag[be][0].What
+	case errs[be] != "":
+		return "backend " + be + " : " + errs[be]
+	case down[be] != "":
+		return "backend " + be + " : serveurs injoignables (" + down[be] + ")"
+	}
+	return ""
 }
 
 // ContainerProject : le projet s'exécute dans un conteneur ou un pod (env.yaml,
@@ -123,6 +144,9 @@ func ForceCloseable(in ForceInput) (ok bool, why, refused string) {
 		}
 		return false, "", "piloté par " + o + " — prendre la main d'abord"
 	}
+	if in.Unreliable != "" {
+		return false, "", "" // lecture non fiable : « inconnu », jamais « absent »
+	}
 	shown := in.Tab || p.Open
 	switch p.Dot {
 	case SessAnomaly, SessHere, SessOrphan:
@@ -139,7 +163,7 @@ func ForceCloseable(in ForceInput) (ok bool, why, refused string) {
 	switch {
 	case ctr && !p.CtrKnown && len(p.Problems) == 0:
 		return true, "son " + unit + " n'existe plus", ""
-	case len(p.Problems) > 0:
+	case len(p.Problems) > 0: // diagnostic en défaut : les appelants passent aussi Unreliable, qui prime
 		return true, "son backend " + p.Backend + " ne répond pas", ""
 	case p.CtrKnown && p.Ctr.Failed:
 		return true, "son " + unit + " est en échec", ""

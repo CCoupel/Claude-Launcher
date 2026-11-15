@@ -908,6 +908,14 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		pl := *m.closeAsk
 		m.closeAsk = nil
 		if key := strings.ToLower(k.String()); key == "o" || key == "y" {
+			if pl.force {
+				// état relu avant d'agir : le projet a pu revivre depuis la question
+				// (ou la lecture du backend échouer) : rien n'est tué ni arrêté
+				if fresh, why := m.planClose(pl.node); why != "" || !fresh.force {
+					m.msg = "⚠ " + pl.node.Name + " : fermeture forcée annulée — état changé (session ou conteneur de nouveau vivant, ou lecture non fiable), rien n'a été fermé"
+					return m, nil
+				}
+			}
 			m.msg = "⏻ " + pl.node.Name + " : fermeture…"
 			return m, m.startClose(pl)
 		}

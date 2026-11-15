@@ -134,15 +134,21 @@ func (a *App) runRefresh(path string) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer func() {
+			if p := recover(); p != nil {
+				r.set("ctr", "err", fmt.Sprintf("%v", p))
+				r.set("session", "err", "état du conteneur inconnu : onglet conservé")
+			}
+		}()
 		r.set("ctr", "run", "")
-		_, err := a.refreshCtr(path)
+		reliable, err := a.refreshCtr(path)
 		if err != nil {
 			r.set("ctr", "err", err.Error())
 		} else {
 			r.set("ctr", "ok", "")
 		}
 		r.set("session", "run", "")
-		if err := a.refreshSession(path); err != nil {
+		if err := a.refreshSession(path, reliable); err != nil {
 			r.set("session", "err", err.Error())
 		} else {
 			r.set("session", "ok", "")
@@ -211,7 +217,7 @@ func (a *App) refreshSummary(r *refreshRun, timedOut bool) string {
 
 // refreshCtr : conteneur ou pod du projet, diagnostic du backend forcé ; le
 // résultat remplace, pour ce projet, la vue des conteneurs.
-func (a *App) refreshCtr(path string) (string, error) {
+func (a *App) refreshCtr(path string) (bool, error) {
 	v := core.ReadCtrViewForced([]string{path})
 	be := v.Assign[path]
 	a.mu.Lock()
@@ -254,15 +260,14 @@ func (a *App) refreshCtr(path string) (string, error) {
 	a.mu.Unlock()
 	a.storeCtrSnapshots(a.ctrCopy())
 	a.changed()
+	bad := core.CtrUnreliable(be, v.Errs, v.Down, v.Diag)
 	switch {
 	case v.Bad[path] != "":
-		return "", fmt.Errorf("configuration d'exécution invalide : %s", v.Bad[path])
-	case len(v.Diag[be]) > 0:
-		return "", fmt.Errorf("backend %s inutilisable : %s", be, v.Diag[be][0].What)
-	case v.Errs[be] != "":
-		return "", fmt.Errorf("backend %s : %s", be, v.Errs[be])
+		return bad == "", fmt.Errorf("configuration d'exécution invalide : %s", v.Bad[path])
+	case bad != "":
+		return false, fmt.Errorf("état du conteneur inconnu — %s", bad)
 	}
-	return "", nil
+	return true, nil
 }
 
 func (a *App) ctrCopy() core.CtrView {
@@ -273,7 +278,7 @@ func (a *App) ctrCopy() core.CtrView {
 
 // refreshSession : session de reprise, et onglet retiré s'il n'a plus de
 // session ni de conteneur derrière lui.
-func (a *App) refreshSession(path string) error {
+func (a *App) refreshSession(path string, reliable bool) error {
 	r, has := a.conf().PendingSession(path)
 	a.mu.Lock()
 	if has {
@@ -285,6 +290,10 @@ func (a *App) refreshSession(path string) error {
 	_, hasLive := a.ctr.Live[path]
 	hasEnv := a.ctr.Env[path]
 	a.mu.Unlock()
+	if t != nil && !reliable && core.ContainerProject(core.ProjInfo{HasEnv: hasEnv, Backend: a.ctrBackend(path)}) {
+		a.changed()
+		return fmt.Errorf("état du conteneur inconnu : onglet conservé")
+	}
 	if t != nil && t.info().State != "opening" {
 		gone := false
 		switch {
@@ -299,6 +308,13 @@ func (a *App) refreshSession(path string) error {
 	}
 	a.changed()
 	return nil
+}
+
+// ctrBackend : backend affecté au projet, d'après la dernière lecture.
+func (a *App) ctrBackend(path string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.ctr.Assign[path]
 }
 
 // hostSessionAlive : la session tmux locale d'un projet sur l'hôte existe.
@@ -350,6 +366,9 @@ func (a *App) refreshUsage() {
 // requis pour t : seul t.info() est lu).
 func (a *App) forceInput(p core.ProjInfo, t *projTerm) core.ForceInput {
 	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend)}
+	a.mu.Lock()
+	in.Unreliable = a.ctrUnreliableLocked(p.Backend)
+	a.mu.Unlock()
 	if t != nil && t.host {
 		in.HostGone = t.info().State != "opening" && !hostSessionAlive(t.sock, t.sess)
 	}
@@ -368,11 +387,20 @@ func (a *App) backendIsK8s(name string) bool {
 	return false
 }
 
+// ctrUnreliableLocked : la dernière lecture des conteneurs n'est pas fiable (a.mu
+// tenu) : jamais lue, ou backend en défaut, en erreur ou serveurs injoignables.
+func (a *App) ctrUnreliableLocked(be string) string {
+	if a.ctr.Env == nil {
+		return "conteneurs pas encore lus"
+	}
+	return core.CtrUnreliable(be, a.ctr.Errs, a.ctr.Down, a.ctr.Diag)
+}
+
 // canForce : champ `canForce` de la ligne. Appelé avec a.mu tenu par Snapshot :
 // pas d'appel tmux ici, seulement l'état de l'onglet.
 func (a *App) canForce(path string, p core.ProjInfo) bool {
 	t := a.terms[path]
-	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend)}
+	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend), Unreliable: a.ctrUnreliableLocked(p.Backend)}
 	if t != nil && t.host {
 		st := t.info().State
 		in.HostGone = st == "closed" || st == "error"
@@ -399,7 +427,8 @@ func (a *App) forceClose(path string) (any, error) {
 	case !ok:
 		return map[string]any{"msg": n.Name + " : rien à forcer (rafraîchir d'abord)"}, nil
 	}
-	a.forceAsked.Store(path, true)
+	a.sweepForceAsked()
+	a.forceAsked.Store(path, forceAsk{at: time.Now(), ctrRunning: p.CtrKnown && p.Ctr.Running})
 	items := []any{} // []any : la même forme avant et après la sérialisation JSON
 	for _, it := range core.ForceItems(in) {
 		items = append(items, it)
@@ -411,6 +440,25 @@ func (a *App) forceClose(path string) (any, error) {
 	}, nil
 }
 
+// forceAsk : état au moment de la question de fermeture forcée.
+type forceAsk struct {
+	at         time.Time
+	ctrRunning bool // le conteneur tournait déjà à la question
+}
+
+// forceAskTTL : au-delà, la question est tenue pour abandonnée (boîte annulée).
+const forceAskTTL = 2 * time.Minute
+
+// sweepForceAsked : oublie les questions abandonnées (la boîte annulée ne le dit pas).
+func (a *App) sweepForceAsked() {
+	a.forceAsked.Range(func(k, v any) bool {
+		if f, ok := v.(forceAsk); !ok || time.Since(f.at) > forceAskTTL {
+			a.forceAsked.Delete(k)
+		}
+		return true
+	})
+}
+
 func (a *App) forceState(path string) (n core.Node, p core.ProjInfo, t *projTerm, busy bool) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -419,24 +467,48 @@ func (a *App) forceState(path string) (n core.Node, p core.ProjInfo, t *projTerm
 	return n, a.projInfo(n), a.terms[path], busy
 }
 
-// forceCloseConfirm : l'état est relu et la décision reprise (il a pu changer
-// depuis la question), puis le nettoyage est fait, sans /exit ni attente.
+// forceCloseConfirm : juste avant d'agir, l'état est relu à la source et la
+// décision reprise — le projet a pu revivre depuis la question (session locale
+// ou de conteneur de nouveau vivante, conteneur de nouveau en marche) ou la
+// lecture du backend échouer : rien n'est alors tué ni arrêté.
 func (a *App) forceCloseConfirm(path string) (any, error) {
 	if err := a.checkProjectArg(true, path); err != nil {
 		return nil, err
 	}
-	n, p, t, busy := a.forceState(path)
-	if _, asked := a.forceAsked.LoadAndDelete(path); !asked {
+	n, _, _, busy := a.forceState(path)
+	v, asked := a.forceAsked.LoadAndDelete(path)
+	ask, _ := v.(forceAsk)
+	if !asked || time.Since(ask.at) > forceAskTTL {
 		return map[string]any{"ok": false, "msg": n.Name + " : aucune fermeture forcée en attente de confirmation"}, nil
 	}
 	if busy {
 		return map[string]any{"ok": false, "msg": n.Name + " : fermeture déjà en cours"}, nil
 	}
-	// l'état a pu changer depuis la question (la session a pu disparaître, et
-	// l'onglet avec elle) : le nettoyage est idempotent et demandé par
-	// l'utilisateur ; seul un autre launcher vivant l'interdit
-	if _, _, refused := core.ForceCloseable(a.forceInput(p, t)); refused != "" {
-		return map[string]any{"ok": false, "msg": n.Name + " : " + refused}, nil
+	refuse := func(why string) (any, error) {
+		return map[string]any{"ok": false, "msg": n.Name + " : " + why + " — rien n'a été fermé"}, nil
+	}
+	_, p0, _, _ := a.forceState(path)
+	if core.ContainerProject(p0) { // projet sur l'hôte : pas de conteneur à relire
+		if reliable, err := a.refreshCtr(path); !reliable {
+			return refuse("état du conteneur non relu (" + err.Error() + ")")
+		}
+	}
+	n, p, t, _ := a.forceState(path)
+	if !core.ContainerProject(p) && hostSessionAlive(deskSocket(), hostSession(path)) {
+		return refuse("sa session tmux locale est de nouveau vivante")
+	}
+	if p.CtrKnown && p.Ctr.Running && !ask.ctrRunning {
+		return refuse("son conteneur est de nouveau en marche")
+	}
+	in := a.forceInput(p, t)
+	ok, _, refused := core.ForceCloseable(in)
+	switch {
+	case refused != "":
+		return refuse(refused)
+	case !ok && p.HasLive:
+		return refuse("une session est de nouveau vivante")
+	case !ok:
+		return refuse("le projet n'est plus à forcer")
 	}
 	a.mu.Lock()
 	a.closing[path] = "fermeture forcée…"
@@ -499,7 +571,9 @@ func (a *App) runForceClose(path string, p core.ProjInfo, t *projTerm) (notes []
 					notes = append(notes, fmt.Sprintf("%d pane(s) caché(s) du conteneur tué(s)", n))
 				}
 			}
-			if stopErr = e.Stop(path, p.Ctr.Name); stopErr == nil {
+			if p.Ctr.Running && !p.Ctr.Failed { // en marche et sain : jamais arrêté d'ici
+				notes = append(notes, "conteneur en marche laissé tel quel")
+			} else if stopErr = e.Stop(path, p.Ctr.Name); stopErr == nil {
 				notes = append(notes, "arrêt du conteneur demandé")
 			}
 		}
