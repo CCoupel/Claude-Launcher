@@ -21,3 +21,5 @@
 | tests/procedures/ui-desktop/team-lisible-151-152-162/ | procedure | ui-desktop | Carte TEAM (versions en en-tete), en-tetes de panes par etat, onglet Teamleaders isole (#151, #152, #162) | feature | |
 | tests/procedures/ui-tmux/team-lisible-151-152/ | procedure | ui-tmux | Coque Linux : carte TEAM, ligne de titre par pane, deux launchers (#151, #152) | feature | |
 | tests/procedures/ui-desktop/interface-web-163/ | procedure | ui-desktop | Interface web servie par la fenetre native : reglage a chaud, jeton, hors boucle locale, presse-papiers (#163) | feature | critical |
+| tests/procedures/ui-desktop/organisations-153/ | procedure | ui-desktop | Organisations de la fenetre : leader a gauche, exception par projet, panes caches (#153) | feature | |
+| tests/procedures/ui-tmux/organisations-153/ | procedure | ui-tmux | Coque Linux : leader a gauche, PROJECT_LAYOUTS, Ctrl+B R (#153) | feature | |
