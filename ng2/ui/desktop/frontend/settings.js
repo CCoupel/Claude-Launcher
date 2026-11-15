@@ -795,7 +795,10 @@ function stPageEnv(p) {
 }
 
 // Champ d'écoute + case « Autoriser l'accès depuis le réseau » (allow_lan) ; en lecture seule dans un client web (#163)
-const dwHint = (ov) => (isWebClient() ? 'lecture seule depuis un navigateur : à modifier dans la fenêtre native du poste · ' : 'off (défaut), un port (boucle locale) ou hôte:port · interface complète, avec jeton · différente du serveur des fichiers · hors boucle locale : case ci-contre obligatoire ; le jeton circule en HTTP, préférer un tunnel SSH/TLS ') + ov;
+// lecture seule dans un client web : desktop_web et browser_server (serveur des fichiers) se modifient dans la fenêtre native
+const DW_RO = 'lecture seule depuis un navigateur : à modifier dans la fenêtre native du poste';
+function dwRo(c) { if (isWebClient()) { c.readOnly = true; c.title = DW_RO; } return c; }
+const dwHint = (ov) => (isWebClient() ? DW_RO + ' · ' : 'off (défaut), un port (boucle locale) ou hôte:port · interface complète, avec jeton · différente du serveur des fichiers · hors boucle locale : case ci-contre obligatoire ; le jeton circule en HTTP, préférer un tunnel SSH/TLS ') + ov;
 function dwListen(f) {
   const box = el('span', 'stfont');
   const i = stInput(f.dweb, (v) => { f.dweb = v; }, 'off');
@@ -860,11 +863,11 @@ function stPageHub(p) {
     // navigateur
     const nav = stForm([
       ['Chemins du navigateur', stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3), 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + ovHint('browser_paths')],
-      ['Serveur web : écoute', stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765'), ovHint('browser_server')],
+      ['Serveur web : écoute', dwRo(stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765')), isWebClient() ? DW_RO : ovHint('browser_server')],
       ['Interface web : écoute', dwListen(f), dwHint(ovHint('desktop_web'))],
       ['Interface web : état', dwStatus(), ''],
-      ['Serveur web : URL', stInput(f.url, (v) => { f.url = v; }, 'http://…'), 'adresse vue du navigateur'],
-      ['Serveur web : autorisés', stArea(t.allow, (v) => { t.allow = v; }, 2), 'une adresse par ligne'],
+      ['Serveur web : URL', dwRo(stInput(f.url, (v) => { f.url = v; }, 'http://…')), 'adresse vue du navigateur'],
+      ['Serveur web : autorisés', dwRo(stArea(t.allow, (v) => { t.allow = v; }, 2)), 'une adresse par ligne'],
       ['Navigateur (appariement)', stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur'), ovHint('browser_device')],
     ]);
     p.appendChild(stBox('Navigateur', nav));
