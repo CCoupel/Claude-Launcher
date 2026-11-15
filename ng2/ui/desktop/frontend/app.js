@@ -1584,10 +1584,21 @@ function applyState(s) {
   for (const p of Object.keys(S.views)) if (!open.has(p)) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of open) if (!S.views[p]) ensureView(p);
   if (S.view !== 'leaders' && !open.has(S.view)) S.view = 'leaders';
-  renderHead(); renderTree(); renderTabs();
+  renderHead(); renderTree(); renderTabs(); lanBanner();
+  if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
   if (S.view === 'leaders') leaders.layout();
+}
+
+// Bannière tant que l'interface web écoute hors boucle locale (webUI.lan) : fenêtre native seulement (#163)
+function lanBanner() {
+  const w = (S.snap && S.snap.webUI) || {};
+  let b = $('lanbanner');
+  const show = !!(w.lan && w.state === 'on' && !isWebClient());
+  if (!show) { if (b) b.remove(); return; }
+  if (!b) { b = el('div', 'lanbanner'); b.id = 'lanbanner'; $('main').insertBefore(b, $('tabs')); }
+  b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS') + ' (Réglages › Ce poste)';
 }
 
 function applyInit(r) {

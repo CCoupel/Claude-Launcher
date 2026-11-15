@@ -407,3 +407,6 @@ body.cardsfolded #hsplit { display: none; }
 .steps .stline { font-family: var(--mono); font-size: calc(12 * var(--cu)); overflow: hidden; text-overflow: ellipsis; }
 .modalbox .why { margin: 0 0 4px; color: var(--text2); }
 .modalbox .fcitems { margin: 4px 0 0; padding-left: 18px; color: var(--text2); line-height: 1.6; }
+
+/* bannière : interface web ouverte au réseau (#163) */
+.lanbanner { flex: none; padding: 4px 12px; background: var(--alert-orange); color: var(--orange); font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); }
