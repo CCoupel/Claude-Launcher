@@ -448,6 +448,16 @@ func validateConf(content []byte) []ConfigProblem {
 			}
 		}
 	}
+	for _, w := range cfg.layoutWarns {
+		key := "LAYOUT_MODE"
+		switch {
+		case strings.HasPrefix(w, "LAYOUT_LEFT"):
+			key = "LAYOUT_LEFT_LEADER_PCT"
+		case strings.HasPrefix(w, "PROJECT_LAYOUTS"):
+			key = "PROJECT_LAYOUTS"
+		}
+		ps = append(ps, ConfigProblem{Line: lineOf(content, key), Severity: SevWarning, Message: w})
+	}
 	for _, u := range cfg.Unmapped {
 		ps = append(ps, ConfigProblem{Line: lineOf(content, strings.Fields(u)[0]), Severity: SevWarning, Message: u + " : aucune correspondance Linux → Windows (hubs.<machine>.paths de backends.yaml)"})
 	}

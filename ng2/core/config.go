@@ -24,6 +24,12 @@ type Config struct {
 	ExtraEnvs     []string
 	Palette       []string
 	ProjectColors map[string]string
+	// organisation des fenêtres de projet (#153) : LAYOUT_MODE (top | left), largeur du leader en
+	// « left », exceptions par projet (PROJECT_LAYOUTS) ; effective : LayoutOf
+	LayoutMode          string
+	LayoutLeftLeaderPct int
+	ProjectLayouts      map[string]string
+	layoutWarns         []string // valeurs d'organisation inconnues, ignorées (validation de config.conf)
 
 	// reprise de la dernière conversation au lancement (cf. resume.go)
 	ResumeMode    string // ask | always | never
@@ -54,11 +60,13 @@ type Config struct {
 const loadConfigScript = `
 GITHUB_DIR="$HOME/GITHUB"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
-COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=()
+COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=(); declare -A PROJECT_LAYOUTS=()
+LAYOUT_MODE=top; LAYOUT_LEFT_LEADER_PCT=46
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
 PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; TEAM_HIDE_IDLE=30
 [[ -f "$1" ]] && source "$1" >/dev/null 2>&1
 printf 'layout\t%s %s %s %s\n' "$LAYOUT_2ROW_LEADER_PCT" "$LAYOUT_3ROW_LEADER_NUM" "$LAYOUT_3ROW_MID_NUM" "$LAYOUT_3ROW_DEN"
+printf 'layoutmode\t%s %s\n' "$LAYOUT_MODE" "$LAYOUT_LEFT_LEADER_PCT"
 printf 'steps\t%s %s\n' "$PANE_ACTIVE_BRIGHTEN_STEP" "$PANE_INACTIVE_DARKEN_STEP"
 printf 'hideidle\t%s\n' "$TEAM_HIDE_IDLE"
 printf 'usage\t%s\n' "$USAGE_REFRESH_SEC"
@@ -72,6 +80,7 @@ printf 'claudedir\t%s\n' "${CLAUDE_CONFIG_DIR-}"
 printf 'palette\t%s\n' "${COLOR_PALETTE[*]}"
 for e in "${EXTRA_ENVS[@]}"; do printf 'env\t%s\n' "$e"; done
 for k in "${!PROJECT_COLORS[@]}"; do printf 'color\t%s\t%s\n' "$k" "${PROJECT_COLORS[$k]}"; done
+for k in "${!PROJECT_LAYOUTS[@]}"; do printf 'playout\t%s\t%s\n' "$k" "${PROJECT_LAYOUTS[$k]}"; done
 if (( ${#GITHUB_DIRS[@]} )); then for d in "${GITHUB_DIRS[@]}"; do printf 'root\t%s\n' "$d"; done
 else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 
@@ -84,7 +93,7 @@ func LoadConfig() Config { return loadConfigAt(ConfigPath()) }
 // configuration, configedit.go : même lecture que le chargement réel).
 func loadConfigAt(path string) Config {
 	home, _ := os.UserHomeDir()
-	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{},
+	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
 		BrightenStep: 1, DarkenStep: 1, TeamHideIdle: 30, ResumeMode: "ask", ResumeMaxAgeH: 24}
 
@@ -136,6 +145,23 @@ func loadConfigAt(path string) Config {
 			case "layout":
 				if v := atois(f[1]); len(v) == 4 && v[0] > 0 && v[0] < 100 && v[3] > 0 && v[1]+v[2] < v[3] {
 					cfg.Layout2RowLeaderPct, cfg.Layout3RowLeaderNum, cfg.Layout3RowMidNum, cfg.Layout3RowDen = v[0], v[1], v[2], v[3]
+				}
+			case "layoutmode":
+				m, pct, _ := strings.Cut(f[1], " ")
+				if !ValidLayout(m) {
+					cfg.layoutWarns = append(cfg.layoutWarns, fmt.Sprintf("LAYOUT_MODE « %s » inconnu : top ou left attendu (top retenu)", m))
+				}
+				cfg.LayoutMode = NormLayout(m)
+				if n := atois(pct); len(n) == 1 && n[0] >= 20 && n[0] <= 80 {
+					cfg.LayoutLeftLeaderPct = n[0]
+				} else {
+					cfg.layoutWarns = append(cfg.layoutWarns, fmt.Sprintf("LAYOUT_LEFT_LEADER_PCT « %s » : un entier de 20 à 80 est attendu (46 retenu)", pct))
+				}
+			case "playout":
+				if len(f) == 3 && ValidLayout(f[2]) {
+					cfg.ProjectLayouts[f[1]] = f[2]
+				} else if len(f) == 3 {
+					cfg.layoutWarns = append(cfg.layoutWarns, fmt.Sprintf("PROJECT_LAYOUTS[%s] « %s » inconnu : top ou left attendu (réglage global retenu)", f[1], f[2]))
 				}
 			case "steps":
 				if v := atois(f[1]); len(v) == 2 {
@@ -220,6 +246,15 @@ func atois(s string) []int {
 		v = append(v, n)
 	}
 	return v
+}
+
+// LayoutOf : organisation effective d'un projet (PROJECT_LAYOUTS, puis LAYOUT_MODE, puis top).
+// Fonction unique, appelée par la coque Linux et par l'interface native.
+func (c Config) LayoutOf(project string) string {
+	if m, ok := c.ProjectLayouts[project]; ok && ValidLayout(m) {
+		return m
+	}
+	return NormLayout(c.LayoutMode)
 }
 
 // ProjectColor : même hash déterministe que get_project_color du bash
@@ -332,6 +367,15 @@ EXTRA_ENVS=()
 # declare -A PROJECT_COLORS=(
 #   ["mon-projet"]="53"
 #   ["autre-projet"]="17"
+# )
+
+# Organisation des fenêtres de projet : top (leader en haut, défaut) ou left (leader à gauche, teammates
+# à droite ; une colonne jusqu'à 4 teammates, deux à partir de 5). Largeur du leader en « left » : 20 à 80 %.
+# LAYOUT_MODE=top
+# LAYOUT_LEFT_LEADER_PCT=46
+# Exceptions par projet (optionnel) : top ou left
+# declare -A PROJECT_LAYOUTS=(
+#   ["mon-projet"]="left"
 # )
 
 # Consommation du compte Claude : secondes entre deux lectures (min. 60, défaut 120).

@@ -201,14 +201,18 @@ func MergedEnvLines(proj string, projectContent []byte) ([]MergedLine, error) {
 // ProjectSettings : ce que projectSettings rend (hors « open », connu de
 // l'interface).
 type ProjectSettings struct {
-	Assigned     bool            `json:"assigned"`
-	Backend      string          `json:"backend"`
-	Backends     []string        `json:"backends"`
-	Image        string          `json:"image"`
-	Images       []string        `json:"images"`
-	Color        string          `json:"color"`
-	ColorAuto    bool            `json:"colorAuto"`
-	Palette      []string        `json:"palette"`
+	Assigned  bool     `json:"assigned"`
+	Backend   string   `json:"backend"`
+	Backends  []string `json:"backends"`
+	Image     string   `json:"image"`
+	Images    []string `json:"images"`
+	Color     string   `json:"color"`
+	ColorAuto bool     `json:"colorAuto"`
+	Palette   []string `json:"palette"`
+	// organisation de la fenêtre du projet (#153) : effective, vraie tant que le projet suit LAYOUT_MODE
+	Layout       string          `json:"layout"`
+	LayoutAuto   bool            `json:"layoutAuto"`
+	Layouts      []LayoutChoice  `json:"layouts"`
 	Env          EnvModel        `json:"env"`
 	EnvPath      string          `json:"envPath"`
 	EnvMtime     string          `json:"envMtime"`
@@ -217,6 +221,17 @@ type ProjectSettings struct {
 	HasTemplate  bool            `json:"hasTemplate"`
 	Merged       []MergedLine    `json:"merged"`
 	Problems     []ConfigProblem `json:"problems"`
+}
+
+// LayoutChoice : une organisation proposée dans les réglages d'un projet.
+type LayoutChoice struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// LayoutChoices : organisations proposées (même liste pour tous les projets).
+func LayoutChoices() []LayoutChoice {
+	return []LayoutChoice{{ID: LayoutTop, Label: "Leader en haut"}, {ID: LayoutLeft, Label: "Leader à gauche"}}
 }
 
 // ReadProjectSettings : réglages du projet proj. changes (facultatif) : aperçu
@@ -249,6 +264,8 @@ func ReadProjectSettings(proj string, cfg Config, changes []ConfigChange) Projec
 	base := filepath.Base(proj)
 	_, explicit := cfg.ProjectColors[base]
 	s.Color, s.ColorAuto = cfg.ProjectColor(base), !explicit
+	_, explicitLayout := cfg.ProjectLayouts[base]
+	s.Layout, s.LayoutAuto, s.Layouts = cfg.LayoutOf(base), !explicitLayout, LayoutChoices()
 	s.Palette = cfg.Palette
 	if s.Palette == nil {
 		s.Palette = []string{}
@@ -295,31 +312,43 @@ func ReadProjectSettings(proj string, cfg Config, changes []ConfigChange) Projec
 //
 // Toute autre ligne qui cite PROJECT_COLORS (boucle, eval, unset…) n'est pas
 // reconnue : SetProjectColor refuse plutôt que d'écrire à côté.
-var (
-	colorsLiteral = regexp.MustCompile(`(?m)^[ \t]*(?:(?:declare|typeset|local|export|readonly)[ \t]+(?:-[A-Za-z]+[ \t]+)*)?PROJECT_COLORS\+?=\(`)
-	colorsDeclare = regexp.MustCompile(`^[ \t]*(?:declare|typeset|local)[ \t]+(?:-[A-Za-z]+[ \t]+)+PROJECT_COLORS[ \t]*(?:#.*)?$`)
-	colorsElement = regexp.MustCompile(`^[ \t]*PROJECT_COLORS\[[^\]]+\]\+?=`)
-)
-
-// errColorsForm : forme d'affectation non reconnue.
-var errColorsForm = fmt.Errorf("PROJECT_COLORS est écrit dans config.conf d'une façon que l'interface ne sait pas modifier (boucle, eval, unset…) : modifier le fichier à la main")
-
 // SetProjectColor : config.conf (src) avec la couleur de name dans PROJECT_COLORS ;
 // color vide : l'entrée est retirée (couleur automatique). Seule cette clé est
-// touchée : le reste du fichier, commentaires compris, et les couleurs des autres
-// projets sont conservés, quelle que soit la forme bash (littéral de tableau,
-// affectations d'éléments, déclaration seule). Forme non reconnue : erreur,
-// jamais une seconde déclaration qui écraserait le tableau. Aucune mention de
-// PROJECT_COLORS : une déclaration est ajoutée en fin de fichier.
+// touchée : voir setProjectArray.
 func SetProjectColor(src, name, color string) (string, error) {
-	if name == "" || strings.ContainsAny(name, "\"'\\$`\n\r") {
-		return "", fmt.Errorf("nom de projet « %s » non utilisable comme clé de PROJECT_COLORS", name)
-	}
 	if color != "" {
 		if n, err := strconv.Atoi(color); err != nil || n < 0 || n > 255 || strconv.Itoa(n) != color {
 			return "", fmt.Errorf("couleur « %s » : un indice de 0 à 255 est attendu", color)
 		}
 	}
+	return setProjectArray(src, "PROJECT_COLORS", name, color)
+}
+
+// SetProjectLayout : config.conf (src) avec l'organisation de name dans PROJECT_LAYOUTS (top | left) ;
+// layout vide : l'entrée est retirée (le projet suit LAYOUT_MODE). Mêmes garanties que SetProjectColor.
+func SetProjectLayout(src, name, layout string) (string, error) {
+	if layout != "" && !ValidLayout(layout) {
+		return "", fmt.Errorf("organisation « %s » : top ou left attendu", layout)
+	}
+	return setProjectArray(src, "PROJECT_LAYOUTS", name, layout)
+}
+
+// setProjectArray : config.conf (src) avec la valeur de name dans le tableau associatif array
+// (PROJECT_COLORS, PROJECT_LAYOUTS) ; value vide : l'entrée est retirée. Seule cette clé est
+// touchée : le reste du fichier, commentaires compris, et les couleurs des autres
+// projets sont conservés, quelle que soit la forme bash (littéral de tableau,
+// affectations d'éléments, déclaration seule). Forme non reconnue : erreur,
+// jamais une seconde déclaration qui écraserait le tableau. Aucune mention de
+// PROJECT_COLORS : une déclaration est ajoutée en fin de fichier.
+func setProjectArray(src, array, name, color string) (string, error) {
+	if name == "" || strings.ContainsAny(name, "\"'\\$`\n\r") {
+		return "", fmt.Errorf("nom de projet « %s » non utilisable comme clé de %s", name, array)
+	}
+	q := regexp.QuoteMeta(array)
+	colorsLiteral := regexp.MustCompile(`(?m)^[ \t]*(?:(?:declare|typeset|local|export|readonly)[ \t]+(?:-[A-Za-z]+[ \t]+)*)?` + q + `\+?=\(`)
+	colorsDeclare := regexp.MustCompile(`^[ \t]*(?:declare|typeset|local)[ \t]+(?:-[A-Za-z]+[ \t]+)+` + q + `[ \t]*(?:#.*)?$`)
+	colorsElement := regexp.MustCompile(`^[ \t]*` + q + `\[[^\]]+\]\+?=`)
+	errForm := fmt.Errorf("%s est écrit dans config.conf d'une façon que l'interface ne sait pas modifier (boucle, eval, unset…) : modifier le fichier à la main", array)
 	entry := `["` + name + `"]="` + color + `"`
 	nameRe := `\[[ \t]*["']?` + regexp.QuoteMeta(name) + `["']?[ \t]*\]`
 	valRe := `(?:"[^"]*"|'[^']*'|[^\s)#]*)`
@@ -350,7 +379,7 @@ func SetProjectColor(src, name, color string) (string, error) {
 			}
 		}
 		if !closed {
-			return "", fmt.Errorf("PROJECT_COLORS : parenthèse fermante introuvable")
+			return "", fmt.Errorf("%s : parenthèse fermante introuvable", array)
 		}
 		blocks = append(blocks, span{loc[0], loc[1], end})
 	}
@@ -376,7 +405,7 @@ func SetProjectColor(src, name, color string) (string, error) {
 		}
 		line := src[pos : pos+le]
 		code := strings.TrimLeft(line, " \t")
-		if code != "" && !strings.HasPrefix(code, "#") && strings.Contains(code, "PROJECT_COLORS") && !inBlock(pos+len(line)-len(code)) {
+		if code != "" && !strings.HasPrefix(code, "#") && strings.Contains(code, array) && !inBlock(pos+len(line)-len(code)) {
 			switch {
 			case colorsDeclare.MatchString(line):
 				declEnd = append(declEnd, next)
@@ -384,7 +413,7 @@ func SetProjectColor(src, name, color string) (string, error) {
 				declEnd = append(declEnd, next)
 				elems = append(elems, elemLine{pos, next})
 			default:
-				return "", errColorsForm
+				return "", errForm
 			}
 		}
 		pos = next
@@ -417,7 +446,7 @@ func SetProjectColor(src, name, color string) (string, error) {
 	}
 	for _, e := range elems {
 		line := src[e.start:e.end]
-		re := regexp.MustCompile(`^([ \t]*PROJECT_COLORS)` + nameRe + `(\+?=[ \t]*)` + valRe)
+		re := regexp.MustCompile(`^([ \t]*` + q + `)` + nameRe + `(\+?=[ \t]*)` + valRe)
 		if m := re.FindStringSubmatchIndex(line); m != nil {
 			found = true
 			if color == "" {
@@ -469,7 +498,7 @@ func SetProjectColor(src, name, color string) (string, error) {
 		for _, d := range declEnd {
 			at = max(at, d)
 		}
-		line := `PROJECT_COLORS["` + name + `"]="` + color + `"`
+		line := array + `["` + name + `"]="` + color + `"`
 		if at > 0 && src[at-1] != '\n' {
 			return src + "\n" + line + "\n", nil
 		}
@@ -478,12 +507,18 @@ func SetProjectColor(src, name, color string) (string, error) {
 	if src != "" && !strings.HasSuffix(src, "\n") {
 		src += "\n"
 	}
-	return src + "declare -A PROJECT_COLORS=(\n  " + entry + "\n)\n", nil
+	return src + "declare -A " + array + "=(\n  " + entry + "\n)\n", nil
 }
 
 // ApplyProjectColor : fixe (ou, color vide, retire) la couleur du projet name
 // dans config.conf, par SaveConfig (validation, conflit, copie .bak).
 func ApplyProjectColor(name, color string) ([]ConfigProblem, error) {
+	return ApplyProjectConf(name, &color, nil)
+}
+
+// ApplyProjectConf : couleur et/ou organisation (nil : inchangé ; vide : entrée retirée) du projet
+// name, dans UN SEUL enregistrement de config.conf (validation, conflit, copie .bak).
+func ApplyProjectConf(name string, color, layout *string) ([]ConfigProblem, error) {
 	path := ConfigPath()
 	src, expected := defaultConfig, time.Time{}
 	if b, err := os.ReadFile(path); err == nil {
@@ -494,9 +529,16 @@ func ApplyProjectColor(name, color string) ([]ConfigProblem, error) {
 	} else if !os.IsNotExist(err) {
 		return nil, err
 	}
-	out, err := SetProjectColor(src, name, color)
-	if err != nil {
-		return nil, err
+	out, err := src, error(nil)
+	if color != nil {
+		if out, err = SetProjectColor(out, name, *color); err != nil {
+			return nil, err
+		}
+	}
+	if layout != nil {
+		if out, err = SetProjectLayout(out, name, *layout); err != nil {
+			return nil, err
+		}
 	}
 	if out == src && !expected.IsZero() {
 		return nil, nil
@@ -511,6 +553,7 @@ type ProjectChange struct {
 	Backend *string // « host » : sur l'hôte
 	Image   *string
 	Color   *string // vide : couleur automatique
+	Layout  *string // top | left ; vide : retire l'entrée (le projet suit LAYOUT_MODE) ; nil : inchangé
 	Env     *EnvChange
 }
 
@@ -584,6 +627,11 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 			return fail("%v", err)
 		}
 	}
+	if in.Layout != nil {
+		if _, err := SetProjectLayout("", filepath.Base(proj), *in.Layout); err != nil {
+			return fail("%v", err)
+		}
+	}
 	res := ProjectResult{OK: true}
 	// 2. env.yaml du projet — l'image demandée y entre par les mêmes changements :
 	//    une seule écriture du fichier
@@ -626,9 +674,9 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		}
 		res.Env, res.Note = er, ConfigReloadNote(ConfProjectEnv)
 	}
-	// 3. couleur
-	if in.Color != nil {
-		if _, err := ApplyProjectColor(filepath.Base(proj), *in.Color); err != nil {
+	// 3. couleur et organisation : un seul enregistrement de config.conf
+	if in.Color != nil || in.Layout != nil {
+		if _, err := ApplyProjectConf(filepath.Base(proj), in.Color, in.Layout); err != nil {
 			// partiel : l'env.yaml est déjà écrit, l'interface doit en connaître le résultat
 			res.OK, res.Msg = false, "config.conf : "+err.Error()
 			if err == ErrConfigInvalid || err == ErrConfigConflict {

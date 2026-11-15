@@ -141,6 +141,23 @@ func Colour256Hex(c string) string {
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
+// Organisations de la fenêtre d'un projet (#153).
+const (
+	LayoutTop  = "top"  // leader en haut (défaut)
+	LayoutLeft = "left" // leader à gauche, teammates à droite
+)
+
+// ValidLayout : valeur reconnue de LAYOUT_MODE / PROJECT_LAYOUTS.
+func ValidLayout(m string) bool { return m == LayoutTop || m == LayoutLeft }
+
+// NormLayout : la valeur, ou top si elle est inconnue.
+func NormLayout(m string) string {
+	if ValidLayout(m) {
+		return m
+	}
+	return LayoutTop
+}
+
 // ── Géométrie ─────────────────────────────────────────────────────────────
 
 // TeamRow : une ligne de la mise en page : N panes côte à côte, sur Num/Den de
@@ -201,6 +218,9 @@ func BuildRow(w, h, x, y int, idxs []int) string {
 // (chaque séparateur de lignes prend une ligne, la dernière reçoit le reliquat
 // de hauteur) ; top et bot : index tmux des panes du haut et des teammates.
 func LayoutString(cfg Config, w, h int, top, bot []int) string {
+	if cfg.LayoutMode == LayoutLeft && len(bot) > 0 {
+		return layoutLeft(cfg, w, h, top, bot)
+	}
 	rows := TeamRows(cfg, len(top), len(bot))
 	var body string
 	if len(rows) == 1 {
@@ -221,6 +241,57 @@ func LayoutString(cfg Config, w, h int, top, bot []int) string {
 		}
 		body = fmt.Sprintf("%dx%d,0,0[%s]", w, h, strings.Join(cells, ","))
 	}
+	return LayoutChecksum(body) + "," + body
+}
+
+// LeftColumns : nombre de colonnes de teammates de « leader à gauche » : une jusqu'à 4, deux à partir de 5.
+func LeftColumns(nBot int) int {
+	if nBot > 4 {
+		return 2
+	}
+	return 1
+}
+
+// BuildCol : n panes empilés (chaque séparateur prend une ligne ; le dernier reçoit le reliquat).
+func BuildCol(w, h, x, y int, idxs []int) string {
+	if len(idxs) == 1 {
+		return fmt.Sprintf("%dx%d,%d,%d,%d", w, h, x, y, idxs[0])
+	}
+	n := len(idxs)
+	rowH := (h - n + 1) / n
+	rem := h - rowH*n - (n - 1)
+	cells := make([]string, n)
+	cy := y
+	for i, idx := range idxs {
+		ph := rowH
+		if i == n-1 {
+			ph += rem
+		}
+		cells[i] = fmt.Sprintf("%dx%d,%d,%d,%d", w, ph, x, cy, idx)
+		cy += ph + 1
+	}
+	return fmt.Sprintf("%dx%d,%d,%d[%s]", w, h, x, y, strings.Join(cells, ","))
+}
+
+// layoutLeft : leader (et cdp, empilés) à gauche sur toute la hauteur, largeur LayoutLeftLeaderPct %,
+// puis une colonne de teammates (jusqu'à 4) ou deux colonnes égales (à partir de 5 : la première en reçoit ⌈n/2⌉).
+func layoutLeft(cfg Config, w, h int, top, bot []int) string {
+	pct := cfg.LayoutLeftLeaderPct
+	if pct < 20 || pct > 80 {
+		pct = 46
+	}
+	lw := w * pct / 100
+	rw := w - lw - 1 // séparateur entre le leader et les teammates
+	cells := []string{BuildCol(lw, h, 0, 0, top)}
+	if LeftColumns(len(bot)) == 1 {
+		cells = append(cells, BuildCol(rw, h, lw+1, 0, bot))
+	} else {
+		n1 := (len(bot) + 1) / 2
+		w1 := (rw - 1) / 2
+		w2 := rw - 1 - w1
+		cells = append(cells, BuildCol(w1, h, lw+1, 0, bot[:n1]), BuildCol(w2, h, lw+1+w1+1, 0, bot[n1:]))
+	}
+	body := fmt.Sprintf("%dx%d,0,0{%s}", w, h, strings.Join(cells, ","))
 	return LayoutChecksum(body) + "," + body
 }
 
@@ -352,6 +423,12 @@ func SetPaneColor(t Target, panes []WinPane, pane, color string) {
 // swap-pane), puis applique la géométrie (LayoutString sur w×h) et la couleur de
 // base du projet. top, bot : classement (Classify).
 func ArrangeTeam(cfg Config, t Target, win string, panes []WinPane, w, h int, top, bot []string, color string) {
+	ArrangeTeamChecked(cfg, t, win, panes, w, h, top, bot, color)
+}
+
+// ArrangeTeamChecked : ArrangeTeam ; rend vrai si tmux a refusé la chaîne de « leader à gauche » et que la
+// mise en page « leader en haut » a été appliquée à la place (#153).
+func ArrangeTeamChecked(cfg Config, t Target, win string, panes []WinPane, w, h int, top, bot []string, color string) (fellBack bool) {
 	// échanges : la position i de l'ordre voulu reçoit l'index physique i
 	at := make([]string, len(panes)) // position -> pane
 	pos := map[string]int{}
@@ -371,9 +448,15 @@ func ArrangeTeam(cfg Config, t Target, win string, panes []WinPane, w, h int, to
 	}
 
 	topIdx, botIdx := idxs[:len(top)], idxs[len(top):len(want)]
-	_ = t.Run("select-layout", "-t", win, LayoutString(cfg, w, h, topIdx, botIdx))
+	if err := t.Run("select-layout", "-t", win, LayoutString(cfg, w, h, topIdx, botIdx)); err != nil && cfg.LayoutMode == LayoutLeft {
+		top := cfg
+		top.LayoutMode = LayoutTop // repli : la mise en page d'avant
+		_ = t.Run("select-layout", "-t", win, LayoutString(top, w, h, topIdx, botIdx))
+		fellBack = true
+	}
 
 	for _, p := range want {
 		SetPaneColor(t, panes, p, color)
 	}
+	return fellBack
 }
