@@ -843,7 +843,7 @@ function renderTabs() {
   lt.append(el('span', 'tlic', '⌗'), el('span', 'tltx', ' Teamleaders'));
   lt.onclick = () => showView('leaders');
   const scroll = el('div', 'tscroll');
-  bar.append(lt, el('div', 'tsep'), scroll);
+  bar.append(lt, el('div', 'tsep'), scroll, layoutButton());
   for (const t of (S.snap && S.snap.tabs) || []) {
     const d = el('div', 'tab'); d.dataset.path = t.path;
     const on = S.view === t.path;
@@ -861,6 +861,57 @@ function renderTabs() {
   }
   fitLeadersTab();
 }
+// Bouton de mise en page (#153) : tout à droite, hors de la zone qui défile ; bascule le projet de l'onglet actif entre
+// « leader en haut » et « leader à gauche » et enregistre l'exception du projet (projectApply layout). L'organisation
+// effective vient de projectSettings (layout), relue au plus toutes les 5 s et après chaque bascule ; grisé sans projet.
+const layoutCache = {}; // chemin -> { v: 'top'|'left', at }
+const layoutLoading = {};
+const LAYOUT_TXT = { top: 'leader en haut', left: 'leader à gauche' };
+function layoutDrop(path) { delete layoutCache[path]; }
+function layoutIcon(v) {
+  const sv = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.2">';
+  const body = v === 'left' ? '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="1.5" y="2.5" width="5.5" height="11" fill="currentColor" stroke="none"/><line x1="7" y1="8" x2="14.5" y2="8"/>'
+    : '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="1.5" y="2.5" width="13" height="5" fill="currentColor" stroke="none"/><line x1="8" y1="7.5" x2="8" y2="13.5"/>';
+  return sv + body + '</svg>';
+}
+function layoutFetch(path) {
+  if (layoutLoading[path]) return;
+  const c = layoutCache[path];
+  if (c && Date.now() - c.at < 5000) return;
+  layoutLoading[path] = true;
+  transport.call('projectSettings', { path }).then((r) => {
+    if (r && r.layout) { const old = layoutCache[path] && layoutCache[path].v; layoutCache[path] = { v: r.layout, at: Date.now() }; if (old !== r.layout) paintLayoutButton(); }
+  }).catch(() => {}).finally(() => { delete layoutLoading[path]; });
+}
+function layoutButton() {
+  const b = el('div', 'tlayb'); b.id = 'tlayb';
+  b.onclick = () => toggleLayout();
+  paintLayoutButton(b);
+  return b;
+}
+function paintLayoutButton(b) {
+  b = b || $('tlayb'); if (!b) return;
+  const path = S.view !== 'leaders' ? S.view : '';
+  const cur = path && layoutCache[path] ? layoutCache[path].v : '';
+  b.classList.toggle('dis', !path || !cur);
+  b.innerHTML = layoutIcon(cur === 'left' ? 'left' : 'top');
+  if (!path) b.title = 'Mise en page : choisir un projet (indisponible sur Teamleaders)';
+  else if (!cur) b.title = 'Mise en page : lecture en cours…';
+  else b.title = 'Mise en page : ' + LAYOUT_TXT[cur] + ' — cliquer pour ' + LAYOUT_TXT[cur === 'left' ? 'top' : 'left'];
+  if (path) layoutFetch(path);
+}
+async function toggleLayout() {
+  const path = S.view !== 'leaders' ? S.view : '';
+  const cur = path && layoutCache[path] && layoutCache[path].v;
+  if (!path || !cur) return;
+  const next = cur === 'left' ? 'top' : 'left';
+  layoutCache[path] = { v: next, at: Date.now() }; paintLayoutButton();
+  let r;
+  try { r = await call('projectApply', { path, layout: next }); } catch (e) { r = null; }
+  if (!r || r.ok === false) { layoutDrop(path); paintLayoutButton(); if (r && r.msg) flash('⚠ ' + r.msg); return; }
+  flashBrief('Mise en page : ' + LAYOUT_TXT[next], 3000);
+}
+
 // Réduction à l'icône (#162) : les onglets de projets sont mesurés contre la place restante **avec la pastille à sa
 // largeur complète** (mesurée pastille étendue) — sinon réduire ; pas d'oscillation réduit/étendu.
 function fitLeadersTab() {
@@ -868,8 +919,9 @@ function fitLeadersTab() {
   if (!lt || !sc) return;
   lt.classList.remove('ico'); lt.removeAttribute('title');
   const full = lt.offsetWidth + parseFloat(getComputedStyle(lt).marginLeft || 0) + parseFloat(getComputedStyle(lt).marginRight || 0);
+  const lb = bar.querySelector('.tlayb'), lbw = lb ? lb.offsetWidth + parseFloat(getComputedStyle(lb).marginLeft || 0) + parseFloat(getComputedStyle(lb).marginRight || 0) : 0;
   const sp = sep.offsetWidth + parseFloat(getComputedStyle(sep).marginLeft || 0) + parseFloat(getComputedStyle(sep).marginRight || 0);
-  if (sc.scrollWidth > bar.clientWidth - full - sp + 1) { lt.classList.add('ico'); lt.title = 'Teamleaders'; }
+  if (sc.scrollWidth > bar.clientWidth - full - sp - lbw + 1) { lt.classList.add('ico'); lt.title = 'Teamleaders'; }
   const on = sc.querySelector('.tab.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 window.addEventListener('resize', () => fitLeadersTab());

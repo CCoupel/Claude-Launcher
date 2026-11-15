@@ -754,9 +754,26 @@ function stPageConf(p) {
   docPage(p, 'conf', 'Launcher', 'Réglages généraux du launcher, communs aux interfaces Linux et Windows.', (D) => {
     const bySet = {};
     for (const x of D.model.settings || []) (bySet[x.group] = bySet[x.group] || []).push(x);
+    // Mise en page des panes (#153) : boîte dédiée en tête de page (LAYOUT_MODE, LAYOUT_LEFT_LEADER_PCT), pas noyée dans « Teams et panes »
+    const layKeys = ['LAYOUT_MODE', 'LAYOUT_LEFT_LEADER_PCT'], layLabels = { LAYOUT_MODE: 'Mise en page des panes', LAYOUT_LEFT_LEADER_PCT: 'Largeur du leader (leader à gauche, %)' };
+    const confRow = (x, label) => {
+      const hint = [x.help, x.set ? '' : 'défaut : ' + confShow(x)].filter(Boolean).join(' · ');
+      const cell = el('div'); cell.appendChild(confField(D, x));
+      if (x.editable && x.set) {
+        const rb = stBtn('↺ défaut', () => { D.d.v[x.key] = confDisplay(x, x.default); D.d.reset[x.key] = true; stRenderPage(); stRenderFoot(); }, 'dim');
+        rb.title = 'retirer la ligne du fichier (valeur par défaut : ' + confShow(x) + ')'; cell.appendChild(rb);
+      }
+      return [label || x.label, cell, hint];
+    };
+    const layRows = (D.model.settings || []).filter((x) => layKeys.includes(x.key)).sort((a, b) => layKeys.indexOf(a.key) - layKeys.indexOf(b.key)).map((x) => confRow(x, layLabels[x.key]));
+    if (layRows.length) {
+      layRows.push(['', el('span'), 'Chaque projet peut avoir la sienne : Réglages du projet › Mise en page des panes, ou le bouton à droite de la barre d\'onglets.']);
+      p.appendChild(stBox('Mise en page des panes', stForm(layRows)));
+    }
     for (const g of D.model.groups || []) {
       const rows = [];
       for (const x of bySet[g.id] || []) {
+        if (layKeys.includes(x.key)) continue;
         const hint = [x.help, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
         const cell = el('div'); cell.appendChild(confField(D, x));
         if (x.editable && x.type !== 'secret' && x.set) {
@@ -1023,8 +1040,9 @@ function stPageProjet(p) {
   for (const l of lays) ls.appendChild(Object.assign(el('option', '', l.label), { value: l.id }));
   ls.value = d.layout || '';
   ls.addEventListener('change', () => { d.layout = ls.value; stRenderFoot(); });
-  rows.push(['Mise en page', ls, 'appliquée aux fenêtres ouvertes sans relance (au tour suivant du surveillant) ; réglage global : Réglages › Launcher']);
+  const layBox = stBox('Mise en page des panes', stForm([['Mise en page des panes', ls, 'appliquée aux fenêtres ouvertes sans relance ; réglage global : Réglages › Launcher › Mise en page des panes']]), el('span', 'dim', 'config.conf'));
   const ex = stForm(rows); ex.appendChild(dl);
+  p.appendChild(layBox);
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
   // Environnement
   const env = el('div');
@@ -1079,7 +1097,7 @@ async function pjSave() {
   const arg = { path: pj.path };
   if (pjExecChanged()) { arg.backend = pj.d.backend; if (pj.d.backend !== 'host') arg.image = pj.d.image; }
   if (pjColorChanged()) arg.color = pj.d.color;
-  if (pjLayoutChanged()) arg.layout = pj.d.layout; // '' : retire l'exception
+  if (pjLayoutChanged()) { arg.layout = pj.d.layout; if (typeof layoutDrop === 'function') layoutDrop(pj.path); } // '' : retire l'exception
   const ch = pjEnvChanges();
   if (ch.length) arg.env = { mtime: pj.mtime, changes: ch };
   let r;

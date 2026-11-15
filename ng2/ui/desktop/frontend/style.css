@@ -410,3 +410,8 @@ body.cardsfolded #hsplit { display: none; }
 
 /* bannière : interface web ouverte au réseau (#163) */
 .lanbanner { flex: none; padding: 4px 12px; background: var(--alert-orange); color: var(--orange); font-weight: 600; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-bottom: 1px solid var(--line); }
+
+/* bouton de mise en page, tout à droite de la barre d'onglets (#153) */
+.tlayb { flex: none; display: flex; align-items: center; justify-content: center; width: 34px; margin: 0 4px; color: var(--text2); cursor: pointer; user-select: none; border-left: 1px solid var(--line); }
+.tlayb:hover { color: var(--text); background: var(--hover); }
+.tlayb.dis { opacity: .4; cursor: default; pointer-events: none; }
