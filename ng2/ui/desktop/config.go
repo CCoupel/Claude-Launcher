@@ -218,14 +218,19 @@ func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any,
 	case kindHub:
 		var hm core.HubModel
 		if hm, merr = core.ReadHubModel([]byte(content), core.HubHost(), core.CurrentGOOS()); merr == nil {
-			size := 13
-			if n, ok := loadPrefs()["termFontSize"].(float64); ok {
-				size = int(n)
+			prefs := loadPrefs()
+			size := func(k string, def int) int { // préférence absente : défaut de la zone
+				if n, ok := prefs[k].(float64); ok {
+					return int(n)
+				}
+				return def
 			}
 			model = struct {
 				core.HubModel
-				TermFontSize int `json:"termFontSize"`
-			}{hm, size}
+				TermFontSize  int `json:"termFontSize"`
+				TreeFontSize  int `json:"treeFontSize"`
+				CardsFontSize int `json:"cardsFontSize"`
+			}{hm, size("termFontSize", 13), size("treeFontSize", 13), size("cardsFontSize", 12)}
 		}
 	}
 	if merr != nil && len(d.Problems) == 0 {
