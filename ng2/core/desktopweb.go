@@ -1,10 +1,14 @@
 package core
 
 import (
+	"encoding/json"
 	"fmt"
 	"net"
+	"sort"
 	"strconv"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 // ── Réglage desktop_web (#163) : interface web servie par la fenêtre native ──
@@ -17,6 +21,9 @@ import (
 // DesktopWeb : defaults.desktop_web / hubs.<machine>[.<système>].desktop_web.
 type DesktopWeb struct {
 	Listen string `yaml:"listen" json:"listen"` // off, port seul (boucle locale) ou hôte:port
+	// AllowLAN : confirmation explicite d'une écoute hors de la boucle locale (HTTP en clair,
+	// jeton = contrôle du poste) ; sans elle, un listen non loopback est refusé
+	AllowLAN *bool `yaml:"allow_lan" json:"allow_lan,omitempty"`
 }
 
 // DesktopWebConf : réglage effectif.
@@ -34,15 +41,25 @@ type DesktopWebConf struct {
 // Erreur : valeur illisible, ou listen identique à celui de browser_server.
 func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, error) {
 	listen, src := "", "défaut"
-	if d := f.Defaults.DesktopWeb; d != nil && d.Listen != "" {
-		listen, src = d.Listen, "defaults.desktop_web.listen"
+	var allowLAN bool
+	merge := func(d *DesktopWeb, blk string) { // champ par champ : la machine l'emporte sur les défauts
+		if d == nil {
+			return
+		}
+		if d.Listen != "" {
+			listen, src = d.Listen, blk+".listen"
+		}
+		if d.AllowLAN != nil {
+			allowLAN = *d.AllowLAN
+		}
 	}
+	merge(f.Defaults.DesktopWeb, "defaults.desktop_web")
 	v := pickHubOS(f.Hubs, host, goos)
-	if v.ok && v.base.DesktopWeb != nil && v.base.DesktopWeb.Listen != "" {
-		listen, src = v.base.DesktopWeb.Listen, v.src("desktop_web", false)+".listen"
+	if v.ok {
+		merge(v.base.DesktopWeb, v.src("desktop_web", false))
 	}
-	if v.ov != nil && v.ov.DesktopWeb != nil && v.ov.DesktopWeb.Listen != "" {
-		listen, src = v.ov.DesktopWeb.Listen, v.src("desktop_web", true)+".listen"
+	if v.ov != nil {
+		merge(v.ov.DesktopWeb, v.src("desktop_web", true))
 	}
 	c := DesktopWebConf{Source: src, ListenSrc: src}
 	listen = strings.TrimSpace(listen)
@@ -63,9 +80,18 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 			"%s %q est aussi l'adresse de browser_server (%s) : deux serveurs distincts (fichiers en lecture seule sans jeton / interface complète avec jeton) — choisir un autre port", src, listen, bs.ListenSrc)
 	}
 	if !c.Loopback {
-		c.Warn = "desktop_web écoute sur " + listen + ", hors de la boucle locale : l'interface complète (projets, terminaux) est atteignable depuis le réseau, protégée par un jeton seulement — préférer 127.0.0.1"
+		if !allowLAN {
+			return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf(
+				"%s %q : écoute hors de la boucle locale refusée sans confirmation — l'interface complète (projets, terminaux) serait atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement ; ajouter allow_lan: true à desktop_web pour l'accepter (l'accès se fait par le nom de la machine, pas par son IP)", src, listen)
+		}
+		c.Warn = LANWarning(listen)
 	}
 	return c, nil
+}
+
+// LANWarning : avertissement d'une écoute hors de la boucle locale confirmée par allow_lan.
+func LANWarning(listen string) string {
+	return "desktop_web écoute sur " + listen + ", hors de la boucle locale : l'interface complète (projets, terminaux) est atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement — préférer 127.0.0.1 ou un tunnel ; accès par le nom de la machine (l'IP est refusée)"
 }
 
 // sameListen : deux adresses d'écoute qui se disputent le même port (même hôte,
@@ -110,4 +136,48 @@ func PrintDesktopWeb() {
 			fmt.Println("  ⚠ " + c.Warn)
 		}
 	}
+}
+
+// DesktopWebChanged : les réglages desktop_web (défauts, machines, surcharges par système) de
+// deux contenus de backends.yaml diffèrent. Un client web ne peut pas les modifier (décision
+// de l'audit sécurité LOT-4) : les autres réglages restent permis.
+func DesktopWebChanged(oldContent, newContent []byte) bool {
+	return desktopWebPrint(oldContent) != desktopWebPrint(newContent)
+}
+
+// desktopWebPrint : empreinte canonique des blocs desktop_web d'un backends.yaml.
+func desktopWebPrint(content []byte) string {
+	var f backendsFile
+	if yaml.Unmarshal(content, &f) != nil {
+		return ""
+	}
+	one := func(d *DesktopWeb) string {
+		if d == nil {
+			return "-"
+		}
+		b, _ := json.Marshal(d)
+		return string(b)
+	}
+	var names []string
+	for k := range f.Hubs {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var sb strings.Builder
+	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb))
+	for _, k := range names {
+		h := f.Hubs[k]
+		sb.WriteString(";" + k + "=" + one(h.DesktopWeb))
+		for _, o := range []struct {
+			n string
+			b *hubOSConf
+		}{{"windows", h.Windows}, {"linux", h.Linux}, {"darwin", h.Darwin}} {
+			if o.b != nil {
+				sb.WriteString("," + o.n + "=" + one(o.b.DesktopWeb))
+			} else {
+				sb.WriteString("," + o.n + "=-")
+			}
+		}
+	}
+	return sb.String()
 }

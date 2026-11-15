@@ -457,15 +457,33 @@ hubs:
   chaud (démarrage, arrêt, changement de port). `desktop --web` sans `--addr` utilise ce `listen` s'il est fixé
   (sinon `127.0.0.1:0`, inchangé) ; `--addr` l'emporte.
 - `configModel` `kind: "hub"` : `settings.desktop_web: { "listen": "" }` (et dans `overrides.<système>`).
-- Sécurité : toutes les règles du mode `--web` s'appliquent sans changement (jeton accepté par la page d'amorçage
-  seule, cookie `HttpOnly` `SameSite=Strict`, `/api/call` en JSON et même origine, en-têtes). Écoute hors boucle
-  locale : contrôle de `Host` sur l'hôte d'écoute, le nom de la machine et `localhost` (comme `browser_server`),
-  avertissement à l'enregistrement et dans `backends`. Le jeton est tiré une fois par poste et conservé
-  (`CacheDir()/desktop-web-token`, `0600`) pour qu'un navigateur déjà ouvert reste valable après une relance.
+- Sécurité : toutes les règles du mode `--web` s'appliquent (jeton accepté par la page d'amorçage seule,
+  `/api/call` en JSON et même origine, en-têtes), avec ces précisions (audit sécurité LOT-4) :
+  - **Session** : la page d'amorçage échange le jeton de l'URL contre un **identifiant de session aléatoire, gardé
+    en mémoire** ; le cookie (`cl_session_<port>`, `HttpOnly`, `SameSite=Strict`) porte cet identifiant, **jamais le
+    jeton**. Les sessions sont révoquées à l'arrêt du serveur, au changement d'adresse d'écoute et à la
+    régénération du jeton ; un navigateur doit alors repasser par l'URL d'amorçage (`webUIOpen`). Dans
+    `desktop --web` (processus seul), la relance après une mise à jour révoque aussi les sessions.
+  - **Jeton** : tiré une fois par poste et conservé (`CacheDir()/desktop-web-token`, créé `O_EXCL`, `0600`) ; **renouvelé
+    à chaque changement d'adresse d'écoute** ; action `webUIRegenerateToken` (fenêtre native seulement) : fichier
+    supprimé, nouveau tirage, sessions et flux révoqués. Une erreur d'écriture du fichier est dite dans `webUI.msg`
+    (le jeton tiré reste valable jusqu'à l'arrêt).
+  - **Écoute hors boucle locale** : refusée tant que `desktop_web.allow_lan: true` n'est pas posé (résolution,
+    validation de `backends.yaml` et modèle « Ce poste » : `settings.desktop_web.allow_lan`). Acceptée, elle applique le
+    contrôle de `Host` (hôte d'écoute, nom de la machine, `localhost`, sur le port — aussi dans `desktop --web`) et
+    `webUI.msg` porte l'avertissement (HTTP en clair, jeton seul) ; l'accès se fait **par le nom de la machine,
+    pas par son IP** (l'IP est refusée par le contrôle de `Host`).
+  - Serveur HTTP : délais d'en-têtes (10 s) et d'inactivité (2 min), en-têtes limités à 64 Ko, 32 flux d'évènements au plus
+    (503 au-delà).
 
 ### Instantané — champ `webUI` **[NEW]**
 
 `"webUI": { "state": "off" | "on" | "error", "listen": "127.0.0.1:8770", "msg": "" }` — jamais le jeton.
+
+### `webUIRegenerateToken` **[NEW]**
+
+Sans argument ; fenêtre native seulement. Régénère le jeton de l'interface web : l'ancien lien meurt, les sessions et
+flux des navigateurs sont révoqués. Résultat : `{ "ok": true }` (`msg` si le fichier n'a pas pu être écrit).
 
 ### `webUIOpen` **[NEW]**
 
@@ -477,7 +495,11 @@ défaut du poste, avec l'adresse d'amorçage (jeton) construite côté Go. Résu
 
 - Chaque appel porte son origine (fenêtre ou web) : `clipboardRead` / `clipboardWrite` répondent `unavailable` à un
   client web (règle du LOT-4 de la v6.1.0, appliquée par appel et non plus par processus) ; `quit`, `setTheme`,
-  `webUIOpen` sont refusés à un client web.
+  `webUIOpen` sont refusés à un client web, ainsi que `webUIRegenerateToken` et toute modification des réglages
+  `desktop_web` (`configSave` / `configApply` sur `backends.yaml` ou le modèle « Ce poste » : refus
+  `{ "invalid": true }` avec la raison) — un navigateur ne rouvre pas l'interface sur le réseau. Mise à jour du
+  binaire, autres réglages, fermeture forcée : permis (le binaire installé vient toujours de la release officielle :
+  le client ne fournit que le type d'annonce).
 - Les évènements sont émis aux deux interfaces. La sélection, les onglets et l'état des projets sont communs.
 - Taille des terminaux : `termResize` du dernier client qui a redimensionné ou pris le clavier s'applique ; l'autre
   affiche la géométrie reçue (`layout.cols`, `layout.rows`) sans renvoyer la sienne tant qu'il n'a pas le clavier.

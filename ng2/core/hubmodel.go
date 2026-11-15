@@ -18,7 +18,8 @@ type HubServerView struct {
 
 // HubDesktopWebView : desktop_web d'un poste (#163).
 type HubDesktopWebView struct {
-	Listen string `json:"listen"`
+	Listen   string `json:"listen"`
+	AllowLAN bool   `json:"allow_lan"`
 }
 
 // HubUserView : remote_user d'un poste (uid et gid absents : nil).
@@ -75,7 +76,7 @@ func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, dw *De
 		}
 	}
 	if dw != nil {
-		s.DesktopWeb = HubDesktopWebView{Listen: dw.Listen}
+		s.DesktopWeb = HubDesktopWebView{Listen: dw.Listen, AllowLAN: dw.AllowLAN != nil && *dw.AllowLAN}
 	}
 	if ru != nil {
 		s.RemoteUser = HubUserView{UID: ru.UID, GID: ru.GID, Name: ru.Name, Home: ru.Home}

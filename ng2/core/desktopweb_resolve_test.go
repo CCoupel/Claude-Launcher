@@ -48,7 +48,7 @@ func TestDesktopWebRefusals(t *testing.T) {
 		"defaults: { desktop_web: { listen: \"abc\" } }",
 		"defaults: { desktop_web: { listen: \"99999\" } }",
 		"defaults: { browser_server: { listen: \"127.0.0.1:8770\" }, desktop_web: { listen: \"8770\" } }", // = browser_server
-		"defaults: { desktop_web: { listen: \"8765\" } }",                                               // = défaut de browser_server
+		"defaults: { desktop_web: { listen: \"8765\" } }",                                                 // = défaut de browser_server
 	} {
 		if _, err := resolveDesktopWebFor(dwFile(t, y), "PC", "linux"); err == nil {
 			t.Errorf("accepté : %s", y)
@@ -61,7 +61,7 @@ func TestDesktopWebRefusals(t *testing.T) {
 }
 
 func TestDesktopWebWarnsOutsideLoopbackAndAllowedHosts(t *testing.T) {
-	y := "hubs:\n  PC:\n    desktop_web: { listen: \"0.0.0.0:8770\" }\n"
+	y := "hubs:\n  PC:\n    desktop_web: { listen: \"0.0.0.0:8770\", allow_lan: true }\n"
 	c, err := resolveDesktopWebFor(dwFile(t, y), "PC", "linux")
 	if err != nil || c.Loopback || !strings.Contains(c.Warn, "hors de la boucle locale") {
 		t.Fatalf("%+v %v", c, err)
