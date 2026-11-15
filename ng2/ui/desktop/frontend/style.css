@@ -414,4 +414,5 @@ body.cardsfolded #hsplit { display: none; }
 /* bouton de mise en page, tout à droite de la barre d'onglets (#153) */
 .tlayb { flex: none; display: flex; align-items: center; justify-content: center; width: 34px; margin: 0 4px; color: var(--text2); cursor: pointer; user-select: none; border-left: 1px solid var(--line); }
 .tlayb:hover { color: var(--text); background: var(--hover); }
-.tlayb.dis { opacity: .4; cursor: default; pointer-events: none; }
+.tlayb.dis { opacity: .4; cursor: default; } /* infobulle conservée : pas de pointer-events: none */
+.tlayb.dis:hover { background: none; color: var(--text2); }

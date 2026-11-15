@@ -867,21 +867,27 @@ function renderTabs() {
 const layoutCache = {}; // chemin -> { v: 'top'|'left', at }
 const layoutLoading = {};
 const LAYOUT_TXT = { top: 'leader en haut', left: 'leader à gauche' };
-function layoutDrop(path) { delete layoutCache[path]; }
+function layoutDrop(path) { if (path) { delete layoutCache[path]; delete layoutFail[path]; } else { for (const k of Object.keys(layoutCache)) delete layoutCache[k]; for (const k of Object.keys(layoutFail)) delete layoutFail[k]; } layoutLastPath = ''; }
 function layoutIcon(v) {
   const sv = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.2">';
   const body = v === 'left' ? '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="1.5" y="2.5" width="5.5" height="11" fill="currentColor" stroke="none"/><line x1="7" y1="8" x2="14.5" y2="8"/>'
     : '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="1.5" y="2.5" width="13" height="5" fill="currentColor" stroke="none"/><line x1="8" y1="7.5" x2="8" y2="13.5"/>';
   return sv + body + '</svg>';
 }
-function layoutFetch(path) {
+// Relecture : au changement d'onglet actif (force), après bascule / enregistrement des Réglages (layoutDrop), sinon au plus toutes
+// les 30 s ; sur erreur, attente croissante (2 s, 4 s … 60 s) — jamais un appel par instantané.
+const layoutFail = {}; // chemin -> { n, until }
+let layoutLastPath = '';
+function layoutFetch(path, force) {
   if (layoutLoading[path]) return;
-  const c = layoutCache[path];
-  if (c && Date.now() - c.at < 5000) return;
+  const now = Date.now(), c = layoutCache[path], f = layoutFail[path];
+  if (f && now < f.until) return;
+  if (!force && c && now - c.at < 30000) return;
   layoutLoading[path] = true;
   transport.call('projectSettings', { path }).then((r) => {
-    if (r && r.layout) { const old = layoutCache[path] && layoutCache[path].v; layoutCache[path] = { v: r.layout, at: Date.now() }; if (old !== r.layout) paintLayoutButton(); }
-  }).catch(() => {}).finally(() => { delete layoutLoading[path]; });
+    if (r && r.layout) { delete layoutFail[path]; const old = layoutCache[path] && layoutCache[path].v; layoutCache[path] = { v: r.layout, at: Date.now() }; if (old !== r.layout) paintLayoutButton(); }
+    else throw new Error('sans layout');
+  }).catch(() => { const n = ((layoutFail[path] || {}).n || 0) + 1; layoutFail[path] = { n, until: Date.now() + Math.min(60000, 1000 * Math.pow(2, n)) }; }).finally(() => { delete layoutLoading[path]; });
 }
 function layoutButton() {
   const b = el('div', 'tlayb'); b.id = 'tlayb';
@@ -894,11 +900,12 @@ function paintLayoutButton(b) {
   const path = S.view !== 'leaders' ? S.view : '';
   const cur = path && layoutCache[path] ? layoutCache[path].v : '';
   b.classList.toggle('dis', !path || !cur);
+  b.setAttribute('aria-disabled', !path || !cur ? 'true' : 'false'); // grisé mais l'infobulle reste visible : le clic est ignoré (toggleLayout)
   b.innerHTML = layoutIcon(cur === 'left' ? 'left' : 'top');
-  if (!path) b.title = 'Mise en page : choisir un projet (indisponible sur Teamleaders)';
+  if (!path) b.title = 'Pas de mise en page pour l\'onglet Teamleaders : choisir un onglet de projet';
   else if (!cur) b.title = 'Mise en page : lecture en cours…';
   else b.title = 'Mise en page : ' + LAYOUT_TXT[cur] + ' — cliquer pour ' + LAYOUT_TXT[cur === 'left' ? 'top' : 'left'];
-  if (path) layoutFetch(path);
+  if (path) { const changed = path !== layoutLastPath; layoutLastPath = path; layoutFetch(path, changed); } else layoutLastPath = '';
 }
 async function toggleLayout() {
   const path = S.view !== 'leaders' ? S.view : '';

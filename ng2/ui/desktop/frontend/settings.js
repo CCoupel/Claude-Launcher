@@ -685,6 +685,7 @@ async function docSave(id) {
   if (r.conflict) { D.res = { conflict: true, mtime: r.mtime }; stRenderFoot(); return; }
   if (r.invalid) { D.res = { problems: r.problems || [] }; stRenderFoot(); return; }
   const warn = (r.problems || []).filter((p) => p.severity !== 'error');
+  if (typeof layoutDrop === 'function') { layoutDrop(); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // LAYOUT_MODE global peut avoir changé
   await docLoad(id);
   if (ST.docs[id]) ST.docs[id].res = { saved: true, note: r.note || '', problems: warn };
   stRender();
@@ -1114,6 +1115,7 @@ async function pjSave() {
     stRenderFoot(); return;
   }
   const keep = pj.focus;
+  if (typeof layoutDrop === 'function') { layoutDrop(pj.path); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // relecture après écriture
   await pjLoad();
   if (ST.pj) ST.pj.res = { saved: true, note: r.note || '' };
   stRender();
