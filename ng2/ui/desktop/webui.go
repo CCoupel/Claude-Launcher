@@ -84,10 +84,52 @@ func desktopWebToken() (string, error) {
 	return t, nil
 }
 
-// rotateDesktopWebToken : jeton remplacé (fichier supprimé, nouveau tirage).
+// rotateDesktopWebToken : jeton remplacé et réécrit sur disque (fichier temporaire 0600 puis
+// renommage : jamais d'état intermédiaire). Si le disque refuse, l'ancien fichier est retiré s'il le
+// peut ; l'erreur dit que l'ancien jeton pourrait être réutilisé à la relance.
 func rotateDesktopWebToken() (string, error) {
-	_ = os.Remove(desktopWebTokenPath())
-	return desktopWebToken()
+	p := desktopWebTokenPath()
+	b := make([]byte, 24)
+	_, _ = rand.Read(b)
+	t := hex.EncodeToString(b)
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	tmp := p + ".new"
+	_ = os.Remove(tmp)
+	f, err := os.OpenFile(tmp, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err == nil {
+		_, err = f.WriteString(t + "\n")
+		if cerr := f.Close(); err == nil {
+			err = cerr
+		}
+		if err == nil {
+			if err = os.Rename(tmp, p); err == nil {
+				return t, nil
+			}
+		}
+		_ = os.Remove(tmp)
+	}
+	if rerr := os.Remove(p); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+		return t, fmt.Errorf("jeton non conservé (%v) et ancien fichier non retiré (%v) : l'ancien jeton pourrait être réutilisé à la relance — corriger les droits de %s", err, rerr, filepath.Dir(p))
+	}
+	return t, fmt.Errorf("jeton non conservé (%v) : il ne survivra pas à une relance", err)
+}
+
+// desktopWebListenPath : dernière adresse d'écoute du serveur de l'interface (0600), gardée avec le jeton
+// pour renouveler celui-ci quand l'adresse change entre deux lancements.
+func desktopWebListenPath() string { return filepath.Join(core.CacheDir(), "desktop-web-listen") }
+
+func lastDesktopWebListen() string {
+	b, err := os.ReadFile(desktopWebListenPath())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+func saveDesktopWebListen(l string) {
+	p := desktopWebListenPath()
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	_ = os.WriteFile(p, []byte(l+"\n"), 0o600)
 }
 
 // WebUI : état courant du serveur de l'interface.
@@ -136,6 +178,9 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf) {
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	var tok string
 	var terr error
+	if w.last == "" {
+		w.last = lastDesktopWebListen() // dernier lancement
+	}
 	if w.last != "" && w.last != conf.Listen { // adresse changée (surtout hors boucle locale) : nouveau jeton
 		tok, terr = rotateDesktopWebToken()
 	} else {
@@ -144,6 +189,7 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf) {
 	b := &webBridge{app: a, token: tok, subs: map[chan []byte]bool{}, port: port, hosts: conf.AllowedHosts(core.HubHost())}
 	srv := newHTTPServer(b.handler())
 	w.srv, w.bridge, w.listen, w.last = srv, b, conf.Listen, conf.Listen
+	saveDesktopWebListen(conf.Listen)
 	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn}
 	if terr != nil {
 		w.state.Msg = terr.Error()
@@ -196,8 +242,8 @@ func (a *App) webUIOpen() map[string]any {
 
 // closeAll : ferme les flux d'évènements des navigateurs connectés.
 func (w *webBridge) closeAll() {
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
 	for ch := range w.subs {
 		delete(w.subs, ch)
 		close(ch)

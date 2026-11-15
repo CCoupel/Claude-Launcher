@@ -103,7 +103,7 @@ func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (
 }
 
 // errWebDesktopWeb : un client web ne modifie pas desktop_web (interface web, allow_lan).
-const errWebDesktopWeb = "le réglage desktop_web (interface web, allow_lan) ne se modifie que depuis la fenêtre native"
+const errWebDesktopWeb = "les réglages desktop_web (interface web, allow_lan) et browser_server (serveur de fichiers) ne se modifient que depuis la fenêtre native"
 
 // configSaveAs : configSave ; web : appel d'un client web du processus de la fenêtre — il ne peut
 // pas modifier les réglages desktop_web (un client web rouvrirait l'interface sur le réseau).
@@ -114,7 +114,7 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 	}
 	if web && kind == core.ConfBackends {
 		old, _ := os.ReadFile(f.Path)
-		if core.DesktopWebChanged(old, []byte(content)) {
+		if core.WebExposureChanged(old, []byte(content)) {
 			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: errWebDesktopWeb}}}, nil
 		}
 	}

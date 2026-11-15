@@ -43,10 +43,19 @@ type webBridge struct {
 	// strictHost du mode --web
 	hosts map[string]bool
 
-	mu       sync.Mutex
-	subs     map[chan []byte]bool
-	sessions map[string]bool // identifiants de session en mémoire (le cookie porte l'un d'eux, jamais le jeton)
+	mu       sync.Mutex           // jeton et sessions (authentification, appels)
+	sessions map[string]time.Time // identifiants de session en mémoire → dernier usage (le cookie porte l'un d'eux, jamais le jeton)
+
+	subMu sync.Mutex // abonnés SSE : jamais tenu en même temps que mu, jamais pendant une attente
+	subs  map[chan []byte]bool
 }
+
+const (
+	maxSessions = 64 // au-delà, la plus ancienne est évincée
+)
+
+// sessionIdle : durée d'inactivité au-delà de laquelle une session expire (variable : tests).
+var sessionIdle = 8 * time.Hour
 
 // maxSubscribers : plafond de flux d'évènements ouverts (un navigateur en ouvre un).
 const maxSubscribers = 32
@@ -90,19 +99,45 @@ func (w *webBridge) cookieName(r *http.Request) string {
 
 func (w *webBridge) newSession() string {
 	id := newToken() + newToken()
+	now := time.Now()
 	w.mu.Lock()
+	defer w.mu.Unlock()
 	if w.sessions == nil {
-		w.sessions = map[string]bool{}
+		w.sessions = map[string]time.Time{}
 	}
-	w.sessions[id] = true
-	w.mu.Unlock()
+	for k, at := range w.sessions { // expirées d'abord
+		if now.Sub(at) > sessionIdle {
+			delete(w.sessions, k)
+		}
+	}
+	for len(w.sessions) >= maxSessions { // puis la plus ancienne
+		oldest, oldAt := "", now
+		for k, at := range w.sessions {
+			if oldest == "" || at.Before(oldAt) {
+				oldest, oldAt = k, at
+			}
+		}
+		delete(w.sessions, oldest)
+	}
+	w.sessions[id] = now
 	return id
 }
 
+// validSession : la session existe et n'a pas expiré ; chaque usage la prolonge.
 func (w *webBridge) validSession(id string) bool {
+	now := time.Now()
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	return w.sessions[id]
+	at, ok := w.sessions[id]
+	if !ok {
+		return false
+	}
+	if now.Sub(at) > sessionIdle {
+		delete(w.sessions, id)
+		return false
+	}
+	w.sessions[id] = now
+	return true
 }
 
 func newToken() string {
@@ -111,17 +146,19 @@ func newToken() string {
 	return hex.EncodeToString(b)
 }
 
+// emit : évènement à chaque abonné, sans attente — un client dont le tampon est plein est abandonné
+// (il se reconnecte) : ni l'émission, ni l'authentification, ni les autres abonnés n'attendent un client lent.
 func (w *webBridge) emit(name string, data any) {
 	b, err := json.Marshal(map[string]any{"name": name, "data": data})
 	if err != nil {
 		return
 	}
-	w.mu.Lock()
-	defer w.mu.Unlock()
+	w.subMu.Lock()
+	defer w.subMu.Unlock()
 	for ch := range w.subs {
 		select {
 		case ch <- b:
-		case <-time.After(2 * time.Second): // client bloqué : abandonné
+		default:
 			delete(w.subs, ch)
 			close(ch)
 		}
@@ -246,21 +283,21 @@ func (w *webBridge) handler() http.Handler {
 		rw.Header().Set("Content-Type", "text/event-stream")
 		rw.Header().Set("Cache-Control", "no-store")
 		ch := make(chan []byte, 4096)
-		w.mu.Lock()
+		w.subMu.Lock()
 		if len(w.subs) >= maxSubscribers {
-			w.mu.Unlock()
+			w.subMu.Unlock()
 			http.Error(rw, "trop de flux d'évènements ouverts", http.StatusServiceUnavailable)
 			return
 		}
 		w.subs[ch] = true
-		w.mu.Unlock()
+		w.subMu.Unlock()
 		defer func() {
-			w.mu.Lock()
+			w.subMu.Lock()
 			if w.subs[ch] {
 				delete(w.subs, ch)
 				close(ch)
 			}
-			w.mu.Unlock()
+			w.subMu.Unlock()
 		}()
 		fmt.Fprint(rw, ": ok\n\n")
 		fl.Flush()
