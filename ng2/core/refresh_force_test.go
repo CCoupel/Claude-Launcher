@@ -265,3 +265,32 @@ func TestMarkCleanExitIdempotent(t *testing.T) {
 		t.Error("date de la marque non renouvelée")
 	}
 }
+
+// Le cache du diagnostic d'un backend (une minute) est ignoré par ForceDiagnose, et la valeur relue
+// le remplace : DiagnoseCached la rend ensuite sans relire. Moteur absent (PATH vide) : aucun appel réel.
+func TestForceDiagnoseReplacesCache(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	b := BackendConf{Name: "diag158", Type: "podman"}
+	key := backendKey(b)
+	diagCache.Lock()
+	diagCache.m[key] = diagEntry{time.Now(), []Problem{{What: "sentinelle périmée"}}}
+	diagCache.Unlock()
+	t.Cleanup(func() { diagCache.Lock(); delete(diagCache.m, key); diagCache.Unlock() })
+
+	if ps := DiagnoseCached(b); len(ps) != 1 || ps[0].What != "sentinelle périmée" {
+		t.Fatalf("précondition : le cache frais doit être servi, obtenu %v", ps)
+	}
+	ps := ForceDiagnose(b)
+	for _, p := range ps {
+		if strings.Contains(p.What, "sentinelle") {
+			t.Fatalf("ForceDiagnose a rendu la valeur du cache : %v", ps)
+		}
+	}
+	if len(ps) == 0 {
+		t.Error("moteur absent : un problème était attendu")
+	}
+	cached := DiagnoseCached(b)
+	if len(cached) != len(ps) || (len(ps) > 0 && cached[0].What != ps[0].What) {
+		t.Errorf("la valeur relue n'a pas remplacé le cache : %v / %v", cached, ps)
+	}
+}
