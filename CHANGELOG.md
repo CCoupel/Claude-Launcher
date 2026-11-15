@@ -18,7 +18,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - En-tête des panes de teammates : bandeau vert si actif, gris si inactif, neutre pour le leader ; suit l'état sans relance ; sous Linux, une ligne de titre tmux en tête de chaque pane (`pane-border-status top`) (#152)
 - Onglet Teamleaders (interface native) isolé, épinglé à gauche, sans `×` ; réduit à son icône quand les onglets de projets débordent (#162)
 - Interface web dans la fenêtre native : réglage `desktop_web` (désactivé par défaut, Réglages › Ce poste › Navigateur), écoute hors boucle locale refusée sans `allow_lan: true`, bannière, régénération du jeton, sessions par cookie (`cl_session_<port>`), lecture seule pour un client web (#163)
-- Organisation « leader à gauche » des panes de projet (leader et `cdp` empilés à gauche, teammates à droite) : réglage global `LAYOUT_MODE` (`top` | `left`, défaut `top`), largeur `LAYOUT_LEFT_LEADER_PCT` (20–80), exception par projet `PROJECT_LAYOUTS` (champ « Mise en page » des Réglages du projet) ; remise en page sans relance, repli sur `top` si tmux refuse (#153)
+- Organisation « leader à gauche » des panes de projet (leader et `cdp` empilés à gauche, teammates à droite) : réglage global `LAYOUT_MODE` (`top` | `left`, défaut `top`), largeur `LAYOUT_LEFT_LEADER_PCT` (20–80), exception par projet `PROJECT_LAYOUTS` (champ « Mise en page » des Réglages du projet) ; bouton de bascule à droite de la barre d'onglets de l'interface native (enregistre l'exception du projet affiché) ; remise en page sans relance, repli sur `top` si tmux refuse (#153)
 
 ### Changed
 - « Fermer » du menu projet est disponible dès que la ligne est ouverte ou que sa pastille n'est pas `○` (#158)

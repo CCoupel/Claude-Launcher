@@ -345,9 +345,12 @@ La fenêtre d'un projet (coque tmux et interface native) a deux organisations :
 Réglages :
 
 - **Global** : `LAYOUT_MODE` (`top` | `left`, défaut `top`) et la largeur du leader `LAYOUT_LEFT_LEADER_PCT` (20 à 80,
-  défaut 46). Dans `config.conf` ou dans Réglages › Launcher.
-- **Par projet** : `PROJECT_LAYOUTS`, champ « Mise en page » de **⚙ Réglages du projet…** (« Comme le réglage global »
-  retire l'exception). La clé est le **nom du dossier** du projet, comme `PROJECT_COLORS` : deux projets de même nom
+  défaut 46). Dans `config.conf`, ou dans Réglages › Launcher, boîte « Mise en page des panes » en tête de la rubrique.
+- **Par projet** : `PROJECT_LAYOUTS`, champ « Mise en page » de **⚙ Réglages du projet…**, placé avant « Exécution »
+  (« Comme le réglage global » retire l'exception).
+- **Bouton de bascule** (interface native) : tout à droite de la barre d'onglets, il fait passer le projet affiché de
+  « leader en haut » à « leader à gauche », et inversement. Le choix est enregistré comme exception du projet. Il est
+  grisé sur l'onglet Teamleaders. La clé est le **nom du dossier** du projet, comme `PROJECT_COLORS` : deux projets de même nom
   partagent l'exception. Priorité : `PROJECT_LAYOUTS` > `LAYOUT_MODE` > `top`.
 
 ```bash
