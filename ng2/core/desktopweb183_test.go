@@ -263,3 +263,22 @@ func TestHubDeleteRemovesFieldFromAllLayers(t *testing.T) {
 		t.Errorf("delete d'un champ absent : %v", err)
 	}
 }
+
+// M3 (décision dev-backend) : un champ qui ne vient que de `defaults` ne s'édite pas depuis « Ce poste » —
+// `delete` sans effet et sans erreur, fichier inchangé, valeur effective = celle de `defaults`.
+func TestHubDeleteDefaultsOnlyFieldIsNoOp(t *testing.T) {
+	src := "defaults:\n  browser_server: { listen: off }\n  desktop_web: { listen: '8790' }\nhubs:\n  mon-pc:\n    hub_cache: /x\n"
+	for _, at := range [][]string{{"desktop_web", "listen"}, {"desktop_web"}} {
+		out, err := ApplyHubChangesFor([]byte(src), "MON-PC", "linux", []ConfigChange{{Op: "delete", At: at}})
+		if err != nil {
+			t.Errorf("delete %v : erreur %v (attendu aucune)", at, err)
+			continue
+		}
+		if string(out) != src {
+			t.Errorf("delete %v : fichier modifié :\n%s", at, out)
+		}
+		if c, err := resolveDesktopWebFor(dwFile(t, string(out)), "mon-pc", "linux"); err != nil || c.Off || c.Listen != "127.0.0.1:8790" {
+			t.Errorf("delete %v : valeur effective %+v %v, attendu celle de defaults 127.0.0.1:8790", at, c, err)
+		}
+	}
+}
