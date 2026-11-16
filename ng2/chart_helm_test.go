@@ -253,10 +253,10 @@ func TestChartRoleLimitedToLauncherRights(t *testing.T) {
 
 func TestChartStatefulSetSingleReplicaAndStrategy(t *testing.T) {
 	needHelm(t)
-	o := must(t, baseValues(), "--set", "replicas=3", "--set", "replicaCount=3")
+	o := must(t, baseValues())
 	ss := o["StatefulSet"][0]
 	if r := get(ss, "spec", "replicas"); r != 1 {
-		t.Errorf("replicas = %v, attendu 1 (aucune valeur ne le règle)", r)
+		t.Errorf("replicas = %v, attendu 1", r)
 	}
 	if st := get(ss, "spec", "updateStrategy", "type"); st == "OnDelete" {
 		t.Errorf("updateStrategy OnDelete : un changement d'image ne remplacerait jamais le pod")
@@ -266,6 +266,16 @@ func TestChartStatefulSetSingleReplicaAndStrategy(t *testing.T) {
 	}
 	if get(pod(t, o), "terminationGracePeriodSeconds") == nil {
 		t.Errorf("terminationGracePeriodSeconds absent")
+	}
+	// aucune valeur ne règle le nombre de répliques : soit la valeur inconnue est REFUSÉE (schéma strict), soit elle
+	// est ignorée et le StatefulSet garde 1 réplique — jamais plus
+	for _, set := range []string{"replicas=3", "replicaCount=3"} {
+		o2, _, err := render(t, baseValues(), "--set", set)
+		if err == nil {
+			if r := get(o2["StatefulSet"][0], "spec", "replicas"); r != 1 {
+				t.Errorf("--set %s : replicas = %v, attendu 1", set, r)
+			}
+		}
 	}
 }
 
@@ -370,19 +380,42 @@ func TestChartAllowListTraefik(t *testing.T) {
 	v := baseValues()
 	sub(v, "ingress")["allowedSourceRanges"] = []any{"192.168.1.0/24", "10.8.0.0/16"}
 	o := must(t, v)
-	mw := o["Middleware"]
-	if len(mw) != 1 {
-		t.Fatalf("%d Middleware, attendu 1", len(mw))
+	// Middlewares : exactement UN ipAllowList (la liste d'adresses) ; les autres ne sont que la redirection
+	// HTTP → HTTPS du contrat (redirectScheme), jamais une seconde liste ni un autre filtre
+	var allow m
+	for _, mw := range o["Middleware"] {
+		switch {
+		case get(mw, "spec", "ipAllowList") != nil:
+			if allow != nil {
+				t.Fatalf("deux Middleware ipAllowList")
+			}
+			allow = mw
+		case get(mw, "spec", "redirectScheme") != nil:
+			if get(mw, "spec", "redirectScheme", "scheme") != "https" {
+				t.Errorf("redirection vers %v, attendu https", get(mw, "spec", "redirectScheme", "scheme"))
+			}
+		default:
+			t.Errorf("Middleware inattendu : %v", get(mw, "spec"))
+		}
 	}
-	rng, _ := get(mw[0], "spec", "ipAllowList", "sourceRange").([]any)
+	if allow == nil {
+		t.Fatalf("aucun Middleware ipAllowList parmi %d Middleware", len(o["Middleware"]))
+	}
+	rng, _ := get(allow, "spec", "ipAllowList", "sourceRange").([]any)
 	if len(rng) != 2 || rng[0] != "192.168.1.0/24" || rng[1] != "10.8.0.0/16" {
 		t.Errorf("ipAllowList.sourceRange = %v", rng)
 	}
 	ann, _ := get(o["Ingress"][0], "metadata", "annotations").(m)
 	ref, _ := ann["traefik.ingress.kubernetes.io/router.middlewares"].(string)
-	name, _ := get(mw[0], "metadata", "name").(string)
+	name, _ := get(allow, "metadata", "name").(string)
 	if !strings.Contains(ref, name) {
-		t.Errorf("l'Ingress ne référence pas le Middleware %q : %q", name, ref)
+		t.Errorf("l'Ingress ne référence pas le Middleware ipAllowList %q : %q", name, ref)
+	}
+	// l'ipAllowList s'applique avant toute redirection : il est référencé (jamais contourné par un routeur sans lui)
+	for _, mw := range o["Middleware"] {
+		if n, _ := get(mw, "metadata", "name").(string); get(mw, "spec", "redirectScheme") != nil && strings.Contains(ref, n) && strings.Index(ref, n) < strings.Index(ref, name) {
+			t.Errorf("la redirection précède la liste d'adresses dans router.middlewares : %q", ref)
+		}
 	}
 }
 
