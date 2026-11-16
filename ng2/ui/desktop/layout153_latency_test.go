@@ -173,8 +173,7 @@ func TestToggleWithUnreadableWindowIsRetried(t *testing.T) {
 	if res, err := f.a.Dispatch("projectApply", args); err != nil || res.(map[string]any)["ok"] != true {
 		t.Fatalf("projectApply : %v %v", res, err)
 	}
-	settleTicks(t, 0) // relayoutNow a échoué (fenêtre illisible)
-	time.Sleep(100 * time.Millisecond)
+	settleTicks(t, 1) // relayoutNow a échoué (fenêtre illisible) ; un tour complet du surveillant échoue aussi : rien n'est appliqué
 	if w := leaderW(); w < 90 {
 		t.Fatalf("mise en page appliquée malgré une fenêtre illisible : leader à %.0f %%", w)
 	}
@@ -331,7 +330,7 @@ func TestTransportFailureIsNotATmuxRefusal(t *testing.T) {
 	batchFail.Store(true)
 	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
 	_, _ = f.a.Dispatch("projectApply", args)
-	time.Sleep(100 * time.Millisecond)
+	settleTicks(t, 1) // un tour complet du surveillant avec le transport en échec
 	if m := f.a.Snapshot().Msg; strings.Contains(m, "refusé par tmux") {
 		t.Errorf("échec de transport pris pour un refus de tmux : %q", m)
 	}
@@ -372,7 +371,10 @@ func fastTicks(t *testing.T) {
 	t.Cleanup(func() { tickEvery.Store(old) })
 }
 
-// settleTicks : attend que le surveillant ait terminé n tours lents de plus (attente sur évènement, échéance 20 s).
+// settleTicks : attend que n tours lents de plus soient terminés (attente sur évènement, échéance 20 s).
+// Les compteurs tickDone/tickBegun sont GLOBAUX (tous les surveillants du processus) : « n tours quelque part », pas
+// « n tours de ce projet » — valable tant qu'un test n'ouvre qu'un projet. Un tour déjà en cours à l'appel compte
+// pour 1 : settle(t) garantit au moins un tour complet démarré après l'appel.
 func settleTicks(t *testing.T, n int64) {
 	t.Helper()
 	target := tickDone.Load() + n

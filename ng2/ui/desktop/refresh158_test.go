@@ -199,10 +199,21 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 		}
 	}
 	// l'opération terminée, un nouveau rafraîchissement est accepté
+	dones := func() (n int) {
+		for _, e := range r.refreshEvents(ps[0]) {
+			if e["done"] == true {
+				n++
+			}
+		}
+		return
+	}
+	before := dones()
 	if res, _ := a.Dispatch("refreshProject", rawPath(ps[0])); res.(map[string]any)["ok"] != true {
 		t.Errorf("refreshProject refusé après la fin du précédent : %v", res)
 	}
-	waitRefreshDone(t, &r, ps[0], refreshTimeout+10*time.Second)
+	r.wait(t, refreshTimeout+10*time.Second, "done du second rafraîchissement", func(e map[string]any) bool {
+		return e["_name"] == "refresh" && e["path"] == ps[0] && e["done"] == true && dones() > before
+	})
 }
 
 // ── Intégration : projet factice, faux claude, tmux isolé ────────────────
