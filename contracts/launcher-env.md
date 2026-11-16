@@ -143,6 +143,13 @@ L'étape `get namespace` n'est pas jouée en cluster : elle exigerait un Cluster
 | `--no-open` | — | inchangé |
 | `--url <adresse publique>` | `CL_WEB_URL` | adresse publique derrière un proxy inverse — voir `contracts/desktop-web.md` |
 
+**Sortie de démarrage en cluster** (`CL_IN_CLUSTER` ou détection automatique) : la sortie standard part dans les
+journaux du pod (`pods/log`, collecte) : **le jeton n'y est jamais imprimé**. Le lancement affiche l'adresse sans
+jeton, l'endroit où lire le jeton (`<cache>/desktop-web-token`, ou « fourni par `CL_DESKTOP_TOKEN` ») et le message
+d'arrêt du mode serveur (« Arrêt par SIGTERM… ») à la place de « Ctrl+C pour arrêter ». L'avertissement
+« écoute hors de la boucle locale sans allow_lan » (`--addr 0.0.0.0` derrière l'Ingress) n'est pas affiché. Hors
+cluster : sortie inchangée (lien d'amorçage avec jeton, Ctrl+C, avertissement).
+
 Arrêt : `SIGTERM` et `SIGINT` déclenchent un arrêt propre (serveur fermé, terminaux détachés, code 0). Les projets
 restent ouverts dans leurs pods, comme à la fermeture de la fenêtre.
 

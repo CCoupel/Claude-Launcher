@@ -58,7 +58,7 @@ func Run(args []string) error {
 		if s, err := core.DesktopWebSetting(); !addrSet && err == nil && !s.Off { // --addr l'emporte ; sinon desktop_web.listen s'il est fixé
 			addr = s.Listen
 		}
-		if addrSet {
+		if addrSet && !core.InCluster() { // en pod, --addr 0.0.0.0 derrière l'Ingress est voulu : pas d'avertissement
 			if n := addrLANNotice(addr, core.DesktopWebAllowsLAN()); n != "" {
 				fmt.Fprintln(os.Stderr, "⚠ "+n)
 			}

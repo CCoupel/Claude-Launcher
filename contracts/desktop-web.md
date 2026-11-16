@@ -146,3 +146,10 @@ Jamais le jeton, comme aujourd'hui.
   `session` (cookie absent, expiré ou révoqué, jeton d'amorçage invalide) ou `method` (méthode non permise sur
   `/api/call`) ; le corps est un texte court (`hôte refusé`, `origine refusée`, `session absente ou expirée : …`,
   `méthode refusée`). Seul `session` signifie « session perdue » ; `host` et `origin` ne la sont pas.
+
+## Sortie de démarrage de `desktop --web` en cluster **[CHANGED]** (#167)
+
+Dans un pod, la sortie standard ne porte pas le jeton : adresse (publique si `url`) sans `?t=`, indication du fichier
+`<cache>/desktop-web-token` ou de `CL_DESKTOP_TOKEN`, message d'arrêt par `SIGTERM`, pas d'avertissement
+d'écoute hors boucle locale. Le lien d'amorçage complet reste celui de `webUIOpen` (fenêtre) ; hors cluster, la sortie
+est inchangée.

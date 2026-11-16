@@ -97,3 +97,61 @@ func (l *lockedBuf) Write(p []byte) (int, error) {
 	return l.b.Write(p)
 }
 func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }
+
+// #167 : en cluster, la sortie standard ne porte jamais le jeton ; message propre au mode serveur ; pas d'avertissement
+// « 0.0.0.0 sans allow_lan ». Hors cluster : inchangé (lien avec jeton, Ctrl+C).
+func TestServerModeOutputInCluster(t *testing.T) {
+	rbNeedBinary(t)
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	_ = os.MkdirAll(home, 0o755)
+	bin := rbCopyBin(t, filepath.Join(tmp, "bin"))
+	run := func(inCluster string, extraEnv ...string) string {
+		port := rbFreePort(t)
+		var env []string
+		for _, kv := range os.Environ() {
+			k := strings.SplitN(kv, "=", 2)[0]
+			if !strings.HasPrefix(k, "CL_") && k != "HOME" && k != "XDG_CACHE_HOME" && k != "TMUX" && k != "CLAUDE_CONFIG_DIR" {
+				env = append(env, kv)
+			}
+		}
+		c := exec.Command(bin, "desktop", "--web", "--no-open", "--addr", "0.0.0.0:"+port)
+		c.Env = append(append(env, "HOME="+home, "CL_CONFIG_DIR="+filepath.Join(tmp, "cfg"), "CL_CACHE_DIR="+filepath.Join(tmp, "etat"),
+			"CL_NO_UPDATE=1", "CL_IN_CLUSTER="+inCluster, "TMUX_TMPDIR="+t.TempDir()), extraEnv...)
+		out := &lockedBuf{}
+		c.Stdout, c.Stderr = out, out
+		if err := c.Start(); err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = c.Process.Kill(); _ = c.Wait() }()
+		for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+			if r, err := (&http.Client{Timeout: time.Second}).Get("http://127.0.0.1:" + port + "/healthz"); err == nil {
+				r.Body.Close()
+				break
+			}
+		}
+		return out.String()
+	}
+	in := run("1")
+	tok, _ := os.ReadFile(filepath.Join(tmp, "etat", "desktop-web-token"))
+	if t0 := strings.TrimSpace(string(tok)); t0 == "" || strings.Contains(in, t0) {
+		t.Errorf("en cluster le jeton (%q) ne doit pas apparaître dans la sortie : %s", t0, in)
+	}
+	for _, want := range []string{"mode serveur", "desktop-web-token", "SIGTERM"} {
+		if !strings.Contains(in, want) {
+			t.Errorf("en cluster : %q absent de la sortie : %s", want, in)
+		}
+	}
+	for _, bad := range []string{"Ctrl+C", "allow_lan", "?t=" + strings.TrimSpace(string(tok))} {
+		if strings.Contains(in, bad) {
+			t.Errorf("en cluster : %q ne doit pas apparaître : %s", bad, in)
+		}
+	}
+	if given := run("1", "CL_DESKTOP_TOKEN=tokFourniParLeChart1234567"); strings.Contains(given, "tokFourni") || !strings.Contains(given, "CL_DESKTOP_TOKEN") {
+		t.Errorf("jeton fourni : sortie %s", given)
+	}
+	out := run("0", "CL_DESKTOP_TOKEN=tokHorsCluster12345678901")
+	if !strings.Contains(out, "?t=tokHorsCluster12345678901") || !strings.Contains(out, "Ctrl+C") || !strings.Contains(out, "allow_lan") {
+		t.Errorf("hors cluster, sortie v6.2.0 attendue : %s", out)
+	}
+}

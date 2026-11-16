@@ -516,7 +516,7 @@ func RunWeb(addr string, open bool) error {
 		return err
 	}
 	warn := w.configureListener(ln)
-	if warn != "" {
+	if warn != "" && !core.InCluster() { // en pod, l'écoute sur toutes les interfaces derrière l'Ingress est voulue
 		fmt.Println("⚠ " + warn)
 	}
 	// mode serveur : l'interface est le processus lui-même, toujours « on » ; le commutateur desktop_web.enabled
@@ -528,8 +528,24 @@ func RunWeb(addr string, open bool) error {
 	if w.public != nil {
 		url = w.public.Origin + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
 	}
-	fmt.Println("Claude Launcher (interface web) :", url)
-	fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
+	if core.InCluster() {
+		// en pod, la sortie standard part dans les journaux (pods/log, collecte) : jamais le jeton. L'adresse est
+		// donnée sans jeton, avec l'endroit où le lire.
+		base := "http://" + ln.Addr().String()
+		if w.public != nil {
+			base = w.public.Origin
+		}
+		fmt.Println("Claude Launcher (mode serveur) :", base+"/")
+		if os.Getenv("CL_DESKTOP_TOKEN") != "" {
+			fmt.Println("Jeton d'accès : fourni par CL_DESKTOP_TOKEN ; lien d'amorçage : " + base + "/?t=<jeton>")
+		} else {
+			fmt.Println("Jeton d'accès : à lire dans " + desktopWebTokenPath() + " (conservé d'un démarrage à l'autre) ; lien d'amorçage : " + base + "/?t=<jeton>")
+		}
+		fmt.Println("Arrêt par SIGTERM : serveur fermé, terminaux détachés ; les projets restent ouverts dans leurs pods.")
+	} else {
+		fmt.Println("Claude Launcher (interface web) :", url)
+		fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
+	}
 	srv := newHTTPServer(w.handler())
 	done := make(chan struct{})
 	quitHook = func() {
