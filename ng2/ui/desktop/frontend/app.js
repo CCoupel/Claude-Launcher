@@ -218,7 +218,7 @@ function renderHead() {
   $('tplver').textContent = '· tpl ' + s.tpl;
   const al = $('alerts'); al.textContent = '';
   for (const a of s.alerts || []) {
-    const d = el('div', 'alert ' + a.color + (a.click ? ' click' : ''));
+    const d = el('div', 'alert ' + a.color + (a.click ? ' click' : '') + (a.notify ? ' notify' : '')); // notify : annonce seule (CL_UPDATE_MODE=notify), ni clic ni installation
     const t = el('span', 'txt', a.text); t.title = a.text;
     if (a.click) t.onclick = () => (a.kind === 'hubcfg' ? diagBox() : call('alert', { kind: a.kind }));
     const x = el('span', 'x', '✕'); x.title = 'masquer (Ctrl+U)'; x.onclick = () => call('dismiss', { kind: a.kind });
@@ -1649,7 +1649,7 @@ $('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); openSettings
 
 // ── Événements du Go ───────────────────────────────────────────────────────
 // ── Notifications (fenêtre en arrière-plan) : agent en attente, MAJ prête ──
-const notified = { busy: {}, upd: '' };
+const notified = { busy: {}, upd: '', nf: '' };
 function notify(title, body) {
   if (document.hasFocus() || !('Notification' in window)) return;
   const show = () => { try { new Notification(title, { body }); } catch (e) { /* refusé */ } };
@@ -1664,6 +1664,10 @@ function notifyChanges(s) {
   const g = (s.alerts || []).find((a) => a.kind === 'launcher' && a.color === 'green' && a.click);
   if (g && notified.upd !== g.text) notify('Claude Launcher', g.text.replace(' · cliquer pour installer', ' prête : cliquer sur l\'annonce pour l\'installer'));
   notified.upd = g ? g.text : '';
+  // mode notify (#167) : la version est annoncée une fois, sans bouton d'installation (mise à jour par l'image)
+  const nf = (s.alerts || []).find((a) => a.kind === 'launcher' && a.notify);
+  if (nf && notified.nf !== nf.text) notify('Claude Launcher', nf.text);
+  notified.nf = nf ? nf.text : '';
 }
 
 function applyState(s) {

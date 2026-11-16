@@ -317,7 +317,7 @@ function stStateCell(name) {
   c.title = s.text || ''; // texte complet en infobulle (la cellule le coupe par « … »)
   return c;
 }
-function stAddr(b) { return b.host || (b.hosts && b.hosts.length ? b.hosts.join(', ') : '') || (b.type === 'k8s' ? [b.context, b.namespace].filter(Boolean).join(' / ') : (b.type === 'host' ? '' : '(local)')); }
+function stAddr(b) { return b.host || (b.hosts && b.hosts.length ? b.hosts.join(', ') : '') || (b.type === 'k8s' ? ([b.context, b.namespace].filter(Boolean).join(' / ') || (ST.model && ST.model.inCluster ? '(pod du launcher)' : '')) : (b.type === 'host' ? '' : '(local)')); }
 
 function stPageBackends(p) {
   const d = ST.draft;
@@ -399,8 +399,10 @@ function stBackendForm(b) {
     } else rows.push(['Contexte ' + t, stInput(b.context, (v) => { b.context = v; }, '(aucun)')]);
     rows.push(['Stockage partagé', stArea((b.shared || []).join('\n'), (v) => { b.shared = stLines(v); }, 2), 'racines vues à l\'identique par le launcher et le serveur ; une par ligne']);
   } else if (t === 'k8s') {
-    rows.push(['Contexte', stInput(b.context, (v) => { b.context = v; })]);
-    rows.push(['Namespace', stInput(b.namespace, (v) => { b.namespace = v; })]);
+    // launcher dans un pod (#168) : sans contexte, le ServiceAccount du pod ; sans namespace, celui du pod
+    const ic = !!(ST.model && ST.model.inCluster), pns = (ST.model && ST.model.podNamespace) || '';
+    rows.push(['Contexte', stInput(b.context, (v) => { b.context = v; }, ic ? 'ServiceAccount du pod' : ''), ic ? 'vide : le launcher utilise le ServiceAccount de son pod (pas de kubeconfig)' : '']);
+    rows.push(['Namespace', stInput(b.namespace, (v) => { b.namespace = v; }, ic ? (pns ? 'namespace du pod : ' + pns : 'namespace du pod') : ''), ic ? 'vide : namespace du pod du launcher (et non « default »)' : '']);
     rows.push(['Volumes', stArea(Object.entries(b.volumes || {}).map(([k, v]) => k + '=' + v).join('\n'), (v) => {
       const o = {}; for (const l of stLines(v)) { const i = l.indexOf('='); if (i > 0) o[l.slice(0, i).trim()] = l.slice(i + 1).trim(); }
       b.volumes = o;
