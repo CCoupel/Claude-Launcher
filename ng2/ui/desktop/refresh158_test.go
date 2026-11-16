@@ -151,14 +151,32 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if testing.Short() {
 		t.Skip("≈ 5 à 30 s")
 	}
+	oldTimeout := refreshTimeout
+	refreshTimeout = 300 * time.Millisecond // le délai global (30 s en production) ne se subit pas en entier
+	var app *App
+	t.Cleanup(func() { // rétabli quand plus aucun rafraîchissement ne lit le délai (go test -race)
+		end := time.Now().Add(15 * time.Second)
+		for time.Now().Before(end) {
+			busy := false
+			if app != nil {
+				app.refreshing.Range(func(_, _ any) bool { busy = true; return false })
+			}
+			if !busy {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		refreshTimeout = oldTimeout
+	})
 	ps := sandbox(t, "", "alpha")
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec sleep 120\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec sleep 0.6\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var r recorder
 	a := newApp(t, r.emit)
+	app = a
 	t0 := time.Now()
 	first, err := a.Dispatch("refreshProject", rawPath(ps[0]))
 	if err != nil || first.(map[string]any)["ok"] != true {
@@ -171,9 +189,9 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if m := second.(map[string]any); m["ok"] != false || m["msg"] == "" || m["msg"] == nil {
 		t.Errorf("second refreshProject pendant l'opération : %v, attendu {ok:false, msg}", second)
 	}
-	last := waitRefreshDone(t, &r, ps[0], 40*time.Second)
-	if d := time.Since(t0); d > 35*time.Second {
-		t.Errorf("done après %v : le délai global est de 30 s", d.Round(time.Second))
+	last := waitRefreshDone(t, &r, ps[0], refreshTimeout+10*time.Second)
+	if d := time.Since(t0); d > refreshTimeout+5*time.Second {
+		t.Errorf("done après %v : le délai global est de %v", d.Round(time.Second), refreshTimeout)
 	}
 	for id, st := range stepStates(t, last) {
 		if st == "wait" || st == "run" {
@@ -184,7 +202,7 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if res, _ := a.Dispatch("refreshProject", rawPath(ps[0])); res.(map[string]any)["ok"] != true {
 		t.Errorf("refreshProject refusé après la fin du précédent : %v", res)
 	}
-	waitRefreshDone(t, &r, ps[0], 40*time.Second)
+	waitRefreshDone(t, &r, ps[0], refreshTimeout+10*time.Second)
 }
 
 // ── Intégration : projet factice, faux claude, tmux isolé ────────────────

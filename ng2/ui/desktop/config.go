@@ -482,11 +482,14 @@ func (a *App) configApplyAs(web bool, kind core.ConfigKind, project, mtime strin
 // docker ou kubectl pendant jusqu'à 45 s).
 var backendTestSem = make(chan struct{}, 2)
 
+// backendTestWait : attente d'une place avant de refuser un test de backend (tests : réduite).
+var backendTestWait = 3 * time.Second
+
 func (a *App) backendTest(be core.BackendEntry) map[string]any {
 	select {
 	case backendTestSem <- struct{}{}:
 		defer func() { <-backendTestSem }()
-	case <-time.After(3 * time.Second):
+	case <-time.After(backendTestWait):
 		return map[string]any{"steps": []core.TestStep{{Label: "test refusé", Detail: "trop de tests de backend en cours",
 			Fix: "attendre la fin des tests en cours, puis recommencer"}}}
 	}

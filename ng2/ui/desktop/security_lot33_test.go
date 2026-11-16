@@ -113,6 +113,9 @@ func TestBackendTestConcurrencyLimited(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // aucun outil : réponse immédiate sans réseau
 	var r recorder
 	a := newApp(t, r.emit)
+	oldWait := backendTestWait
+	backendTestWait = 300 * time.Millisecond
+	defer func() { backendTestWait = oldWait }()
 	// deux places prises : le troisième appel est refusé (après son attente) au lieu de lancer un 3e ssh
 	backendTestSem <- struct{}{}
 	backendTestSem <- struct{}{}

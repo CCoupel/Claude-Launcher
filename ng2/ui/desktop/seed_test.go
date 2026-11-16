@@ -205,6 +205,7 @@ func TestPaneBorderDragAndMouse(t *testing.T) {
 	if len(h.pt.lastLayout().Panes) < 2 {
 		t.Fatal("second pane absent de la mise en page")
 	}
+	settle(t) // le surveillant a remis en page le nouveau pane : sa remise en page ne passe pas après le resize
 	w0, _ := strconv.Atoi(strings.TrimSpace(h.tm("display", "-p", "-t", leader, "#{pane_width}")))
 	axis := "x"
 	if strings.TrimSpace(h.tm("display", "-p", "-t", leader, "#{pane_at_right}")) == "1" {

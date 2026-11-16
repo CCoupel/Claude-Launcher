@@ -84,6 +84,7 @@ func isTerm(path, kind string, more func(map[string]any) bool) func(map[string]a
 // Windows, le nettoyage de t.TempDir échouait (« directory is not empty »).
 func newApp(t *testing.T, emit Emitter) *App {
 	t.Helper()
+	fastTicks(t) // tour lent du surveillant à 150 ms : aucune attente de secondes dans les tests
 	a := NewApp(emit)
 	t.Cleanup(func() { stopBg(a) })
 	return a
@@ -422,7 +423,7 @@ func TestHostProjectWithTmux(t *testing.T) {
 	}
 
 	// un tour lent sans changement : une recherche de team, un seul list-panes
-	time.Sleep(1500 * time.Millisecond) // mise en page des tours précédents faite
+	settle(t) // mise en page des tours précédents faite
 	for i := 0; i < 2; i++ {
 		pt.tick(false)
 	}
