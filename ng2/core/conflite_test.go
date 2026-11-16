@@ -127,3 +127,30 @@ func TestDefaultDirs(t *testing.T) {
 		t.Errorf("éditeur windows : %q", a)
 	}
 }
+
+// #165 : sous une racine de base, confLite (Windows, sans bash) propose les mêmes défauts que le script bash.
+func TestConfLiteRootBaseDefaults(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(RootBaseVar, root)
+	out := confLite("", `C:\Users\moi`)
+	if want := "root\t" + filepath.Join(root, "PROJETS") + "\n"; !strings.Contains(out, want) {
+		t.Errorf("racine de projets sous la racine de base : %q, attendu %q", out, want)
+	}
+	if strings.Contains(out, "GITHUB") {
+		t.Errorf("la racine de projets reste $HOME/GITHUB : %q", out)
+	}
+	// un GITHUB_DIR du fichier l'emporte sur le défaut
+	if out := confLite(`GITHUB_DIR="/x/projets"`, `C:\Users\moi`); !strings.Contains(out, "root\t/x/projets\n") {
+		t.Errorf("GITHUB_DIR du fichier : %q", out)
+	}
+	// CLAUDE_CONFIG_DIR par défaut : posé par LoadConfig sous la racine
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	if cfg := LoadConfig(); cfg.ClaudeConfigDir != filepath.Join(root, ".claude") {
+		t.Errorf("CLAUDE_CONFIG_DIR par défaut : %q, attendu %q", cfg.ClaudeConfigDir, filepath.Join(root, ".claude"))
+	}
+	// sans la variable : inchangé
+	t.Setenv(RootBaseVar, "")
+	if out := confLite("", `C:\Users\moi`); !strings.Contains(out, `root`+"\t"+`C:\Users\moi\GITHUB`+"\n") {
+		t.Errorf("sans racine de base : %q", out)
+	}
+}

@@ -173,6 +173,9 @@ func confLite(src, home string) string {
 	if strings.Contains(home, `\`) {
 		vars["GITHUB_DIR"] = home + `\GITHUB`
 	}
+	if p := RootBaseProjects(); p != "" { // racine de base (#165) : même défaut que le script bash de LoadConfig
+		vars["GITHUB_DIR"] = p
+	}
 	claudeDirSet := false
 	arrays := map[string][]string{"GITHUB_DIRS": nil, "EXTRA_ENVS": nil, "COLOR_PALETTE": strings.Fields("17 52 22 53 58 23 54 238 18 59")}
 	colors, layouts := map[string]string{}, map[string]string{}
