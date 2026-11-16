@@ -22,10 +22,18 @@ go test -cover ./... | awk '/coverage:/{print $2, $5}'
 
 | Paquet | Tests (reference) | Couverture % (reference) | Tests (apres) | Couverture % (apres) | OK ? |
 |--------|-------------------|--------------------------|---------------|----------------------|------|
-| core | A RENSEIGNER (rapport tache 1) | A RENSEIGNER | | | |
-| platform | A RENSEIGNER | A RENSEIGNER | | | |
-| ui/tmux | A RENSEIGNER | A RENSEIGNER | | | |
-| ui/desktop | A RENSEIGNER | A RENSEIGNER | | | |
-| main | A RENSEIGNER | A RENSEIGNER | | | |
+| core | 286 | 71,5 | 286 | 71,5 | OK (dev-backend) |
+| platform | 13 | 62,4 | 13 | 62,4 | OK (dev-backend) |
+| ui/tmux | 50 | 30,5 | 50 | 30,5 | OK (dev-backend) |
+| ui/desktop | 160 | 77,8 | 160 | 78,0 | OK (dev-backend) |
+| main (racine) | non releve (non liste dans le rapport) | 1,5 | non releve | non releve | a mesurer par QA |
 
 Regle : `Tests (apres)` >= `Tests (reference)` ; `Couverture (apres)` >= `Couverture (reference)` − 0,5 point. Un ecart = NOT VALIDATED.
+
+Reference : HEAD `e147090`, rapport `_work/reports/dev-backend-lot1-reference-20261116-111907.md`. Colonnes « apres » = mesures de
+`dev-backend` (tache 2) ; QA les rejoue a sa verification (le relevé `main` manquait a la reference : le fixer au premier passage QA).
+
+| Duree `scripts/ci.sh` (3 passes) | Passes (s) | Moyenne (s) |
+|----------------------------------|------------|-------------|
+| Avant (reference e147090) | 120, 118, 120 | 119,3 (ui/desktop 110 -race ; core 16,5 ; ui/tmux 29 ; ~9 vet/build/govulncheck) |
+| Apres tache 2 (dev-backend) | 57, 56, 56 | 56,3 (ui/desktop 47,9) — marge faible vs 60 s |
