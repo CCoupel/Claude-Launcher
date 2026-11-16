@@ -159,3 +159,61 @@ func TestValidateBackendsDesktopWebEnabled(t *testing.T) {
 		t.Errorf("enabled:true avec listen refusé : %v", ps)
 	}
 }
+
+// Cohérence (#183) : avec une surcharge hubs.<machine>.windows.<clé>, le modèle expose la valeur effective et sa
+// provenance (effective.<clé> = « windows »), et une modification faite à la source indiquée change la valeur
+// réellement appliquée — aucune valeur masquée par la surcharge.
+func TestHubModelOverrideEffectiveAndEditApplies(t *testing.T) {
+	src := "hubs:\n  mon-pc:\n    browser_server: { listen: '8765' }\n    desktop_web: { listen: '8787' }\n" +
+		"    windows:\n      browser_server: { listen: '9765' }\n      desktop_web: { listen: '9787' }\n"
+	m, err := ReadHubModel([]byte(src), "mon-pc", "windows")
+	if err != nil {
+		t.Fatal(err)
+	}
+	v := hubJSON(t, m)
+	for key, want := range map[string]string{"browser_server": "9765", "desktop_web": "9787"} {
+		if got := dig(v, "effective", key); got != "windows" {
+			t.Errorf("effective.%s = %v, attendu windows (provenance de la valeur appliquée)", key, got)
+		}
+		if got := dig(v, "overrides", "windows", "settings", key, "listen"); got != want {
+			t.Errorf("overrides.windows.settings.%s.listen = %v, attendu %s (valeur effective exposée)", key, got, want)
+		}
+	}
+	// la valeur de base reste exposée à part, sans être confondue avec l'effective
+	if dig(v, "settings", "browser_server", "listen") != "8765" || dig(v, "settings", "desktop_web", "listen") != "8787" {
+		t.Errorf("valeurs communes altérées : %v", dig(v, "settings"))
+	}
+	// modification à la source de provenance : la valeur appliquée sous Windows change
+	out, err := ApplyHubChanges([]byte(src), "MON-PC", []ConfigChange{
+		{Op: "set", At: []string{"windows", "browser_server", "listen"}, Value: "9766"},
+		{Op: "set", At: []string{"windows", "desktop_web", "listen"}, Value: "9788"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := dwFile(t, string(out))
+	if bs, err := resolveBrowserServerFor(f, "mon-pc", "windows"); err != nil || bs.Listen != "127.0.0.1:9766" {
+		t.Errorf("browser_server appliqué sous Windows : %+v %v, attendu 127.0.0.1:9766", bs, err)
+	}
+	if dw, err := resolveDesktopWebFor(f, "mon-pc", "windows"); err != nil || dw.Listen != "127.0.0.1:9788" {
+		t.Errorf("desktop_web appliqué sous Windows : %+v %v, attendu 127.0.0.1:9788", dw, err)
+	}
+	// la valeur commune, elle, n'a pas bougé (Linux)
+	if bs, _ := resolveBrowserServerFor(f, "mon-pc", "linux"); bs.Listen != "127.0.0.1:8765" {
+		t.Errorf("valeur Linux modifiée à tort : %+v", bs)
+	}
+	// sous Linux, la surcharge windows ne vaut pas : provenance vide
+	lm, _ := ReadHubModel([]byte(src), "mon-pc", "linux")
+	if dig(hubJSON(t, lm), "effective", "browser_server") != "" || dig(hubJSON(t, lm), "effective", "desktop_web") != "" {
+		t.Errorf("provenance sous Linux : %v", dig(hubJSON(t, lm), "effective"))
+	}
+	// éteindre l'interface depuis la source effective (surcharge) l'éteint réellement sous Windows
+	off, err := ApplyHubChanges([]byte(src), "MON-PC", []ConfigChange{
+		{Op: "set", At: []string{"windows", "desktop_web", "enabled"}, Value: false}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dw, err := resolveDesktopWebFor(dwFile(t, string(off)), "mon-pc", "windows"); err != nil || !dw.Off {
+		t.Errorf("enabled:false de la surcharge sans effet : %+v %v", dw, err)
+	}
+}

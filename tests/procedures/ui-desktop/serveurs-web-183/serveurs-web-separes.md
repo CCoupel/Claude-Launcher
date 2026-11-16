@@ -123,11 +123,35 @@ Reference : `contracts/desktop-web.md`, maquette retenue C' `docs/mockup/v6.3.0/
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 9 — Surcharge Windows : valeur effective et provenance, aucune valeur masquee
+
+**Validation** : HUMAIN — **Issues** : #183 — **Poste** : Windows (exe natif) ; rejouer sous Linux avec une surcharge `linux`
+
+**Objectif** : avec une surcharge propre au systeme, la rubrique montre la valeur reellement appliquee et d'ou elle vient, et la modifier change bien la valeur appliquee.
+
+Prerequis du scenario : `backends.yaml` avec, pour ce poste, `browser_server: { listen: "8765" }` et `desktop_web: { listen: "8787" }` communs, plus `windows: { browser_server: { listen: "9765" }, desktop_web: { listen: "9787" } }`.
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Ouvrir Reglages > Ce poste, rubriques « Serveur de maquettes » et « Interface web » | Adresses affichees : **9765** et **9787** (valeurs effectives sous Windows), pas 8765 / 8787 | | |
+| 2 | Regarder l'indication de provenance de chaque rubrique | Mention explicite que la valeur vient de la surcharge **Windows** (et que la valeur commune est masquee, ou editee separement) | | |
+| 3 | Ouvrir les liens d'acces / d'une maquette | Servis sur 9787 / 9765 (valeurs effectives) | | |
+| 4 | Modifier l'adresse de l'« Interface web » depuis la rubrique (ex. 9788), enregistrer | La nouvelle adresse est **appliquee sans relance** : le lien repond sur 9788, plus sur 9787 | | |
+| 5 | Idem pour le « Serveur de maquettes » (ex. 9766) | Maquettes servies sur 9766 | | |
+| 6 | Verifier `backends.yaml` (onglet texte) | Seule la surcharge `windows` a change ; les valeurs communes 8765 / 8787 inchangees | | |
+| 7 | Ouvrir la meme page depuis le **client web** (navigateur) | Memes valeurs et meme provenance, en lecture seule | | |
+| 8 | (Linux) Meme essai avec une surcharge `linux` | Meme comportement : valeur effective, provenance, modification effective | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Criteres de Validation
 
 - [ ] Quatre etats corrects : eteinte, allumee, client web (lecture seule), mode serveur
 - [ ] Commutateur a chaud, adresse conservee, sans relance
 - [ ] Windows et Linux conformes a la maquette C'
+- [ ] Surcharge systeme : valeur effective et provenance visibles, modification effective (aucune valeur masquee)
 - [ ] Aucune regression sur les reglages existants
 
 ## Notes QA

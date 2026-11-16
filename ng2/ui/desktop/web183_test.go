@@ -280,3 +280,46 @@ func TestWebUIAbsentEnabledIsV620(t *testing.T) {
 		t.Errorf("amorçage : %d", resp.StatusCode)
 	}
 }
+
+// Cohérence (#183) : surcharge du système courant — le modèle des Réglages rend la provenance (effective) et
+// la valeur effective ; configApply à cette source change le réglage appliqué (webUI), rien n'est masqué.
+func TestConfigHubOverrideEffectiveAndEditApplies(t *testing.T) {
+	sandbox(t, "", "alpha")
+	host, goos := strings.ToLower(core.HubHost()), core.CurrentGOOS()
+	pBase, pOv, pNew := l4FreePort(t), l4FreePort(t), l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("hubs:\n  %s:\n    desktop_web: { enabled: true, listen: \"127.0.0.1:%d\" }\n    %s:\n      desktop_web: { listen: \"127.0.0.1:%d\" }\n",
+		host, pBase, goos, pOv))
+	a := l4StartNative(t)
+	w := l4WaitWebUI(t, a, "on", 8*time.Second)
+	if w["listen"] != "127.0.0.1:"+strconv.Itoa(pOv) {
+		t.Fatalf("webUI.listen = %v, attendu la valeur de la surcharge %s", w["listen"], goos)
+	}
+	m, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"hub"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(m)
+	var v map[string]any
+	_ = json.Unmarshal(b, &v)
+	if eff := nested(v, "model", "effective"); eff == nil || eff["desktop_web"] != goos {
+		t.Errorf("effective.desktop_web = %v, attendu %s (provenance) : %s", eff, goos, b)
+	}
+	if dw := nested(v, "model", "overrides", goos, "settings", "desktop_web"); dw == nil || dw["listen"] != "127.0.0.1:"+strconv.Itoa(pOv) {
+		t.Errorf("valeur effective non exposée par la surcharge : %v", dw)
+	}
+	// modification à la source de provenance : la valeur appliquée change, sans relance
+	res, err := d183Apply(t, a, originWindow, map[string]any{"op": "set", "at": []string{goos, "desktop_web", "listen"}, "value": "127.0.0.1:" + strconv.Itoa(pNew)})
+	if err != nil || res.(map[string]any)["saved"] != true {
+		t.Fatalf("configApply : %v %v", res, err)
+	}
+	w = l4WaitWebUI(t, a, "on", 8*time.Second)
+	end := time.Now().Add(8 * time.Second)
+	for w["listen"] != "127.0.0.1:"+strconv.Itoa(pNew) && time.Now().Before(end) {
+		time.Sleep(50 * time.Millisecond)
+		w = l4WebUIOf(t, a)
+	}
+	if w["listen"] != "127.0.0.1:"+strconv.Itoa(pNew) {
+		t.Errorf("modification invisible : webUI.listen = %v, attendu %d (valeur masquée par la surcharge ?)", w["listen"], pNew)
+	}
+	d183WaitReach(t, pNew, true)
+}
