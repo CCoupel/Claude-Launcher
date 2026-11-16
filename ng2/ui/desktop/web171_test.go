@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -502,5 +503,79 @@ func TestReverseProxyHTTPSEndToEnd(t *testing.T) {
 		t.Errorf("flux avec la session révoquée : %v %v, attendu 401 ou 403", r, err)
 	} else {
 		r.Body.Close()
+	}
+}
+
+// Priorité de l'adresse publique en mode serveur : --url > CL_WEB_URL > desktop_web.url (contrat). Run(args)
+// réel (« --web » sur un port libre, sans navigateur), arrêt par « quit » ; l'hôte admis dit quelle source gagne.
+func TestRunWebURLPrecedenceFlagEnvConfig(t *testing.T) {
+	oldQuit, oldRestart, oldEnv, oldFlag := quitHook, restartApp, restartEnv, webURLFlag
+	defer func() { quitHook, restartApp, restartEnv, webURLFlag = oldQuit, oldRestart, oldEnv, oldFlag }()
+	for _, tc := range []struct {
+		name         string
+		flag, envURL string
+		cfg          string
+		win          string // hôte attendu admis
+		lose         []string
+	}{
+		{"--url l'emporte", "https://flag.test", "https://env.test", "https://cfg.test", "flag.test", []string{"env.test", "cfg.test"}},
+		{"CL_WEB_URL sans --url", "", "https://env.test", "https://cfg.test", "env.test", []string{"cfg.test", "flag.test"}},
+		{"desktop_web.url seul", "", "", "https://cfg.test", "cfg.test", []string{"env.test", "flag.test"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sandbox(t, "", "alpha")
+			p := l4FreePort(t)
+			l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: false, listen: off, url: \"%s\" }\n", tc.cfg))
+			t.Setenv("CL_DESKTOP_TOKEN", "tokURLPrecedence1234567")
+			t.Setenv("CL_WEB_URL", tc.envURL)
+			webURLFlag = ""
+			args := []string{"--web", "--no-open", "--addr", "127.0.0.1:" + strconv.Itoa(p)}
+			if tc.flag != "" {
+				args = append(args, "--url", tc.flag)
+			}
+			// la sortie de Run (adresse d'amorçage) est jetée
+			pr, pw, _ := os.Pipe()
+			oldOut := os.Stdout
+			os.Stdout = pw
+			go func() { _, _ = io.Copy(io.Discard, pr) }()
+			done := make(chan error, 1)
+			go func() { done <- Run(args) }()
+			end := time.Now().Add(15 * time.Second)
+			for !d183Reach(p) && time.Now().Before(end) {
+				time.Sleep(50 * time.Millisecond)
+			}
+			os.Stdout = oldOut
+			tok := "tokURLPrecedence1234567"
+			ck, resp := w171Session(t, p, tok, tc.win)
+			if ck == nil {
+				t.Fatalf("hôte %s refusé (%d) : la source attendue n'a pas gagné", tc.win, resp.StatusCode)
+			}
+			for _, h := range tc.lose {
+				if r, _ := w171Do(t, p, "GET", "/?t="+tok, h, nil, ""); r.StatusCode != 403 {
+					t.Errorf("hôte %s (source écrasée) : %d, attendu 403", h, r.StatusCode)
+				}
+			}
+			if !ck.Secure {
+				t.Errorf("adresse publique en https : cookie sans Secure : %+v", ck)
+			}
+			w171Do(t, p, "POST", "/api/call", tc.win, map[string]string{"Content-Type": "application/json"}, `{"method":"quit","args":{"mode":"l"}}`, ck)
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Errorf("Run : %v", err)
+				}
+			case <-time.After(15 * time.Second):
+				t.Fatal("Run ne s'arrête pas après quit")
+			}
+			time.Sleep(300 * time.Millisecond)
+		})
+	}
+}
+
+// --url invalide : erreur claire à la ligne de commande ou interface non servie (jamais une adresse acceptée).
+func TestRunUnknownOptionMentionsURL(t *testing.T) {
+	err := Run([]string{"--web", "--bogus"})
+	if err == nil || !strings.Contains(err.Error(), "--url") {
+		t.Errorf("l'aide d'option doit citer --url : %v", err)
 	}
 }
