@@ -592,6 +592,9 @@ func MsLines(st MsState, width int) []string {
 var msCacheMu sync.Mutex
 
 func MsCachePath() string {
+	if CacheDirOverride() != "" { // CL_CACHE_DIR : le cache des milestones y est aussi (#169)
+		return filepath.Join(CacheDir(), "milestones-v2.json")
+	}
 	base := os.Getenv("XDG_CACHE_HOME")
 	if base == "" {
 		home, _ := os.UserHomeDir()

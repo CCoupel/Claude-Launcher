@@ -31,6 +31,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	if err := platform.HubNameError(); err != nil { // CL_HUB_NAME invalide : erreur au démarrage, rien n'est créé
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	core.ApplyClaudeConfigDir()
 	cmd := "shell"
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {

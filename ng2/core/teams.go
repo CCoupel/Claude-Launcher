@@ -66,7 +66,7 @@ func DeadTeams(root string, live map[string]bool, resumeAge time.Duration) []str
 		// team d'un conteneur ou d'une autre machine : ses panes %N sont ceux de
 		// SON tmux, invisibles d'ici — jamais supprimée par l'hôte
 		if p := cfg.LeadProcess; p != nil && p.PIDSpace != "" && p.PIDSpace != platform.HostPidSpace() {
-			if h, _, _ := strings.Cut(p.PIDSpace, "#"); h != platform.HostName() {
+			if h, _, _ := strings.Cut(p.PIDSpace, "#"); h != platform.RealHostName() {
 				continue
 			}
 		}

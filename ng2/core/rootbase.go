@@ -121,5 +121,12 @@ func PrintRootBase() {
 	if len(cd.Roots) > 0 {
 		fmt.Printf("  projets         : %s\n", strings.Join(cd.Roots, ", "))
 	}
+	// cache : sous une racine de base, il reste sous le dossier personnel (état par launcher, jamais partagé) tant
+	// que CL_CACHE_DIR n'en désigne pas un autre (convention du chart : <racine>/.cache/claude-launcher-ng2/<nom>)
+	cacheSrc := "défaut"
+	if CacheDirOverride() != "" {
+		cacheSrc = CacheDirVar
+	}
+	fmt.Printf("  cache           : %s (%s)\n", CacheDir(), cacheSrc)
 	fmt.Println()
 }
