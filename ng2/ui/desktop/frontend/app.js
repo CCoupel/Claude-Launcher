@@ -7,14 +7,19 @@
 
 // ── Transport : Wails (window.go) ou HTTP + SSE ────────────────────────────
 const SESSION_MSG = 'session expirée — rouvrir le lien d\'accès';
-let sessionIsLost = false;
-function sessionLost() {
+const DENIED_MSG = 'accès refusé : adresse ou origine non admise (voir Réglages › Interface web › Adresse publique)';
+let sessionIsLost = false; // vrai aussi après un refus d'hôte/origine : on ne réessaie plus
+function stopBanner(msg) {
   if (sessionIsLost) return;
   sessionIsLost = true;
   const b = document.createElement('div');
-  b.className = 'lanbanner sessionlost'; b.id = 'sessionlost'; b.textContent = '⚠ ' + SESSION_MSG;
+  b.className = 'lanbanner sessionlost'; b.id = 'sessionlost'; b.textContent = '⚠ ' + msg;
   document.body.insertBefore(b, document.body.firstChild);
 }
+const sessionLost = () => stopBanner(SESSION_MSG);
+const accessDenied = () => stopBanner(DENIED_MSG);
+// défense en profondeur : retirer le jeton d'amorçage (?t=) de la barre d'adresse et de l'historique
+try { const u = new URL(location.href); if (u.searchParams.has('t')) { u.searchParams.delete('t'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); } } catch (e) { /* sans effet */ }
 const transport = (() => {
   const wails = () => window.go && window.go.desktop && window.go.desktop.Bridge;
   return {
@@ -24,7 +29,11 @@ const transport = (() => {
         return r ? JSON.parse(r) : null;
       }
       const res = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args: args || {} }) });
-      if (res.status === 401 || res.status === 403) { sessionLost(); throw new Error(SESSION_MSG); } // session perdue (#171)
+      if (res.status === 401 || res.status === 403) { // session perdue, ou accès refusé (hôte/origine) : corps texte du Go (#171)
+        const body = await res.text().catch(() => '');
+        if (res.status === 403 && /h[ôo]te refus|origine refus/i.test(body)) { accessDenied(); throw new Error(DENIED_MSG); }
+        sessionLost(); throw new Error(SESSION_MSG);
+      }
       const j = await res.json();
       if (j.error) throw new Error(j.error);
       return j.result;
