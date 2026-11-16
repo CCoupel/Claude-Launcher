@@ -3,6 +3,8 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -80,5 +82,40 @@ func TestSettingsEnvKeysPathPerLauncher(t *testing.T) {
 	t.Setenv("CL_HUB_NAME", "pod-a")
 	if p := settingsEnvKeysPath(dir); filepath.Base(p) != "settings-env-pod-a.json" {
 		t.Errorf("avec CL_HUB_NAME : %q", p)
+	}
+}
+
+// Revue M1/M2 : un verrou périmé qui ne peut pas être retiré (dossier sans droit d'écriture) ne fait jamais boucler
+// sans fin : erreur explicite « droits insuffisants », durée bornée par l'échéance.
+func TestStaleLockUnremovableGivesBoundedExplicitError(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("exige un dossier non modifiable (non root, hors Windows)")
+	}
+	oldS, oldT := fileLockStale, fileLockTimeout
+	fileLockStale, fileLockTimeout = 50*time.Millisecond, 300*time.Millisecond
+	defer func() { fileLockStale, fileLockTimeout = oldS, oldT }()
+	dir := t.TempDir()
+	target := filepath.Join(dir, "f.json")
+	lock := target + ".lock"
+	if err := os.WriteFile(lock, []byte("mort\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Minute)
+	_ = os.Chtimes(lock, old, old)
+	if err := os.Chmod(dir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(dir, 0o755)
+	ran := false
+	t0 := time.Now()
+	err := WithFileLock(target, func() error { ran = true; return nil })
+	if err == nil || ran {
+		t.Fatalf("erreur attendue, section exécutée=%v err=%v", ran, err)
+	}
+	if d := time.Since(t0); d > 5*time.Second {
+		t.Errorf("attente non bornée : %v", d)
+	}
+	if !strings.Contains(err.Error(), "droits") {
+		t.Errorf("l'erreur doit dire « droits insuffisants » : %v", err)
 	}
 }

@@ -68,7 +68,7 @@ func AcquirePresence() (release func(), err error) {
 		if reclaims++; reclaims > 4 {
 			return nil, errors.New("témoin de présence illisible : " + p)
 		}
-		reclaimStale(p, presenceStale) // abandonné : repris, un seul gagnant (renommage atomique)
+		_, _ = reclaimStale(p, presenceStale) // abandonné : repris, un seul gagnant (renommage atomique)
 	}
 	stop := make(chan struct{})
 	beat := presenceBeat // lu ici : le goroutine ne touche jamais la variable du paquet (tests qui la changent)

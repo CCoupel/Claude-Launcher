@@ -46,34 +46,35 @@ func lockOwnedBy(path, token string) bool {
 // Plusieurs processus qui constatent le même périmé : un seul le retire ; ceux dont le constat est dépassé (le
 // fichier a été recréé entre-temps) le voient frais sous le verrou de reprise et n'y touchent pas. Rend vrai si le
 // fichier n'est plus là.
-func reclaimStale(path string, stale time.Duration) bool {
+func reclaimStale(path string, stale time.Duration) (bool, error) {
 	guard := path + ".reclaim"
 	token := newLockToken()
 	created, err := createExclusive(guard, []byte(token+"\n"), 0o644)
 	if err != nil {
-		return false
+		return false, err
 	}
 	if !created {
 		if st, serr := os.Stat(guard); serr == nil && time.Since(st.ModTime()) > 10*time.Second {
 			_ = os.Remove(guard) // verrou de reprise d'un processus mort (la section dure des microsecondes)
 		}
-		return false
+		return false, nil
 	}
 	defer func() {
 		if lockOwnedBy(guard, token) {
-			removeRetry(guard)
+			_ = removeRetry(guard)
 		}
 	}()
 	st, err := os.Stat(path)
 	if err != nil {
-		return true // déjà parti
+		return true, nil // déjà parti
 	}
 	if time.Since(st.ModTime()) <= stale {
-		return false // recréé depuis le constat : vivant
+		return false, nil // recréé depuis le constat : vivant
 	}
-	removeRetry(path)
-	_, serr := os.Stat(path)
-	return os.IsNotExist(serr)
+	if rerr := removeRetry(path); rerr != nil {
+		return false, rerr
+	}
+	return true, nil
 }
 
 // WithFileLock exécute fn en tenant le verrou de target. Erreur si le verrou reste pris au-delà de fileLockTimeout.
@@ -86,20 +87,29 @@ func WithFileLock(target string, fn func() error) error {
 	}
 	token := newLockToken()
 	deadline := time.Now().Add(fileLockTimeout)
+	var lastErr error // dernière cause d'échec (accès refusé, suppression impossible) : jointe à l'erreur d'échéance
 	for wait := 2 * time.Millisecond; ; {
 		created, err := createExclusive(lock, []byte(token+" "+LauncherID()+"\n"), 0o644)
 		if err != nil && !lockBusyErr(err) {
-			return err
+			return fmt.Errorf("verrou de %s : création de %s impossible : %w", filepath.Base(target), filepath.Base(lock), err)
+		}
+		if err != nil {
+			lastErr = err
 		}
 		if created {
 			break
 		}
 		if st, serr := os.Stat(lock); serr == nil && time.Since(st.ModTime()) > fileLockStale {
-			reclaimStale(lock, fileLockStale)
-			continue
+			ok, rerr := reclaimStale(lock, fileLockStale)
+			if ok {
+				continue // périmé retiré : nouvelle tentative tout de suite
+			}
+			if rerr != nil {
+				lastErr = rerr
+			}
 		}
 		if time.Now().After(deadline) {
-			return fmt.Errorf("verrou de %s pris depuis plus de %v : un autre launcher écrit ce fichier", filepath.Base(target), fileLockTimeout)
+			return lockTimeoutError(target, lastErr)
 		}
 		time.Sleep(wait)
 		if wait < 40*time.Millisecond {
@@ -108,10 +118,23 @@ func WithFileLock(target string, fn func() error) error {
 	}
 	defer func() {
 		if lockOwnedBy(lock, token) { // jamais le verrou d'un autre (détenteur lent dont le verrou a été repris)
-			removeRetry(lock)
+			_ = removeRetry(lock)
 		}
 	}()
 	return fn()
+}
+
+// lockTimeoutError : échéance du verrou ; distingue « occupé par un autre » de « droits insuffisants » (le verrou
+// périmé ne peut pas être retiré, ou le dossier n'est pas modifiable) en joignant la dernière erreur système.
+func lockTimeoutError(target string, last error) error {
+	name := filepath.Base(target)
+	switch {
+	case last != nil && errors.Is(last, os.ErrPermission):
+		return fmt.Errorf("verrou de %s : droits insuffisants pour le prendre ou retirer un verrou périmé (%w) — vérifier les droits du dossier", name, last)
+	case last != nil:
+		return fmt.Errorf("verrou de %s pris depuis plus de %v, retrait impossible (%w)", name, fileLockTimeout, last)
+	}
+	return fmt.Errorf("verrou de %s pris depuis plus de %v : un autre launcher écrit ce fichier", name, fileLockTimeout)
 }
 
 // lockBusyErr : l'échec de création du verrou veut dire « occupé », pas « impossible ». Sous Windows, un fichier
@@ -123,14 +146,19 @@ func lockBusyErr(err error) bool {
 
 // removeRetry : os.Remove, réessayé brièvement sous Windows (suppression refusée tant qu'un lecteur concurrent tient
 // une poignée sur le fichier : violation de partage passagère).
-func removeRetry(path string) {
+func removeRetry(path string) error {
+	var err error
 	for try := 0; try < 6; try++ {
-		err := os.Remove(path)
-		if err == nil || errors.Is(err, os.ErrNotExist) || runtime.GOOS != "windows" {
-			return
+		err = os.Remove(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if runtime.GOOS != "windows" {
+			return err
 		}
 		time.Sleep(time.Duration(5+try*10) * time.Millisecond)
 	}
+	return err
 }
 
 // WriteFileAtomic : data dans path par fichier temporaire (nom unique) puis renommage — jamais de fichier à moitié écrit,
