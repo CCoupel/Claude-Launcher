@@ -245,7 +245,10 @@ func tplReleased(tag string) bool {
 	if v := os.Getenv("CL_FAKE_TPL_RELEASED"); v != "" {
 		return v == tag
 	}
-	req, _ := http.NewRequest("GET", ApiBase+"/repos/"+TemplateRepo+"/releases/tags/"+tag, nil)
+	req, err := http.NewRequest("GET", ApiBase+"/repos/"+TemplateRepo+"/releases/tags/"+tag, nil)
+	if err != nil {
+		return false
+	}
 	req.Header.Set("Accept", "application/vnd.github+json")
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
@@ -263,6 +266,15 @@ var RawBase = func() string {
 	}
 	return "https://raw.githubusercontent.com"
 }()
+
+// SetRawBase : remplace RawBase sous initMu (tests) — une vérification de mise à jour encore en cours ne lit jamais
+// RawBase pendant qu'il change (course de données, #187) ; rend l'ancienne valeur.
+func SetRawBase(v string) (old string) {
+	initMu.Lock()
+	defer initMu.Unlock()
+	old, RawBase = RawBase, v
+	return old
+}
 
 // InitSynced : init-project.md a été resynchronisé depuis le démarrage. Lu et écrit par des
 // vérifications de mises à jour concurrentes (F5, tour périodique) : seulement par
@@ -303,7 +315,10 @@ func syncInitProject(ref string) bool {
 	initMu.Lock() // un seul téléchargement à la fois : le fichier temporaire est commun
 	defer initMu.Unlock()
 	url := RawBase + "/" + TemplateRepo + "/" + ref + "/init-project.md"
-	req, _ := http.NewRequest("GET", url, nil)
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil { // adresse invalide : pas de synchronisation (jamais de panique sur req nil, #187)
+		return false
+	}
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
 	resp, err := (&http.Client{Timeout: 10 * time.Second}).Do(req)
 	if err != nil {

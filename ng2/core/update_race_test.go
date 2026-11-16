@@ -23,9 +23,10 @@ func TestInitSyncConcurrent(t *testing.T) {
 		_, _ = w.Write([]byte("init-project contenu"))
 	}))
 	defer srv.Close()
-	old, oldSynced := RawBase, InitSynced
-	RawBase, InitSynced = srv.URL, false
-	defer func() { RawBase, InitSynced = old, oldSynced }()
+	old := SetRawBase(srv.URL)
+	oldSynced := InitSynced
+	InitSynced = false
+	defer func() { SetRawBase(old); InitSynced = oldSynced }()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {

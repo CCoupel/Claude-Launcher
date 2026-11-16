@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -313,16 +314,33 @@ func TestWebUIStateLanAndWarn(t *testing.T) {
 	sandbox(t, "", "alpha")
 	var r recorder
 	a := newApp(t, r.emit)
-	p := l4FreePort(t)
-	l4WriteBackends(t, "  desktop_web: { listen: \"0.0.0.0:"+itoa(p)+"\", allow_lan: true }\n")
-	a.applyWebUI()
-	s := l4WaitWebUI(t, a, "on", 5*time.Second)
+	// #187 : un port choisi puis relâché peut être repris par un autre processus avant l'écoute : en cas de
+	// « address already in use », un autre port est tiré (jamais d'échec pour une course sur le port)
+	applyOn := func(listenOf func(p int) string, allow string) map[string]any {
+		t.Helper()
+		for try := 0; try < 8; try++ {
+			l4WriteBackends(t, "  desktop_web: { listen: \""+listenOf(l4FreePort(t))+"\""+allow+" }\n")
+			a.applyWebUI()
+			end := time.Now().Add(5 * time.Second)
+			for time.Now().Before(end) {
+				w := l4WebUIOf(t, a)
+				if w["state"] == "on" {
+					return w
+				}
+				if w["state"] == "error" && strings.Contains(fmt.Sprint(w["msg"]), "address already in use") {
+					break // port repris entre-temps : on en tire un autre
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		t.Fatal("aucune écoute possible après 8 ports")
+		return nil
+	}
+	s := applyOn(func(p int) string { return "0.0.0.0:" + itoa(p) }, ", allow_lan: true")
 	if s["lan"] != true || s["warn"] == "" || s["msg"] != "" {
 		t.Errorf("webUI = %v, attendu lan, warn renseigné, msg vide", s)
 	}
-	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p)+"\" }\n")
-	a.applyWebUI()
-	s = l4WaitWebUI(t, a, "on", 5*time.Second)
+	s = applyOn(func(p int) string { return "127.0.0.1:" + itoa(p) }, "")
 	if s["lan"] == true || s["warn"] != "" {
 		t.Errorf("boucle locale : %v, attendu lan faux, pas d'avertissement", s)
 	}
