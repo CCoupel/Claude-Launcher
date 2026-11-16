@@ -114,6 +114,23 @@
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 7 — Bascule rapide sous Windows (projet k8s), clics rapides, diagnostic de lenteur
+
+**Validation** : HUMAIN — **Issues** : #153 — **Prerequis** : projet en conteneur **k8s** ouvert (onglet) avec une team de 3 teammates ou plus ; `config.conf` sur le partage reseau (cas reel du poste Windows) (equivalents automatises : rafale de clics, `layoutWrites` ≤ 2, dans `ng2/ui/desktop/`)
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Noter l'organisation courante du projet k8s (icone du bouton de bascule). **Un seul clic** sur le bouton, chronometrer jusqu'au changement de disposition des panes | La disposition change en **moins d'une seconde** (la mise en page part **avant** l'ecriture de `config.conf` sur le partage) ; l'icone et l'info-bulle changent aussitot | | |
+| 2 | Attendre 5 s, ouvrir la page du projet (Reglages du projet) | « Mise en page des panes » = le choix du clic (exception enregistree) | | |
+| 3 | **3 clics rapides** (moins d'une seconde d'ecart) : leader en haut → gauche → haut → gauche selon l'etat de depart (noter la valeur du **dernier** clic) | La disposition finale est celle du **dernier clic** ; **aucun retour en arriere** visible (pas de va-et-vient pendant ou apres la rafale), icone du bouton = dernier clic | | |
+| 4 | Attendre 10 s puis fermer et relancer la fenetre native, rouvrir le projet | Le reglage du projet (page du projet et icone) = **dernier clic** ; la disposition rouverte = dernier clic | | |
+| 5 | Refaire une rafale de 5 clics, fermer la fenetre immediatement apres | Au relancement, le reglage est l'un des deux etats (jamais un etat intermediaire illisible) ; `config.conf` valide ; si c'est l'avant-dernier clic, le noter (anomalie mineure) | | |
+| 6 | **En cas de lenteur** (etape 1 > 1 s ou disposition qui hesite) : ouvrir `%LocalAppData%\claude-launcher-ng2\desktop-perf.log` (si `XDG_CACHE_HOME` est defini : `<XDG_CACHE_HOME>\claude-launcher-ng2\desktop-perf.log`) | Journal detaille du launcher (200 lignes au plus, ecrit toutes les 2 s et a l'arret) | | |
+| 7 | Relever les lignes `bascule : …` du projet : **`bascule : avant ecriture`** = delai **visible** par l'utilisateur (mise en page + ressenti), **`bascule : ecriture config.conf`** = duree de l'ecriture sur le partage, **`bascule : total`** = de bout en bout | Les lignes de moins de 20 ms ne sont **pas** notees : leur absence = bascule rapide. Joindre au signalement : les trois valeurs, l'heure, le projet, le type de stockage de `config.conf` (partage reseau, WSL, disque local) | | |
+| 8 | Interpreter | « avant ecriture » > 1 s : lenteur de la mise en page (tmux / reseau vers le pod k8s) ; « ecriture config.conf » eleve mais « avant ecriture » faible : ecriture lente sur le partage, sans effet visible sur la disposition (comportement attendu) | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] « Leader a gauche » : leader ≈ 46 % a gauche sur toute la hauteur, teammates a droite (1 colonne jusqu'a 4, 2 colonnes des 5)
@@ -121,6 +138,7 @@
 - [ ] Pris en compte sans relance ; seuls les panes visibles sont disposes ; lignes de titre (#152) respectees
 - [ ] Option trouvable : boite « Mise en page des panes » en tete de Reglages › Launcher et avant « Execution » dans la page du projet
 - [ ] Bouton de bascule dans la barre d'onglets : bascule le projet actif sans relance, icone = organisation courante, exception enregistree et conservee apres relance, grise sur Teamleaders, sans oscillation de l'onglet Teamleaders
+- [ ] Bascule rapide (projet k8s, Windows) : disposition changee en moins d'une seconde, clics rapides = dernier clic gagne sans retour en arriere, reglage du projet = dernier clic apres relance ; en cas de lenteur, lignes « bascule : … » de `desktop-perf.log` jointes
 - [ ] Le comportement « Leader en haut » (defaut) est inchange par rapport a la v6.1.0
 
 ## Notes QA
