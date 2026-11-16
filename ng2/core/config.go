@@ -106,6 +106,9 @@ func loadConfigAt(path string) Config {
 	} else {
 		cmd := exec.Command("bash", "-c", loadConfigScript, "_", path)
 		cmd.Env = EnvWithout("CLAUDE_CONFIG_DIR") // seule la valeur du fichier compte ici
+		if rb, _ := RootBase(); rb != "" {
+			cmd.Env = append(cmd.Env, RootBaseVar+"="+rb) // racine nettoyée : bash et Go donnent le même chemin (« /r/ » ≡ « /r »)
+		}
 		out, err = cmd.Output()
 	}
 	if err == nil {

@@ -23,7 +23,10 @@ var windowsUnsupported = map[string]bool{"shell": true, "nav": true, "state": tr
 	"mirror": true, "layout-watch": true, "relayout": true, "ctr-attach": true}
 
 func main() {
-	stripRootBaseOption()
+	if err := stripRootBaseOption(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	if err := core.ValidateRootBase(); err != nil { // racine invalide : rien n'est créé nulle part
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
@@ -146,17 +149,24 @@ func startupUpdate(cmd string) bool { return cmd != "desktop" }
 
 // stripRootBaseOption : --root-base <dossier> / --root-base=<dossier>, à n'importe quelle position, est retiré des
 // arguments puis reporté dans CL_ROOT_BASE (toute relance la conserve) ; l'option l'emporte sur la variable.
-func stripRootBaseOption() {
+func stripRootBaseOption() error {
 	var rest []string
 	rest = append(rest, os.Args[0])
 	val, set := "", false
+	missing := fmt.Errorf("--root-base : valeur manquante (un dossier absolu est attendu : --root-base <dossier>)")
 	for i := 1; i < len(os.Args); i++ {
 		a := os.Args[i]
 		switch {
-		case a == "--root-base" && i+1 < len(os.Args):
+		case a == "--root-base":
+			if i+1 >= len(os.Args) || strings.TrimSpace(os.Args[i+1]) == "" {
+				return missing
+			}
 			val, set = os.Args[i+1], true
 			i++
 		case strings.HasPrefix(a, "--root-base="):
+			if strings.TrimSpace(strings.TrimPrefix(a, "--root-base=")) == "" {
+				return missing
+			}
 			val, set = strings.TrimPrefix(a, "--root-base="), true
 		default:
 			rest = append(rest, a)
@@ -166,4 +176,5 @@ func stripRootBaseOption() {
 		os.Args = rest
 		core.SetRootBaseOption(val)
 	}
+	return nil
 }

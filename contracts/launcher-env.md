@@ -29,6 +29,14 @@
 **`config.conf` créé sous `root_base`** (première exécution) : la racine de projets et `CLAUDE_CONFIG_DIR` y sont
 proposés relativement à `root_base` (`<root_base>/PROJETS`, `<root_base>/.claude`), jamais en `$HOME/GITHUB`.
 
+**`CLAUDE_CONFIG_DIR` sous la racine** : sans valeur dans `config.conf` (fichier neuf **ou existant** qui ne le pose
+pas), `CLAUDE_CONFIG_DIR` vaut `<root_base>/.claude` (choix assumé : la configuration de claude suit la racine).
+Une valeur posée dans `config.conf`, ou un `CLAUDE_CONFIG_DIR` déjà défini au lancement, l'emporte. La racine est
+nettoyée (barre oblique finale, `.` et `..` retirés) avant tout usage.
+
+**Option sans valeur** : `--root-base` sans argument, `--root-base=` ou `--root-base ""` est une erreur explicite
+(« --root-base : valeur manquante »), code de sortie non nul, rien créé ; la variable n'est pas effacée en silence.
+
 **Racine invalide** (absente, pas un dossier, illisible) : message d'erreur nommant le chemin et sa source
 (`CL_ROOT_BASE` ou `--root-base`), code de sortie non nul. Aucune configuration n'est créée ailleurs.
 
