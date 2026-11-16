@@ -52,7 +52,7 @@ func TestSecondLauncherSameNameRefused(t *testing.T) {
 		}
 		c := exec.Command(rbBin, "desktop", "--web", "--no-open", "--addr", "127.0.0.1:"+port)
 		c.Env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "CL_CONFIG_DIR="+filepath.Join(tmp, "cfg"),
-			"XDG_DATA_HOME="+rbDataHome(), "CL_CACHE_DIR="+cache, "CL_HUB_NAME="+name, "CL_NO_UPDATE=1", "CL_IN_CLUSTER=0", "TMUX_TMPDIR="+t.TempDir(), "CL_DESKTOP_TOKEN=tokSameName123456789012")
+			"XDG_DATA_HOME="+rbDataHome(), "CL_CACHE_DIR="+cache, "CL_HUB_NAME="+name, "CL_NO_UPDATE=1", "CL_IN_CLUSTER=0", "TMUX_TMPDIR="+rbTmuxDir(t), "CL_DESKTOP_TOKEN=tokSameName123456789012")
 		var se strings.Builder
 		c.Stderr, c.Stdout = &se, &se
 		if err := c.Start(); err != nil {

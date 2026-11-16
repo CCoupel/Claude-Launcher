@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -44,6 +45,21 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// rbKillTmux : arrête tout serveur tmux dont le socket est dans dir (TMUX_TMPDIR d'un appel).
+func rbKillTmux(dir string) {
+	socks, _ := filepath.Glob(filepath.Join(dir, "tmux-*", "*"))
+	for _, sk := range socks {
+		_ = exec.Command("tmux", "-S", sk, "kill-server").Run()
+	}
+}
+
+// rbTmuxDir : dossier de sockets tmux d'un sous-processus de longue durée, tué en fin de test.
+func rbTmuxDir(t *testing.T) string {
+	d, _ := os.MkdirTemp("", "clrb")
+	t.Cleanup(func() { rbKillTmux(d); _ = os.RemoveAll(d) })
+	return d
+}
+
 func rbDataHome() string { return filepath.Join(os.TempDir(), "cl-rootbase-data") }
 
 func rbNeedBinary(t *testing.T) {
@@ -69,13 +85,22 @@ func rbRun(t *testing.T, bin string, home string, extra []string, args ...string
 	}
 	// XDG_DATA_HOME hors du HOME factice : un podman présent (runner de CI) y crée son stockage de conteneurs, aux droits
 	// restreints, que le nettoyage de t.TempDir ne peut pas effacer
-	env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+rbDataHome(), "EDITOR=true", "CL_NO_UPDATE=1")
+	// tout tmux lancé par le binaire (une option inconnue d'une version non encore livrée ouvrait le vrai hub : « nav » et
+	// « state » restaient 3 h) vit dans un dossier de sockets PROPRE à l'appel, tué en fin de test ; le groupe de
+	// processus entier est tué à la fin ou au dépassement du délai
+	tmuxDir, _ := os.MkdirTemp("", "clrb")
+	t.Cleanup(func() { rbKillTmux(tmuxDir); _ = os.RemoveAll(tmuxDir) })
+	env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+rbDataHome(), "TMUX_TMPDIR="+tmuxDir, "EDITOR=true", "CL_NO_UPDATE=1")
 	env = append(env, extra...)
-	c := exec.Command(bin, args...)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	c := exec.CommandContext(ctx, bin, args...)
 	c.Env = env
+	rbOwnGroup(c)
 	var so, se strings.Builder
 	c.Stdout, c.Stderr = &so, &se
 	err := c.Run()
+	rbKillGroup(c) // fils éventuels (nav, state…) du groupe
 	if ee, ok := err.(*exec.ExitError); ok {
 		code = ee.ExitCode()
 	} else if err != nil {
@@ -417,7 +442,7 @@ func TestFullInstallOnFakeRoot(t *testing.T) {
 		t.Fatalf("configure : %d %s %s", code, out, errOut)
 	}
 	port := rbFreePort(t)
-	env := []string{"CL_ROOT_BASE=" + root, "CL_DESKTOP_TOKEN=tokRootBaseInstall12345", "TMUX_TMPDIR=" + t.TempDir(), "XDG_DATA_HOME=" + rbDataHome()}
+	env := []string{"CL_ROOT_BASE=" + root, "CL_DESKTOP_TOKEN=tokRootBaseInstall12345", "TMUX_TMPDIR=" + rbTmuxDir(t), "XDG_DATA_HOME=" + rbDataHome()}
 	var cmdEnv []string
 	for _, kv := range os.Environ() {
 		k := strings.SplitN(kv, "=", 2)[0]
