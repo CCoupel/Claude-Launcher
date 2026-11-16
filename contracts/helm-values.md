@@ -34,7 +34,7 @@
 | `ingress.controller` | `traefik` \| `nginx` | — | **oui** si Ingress | décide de la forme de la liste d'adresses et des annotations |
 | `ingress.className` | chaîne | — | **oui** si Ingress | `ingressClassName` |
 | `ingress.host` | nom DNS | — | **oui** si Ingress | nom interne dédié ; devient `CL_WEB_URL=https://<host>` |
-| `ingress.allowedSourceRanges` | liste de CIDR | — | **oui** si Ingress, **non vide** | seules adresses admises. `0.0.0.0/0` et `::/0` sont refusés |
+| `ingress.allowedSourceRanges` | liste de CIDR | — | **oui** si Ingress, **non vide** | seules adresses admises. Chaque entrée est validée (IPv4 : octets 0–255, masque /8 à /32 ; IPv6 : masque /16 à /128) : tout /0, quelle que soit son écriture, et tout préfixe plus large est refusé |
 | `ingress.tls.secretName` | chaîne | — | l'un des deux | Secret TLS fourni |
 | `ingress.tls.clusterIssuer` | chaîne | — | l'un des deux | émetteur cert-manager ; le Secret est alors `<release>-tls` |
 | `ingress.annotations` | table | `{}` | — | annotations ajoutées |
@@ -49,7 +49,7 @@ Il n'y a **pas** de valeur pour le nombre de répliques : le StatefulSet en a to
 | Objet | Contenu |
 |-------|---------|
 | ServiceAccount | un par release |
-| Role + RoleBinding | limités au namespace : `apps/statefulsets`, `statefulsets/scale` (get, list, watch, create, update, patch, delete) ; `pods` (get, list, watch, delete) ; `pods/exec` (create, get) ; `events`, `persistentvolumeclaims` (get, list). **Aucun ClusterRole** |
+| Role + RoleBinding | limités au namespace, seulement les appels de `core/k8s.go` et `core/close.go` : `apps/statefulsets` (get, list, watch, create, patch, delete) ; `statefulsets/scale` (get, patch, update) ; `pods` (get, list, watch, delete) ; `pods/exec` (create) ; `events` (list) ; `persistentvolumeclaims` (get). **Aucun ClusterRole**. Ces droits équivalent à administrer le namespace : n'y mettre que le launcher et ses projets (QUALIF : namespace à part `claude-ng2-qualif`) |
 | StatefulSet | 1 réplique ; `runAsNonRoot`, `allowPrivilegeEscalation: false`, capacités retirées ; volume `existingClaim` monté à `volume.mountPath` ; `emptyDir` pour `/home/launcher` et `/tmp` ; sondes `httpGet /healthz` (vivant) et `/readyz` (prêt) |
 | Service | `ClusterIP`, port `service.port` |
 | Ingress | si `ingress.enabled` : hôte, TLS, classe ; HTTP redirigé vers HTTPS |

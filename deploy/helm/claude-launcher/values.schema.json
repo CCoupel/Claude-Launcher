@@ -3,23 +3,55 @@
   "title": "claude-launcher — valeurs (contracts/helm-values.md)",
   "type": "object",
   "additionalProperties": false,
-  "required": ["rootBase", "volume"],
+  "required": [
+    "rootBase",
+    "volume"
+  ],
   "properties": {
-    "global": { "type": "object" },
+    "global": {
+      "type": "object"
+    },
     "image": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "repository": { "type": "string", "minLength": 1 },
-        "tag": { "type": "string" },
-        "pullPolicy": { "enum": ["IfNotPresent", "Always", "Never"] }
+        "repository": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tag": {
+          "type": "string"
+        },
+        "pullPolicy": {
+          "enum": [
+            "IfNotPresent",
+            "Always",
+            "Never"
+          ]
+        }
       }
     },
     "imagePullSecrets": {
       "type": "array",
-      "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1 } } }
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     },
-    "nodeSelector": { "type": "object", "additionalProperties": { "type": "string" } },
+    "nodeSelector": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
     "hubName": {
       "type": "string",
       "description": "CL_HUB_NAME : vide = nom de la release",
@@ -28,53 +60,119 @@
     "rootBase": {
       "type": "string",
       "description": "OBLIGATOIRE : CL_ROOT_BASE, chemin absolu",
-      "pattern": "^/.+"
+      "pattern": "^(/[^/]+)+$"
     },
     "volume": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["existingClaim"],
+      "required": [
+        "existingClaim"
+      ],
       "properties": {
-        "existingClaim": { "type": "string", "minLength": 1, "description": "OBLIGATOIRE : PVC RWX existant" },
-        "mountPath": { "type": "string", "pattern": "^(/.*)?$" }
+        "existingClaim": {
+          "type": "string",
+          "minLength": 1,
+          "description": "OBLIGATOIRE : PVC RWX existant"
+        },
+        "mountPath": {
+          "type": "string",
+          "pattern": "^((/[^/]+)+)?$"
+        }
       }
     },
-    "runAsUser": { "type": "integer", "minimum": 1 },
-    "runAsGroup": { "type": "integer", "minimum": 1 },
-    "allowHostBackend": { "type": "boolean" },
+    "runAsUser": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "runAsGroup": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "allowHostBackend": {
+      "type": "boolean"
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "port": { "type": "integer", "minimum": 1, "maximum": 65535 },
-        "type": { "const": "ClusterIP", "description": "seul ClusterIP est admis (NodePort et LoadBalancer refusés)" }
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "type": {
+          "const": "ClusterIP",
+          "description": "seul ClusterIP est admis (NodePort et LoadBalancer refusés)"
+        }
       }
     },
     "ingress": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "enabled": { "type": "boolean" },
-        "controller": { "type": "string" },
-        "className": { "type": "string" },
-        "host": { "type": "string" },
-        "allowedSourceRanges": { "type": "array", "items": { "type": "string" } },
+        "enabled": {
+          "type": "boolean"
+        },
+        "controller": {
+          "type": "string"
+        },
+        "className": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "allowedSourceRanges": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "tls": {
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "secretName": { "type": "string" },
-            "clusterIssuer": { "type": "string" }
+            "secretName": {
+              "type": "string"
+            },
+            "clusterIssuer": {
+              "type": "string"
+            }
           }
         },
-        "annotations": { "type": "object", "additionalProperties": { "type": "string" } }
+        "annotations": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
       },
-      "if": { "properties": { "enabled": { "const": true } } },
-      "then": {
-        "required": ["controller", "className", "host", "allowedSourceRanges", "tls"],
+      "if": {
         "properties": {
-          "controller": { "enum": ["traefik", "nginx"] },
-          "className": { "type": "string", "minLength": 1 },
+          "enabled": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "controller",
+          "className",
+          "host",
+          "allowedSourceRanges",
+          "tls"
+        ],
+        "properties": {
+          "controller": {
+            "enum": [
+              "traefik",
+              "nginx"
+            ]
+          },
+          "className": {
+            "type": "string",
+            "minLength": 1
+          },
           "host": {
             "type": "string",
             "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$"
@@ -85,23 +183,62 @@
             "items": {
               "type": "string",
               "pattern": "^([0-9]{1,3}(\\.[0-9]{1,3}){3}/[0-9]{1,2}|[0-9a-fA-F:]+/[0-9]{1,3})$",
-              "not": { "enum": ["0.0.0.0/0", "::/0"] }
+              "not": {
+                "enum": [
+                  "0.0.0.0/0",
+                  "::/0"
+                ]
+              }
             }
           },
           "tls": {
             "anyOf": [
-              { "required": ["secretName"], "properties": { "secretName": { "minLength": 1 } } },
-              { "required": ["clusterIssuer"], "properties": { "clusterIssuer": { "minLength": 1 } } }
+              {
+                "required": [
+                  "secretName"
+                ],
+                "properties": {
+                  "secretName": {
+                    "minLength": 1
+                  }
+                }
+              },
+              {
+                "required": [
+                  "clusterIssuer"
+                ],
+                "properties": {
+                  "clusterIssuer": {
+                    "minLength": 1
+                  }
+                }
+              }
             ]
           }
         }
       }
     },
-    "resources": { "type": "object" },
+    "resources": {
+      "type": "object"
+    },
     "extraEnv": {
       "type": "array",
-      "items": { "type": "object", "required": ["name"], "properties": { "name": { "type": "string", "minLength": 1 } } }
+      "items": {
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
     },
-    "terminationGracePeriodSeconds": { "type": "integer", "minimum": 0 }
+    "terminationGracePeriodSeconds": {
+      "type": "integer",
+      "minimum": 0
+    }
   }
 }

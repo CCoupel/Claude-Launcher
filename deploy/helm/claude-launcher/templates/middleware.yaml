@@ -1,5 +1,9 @@
 {{- if and .Values.ingress.enabled (eq .Values.ingress.controller "traefik") }}
-# Traefik : seules les adresses de ingress.allowedSourceRanges atteignent le launcher
+# Traefik : seules les adresses de ingress.allowedSourceRanges atteignent le launcher.
+# Sans ipStrategy (choix délibéré) : Traefik compare l'adresse distante de la connexion TCP, jamais
+# X-Forwarded-For (falsifiable par le client). Prérequis : le Service de Traefik doit conserver l'adresse
+# source (externalTrafficPolicy: Local), sinon toutes les requêtes semblent venir d'un nœud — à vérifier
+# par le test négatif de la procédure QUALIF (deploy.qualif.md).
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
 metadata:

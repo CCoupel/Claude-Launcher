@@ -1,9 +1,11 @@
-# QUALIF du launcher du cluster (namespace claude-ng2, release « claude-launcher-qualif »).
-# Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/QUALIF/.
-#   helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-ng2 \
+# QUALIF du launcher du cluster : namespace À PART claude-ng2-qualif (décision H1 : le Role du launcher
+# administre son namespace, la QUALIF ne doit pas toucher aux pods de projets de la PROD dans claude-ng2),
+# release « claude-launcher-qualif ». Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/QUALIF/.
+#   helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-ng2-qualif \
 #     -f deploy/helm/values-qualif.yaml --set image.tag=vX.Y.Z.a
 
-# image candidate : registre interne sur srv1-docker (décision D2, jamais ghcr) ; tag donné à l'installation
+# image candidate : registre interne sur srv1-docker (décision D2, jamais ghcr) ; tag donné à l'installation.
+# Risque accepté (H2) : image désignée par tag, sans digest (réseau interne de confiance).
 image:
   repository: 192.168.1.211:5000/claude-launcher
   pullPolicy: IfNotPresent
@@ -15,7 +17,7 @@ hubName: cluster-qualif
 # de la procédure de QUALIF (sauvegarde avant, projets factices seulement, désinstallation dès validation)
 rootBase: /share/MFS/ROOT/CLAUDE_PROJETS
 volume:
-  existingClaim: claude-projets
+  existingClaim: claude-projets           # PVC du namespace claude-ng2-qualif, même stockage MooseFS (fiche admin)
   mountPath: /share/MFS/ROOT/CLAUDE_PROJETS
 
 ingress:

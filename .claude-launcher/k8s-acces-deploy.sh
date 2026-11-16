@@ -1,15 +1,17 @@
 #!/bin/bash
-# Compte de déploiement « ng2-deploy » : installe et met à jour le chart Helm du launcher du cluster
-# (deploy/helm/claude-launcher, contrats/helm-values.md) dans le namespace claude-ng2, pour QUALIF et PROD.
+# Comptes de déploiement « ng2-deploy » : installent et mettent à jour le chart Helm du launcher du cluster
+# (deploy/helm/claude-launcher, contracts/helm-values.md). Un compte PAR NAMESPACE (décision H1, LOT-4.2) :
+#   QUALIF → namespace claude-ng2-qualif      PROD → namespace claude-ng2
 #
 # À lancer UNE FOIS par l'administrateur, depuis une machine qui a déjà un accès administrateur au
 # cluster (WSL), à la racine du projet :   bash .claude-launcher/k8s-acces-deploy.sh
+# Prérequis : les deux namespaces existent (fiche administrateur : création, PVC, labels Pod Security).
 #
-# Crée dans claude-ng2 :
-#   - le compte de service ng2-deploy et son Role, limité au namespace (aucun droit sur un autre namespace,
-#     aucun ClusterRole en écriture) ;
-#   - un jeton par environnement (Secrets ng2-deploy-qualif-token et ng2-deploy-prod-token) : chacun se
-#     révoque seul, sans toucher à l'autre ;
+# Crée dans chaque namespace :
+#   - le compte de service ng2-deploy et son Role, limité à ce namespace (aucun droit sur l'autre :
+#     le compte de QUALIF ne peut rien faire à la PROD) ;
+#   - son jeton (Secret ng2-deploy-<env>-token) ;
+#   - la lecture de ce seul namespace (ClusterRole ng2-deploy-namespace-<env>, resourceNames).
 # puis écrit un kubeconfig par environnement dans le dossier privé du projet (jamais commité) :
 #   PRIVATE/QUALIF/ng2-deploy.kubeconfig   PRIVATE/PROD/ng2-deploy.kubeconfig
 #
@@ -17,18 +19,21 @@
 # Middleware Traefik, Certificate cert-manager), les Secrets (Helm y stocke l'état des releases, et le
 # Secret TLS d'un certificat fourni), plus — règle d'escalade de Kubernetes — tous les droits que le Role
 # du chart accorde au launcher (un compte ne peut accorder que ce qu'il possède : pas de « escalate »/« bind »).
-# Ni PVC (le chart utilise le PVC existant), ni NetworkPolicy, ni ClusterRole.
+# Ni PVC (le chart utilise le PVC existant), ni NetworkPolicy, ni ClusterRole en écriture.
 #
 # Variables : CTX (contexte admin, défaut k8s), SERVER (URL de l'API écrite dans le kubeconfig, défaut
-# l'adresse interne au cluster, celle des pods de développement), ENVS (défaut « QUALIF PROD »).
+# l'adresse interne au cluster, celle des pods de développement), ENVS (défaut « QUALIF PROD »),
+# NS_QUALIF (défaut claude-ng2-qualif), NS_PROD (défaut claude-ng2).
 #
 # Révoquer un environnement :  kubectl --context k8s -n claude-ng2 delete secret ng2-deploy-prod-token
-# Tout retirer :               kubectl --context k8s -n claude-ng2 delete sa/ng2-deploy role/ng2-deploy rolebinding/ng2-deploy \
-#                                secret/ng2-deploy-qualif-token secret/ng2-deploy-prod-token ;
-#                              kubectl --context k8s delete clusterrole/ng2-deploy-namespace clusterrolebinding/ng2-deploy-namespace
+# Tout retirer (par environnement, ici PROD) :
+#   kubectl --context k8s -n claude-ng2 delete sa/ng2-deploy role/ng2-deploy rolebinding/ng2-deploy secret/ng2-deploy-prod-token
+#   kubectl --context k8s delete clusterrole/ng2-deploy-namespace-prod clusterrolebinding/ng2-deploy-namespace-prod
 set -euo pipefail
 CTX=${CTX:-k8s}
-NS=claude-ng2
+NS_QUALIF=${NS_QUALIF:-claude-ng2-qualif}
+NS_PROD=${NS_PROD:-claude-ng2}
+ns_of() { case "$1" in QUALIF) echo "$NS_QUALIF" ;; PROD) echo "$NS_PROD" ;; *) echo "⚠ environnement inconnu : $1 (QUALIF ou PROD)" >&2; exit 1 ;; esac; }
 SERVER=${SERVER:-https://kubernetes.default.svc}
 ENVS=${ENVS:-QUALIF PROD}
 PRIVATE_DIR="$(cd "$(dirname "$0")/.." && pwd)/PRIVATE"
@@ -36,7 +41,12 @@ K="kubectl --context $CTX"
 
 [ -d "$PRIVATE_DIR" ] || { echo "⚠ $PRIVATE_DIR introuvable : lancer depuis le checkout principal du projet"; exit 1; }
 
-$K apply -f - <<EOF
+
+for ENV in $ENVS; do
+  env=$(echo "$ENV" | tr '[:upper:]' '[:lower:]')
+  NS=$(ns_of "$ENV")
+  $K get namespace "$NS" >/dev/null || { echo "⚠ namespace $NS absent : le créer d'abord (fiche administrateur)"; exit 1; }
+  $K apply -f - <<EOF
 apiVersion: v1
 kind: ServiceAccount
 metadata: {name: ng2-deploy, namespace: $NS}
@@ -82,10 +92,10 @@ metadata: {name: ng2-deploy, namespace: $NS}
 subjects: [{kind: ServiceAccount, name: ng2-deploy, namespace: $NS}]
 roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: ng2-deploy}
 ---
-# lecture du namespace claude-ng2 seulement (diagnostic, sondes d'accès)
+# lecture de ce seul namespace (diagnostic, sondes d'accès)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
-metadata: {name: ng2-deploy-namespace}
+metadata: {name: ng2-deploy-namespace-$env}
 rules:
   - apiGroups: [""]
     resources: [namespaces]
@@ -94,13 +104,10 @@ rules:
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
-metadata: {name: ng2-deploy-namespace}
+metadata: {name: ng2-deploy-namespace-$env}
 subjects: [{kind: ServiceAccount, name: ng2-deploy, namespace: $NS}]
-roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: ng2-deploy-namespace}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: ng2-deploy-namespace-$env}
 EOF
-
-for ENV in $ENVS; do
-  env=$(echo "$ENV" | tr '[:upper:]' '[:lower:]')
   SECRET=ng2-deploy-$env-token
   OUT=$PRIVATE_DIR/$ENV/ng2-deploy.kubeconfig
   $K apply -f - <<EOF
@@ -144,6 +151,6 @@ EOF
   ls -l "$OUT"
 done
 
-echo "✓ compte ng2-deploy prêt (namespace $NS, serveur $SERVER) — kubeconfig : $(for e in $ENVS; do printf 'PRIVATE/%s/ng2-deploy.kubeconfig ' "$e"; done)"
+echo "✓ comptes ng2-deploy prêts ($(for e in $ENVS; do printf '%s → %s ' "$e" "$(ns_of "$e")"; done), serveur $SERVER) — kubeconfig : $(for e in $ENVS; do printf 'PRIVATE/%s/ng2-deploy.kubeconfig ' "$e"; done)"
 echo "  Vérification (depuis le pod du projet) :"
-echo "    KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig kubectl auth can-i create ingresses -n $NS"
+echo "    KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig kubectl auth can-i create ingresses -n $NS_QUALIF"

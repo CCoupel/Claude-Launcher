@@ -1,4 +1,4 @@
-{{- $root := .Values.rootBase | trimSuffix "/" -}}
+{{- $root := .Values.rootBase -}}
 {{- $hub := include "cl.hubName" . -}}
 {{- $mount := include "cl.mountPath" . -}}
 apiVersion: apps/v1
@@ -49,6 +49,8 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false
+            # écritures : /home/launcher et /tmp (emptyDir), la racine partagée (PVC) — rien d'autre
+            readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
           ports:
@@ -86,9 +88,14 @@ spec:
               mountPath: /home/launcher
             - name: tmp
               mountPath: /tmp
+          # démarrage (lecture de la racine sur MooseFS) : jusqu'à 2 min avant que la sonde de vie prenne le relais
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60
           livenessProbe:
             httpGet: {path: /healthz, port: http}
-            initialDelaySeconds: 5
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3

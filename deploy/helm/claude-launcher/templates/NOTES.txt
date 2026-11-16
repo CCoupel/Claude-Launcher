@@ -7,8 +7,9 @@ Adresse : https://{{ .Values.ingress.host }}  (adresses admises : {{ join ", " .
 Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ include "cl.fullname" . }} 8080:8080
 {{- end }}
 
-URL d'amorçage (jeton) : dans le journal du pod au démarrage
-  kubectl -n {{ .Release.Namespace }} logs statefulset/{{ include "cl.fullname" . }} | grep 'interface web'
+URL d'amorçage : https://{{ .Values.ingress.host | default "<hôte>" }}/?t=<jeton> — le jeton n'est pas écrit dans le journal ;
+il est dans le dossier d'état du launcher, sur le volume partagé :
+  kubectl -n {{ .Release.Namespace }} exec statefulset/{{ include "cl.fullname" . }} -- cat {{ printf "%s/.cache/claude-launcher-ng2/%s" .Values.rootBase (include "cl.hubName" .) }}/desktop-web-token
 
 État : kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "cl.fullname" . }}
 Mise à jour : changer image.tag (l'ancien pod s'arrête avant le démarrage du nouveau).
