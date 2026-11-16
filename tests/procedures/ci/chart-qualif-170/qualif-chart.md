@@ -11,6 +11,8 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 - [ ] Environnement : QUALIF — **namespace `claude-ng2-qualif`** (separe de la PROD `claude-ng2`, decision H1), label Pod Security `pod-security.kubernetes.io/enforce: baseline` sur les deux namespaces (verifier que les pods de projets le respectent)
 - [ ] Donnees : release `claude-launcher-qualif` installee avec `values-qualif.yaml` (ClusterIssuer interne **renseigne** : la valeur `a-renseigner` est refusee), image candidate `image.tag=vX.Y.Z.a` (tag sans digest : risque accepte H2, reseau interne de confiance)
 - [ ] Acces : un poste dans `192.168.1.0/24`, un poste **hors** de cette plage (ou une IP source simulee), un pod du cluster, `kubectl -n claude-ng2-qualif`
+- [ ] **Pod Security Admission `baseline` pose sur les DEUX namespaces** (`claude-ng2` et `claude-ng2-qualif`) : `kubectl get ns claude-ng2 claude-ng2-qualif --show-labels` montre `pod-security.kubernetes.io/enforce=baseline`
+- [ ] **ClusterIssuer reel renseigne** dans `ingress.tls.clusterIssuer` (`kubectl get clusterissuer`) : la valeur d'attente `a-renseigner` est refusee par le chart
 - [ ] Racine reelle de QUALIF : projets factices dedies seulement, sauvegarde avant, controle apres (decision C1)
 
 ## Scenarios
@@ -74,11 +76,27 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 5 — Apres la QUALIF : regenerer le jeton du launcher PROD (R1)
+
+**Validation** : HUMAIN — **Issues** : #170, #171 — **A faire obligatoirement a la fin de la QUALIF**
+
+**Objectif** : QUALIF et PROD montent le **meme dossier MooseFS** (racine reelle, decision C1). Le pod QUALIF peut donc lire le jeton du launcher de PROD (`<racine>/.cache/claude-launcher-ng2/cluster/desktop-web-token`). Ce jeton doit etre renouvele des la fin de la QUALIF.
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Desinstaller la QUALIF (`helm uninstall … -n claude-ng2-qualif`) | Objets retires ; PVC et racine intacts | | |
+| 2 | Dans le launcher de **PROD** : Reglages > Ce poste > Interface web > **Regenerer le jeton** (ou supprimer `<racine>/.cache/claude-launcher-ng2/cluster/desktop-web-token` puis `kubectl -n claude-ng2 rollout restart statefulset/<release PROD>`) | Nouveau jeton ; sessions et anciens liens du jeton precedent invalides | | |
+| 3 | Ouvrir l'ancien lien d'acces PROD (jeton precedent) | `403` (refuse) | | |
+| 4 | Relire le nouveau jeton (`kubectl exec … cat …/desktop-web-token`) et ouvrir le lien | Interface PROD accessible avec le nouveau jeton seulement | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] Hors de la plage : toujours `403`, y compris depuis un pod et avec un `X-Forwarded-For` forge
 - [ ] Namespace QUALIF separe, droits du ServiceAccount limites a ce namespace
 - [ ] Desinstallation sans effet sur le PVC, les projets et la racine
+- [ ] Jeton du launcher PROD regenere apres la QUALIF (meme dossier de stockage que la QUALIF)
 
 ## Notes QA
 
