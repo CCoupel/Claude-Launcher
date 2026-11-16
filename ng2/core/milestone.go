@@ -344,7 +344,9 @@ func ghFail(ctx context.Context, err error, stderr []byte, args []string, dir st
 	case errors.Is(err, exec.ErrNotFound):
 		return &GHError{GHAbsent, "gh (GitHub CLI) introuvable sur ce poste : l'installer pour lire les milestones"}
 	case ctx.Err() == context.DeadlineExceeded:
-		return &GHError{GHTimeout, cmd + " : pas de réponse en 20 s"}
+		return &GHError{GHTimeout, cmd + " : pas de réponse en 20 s" + NetBlockedHint()}
+	case NetworkErrorText(low):
+		return &GHError{GHOther, "GitHub injoignable (" + say + ")" + NetBlockedHint()}
 	case strings.Contains(low, "gh auth login") || strings.Contains(low, "bad credentials") ||
 		strings.Contains(low, "http 401") || strings.Contains(low, "authentication") || strings.Contains(low, "gh_token"):
 		return &GHError{GHAuth, "gh non connecté ou jeton refusé (" + say + ") : GITHUB_TOKEN ou gh auth login"}

@@ -295,7 +295,7 @@ func FetchUsage(refreshSec int) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
-		fail("endpoint indisponible")
+		fail("endpoint indisponible" + NetBlockedHint())
 		return
 	}
 	defer resp.Body.Close()

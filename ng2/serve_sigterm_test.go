@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"testing"
 	"time"
@@ -32,8 +33,8 @@ func TestDesktopWebStopsOnSIGTERMAndKeepsTokenInCluster(t *testing.T) {
 		c := exec.Command(bin, "desktop", "--web", "--no-open", "--addr", "127.0.0.1:"+port)
 		c.Env = append(env, "HOME="+home, "CL_CONFIG_DIR="+filepath.Join(tmp, "cfg"), "CL_CACHE_DIR="+cache, "CL_NO_UPDATE=1",
 			"CL_IN_CLUSTER="+inCluster, "TMUX_TMPDIR="+t.TempDir())
-		var out strings.Builder
-		c.Stdout, c.Stderr = &out, &out
+		out := &lockedBuf{}
+		c.Stdout, c.Stderr = out, out
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
@@ -83,3 +84,16 @@ func TestDesktopWebStopsOnSIGTERMAndKeepsTokenInCluster(t *testing.T) {
 		t.Errorf("hors cluster le jeton doit être nouveau : %q (précédent %q)", t3, t1)
 	}
 }
+
+// lockedBuf : sortie d'un sous-processus lue pendant qu'il écrit (stdout et stderr y vont ensemble).
+type lockedBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *lockedBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+func (l *lockedBuf) String() string { l.mu.Lock(); defer l.mu.Unlock(); return l.b.String() }

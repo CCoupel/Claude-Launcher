@@ -90,3 +90,22 @@ func ParseK8sVolumes(s string) map[string]string {
 	}
 	return out
 }
+
+// NetworkErrorText : le texte d'erreur d'un outil dit que le réseau est inaccessible (résolution, connexion, délai).
+func NetworkErrorText(low string) bool {
+	for _, k := range []string{"no such host", "dial tcp", "connection refused", "network is unreachable", "i/o timeout",
+		"could not resolve host", "connection timed out", "tls handshake timeout", "temporary failure in name resolution"} {
+		if strings.Contains(low, k) {
+			return true
+		}
+	}
+	return false
+}
+
+// NetBlockedHint : dans un pod, une sortie réseau coupée est la première cause d'un service « injoignable » (#175).
+func NetBlockedHint() string {
+	if !InCluster() {
+		return ""
+	}
+	return " — les sorties réseau du pod vers claude.ai et GitHub sont-elles autorisées ? (NetworkPolicy, proxy, DNS du cluster)"
+}

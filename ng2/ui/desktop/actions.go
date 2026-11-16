@@ -502,6 +502,9 @@ func (a *App) login() error {
 	}
 	path, err := exec.LookPath(bin)
 	if err != nil {
+		if core.InCluster() { // le pod du launcher n'embarque pas claude : la connexion se fait dans un projet ouvert (#175)
+			return fmt.Errorf("connexion claude.ai : le pod du launcher n'a pas claude — ouvrir un projet, lancer /login dans son leader (la connexion est partagée par la config de claude commune), puis revenir ici")
+		}
 		return fmt.Errorf("claude introuvable sur ce poste : lancer /login dans le leader d'un projet ouvert")
 	}
 	key := "login:"
