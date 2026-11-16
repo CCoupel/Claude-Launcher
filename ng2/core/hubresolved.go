@@ -111,6 +111,9 @@ func ApplyHubChangesFor(content []byte, host, goos string, changes []ConfigChang
 	if err != nil {
 		return nil, err
 	}
+	if len(routed) == 0 && len(changes) > 0 {
+		return content, nil // rien à écrire (ex. retrait d'un champ qui ne vient que de defaults) : fichier intact
+	}
 	return ApplyHubChanges(content, host, routed)
 }
 
@@ -126,7 +129,7 @@ func routeHubChanges(content []byte, host, goos string, changes []ConfigChange) 
 		ov = h.osBlock(os)
 	}
 	if ov == nil {
-		return changes, nil
+		ov = &hubOSConf{} // sans surcharge : même filtrage (un champ qu'aucune couche éditable ne pose n'est pas retiré)
 	}
 	// champs définis par la surcharge et par la couche commune
 	has := func(key, field string, o bool) bool {
