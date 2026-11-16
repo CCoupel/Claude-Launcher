@@ -547,6 +547,7 @@ function stPageDefaults(p) {
 // hubs.<machine> de backends.yaml) et écrits par configApply, chacun avec son
 // brouillon, sa date, son résultat : même comportement que backends.yaml.
 const DOCS = { conf: { kind: 'config.conf', pages: ['launcher'] }, env: { kind: 'env.yaml', pages: ['conteneurs'] }, hub: { kind: 'hub', pages: ['poste', 'maquettes', 'web'] } };
+const HUB_EFF = ['browser_paths', 'browser_server', 'browser_device', 'desktop_web']; // clés des rubriques « Serveur de maquettes » / « Interface web »
 const docOfPage = () => Object.keys(DOCS).find((k) => DOCS[k].pages.includes(ST.page)) || '';
 
 function docDraftOf(id, m) {
@@ -557,7 +558,9 @@ function docDraftOf(id, m) {
   } else if (id === 'env') {
     d.txt = { packages: (m.packages || []).join('\n'), setup: (m.setup || []).join('\n'), on_start: (m.on_start || []).join('\n'), pbm: pjPbmText(m.packages_by_manager) };
   } else {
-    const s = m.settings || {};
+    // valeur EFFECTIVE de ce poste : pour une clé surchargée par système, la couche de la surcharge (#183)
+    const s = Object.assign({}, m.settings || {});
+    for (const k of HUB_EFF) { const os = (m.effective || {})[k]; if (os && m.overrides && m.overrides[os]) s[k] = m.overrides[os].settings[k]; }
     d.txt = {
       paths: (s.paths || []).map((x) => x.local + ' => ' + x.remote).join('\n'),
       browser_paths: (s.browser_paths || []).map((x) => x.container + ' => ' + x.host + (x.os ? ' | ' + x.os : '')).join('\n'),
@@ -627,18 +630,26 @@ function docChanges(id) {
     const pa = (t) => stLines(t).map((l) => { const [a, b] = l.split('=>'); return { local: (a || '').trim(), remote: (b || '').trim() }; });
     const bp = (t) => stLines(t).map((l) => { const [a, rest] = l.split('=>'); const [h, os] = (rest || '').split('|'); const r = { container: (a || '').trim(), host: (h || '').trim() }; if (os && os.trim()) r.os = os.trim(); return r; });
     put(['paths'], pa(d.txt.paths), pa(o.txt.paths), !pa(d.txt.paths).length);
-    put(['browser_paths'], bp(d.txt.browser_paths), bp(o.txt.browser_paths), !bp(d.txt.browser_paths).length);
+    // écrire dans la couche qui s'applique : sous la surcharge du système quand elle redéfinit la clé, jamais dans une valeur masquée
+    const eff = D.model.effective || {};
+    const at = (k) => (eff[k] ? [eff[k], k] : [k]);
+    const putE = (k, nv, ov, empty) => {
+      if (JSON.stringify(nv) === JSON.stringify(ov)) return;
+      ch.push(empty && !eff[k] ? { op: 'delete', at: at(k) } : { op: 'set', at: at(k), value: nv });
+    };
+    putE('browser_paths', bp(d.txt.browser_paths), bp(o.txt.browser_paths), !bp(d.txt.browser_paths).length);
     // objets entiers : le Go fusionne clé à clé et retire les clés vides ou absentes ; delete seulement si le fichier avait des clés
     const str = (v) => (v.trim() ? v.trim() : undefined), num = (v) => (v === '' ? undefined : Number(v));
     const clean = (o2) => { const r = {}; for (const k of Object.keys(o2)) if (o2[k] !== undefined) r[k] = o2[k]; return r; };
     const al = (t) => { const a = stLines(t); return a.length ? a : undefined; };
     const bsv = (D2) => clean({ listen: str(D2.f.listen), url: str(D2.f.url), allow: al(D2.txt.allow) });
     const ruv = (f) => clean({ uid: num(f.uid), gid: num(f.gid), name: str(f.name), home: str(f.home) });
-    put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
+    putE('browser_server', bsv(d), bsv(o), !Object.keys(bsv(d)).length);
     const dwv = (D2) => clean({ enabled: D2.f.dweb_en == null ? undefined : D2.f.dweb_en, listen: str(D2.f.dweb || ''), allow_lan: D2.f.dweb_lan ? true : undefined, url: str(D2.f.dweb_url || '') });
-    put(['desktop_web'], dwv(d), dwv(o), !Object.keys(dwv(d)).length);
+    putE('desktop_web', dwv(d), dwv(o), !Object.keys(dwv(d)).length);
     put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
-    for (const k of ['hub_cache', 'browser_device']) put([k], d.f[k].trim(), o.f[k].trim(), !d.f[k].trim());
+    put(['hub_cache'], d.f.hub_cache.trim(), o.f.hub_cache.trim(), !d.f.hub_cache.trim());
+    putE('browser_device', d.f.browser_device.trim(), o.f.browser_device.trim(), !d.f.browser_device.trim());
   }
   return ch;
 }
@@ -869,7 +880,7 @@ async function dwRegen() {
 }
 
 // surcharges propres au système : indication par clé (même règle que « Ce poste »)
-const hubOv = (m) => { const eff = m.effective || {}; return { eff, hint: (k) => (eff[k] ? '⚠ surchargé par le système ' + eff[k] : '') }; };
+const hubOv = (m) => { const eff = m.effective || {}; return { eff, hint: (k) => (eff[k] ? '⚠ surchargé pour ' + eff[k] + ' : cette valeur est celle de la surcharge, modifiée à cet endroit' : '') }; };
 
 function stPageWeb(p) {
   const D0 = ST.docs.hub;
@@ -931,7 +942,7 @@ function stPageHub(p) {
   docPage(p, 'hub', title, 'Réglages propres à cette machine. Les autres postes ne sont pas touchés.', (D) => {
     const m = D.model, d = D.d, t = d.txt, f = d.f;
     if (!m.present) p.appendChild(el('p', 'note', 'Aucune section pour ce poste dans backends.yaml : elle sera créée à l\'enregistrement.'));
-    const eff = m.effective || {}, over = Object.keys(eff).filter((k) => eff[k]);
+    const eff = m.effective || {}, over = Object.keys(eff).filter((k) => eff[k] && !HUB_EFF.includes(k));
     if (over.length) p.appendChild(el('p', 't-yellow', '⚠ Surcharges propres au système (' + m.goos + ') : ' + over.map((k) => k + ' (' + eff[k] + ')').join(', ') + ' — la valeur commune ci-dessous est ignorée sur ce poste pour ces clés ; la surcharge se modifie par « Éditer en YAML ».'));
     const ovHint = (k) => (eff[k] ? '⚠ surchargé par le système ' + eff[k] : '');
     // affichage
