@@ -37,6 +37,11 @@ nettoyée (barre oblique finale, `.` et `..` retirés) avant tout usage.
 **Option sans valeur** : `--root-base` sans argument, `--root-base=` ou `--root-base ""` est une erreur explicite
 (« --root-base : valeur manquante »), code de sortie non nul, rien créé ; la variable n'est pas effacée en silence.
 
+**Création au démarrage de `desktop`** : avec une racine de base posée, `desktop` (fenêtre et `--web`, pod compris)
+crée `config.conf` sous la racine dès le premier lancement (création exclusive : aucun écrasement d'un fichier existant ni
+d'un fichier créé au même instant par un autre launcher). Sans racine de base : comportement de la v6.2.0
+(le fichier est créé par la coque tmux ou par `configure`).
+
 **Racine invalide** (absente, pas un dossier, illisible) : message d'erreur nommant le chemin et sa source
 (`CL_ROOT_BASE` ou `--root-base`), code de sortie non nul. Aucune configuration n'est créée ailleurs.
 

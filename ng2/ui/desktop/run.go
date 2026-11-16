@@ -50,18 +50,18 @@ func Run(args []string) error {
 		return perr
 	}
 	defer release()
+	// racine de base posée (fenêtre ou --web, pod compris) : config.conf est créé sous la racine dès le premier lancement,
+	// en création exclusive (aucun écrasement), avec les chemins relatifs à la racine (#165). Sans racine : v6.2.0.
+	if rb, _ := core.RootBase(); rb != "" {
+		if _, err := core.EnsureConfig(); err != nil {
+			fmt.Fprintln(os.Stderr, "⚠ configuration non créée :", err)
+		}
+	}
 	if !web && !wailsAvailable {
 		fmt.Fprintln(os.Stderr, "interface native non compilée dans ce binaire (balise wails) : interface web")
 		web = true
 	}
 	if web {
-		// serveur sur une racine de base ou dans un pod : la configuration y est créée dès le démarrage (première
-		// exécution, #165) — sans elle le premier enregistrement des Réglages tomberait sur un fichier absent
-		if rb, _ := core.RootBase(); rb != "" || core.InCluster() {
-			if _, err := core.EnsureConfig(); err != nil {
-				fmt.Fprintln(os.Stderr, "⚠ configuration non créée :", err)
-			}
-		}
 		if s, err := core.DesktopWebSetting(); !addrSet && err == nil && !s.Off { // --addr l'emporte ; sinon desktop_web.listen s'il est fixé
 			addr = s.Listen
 		}
