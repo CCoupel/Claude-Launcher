@@ -252,3 +252,80 @@ func TestStaleOwnerIsNotAForeignPilot(t *testing.T) {
 		t.Errorf("prise de propriété libre : %+v", o)
 	}
 }
+
+const twAltEnv = "TW_ALT_HELPER"
+
+// Sous-processus d'aide : alterne deux jeux de variables A et B sur le settings.json partagé.
+func TestSettingsAltHelperProcess(t *testing.T) {
+	who := os.Getenv(twAltEnv)
+	if who == "" {
+		t.Skip("sous-processus d'aide")
+	}
+	dir := os.Getenv("TW_SETTINGS_DIR")
+	set := func(p string) []envVar {
+		var v []envVar
+		for i := 0; i < 5; i++ {
+			v = append(v, envVar{fmt.Sprintf("TW_%s%d", p, i), p + "-val"})
+		}
+		return v
+	}
+	for i := 0; i < 40; i++ {
+		p := "A"
+		if (i+len(who))%2 == 1 {
+			p = "B"
+		}
+		if err := SyncSettingsEnv(dir, set(p)); err != nil {
+			t.Fatalf("SyncSettingsEnv : %v", err)
+		}
+	}
+}
+
+// Deux jeux de variables alternés par plusieurs processus : l'état final est le jeu A complet OU le jeu B complet
+// (jamais un mélange), le JSON est valide, les clés racine de l'utilisateur sont intactes (sensible au verrou).
+func TestConcurrentSettingsEnvAlternatingSetsEndComplete(t *testing.T) {
+	unixOnly(t)
+	dir := filepath.Join(t.TempDir(), "claude")
+	_ = os.MkdirAll(dir, 0o755)
+	path := filepath.Join(dir, "settings.json")
+	_ = os.WriteFile(path, []byte(`{"permissions":{"allow":["Bash(ls)"]}}`), 0o644)
+	var wg sync.WaitGroup
+	var fail atomic.Value
+	for _, who := range []string{"a", "bb", "ccc", "dddd"} {
+		wg.Add(1)
+		go func(who string) {
+			defer wg.Done()
+			c := exec.Command(os.Args[0], "-test.run=^TestSettingsAltHelperProcess$", "-test.count=1")
+			c.Env = append(os.Environ(), twAltEnv+"="+who, "TW_SETTINGS_DIR="+dir, "HOME="+dir, "XDG_CACHE_HOME="+dir, "CL_CONFIG_DIR="+dir, "CL_IN_CLUSTER=0")
+			if b, err := c.CombinedOutput(); err != nil {
+				fail.Store(string(b))
+			}
+		}(who)
+	}
+	wg.Wait()
+	if v := fail.Load(); v != nil {
+		t.Fatalf("%v", v)
+	}
+	b, _ := os.ReadFile(path)
+	var doc struct {
+		Env         map[string]string `json:"env"`
+		Permissions json.RawMessage   `json:"permissions"`
+	}
+	if err := json.Unmarshal(b, &doc); err != nil {
+		t.Fatalf("JSON final invalide : %v", err)
+	}
+	if !strings.Contains(string(doc.Permissions), "Bash(ls)") {
+		t.Errorf("clé racine de l'utilisateur perdue : %s", b)
+	}
+	var a, bb int
+	for k := range doc.Env {
+		switch {
+		case strings.HasPrefix(k, "TW_A"):
+			a++
+		case strings.HasPrefix(k, "TW_B"):
+			bb++
+		}
+	}
+	if !(a == 5 && bb == 0) && !(a == 0 && bb == 5) {
+		t.Errorf("état final mélangé ou incomplet : %d variables A, %d variables B (%v)", a, bb, doc.Env)
+	}
+}
