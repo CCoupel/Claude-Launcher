@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -27,8 +28,8 @@ type DesktopWeb struct {
 	// Enabled : commutateur (#183). Absent : v6.2.0 (allumée si listen est renseigné) ; false : éteinte, listen
 	// conservé ; true : allumée, listen obligatoire.
 	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
-	// URL : adresse publique derrière un proxy inverse (#171) — lue et rendue par le modèle ; ses effets
-	// (Host, origine, cookie) viennent avec LOT-2.2.
+	// URL : adresse publique derrière un proxy inverse (#171) : http(s)://hôte[:port], sans chemin
+	// (PublicURL). Admise dans Host et Origin ; https → cookie Secure. Jamais d'en-tête X-Forwarded-* lu.
 	URL string `yaml:"url" json:"url,omitempty"`
 }
 
@@ -42,9 +43,12 @@ type DesktopWebConf struct {
 	Kept    string
 	// ExplicitOff : desktop_web.enabled vaut explicitement false (≠ listen: off ou rien, libellé v6.2.0)
 	ExplicitOff bool
-	Loopback    bool   // l'hôte d'écoute est la boucle locale
-	Source      string // bloc d'où vient le réglage
-	ListenSrc   string
+	// URL : adresse publique posée dans les fichiers (brute, validée par ParsePublicURL par l'appelant : l'option
+	// --url et la variable CL_WEB_URL la précèdent) ; renseignée même quand l'interface est éteinte
+	URL       string
+	Loopback  bool   // l'hôte d'écoute est la boucle locale
+	Source    string // bloc d'où vient le réglage
+	ListenSrc string
 	// Warn : avertissement à l'enregistrement et dans « backends » (écoute hors boucle locale)
 	Warn string
 }
@@ -55,6 +59,7 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 	listen, src := "", "défaut"
 	var allowLAN bool
 	var enabled *bool
+	var pubURL string
 	merge := func(d *DesktopWeb, blk string) { // champ par champ : la machine l'emporte sur les défauts
 		if d == nil {
 			return
@@ -68,6 +73,9 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 		if d.Enabled != nil {
 			enabled = d.Enabled
 		}
+		if d.URL != "" {
+			pubURL = d.URL
+		}
 	}
 	merge(f.Defaults.DesktopWeb, "defaults.desktop_web")
 	v := pickHubOS(f.Hubs, host, goos)
@@ -77,7 +85,7 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 	if v.ov != nil {
 		merge(v.ov.DesktopWeb, v.src("desktop_web", true))
 	}
-	c := DesktopWebConf{Source: src, ListenSrc: src}
+	c := DesktopWebConf{Source: src, ListenSrc: src, URL: strings.TrimSpace(pubURL)}
 	listen = strings.TrimSpace(listen)
 	noListen := listen == "" || isOff(listen)
 	// table enabled × listen (contracts/desktop-web.md) : absent → v6.2.0 ; false → éteinte, adresse gardée ;
@@ -102,16 +110,16 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 	}
 	h, port, err := net.SplitHostPort(listen)
 	if n, e := strconv.Atoi(port); err != nil || e != nil || n < 1 || n > 65535 {
-		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src}, fmt.Errorf("%s %q : off, un port ou hôte:port attendu", src, listen)
+		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src, URL: c.URL}, fmt.Errorf("%s %q : off, un port ou hôte:port attendu", src, listen)
 	}
 	c.Listen, c.Loopback = listen, isLoopback(h)
 	if bs, err := resolveBrowserServerFor(f, host, goos); err == nil && !bs.Off && sameListen(bs.Listen, listen) {
-		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src}, fmt.Errorf(
+		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src, URL: c.URL}, fmt.Errorf(
 			"%s %q est aussi l'adresse de browser_server (%s) : deux serveurs distincts (fichiers en lecture seule sans jeton / interface complète avec jeton) — choisir un autre port", src, listen, bs.ListenSrc)
 	}
 	if !c.Loopback {
 		if !allowLAN {
-			return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src}, fmt.Errorf(
+			return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src, URL: c.URL}, fmt.Errorf(
 				"%s %q : écoute hors de la boucle locale refusée sans confirmation — l'interface complète (projets, terminaux) serait atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement ; ajouter allow_lan: true à desktop_web pour l'accepter (accès par le nom de la machine ; sur une écoute 0.0.0.0 ou ::, l'adresse IP est refusée par le contrôle de Host)", src, listen)
 		}
 		c.Warn = LANWarning(listen)
@@ -251,4 +259,57 @@ func desktopWebPrint(content []byte) string {
 		}
 	}
 	return sb.String()
+}
+
+// ── Adresse publique (#171) ──────────────────────────────────────────────
+
+// PublicURL : adresse publique d'une interface web derrière un proxy inverse, découpée.
+type PublicURL struct {
+	Origin string // schéma://hôte[:port] — l'origine exacte attendue pour cet hôte
+	Scheme string // http ou https
+	Host   string // nom d'hôte en minuscules, sans port ni crochets
+	Port   string // port explicite de l'adresse, "" sinon
+}
+
+// HTTPS : le proxy termine le TLS — le cookie de session est alors Secure.
+func (p PublicURL) HTTPS() bool { return p.Scheme == "https" }
+
+// ParsePublicURL : « http(s)://hôte[:port] » — sans chemin, paramètres, fragment ni identifiants. Toute autre
+// forme est une erreur de réglage (l'interface web reste éteinte, la raison est dite).
+func ParsePublicURL(raw string) (PublicURL, error) {
+	bad := func(why string) (PublicURL, error) {
+		return PublicURL{}, fmt.Errorf("adresse publique %q invalide : %s (forme attendue : https://hôte[:port] ou http://hôte[:port], sans chemin ni paramètres)", raw, why)
+	}
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		return bad("illisible")
+	case u.Scheme != "http" && u.Scheme != "https":
+		return bad("schéma http ou https attendu")
+	case u.Opaque != "" || u.Hostname() == "":
+		return bad("hôte manquant")
+	case u.User != nil:
+		return bad("identifiants interdits")
+	case u.Path != "" && u.Path != "/" || strings.Contains(raw, "?") || strings.Contains(raw, "#"):
+		return bad("chemin, paramètres et fragment interdits")
+	}
+	host := strings.ToLower(u.Hostname())
+	if p := u.Port(); p != "" {
+		if n, e := strconv.Atoi(p); e != nil || n < 1 || n > 65535 {
+			return bad("port invalide")
+		}
+	}
+	origin := u.Scheme + "://" + strings.ToLower(u.Host)
+	return PublicURL{Origin: origin, Scheme: u.Scheme, Host: host, Port: u.Port()}, nil
+}
+
+// MatchesHost : l'en-tête Host d'une requête désigne l'adresse publique — son nom, sur son port (ou sans port si
+// l'adresse n'en porte pas).
+func (p PublicURL) MatchesHost(reqHost string) bool {
+	h, port, err := net.SplitHostPort(reqHost)
+	if err != nil {
+		h, port = strings.Trim(reqHost, "[]"), ""
+	}
+	return strings.EqualFold(strings.Trim(h, "[]"), p.Host) && port == p.Port
 }

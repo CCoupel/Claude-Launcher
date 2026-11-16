@@ -72,6 +72,7 @@ type App struct {
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
 	projSet    atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
 	liveSnap   atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
+	ready      atomic.Bool                     // chargement initial fini (/readyz) : arbre des projets disponible
 	web        bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
 	openTabs   sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
 	forceAsked sync.Map                        // fermetures forcées dont la question est posée (#158)
@@ -238,6 +239,7 @@ func (a *App) Start() {
 		if a.treeCached {
 			a.perf.time("parcours", a.rescan)
 		}
+		a.ready.Store(true) // l'arbre des projets est à jour : l'application répond (/readyz)
 		a.perf.time("git", a.gitAll)
 		a.perf.write(len(a.projectPaths()))
 		a.changed()

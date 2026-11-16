@@ -42,6 +42,8 @@ type WebUIState struct {
 	// (l'interface est le processus lui-même : état toujours on, commutateur verrouillé).
 	Enabled bool `json:"enabled"`
 	Server  bool `json:"server"`
+	// URL : adresse publique effective (--url > CL_WEB_URL > desktop_web.url), vide sinon (#171)
+	URL string `json:"url"`
 }
 
 // webUI : serveur de l'interface attaché à l'App (a.webui).
@@ -50,6 +52,7 @@ type webUI struct {
 	srv    *http.Server
 	bridge *webBridge
 	listen string // adresse réellement écoutée (vide : arrêté)
+	pubKey string // adresse publique du serveur en marche : un changement le redémarre (#171)
 	last   string // dernière adresse écoutée, même arrêtée : un changement d'adresse renouvelle le jeton
 	state  WebUIState
 }
@@ -168,16 +171,23 @@ func (a *App) applyWebUI() {
 	case conf.Off: // éteinte (commutateur ou pas d'adresse) : l'adresse saisie reste affichée
 		a.stopWebUILocked()
 		w.state = WebUIState{State: "off", Listen: conf.Kept}
-	case w.srv != nil && w.listen == conf.Listen:
-		return // déjà à jour
 	default:
+		pub, _, perr := effectivePublicURL(conf)
+		if perr != nil { // adresse publique de forme invalide : interface éteinte, raison dite
+			a.stopWebUILocked()
+			w.state = WebUIState{State: "error", Listen: conf.Listen, Enabled: true, Msg: perr.Error()}
+			break
+		}
+		if w.srv != nil && w.listen == conf.Listen && w.pubKey == publicOrigin(pub) {
+			return // déjà à jour
+		}
 		a.stopWebUILocked()
-		a.startWebUILocked(conf)
+		a.startWebUILocked(conf, pub)
 	}
 	go a.changed()
 }
 
-func (a *App) startWebUILocked(conf core.DesktopWebConf) {
+func (a *App) startWebUILocked(conf core.DesktopWebConf, pub *core.PublicURL) {
 	w := &a.webui
 	ln, err := net.Listen("tcp", conf.Listen)
 	if err != nil {
@@ -195,11 +205,11 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf) {
 	} else {
 		tok, terr = desktopWebToken()
 	}
-	b := &webBridge{app: a, token: tok, subs: map[chan []byte]bool{}, port: port, hosts: conf.AllowedHosts(core.HubHost())}
+	b := &webBridge{app: a, token: tok, subs: map[chan []byte]bool{}, port: port, hosts: conf.AllowedHosts(core.HubHost()), public: pub}
 	srv := newHTTPServer(b.handler())
-	w.srv, w.bridge, w.listen, w.last = srv, b, conf.Listen, conf.Listen
+	w.srv, w.bridge, w.listen, w.last, w.pubKey = srv, b, conf.Listen, conf.Listen, publicOrigin(pub)
 	saveDesktopWebListen(conf.Listen)
-	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn, Enabled: true}
+	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn, Enabled: true, URL: publicOrigin(pub)}
 	if terr != nil {
 		w.state.Msg = terr.Error()
 	}
@@ -216,7 +226,7 @@ func (a *App) stopWebUILocked() {
 	a.mirror.Store(nil)
 	_ = w.srv.Close()
 	w.bridge.revokeAll() // sessions révoquées, flux fermés (verrou propre au pont : pas celui de w)
-	w.srv, w.bridge, w.listen = nil, nil, ""
+	w.srv, w.bridge, w.listen, w.pubKey = nil, nil, "", ""
 }
 
 // stopWebUI : arrêt à la fermeture de la fenêtre.
@@ -233,6 +243,10 @@ func (a *App) webUIOpen() map[string]any {
 	w := &a.webui
 	w.mu.Lock()
 	on, listen := w.srv != nil, w.listen
+	var pub *core.PublicURL
+	if w.bridge != nil {
+		pub = w.bridge.public
+	}
 	var tok string
 	if w.bridge != nil {
 		tok = w.bridge.tokenNow() // le jeton du serveur : un seul tirage
@@ -240,6 +254,10 @@ func (a *App) webUIOpen() map[string]any {
 	w.mu.Unlock()
 	if !on {
 		return map[string]any{"ok": false, "msg": "l'interface web est désactivée (Réglages › Ce poste › Interface web)"}
+	}
+	if pub != nil { // lien d'amorçage : l'adresse publique
+		openURL(pub.Origin + "/?t=" + tok)
+		return map[string]any{"ok": true}
 	}
 	h, port, _ := net.SplitHostPort(listen)
 	if h == "" || h == "0.0.0.0" || h == "::" {
@@ -290,4 +308,44 @@ func (a *App) webUIRegen() map[string]any {
 		return map[string]any{"ok": true, "msg": err.Error()}
 	}
 	return map[string]any{"ok": true}
+}
+
+// webURLFlag : option --url de la ligne de commande (#171) ; la plus prioritaire.
+var webURLFlag string
+
+// effectivePublicURL : adresse publique effective, par priorité : option --url > variable CL_WEB_URL >
+// desktop_web.url (conf.URL). Aucune adresse : nil, sans erreur. Forme invalide : erreur de réglage.
+func effectivePublicURL(conf core.DesktopWebConf) (*core.PublicURL, string, error) {
+	raw, src := strings.TrimSpace(webURLFlag), "l'option --url"
+	if raw == "" {
+		raw, src = strings.TrimSpace(os.Getenv("CL_WEB_URL")), "la variable CL_WEB_URL"
+	}
+	if raw == "" {
+		raw, src = conf.URL, "desktop_web.url"
+	}
+	if raw == "" {
+		return nil, "", nil
+	}
+	p, err := core.ParsePublicURL(raw)
+	if err != nil {
+		return nil, raw, fmt.Errorf("%s (%s)", err.Error(), src)
+	}
+	return &p, raw, nil
+}
+
+// publicOrigin : adresse publique pour l'instantané et la comparaison ("" : aucune).
+func publicOrigin(p *core.PublicURL) string {
+	if p == nil {
+		return ""
+	}
+	return p.Origin
+}
+
+// relaunchArgs : arguments de la relance du mode serveur après une mise à jour (même adresse, même adresse publique).
+func relaunchArgs(bound string) []string {
+	a := []string{"desktop", "--web", "--addr", bound, "--no-open"}
+	if webURLFlag != "" {
+		a = append(a, "--url", webURLFlag)
+	}
+	return a
 }

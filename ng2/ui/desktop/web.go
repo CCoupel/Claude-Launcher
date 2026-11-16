@@ -43,6 +43,10 @@ type webBridge struct {
 	// hosts : noms admis dans l'en-tête Host (serveur de la fenêtre native, #163) ; nil : règle
 	// strictHost du mode --web
 	hosts map[string]bool
+	// public : adresse publique derrière un proxy inverse (#171) ; nil : aucune. Son nom d'hôte est admis dans
+	// Host (sur son port), son origine exacte dans Origin, https y rend le cookie Secure. Aucun en-tête
+	// X-Forwarded-*, Forwarded ni X-Real-IP n'est lu : le schéma et l'hôte publics ne viennent que de là.
+	public *core.PublicURL
 
 	mu       sync.Mutex           // jeton et sessions (authentification, appels)
 	sessions map[string]time.Time // identifiants de session en mémoire → dernier usage (le cookie porte l'un d'eux, jamais le jeton)
@@ -230,9 +234,15 @@ func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
 // celui du serveur (même schéma, hôte et port). Une page d'un autre port de la
 // machine — serveur de maquettes, serveur de développement d'un projet — est du
 // même « site » : SameSite=Strict ne la retient pas.
-func sameOrigin(r *http.Request) bool {
+func (w *webBridge) sameOrigin(r *http.Request) bool {
 	o := r.Header.Get("Origin")
-	return o == "" || strings.EqualFold(o, "http://"+r.Host)
+	if o == "" {
+		return true
+	}
+	if w.public != nil && w.public.MatchesHost(r.Host) { // hôte public : l'origine de l'adresse publique, exactement
+		return strings.EqualFold(o, w.public.Origin)
+	}
+	return strings.EqualFold(o, "http://"+r.Host)
 }
 
 // jsonRequest : le corps est annoncé en JSON. Une requête « simple » (text/plain,
@@ -244,6 +254,9 @@ func jsonRequest(r *http.Request) bool {
 
 // hostOK : l'en-tête Host désigne bien la boucle locale (et le port d'écoute).
 func (w *webBridge) hostOK(r *http.Request) bool {
+	if w.public != nil && w.public.MatchesHost(r.Host) { // nom de l'adresse publique, sur son port
+		return true
+	}
 	if w.hosts != nil {
 		return w.hostAllowed(r)
 	}
@@ -265,6 +278,19 @@ func (w *webBridge) hostOK(r *http.Request) bool {
 // secured : contrôle de l'en-tête Host et en-têtes de sécurité de toutes les réponses.
 func (w *webBridge) secured(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		// sondes du cluster : sans session, SANS contrôle de Host (elles appellent l'adresse du pod), et sans aucune
+		// information (ni version, ni nom, ni état des projets)
+		if (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			rw.Header().Set("Cache-Control", "no-store")
+			rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			if r.URL.Path == "/readyz" && w.app != nil && !w.app.ready.Load() {
+				rw.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = io.WriteString(rw, "starting\n")
+				return
+			}
+			_, _ = io.WriteString(rw, "ok\n")
+			return
+		}
 		if !w.hostOK(r) {
 			http.Error(rw, "hôte refusé", http.StatusForbidden)
 			return
@@ -290,13 +316,14 @@ func (w *webBridge) handler() http.Handler {
 			}
 			// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire,
 			// révoqué à l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton
-			http.SetCookie(rw, &http.Cookie{Name: w.cookieName(r), Value: w.newSession(), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			http.SetCookie(rw, &http.Cookie{Name: w.cookieName(r), Value: w.newSession(), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+				Secure: w.public != nil && w.public.HTTPS()}) // https public : le navigateur ne renvoie le cookie qu'en HTTPS
 		}
 		rw.Header().Set("Cache-Control", "no-store")
 		files.ServeHTTP(rw, r)
 	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !w.authorized(r, false) || !sameOrigin(r) {
+		if r.Method != http.MethodPost || !w.authorized(r, false) || !w.sameOrigin(r) {
 			http.Error(rw, "refusé", http.StatusForbidden)
 			return
 		}
@@ -322,7 +349,7 @@ func (w *webBridge) handler() http.Handler {
 		_ = json.NewEncoder(rw).Encode(out)
 	})
 	mux.HandleFunc("/api/events", func(rw http.ResponseWriter, r *http.Request) {
-		if !w.authorized(r, false) || !sameOrigin(r) {
+		if !w.authorized(r, false) || !w.sameOrigin(r) {
 			http.Error(rw, "refusé", http.StatusForbidden)
 			return
 		}
@@ -343,7 +370,8 @@ func (w *webBridge) handler() http.Handler {
 			sid = c.Value
 		}
 		rw.Header().Set("Content-Type", "text/event-stream")
-		rw.Header().Set("Cache-Control", "no-store")
+		rw.Header().Set("Cache-Control", "no-store, no-transform") // un proxy ne met ni en tampon ni ne transforme le flux
+		rw.Header().Set("X-Accel-Buffering", "no")
 		ch := make(chan []byte, 4096)
 		w.subMu.Lock()
 		if w.subSess == nil {
@@ -425,6 +453,13 @@ func newHTTPServer(h http.Handler) *http.Server {
 // ouvrir le navigateur par défaut. Bloque jusqu'à la sortie.
 func RunWeb(addr string, open bool) error {
 	w := &webBridge{token: newToken(), subs: map[chan []byte]bool{}}
+	// adresse publique : --url > CL_WEB_URL > desktop_web.url ; invalide : le serveur ne démarre pas
+	c, _ := core.DesktopWebSetting() // c.URL : desktop_web.url, même quand l'interface de la fenêtre est éteinte
+	pub, _, perr := effectivePublicURL(c)
+	if perr != nil {
+		return perr
+	}
+	w.public = pub
 	if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" { // tests
 		w.token = t
 	}
@@ -443,9 +478,12 @@ func RunWeb(addr string, open bool) error {
 	// mode serveur : l'interface est le processus lui-même, toujours « on » ; le commutateur desktop_web.enabled
 	// ne s'y applique pas (#183)
 	a.webui.mu.Lock()
-	a.webui.state = WebUIState{State: "on", Listen: ln.Addr().String(), Lan: !w.strictHost, Warn: warn, Enabled: true, Server: true}
+	a.webui.state = WebUIState{State: "on", Listen: ln.Addr().String(), Lan: !w.strictHost, Warn: warn, Enabled: true, Server: true, URL: publicOrigin(w.public)}
 	a.webui.mu.Unlock()
 	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.tokenNow())
+	if w.public != nil {
+		url = w.public.Origin + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
+	}
 	fmt.Println("Claude Launcher (interface web) :", url)
 	fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
 	srv := newHTTPServer(w.handler())
@@ -467,7 +505,7 @@ func RunWeb(addr string, open bool) error {
 		bound := ln.Addr().String()
 		_ = srv.Close()
 		a.Stop()
-		if err := relaunch("desktop", "--web", "--addr", bound, "--no-open"); err != nil {
+		if err := relaunch(relaunchArgs(bound)...); err != nil {
 			fmt.Fprintln(os.Stderr, "relance impossible :", err)
 		}
 		os.Exit(0)

@@ -34,9 +34,14 @@ func Run(args []string) error {
 			i++
 		case strings.HasPrefix(a, "--addr="):
 			addr, addrSet = strings.TrimPrefix(a, "--addr="), true
+		case a == "--url" && i+1 < len(args):
+			webURLFlag = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--url="):
+			webURLFlag = strings.TrimPrefix(a, "--url=")
 		case a == "--launch" || a == "--no-update":
 		default:
-			return fmt.Errorf("desktop : option inconnue %q (--web, --addr HÔTE:PORT, --no-open)", a)
+			return fmt.Errorf("desktop : option inconnue %q (--web, --addr HÔTE:PORT, --url ADRESSE_PUBLIQUE, --no-open)", a)
 		}
 	}
 	if !web && !wailsAvailable {
