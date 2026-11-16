@@ -69,36 +69,39 @@ func TestStaleLockTakeoverNeverGivesTwoHolders(t *testing.T) {
 // M1 : un détenteur LENT (dépasse la péremption, le verrou lui a été repris) ne supprime pas, en finissant, le verrou
 // d'un autre : un troisième lanceur ne doit pas entrer pendant que le repreneur travaille.
 func TestSlowHolderDoesNotReleaseAnotherLock(t *testing.T) {
+	// Chronologie (péremption 600 ms) : A tient 800 ms (dépasse la péremption) ; B reprend le périmé à 650 ms et
+	// travaille 400 ms (650-1050, très en dessous de la péremption : son propre verrou ne peut pas être repris
+	// légitimement pendant sa section) ; A finit à 800 : s'il supprimait le verrou de B, C (arrivé à 900) entrerait
+	// pendant la section de B. Le drapeau de B est posé ET retiré DANS sa section : aucune dépendance à un minuteur
+	// externe (sur un runner lent, un drapeau retiré par minuteur pouvait être encore levé après la fin de B).
 	old := fileLockStale
-	fileLockStale = 300 * time.Millisecond
+	fileLockStale = 600 * time.Millisecond
 	defer func() { fileLockStale = old }()
 	target := filepath.Join(t.TempDir(), "shared.json")
 	var bInside atomic.Bool
-	var cSawB atomic.Bool
+	var cEnteredDuringB atomic.Bool
 	var wg sync.WaitGroup
-	run := func(at time.Duration, work time.Duration, f func()) {
+	run := func(at time.Duration, section func()) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			time.Sleep(at)
-			_ = WithFileLock(target, func() error {
-				if f != nil {
-					f()
-				}
-				time.Sleep(work)
-				return nil
-			})
+			_ = WithFileLock(target, func() error { section(); return nil })
 		}()
 	}
-	run(0, 500*time.Millisecond, nil)                                                                                                                      // A : lent, dépasse la péremption
-	run(350*time.Millisecond, 300*time.Millisecond, func() { bInside.Store(true); time.AfterFunc(300*time.Millisecond, func() { bInside.Store(false) }) }) // B reprend le périmé (350-650)
-	run(520*time.Millisecond, 10*time.Millisecond, func() {                                                                                                // C arrive après la fin de A (500) pendant B
+	run(0, func() { time.Sleep(800 * time.Millisecond) }) // A : lent, dépasse la péremption
+	run(650*time.Millisecond, func() {                    // B : reprend le périmé
+		bInside.Store(true)
+		time.Sleep(400 * time.Millisecond)
+		bInside.Store(false)
+	})
+	run(900*time.Millisecond, func() { // C : arrive après la fin de A, pendant B
 		if bInside.Load() {
-			cSawB.Store(true)
+			cEnteredDuringB.Store(true)
 		}
 	})
 	wg.Wait()
-	if cSawB.Load() {
+	if cEnteredDuringB.Load() {
 		t.Error("le détenteur lent a supprimé le verrou de son repreneur : un troisième lanceur est entré pendant sa section")
 	}
 }
