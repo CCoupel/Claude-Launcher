@@ -170,6 +170,11 @@ const browserHookCommand = `[ -n "$CL_BROWSER_HINT" ] && printf '%s\n' "$CL_BROW
 // SyncBrowserHook : hook SessionStart du launcher dans <dir>/settings.json,
 // posé une fois ; les autres hooks sont gardés. JSON illisible : laissé tel quel.
 func SyncBrowserHook(dir string) error {
+	// même settings.json que SyncSettingsEnv : même verrou (#176)
+	return WithFileLock(filepath.Join(dir, "settings.json"), func() error { return syncBrowserHook(dir) })
+}
+
+func syncBrowserHook(dir string) error {
 	path := filepath.Join(dir, "settings.json")
 	doc := map[string]json.RawMessage{}
 	mode := os.FileMode(0o644)
@@ -250,16 +255,7 @@ func SyncBrowserHook(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp := path + ".cl-tmp"
-	if err := os.WriteFile(tmp, buf.Bytes(), mode); err != nil {
-		return err
-	}
-	_ = os.Chmod(tmp, mode)
-	if err := os.Rename(tmp, path); err != nil {
-		_ = os.Remove(tmp)
-		return err
-	}
-	return nil
+	return WriteFileAtomic(path, buf.Bytes(), mode)
 }
 
 // PrintBrowserDevice : section de « claude-launcher-ng2 backends ».

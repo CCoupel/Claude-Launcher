@@ -44,6 +44,12 @@ func Run(args []string) error {
 			return fmt.Errorf("desktop : option inconnue %q (--web, --addr HÔTE:PORT, --url ADRESSE_PUBLIQUE, --no-open)", a)
 		}
 	}
+	// deux launchers de même nom (CL_HUB_NAME) sur un état partagé : le second refuse de démarrer (#176)
+	release, perr := core.AcquirePresence()
+	if perr != nil {
+		return perr
+	}
+	defer release()
 	if !web && !wailsAvailable {
 		fmt.Fprintln(os.Stderr, "interface native non compilée dans ce binaire (balise wails) : interface web")
 		web = true

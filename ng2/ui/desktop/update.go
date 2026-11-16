@@ -211,6 +211,7 @@ func relaunch(args ...string) error {
 	}
 	c := exec.Command(exe, args...)
 	c.Env = append(append(os.Environ(), "CL_NO_UPDATE=1"), restartEnv...)
+	core.ReleasePresence() // la place est rendue : le binaire relancé ne doit pas être refusé par son prédécesseur (#176)
 	return c.Start()
 }
 

@@ -440,7 +440,9 @@ func EnsureConfig() (created bool, err error) {
 			content = b // passage v4 → v5 : on reprend les réglages existants
 		}
 	}
-	return true, os.WriteFile(path, content, 0o600)
+	// création exclusive : deux launchers qui démarrent ensemble sur une racine neuve n'écrasent pas la config de l'autre
+	created, err = createExclusive(path, content, 0o600)
+	return created, err
 }
 
 // RunConfigure : crée la config si besoin puis l'ouvre dans $EDITOR (nano par défaut).
