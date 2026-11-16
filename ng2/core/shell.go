@@ -28,7 +28,7 @@ func CacheDirOverride() string { return strings.TrimSpace(os.Getenv(CacheDirVar)
 // %LocalAppData%\claude-launcher-ng2).
 func CacheDir() string {
 	if d := CacheDirOverride(); d != "" { // CL_CACHE_DIR : utilisé tel quel (#169)
-		_ = os.MkdirAll(d, 0o755)
+		ensureDir(d)
 		return d
 	}
 	home, _ := os.UserHomeDir()
@@ -37,6 +37,15 @@ func CacheDir() string {
 		ucd, _ = os.UserCacheDir()
 	}
 	d := filepath.Join(cacheRoot(runtime.GOOS, os.Getenv("XDG_CACHE_HOME"), home, ucd), "claude-launcher-ng2")
-	_ = os.MkdirAll(d, 0o755)
+	ensureDir(d)
 	return d
+}
+
+// ensureDir : le dossier existe ; un seul stat quand il est là (CacheDir est appelé très souvent, parfois sur
+// un partage réseau), la création seulement s'il manque.
+func ensureDir(d string) {
+	if st, err := os.Stat(d); err == nil && st.IsDir() {
+		return
+	}
+	_ = os.MkdirAll(d, 0o755)
 }

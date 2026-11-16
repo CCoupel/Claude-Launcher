@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"claude-launcher-ng2/platform"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -76,6 +77,11 @@ func secretEnv(k string) bool {
 }
 
 func settingsEnvKeysPath(dir string) string {
+	// liste des clés posées PAR LAUNCHER : un launcher ne retire que ce qu'il a lui-même posé (#176) ; sans
+	// CL_HUB_NAME, le fichier historique (v6.2.0)
+	if os.Getenv(platform.HubNameVar) != "" {
+		return filepath.Join(dir, "claude-launcher", "settings-env-"+HubNameSafe()+".json")
+	}
 	return filepath.Join(dir, "claude-launcher", "settings-env.json")
 }
 

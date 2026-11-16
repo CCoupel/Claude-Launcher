@@ -71,6 +71,17 @@ Racine de base : /data/cl (CL_ROOT_BASE)        # ou « (--root-base) », ou « 
   projet sont modifiés sous un verrou court (`<fichier>.lock`, création exclusive, repris après 20 s) puis écrits
   atomiquement (temporaire à nom unique puis renommage) ; `config.conf` et `env.yaml` neufs sont créés en
   exclusivité.
+  Précisions (revue cycle 1) : le verrou porte un identifiant unique (pid + aléa) et sa libération ne supprime que
+  le verrou qui le contient ; un verrou périmé (60 s) est repris sous un petit verrou de reprise
+  (`<fichier>.reclaim`) après revérification, jamais un verrou vivant ; la péremption se mesure sur la date du
+  fichier vue par le serveur de fichiers : des écarts d'horloge entre launchers doivent rester très inférieurs à
+  60 s. Même schéma pour le témoin de présence (battement qui recrée un témoin supprimé et signale une place
+  prise). Sous Windows, le renommage atomique est réessayé (violation de partage) et `ProcessAlive` rend toujours
+  vrai : après un plantage, le témoin n'est repris qu'une fois périmé (10 s).
+- **`settings.json`** : la liste des clés posées par le launcher est tenue **par launcher**
+  (`claude-launcher/settings-env-<nom>.json` avec `CL_HUB_NAME`, `settings-env.json` sans, comme en v6.2.0) : un
+  launcher ne retire que les clés qu'il a posées. Même clé posée par deux launchers avec des valeurs différentes :
+  le dernier écrivain gagne.
 - `CL_CACHE_DIR` : créé s'il manque. Tous les chemins de cache passent par lui, `milestones-v2.json` compris.
 - Convention du chart : `CL_CACHE_DIR=<rootBase>/.cache/claude-launcher-ng2/<hubName>` (état sur le volume partagé,
   un dossier par nom de hub).

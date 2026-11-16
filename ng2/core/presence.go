@@ -45,7 +45,8 @@ func AcquirePresence() (release func(), err error) {
 		return func() {}, nil
 	}
 	p := presencePath()
-	me := fmt.Sprintf("%s %d %s", platform.RealHostName(), os.Getpid(), time.Now().Format(time.RFC3339))
+	token := newLockToken()
+	me := fmt.Sprintf("%s %d %s %s", platform.RealHostName(), os.Getpid(), time.Now().Format(time.RFC3339), token)
 	for try := 0; ; try++ {
 		created, cerr := createExclusive(p, []byte(me+"\n"), 0o644)
 		if cerr != nil {
@@ -63,24 +64,40 @@ func AcquirePresence() (release func(), err error) {
 		if try > 3 {
 			return nil, errors.New("témoin de présence illisible : " + p)
 		}
-		_ = os.Remove(p) // abandonné : repris
+		reclaimStale(p, presenceStale) // abandonné : repris, un seul gagnant (renommage atomique)
 	}
 	stop := make(chan struct{})
+	beat := presenceBeat // lu ici : le goroutine ne touche jamais la variable du paquet (tests qui la changent)
 	go func() {
-		t := time.NewTicker(presenceBeat)
+		t := time.NewTicker(beat)
 		defer t.Stop()
 		for {
 			select {
 			case <-stop:
 				return
 			case <-t.C:
-				now := time.Now()
-				_ = os.Chtimes(p, now, now)
+				switch b, err := os.ReadFile(p); {
+				case err == nil && strings.Contains(string(b), token):
+					now := time.Now()
+					_ = os.Chtimes(p, now, now)
+				case os.IsNotExist(err): // supprimé (nettoyage du dossier d'état) : recréé
+					_, _ = createExclusive(p, []byte(me+"\n"), 0o644)
+				case err == nil: // repris par un autre launcher du même nom : signalé, plus de battement
+					fmt.Fprintf(os.Stderr, "⚠ launcher « %s » : sa place a été prise par un autre (%s)\n", hubName(), strings.TrimSpace(string(b)))
+					return
+				}
 			}
 		}
 	}()
 	var once sync.Once
-	rel := func() { once.Do(func() { close(stop); _ = os.Remove(p) }) }
+	rel := func() {
+		once.Do(func() {
+			close(stop)
+			if lockOwnedBy(p, token) { // jamais le témoin d'un autre
+				_ = os.Remove(p)
+			}
+		})
+	}
 	presenceMu.Lock()
 	presenceRelease = rel
 	presenceMu.Unlock()
