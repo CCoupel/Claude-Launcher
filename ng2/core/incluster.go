@@ -16,6 +16,7 @@ const (
 	InClusterVar         = "CL_IN_CLUSTER"
 	AllowHostBackendVar  = "CL_ALLOW_HOST_BACKEND"
 	saTokenPath          = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	K8sVolumesVar        = "CL_K8S_VOLUMES"
 	hostBackendInCluster = "backend host refusé dans le pod du launcher (claude n'y est pas installé)"
 )
 
@@ -47,4 +48,45 @@ func inClusterHostRefusal(b BackendConf) (Problem, bool) {
 		return Problem{}, false
 	}
 	return Problem{hostBackendInCluster, "choisir un backend k8s (ou un autre backend distant) ; CL_ALLOW_HOST_BACKEND=1 l'autorise pour un essai (" + BackendsPath() + ")"}, true
+}
+
+// saNamespacePath : namespace du pod (variable : tests).
+var saNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+
+// PodNamespace : namespace du pod du launcher ("" hors cluster ou illisible).
+func PodNamespace() string {
+	if !InCluster() {
+		return ""
+	}
+	b, err := os.ReadFile(saNamespacePath)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// k8sNamespace : namespace effectif d'un backend k8s — celui du backend, sinon (en cluster) celui du pod, sinon « default ».
+func k8sNamespace(b BackendConf) string {
+	if b.Namespace != "" {
+		return b.Namespace
+	}
+	if ns := PodNamespace(); ns != "" {
+		return ns
+	}
+	return "default"
+}
+
+// k8sViaServiceAccount : kubectl s'appuie sur le ServiceAccount du pod (en cluster, backend sans « context ») :
+// appelé sans --context et sans KUBECONFIG.
+func k8sViaServiceAccount(b BackendConf) bool { return InCluster() && b.Context == "" }
+
+// ParseK8sVolumes : « <racine>=<pvc>[,<racine>=<pvc>…] » (CL_K8S_VOLUMES) en volumes d'un backend k8s implicite.
+func ParseK8sVolumes(s string) map[string]string {
+	out := map[string]string{}
+	for _, kv := range strings.Split(s, ",") {
+		if r, pvc, ok := strings.Cut(strings.TrimSpace(kv), "="); ok && strings.TrimSpace(r) != "" && strings.TrimSpace(pvc) != "" {
+			out[strings.TrimSpace(r)] = strings.TrimSpace(pvc)
+		}
+	}
+	return out
 }

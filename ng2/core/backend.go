@@ -440,6 +440,14 @@ func LoadBackends() ([]BackendConf, error) {
 			}
 			f.Backends[t] = BackendConf{Type: t}
 		}
+		// dans un pod du launcher, sans backends.yaml : backend k8s implicite (namespace du pod, volumes de CL_K8S_VOLUMES)
+		if InCluster() {
+			k := BackendConf{Type: "k8s", Namespace: PodNamespace()}
+			if v := ParseK8sVolumes(os.Getenv(K8sVolumesVar)); len(v) > 0 {
+				k.Volumes = v
+			}
+			f.Backends["k8s"] = k
+		}
 	default:
 		return nil, err
 	}
