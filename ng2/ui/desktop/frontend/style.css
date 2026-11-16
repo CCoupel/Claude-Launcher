@@ -337,11 +337,11 @@ body.cardsfolded #hsplit { display: none; }
 /* ── Fenêtre Réglages (#118) ──────────────────────────────────────────────── */
 .stbody { flex: 1; min-height: 0; display: flex; margin: 0 -20px; border-top: 1px solid var(--line); }
 .strail { width: 190px; flex: none; border-right: 1px solid var(--line); padding: 8px; overflow: auto; background: var(--bg); }
-.strail .rg { font: 600 11px var(--ui); color: var(--muted); letter-spacing: .06em; margin: 10px 6px 4px; }
-.strail .rg:first-child { margin-top: 2px; }
-.strail .ri { padding: 5px 8px; border-radius: 5px; cursor: pointer; }
+.strail .rg { font: 700 11.5px var(--ui); color: var(--text); text-transform: uppercase; letter-spacing: .09em; margin: 16px 0 5px; padding: 10px 6px 0; border-top: 1px solid var(--line2); }
+.strail .rg:first-child { margin-top: 2px; padding-top: 2px; border-top: 0; }
+.strail .ri { padding: 5px 8px 5px 18px; border-radius: 5px; cursor: pointer; color: var(--text2); }
 .strail .ri:hover { background: rgba(127,127,127,.12); }
-.strail .ri.on { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; }
+.strail .ri.on { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; color: var(--text); }
 .stpg { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; }
 .stpg h4 { margin: 0 0 4px; font-size: 14px; }
 .stpg .ex { color: var(--muted); margin: 0 0 12px; line-height: 1.45; max-width: 820px; }
