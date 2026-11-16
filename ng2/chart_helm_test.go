@@ -706,7 +706,7 @@ func TestChartReadOnlyRootFilesystem(t *testing.T) {
 func TestChartReservedValuesAreRefused(t *testing.T) {
 	needHelm(t)
 	validOK(t)
-	for _, name := range []string{"CL_ROOT_BASE", "CL_HUB_NAME", "CL_CACHE_DIR", "CL_K8S_VOLUMES", "CL_WEB_URL", "CL_UPDATE_MODE", "CL_ALLOW_HOST_BACKEND"} {
+	for _, name := range []string{"CL_ROOT_BASE", "CL_HUB_NAME", "CL_CACHE_DIR", "CL_K8S_VOLUMES", "CL_WEB_URL", "CL_UPDATE_MODE", "CL_ALLOW_HOST_BACKEND", "CL_IN_CLUSTER"} {
 		t.Run("extraEnv/"+name, func(t *testing.T) {
 			v := baseValues()
 			v["extraEnv"] = []any{m{"name": name, "value": "x"}}
@@ -725,6 +725,8 @@ func TestChartReservedValuesAreRefused(t *testing.T) {
 	for _, key := range []string{
 		"nginx.ingress.kubernetes.io/whitelist-source-range", "nginx.ingress.kubernetes.io/ssl-redirect",
 		"nginx.ingress.kubernetes.io/force-ssl-redirect", "nginx.ingress.kubernetes.io/allowlist-source-range",
+		"nginx.ingress.kubernetes.io/denylist-source-range", "nginx.ingress.kubernetes.io/configuration-snippet",
+		"nginx.ingress.kubernetes.io/server-snippet", "nginx.ingress.kubernetes.io/use-forwarded-headers", "traefik.ingress.kubernetes.io/router.tls",
 	} {
 		t.Run("annotation/"+key, func(t *testing.T) {
 			v := baseValues()
