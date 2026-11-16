@@ -1649,7 +1649,7 @@ $('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); openSettings
 
 // ── Événements du Go ───────────────────────────────────────────────────────
 // ── Notifications (fenêtre en arrière-plan) : agent en attente, MAJ prête ──
-const notified = { busy: {}, upd: '', nf: '' };
+const notified = { busy: {}, upd: '' };
 function notify(title, body) {
   if (document.hasFocus() || !('Notification' in window)) return;
   const show = () => { try { new Notification(title, { body }); } catch (e) { /* refusé */ } };
@@ -1664,10 +1664,6 @@ function notifyChanges(s) {
   const g = (s.alerts || []).find((a) => a.kind === 'launcher' && a.color === 'green' && a.click);
   if (g && notified.upd !== g.text) notify('Claude Launcher', g.text.replace(' · cliquer pour installer', ' prête : cliquer sur l\'annonce pour l\'installer'));
   notified.upd = g ? g.text : '';
-  // mode notify (#167) : la version est annoncée une fois, sans bouton d'installation (mise à jour par l'image)
-  const nf = (s.alerts || []).find((a) => a.kind === 'launcher' && a.notify);
-  if (nf && notified.nf !== nf.text) notify('Claude Launcher', nf.text);
-  notified.nf = nf ? nf.text : '';
 }
 
 function applyState(s) {
