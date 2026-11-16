@@ -38,6 +38,10 @@ type WebUIState struct {
 	Lan    bool   `json:"lan"`  // écoute hors de la boucle locale active (confirmée par allow_lan)
 	Warn   string `json:"warn"` // avertissement qui l'accompagne
 	Msg    string `json:"msg"`  // erreur : écoute impossible, réglage refusé, jeton non conservé
+	// Enabled : valeur effective du commutateur desktop_web.enabled (#183) ; Server : « desktop --web »
+	// (l'interface est le processus lui-même : état toujours on, commutateur verrouillé).
+	Enabled bool `json:"enabled"`
+	Server  bool `json:"server"`
 }
 
 // webUI : serveur de l'interface attaché à l'App (a.webui).
@@ -136,6 +140,11 @@ func saveDesktopWebListen(l string) {
 func (a *App) WebUI() WebUIState {
 	a.webui.mu.Lock()
 	defer a.webui.mu.Unlock()
+	if a.web { // « desktop --web » : l'interface est le processus ; état on, commutateur verrouillé (#183)
+		s := a.webui.state
+		s.State, s.Enabled, s.Server = "on", true, true
+		return s
+	}
 	if a.webui.state.State == "" {
 		return WebUIState{State: "off"}
 	}
@@ -155,10 +164,10 @@ func (a *App) applyWebUI() {
 	switch {
 	case err != nil: // réglage illisible : désactivé, la raison est dite
 		a.stopWebUILocked()
-		w.state = WebUIState{State: "error", Msg: err.Error()}
-	case conf.Off:
+		w.state = WebUIState{State: "error", Msg: err.Error(), Enabled: conf.Enabled}
+	case conf.Off: // éteinte (commutateur ou pas d'adresse) : l'adresse saisie reste affichée
 		a.stopWebUILocked()
-		w.state = WebUIState{State: "off"}
+		w.state = WebUIState{State: "off", Listen: conf.Kept}
 	case w.srv != nil && w.listen == conf.Listen:
 		return // déjà à jour
 	default:
@@ -172,7 +181,7 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf) {
 	w := &a.webui
 	ln, err := net.Listen("tcp", conf.Listen)
 	if err != nil {
-		w.state = WebUIState{State: "error", Listen: conf.Listen, Msg: "écoute impossible sur " + conf.Listen + " : " + err.Error()}
+		w.state = WebUIState{State: "error", Listen: conf.Listen, Enabled: true, Msg: "écoute impossible sur " + conf.Listen + " : " + err.Error()}
 		return
 	}
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
@@ -190,7 +199,7 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf) {
 	srv := newHTTPServer(b.handler())
 	w.srv, w.bridge, w.listen, w.last = srv, b, conf.Listen, conf.Listen
 	saveDesktopWebListen(conf.Listen)
-	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn}
+	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn, Enabled: true}
 	if terr != nil {
 		w.state.Msg = terr.Error()
 	}

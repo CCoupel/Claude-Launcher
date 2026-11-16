@@ -624,3 +624,53 @@ func TestDesktopWebCallsKeepDispatchGuards(t *testing.T) {
 	}
 	_ = io.Discard
 }
+
+// #183 : commutateur à chaud — éteindre arrête le serveur de l'interface (adresse gardée), rallumer le redémarre
+// sans relancer le launcher ; webUI.enabled suit.
+func TestDesktopWebSwitchHotAndAddressKept(t *testing.T) {
+	sandbox(t, "", "alpha")
+	p := l4FreePort(t)
+	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+strconv.Itoa(p)+"\" }\n")
+	a := l4StartNative(t)
+	w := l4WaitWebUI(t, a, "on", 8*time.Second)
+	if w["enabled"] != true || w["server"] != false {
+		t.Fatalf("webUI allumée (enabled absent, listen posé : v6.2.0) : %v", w)
+	}
+	set := func(v bool) {
+		t.Helper()
+		m, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"hub"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(map[string]any{"kind": "hub", "mtime": m.(map[string]any)["mtime"], "changes": []any{
+			map[string]any{"op": "set", "at": []string{"desktop_web", "enabled"}, "value": v}}})
+		res, err := a.Dispatch("configApply", b)
+		if rm, _ := res.(map[string]any); err != nil || rm == nil || rm["saved"] != true {
+			t.Fatalf("configApply enabled=%v : %v %v", v, res, err)
+		}
+	}
+	set(false)
+	w = l4WaitWebUI(t, a, "off", 8*time.Second)
+	if w["enabled"] != false || w["listen"] != "127.0.0.1:"+strconv.Itoa(p) {
+		t.Errorf("éteinte : %v, attendu enabled=false et l'adresse gardée", w)
+	}
+	if _, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/"); err == nil {
+		t.Error("le serveur répond encore après extinction")
+	}
+	set(true)
+	w = l4WaitWebUI(t, a, "on", 8*time.Second)
+	if w["enabled"] != true {
+		t.Errorf("rallumée : %v", w)
+	}
+}
+
+// #183 : enabled: true sans adresse = erreur de réglage visible, rien n'écoute.
+func TestDesktopWebEnabledWithoutListenIsError(t *testing.T) {
+	sandbox(t, "", "alpha")
+	l4WriteBackends(t, "  desktop_web: { enabled: true }\n")
+	a := l4StartNative(t)
+	w := l4WaitWebUI(t, a, "error", 8*time.Second)
+	if !strings.Contains(w["msg"].(string), "sans adresse d'écoute") || w["enabled"] != true {
+		t.Errorf("erreur attendue : %v", w)
+	}
+}

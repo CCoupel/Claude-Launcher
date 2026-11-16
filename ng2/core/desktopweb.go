@@ -24,12 +24,22 @@ type DesktopWeb struct {
 	// AllowLAN : confirmation explicite d'une écoute hors de la boucle locale (HTTP en clair,
 	// jeton = contrôle du poste) ; sans elle, un listen non loopback est refusé
 	AllowLAN *bool `yaml:"allow_lan" json:"allow_lan,omitempty"`
+	// Enabled : commutateur (#183). Absent : v6.2.0 (allumée si listen est renseigné) ; false : éteinte, listen
+	// conservé ; true : allumée, listen obligatoire.
+	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
+	// URL : adresse publique derrière un proxy inverse (#171) — lue et rendue par le modèle ; ses effets
+	// (Host, origine, cookie) viennent avec LOT-2.2.
+	URL string `yaml:"url" json:"url,omitempty"`
 }
 
 // DesktopWebConf : réglage effectif.
 type DesktopWebConf struct {
-	Off       bool
-	Listen    string // hôte:port d'écoute (vide si Off)
+	Off    bool
+	Listen string // hôte:port d'écoute (vide si Off)
+	// Enabled : valeur effective du commutateur (#183) ; Kept : adresse saisie gardée quand le commutateur est
+	// éteint (SavedListen telle qu'écrite dans le fichier : « 8787 », « off », « hôte:port »…).
+	Enabled   bool
+	Kept      string
 	Loopback  bool   // l'hôte d'écoute est la boucle locale
 	Source    string // bloc d'où vient le réglage
 	ListenSrc string
@@ -42,6 +52,7 @@ type DesktopWebConf struct {
 func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, error) {
 	listen, src := "", "défaut"
 	var allowLAN bool
+	var enabled *bool
 	merge := func(d *DesktopWeb, blk string) { // champ par champ : la machine l'emporte sur les défauts
 		if d == nil {
 			return
@@ -51,6 +62,9 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 		}
 		if d.AllowLAN != nil {
 			allowLAN = *d.AllowLAN
+		}
+		if d.Enabled != nil {
+			enabled = d.Enabled
 		}
 	}
 	merge(f.Defaults.DesktopWeb, "defaults.desktop_web")
@@ -63,25 +77,39 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 	}
 	c := DesktopWebConf{Source: src, ListenSrc: src}
 	listen = strings.TrimSpace(listen)
-	if listen == "" || isOff(listen) {
+	noListen := listen == "" || isOff(listen)
+	// table enabled × listen (contracts/desktop-web.md) : absent → v6.2.0 ; false → éteinte, adresse gardée ;
+	// true sans adresse → erreur de réglage
+	switch {
+	case enabled != nil && !*enabled:
+		c.Off, c.Kept = true, listen
+		if noListen {
+			c.Kept = ""
+		}
+		return c, nil
+	case enabled != nil && noListen:
+		c.Enabled, c.Off = true, true
+		return c, fmt.Errorf("%s : interface web activée sans adresse d'écoute", src)
+	case noListen:
 		c.Off = true
 		return c, nil
 	}
+	c.Enabled = true
 	if !strings.Contains(listen, ":") {
 		listen = "127.0.0.1:" + listen // port seul : boucle locale
 	}
 	h, port, err := net.SplitHostPort(listen)
 	if n, e := strconv.Atoi(port); err != nil || e != nil || n < 1 || n > 65535 {
-		return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf("%s %q : off, un port ou hôte:port attendu", src, listen)
+		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src}, fmt.Errorf("%s %q : off, un port ou hôte:port attendu", src, listen)
 	}
 	c.Listen, c.Loopback = listen, isLoopback(h)
 	if bs, err := resolveBrowserServerFor(f, host, goos); err == nil && !bs.Off && sameListen(bs.Listen, listen) {
-		return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf(
+		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src}, fmt.Errorf(
 			"%s %q est aussi l'adresse de browser_server (%s) : deux serveurs distincts (fichiers en lecture seule sans jeton / interface complète avec jeton) — choisir un autre port", src, listen, bs.ListenSrc)
 	}
 	if !c.Loopback {
 		if !allowLAN {
-			return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf(
+			return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src}, fmt.Errorf(
 				"%s %q : écoute hors de la boucle locale refusée sans confirmation — l'interface complète (projets, terminaux) serait atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement ; ajouter allow_lan: true à desktop_web pour l'accepter (accès par le nom de la machine ; sur une écoute 0.0.0.0 ou ::, l'adresse IP est refusée par le contrôle de Host)", src, listen)
 		}
 		c.Warn = LANWarning(listen)
@@ -148,8 +176,12 @@ func PrintDesktopWeb() {
 	switch {
 	case err != nil:
 		fmt.Println("  ⚠ " + err.Error() + " : désactivée")
+	case c.Off && c.Kept != "":
+		fmt.Println("  désactivée (desktop_web.enabled: false), adresse gardée : " + c.Kept)
+	case c.Off && !c.Enabled && c.Source != "défaut":
+		fmt.Println("  désactivée (desktop_web.enabled: false)")
 	case c.Off:
-		fmt.Println("  désactivée (défaut) : desktop_web.listen pour l'activer, ex. 127.0.0.1:8770")
+		fmt.Println("  désactivée (défaut) : desktop_web.listen pour l'activer, ex. 127.0.0.1:8770 (ou enabled: true avec listen)")
 	default:
 		fmt.Println("  écoute " + c.Listen + " (jeton obligatoire, conservé par poste)")
 		if c.Warn != "" {

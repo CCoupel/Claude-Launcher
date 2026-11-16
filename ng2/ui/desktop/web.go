@@ -436,9 +436,15 @@ func RunWeb(addr string, open bool) error {
 	if err != nil {
 		return err
 	}
-	if warn := w.configureListener(ln); warn != "" {
+	warn := w.configureListener(ln)
+	if warn != "" {
 		fmt.Println("⚠ " + warn)
 	}
+	// mode serveur : l'interface est le processus lui-même, toujours « on » ; le commutateur desktop_web.enabled
+	// ne s'y applique pas (#183)
+	a.webui.mu.Lock()
+	a.webui.state = WebUIState{State: "on", Listen: ln.Addr().String(), Lan: !w.strictHost, Warn: warn, Enabled: true, Server: true}
+	a.webui.mu.Unlock()
 	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.tokenNow())
 	fmt.Println("Claude Launcher (interface web) :", url)
 	fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
