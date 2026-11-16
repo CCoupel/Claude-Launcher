@@ -2,6 +2,24 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261116] — v6.3.0 : launcher dans Kubernetes (#165 à #171, #173, #175 à #177), réglages des serveurs web (#183)
+
+- **[NEW]** `CL_ROOT_BASE` et `--root-base` : racine de base ; ordre `CL_CONFIG_DIR` > racine de base > dossier du binaire > dossier personnel (#165) — `contracts/launcher-env.md`
+- **[NEW]** `CL_HUB_NAME`, `CL_CACHE_DIR` : nom et dossier d'état du launcher (#169)
+- **[NEW]** `CL_IN_CLUSTER`, `CL_ALLOW_HOST_BACKEND`, `CL_K8S_VOLUMES` : launcher dans un cluster — backend k8s par le ServiceAccount du pod, namespace du pod, backend k8s implicite, backend `host` refusé (#168, #169)
+- **[CHANGED]** diagnostic et « Tester » d'un backend k8s **en cluster** : contrôle de chaque droit, contrôle du montage du PVC, plus d'étape `get namespace` (#168) — hors cluster, inchangé
+- **[NEW]** `CL_UPDATE_MODE` (`auto` | `notify`) : annonce de version sans installation (#167)
+- **[CHANGED]** `desktop --web` **en cluster** : jeton conservé dans le cache au lieu d'un jeton neuf à chaque démarrage (#167) — hors cluster, inchangé
+- **[CHANGED]** `desktop --web` : arrêt propre sur `SIGTERM` / `SIGINT` (#167)
+- **[NEW]** image `ghcr.io/ccoupel/claude-launcher` (tags `vX.Y.Z`, `vX.Y.Z.a`) (#167)
+- **[NEW]** `desktop_web.enabled` (commutateur) et `desktop_web.url` (adresse publique) ; option `--url`, variable `CL_WEB_URL` (#183, #171) — `contracts/desktop-web.md` ; sans `enabled`, comportement de la v6.2.0
+- **[NEW]** routes `GET /healthz` et `GET /readyz`, sans session ni contrôle de `Host`, sans information (#167)
+- **[CHANGED]** `GET /api/events` : en-têtes `X-Accel-Buffering: no` et `no-transform` ; reconnexion de l'interface à délai croissant ; session perdue signalée (#171)
+- **[CHANGED]** cookie de session : attribut `Secure` quand l'adresse publique est en `https` (#171) — sans adresse publique, inchangé
+- **[NEW]** instantané `webUI` : champs `enabled`, `url`, `server` ; `configModel` / `configApply` `kind: "hub"` : clés `desktop_web.enabled`, `desktop_web.url` (#183, #171)
+- **[NEW]** chart Helm `deploy/helm/claude-launcher` et ses valeurs (#170, #173) — `contracts/helm-values.md`
+- Aucun `BREAKING` : sans les nouvelles variables ni les nouveaux réglages, hub Linux et exe Windows se comportent comme en v6.2.0.
+
 ## [20261115] — v6.2.0 : tailles par zone (#150), carte TEAM (#151), en-têtes (#152), rafraîchir (#158), interface web (#163)
 
 - **[NEW]** préférences par poste `treeFontSize`, `cardsFontSize` (#150) — rendues aussi par `configModel` `kind: "hub"`
