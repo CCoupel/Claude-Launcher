@@ -25,6 +25,10 @@ const (
 type HubResolved struct {
 	BrowserServer HubServerView     `json:"browser_server"`
 	DesktopWeb    HubDesktopWebView `json:"desktop_web"`
+	// BrowserPaths : liste effective (la couche la plus prioritaire qui la pose la remplace entièrement) ;
+	// BrowserDevice : deviceId effectif. Provenance : sources["browser_paths"], sources["browser_device"].
+	BrowserPaths  []BrowserPath     `json:"browser_paths"`
+	BrowserDevice string            `json:"browser_device"`
 	Sources       map[string]string `json:"sources"`
 }
 
@@ -32,15 +36,17 @@ type hubLayer struct {
 	name string
 	bs   *BrowserServer
 	dw   *DesktopWeb
+	bp   *[]BrowserPath
+	dev  string
 }
 
 // hubLayers : couches d'un poste pour le système goos, de la moins prioritaire à la plus prioritaire.
 func hubLayers(f backendsFile, host, goos string) []hubLayer {
-	ls := []hubLayer{{SrcDefaults, f.Defaults.BrowserServer, f.Defaults.DesktopWeb}}
+	ls := []hubLayer{{name: SrcDefaults, bs: f.Defaults.BrowserServer, dw: f.Defaults.DesktopWeb, bp: f.Defaults.BrowserPaths}}
 	if _, h, ok := pickHub(f.Hubs, host); ok {
-		ls = append(ls, hubLayer{SrcHub, h.BrowserServer, h.DesktopWeb})
+		ls = append(ls, hubLayer{name: SrcHub, bs: h.BrowserServer, dw: h.DesktopWeb, bp: h.BrowserPaths, dev: h.BrowserDevice})
 		if ov := h.osBlock(osKey(goos)); ov != nil {
-			ls = append(ls, hubLayer{osKey(goos), ov.BrowserServer, ov.DesktopWeb})
+			ls = append(ls, hubLayer{name: osKey(goos), bs: ov.BrowserServer, dw: ov.DesktopWeb, bp: ov.BrowserPaths, dev: ov.BrowserDevice})
 		}
 	}
 	return ls
@@ -48,12 +54,18 @@ func hubLayers(f backendsFile, host, goos string) []hubLayer {
 
 // resolvedOf : valeurs effectives champ par champ.
 func resolvedOf(f backendsFile, host, goos string) HubResolved {
-	r := HubResolved{BrowserServer: HubServerView{Allow: []string{}}, Sources: map[string]string{}}
-	for _, k := range []string{"browser_server.listen", "browser_server.url", "browser_server.allow",
+	r := HubResolved{BrowserServer: HubServerView{Allow: []string{}}, BrowserPaths: []BrowserPath{}, Sources: map[string]string{}}
+	for _, k := range []string{"browser_paths", "browser_device", "browser_server.listen", "browser_server.url", "browser_server.allow",
 		"desktop_web.listen", "desktop_web.allow_lan", "desktop_web.enabled", "desktop_web.url"} {
 		r.Sources[k] = ""
 	}
 	for _, l := range hubLayers(f, host, goos) {
+		if l.bp != nil {
+			r.BrowserPaths, r.Sources["browser_paths"] = *l.bp, l.name
+		}
+		if l.dev != "" {
+			r.BrowserDevice, r.Sources["browser_device"] = l.dev, l.name
+		}
 		if b := l.bs; b != nil {
 			if b.Listen != "" {
 				r.BrowserServer.Listen, r.Sources["browser_server.listen"] = b.Listen, l.name
@@ -151,6 +163,25 @@ func routeHubChanges(content []byte, host, goos string, changes []ConfigChange) 
 	}
 	var out []ConfigChange
 	for _, c := range changes {
+		if len(c.At) == 1 && (c.At[0] == "browser_paths" || c.At[0] == "browser_device") && (c.Op == "set" || c.Op == "delete") {
+			key := c.At[0]
+			inOV := key == "browser_paths" && ov.BrowserPaths != nil || key == "browser_device" && ov.BrowserDevice != ""
+			inHub := key == "browser_paths" && h.BrowserPaths != nil || key == "browser_device" && h.BrowserDevice != ""
+			switch {
+			case c.Op == "set" && inOV: // la valeur effective vient de la surcharge : c'est elle qu'on écrit
+				out = append(out, ConfigChange{Op: "set", At: []string{os, key}, Value: c.Value})
+			case c.Op == "set":
+				out = append(out, c)
+			default: // retour au défaut : retiré de la surcharge et de la couche commune
+				if inOV {
+					out = append(out, ConfigChange{Op: "delete", At: []string{os, key}})
+				}
+				if inHub {
+					out = append(out, c)
+				}
+			}
+			continue
+		}
 		if len(c.At) == 0 || hubFields[c.At[0]] == nil {
 			out = append(out, c)
 			continue

@@ -101,3 +101,57 @@ func TestApplyHubChangesForWithoutOverrideUnchanged(t *testing.T) {
 		t.Errorf("la surcharge windows a changé : %q", w.Resolved.BrowserServer.Listen)
 	}
 }
+
+const resolvedPathsYAML = `defaults:
+  browser_paths: [ { container: /d, host: "D:\\d", os: windows } ]
+hubs:
+  MSI:
+    browser_device: dev-hub
+    browser_paths: [ { container: /h, host: "H:\\h", os: windows } ]
+    windows:
+      browser_device: dev-win
+      browser_paths: [ { container: /w, host: "W:\\w", os: windows } ]
+`
+
+// browser_paths et browser_device : valeur effective par système, provenance, écriture sur la couche gagnante.
+func TestHubResolvedBrowserPathsAndDevice(t *testing.T) {
+	m, _ := ReadHubModel([]byte(resolvedPathsYAML), "MSI", "windows")
+	r := m.Resolved
+	if len(r.BrowserPaths) != 1 || r.BrowserPaths[0].Container != "/w" || r.Sources["browser_paths"] != "windows" {
+		t.Errorf("browser_paths windows : %v (%s)", r.BrowserPaths, r.Sources["browser_paths"])
+	}
+	if r.BrowserDevice != "dev-win" || r.Sources["browser_device"] != "windows" {
+		t.Errorf("browser_device windows : %q (%s)", r.BrowserDevice, r.Sources["browser_device"])
+	}
+	l, _ := ReadHubModel([]byte(resolvedPathsYAML), "MSI", "linux")
+	if l.Resolved.BrowserPaths[0].Container != "/h" || l.Resolved.Sources["browser_paths"] != "hub" || l.Resolved.BrowserDevice != "dev-hub" {
+		t.Errorf("linux : %+v", l.Resolved)
+	}
+	d, _ := ReadHubModel([]byte("defaults:\n  browser_paths: [ { container: /d, host: /d, os: linux } ]\n"), "MSI", "linux")
+	if d.Resolved.Sources["browser_paths"] != "defaults" || len(d.Resolved.BrowserPaths) != 1 {
+		t.Errorf("defaults : %+v", d.Resolved)
+	}
+	// écriture : la surcharge Windows est modifiée, la couche commune (hub Linux) ne bouge pas
+	out, err := ApplyHubChangesFor([]byte(resolvedPathsYAML), "MSI", "windows", []ConfigChange{
+		{Op: "set", At: []string{"browser_device"}, Value: "dev-win2"},
+		{Op: "set", At: []string{"browser_paths"}, Value: []map[string]any{{"container": "/w2", "host": "W:\\w2", "os": "windows"}}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	w, _ := ReadHubModel(out, "MSI", "windows")
+	if w.Resolved.BrowserDevice != "dev-win2" || w.Resolved.BrowserPaths[0].Container != "/w2" || w.Resolved.Sources["browser_device"] != "windows" {
+		t.Errorf("windows après écriture : %+v", w.Resolved)
+	}
+	if h, _ := ReadHubModel(out, "MSI", "linux"); h.Resolved.BrowserDevice != "dev-hub" || h.Resolved.BrowserPaths[0].Container != "/h" {
+		t.Errorf("la couche commune a changé : %+v", h.Resolved)
+	}
+	// retour au défaut : retiré de la surcharge et de la couche commune
+	out, err = ApplyHubChangesFor([]byte(resolvedPathsYAML), "MSI", "windows", []ConfigChange{{Op: "delete", At: []string{"browser_device"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w, _ := ReadHubModel(out, "MSI", "windows"); w.Resolved.BrowserDevice != "" {
+		t.Errorf("browser_device après delete : %q", w.Resolved.BrowserDevice)
+	}
+}

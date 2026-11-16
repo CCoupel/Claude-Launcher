@@ -106,12 +106,19 @@ Jamais le jeton, comme aujourd'hui.
 **effective** pour ce poste et ce système, jamais une valeur masquée.
 
 - `configModel`, `kind: "hub"` : nouveau champ `model.resolved` =
-  `{ "browser_server": {listen,url,allow}, "desktop_web": {listen,allow_lan,enabled,url}, "sources": {...} }`.
-  `sources` donne, pour chaque champ (`browser_server.listen`, `desktop_web.enabled`…), la couche qui gagne :
+  `{ "browser_server": {listen,url,allow}, "desktop_web": {listen,allow_lan,enabled,url},
+  "browser_paths": [{container,host,os}], "browser_device": "…", "sources": {...} }`.
+  `browser_paths` et `browser_device` suivent la même règle de priorité mais **sans fusion** : la couche la plus
+  prioritaire qui les pose les remplace entièrement (`browser_paths` : `defaults` aussi ; `browser_device` :
+  `hubs.<machine>` et surcharge seulement). `sources` donne, pour chaque champ (`browser_server.listen`,
+  `desktop_web.enabled`, `browser_paths`, `browser_device`…), la couche qui gagne :
   `"defaults"`, `"hub"` (`hubs.<machine>`), le nom du système (`"windows"`, `"linux"`, `"darwin"` : surcharge) ou
   `""` (posé nulle part). `settings` et `overrides` restent inchangés (lecture des surcharges conservée).
-- `configApply`, `kind: "hub"` : les changements `set`/`delete` d'`at` = `["browser_server"]`, `["desktop_web"]`
+- `configApply`, `kind: "hub"` : les changements `set`/`delete` d'`at` = `["browser_server"]`, `["desktop_web"]`,
+  `["browser_paths"]`, `["browser_device"]`
   (objet effectif entier) ou `["<réglage>", "<champ>"]` sont portés **sur la couche qui gagne** pour le système du
   launcher : si `hubs.<machine>.<système>` définit le champ, c'est lui qui est écrit, sinon `hubs.<machine>`. Un
   champ absent de l'objet remplaçant est retiré de chaque couche qui le pose. Un `at` qui commence par un système
   (`["windows", …]`) est appliqué tel quel.
+  Pour `browser_paths` et `browser_device`, `set` écrit la surcharge du système si elle les pose, sinon
+  `hubs.<machine>` ; `delete` (retour au défaut) les retire de la surcharge et de `hubs.<machine>`.
