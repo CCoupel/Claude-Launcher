@@ -454,8 +454,8 @@ func TestFullInstallOnFakeRoot(t *testing.T) {
 	c := exec.Command(bin, "desktop", "--web", "--no-open", "--addr", "127.0.0.1:"+port)
 	c.Env = append(append(cmdEnv, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "CL_NO_UPDATE=1"), env...)
 	stdout, _ := c.StdoutPipe()
-	var se strings.Builder
-	c.Stderr = &se
+	se := &lockedBuf{} // lu dans le chemin d'échec pendant que le sous-processus écrit encore
+	c.Stderr = se
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}

@@ -41,7 +41,7 @@ func TestSecondLauncherSameNameRefused(t *testing.T) {
 	tmp := t.TempDir()
 	cache := filepath.Join(tmp, "partage")
 	_ = os.MkdirAll(cache, 0o755)
-	start := func(name, port string) (*exec.Cmd, *strings.Builder) {
+	start := func(name, port string) (*exec.Cmd, *lockedBuf) {
 		home := t.TempDir()
 		var env []string
 		for _, kv := range os.Environ() {
@@ -53,13 +53,13 @@ func TestSecondLauncherSameNameRefused(t *testing.T) {
 		c := exec.Command(rbBin, "desktop", "--web", "--no-open", "--addr", "127.0.0.1:"+port)
 		c.Env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "CL_CONFIG_DIR="+filepath.Join(tmp, "cfg"),
 			"XDG_DATA_HOME="+rbDataHome(), "CL_CACHE_DIR="+cache, "CL_HUB_NAME="+name, "CL_NO_UPDATE=1", "CL_IN_CLUSTER=0", "TMUX_TMPDIR="+rbTmuxDir(t), "CL_DESKTOP_TOKEN=tokSameName123456789012")
-		var se strings.Builder
-		c.Stderr, c.Stdout = &se, &se
+		se := &lockedBuf{}
+		c.Stderr, c.Stdout = se, se
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
 		t.Cleanup(func() { _ = c.Process.Kill(); _ = c.Wait() })
-		return c, &se
+		return c, se
 	}
 	waitUp := func(port string) bool {
 		cl := &http.Client{Timeout: time.Second}
