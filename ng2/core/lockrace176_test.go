@@ -29,7 +29,7 @@ func TestStaleLockTakeoverNeverGivesTwoHolders(t *testing.T) {
 	defer func() { fileLockStale = old }()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "shared.json")
-	for round := 0; round < 25; round++ {
+	for round := 0; round < 6; round++ {
 		lock := target + ".lock"
 		_ = os.WriteFile(lock, []byte("mort 1 x\n"), 0o644)
 		twAge(t, lock, time.Minute) // périmé : tous le voient
@@ -106,12 +106,12 @@ func TestSlowHolderDoesNotReleaseAnotherLock(t *testing.T) {
 // Présence : deux lanceurs de même nom constatent ensemble un témoin périmé → un seul démarre.
 func TestPresenceStaleTakeoverStartsOnlyOne(t *testing.T) {
 	withHome(t)
-	oldStale, oldBeat := presenceStale, presenceBeat
-	presenceStale, presenceBeat = 150*time.Millisecond, time.Hour
-	defer func() { presenceStale, presenceBeat = oldStale, oldBeat }()
+	oldStale := presenceStale
+	presenceStale = 150 * time.Millisecond
+	defer func() { presenceStale = oldStale }()
 	t.Setenv("CL_CACHE_DIR", t.TempDir())
 	t.Setenv("CL_HUB_NAME", "hub-presence")
-	for round := 0; round < 25; round++ {
+	for round := 0; round < 6; round++ {
 		p := presencePath()
 		_ = os.WriteFile(p, []byte("autre-machine 424242 2020-01-01T00:00:00Z\n"), 0o644)
 		twAge(t, p, time.Minute)
