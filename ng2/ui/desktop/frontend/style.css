@@ -430,3 +430,4 @@ body.cardsfolded #hsplit { display: none; }
 .stsw.on .knob::after { left: 16px; }
 .stsw.ro { cursor: default; opacity: .75; }
 .stsw input:focus-visible + .knob { outline: 2px solid var(--accent); outline-offset: 2px; }
+.lanbanner.sessionlost { background: var(--alert-red, var(--alert-orange)); color: var(--red, var(--orange)); }

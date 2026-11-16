@@ -680,6 +680,9 @@ function docLocalProblems(id) {
         else ps.push({ severity: 'warning', message: '⚠ Interface web ouverte au réseau (' + dw + ') : le jeton circule en clair en HTTP et toute machine qui l\'obtient pilote ce poste (terminaux, projets). Préférer un tunnel SSH ou TLS et garder l\'écoute sur la boucle locale.' });
       }
     }
+    // adresse publique (#171) : http(s)://hôte[:port], sans chemin, paramètres ni identifiants
+    const pu = (D.d.f.dweb_url || '').trim();
+    if (pu && !/^https?:\/\/[^\/?#@\s]+$/i.test(pu)) ps.push({ severity: 'error', message: 'Interface web : adresse publique « ' + pu + ' » invalide — forme http(s)://hôte[:port], sans chemin, paramètres ni identifiants' });
     for (const k of ['uid', 'gid']) if (D.d.f[k] !== '' && !/^\d+$/.test(D.d.f[k])) ps.push({ severity: 'error', message: 'utilisateur distant : ' + k + ' numérique attendu' });
   }
   return ps;
@@ -858,6 +861,7 @@ function dwFill(box) {
   const w = dwSnap();
   const txt = w.state === 'on' ? '● active sur ' + w.listen + (w.lan ? ' — ouverte au réseau' : '') + (w.msg ? ' — ' + w.msg : '') : w.state === 'error' ? '✕ ' + (w.msg || 'erreur') : '○ désactivée';
   box.append(el('span', w.state === 'on' ? (w.lan ? 't-orange' : 't-green') : w.state === 'error' ? 't-red' : 'dim', txt));
+  if (w.state === 'on' && w.url) box.append(el('span', 'dim', 'atteinte par ' + w.url));
   if (w.state === 'on' && !dwLocked()) {
     box.append(stBtn('Ouvrir dans le navigateur', async () => {
       try { const r = await call('webUIOpen', {}); if (r && r.ok === false) flash('⚠ ' + (r.msg || 'ouverture impossible')); } catch (e) { /* signalé par call */ }
@@ -898,11 +902,10 @@ function stPageWeb(p) {
         return c;
       })());
     // adresse publique (#171) : affichée ; le champ éditable arrive au LOT-2.2
-    const pub = stInput(f.dweb_url, () => {}, '(aucune — accès direct)');
-    pub.readOnly = true; pub.classList.add('ro'); pub.title = 'adresse publique : modifiable dans une prochaine étape';
+    const pub = dwLock(stInput(dwServer() ? (dwSnap().url || '') : f.dweb_url, (v) => { f.dweb_url = v; }, '(aucune — accès direct)'));
     const ad = stForm([
       ['Écoute', ec, (dwLocked() ? (dwServer() ? DW_SRV : DW_RO) + ' · ' : 'off, un port (boucle locale) ou hôte:port · différente du serveur de maquettes · hors boucle locale : la case est obligatoire ; le jeton circule en HTTP, préférer un tunnel SSH/TLS ') + ov],
-      ['Adresse publique', pub, 'derrière un proxy inverse en HTTPS : ce nom est admis, le cookie de session devient sécurisé'],
+      ['Adresse publique', pub, (dwServer() ? 'fixée au lancement (--url, CL_WEB_URL) · ' : '') + 'http(s)://hôte[:port], sans chemin · derrière un proxy inverse en HTTPS : ce nom est admis, le cookie de session devient sécurisé · ' + hubSrc(D.model, 'desktop_web', ['url'])],
     ]);
     if (off) ad.classList.add('gris');
     p.appendChild(stBox('Adresses', ad));

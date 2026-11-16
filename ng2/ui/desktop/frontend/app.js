@@ -6,6 +6,15 @@
 'use strict';
 
 // ── Transport : Wails (window.go) ou HTTP + SSE ────────────────────────────
+const SESSION_MSG = 'session expirée — rouvrir le lien d\'accès';
+let sessionIsLost = false;
+function sessionLost() {
+  if (sessionIsLost) return;
+  sessionIsLost = true;
+  const b = document.createElement('div');
+  b.className = 'lanbanner sessionlost'; b.id = 'sessionlost'; b.textContent = '⚠ ' + SESSION_MSG;
+  document.body.insertBefore(b, document.body.firstChild);
+}
 const transport = (() => {
   const wails = () => window.go && window.go.desktop && window.go.desktop.Bridge;
   return {
@@ -15,6 +24,7 @@ const transport = (() => {
         return r ? JSON.parse(r) : null;
       }
       const res = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args: args || {} }) });
+      if (res.status === 401 || res.status === 403) { sessionLost(); throw new Error(SESSION_MSG); } // session perdue (#171)
       const j = await res.json();
       if (j.error) throw new Error(j.error);
       return j.result;
@@ -24,10 +34,23 @@ const transport = (() => {
         window.runtime.EventsOn('ev', (e) => cb(e.name, e.data));
         return;
       }
+      // Coupure du flux : nouvelle tentative après 1,5 s, délai doublé à chaque échec jusqu'à 15 s, remis à 1,5 s dès
+      // qu'une connexion aboutit. 401/403 (session perdue) : on arrête de réessayer (#171). Le test de session passe
+      // par `init` (EventSource ne donne pas le code HTTP) ; après reconnexion : init puis remise à jour de l'affichage.
+      let delay = 1500;
       const connect = () => {
         const es = new EventSource('/api/events');
+        es.onopen = () => { delay = 1500; };
         es.onmessage = (m) => { try { const e = JSON.parse(m.data); cb(e.name, e.data); } catch (err) { console.error(err); } };
-        es.onerror = () => { es.close(); setTimeout(() => { connect(); call('init').then(applyInit).catch(() => {}); }, 1500); };
+        es.onerror = () => {
+          es.close();
+          if (sessionIsLost) return;
+          const wait = delay; delay = Math.min(delay * 2, 15000);
+          setTimeout(async () => {
+            try { applyInit(await transport.call('init')); } catch (err) { if (sessionIsLost) return; }
+            if (!sessionIsLost) connect();
+          }, wait);
+        };
       };
       connect();
     },
