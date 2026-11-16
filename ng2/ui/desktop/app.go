@@ -800,6 +800,8 @@ func (a *App) alerts() []Alert {
 		al := Alert{Kind: "launcher", Color: "orange"}
 		tag := u.newLauncher
 		switch {
+		case core.UpdateNotifyOnly():
+			al.Text = "↑ NG " + tag + " disponible · mise à jour par l'image"
 		case u.updating:
 			al.Text, al.Color = "↑ NG "+tag+" : installation…", "green"
 		case u.launcherOK:

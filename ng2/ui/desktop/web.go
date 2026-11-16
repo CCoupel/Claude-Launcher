@@ -13,11 +13,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -493,8 +495,17 @@ func RunWeb(addr string, open bool) error {
 		return perr
 	}
 	w.public = pub
-	if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" { // tests
+	// jeton : CL_DESKTOP_TOKEN, sinon — dans un pod — le jeton conservé (il ne change plus à chaque redémarrage du
+	// pod : un lien déjà distribué reste valable) ; hors cluster, toujours un nouveau jeton (#167)
+	if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" {
 		w.token = t
+	} else if core.InCluster() {
+		if t, err := desktopWebToken(); t != "" {
+			w.token = t
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "⚠ "+err.Error())
+			}
+		}
 	}
 	a := NewApp(w.emit)
 	a.web = true // le presse-papiers de cette machine n'est jamais exposé à un client web
@@ -530,6 +541,15 @@ func RunWeb(addr string, open bool) error {
 	go func() {
 		_ = srv.Serve(ln)
 		close(done)
+	}()
+	// SIGTERM (arrêt d'un pod) et SIGINT : arrêt propre — serveur fermé, terminaux détachés (a.Stop après <-done),
+	// code 0 ; les projets restent ouverts dans leurs pods / tmux (#167)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
+	defer signal.Stop(sig)
+	go func() {
+		<-sig
+		_ = srv.Close()
 	}()
 	// mise à jour installée : même adresse et même jeton pour le nouveau
 	// binaire, port libéré avant de le lancer ; l'onglet ouvert se reconnecte

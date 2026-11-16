@@ -53,7 +53,7 @@ func (a *App) applyUpd(msg core.UpdMsg) {
 			u.launcherOK, u.prefFile, u.prefErr = false, "", ""
 		}
 		u.newLauncher, u.launcherPub = tag, msg.LauncherReady
-		if tag != "" && u.launcherPub && !u.launcherOK && !(u.prefBusy && u.prefTag == tag) {
+		if tag != "" && u.launcherPub && !u.launcherOK && !(u.prefBusy && u.prefTag == tag) && !core.UpdateNotifyOnly() {
 			prep = tag
 		}
 		if msg.TplTag != u.newTpl || msg.TplReady != u.tplOK {
@@ -135,6 +135,9 @@ func (a *App) clickAlert(kind string) {
 	a.mu.Lock()
 	u := a.upd
 	a.mu.Unlock()
+	if kind == "launcher" && core.UpdateNotifyOnly() {
+		return // annonce seulement : ni téléchargement ni installation (mise à jour par l'image)
+	}
 	switch {
 	case kind == "launcher" && u.launcherOK && !u.updating:
 		a.mu.Lock()
@@ -165,6 +168,9 @@ func (a *App) clickAlert(kind string) {
 // install : copie le binaire préparé à la place de l'actuel et relance
 // l'application (les sessions des projets restent dans tmux).
 func (a *App) install(tag, path, sum string) {
+	if core.UpdateNotifyOnly() {
+		return
+	}
 	r := core.InstallPreparedNow(tag, path, sum)
 	a.mu.Lock()
 	a.upd.updating = false

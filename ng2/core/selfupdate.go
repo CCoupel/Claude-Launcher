@@ -53,8 +53,12 @@ func ngAssetFor(goos, goarch string) string {
 	return "claude-launcher-ng2-" + goos + "-" + goarch
 }
 
+// UpdateNotifyOnly : CL_UPDATE_MODE=notify — la nouvelle version est annoncée, sans téléchargement ni installation
+// (image de conteneur : la mise à jour passe par l'image, #167).
+func UpdateNotifyOnly() bool { return strings.TrimSpace(os.Getenv("CL_UPDATE_MODE")) == "notify" }
+
 func updateDisabled() bool {
-	if os.Getenv("CL_NO_UPDATE") == "1" {
+	if os.Getenv("CL_NO_UPDATE") == "1" || UpdateNotifyOnly() {
 		return true
 	}
 	for _, a := range os.Args[1:] {
