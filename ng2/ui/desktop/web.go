@@ -95,6 +95,12 @@ func (w *webBridge) revokeAll() {
 // cookieName : « cl_session_<port> » — un cookie ne distingue pas les ports d'un même hôte, le
 // nom évite les collisions entre deux serveurs de l'interface de la machine.
 func (w *webBridge) cookieName(r *http.Request) string {
+	// adresse publique en https : préfixe __Host- (le navigateur exige Secure, Path=/ et aucun Domain : un
+	// cookie posé par un sous-domaine voisin ne peut pas le remplacer)
+	prefix := ""
+	if w.public != nil && w.public.HTTPS() {
+		prefix = "__Host-"
+	}
 	port := w.port
 	if port == "" {
 		if _, p, err := net.SplitHostPort(r.Host); err == nil {
@@ -102,9 +108,9 @@ func (w *webBridge) cookieName(r *http.Request) string {
 		}
 	}
 	if port == "" {
-		return "cl_session"
+		return prefix + "cl_session"
 	}
-	return "cl_session_" + port
+	return prefix + "cl_session_" + port
 }
 
 func (w *webBridge) newSession() string {
@@ -292,7 +298,7 @@ func (w *webBridge) secured(next http.Handler) http.Handler {
 			return
 		}
 		if !w.hostOK(r) {
-			http.Error(rw, "hôte refusé", http.StatusForbidden)
+			refuse(rw, "host", "hôte refusé")
 			return
 		}
 		h := rw.Header()
@@ -304,27 +310,50 @@ func (w *webBridge) secured(next http.Handler) http.Handler {
 	})
 }
 
+// refuse : 403 dont la cause se lit dans l'en-tête X-Launcher-Refusal (host, origin, session, method) et dans le
+// corps : l'interface distingue une session perdue d'un refus d'hôte ou d'origine (#171).
+func refuse(rw http.ResponseWriter, kind, msg string) {
+	rw.Header().Set("X-Launcher-Refusal", kind)
+	http.Error(rw, msg, http.StatusForbidden)
+}
+
 func (w *webBridge) handler() http.Handler {
 	mux := http.NewServeMux()
 	assets, _ := fs.Sub(frontendFS, "frontend")
 	files := http.FileServer(http.FS(assets))
 	mux.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+			_, hasToken := r.URL.Query()["t"]
 			if !w.authorized(r, true) {
-				http.Error(rw, "jeton manquant : ouvrir l'URL affichée au lancement", http.StatusForbidden)
+				refuse(rw, "session", "jeton manquant ou invalide : ouvrir l'URL affichée au lancement")
 				return
 			}
-			// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire,
-			// révoqué à l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton
-			http.SetCookie(rw, &http.Cookie{Name: w.cookieName(r), Value: w.newSession(), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
-				Secure: w.public != nil && w.public.HTTPS()}) // https public : le navigateur ne renvoie le cookie qu'en HTTPS
+			if hasToken {
+				// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire, révoqué à
+				// l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton. Aucune page
+				// n'est servie sur une URL qui porte le jeton (historique, journaux, Referer) : 303 vers « / ».
+				if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("t")), []byte(w.tokenNow())) == 1 {
+					http.SetCookie(rw, &http.Cookie{Name: w.cookieName(r), Value: w.newSession(), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+						Secure: w.public != nil && w.public.HTTPS()}) // https public : le navigateur ne renvoie le cookie qu'en HTTPS
+				}
+				rw.Header().Set("Cache-Control", "no-store")
+				http.Redirect(rw, r, "/", http.StatusSeeOther)
+				return
+			}
 		}
 		rw.Header().Set("Cache-Control", "no-store")
 		files.ServeHTTP(rw, r)
 	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !w.authorized(r, false) || !w.sameOrigin(r) {
-			http.Error(rw, "refusé", http.StatusForbidden)
+		switch {
+		case r.Method != http.MethodPost:
+			refuse(rw, "method", "méthode refusée")
+			return
+		case !w.authorized(r, false):
+			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
+			return
+		case !w.sameOrigin(r):
+			refuse(rw, "origin", "origine refusée")
 			return
 		}
 		if !jsonRequest(r) {
@@ -349,8 +378,12 @@ func (w *webBridge) handler() http.Handler {
 		_ = json.NewEncoder(rw).Encode(out)
 	})
 	mux.HandleFunc("/api/events", func(rw http.ResponseWriter, r *http.Request) {
-		if !w.authorized(r, false) || !w.sameOrigin(r) {
-			http.Error(rw, "refusé", http.StatusForbidden)
+		switch {
+		case !w.authorized(r, false):
+			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
+			return
+		case !w.sameOrigin(r):
+			refuse(rw, "origin", "origine refusée")
 			return
 		}
 		rc := http.NewResponseController(rw)

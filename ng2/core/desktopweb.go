@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"golang.org/x/net/idna"
 	"gopkg.in/yaml.v3"
 )
 
@@ -275,7 +276,11 @@ type PublicURL struct {
 func (p PublicURL) HTTPS() bool { return p.Scheme == "https" }
 
 // ParsePublicURL : « http(s)://hôte[:port] » — sans chemin, paramètres, fragment ni identifiants. Toute autre
-// forme est une erreur de réglage (l'interface web reste éteinte, la raison est dite).
+// forme est une erreur de réglage (l'interface web reste éteinte, la raison est dite). L'hôte est une adresse IP
+// littérale ou un nom RFC 1123 (lettres, chiffres, « - » et « . ») ; un nom internationalisé est converti en
+// punycode (c'est ce que le navigateur envoie dans Host et Origin) ; « % » et toute autre ponctuation sont
+// refusés. Le port par défaut du schéma (443 en https, 80 en http) est retiré : l'origine et l'en-tête Host d'un
+// navigateur ne le portent jamais.
 func ParsePublicURL(raw string) (PublicURL, error) {
 	bad := func(why string) (PublicURL, error) {
 		return PublicURL{}, fmt.Errorf("adresse publique %q invalide : %s (forme attendue : https://hôte[:port] ou http://hôte[:port], sans chemin ni paramètres)", raw, why)
@@ -293,15 +298,61 @@ func ParsePublicURL(raw string) (PublicURL, error) {
 		return bad("identifiants interdits")
 	case u.Path != "" && u.Path != "/" || strings.Contains(raw, "?") || strings.Contains(raw, "#"):
 		return bad("chemin, paramètres et fragment interdits")
+	case strings.Contains(u.Host, "%"):
+		return bad("« % » interdit dans l'hôte")
 	}
-	host := strings.ToLower(u.Hostname())
-	if p := u.Port(); p != "" {
-		if n, e := strconv.Atoi(p); e != nil || n < 1 || n > 65535 {
+	host, herr := publicHost(u.Hostname())
+	if herr != nil {
+		return bad(herr.Error())
+	}
+	port := u.Port()
+	if port != "" {
+		if n, e := strconv.Atoi(port); e != nil || n < 1 || n > 65535 {
 			return bad("port invalide")
 		}
 	}
-	origin := u.Scheme + "://" + strings.ToLower(u.Host)
-	return PublicURL{Origin: origin, Scheme: u.Scheme, Host: host, Port: u.Port()}, nil
+	if port == "443" && u.Scheme == "https" || port == "80" && u.Scheme == "http" {
+		port = "" // port par défaut du schéma : normalisé
+	}
+	hostPort := host
+	if strings.Contains(host, ":") { // IPv6 littérale
+		hostPort = "[" + host + "]"
+	}
+	origin := u.Scheme + "://" + hostPort
+	if port != "" {
+		origin += ":" + port
+	}
+	return PublicURL{Origin: origin, Scheme: u.Scheme, Host: host, Port: port}, nil
+}
+
+// publicHost : hôte d'une adresse publique, en minuscules ASCII — IP littérale, ou nom RFC 1123 (punycode si
+// internationalisé).
+func publicHost(h string) (string, error) {
+	if ip := net.ParseIP(h); ip != nil {
+		return strings.ToLower(ip.String()), nil
+	}
+	if strings.ContainsAny(h, " /\\@[]:") {
+		return "", fmt.Errorf("caractère interdit dans l'hôte")
+	}
+	ascii, err := idna.Lookup.ToASCII(strings.ToLower(h))
+	if err != nil {
+		return "", fmt.Errorf("nom d'hôte invalide (%v)", err)
+	}
+	ascii = strings.ToLower(ascii)
+	if len(ascii) == 0 || len(ascii) > 253 {
+		return "", fmt.Errorf("nom d'hôte trop long ou vide")
+	}
+	for _, label := range strings.Split(ascii, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", fmt.Errorf("étiquette de nom d'hôte invalide %q", label)
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return "", fmt.Errorf("caractère %q interdit dans le nom d'hôte", c)
+			}
+		}
+	}
+	return ascii, nil
 }
 
 // MatchesHost : l'en-tête Host d'une requête désigne l'adresse publique — son nom, sur son port (ou sans port si

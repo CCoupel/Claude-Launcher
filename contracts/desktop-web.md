@@ -128,3 +128,21 @@ Jamais le jeton, comme aujourd'hui.
   erreur ; sa provenance `"defaults"` l'indique dans `sources`).
 - Client web : l'empreinte d'exposition (refus de toute modification) couvre `desktop_web`, `browser_server`,
   `browser_paths` et `browser_device`, dans `defaults`, `hubs.<machine>` et les surcharges par système.
+
+## Amorçage, cookie, adresse publique stricte, refus **[CHANGED]** (#171, cycle 1 — sécurité M1/F1/F2, revue M1)
+
+- **Amorçage** : `GET /?t=<jeton>` (ou `/index.html?t=…`) ne sert jamais de page : jeton valide → cookie de session posé
+  et `303 See Other` vers `/` (sans `t`), `Cache-Control: no-store`. Jeton invalide sans session → `403` (`session`) ;
+  jeton invalide avec session valide → `303` vers `/` sans nouveau cookie. `GET /` sans `t`, avec cookie valide, sert
+  la page sans toucher au cookie.
+- **Nom du cookie** : `__Host-cl_session_<port>` (ou `__Host-cl_session`) quand l'adresse publique est en https
+  (le navigateur impose alors `Secure`, `Path=/`, aucun `Domain`) ; `cl_session_<port>` sinon, inchangé.
+- **`ParsePublicURL`** : l'hôte est une IP littérale ou un nom RFC 1123 (lettres, chiffres, `-`, `.`) ; un nom
+  internationalisé est converti en punycode (`golang.org/x/net/idna`, déjà dans les dépendances : passé de indirect à
+  direct, aucun module ajouté) ; `%`, `_`, espaces et toute autre ponctuation sont refusés. Le port par défaut du
+  schéma (443 en https, 80 en http) est retiré : `https://h:443` ≡ `https://h` (`Origin` et `Host` du navigateur ne
+  portent jamais ce port).
+- **Refus 403** : l'en-tête `X-Launcher-Refusal` vaut `host` (hôte non admis), `origin` (origine non admise),
+  `session` (cookie absent, expiré ou révoqué, jeton d'amorçage invalide) ou `method` (méthode non permise sur
+  `/api/call`) ; le corps est un texte court (`hôte refusé`, `origine refusée`, `session absente ou expirée : …`,
+  `méthode refusée`). Seul `session` signifie « session perdue » ; `host` et `origin` ne la sont pas.
