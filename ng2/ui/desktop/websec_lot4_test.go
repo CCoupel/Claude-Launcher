@@ -149,8 +149,7 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	a := newApp(t, r.emit)
 	p1 := l4FreePort(t)
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p1)+"\" }\n")
-	a.applyWebUI()
-	l4WaitWebUI(t, a, "on", 5*time.Second)
+	applyWebUIUntilOn(t, a)
 	tok1, _ := desktopWebToken()
 	base := "http://127.0.0.1:" + itoa(p1)
 	c := scBootstrap(t, base, tok1)
@@ -162,8 +161,7 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	l4WriteBackends(t, "  desktop_web: { listen: off }\n")
 	a.applyWebUI()
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p1)+"\" }\n")
-	a.applyWebUI()
-	l4WaitWebUI(t, a, "on", 5*time.Second)
+	applyWebUIUntilOn(t, a)
 	if st := scCall(t, base, c, call); st != 403 {
 		t.Errorf("ancienne session après arrêt/relance : %d, attendu 403", st)
 	}
@@ -173,8 +171,7 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	// adresse changée : nouveau jeton
 	p2 := l4FreePort(t)
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p2)+"\" }\n")
-	a.applyWebUI()
-	l4WaitWebUI(t, a, "on", 5*time.Second)
+	applyWebUIUntilOn(t, a)
 	if tok2, _ := desktopWebToken(); tok2 == tok1 {
 		t.Error("jeton conservé malgré le changement d'adresse d'écoute")
 	}
@@ -200,6 +197,28 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	if resp, _ := scGet(t, base2, "/?t="+tok2, ""); resp.StatusCode != 403 {
 		t.Errorf("ancien lien après régénération : %d", resp.StatusCode)
 	}
+}
+
+// applyWebUIUntilOn : applyWebUI puis attente de l'état « on » ; un bind refusé (« address already in use » : le
+// port vient d'être libéré, ou repris par un autre test du paquet entre le tirage et l'écoute) est réessayé (#187 b).
+func applyWebUIUntilOn(t *testing.T, a *App) {
+	t.Helper()
+	var w map[string]any
+	for try := 0; try < 20; try++ {
+		a.applyWebUI()
+		end := time.Now().Add(1500 * time.Millisecond)
+		for time.Now().Before(end) {
+			if w = l4WebUIOf(t, a); w["state"] == "on" {
+				return
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		if msg, _ := w["msg"].(string); w["state"] == "error" && !strings.Contains(msg, "in use") && !strings.Contains(msg, "utilisé") {
+			break // autre erreur : inutile de réessayer
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("webUI.state = %v, attendu on (%v)", w["state"], w)
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
