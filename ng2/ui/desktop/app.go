@@ -294,6 +294,11 @@ func (a *App) Stop() {
 		go func(t *projTerm) { defer wg.Done(); t.detach() }(t)
 	}
 	wg.Wait()
+	if a.mgr != nil {
+		// gestionnaire d'état : son watcher fsnotify (instance inotify du quota de l'utilisateur) est fermé tout de suite ;
+		// l'attente d'un calcul en cours se fait à côté, sans retarder l'arrêt de l'interface
+		go a.mgr.Stop()
+	}
 }
 
 // everyTimed : every, la première exécution mesurée (journal #125).
@@ -353,7 +358,7 @@ func (a *App) emitter() {
 // ── Relectures ────────────────────────────────────────────────────────────
 
 func (a *App) treeLoop() {
-	ch := core.WatchTree(a.conf().Roots)
+	ch := core.WatchTreeUntil(a.conf().Roots, a.quit) // arrêtée avec l'App : son instance inotify est rendue
 	for {
 		select {
 		case <-a.quit:
