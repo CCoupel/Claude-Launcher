@@ -9,7 +9,11 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+### Added
+- Réglages › Ce poste : les rubriques « Serveur de maquettes » et « Interface web » sont séparées. Le commutateur `desktop_web.enabled` allume ou éteint l'interface web sans effacer son adresse, sans relance du launcher (#183)
+
 ### Changed
+- `desktop_web` et `browser_server` s'affichent et se modifient en valeur effective pour ce poste et ce système, avec la provenance de chaque réglage (`defaults`, `hubs.<machine>`, surcharge par système). « Retour au défaut » retire le champ de toutes les couches (#183)
 - `scripts/ci.sh` tient en moins de 60 s hors étape image : 56 s en moyenne sur trois passes, contre 119 s. Les tests de `ui/desktop` attendent désormais des évènements au lieu de dormir ; la couverture et le nombre de tests sont inchangés (#179)
 
 ## [6.2.0] — 2026-11-16

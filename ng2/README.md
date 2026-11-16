@@ -687,6 +687,11 @@ Ordre de priorité, champ par champ (`listen`, `url`, `allow`) :
 `defaults.browser_server` > défaut (`127.0.0.1:8765`, ou `127.0.0.1:8766` pour l'exe Windows,
 voir la section Windows).
 
+Dans Réglages › Ce poste, la rubrique « Serveur de maquettes » affiche la **valeur effective** pour ce poste et ce
+système, avec sa provenance : `defaults`, `hubs.<machine>`, le nom du système (`windows`, `linux`, `darwin`) quand une
+surcharge le pose, ou rien si aucune couche ne le pose. Modifier un champ l'écrit sur la couche qui gagne ; « retour au
+défaut » le retire de toutes les couches qui le posent, sans laisser réapparaître une valeur masquée.
+
 `url` est la base annoncée au template. Elle est déduite de `listen` par défaut : `localhost` en
 boucle locale, le nom de la machine si le serveur écoute sur toutes les interfaces. Attention :
 écouter ailleurs que sur `127.0.0.1` expose les racines à tout le réseau.
@@ -1375,9 +1380,17 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
   elle se déclare dans `defaults`, `hubs.<machine>` et se surcharge par système (`.windows`, `.linux`, `.darwin`), champ par
   champ. Une écoute hors boucle locale exige `allow_lan: true` ; le même port que `browser_server` du même système est refusé.
 
+  Le commutateur `enabled` (v6.3.0, #183) allume ou éteint l'interface sans toucher à `listen` : `enabled: false` garde
+  l'adresse, `enabled: true` exige une adresse d'écoute (sinon erreur « interface web activée sans adresse d'écoute »).
+  Absent, l'interface est allumée si `listen` est renseigné, comme en v6.2.0. Le changement s'applique à l'enregistrement,
+  sans relance, et n'affecte pas le serveur des maquettes. Dans Réglages › Ce poste, la rubrique « Interface web » affiche
+  la valeur effective pour ce poste et ce système, avec sa provenance comme pour le serveur de maquettes ; le commutateur
+  propose `127.0.0.1:8787` quand on l'allume sans adresse saisie. En mode serveur (`desktop --web`), `enabled` est
+  ignoré. Depuis un client web, `desktop_web` et `browser_server` sont en lecture seule.
+
   ```yaml
   defaults:
-    desktop_web: { listen: "8770" }                 # port seul = boucle locale (127.0.0.1:8770)
+    desktop_web: { enabled: true, listen: "8770" }  # port seul = boucle locale (127.0.0.1:8770)
   hubs:
     MSI:
       desktop_web: { listen: "0.0.0.0:8770", allow_lan: true }   # réseau : accès par le nom de la machine
