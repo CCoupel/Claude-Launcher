@@ -28,7 +28,7 @@ func scGet(t *testing.T, base, path, host string, cookies ...*http.Cookie) (*htt
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -44,7 +44,7 @@ func scCall(t *testing.T, base string, c *http.Cookie, body string) int {
 	if c != nil {
 		req.AddCookie(c)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func scCall(t *testing.T, base string, c *http.Cookie, body string) int {
 func scBootstrap(t *testing.T, base, tok string) *http.Cookie {
 	t.Helper()
 	resp, _ := scGet(t, base, "/?t="+tok, "")
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("amorçage : %d", resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
@@ -94,11 +94,11 @@ func TestRunWebListenerOutsideLoopbackChecksHost(t *testing.T) {
 	if resp, _ := scGet(t, base, "/?t=tokM1", "evil.example:"+port); resp.StatusCode != 403 {
 		t.Errorf("Host étranger sur écoute 0.0.0.0 : %d, attendu 403 (DNS rebinding)", resp.StatusCode)
 	}
-	if resp, _ := scGet(t, base, "/?t=tokM1", "localhost:"+port); resp.StatusCode != 200 {
+	if resp, _ := scGet(t, base, "/?t=tokM1", "localhost:"+port); resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("Host localhost : %d", resp.StatusCode)
 	}
 	if h, _ := os.Hostname(); h != "" {
-		if resp, _ := scGet(t, base, "/?t=tokM1", h+":"+port); resp.StatusCode != 200 {
+		if resp, _ := scGet(t, base, "/?t=tokM1", h+":"+port); resp.StatusCode != http.StatusSeeOther {
 			t.Errorf("Host = nom de la machine : %d", resp.StatusCode)
 		}
 	}
@@ -293,7 +293,7 @@ func TestWebSubscribersAreCapped(t *testing.T) {
 	for i := 0; i <= maxSubscribers; i++ {
 		req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
 		req.AddCookie(c)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := webClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}

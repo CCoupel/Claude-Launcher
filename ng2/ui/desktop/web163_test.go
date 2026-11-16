@@ -159,7 +159,7 @@ func TestDesktopWebPriorityAndListenForms(t *testing.T) {
 				t.Errorf("webUI.listen = %v, attendu %s", w["listen"], want)
 			}
 			resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(tc.port), "GET", "/?t="+l4WebToken(t), "", "", "", "", "")
-			if resp.StatusCode != 200 {
+			if resp.StatusCode != http.StatusSeeOther {
 				t.Errorf("amorçage sur %d : %d", tc.port, resp.StatusCode)
 			}
 		})
@@ -192,12 +192,12 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 		}
 	}
 	reach := func(p int) bool {
-		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/?t=" + l4WebToken(t))
+		resp, err := webClient.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/?t=" + l4WebToken(t))
 		if err != nil {
 			return false
 		}
 		resp.Body.Close()
-		return resp.StatusCode == 200
+		return resp.StatusCode == http.StatusSeeOther
 	}
 	waitReach := func(p int, want bool) {
 		t.Helper()
@@ -226,9 +226,9 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 	}
 	waitReach(p2, true)
 	waitReach(p1, false)
-	if r, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p2) + "/?t=" + tok1); err == nil {
+	if r, err := webClient.Get("http://127.0.0.1:" + strconv.Itoa(p2) + "/?t=" + tok1); err == nil {
 		r.Body.Close()
-		if r.StatusCode == 200 {
+		if r.StatusCode != http.StatusForbidden {
 			t.Error("l'ancien jeton ouvre encore le serveur déplacé")
 		}
 	}
@@ -293,7 +293,7 @@ func TestDesktopWebTokenPerHostKeptAndPrivate(t *testing.T) {
 	if l4WebToken(t) != tok {
 		t.Error("jeton changé après relance : un navigateur déjà ouvert ne serait plus valable")
 	}
-	if resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+tok, "", "", "", "", ""); resp.StatusCode != 200 {
+	if resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+tok, "", "", "", "", ""); resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("ancien jeton refusé après relance : %d", resp.StatusCode)
 	}
 }
@@ -313,7 +313,7 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 	}
 	// page d'amorçage : jeton de l'URL accepté ; cookie HttpOnly SameSite=Strict ; en-têtes de sécurité
 	resp := do("GET", "/?t="+tok, "", "", "", "", "")
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("amorçage : %d", resp.StatusCode)
 	}
 	var ck *http.Cookie
@@ -335,7 +335,7 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 	oldReq, _ := http.NewRequest("POST", "http://"+addr+"/api/call", strings.NewReader(`{"method":"configFiles","args":{}}`))
 	oldReq.Header.Set("Content-Type", "application/json")
 	oldReq.AddCookie(&http.Cookie{Name: "cl_token", Value: tok})
-	if r, err := http.DefaultClient.Do(oldReq); err != nil || r.StatusCode != 403 {
+	if r, err := webClient.Do(oldReq); err != nil || r.StatusCode != 403 {
 		t.Errorf("cookie cl_token=jeton : %v %v, attendu 403", r, err)
 	}
 	for k, v := range map[string]string{"Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY"} {
@@ -382,7 +382,7 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 		}
 	}
 	for _, h := range []string{"localhost:" + strconv.Itoa(p), "127.0.0.1:" + strconv.Itoa(p)} {
-		if r := do("GET", "/?t="+tok, h, "", "", "", ""); r.StatusCode != 200 {
+		if r := do("GET", "/?t="+tok, h, "", "", "", ""); r.StatusCode != http.StatusSeeOther {
 			t.Errorf("Host %q refusé : %d", h, r.StatusCode)
 		}
 	}
@@ -417,7 +417,7 @@ func TestDesktopWebProtectionsNonLoopback(t *testing.T) {
 	machine, _ := os.Hostname()
 	sp := strconv.Itoa(p)
 	for _, h := range []string{"localhost:" + sp, machine + ":" + sp} {
-		if resp, _ := l4DoWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != 200 {
+		if resp, _ := l4DoWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != http.StatusSeeOther {
 			t.Errorf("Host %q refusé en écoute hors boucle locale : %d", h, resp.StatusCode)
 		}
 	}
@@ -533,7 +533,7 @@ func TestDesktopWebTwoClientsShareState(t *testing.T) {
 	// flux d'évènements du client web
 	req, _ := http.NewRequest("GET", "http://"+addr+"/api/events", nil)
 	req.AddCookie(scBootstrap(t, "http://"+addr, tok))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("flux d'évènements : %v %v", resp, err)
 	}

@@ -719,3 +719,8 @@ func TestRefusalsAreDistinguishable(t *testing.T) {
 		})
 	}
 }
+
+// webClient : client des tests d'amorçage qui ne SUIT PAS les redirections — l'échange de /?t=<jeton> répond
+// « 303 → / » et le cookie de session n'est que sur cette 303 (#171, cycle 1) ; un client qui suit la redirection
+// le perdrait.
+var webClient = &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}

@@ -276,7 +276,7 @@ func TestWebUIAbsentEnabledIsV620(t *testing.T) {
 	if w["enabled"] != true || w["server"] != false {
 		t.Errorf("webUI = %v", w)
 	}
-	if resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+l4WebToken(t), "", "", "", "", ""); resp.StatusCode != 200 {
+	if resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+l4WebToken(t), "", "", "", "", ""); resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("amorçage : %d", resp.StatusCode)
 	}
 }
