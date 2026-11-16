@@ -58,7 +58,19 @@ Racine de base : /data/cl (CL_ROOT_BASE)        # ou « (--root-base) », ou « 
 | `CL_CACHE_DIR` | Dossier de cache du launcher, utilisé tel quel (jetons, préférences, navigateur apparié, état par projet, cache des milestones) | `$XDG_CACHE_HOME` ou `~/.cache`, suivi de `claude-launcher-ng2` (inchangé) |
 
 - `CL_HUB_NAME` : `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`. Valeur invalide : erreur au démarrage.
-- Deux launchers qui partagent une racine doivent porter des noms différents (#176).
+- Deux launchers qui partagent une racine doivent porter des noms différents (#176). **Garde** : avec `CL_HUB_NAME`
+  posé, un témoin `hub-<nom>.presence` est tenu dans le dossier d'état (`CL_CACHE_DIR`, renouvelé toutes les 3 s,
+  repris après 10 s ou si son processus est mort sur la même machine) ; un second launcher du même nom refuse de
+  démarrer (`desktop`), message nommant le launcher déjà actif, code 1. Sans `CL_HUB_NAME`, aucun contrôle.
+- Le nom réel de la machine reste celui des espaces de PID des teams (écrits par Claude Code) ; `CL_HUB_NAME` ne
+  change que l'identité du launcher.
+- **Cache par défaut sous une racine de base** : il reste sous le dossier personnel (`$XDG_CACHE_HOME` ou
+  `~/.cache`) — c'est un état par launcher, jamais partagé. Seul `CL_CACHE_DIR` le déplace. La section « Racine de
+  base » de `backends` affiche la ligne « cache » avec sa source (`CL_CACHE_DIR` ou « défaut »).
+- **Écritures partagées (#176)** : `projects.json`, le `settings.json` de `CLAUDE_CONFIG_DIR`, l'`env.yaml` d'un
+  projet sont modifiés sous un verrou court (`<fichier>.lock`, création exclusive, repris après 20 s) puis écrits
+  atomiquement (temporaire à nom unique puis renommage) ; `config.conf` et `env.yaml` neufs sont créés en
+  exclusivité.
 - `CL_CACHE_DIR` : créé s'il manque. Tous les chemins de cache passent par lui, `milestones-v2.json` compris.
 - Convention du chart : `CL_CACHE_DIR=<rootBase>/.cache/claude-launcher-ng2/<hubName>` (état sur le volume partagé,
   un dossier par nom de hub).
