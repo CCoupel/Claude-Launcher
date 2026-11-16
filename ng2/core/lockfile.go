@@ -61,7 +61,7 @@ func reclaimStale(path string, stale time.Duration) bool {
 	}
 	defer func() {
 		if lockOwnedBy(guard, token) {
-			_ = os.Remove(guard)
+			removeRetry(guard)
 		}
 	}()
 	st, err := os.Stat(path)
@@ -71,7 +71,9 @@ func reclaimStale(path string, stale time.Duration) bool {
 	if time.Since(st.ModTime()) <= stale {
 		return false // recréé depuis le constat : vivant
 	}
-	return os.Remove(path) == nil
+	removeRetry(path)
+	_, serr := os.Stat(path)
+	return os.IsNotExist(serr)
 }
 
 // WithFileLock exécute fn en tenant le verrou de target. Erreur si le verrou reste pris au-delà de fileLockTimeout.
@@ -86,7 +88,7 @@ func WithFileLock(target string, fn func() error) error {
 	deadline := time.Now().Add(fileLockTimeout)
 	for wait := 2 * time.Millisecond; ; {
 		created, err := createExclusive(lock, []byte(token+" "+LauncherID()+"\n"), 0o644)
-		if err != nil {
+		if err != nil && !lockBusyErr(err) {
 			return err
 		}
 		if created {
@@ -106,10 +108,29 @@ func WithFileLock(target string, fn func() error) error {
 	}
 	defer func() {
 		if lockOwnedBy(lock, token) { // jamais le verrou d'un autre (détenteur lent dont le verrou a été repris)
-			_ = os.Remove(lock)
+			removeRetry(lock)
 		}
 	}()
 	return fn()
+}
+
+// lockBusyErr : l'échec de création du verrou veut dire « occupé », pas « impossible ». Sous Windows, un fichier
+// dont la suppression est en cours (poignée encore ouverte chez un lecteur concurrent) refuse sa recréation avec
+// « accès refusé » : le verrou est simplement repris plus tard. Ailleurs (ou sans fichier visible), une vraie erreur.
+func lockBusyErr(err error) bool {
+	return runtime.GOOS == "windows" && errors.Is(err, os.ErrPermission)
+}
+
+// removeRetry : os.Remove, réessayé brièvement sous Windows (suppression refusée tant qu'un lecteur concurrent tient
+// une poignée sur le fichier : violation de partage passagère).
+func removeRetry(path string) {
+	for try := 0; try < 6; try++ {
+		err := os.Remove(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) || runtime.GOOS != "windows" {
+			return
+		}
+		time.Sleep(time.Duration(5+try*10) * time.Millisecond)
+	}
 }
 
 // WriteFileAtomic : data dans path par fichier temporaire (nom unique) puis renommage — jamais de fichier à moitié écrit,

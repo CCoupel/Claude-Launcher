@@ -47,9 +47,13 @@ func AcquirePresence() (release func(), err error) {
 	p := presencePath()
 	token := newLockToken()
 	me := fmt.Sprintf("%s %d %s %s", platform.RealHostName(), os.Getpid(), time.Now().Format(time.RFC3339), token)
-	for try := 0; ; try++ {
+	for try, reclaims := 0, 0; ; try++ {
 		created, cerr := createExclusive(p, []byte(me+"\n"), 0o644)
 		if cerr != nil {
+			if lockBusyErr(cerr) && try < 20 { // Windows : suppression du témoin en cours chez un lecteur : réessayer
+				time.Sleep(20 * time.Millisecond)
+				continue
+			}
 			return nil, cerr
 		}
 		if created {
@@ -61,7 +65,7 @@ func AcquirePresence() (release func(), err error) {
 			return nil, fmt.Errorf("launcher « %s » déjà actif (%s) sur %s : un second launcher de même nom est refusé — choisir un autre CL_HUB_NAME",
 				hubName(), strings.TrimSpace(string(b)), filepath.Dir(p))
 		}
-		if try > 3 {
+		if reclaims++; reclaims > 4 {
 			return nil, errors.New("témoin de présence illisible : " + p)
 		}
 		reclaimStale(p, presenceStale) // abandonné : repris, un seul gagnant (renommage atomique)
