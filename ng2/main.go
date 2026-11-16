@@ -23,6 +23,11 @@ var windowsUnsupported = map[string]bool{"shell": true, "nav": true, "state": tr
 	"mirror": true, "layout-watch": true, "relayout": true, "ctr-attach": true}
 
 func main() {
+	stripRootBaseOption()
+	if err := core.ValidateRootBase(); err != nil { // racine invalide : rien n'est créé nulle part
+		fmt.Fprintln(os.Stderr, err)
+		os.Exit(1)
+	}
 	core.ApplyClaudeConfigDir()
 	cmd := "shell"
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {
@@ -138,3 +143,27 @@ func main() {
 // oui ; fenêtre native : non, elle passe par son bandeau sans faire attendre
 // une fenêtre vide, console cachée).
 func startupUpdate(cmd string) bool { return cmd != "desktop" }
+
+// stripRootBaseOption : --root-base <dossier> / --root-base=<dossier>, à n'importe quelle position, est retiré des
+// arguments puis reporté dans CL_ROOT_BASE (toute relance la conserve) ; l'option l'emporte sur la variable.
+func stripRootBaseOption() {
+	var rest []string
+	rest = append(rest, os.Args[0])
+	val, set := "", false
+	for i := 1; i < len(os.Args); i++ {
+		a := os.Args[i]
+		switch {
+		case a == "--root-base" && i+1 < len(os.Args):
+			val, set = os.Args[i+1], true
+			i++
+		case strings.HasPrefix(a, "--root-base="):
+			val, set = strings.TrimPrefix(a, "--root-base="), true
+		default:
+			rest = append(rest, a)
+		}
+	}
+	if set {
+		os.Args = rest
+		core.SetRootBaseOption(val)
+	}
+}

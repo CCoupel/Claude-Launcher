@@ -58,7 +58,7 @@ type Config struct {
 
 // loadConfigScript : config.conf sourcé par bash, réglages imprimés (LoadConfig).
 const loadConfigScript = `
-GITHUB_DIR="$HOME/GITHUB"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""
+GITHUB_DIR="${CL_ROOT_BASE:+$CL_ROOT_BASE/PROJETS}"; GITHUB_DIR="${GITHUB_DIR:-$HOME/GITHUB}"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=(); declare -A PROJECT_LAYOUTS=()
 LAYOUT_MODE=top; LAYOUT_LEFT_LEADER_PCT=46
@@ -207,6 +207,12 @@ func loadConfigAt(path string) Config {
 	}
 	if len(cfg.Roots) == 0 {
 		cfg.Roots = []string{filepath.Join(home, "GITHUB")}
+		if p := RootBaseProjects(); p != "" {
+			cfg.Roots = []string{p}
+		}
+	}
+	if cfg.ClaudeConfigDir == "" { // sous une racine de base : la config de claude y est aussi
+		cfg.ClaudeConfigDir = RootBaseClaudeDir()
 	}
 	if len(cfg.Palette) == 0 {
 		cfg.Palette = strings.Fields("17 52 22 53 58 23 54 238 18 59")
@@ -282,6 +288,10 @@ func Ng2ConfigDir() string {
 	if d := os.Getenv("CL_CONFIG_DIR"); d != "" {
 		return d
 	}
+	// racine de base (#165) : retenue même sans config.conf encore créé
+	if d := RootBaseConfigDir(); d != "" {
+		return d
+	}
 	if d := portableConfigDir(); d != "" {
 		if _, err := os.Stat(filepath.Join(d, "config.conf")); err == nil {
 			return d
@@ -338,7 +348,7 @@ GITHUB_TOKEN=""
 # Config de claude pour toutes les sessions du launcher (hôte et conteneurs) —
 # ex. sur un stockage partagé. Relative : par rapport au dossier de ce fichier.
 # Une variable CLAUDE_CONFIG_DIR déjà définie au lancement l'emporte.
-# CLAUDE_CONFIG_DIR="/share/MFS/ROOT/CLAUDE_PROJETS/.claude"
+# CLAUDE_CONFIG_DIR="/chemin/partage/.claude"
 
 # Options Claude Code
 CLAUDE_DISABLE_MOUSE=1        # 1 = désactive la souris dans le terminal
@@ -421,9 +431,11 @@ func EnsureConfig() (created bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}
-	content := []byte(defaultConfig)
-	if b, err := os.ReadFile(v4ConfigPath()); err == nil {
-		content = b // passage v4 → v5 : on reprend les réglages existants
+	content := []byte(defaultConfigFor())
+	if rb, _ := RootBase(); rb == "" { // sous une racine de base : jamais la config v4 du dossier personnel
+		if b, err := os.ReadFile(v4ConfigPath()); err == nil {
+			content = b // passage v4 → v5 : on reprend les réglages existants
+		}
 	}
 	return true, os.WriteFile(path, content, 0o600)
 }

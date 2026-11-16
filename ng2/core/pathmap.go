@@ -201,7 +201,7 @@ var hubLoads int
 // hubCheapKey : ce qui désigne, sans accès disque, le backends.yaml lu.
 func hubCheapKey() string {
 	k := hubName() + "|" + pathsGOOS
-	for _, v := range []string{"CL_CONFIG_DIR", "HOME", "USERPROFILE", "APPDATA"} {
+	for _, v := range []string{"CL_CONFIG_DIR", RootBaseVar, "HOME", "USERPROFILE", "APPDATA"} {
 		k += "|" + os.Getenv(v)
 	}
 	return k
@@ -482,7 +482,7 @@ func unmappedLines(machine, backendsPath string, unmapped []string) []string {
 		}
 	}
 	if remote == "" {
-		remote = "/share/MFS"
+		remote = "<chemin Linux du partage>" // aucun chemin Linux dans la configuration : à saisir
 	}
 	out = append(out, fmt.Sprintf("  → les déclarer une fois dans %s :", backendsPath),
 		fmt.Sprintf("      hubs: { %s: { paths: [{ local: '\\\\wsl.localhost\\<distribution>%s', remote: %s }] } }", machine, strings.ReplaceAll(remote, "/", `\`), remote),
@@ -512,7 +512,7 @@ func PrintHubPaths() {
 	}
 	fmt.Println(" :")
 	if m.Empty() {
-		fmt.Printf("  aucun : déclarer hubs.%s.paths dans %s (ex. { local: '\\\\wsl.localhost\\Ubuntu\\share\\MFS', remote: /share/MFS })\n", hubName(), BackendsPath())
+		fmt.Printf("  aucun : déclarer hubs.%s.paths dans %s (ex. { local: '\\\\wsl.localhost\\<distribution>\\<partage>', remote: /<partage> })\n", hubName(), BackendsPath())
 	}
 	for _, e := range m.Entries() {
 		fmt.Printf("  %s → %s\n", e.Local, e.Remote)

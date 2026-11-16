@@ -115,7 +115,7 @@ func browserHint(c serverConf, device, devSource, token, machine string, ps []Br
 		b.WriteString("Fichiers du projet dans Chrome : traduire leur chemin avec la correspondance CL_BROWSER_PATH_MAP=" + browserPathJSON(ps) + ". ")
 	} else {
 		b.WriteString("Fichiers du projet dans Chrome : toujours par l'URL " + c.Base + "<chemin absolu du fichier> (segments encodés, ex. " +
-			c.Base + "/share/MFS/ROOT/x/maquette.html), jamais en file:// (refusé par l'extension) ; le serveur web du launcher les sert, un dossier en / affiche sa liste. ")
+			c.Base + "/<chemin interne>/maquette.html), jamais en file:// (refusé par l'extension) ; le serveur web du launcher les sert, un dossier en / affiche sa liste. ")
 	}
 	switch {
 	case device != "":
