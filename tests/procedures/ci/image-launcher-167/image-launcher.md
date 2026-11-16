@@ -11,6 +11,7 @@ Reference : `contracts/launcher-env.md` (« Image de conteneur », « Launcher d
 - [ ] Environnement : conteneur de developpement avec `buildah` (stockage `vfs`, sudo) — ou QUALIF (StatefulSet de test dans `claude-ng2`)
 - [ ] Donnees : image locale `localhost/claude-launcher:<version>` construite par `deploy/image/build.sh <version>` ; un dossier de racine **factice** (jamais la racine reelle) contenant `PROJETS/TEST/alpha` (depot git vide)
 - [ ] Acces : `buildah run` ou `kubectl -n claude-ng2` ; aucun vrai projet ni vrai `claude`
+- [ ] Conteneur de travail : `ctr=$(sudo buildah from localhost/claude-launcher:<version>)` ; **dans le conteneur de developpement, `buildah run` exige `--isolation chroot`** (cgroups en lecture seule) : `sudo buildah run --isolation chroot "$ctr" -- <commande>` (`<ctr>` ci-dessous). Supprimer ensuite : `sudo buildah rm "$ctr"`
 
 ## Scenarios
 
@@ -21,9 +22,10 @@ Reference : `contracts/launcher-env.md` (« Image de conteneur », « Launcher d
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | `buildah inspect --format '{{.OCIv1.Config.User}}' <image>` | `1000:1000` (non root) | | |
-| 2 | `buildah run <image> id -u` | `1000` | | |
-| 3 | `buildah run <image> claude-launcher-ng2 version` | `Claude-Launcher-NG2 <tag de l'image>` ; label `org.opencontainers.image.version` identique | | |
-| 4 | `buildah run <image> sh -c 'command -v git gh kubectl bash'` | quatre chemins ; `tmux` et `claude` absents | | |
+| 2 | `buildah run --isolation chroot <ctr> -- id -u` | `1000` | | |
+| 3 | `buildah run --isolation chroot <ctr> -- claude-launcher-ng2 version` | `Claude-Launcher-NG2 <tag de l'image>` ; label `org.opencontainers.image.version` identique | | |
+| 4 | `buildah run --isolation chroot <ctr> -- sh -c 'for c in git gh kubectl bash; do command -v "$c" \|\| echo "ABSENT $c"; done'` (**un nom a la fois** : `command -v` de `sh`/dash n'en accepte qu'un) | quatre chemins, aucune ligne `ABSENT` | | |
+| 4b | `buildah run --isolation chroot <ctr> -- sh -c 'for c in tmux claude; do command -v "$c" && echo "PRESENT (anormal) $c"; done; true'` | aucune sortie : `tmux` et `claude` absents | | |
 | 5 | `CL_UPDATE_MODE` dans l'environnement de l'image | `notify` | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
