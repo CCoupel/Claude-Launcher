@@ -97,6 +97,7 @@ func rbRun(t *testing.T, bin string, home string, extra []string, args ...string
 	c := exec.CommandContext(ctx, bin, args...)
 	c.Env = env
 	rbOwnGroup(c)
+	rbCancel(c)
 	var so, se strings.Builder
 	c.Stdout, c.Stderr = &so, &se
 	err := c.Run()
