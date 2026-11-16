@@ -29,10 +29,10 @@ const transport = (() => {
         return r ? JSON.parse(r) : null;
       }
       const res = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args: args || {} }) });
-      if (res.status === 401 || res.status === 403) { // session perdue, ou accès refusé (hôte/origine) : corps texte du Go (#171)
-        const body = await res.text().catch(() => '');
-        if (res.status === 403 && /h[ôo]te refus|origine refus/i.test(body)) { accessDenied(); throw new Error(DENIED_MSG); }
-        sessionLost(); throw new Error(SESSION_MSG);
+      if (res.status === 401 || res.status === 403) { // session perdue, ou accès refusé (hôte/origine) : en-tête X-Launcher-Refusal du Go (#171)
+        const why = res.headers.get('X-Launcher-Refusal');
+        if (why === 'host' || why === 'origin') { accessDenied(); throw new Error(DENIED_MSG); }
+        sessionLost(); throw new Error(SESSION_MSG); // `session`, ou refus sans en-tête
       }
       const j = await res.json();
       if (j.error) throw new Error(j.error);
