@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -497,12 +498,31 @@ func paneColorCmd(panes []WinPane, pane, color string) []string {
 // Exec : envoie le plan (en un aller-retour si la cible le permet, sinon commande par commande) ; vrai si
 // tmux a refusé la chaîne « leader à gauche » et que « leader en haut » a été appliqué à la place.
 func (p ArrangePlan) Exec(t Target) (fellBack bool) {
+	fellBack, _ = p.ExecChecked(t)
+	return fellBack
+}
+
+// ExecChecked : Exec ; transport vrai si une commande a échoué par le transport (canal fermé, délai) et non
+// par un refus de tmux : la mise en page n'est pas faite, à retenter (jamais de repli sur « top »).
+func (p ArrangePlan) ExecChecked(t Target) (fellBack, transport bool) {
 	errs := RunBatch(t, p.Cmds)
+	for _, e := range errs {
+		if IsTransportErr(e) {
+			return false, true
+		}
+	}
 	if p.Fallback != nil && p.LayoutAt < len(errs) && errs[p.LayoutAt] != nil {
 		RunBatch(t, p.Fallback)
-		return true
+		return true, false
 	}
-	return false
+	return false, false
+}
+
+// IsTransportErr : l'erreur vient du transport (canal fermé, délai, wsl.exe / kubectl exec) et non d'un refus de
+// tmux : ce n'est pas la preuve que la chaîne de mise en page est invalide.
+func IsTransportErr(err error) bool {
+	var t interface{ Transport() bool }
+	return errors.As(err, &t) && t.Transport()
 }
 
 // RunBatch : cmds envoyées d'un coup si t est un Batcher, sinon l'une après l'autre ; erreurs par commande.

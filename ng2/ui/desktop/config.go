@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -203,37 +204,88 @@ func (a *App) clearLayoutOverride(key string) {
 // persistDelay : délai avant l'écriture de config.conf (tests : un partage réseau lent) ; nul en production.
 var persistDelay atomic.Int64
 
+// layoutWrites : écritures de config.conf demandées par la bascule (tests : une rafale de clics en fait 2 au plus).
+var layoutWrites atomic.Int64
+
+// layoutJob : clics de bascule d'un projet, sérialisés — le dernier clic gagne.
+type layoutJob struct {
+	mu      sync.Mutex // seq et override
+	seq     uint64     // numéro du dernier clic
+	writeMu sync.Mutex // une seule écriture de config.conf à la fois
+}
+
+func (a *App) layoutJobFor(base string) *layoutJob {
+	a.confMu.Lock()
+	defer a.confMu.Unlock()
+	if a.layoutJobs == nil {
+		a.layoutJobs = map[string]*layoutJob{}
+	}
+	if a.layoutJobs[base] == nil {
+		a.layoutJobs[base] = &layoutJob{}
+	}
+	return a.layoutJobs[base]
+}
+
 // applyLayoutFirst : bascule de l'organisation d'un projet — la mise en page part AVANT la persistance
 // (organisation demandée connue côté Go : la présentation change tout de suite, sans attendre le partage
 // réseau où config.conf est écrit), puis config.conf est écrit ; écriture refusée : retour à l'organisation
 // précédente et {ok:false, msg}. Réponse comme avant : colorSaved vrai dès que config.conf est écrit.
+//
+// Clics rapides : l'organisation affichée est toujours la dernière demandée (la demande reste en mémoire
+// jusqu'à ce qu'elle soit écrite) ; les écritures sont sérialisées par projet et un clic remplacé par un plus
+// récent n'écrit pas — au plus l'écriture déjà en cours puis l'écriture finale de la dernière valeur.
 func (a *App) applyLayoutFirst(path, layout string) (map[string]any, error) {
 	base := filepath.Base(path)
 	if _, err := core.SetProjectLayout("", base, layout); err != nil { // valeur inconnue : refusée avant toute écriture
 		return map[string]any{"ok": false, "msg": err.Error()}, nil
 	}
 	t0 := time.Now()
+	j := a.layoutJobFor(base)
+	j.mu.Lock()
+	j.seq++
+	my := j.seq
 	a.setLayoutOverride(base, layout)
+	j.mu.Unlock()
 	if t := a.term(path); t != nil {
 		t.relayoutNow()
 	}
 	a.changed()
 	a.cardsChanged()
 	a.perf.trace("bascule : avant écriture", base, time.Since(t0))
+
+	j.writeMu.Lock()
+	defer j.writeMu.Unlock()
+	j.mu.Lock()
+	superseded := j.seq != my
+	j.mu.Unlock()
+	if superseded { // un clic plus récent écrira la valeur finale
+		return map[string]any{"ok": true}, nil
+	}
 	if d := time.Duration(persistDelay.Load()); d > 0 {
 		time.Sleep(d)
 	}
 	t1 := time.Now()
+	layoutWrites.Add(1)
 	_, err := core.ApplyProjectConf(base, nil, &layout)
 	a.perf.trace("bascule : écriture config.conf", base, time.Since(t1))
+	j.mu.Lock()
+	stillLatest := j.seq == my
+	j.mu.Unlock()
 	if err != nil {
+		if !stillLatest { // un clic plus récent est en attente : c'est lui qui écrira, rien à annuler
+			return map[string]any{"ok": true}, nil
+		}
 		a.clearLayoutOverride(base)
 		go a.relayoutOpen() // l'organisation précédente revient
 		a.changed()
 		return map[string]any{"ok": false, "msg": "config.conf : " + err.Error() + " — organisation non enregistrée, retour à la précédente"}, nil
 	}
 	a.configReload(core.ConfConf)
-	a.clearLayoutOverride(base)
+	j.mu.Lock()
+	if j.seq == my { // aucun clic plus récent : la demande est écrite, la configuration la porte
+		a.clearLayoutOverride(base)
+	}
+	j.mu.Unlock()
 	a.perf.trace("bascule : total", base, time.Since(t0))
 	return map[string]any{"ok": true, "colorSaved": true}, nil
 }

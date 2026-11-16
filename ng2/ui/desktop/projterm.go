@@ -856,6 +856,8 @@ var (
 	readWinFail  atomic.Bool
 	// lastRelayoutRounds : allers-retours tmux de la dernière remise en page immédiate (tests : borne de coût)
 	lastRelayoutRounds atomic.Int64
+	// relayoutMid : tests, appelé entre le calcul de la signature et celui du plan
+	relayoutMid func()
 )
 
 // tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
@@ -939,9 +941,13 @@ func (t *projTerm) tick(fast bool) {
 	// organisation effective changée (réglage global ou du projet) : remise en page, sans relance (#153)
 	// configuration relue SOUS pubMu : une bascule arrivée pendant un tour lent est déjà prise en compte par
 	// relayoutNow (même signature), ce tour ne remet pas en page une seconde fois ni ne ramène l'ancienne valeur
-	if sig := layoutSig(t.a.conf(), t.key); !fast {
+	if cfgL := t.a.conf(); !fast { // UNE photo de la configuration pour la signature et pour la mise en page
+		sig := layoutSig(cfgL, t.key)
 		if t.watch.layoutSig != "" && sig != t.watch.layoutSig && !ro && len(panes) > 1 {
-			arrange()
+			if !t.arrangeWith(cfgL, cps, w, h, leader, tc) { // échec de transport : signature inchangée, retenté au tour suivant
+				sig = t.watch.layoutSig
+			}
+			arranged = true
 		}
 		t.watch.layoutSig = sig
 	}
@@ -1175,9 +1181,13 @@ func (t *projTerm) relayoutNow() {
 	}
 	t.pubMu.Lock()
 	defer t.pubMu.Unlock()
-	sig := layoutSig(t.a.conf(), t.key)
+	cfg := t.a.conf() // UNE photo : signature et plan en sont tirés
+	sig := layoutSig(cfg, t.key)
 	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
 		return
+	}
+	if relayoutMid != nil {
+		relayoutMid()
 	}
 	c := t.cl()
 	if c == nil {
@@ -1202,12 +1212,17 @@ func (t *projTerm) relayoutNow() {
 	tc := t.team
 	t.mu.Unlock()
 	arrangeCalls.Add(1)
-	plan := t.planArrange(corePanes(panes), w, h, leader, tc)
+	plan := t.planArrange(cfg, corePanes(panes), w, h, leader, tc)
 	t1 := time.Now()
 	list := []string{"list-panes", "-t", t.win, "-F", paneFormat}
 	cmds := append(append([][]string{}, plan.Cmds...), list)
 	outs, errs := c.Batch(cmds) // échanges, géométrie, couleurs ET relecture : un seul aller-retour
 	last := len(cmds) - 1
+	for _, e := range errs { // échec de transport (wsl.exe, kubectl exec) : pas un refus de tmux, signature inchangée, retenté au tour suivant
+		if core.IsTransportErr(e) {
+			return
+		}
+	}
 	if plan.Fallback != nil && errs[plan.LayoutAt] != nil { // tmux refuse « leader à gauche » : repli sur « top »
 		fb := append(append([][]string{}, plan.Fallback...), list)
 		o2, e2 := c.Batch(fb)
@@ -1364,25 +1379,36 @@ func (t *projTerm) relayout(force bool) {
 
 // planArrange : commandes tmux de la mise en page du projet (classement, organisation effective PROJECT_LAYOUTS puis
 // LAYOUT_MODE, #153), sans rien envoyer.
-func (t *projTerm) planArrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) core.ArrangePlan {
+func (t *projTerm) planArrange(cfg core.Config, panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) core.ArrangePlan {
 	ids := make([]string, len(panes))
 	for i, p := range panes {
 		ids[i] = p.ID
 	}
 	top, bot := core.Classify(ids, leader, tc, t.orderFile())
-	cfg := t.a.conf()
 	cfg.LayoutMode = cfg.LayoutOf(t.key)
 	return core.PlanArrange(cfg, t.win, panes, w, h, top, bot, t.color)
 }
 
 func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) {
+	_ = t.arrangeWith(t.a.conf(), panes, w, h, leader, tc)
+}
+
+// arrangeWith : arrange avec la photo de configuration cfg (la même que celle dont la signature d'organisation
+// est tirée : jamais deux lectures qui pourraient différer).
+// Rend faux si la mise en page n'a pas pu être faite (échec de transport) : à retenter, sans fixer de signature.
+func (t *projTerm) arrangeWith(cfg core.Config, panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) bool {
 	if t.isReadOnly() || len(panes) <= 1 {
-		return
+		return true
 	}
 	arrangeCalls.Add(1)
-	if t.planArrange(panes, w, h, leader, tc).Exec(t.cl()) {
+	fellBack, transport := t.planArrange(cfg, panes, w, h, leader, tc).ExecChecked(t.cl())
+	if transport {
+		return false
+	}
+	if fellBack {
 		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
 	}
+	return true
 }
 
 // publish : géométrie, couleurs et noms des panes pour l'interface ; panes

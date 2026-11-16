@@ -35,8 +35,9 @@ type App struct {
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
 	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
-	layoutOv map[string]string
-	emit     Emitter
+	layoutOv   map[string]string
+	layoutJobs map[string]*layoutJob // clics de bascule par projet (config.go) ; garde : confMu
+	emit       Emitter
 	// mirror : second destinataire des évènements (le navigateur servi par la fenêtre, #163)
 	mirror atomic.Pointer[Emitter]
 	webui  webUI

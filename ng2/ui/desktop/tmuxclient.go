@@ -3,7 +3,6 @@ package desktop
 import (
 	"bufio"
 	"claude-launcher-ng2/platform"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
@@ -26,7 +25,13 @@ import (
 // des terminaux de l'interface. Fermer le client = se détacher : la session
 // continue dans tmux.
 
-var errClientClosed = errors.New("client tmux fermé")
+// transportError : le canal vers tmux a échoué (fermé, sans réponse, écriture) — pas une réponse d'erreur de tmux.
+type transportError struct{ msg string }
+
+func (e *transportError) Error() string   { return e.msg }
+func (e *transportError) Transport() bool { return true }
+
+var errClientClosed error = &transportError{"client tmux fermé"}
 
 type tmuxClient struct {
 	cmd *exec.Cmd
@@ -147,13 +152,16 @@ func (c *tmuxClient) sendCB(args []string, cb func(Reply)) error {
 	c.pending = append(c.pending, cb)
 	if _, err := io.WriteString(c.in, core.CtlLine(args)+"\n"); err != nil {
 		c.pending = c.pending[:len(c.pending)-1]
-		return err
+		return &transportError{"tmux : écriture impossible : " + err.Error()}
 	}
 	return nil
 }
 
 // Send : commande sans attendre sa réponse.
 func (c *tmuxClient) Send(args ...string) error { return c.sendCB(args, nil) }
+
+// batchFail : tests, échec de transport des lots de commandes.
+var batchFail atomic.Bool
 
 var clientTimeout = 15 * time.Second
 
@@ -173,7 +181,7 @@ func (c *tmuxClient) Output(args ...string) ([]byte, error) {
 				return out, fmt.Errorf("tmux : %s", strings.TrimSpace(string(r.Body)))
 			}
 		case <-time.After(clientTimeout):
-			return out, fmt.Errorf("tmux : pas de réponse en %s", clientTimeout)
+			return out, &transportError{fmt.Sprintf("tmux : pas de réponse en %s", clientTimeout)}
 		}
 	}
 	return out, nil
@@ -185,6 +193,13 @@ func (c *tmuxClient) Output(args ...string) ([]byte, error) {
 // celle de cmds[i]. Implémente core.Batcher.
 func (c *tmuxClient) Batch(cmds [][]string) ([][]byte, []error) {
 	c.rounds.Add(1)
+	if batchFail.Load() { // tests : le transport (wsl.exe, kubectl exec) échoue
+		errs := make([]error, len(cmds))
+		for i := range errs {
+			errs[i] = errClientClosed
+		}
+		return make([][]byte, len(cmds)), errs
+	}
 	outs := make([][]byte, len(cmds))
 	errs := make([]error, len(cmds))
 	chans := make([]chan Reply, len(cmds))
@@ -208,7 +223,7 @@ func (c *tmuxClient) Batch(cmds [][]string) ([][]byte, []error) {
 				errs[i] = fmt.Errorf("tmux : %s", strings.TrimSpace(string(r.Body)))
 			}
 		case <-deadline:
-			errs[i] = fmt.Errorf("tmux : pas de réponse en %s", clientTimeout)
+			errs[i] = &transportError{fmt.Sprintf("tmux : pas de réponse en %s", clientTimeout)}
 		}
 	}
 	return outs, errs

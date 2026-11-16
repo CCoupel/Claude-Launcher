@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -253,4 +254,112 @@ func TestLayoutRolledBackWhenConfigCannotBeWritten(t *testing.T) {
 		t.Fatalf("projectApply : %v %v, attendu {ok:false, msg « … non enregistrée … »}", res, err)
 	}
 	waitUntil(t, "retour à top", 8*time.Second, func() bool { return leaderW() > 90 })
+}
+
+// Cycle 3 de revue : clics rapides — dernier clic gagnant, une seule écriture finale, aucun retour visible.
+func TestRapidTogglesLastClickWins(t *testing.T) {
+	f, leaderW := fakeTeamProject(t)
+	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
+	time.Sleep(1500 * time.Millisecond)
+	persistDelay.Store(int64(600 * time.Millisecond)) // chaque écriture dure 0,6 s
+	defer persistDelay.Store(0)
+	layoutWrites.Store(0)
+	isLeft := func() bool { w := leaderW(); return w > 30 && w < 60 }
+	args := func(l string) json.RawMessage {
+		b, _ := json.Marshal(map[string]any{"path": f.path, "layout": l})
+		return b
+	}
+	var replies [3]map[string]any
+	done := make(chan int, 3)
+	click := func(i int, l string) {
+		go func() {
+			res, err := f.a.Dispatch("projectApply", args(l))
+			if err != nil {
+				t.Errorf("clic %d : %v", i, err)
+			}
+			replies[i], _ = res.(map[string]any)
+			done <- i
+		}()
+	}
+	click(0, "left")
+	time.Sleep(80 * time.Millisecond)
+	click(1, "top")
+	time.Sleep(80 * time.Millisecond)
+	click(2, "left")
+	// dès que le 3e clic est affiché, l'organisation ne doit plus jamais revenir en arrière
+	waitUntil(t, "left après le 3e clic", 3*time.Second, isLeft)
+	end := time.Now().Add(3 * time.Second)
+	for time.Now().Before(end) {
+		if !isLeft() {
+			t.Fatalf("retour visible à l'ancienne organisation (leader à %.0f %%) après le dernier clic", leaderW())
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	for i := 0; i < 3; i++ {
+		select {
+		case <-done:
+		case <-time.After(8 * time.Second):
+			t.Fatal("un projectApply ne répond pas")
+		}
+	}
+	for i, r := range replies {
+		if r["ok"] != true {
+			t.Errorf("réponse du clic %d : %v (aucun clic ne doit échouer : conflit de date, etc.)", i+1, r)
+		}
+	}
+	if b, _ := os.ReadFile(core.ConfigPath()); !strings.Contains(string(b), `"alpha"]="left"`) {
+		t.Errorf("config.conf final : %s, attendu la dernière valeur (left)", b)
+	}
+	if n := layoutWrites.Load(); n > 2 {
+		t.Errorf("%d écritures de config.conf, attendu 2 au plus (l'écriture en cours + la finale)", n)
+	}
+	s, _ := f.a.Dispatch("projectSettings", args(""))
+	_ = s
+	res, _ := f.a.Dispatch("projectSettings", func() json.RawMessage { b, _ := json.Marshal(map[string]any{"path": f.path}); return b }())
+	if m := res.(map[string]any); m["layout"] != "left" || m["layoutAuto"] != false {
+		t.Errorf("projectSettings final : %v", m)
+	}
+}
+
+// Échec de TRANSPORT (wsl.exe / kubectl exec) : pas un refus de tmux — ni repli sur « top », ni signature fixée ;
+// la mise en page est retentée au tour suivant.
+func TestTransportFailureIsNotATmuxRefusal(t *testing.T) {
+	f, leaderW := fakeTeamProject(t)
+	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
+	time.Sleep(1500 * time.Millisecond)
+	batchFail.Store(true)
+	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
+	_, _ = f.a.Dispatch("projectApply", args)
+	time.Sleep(500 * time.Millisecond)
+	if m := f.a.Snapshot().Msg; strings.Contains(m, "refusé par tmux") {
+		t.Errorf("échec de transport pris pour un refus de tmux : %q", m)
+	}
+	if sig := f.a.term(f.path).watch.layoutSig; strings.HasPrefix(sig, "left") {
+		t.Errorf("layoutSig fixée (%q) malgré l'échec de transport", sig)
+	}
+	batchFail.Store(false)
+	waitUntil(t, "mise en page retentée", 6*time.Second, isLeftOf(leaderW))
+}
+
+func isLeftOf(leaderW func() float64) func() bool {
+	return func() bool { w := leaderW(); return w > 30 && w < 60 }
+}
+
+// Une seule photo de la configuration par mise en page : la signature fixée est celle de l'organisation réellement
+// appliquée, même si la demande change entre le calcul de la signature et celui du plan.
+func TestRelayoutUsesOneConfigSnapshot(t *testing.T) {
+	f, leaderW := fakeTeamProject(t)
+	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
+	time.Sleep(1500 * time.Millisecond)
+	base := filepath.Base(f.path)
+	relayoutMid = func() { f.a.setLayoutOverride(base, "top") } // la demande change entre la signature et le plan
+	defer func() { relayoutMid = nil }()
+	f.a.setLayoutOverride(base, "left")
+	f.a.term(f.path).relayoutNow()
+	relayoutMid = nil
+	sig := f.a.term(f.path).watch.layoutSig
+	left := isLeftOf(leaderW)()
+	if left != strings.HasPrefix(sig, "left") {
+		t.Errorf("signature %q incohérente avec la mise en page appliquée (leader à %.0f %%)", sig, leaderW())
+	}
 }
