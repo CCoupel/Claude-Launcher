@@ -28,3 +28,4 @@
 | tests/procedures/ui-desktop/proxy-https-171/ | procedure | ui-desktop | Interface web derriere un proxy HTTPS : endurance 1 h, session expiree, hote/origine, stabilisation #186/#187 (#171) | feature | slow |
 | tests/procedures/ui-desktop/racine-base-165/ | procedure | ui-desktop | Racine de base configurable CL_ROOT_BASE / --root-base, demarrage Windows (#165) | feature | |
 | tests/procedures/ci/image-launcher-167/ | procedure | main | Image du launcher du cluster : non root, version, interface servie avec dossier monte, arret propre, QUALIF k8s (#167, #168) | feature | slow |
+| tests/integration/helm/ | integration | main | Chart Helm : lint, rendu contrôlé, aucun ClusterRole, ClusterIP, liste d'adresses (Traefik/nginx), TLS obligatoire, variables et sécurité du pod (#170, #173) | feature | |
