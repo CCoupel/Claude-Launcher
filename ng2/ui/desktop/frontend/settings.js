@@ -547,7 +547,8 @@ function stPageDefaults(p) {
 // hubs.<machine> de backends.yaml) et écrits par configApply, chacun avec son
 // brouillon, sa date, son résultat : même comportement que backends.yaml.
 const DOCS = { conf: { kind: 'config.conf', pages: ['launcher'] }, env: { kind: 'env.yaml', pages: ['conteneurs'] }, hub: { kind: 'hub', pages: ['poste', 'maquettes', 'web'] } };
-const HUB_EFF = ['browser_paths', 'browser_server', 'browser_device', 'desktop_web']; // clés des rubriques « Serveur de maquettes » / « Interface web »
+const HUB_EFF = ['browser_paths', 'browser_server', 'browser_device', 'desktop_web'];
+const HUB_RESOLVED = ['browser_server', 'desktop_web']; // résolues champ par champ par le Go (model.resolved), écrites sans préfixe de système // clés des rubriques « Serveur de maquettes » / « Interface web »
 const docOfPage = () => Object.keys(DOCS).find((k) => DOCS[k].pages.includes(ST.page)) || '';
 
 function docDraftOf(id, m) {
@@ -560,7 +561,7 @@ function docDraftOf(id, m) {
   } else {
     // valeur EFFECTIVE de ce poste : pour une clé surchargée par système, la couche de la surcharge (#183)
     const s = Object.assign({}, m.settings || {});
-    for (const k of HUB_EFF) { const os = (m.effective || {})[k]; if (os && m.overrides && m.overrides[os]) s[k] = m.overrides[os].settings[k]; }
+    for (const k of HUB_EFF) { if (HUB_RESOLVED.includes(k) && m.resolved && m.resolved[k]) { s[k] = m.resolved[k]; continue; } const os = (m.effective || {})[k]; if (os && m.overrides && m.overrides[os]) s[k] = m.overrides[os].settings[k]; }
     d.txt = {
       paths: (s.paths || []).map((x) => x.local + ' => ' + x.remote).join('\n'),
       browser_paths: (s.browser_paths || []).map((x) => x.container + ' => ' + x.host + (x.os ? ' | ' + x.os : '')).join('\n'),
@@ -644,9 +645,9 @@ function docChanges(id) {
     const al = (t) => { const a = stLines(t); return a.length ? a : undefined; };
     const bsv = (D2) => clean({ listen: str(D2.f.listen), url: str(D2.f.url), allow: al(D2.txt.allow) });
     const ruv = (f) => clean({ uid: num(f.uid), gid: num(f.gid), name: str(f.name), home: str(f.home) });
-    putE('browser_server', bsv(d), bsv(o), !Object.keys(bsv(d)).length);
+    put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
     const dwv = (D2) => clean({ enabled: D2.f.dweb_en == null ? undefined : D2.f.dweb_en, listen: str(D2.f.dweb || ''), allow_lan: D2.f.dweb_lan ? true : undefined, url: str(D2.f.dweb_url || '') });
-    putE('desktop_web', dwv(d), dwv(o), !Object.keys(dwv(d)).length);
+    put(['desktop_web'], dwv(d), dwv(o), !Object.keys(dwv(d)).length);
     put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
     put(['hub_cache'], d.f.hub_cache.trim(), o.f.hub_cache.trim(), !d.f.hub_cache.trim());
     putE('browser_device', d.f.browser_device.trim(), o.f.browser_device.trim(), !d.f.browser_device.trim());
@@ -880,12 +881,18 @@ async function dwRegen() {
 }
 
 // surcharges propres au système : indication par clé (même règle que « Ce poste »)
+// provenance d'un réglage résolu : champs `reglage.champ` de model.resolved.sources ; rien quand la valeur est celle de la machine ou absente
+function hubSrc(m, reglage, champs) {
+  const src = (m.resolved && m.resolved.sources) || {}, out = [];
+  for (const c of champs) { const o = src[reglage + '.' + c]; if (o && o !== 'hub' && !out.includes(o)) out.push(o); }
+  return out.length ? '⚠ valeur ' + out.map((o) => (o === 'defaults' ? 'des défauts' : 'propre à ' + o)).join(' et ') + ' : modifiée à cet endroit' : '';
+}
 const hubOv = (m) => { const eff = m.effective || {}; return { eff, hint: (k) => (eff[k] ? '⚠ surchargé pour ' + eff[k] + ' : cette valeur est celle de la surcharge, modifiée à cet endroit' : '') }; };
 
 function stPageWeb(p) {
   const D0 = ST.docs.hub;
   docPage(p, 'hub', 'Interface web' + (D0 && D0.model ? ' — ' + D0.model.hub : ''), 'Le launcher complet dans un navigateur, protégé par un jeton. Réglage propre à cette machine.', (D) => {
-    const f = D.d.f, ov = hubOv(D.model).hint('desktop_web'), off = !dwServer() && !dwOn(f);
+    const f = D.d.f, ov = hubSrc(D.model, 'desktop_web', ['listen', 'allow_lan', 'enabled', 'url']), off = !dwServer() && !dwOn(f);
     const bd = dwBandeau(); if (bd) p.appendChild(bd);
     // Activation
     const act = el('div');
@@ -926,9 +933,9 @@ function stPageMaq(p) {
     if (isWebClient()) p.appendChild(el('p', 'stband ro', '🔒 ' + DW_RO + '.'));
     const ln = dwNorm(f.listen);
     const ec = stForm([
-      ['Écoute', dwRo(stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765')), (isWebClient() ? DW_RO : 'hôte:port, port seul, ou « off » pour l\'arrêter · différente de l\'interface web') + ' ' + h('browser_server')],
-      ['URL publiée', dwRo(stInput(f.url, (v) => { f.url = v; }, 'http://…')), 'adresse vue du navigateur'],
-      ['Accès autorisés', dwRo(stArea(t.allow, (v) => { t.allow = v; }, 2)), 'une adresse par ligne'],
+      ['Écoute', dwRo(stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765')), (isWebClient() ? DW_RO : 'hôte:port, port seul, ou « off » pour l\'arrêter · différente de l\'interface web') + ' ' + hubSrc(m, 'browser_server', ['listen'])],
+      ['URL publiée', dwRo(stInput(f.url, (v) => { f.url = v; }, 'http://…')), 'adresse vue du navigateur ' + hubSrc(m, 'browser_server', ['url'])],
+      ['Accès autorisés', dwRo(stArea(t.allow, (v) => { t.allow = v; }, 2)), 'une adresse par ligne ' + hubSrc(m, 'browser_server', ['allow'])],
     ]);
     p.appendChild(stBox('Écoute', ec, el('span', ln ? 'dim' : 'dim', ln ? 'configuré sur ' + ln : '○ arrêté')));
     p.appendChild(stBox('Chemins pour le navigateur', stForm([['Chemins', stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3), 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + h('browser_paths')]])));
