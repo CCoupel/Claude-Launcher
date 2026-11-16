@@ -33,8 +33,8 @@ func TestClusterServerModeServesAndCreatesConfigUnderRoot(t *testing.T) {
 	c.Env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+rbDataHome(), "TMUX_TMPDIR="+rbTmuxDir(t),
 		"CL_ROOT_BASE="+root, "CL_IN_CLUSTER=1", "CL_UPDATE_MODE=notify", "CL_HUB_NAME=cl-test-cluster", "CL_NO_UPDATE=1")
 	rbOwnGroup(c)
-	var out strings.Builder
-	c.Stdout, c.Stderr = &out, &out
+	out := &lockedBuf{} // lu pendant que le sous-processus écrit (stdout et stderr y vont ensemble)
+	c.Stdout, c.Stderr = out, out
 	if err := c.Start(); err != nil {
 		t.Fatal(err)
 	}
