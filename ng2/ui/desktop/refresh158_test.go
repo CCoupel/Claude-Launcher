@@ -31,10 +31,8 @@ func rawPath(p string) json.RawMessage {
 
 // refreshEvents : tous les évènements « refresh » du projet, dans l'ordre.
 func (r *recorder) refreshEvents(path string) []map[string]any {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	var out []map[string]any
-	for _, e := range r.evs {
+	for _, e := range r.all() {
 		if e["_name"] == "refresh" && e["path"] == path {
 			out = append(out, e)
 		}

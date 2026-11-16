@@ -613,14 +613,12 @@ collect:
 				break collect
 			}
 			seenWeb[n] = true
-			r.mu.Lock()
 			common := false
-			for _, e := range r.evs {
+			for _, e := range r.all() {
 				if seenWeb[e["_name"].(string)] {
 					common = true
 				}
 			}
-			r.mu.Unlock()
 			if common {
 				break collect
 			}

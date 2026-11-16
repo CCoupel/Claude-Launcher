@@ -195,17 +195,13 @@ func zoomTiming(t *testing.T, r *recorder, pt *projTerm) {
 	time.Sleep(600 * time.Millisecond) // recaptures des panes nouveaux (tour lent bloqué par le tube : pas d'attente de tour)
 	leader := pt.lastLayout().Leader
 	step := func(zoomed bool) (visible, usable time.Duration) {
-		r.mu.Lock()
-		n := len(r.evs)
-		r.mu.Unlock()
+		n := r.count()
 		t0 := time.Now()
 		pt.zoom(leader)
 		end := time.Now().Add(15 * time.Second)
 		for time.Now().Before(end) && (visible == 0 || usable == 0) {
-			r.mu.Lock()
-			evs := r.evs[n:]
-			n = len(r.evs)
-			r.mu.Unlock()
+			evs := r.since(n)
+			n += len(evs)
 			for _, e := range evs {
 				if e["_name"] != "term" {
 					continue

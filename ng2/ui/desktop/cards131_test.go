@@ -28,9 +28,7 @@ func TestCardsOfPreviousProjectDropped(t *testing.T) {
 		return e["_name"] == "cards" && e["path"] == ps[1]
 	})
 	cardsBg.Wait()
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	for _, e := range r.evs {
+	for _, e := range r.all() {
 		if e["_name"] == "cards" && e["path"] != ps[1] {
 			t.Errorf("cartes d'un projet qui n'est plus sélectionné : %v", e["path"])
 		}
