@@ -858,7 +858,6 @@ function dwFill(box) {
   const w = dwSnap();
   const txt = w.state === 'on' ? '● active sur ' + w.listen + (w.lan ? ' — ouverte au réseau' : '') + (w.msg ? ' — ' + w.msg : '') : w.state === 'error' ? '✕ ' + (w.msg || 'erreur') : '○ désactivée';
   box.append(el('span', w.state === 'on' ? (w.lan ? 't-orange' : 't-green') : w.state === 'error' ? 't-red' : 'dim', txt));
-  if (w.state === 'on' && w.url) box.append(el('span', 'dim', 'atteinte par ' + w.url));
   if (w.state === 'on' && !dwLocked()) {
     box.append(stBtn('Ouvrir dans le navigateur', async () => {
       try { const r = await call('webUIOpen', {}); if (r && r.ok === false) flash('⚠ ' + (r.msg || 'ouverture impossible')); } catch (e) { /* signalé par call */ }
@@ -899,7 +898,7 @@ function stPageWeb(p) {
         return c;
       })());
     // adresse publique (#171) : affichée ; le champ éditable arrive au LOT-2.2
-    const pub = stInput(dwServer() ? (dwSnap().url || '') : f.dweb_url, () => {}, '(aucune — accès direct)');
+    const pub = stInput(f.dweb_url, () => {}, '(aucune — accès direct)');
     pub.readOnly = true; pub.classList.add('ro'); pub.title = 'adresse publique : modifiable dans une prochaine étape';
     const ad = stForm([
       ['Écoute', ec, (dwLocked() ? (dwServer() ? DW_SRV : DW_RO) + ' · ' : 'off, un port (boucle locale) ou hôte:port · différente du serveur de maquettes · hors boucle locale : la case est obligatoire ; le jeton circule en HTTP, préférer un tunnel SSH/TLS ') + ov],
@@ -930,8 +929,8 @@ function stPageMaq(p) {
       ['Accès autorisés', dwRo(stArea(t.allow, (v) => { t.allow = v; }, 2)), 'une adresse par ligne ' + hubSrc(m, 'browser_server', ['allow'])],
     ]);
     p.appendChild(stBox('Écoute', ec, el('span', ln ? 'dim' : 'dim', ln ? 'configuré sur ' + ln : '○ arrêté')));
-    p.appendChild(stBox('Chemins pour le navigateur', stForm([['Chemins', stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3), 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + h('browser_paths')]])));
-    p.appendChild(stBox('Navigateur apparié', stForm([['Navigateur', stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur'), 'le Chrome de ce poste, reconnu par les sessions claude ' + h('browser_device')]])));
+    p.appendChild(stBox('Chemins pour le navigateur', stForm([['Chemins', dwRo(stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3)), (isWebClient() ? DW_RO + ' · ' : '') + 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + h('browser_paths')]])));
+    p.appendChild(stBox('Navigateur apparié', stForm([['Navigateur', dwRo(stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur')), 'le Chrome de ce poste, reconnu par les sessions claude ' + h('browser_device')]])));
   });
 }
 
