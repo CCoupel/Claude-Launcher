@@ -1,0 +1,111 @@
+{{- $root := .Values.rootBase | trimSuffix "/" -}}
+{{- $hub := include "cl.hubName" . -}}
+{{- $mount := include "cl.mountPath" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "cl.fullname" . }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  # toujours 1 : un seul launcher par nom de hub (garde de présence CL_HUB_NAME)
+  replicas: 1
+  serviceName: {{ include "cl.fullname" . }}
+  # mise à jour : le StatefulSet supprime l'ancien pod et attend sa fin AVANT de créer le nouveau
+  # (jamais deux pods du même hub en même temps, contrairement au RollingUpdate d'un Deployment)
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "cl.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cl.selector" . | nindent 8 }}
+        app.kubernetes.io/version: {{ include "cl.tag" . | quote }}
+    spec:
+      serviceAccountName: {{ include "cl.fullname" . }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.runAsUser }}
+        runAsGroup: {{ .Values.runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup jamais posé : pas de changement de propriétaire récursif du partage
+      containers:
+        - name: launcher
+          image: "{{ .Values.image.repository }}:{{ include "cl.tag" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: CL_ROOT_BASE
+              value: {{ $root | quote }}
+            - name: CL_HUB_NAME
+              value: {{ $hub | quote }}
+            - name: CL_CACHE_DIR
+              value: {{ printf "%s/.cache/claude-launcher-ng2/%s" $root $hub | quote }}
+            - name: CL_K8S_VOLUMES
+              value: {{ printf "%s=%s" $mount .Values.volume.existingClaim | quote }}
+            - name: CL_IN_CLUSTER
+              value: "1"
+            - name: CL_UPDATE_MODE
+              value: notify
+            {{- if .Values.ingress.enabled }}
+            - name: CL_WEB_URL
+              value: {{ printf "https://%s" .Values.ingress.host | quote }}
+            {{- end }}
+            {{- if .Values.allowHostBackend }}
+            - name: CL_ALLOW_HOST_BACKEND
+              value: "1"
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: projets
+              mountPath: {{ $mount }}
+            - name: home
+              mountPath: /home/launcher
+            - name: tmp
+              mountPath: /tmp
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            initialDelaySeconds: 5
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: projets
+          persistentVolumeClaim:
+            claimName: {{ .Values.volume.existingClaim }}
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

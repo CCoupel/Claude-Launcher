@@ -1,0 +1,21 @@
+# Droits du launcher, limités au namespace de la release : ceux que core/k8s utilise, rien d'autre.
+# Aucun ClusterRole (contracts/helm-values.md).
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cl.fullname" . }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [apps]
+    resources: [statefulsets, statefulsets/scale]
+    verbs: [get, list, watch, create, update, patch, delete]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create, get]
+  - apiGroups: [""]
+    resources: [events, persistentvolumeclaims]
+    verbs: [get, list]

@@ -1,0 +1,27 @@
+# PROD du launcher du cluster (namespace claude-ng2, release « claude-launcher »).
+# Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/PROD/.
+#   helm upgrade --install claude-launcher deploy/helm/claude-launcher -n claude-ng2 \
+#     -f deploy/helm/values-prod.yaml          (image.tag = appVersion du chart, vX.Y.Z)
+
+# image de release, construite par la CI sur le tag
+image:
+  repository: ghcr.io/ccoupel/claude-launcher
+  pullPolicy: IfNotPresent
+
+hubName: cluster
+
+rootBase: /share/MFS/ROOT/CLAUDE_PROJETS
+volume:
+  existingClaim: claude-projets
+  mountPath: /share/MFS/ROOT/CLAUDE_PROJETS
+
+ingress:
+  enabled: true
+  controller: traefik
+  className: traefik
+  host: launcher.coupel.lan               # à déclarer dans le DNS interne (vers le contrôleur Traefik)
+  allowedSourceRanges: ["192.168.1.0/24"]
+  tls:
+    # ClusterIssuer interne : nom NON relu (le compte ng2-tests ne peut pas lister les clusterissuers).
+    # À RENSEIGNER avant l'installation : kubectl get clusterissuer (compte admin ou ng2-deploy)
+    clusterIssuer: a-renseigner

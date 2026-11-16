@@ -1,0 +1,16 @@
+Launcher du cluster « {{ include "cl.hubName" . }} » — image {{ .Values.image.repository }}:{{ include "cl.tag" . }}
+
+Racine : {{ .Values.rootBase }} (PVC {{ .Values.volume.existingClaim }} monté à {{ include "cl.mountPath" . }})
+{{- if .Values.ingress.enabled }}
+Adresse : https://{{ .Values.ingress.host }}  (adresses admises : {{ join ", " .Values.ingress.allowedSourceRanges }})
+{{- else }}
+Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ include "cl.fullname" . }} 8080:8080
+{{- end }}
+
+URL d'amorçage (jeton) : dans le journal du pod au démarrage
+  kubectl -n {{ .Release.Namespace }} logs statefulset/{{ include "cl.fullname" . }} | grep 'interface web'
+
+État : kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "cl.fullname" . }}
+Mise à jour : changer image.tag (l'ancien pod s'arrête avant le démarrage du nouveau).
+Désinstallation : helm uninstall {{ .Release.Name }} — ne touche ni au PVC, ni aux pods de projets, ni aux fichiers de la racine.
+Non créés (risques acceptés v6.3.0) : NetworkPolicy, Secret du jeton (le jeton reste dans le cache sur le volume partagé).

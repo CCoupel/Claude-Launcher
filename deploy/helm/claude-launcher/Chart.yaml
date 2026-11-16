@@ -1,0 +1,11 @@
+apiVersion: v2
+name: claude-launcher
+description: Launcher du cluster de Claude-Launcher — interface web servie par un pod, qui pilote les pods de projets du namespace
+type: application
+# version du chart = version du launcher (X.Y.Z) ; appVersion = tag de l'image (contracts/helm-values.md)
+version: 6.3.0
+appVersion: "v6.3.0"
+home: https://github.com/CCoupel/Claude-Launcher
+sources:
+  - https://github.com/CCoupel/Claude-Launcher
+keywords: [claude, launcher, tmux, kubernetes]
