@@ -70,6 +70,8 @@ case "$(uname -s)" in
   *)
     go vet ./...
     step_done "vet"
+    # #186 : la version de tmux du poste/runner est tracée (un test de mise en page instable en CI en dépend peut-être)
+    if command -v tmux >/dev/null 2>&1; then tmux -V; else echo "tmux : absent (tests tmux ignorés)"; fi
     # #154 : les tests ne laissent ni verrou git ni socket tmux de test.
     # Dossier dédié sous /tmp en dur (sun_path ≤ 108 ; un TMPDIR dans le projet est trop long, exception de confinement autorisée) pour
     # TMUX_TMPDIR et TMPDIR : tout tmux des tests y place son socket ; les sockets du
