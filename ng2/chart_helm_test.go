@@ -589,7 +589,7 @@ func TestChartEnvironmentValuesFiles(t *testing.T) {
 		if _, err := os.Stat(f); err != nil {
 			t.Fatalf("%s absent", f)
 		}
-		out, errOut, err := helm(t, "template", "rel", chartDir, "-f", f)
+		out, errOut, err := helm(t, "template", "rel", chartDir, "-f", f, "--set", "ingress.tls.clusterIssuer=interne-test") // l'émetteur « a-renseigner » est refusé par le chart : testé à part
 		if err != nil {
 			t.Errorf("%s : %v\n%s", env, err, errOut)
 			continue
@@ -610,5 +610,217 @@ func TestChartEnvironmentValuesFiles(t *testing.T) {
 	}
 	if hubs["qualif"] == "" || hubs["prod"] == "" || hubs["qualif"] == hubs["prod"] {
 		t.Errorf("hubName de QUALIF et de PROD : %q / %q — doivent être renseignés et distincts", hubs["qualif"], hubs["prod"])
+	}
+}
+
+// ── cycle 1 (revue + audit sécurité du chart) ────────────────────────────────
+
+// validOK : le cas de référence rend (précondition de tous les refus ci-dessous : aucun refus vacueux).
+func validOK(t *testing.T) {
+	t.Helper()
+	must(t, baseValues())
+}
+
+// Liste d'adresses : chaque entrée validée (octets 0–255, masques valides), tout préfixe /0 refusé quelle que soit
+// l'écriture, préfixes trop larges refusés (< /8 en IPv4, < /16 en IPv6) ; les plages raisonnables restent admises.
+func TestChartAllowListEntriesAreValidatedStrictly(t *testing.T) {
+	needHelm(t)
+	validOK(t)
+	refused := []string{
+		"0.0.0.0/00", "10.0.0.0/0", "0::/0", "0:0:0:0:0:0:0:0/0", "::0/0", "::/00", "0.0.0.0/000",
+		"1.2.3.4/33", "256.1.1.1/24", "10.0.0.0/-1", "10.0.0/24", "10.0.0.0.0/24", "a.b.c.d/8", "10.0.0.0/",
+		"10.0.0.0/7", "128.0.0.0/1", "2001:db8::/15", "::/129", "2001:db8::/-1", "fd00:::1/64",
+	}
+	accepted := []string{"10.0.0.0/8", "192.168.1.0/24", "192.168.1.7/32", "172.16.0.0/12", "2001:db8::/32", "fd00::/16", "fd00::1/128"}
+	for _, ctl := range []string{"traefik", "nginx"} {
+		for _, bad := range refused {
+			t.Run(ctl+"/refus/"+bad, func(t *testing.T) {
+				v := baseValues()
+				ing := sub(v, "ingress")
+				ing["controller"], ing["className"] = ctl, ctl
+				ing["allowedSourceRanges"] = []any{"192.168.1.0/24", bad}
+				if _, out, err := render(t, v); err == nil {
+					t.Errorf("%q accepté\n%.200s", bad, out)
+				}
+			})
+		}
+		for _, ok := range accepted {
+			t.Run(ctl+"/admis/"+ok, func(t *testing.T) {
+				v := baseValues()
+				ing := sub(v, "ingress")
+				ing["controller"], ing["className"] = ctl, ctl
+				ing["allowedSourceRanges"] = []any{ok}
+				if _, out, err := render(t, v); err != nil {
+					t.Errorf("%q refusé à tort : %s", ok, out)
+				}
+			})
+		}
+	}
+}
+
+// rootBase : chemin absolu NORMALISÉ — « .. », « . », « // » et « / » final refusés.
+func TestChartRootBaseMustBeNormalised(t *testing.T) {
+	needHelm(t)
+	v := baseValues()
+	v["rootBase"] = "/data/p"
+	sub(v, "volume")["mountPath"] = "/data"
+	must(t, v)
+	for _, bad := range []string{"/data/p/../q", "/data/../data/p", "/data//p", "/data/./p", "/data/p/", "/data/p/.."} {
+		t.Run(bad, func(t *testing.T) {
+			v := baseValues()
+			v["rootBase"] = bad
+			sub(v, "volume")["mountPath"] = "/data"
+			if _, out, err := render(t, v); err == nil {
+				t.Errorf("rootBase %q accepté\n%.200s", bad, out)
+			}
+		})
+	}
+}
+
+// Système de fichiers racine en lecture seule (home et tmp sont des emptyDir) ; startupProbe /healthz si présente.
+func TestChartReadOnlyRootFilesystem(t *testing.T) {
+	needHelm(t)
+	o := must(t, baseValues())
+	c := pod(t, o)["containers"].([]any)[0].(m)
+	if get(c, "securityContext", "readOnlyRootFilesystem") != true {
+		t.Errorf("readOnlyRootFilesystem = %v, attendu true", get(c, "securityContext", "readOnlyRootFilesystem"))
+	}
+	mounted := map[string]bool{}
+	for _, x := range c["volumeMounts"].([]any) {
+		mounted[x.(m)["mountPath"].(string)] = true
+	}
+	for _, mp := range []string{"/home/launcher", "/tmp"} {
+		if !mounted[mp] {
+			t.Errorf("%s non monté (inscriptible) : le conteneur en lecture seule ne pourrait pas écrire", mp)
+		}
+	}
+	if sp, ok := c["startupProbe"]; ok {
+		if get(sp, "httpGet", "path") != "/healthz" {
+			t.Errorf("startupProbe : %v, attendu httpGet /healthz", sp)
+		}
+	}
+}
+
+// Valeurs réservées : extraEnv ne redéfinit aucune CL_* posée par le chart ; ingress.annotations ne remplace aucune
+// clé réservée (liste d'adresses, redirection) — sinon la liste d'adresses pourrait être contournée.
+func TestChartReservedValuesAreRefused(t *testing.T) {
+	needHelm(t)
+	validOK(t)
+	for _, name := range []string{"CL_ROOT_BASE", "CL_HUB_NAME", "CL_CACHE_DIR", "CL_K8S_VOLUMES", "CL_WEB_URL", "CL_UPDATE_MODE", "CL_ALLOW_HOST_BACKEND"} {
+		t.Run("extraEnv/"+name, func(t *testing.T) {
+			v := baseValues()
+			v["extraEnv"] = []any{m{"name": name, "value": "x"}}
+			if _, out, err := render(t, v); err == nil {
+				t.Errorf("extraEnv %s accepté\n%.200s", name, out)
+			} else if !strings.Contains(out, name) {
+				t.Errorf("le message ne nomme pas %s : %s", name, out)
+			}
+		})
+	}
+	v := baseValues()
+	v["extraEnv"] = []any{m{"name": "TW_AUTRE", "value": "ok"}}
+	if e := env(t, must(t, v)); e["TW_AUTRE"] != "ok" {
+		t.Errorf("extraEnv inoffensif non posé : %v", e["TW_AUTRE"])
+	}
+	for _, key := range []string{
+		"nginx.ingress.kubernetes.io/whitelist-source-range", "nginx.ingress.kubernetes.io/ssl-redirect",
+		"nginx.ingress.kubernetes.io/force-ssl-redirect", "nginx.ingress.kubernetes.io/allowlist-source-range",
+	} {
+		t.Run("annotation/"+key, func(t *testing.T) {
+			v := baseValues()
+			sub(v, "ingress")["annotations"] = m{key: "x"}
+			if _, out, err := render(t, v); err == nil {
+				t.Errorf("annotation réservée %s acceptée\n%.200s", key, out)
+			}
+		})
+	}
+	v2 := baseValues()
+	sub(v2, "ingress")["annotations"] = m{"exemple.coupel.lan/note": "ok"}
+	ann, _ := get(must(t, v2)["Ingress"][0], "metadata", "annotations").(m)
+	if ann["exemple.coupel.lan/note"] != "ok" {
+		t.Errorf("annotation inoffensive non posée : %v", ann)
+	}
+}
+
+// ClusterIssuer : la valeur d'attente « a-renseigner » (valeurs QUALIF/PROD) est refusée explicitement.
+func TestChartPlaceholderClusterIssuerIsRefused(t *testing.T) {
+	needHelm(t)
+	validOK(t)
+	v := baseValues()
+	sub(v, "ingress", "tls")["clusterIssuer"] = "a-renseigner"
+	_, out, err := render(t, v)
+	if err == nil {
+		t.Fatalf("clusterIssuer « a-renseigner » accepté")
+	}
+	if !strings.Contains(out, "clusterIssuer") && !strings.Contains(out, "renseigner") {
+		t.Errorf("le message ne dit pas quoi renseigner : %s", out)
+	}
+}
+
+// Role : tous les droits que le launcher contrôle (core/k8s.go : k8sRequiredRights) sont accordés, et pods/exec
+// n'a que « create » (kubectl exec n'exige pas « get »).
+func TestChartRoleCoversLauncherChecksWithoutExtraExecRights(t *testing.T) {
+	needHelm(t)
+	o := must(t, baseValues())
+	granted := map[string]map[string]bool{} // ressource → verbes
+	for _, r := range get(o["Role"][0], "rules").([]any) {
+		rm := r.(m)
+		for _, res := range rm["resources"].([]any) {
+			if granted[res.(string)] == nil {
+				granted[res.(string)] = map[string]bool{}
+			}
+			for _, vb := range rm["verbs"].([]any) {
+				granted[res.(string)][vb.(string)] = true
+			}
+		}
+	}
+	for _, r := range [][2]string{{"get", "statefulsets"}, {"list", "statefulsets"}, {"create", "statefulsets"}, {"patch", "statefulsets"},
+		{"delete", "statefulsets"}, {"patch", "statefulsets/scale"}, {"get", "pods"}, {"list", "pods"}, {"delete", "pods"},
+		{"create", "pods/exec"}, {"list", "events"}, {"get", "persistentvolumeclaims"}} {
+		if !granted[r[1]][r[0]] {
+			t.Errorf("droit « %s %s » contrôlé par le launcher mais non accordé par le Role", r[0], r[1])
+		}
+	}
+	if granted["pods/exec"]["get"] {
+		t.Errorf("pods/exec « get » accordé : inutile (kubectl exec ne demande que create)")
+	}
+}
+
+// Namespace QUALIF séparé (décision H1) : les valeurs QUALIF s'installent dans claude-ng2-qualif, la PROD dans
+// claude-ng2 ; le rendu suit le namespace de la release.
+func TestChartQualifNamespaceIsSeparate(t *testing.T) {
+	needHelm(t)
+	read := func(f string) string {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	q, p := read("../deploy/helm/values-qualif.yaml"), read("../deploy/helm/values-prod.yaml")
+	if !strings.Contains(q, "claude-ng2-qualif") {
+		t.Errorf("values-qualif.yaml ne cite pas le namespace claude-ng2-qualif")
+	}
+	if strings.Contains(q, "-n claude-ng2 ") || strings.Contains(q, "-n claude-ng2\n") {
+		t.Errorf("values-qualif.yaml installe encore dans le namespace de la PROD (claude-ng2)")
+	}
+	if !strings.Contains(p, "claude-ng2") || strings.Contains(p, "claude-ng2-qualif") {
+		t.Errorf("values-prod.yaml : namespace claude-ng2 attendu, sans mention de la QUALIF")
+	}
+	out, errOut, err := helm(t, "template", "claude-launcher-qualif", chartDir, "-n", "claude-ng2-qualif",
+		"-f", "../deploy/helm/values-qualif.yaml", "--set", "ingress.tls.clusterIssuer=interne-test")
+	if err != nil {
+		t.Fatalf("rendu QUALIF dans claude-ng2-qualif : %v\n%s", err, errOut)
+	}
+	if !strings.Contains(out, "namespace: claude-ng2-qualif") {
+		t.Errorf("le rendu ne suit pas le namespace de la release")
+	}
+	if strings.Contains(out, "namespace: claude-ng2\n") {
+		t.Errorf("objet rendu dans le namespace de la PROD")
+	}
+	// script de déploiement : un compte par namespace
+	b, _ := os.ReadFile("../.claude-launcher/k8s-acces-deploy.sh")
+	if len(b) > 0 && !(strings.Contains(string(b), "claude-ng2-qualif") && strings.Contains(string(b), "claude-ng2")) {
+		t.Errorf(".claude-launcher/k8s-acces-deploy.sh ne traite pas les deux namespaces")
 	}
 }
