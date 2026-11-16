@@ -148,8 +148,42 @@ définie au lancement l'emporte.
 - Option sans valeur (`--root-base`, `--root-base=`) : erreur explicite, la variable n'est pas effacée en silence.
 - `claude-launcher-ng2 backends` affiche en tête la section « Racine de base » : racine et sa source, configuration,
   cache, config de claude, projets.
-- Avec `--root-base` seul, le cache (jeton, état, journaux) reste sous le dossier personnel `~/.cache/claude-launcher-ng2`.
-  Le placer sous la racine relève de `CL_CACHE_DIR` (voir `contracts/launcher-env.md`) ; son câblage complet est prévu au lot 3.2.
+- Avec `--root-base` seul, le cache (jeton, état, journaux) reste sous le dossier personnel `~/.cache/claude-launcher-ng2`
+  (`$XDG_CACHE_HOME` ou `~/.cache`). C'est un état propre à chaque launcher, jamais partagé : seul `CL_CACHE_DIR` le
+  déplace. La ligne « cache » de la section « Racine de base » indique sa source (`CL_CACHE_DIR` ou « défaut »).
+
+**Identité et cache d'un launcher** (v6.3.0, #169) :
+
+- `CL_HUB_NAME` donne au launcher un nom à la place de celui de la machine. Ce nom sert de clé `hubs.<nom>` dans
+  `backends.yaml`, d'identité de propriétaire des sessions (`LauncherID`) et d'hôte admis des serveurs web. Il doit
+  respecter `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$` ; une valeur invalide arrête le démarrage, rien n'est créé.
+- Le nom réel de la machine reste celui des espaces de PID des teams, écrits par Claude Code : `CL_HUB_NAME` ne change
+  que l'identité du launcher.
+- `CL_CACHE_DIR` est le dossier de cache, utilisé tel quel, et il est créé s'il manque. Il contient les jetons, les
+  préférences, le navigateur apparié, l'état par projet, le cache des milestones (`milestones-v2.json`) et le témoin de
+  présence. Convention du chart : `CL_CACHE_DIR=<rootBase>/.cache/claude-launcher-ng2/<hubName>`.
+
+**Plusieurs launchers sur une même racine** (v6.3.0, #176). Ce qui est **commun** : la racine, `projects.json`, le
+`settings.json` de `CLAUDE_CONFIG_DIR`, l'`env.yaml` des projets. Ce qui est **propre** à chaque launcher : le cache,
+le témoin de présence et l'identité.
+
+- **Garde de nom** : avec `CL_HUB_NAME` posé, un témoin `hub-<nom>.presence` est tenu dans `CL_CACHE_DIR`, renouvelé
+  toutes les 3 s. Un second launcher de même nom refuse de démarrer (`desktop`), avec un message qui nomme le launcher
+  déjà actif, code 1. Le témoin est repris après 10 s, ou tout de suite si son processus est mort sur la même machine.
+  Sans `CL_HUB_NAME`, aucun contrôle : deux launchers sans nom sur le même état démarrent tous deux, comme en v6.2.0.
+  Deux launchers qui partagent une racine doivent donc porter des noms différents.
+- **Un seul pilote** : les écritures partagées (`projects.json`, `settings.json`, `env.yaml`) se font sous un verrou
+  court (`<fichier>.lock`, création exclusive, repris après 20 s), puis en écriture atomique (fichier temporaire puis
+  renommage). Un verrou périmé (60 s) est repris sous un second verrou (`<fichier>.reclaim`). Les écarts d'horloge entre
+  launchers doivent rester très inférieurs à 60 s, car la péremption se mesure sur la date du fichier.
+- **`settings.json`** : chaque launcher tient la liste des clés qu'il a posées dans son propre fichier
+  (`claude-launcher/settings-env-<nom>.json` avec `CL_HUB_NAME`, `settings-env.json` sans). Il ne retire que ses clés.
+  Si deux launchers posent la même clé avec des valeurs différentes, **le dernier écrivain gagne**.
+
+**Variables de cluster** (v6.3.0, #168, #169) : `CL_IN_CLUSTER=1` ou `0` force la détection du cluster (absente :
+automatique, d'après `KUBERNETES_SERVICE_HOST` et le jeton du ServiceAccount). `CL_ALLOW_HOST_BACKEND=1` autorise le
+backend `host` dans un launcher en cluster, où il est refusé par défaut (claude n'y est pas installé). Les tests fixent
+`CL_IN_CLUSTER=0`, car le conteneur de développement est lui-même un pod. Le détail est dans `contracts/launcher-env.md`.
 
 La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
 `CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `TEAM_HIDE_IDLE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
