@@ -1,6 +1,8 @@
 # Adaptations projet — deploy PROD (Claude-Launcher)
 
-La PROD est le binaire du hub, sur MooseFS : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` (Linux)
+Racine : `ROOT_BASE=${CL_ROOT_BASE:-/share/MFS/ROOT/CLAUDE_PROJETS}` (`CL_ROOT_BASE` de `prod.env` si posée, #166).
+
+La PROD est le binaire du hub, sur MooseFS : `$ROOT_BASE/claude-launcher-ng2` (Linux)
 et `claude-launcher-ng2.exe` (Windows), dans le même dossier.
 
 1. Attendre la CI `release.yml` verte sur le tag, puis télécharger les binaires de la release GitHub
