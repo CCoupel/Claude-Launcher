@@ -5,7 +5,8 @@ mockup:
   version: 6.3.0
   type: ui
   issue: "#183, #171"
-  propositions: ["C' — Deux rubriques à part : « Serveur de maquettes » et « Interface web » (retenue par l'utilisateur le 2026-11-16)", "A — Deux encadrés empilés, commutateur dans l'en-tête", "B — Deux encadrés côte à côte, détail replié quand c'est éteint", "C — Rubrique « Interface web » à part dans les Réglages"]
+  validee_le: 2026-11-16
+  proposition_retenue: "C' — Deux rubriques à part : « Serveur de maquettes » et « Interface web »"
   complete: ["docs/mockup/v6.1.0/ui/config_ui__interface_structuree.html"]
   remplace: []
 -->
@@ -14,7 +15,7 @@ mockup:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Maquette #183 — réglages des deux serveurs web séparés (v6.3.0)</title>
+<title>Maquette #183 — deux rubriques : serveur de maquettes et interface web (v6.3.0)</title>
 <style>
 :root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--ao:#3A2818;--ag:#183A2A;
 --ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
@@ -22,11 +23,6 @@ mockup:
 body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
 h1{font-size:17px;margin:0 0 4px}
 .sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
-.ptabs{display:flex;gap:6px;border-bottom:1px solid var(--line2);margin-bottom:10px;flex-wrap:wrap}
-.ptabs button{background:var(--panel);color:var(--muted);border:1px solid var(--line2);border-bottom:0;border-radius:6px 6px 0 0;padding:8px 16px;font:600 13px var(--ui);cursor:pointer}
-.ptabs button.on{background:var(--head);color:var(--text);box-shadow:inset 0 2px 0 var(--orange)}
-.ptabs button.ret{border-color:var(--green);color:var(--text)}
-.ptabs button.ret::after{content:" ✓ retenue";color:var(--green);font-weight:600}
 section[data-proposition]{display:none}
 section[data-proposition].on{display:block}
 .parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
@@ -99,23 +95,20 @@ td.m,.mono{font-family:var(--mono);font-size:12px}
 </style>
 </head>
 <body>
-<h1>Réglages — séparer le serveur des maquettes de l'interface web (#183)</h1>
-<p class="sub">Page « Ce poste » de la fenêtre Réglages. Aujourd'hui, un seul encadré « Navigateur » mélange les deux serveurs.
-Les propositions les séparent et ajoutent un commutateur pour l'interface web. Le champ « Adresse publique » vient de #171.
-Les encadrés bordés d'orange sont ceux qui changent ; le reste de la page est inchangé.</p>
+<h1>Réglages — séparer le serveur de maquettes de l'interface web (#183)</h1>
+<p class="sub">Fenêtre Réglages. Jusqu'à la v6.2.0, un seul encadré « Navigateur » de la page « Ce poste » mélangeait les deux serveurs.
+Ils ont désormais chacun leur rubrique, et l'interface web gagne un commutateur. Le champ « Adresse publique » vient de #171.
+Les encadrés bordés d'orange sont ceux qui changent ; le reste est inchangé.</p>
 
-<div class="ptabs" id="tabs"></div>
+<div class="parti"><b>Proposition retenue : C' — deux rubriques à part.</b> Les deux serveurs quittent « Ce poste » et prennent chacun leur rubrique dans le rail des Réglages, sous CE POSTE : « Serveur de maquettes » et « Interface web ». La page « Ce poste » n'a plus d'encadré « Navigateur ».</div>
+<section data-proposition="Cp" class="on"></section>
 
-<section data-proposition="Cp"></section>
-<section data-proposition="A"></section>
-<section data-proposition="B"></section>
-<section data-proposition="C"></section>
-
-<h2>Règles communes à toutes les propositions</h2>
+<h2>Règles</h2>
 <p class="note">
 <b>Commutateur</b> : éteint par défaut. L'éteindre arrête le serveur de l'interface tout de suite et garde l'adresse saisie ; le rallumer le redémarre sur la même adresse, sans relancer le launcher.<br>
-<b>Indépendance</b> : éteindre l'interface web ne touche pas au serveur des maquettes, et inversement (« off » dans son champ d'écoute).<br>
-<b>Depuis un navigateur</b> (client web) : les deux sections sont en lecture seule, commutateur compris — règle de #163 inchangée.<br>
+<b>Indépendance</b> : éteindre l'interface web ne touche pas au serveur de maquettes, et inversement.<br>
+<b>Serveur de maquettes</b> : pas de commutateur ; « off » dans son champ d'écoute l'arrête, comme aujourd'hui.<br>
+<b>Depuis un navigateur</b> (client web) : les deux rubriques sont en lecture seule, commutateur compris — règle de #163 inchangée.<br>
 <b>Mode serveur</b> (<code>desktop --web</code>, cas du pod Kubernetes) : l'interface web est le processus lui-même. Le commutateur est affiché allumé et verrouillé ; l'écoute et l'adresse publique sont celles du lancement (<code>--addr</code>, <code>--url</code>, valeurs du chart Helm). Un <code>enabled: false</code> du fichier est ignoré dans ce mode.<br>
 <b>Fichier</b> : <code>backends.yaml → hubs.&lt;machine&gt;.desktop_web</code> gagne <code>enabled</code> et <code>url</code>. Sans <code>enabled</code>, le comportement de la v6.2.0 est conservé (active si une écoute est renseignée).
 </p>
@@ -133,16 +126,6 @@ const affichage=`<div class="box"><div class="bh">Affichage <span class="pill g"
 const chemins=`<div class="box"><div class="bh">Correspondance de chemins</div><div class="bb"><table><tr><th>Ici (local)</th><th>Sur les serveurs (distant)</th></tr><tr><td class="m">\\\\nas\\MFS\\ROOT</td><td class="m">/share/MFS/ROOT</td></tr></table></div></div>`;
 const distant=`<div class="box"><div class="bh">Utilisateur distant et cache</div><div class="bb"><div class="form"><label>uid : gid</label><span>${inp('1000','w')} : ${inp('1000','w')}</span><label>Nom</label>${inp('cyril')}<label>Dossier personnel</label>${inp('/home/cyril')}<label>Cache du hub</label>${inp('<span class="dm">(par défaut)</span>')}</div></div></div>`;
 
-/* Serveur des maquettes : contenu commun */
-const maquettesCorps=(ro)=>`<div class="form">
-<label>Écoute</label>${inp('127.0.0.1:8765',ro?'ro':'')}<span class="hint">hôte:port, port seul, ou « off » · fichiers en lecture seule, sans jeton</span>
-<label>URL publiée</label>${inp('http://localhost:8765',ro?'ro':'')}<span class="hint">adresse vue du navigateur</span>
-<label>Accès autorisés</label>${inp('<span class="dm">(local seulement)</span>',ro?'ro':'')}
-<label>Navigateur apparié</label>${inp('bb02d4f4…f6ba <span class="mu">— oublier</span>')}</div>
-<p class="mu" style="margin:10px 0 4px">Chemins pour le navigateur</p>
-<table><tr><th>Vu par claude</th><th>Vu par le navigateur</th></tr><tr><td class="m">/</td><td class="m">http://localhost:8765</td></tr></table>`;
-const boxMaquettes=(ro)=>`<div class="box neuf"><div class="bh">Serveur des maquettes <span class="pill">browser_server</span><span class="sp"></span><span class="pill g">● à l'écoute</span></div><div class="bb">${ro?roBandeau:''}${maquettesCorps(ro)}</div></div>`;
-
 const roBandeau=`<div class="bandeau ro">Lecture seule depuis un navigateur : à modifier dans la fenêtre native du poste.</div>`;
 const srvBandeau=`<div class="bandeau srv"><b>Mode serveur</b> — l'interface web est ce processus : toujours active. Écoute et adresse publique fixées au lancement (<code>--addr</code>, <code>--url</code>, valeurs du chart Helm).</div>`;
 
@@ -152,7 +135,7 @@ const champs=(etat)=>{
   const ecoute=etat==='srv'?'0.0.0.0:8080':'127.0.0.1:8787';
   const url=etat==='srv'?'https://launcher.lan.example':(off?'<span class="dm">(aucune)</span>':'<span class="dm">(aucune — accès direct)</span>');
   return `<div class="form${off?' gris':''}">
-<label>Écoute</label><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${inp(ecoute,'w'+(ro?' ro':''))}${chk(etat==='srv',"Autoriser l'accès depuis le réseau",ro)}</span><span class="hint">un port (boucle locale) ou hôte:port · différente du serveur des maquettes</span>
+<label>Écoute</label><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${inp(ecoute,'w'+(ro?' ro':''))}${chk(etat==='srv',"Autoriser l'accès depuis le réseau",ro)}</span><span class="hint">un port (boucle locale) ou hôte:port · différente du serveur de maquettes</span>
 <label>Adresse publique <span class="pill o">#171</span></label>${inp(url,ro?'ro':'')}<span class="hint">derrière un proxy inverse en HTTPS : ce nom est admis, le cookie de session devient sécurisé</span>
 </div>`;
 };
@@ -163,18 +146,6 @@ const etatLigne=(etat)=>{
   return `<div class="etat"><span class="o">● active sur 0.0.0.0:8080 — ouverte au réseau</span><span class="mu">atteinte par https://launcher.lan.example</span></div>`;
 };
 const commut=(etat)=>etat==='srv'?sw(true,'Activée','mode serveur'):etat==='web'?sw(true,'Activée','lecture seule'):sw(etat==='on',etat==='on'?'Activée':'Désactivée');
-
-/* A : commutateur dans l'en-tête de l'encadré */
-const boxWebA=(etat)=>`<div class="box neuf"><div class="bh">Interface web <span class="pill">desktop_web</span><span class="sp"></span>${commut(etat)}</div><div class="bb">
-${etat==='web'?roBandeau:etat==='srv'?srvBandeau:''}${champs(etat)}<div style="margin-top:10px">${etatLigne(etat)}</div></div></div>`;
-
-/* B : état en bandeau, détail replié quand c'est éteint */
-const boxWebB=(etat)=>{
-  const tete=`<div class="box neuf"><div class="bh">Interface web <span class="pill">desktop_web</span></div><div class="bb">`;
-  if(etat==='off') return tete+`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">${commut(etat)}<span class="mu">Le launcher complet dans un navigateur, protégé par un jeton. Éteinte par défaut.</span></div></div></div>`;
-  return tete+`<div class="bandeau ${etat==='srv'?'srv':'ok'}" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">${commut(etat)}<span style="flex:1"></span>${etatLigne(etat)}</div>
-${etat==='web'?roBandeau:etat==='srv'?srvBandeau:''}${champs(etat)}</div></div>`;
-};
 
 /* C : page dédiée */
 const pageWebC=(etat)=>`<h4>Interface web <span class="pill">desktop_web</span></h4><p class="ex">Le launcher complet dans un navigateur, protégé par un jeton. Réglage propre à cette machine.</p>
@@ -193,7 +164,7 @@ const fenetre=(page,avecWeb,corps)=>`<div class="modal"><div class="mh"><h3>Rég
 <div class="mb">${rail(page,avecWeb)}<div class="pg">${corps}</div></div>
 <div class="mf"><span class="mu">Aucun changement</span><span class="sp"></span><button class="btn">Éditer en YAML</button><button class="btn pri">Enregistrer</button></div></div>`;
 const tetePoste=`<h4>Ce poste — MSI <span class="pill">Windows</span></h4><p class="ex">Réglages propres à cette machine. Les autres postes ne sont pas touchés.</p>`;
-const etats=(f)=>`<h2>Les quatre états de la section « Interface web »</h2><div class="etats">
+const etats=(f)=>`<h2>Les quatre états de la rubrique « Interface web »</h2><div class="etats">
 <div><p class="cas">1 · Fenêtre native — éteinte <span>(défaut)</span></p>${f('off')}</div>
 <div><p class="cas">2 · Fenêtre native — allumée</p>${f('on')}</div>
 <div><p class="cas">3 · Depuis un navigateur <span>(client web de la fenêtre native)</span></p>${f('web')}</div>
@@ -210,34 +181,11 @@ ${ro?roBandeau:''}
 <div class="box neuf"><div class="bh">Navigateur apparié</div><div class="bb"><div class="form"><label>Navigateur</label>${inp('bb02d4f4…f6ba <span class="mu">— oublier</span>')}<span class="hint">le Chrome de ce poste, reconnu par les sessions claude</span></div></div></div>`;
 const fenetreCp=(page,corps,fichier)=>fenetre(page,'deux',corps).replace('backends.yaml → hubs.MSI ; desktop-ui.json',fichier);
 
-const P={
-Cp:{t:"C' — Deux rubriques à part : « Serveur de maquettes » et « Interface web »",ret:true,
- parti:"<b>Retenue par l'utilisateur.</b> <b>Parti pris</b> : les deux serveurs quittent « Ce poste » et prennent chacun leur rubrique dans le rail, sous CE POSTE. La page « Ce poste » n'a plus d'encadré « Navigateur ». <b>Avantage</b> : la séparation est dans la navigation elle-même, on ne peut plus confondre les deux serveurs ; « Ce poste » s'allège ; de la place pour l'authentification de v6.4.0. <b>Inconvénient</b> : deux rubriques de plus dans le rail ; les chemins du navigateur et l'appariement suivent le serveur de maquettes.",
- html:()=>`<h2>Rubrique « Interface web »</h2>`+fenetreCp('web',pageWebC('on'),'backends.yaml → hubs.MSI.desktop_web')
+document.querySelector('section[data-proposition="Cp"]').innerHTML=`<h2>Rubrique « Interface web »</h2>`+fenetreCp('web',pageWebC('on'),'backends.yaml → hubs.MSI.desktop_web')
    +`<h2>Rubrique « Serveur de maquettes »</h2>`+fenetreCp('maq',pageMaqC(false),'backends.yaml → hubs.MSI.browser_server, browser_paths, browser_device')
    +`<h2>La page « Ce poste » : plus d'encadré « Navigateur »</h2>`+fenetreCp('poste',tetePoste+affichage+chemins+distant,'backends.yaml → hubs.MSI ; desktop-ui.json')
    +etats((e)=>`<div class="modal"><div class="pg">${pageWebC(e)}</div></div>`)
-   +`<h2>« Serveur de maquettes » depuis un navigateur</h2><p class="note">Écoute, URL publiée et accès autorisés sont en lecture seule depuis un client web, comme pour l'interface web. Le serveur de maquettes n'a pas de commutateur : « off » dans son champ d'écoute l'arrête, comme aujourd'hui.</p><div class="modal" style="max-width:660px"><div class="pg">${pageMaqC(true)}</div></div>`},
-A:{t:"A — Deux encadrés empilés, commutateur dans l'en-tête",
- parti:"<b>Parti pris</b> : l'encadré « Navigateur » devient deux encadrés l'un sous l'autre, dans l'ordre de la page. Le commutateur est dans l'en-tête de « Interface web », toujours visible ; éteint, les champs restent affichés mais grisés. <b>Avantage</b> : changement minimal, tout se lit d'un coup. <b>Inconvénient</b> : la page s'allonge ; des champs grisés occupent la place quand l'interface est éteinte.",
- html:()=>fenetre('poste',false,tetePoste+affichage+chemins+boxMaquettes(false)+boxWebA('on')+distant)+etats(boxWebA)},
-B:{t:"B — Deux encadrés côte à côte, détail replié quand c'est éteint",
- parti:"<b>Parti pris</b> : les deux serveurs sont face à face, sur deux colonnes, pour qu'on voie qu'ils sont distincts. Dans « Interface web », le commutateur et l'état forment un bandeau coloré ; éteinte, l'encadré se réduit à une ligne. <b>Avantage</b> : page plus courte, état lisible de loin. <b>Inconvénient</b> : l'adresse n'est pas visible tant que l'interface est éteinte ; deux colonnes étroites sur une petite fenêtre.",
- html:()=>fenetre('poste',false,tetePoste+`<div class="grid2"><div>${affichage}${chemins}${distant}</div><div>${boxMaquettes(false)}${boxWebB('on')}</div></div>`)+etats(boxWebB)},
-C:{t:"C — Rubrique « Interface web » à part dans les Réglages",
- parti:"<b>Parti pris</b> : l'interface web quitte « Ce poste » et prend sa propre rubrique dans le rail. « Ce poste » ne garde que le serveur des maquettes. <b>Avantage</b> : séparation la plus nette ; de la place pour les réglages à venir (authentification, v6.4.0). <b>Inconvénient</b> : un clic de plus ; une rubrique entière pour trois champs aujourd'hui.",
- html:()=>fenetre('web',true,pageWebC('on'))+`<h2>La page « Ce poste » dans cette proposition</h2>`+fenetre('poste',true,tetePoste+affichage+chemins+boxMaquettes(false)+distant)+etats((e)=>`<div class="modal"><div class="pg">${pageWebC(e)}</div></div>`)},
-};
-const tabs=document.getElementById('tabs');
-function show(k){
-  document.querySelectorAll('section[data-proposition]').forEach(s=>s.classList.toggle('on',s.dataset.proposition===k));
-  tabs.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
-}
-for(const k of Object.keys(P)){
-  const b=document.createElement('button');b.textContent=P[k].t;b.dataset.k=k;if(P[k].ret)b.className='ret';b.onclick=()=>show(k);tabs.appendChild(b);
-  document.querySelector('section[data-proposition="'+k+'"]').innerHTML='<div class="parti">'+P[k].parti+'</div>'+P[k].html();
-}
-show('Cp');
+   +`<h2>« Serveur de maquettes » depuis un navigateur</h2><p class="note">Écoute, URL publiée et accès autorisés sont en lecture seule depuis un client web, comme pour l'interface web. Le serveur de maquettes n'a pas de commutateur : « off » dans son champ d'écoute l'arrête, comme aujourd'hui.</p><div class="modal" style="max-width:660px"><div class="pg">${pageMaqC(true)}</div></div>`;
 </script>
 </body>
 </html>
