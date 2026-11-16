@@ -120,11 +120,36 @@ launcher (hôte et conteneurs) ; un chemin relatif l'est par rapport au dossier 
 qui garde l'ensemble portable. Une variable `CLAUDE_CONFIG_DIR` déjà définie au lancement l'emporte.
 
 ```bash
-# /share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/config.conf
+# /share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/config.conf   (exemple de racine)
 PROJECT_BASE="/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS/"
 GITHUB_DIRS=("$PROJECT_BASE")
 CLAUDE_CONFIG_DIR="../../.claude"          # = /share/MFS/ROOT/CLAUDE_PROJETS/.claude
 ```
+
+**Racine de base** (v6.3.0, #165). `/share/MFS/ROOT/CLAUDE_PROJETS` n'est qu'un exemple : aucun chemin n'est supposé.
+Pour une autre racine, on passe `--root-base <dossier>` (ou `CL_ROOT_BASE=<dossier>`) ; l'option l'emporte sur la
+variable. Elle est reportée dans `CL_ROOT_BASE` du processus, donc conservée à chaque relance, et transmise aux
+sous-commandes lancées par tmux (`nav`, `state`, `mirror`…).
+
+Dossier de configuration, par ordre de priorité :
+
+1. `CL_CONFIG_DIR` ;
+2. `<racine>/.config/claude-launcher-ng2`, retenu même si `config.conf` n'y existe pas encore ;
+3. `.config/claude-launcher-ng2` à côté du binaire, s'il contient un `config.conf` (portable, inchangé) ;
+4. le dossier personnel (inchangé).
+
+Sous la racine, le launcher place donc sa configuration (`.config/claude-launcher-ng2` : `config.conf`,
+`backends.yaml`, `projects.json`), la config de claude (`.claude`) et les projets (`PROJETS`, proposé à la création de
+`config.conf`). `CLAUDE_CONFIG_DIR` vaut `<racine>/.claude` tant que `config.conf` ne le pose pas, et une valeur déjà
+définie au lancement l'emporte.
+
+- Racine absente, qui n'est pas un dossier ou qui est illisible : erreur qui nomme le chemin et sa source (`CL_ROOT_BASE`
+  ou `--root-base`), code de sortie non nul, rien n'est créé.
+- Option sans valeur (`--root-base`, `--root-base=`) : erreur explicite, la variable n'est pas effacée en silence.
+- `claude-launcher-ng2 backends` affiche en tête la section « Racine de base » : racine et sa source, configuration,
+  cache, config de claude, projets.
+- Avec `--root-base` seul, le cache (jeton, état, journaux) reste sous le dossier personnel `~/.cache/claude-launcher-ng2`.
+  Le placer sous la racine relève de `CL_CACHE_DIR` (voir `contracts/launcher-env.md`) ; son câblage complet est prévu au lot 3.2.
 
 La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
 `CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `TEAM_HIDE_IDLE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au

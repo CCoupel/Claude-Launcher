@@ -246,6 +246,10 @@ hubs:
 - Sans configuration partagée : `claude-launcher-ng2.exe configure` (Bloc-notes) ou `⚙ config` dans
   l'interface. Dans `config.conf`, écrire un chemin Windows entre **guillemets simples** :
   `GITHUB_DIRS=('\\wsl.localhost\Ubuntu\share\MFS\ROOT\CLAUDE_PROJETS')`.
+- **Racine de base** (v6.3.0) : les chemins `…/CLAUDE_PROJETS` ci-dessus sont des exemples. Pour placer la
+  configuration, la config de claude et les projets sous un autre dossier, lancer le launcher avec
+  `--root-base <dossier>` (ou `CL_ROOT_BASE=<dossier>`). Le détail de la priorité et de ce qui est créé est dans
+  `ng2/README.md`, section « Config portable ».
 
 **Avertissements**
 

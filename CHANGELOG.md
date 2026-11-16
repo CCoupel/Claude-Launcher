@@ -10,6 +10,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Added
+- Racine de base : option `--root-base <dossier>` et variable `CL_ROOT_BASE` ; la configuration, la config de claude et les projets se placent sous cette racine (`CLAUDE_CONFIG_DIR` par défaut `<racine>/.claude`). Racine invalide ou option vide refusées sans rien créer ; section « Racine de base » dans `backends` (#165, #166)
 - Adresse publique de l'interface web derrière un proxy inverse HTTPS : réglage `desktop_web.url`, option `--url`, variable `CL_WEB_URL` ; hôte public strict (punycode, port par défaut retiré) ; sondes `/healthz` et `/readyz` ; exemples nginx, Caddy et Traefik dans `ng2/README.md` (#171)
 - Réglages › Ce poste : les rubriques « Serveur de maquettes » et « Interface web » sont séparées. Le commutateur `desktop_web.enabled` allume ou éteint l'interface web sans effacer son adresse, sans relance du launcher (#183)
 
