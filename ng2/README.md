@@ -1747,6 +1747,12 @@ réel `cl`, `cl-hidden` et le serveur `claude-desk-ng2` sont ignorés), ou si un
 `git rev-parse --git-path index.lock`, valable en worktree). Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
 `git describe --dirty` : le suffixe `-dirty` vient de `git status --porcelain`.
 
+Durée de la CI : `scripts/ci.sh` tient en moins de 60 s hors étape image (moyenne de trois passes : 56 s
+sur le conteneur de développement, contre 119 s avant les attentes sur évènement de `ui/desktop`). Le chemin critique est
+`go test -race` de `ui/desktop` (~48 s) ; `go vet`, la compilation croisée Windows et `govulncheck` prennent quelques secondes
+chacun. L'étape image (LOT-4) aura son propre budget. Procédure de mesure par étape :
+`tests/procedures/ci/ci-60s-179/mesure-ci-60s.md`. Marge faible (~4 s) : une machine plus chargée peut dépasser 60 s.
+
 Interface native (`ui/desktop`) : décodeur du mode contrôle de tmux (séquence réelle de tmux 3.6,
 `%output` en octal, layouts, UTF-8 coupé), état et légende des cartes, appels, et un projet sur
 l'hôte dans un tmux de test (ouverture, saisie, team de 7 rangée en 3 lignes, teintes,

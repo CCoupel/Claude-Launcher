@@ -477,6 +477,9 @@ l'interface native, puis l'exe lancé en `version`. Elle est appelée par `ng2-t
 vers `main`), `ci-branch.yml` (pré-validation des branches `milestone/*`, sans publier) et
 `release.yml` (avant de construire les binaires d'un tag).
 
+La CI tient en moins de 60 s hors étape image (environ 56 s mesurées sur trois passes). Le détail par étape et la
+procédure de mesure sont dans `ng2/README.md`, section « Tests ».
+
 ## Licence
 
 Copyright (C) 2026 ccoupel

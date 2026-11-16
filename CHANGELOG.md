@@ -9,6 +9,9 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+### Changed
+- `scripts/ci.sh` tient en moins de 60 s hors étape image : 56 s en moyenne sur trois passes, contre 119 s. Les tests de `ui/desktop` attendent désormais des évènements au lieu de dormir ; la couverture et le nombre de tests sont inchangés (#179)
+
 ## [6.2.0] — 2026-11-16
 
 ### Added
