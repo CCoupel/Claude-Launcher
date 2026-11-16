@@ -544,7 +544,8 @@ func TestRunWebURLPrecedenceFlagEnvConfig(t *testing.T) {
 			for !d183Reach(p) && time.Now().Before(end) {
 				time.Sleep(50 * time.Millisecond)
 			}
-			os.Stdout = oldOut
+			// os.Stdout reste remplacé jusqu'à la fin de Run (course de données avec ses fmt.Println sinon)
+			defer func() { os.Stdout = oldOut }()
 			tok := "tokURLPrecedence1234567"
 			ck, resp := w171Session(t, p, tok, tc.win)
 			if ck == nil {
@@ -561,6 +562,8 @@ func TestRunWebURLPrecedenceFlagEnvConfig(t *testing.T) {
 			w171Do(t, p, "POST", "/api/call", tc.win, map[string]string{"Content-Type": "application/json"}, `{"method":"quit","args":{"mode":"l"}}`, ck)
 			select {
 			case err := <-done:
+				os.Stdout = oldOut
+				_ = pw.Close()
 				if err != nil {
 					t.Errorf("Run : %v", err)
 				}

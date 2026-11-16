@@ -120,10 +120,11 @@ func TestRunWebServerModeStartsAndQuits(t *testing.T) {
 	case v := <-urlc:
 		addr, tok = v[0], v[1]
 	case <-time.After(15 * time.Second):
-		os.Stdout = oldOut
 		t.Fatal("RunWeb n'a pas annoncé d'adresse")
 	}
-	os.Stdout = oldOut
+	// os.Stdout reste remplacé jusqu'à la FIN de RunWeb (il écrit encore après l'adresse : « Ctrl+C pour arrêter ») :
+	// restauré plus bas, une fois la goroutine terminée (sinon course de données avec fmt.Println)
+	defer func() { os.Stdout = oldOut }()
 	if tok != "tokRunWebServerMode123456" {
 		t.Errorf("jeton annoncé %q, attendu celui de CL_DESKTOP_TOKEN", tok)
 	}
@@ -152,6 +153,8 @@ func TestRunWebServerModeStartsAndQuits(t *testing.T) {
 	call(`{"method":"quit","args":{"mode":"l"}}`)
 	select {
 	case err := <-done:
+		os.Stdout = oldOut
+		_ = pw.Close()
 		if err != nil {
 			t.Errorf("RunWeb : %v", err)
 		}
