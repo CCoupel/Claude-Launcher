@@ -97,10 +97,24 @@
           "credentials_env": [],
           "verified": {
             "status": "ok",
-            "at": "2026-11-13T17:40:00Z",
+            "at": "2026-11-16T08:54:01Z",
             "checks": [
+              "gh-auth",
+              "gh-push",
+              "gh-admin",
+              "push-main-dry-run",
+              "push-tag-dry-run",
+              "main-unprotected",
+              "merge-sans-conflit",
+              "release-yml-active",
+              "ci-branch-green-sha",
+              "release-v6.2.0-absente",
               "target-dir",
-              "gh-push"
+              "target-writable",
+              "exe-writable",
+              "disk-space",
+              "sha256sum",
+              "pkill"
             ]
           }
         }
