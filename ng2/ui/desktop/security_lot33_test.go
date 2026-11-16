@@ -161,10 +161,13 @@ func TestWebHostCheckHeadersAndTokenOnlyInCookieForCalls(t *testing.T) {
 	}
 	hasCookie := false
 	for _, c := range resp.Cookies() {
-		hasCookie = hasCookie || c.Name == "cl_token" && c.Value == "tok123"
+		if strings.Contains(c.Value, "tok123") || strings.Contains(c.Name, "tok123") {
+			t.Errorf("le cookie %q contient le jeton", c.Name)
+		}
+		hasCookie = hasCookie || strings.HasPrefix(c.Name, "cl_session_") && c.Value != "tok123" && c.HttpOnly && c.SameSite == http.SameSiteStrictMode
 	}
 	if !hasCookie {
-		t.Error("cookie non posé")
+		t.Error("cookie de session (cl_session_<port>, HttpOnly, SameSite=Strict, valeur ≠ jeton) non posé")
 	}
 	// appels : cookie seulement, jamais le jeton de l'URL
 	call := `{"method":"configFiles","args":{}}`
@@ -209,7 +212,36 @@ func TestWebHostCheckHeadersAndTokenOnlyInCookieForCalls(t *testing.T) {
 	}
 }
 
-// doWith : requête HTTP avec en-têtes choisis (Host, cookie, Content-Type, Origin).
+// sessionCookie : GET /?t=<jeton> (avec le Host de l'appel) puis le cookie de session rendu ; nil si l'amorçage
+// est refusé. Vérifie au passage qu'aucun cookie posé ne contient le jeton (M2).
+func sessionCookie(t *testing.T, base, host, token string) *http.Cookie {
+	t.Helper()
+	req, _ := http.NewRequest("GET", base+"/?t="+token, nil)
+	if host != "" {
+		req.Host = host
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.Copy(io.Discard, resp.Body)
+	var out *http.Cookie
+	for _, c := range resp.Cookies() {
+		if strings.Contains(c.Value, token) || strings.Contains(c.Name, token) {
+			t.Errorf("le cookie %q contient le jeton (M2 : identifiant de session seulement)", c.Name)
+		}
+		if strings.HasPrefix(c.Name, "cl_session") {
+			out = c
+		}
+	}
+	if resp.StatusCode == 200 && out == nil {
+		t.Errorf("amorçage accepté (%d) sans cookie de session cl_session_<port>", resp.StatusCode)
+	}
+	return out
+}
+
+// doWith : requête HTTP avec en-têtes choisis (Host, jeton → session, Content-Type, Origin).
 func doWith(t *testing.T, base, method, path, host, cookie, body, contentType, origin string) (*http.Response, string) {
 	t.Helper()
 	req, _ := http.NewRequest(method, base+path, strings.NewReader(body))
@@ -217,7 +249,12 @@ func doWith(t *testing.T, base, method, path, host, cookie, body, contentType, o
 		req.Host = host
 	}
 	if cookie != "" {
-		req.AddCookie(&http.Cookie{Name: "cl_token", Value: cookie})
+		// `cookie` désigne le JETON du poste (nom d'usage conservé) : le cookie d'appel est une session
+		// obtenue par la page d'amorçage (M2 : le cookie ne porte jamais le jeton, cl_session_<port>).
+		// Jeton faux, ou Host refusé : pas de session, donc pas de cookie — l'appel part sans (403 attendu).
+		if sc := sessionCookie(t, base, host, cookie); sc != nil {
+			req.AddCookie(sc)
+		}
 	}
 	if contentType != "" {
 		req.Header.Set("Content-Type", contentType)
@@ -280,7 +317,7 @@ func TestWebCallRequiresJSONAndSameOrigin(t *testing.T) {
 	}
 	// sans Origin (même origine, GET) : accepté ; le corps du test ne lit pas le flux
 	req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
-	req.AddCookie(&http.Cookie{Name: "cl_token", Value: "tok123"})
+	req.AddCookie(scBootstrap(t, srv.URL, "tok123"))
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 	if resp, err := http.DefaultClient.Do(req.WithContext(ctx)); err == nil {

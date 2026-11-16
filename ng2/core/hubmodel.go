@@ -16,6 +16,12 @@ type HubServerView struct {
 	Allow  []string `json:"allow"`
 }
 
+// HubDesktopWebView : desktop_web d'un poste (#163).
+type HubDesktopWebView struct {
+	Listen   string `json:"listen"`
+	AllowLAN bool   `json:"allow_lan"`
+}
+
 // HubUserView : remote_user d'un poste (uid et gid absents : nil).
 type HubUserView struct {
 	UID  *int   `json:"uid"`
@@ -26,12 +32,13 @@ type HubUserView struct {
 
 // HubSettings : réglages d'un poste (communs, ou d'un système).
 type HubSettings struct {
-	Paths         []PathMap     `json:"paths"`
-	BrowserPaths  []BrowserPath `json:"browser_paths"`
-	BrowserServer HubServerView `json:"browser_server"`
-	RemoteUser    HubUserView   `json:"remote_user"`
-	HubCache      string        `json:"hub_cache"`
-	BrowserDevice string        `json:"browser_device"`
+	Paths         []PathMap         `json:"paths"`
+	BrowserPaths  []BrowserPath     `json:"browser_paths"`
+	BrowserServer HubServerView     `json:"browser_server"`
+	DesktopWeb    HubDesktopWebView `json:"desktop_web"`
+	RemoteUser    HubUserView       `json:"remote_user"`
+	HubCache      string            `json:"hub_cache"`
+	BrowserDevice string            `json:"browser_device"`
 }
 
 // HubOverride : surcharge propre à un système ; Keys : clés qu'elle redéfinit.
@@ -53,7 +60,7 @@ type HubModel struct {
 	Effective map[string]string      `json:"effective"`
 }
 
-func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, ru *RemoteUserConf, cache, dev string) HubSettings {
+func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, dw *DesktopWeb, ru *RemoteUserConf, cache, dev string) HubSettings {
 	s := HubSettings{Paths: []PathMap{}, BrowserPaths: []BrowserPath{}, BrowserServer: HubServerView{Allow: []string{}},
 		HubCache: cache, BrowserDevice: dev}
 	if paths != nil {
@@ -68,6 +75,9 @@ func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, ru *Re
 			s.BrowserServer.Allow = []string{}
 		}
 	}
+	if dw != nil {
+		s.DesktopWeb = HubDesktopWebView{Listen: dw.Listen, AllowLAN: dw.AllowLAN != nil && *dw.AllowLAN}
+	}
 	if ru != nil {
 		s.RemoteUser = HubUserView{UID: ru.UID, GID: ru.GID, Name: ru.Name, Home: ru.Home}
 	}
@@ -78,7 +88,7 @@ func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, ru *Re
 // section absente) vu du système goos.
 func ReadHubModel(content []byte, host, goos string) (HubModel, error) {
 	m := HubModel{Hub: host, Goos: goos, Overrides: map[string]HubOverride{}, Effective: map[string]string{}}
-	m.Settings = hubSettingsOf(nil, nil, nil, nil, "", "")
+	m.Settings = hubSettingsOf(nil, nil, nil, nil, nil, "", "")
 	for _, k := range hubOSKeys {
 		m.Effective[k] = ""
 	}
@@ -91,7 +101,7 @@ func ReadHubModel(content []byte, host, goos string) (HubModel, error) {
 		return m, nil
 	}
 	m.Hub, m.Present = key, true
-	m.Settings = hubSettingsOf(h.Paths, h.BrowserPaths, h.BrowserServer, h.RemoteUser, h.HubCache, h.BrowserDevice)
+	m.Settings = hubSettingsOf(h.Paths, h.BrowserPaths, h.BrowserServer, h.DesktopWeb, h.RemoteUser, h.HubCache, h.BrowserDevice)
 	for _, os := range osKeys {
 		ov := h.osBlock(os)
 		if ov == nil {
@@ -106,10 +116,11 @@ func ReadHubModel(content []byte, host, goos string) (HubModel, error) {
 		add("paths", ov.Paths != nil)
 		add("browser_paths", ov.BrowserPaths != nil)
 		add("browser_server", ov.BrowserServer != nil)
+		add("desktop_web", ov.DesktopWeb != nil)
 		add("remote_user", ov.RemoteUser != nil)
 		add("hub_cache", ov.HubCache != "")
 		add("browser_device", ov.BrowserDevice != "")
-		m.Overrides[os] = HubOverride{Keys: keys, Settings: hubSettingsOf(ov.Paths, ov.BrowserPaths, ov.BrowserServer, ov.RemoteUser, ov.HubCache, ov.BrowserDevice)}
+		m.Overrides[os] = HubOverride{Keys: keys, Settings: hubSettingsOf(ov.Paths, ov.BrowserPaths, ov.BrowserServer, ov.DesktopWeb, ov.RemoteUser, ov.HubCache, ov.BrowserDevice)}
 	}
 	for _, k := range hubOSKeys {
 		m.Effective[k] = ""

@@ -369,7 +369,7 @@ func TestTeamLines(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", root)
 	_ = os.MkdirAll(root+"/teams/s1", 0o755)
 	_ = os.WriteFile(root+"/teams/s1/config.json", []byte(`{"members":[
-		{"name":"team-lead","agentType":"team-lead","tmuxPaneId":"%1","cwd":"`+proj+`"},
+		{"name":"team-lead","agentType":"team-lead","tmuxPaneId":"%1","cwd":`+jsonq(proj)+`},
 		{"name":"dev-a","agentType":"dev-a","tmuxPaneId":"%2","isActive":true},
 		{"name":"dev-b","agentType":"dev-b","tmuxPaneId":"%3"},
 		{"name":"dev-c","agentType":"dev-c","tmuxPaneId":"%4"},

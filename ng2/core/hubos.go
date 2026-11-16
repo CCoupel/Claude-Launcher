@@ -26,6 +26,7 @@ import (
 type hubOSConf struct {
 	BrowserPaths  *[]BrowserPath  `yaml:"browser_paths"`
 	BrowserServer *BrowserServer  `yaml:"browser_server"`
+	DesktopWeb    *DesktopWeb     `yaml:"desktop_web"` // #163
 	BrowserDevice string          `yaml:"browser_device"`
 	Paths         []PathMap       `yaml:"paths"`
 	RemoteUser    *RemoteUserConf `yaml:"remote_user"`
@@ -34,7 +35,7 @@ type hubOSConf struct {
 }
 
 var (
-	hubOSKeys = []string{"browser_server", "browser_paths", "browser_device", "paths", "remote_user", "hub_cache"}
+	hubOSKeys = []string{"browser_server", "desktop_web", "browser_paths", "browser_device", "paths", "remote_user", "hub_cache"}
 	osKeys    = []string{"windows", "linux", "darwin"}
 	// clés de hubs.<machine> (browserpaths.go, hubConf)
 	hubKeys = append(append([]string{}, hubOSKeys...), osKeys...)

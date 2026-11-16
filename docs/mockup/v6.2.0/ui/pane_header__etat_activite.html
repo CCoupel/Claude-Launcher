@@ -1,0 +1,138 @@
+<!--
+mockup:
+  composant: pane_header
+  feature: etat_activite
+  version: 6.2.0
+  type: ui
+  issue: "#152"
+  validee_le: 2026-11-15
+  proposition_retenue: "A — Bandeau plein par état"
+  complete: []
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #152 — en-tête des panes selon l'état (v6.2.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--input:#0A0C10;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.win{border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--deep);max-width:1100px}
+.tabbar{height:30px;display:flex;align-items:center;padding:0 14px;border-bottom:1px solid var(--line);font-weight:700;font-size:12px;background:#1F4FD1;color:#fff}
+.panes{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:170px 150px;gap:4px;padding:4px}
+.pane{position:relative;border-radius:3px;overflow:hidden;font:11px/1.5 var(--mono);color:rgba(255,255,255,.78);padding:24px 8px 4px;white-space:pre}
+.pane.lead{grid-column:1 / span 4}
+.ph{position:absolute;left:0;top:0;right:0;height:19px;font:11px var(--ui);padding:2px 8px;white-space:nowrap;overflow:hidden;background:#DDE1E7;color:#15181D;border-left:6px solid #1F4FD1}
+.ph b{font-weight:700}.ph i{font-style:normal;color:#4A5160}
+.ph.focus{background:#fff;box-shadow:inset 0 -2px 0 var(--orange)}
+/* A : bandeau plein par état */
+.A .ph.act{background:#6EE7A8;color:#06281A;border-left-color:#1F9D63}
+.A .ph.act i{color:#0B4A30}
+.A .ph.idle{background:#3A404B;color:#AEB4BE;border-left-color:#5B6372}
+.A .ph.idle i{color:#8B93A1}
+/* B : pastille */
+.B .ph .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:baseline}
+.B .ph.act{border-left-color:#1F9D63}
+.B .ph.act .dot{background:#1F9D63;box-shadow:0 0 0 2px rgba(31,157,99,.25)}
+.B .ph.idle{border-left-color:#8B93A1}
+.B .ph.idle .dot{background:#9AA1AD}
+.B .ph.lead .dot{background:#1F4FD1}
+/* C : teinte du projet */
+.C .ph{border-left:0;padding-left:10px}
+.C .ph.lead{background:#1F4FD1;color:#fff}
+.C .ph.lead i{color:#C9D6FF}
+.C .ph.act{background:#5C86FF;color:#fff;font-weight:600}
+.C .ph.act i{color:#E4EBFF}
+.C .ph.idle{background:#0C2266;color:#8C9BD0}
+.C .ph.idle i{color:#6C7BB0}
+.C .ph.focus{box-shadow:inset 0 -2px 0 var(--orange)}
+.tui{background:#000;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;font:12.5px/1.3 var(--mono);white-space:pre;overflow:auto;color:#8a8a8a;width:max-content;max-width:100%}
+.tg{color:#6EE7A8}.tgb{background:#6EE7A8;color:#06281A}.td{color:#5B6372}.tdb{background:#3A404B;color:#AEB4BE}.tw{color:#d0d0d0}
+.tpb{background:#1F4FD1;color:#fff}.tpa{background:#5C86FF;color:#fff}.tpi{background:#0C2266;color:#8C9BD0}.to{color:#F0A868}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+.leg{display:flex;gap:16px;flex-wrap:wrap;margin:8px 0 0;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<h1>En-tête des panes selon l'état du teammate <span style="color:var(--muted);font-weight:400">· #152 · v6.2.0 · maquette retenue (A — Bandeau plein par état)</span></h1>
+<p class="sub">Composant : en-tête (bandeau de titre, bordure) du pane de chaque teammate, dans la fenêtre d'un projet — interface native Windows et coque Linux. Aujourd'hui, sous Windows, le bandeau est gris clair pour tous et l'état n'est qu'un texte (« · actif ») ; sous Linux, les panes n'ont <b>aucun titre</b> et seule la teinte du fond change. L'en-tête prend désormais une couleur selon que le teammate est <b>actif</b> ou <b>inactif</b>, avec le même état que celui déjà lu pour les teintes et la carte TEAM. Exemple : projet bleu, leader en haut ; <b>dev-backend</b> et <b>code-reviewer</b> actifs, <b>planner</b> et <b>qa</b> inactifs ; le clavier est dans le pane de <b>dev-backend</b>.</p>
+
+<section data-proposition="A" class="on">
+  <div class="parti"><b>Parti pris :</b> tout le bandeau change de couleur — vert pour un actif, gris sombre pour un inactif, clair inchangé pour le leader. Sous Linux, une ligne de titre est ajoutée en haut de chaque pane, de la même couleur. <b>Avantage :</b> l'état se voit de loin, même couleur quel que soit le projet. <b>Inconvénient :</b> le vert s'ajoute à la couleur du projet (fenêtre plus bariolée) ; sous Linux chaque pane perd une ligne.</div>
+  <div class="mock"></div>
+</section>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li>État = celui de la team (<code>isActive</code>), déjà utilisé pour la teinte du fond, l'ordre des panes et la carte TEAM. Aucun nouvel indicateur à calculer.</li>
+  <li>La couleur suit le changement d'état sans relance : au plus une seconde après (rythme du surveillant de mise en page).</li>
+  <li>Le <b>leader</b> (et un agent « cdp ») garde l'en-tête neutre : il n'a pas d'état actif / inactif affiché.</li>
+  <li>Un pane sans agent (ouvert à la main) garde l'en-tête neutre, avec le nom de sa commande.</li>
+  <li>Le pane qui a le clavier garde son repère actuel (soulignement orange sous Windows, bordure du pane actif sous Linux), en plus de la couleur d'état.</li>
+  <li>La teinte du fond des panes (éclaircie / assombrie) est inchangée. Le texte « · actif / · inactif » reste affiché.</li>
+  <li>Projet en lecture seule (un autre launcher a la main) : les couleurs sont affichées, elles sont calculées par le launcher qui a la main.</li>
+</ul>
+
+<script>
+(function(){
+const P0=[
+ {n:'team-lead',r:'leader',k:'lead',bg:'#1F4FD1',t:'● Je répartis les tâches du lot 2…\n  ⎿ SendMessage(dev-backend)\n  ⎿ SendMessage(code-reviewer)'},
+ {n:'dev-backend',r:'actif',k:'act',f:1,bg:'#3F6FF1',t:'● Édition de core/layout.go\n  ⎿ +42 −7\n✻ Compilation…'},
+ {n:'code-reviewer',r:'actif',k:'act',bg:'#3F6FF1',t:'● Lecture du diff\n  ⎿ 6 fichiers\n✻ Analyse…'},
+ {n:'planner',r:'inactif',k:'idle',bg:'#12308A',t:'PLANNER DONE\n\n> '},
+ {n:'qa',r:'inactif',k:'idle',bg:'#12308A',t:'QA DONE\n\n> '}];
+function win(P){
+  let h='<div class="win '+P+'"><div class="tabbar">● Claude-Launcher · agent au travail</div><div class="panes">';
+  P0.forEach(function(p){
+    const dot=P==='B'?'<span class="dot"></span>':'';
+    h+='<div class="pane'+(p.k==='lead'?' lead':'')+'" style="background:'+p.bg+'"><div class="ph '+p.k+(p.f?' focus':'')+'">'+dot+'<b>'+p.n+'</b> <i>· '+p.r+'</i></div>'+p.t+'</div>';});
+  return h+'</div></div>';
+}
+function rep(c,n){let s='';while(n-->0)s+=c;return s;}
+function tui(P){
+  const W=26;
+  function title(p){
+    const txt=' '+p.n+' · '+p.r+' ';
+    if(P==='A') return '<span class="'+(p.k==='act'?'tgb':p.k==='idle'?'tdb':'tw')+'">'+txt+rep(' ',W-txt.length)+'</span>';
+    if(P==='C') return '<span class="'+(p.k==='act'?'tpa':p.k==='idle'?'tpi':'tpb')+'">'+txt+rep(' ',W-txt.length)+'</span>';
+    return '';
+  }
+  function body(p,l){const s=(p.t.split('\n')[l]||'');return '<span class="tw">'+(s+rep(' ',W)).slice(0,W)+'</span>';}
+  const L=P0[0],R=P0.slice(1);let h='';
+  if(P==='B'){
+    h+='<span class="tw">'+rep('━',W*4+3)+'</span>\n';
+    for(let l=0;l<3;l++) h+='<span class="tw">'+(L.t.split('\n')[l]+rep(' ',W*4+3)).slice(0,W*4+3)+'</span>\n';
+    h+=R.map(function(p){return '<span class="'+(p.k==='act'?'tg':'td')+'">'+rep('━',W)+'</span>';}).join('<span class="td">╋</span>')+'\n';
+    for(let l=0;l<3;l++) h+=R.map(function(p,i){return body(p,l)+(i<3?'<span class="'+(p.k==='act'||R[i+1].k==='act'?'tg':'td')+'">┃</span>':'');}).join('')+'\n';
+    h+='\n<span class="td">Bordure </span><span class="tg">━ verte</span><span class="td"> autour d’un pane actif, </span><span class="td">━ grise autour d’un inactif ; pane au clavier : </span><span class="to">bordure orange</span>';
+  }else{
+    const lt=' team-lead · leader ';
+    h+=(P==='A'?'<span class="tw">':'<span class="tpb">')+lt+rep(' ',W*4+3-lt.length)+'</span>\n';
+    for(let l=0;l<3;l++) h+='<span class="tw">'+(L.t.split('\n')[l]+rep(' ',W*4+3)).slice(0,W*4+3)+'</span>\n';
+    h+=R.map(title).join('<span class="td">┃</span>')+'\n';
+    for(let l=0;l<3;l++) h+=R.map(function(p){return body(p,l);}).join('<span class="td">┃</span>')+'\n';
+    h+='\n<span class="td">Une ligne de titre par pane (nom · état), '+(P==='A'?'verte pour un actif, grise pour un inactif':'à la teinte du projet : éclaircie pour un actif, assombrie pour un inactif')+'.</span>';
+  }
+  return h;
+}
+document.querySelectorAll('section[data-proposition]').forEach(function(sec){
+  const P=sec.dataset.proposition;
+  sec.querySelector('.mock').innerHTML='<h2>Interface native Windows — fenêtre du projet</h2>'+win(P)+'<h2>Coque Linux — fenêtre tmux du projet (schéma, fond des panes non représenté)</h2><div class="tui">'+tui(P)+'</div>';
+});
+})();
+</script>
+</body>
+</html>

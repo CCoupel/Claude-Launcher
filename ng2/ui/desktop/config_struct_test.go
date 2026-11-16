@@ -420,12 +420,26 @@ func TestProjectApplyForeignOwnerTimeout(t *testing.T) {
 	var r recorder
 	a := newApp(t, r.emit)
 	_ = os.WriteFile(core.BackendsPath(), []byte("backends:\n  lab: { type: docker, host: 'tcp://10.0.0.1:2375', shared: [/share] }\n"), 0o644)
-	release := make(chan struct{})
-	t.Cleanup(func() { close(release) })
+	release, started, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
 	oldO, oldT := foreignOwner, foreignOwnerTimeout
-	foreignOwner = func(string) string { <-release; return "" } // moteur injoignable : ne répond pas
+	foreignOwner = func(string) string { // moteur injoignable : ne répond pas
+		close(started) // la goroutine de projectApply a lu foreignOwner : synchronise avec le test (-race)
+		<-release
+		close(finished)
+		return ""
+	}
 	foreignOwnerTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { foreignOwner, foreignOwnerTimeout = oldO, oldT })
+	// Restauration des variables de paquet APRÈS la fin de la goroutine de projectApply (#164) : sinon
+	// l'écriture de nettoyage et la lecture de foreignOwner par cette goroutine sont une data race.
+	t.Cleanup(func() {
+		close(release)
+		select {
+		case <-started: // la goroutine a démarré : on attend qu'elle ait fini
+			<-finished
+		default: // jamais lancée (échec précoce du test) : rien à attendre
+		}
+		foreignOwner, foreignOwnerTimeout = oldO, oldT
+	})
 	t0 := time.Now()
 	res, err := a.projectApply(proj, core.ProjectChange{Backend: ptr("lab"), Image: ptr("docker.io/library/debian:12")})
 	if err != nil || res["ok"] != false || !strings.Contains(res["msg"].(string), "impossible de vérifier si le projet est ouvert ailleurs") {
@@ -434,6 +448,7 @@ func TestProjectApplyForeignOwnerTimeout(t *testing.T) {
 	if d := time.Since(t0); d > 2*time.Second {
 		t.Errorf("la vérification n'est pas bornée : %v", d)
 	}
+	<-started // happens-before : la lecture de foreignOwner par la goroutine précède la restauration
 	if core.Assigned(proj) {
 		t.Fatal("affectation écrite malgré l'impossibilité de vérifier")
 	}

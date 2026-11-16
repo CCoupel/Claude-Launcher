@@ -50,6 +50,7 @@ type DefaultsEntry struct {
 	Image         string         `json:"image,omitempty"`
 	BrowserPaths  *[]BrowserPath `json:"browser_paths,omitempty"`
 	BrowserServer *BrowserServer `json:"browser_server,omitempty"`
+	DesktopWeb    *DesktopWeb    `json:"desktop_web,omitempty"`
 }
 
 // BackendsModel : backends.yaml lu en modèle. Les backends et les pools sont
@@ -102,7 +103,7 @@ func ReadBackendsModel(content []byte) (BackendsModel, error) {
 		m.Pools = append(m.Pools, e)
 	}
 	m.Defaults = DefaultsEntry{Backend: f.Defaults.Backend, Image: f.Defaults.Image,
-		BrowserPaths: f.Defaults.BrowserPaths, BrowserServer: f.Defaults.BrowserServer}
+		BrowserPaths: f.Defaults.BrowserPaths, BrowserServer: f.Defaults.BrowserServer, DesktopWeb: f.Defaults.DesktopWeb}
 	if f.Images != nil {
 		m.Images = f.Images
 	}

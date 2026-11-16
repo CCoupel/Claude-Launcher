@@ -363,7 +363,10 @@ func TestHostProjectWithTmux(t *testing.T) {
 	}))
 
 	// fenêtre redimensionnée : la team est remise en page à la nouvelle taille
-	// (3 lignes : le haut sur 3/7 de la hauteur)
+	// (3 lignes : le haut sur 3/7 de la hauteur). v6.2.0 (#152) : pane-border-status top
+	// donne une ligne de titre tmux à chaque pane ; celle d'un pane de la rangée du haut
+	// est prise sur son contenu — H = cellule − 1, Y reste la cellule (l'en-tête dessiné
+	// par l'interface prend la place du titre tmux)
 	pt.resize(150, 60)
 	r.wait(t, 10*time.Second, "mise en page après redimensionnement", isTerm(ps[0], "layout", func(e map[string]any) bool {
 		l := e["layout"].(map[string]any)
@@ -373,7 +376,8 @@ func TestHostProjectWithTmux(t *testing.T) {
 		for _, p := range l["panes"].([]any) {
 			pm := p.(map[string]any)
 			if pm["id"] == leader {
-				return pm["h"].(float64) == float64(60*cfg.Layout3RowLeaderNum/cfg.Layout3RowDen)
+				cell := float64(60 * cfg.Layout3RowLeaderNum / cfg.Layout3RowDen)
+				return pm["h"].(float64) == cell-1 && pm["y"].(float64) == 0
 			}
 		}
 		return false

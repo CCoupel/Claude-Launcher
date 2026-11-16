@@ -4,6 +4,7 @@ import (
 	"claude-launcher-ng2/platform"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -300,18 +301,79 @@ func OnGitHub(dir string) bool {
 	return err == nil && strings.Contains(string(b), "github.com")
 }
 
+// Natures d'une erreur de lecture GitHub (GHKind).
+const (
+	GHAbsent    = "absent"    // gh (GitHub CLI) introuvable sur ce poste
+	GHAuth      = "auth"      // gh non connecté ou jeton refusé
+	GHNoRepo    = "norepo"    // le dépôt n'a aucun remote GitHub reconnu
+	GHTimeout   = "timeout"   // gh n'a pas répondu à temps
+	GHOwnership = "ownership" // git refuse le dépôt (dubious ownership) : rouge, avec la commande d'aide
+	GHOther     = "other"     // autre échec : à montrer tel quel
+)
+
+// GHError : échec d'un appel gh, avec la cause réelle (stderr de gh), pas le seul
+// « exit status N ».
+type GHError struct {
+	Kind string
+	Msg  string
+}
+
+func (e *GHError) Error() string { return e.Msg }
+
+// GHKind : nature de l'erreur et si elle est légitime (rien à réparer côté
+// launcher : gh absent ou non connecté, dépôt hors GitHub) plutôt qu'une panne.
+func GHKind(err error) (kind string, benign bool) {
+	var ge *GHError
+	if !errors.As(err, &ge) {
+		return GHOther, false
+	}
+	return ge.Kind, ge.Kind == GHAbsent || ge.Kind == GHAuth || ge.Kind == GHNoRepo
+}
+
+func ghFail(ctx context.Context, err error, stderr []byte, args []string, dir string) error {
+	say := strings.TrimSpace(string(stderr))
+	if i := strings.LastIndex(say, "\n"); i >= 0 && len(say) > 400 {
+		say = strings.TrimSpace(say[i:])
+	}
+	say, _, _ = strings.Cut(say, "\n")
+	low := strings.ToLower(say)
+	cmd := "gh " + strings.Join(args[:min(len(args), 2)], " ")
+	switch {
+	case strings.Contains(low, "dubious ownership"):
+		return &GHError{GHOwnership, "git refuse le dépôt (dubious ownership : dossier d'un autre compte) — à lancer une fois : " + SafeDirectoryHelp(dir)}
+	case errors.Is(err, exec.ErrNotFound):
+		return &GHError{GHAbsent, "gh (GitHub CLI) introuvable sur ce poste : l'installer pour lire les milestones"}
+	case ctx.Err() == context.DeadlineExceeded:
+		return &GHError{GHTimeout, cmd + " : pas de réponse en 20 s"}
+	case strings.Contains(low, "gh auth login") || strings.Contains(low, "bad credentials") ||
+		strings.Contains(low, "http 401") || strings.Contains(low, "authentication") || strings.Contains(low, "gh_token"):
+		return &GHError{GHAuth, "gh non connecté ou jeton refusé (" + say + ") : GITHUB_TOKEN ou gh auth login"}
+	case strings.Contains(low, "none of the git remotes") || strings.Contains(low, "no git remotes") ||
+		strings.Contains(low, "known github host"):
+		return &GHError{GHNoRepo, "pas de dépôt GitHub pour ce projet (" + say + ")"}
+	case say != "":
+		return &GHError{GHOther, cmd + " : " + say}
+	}
+	return &GHError{GHOther, cmd + " : " + err.Error()}
+}
+
 func ghJSON(dir, token string, v any, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 	cmd := platform.NoWindow(exec.CommandContext(ctx, "gh", args...))
 	cmd.Dir = dir
-	cmd.Env = os.Environ()
+	cmd.Env = WithSafeDirectory(os.Environ(), dir) // gh appelle git pour trouver le remote
 	if token != "" && os.Getenv("GH_TOKEN") == "" {
 		cmd.Env = append(cmd.Env, "GH_TOKEN="+token)
 	}
 	out, err := cmd.Output()
 	if err != nil {
-		return err
+		var ee *exec.ExitError
+		var stderr []byte
+		if errors.As(err, &ee) {
+			stderr = ee.Stderr
+		}
+		return ghFail(ctx, err, stderr, args, dir)
 	}
 	return json.Unmarshal(out, v)
 }

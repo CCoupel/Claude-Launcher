@@ -1,0 +1,123 @@
+<!--
+mockup:
+  composant: tab_bar
+  feature: teamleaders_separe
+  version: 6.2.0
+  type: ui
+  issue: "#162"
+  validee_le: 2026-11-15
+  proposition_retenue: "B — Onglet nommé en pastille"
+  complete: []
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #162 — onglet Teamleaders séparé (v6.2.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--accent:#60CDFF;--input:#0A0C10;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.scene{max-width:1000px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;margin-bottom:6px;background:var(--bg)}
+.scene.narrow{max-width:560px}
+.bar{height:34px;display:flex;align-items:stretch;border-bottom:1px solid var(--line);font-size:12px;background:var(--panel)}
+.scroll{display:flex;align-items:stretch;overflow:hidden;flex:1;min-width:0;position:relative}
+.scroll.fade::after{content:"›";position:absolute;right:0;top:0;bottom:0;width:34px;display:flex;align-items:center;justify-content:flex-end;padding-right:8px;color:var(--text2);background:linear-gradient(90deg,transparent,var(--panel) 60%)}
+.tab{display:flex;align-items:center;gap:6px;padding:0 10px 0 12px;color:var(--text2);white-space:nowrap;border-right:1px solid var(--line);cursor:default;flex:none}
+.tab.on{color:#fff;font-weight:700}
+.tab.busy{color:#0B0D11}
+.tab .x{color:inherit;opacity:.6;margin-left:4px}
+.tab .st{font-size:11px}
+.body{height:64px;display:flex;align-items:center;justify-content:center;color:var(--dim);font-size:12px}
+.cap{color:var(--muted);font-size:12px;margin:0 0 14px}
+/* A : bouton icône */
+.A .tl{flex:none;width:40px;display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--text2);position:relative}
+.A .tl.on{background:#1F4FD1;color:#fff}
+.A .tl .n{position:absolute;right:4px;top:4px;font:700 9px var(--ui);background:var(--orange);color:#1b1206;border-radius:7px;padding:0 4px;line-height:13px}
+.A .sep{flex:none;width:2px;background:var(--line2);margin:5px 8px 5px 4px;border-radius:1px}
+/* B : pastille nommée */
+.B .tl{flex:none;display:flex;align-items:center;margin:5px 0 5px 8px;padding:0 12px;border:1px solid var(--muted);border-radius:12px;color:var(--text2);font-weight:600;white-space:nowrap}
+.B .tl.on{background:#1F4FD1;border-color:#1F4FD1;color:#fff}
+.B .tl.ico{padding:0 10px;font-size:14px}
+.B .sep{flex:none;width:1px;background:var(--muted);margin:3px 10px;opacity:.7}
+/* C : cartouche */
+.C .tl{flex:none;display:flex;align-items:center;gap:8px;padding:0 14px;background:var(--deep);color:var(--text2);font-weight:600;white-space:nowrap;border-right:3px double var(--muted);margin-right:10px}
+.C .tl.on{background:#1F4FD1;color:#fff}
+.C .tl .n{font:600 11px var(--mono);background:var(--head);color:var(--cyan);border-radius:4px;padding:1px 6px}
+.C .tl.on .n{background:rgba(255,255,255,.2);color:#fff}
+.C .scroll .tab:first-child{border-left:1px solid var(--line)}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+</style>
+</head>
+<body>
+<h1>Barre d'onglets — « Teamleaders » séparé des projets <span style="color:var(--muted);font-weight:400">· #162 · v6.2.0 · maquette retenue (B — Onglet nommé en pastille)</span></h1>
+<p class="sub">Composant : barre d'onglets de l'interface native Windows. Aujourd'hui « ⌗ Teamleaders » est le premier onglet de la rangée, de la même forme que les onglets de projets : il se confond avec eux et défile avec eux. Décision du 2026-11-15 : il est <b>isolé, épinglé à gauche, avec un séparateur visuel</b>. Il prend la forme d'une <b>pastille nommée</b> ; quand les onglets de projets débordent de la barre, il <b>se réduit à son icône</b>. Les onglets de projets sont inchangés (couleur du projet, « agent au travail », ⏳ ouverture, ⚠ erreur, 👁 lecture seule, × détacher).</p>
+
+<section data-proposition="B" class="on">
+  <div class="parti"><b>Parti pris :</b> Teamleaders garde son nom mais prend une forme de pastille arrondie à contour, différente des onglets rectangulaires ; un filet et un espace le séparent. <b>Avantage :</b> lisible sans apprentissage, forme clairement à part. <b>Largeur :</b> environ 125 px tant que tous les onglets tiennent ; réduit à l'icône (environ 40 px) dès qu'ils débordent.</div>
+  <div class="mock"></div>
+</section>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li>Teamleaders est <b>toujours à gauche</b> et ne défile pas : seuls les onglets de projets défilent quand ils débordent.</li>
+  <li>Dès que les onglets de projets ne tiennent plus dans la barre, Teamleaders se réduit à son icône <code>⌗</code> (infobulle « Teamleaders ») ; il reprend son nom dès que tout tient de nouveau. Sélectionné ou non, la règle est la même.</li>
+  <li>Il n'a pas de × : il ne se ferme pas et ne se détache pas.</li>
+  <li>Sélectionné, il prend le fond bleu actuel (<code>#1F4FD1</code>) ; non sélectionné, il reste neutre — jamais la couleur d'un projet.</li>
+  <li><code>Ctrl+Tab</code> continue de parcourir Teamleaders puis les projets, dans l'ordre de la barre.</li>
+  <li>Les onglets de projets gardent leur ordre d'ouverture, leurs couleurs et leurs icônes d'état.</li>
+  <li>Aucun projet ouvert : Teamleaders seul, le reste de la barre est vide.</li>
+</ul>
+
+<script>
+(function(){
+const T=[
+ {n:'Claude-Launcher',c:'#1F4FD1'},
+ {n:'web-shop',c:'#8A3FD1',busy:1},
+ {n:'ecagent',c:'#B5462F',st:'⚠'},
+ {n:'domotique',c:'#1F8A5B',st:'👁'},
+ {n:'template-claude',c:'#8A6A1F',st:'⏳'},
+ {n:'site-vitrine',c:'#2F7FB5'},
+ {n:'archives',c:'#6B4FB5'}];
+function lighten(c){return 'color-mix(in srgb,'+c+' 55%,#fff)';}
+function tab(t,on){
+  const st=on?'background:'+t.c:(t.busy?'background:'+lighten(t.c):'');
+  return '<div class="tab'+(on?' on':'')+(t.busy&&!on?' busy':'')+'" style="'+st+'">'+(t.st?'<span class="st">'+t.st+'</span>':'')+t.n+(t.busy?' · agent au travail':'')+'<span class="x">×</span></div>';
+}
+function tl(P,on,ico){
+  if(ico) return '<div class="tl ico'+(on?' on':'')+'" title="Teamleaders">⌗</div><div class="sep"></div>';
+  if(P==='A') return '<div class="tl'+(on?' on':'')+'" title="Teamleaders — vue d’ensemble">⌗<span class="n">1</span></div><div class="sep"></div>';
+  if(P==='B') return '<div class="tl'+(on?' on':'')+'">⌗ Teamleaders</div><div class="sep"></div>';
+  return '<div class="tl'+(on?' on':'')+'">⌗ Teamleaders <span class="n">5</span></div>';
+}
+function scene(P,sel,n,narrow,body){
+  let h='<div class="scene '+P+(narrow?' narrow':'')+'"><div class="bar">'+tl(P,sel===-1,narrow)+'<div class="scroll'+(narrow?' fade':'')+'">';
+  T.slice(0,n).forEach(function(t,i){h+=tab(t,i===sel);});
+  return h+'</div></div><div class="body">'+body+'</div></div>';
+}
+document.querySelectorAll('section[data-proposition]').forEach(function(sec){
+  const P=sec.dataset.proposition;
+  sec.querySelector('.mock').innerHTML=
+   '<h2>1 · Teamleaders sélectionné</h2>'+scene(P,-1,5,0,'vue Teamleaders : une vignette par projet ouvert')+
+   '<p class="cap">Cinq projets ouverts ; un agent travaille dans web-shop.</p>'+
+   '<h2>2 · Un projet sélectionné</h2>'+scene(P,0,5,0,'fenêtre du projet Claude-Launcher')+
+   '<p class="cap">Teamleaders reste neutre : il ne prend pas la couleur d’un projet.</p>'+
+   '<h2>3 · Fenêtre étroite, sept projets : les onglets débordent</h2>'+scene(P,1,7,1,'fenêtre du projet web-shop')+
+   '<p class="cap">Les onglets débordent : Teamleaders se réduit à son icône (infobulle « Teamleaders ») et reste en place ; seuls les onglets de projets défilent (molette ou glisser).</p>';
+});
+})();
+</script>
+</body>
+</html>

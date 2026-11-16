@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -141,6 +142,23 @@ func Colour256Hex(c string) string {
 	return fmt.Sprintf("#%02x%02x%02x", r, g, b)
 }
 
+// Organisations de la fenêtre d'un projet (#153).
+const (
+	LayoutTop  = "top"  // leader en haut (défaut)
+	LayoutLeft = "left" // leader à gauche, teammates à droite
+)
+
+// ValidLayout : valeur reconnue de LAYOUT_MODE / PROJECT_LAYOUTS.
+func ValidLayout(m string) bool { return m == LayoutTop || m == LayoutLeft }
+
+// NormLayout : la valeur, ou top si elle est inconnue.
+func NormLayout(m string) string {
+	if ValidLayout(m) {
+		return m
+	}
+	return LayoutTop
+}
+
 // ── Géométrie ─────────────────────────────────────────────────────────────
 
 // TeamRow : une ligne de la mise en page : N panes côte à côte, sur Num/Den de
@@ -201,6 +219,9 @@ func BuildRow(w, h, x, y int, idxs []int) string {
 // (chaque séparateur de lignes prend une ligne, la dernière reçoit le reliquat
 // de hauteur) ; top et bot : index tmux des panes du haut et des teammates.
 func LayoutString(cfg Config, w, h int, top, bot []int) string {
+	if cfg.LayoutMode == LayoutLeft && len(bot) > 0 {
+		return layoutLeft(cfg, w, h, top, bot)
+	}
 	rows := TeamRows(cfg, len(top), len(bot))
 	var body string
 	if len(rows) == 1 {
@@ -221,6 +242,57 @@ func LayoutString(cfg Config, w, h int, top, bot []int) string {
 		}
 		body = fmt.Sprintf("%dx%d,0,0[%s]", w, h, strings.Join(cells, ","))
 	}
+	return LayoutChecksum(body) + "," + body
+}
+
+// LeftColumns : nombre de colonnes de teammates de « leader à gauche » : une jusqu'à 4, deux à partir de 5.
+func LeftColumns(nBot int) int {
+	if nBot > 4 {
+		return 2
+	}
+	return 1
+}
+
+// BuildCol : n panes empilés (chaque séparateur prend une ligne ; le dernier reçoit le reliquat).
+func BuildCol(w, h, x, y int, idxs []int) string {
+	if len(idxs) == 1 {
+		return fmt.Sprintf("%dx%d,%d,%d,%d", w, h, x, y, idxs[0])
+	}
+	n := len(idxs)
+	rowH := (h - n + 1) / n
+	rem := h - rowH*n - (n - 1)
+	cells := make([]string, n)
+	cy := y
+	for i, idx := range idxs {
+		ph := rowH
+		if i == n-1 {
+			ph += rem
+		}
+		cells[i] = fmt.Sprintf("%dx%d,%d,%d,%d", w, ph, x, cy, idx)
+		cy += ph + 1
+	}
+	return fmt.Sprintf("%dx%d,%d,%d[%s]", w, h, x, y, strings.Join(cells, ","))
+}
+
+// layoutLeft : leader (et cdp, empilés) à gauche sur toute la hauteur, largeur LayoutLeftLeaderPct %,
+// puis une colonne de teammates (jusqu'à 4) ou deux colonnes égales (à partir de 5 : la première en reçoit ⌈n/2⌉).
+func layoutLeft(cfg Config, w, h int, top, bot []int) string {
+	pct := cfg.LayoutLeftLeaderPct
+	if pct < 20 || pct > 80 {
+		pct = 46
+	}
+	lw := w * pct / 100
+	rw := w - lw - 1 // séparateur entre le leader et les teammates
+	cells := []string{BuildCol(lw, h, 0, 0, top)}
+	if LeftColumns(len(bot)) == 1 {
+		cells = append(cells, BuildCol(rw, h, lw+1, 0, bot))
+	} else {
+		n1 := (len(bot) + 1) / 2
+		w1 := (rw - 1) / 2
+		w2 := rw - 1 - w1
+		cells = append(cells, BuildCol(w1, h, lw+1, 0, bot[:n1]), BuildCol(w2, h, lw+1+w1+1, 0, bot[n1:]))
+	}
+	body := fmt.Sprintf("%dx%d,0,0{%s}", w, h, strings.Join(cells, ","))
 	return LayoutChecksum(body) + "," + body
 }
 
@@ -352,6 +424,32 @@ func SetPaneColor(t Target, panes []WinPane, pane, color string) {
 // swap-pane), puis applique la géométrie (LayoutString sur w×h) et la couleur de
 // base du projet. top, bot : classement (Classify).
 func ArrangeTeam(cfg Config, t Target, win string, panes []WinPane, w, h int, top, bot []string, color string) {
+	ArrangeTeamChecked(cfg, t, win, panes, w, h, top, bot, color)
+}
+
+// ArrangeTeamChecked : ArrangeTeam ; rend vrai si tmux a refusé la chaîne de « leader à gauche » et que la
+// mise en page « leader en haut » a été appliquée à la place (#153).
+func ArrangeTeamChecked(cfg Config, t Target, win string, panes []WinPane, w, h int, top, bot []string, color string) (fellBack bool) {
+	return PlanArrange(cfg, win, panes, w, h, top, bot, color).Exec(t)
+}
+
+// Batcher : cible qui envoie plusieurs commandes indépendantes d'un coup et en attend les réponses
+// ensemble (un seul aller-retour) ; errs[i] est l'erreur de cmds[i].
+type Batcher interface {
+	Batch(cmds [][]string) ([][]byte, []error)
+}
+
+// ArrangePlan : les commandes tmux d'une mise en page, calculées sans rien envoyer — échanges de panes,
+// géométrie, couleur de base. LayoutAt : position de select-layout dans Cmds ; Fallback : la même mise
+// en page en « leader en haut », pour le cas où tmux refuse la chaîne « leader à gauche ».
+type ArrangePlan struct {
+	Cmds     [][]string
+	LayoutAt int
+	Fallback [][]string // select-layout « top » ; nil hors « left »
+}
+
+// PlanArrange : plan de ArrangeTeam (mêmes échanges, même géométrie, mêmes couleurs).
+func PlanArrange(cfg Config, win string, panes []WinPane, w, h int, top, bot []string, color string) ArrangePlan {
 	// échanges : la position i de l'ordre voulu reçoit l'index physique i
 	at := make([]string, len(panes)) // position -> pane
 	pos := map[string]int{}
@@ -360,20 +458,82 @@ func ArrangeTeam(cfg Config, t Target, win string, panes []WinPane, w, h int, to
 		at[i], pos[p.ID], idxs[i] = p.ID, i, p.Index
 	}
 	want := append(append([]string{}, top...), bot...)
+	var plan ArrangePlan
 	for i, p := range want {
 		if i >= len(at) || at[i] == p {
 			continue
 		}
 		cur, j := at[i], pos[p]
 		// -d : ne jamais déplacer le focus (seul le teamleader le garde)
-		_ = t.Run("swap-pane", "-d", "-s", p, "-t", cur)
+		plan.Cmds = append(plan.Cmds, []string{"swap-pane", "-d", "-s", p, "-t", cur})
 		at[i], at[j], pos[p], pos[cur] = p, cur, i, j
 	}
-
 	topIdx, botIdx := idxs[:len(top)], idxs[len(top):len(want)]
-	_ = t.Run("select-layout", "-t", win, LayoutString(cfg, w, h, topIdx, botIdx))
-
-	for _, p := range want {
-		SetPaneColor(t, panes, p, color)
+	plan.LayoutAt = len(plan.Cmds)
+	plan.Cmds = append(plan.Cmds, []string{"select-layout", "-t", win, LayoutString(cfg, w, h, topIdx, botIdx)})
+	if cfg.LayoutMode == LayoutLeft {
+		tcfg := cfg
+		tcfg.LayoutMode = LayoutTop // repli : la mise en page d'avant
+		plan.Fallback = [][]string{{"select-layout", "-t", win, LayoutString(tcfg, w, h, topIdx, botIdx)}}
 	}
+	for _, p := range want {
+		if c := paneColorCmd(panes, p, color); c != nil {
+			plan.Cmds = append(plan.Cmds, c)
+		}
+	}
+	return plan
+}
+
+// paneColorCmd : set-option de la couleur de base du pane, nil si elle est déjà posée.
+func paneColorCmd(panes []WinPane, pane, color string) []string {
+	want := "bg=colour" + color
+	for _, p := range panes {
+		if p.ID == pane && p.Style == want {
+			return nil
+		}
+	}
+	return []string{"set-option", "-p", "-t", pane, "window-style", want}
+}
+
+// Exec : envoie le plan (en un aller-retour si la cible le permet, sinon commande par commande) ; vrai si
+// tmux a refusé la chaîne « leader à gauche » et que « leader en haut » a été appliqué à la place.
+func (p ArrangePlan) Exec(t Target) (fellBack bool) {
+	fellBack, _ = p.ExecChecked(t)
+	return fellBack
+}
+
+// ExecChecked : Exec ; transport vrai si une commande a échoué par le transport (canal fermé, délai) et non
+// par un refus de tmux : la mise en page n'est pas faite, à retenter (jamais de repli sur « top »).
+func (p ArrangePlan) ExecChecked(t Target) (fellBack, transport bool) {
+	errs := RunBatch(t, p.Cmds)
+	for _, e := range errs {
+		if IsTransportErr(e) {
+			return false, true
+		}
+	}
+	if p.Fallback != nil && p.LayoutAt < len(errs) && errs[p.LayoutAt] != nil {
+		RunBatch(t, p.Fallback)
+		return true, false
+	}
+	return false, false
+}
+
+// IsTransportErr : l'erreur vient du transport (canal fermé, délai, wsl.exe / kubectl exec) et non d'un refus de
+// tmux : ce n'est pas la preuve que la chaîne de mise en page est invalide.
+func IsTransportErr(err error) bool {
+	var t interface{ Transport() bool }
+	return errors.As(err, &t) && t.Transport()
+}
+
+// RunBatch : cmds envoyées d'un coup si t est un Batcher, sinon l'une après l'autre ; erreurs par commande.
+func RunBatch(t Target, cmds [][]string) []error {
+	if b, ok := t.(Batcher); ok {
+		_, errs := b.Batch(cmds)
+		return errs
+	}
+	errs := make([]error, len(cmds))
+	for i, c := range cmds {
+		errs[i] = t.Run(c...)
+	}
+	return errs
 }

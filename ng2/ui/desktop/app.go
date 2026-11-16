@@ -31,7 +31,16 @@ type Emitter func(name string, data any)
 type App struct {
 	cfg    core.Config
 	confMu sync.RWMutex // cfg relue à chaud (config.go)
-	emit   Emitter
+	confAt time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
+	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
+	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
+	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
+	layoutOv   map[string]string
+	layoutJobs map[string]*layoutJob // clics de bascule par projet (config.go) ; garde : confMu
+	emit       Emitter
+	// mirror : second destinataire des évènements (le navigateur servi par la fenêtre, #163)
+	mirror atomic.Pointer[Emitter]
+	webui  webUI
 
 	mu         sync.Mutex
 	nodes      []core.Node
@@ -61,13 +70,15 @@ type App struct {
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
-	projSet   atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
-	liveSnap  atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
-	web       bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
-	openTabs  sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
-	hubGen    atomic.Uint64                   // génération de la dernière relecture des avertissements hubs
-	ctrFounds atomic.Pointer[[]core.Found]
-	bkSnap    atomic.Pointer[[]core.BackendConf]
+	projSet    atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
+	liveSnap   atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
+	web        bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
+	openTabs   sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
+	forceAsked sync.Map                        // fermetures forcées dont la question est posée (#158)
+	refreshing sync.Map                        // projets en cours de rafraîchissement (#158), lisible sans a.mu
+	hubGen     atomic.Uint64                   // génération de la dernière relecture des avertissements hubs
+	ctrFounds  atomic.Pointer[[]core.Found]
+	bkSnap     atomic.Pointer[[]core.BackendConf]
 
 	dirty     chan struct{}
 	cardDirty chan struct{}
@@ -88,11 +99,18 @@ func NewApp(emit Emitter) *App {
 	t0 := time.Now()
 	cfg := core.LoadConfig()
 	dConf := time.Since(t0)
-	a := &App{cfg: cfg, emit: emit,
+	a := &App{cfg: cfg,
 		git: map[string]core.GitInfo{}, tpl: map[string]core.TemplateState{}, detail: map[string]core.GitDetail{},
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
 		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
+	a.confAt = confMtime()
+	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
+		emit(name, data)
+		if m := a.mirror.Load(); m != nil {
+			(*m)(name, data)
+		}
+	}
 	a.perf.trace("démarrage : config", core.ConfigPath(), dConf)
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
 	go core.WarmEngineEnv() // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
@@ -192,6 +210,7 @@ func (a *App) setMsg(m string) {
 
 // Start : relectures en tâche de fond (même rythme que la coque).
 func (a *App) Start() {
+	go a.applyWebUI() // interface web de la fenêtre (desktop_web, #163)
 	// liens et réglages dans CLAUDE_CONFIG_DIR (souvent sur le stockage
 	// partagé, par 9P sous Windows) : en tâche de fond, jamais avant la fenêtre
 	go func() {
@@ -260,6 +279,7 @@ func (a *App) Stop() {
 	default:
 		close(a.quit)
 	}
+	a.stopWebUI()
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
 	for _, t := range a.terms {
@@ -548,33 +568,48 @@ func (a *App) readMilestones(force bool) {
 		wg.Add(1)
 		go func(p string) {
 			defer wg.Done()
-			st := core.MsState{At: time.Now()}
-			if core.OnGitHub(p) {
-				core.MsSem <- struct{}{}
-				var s core.MsState
-				var err error
-				a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
-				<-core.MsSem
-				if err != nil {
-					return
-				}
-				st, st.At = s, time.Now()
-			}
-			a.mu.Lock()
-			old := a.milestones[p]
-			if !reflect.DeepEqual(old.WithoutAt(), st.WithoutAt()) || old.At.IsZero() {
-				a.milestones[p] = st
-				core.WriteMsCache(a.milestones)
-			}
-			sel := a.sel == p
-			a.mu.Unlock()
-			if sel {
-				a.cardsChanged()
-			}
+			_ = a.fetchMilestone(p, false)
 		}(p)
 	}
 	wg.Wait()
 	a.changed()
+}
+
+// fetchMilestone : relit les milestones GitHub du projet p. force : la valeur
+// relue remplace toujours le cache (date comprise) ; sinon seulement si elle a
+// changé.
+func (a *App) fetchMilestone(p string, force bool) error {
+	st := core.MsState{At: time.Now()}
+	if core.OnGitHub(p) {
+		// la relecture de masse partage core.MsSem (3 places) ; une relecture forcée d'un
+		// seul projet (Rafraîchir) ne fait pas la queue derrière elle : sous Windows avec
+		// beaucoup de projets, elle dépassait le délai global (étape rouge, #158)
+		if !force {
+			core.MsSem <- struct{}{}
+		}
+		var s core.MsState
+		var err error
+		a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
+		if !force {
+			<-core.MsSem
+		}
+		if err != nil {
+			return err
+		}
+		st, st.At = s, time.Now()
+	}
+	a.mu.Lock()
+	old := a.milestones[p]
+	if force || !reflect.DeepEqual(old.WithoutAt(), st.WithoutAt()) || old.At.IsZero() {
+		a.milestones[p] = st
+		core.WriteMsCache(a.milestones)
+	}
+	sel := a.sel == p
+	a.mu.Unlock()
+	if sel {
+		a.cardsChanged()
+	}
+	return nil
 }
 
 // latestTemplate : commit du dernier tag du template adopté.
@@ -598,6 +633,9 @@ type Row struct {
 	Open    bool             `json:"open,omitempty"`
 	Color   string           `json:"color,omitempty"` // couleur du projet (#rrggbb)
 	Closing string           `json:"closing,omitempty"`
+	// #158 : rafraîchissement du projet en cours ; fermeture forcée proposable
+	Refreshing bool `json:"refreshing,omitempty"`
+	CanForce   bool `json:"canForce,omitempty"`
 }
 
 // Alert : annonce de mise à jour.
@@ -635,6 +673,7 @@ type Snapshot struct {
 	Tabs     []TabInfo  `json:"tabs"`
 	Roots    []string   `json:"roots"`
 	OS       string     `json:"os"`
+	WebUI    WebUIState `json:"webUI"` // interface web servie par la fenêtre (#163) ; jamais le jeton
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -670,7 +709,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.NgVersion, Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -689,6 +728,8 @@ func (a *App) Snapshot() Snapshot {
 			r.Open = p.Open
 			r.Color = core.Colour256Hex(a.conf().ProjectColor(n.Key))
 			r.Closing = a.closing[n.Path]
+			_, r.Refreshing = a.refreshing.Load(n.Path)
+			r.CanForce = a.canForce(n.Path, p)
 		}
 		s.Rows = append(s.Rows, r)
 	}
@@ -807,6 +848,7 @@ type Cards struct {
 	LastMsg   string           `json:"lastMsg,omitempty"`
 	Milestone *MsCard          `json:"milestone,omitempty"`
 	Team      []TeamRow        `json:"team"`
+	TeamHead  *core.TeamHead   `json:"teamHead,omitempty"` // en-tête de la carte TEAM (#151)
 	Open      bool             `json:"open"`
 	Files     []FileRow        `json:"files"`
 	Pending   []string         `json:"pending,omitempty"` // encore à compléter (état, team) : en cours
@@ -858,6 +900,9 @@ type TeamRow struct {
 	TplState      string `json:"tplState"`
 	TplTarget     string `json:"tplTarget,omitempty"`
 	CompanionFile string `json:"companionFile,omitempty"`
+
+	// écarts avec l'en-tête de la carte (#151) : tpl, claude
+	Odd []string `json:"odd,omitempty"`
 }
 
 // FileRow : une entrée de premier niveau du projet.
@@ -987,6 +1032,29 @@ func humanSize(n int64) string {
 // Dispatch : un appel de l'interface (méthode, arguments JSON) ; la réponse est
 // sérialisée en JSON. Seul point d'entrée, commun à Wails et au mode web.
 func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
+	return a.DispatchFrom(originWindow, method, raw)
+}
+
+// DispatchFrom : un appel et son origine. Le presse-papiers du poste n'est jamais servi à un
+// navigateur ; quit, setTheme et webUIOpen ne sont pas ceux d'un client web du processus de la
+// fenêtre (#163).
+func (a *App) DispatchFrom(from origin, method string, raw json.RawMessage) (any, error) {
+	if from == originWeb {
+		switch method {
+		case "clipboardRead", "clipboardWrite":
+			return clipboardUnavailable(), nil
+		case "webUIOpen", "webUIRegen":
+			return nil, fmt.Errorf("%s : réservé à la fenêtre native", method)
+		case "quit", "setTheme":
+			if !a.web { // « desktop --web » : le navigateur est la seule interface, ils y restent permis
+				return nil, fmt.Errorf("%s : réservé à la fenêtre native", method)
+			}
+		}
+	}
+	return a.dispatch(from == originWeb, method, raw)
+}
+
+func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error) {
 	// méthodes aux arguments structurés (le décodage générique ci-dessous
 	// attend des chaînes : « backend » y est un nom, ici un objet)
 	switch method {
@@ -1005,6 +1073,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 			Backend *string
 			Image   *string
 			Color   *string
+			Layout  *string
 			Env     *struct {
 				MTime   string
 				Changes []core.ConfigChange
@@ -1013,7 +1082,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 		}
-		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color}
+		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout}
 		if in.Env != nil {
 			ch.Env = &core.EnvChange{MTime: in.Env.MTime, Changes: in.Env.Changes}
 		}
@@ -1038,7 +1107,7 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		if err := a.checkProjectArg(core.ConfigKind(in.Kind) == core.ConfProjectEnv, in.Path); err != nil {
 			return nil, err
 		}
-		return a.configApply(core.ConfigKind(in.Kind), in.Path, in.MTime, in.Changes)
+		return a.configApplyAs(web, core.ConfigKind(in.Kind), in.Path, in.MTime, in.Changes)
 	}
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
@@ -1083,6 +1152,12 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		return a.prefetchCards(arg.Path), nil
 	case "open":
 		return a.open(arg.Path, core.LaunchNormal)
+	case "refreshProject": // #158
+		return a.refreshProject(arg.Path)
+	case "forceClose":
+		return a.forceClose(arg.Path)
+	case "forceCloseConfirm":
+		return a.forceCloseConfirm(arg.Path)
 	case "close":
 		return a.askClose(arg.Path)
 	case "closeConfirm":
@@ -1205,13 +1280,17 @@ func (a *App) Dispatch(method string, raw json.RawMessage) (any, error) {
 		if err := a.checkProjectArg(core.ConfigKind(arg.Kind) == core.ConfProjectEnv, arg.Path); err != nil {
 			return nil, err
 		}
-		return a.configSave(core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
+		return a.configSaveAs(web, core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
 	case "configModel": // écran Réglages (#118) : fichier lu en modèle
 		return a.configModel(core.ConfigKind(arg.Kind), arg.Path)
 	case "backendStates": // états et charge des pools, depuis le cache du diagnostic
 		return a.backendStates(), nil
 	case "quit":
 		return nil, a.quitApp(arg.Mode)
+	case "webUIOpen": // #163 : interface web de la fenêtre dans le navigateur du poste
+		return a.webUIOpen(), nil
+	case "webUIRegen": // jeton régénéré : sessions et flux des navigateurs révoqués
+		return a.webUIRegen(), nil
 	}
 	return nil, fmt.Errorf("appel inconnu : %s", method)
 }

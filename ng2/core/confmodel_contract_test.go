@@ -158,6 +158,7 @@ func TestConfEverySettingWritesAndReadsBack(t *testing.T) {
 		"RESUME_MODE": "always", "RESUME_MAX_AGE_H": 12, "TEAM_HIDE_IDLE": 0, "LAYOUT_2ROW_LEADER_PCT": 60,
 		"LAYOUT_3ROW_LEADER_NUM": 2, "LAYOUT_3ROW_MID_NUM": 1, "LAYOUT_3ROW_DEN": 7, "PANE_ACTIVE_BRIGHTEN_STEP": 2,
 		"PANE_INACTIVE_DARKEN_STEP": 3, "COLOR_PALETTE": []any{"17", "255", "0"}, "CTR_STOP_ON_EXIT": true, "USAGE_REFRESH_SEC": 60,
+		"LAYOUT_MODE": "left", "LAYOUT_LEFT_LEADER_PCT": 40, // #153
 	}
 	base := ReadConfModel("")
 	for _, s := range base.Settings {
@@ -188,6 +189,7 @@ func TestConfEverySettingWritesAndReadsBack(t *testing.T) {
 		k string
 		v any
 	}{{"USAGE_REFRESH_SEC", 59}, {"LAYOUT_2ROW_LEADER_PCT", 100}, {"LAYOUT_2ROW_LEADER_PCT", 0}, {"PANE_ACTIVE_BRIGHTEN_STEP", 6},
+		{"LAYOUT_LEFT_LEADER_PCT", 19}, {"LAYOUT_LEFT_LEADER_PCT", 81}, {"LAYOUT_MODE", "diagonal"},
 		{"RESUME_MAX_AGE_H", 0}, {"COLOR_PALETTE", []any{"256"}}, {"COLOR_PALETTE", []any{"x"}}, {"CTR_STOP_ON_EXIT", "oui"}} {
 		if _, err := ApplyConfConfChanges("", []ConfigChange{cset(bad.k, bad.v)}); err == nil {
 			t.Errorf("%s = %v accepté", bad.k, bad.v)

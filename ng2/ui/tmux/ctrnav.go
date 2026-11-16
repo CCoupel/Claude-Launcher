@@ -211,6 +211,7 @@ func RunBackends() error {
 	}
 	core.PrintHubConfigWarnings()
 	core.PrintBrowserServer()
+	core.PrintDesktopWeb()
 	core.PrintBrowserDevice()
 	core.PrintBrowserPaths()
 	core.PrintHubPaths()

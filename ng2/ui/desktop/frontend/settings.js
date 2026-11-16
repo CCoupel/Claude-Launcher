@@ -564,7 +564,7 @@ function docDraftOf(id, m) {
       allow: ((s.browser_server || {}).allow || []).join('\n'),
     };
     const bs = s.browser_server || {}, ru = s.remote_user || {};
-    d.f = { listen: bs.listen || '', url: bs.url || '', uid: ru.uid == null ? '' : String(ru.uid), gid: ru.gid == null ? '' : String(ru.gid), name: ru.name || '', home: ru.home || '', hub_cache: s.hub_cache || '', browser_device: s.browser_device || '' };
+    d.f = { listen: bs.listen || '', url: bs.url || '', uid: ru.uid == null ? '' : String(ru.uid), gid: ru.gid == null ? '' : String(ru.gid), name: ru.name || '', home: ru.home || '', hub_cache: s.hub_cache || '', browser_device: s.browser_device || '', dweb: (s.desktop_web || {}).listen || '', dweb_lan: !!(s.desktop_web || {}).allow_lan };
   }
   return d;
 }
@@ -635,10 +635,22 @@ function docChanges(id) {
     const bsv = (D2) => clean({ listen: str(D2.f.listen), url: str(D2.f.url), allow: al(D2.txt.allow) });
     const ruv = (f) => clean({ uid: num(f.uid), gid: num(f.gid), name: str(f.name), home: str(f.home) });
     put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
+    const dwv = (D2) => clean({ listen: str(D2.f.dweb || ''), allow_lan: D2.f.dweb_lan ? true : undefined });
+    put(['desktop_web'], dwv(d), dwv(o), !Object.keys(dwv(d)).length);
     put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
     for (const k of ['hub_cache', 'browser_device']) put([k], d.f[k].trim(), o.f[k].trim(), !d.f[k].trim());
   }
   return ch;
+}
+// adresse d'écoute normalisée : '' pour off/vide, port seul = boucle locale
+function dwNorm(v) {
+  v = (v || '').trim();
+  if (!v || v.toLowerCase() === 'off') return '';
+  return /^\d+$/.test(v) ? '127.0.0.1:' + v : v;
+}
+function dwLoopback(a) {
+  const h = a.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
+  return h === 'localhost' || h === '::1' || /^127\./.test(h);
 }
 function docLocalProblems(id) {
   const D = ST.docs[id], ps = [];
@@ -651,6 +663,15 @@ function docLocalProblems(id) {
         ps.push({ severity: 'error', message: x.label + ' : entier' + (x.min != null ? ' ≥ ' + x.min : '') + (x.max != null ? ' ≤ ' + x.max : '') + ' attendu' });
     }
   } else if (id === 'hub') {
+    // Interface web (#163) : refus si même adresse que le serveur des fichiers ; avertissement hors boucle locale
+    const dw = dwNorm(D.d.f.dweb);
+    if (dw) {
+      if (dw === dwNorm(D.d.f.listen || '127.0.0.1:8765')) ps.push({ severity: 'error', message: 'Interface web : même adresse que le serveur web des fichiers (' + dw + ') — deux serveurs distincts, choisir un autre port' });
+      else if (!dwLoopback(dw)) {
+        if (!D.d.f.dweb_lan) ps.push({ severity: 'error', message: 'Interface web : écoute hors de la boucle locale (' + dw + ') — cocher « Autoriser l\'accès depuis le réseau » pour la confirmer' });
+        else ps.push({ severity: 'warning', message: '⚠ Interface web ouverte au réseau (' + dw + ') : le jeton circule en clair en HTTP et toute machine qui l\'obtient pilote ce poste (terminaux, projets). Préférer un tunnel SSH ou TLS et garder l\'écoute sur la boucle locale.' });
+      }
+    }
     for (const k of ['uid', 'gid']) if (D.d.f[k] !== '' && !/^\d+$/.test(D.d.f[k])) ps.push({ severity: 'error', message: 'utilisateur distant : ' + k + ' numérique attendu' });
   }
   return ps;
@@ -664,6 +685,7 @@ async function docSave(id) {
   if (r.conflict) { D.res = { conflict: true, mtime: r.mtime }; stRenderFoot(); return; }
   if (r.invalid) { D.res = { problems: r.problems || [] }; stRenderFoot(); return; }
   const warn = (r.problems || []).filter((p) => p.severity !== 'error');
+  if (typeof layoutDrop === 'function') { layoutDrop(); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // LAYOUT_MODE global peut avoir changé
   await docLoad(id);
   if (ST.docs[id]) ST.docs[id].res = { saved: true, note: r.note || '', problems: warn };
   stRender();
@@ -722,7 +744,7 @@ function confField(D, x) {
     return w;
   }
   if (x.type === 'bool') node = stCheck(d.v[x.key], 'activé', (c) => { touch(c); stRenderFoot(); });
-  else if (x.type === 'enum') node = stSelect(d.v[x.key], (x.options || []).map((o) => [o, o]), (v) => touch(v));
+  else if (x.type === 'enum') node = stSelect(d.v[x.key], (x.options || []).map((o) => [o, (x.key === 'LAYOUT_MODE' && LAYOUT_LABELS[o]) || o]), (v) => touch(v));
   else if (x.type === 'list') node = stArea(d.v[x.key], (v) => touch(v), 2);
   else if (x.type === 'int') { node = stInput(d.v[x.key], (v) => touch(v), '', 'w'); node.inputMode = 'numeric'; }
   else node = stInput(d.v[x.key], (v) => touch(v), x.type === 'intlist' ? 'nombres séparés par des espaces' : '');
@@ -733,9 +755,26 @@ function stPageConf(p) {
   docPage(p, 'conf', 'Launcher', 'Réglages généraux du launcher, communs aux interfaces Linux et Windows.', (D) => {
     const bySet = {};
     for (const x of D.model.settings || []) (bySet[x.group] = bySet[x.group] || []).push(x);
+    // Mise en page des panes (#153) : boîte dédiée en tête de page (LAYOUT_MODE, LAYOUT_LEFT_LEADER_PCT), pas noyée dans « Teams et panes »
+    const layKeys = ['LAYOUT_MODE', 'LAYOUT_LEFT_LEADER_PCT'], layLabels = { LAYOUT_MODE: 'Mise en page des panes', LAYOUT_LEFT_LEADER_PCT: 'Largeur du leader (leader à gauche, %)' };
+    const confRow = (x, label) => {
+      const hint = [x.help, x.set ? '' : 'défaut : ' + confShow(x)].filter(Boolean).join(' · ');
+      const cell = el('div'); cell.appendChild(confField(D, x));
+      if (x.editable && x.set) {
+        const rb = stBtn('↺ défaut', () => { D.d.v[x.key] = confDisplay(x, x.default); D.d.reset[x.key] = true; stRenderPage(); stRenderFoot(); }, 'dim');
+        rb.title = 'retirer la ligne du fichier (valeur par défaut : ' + confShow(x) + ')'; cell.appendChild(rb);
+      }
+      return [label || x.label, cell, hint];
+    };
+    const layRows = (D.model.settings || []).filter((x) => layKeys.includes(x.key)).sort((a, b) => layKeys.indexOf(a.key) - layKeys.indexOf(b.key)).map((x) => confRow(x, layLabels[x.key]));
+    if (layRows.length) {
+      layRows.push(['', el('span'), 'Chaque projet peut avoir la sienne : Réglages du projet › Mise en page des panes, ou le bouton à droite de la barre d\'onglets.']);
+      p.appendChild(stBox('Mise en page des panes', stForm(layRows)));
+    }
     for (const g of D.model.groups || []) {
       const rows = [];
       for (const x of bySet[g.id] || []) {
+        if (layKeys.includes(x.key)) continue;
         const hint = [x.help, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
         const cell = el('div'); cell.appendChild(confField(D, x));
         if (x.editable && x.type !== 'secret' && x.set) {
@@ -773,6 +812,42 @@ function stPageEnv(p) {
   });
 }
 
+// Champ d'écoute + case « Autoriser l'accès depuis le réseau » (allow_lan) ; en lecture seule dans un client web (#163)
+// lecture seule dans un client web : desktop_web et browser_server (serveur des fichiers) se modifient dans la fenêtre native
+const DW_RO = 'lecture seule depuis un navigateur : à modifier dans la fenêtre native du poste';
+function dwRo(c) { if (isWebClient()) { c.readOnly = true; c.title = DW_RO; } return c; }
+const dwHint = (ov) => (isWebClient() ? DW_RO + ' · ' : 'off (défaut), un port (boucle locale) ou hôte:port · interface complète, avec jeton · différente du serveur des fichiers · hors boucle locale : case ci-contre obligatoire ; le jeton circule en HTTP, préférer un tunnel SSH/TLS ') + ov;
+function dwListen(f) {
+  const box = el('span', 'stfont');
+  const i = stInput(f.dweb, (v) => { f.dweb = v; }, 'off');
+  const c = stCheck(f.dweb_lan, 'Autoriser l\'accès depuis le réseau (allow_lan)', (v) => { f.dweb_lan = v; stRenderFoot(); });
+  if (isWebClient()) {
+    i.readOnly = true; i.title = 'lecture seule : réglage du poste, modifiable depuis la fenêtre native';
+    const ck = c.querySelector('input'); if (ck) { ck.disabled = true; c.title = i.title; }
+  }
+  box.append(i, c);
+  return box;
+}
+
+// état courant de l'interface web (instantané `webUI`), ouverture dans le navigateur et régénération du jeton
+// (fenêtre native seulement) ; rafraîchi à chaque instantané tant que la page est ouverte (dwRefresh)
+function dwFill(box) {
+  box.textContent = '';
+  const w = (S.snap && S.snap.webUI) || { state: 'off' };
+  const txt = w.state === 'on' ? '● active sur ' + w.listen + (w.lan ? ' — ouverte au réseau' : '') + (w.msg ? ' — ' + w.msg : '') : w.state === 'error' ? '✕ ' + (w.msg || 'erreur') : '○ désactivée';
+  box.append(el('span', w.state === 'on' ? (w.lan ? 't-orange' : 't-green') : w.state === 'error' ? 't-red' : 'dim', txt));
+  if (w.state === 'on' && !isWebClient()) {
+    box.append(stBtn('Ouvrir dans le navigateur', async () => {
+      try { const r = await call('webUIOpen', {}); if (r && r.ok === false) flash('⚠ ' + (r.msg || 'ouverture impossible')); } catch (e) { /* signalé par call */ }
+    }));
+    box.append(stBtn('Régénérer le jeton', async () => {
+      try { const r = await call('webUIRegen', {}); flash(r && r.ok === false ? '⚠ ' + (r.msg || 'régénération impossible') : (r && r.msg) || 'jeton régénéré : les navigateurs déjà ouverts doivent repasser par « Ouvrir dans le navigateur »'); } catch (e) { /* signalé par call */ }
+    }));
+  } else if (w.state === 'on') box.append(el('span', 'dim', ' (ouverture et jeton : fenêtre native seulement)'));
+}
+function dwStatus() { const b = el('span', 'stfont'); b.id = 'dwstatus'; dwFill(b); return b; }
+function dwRefresh() { const b = document.getElementById('dwstatus'); if (b && b.isConnected) dwFill(b); }
+
 function stPageHub(p) {
   const D0 = ST.docs.hub;
   const title = 'Ce poste' + (D0 && D0.model ? ' — ' + D0.model.hub : '');
@@ -788,15 +863,29 @@ function stPageHub(p) {
     const row = el('span', 'stfont');
     row.append(stBtn('−', () => { setFontSize(FONT_SIZE - 1); inp.value = FONT_SIZE; }), inp, stBtn('+', () => { setFontSize(FONT_SIZE + 1); inp.value = FONT_SIZE; }),
       el('span', 'dim', 'terminaux seulement · défaut ' + FONT_DEFAULT + ' · aussi par Ctrl+molette'));
-    p.appendChild(stBox('Affichage', stForm([['Taille des caractères', row, 'mémorisée sur ce poste (desktop-ui.json), appliquée tout de suite, sans « Enregistrer »']])));
+    const zoneRow = (z, def, hint) => {
+      const zi = el('input', 'stin w'); zi.type = 'number'; zi.min = MIN_FONT; zi.max = MAX_FONT; zi.value = zoneSize(z);
+      const set = (n) => { setZoneSize(z, n); zi.value = zoneSize(z); };
+      zi.addEventListener('change', () => set(zi.value));
+      const r = el('span', 'stfont');
+      r.append(stBtn('−', () => set(zoneSize(z) - 1)), zi, stBtn('+', () => set(zoneSize(z) + 1)), el('span', 'dim', hint + ' · défaut ' + def + ' · aussi par Ctrl+molette'));
+      return r;
+    };
+    p.appendChild(stBox('Affichage', stForm([
+      ['Taille des caractères', row, 'mémorisée sur ce poste (desktop-ui.json), appliquée tout de suite, sans « Enregistrer »'],
+      ['Taille de l\'arbre', zoneRow('tree', TREE_DEFAULT, 'navigateur : arbre, filtre, pied'), 'mémorisée sur ce poste, appliquée tout de suite'],
+      ['Taille des cartes', zoneRow('cards', CARDS_DEFAULT, 'cartes ◈ État'), 'mémorisée sur ce poste, appliquée tout de suite'],
+    ])));
     // correspondance de chemins
     p.appendChild(stBox('Correspondance de chemins', stForm([['Chemins', stArea(t.paths, (v) => { t.paths = v; }, 3), 'un par ligne : chemin local => chemin dans le conteneur ' + ovHint('paths')]])));
     // navigateur
     const nav = stForm([
       ['Chemins du navigateur', stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3), 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + ovHint('browser_paths')],
-      ['Serveur web : écoute', stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765'), ovHint('browser_server')],
-      ['Serveur web : URL', stInput(f.url, (v) => { f.url = v; }, 'http://…'), 'adresse vue du navigateur'],
-      ['Serveur web : autorisés', stArea(t.allow, (v) => { t.allow = v; }, 2), 'une adresse par ligne'],
+      ['Serveur web : écoute', dwRo(stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765')), isWebClient() ? DW_RO : ovHint('browser_server')],
+      ['Interface web : écoute', dwListen(f), dwHint(ovHint('desktop_web'))],
+      ['Interface web : état', dwStatus(), ''],
+      ['Serveur web : URL', dwRo(stInput(f.url, (v) => { f.url = v; }, 'http://…')), 'adresse vue du navigateur'],
+      ['Serveur web : autorisés', dwRo(stArea(t.allow, (v) => { t.allow = v; }, 2)), 'une adresse par ligne'],
       ['Navigateur (appariement)', stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur'), ovHint('browser_device')],
     ]);
     p.appendChild(stBox('Navigateur', nav));
@@ -816,6 +905,8 @@ function stPageHub(p) {
     }
   });
 }
+
+const LAYOUT_LABELS = { top: 'Leader en haut', left: 'Leader à gauche' }; // #153
 
 // ── Projet (#148, LOT-3.2) : projectSettings / projectApply ─────────────────
 const PJ_LISTS = ['packages', 'setup', 'on_start', 'watch', 'local'];
@@ -856,8 +947,8 @@ async function pjLoad(keepDraft) {
     const txt = {};
     for (const k of PJ_LISTS) txt[k] = (e[k] || []).join('\n');
     txt.pbm = pjPbmText(e.packages_by_manager); txt.mounts = pjMountsText(e.mounts);
-    ST.pj = { path, loading: false, data: r, orig: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), env: { image: e.image || '', prefer: e.prefer || '', txt: stClone(txt) } },
-      d: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), env: { image: e.image || '', prefer: e.prefer || '', txt } },
+    ST.pj = { path, loading: false, data: r, orig: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), layout: r.layoutAuto ? '' : String(r.layout || ''), env: { image: e.image || '', prefer: e.prefer || '', txt: stClone(txt) } },
+      d: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), layout: r.layoutAuto ? '' : String(r.layout || ''), env: { image: e.image || '', prefer: e.prefer || '', txt } },
       merged: r.merged || [], mergedProblems: null, result: null, mtime: r.envMtime || '' };
   } catch (e) { ST.pj = { path, loading: false, err: e.message }; }
 }
@@ -880,7 +971,8 @@ function pjEnvChanges() {
 }
 function pjExecChanged() { const p = ST.pj; return !!(p && p.d && (p.d.backend !== p.orig.backend || p.d.image !== p.orig.image)); }
 const pjColorChanged = () => !!(ST.pj && ST.pj.d && ST.pj.d.color !== ST.pj.orig.color);
-const pjDirty = () => !!(ST.pj && ST.pj.d && (pjEnvChanges().length || pjExecChanged() || pjColorChanged()));
+const pjLayoutChanged = () => !!(ST.pj && ST.pj.d && ST.pj.d.layout !== ST.pj.orig.layout);
+const pjDirty = () => !!(ST.pj && ST.pj.d && (pjEnvChanges().length || pjExecChanged() || pjColorChanged() || pjLayoutChanged()));
 
 // aperçu fusionné en direct : le Go fusionne, rien n'est écrit
 function pjPreview() {
@@ -941,7 +1033,17 @@ function stPageProjet(p) {
   mk('', 'couleur automatique', '');
   for (const c of r.palette || []) mk(String(c), 'couleur ' + c, pjColorCss(c));
   rows.push(['Couleur', sw, r.colorAuto && !d.color ? 'automatique (aucune couleur fixée)' : '']);
+  // Mise en page (#153) : « Comme le réglage global » retire l'exception du projet (PROJECT_LAYOUTS)
+  const lays = r.layouts || [{ id: 'top', label: 'Leader en haut' }, { id: 'left', label: 'Leader à gauche' }];
+  const eff = (lays.find((l) => l.id === r.layout) || {}).label || r.layout || '';
+  const ls = el('select', 'stin'); ls.id = 'pjf-layout';
+  ls.appendChild(Object.assign(el('option', '', 'Comme le réglage global' + (r.layoutAuto && eff ? ' (' + eff + ')' : '')), { value: '' }));
+  for (const l of lays) ls.appendChild(Object.assign(el('option', '', l.label), { value: l.id }));
+  ls.value = d.layout || '';
+  ls.addEventListener('change', () => { d.layout = ls.value; stRenderFoot(); });
+  const layBox = stBox('Mise en page des panes', stForm([['Mise en page des panes', ls, 'appliquée aux fenêtres ouvertes sans relance ; réglage global : Réglages › Launcher › Mise en page des panes']]), el('span', 'dim', 'config.conf'));
   const ex = stForm(rows); ex.appendChild(dl);
+  p.appendChild(layBox);
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
   // Environnement
   const env = el('div');
@@ -996,12 +1098,13 @@ async function pjSave() {
   const arg = { path: pj.path };
   if (pjExecChanged()) { arg.backend = pj.d.backend; if (pj.d.backend !== 'host') arg.image = pj.d.image; }
   if (pjColorChanged()) arg.color = pj.d.color;
+  if (pjLayoutChanged()) { arg.layout = pj.d.layout; if (typeof layoutDrop === 'function') layoutDrop(pj.path); } // '' : retire l'exception
   const ch = pjEnvChanges();
   if (ch.length) arg.env = { mtime: pj.mtime, changes: ch };
   let r;
   try { r = await call('projectApply', arg); } catch (e) { return; }
   if (!r.ok && ((r.env && r.env.saved) || r.colorSaved)) { // résultat partiel : env.yaml et/ou couleur écrits, la suite a échoué — relire (nouvelle date) et dire quoi
-    const done = [(r.env && r.env.saved) ? 'env.yaml' : '', r.colorSaved ? 'couleur' : ''].filter(Boolean).join(' et ');
+    const done = [(r.env && r.env.saved) ? 'env.yaml' : '', r.colorSaved ? 'config.conf (couleur / mise en page)' : ''].filter(Boolean).join(' et ');
     const msg = (r.msg || 'refusé') + ' — ' + done + ' enregistré' + (done.includes(' et ') ? 's' : '') + '.';
     await pjLoad();
     if (ST.pj) ST.pj.res = { msg };
@@ -1012,6 +1115,7 @@ async function pjSave() {
     stRenderFoot(); return;
   }
   const keep = pj.focus;
+  if (typeof layoutDrop === 'function') { layoutDrop(pj.path); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // relecture après écriture
   await pjLoad();
   if (ST.pj) ST.pj.res = { saved: true, note: r.note || '' };
   stRender();

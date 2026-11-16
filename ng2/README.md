@@ -333,6 +333,45 @@ images:                                   # socles proposés (facultatif)
 Sans `images`, ce sont ces quatre-là (bootstrap vérifié sur chacun). Un
 `defaults.image` hors de la liste y est ajouté en tête.
 
+#### Organisation des panes : `top` ou `left` (v6.2.0, #153)
+
+La fenêtre d'un projet (coque tmux et interface native) a deux organisations :
+
+- **`top`** (défaut, inchangé) : leader et `cdp` en haut ; les teammates sur une ligne jusqu'à 5, le haut sur 50 % ;
+  au-delà, 3 lignes 3/7, 2/7 et le reste.
+- **`left`** : leader et `cdp` empilés à gauche, teammates à droite ; une colonne jusqu'à 4 teammates, deux colonnes à
+  partir de 5 (la première reçoit ⌈n/2⌉).
+
+Réglages :
+
+- **Global** : `LAYOUT_MODE` (`top` | `left`, défaut `top`) et la largeur du leader `LAYOUT_LEFT_LEADER_PCT` (20 à 80,
+  défaut 46). Dans `config.conf`, ou dans Réglages › Launcher, boîte « Mise en page des panes » en tête de la rubrique.
+- **Par projet** : `PROJECT_LAYOUTS`, champ « Mise en page » de **⚙ Réglages du projet…**, placé avant « Exécution »
+  (« Comme le réglage global » retire l'exception).
+- **Bouton de bascule** (interface native) : tout à droite de la barre d'onglets, il fait passer le projet affiché de
+  « leader en haut » à « leader à gauche », et inversement. Le choix est enregistré comme exception du projet. Il est
+  grisé sur l'onglet Teamleaders. La clé est le **nom du dossier** du projet, comme `PROJECT_COLORS` : deux projets de même nom
+  partagent l'exception. Priorité : `PROJECT_LAYOUTS` > `LAYOUT_MODE` > `top`.
+
+```bash
+# ~/.config/claude-launcher-ng2/config.conf
+LAYOUT_MODE=left
+LAYOUT_LEFT_LEADER_PCT=45
+declare -A PROJECT_LAYOUTS=(
+  ["mon-projet"]="top"
+)
+```
+
+Le changement s'applique aux projets ouverts sans relance : la coque et l'interface native relisent `config.conf`, et
+la fenêtre est remise en page quand son organisation effective change. Dans l'interface native, ce changement (bouton de
+bascule, Réglages, ou `config.conf` modifié à la main) est appliqué **immédiatement** : pour la bascule, la disposition
+change dès le clic, avant l'enregistrement de `config.conf` qui suit en arrière-plan. Si l'écriture échoue, le projet
+revient à l'organisation précédente avec un message. Plusieurs clics rapides : le dernier l'emporte. Dans la coque Linux,
+la réaction prend 1 à 2 s.
+Seuls les panes visibles sont disposés. Si tmux
+refuse la disposition `left` (fenêtre trop petite), le projet revient à `top` avec un message ; `Ctrl+B R` remet en
+ordre dans les deux cas.
+
 ### Backends : `backends.yaml`
 
 Sans `~/.config/claude-launcher-ng2/backends.yaml`, les backends conteneur sont podman et docker
@@ -359,8 +398,8 @@ sans passer par le texte. Rubriques :
   pool le renomme aussi dans les backends qui le citent.
 - **Défauts** : backend et image par défaut, images proposées. Le serveur web et les chemins navigateur s'affichent
   en lecture seule.
-- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en YAML » pour l'instant. **Ce poste** : taille des
-  caractères des terminaux (voir ci-dessous), le reste renvoie à « Éditer en YAML ».
+- **Launcher, Conteneurs, Projet** : renvoi à « Éditer en YAML » pour l'instant. **Ce poste** : tailles de texte
+  de l'arbre, des cartes et des terminaux (rubrique Affichage, voir ci-dessous), le reste renvoie à « Éditer en YAML ».
 
 **Enregistrer** : le brouillon est validé comme au chargement réel. Une erreur **bloque** l'enregistrement (les
 problèmes s'affichent en pied, rien n'est écrit). Si le fichier a changé sur le disque depuis son ouverture, la
@@ -784,6 +823,36 @@ le projet) : la session du conteneur se termine et la fenêtre se ferme. Un
 simple détachement, lui, n'arrête rien. Sans cette option, le projet passe au
 `●` bleu.
 
+### Rafraîchir et forcer la fermeture (v6.2.0, #158)
+
+Le menu du projet (fenêtre native et navigateur) propose deux actions. « Fermer » est disponible dès que la ligne
+est ouverte ou que sa pastille n'est pas `○`.
+
+- **⟳ Rafraîchir** (`F5` sur le projet sélectionné dans l'interface native ; `F5` dans la coque Linux) : relit tout le projet
+  sans les caches — conteneur ou pod, session, git, GitHub, template, consommation (le délai minimal de l'API après un
+  échec est conservé). Un bandeau d'étapes en tête des cartes montre l'avancement (`✓` fait, `⟳` en cours, `✕` erreur,
+  `·` en attente). Une erreur reste affichée jusqu'à `×` ou au rafraîchissement suivant. L'étape GitHub relit le
+  milestone **sans attendre** la relecture de masse des projets. Si `gh` est absent, non connecté, ou si le dépôt n'a
+  pas de remote GitHub, l'étape est **verte** avec la raison affichée (cas sans objet, pas une panne) ; une vraie panne
+  est **rouge** et affiche la cause renvoyée par `gh` (authentification, réseau, dépôt introuvable, limite d'API…). Rafraîchir ne retire pas
+  l'onglet d'un projet ouvert.
+- **Forcer la fermeture…** : proposée quand le projet est affiché ouvert ou en erreur **et** qu'il n'a plus de conteneur,
+  de pod ni de session (cas typique : un pod k8s disparu). Une boîte de confirmation indique la raison et liste ce qui
+  sera nettoyé. Le nettoyage est local : marque de sortie, verrou périmé, fichier d'ordre, panes cachés orphelins.
+  `projects.json` n'est jamais modifié. La fermeture est refusée si un autre launcher pilote le projet, ou si le projet
+  revit entre la question et la confirmation (la question expire au bout de 2 min).
+- **Backend injoignable** : la fermeture forcée est proposée avec l'avertissement « le projet tourne peut-être encore ».
+  Seul le nettoyage local est fait : aucun arrêt du conteneur n'est demandé au backend.
+- **« dubious ownership » (Windows, dépôt sur un partage)** : git refuse les dépôts dont le propriétaire est un autre
+  compte (typiquement le compte Linux qui a créé le dépôt sur le partage). Le launcher n'autorise alors ce dépôt que pour
+  ses propres appels `git` et `gh`, et seulement pour le dossier du projet : `safe.directory` est passé à chaque appel,
+  la configuration globale n'est jamais modifiée. **Risque accepté** : lever cette protection laisse git appliquer la
+  configuration du dépôt (`core.fsmonitor`, `core.sshCommand`…). À réserver à vos propres projets. Si git refuse encore
+  (git < 2.31, lecteur mappé), l'étape affiche la commande `git config --global --add safe.directory '<projet>'` : ne
+  l'exécutez que pour vos propres dépôts.
+
+Dans la coque Linux, `Suppr` sur un projet propose la fermeture forcée (`o/N`) quand elle est possible ; `F1` la décrit.
+
 ### Plusieurs launchers sur un même projet
 
 Un projet en conteneur (surtout distant) peut être atteint par plusieurs
@@ -908,7 +977,7 @@ c'est à l'utilisateur de le rendre accessible avant de lancer le launcher, qui 
 | Linux | `claude-launcher-ng2` | la coque tmux, **inchangée** (défaut) |
 
 `desktop --web` sert l'interface sur `127.0.0.1` (port libre, `--addr HÔTE:PORT` pour le
-fixer), protégée par un jeton aléatoire dans l'URL affichée (puis un cookie) ; `--no-open`
+fixer), protégée par un jeton aléatoire dans l'URL affichée (puis un cookie de session) ; `--no-open`
 n'ouvre pas le navigateur. Fermer la fenêtre ou arrêter le serveur **détache** l'interface :
 les sessions des projets continuent dans leur tmux (conteneur, ou tmux local de l'hôte), et sont
 retrouvées au lancement suivant (comme la coque après un arrêt du hub).
@@ -919,6 +988,27 @@ locale, l'en-tête `Host` doit désigner la boucle locale et le port d'écoute. 
 (`Content-Type: application/json`) et une origine égale à `http://<Host>` : une autre page ouverte sur la machine,
 même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponses portent `Referrer-Policy: no-referrer`,
 `X-Content-Type-Options`, `X-Frame-Options` et `Content-Security-Policy: frame-ancestors 'none'`.
+
+**Interface web dans la fenêtre native** (v6.2.0, #163) : la fenêtre Windows peut aussi servir son interface dans un
+navigateur. Réglage `desktop_web` (Réglages › Ce poste › Navigateur, ou `backends.yaml`), **désactivé par défaut**,
+appliqué sans relance. Un port seul (`8770`) écoute sur la boucle locale. Une adresse hors boucle locale
+(`0.0.0.0:8770`) est **refusée sans `allow_lan: true`** (case « Autoriser l'accès depuis le réseau »), puis signalée par
+une bannière orange tant qu'elle est active. Le même port que le serveur des fichiers (`browser_server`, 8765 par défaut)
+est refusé. Le bouton « Ouvrir dans le navigateur » ouvre l'URL d'amorçage (fenêtre native seulement).
+
+- **Accès** : `127.0.0.1` ou `localhost` sur le port ; hors boucle locale, le **nom de la machine**. L'adresse IP brute
+  est refusée sur une écoute `0.0.0.0` / `::` (contrôle de `Host`). En HTTP, le jeton circule en clair : préférer un
+  tunnel SSH ou TLS.
+- **Sessions** : le jeton d'URL n'est accepté que par la page d'amorçage, qui l'échange contre une session (cookie
+  `cl_session_<port>`, jamais le jeton). 64 sessions au plus ; une session expire après 8 h sans appel, donc un onglet
+  resté ouvert sans appel repasse par l'URL d'amorçage. Le jeton est conservé par poste ; il est renouvelé quand
+  l'adresse d'écoute change. « Régénérer le jeton » (fenêtre native seulement) révoque les sessions et les flux SSE.
+- **Client web** : il n'a pas le presse-papiers du poste, `quit`, le thème du poste, l'ouverture du navigateur, la
+  régénération du jeton, ni la modification de `desktop_web` et `browser_server`. Le reste (terminaux, autres réglages,
+  mise à jour) lui est permis : **le jeton donne accès aux terminaux, il faut le garder secret**.
+- **Taille des terminaux** : fixée par le client qui a le focus ; un client sans clavier ne renvoie pas la sienne.
+- `desktop --web` sans `--addr` prend `desktop_web.listen` s'il est fixé ; `--addr` vers le réseau sans `allow_lan`
+  affiche un avertissement sur stderr.
 
 **Ce qu'on y retrouve de la coque** (mêmes sources dans `core`) :
 
@@ -931,20 +1021,30 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 - **carte Team** : mêmes lignes, surbrillance et règles que la coque Linux (voir [Interface](#interface)) :
   double-clic sur un inactif = visible ↔ caché, refus en pied de volet pour un teammate actif ou un projet en
   lecture seule ; même état sous Linux et Windows (option tmux `@cl_panevis`) : ce qui est caché d'un côté l'est
-  de l'autre ; même état du template (`●` vert à jour, `▲` orange en retard, `○` non démarré, `+` devant le nom
-  si compagnon) ; **infobulle** de la ligne : actif / inactif, version du template, version cible (ou « version
-  cible inconnue »), compagnon (oui, avec son fichier, ou non) ;
+  de l'autre ; même état du template (`●` vert à jour, `○` non démarré, `⚠` orange sur un écart de version, `+` devant le nom
+  si compagnon) ; son titre porte « TEAM · N · TPL vX · CLAUDE Y » (versions une seule fois), les lignes n'ont plus de
+  colonne de version, la carte est plus étroite (#151) ; **infobulle** de la ligne : actif / inactif, version du template,
+  version cible (ou « version cible inconnue »), écart tpl / claude, compagnon (oui, avec son fichier, ou non) ;
 - à droite, l'onglet **⌗ Teamleaders** (une vignette interactive du leader de chaque projet
-  ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille ;
+  ouvert, plus petit `%id`) et **un onglet par projet ouvert**, allumé tant qu'un agent travaille. L'onglet Teamleaders
+  est isolé : épinglé à gauche, séparé des onglets de projets (qui défilent sans lui), sans `×`. Quand les onglets de
+  projets débordent, il se réduit à son icône (infobulle « Teamleaders ») ; `Ctrl+Tab` est inchangé (#162). La barre
+  d'état du hub Linux n'est pas modifiée ;
 - dans l'onglet d'un projet, **un terminal par pane** de sa session tmux (leader, teammates),
-  avec un en-tête « nom · rôle » : la mise en page est celle de la coque (`core/layout.go` :
+  avec un en-tête « nom · état » (bandeau vert si actif, gris si inactif, neutre pour le leader, suit l'état sans relance ; #152) :
+  la mise en page est celle de la coque (`core/layout.go`, organisation `top` par défaut, ou `left` :
+  voir [Organisation des panes](#organisation-des-panes--top-ou-left-v620-153)) :
   leader et `cdp` en haut ; jusqu'à 5 teammates, le haut sur 50 % et les teammates sur une ligne ;
   au-delà, 3 lignes 3/7, 2/7 et le reste, la ligne du milieu recevant ⌈n/2⌉ ; actifs en ordre MRU
   puis inactifs par nom ; actifs éclaircis, inactifs assombris sur la couleur du projet) ;
-- **Ctrl+molette** sur la zone des terminaux : taille des caractères (8 à 28, 13 par défaut ; un cran par encoche de molette, le pavé tactile
-  cumule ses petits déplacements) de tous les terminaux (projets, ouverture, vignettes Teamleaders) ; la taille est renvoyée à tmux (`refresh-client -C`),
-  mémorisée par poste (clé `termFontSize` de `desktop-ui.json`) et la page ne zoome pas. L'arbre et les cartes
-  gardent leur taille ; aucune touche n'est retirée aux terminaux ;
+- **Ctrl+molette** : trois tailles de texte indépendantes, chacune bornée à 8–28 et mémorisée **par poste** (clé
+  `desktop-ui.json`, défauts : terminaux `termFontSize` 13, arbre `treeFontSize` 13, cartes `cardsFontSize` 12). Un cran
+  par encoche de molette, le pavé tactile cumule ses petits déplacements ; la page ne zoome pas.
+  - sur la **zone des terminaux** : taille de tous les terminaux (projets, ouverture, vignettes Teamleaders) ; la taille
+    est renvoyée à tmux (`refresh-client -C`). Aucune touche n'est retirée aux terminaux ;
+  - sur l'**arbre** des projets, ou sur les **cartes** ◈ État : taille de cette zone seule, l'autre garde la sienne.
+    Le message bref « Taille de l'arbre : N » / « Taille des cartes : N » confirme le cran.
+  - les mêmes réglages sont dans **Réglages › Ce poste › Affichage** (une ligne −/champ/+ par zone).
 - l'**ouverture** passe par le même code que `ctr-attach` (`core.OpenCtr`) : sa sortie (conteneur,
   bootstrap) et ses questions (serveur d'un groupe, autre launcher propriétaire) s'affichent dans
   un terminal d'ouverture où l'on répond ; les questions `/init-project` (template en retard ou
@@ -960,12 +1060,13 @@ même via `127.0.0.1`, ne peut pas émettre d'appel avec le cookie. Les réponse
 |---|---|
 | `↑` `↓` `PgUp` `PgDn`, clic | sélectionner (clic sur un projet ouvert : son onglet) |
 | `Entrée`, double-clic | ouvrir / rejoindre le projet |
-| `Ctrl`+clic, `Suppr` | fermer le projet (question o/N) |
+| `Ctrl`+clic, `Suppr` | fermer le projet (question o/N) ; sur un projet sans conteneur, pod ni session, `Suppr` propose la fermeture forcée ([détail](#rafraîchir-et-forcer-la-fermeture-v620-158)) |
 | frappe, `Retour arrière` | filtrer ; `Échap` efface le filtre |
 | clic hors projet | onglet ⌗ Teamleaders |
 | double-clic sur une catégorie ou une racine, `✦ Nouveau projet` | créer un projet |
-| `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant |
+| `F1` / `F2` / `F5` | aide et légende / exécution du projet / mises à jour, conso, arbre maintenant ; `F5` relit aussi le projet sélectionné ([Rafraîchir](#rafraîchir-et-forcer-la-fermeture-v620-158)) |
 | `Ctrl+R` / `Ctrl+U` / `Ctrl+D` / `Ctrl+,` | rescanner / masquer les annonces / diagnostic des backends / fenêtre Réglages (`⚙ config`) |
+| `Ctrl`+molette sur l'arbre, les cartes ou les terminaux | taille du texte de la zone, 8–28, mémorisée par poste (`Réglages › Ce poste › Affichage`) |
 | `Ctrl+←` `Ctrl+→`, bordure | largeur du navigateur (mémorisée) |
 | `←` `→`, clic sur le chevron ou la ligne d'une racine / catégorie | replier / déplier (mémorisé) ; `←` sur un projet : sa catégorie |
 | séparateur arbre / cartes ; clic sur le bandeau d'une carte ou sur « ◈ ÉTAT » | hauteur de l'arbre ; replier une carte ou toute la zone (mémorisé) |
@@ -1160,13 +1261,14 @@ Le mode portable (`<dossier du binaire>\.config\claude-launcher-ng2\config.conf`
 `Ctrl+,`) ouvre les réglages en formulaires, avec les rubriques Backends, Pools et Défauts décrites plus haut
 ([Réglages](#réglages--fenêtre--config-v610-118)) et :
 
-- **Launcher** : `config.conf`, réglages groupés, avec aide et valeur par défaut ; « ↺ défaut » retire la clé. Le
+- **Launcher** : `config.conf`, réglages groupés, avec aide et valeur par défaut (dont l'organisation des panes,
+  `LAYOUT_MODE` et `LAYOUT_LEFT_LEADER_PCT`) ; « ↺ défaut » retire la clé. Le
   jeton GitHub est un champ masqué : il n'est jamais affiché ni renvoyé à l'interface (« Retirer » le supprime).
 - **Conteneurs** : l'`env.yaml` du launcher (paquets par gestionnaire, `setup`, `on_start`), ajouté à tous les
   conteneurs.
 - **Ce poste** : `hubs.<machine>` de `backends.yaml` (chemins « local => distant », chemins navigateur « conteneur
-  => hôte [| os] », serveur web, appariement du navigateur, utilisateur distant, cache du hub) et la taille des
-  caractères des terminaux. Les surcharges propres à un autre système sont signalées (bandeau ⚠) et restent en
+  => hôte [| os] », serveur web, appariement du navigateur, utilisateur distant, cache du hub) et les tailles de texte
+  de l'arbre, des cartes et des terminaux (Affichage). Les surcharges propres à un autre système sont signalées (bandeau ⚠) et restent en
   lecture seule.
 
 Ce qui n'a pas de formulaire (une clé d'une forme bash non reconnue, une clé inconnue, `unrecognized`) reste dans
@@ -1269,6 +1371,21 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
     par le launcher de l'autre système (même `listen` pour les deux), `backends` l'affiche (« port
     tenu par le hub linux ») avec la clé à déclarer, et le launcher Windows ne cherche pas à le lui
     disputer.
+- **Interface web de la fenêtre native (`desktop_web`)** (v6.2.0, #163) : désactivée par défaut. Comme `browser_server`,
+  elle se déclare dans `defaults`, `hubs.<machine>` et se surcharge par système (`.windows`, `.linux`, `.darwin`), champ par
+  champ. Une écoute hors boucle locale exige `allow_lan: true` ; le même port que `browser_server` du même système est refusé.
+
+  ```yaml
+  defaults:
+    desktop_web: { listen: "8770" }                 # port seul = boucle locale (127.0.0.1:8770)
+  hubs:
+    MSI:
+      desktop_web: { listen: "0.0.0.0:8770", allow_lan: true }   # réseau : accès par le nom de la machine
+      windows:
+        desktop_web: { listen: "127.0.0.1:8771" }   # ce système seulement
+  ```
+
+  Une écoute `":8770"` (sans hôte) n'est pas reconnue comme boucle locale : elle est refusée sans `allow_lan: true`.
 
 ### Prérequis : outils externes
 
@@ -1308,7 +1425,7 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   - **remote** (état du dernier fetch) : `○` jamais poussé · `↑N` non poussé · `⇡` poussé,
     non mergé dans main · `✓` à jour / mergé · `↓N` en retard.
 
-  Le détail affiche aussi la version locale (`git describe --tags --dirty`) et la dernière
+  Le détail affiche aussi la version locale (`git describe --tags`, suffixe `-dirty` déduit de `git status`) et la dernière
   release publiée sur GitHub, avec sa date (`v5.7.4 GitHub, il y a 2 j`) ; un dernier tag git
   d'`origin/main` différent est signalé en jaune (`· tag git v5.7.1` : tags pas récupérés, ou tag
   sans release). Sans release GitHub connue (dépôt hors GitHub, pas encore lue), le tag git seul,
@@ -1317,7 +1434,8 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   Le point devant le nom est l'état du projet : `○` rien ne tourne, `●` bleu conteneur prêt sans
   claude, `▲` vert ouvert ici (bandeau à la couleur de son pane tmux sur toute la largeur de la ligne, badges à droite), `●` vert lecture seule,
   `■` orange piloté par un autre hub, `●` orange personne ne pilote, `✕` rouge problème (voir
-  [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet.
+  [Fermer un projet](#fermer-un-projet)). Ctrl+clic ou Suppr ferme le projet ; sans conteneur, pod ni session, Suppr
+  propose la fermeture forcée (voir [Rafraîchir et forcer la fermeture](#rafraîchir-et-forcer-la-fermeture-v620-158)).
   Badge milestone `⚑` (projets GitHub), calculé avec **la règle du panneau milestone des projets**
   (`skills/milestone-panel`), pour que launcher et projet ouvert soient d'accord : **jaune** = milestone
   en cours : le milestone ouvert portant une **due date** (posée par MILESTONE START, la plus ancienne) ;
@@ -1358,7 +1476,10 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   teammates du registre du template, version de leur copie, `+` si compagnon, modèle et effort,
   version de claude des teammates lancés —, fichiers) — lu depuis un cache préparé en tâche de fond. La zone de droite ne bouge pas.
 - **Carte Team** (dans `◈ État`) : une ligne par teammate lancé, plus les teammates du template non démarrés
-  (`●` démarré, `○` non démarré), sans regroupement ; **surbrillance** = son pane est visible dans la fenêtre du
+  (`●` démarré, `○` non démarré), sans regroupement ; son titre porte les versions une seule fois, « TEAM · N · TPL vX ·
+  CLAUDE Y » (template, claude du leader), et les lignes n'ont plus de colonne de version : la carte est plus étroite (#151).
+  `⚠` orange sur un teammate dont la version diffère (template ou claude) ; sous Windows, le détail est en infobulle.
+  **Surbrillance** = son pane est visible dans la fenêtre du
   projet. Double-clic sur un teammate inactif : visible ↔ caché. Un teammate caché sort de la fenêtre du projet,
   mais continue de tourner et reçoit ses messages. Règle : un teammate **actif est toujours visible** (double-clic
   refusé, message dans la carte) ; un inactif est caché après `TEAM_HIDE_IDLE` secondes (`config.conf`, 30 par
@@ -1366,9 +1487,9 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   jusqu'au second double-clic ; s'il redevient actif, il reprend la règle normale. Le leader n'est jamais caché.
   En lecture seule (un autre launcher a la main), le double-clic est refusé avec un message. Fermer le projet
   ferme aussi ses teammates cachés.
-  **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `▲` orange = template en
-  retard sur la version cible (le launcher a adopté une version plus récente) ; `○` = non démarré. La colonne de
-  version affiche `v5.8.0→v5.9.2` en jaune quand l'agent est en retard, sinon sa seule version. `+` devant le nom
+  **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `⚠` orange = écart de version
+  (template en retard sur la version cible, le launcher ayant adopté une version plus récente, ou claude différent de
+  celui du leader) ; `○` = non démarré. Les versions sont dans le titre de la carte (#151). `+` devant le nom
   = l'agent a un compagnon projet (`.claude/agents/<agent>.md`, ou `generic.<nom>.md` pour une instance générique).
   Un projet sans registre d'agents (`agents.registry`) garde l'affichage d'avant : ● neutre, pas de version.
   *Limites (v6.1.0)* : lors d'une prise de main sur un conteneur, deux launchers peuvent appliquer la règle
@@ -1382,6 +1503,12 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   La vignette relit aussi toutes les 2 s si la fenêtre est en conteneur : née avant que
   l'ouverture du pod pose `@cl_backend`/`@cl_ctr`, elle ne reste plus figée sur le pane du hub
   (toute la fenêtre du conteneur, dont elle ne montrait que le bas : les teammates) (v5.7.2).
+- **En-tête des panes de teammates** (#152) : une ligne de titre tmux en tête de chaque pane (`pane-border-status top`,
+  posé par le launcher qui a la main sur le projet). Bandeau vert si le teammate est actif, gris s'il est inactif, neutre
+  pour le leader ; l'état suit la mise en page sans relance. Un launcher antérieur ignore ces options : il n'affiche pas
+  les bandeaux, sans autre effet.
+- **Mise en page des panes** (#153) : `top` (défaut) ou `left` (leader à gauche), réglable globalement et par projet ;
+  voir [Organisation des panes](#organisation-des-panes--top-ou-left-v620-153).
 
 | Action | Effet |
 |---|---|
@@ -1402,7 +1529,7 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
 | `Ctrl+U`, clic sur `✕` | masquer une annonce de mise à jour |
 | clic sur `⚠ connexion claude.ai …` / `✗ … expirée` | ouvrir une fenêtre `login` qui lance `claude /login` |
-| `F5` | rechercher les mises à jour, relire la consommation et la liste des projets maintenant (réaffiche les annonces masquées) |
+| `F5` | rechercher les mises à jour, relire la consommation et la liste des projets maintenant (réaffiche les annonces masquées) ; relit aussi le projet sélectionné, pied « ⟳ … relu » (#158) |
 | `F1` | aide : commandes et raccourcis, dans un `display-popup` tmux par-dessus la coque |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
@@ -1549,8 +1676,18 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 ## Dépannage
 
 - **`Ctrl+←/→` ne fait rien** : votre terminal les intercepte. Glissez la bordure à la souris.
+- **La bascule de mise en page est lente** : le détail est dans `desktop-perf.log`, dans le dossier de cache du launcher
+  (`~/.cache/claude-launcher-ng2/` sous Linux, `%LocalAppData%\claude-launcher-ng2\` sous Windows). Les lignes
+  `bascule : avant écriture`, `bascule : écriture config.conf` et `bascule : total` donnent la durée de chaque étape
+  (fichier gardé à 200 lignes).
 - **Ctrl+clic ne ferme pas le projet** : votre terminal le garde pour lui (ouverture de liens).
   Sélectionnez le projet et appuyez sur `Suppr`.
+- **Un projet ne se ferme plus** (pod k8s disparu, backend injoignable, session déjà morte) : menu du projet →
+  « Forcer la fermeture… » (ou `Suppr` dans la coque Linux). Elle ne touche ni à `projects.json` ni au backend
+  quand celui-ci est injoignable ; voir [Rafraîchir et forcer la fermeture](#rafraîchir-et-forcer-la-fermeture-v620-158).
+- **Windows : « dubious ownership » sur un dépôt du partage** : l'étape git du rafraîchissement l'affiche ; voir la
+  dernière puce de [Rafraîchir et forcer la fermeture](#rafraîchir-et-forcer-la-fermeture-v620-158) (exception `safe.directory`
+  limitée au dossier du projet, risque à accepter pour vos propres dépôts seulement).
 - **L'état d'un projet est en retard** : recalcul d'au plus ~10 s pour le projet sélectionné ;
   `Ctrl+R` relance le scan des projets.
 - **Panes d'une team en désordre** : `Ctrl+B R` dans l'onglet du projet, ou
@@ -1598,6 +1735,17 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 `CL_RAW_BASE` (serveur de fichiers bruts), `CL_API_BASE` (API GitHub), `CL_RELEASE_BASE`
 (fichiers de release), `CL_FAKE_LATEST_TPL`, `CL_FAKE_LATEST_LAUNCHER`, `CL_FAKE_TPL_RELEASED`,
 `XDG_CACHE_HOME`.
+
+`scripts/ci.sh` (la CI) lance `go test -race ./...` sous Linux : il exige un compilateur C (`gcc`, cgo) et s'arrête avec un
+message explicite s'il manque (`apt install gcc` / `dnf install gcc`). Il contrôle aussi la syntaxe du JS du frontend
+(`node --check` sur `ng2/ui/desktop/frontend/*.js`, node requis). Il isole tmux : il crée un dossier dédié et court sous `/tmp` (en dur, `mktemp -d /tmp/clci.XXXXXX`,
+indépendamment de `$TMPDIR` ; limite `sun_path` de 108 octets : le dossier du projet est trop long), et les tests
+reçoivent ce dossier comme `TMUX_TMPDIR` et `TMPDIR`. Le script échoue si un socket de test `cl-*` reste dans ce dossier,
+ou si un socket de test tombe dans `/tmp/tmux-<uid>` (garde limitée aux préfixes produits par les tests seulement :
+`cl-test-*`, `cl-e2e-*`, `cl-ansible-secagent-*`, `cl-desk-{test,paste,seed,size,vis,r158}-*` ; les sessions du launcher
+réel `cl`, `cl-hidden` et le serveur `claude-desk-ng2` sont ignorés), ou si un `index.lock` subsiste dans le dépôt après les tests (un git concurrent bref est toléré ; le verrou est celui de
+`git rev-parse --git-path index.lock`, valable en worktree). Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
+`git describe --dirty` : le suffixe `-dirty` vient de `git status --porcelain`.
 
 Interface native (`ui/desktop`) : décodeur du mode contrôle de tmux (séquence réelle de tmux 3.6,
 `%output` en octal, layouts, UTF-8 coupé), état et légende des cartes, appels, et un projet sur

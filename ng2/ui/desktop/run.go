@@ -4,8 +4,11 @@ import (
 	"embed"
 	"encoding/json"
 	"fmt"
+	"net"
 	"os"
 	"strings"
+
+	"claude-launcher-ng2/core"
 )
 
 // frontendFS : l'interface (HTML, CSS, JS, xterm.js), embarquée dans le binaire.
@@ -19,7 +22,7 @@ var frontendFS embed.FS
 // Sans Wails dans le binaire (Linux compilé sans la balise « wails »), le mode
 // web est pris d'office.
 func Run(args []string) error {
-	web, open, addr := false, true, "127.0.0.1:0"
+	web, open, addr, addrSet := false, true, "127.0.0.1:0", false
 	for i := 0; i < len(args); i++ {
 		switch a := args[i]; {
 		case a == "--web":
@@ -27,10 +30,10 @@ func Run(args []string) error {
 		case a == "--no-open":
 			open = false
 		case a == "--addr" && i+1 < len(args):
-			addr = args[i+1]
+			addr, addrSet = args[i+1], true
 			i++
 		case strings.HasPrefix(a, "--addr="):
-			addr = strings.TrimPrefix(a, "--addr=")
+			addr, addrSet = strings.TrimPrefix(a, "--addr="), true
 		case a == "--launch" || a == "--no-update":
 		default:
 			return fmt.Errorf("desktop : option inconnue %q (--web, --addr HÔTE:PORT, --no-open)", a)
@@ -41,6 +44,14 @@ func Run(args []string) error {
 		web = true
 	}
 	if web {
+		if s, err := core.DesktopWebSetting(); !addrSet && err == nil && !s.Off { // --addr l'emporte ; sinon desktop_web.listen s'il est fixé
+			addr = s.Listen
+		}
+		if addrSet {
+			if n := addrLANNotice(addr, core.DesktopWebAllowsLAN()); n != "" {
+				fmt.Fprintln(os.Stderr, "⚠ "+n)
+			}
+		}
 		return RunWeb(addr, open)
 	}
 	return runWails()
@@ -57,4 +68,14 @@ func (b *Bridge) Call(method, args string) (string, error) {
 	}
 	out, err := json.Marshal(res)
 	return string(out), err
+}
+
+// addrLANNotice : avertissement d'un « --addr » hors de la boucle locale quand desktop_web.allow_lan n'est
+// pas posé (l'option de la ligne de commande reste un choix explicite, permis) ; "" sinon.
+func addrLANNotice(addr string, allowLAN bool) string {
+	h, _, err := net.SplitHostPort(addr)
+	if err != nil || allowLAN || h == "localhost" || net.ParseIP(h) != nil && net.ParseIP(h).IsLoopback() {
+		return ""
+	}
+	return "--addr " + addr + " écoute hors de la boucle locale sans desktop_web.allow_lan : choix explicite de la ligne de commande, accepté — l'interface complète sera atteignable depuis le réseau (HTTP clair, jeton seul)"
 }

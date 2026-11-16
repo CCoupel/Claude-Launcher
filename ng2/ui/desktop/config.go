@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -99,9 +101,24 @@ func (a *App) currentToken() string {
 // configSave : enregistre ; conflit : rend {conflict, mtime actuel} pour
 // proposer de recharger ou d'écraser.
 func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (map[string]any, error) {
+	return a.configSaveAs(false, kind, project, content, mtime)
+}
+
+// errWebDesktopWeb : un client web ne modifie pas desktop_web (interface web, allow_lan).
+const errWebDesktopWeb = "les réglages desktop_web (interface web, allow_lan) et browser_server (serveur de fichiers) ne se modifient que depuis la fenêtre native"
+
+// configSaveAs : configSave ; web : appel d'un client web du processus de la fenêtre — il ne peut
+// pas modifier les réglages desktop_web (un client web rouvrirait l'interface sur le réseau).
+func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mtime string) (map[string]any, error) {
 	f, err := a.configFile(kind, "", project)
 	if err != nil {
 		return nil, err
+	}
+	if web && kind == core.ConfBackends {
+		old, _ := os.ReadFile(f.Path)
+		if core.WebExposureChanged(old, []byte(content)) {
+			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: errWebDesktopWeb}}}, nil
+		}
 	}
 	var expected time.Time
 	if mtime != "" {
@@ -151,19 +168,162 @@ func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (
 func (a *App) conf() core.Config {
 	a.confMu.RLock()
 	defer a.confMu.RUnlock()
-	return a.cfg
+	c := a.cfg
+	if len(a.layoutOv) > 0 { // organisations demandées, pas encore écrites dans config.conf
+		m := make(map[string]string, len(c.ProjectLayouts)+len(a.layoutOv))
+		for k, v := range c.ProjectLayouts {
+			m[k] = v
+		}
+		for k, v := range a.layoutOv {
+			if v == "" {
+				delete(m, k)
+			} else {
+				m[k] = v
+			}
+		}
+		c.ProjectLayouts = m
+	}
+	return c
+}
+
+func (a *App) setLayoutOverride(key, layout string) {
+	a.confMu.Lock()
+	if a.layoutOv == nil {
+		a.layoutOv = map[string]string{}
+	}
+	a.layoutOv[key] = layout
+	a.confMu.Unlock()
+}
+
+func (a *App) clearLayoutOverride(key string) {
+	a.confMu.Lock()
+	delete(a.layoutOv, key)
+	a.confMu.Unlock()
+}
+
+// persistDelay : délai avant l'écriture de config.conf (tests : un partage réseau lent) ; nul en production.
+var persistDelay atomic.Int64
+
+// layoutWrites : écritures de config.conf demandées par la bascule (tests : une rafale de clics en fait 2 au plus).
+var layoutWrites atomic.Int64
+
+// layoutJob : clics de bascule d'un projet, sérialisés — le dernier clic gagne.
+type layoutJob struct {
+	mu      sync.Mutex // seq et override
+	seq     uint64     // numéro du dernier clic
+	writeMu sync.Mutex // une seule écriture de config.conf à la fois
+}
+
+func (a *App) layoutJobFor(base string) *layoutJob {
+	a.confMu.Lock()
+	defer a.confMu.Unlock()
+	if a.layoutJobs == nil {
+		a.layoutJobs = map[string]*layoutJob{}
+	}
+	if a.layoutJobs[base] == nil {
+		a.layoutJobs[base] = &layoutJob{}
+	}
+	return a.layoutJobs[base]
+}
+
+// applyLayoutFirst : bascule de l'organisation d'un projet — la mise en page part AVANT la persistance
+// (organisation demandée connue côté Go : la présentation change tout de suite, sans attendre le partage
+// réseau où config.conf est écrit), puis config.conf est écrit ; écriture refusée : retour à l'organisation
+// précédente et {ok:false, msg}. Réponse comme avant : colorSaved vrai dès que config.conf est écrit.
+//
+// Clics rapides : l'organisation affichée est toujours la dernière demandée (la demande reste en mémoire
+// jusqu'à ce qu'elle soit écrite) ; les écritures sont sérialisées par projet et un clic remplacé par un plus
+// récent n'écrit pas — au plus l'écriture déjà en cours puis l'écriture finale de la dernière valeur.
+func (a *App) applyLayoutFirst(path, layout string) (map[string]any, error) {
+	base := filepath.Base(path)
+	if _, err := core.SetProjectLayout("", base, layout); err != nil { // valeur inconnue : refusée avant toute écriture
+		return map[string]any{"ok": false, "msg": err.Error()}, nil
+	}
+	t0 := time.Now()
+	j := a.layoutJobFor(base)
+	j.mu.Lock()
+	j.seq++
+	my := j.seq
+	a.setLayoutOverride(base, layout)
+	j.mu.Unlock()
+	if t := a.term(path); t != nil {
+		t.relayoutNow()
+	}
+	a.changed()
+	a.cardsChanged()
+	a.perf.trace("bascule : avant écriture", base, time.Since(t0))
+
+	j.writeMu.Lock()
+	defer j.writeMu.Unlock()
+	j.mu.Lock()
+	superseded := j.seq != my
+	j.mu.Unlock()
+	if superseded { // un clic plus récent écrira la valeur finale
+		return map[string]any{"ok": true}, nil
+	}
+	if d := time.Duration(persistDelay.Load()); d > 0 {
+		time.Sleep(d)
+	}
+	t1 := time.Now()
+	layoutWrites.Add(1)
+	_, err := core.ApplyProjectConf(base, nil, &layout)
+	a.perf.trace("bascule : écriture config.conf", base, time.Since(t1))
+	j.mu.Lock()
+	stillLatest := j.seq == my
+	j.mu.Unlock()
+	if err != nil {
+		if !stillLatest { // un clic plus récent est en attente : c'est lui qui écrira, rien à annuler
+			return map[string]any{"ok": true}, nil
+		}
+		a.clearLayoutOverride(base)
+		go a.relayoutOpen() // l'organisation précédente revient
+		a.changed()
+		return map[string]any{"ok": false, "msg": "config.conf : " + err.Error() + " — organisation non enregistrée, retour à la précédente"}, nil
+	}
+	a.configReload(core.ConfConf)
+	j.mu.Lock()
+	if j.seq == my { // aucun clic plus récent : la demande est écrite, la configuration la porte
+		a.clearLayoutOverride(base)
+	}
+	j.mu.Unlock()
+	a.perf.trace("bascule : total", base, time.Since(t0))
+	return map[string]any{"ok": true, "colorSaved": true}, nil
+}
+
+// confMtime : date de config.conf (zéro s'il est absent).
+func confMtime() time.Time {
+	if st, err := os.Stat(core.ConfigPath()); err == nil {
+		return st.ModTime()
+	}
+	return time.Time{}
+}
+
+// confChangedOnDisk : config.conf a changé depuis la dernière lecture (modification extérieure à
+// l'interface) ; la date est retenue, un seul appelant le voit.
+func (a *App) confChangedOnDisk() bool {
+	at := confMtime()
+	a.confMu.Lock()
+	defer a.confMu.Unlock()
+	if at.Equal(a.confAt) {
+		return false
+	}
+	a.confAt = at
+	return true
 }
 
 // configReload : ce qui est relu sans redémarrer.
 func (a *App) configReload(kind core.ConfigKind) string {
 	switch kind {
 	case core.ConfConf:
+		at := confMtime()
 		cfg := core.LoadConfig()
 		a.confMu.Lock()
+		a.confAt = at
 		cfg.Roots = a.cfg.Roots // la surveillance de l'arborescence garde ses racines
 		a.cfg = cfg
 		a.confMu.Unlock()
 		go a.readUsage()
+		go a.relayoutOpen() // organisation des fenêtres de projet changée : remise en page tout de suite (#153)
 		a.changed()
 		a.cardsChanged()
 	case core.ConfBackends:
@@ -172,6 +332,7 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		// hors de la réponse : a.mu peut être tenu par une lecture lente, l'écran
 		// Réglages n'a pas à l'attendre
 		a.storeBackends()
+		go a.applyWebUI() // desktop_web relu à chaud (#163)
 		a.refreshHubWarns(core.HubConfigWarnings)
 		go a.readCtr()
 		a.changed()
@@ -218,14 +379,19 @@ func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any,
 	case kindHub:
 		var hm core.HubModel
 		if hm, merr = core.ReadHubModel([]byte(content), core.HubHost(), core.CurrentGOOS()); merr == nil {
-			size := 13
-			if n, ok := loadPrefs()["termFontSize"].(float64); ok {
-				size = int(n)
+			prefs := loadPrefs()
+			size := func(k string, def int) int { // préférence absente : défaut de la zone
+				if n, ok := prefs[k].(float64); ok {
+					return int(n)
+				}
+				return def
 			}
 			model = struct {
 				core.HubModel
-				TermFontSize int `json:"termFontSize"`
-			}{hm, size}
+				TermFontSize  int `json:"termFontSize"`
+				TreeFontSize  int `json:"treeFontSize"`
+				CardsFontSize int `json:"cardsFontSize"`
+			}{hm, size("termFontSize", 13), size("treeFontSize", 13), size("cardsFontSize", 12)}
 		}
 	}
 	if merr != nil && len(d.Problems) == 0 {
@@ -258,6 +424,11 @@ func maskProblems(ps []core.ConfigProblem, tokens ...string) []core.ConfigProble
 // l'éditeur de texte : validation de core, contrôle de conflit, copie .bak.
 // Résultat : celui de configSave.
 func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes []core.ConfigChange) (map[string]any, error) {
+	return a.configApplyAs(false, kind, project, mtime, changes)
+}
+
+// configApplyAs : configApply ; web : voir configSaveAs.
+func (a *App) configApplyAs(web bool, kind core.ConfigKind, project, mtime string, changes []core.ConfigChange) (map[string]any, error) {
 	fileKind := kind
 	switch kind {
 	case kindHub:
@@ -302,7 +473,7 @@ func (a *App) configApply(kind core.ConfigKind, project, mtime string, changes [
 		}
 		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: msg}}}, nil
 	}
-	return a.configSave(fileKind, project, string(out), mtime)
+	return a.configSaveAs(web, fileKind, project, string(out), mtime)
 }
 
 // backendTest : étapes du test d'un backend du formulaire (pas forcément
@@ -415,6 +586,9 @@ func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[str
 func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, error) {
 	if !a.knownProject(path) {
 		return nil, fmt.Errorf("projet inconnu : %s", path)
+	}
+	if in.Layout != nil && in.Backend == nil && in.Image == nil && in.Color == nil && in.Env == nil {
+		return a.applyLayoutFirst(path, *in.Layout) // bouton de bascule : mise en page avant persistance
 	}
 	open := a.projectOpen(path)
 	if !open && (in.Backend != nil || in.Image != nil) {

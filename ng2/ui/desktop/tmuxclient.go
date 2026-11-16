@@ -3,12 +3,12 @@ package desktop
 import (
 	"bufio"
 	"claude-launcher-ng2/platform"
-	"errors"
 	"fmt"
 	"io"
 	"os/exec"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -25,7 +25,13 @@ import (
 // des terminaux de l'interface. Fermer le client = se détacher : la session
 // continue dans tmux.
 
-var errClientClosed = errors.New("client tmux fermé")
+// transportError : le canal vers tmux a échoué (fermé, sans réponse, écriture) — pas une réponse d'erreur de tmux.
+type transportError struct{ msg string }
+
+func (e *transportError) Error() string   { return e.msg }
+func (e *transportError) Transport() bool { return true }
+
+var errClientClosed error = &transportError{"client tmux fermé"}
 
 type tmuxClient struct {
 	cmd *exec.Cmd
@@ -34,6 +40,9 @@ type tmuxClient struct {
 	mu      sync.Mutex
 	pending []func(Reply) // une entrée par commande envoyée, dans l'ordre
 	closed  bool
+
+	rounds atomic.Int64 // attentes de réponse (un Output ou un Batch = une) : coût en aller-retour sur le canal
+	cmds   atomic.Int64 // commandes envoyées
 
 	notify func(Notif)
 	done   chan struct{}
@@ -139,10 +148,11 @@ func (c *tmuxClient) sendCB(args []string, cb func(Reply)) error {
 	if cb == nil {
 		cb = func(Reply) {}
 	}
+	c.cmds.Add(1)
 	c.pending = append(c.pending, cb)
 	if _, err := io.WriteString(c.in, core.CtlLine(args)+"\n"); err != nil {
 		c.pending = c.pending[:len(c.pending)-1]
-		return err
+		return &transportError{"tmux : écriture impossible : " + err.Error()}
 	}
 	return nil
 }
@@ -150,10 +160,14 @@ func (c *tmuxClient) sendCB(args []string, cb func(Reply)) error {
 // Send : commande sans attendre sa réponse.
 func (c *tmuxClient) Send(args ...string) error { return c.sendCB(args, nil) }
 
+// batchFail : tests, échec de transport des lots de commandes.
+var batchFail atomic.Bool
+
 var clientTimeout = 15 * time.Second
 
 // Output : réponse d'une ou plusieurs commandes (« a ; b »), comme core.Target.
 func (c *tmuxClient) Output(args ...string) ([]byte, error) {
+	c.rounds.Add(1)
 	var out []byte
 	for _, one := range core.SplitCommands(args) {
 		ch := make(chan Reply, 1)
@@ -167,10 +181,52 @@ func (c *tmuxClient) Output(args ...string) ([]byte, error) {
 				return out, fmt.Errorf("tmux : %s", strings.TrimSpace(string(r.Body)))
 			}
 		case <-time.After(clientTimeout):
-			return out, fmt.Errorf("tmux : pas de réponse en %s", clientTimeout)
+			return out, &transportError{fmt.Sprintf("tmux : pas de réponse en %s", clientTimeout)}
 		}
 	}
 	return out, nil
+}
+
+// Batch : plusieurs commandes indépendantes envoyées d'un coup (pipeline), réponses attendues ensemble :
+// un seul aller-retour au lieu d'un par commande (conteneur distant, wsl.exe : plusieurs centaines de ms
+// chacun). Une erreur d'une commande n'empêche pas les suivantes (comme des appels séparés) ; errs[i] est
+// celle de cmds[i]. Implémente core.Batcher.
+func (c *tmuxClient) Batch(cmds [][]string) ([][]byte, []error) {
+	c.rounds.Add(1)
+	if batchFail.Load() { // tests : le transport (wsl.exe, kubectl exec) échoue
+		errs := make([]error, len(cmds))
+		for i := range errs {
+			errs[i] = errClientClosed
+		}
+		return make([][]byte, len(cmds)), errs
+	}
+	outs := make([][]byte, len(cmds))
+	errs := make([]error, len(cmds))
+	chans := make([]chan Reply, len(cmds))
+	for i, one := range cmds {
+		chans[i] = make(chan Reply, 1)
+		ch := chans[i]
+		if err := c.sendCB(one, func(r Reply) { ch <- r }); err != nil {
+			errs[i] = err
+			chans[i] = nil
+		}
+	}
+	deadline := time.After(clientTimeout)
+	for i, ch := range chans {
+		if ch == nil {
+			continue
+		}
+		select {
+		case r := <-ch:
+			outs[i] = r.Body
+			if r.Err {
+				errs[i] = fmt.Errorf("tmux : %s", strings.TrimSpace(string(r.Body)))
+			}
+		case <-deadline:
+			errs[i] = &transportError{fmt.Sprintf("tmux : pas de réponse en %s", clientTimeout)}
+		}
+	}
+	return outs, errs
 }
 
 func (c *tmuxClient) Run(args ...string) error {

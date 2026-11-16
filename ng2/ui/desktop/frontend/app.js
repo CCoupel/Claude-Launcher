@@ -33,6 +33,15 @@ const transport = (() => {
     },
   };
 })();
+// Client web ou fenêtre native (#163) : la fenêtre native est celle qui expose Wails.
+const isWebClient = () => !(window.go && window.go.desktop && window.go.desktop.Bridge);
+// Client web d'une fenêtre native qui sert l'interface web (webUI actif) : quit, setTheme, webUIOpen et le
+// presse-papiers du poste lui sont refusés par le Go (« desktop --web » seul : webUI inactif, tout y reste permis).
+const webOfNative = () => isWebClient() && !!(S.snap && S.snap.webUI && S.snap.webUI.state === 'on');
+// Plusieurs clients possibles sur les mêmes terminaux : seul celui qui a le clavier (fenêtre au premier plan)
+// fixe la taille ; un client seul (webUI inactif) la fixe toujours.
+const sharedTerms = () => !!(S.snap && S.snap.webUI && S.snap.webUI.state === 'on');
+const hasKeyboard = () => !sharedTerms() || document.hasFocus();
 const call = (m, a) => transport.call(m, a).catch((e) => { flash('⚠ ' + e.message); throw e; });
 
 // ── Utilitaires ────────────────────────────────────────────────────────────
@@ -48,7 +57,11 @@ const MONO = getComputedStyle(document.documentElement).getPropertyValue('--mono
 // changée par Ctrl+molette (setFontSize).
 const FONT_DEFAULT = 13, MIN_FONT = 8, MAX_FONT = 28;
 let FONT_SIZE = FONT_DEFAULT;
-const clampFont = (n) => { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.min(MAX_FONT, Math.max(MIN_FONT, n)) : FONT_DEFAULT; };
+// Taille des caractères de l'arbre (zone du navigateur) et des cartes (#150) : préférences
+// treeFontSize / cardsFontSize, mêmes bornes que les terminaux ; la page suit --tfs / --cfs.
+const TREE_DEFAULT = 13, CARDS_DEFAULT = 12;
+let TREE_SIZE = TREE_DEFAULT, CARDS_SIZE = CARDS_DEFAULT;
+const clampFont = (n, d) => { n = Math.round(Number(n)); return Number.isFinite(n) ? Math.min(MAX_FONT, Math.max(MIN_FONT, n)) : (d || FONT_DEFAULT); };
 
 // ── État ───────────────────────────────────────────────────────────────────
 const S = {
@@ -325,6 +338,54 @@ function renderTree() {
   if (cur) cur.scrollIntoView({ block: 'nearest' });
 }
 
+// ── Rafraîchir un projet, bandeau d'étapes (#158) ───────────────────────────
+// Un bandeau par projet rafraîchi, en tête de ses cartes : une coche par étape de l'évènement `refresh`.
+// Fin sans erreur : il disparaît ; avec erreur : il reste en rouge jusqu'à × ou au rafraîchissement suivant.
+const REFRESH_LABELS = { ctr: 'conteneur / pod', session: 'session', git: 'git', github: 'GitHub', tpl: 'template', usage: 'consommation' };
+const REFRESH_IDS = ['ctr', 'session', 'git', 'github', 'tpl', 'usage'];
+const refreshBands = {};
+function refreshBand(path) {
+  const b = refreshBands[path];
+  if (!b) return null;
+  const err = b.done && b.steps.some((s) => s.state === 'err');
+  const d = el('div', 'steps' + (err ? ' err' : ''));
+  const head = el('div', 'sthead');
+  head.append(el('b', '', err ? 'Rafraîchi, avec une erreur' : '⟳ Rafraîchissement de ' + (b.name || '')));
+  if (err) { const x = el('span', 'stx', '×'); x.title = 'fermer'; x.onclick = (e) => { e.stopPropagation(); delete refreshBands[path]; renderCards(); }; head.append(x); }
+  const line = el('div', 'stline');
+  for (const s of b.steps) {
+    const ic = { ok: ['✓', 't-green'], run: ['⟳', 't-cyan'], err: ['✕', 't-red'] }[s.state] || ['·', 't-dim'];
+    line.append(el('span', ic[1], ic[0]), el('span', '', ' ' + (REFRESH_LABELS[s.id] || s.id) + '  '));
+  }
+  d.append(head, line);
+  if (err && b.msg) d.title = b.msg;
+  return d;
+}
+function onRefresh(ev) {
+  if (!ev || !ev.path) return;
+  const r = rowOf(ev.path);
+  const name = r ? r.name : ev.path.split('/').pop();
+  const err = (ev.steps || []).some((s) => s.state === 'err');
+  if (ev.done && !err) delete refreshBands[ev.path];
+  else refreshBands[ev.path] = { name, steps: ev.steps || [], done: !!ev.done, msg: ev.msg || '' };
+  if (ev.done && ev.msg) flashBrief(name + ' : ' + ev.msg, 6000);
+  if (ev.path === S.cursor) renderCards();
+}
+async function refreshProject(path) {
+  const r0 = rowOf(path);
+  // bandeau posé avant l'appel : un évènement `done` arrivé avant le retour du call le remplace/l'efface correctement
+  const prev = refreshBands[path];
+  refreshBands[path] = { name: r0 ? r0.name : '', steps: REFRESH_IDS.map((id) => ({ id, state: 'wait' })), done: false, msg: '' };
+  if (path === S.cursor) renderCards();
+  let r;
+  try { r = await call('refreshProject', { path }); } catch (e) { r = { ok: false, msg: e.message }; }
+  if (r && r.ok === false) {
+    if (prev) refreshBands[path] = prev; else delete refreshBands[path];
+    if (path === S.cursor) renderCards();
+    flash(r.msg || 'rafraîchissement impossible');
+  }
+}
+
 let teamClick = { key: null, at: 0 };
 function renderCards() {
   const c = S.cards, box = $('cards');
@@ -334,6 +395,7 @@ function renderCards() {
   if (c.loading) {
     const t = el('div', 'cardstitle'); t.append(el('span', '', '◈ ÉTAT · ' + c.name));
     box.append(t, el('div', 'dim cardsload', 'chargement…'));
+    const bl = refreshBand(c.path); if (bl) box.insertBefore(bl, t.nextSibling);
     return;
   }
   const pend = new Set(c.pending || []);
@@ -347,6 +409,7 @@ function renderCards() {
   if (c.updated) t.append(el('span', c.staleUpd ? 't-yellow' : '', '· mis à jour ' + c.updated));
   t.append(el('span', 'sp'), ce);
   box.appendChild(t);
+  const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
   const card = (title, sub, body) => {
@@ -422,15 +485,22 @@ function renderCards() {
       const on = !!m.started || !!m.claude;
       const r = el('div', 'tr' + (on && !m.hidden ? ' vis' : '') + (on ? '' : ' off'));
       // état du template (#136) : ● vert à jour, ▲ orange en retard (○ pour un non démarré, mêmes couleurs) ; neutre : comme avant
+      // #151 : la version n'a plus de colonne (elle est dans le titre de la carte) ; ⚠ orange en dernière colonne
+      // quand la ligne s'écarte de l'en-tête (m.odd : tpl, claude), détail en infobulle
       const late = m.tplState === 'late', ok = m.tplState === 'ok';
-      const mark = el('span', late ? 't-orange' : ok ? 't-green' : on ? 't-green' : 't-dim', late && on ? '▲' : on ? '●' : '○');
+      const odd = m.odd || [];
+      const mark = el('span', ok || on ? 't-green' : 't-dim', on ? '●' : '○');
+      const warn = el('span', 't-orange', odd.length ? '⚠' : '');
       r.append(mark, el('span', 'n', (m.companion ? '+ ' : '') + m.name),
-        el('span', 'v', on ? (m.claude || '') : ''), el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')));
+        el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')), warn);
       const st = !on ? 'non démarré' : m.name === 'leader' ? 'leader' : m.active ? 'actif' : m.hidden ? 'caché' : m.pinned ? 'visible (fixé)' : 'visible' + (m.idleLeft ? ' · ' + m.idleLeft + ' s' : '');
       const tip = [st];
       if (m.tplState) tip.push('template ' + (m.tag || '?') + (m.tplTarget ? ' — cible ' + m.tplTarget : ' — version cible inconnue') + (late ? ' (en retard)' : ' (à jour)'));
       else if (m.tag && !m.tplTarget) tip.push('template ' + m.tag + ' — version cible inconnue');
       if (m.tplState || m.tag || m.tplTarget) tip.push(m.companion ? 'compagnon : oui' + (m.companionFile ? ' (' + m.companionFile + ')' : '') : 'compagnon : non');
+      if (odd.includes('tpl')) tip.push('⚠ template ' + (m.tag || '?') + ' ≠ ' + ((c.teamHead && c.teamHead.tpl) || '?'));
+      if (odd.includes('claude')) tip.push('⚠ claude ' + (m.claude || '?') + ' ≠ ' + ((c.teamHead && c.teamHead.claude) || '?'));
+      if (on && m.claude) tip.push('claude ' + m.claude);
       r.title = tip.join('\n');
       if (on && m.pane) r.onclick = () => {
         const now = Date.now(), k = c.path + '|' + m.pane;
@@ -443,7 +513,11 @@ function renderCards() {
     }
     tb.appendChild(g);
   }
-  card('Team', c.team && c.team.length ? c.team.length + ' teammates' : '', tb);
+  // titre « Team · N · tpl vX · claude Y » (#151) : versions de l'en-tête (teamHead), omises si inconnues
+  const th = c.teamHead || {};
+  const vt = (s) => (/^v/.test(s) ? s : 'v' + s);
+  const sub = c.team && c.team.length ? [String(c.team.length)].concat(th.tpl ? ['tpl ' + vt(th.tpl)] : [], th.claude ? ['claude ' + th.claude] : []).join(' · ') : '';
+  card('Team', sub, tb);
   // Fichiers
   if (c.loaded) {
     const fb = el('div', 'cb'); const g = el('div', 'files');
@@ -529,6 +603,29 @@ async function askClose(path) {
   }
 }
 
+// Forcer la fermeture (#158) : boîte de confirmation (raison, ce qui est nettoyé).
+async function askForceClose(path) {
+  const r = await call('forceClose', { path });
+  if (!r) return;
+  if (r.msg) flash(r.msg);
+  if (!r.question) return;
+  openModal((b) => {
+    b.append(el('h2', '', r.question.replace(/ · o\/N$/, '')));
+    if (r.why) b.append(el('p', 'why', r.why + '. L\'état local sera nettoyé :'));
+    if ((r.items || []).length) { const ul = el('ul', 'fcitems'); for (const i of r.items) ul.append(el('li', '', i)); b.append(ul); }
+    const btns = el('div', 'btns');
+    const no = el('button', 'btn', 'Annuler'); no.onclick = closeModal;
+    const yes = el('button', 'btn danger', 'Forcer la fermeture');
+    yes.onclick = async () => {
+      closeModal();
+      const c = await call('forceCloseConfirm', { path });
+      if (c && c.msg) flash(c.msg);
+    };
+    btns.append(no, yes); b.appendChild(btns);
+    no.focus(); // défaut sûr : Entrée annule ; Échap aussi (gestion générale des modales)
+  });
+}
+
 $('tree').addEventListener('click', (e) => {
   const row = e.target.closest('.row'); $('nav').focus(); S.focusNav = true;
   if (!row || !row.dataset.path) { showView('leaders'); return; }
@@ -561,7 +658,10 @@ function showProjectMenu(path, x, y) {
     m.appendChild(d);
   };
   it('Ouvrir', 'Entrée', () => openProject(path));
-  it('Fermer', 'Suppr', () => askClose(path), !r.open);
+  // Fermer : selon l'état de la ligne (ouvert ou pastille autre que ○), plus selon la présence d'un onglet (#158)
+  it('Fermer', 'Suppr', () => askClose(path), !(r.open || (r.dot && r.dot.icon && r.dot.icon !== '○')));
+  it('⟳ Rafraîchir', 'F5', () => refreshProject(path), !!r.refreshing);
+  it('Forcer la fermeture…', '', () => askForceClose(path), !r.canForce);
   m.appendChild(el('hr'));
   it('⚙ Réglages du projet…', '', () => openSettings(path, 'projet'));
   it('Changer de backend…', 'F2', () => openSettings(path, 'projet', 'pjf-backend'));
@@ -622,10 +722,11 @@ document.addEventListener('keydown', (e) => {
     case 'Delete': if (isProject(S.cursor)) askClose(S.cursor); return handled();
     case 'F1': helpBox(); return handled();
     case 'F2': if (isProject(S.cursor)) execF2(S.cursor); return handled();
-    case 'F5': call('refresh'); return handled();
+    case 'F5': call('refresh'); if (isProject(S.cursor)) refreshProject(S.cursor); return handled();
     case 'Tab': focusTerminal(); return handled();
     case 'Escape':
       if (S.filter) { S.filter = ''; renderTree(); renderHead(); return handled(); }
+      if (webOfNative()) { flash('quitter : réservé à la fenêtre native'); return handled(); }
       S.quit = 1; renderHead(); return handled();
     case 'Backspace':
       if (S.filter) { S.filter = S.filter.slice(0, -1); afterFilter(); }
@@ -729,16 +830,20 @@ function applyLayoutPrefs() {
   const w = prefs.get('navW', 0); if (w) setNavW(w, true);
   const h = prefs.get('treeH', 0); if (h) setTreeH(h, true);
   FONT_SIZE = clampFont(prefs.get('termFontSize', FONT_DEFAULT));
+  setZoneSize('tree', prefs.get('treeFontSize', TREE_DEFAULT), true);
+  setZoneSize('cards', prefs.get('cardsFontSize', CARDS_DEFAULT), true);
   document.body.classList.toggle('cardsfolded', !!prefs.get('cardsHidden', false));
 }
 
 // ── Onglets ────────────────────────────────────────────────────────────────
 function renderTabs() {
   const bar = $('tabs'); bar.textContent = '';
-  const lt = el('div', 'tab' + (S.view === 'leaders' ? ' on' : ''), '⌗ Teamleaders');
-  if (S.view === 'leaders') lt.style.background = '#1F4FD1';
+  // Teamleaders (#162) : pastille à contour épinglée à gauche, hors de la zone qui défile, suivie d'un filet, sans ×
+  const lt = el('div', 'tl' + (S.view === 'leaders' ? ' on' : ''));
+  lt.append(el('span', 'tlic', '⌗'), el('span', 'tltx', ' Teamleaders'));
   lt.onclick = () => showView('leaders');
-  bar.appendChild(lt);
+  const scroll = el('div', 'tscroll');
+  bar.append(lt, el('div', 'tsep'), scroll, layoutButton());
   for (const t of (S.snap && S.snap.tabs) || []) {
     const d = el('div', 'tab'); d.dataset.path = t.path;
     const on = S.view === t.path;
@@ -752,8 +857,91 @@ function renderTabs() {
     x.onclick = (e) => { e.stopPropagation(); detachTab(t.path); };
     d.appendChild(x);
     d.onclick = () => showView(t.path, true);
-    bar.appendChild(d);
+    scroll.appendChild(d);
   }
+  fitLeadersTab();
+}
+// Bouton de mise en page (#153) : tout à droite, hors de la zone qui défile ; bascule le projet de l'onglet actif entre
+// « leader en haut » et « leader à gauche » et enregistre l'exception du projet (projectApply layout). L'organisation
+// effective vient de projectSettings (layout), relue au plus toutes les 5 s et après chaque bascule ; grisé sans projet.
+const layoutCache = {}; // chemin -> { v: 'top'|'left', at }
+const layoutLoading = {};
+const LAYOUT_TXT = { top: 'leader en haut', left: 'leader à gauche' };
+function layoutDrop(path) { if (path) { delete layoutCache[path]; delete layoutFail[path]; } else { for (const k of Object.keys(layoutCache)) delete layoutCache[k]; for (const k of Object.keys(layoutFail)) delete layoutFail[k]; } layoutLastPath = ''; }
+function layoutIcon(v) {
+  const sv = '<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.2">';
+  const body = v === 'left' ? '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="1.5" y="2.5" width="5.5" height="11" fill="currentColor" stroke="none"/><line x1="7" y1="8" x2="14.5" y2="8"/>'
+    : '<rect x="1.5" y="2.5" width="13" height="11" rx="1.5"/><rect x="1.5" y="2.5" width="13" height="5" fill="currentColor" stroke="none"/><line x1="8" y1="7.5" x2="8" y2="13.5"/>';
+  return sv + body + '</svg>';
+}
+// Relecture : au changement d'onglet actif (force), après bascule / enregistrement des Réglages (layoutDrop), sinon au plus toutes
+// les 30 s ; sur erreur, attente croissante (2 s, 4 s … 60 s) — jamais un appel par instantané.
+const layoutFail = {}; // chemin -> { n, until }
+let layoutLastPath = '';
+function layoutFetch(path, force) {
+  if (layoutLoading[path]) return;
+  const now = Date.now(), c = layoutCache[path], f = layoutFail[path];
+  if (f && now < f.until) return;
+  if (!force && c && now - c.at < 30000) return;
+  layoutLoading[path] = true;
+  transport.call('projectSettings', { path }).then((r) => {
+    if (r && r.layout) { delete layoutFail[path]; const old = layoutCache[path] && layoutCache[path].v; layoutCache[path] = { v: r.layout, at: Date.now() }; if (old !== r.layout) paintLayoutButton(); }
+    else throw new Error('sans layout');
+  }).catch(() => { const n = ((layoutFail[path] || {}).n || 0) + 1; layoutFail[path] = { n, until: Date.now() + Math.min(60000, 1000 * Math.pow(2, n)) }; }).finally(() => { delete layoutLoading[path]; });
+}
+function layoutButton() {
+  const b = el('div', 'tlayb'); b.id = 'tlayb';
+  b.onclick = () => toggleLayout();
+  paintLayoutButton(b);
+  return b;
+}
+function paintLayoutButton(b) {
+  b = b || $('tlayb'); if (!b) return;
+  const path = S.view !== 'leaders' ? S.view : '';
+  const cur = path && layoutCache[path] ? layoutCache[path].v : '';
+  b.classList.toggle('dis', !path || !cur);
+  b.setAttribute('aria-disabled', !path || !cur ? 'true' : 'false'); // grisé mais l'infobulle reste visible : le clic est ignoré (toggleLayout)
+  b.innerHTML = layoutIcon(cur === 'left' ? 'left' : 'top');
+  if (!path) b.title = 'Pas de mise en page pour l\'onglet Teamleaders : choisir un onglet de projet';
+  else if (!cur) b.title = 'Mise en page : lecture en cours…';
+  else b.title = 'Mise en page : ' + LAYOUT_TXT[cur] + ' — cliquer pour ' + LAYOUT_TXT[cur === 'left' ? 'top' : 'left'];
+  if (path) { const changed = path !== layoutLastPath; layoutLastPath = path; layoutFetch(path, changed); } else layoutLastPath = '';
+}
+async function toggleLayout() {
+  const path = S.view !== 'leaders' ? S.view : '';
+  const cur = path && layoutCache[path] && layoutCache[path].v;
+  if (!path || !cur) return;
+  const next = cur === 'left' ? 'top' : 'left';
+  layoutCache[path] = { v: next, at: Date.now() }; paintLayoutButton();
+  let r;
+  try { r = await call('projectApply', { path, layout: next }); } catch (e) { r = null; }
+  if (!r || r.ok === false) { layoutDrop(path); paintLayoutButton(); if (r && r.msg) flash('⚠ ' + r.msg); return; }
+  flashBrief('Mise en page : ' + LAYOUT_TXT[next], 3000);
+}
+
+// Réduction à l'icône (#162) : les onglets de projets sont mesurés contre la place restante **avec la pastille à sa
+// largeur complète** (mesurée pastille étendue) — sinon réduire ; pas d'oscillation réduit/étendu.
+function fitLeadersTab() {
+  const bar = $('tabs'), lt = bar.querySelector('.tl'), sc = bar.querySelector('.tscroll'), sep = bar.querySelector('.tsep');
+  if (!lt || !sc) return;
+  lt.classList.remove('ico'); lt.removeAttribute('title');
+  const full = lt.offsetWidth + parseFloat(getComputedStyle(lt).marginLeft || 0) + parseFloat(getComputedStyle(lt).marginRight || 0);
+  const lb = bar.querySelector('.tlayb'), lbw = lb ? lb.offsetWidth + parseFloat(getComputedStyle(lb).marginLeft || 0) + parseFloat(getComputedStyle(lb).marginRight || 0) : 0;
+  const sp = sep.offsetWidth + parseFloat(getComputedStyle(sep).marginLeft || 0) + parseFloat(getComputedStyle(sep).marginRight || 0);
+  if (sc.scrollWidth > bar.clientWidth - full - sp - lbw + 1) { lt.classList.add('ico'); lt.title = 'Teamleaders'; }
+  const on = sc.querySelector('.tab.on'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+window.addEventListener('resize', () => fitLeadersTab());
+// largeur de la barre changée sans évènement de fenêtre (séparateur du panneau gauche…) : recalcul, sans boucle
+// (la hauteur et les changements de pastille ne comptent pas : seule la largeur observée déclenche)
+if (typeof ResizeObserver === 'function') {
+  let tabsW = -1;
+  new ResizeObserver((es) => {
+    const w = Math.round(es[0].contentRect.width);
+    if (w === tabsW) return;
+    tabsW = w;
+    fitLeadersTab();
+  }).observe($('tabs'));
 }
 function lighten(hex) {
   const n = parseInt(hex.slice(1), 16); const f = (v) => Math.min(255, Math.round(v + (255 - v) * 0.45));
@@ -891,6 +1079,7 @@ class ProjView {
     const cols = Math.max(20, Math.floor((vr.width - 8) / cell.w));
     const rows = Math.max(6, Math.floor((vr.height - 8 - cell.h) / cell.h)); // 1 ligne d'en-têtes en haut
     const key = cols + 'x' + rows;
+    if (!hasKeyboard()) return; // sans le clavier : géométrie reçue affichée telle quelle (applyLayout), la nôtre n'est pas renvoyée
     if (this.sent !== key) { this.sent = key; call('termResize', { path: this.path, cols, rows }); }
   }
   fitLaunch(vr) {
@@ -900,7 +1089,7 @@ class ProjView {
     const m = this.state === 'pty' ? 8 + 14 : 16 + 14; // marges de la boîte et du terminal
     const cols = Math.max(20, Math.floor((vr.width - m) / cell.w)), rows = Math.max(5, Math.floor((vr.height - m) / cell.h));
     if (this.launch.cols !== cols || this.launch.rows !== rows) this.launch.resize(cols, rows);
-    if (this.state === 'pty') call('termResize', { path: this.path, cols, rows });
+    if (this.state === 'pty' && hasKeyboard()) call('termResize', { path: this.path, cols, rows });
   }
   focus() {
     if (this.state !== 'ready') { this.launch.focus(); return; }
@@ -928,6 +1117,9 @@ class ProjView {
       pv.head.querySelector('.n').textContent = p.name || p.id;
       pv.head.querySelector('.r').textContent = p.role === 'leader' ? '· leader' : p.role ? '· ' + p.role : '';
       pv.head.classList.toggle('focus', !!p.active);
+      // #152 : bandeau selon panes[].state (lead, active, idle, vide), plus déduit du texte de role
+      pv.head.classList.toggle('active', p.state === 'active');
+      pv.head.classList.toggle('idle', p.state === 'idle');
       if (pv.term.cols !== p.w || pv.term.rows !== p.h) pv.term.resize(p.w, p.h);
       if (pv.bg !== p.bg) { pv.bg = p.bg; pv.term.options.theme = Object.assign({}, pv.term.options.theme, { background: p.bg }); pv.box.style.background = p.bg; }
       if (p.active) this.focusPane = p.id;
@@ -1020,6 +1212,7 @@ function paneBorder(panes, cx, cy, gap) {
 // terminalKey : raccourcis de l'application pris dans un terminal (false : pas pour lui).
 function terminalKey(ev, clip) {
   if (ev.type !== 'keydown') return true;
+  if (!$('modal').classList.contains('hidden')) return false; // boîte ouverte : rien ne part au terminal (#158)
   if (clip) {
     // Ctrl+Maj+C copie la sélection (Ctrl+C reste l'interruption) ; Ctrl+V, Ctrl+Maj+V et Maj+Inser collent par
     // ce seul chemin (preventDefault : pas de second collage par l'évènement natif « paste »)
@@ -1450,10 +1643,21 @@ function applyState(s) {
   for (const p of Object.keys(S.views)) if (!open.has(p)) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of open) if (!S.views[p]) ensureView(p);
   if (S.view !== 'leaders' && !open.has(S.view)) S.view = 'leaders';
-  renderHead(); renderTree(); renderTabs();
+  renderHead(); renderTree(); renderTabs(); lanBanner();
+  if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
   if (S.view === 'leaders') leaders.layout();
+}
+
+// Bannière tant que l'interface web écoute hors boucle locale (webUI.lan) : fenêtre native seulement (#163)
+function lanBanner() {
+  const w = (S.snap && S.snap.webUI) || {};
+  let b = $('lanbanner');
+  const show = !!(w.lan && w.state === 'on' && !isWebClient());
+  if (!show) { if (b) b.remove(); return; }
+  if (!b) { b = el('div', 'lanbanner'); b.id = 'lanbanner'; $('main').insertBefore(b, $('tabs')); }
+  b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS') + ' (Réglages › Ce poste)';
 }
 
 function applyInit(r) {
@@ -1468,6 +1672,7 @@ function onEvent(name, data) {
   switch (name) {
     case 'state': applyState(data); break;
     case 'cards': takeCards(data); break;
+    case 'refresh': onRefresh(data); break;
     case 'term': {
       const v = ensureView(data.path);
       switch (data.kind) {
@@ -1511,16 +1716,43 @@ function setFontSize(n, keep) {
   if (!keep) prefs.set('termFontSize', n);
   flash('Taille des caractères : ' + n);
 }
-let wheelAcc = 0;
+// Terminaux (#140) : Ctrl+molette sur les vues
 $('views').addEventListener('wheel', (e) => {
   if (!e.ctrlKey) return;
   e.preventDefault(); e.stopPropagation();
-  // pavé tactile / pincement : deltaY cumulé, un cran par tranche de 50 (molette : un cran par encoche)
-  wheelAcc += e.deltaMode === 0 ? e.deltaY : e.deltaY * 50;
-  if (Math.abs(wheelAcc) < 50) return;
-  const dir = wheelAcc < 0 ? 1 : -1;
-  wheelAcc = 0;
-  setFontSize(FONT_SIZE + dir);
+  wheelStep(e, 'term', setFontSize, () => FONT_SIZE);
+}, { passive: false, capture: true });
+// Arbre / cartes (#150) : même mécanique, tailles portées par les variables CSS de zone.
+const ZONES = {
+  tree: { key: 'treeFontSize', css: '--tfs', def: TREE_DEFAULT, label: "Taille de l'arbre : " },
+  cards: { key: 'cardsFontSize', css: '--cfs', def: CARDS_DEFAULT, label: 'Taille des cartes : ' },
+};
+const zoneSize = (z) => (z === 'tree' ? TREE_SIZE : CARDS_SIZE);
+function setZoneSize(z, n, keep) {
+  const Z = ZONES[z];
+  n = clampFont(n, Z.def);
+  if (!keep && n === zoneSize(z)) return;
+  if (z === 'tree') TREE_SIZE = n; else CARDS_SIZE = n;
+  document.documentElement.style.setProperty(Z.css, n + 'px');
+  if (keep) return;
+  prefs.set(Z.key, n);
+  flashBrief(Z.label + n);
+}
+// Ctrl+molette : un cran par tranche de 50 (pavé tactile / pincement), accumulé par zone
+const wheelAccs = new Map();
+function wheelStep(e, k, apply, cur) {
+  let acc = (wheelAccs.get(k) || 0) + (e.deltaMode === 0 ? e.deltaY : e.deltaY * 50);
+  if (Math.abs(acc) < 50) { wheelAccs.set(k, acc); return; }
+  const dir = acc < 0 ? 1 : -1;
+  wheelAccs.set(k, 0);
+  apply(cur() + dir);
+}
+// toute la colonne gauche : la zone des cartes → cartes, le reste (en-tête, arbre, pied) → arbre
+$('nav').addEventListener('wheel', (e) => {
+  if (!e.ctrlKey) return;
+  e.preventDefault(); e.stopPropagation();
+  if ($('cards').contains(e.target)) wheelStep(e, 'cards', (n) => setZoneSize('cards', n), () => CARDS_SIZE);
+  else wheelStep(e, 'tree', (n) => setZoneSize('tree', n), () => TREE_SIZE);
 }, { passive: false, capture: true });
 
 let fitTimer = null;
@@ -1529,6 +1761,8 @@ function scheduleFit() {
   fitTimer = setTimeout(() => { for (const v of Object.values(S.views)) v.fit(); leaders.layout(); }, 80);
 }
 window.addEventListener('resize', scheduleFit);
+// un client qui prend le clavier fixe la taille : sa géométrie est renvoyée
+window.addEventListener('focus', () => { if (!sharedTerms()) return; for (const v of Object.values(S.views)) { v.sent = null; v.fit(); } });
 
 // focus clavier visible seulement au clavier (comme Windows : pas après un clic)
 document.addEventListener('keydown', () => document.body.classList.add('kbd'), true);

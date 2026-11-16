@@ -79,7 +79,7 @@ func TestTeamLinesRegistryNames(t *testing.T) {
 	write(filepath.Join(proj, ".claude", "agents", "implementation-planner.md"), "compagnon")
 	write(filepath.Join(proj, ".claude", "agents", "marketing-release.md"), "compagnon")
 	write(filepath.Join(root, "teams", "s1", "config.json"), `{"members":[
-		{"name":"team-lead","agentType":"team-lead","tmuxPaneId":"%1","cwd":"`+proj+`"},
+		{"name":"team-lead","agentType":"team-lead","tmuxPaneId":"%1","cwd":`+jsonq(proj)+`},
 		{"name":"deployer","agentType":"deploy","tmuxPaneId":"%2"},
 		{"name":"planner","agentType":"general-purpose","tmuxPaneId":"%3"},
 		{"name":"marketing","agentType":"marketing-release","tmuxPaneId":"%4"}]}`)

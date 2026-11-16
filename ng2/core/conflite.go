@@ -168,14 +168,14 @@ func confLite(src, home string) string {
 		"CLAUDE_DISABLE_MOUSE": "1", "CLAUDE_EXPERIMENTAL_TEAMS": "1", "CLAUDE_OPTIONS": "",
 		"LAYOUT_2ROW_LEADER_PCT": "50", "LAYOUT_3ROW_LEADER_NUM": "3", "LAYOUT_3ROW_MID_NUM": "2", "LAYOUT_3ROW_DEN": "7",
 		"PANE_ACTIVE_BRIGHTEN_STEP": "1", "PANE_INACTIVE_DARKEN_STEP": "1", "RESUME_MODE": "ask", "RESUME_MAX_AGE_H": "24",
-		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30",
+		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30", "LAYOUT_MODE": "top", "LAYOUT_LEFT_LEADER_PCT": "46",
 	}
 	if strings.Contains(home, `\`) {
 		vars["GITHUB_DIR"] = home + `\GITHUB`
 	}
 	claudeDirSet := false
 	arrays := map[string][]string{"GITHUB_DIRS": nil, "EXTRA_ENVS": nil, "COLOR_PALETTE": strings.Fields("17 52 22 53 58 23 54 238 18 59")}
-	colors := map[string]string{}
+	colors, layouts := map[string]string{}, map[string]string{}
 	get := func(n string) string {
 		if v, ok := vars[n]; ok {
 			return v
@@ -219,10 +219,14 @@ func confLite(src, home string) string {
 						items = append(items, toks[k].s)
 					}
 				}
-				if name == "PROJECT_COLORS" {
+				if name == "PROJECT_COLORS" || name == "PROJECT_LAYOUTS" {
+					dst := colors
+					if name == "PROJECT_LAYOUTS" {
+						dst = layouts
+					}
 					for _, it := range items {
 						if kv, v, ok := strings.Cut(it, "]="); ok && strings.HasPrefix(kv, "[") {
-							colors[kv[1:]] = v
+							dst[kv[1:]] = v
 						}
 					}
 					continue
@@ -239,6 +243,7 @@ func confLite(src, home string) string {
 	var b strings.Builder
 	p := func(tag, v string) { fmt.Fprintf(&b, "%s\t%s\n", tag, v) }
 	p("layout", strings.Join([]string{vars["LAYOUT_2ROW_LEADER_PCT"], vars["LAYOUT_3ROW_LEADER_NUM"], vars["LAYOUT_3ROW_MID_NUM"], vars["LAYOUT_3ROW_DEN"]}, " "))
+	p("layoutmode", vars["LAYOUT_MODE"]+" "+vars["LAYOUT_LEFT_LEADER_PCT"])
 	p("steps", vars["PANE_ACTIVE_BRIGHTEN_STEP"]+" "+vars["PANE_INACTIVE_DARKEN_STEP"])
 	p("hideidle", vars["TEAM_HIDE_IDLE"])
 	p("usage", vars["USAGE_REFRESH_SEC"])
@@ -264,6 +269,14 @@ func confLite(src, home string) string {
 	sort.Strings(keys)
 	for _, k := range keys {
 		fmt.Fprintf(&b, "color\t%s\t%s\n", k, colors[k])
+	}
+	lkeys := make([]string, 0, len(layouts))
+	for k := range layouts {
+		lkeys = append(lkeys, k)
+	}
+	sort.Strings(lkeys)
+	for _, k := range lkeys {
+		fmt.Fprintf(&b, "playout\t%s\t%s\n", k, layouts[k])
 	}
 	if dirs := arrays["GITHUB_DIRS"]; len(dirs) > 0 {
 		for _, d := range dirs {

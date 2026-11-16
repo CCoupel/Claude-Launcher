@@ -131,6 +131,9 @@ func launchProject(cfg core.Config, session string, n core.Node, latest string, 
 	_ = dtmux("set-window-option", "-t", target, "window-status-style", "fg=colour242,bg=colour236").Run()
 	_ = dtmux("set-window-option", "-t", target, "window-status-current-style", "bold,fg=colour255,bg=colour27").Run()
 	_ = dtmux("set-option", "-p", "-t", pane, "window-style", "bg=colour"+cfg.ProjectColor(n.Key)).Run()
+	if !inCtr { // en-tête des panes (#152) : fenêtre du hub ; un conteneur : posé par son surveillant, à chaque rattachement
+		core.SetWindowHeaders(hub, target)
+	}
 
 	if inCtr {
 		_ = dtmux("set-window-option", "-t", target, "@cl_backend", be.Name).Run()

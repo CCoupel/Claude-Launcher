@@ -390,6 +390,12 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 	if _, err := resolveBrowserServer(f, host); err != nil {
 		ps = append(ps, ConfigProblem{Line: lineOf(content, "browser_server"), Severity: SevError, Message: err.Error()})
 	}
+	// desktop_web (#163) : valeur illisible ou adresse de browser_server = erreur ; hors boucle locale = avertissement
+	if dw, err := resolveDesktopWebFor(f, host, goos); err != nil {
+		ps = append(ps, ConfigProblem{Line: lineOf(content, "desktop_web"), Severity: SevError, Message: err.Error()})
+	} else if dw.Warn != "" {
+		ps = append(ps, ConfigProblem{Line: lineOf(content, "desktop_web"), Severity: SevWarning, Message: dw.Warn})
+	}
 	return ps
 }
 
@@ -441,6 +447,16 @@ func validateConf(content []byte) []ConfigProblem {
 				ps = append(ps, ConfigProblem{Line: lineOf(content, "GITHUB_DIR"), Severity: SevWarning, Message: "racine de projets introuvable : " + r})
 			}
 		}
+	}
+	for _, w := range cfg.layoutWarns {
+		key := "LAYOUT_MODE"
+		switch {
+		case strings.HasPrefix(w, "LAYOUT_LEFT"):
+			key = "LAYOUT_LEFT_LEADER_PCT"
+		case strings.HasPrefix(w, "PROJECT_LAYOUTS"):
+			key = "PROJECT_LAYOUTS"
+		}
+		ps = append(ps, ConfigProblem{Line: lineOf(content, key), Severity: SevWarning, Message: w})
 	}
 	for _, u := range cfg.Unmapped {
 		ps = append(ps, ConfigProblem{Line: lineOf(content, strings.Fields(u)[0]), Severity: SevWarning, Message: u + " : aucune correspondance Linux → Windows (hubs.<machine>.paths de backends.yaml)"})

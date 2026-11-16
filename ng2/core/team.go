@@ -219,6 +219,9 @@ type TeamLine struct {
 	// état du template (TplInfo.Apply) : ok / late / "" (neutre), version
 	// cible ("" si inconnue), fichier compagnon ("" si aucun)
 	TplState, TplTarget, CompanionFile string
+
+	// écarts de la ligne avec l'en-tête de la carte (ApplyTeamHead) : OddTpl, OddClaude
+	Odd []string
 }
 
 // TeamLines : lignes de la carte TEAM. tm : registre (ReadTeammates), panes :

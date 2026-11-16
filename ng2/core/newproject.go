@@ -54,11 +54,16 @@ func InitProject(dir string, raw bool, remote string) error {
 		}
 		return nil
 	}
-	if out, err := platform.NoWindow(exec.Command("git", "-C", dir, "init", "-q")).CombinedOutput(); err != nil {
+	gitIn := func(args ...string) *exec.Cmd {
+		c := platform.NoWindow(exec.Command("git", append([]string{"-C", dir}, args...)...))
+		c.Env = WithSafeDirectory(os.Environ(), dir)
+		return c
+	}
+	if out, err := gitIn("init", "-q").CombinedOutput(); err != nil {
 		return errors.New("git init : " + strings.TrimSpace(string(out)))
 	}
 	if r := strings.TrimSpace(remote); r != "" {
-		if out, err := platform.NoWindow(exec.Command("git", "-C", dir, "remote", "add", "origin", r)).CombinedOutput(); err != nil {
+		if out, err := gitIn("remote", "add", "origin", r).CombinedOutput(); err != nil {
 			return errors.New("git remote : " + strings.TrimSpace(string(out)))
 		}
 	}

@@ -32,7 +32,7 @@ func TestTeam(t *testing.T) {
 	write(filepath.Join(agents, "qa.md"), "") // compagnon vide : ignoré
 	write(filepath.Join(agents, "generic.redacteur.md"), "---\nmodel: 'haiku'\n---\nspec\n")
 	write(filepath.Join(root, "teams", "s1", "config.json"), `{"members":[
-		{"agentType":"team-lead","tmuxPaneId":"leader","cwd":"`+proj+`"},
+		{"agentType":"team-lead","tmuxPaneId":"leader","cwd":`+jsonq(proj)+`},
 		{"agentType":"dev-plugin","tmuxPaneId":"%24","model":"opus"},
 		{"agentType":"dev-plugin","tmuxPaneId":"%25"},
 		{"agentType":"custom","tmuxPaneId":"%26"},

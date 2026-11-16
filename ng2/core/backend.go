@@ -414,6 +414,8 @@ type backendsFile struct {
 		BrowserPaths *[]BrowserPath `yaml:"browser_paths"`
 		// serveur web des fichiers pour le navigateur (#106, browserserver.go)
 		BrowserServer *BrowserServer `yaml:"browser_server"`
+		// interface web servie par la fenêtre native (#163, desktopweb.go)
+		DesktopWeb *DesktopWeb `yaml:"desktop_web"`
 	} `yaml:"defaults"`
 	Hubs map[string]hubConf `yaml:"hubs"` // réglages par machine du launcher (hostname)
 }

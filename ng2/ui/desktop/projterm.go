@@ -70,6 +70,8 @@ type projTerm struct {
 	flagged         map[string]bool // clients mis en ignore-size par l'interface (#126)
 	reseed          *time.Timer     // recapture des panes après un redimensionnement
 	reseedSet       map[string]bool // panes à recapturer à l'échéance (nil : tous)
+	hdrSig          string          // en-têtes de panes (#152) : dernière signature posée…
+	hdrAt           time.Time       // … et quand (relue de tmux toutes les 30 s)
 	pubMu           sync.Mutex      // lecture de la fenêtre → publication (tours lent et rapide, #138)
 	team            *core.TeamConfig
 	zoomAt          time.Time         // dernier plein écran demandé (journal, #138)
@@ -84,6 +86,7 @@ type projTerm struct {
 
 type watchState struct {
 	prevSig, prevRelayout string
+	layoutSig             string // organisation effective (et largeur du leader) à la dernière mise en page (#153)
 	prevCount, beat, wait int
 	prevW, prevH          int
 }
@@ -110,6 +113,8 @@ type PaneView struct {
 	Name   string `json:"name"`   // agent (team-lead, go-dev…) ou commande
 	Role   string `json:"role"`   // leader, cdp, actif, inactif, ""
 	Active bool   `json:"active"` // pane actif de tmux
+	// State : lead (leader, agent cdp), active, idle, "" (pane sans agent) — contrat #152
+	State string `json:"state"`
 }
 
 // LayoutMsg : géométrie de la fenêtre du projet.
@@ -742,10 +747,15 @@ func (t *projTerm) closeStop() { t.stopOnce.Do(func() { close(t.stop) }) }
 
 // ── Mise en page (règles de core, comme le layout-watch de la coque) ──────
 
-const paneFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window_zoomed_flag}|#{pane_active}|#{pane_pid}|#{window_visible_layout}|#{pane_current_command}"
+const paneFormat = "#{pane_id}|#{pane_index}|#{window-style}|#{window_width}|#{window_height}|#{window_zoomed_flag}|#{pane_active}|#{pane_pid}|#{window_visible_layout}|#{pane_top}|#{pane_current_command}"
 
 func (t *projTerm) orderFile() string {
-	return filepath.Join(os.TempDir(), "claude_desk_"+core.CtrName(t.path)+".order")
+	return orderFilePath(t.path)
+}
+
+// orderFilePath : fichier d'ordre des panes d'un projet (MRU).
+func orderFilePath(path string) string {
+	return filepath.Join(os.TempDir(), "claude_desk_"+core.CtrName(path)+".order")
 }
 
 // watcher : toutes les secondes (et à chaque changement de mise en page) :
@@ -783,9 +793,13 @@ type winPaneFull struct {
 	core.WinPane
 	active bool
 	cmd    string
+	top    int // pane_top : première ligne du contenu du pane (1 pour un pane de la rangée du haut quand tmux porte une ligne de titre)
 }
 
 func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visible string, err error) {
+	if readWinFail.Load() {
+		return nil, 0, 0, false, "", errClientClosed
+	}
 	c := t.cl()
 	if c == nil {
 		return nil, 0, 0, false, "", errClientClosed
@@ -795,10 +809,15 @@ func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visibl
 	if err != nil {
 		return nil, 0, 0, false, "", err
 	}
+	return t.parseWin(b)
+}
+
+// parseWin : analyse la sortie de list-panes (paneFormat) de la fenêtre du projet.
+func (t *projTerm) parseWin(b []byte) (panes []winPaneFull, w, h int, zoomed bool, visible string, err error) {
 	var infos []core.PaneInfo
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
-		f := strings.SplitN(l, "|", 10) // la commande en dernier (peut contenir « | »)
-		if len(f) != 10 || f[0] == "" {
+		f := strings.SplitN(l, "|", 11) // la commande en dernier (peut contenir « | »)
+		if len(f) != 11 || f[0] == "" {
 			continue
 		}
 		idx, _ := strconv.Atoi(f[1])
@@ -806,12 +825,13 @@ func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visibl
 		h, _ = strconv.Atoi(f[4])
 		zoomed = f[5] == "1"
 		visible = f[8]
-		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[9]})
+		top, _ := strconv.Atoi(f[9])
+		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[10], top: top})
 		pid := f[7]
 		if !t.host {
 			pid = "" // conteneur : PID d'un autre espace
 		}
-		infos = append(infos, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[9]})
+		infos = append(infos, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[10]})
 	}
 	sortPanes(panes)
 	t.mu.Lock()
@@ -829,8 +849,29 @@ func sortPanes(p []winPaneFull) {
 }
 
 // tick : un tour du watcher ; fast : sur notification (sans propriétaire ni team).
+// arrangeCalls : mises en page demandées (tests : une bascule ne doit en provoquer qu'une) ; readWinFail : tests,
+// lecture de la fenêtre en échec.
+var (
+	arrangeCalls atomic.Int64
+	readWinFail  atomic.Bool
+	// lastRelayoutRounds : allers-retours tmux de la dernière remise en page immédiate (tests : borne de coût)
+	lastRelayoutRounds atomic.Int64
+	// relayoutMid : tests, appelé entre le calcul de la signature et celui du plan
+	relayoutMid func()
+)
+
+// tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
+// de la team et de tmux prend plusieurs secondes) ; nul en production.
+var tickSlow atomic.Int64 // durée en ns ; atomique : lue par les surveillants pendant qu'un test la fixe
+
 func (t *projTerm) tick(fast bool) {
+	if !fast && t.a.confChangedOnDisk() { // config.conf modifié ailleurs : relu à chaud (#153)
+		t.a.configReload(core.ConfConf)
+	}
 	cfg := t.a.conf()
+	if d := time.Duration(tickSlow.Load()); !fast && d > 0 {
+		time.Sleep(d) // simule la lecture lente de la team (après la lecture de cfg, comme en production)
+	}
 	// team du projet : lue par le tour lent seulement (fichiers, parfois par
 	// 9P), avant la fenêtre ; le tour rapide reprend la dernière lue
 	var tc *core.TeamConfig
@@ -897,6 +938,19 @@ func (t *projTerm) tick(fast bool) {
 			t.watch.prevRelayout = r
 		}
 	}
+	// organisation effective changée (réglage global ou du projet) : remise en page, sans relance (#153)
+	// configuration relue SOUS pubMu : une bascule arrivée pendant un tour lent est déjà prise en compte par
+	// relayoutNow (même signature), ce tour ne remet pas en page une seconde fois ni ne ramène l'ancienne valeur
+	if cfgL := t.a.conf(); !fast { // UNE photo de la configuration pour la signature et pour la mise en page
+		sig := layoutSig(cfgL, t.key)
+		if t.watch.layoutSig != "" && sig != t.watch.layoutSig && !ro && len(panes) > 1 {
+			if !t.arrangeWith(cfgL, cps, w, h, leader, tc) { // échec de transport : signature inchangée, retenté au tour suivant
+				sig = t.watch.layoutSig
+			}
+			arranged = true
+		}
+		t.watch.layoutSig = sig
+	}
 	busy := false
 	if tc != nil {
 		sig := core.ActiveSignature(*tc)
@@ -962,6 +1016,7 @@ func (t *projTerm) tick(fast bool) {
 	// qui remet la couleur de base) ; l'interface les reçoit tout de suite
 	if !ro {
 		t.shade(cfg, panes, cps, leader, tc)
+		t.syncHeaders(panes, leader, tc)
 	}
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
 }
@@ -1085,6 +1140,127 @@ func (t *projTerm) shade(cfg core.Config, panes []winPaneFull, cps []core.WinPan
 	}
 }
 
+// syncHeaders : mêmes options tmux que la coque Linux quand l'interface native a la
+// main (#152) — une ligne de titre par pane (options de fenêtre) et @cl_state /
+// @cl_name de chaque pane, posés seulement quand l'état change (relu de tmux toutes
+// les 30 s au cas où un pane aurait été recréé). Appelé sous pubMu.
+func (t *projTerm) syncHeaders(panes []winPaneFull, leader string, tc *core.TeamConfig) {
+	ids := make([]string, len(panes))
+	for i, p := range panes {
+		ids[i] = p.ID
+	}
+	hs := core.PaneHeaders(ids, leader, tc)
+	sig := core.HeaderSignature(hs)
+	if sig == t.hdrSig && time.Since(t.hdrAt) < 30*time.Second {
+		return
+	}
+	cl := t.cl()
+	core.SetWindowHeaders(cl, t.win)
+	core.SyncPaneHeaders(cl, t.win, hs)
+	t.hdrSig, t.hdrAt = sig, time.Now()
+}
+
+// layoutSig : organisation effective du projet key, avec la largeur du leader quand elle compte (« left »).
+func layoutSig(cfg core.Config, key string) string {
+	m := cfg.LayoutOf(key)
+	if m == core.LayoutLeft {
+		return fmt.Sprintf("%s/%d", m, cfg.LayoutLeftLeaderPct)
+	}
+	return m
+}
+
+// relayoutNow : remet le projet en page tout de suite si son organisation effective a changé depuis la
+// dernière mise en page (bascule du bouton, LAYOUT_MODE enregistré) — sans attendre le tour du surveillant,
+// qui peut durer plusieurs secondes sur un partage réseau (#153). Sous pubMu comme un tour. Coût : DEUX
+// allers-retours sur le canal tmux (lecture de la fenêtre ; mise en page + relecture envoyées d'un coup) —
+// sous Windows chacun traverse wsl.exe / kubectl exec : plusieurs centaines de ms. Mesuré dans la trace de
+// performance (« bascule : … »).
+func (t *projTerm) relayoutNow() {
+	if t.isReadOnly() {
+		return
+	}
+	t.pubMu.Lock()
+	defer t.pubMu.Unlock()
+	cfg := t.a.conf() // UNE photo : signature et plan en sont tirés
+	sig := layoutSig(cfg, t.key)
+	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
+		return
+	}
+	if relayoutMid != nil {
+		relayoutMid()
+	}
+	c := t.cl()
+	if c == nil {
+		return
+	}
+	start, rounds0 := time.Now(), c.rounds.Load()
+	panes, w, h, zoomed, visible, err := t.readWin()
+	tRead := time.Since(start)
+	if err != nil { // fenêtre illisible : la signature reste l'ancienne, le tour du surveillant retente
+		return
+	}
+	if len(panes) <= 1 { // rien à disposer : la nouvelle organisation s'appliquera à l'arrivée des panes
+		t.watch.layoutSig = sig
+		return
+	}
+	var ids strings.Builder
+	for _, p := range panes {
+		ids.WriteString(p.ID + "\n")
+	}
+	leader := leaderID(ids.String())
+	t.mu.Lock()
+	tc := t.team
+	t.mu.Unlock()
+	arrangeCalls.Add(1)
+	plan := t.planArrange(cfg, corePanes(panes), w, h, leader, tc)
+	t1 := time.Now()
+	list := []string{"list-panes", "-t", t.win, "-F", paneFormat}
+	cmds := append(append([][]string{}, plan.Cmds...), list)
+	outs, errs := c.Batch(cmds) // échanges, géométrie, couleurs ET relecture : un seul aller-retour
+	last := len(cmds) - 1
+	for _, e := range errs { // échec de transport (wsl.exe, kubectl exec) : pas un refus de tmux, signature inchangée, retenté au tour suivant
+		if core.IsTransportErr(e) {
+			return
+		}
+	}
+	if plan.Fallback != nil && errs[plan.LayoutAt] != nil { // tmux refuse « leader à gauche » : repli sur « top »
+		fb := append(append([][]string{}, plan.Fallback...), list)
+		o2, e2 := c.Batch(fb)
+		outs[last], errs[last] = o2[len(fb)-1], e2[len(fb)-1]
+		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
+	}
+	t.watch.layoutSig = sig // seulement après la mise en page
+	tArrange := time.Since(t1)
+	if errs[last] == nil {
+		if p2, w2, h2, z2, v2, err := t.parseWin(outs[last]); err == nil && len(p2) > 0 {
+			panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+		}
+	} else if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
+		panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+	}
+	t2 := time.Now()
+	t.publish(panes, w, h, zoomed, visible, leader, tc, tc != nil && core.ActiveSignature(*tc) != "")
+	t.a.perf.trace("bascule : lecture", t.name, tRead, "1 aller-retour")
+	t.a.perf.trace("bascule : mise en page", t.name, tArrange, fmt.Sprintf("%d commandes, 1 aller-retour", len(cmds)))
+	t.a.perf.trace("bascule : publication", t.name, time.Since(t2))
+	rounds := c.rounds.Load() - rounds0
+	lastRelayoutRounds.Store(rounds)
+	t.a.perf.trace("bascule : remise en page", t.name, time.Since(start), fmt.Sprintf("%d aller(s)-retour(s) tmux", rounds))
+}
+
+// relayoutOpen : relayoutNow de chaque projet ouvert (après un enregistrement de config.conf).
+func (a *App) relayoutOpen() {
+	a.mu.Lock()
+	terms := make([]*projTerm, 0, len(a.terms))
+	for _, t := range a.terms {
+		terms = append(terms, t)
+	}
+	a.mu.Unlock()
+	for _, t := range terms {
+		go t.relayoutNow()
+	}
+}
+
 // applyNow : applique la règle des panes cachés et publie tout de suite la
 // géométrie et la carte Team, sans attendre le tour du watcher (bascule
 // manuelle). Utilise la team déjà lue (pas de relecture des fichiers, parfois
@@ -1117,6 +1293,7 @@ func (t *projTerm) applyNow() {
 	}
 	if !ro {
 		t.shade(cfg, panes, corePanes(panes), leader, tc)
+		t.syncHeaders(panes, leader, tc)
 	}
 	busy := tc != nil && core.ActiveSignature(*tc) != ""
 	t.publish(panes, w, h, zoomed, visible, leader, tc, busy)
@@ -1200,16 +1377,38 @@ func (t *projTerm) relayout(force bool) {
 	t.poke()
 }
 
-func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) {
-	if t.isReadOnly() || len(panes) <= 1 {
-		return
-	}
+// planArrange : commandes tmux de la mise en page du projet (classement, organisation effective PROJECT_LAYOUTS puis
+// LAYOUT_MODE, #153), sans rien envoyer.
+func (t *projTerm) planArrange(cfg core.Config, panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) core.ArrangePlan {
 	ids := make([]string, len(panes))
 	for i, p := range panes {
 		ids[i] = p.ID
 	}
 	top, bot := core.Classify(ids, leader, tc, t.orderFile())
-	core.ArrangeTeam(t.a.conf(), t.cl(), t.win, panes, w, h, top, bot, t.color)
+	cfg.LayoutMode = cfg.LayoutOf(t.key)
+	return core.PlanArrange(cfg, t.win, panes, w, h, top, bot, t.color)
+}
+
+func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) {
+	_ = t.arrangeWith(t.a.conf(), panes, w, h, leader, tc)
+}
+
+// arrangeWith : arrange avec la photo de configuration cfg (la même que celle dont la signature d'organisation
+// est tirée : jamais deux lectures qui pourraient différer).
+// Rend faux si la mise en page n'a pas pu être faite (échec de transport) : à retenter, sans fixer de signature.
+func (t *projTerm) arrangeWith(cfg core.Config, panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) bool {
+	if t.isReadOnly() || len(panes) <= 1 {
+		return true
+	}
+	arrangeCalls.Add(1)
+	fellBack, transport := t.planArrange(cfg, panes, w, h, leader, tc).ExecChecked(t.cl())
+	if transport {
+		return false
+	}
+	if fellBack {
+		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
+	}
+	return true
 }
 
 // publish : géométrie, couleurs et noms des panes pour l'interface ; panes
@@ -1235,11 +1434,23 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 		if !ok {
 			continue // masqué (zoom d'un autre pane)
 		}
+		// ligne de titre (pane-border-status top, #152) : la cellule de la mise en page garde sa
+		// hauteur, mais un pane de la rangée du haut perd sa première ligne (pane_top = Y+1) : le
+		// terminal de l'interface a une ligne de moins, comme le pane tmux (sinon une ligne vide
+		// en bas). Y reste la cellule : l'en-tête de l'interface prend la place du titre.
+		if d := p.top - g.Y; d > 0 && d <= 1 && g.H > d {
+			g.H -= d
+		}
 		v := PaneView{ID: p.ID, X: g.X, Y: g.Y, W: g.W, H: g.H, Active: p.active, Name: p.cmd,
 			Bg: core.Colour256Hex(strings.TrimPrefix(styleBg(p.Style), "colour"))}
 		if v.Bg == "" {
 			v.Bg = core.Colour256Hex(t.color)
 		}
+		var mp *core.TeamMember
+		if m, ok := members[p.ID]; ok {
+			mp = &m
+		}
+		v.State = core.PaneState(mp, p.ID == leader) // même source que la teinte et la carte TEAM
 		switch m, ok := members[p.ID]; {
 		case p.ID == leader:
 			v.Name, v.Role = "team-lead", "leader"

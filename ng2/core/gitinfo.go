@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
@@ -29,8 +30,28 @@ type GitInfo struct {
 	Merged   bool // hors branche principale : HEAD déjà contenu dans origin/<Main>
 }
 
+// gitStopWait : attente laissée à git, après le signal d'arrêt, pour libérer ses
+// verrous avant d'être tué.
+const gitStopWait = 2 * time.Second
+
+// gitCmd : lecture git sans écriture dans .git. GIT_OPTIONAL_LOCKS=0 en plus de
+// --no-optional-locks ; au délai, git reçoit un signal d'arrêt (il retire son
+// index.lock) et n'est tué qu'après gitStopWait — jamais de SIGKILL immédiat (#154).
+func gitCmd(ctx context.Context, dir string, args ...string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...)
+	cmd.Env = WithSafeDirectory(append(os.Environ(), "GIT_OPTIONAL_LOCKS=0"), dir)
+	cmd.Cancel = func() error {
+		if err := cmd.Process.Signal(syscall.SIGTERM); err != nil { // Windows : pas de signal, arrêt direct
+			return cmd.Process.Kill()
+		}
+		return nil
+	}
+	cmd.WaitDelay = gitStopWait
+	return platform.NoWindow(cmd)
+}
+
 func git(ctx context.Context, dir string, args ...string) (string, error) {
-	out, err := platform.NoWindow(exec.CommandContext(ctx, "git", append([]string{"--no-optional-locks", "-C", dir}, args...)...)).Output()
+	out, err := gitCmd(ctx, dir, args...).Output()
 	return strings.TrimSpace(string(out)), err
 }
 
@@ -46,7 +67,7 @@ func ReadGit(dir string) GitInfo {
 	g.Main = mainBranch(dir)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain=v2", "--branch")).Output()
+	out, err := gitCmd(ctx, dir, "status", "--porcelain=v2", "--branch").Output()
 	if err != nil {
 		return g
 	}
@@ -80,8 +101,8 @@ func ReadGit(dir string) GitInfo {
 		}
 	}
 	if g.Upstream && g.Branch != g.Main {
-		g.Merged = platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir,
-			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main)).Run() == nil
+		g.Merged = gitCmd(ctx, dir,
+			"merge-base", "--is-ancestor", "HEAD", "origin/"+g.Main).Run() == nil
 	}
 	return g
 }
@@ -157,13 +178,17 @@ func ReadDetail(dir string) GitDetail {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	d := GitDetail{Changes: map[string]string{}}
+	dirty := false // fichier suivi modifié : ce que `describe --dirty` aurait signalé (sans toucher à l'index)
 	// Sortie brute : git() retire les espaces de tête, qui font partie du format.
-	if raw, err := platform.NoWindow(exec.CommandContext(ctx, "git", "--no-optional-locks", "-C", dir, "status", "--porcelain")).Output(); err == nil {
+	if raw, err := gitCmd(ctx, dir, "status", "--porcelain").Output(); err == nil {
 		for _, l := range strings.Split(string(raw), "\n") {
 			if len(l) < 4 {
 				continue
 			}
 			code, path := strings.TrimSpace(l[:2]), l[3:]
+			if code != "??" {
+				dirty = true
+			}
 			if i := strings.Index(path, " -> "); i >= 0 {
 				path = path[i+4:]
 			}
@@ -181,7 +206,10 @@ func ReadDetail(dir string) GitDetail {
 		}
 	}
 	d.LastMsg, _ = git(ctx, dir, "log", "-1", "--format=%s")
-	d.VerLocal, _ = git(ctx, dir, "describe", "--tags", "--dirty")
+	// jamais `describe --dirty` : il rafraîchit l'index et prend index.lock
+	if d.VerLocal, _ = git(ctx, dir, "describe", "--tags"); dirty && d.VerLocal != "" {
+		d.VerLocal += "-dirty"
+	}
 	d.VerRelease, _ = git(ctx, dir, "describe", "--tags", "--abbrev=0", "origin/"+mainBranch(dir))
 	return d
 }
