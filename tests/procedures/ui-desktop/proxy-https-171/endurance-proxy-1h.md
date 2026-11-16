@@ -24,7 +24,8 @@ automatises associes : `ng2/ui/desktop/web171_test.go` (matrices Host/origine/co
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Ouvrir le lien d'acces public, laisser l'onglet au premier plan 1 h sans toucher | Aucune erreur affichee ; la page reste vivante | | |
+| 0 | Ouvrir le lien d'acces public `https://launcher.test/?t=<jeton>` ; regarder la barre d'adresse et l'historique du navigateur | Redirection (303) vers `https://launcher.test/` : **le jeton n'apparait plus** dans la barre d'adresse ni dans l'historique ; cookie `__Host-cl_session…` (Secure, Path=/) visible dans les outils du navigateur | | |
+| 1 | Laisser l'onglet au premier plan 1 h sans toucher | Aucune erreur affichee ; la page reste vivante | | |
 | 2 | Toutes les 10 min, provoquer un changement (projet ouvert/ferme par `tmux` ou autre fenetre) | L'affichage se met a jour sans recharger | | |
 | 3 | `curl -sN -H "Cookie: <session>" https://launcher.test/api/events` pendant 3 min (voir le releve des battements) | Une ligne `: ping` au plus toutes les 20 s ; aucune coupure du proxy | | |
 | 4 | A mi-parcours, couper le proxy 30 s puis le relancer | Reconnexion automatique (delais 1,5 s → 3 s → … → 15 s) ; affichage remis a jour apres reconnexion | | |
@@ -59,6 +60,7 @@ Releves : nombre de coupures = ___ ; plus long delai de reconnexion = ___ s ; ba
 | 1 | `curl -sk -o /dev/null -w '%{http_code}' -H 'Host: evil.test' https://launcher.test/` | 403 | | |
 | 2 | Appel `/api/call` avec `Origin: https://evil.test` et la session | 403 | | |
 | 3 | Acces direct `http://<pod>:8787/` avec le cookie Secure | Pas de session conservee (403 sur les appels) | | |
+| 3b | Comparer les refus : hote etranger / origine etrangere / sans cookie | Trois messages distincts (« hote refuse », « origine refusee », « session ») ; l'interface n'affiche « session expiree » que pour la session | | |
 | 4 | `curl -s https://launcher.test/healthz` ; `/readyz` | 200 `ok`, sans cookie, sans information | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL

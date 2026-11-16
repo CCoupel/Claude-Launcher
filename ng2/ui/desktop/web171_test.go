@@ -67,7 +67,7 @@ func w171Session(t *testing.T, port int, tok, host string) (*http.Cookie, *http.
 	t.Helper()
 	resp, _ := w171Do(t, port, "GET", "/?t="+tok, host, nil, "")
 	for _, c := range resp.Cookies() {
-		if strings.HasPrefix(c.Name, "cl_session_") {
+		if strings.Contains(c.Name, "cl_session") { // « cl_session_<port> » ou « __Host-cl_session… » (https public)
 			return c, resp
 		}
 	}
@@ -97,9 +97,9 @@ func TestPublicURLHostMatrix(t *testing.T) {
 	t.Run("url avec port", func(t *testing.T) {
 		run(t, "https://launcher.test:8443", func(p int) []row {
 			return []row{
-				{"127.0.0.1:" + ps(p), nil, 200},     // boucle locale : toujours admise
-				{"localhost:" + ps(p), nil, 200},     // idem
-				{"launcher.test:8443", nil, 200},     // hôte de url, port de url
+				{"127.0.0.1:" + ps(p), nil, 303},     // boucle locale : toujours admise
+				{"localhost:" + ps(p), nil, 303},     // idem
+				{"launcher.test:8443", nil, 303},     // hôte de url, port de url
 				{"launcher.test:" + ps(p), nil, 403}, // hôte public sur le port d'écoute : pas le port de url
 				{"launcher.test:9999", nil, 403},     // mauvais port
 				{"evil.test:8443", nil, 403},         // autre hôte, port de url
@@ -111,8 +111,8 @@ func TestPublicURLHostMatrix(t *testing.T) {
 	t.Run("url sans port", func(t *testing.T) {
 		run(t, "https://launcher.test", func(p int) []row {
 			return []row{
-				{"launcher.test", nil, 200}, // sans port quand url n'en a pas
-				{"127.0.0.1:" + ps(p), nil, 200},
+				{"launcher.test", nil, 303}, // sans port quand url n'en a pas
+				{"127.0.0.1:" + ps(p), nil, 303},
 				{"evil.test", nil, 403},
 				{"launcher.test.evil.test", nil, 403}, // pas une simple correspondance de suffixe
 			}
@@ -121,7 +121,7 @@ func TestPublicURLHostMatrix(t *testing.T) {
 	t.Run("sans url (v6.2.0)", func(t *testing.T) {
 		run(t, "", func(p int) []row {
 			return []row{
-				{"127.0.0.1:" + ps(p), nil, 200},
+				{"127.0.0.1:" + ps(p), nil, 303},
 				{"launcher.test:8443", nil, 403},
 				{"launcher.test", nil, 403},
 			}
@@ -135,7 +135,7 @@ func TestPublicURLHostMatrix(t *testing.T) {
 				{"evil.test:8443", map[string]string{"Forwarded": "host=launcher.test:8443;proto=https"}, 403},
 				{"evil.test:" + ps(p), map[string]string{"X-Forwarded-Host": "127.0.0.1:" + ps(p), "X-Real-IP": "127.0.0.1"}, 403},
 				// et un hôte admis ne devient pas refusé
-				{"127.0.0.1:" + ps(p), map[string]string{"X-Forwarded-Host": "evil.test", "X-Forwarded-Proto": "http", "X-Forwarded-For": "10.1.2.3"}, 200},
+				{"127.0.0.1:" + ps(p), map[string]string{"X-Forwarded-Host": "evil.test", "X-Forwarded-Proto": "http", "X-Forwarded-For": "10.1.2.3"}, 303},
 			}
 		})
 	})
@@ -333,8 +333,8 @@ func TestPublicURLValidationAndSources(t *testing.T) {
 		if w := l4WebUIOf(t, a); w["url"] != "https://env.test" {
 			t.Errorf("webUI.url = %v, attendu https://env.test", w["url"])
 		}
-		if r, _ := w171Do(t, p, "GET", "/?t="+tok, "env.test", nil, ""); r.StatusCode != 200 {
-			t.Errorf("hôte de CL_WEB_URL : %d", r.StatusCode)
+		if r, _ := w171Do(t, p, "GET", "/?t="+tok, "env.test", nil, ""); r.StatusCode != 303 {
+			t.Errorf("hôte de CL_WEB_URL : %d, attendu 303 (amorçage accepté)", r.StatusCode)
 		}
 		if r, _ := w171Do(t, p, "GET", "/?t="+tok, "cfg.test", nil, ""); r.StatusCode != 403 {
 			t.Errorf("hôte du réglage écrasé par CL_WEB_URL : %d, attendu 403", r.StatusCode)
@@ -407,7 +407,7 @@ func TestReverseProxyHTTPSEndToEnd(t *testing.T) {
 	u, _ := url.Parse(base)
 	var sess *http.Cookie
 	for _, c := range jar.Cookies(u) {
-		if strings.HasPrefix(c.Name, "cl_session_") {
+		if strings.Contains(c.Name, "cl_session") {
 			sess = c
 		}
 	}
@@ -577,5 +577,145 @@ func TestRunUnknownOptionMentionsURL(t *testing.T) {
 	err := Run([]string{"--web", "--bogus"})
 	if err == nil || !strings.Contains(err.Error(), "--url") {
 		t.Errorf("l'aide d'option doit citer --url : %v", err)
+	}
+}
+
+// ── cycle 1 (audit sécurité M1/F1, revue M2) ─────────────────────────────────
+
+// Sécu M1 : l'échange de /?t=<jeton> répond 303 vers « / » (sans t), pose le cookie, et aucune page n'est jamais
+// servie sur une URL qui porte le jeton ; un jeton faux ne donne ni redirection ni cookie.
+func TestBootstrapRedirects303(t *testing.T) {
+	for _, pub := range []string{"", "https://launcher.test:8443"} {
+		t.Run("url="+pub, func(t *testing.T) {
+			_, p, tok := w171Start(t, pub)
+			host := "127.0.0.1:" + strconv.Itoa(p)
+			if pub != "" {
+				host = "launcher.test:8443"
+			}
+			for _, path := range []string{"/?t=" + tok, "/index.html?t=" + tok, "/?t=" + tok + "&x=1"} {
+				resp, body := w171Do(t, p, "GET", path, host, nil, "")
+				if resp.StatusCode != http.StatusSeeOther {
+					t.Errorf("%s : %d, attendu 303 (jamais une page 200 sur une URL portant le jeton)", path, resp.StatusCode)
+					continue
+				}
+				loc := resp.Header.Get("Location")
+				if loc != "/" || strings.Contains(loc, "t=") || strings.Contains(loc, tok) {
+					t.Errorf("%s : Location %q, attendu « / » sans jeton ni schéma", path, loc)
+				}
+				if strings.Contains(body, "<html") || strings.Contains(body, tok) {
+					t.Errorf("%s : le corps de la 303 sert une page ou le jeton", path)
+				}
+				if !strings.Contains(resp.Header.Get("Cache-Control"), "no-store") {
+					t.Errorf("%s : Cache-Control %q, attendu no-store", path, resp.Header.Get("Cache-Control"))
+				}
+				got := false
+				for _, c := range resp.Cookies() {
+					got = got || strings.Contains(c.Name, "cl_session") && c.Value != "" && !strings.Contains(c.Value, tok)
+				}
+				if !got {
+					t.Errorf("%s : pas de cookie de session posé par la 303", path)
+				}
+			}
+			// jeton faux : refusé, ni redirection ni cookie
+			resp, _ := w171Do(t, p, "GET", "/?t=faux-jeton-faux-jeton", host, nil, "")
+			if resp.StatusCode != 403 || len(resp.Cookies()) != 0 {
+				t.Errorf("jeton faux : %d, cookies %v, attendu 403 sans cookie", resp.StatusCode, resp.Cookies())
+			}
+			// la page, elle, est servie sur « / » avec la session
+			ck, _ := w171Session(t, p, tok, host)
+			if r, _ := w171Do(t, p, "GET", "/", host, nil, "", ck); r.StatusCode != 200 {
+				t.Errorf("page sur / avec la session : %d", r.StatusCode)
+			}
+		})
+	}
+}
+
+// Sécu F1 : adresse publique en https → cookie « __Host-… » (Secure, Path=/, sans Domain) ; sinon nom inchangé.
+func TestCookieHostPrefixOnlyWithHTTPSPublicURL(t *testing.T) {
+	for _, tc := range []struct {
+		name, pub string
+		host      bool
+	}{
+		{"https public : __Host-", "https://launcher.test:8443", true},
+		{"http public : sans préfixe", "http://launcher.test:8080", false},
+		{"sans url : sans préfixe", "", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, p, tok := w171Start(t, tc.pub)
+			host := "127.0.0.1:" + strconv.Itoa(p)
+			if tc.pub != "" {
+				host = strings.TrimPrefix(strings.TrimPrefix(tc.pub, "https://"), "http://")
+			}
+			ck, resp := w171Session(t, p, tok, host)
+			if ck == nil {
+				t.Fatalf("pas de cookie (%d)", resp.StatusCode)
+			}
+			if has := strings.HasPrefix(ck.Name, "__Host-"); has != tc.host {
+				t.Errorf("cookie %q : préfixe __Host- = %v, attendu %v", ck.Name, has, tc.host)
+			}
+			if tc.host && (!ck.Secure || ck.Path != "/" || ck.Domain != "") {
+				t.Errorf("« __Host- » exige Secure, Path=/ et aucun Domain : %+v", ck)
+			}
+			if !tc.host && strings.HasPrefix(ck.Name, "__") {
+				t.Errorf("nom inattendu %q", ck.Name)
+			}
+			// la session fonctionne avec le nom reçu
+			h := map[string]string{"Content-Type": "application/json"}
+			if r, _ := w171Do(t, p, "POST", "/api/call", host, h, w171Call, ck); r.StatusCode != 200 {
+				t.Errorf("appel avec le cookie %q : %d", ck.Name, r.StatusCode)
+			}
+		})
+	}
+}
+
+// Revue M2 : trois 403 distincts — hôte refusé, origine refusée, session — lisibles par le client (corps et
+// en-tête X-Launcher-Refusal) ; l'interface ne déclare « session expirée » que pour le dernier.
+func TestRefusalsAreDistinguishable(t *testing.T) {
+	_, p, tok := w171Start(t, "https://launcher.test:8443")
+	ck, _ := w171Session(t, p, tok, "launcher.test:8443")
+	js := map[string]string{"Content-Type": "application/json"}
+	withOrigin := func(o string) map[string]string {
+		return map[string]string{"Content-Type": "application/json", "Origin": o}
+	}
+	for _, tc := range []struct {
+		name, method, path, host string
+		hdr                      map[string]string
+		cookie                   *http.Cookie
+		kind, word               string
+		notWords                 []string
+	}{
+		{"hôte refusé (page)", "GET", "/", "evil.test:8443", nil, ck, "host", "hôte", []string{"origine", "session"}},
+		{"hôte refusé (appel)", "POST", "/api/call", "evil.test:8443", js, ck, "host", "hôte", []string{"origine"}},
+		{"origine refusée (appel)", "POST", "/api/call", "launcher.test:8443", withOrigin("https://evil.test:8443"), ck, "origin", "origine", []string{"hôte"}},
+		{"origine refusée (flux)", "GET", "/api/events", "launcher.test:8443", map[string]string{"Origin": "https://evil.test:8443"}, ck, "origin", "origine", []string{"hôte"}},
+		{"session absente (appel)", "POST", "/api/call", "launcher.test:8443", js, nil, "session", "session", []string{"hôte", "origine"}},
+		{"session absente (flux)", "GET", "/api/events", "launcher.test:8443", nil, nil, "session", "session", []string{"hôte", "origine"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var cks []*http.Cookie
+			if tc.cookie != nil {
+				cks = append(cks, tc.cookie)
+			}
+			body := ""
+			if tc.method == "POST" {
+				body = w171Call
+			}
+			resp, b := w171Do(t, p, tc.method, tc.path, tc.host, tc.hdr, body, cks...)
+			if resp.StatusCode != 403 {
+				t.Fatalf("%d, attendu 403", resp.StatusCode)
+			}
+			if got := resp.Header.Get("X-Launcher-Refusal"); got != tc.kind {
+				t.Errorf("X-Launcher-Refusal = %q, attendu %q", got, tc.kind)
+			}
+			lb := strings.ToLower(b)
+			if !strings.Contains(lb, tc.word) {
+				t.Errorf("corps %q : le mot « %s » manque", b, tc.word)
+			}
+			for _, w := range tc.notWords {
+				if strings.Contains(lb, w) {
+					t.Errorf("corps %q : mélange la cause avec « %s »", b, w)
+				}
+			}
+		})
 	}
 }
