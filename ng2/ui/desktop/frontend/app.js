@@ -1657,7 +1657,7 @@ function lanBanner() {
   const show = !!(w.lan && w.state === 'on' && !isWebClient());
   if (!show) { if (b) b.remove(); return; }
   if (!b) { b = el('div', 'lanbanner'); b.id = 'lanbanner'; $('main').insertBefore(b, $('tabs')); }
-  b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS') + ' (Réglages › Ce poste)';
+  b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS') + ' (Réglages › Interface web)';
 }
 
 function applyInit(r) {
