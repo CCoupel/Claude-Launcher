@@ -217,3 +217,49 @@ func TestHubModelOverrideEffectiveAndEditApplies(t *testing.T) {
 		t.Errorf("enabled:false de la surcharge sans effet : %+v %v", dw, err)
 	}
 }
+
+// M3 (revue LOT-2.1) : `delete` d'un champ posé par la machine ET par la surcharge système le retire des deux
+// couches — aucune valeur inférieure ne réapparaît.
+func TestHubDeleteRemovesFieldFromAllLayers(t *testing.T) {
+	src := "hubs:\n  mon-pc:\n    browser_server: { listen: '8765', url: 'http://a' }\n    desktop_web: { listen: '8787', allow_lan: false }\n    browser_device: dev-commun\n" +
+		"    windows:\n      browser_server: { listen: '9765', url: 'http://b' }\n      desktop_web: { listen: '9787' }\n      browser_device: dev-win\n"
+	out, err := ApplyHubChangesFor([]byte(src), "MON-PC", "windows", []ConfigChange{
+		{Op: "delete", At: []string{"desktop_web", "listen"}},
+		{Op: "delete", At: []string{"browser_server", "url"}},
+		{Op: "delete", At: []string{"browser_device"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := dwFile(t, string(out))
+	if c, err := resolveDesktopWebFor(f, "mon-pc", "windows"); err != nil || !c.Off || c.Listen != "" {
+		t.Errorf("desktop_web.listen supprimé : une valeur réapparaît (%+v %v) — 8787 de la machine ?", c, err)
+	}
+	if c, err := resolveDesktopWebFor(f, "mon-pc", "linux"); err != nil || !c.Off {
+		t.Errorf("desktop_web.listen supprimé : Linux voit encore %+v %v", c, err)
+	}
+	if id, _ := browserDeviceFor(f, "mon-pc", "windows"); id != "" {
+		t.Errorf("browser_device supprimé : %q réapparaît", id)
+	}
+	if bs, err := resolveBrowserServerFor(f, "mon-pc", "windows"); err != nil || bs.Listen != "127.0.0.1:9765" {
+		t.Errorf("browser_server : listen conservé : %+v %v", bs, err)
+	}
+	for _, goos := range []string{"windows", "linux"} { // url retirée des deux couches : ni 'http://b' ni 'http://a'
+		m, _ := ReadHubModel(out, "mon-pc", goos)
+		v := hubJSON(t, m)
+		if u := dig(v, "settings", "browser_server", "url"); u != "" && u != nil {
+			t.Errorf("%s : url de la machine réapparaît : %v", goos, u)
+		}
+		if u := dig(v, "overrides", "windows", "settings", "browser_server", "url"); u != "" && u != nil {
+			t.Errorf("%s : url de la surcharge réapparaît : %v", goos, u)
+		}
+	}
+	// les autres champs sont intacts
+	if !strings.Contains(string(out), "allow_lan") {
+		t.Errorf("allow_lan perdu :\n%s", out)
+	}
+	// un delete sur un champ sans valeur : sans effet, sans erreur
+	if _, err := ApplyHubChangesFor([]byte(src), "MON-PC", "windows", []ConfigChange{{Op: "delete", At: []string{"desktop_web", "url"}}}); err != nil {
+		t.Errorf("delete d'un champ absent : %v", err)
+	}
+}

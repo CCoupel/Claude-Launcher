@@ -323,3 +323,77 @@ func TestConfigHubOverrideEffectiveAndEditApplies(t *testing.T) {
 	}
 	d183WaitReach(t, pNew, true)
 }
+
+// M1 (revue LOT-2.1) : la rubrique « Serveur de maquettes » comprend browser_paths et browser_device —
+// un client web ne les modifie pas (configApply modèle structuré et configSave texte) ; la fenêtre, si.
+func TestWebClientCannotChangeBrowserPathsOrDevice(t *testing.T) {
+	sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	host := strings.ToLower(core.HubHost())
+	y := "defaults:\n  browser_server: { listen: off }\nhubs:\n  " + host + ":\n    browser_device: dev-initial\n    desktop_web: { listen: off }\n"
+	if err := os.WriteFile(core.BackendsPath(), []byte(y), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []map[string]any{
+		{"op": "set", "at": []string{"browser_device"}, "value": "dev-pirate"},
+		{"op": "delete", "at": []string{"browser_device"}},
+		{"op": "set", "at": []string{"browser_paths"}, "value": []any{map[string]any{"container": "/x", "host": "C:\\x", "os": "windows"}}},
+	} {
+		res, err := d183Apply(t, a, originWeb, ch)
+		if m, _ := res.(map[string]any); err == nil && (m == nil || m["invalid"] != true) {
+			t.Errorf("configApply %v depuis le web accepté : %v", ch, res)
+		}
+		if now, _ := os.ReadFile(core.BackendsPath()); string(now) != y {
+			t.Errorf("backends.yaml modifié par un client web (%v) :\n%s", ch, now)
+		}
+	}
+	st, _ := os.Stat(core.BackendsPath())
+	bad := strings.Replace(y, "dev-initial", "dev-pirate", 1)
+	b, _ := json.Marshal(map[string]any{"kind": "backends.yaml", "content": bad, "mtime": st.ModTime().Format(time.RFC3339Nano)})
+	res, err := a.DispatchFrom(originWeb, "configSave", b)
+	if m, _ := res.(map[string]any); err == nil && (m == nil || m["invalid"] != true) {
+		t.Errorf("configSave de browser_device depuis le web accepté : %v", res)
+	}
+	if now, _ := os.ReadFile(core.BackendsPath()); string(now) != y {
+		t.Errorf("backends.yaml modifié par configSave web :\n%s", now)
+	}
+	if res, err := d183Apply(t, a, originWindow, map[string]any{"op": "set", "at": []string{"browser_device"}, "value": "dev-fenetre"}); err != nil || res.(map[string]any)["saved"] != true {
+		t.Errorf("browser_device depuis la fenêtre : %v %v", res, err)
+	}
+}
+
+// M4 (revue LOT-2.1) : même avec une surcharge système (la modification est routée vers hubs.<machine>.<système>),
+// un client web ne change ni desktop_web.enabled ni les autres champs des deux rubriques.
+func TestWebClientCannotChangeThroughOSOverride(t *testing.T) {
+	sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	host, goos := strings.ToLower(core.HubHost()), core.CurrentGOOS()
+	y := fmt.Sprintf("defaults:\n  browser_server: { listen: off }\nhubs:\n  %s:\n    desktop_web: { enabled: false, listen: \"127.0.0.1:8787\" }\n    browser_server: { listen: \"127.0.0.1:8765\" }\n    %s:\n      desktop_web: { enabled: false }\n      browser_server: { listen: \"127.0.0.1:9765\" }\n", host, goos)
+	if err := os.WriteFile(core.BackendsPath(), []byte(y), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, ch := range []map[string]any{
+		d183Set("enabled", true),
+		d183Set("listen", "0.0.0.0:8787"),
+		{"op": "set", "at": []string{"browser_server", "listen"}, "value": "0.0.0.0:9000"},
+		{"op": "delete", "at": []string{"desktop_web", "enabled"}},
+		{"op": "set", "at": []string{goos, "desktop_web", "enabled"}, "value": true},
+	} {
+		res, err := d183Apply(t, a, originWeb, ch)
+		if m, _ := res.(map[string]any); err == nil && (m == nil || m["invalid"] != true) {
+			t.Errorf("configApply %v depuis le web accepté (surcharge %s) : %v", ch, goos, res)
+		}
+		if now, _ := os.ReadFile(core.BackendsPath()); string(now) != y {
+			t.Errorf("backends.yaml modifié par un client web (%v) :\n%s", ch, now)
+		}
+	}
+	// la fenêtre, elle, allume : la modification est routée vers la surcharge (valeur effective)
+	if res, err := d183Apply(t, a, originWindow, d183Set("enabled", true)); err != nil || res.(map[string]any)["saved"] != true {
+		t.Fatalf("depuis la fenêtre : %v %v", res, err)
+	}
+	if now, _ := os.ReadFile(core.BackendsPath()); !strings.Contains(string(now), "enabled: true") {
+		t.Errorf("enabled non écrit :\n%s", now)
+	}
+}

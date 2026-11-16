@@ -95,6 +95,9 @@ Reference : `contracts/desktop-web.md`, maquette retenue C' `docs/mockup/v6.3.0/
 |-------|--------|-----------------|----------------|------|
 | 1 | Ouvrir l'interface dans le navigateur (lien d'acces), aller dans Reglages > Ce poste | Rubriques visibles mais **commutateur et adresse en lecture seule**, avec une mention explicite | | |
 | 2 | Tenter de modifier | Refus lisible ; `backends.yaml` inchange | | |
+| 3 | Dans « Serveur de maquettes » : regarder « Chemins pour le navigateur » et « Navigateur apparie » | Les deux sont en **lecture seule** (ajout, modification, suppression et « oublier » inactifs ou refuses) | | |
+| 4 | Tenter de les modifier quand meme (ou par l'onglet texte) | Refus lisible ; `backends.yaml` inchange | | |
+| 5 | Avec une surcharge systeme presente (scenario 9), tenter d'allumer l'interface ou de changer une adresse | Refus lisible ; fichier inchange | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
