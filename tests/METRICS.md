@@ -25,8 +25,8 @@ go test -cover ./... | awk '/coverage:/{print $2, $5}'
 | core | 286 | 71,5 | 286 | 71,5 | OK (dev-backend) |
 | platform | 13 | 62,4 | 13 | 62,4 | OK (dev-backend) |
 | ui/tmux | 50 | 30,5 | 50 | 30,5 | OK (dev-backend) |
-| ui/desktop | 160 | 77,8 | 160 | 78,0 | OK (dev-backend) |
-| main (racine) | non releve (non liste dans le rapport) | 1,5 | non releve | non releve | a mesurer par QA |
+| ui/desktop | 160 | 77,8 | 160 | 78,2 (QA, HEAD a1a1204) | OK (dev-backend, QA) |
+| main (racine) | 1 (releve QA, HEAD a1a1204) | 1,5 | 1 | 1,5 | OK (QA) |
 
 Regle : `Tests (apres)` >= `Tests (reference)` ; `Couverture (apres)` >= `Couverture (reference)` − 0,5 point. Un ecart = NOT VALIDATED.
 
