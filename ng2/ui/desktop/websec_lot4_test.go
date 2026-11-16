@@ -39,12 +39,22 @@ func scGet(t *testing.T, base, path, host string, cookies ...*http.Cookie) (*htt
 
 func scCall(t *testing.T, base string, c *http.Cookie, body string) int {
 	t.Helper()
-	req, _ := http.NewRequest("POST", base+"/api/call", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	if c != nil {
-		req.AddCookie(c)
+	// Un appel après l'arrêt puis la relance du serveur sur la même adresse peut partir sur une connexion persistante
+	// de l'ANCIEN serveur (fermée) : le client rend alors « EOF » sans avoir rien envoyé d'utile. Une seule nouvelle
+	// tentative, sur une connexion neuve ; les appels de ces tests sont idempotents (refresh).
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		req, _ := http.NewRequest("POST", base+"/api/call", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if c != nil {
+			req.AddCookie(c)
+		}
+		if resp, err = webClient.Do(req); err == nil {
+			break
+		}
+		webClient.CloseIdleConnections()
 	}
-	resp, err := webClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}

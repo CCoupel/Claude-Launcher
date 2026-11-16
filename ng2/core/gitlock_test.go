@@ -33,6 +33,12 @@ func fakeGitRepo(t *testing.T) string {
 		}
 	}
 	run("init", "-q", "-b", "main")
+	// pas de maintenance automatique (gc, `git maintenance run --auto`) : après un commit, git peut lancer en arrière-plan
+	// une maintenance qui crée puis supprime .git/objects/maintenance.lock pendant les instantanés de
+	// TestReadsDoNotWriteGitDir (runner CI) — un faux « fichier supprimé par une lecture »
+	run("config", "gc.auto", "0")
+	run("config", "gc.autoDetach", "false")
+	run("config", "maintenance.auto", "false")
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
 		t.Fatal(err)
 	}
