@@ -547,8 +547,7 @@ function stPageDefaults(p) {
 // hubs.<machine> de backends.yaml) et écrits par configApply, chacun avec son
 // brouillon, sa date, son résultat : même comportement que backends.yaml.
 const DOCS = { conf: { kind: 'config.conf', pages: ['launcher'] }, env: { kind: 'env.yaml', pages: ['conteneurs'] }, hub: { kind: 'hub', pages: ['poste', 'maquettes', 'web'] } };
-const HUB_EFF = ['browser_paths', 'browser_server', 'browser_device', 'desktop_web'];
-const HUB_RESOLVED = ['browser_server', 'desktop_web']; // résolues champ par champ par le Go (model.resolved), écrites sans préfixe de système // clés des rubriques « Serveur de maquettes » / « Interface web »
+const HUB_EFF = ['browser_paths', 'browser_server', 'browser_device', 'desktop_web']; // clés des rubriques « Serveur de maquettes » / « Interface web » : résolues par le Go (model.resolved)
 const docOfPage = () => Object.keys(DOCS).find((k) => DOCS[k].pages.includes(ST.page)) || '';
 
 function docDraftOf(id, m) {
@@ -559,9 +558,9 @@ function docDraftOf(id, m) {
   } else if (id === 'env') {
     d.txt = { packages: (m.packages || []).join('\n'), setup: (m.setup || []).join('\n'), on_start: (m.on_start || []).join('\n'), pbm: pjPbmText(m.packages_by_manager) };
   } else {
-    // valeur EFFECTIVE de ce poste : pour une clé surchargée par système, la couche de la surcharge (#183)
-    const s = Object.assign({}, m.settings || {});
-    for (const k of HUB_EFF) { if (HUB_RESOLVED.includes(k) && m.resolved && m.resolved[k]) { s[k] = m.resolved[k]; continue; } const os = (m.effective || {})[k]; if (os && m.overrides && m.overrides[os]) s[k] = m.overrides[os].settings[k]; }
+    // valeur EFFECTIVE de ce poste et de ce système (#183) : model.resolved, calculée par le Go champ par champ
+    const s = Object.assign({}, m.settings || {}), rs = m.resolved || {};
+    for (const k of HUB_EFF) if (rs[k] !== undefined) s[k] = rs[k];
     d.txt = {
       paths: (s.paths || []).map((x) => x.local + ' => ' + x.remote).join('\n'),
       browser_paths: (s.browser_paths || []).map((x) => x.container + ' => ' + x.host + (x.os ? ' | ' + x.os : '')).join('\n'),
@@ -631,14 +630,7 @@ function docChanges(id) {
     const pa = (t) => stLines(t).map((l) => { const [a, b] = l.split('=>'); return { local: (a || '').trim(), remote: (b || '').trim() }; });
     const bp = (t) => stLines(t).map((l) => { const [a, rest] = l.split('=>'); const [h, os] = (rest || '').split('|'); const r = { container: (a || '').trim(), host: (h || '').trim() }; if (os && os.trim()) r.os = os.trim(); return r; });
     put(['paths'], pa(d.txt.paths), pa(o.txt.paths), !pa(d.txt.paths).length);
-    // écrire dans la couche qui s'applique : sous la surcharge du système quand elle redéfinit la clé, jamais dans une valeur masquée
-    const eff = D.model.effective || {};
-    const at = (k) => (eff[k] ? [eff[k], k] : [k]);
-    const putE = (k, nv, ov, empty) => {
-      if (JSON.stringify(nv) === JSON.stringify(ov)) return;
-      ch.push(empty && !eff[k] ? { op: 'delete', at: at(k) } : { op: 'set', at: at(k), value: nv });
-    };
-    putE('browser_paths', bp(d.txt.browser_paths), bp(o.txt.browser_paths), !bp(d.txt.browser_paths).length);
+    put(['browser_paths'], bp(d.txt.browser_paths), bp(o.txt.browser_paths), !bp(d.txt.browser_paths).length);
     // objets entiers : le Go fusionne clé à clé et retire les clés vides ou absentes ; delete seulement si le fichier avait des clés
     const str = (v) => (v.trim() ? v.trim() : undefined), num = (v) => (v === '' ? undefined : Number(v));
     const clean = (o2) => { const r = {}; for (const k of Object.keys(o2)) if (o2[k] !== undefined) r[k] = o2[k]; return r; };
@@ -650,7 +642,7 @@ function docChanges(id) {
     put(['desktop_web'], dwv(d), dwv(o), !Object.keys(dwv(d)).length);
     put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
     put(['hub_cache'], d.f.hub_cache.trim(), o.f.hub_cache.trim(), !d.f.hub_cache.trim());
-    putE('browser_device', d.f.browser_device.trim(), o.f.browser_device.trim(), !d.f.browser_device.trim());
+    put(['browser_device'], d.f.browser_device.trim(), o.f.browser_device.trim(), !d.f.browser_device.trim());
   }
   return ch;
 }
@@ -884,10 +876,10 @@ async function dwRegen() {
 // provenance d'un réglage résolu : champs `reglage.champ` de model.resolved.sources ; rien quand la valeur est celle de la machine ou absente
 function hubSrc(m, reglage, champs) {
   const src = (m.resolved && m.resolved.sources) || {}, out = [];
-  for (const c of champs) { const o = src[reglage + '.' + c]; if (o && o !== 'hub' && !out.includes(o)) out.push(o); }
+  for (const c of champs) { const o = src[c ? reglage + '.' + c : reglage]; if (o && o !== 'hub' && !out.includes(o)) out.push(o); }
   return out.length ? '⚠ valeur ' + out.map((o) => (o === 'defaults' ? 'des défauts' : 'propre à ' + o)).join(' et ') + ' : modifiée à cet endroit' : '';
 }
-const hubOv = (m) => { const eff = m.effective || {}; return { eff, hint: (k) => (eff[k] ? '⚠ surchargé pour ' + eff[k] + ' : cette valeur est celle de la surcharge, modifiée à cet endroit' : '') }; };
+const hubOv = (m) => ({ hint: (k) => hubSrc(m, k, ['']) });
 
 function stPageWeb(p) {
   const D0 = ST.docs.hub;
