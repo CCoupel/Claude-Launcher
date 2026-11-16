@@ -26,3 +26,4 @@
 | tests/procedures/ci/ci-60s-179/ | procedure | main | CI sous 60 s : trois passes de scripts/ci.sh, nombre de tests et couverture (#179) | feature | slow |
 | tests/procedures/ui-desktop/serveurs-web-183/ | procedure | ui-desktop | Reglages : deux serveurs web separes, commutateur de l'interface web (#183) | feature | |
 | tests/procedures/ui-desktop/proxy-https-171/ | procedure | ui-desktop | Interface web derriere un proxy HTTPS : endurance 1 h, session expiree, hote/origine, stabilisation #186/#187 (#171) | feature | slow |
+| tests/procedures/ui-desktop/racine-base-165/ | procedure | ui-desktop | Racine de base configurable CL_ROOT_BASE / --root-base, demarrage Windows (#165) | feature | |
