@@ -44,6 +44,8 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func rbDataHome() string { return filepath.Join(os.TempDir(), "cl-rootbase-data") }
+
 func rbNeedBinary(t *testing.T) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
@@ -65,7 +67,9 @@ func rbRun(t *testing.T, bin string, home string, extra []string, args ...string
 		}
 		env = append(env, kv)
 	}
-	env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "EDITOR=true", "CL_NO_UPDATE=1")
+	// XDG_DATA_HOME hors du HOME factice : un podman présent (runner de CI) y crée son stockage de conteneurs, aux droits
+	// restreints, que le nettoyage de t.TempDir ne peut pas effacer
+	env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+rbDataHome(), "EDITOR=true", "CL_NO_UPDATE=1")
 	env = append(env, extra...)
 	c := exec.Command(bin, args...)
 	c.Env = env
@@ -413,7 +417,7 @@ func TestFullInstallOnFakeRoot(t *testing.T) {
 		t.Fatalf("configure : %d %s %s", code, out, errOut)
 	}
 	port := rbFreePort(t)
-	env := []string{"CL_ROOT_BASE=" + root, "CL_DESKTOP_TOKEN=tokRootBaseInstall12345", "TMUX_TMPDIR=" + t.TempDir(), "XDG_DATA_HOME=" + filepath.Join(tmp, "data")}
+	env := []string{"CL_ROOT_BASE=" + root, "CL_DESKTOP_TOKEN=tokRootBaseInstall12345", "TMUX_TMPDIR=" + t.TempDir(), "XDG_DATA_HOME=" + rbDataHome()}
 	var cmdEnv []string
 	for _, kv := range os.Environ() {
 		k := strings.SplitN(kv, "=", 2)[0]
@@ -431,13 +435,24 @@ func TestFullInstallOnFakeRoot(t *testing.T) {
 	}
 	go func() { _, _ = io.Copy(io.Discard, bufio.NewReader(stdout)) }()
 	stopped := false
+	exited := make(chan struct{})
+	go func() { _ = c.Wait(); close(exited) }()
+	var quit func()
 	stop := func() {
 		if stopped {
 			return
 		}
 		stopped = true
-		_ = c.Process.Kill()
-		_ = c.Wait()
+		if quit != nil { // arrêt propre d'abord : tâches de fond finies avant l'effacement des dossiers
+			quit()
+		}
+		select {
+		case <-exited:
+		case <-time.After(8 * time.Second):
+			_ = c.Process.Kill()
+			<-exited
+		}
+		time.Sleep(300 * time.Millisecond)
 	}
 	defer stop()
 	base := "http://127.0.0.1:" + port
@@ -461,6 +476,14 @@ func TestFullInstallOnFakeRoot(t *testing.T) {
 	}
 	if ck == nil {
 		t.Fatalf("pas de session (%d)", resp.StatusCode)
+	}
+	quit = func() {
+		q, _ := http.NewRequest("POST", base+"/api/call", strings.NewReader(`{"method":"quit","args":{"mode":"l"}}`))
+		q.Header.Set("Content-Type", "application/json")
+		q.AddCookie(ck)
+		if r, err := cl.Do(q); err == nil {
+			r.Body.Close()
+		}
 	}
 	req, _ := http.NewRequest("POST", base+"/api/call", strings.NewReader(`{"method":"init","args":{}}`))
 	req.Header.Set("Content-Type", "application/json")

@@ -46,7 +46,10 @@ func TestLeaderAliveInHostsLinux(t *testing.T) {
 	if got := LeaderAliveInHosts(0, HostPidSpace(), none); got == LeaderAlive {
 		t.Errorf("pid 0 vu vivant")
 	}
-	if got := LeaderAliveInHosts(os.Getpid(), "ailleurs#pid:[4026531836]", none); got == LeaderAlive {
-		t.Errorf("espace de PID étranger : conclu vivant (%v), on ne doit rien conclure", got)
+	// espace de PID étranger CONSTRUIT : un inode de namespace qui n'existe sur aucune machine (les vrais commencent
+	// à 4026531836 : celui-là est le namespace d'init de nombreux hôtes, runners CI compris — le choisir ferait trouver
+	// notre propre pid), sur une machine inconnue et sans conteneur local de ce nom : on ne conclut rien.
+	if got := LeaderAliveInHosts(os.Getpid(), "machine-inconnue-tw#pid:[7]", none); got != LeaderUnknown {
+		t.Errorf("espace de PID étranger : %v, attendu LeaderUnknown (on ne conclut rien)", got)
 	}
 }
