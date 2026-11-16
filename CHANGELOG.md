@@ -26,7 +26,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Carte TEAM : les colonnes de version disparaissent des lignes, la carte est plus étroite (#151)
 
 ### Fixed
-- Bascule de mise en page (#153) : la latence dépassait 15 s sur un partage réseau Windows ; elle est désormais immédiate dans l'interface native (`50101a7`, `d1bd4d2`)
+- Bascule de mise en page (#153) : la latence dépassait 15 s sur un partage réseau Windows ; elle est désormais immédiate dans l'interface native (`50101a7`, `d1bd4d2`). Sous Windows, la mise en page est appliquée avant la persistance de `config.conf`, les commandes tmux sont regroupées (deux allers-retours), et les clics rapides sont sérialisés par projet : le dernier clic gagne (`dd6642f`, `ac0e3a0`)
 - Course de données sur `InitSynced` et `init-project.md` pendant les vérifications de mises à jour concurrentes : protégés par un verrou (`fa200eb`)
 - Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus `git describe --dirty` : plus de `index.lock` laissé par le launcher (#154)
 - Tests : les sockets tmux de test sont isolés dans un dossier dédié ; `scripts/ci.sh` échoue sur un socket de test résiduel ou sur un `index.lock` orphelin (#154)

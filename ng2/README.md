@@ -364,7 +364,10 @@ declare -A PROJECT_LAYOUTS=(
 
 Le changement s'applique aux projets ouverts sans relance : la coque et l'interface native relisent `config.conf`, et
 la fenêtre est remise en page quand son organisation effective change. Dans l'interface native, ce changement (bouton de
-bascule, Réglages, ou `config.conf` modifié à la main) est appliqué **immédiatement** ; dans la coque Linux, en 1 à 2 s.
+bascule, Réglages, ou `config.conf` modifié à la main) est appliqué **immédiatement** : pour la bascule, la disposition
+change dès le clic, avant l'enregistrement de `config.conf` qui suit en arrière-plan. Si l'écriture échoue, le projet
+revient à l'organisation précédente avec un message. Plusieurs clics rapides : le dernier l'emporte. Dans la coque Linux,
+la réaction prend 1 à 2 s.
 Seuls les panes visibles sont disposés. Si tmux
 refuse la disposition `left` (fenêtre trop petite), le projet revient à `top` avec un message ; `Ctrl+B R` remet en
 ordre dans les deux cas.
@@ -1673,6 +1676,10 @@ Pour l'interface Windows, `core` expose notamment `CheckTools` (outils requis et
 ## Dépannage
 
 - **`Ctrl+←/→` ne fait rien** : votre terminal les intercepte. Glissez la bordure à la souris.
+- **La bascule de mise en page est lente** : le détail est dans `desktop-perf.log`, dans le dossier de cache du launcher
+  (`~/.cache/claude-launcher-ng2/` sous Linux, `%LocalAppData%\claude-launcher-ng2\` sous Windows). Les lignes
+  `bascule : avant écriture`, `bascule : écriture config.conf` et `bascule : total` donnent la durée de chaque étape
+  (fichier gardé à 200 lignes).
 - **Ctrl+clic ne ferme pas le projet** : votre terminal le garde pour lui (ouverture de liens).
   Sélectionnez le projet et appuyez sur `Suppr`.
 - **Un projet ne se ferme plus** (pod k8s disparu, backend injoignable, session déjà morte) : menu du projet →
