@@ -98,3 +98,20 @@ Jamais le jeton, comme aujourd'hui.
 `settings.desktop_web` gagne `enabled` (booléen ou absent) et `url` (chaîne). Les clés de changement
 `desktop_web.enabled` et `desktop_web.url` suivent les règles des clés existantes `desktop_web.listen` et
 `desktop_web.allow_lan` (validation, refus à un client web, surcharge par système en lecture seule).
+
+## Valeurs effectives par système **[CHANGED]** (#183, exigence de cohérence des Réglages)
+
+`browser_server` et `desktop_web` se résolvent champ par champ : `hubs.<machine>.<système>` > `hubs.<machine>` >
+`defaults`. Les rubriques « Serveur de maquettes » et « Interface web » affichent et modifient la valeur
+**effective** pour ce poste et ce système, jamais une valeur masquée.
+
+- `configModel`, `kind: "hub"` : nouveau champ `model.resolved` =
+  `{ "browser_server": {listen,url,allow}, "desktop_web": {listen,allow_lan,enabled,url}, "sources": {...} }`.
+  `sources` donne, pour chaque champ (`browser_server.listen`, `desktop_web.enabled`…), la couche qui gagne :
+  `"defaults"`, `"hub"` (`hubs.<machine>`), le nom du système (`"windows"`, `"linux"`, `"darwin"` : surcharge) ou
+  `""` (posé nulle part). `settings` et `overrides` restent inchangés (lecture des surcharges conservée).
+- `configApply`, `kind: "hub"` : les changements `set`/`delete` d'`at` = `["browser_server"]`, `["desktop_web"]`
+  (objet effectif entier) ou `["<réglage>", "<champ>"]` sont portés **sur la couche qui gagne** pour le système du
+  launcher : si `hubs.<machine>.<système>` définit le champ, c'est lui qui est écrit, sinon `hubs.<machine>`. Un
+  champ absent de l'objet remplaçant est retiré de chaque couche qui le pose. Un `at` qui commence par un système
+  (`["windows", …]`) est appliqué tel quel.

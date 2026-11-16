@@ -460,7 +460,7 @@ func (a *App) configApplyAs(web bool, kind core.ConfigKind, project, mtime strin
 		s, err = core.ApplyConfConfChanges(base, changes)
 		out = []byte(s)
 	case kindHub:
-		out, err = core.ApplyHubChanges([]byte(content), core.HubHost(), changes)
+		out, err = core.ApplyHubChangesFor([]byte(content), core.HubHost(), core.CurrentGOOS(), changes)
 	default:
 		out, err = core.ApplyConfigChanges(kind, []byte(content), changes)
 	}

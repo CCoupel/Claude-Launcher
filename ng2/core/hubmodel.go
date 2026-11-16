@@ -60,6 +60,9 @@ type HubModel struct {
 	Settings  HubSettings            `json:"settings"`
 	Overrides map[string]HubOverride `json:"overrides"`
 	Effective map[string]string      `json:"effective"`
+	// Resolved : valeurs EFFECTIVES de browser_server et desktop_web pour ce système, champ par champ, avec leur
+	// provenance (#183) : ce que les Réglages affichent et modifient (jamais une valeur masquée).
+	Resolved HubResolved `json:"resolved"`
 }
 
 func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, dw *DesktopWeb, ru *RemoteUserConf, cache, dev string) HubSettings {
@@ -91,6 +94,7 @@ func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, dw *De
 func ReadHubModel(content []byte, host, goos string) (HubModel, error) {
 	m := HubModel{Hub: host, Goos: goos, Overrides: map[string]HubOverride{}, Effective: map[string]string{}}
 	m.Settings = hubSettingsOf(nil, nil, nil, nil, nil, "", "")
+	m.Resolved = resolvedOf(backendsFile{}, host, goos)
 	for _, k := range hubOSKeys {
 		m.Effective[k] = ""
 	}
@@ -98,6 +102,7 @@ func ReadHubModel(content []byte, host, goos string) (HubModel, error) {
 	if err := yaml.Unmarshal(content, &f); err != nil {
 		return m, fmt.Errorf("backends.yaml : %w", err)
 	}
+	m.Resolved = resolvedOf(f, host, goos) // défauts compris, même sans section de la machine
 	key, h, ok := pickHub(f.Hubs, host)
 	if !ok {
 		return m, nil
