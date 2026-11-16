@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -166,7 +167,75 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 func (a *App) conf() core.Config {
 	a.confMu.RLock()
 	defer a.confMu.RUnlock()
-	return a.cfg
+	c := a.cfg
+	if len(a.layoutOv) > 0 { // organisations demandées, pas encore écrites dans config.conf
+		m := make(map[string]string, len(c.ProjectLayouts)+len(a.layoutOv))
+		for k, v := range c.ProjectLayouts {
+			m[k] = v
+		}
+		for k, v := range a.layoutOv {
+			if v == "" {
+				delete(m, k)
+			} else {
+				m[k] = v
+			}
+		}
+		c.ProjectLayouts = m
+	}
+	return c
+}
+
+func (a *App) setLayoutOverride(key, layout string) {
+	a.confMu.Lock()
+	if a.layoutOv == nil {
+		a.layoutOv = map[string]string{}
+	}
+	a.layoutOv[key] = layout
+	a.confMu.Unlock()
+}
+
+func (a *App) clearLayoutOverride(key string) {
+	a.confMu.Lock()
+	delete(a.layoutOv, key)
+	a.confMu.Unlock()
+}
+
+// persistDelay : délai avant l'écriture de config.conf (tests : un partage réseau lent) ; nul en production.
+var persistDelay atomic.Int64
+
+// applyLayoutFirst : bascule de l'organisation d'un projet — la mise en page part AVANT la persistance
+// (organisation demandée connue côté Go : la présentation change tout de suite, sans attendre le partage
+// réseau où config.conf est écrit), puis config.conf est écrit ; écriture refusée : retour à l'organisation
+// précédente et {ok:false, msg}. Réponse comme avant : colorSaved vrai dès que config.conf est écrit.
+func (a *App) applyLayoutFirst(path, layout string) (map[string]any, error) {
+	base := filepath.Base(path)
+	if _, err := core.SetProjectLayout("", base, layout); err != nil { // valeur inconnue : refusée avant toute écriture
+		return map[string]any{"ok": false, "msg": err.Error()}, nil
+	}
+	t0 := time.Now()
+	a.setLayoutOverride(base, layout)
+	if t := a.term(path); t != nil {
+		t.relayoutNow()
+	}
+	a.changed()
+	a.cardsChanged()
+	a.perf.trace("bascule : avant écriture", base, time.Since(t0))
+	if d := time.Duration(persistDelay.Load()); d > 0 {
+		time.Sleep(d)
+	}
+	t1 := time.Now()
+	_, err := core.ApplyProjectConf(base, nil, &layout)
+	a.perf.trace("bascule : écriture config.conf", base, time.Since(t1))
+	if err != nil {
+		a.clearLayoutOverride(base)
+		go a.relayoutOpen() // l'organisation précédente revient
+		a.changed()
+		return map[string]any{"ok": false, "msg": "config.conf : " + err.Error() + " — organisation non enregistrée, retour à la précédente"}, nil
+	}
+	a.configReload(core.ConfConf)
+	a.clearLayoutOverride(base)
+	a.perf.trace("bascule : total", base, time.Since(t0))
+	return map[string]any{"ok": true, "colorSaved": true}, nil
 }
 
 // confMtime : date de config.conf (zéro s'il est absent).
@@ -465,6 +534,9 @@ func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[str
 func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, error) {
 	if !a.knownProject(path) {
 		return nil, fmt.Errorf("projet inconnu : %s", path)
+	}
+	if in.Layout != nil && in.Backend == nil && in.Image == nil && in.Color == nil && in.Env == nil {
+		return a.applyLayoutFirst(path, *in.Layout) // bouton de bascule : mise en page avant persistance
 	}
 	open := a.projectOpen(path)
 	if !open && (in.Backend != nil || in.Image != nil) {

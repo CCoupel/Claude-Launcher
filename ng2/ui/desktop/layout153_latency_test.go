@@ -179,3 +179,78 @@ func TestToggleWithUnreadableWindowIsRetried(t *testing.T) {
 	readWinFail.Store(false)
 	waitUntil(t, "mise en page retentée au tour suivant", 5*time.Second, func() bool { w := leaderW(); return w > 30 && w < 60 })
 }
+
+// Sous Windows chaque aller-retour sur le canal tmux coûte plusieurs centaines de ms (wsl.exe, kubectl exec) :
+// la bascule en consomme au plus deux (lecture de la fenêtre ; mise en page + relecture envoyées d'un coup).
+func TestToggleUsesAtMostTwoTmuxRoundTrips(t *testing.T) {
+	f, leaderW := fakeTeamProject(t)
+	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
+	time.Sleep(1500 * time.Millisecond)
+	for _, layout := range []string{"left", "", "left"} {
+		time.Sleep(1200 * time.Millisecond)
+		lastRelayoutRounds.Store(0)
+		args, _ := json.Marshal(map[string]any{"path": f.path, "layout": layout})
+		if res, err := f.a.Dispatch("projectApply", args); err != nil || res.(map[string]any)["ok"] != true {
+			t.Fatalf("projectApply %q : %v %v", layout, res, err)
+		}
+		rounds := lastRelayoutRounds.Load()
+		t.Logf("bascule vers %q : %d aller(s)-retour(s) tmux dans la remise en page", layout, rounds)
+		if rounds < 1 || rounds > 2 {
+			t.Errorf("bascule vers %q : %d allers-retours tmux, attendu 1 ou 2", layout, rounds)
+		}
+	}
+}
+
+// La mise en page part AVANT la persistance : config.conf est écrit ensuite (ici retardé de 3 s) ; pendant ce
+// temps projectSettings annonce déjà la nouvelle organisation.
+func TestLayoutAppliedBeforeConfigIsWritten(t *testing.T) {
+	f, leaderW := fakeTeamProject(t)
+	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
+	time.Sleep(1500 * time.Millisecond)
+	persistDelay.Store(int64(3 * time.Second))
+	defer persistDelay.Store(0)
+	t0 := time.Now()
+	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
+	replied := make(chan map[string]any, 1)
+	go func() { res, _ := f.a.Dispatch("projectApply", args); replied <- res.(map[string]any) }() // répond après l'écriture
+	waitUntil(t, "left", 2*time.Second, func() bool { w := leaderW(); return w > 30 && w < 60 })
+	if d := time.Since(t0); d > time.Second {
+		t.Errorf("mise en page après %v, attendu moins d'une seconde malgré l'écriture retardée", d)
+	}
+	if b, _ := os.ReadFile(core.ConfigPath()); strings.Contains(string(b), "PROJECT_LAYOUTS") {
+		t.Error("config.conf déjà écrit : la mise en page n'a pas précédé la persistance")
+	}
+	sa, _ := json.Marshal(map[string]any{"path": f.path})
+	res, err := f.a.Dispatch("projectSettings", sa)
+	if err != nil || res.(map[string]any)["layout"] != "left" || res.(map[string]any)["layoutAuto"] != false {
+		t.Errorf("projectSettings pendant l'écriture : %v %v, attendu layout=left explicite", res, err)
+	}
+	select {
+	case r := <-replied:
+		if r["ok"] != true || r["colorSaved"] != true {
+			t.Errorf("réponse après l'écriture : %v", r)
+		}
+	case <-time.After(6 * time.Second):
+		t.Fatal("projectApply ne répond pas après l'écriture de config.conf")
+	}
+	if b, _ := os.ReadFile(core.ConfigPath()); !strings.Contains(string(b), `"left"`) {
+		t.Errorf("config.conf non écrit : %s", b)
+	}
+}
+
+// Écriture refusée : retour à l'organisation précédente et message.
+func TestLayoutRolledBackWhenConfigCannotBeWritten(t *testing.T) {
+	f, leaderW := fakeTeamProject(t)
+	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
+	time.Sleep(1500 * time.Millisecond)
+	// config.conf illisible (un dossier à sa place) : l'écriture échoue, portable
+	if err := os.MkdirAll(core.ConfigPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
+	res, err := f.a.Dispatch("projectApply", args)
+	if err != nil || res.(map[string]any)["ok"] != false || !strings.Contains(res.(map[string]any)["msg"].(string), "non enregistrée") {
+		t.Fatalf("projectApply : %v %v, attendu {ok:false, msg « … non enregistrée … »}", res, err)
+	}
+	waitUntil(t, "retour à top", 8*time.Second, func() bool { return leaderW() > 90 })
+}

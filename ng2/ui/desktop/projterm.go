@@ -809,6 +809,11 @@ func (t *projTerm) readWin() (panes []winPaneFull, w, h int, zoomed bool, visibl
 	if err != nil {
 		return nil, 0, 0, false, "", err
 	}
+	return t.parseWin(b)
+}
+
+// parseWin : analyse la sortie de list-panes (paneFormat) de la fenêtre du projet.
+func (t *projTerm) parseWin(b []byte) (panes []winPaneFull, w, h int, zoomed bool, visible string, err error) {
 	var infos []core.PaneInfo
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		f := strings.SplitN(l, "|", 11) // la commande en dernier (peut contenir « | »)
@@ -849,6 +854,8 @@ func sortPanes(p []winPaneFull) {
 var (
 	arrangeCalls atomic.Int64
 	readWinFail  atomic.Bool
+	// lastRelayoutRounds : allers-retours tmux de la dernière remise en page immédiate (tests : borne de coût)
+	lastRelayoutRounds atomic.Int64
 )
 
 // tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
@@ -1158,7 +1165,10 @@ func layoutSig(cfg core.Config, key string) string {
 
 // relayoutNow : remet le projet en page tout de suite si son organisation effective a changé depuis la
 // dernière mise en page (bascule du bouton, LAYOUT_MODE enregistré) — sans attendre le tour du surveillant,
-// qui peut durer plusieurs secondes sur un partage réseau (#153). Sous pubMu comme un tour.
+// qui peut durer plusieurs secondes sur un partage réseau (#153). Sous pubMu comme un tour. Coût : DEUX
+// allers-retours sur le canal tmux (lecture de la fenêtre ; mise en page + relecture envoyées d'un coup) —
+// sous Windows chacun traverse wsl.exe / kubectl exec : plusieurs centaines de ms. Mesuré dans la trace de
+// performance (« bascule : … »).
 func (t *projTerm) relayoutNow() {
 	if t.isReadOnly() {
 		return
@@ -1169,7 +1179,13 @@ func (t *projTerm) relayoutNow() {
 	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
 		return
 	}
+	c := t.cl()
+	if c == nil {
+		return
+	}
+	start, rounds0 := time.Now(), c.rounds.Load()
 	panes, w, h, zoomed, visible, err := t.readWin()
+	tRead := time.Since(start)
 	if err != nil { // fenêtre illisible : la signature reste l'ancienne, le tour du surveillant retente
 		return
 	}
@@ -1185,12 +1201,36 @@ func (t *projTerm) relayoutNow() {
 	t.mu.Lock()
 	tc := t.team
 	t.mu.Unlock()
-	t.arrange(corePanes(panes), w, h, leader, tc)
+	arrangeCalls.Add(1)
+	plan := t.planArrange(corePanes(panes), w, h, leader, tc)
+	t1 := time.Now()
+	list := []string{"list-panes", "-t", t.win, "-F", paneFormat}
+	cmds := append(append([][]string{}, plan.Cmds...), list)
+	outs, errs := c.Batch(cmds) // échanges, géométrie, couleurs ET relecture : un seul aller-retour
+	last := len(cmds) - 1
+	if plan.Fallback != nil && errs[plan.LayoutAt] != nil { // tmux refuse « leader à gauche » : repli sur « top »
+		fb := append(append([][]string{}, plan.Fallback...), list)
+		o2, e2 := c.Batch(fb)
+		outs[last], errs[last] = o2[len(fb)-1], e2[len(fb)-1]
+		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
+	}
 	t.watch.layoutSig = sig // seulement après la mise en page
-	if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
+	tArrange := time.Since(t1)
+	if errs[last] == nil {
+		if p2, w2, h2, z2, v2, err := t.parseWin(outs[last]); err == nil && len(p2) > 0 {
+			panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
+		}
+	} else if p2, w2, h2, z2, v2, err := t.readWin(); err == nil && len(p2) > 0 {
 		panes, w, h, zoomed, visible = p2, w2, h2, z2, v2
 	}
+	t2 := time.Now()
 	t.publish(panes, w, h, zoomed, visible, leader, tc, tc != nil && core.ActiveSignature(*tc) != "")
+	t.a.perf.trace("bascule : lecture", t.name, tRead, "1 aller-retour")
+	t.a.perf.trace("bascule : mise en page", t.name, tArrange, fmt.Sprintf("%d commandes, 1 aller-retour", len(cmds)))
+	t.a.perf.trace("bascule : publication", t.name, time.Since(t2))
+	rounds := c.rounds.Load() - rounds0
+	lastRelayoutRounds.Store(rounds)
+	t.a.perf.trace("bascule : remise en page", t.name, time.Since(start), fmt.Sprintf("%d aller(s)-retour(s) tmux", rounds))
 }
 
 // relayoutOpen : relayoutNow de chaque projet ouvert (après un enregistrement de config.conf).
@@ -1322,19 +1362,25 @@ func (t *projTerm) relayout(force bool) {
 	t.poke()
 }
 
-func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) {
-	if t.isReadOnly() || len(panes) <= 1 {
-		return
-	}
-	arrangeCalls.Add(1)
+// planArrange : commandes tmux de la mise en page du projet (classement, organisation effective PROJECT_LAYOUTS puis
+// LAYOUT_MODE, #153), sans rien envoyer.
+func (t *projTerm) planArrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) core.ArrangePlan {
 	ids := make([]string, len(panes))
 	for i, p := range panes {
 		ids[i] = p.ID
 	}
 	top, bot := core.Classify(ids, leader, tc, t.orderFile())
 	cfg := t.a.conf()
-	cfg.LayoutMode = cfg.LayoutOf(t.key) // organisation effective du projet (PROJECT_LAYOUTS, puis LAYOUT_MODE, #153)
-	if core.ArrangeTeamChecked(cfg, t.cl(), t.win, panes, w, h, top, bot, t.color) {
+	cfg.LayoutMode = cfg.LayoutOf(t.key)
+	return core.PlanArrange(cfg, t.win, panes, w, h, top, bot, t.color)
+}
+
+func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) {
+	if t.isReadOnly() || len(panes) <= 1 {
+		return
+	}
+	arrangeCalls.Add(1)
+	if t.planArrange(panes, w, h, leader, tc).Exec(t.cl()) {
 		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
 	}
 }

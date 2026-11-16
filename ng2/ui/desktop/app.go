@@ -32,7 +32,11 @@ type App struct {
 	cfg    core.Config
 	confMu sync.RWMutex // cfg relue à chaud (config.go)
 	confAt time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
-	emit   Emitter
+	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
+	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
+	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
+	layoutOv map[string]string
+	emit     Emitter
 	// mirror : second destinataire des évènements (le navigateur servi par la fenêtre, #163)
 	mirror atomic.Pointer[Emitter]
 	webui  webUI
