@@ -10,11 +10,17 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Added
+- Adresse publique de l'interface web derrière un proxy inverse HTTPS : réglage `desktop_web.url`, option `--url`, variable `CL_WEB_URL` ; hôte public strict (punycode, port par défaut retiré) ; sondes `/healthz` et `/readyz` ; exemples nginx, Caddy et Traefik dans `ng2/README.md` (#171)
 - Réglages › Ce poste : les rubriques « Serveur de maquettes » et « Interface web » sont séparées. Le commutateur `desktop_web.enabled` allume ou éteint l'interface web sans effacer son adresse, sans relance du launcher (#183)
 
 ### Changed
+- Interface web derrière un proxy : le flux se reconnecte avec un délai croissant (1,5 s à 15 s) ; une session expirée (`401`/`403` sur `/api/events` ou `/api/call`) est signalée comme telle, distincte d'un refus d'hôte ou d'origine (`X-Launcher-Refusal`). Après amorçage, la page est servie en `303` sans `t` dans l'URL ; le cookie prend le préfixe `__Host-` en https (#171)
 - `desktop_web` et `browser_server` s'affichent et se modifient en valeur effective pour ce poste et ce système, avec la provenance de chaque réglage (`defaults`, `hubs.<machine>`, surcharge par système). « Retour au défaut » retire le champ de toutes les couches (#183)
 - `scripts/ci.sh` tient en moins de 60 s hors étape image : 56 s en moyenne sur trois passes, contre 119 s. Les tests de `ui/desktop` attendent désormais des évènements au lieu de dormir ; la couverture et le nombre de tests sont inchangés (#179)
+
+### Fixed
+- Panique corrigée : une `NewRequest` en erreur ne fait plus paniquer le launcher ; `RawBase` est modifié sous verrou et le port d'écoute est repris correctement (#187)
+- Tests : `TestRelayoutLeftZeroToTenTeammates` (ui/tmux) stabilisé en attendant le répertoire du leader ; `tmux -V` est affiché par `scripts/ci.sh`. Cause du flaky non établie, à confirmer par la CI ubuntu (#186)
 
 ## [6.2.0] — 2026-11-16
 

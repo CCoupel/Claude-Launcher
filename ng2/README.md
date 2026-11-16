@@ -1400,6 +1400,83 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
 
   Une écoute `":8770"` (sans hôte) n'est pas reconnue comme boucle locale : elle est refusée sans `allow_lan: true`.
 
+#### Adresse publique derrière un proxy inverse (v6.3.0, #171)
+
+Quand l'interface web est servie derrière un proxy HTTPS (Ingress, Traefik, nginx, Caddy), le navigateur ne voit pas
+l'adresse d'écoute. Le réglage `url` donne l'adresse publique :
+
+```yaml
+defaults:
+  desktop_web: { enabled: true, listen: "0.0.0.0:8770", allow_lan: true, url: "https://launcher.exemple" }
+```
+
+- **Forme** : `http://hôte[:port]` ou `https://hôte[:port]`, sans chemin, sans paramètres, sans identifiants. Toute
+  autre forme éteint l'interface et affiche la raison dans l'état (`webUI.msg`).
+- **Sources**, par priorité : option `--url` > variable `CL_WEB_URL` > `desktop_web.url`.
+- **Hôte** : un nom RFC 1123 (lettres, chiffres, `-`, `.`) ou une adresse IP. Un nom internationalisé est converti en
+  punycode. `%`, `_`, espaces et autre ponctuation sont refusés.
+- **Port** : le port par défaut du schéma est retiré (`https://h:443` ≡ `https://h`), comme le font `Host` et `Origin`
+  du navigateur.
+- L'interface est toujours servie à la racine du nom : pas de préfixe de chemin.
+- **En-têtes** : aucun `X-Forwarded-*`, `Forwarded` ni `X-Real-IP` n'est lu. Le schéma et l'hôte publics viennent
+  seulement de `url`.
+
+Effets : le `Host` admis est celui de `url` (sur son port) en plus de la boucle locale et de la machine. L'origine admise
+est exactement celle de `url`. Le cookie de session prend `Secure` quand `url` est en `https`, et son nom devient
+`__Host-cl_session_<port>` (ou `__Host-cl_session`). Un accès direct au port d'écoute en HTTP ne garde donc pas de session.
+
+**Amorçage** : `GET /?t=<jeton>` ne sert jamais la page. Un jeton valide pose le cookie et répond `303` vers `/`, sans
+`t`. Un jeton invalide sans session répond `403` ; avec une session valide, `303` sans nouveau cookie. Le jeton
+reste réutilisable jusqu'à sa régénération : il apparaît donc dans les journaux du proxy à la première requête, à
+masquer côté proxy.
+
+**Refus `403`** : l'en-tête `X-Launcher-Refusal` indique la cause. `host` : hôte non admis. `origin` : origine non admise.
+`session` : cookie absent, expiré ou révoqué. `method` : méthode non permise sur `/api/call`. Seul `session` signifie
+« session perdue » ; l'interface n'affiche la bannière d'expiration que dans ce cas.
+
+**Sondes** : `GET /healthz` répond `200 ok` dès que le serveur vit. `GET /readyz` répond `200 ok` quand le chargement
+initial est fini, `503` avant. Les deux sont sans session et hors contrôle de `Host`, et ne révèlent rien (ni version,
+ni état des projets). Elles servent aux sondes de Kubernetes.
+
+**Exemples de proxy** (à valider en QUALIF) :
+
+```nginx
+# nginx : le Host public est transmis ; le flux SSE n'est pas tamponné
+location / {
+    proxy_pass http://127.0.0.1:8770;
+    proxy_set_header Host $http_host;          # port public inclus
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+}
+location /api/events {
+    proxy_pass http://127.0.0.1:8770;
+    proxy_set_header Host $http_host;
+    proxy_buffering off;
+    proxy_read_timeout 300s;                   # > battement de 20 s
+}
+```
+
+```caddyfile
+# Caddy : Host transmis par défaut ; flush immédiat pour le flux SSE
+launcher.exemple {
+    reverse_proxy 127.0.0.1:8770 {
+        flush_interval -1
+    }
+}
+```
+
+```yaml
+# Traefik : pas de middleware buffering sur la route ; le délai de lecture de l'entrypoint doit dépasser 20 s
+entryPoints:
+  websecure:
+    transport:
+      respondingTimeouts:
+        readTimeout: 300s
+```
+
+**Rappel** : derrière le proxy, ne publiez pas le port d'écoute autrement (Service, `hostPort`, pare-feu ouvert) : le
+jeton est alors la seule barrière. Sur Kubernetes, gardez un `ClusterIP` et le proxy de l'Ingress.
+
 ### Prérequis : outils externes
 
 Ils ne sont pas embarqués ; `claude-launcher-ng2 backends` liste ceux qu'exigent **les backends
