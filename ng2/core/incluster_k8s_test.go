@@ -65,3 +65,19 @@ func TestPodMounts(t *testing.T) {
 		t.Error("JSON illisible : aucun montage")
 	}
 }
+
+func TestBackendsModelExposesCluster(t *testing.T) {
+	ns := filepath.Join(t.TempDir(), "namespace")
+	_ = os.WriteFile(ns, []byte("claude-ng2\n"), 0o644)
+	old := saNamespacePath
+	saNamespacePath = ns
+	defer func() { saNamespacePath = old }()
+	t.Setenv(InClusterVar, "1")
+	if m, _ := ReadBackendsModel(nil); !m.InCluster || m.PodNamespace != "claude-ng2" {
+		t.Errorf("en cluster : %+v", m)
+	}
+	t.Setenv(InClusterVar, "0")
+	if m, _ := ReadBackendsModel(nil); m.InCluster || m.PodNamespace != "" {
+		t.Errorf("hors cluster : %+v", m)
+	}
+}

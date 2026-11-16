@@ -25,7 +25,7 @@ func TestUpdateNotifyModeAnnouncesWithoutInstall(t *testing.T) {
 			got = &al[i]
 		}
 	}
-	if got == nil || !strings.Contains(got.Text, "v9.9.9 disponible · mise à jour par l'image") || got.Click {
+	if got == nil || !strings.Contains(got.Text, "v9.9.9 disponible · mise à jour par l'image") || got.Click || !got.Notify {
 		t.Fatalf("annonce en mode notify : %+v", got)
 	}
 	// un clic n'installe rien

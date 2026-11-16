@@ -646,6 +646,8 @@ type Alert struct {
 	Text  string `json:"text"`  // sans le ✕
 	Color string `json:"color"` // green, yellow, orange
 	Click bool   `json:"click"` // un clic agit (installer, adopter, réessayer)
+	// Notify : annonce seulement (CL_UPDATE_MODE=notify) : mise à jour par l'image, aucun bouton (#167)
+	Notify bool `json:"notify,omitempty"`
 }
 
 // UsageRow : une ligne de consommation.
@@ -801,7 +803,7 @@ func (a *App) alerts() []Alert {
 		tag := u.newLauncher
 		switch {
 		case core.UpdateNotifyOnly():
-			al.Text = "↑ NG " + tag + " disponible · mise à jour par l'image"
+			al.Text, al.Notify = "↑ NG "+tag+" disponible · mise à jour par l'image", true
 		case u.updating:
 			al.Text, al.Color = "↑ NG "+tag+" : installation…", "green"
 		case u.launcherOK:
