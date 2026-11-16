@@ -10,6 +10,9 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Added
+- Image du launcher pour le cluster : `ghcr.io/ccoupel/claude-launcher` (uid 1000, `bash`, `git`, `gh`, `kubectl`, sans `claude` ni `tmux`), construite par `deploy/image/build.sh` ; `CL_ROOT_BASE` obligatoire au démarrage (#167)
+- Mode serveur en cluster : ServiceAccount et namespace du pod, backend k8s implicite avec `CL_K8S_VOLUMES`, diagnostic des droits un par un, jeton conservé dans le cache et jamais imprimé, arrêt propre sur SIGTERM ; `CL_UPDATE_MODE=notify` (#168)
+- Connexion claude.ai depuis un pod sans `claude` : elle se fait dans un projet ouvert (`/login` dans son leader) ; une sortie réseau bloquée est signalée dans l'erreur (#175)
 - Identité et cache par launcher : `CL_HUB_NAME` (nom du launcher, clé `hubs.<nom>`, identité des sessions), `CL_CACHE_DIR` (dossier de cache utilisé tel quel), `CL_IN_CLUSTER` et `CL_ALLOW_HOST_BACKEND` (#169)
 - Plusieurs launchers sur une même racine : garde de nom (`CL_HUB_NAME`), écritures partagées sous verrou puis écriture atomique (`projects.json`, `settings.json`, `env.yaml`), liste des clés de `settings.json` par launcher (#176)
 - Racine de base : option `--root-base <dossier>` et variable `CL_ROOT_BASE` ; la configuration, la config de claude et les projets se placent sous cette racine (`CLAUDE_CONFIG_DIR` par défaut `<racine>/.claude`). Racine invalide ou option vide refusées sans rien créer ; section « Racine de base » dans `backends` (#165, #166)

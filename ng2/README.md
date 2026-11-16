@@ -1565,6 +1565,65 @@ d'exécution ne peut pas être remplacé : il est renommé `claude-launcher-ng2.
 est posé à sa place et lancé, puis l'ancien processus se termine ; le `.old` est supprimé au
 démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
 
+## Launcher dans un cluster (v6.3.0)
+
+Le launcher peut tourner dans un pod Kubernetes, comme **serveur** de l'interface web (`desktop --web`), à côté des
+projets qu'il ouvre. Il se pilote depuis un navigateur, derrière un Ingress (adresse publique : réglage `desktop_web.url`,
+voir « Interface web de la fenêtre native » plus haut).
+
+**L'image** (#167) : `ghcr.io/ccoupel/claude-launcher` (paquet public), tags `vX.Y.Z` et `vX.Y.Z.a`. Elle contient le
+binaire statique, `bash`, `git`, `gh` et `kubectl` (version fixée, somme vérifiée à la construction). **Ni `claude` ni
+`tmux`** : les sessions des projets tournent dans leurs conteneurs ou leurs pods.
+
+- Construction : `deploy/image/build.sh <vX.Y.Z[.a]>` (buildah). Le binaire est compilé avec la même commande que
+  `release.yml`, puis mis dans l'image. `OCI_ARCHIVE=1` produit aussi une archive OCI et son `SHA256SUMS`.
+- Utilisateur non root, uid:gid `1000:1000` (remplaçables par le chart). `HOME=/home/launcher` n'est **pas** persistant.
+- Port `8080`. `CL_UPDATE_MODE=notify` : la nouvelle version est annoncée, mais le pod ne se met pas à jour seul, c'est
+  l'image qui change.
+- **`CL_ROOT_BASE` est obligatoire** : le point d'entrée (`entrypoint.sh`) refuse de démarrer sans elle (code `64`), et
+  aussi si elle ne désigne pas un dossier, par exemple un volume non monté (code `66`). Le chart la pose (`rootBase`).
+- Le point d'entrée lance `desktop --web --addr 0.0.0.0:8080 --no-open`, avec `--url` si `CL_WEB_URL` est posée. Il
+  laisse passer `version`, `backends` et `help` pour le diagnostic.
+
+**Config au démarrage** : si `config.conf` n'existe pas sous la racine, il est créé dans
+`<racine>/.config/claude-launcher-ng2`, avec `GITHUB_DIR="${CL_ROOT_BASE}/PROJETS"` et
+`CLAUDE_CONFIG_DIR="${CL_ROOT_BASE}/.claude"` (aucun chemin absolu écrit). Le fichier est partagé par le hub Linux, l'exe
+Windows et le pod, chacun développe `${CL_ROOT_BASE}` avec sa propre forme de la racine. Si `CL_ROOT_BASE` n'est pas
+dans l'environnement (exe Windows, mode portable), la racine est déduite de l'emplacement du fichier, pour cette lecture
+seulement. Si elle ne correspond pas, les chemins qui en dérivent sont écartés et `backends` affiche « ⚠ config.conf
+utilise ${CL_ROOT_BASE}, non résolue… », sans jamais retomber sur un `/PROJETS` silencieux.
+
+**Détection et identité** :
+
+- Le launcher se croit dans un cluster quand `KUBERNETES_SERVICE_HOST` est posé et que le jeton du ServiceAccount
+  (`/var/run/secrets/kubernetes.io/serviceaccount/token`) est lisible. `CL_IN_CLUSTER=1` ou `0` force le choix.
+- Un backend k8s **sans `context`** utilise le ServiceAccount du pod (`kubectl` sans `--context` ni `KUBECONFIG`). Un
+  backend **sans `namespace`** prend celui du pod.
+- Sans `backends.yaml`, un backend k8s implicite est proposé, avec les volumes de `CL_K8S_VOLUMES` au format
+  `<racine>=<pvc>[,<racine>=<pvc>…]`.
+- Le backend `host` est refusé dans le pod (claude n'y est pas installé), sauf `CL_ALLOW_HOST_BACKEND=1`.
+
+**« Tester » un backend k8s** : les droits sont vérifiés un par un (`kubectl auth can-i`) : `statefulsets`, `pods`,
+`pods/exec`, `events`, `persistentvolumeclaims`. Un droit absent affiche « droit manquant : verbe ressource » avec le
+conseil de mettre à jour le Role du chart (`helm upgrade`). Si la vérification elle-même échoue, l'étape affiche
+« droit non vérifiable » avec la cause renvoyée par `kubectl`. Les volumes déclarés doivent être présents, `Bound`,
+`ReadWriteMany`, et montés dans le pod du launcher au chemin prévu.
+
+**Jeton de l'interface** : en cluster, le jeton n'est **jamais imprimé** dans les journaux du pod. Le journal indique
+seulement le fichier où le lire : `<cache>/desktop-web-token` (0600), créé au premier démarrage et conservé d'un
+redémarrage à l'autre. `CL_DESKTOP_TOKEN` le remplace s'il est posé. Pour le lire, passer par `kubectl exec` sur le
+pod, et placer `CL_CACHE_DIR` sur le volume de la racine (convention du chart) : sans cela, le jeton est perdu au
+redémarrage du pod.
+
+**Connexion claude.ai et GitHub** (#175) : le pod n'a pas `claude`. La connexion claude.ai ne se fait donc pas dans le
+pod : elle se fait dans un projet ouvert depuis le launcher, en lançant `/login` dans son leader. Elle est partagée
+par la config de claude commune (`CLAUDE_CONFIG_DIR`). Le pod doit pouvoir joindre `claude.ai` et GitHub : si une
+sortie réseau est bloquée (NetworkPolicy, proxy, DNS du cluster), le launcher le signale dans le message d'erreur,
+au lieu d'un simple « injoignable ».
+
+**Arrêt** : `SIGTERM` (envoyé par le kubelet) et `SIGINT` ferment le serveur proprement, détachent les terminaux et
+sortent avec le code 0. Les projets restent ouverts dans leurs pods.
+
 ## Interface
 
 - **Gauche** : navigateur (40 colonnes par défaut). Projets en arbre, deux badges git
