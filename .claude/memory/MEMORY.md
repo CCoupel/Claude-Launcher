@@ -66,10 +66,9 @@
 ## Regles critiques
 
 - Règles permanentes du projet (tests isolés, milestone non démarré, maquette, README) : `.claude/agents/context/COMMON.md`.
-- Ne jamais travailler directement sur `main` : branche milestone dédiée, PR, fusion au déploiement PROD.
+- Branches, PR et fusion vers `main` : `CLAUDE.md` « Conventions Git ».
 
 ## Corrections de comportement
 
 - Les agents doivent vérifier sur Windows réel ce qu'ils mesurent sur Linux : trois refus du GATE LOT-5 viennent de
   mesures simulées (tour lent, FS local) qui ne reproduisaient pas wsl.exe / partage 9P.
-- Exception de confinement accordée : temporaires non vitaux sous `/tmp` autorisés.
