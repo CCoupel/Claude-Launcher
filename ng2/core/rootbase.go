@@ -104,11 +104,42 @@ func defaultConfigFor() string {
 	return strings.Replace(c, "# CLAUDE_CONFIG_DIR=\"/chemin/partage/.claude\"", `CLAUDE_CONFIG_DIR="${CL_ROOT_BASE}/.claude"`, 1)
 }
 
+// rootBaseUnresolved : valeur donnée à ${CL_ROOT_BASE} quand ni la variable ni l'emplacement du fichier ne donnent la
+// racine : les chemins qui en dérivent sont écartés (jamais un « /PROJETS » silencieux) et signalés.
+const rootBaseUnresolved = "/__CL_ROOT_BASE_NON_RESOLUE__"
+
+// rootFromConfigPath : racine déduite de l'emplacement d'un config.conf « <racine>/.config/claude-launcher-ng2/config.conf »
+// ("" si la forme ne correspond pas). Sert de repli quand CL_ROOT_BASE est absente de l'environnement (exe Windows, hub
+// en mode portable) : le fichier créé sous la racine (« ${CL_ROOT_BASE}/PROJETS ») reste lisible sans exporter la variable.
+func rootFromConfigPath(path string) string {
+	d := filepath.Dir(path)
+	if filepath.Base(path) != "config.conf" || filepath.Base(d) != "claude-launcher-ng2" || filepath.Base(filepath.Dir(d)) != ".config" {
+		return ""
+	}
+	return filepath.Dir(filepath.Dir(d))
+}
+
+// rootBaseFallback : valeur de ${CL_ROOT_BASE} pour la lecture du fichier path de contenu src, quand la variable est
+// absente de l'environnement ("" : rien à développer — variable posée, ou fichier qui ne l'utilise pas). unresolved
+// vrai : le fichier l'utilise sans qu'on puisse la déduire.
+func rootBaseFallback(path, src string) (root string, unresolved bool) {
+	if rb, _ := RootBase(); rb != "" || !strings.Contains(src, "CL_ROOT_BASE") {
+		return "", false
+	}
+	if r := rootFromConfigPath(path); r != "" {
+		return r, false
+	}
+	return rootBaseUnresolved, true
+}
+
 // PrintRootBase : première section de « claude-launcher-ng2 backends ».
 func PrintRootBase() {
 	d, src := RootBase()
 	if d == "" {
 		fmt.Println("Racine de base : aucune")
+		if w := LoadConfig().RootBaseWarn; w != "" {
+			fmt.Println("  ⚠ " + w)
+		}
 		fmt.Println()
 		return
 	}

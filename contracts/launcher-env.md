@@ -36,6 +36,17 @@ partagé par le hub Linux, l'exe Windows et le pod ; chacun développe `${CL_ROO
 pour Linux et inversement. Le fichier n'est lu correctement que par un launcher dont `CL_ROOT_BASE` est posée (cas des
 processus lancés par tmux et du pod, qui la reçoivent).
 
+**Repli quand `CL_ROOT_BASE` est absente (revue LOT-4.1 M5)** : si `config.conf` utilise `${CL_ROOT_BASE}` et que la
+variable n'est pas dans l'environnement du launcher (exe Windows, hub en mode portable dont le binaire est à la
+racine), la racine est déduite de l'emplacement du fichier quand il est
+`<racine>/.config/claude-launcher-ng2/config.conf` ; elle sert à développer `${CL_ROOT_BASE}` **pour cette lecture
+seulement** (sous-processus bash de `LoadConfig` et `confLite`) : la variable n'est pas exportée et `RootBase()`
+(donc « Racine de base » de `backends`, l'ordre du dossier de configuration, les valeurs par défaut) ne change pas.
+Quand la forme ne correspond pas, les chemins qui en dérivent sont **écartés** et `backends` affiche « ⚠ config.conf
+utilise ${CL_ROOT_BASE}, non résolue… » : jamais un « /PROJETS » silencieux. Limite : ne pas mélanger des launchers
+antérieurs à v6.3.0 sur une racine neuve dont le `config.conf` a été créé par v6.3.0 (ils ne développeraient pas la
+variable).
+
 **`CLAUDE_CONFIG_DIR` sous la racine** : sans valeur dans `config.conf` (fichier neuf **ou existant** qui ne le pose
 pas), `CLAUDE_CONFIG_DIR` vaut `<root_base>/.claude` (choix assumé : la configuration de claude suit la racine).
 Une valeur posée dans `config.conf`, ou un `CLAUDE_CONFIG_DIR` déjà défini au lancement, l'emporte. La racine est

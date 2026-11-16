@@ -162,7 +162,11 @@ func tildeEnds(src string, j int) bool {
 }
 
 // confLite : lignes « TAG<TAB>valeur » de LoadConfig pour le contenu src.
-func confLite(src, home string) string {
+func confLite(src, home string) string { return confLiteWith(src, home, "") }
+
+// confLiteWith : confLite ; fbRoot, s'il n'est pas vide, est la valeur de ${CL_ROOT_BASE} quand la variable est absente
+// de l'environnement (racine déduite de l'emplacement du fichier).
+func confLiteWith(src, home, fbRoot string) string {
 	vars := map[string]string{
 		"HOME": home, "GITHUB_DIR": home + "/GITHUB", "USAGE_REFRESH_SEC": "120", "GITHUB_TOKEN": "",
 		"CLAUDE_DISABLE_MOUSE": "1", "CLAUDE_EXPERIMENTAL_TEAMS": "1", "CLAUDE_OPTIONS": "",
@@ -186,7 +190,10 @@ func confLite(src, home string) string {
 		if a, ok := arrays[n]; ok && len(a) > 0 {
 			return a[0]
 		}
-		return os.Getenv(n)
+		if v := os.Getenv(n); v != "" || n != RootBaseVar {
+			return v
+		}
+		return fbRoot
 	}
 	isName := func(s string) bool {
 		if s == "" {

@@ -185,3 +185,49 @@ func TestRootBaseConfigRelativeResolvedPerSystem(t *testing.T) {
 		t.Errorf("relu par Linux : racines %v, config de claude %q", cfg.Roots, cfg.ClaudeConfigDir)
 	}
 }
+
+// Revue LOT-4.1 M5 : un config.conf créé sous une racine (${CL_ROOT_BASE}) relu par un launcher SANS la variable
+// (exe Windows, hub en mode portable) : racine déduite de l'emplacement du fichier — mêmes chemins qu'avec la variable —,
+// sans exporter la variable ni changer RootBase() ; hors de cette forme : chemins écartés et signalés, jamais « /PROJETS ».
+func TestRootBaseConfigReadWithoutVariable(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(RootBaseVar, root)
+	conf := defaultConfigFor()
+	cfgDir := filepath.Join(root, ".config", "claude-launcher-ng2")
+	_ = os.MkdirAll(cfgDir, 0o755)
+	path := filepath.Join(cfgDir, "config.conf")
+	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	with := loadConfigAt(path)
+	// la même lecture sans la variable
+	t.Setenv(RootBaseVar, "")
+	os.Unsetenv(RootBaseVar)
+	without := loadConfigAt(path)
+	if len(without.Roots) != 1 || without.Roots[0] != filepath.Join(root, "PROJETS") || without.ClaudeConfigDir != filepath.Join(root, ".claude") ||
+		with.Roots[0] != without.Roots[0] || with.ClaudeConfigDir != without.ClaudeConfigDir {
+		t.Errorf("sans variable : racines %v, claude %q ; avec : %v, %q", without.Roots, without.ClaudeConfigDir, with.Roots, with.ClaudeConfigDir)
+	}
+	if without.RootBaseWarn != "" {
+		t.Errorf("avertissement inattendu : %s", without.RootBaseWarn)
+	}
+	if d, _ := RootBase(); d != "" || os.Getenv(RootBaseVar) != "" {
+		t.Errorf("la lecture ne doit ni poser ni exporter CL_ROOT_BASE : %q", d)
+	}
+	// « Windows » : confLite avec la racine déduite, forme Windows
+	if out := confLiteWith(conf, `C:\Users\moi`, `D:\base`); !strings.Contains(out, "root\tD:\\base/PROJETS\n") || !strings.Contains(out, "claudedir\tD:\\base/.claude\n") {
+		t.Errorf("confLite avec racine déduite : %q", out)
+	}
+	// forme qui ne correspond pas : écarté et signalé, pas de « /PROJETS »
+	other := filepath.Join(t.TempDir(), "config.conf")
+	_ = os.WriteFile(other, []byte(conf), 0o600)
+	bad := loadConfigAt(other)
+	if bad.RootBaseWarn == "" || strings.Contains(strings.Join(bad.Roots, ","), "NON_RESOLUE") || bad.ClaudeConfigDir != "" {
+		t.Errorf("racine non résolue : avertissement %q, racines %v, claude %q", bad.RootBaseWarn, bad.Roots, bad.ClaudeConfigDir)
+	}
+	for _, r := range bad.Roots {
+		if r == "/PROJETS" {
+			t.Errorf("« /PROJETS » silencieux : %v", bad.Roots)
+		}
+	}
+}

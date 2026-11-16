@@ -54,6 +54,10 @@ type Config struct {
 	// Windows : réglages-chemins Linux (/…) sans correspondance déclarée dans
 	// hubs.<machine>.paths (applyConfPaths), « RÉGLAGE chemin »
 	Unmapped []string
+
+	// RootBaseWarn : config.conf utilise ${CL_ROOT_BASE} sans que la racine soit connue (ni variable, ni emplacement
+	// <racine>/.config/claude-launcher-ng2/) : les chemins concernés sont écartés (#165)
+	RootBaseWarn string
 }
 
 // loadConfigScript : config.conf sourcé par bash, réglages imprimés (LoadConfig).
@@ -99,15 +103,24 @@ func loadConfigAt(path string) Config {
 
 	var out []byte
 	var err error
+	src := readFileOr(path)
+	// ${CL_ROOT_BASE} dans le fichier, variable absente : racine déduite de l'emplacement du fichier (sans exporter la
+	// variable ni changer RootBase()) ; sinon chemins écartés et signalés
+	fbRoot, rbUnresolved := rootBaseFallback(path, src)
+	if rbUnresolved {
+		cfg.RootBaseWarn = "config.conf utilise ${CL_ROOT_BASE}, non résolue (variable absente, fichier hors <racine>/.config/claude-launcher-ng2/) : chemins concernés ignorés — poser CL_ROOT_BASE ou --root-base"
+	}
 	if runtime.GOOS == "windows" {
 		// pas de bash fiable sous Windows (celui de System32 lance WSL) :
 		// lecture du sous-ensemble utile du format, en Go (conflite.go)
-		out = []byte(confLite(readFileOr(path), home))
+		out = []byte(confLiteWith(src, home, fbRoot))
 	} else {
 		cmd := exec.Command("bash", "-c", loadConfigScript, "_", path)
 		cmd.Env = EnvWithout("CLAUDE_CONFIG_DIR") // seule la valeur du fichier compte ici
 		if rb, _ := RootBase(); rb != "" {
 			cmd.Env = append(cmd.Env, RootBaseVar+"="+rb) // racine nettoyée : bash et Go donnent le même chemin (« /r/ » ≡ « /r »)
+		} else if fbRoot != "" {
+			cmd.Env = append(cmd.Env, RootBaseVar+"="+fbRoot) // pour ce sous-processus seulement
 		}
 		out, err = cmd.Output()
 	}
@@ -179,11 +192,11 @@ func loadConfigAt(path string) Config {
 					cfg.ProjectColors[f[1]] = f[2]
 				}
 			case "root":
-				if r := strings.TrimSpace(f[1]); r != "" {
+				if r := strings.TrimSpace(f[1]); r != "" && !strings.Contains(r, rootBaseUnresolved) {
 					cfg.Roots = append(cfg.Roots, r)
 				}
 			case "claudedir":
-				if d := strings.TrimSpace(f[1]); d != "" {
+				if d := strings.TrimSpace(f[1]); d != "" && !strings.Contains(d, rootBaseUnresolved) {
 					// « /… » : absolu aussi sous Windows (chemin Linux des backends, cf. applyConfPaths)
 					if !filepath.IsAbs(d) && !strings.HasPrefix(d, "/") && !strings.HasPrefix(d, `\`) {
 						d = filepath.Join(filepath.Dir(path), d)
