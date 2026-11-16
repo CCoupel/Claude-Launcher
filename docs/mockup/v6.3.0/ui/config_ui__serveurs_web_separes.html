@@ -1,0 +1,243 @@
+<!--
+mockup:
+  composant: config_ui
+  feature: serveurs_web_separes
+  version: 6.3.0
+  type: ui
+  issue: "#183, #171"
+  propositions: ["C' — Deux rubriques à part : « Serveur de maquettes » et « Interface web » (retenue par l'utilisateur le 2026-11-16)", "A — Deux encadrés empilés, commutateur dans l'en-tête", "B — Deux encadrés côte à côte, détail replié quand c'est éteint", "C — Rubrique « Interface web » à part dans les Réglages"]
+  complete: ["docs/mockup/v6.1.0/ui/config_ui__interface_structuree.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #183 — réglages des deux serveurs web séparés (v6.3.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--ao:#3A2818;--ag:#183A2A;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.ptabs{display:flex;gap:6px;border-bottom:1px solid var(--line2);margin-bottom:10px;flex-wrap:wrap}
+.ptabs button{background:var(--panel);color:var(--muted);border:1px solid var(--line2);border-bottom:0;border-radius:6px 6px 0 0;padding:8px 16px;font:600 13px var(--ui);cursor:pointer}
+.ptabs button.on{background:var(--head);color:var(--text);box-shadow:inset 0 2px 0 var(--orange)}
+.ptabs button.ret{border-color:var(--green);color:var(--text)}
+.ptabs button.ret::after{content:" ✓ retenue";color:var(--green);font-weight:600}
+section[data-proposition]{display:none}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:22px 0 8px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+.g{color:var(--green)}.o{color:var(--orange)}.y{color:var(--yellow)}.r{color:var(--red)}.mu{color:var(--muted)}.dm{color:var(--dim)}
+/* fenêtre Réglages */
+.modal{background:var(--panel);border:1px solid var(--line2);border-radius:8px;max-width:1320px;display:flex;flex-direction:column;overflow:hidden}
+.mh{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--line)}
+.mh h3{margin:0;font-size:15px}.mh .sp{flex:1}
+.mb{display:flex;min-height:0}
+.rail{width:190px;flex:none;border-right:1px solid var(--line);padding:8px;background:var(--bg)}
+.rail .rg{font:600 11px var(--ui);color:var(--muted);letter-spacing:.06em;margin:10px 6px 4px}
+.rail .rg:first-child{margin-top:2px}
+.rail .ri{padding:5px 8px;border-radius:5px;display:flex;gap:6px;align-items:center}
+.rail .ri.on{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent);font-weight:600}
+.rail .ri .new{margin-left:auto;font:11px var(--mono);color:var(--orange)}
+.pg{flex:1;min-width:0;padding:14px 18px}
+.pg h4{margin:0 0 4px;font-size:14px}
+.pg .ex{color:var(--muted);margin:0 0 12px;line-height:1.45;max-width:820px}
+.mf{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--line);font-size:12px}
+.mf .sp{flex:1}
+.btn{white-space:nowrap;background:var(--head);color:var(--text);border:1px solid var(--line2);border-radius:5px;padding:5px 11px;font:13px var(--ui)}
+.btn.pri{background:var(--ao);border-color:var(--orange);color:var(--orange);font-weight:600}
+.btn.sm{padding:2px 8px;font-size:12px}
+.btn.off{opacity:.4}
+table{border-collapse:collapse;width:100%;font-size:12.5px}
+th{text-align:left;color:var(--muted);font-weight:600;padding:4px 8px;border-bottom:1px solid var(--line2);font-size:12px}
+td{padding:4px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+td.m,.mono{font-family:var(--mono);font-size:12px}
+.box{border:1px solid var(--line2);border-radius:6px;overflow:hidden;margin-bottom:12px}
+.box>.bh{background:var(--head);padding:6px 10px;font-weight:600;display:flex;gap:8px;align-items:center}
+.box>.bh .sp{flex:1}
+.box>.bb{padding:10px}
+.box.neuf{border-color:var(--orange)}
+.box.neuf>.bh{box-shadow:inset 3px 0 0 var(--orange)}
+.form{display:grid;grid-template-columns:150px minmax(0,1fr);gap:7px 10px;align-items:center}
+.form .hint{grid-column:2;color:var(--muted);font-size:11.5px;margin-top:-4px;line-height:1.4}
+.in{background:var(--input);color:var(--text);border:1px solid var(--line2);border-radius:5px;padding:4px 8px;font:12.5px var(--mono);min-height:26px;display:flex;align-items:center;gap:6px}
+.in.w{display:inline-flex;min-width:70px}
+.in.ro{color:var(--muted);border-style:dashed}
+.chk{display:inline-flex;align-items:center;gap:6px}
+.chk i{width:14px;height:14px;border:1px solid var(--muted);border-radius:3px;display:inline-block}
+.chk.on i{background:var(--accent);border-color:var(--accent)}
+.chk.ro{opacity:.5}
+.pill{font:11px var(--mono);padding:1px 6px;border-radius:9px;border:1px solid var(--line2);color:var(--muted);font-weight:400}
+.pill.g{border-color:var(--green);color:var(--green)}.pill.o{border-color:var(--orange);color:var(--orange)}.pill.y{border-color:var(--yellow);color:var(--yellow)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px;align-items:start}
+.note{color:var(--muted);font-size:12px;line-height:1.5;max-width:1250px}
+/* commutateur */
+.sw{display:inline-flex;align-items:center;gap:8px;font-weight:600}
+.sw i{width:34px;height:18px;border-radius:9px;background:var(--line2);border:1px solid var(--dim);position:relative;display:inline-block;flex:none}
+.sw i::after{content:"";position:absolute;top:1px;left:1px;width:14px;height:14px;border-radius:50%;background:var(--muted)}
+.sw.on i{background:var(--ag);border-color:var(--green)}
+.sw.on i::after{left:17px;background:var(--green)}
+.sw.lock{opacity:.6}
+.sw .lk{font-weight:400;color:var(--muted);font-size:12px}
+.etat{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.bandeau{border-radius:5px;padding:7px 10px;margin-bottom:10px;line-height:1.45;font-size:12.5px}
+.bandeau.ok{background:var(--ag);border:1px solid var(--green)}
+.bandeau.srv{background:var(--ao);border:1px solid var(--orange)}
+.bandeau.ro{background:var(--head);border:1px dashed var(--muted);color:var(--text2)}
+.gris{opacity:.45}
+/* états */
+.etats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;max-width:1320px}
+.etats .cas{font:600 12px var(--ui);color:var(--text2);margin:0 0 6px}
+.etats .cas span{font-weight:400;color:var(--muted)}
+@media (max-width:1000px){.grid2,.etats{grid-template-columns:1fr}.rail{display:none}}
+</style>
+</head>
+<body>
+<h1>Réglages — séparer le serveur des maquettes de l'interface web (#183)</h1>
+<p class="sub">Page « Ce poste » de la fenêtre Réglages. Aujourd'hui, un seul encadré « Navigateur » mélange les deux serveurs.
+Les propositions les séparent et ajoutent un commutateur pour l'interface web. Le champ « Adresse publique » vient de #171.
+Les encadrés bordés d'orange sont ceux qui changent ; le reste de la page est inchangé.</p>
+
+<div class="ptabs" id="tabs"></div>
+
+<section data-proposition="Cp"></section>
+<section data-proposition="A"></section>
+<section data-proposition="B"></section>
+<section data-proposition="C"></section>
+
+<h2>Règles communes à toutes les propositions</h2>
+<p class="note">
+<b>Commutateur</b> : éteint par défaut. L'éteindre arrête le serveur de l'interface tout de suite et garde l'adresse saisie ; le rallumer le redémarre sur la même adresse, sans relancer le launcher.<br>
+<b>Indépendance</b> : éteindre l'interface web ne touche pas au serveur des maquettes, et inversement (« off » dans son champ d'écoute).<br>
+<b>Depuis un navigateur</b> (client web) : les deux sections sont en lecture seule, commutateur compris — règle de #163 inchangée.<br>
+<b>Mode serveur</b> (<code>desktop --web</code>, cas du pod Kubernetes) : l'interface web est le processus lui-même. Le commutateur est affiché allumé et verrouillé ; l'écoute et l'adresse publique sont celles du lancement (<code>--addr</code>, <code>--url</code>, valeurs du chart Helm). Un <code>enabled: false</code> du fichier est ignoré dans ce mode.<br>
+<b>Fichier</b> : <code>backends.yaml → hubs.&lt;machine&gt;.desktop_web</code> gagne <code>enabled</code> et <code>url</code>. Sans <code>enabled</code>, le comportement de la v6.2.0 est conservé (active si une écoute est renseignée).
+</p>
+
+<script>
+const chk=(on,t,ro)=>'<span class="chk'+(on?' on':'')+(ro?' ro':'')+'"><i></i>'+t+'</span>';
+const inp=(v,cls)=>'<div class="in'+(cls?' '+cls:'')+'">'+v+'</div>';
+const sw=(on,t,lock)=>'<span class="sw'+(on?' on':'')+(lock?' lock':'')+'"><i></i>'+t+(lock?' <span class="lk">🔒 '+lock+'</span>':'')+'</span>';
+
+/* encadrés inchangés de la page « Ce poste » */
+const affichage=`<div class="box"><div class="bh">Affichage <span class="pill g">mémorisé sur ce poste</span></div><div class="bb"><div class="form">
+<label>Taille des caractères</label><span style="display:flex;gap:6px;align-items:center"><button class="btn sm">−</button>${inp('13','w')}<button class="btn sm">+</button> <span class="mu">terminaux seulement · défaut 13</span></span>
+<label>Taille de l'arbre</label><span style="display:flex;gap:6px;align-items:center"><button class="btn sm">−</button>${inp('13','w')}<button class="btn sm">+</button></span>
+<label>Taille des cartes</label><span style="display:flex;gap:6px;align-items:center"><button class="btn sm">−</button>${inp('12','w')}<button class="btn sm">+</button></span></div></div></div>`;
+const chemins=`<div class="box"><div class="bh">Correspondance de chemins</div><div class="bb"><table><tr><th>Ici (local)</th><th>Sur les serveurs (distant)</th></tr><tr><td class="m">\\\\nas\\MFS\\ROOT</td><td class="m">/share/MFS/ROOT</td></tr></table></div></div>`;
+const distant=`<div class="box"><div class="bh">Utilisateur distant et cache</div><div class="bb"><div class="form"><label>uid : gid</label><span>${inp('1000','w')} : ${inp('1000','w')}</span><label>Nom</label>${inp('cyril')}<label>Dossier personnel</label>${inp('/home/cyril')}<label>Cache du hub</label>${inp('<span class="dm">(par défaut)</span>')}</div></div></div>`;
+
+/* Serveur des maquettes : contenu commun */
+const maquettesCorps=(ro)=>`<div class="form">
+<label>Écoute</label>${inp('127.0.0.1:8765',ro?'ro':'')}<span class="hint">hôte:port, port seul, ou « off » · fichiers en lecture seule, sans jeton</span>
+<label>URL publiée</label>${inp('http://localhost:8765',ro?'ro':'')}<span class="hint">adresse vue du navigateur</span>
+<label>Accès autorisés</label>${inp('<span class="dm">(local seulement)</span>',ro?'ro':'')}
+<label>Navigateur apparié</label>${inp('bb02d4f4…f6ba <span class="mu">— oublier</span>')}</div>
+<p class="mu" style="margin:10px 0 4px">Chemins pour le navigateur</p>
+<table><tr><th>Vu par claude</th><th>Vu par le navigateur</th></tr><tr><td class="m">/</td><td class="m">http://localhost:8765</td></tr></table>`;
+const boxMaquettes=(ro)=>`<div class="box neuf"><div class="bh">Serveur des maquettes <span class="pill">browser_server</span><span class="sp"></span><span class="pill g">● à l'écoute</span></div><div class="bb">${ro?roBandeau:''}${maquettesCorps(ro)}</div></div>`;
+
+const roBandeau=`<div class="bandeau ro">Lecture seule depuis un navigateur : à modifier dans la fenêtre native du poste.</div>`;
+const srvBandeau=`<div class="bandeau srv"><b>Mode serveur</b> — l'interface web est ce processus : toujours active. Écoute et adresse publique fixées au lancement (<code>--addr</code>, <code>--url</code>, valeurs du chart Helm).</div>`;
+
+/* Interface web : champs selon l'état — etat : off | on | web | srv */
+const champs=(etat)=>{
+  const ro=etat==='web'||etat==='srv', off=etat==='off';
+  const ecoute=etat==='srv'?'0.0.0.0:8080':'127.0.0.1:8787';
+  const url=etat==='srv'?'https://launcher.lan.example':(off?'<span class="dm">(aucune)</span>':'<span class="dm">(aucune — accès direct)</span>');
+  return `<div class="form${off?' gris':''}">
+<label>Écoute</label><span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">${inp(ecoute,'w'+(ro?' ro':''))}${chk(etat==='srv',"Autoriser l'accès depuis le réseau",ro)}</span><span class="hint">un port (boucle locale) ou hôte:port · différente du serveur des maquettes</span>
+<label>Adresse publique <span class="pill o">#171</span></label>${inp(url,ro?'ro':'')}<span class="hint">derrière un proxy inverse en HTTPS : ce nom est admis, le cookie de session devient sécurisé</span>
+</div>`;
+};
+const etatLigne=(etat)=>{
+  if(etat==='off') return `<div class="etat"><span class="dm">○ désactivée</span></div>`;
+  if(etat==='on') return `<div class="etat"><span class="g">● active sur 127.0.0.1:8787</span><button class="btn sm">Ouvrir dans le navigateur</button><button class="btn sm">Régénérer le jeton</button></div>`;
+  if(etat==='web') return `<div class="etat"><span class="g">● active sur 127.0.0.1:8787</span><span class="mu">(ouverture et jeton : fenêtre native seulement)</span></div>`;
+  return `<div class="etat"><span class="o">● active sur 0.0.0.0:8080 — ouverte au réseau</span><span class="mu">atteinte par https://launcher.lan.example</span></div>`;
+};
+const commut=(etat)=>etat==='srv'?sw(true,'Activée','mode serveur'):etat==='web'?sw(true,'Activée','lecture seule'):sw(etat==='on',etat==='on'?'Activée':'Désactivée');
+
+/* A : commutateur dans l'en-tête de l'encadré */
+const boxWebA=(etat)=>`<div class="box neuf"><div class="bh">Interface web <span class="pill">desktop_web</span><span class="sp"></span>${commut(etat)}</div><div class="bb">
+${etat==='web'?roBandeau:etat==='srv'?srvBandeau:''}${champs(etat)}<div style="margin-top:10px">${etatLigne(etat)}</div></div></div>`;
+
+/* B : état en bandeau, détail replié quand c'est éteint */
+const boxWebB=(etat)=>{
+  const tete=`<div class="box neuf"><div class="bh">Interface web <span class="pill">desktop_web</span></div><div class="bb">`;
+  if(etat==='off') return tete+`<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">${commut(etat)}<span class="mu">Le launcher complet dans un navigateur, protégé par un jeton. Éteinte par défaut.</span></div></div></div>`;
+  return tete+`<div class="bandeau ${etat==='srv'?'srv':'ok'}" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">${commut(etat)}<span style="flex:1"></span>${etatLigne(etat)}</div>
+${etat==='web'?roBandeau:etat==='srv'?srvBandeau:''}${champs(etat)}</div></div>`;
+};
+
+/* C : page dédiée */
+const pageWebC=(etat)=>`<h4>Interface web <span class="pill">desktop_web</span></h4><p class="ex">Le launcher complet dans un navigateur, protégé par un jeton. Réglage propre à cette machine.</p>
+${etat==='web'?roBandeau:etat==='srv'?srvBandeau:''}
+<div class="box neuf"><div class="bh">Activation<span class="sp"></span>${commut(etat)}</div><div class="bb">${etatLigne(etat)}</div></div>
+<div class="box neuf"><div class="bh">Adresses</div><div class="bb">${champs(etat)}</div></div>
+<div class="box${etat==='off'?' gris':''}"><div class="bh">Jeton d'accès</div><div class="bb"><div class="etat"><span class="mu">Un jeton par poste, jamais affiché ici.</span>${etat==='on'?'<button class="btn sm">Régénérer le jeton</button>':'<button class="btn sm off">Régénérer le jeton</button>'}</div></div></div>`;
+
+const railWeb=(page,avecWeb)=>avecWeb==='deux'
+  ?`<div class="ri${page==='maq'?' on':''}">Serveur de maquettes<span class="new">nouveau</span></div><div class="ri${page==='web'?' on':''}">Interface web<span class="new">nouveau</span></div>`
+  :avecWeb?`<div class="ri${page==='web'?' on':''}">Interface web<span class="new">nouveau</span></div>`:'';
+const rail=(page,avecWeb)=>`<div class="rail"><div class="rg">GLOBAL</div><div class="ri">Backends</div><div class="ri">Pools</div><div class="ri">Défauts</div><div class="ri">Launcher</div><div class="ri">Conteneurs</div>
+<div class="rg">CE POSTE</div><div class="ri${page==='poste'?' on':''}">Ce poste</div>${railWeb(page,avecWeb)}
+<div class="rg">PROJET SÉLECTIONNÉ</div><div class="ri">Projet</div></div>`;
+const fenetre=(page,avecWeb,corps)=>`<div class="modal"><div class="mh"><h3>Réglages</h3><span class="mono mu">backends.yaml → hubs.MSI ; desktop-ui.json</span><span class="sp"></span><button class="btn sm">✕</button></div>
+<div class="mb">${rail(page,avecWeb)}<div class="pg">${corps}</div></div>
+<div class="mf"><span class="mu">Aucun changement</span><span class="sp"></span><button class="btn">Éditer en YAML</button><button class="btn pri">Enregistrer</button></div></div>`;
+const tetePoste=`<h4>Ce poste — MSI <span class="pill">Windows</span></h4><p class="ex">Réglages propres à cette machine. Les autres postes ne sont pas touchés.</p>`;
+const etats=(f)=>`<h2>Les quatre états de la section « Interface web »</h2><div class="etats">
+<div><p class="cas">1 · Fenêtre native — éteinte <span>(défaut)</span></p>${f('off')}</div>
+<div><p class="cas">2 · Fenêtre native — allumée</p>${f('on')}</div>
+<div><p class="cas">3 · Depuis un navigateur <span>(client web de la fenêtre native)</span></p>${f('web')}</div>
+<div><p class="cas">4 · Mode serveur <span>(pod Kubernetes, <code>desktop --web</code>)</span></p>${f('srv')}</div></div>`;
+
+/* C' : page dédiée au serveur de maquettes */
+const pageMaqC=(ro)=>`<h4>Serveur de maquettes <span class="pill">browser_server</span></h4><p class="ex">Sert les fichiers des projets au navigateur de ce poste, en lecture seule et sans jeton : maquettes, procédures de tests. Réglage propre à cette machine.</p>
+${ro?roBandeau:''}
+<div class="box neuf"><div class="bh">Écoute<span class="sp"></span><span class="pill g">● à l'écoute sur 127.0.0.1:8765</span></div><div class="bb"><div class="form">
+<label>Écoute</label>${inp('127.0.0.1:8765',ro?'ro':'')}<span class="hint">hôte:port, port seul, ou « off » pour l'arrêter · différente de l'interface web</span>
+<label>URL publiée</label>${inp('http://localhost:8765',ro?'ro':'')}<span class="hint">adresse vue du navigateur</span>
+<label>Accès autorisés</label>${inp('<span class="dm">(local seulement)</span>',ro?'ro':'')}<span class="hint">une adresse par ligne</span></div></div></div>
+<div class="box neuf"><div class="bh">Chemins pour le navigateur</div><div class="bb"><table><tr><th>Vu par claude</th><th>Vu par le navigateur</th><th>Forme</th></tr><tr><td class="m">/</td><td class="m">http://localhost:8765</td><td class="m">url</td></tr></table></div></div>
+<div class="box neuf"><div class="bh">Navigateur apparié</div><div class="bb"><div class="form"><label>Navigateur</label>${inp('bb02d4f4…f6ba <span class="mu">— oublier</span>')}<span class="hint">le Chrome de ce poste, reconnu par les sessions claude</span></div></div></div>`;
+const fenetreCp=(page,corps,fichier)=>fenetre(page,'deux',corps).replace('backends.yaml → hubs.MSI ; desktop-ui.json',fichier);
+
+const P={
+Cp:{t:"C' — Deux rubriques à part : « Serveur de maquettes » et « Interface web »",ret:true,
+ parti:"<b>Retenue par l'utilisateur.</b> <b>Parti pris</b> : les deux serveurs quittent « Ce poste » et prennent chacun leur rubrique dans le rail, sous CE POSTE. La page « Ce poste » n'a plus d'encadré « Navigateur ». <b>Avantage</b> : la séparation est dans la navigation elle-même, on ne peut plus confondre les deux serveurs ; « Ce poste » s'allège ; de la place pour l'authentification de v6.4.0. <b>Inconvénient</b> : deux rubriques de plus dans le rail ; les chemins du navigateur et l'appariement suivent le serveur de maquettes.",
+ html:()=>`<h2>Rubrique « Interface web »</h2>`+fenetreCp('web',pageWebC('on'),'backends.yaml → hubs.MSI.desktop_web')
+   +`<h2>Rubrique « Serveur de maquettes »</h2>`+fenetreCp('maq',pageMaqC(false),'backends.yaml → hubs.MSI.browser_server, browser_paths, browser_device')
+   +`<h2>La page « Ce poste » : plus d'encadré « Navigateur »</h2>`+fenetreCp('poste',tetePoste+affichage+chemins+distant,'backends.yaml → hubs.MSI ; desktop-ui.json')
+   +etats((e)=>`<div class="modal"><div class="pg">${pageWebC(e)}</div></div>`)
+   +`<h2>« Serveur de maquettes » depuis un navigateur</h2><p class="note">Écoute, URL publiée et accès autorisés sont en lecture seule depuis un client web, comme pour l'interface web. Le serveur de maquettes n'a pas de commutateur : « off » dans son champ d'écoute l'arrête, comme aujourd'hui.</p><div class="modal" style="max-width:660px"><div class="pg">${pageMaqC(true)}</div></div>`},
+A:{t:"A — Deux encadrés empilés, commutateur dans l'en-tête",
+ parti:"<b>Parti pris</b> : l'encadré « Navigateur » devient deux encadrés l'un sous l'autre, dans l'ordre de la page. Le commutateur est dans l'en-tête de « Interface web », toujours visible ; éteint, les champs restent affichés mais grisés. <b>Avantage</b> : changement minimal, tout se lit d'un coup. <b>Inconvénient</b> : la page s'allonge ; des champs grisés occupent la place quand l'interface est éteinte.",
+ html:()=>fenetre('poste',false,tetePoste+affichage+chemins+boxMaquettes(false)+boxWebA('on')+distant)+etats(boxWebA)},
+B:{t:"B — Deux encadrés côte à côte, détail replié quand c'est éteint",
+ parti:"<b>Parti pris</b> : les deux serveurs sont face à face, sur deux colonnes, pour qu'on voie qu'ils sont distincts. Dans « Interface web », le commutateur et l'état forment un bandeau coloré ; éteinte, l'encadré se réduit à une ligne. <b>Avantage</b> : page plus courte, état lisible de loin. <b>Inconvénient</b> : l'adresse n'est pas visible tant que l'interface est éteinte ; deux colonnes étroites sur une petite fenêtre.",
+ html:()=>fenetre('poste',false,tetePoste+`<div class="grid2"><div>${affichage}${chemins}${distant}</div><div>${boxMaquettes(false)}${boxWebB('on')}</div></div>`)+etats(boxWebB)},
+C:{t:"C — Rubrique « Interface web » à part dans les Réglages",
+ parti:"<b>Parti pris</b> : l'interface web quitte « Ce poste » et prend sa propre rubrique dans le rail. « Ce poste » ne garde que le serveur des maquettes. <b>Avantage</b> : séparation la plus nette ; de la place pour les réglages à venir (authentification, v6.4.0). <b>Inconvénient</b> : un clic de plus ; une rubrique entière pour trois champs aujourd'hui.",
+ html:()=>fenetre('web',true,pageWebC('on'))+`<h2>La page « Ce poste » dans cette proposition</h2>`+fenetre('poste',true,tetePoste+affichage+chemins+boxMaquettes(false)+distant)+etats((e)=>`<div class="modal"><div class="pg">${pageWebC(e)}</div></div>`)},
+};
+const tabs=document.getElementById('tabs');
+function show(k){
+  document.querySelectorAll('section[data-proposition]').forEach(s=>s.classList.toggle('on',s.dataset.proposition===k));
+  tabs.querySelectorAll('button').forEach(b=>b.classList.toggle('on',b.dataset.k===k));
+}
+for(const k of Object.keys(P)){
+  const b=document.createElement('button');b.textContent=P[k].t;b.dataset.k=k;if(P[k].ret)b.className='ret';b.onclick=()=>show(k);tabs.appendChild(b);
+  document.querySelector('section[data-proposition="'+k+'"]').innerHTML='<div class="parti">'+P[k].parti+'</div>'+P[k].html();
+}
+show('Cp');
+</script>
+</body>
+</html>
