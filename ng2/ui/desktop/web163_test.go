@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,14 +26,35 @@ import (
 // réglage `desktop_web` (origine « web », portée par chaque appel). Ports libres tirés au hasard, jamais de
 // vrai moteur, de vrai projet ni de presse-papiers du poste (hooks de test).
 
+// l4PortsGiven : ports déjà remis par l4FreePort dans ce processus de test — le noyau peut rendre le même port
+// libéré deux fois de suite ; un port n'est donc jamais remis deux fois.
+var (
+	l4PortsMu    sync.Mutex
+	l4PortsGiven = map[int]bool{}
+)
+
+// l4FreePort : port libre de la boucle locale. Il est relâché avant que l'application ne l'écoute : un autre test (ou
+// un autre processus de test, les tranches de ci.sh tournent en parallèle) peut le prendre entre-temps — c'est
+// l4WaitWebUI qui réessaie alors le démarrage (« address already in use »).
 func l4FreePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for try := 0; try < 50; try++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+		l4PortsMu.Lock()
+		dup := l4PortsGiven[p]
+		l4PortsGiven[p] = true
+		l4PortsMu.Unlock()
+		if !dup {
+			return p
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	t.Fatal("aucun port libre inédit")
+	return 0
 }
 
 // l4WriteBackends : backends.yaml du bac à sable (le serveur des fichiers est éteint : seul le serveur de
@@ -65,6 +87,14 @@ func l4WaitWebUI(t *testing.T, a *App, state string, d time.Duration) map[string
 		w = l4WebUIOf(t, a)
 		if w["state"] == state {
 			return w
+		}
+		// démarrage refusé parce que le port tiré vient d'être pris ailleurs : on réessaie (course de port des tests)
+		if state == "on" && w["state"] == "error" {
+			if msg, _ := w["msg"].(string); strings.Contains(msg, "in use") || strings.Contains(msg, "utilisé") {
+				a.applyWebUI()
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
