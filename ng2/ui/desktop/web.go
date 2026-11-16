@@ -560,13 +560,7 @@ func RunWeb(addr string, open bool) error {
 	}()
 	// SIGTERM (arrêt d'un pod) et SIGINT : arrêt propre — serveur fermé, terminaux détachés (a.Stop après <-done),
 	// code 0 ; les projets restent ouverts dans leurs pods / tmux (#167)
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGTERM, os.Interrupt)
-	defer signal.Stop(sig)
-	go func() {
-		<-sig
-		_ = srv.Close()
-	}()
+	defer onSignalOnce(func() { _ = srv.Close() }, syscall.SIGTERM, os.Interrupt)()
 	// mise à jour installée : même adresse et même jeton pour le nouveau
 	// binaire, port libéré avant de le lancer ; l'onglet ouvert se reconnecte
 	// (flux d'événements) au lieu d'en ouvrir un second
@@ -587,6 +581,23 @@ func RunWeb(addr string, open bool) error {
 	<-done
 	a.Stop()
 	return nil
+}
+
+// onSignalOnce : exécute fn au PREMIER des signaux sigs, puis rend leur traitement au système (signal.Stop) : un second
+// signal tue le processus (abréger un arrêt lent). Rend la fonction qui retire la veille.
+func onSignalOnce(fn func(), sigs ...os.Signal) (stop func()) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, sigs...)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ch:
+			signal.Stop(ch) // traitement par défaut rétabli : le prochain signal est fatal
+			fn()
+		case <-done:
+		}
+	}()
+	return func() { signal.Stop(ch); close(done) }
 }
 
 func openURL(url string) {

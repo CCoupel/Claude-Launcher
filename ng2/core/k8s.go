@@ -443,17 +443,29 @@ func k8sStepsInCluster(b BackendConf, e Engine, ns string, steps []TestStep) []T
 			Fix:    "vérifier que le pod a un ServiceAccount (automountServiceAccountToken) et que l'API du cluster est joignable depuis le pod"})
 	}
 	steps = append(steps, TestStep{Label: "cluster joignable, namespace " + ns + " (ServiceAccount du pod)", OK: true})
-	missing := 0
+	missing, unchecked := 0, false
 	for _, r := range k8sRequiredRights {
-		o, _ := runQuiet(15*time.Second, e.kubectl("auth", "can-i", r[0], r[1])...)
-		if strings.TrimSpace(o) != "yes" {
+		o, rerr := runQuiet(15*time.Second, e.kubectl("auth", "can-i", r[0], r[1])...)
+		switch ans := strings.TrimSpace(o); {
+		case ans == "yes":
+		case ans == "no": // réponse de l'API : le droit manque vraiment
 			missing++
 			steps = append(steps, TestStep{Label: "droit " + r[0] + " " + r[1], Detail: "droit manquant : " + r[0] + " " + r[1],
 				Fix: "mettre à jour le Role du chart (helm upgrade) : le ServiceAccount du pod doit pouvoir " + r[0] + " " + r[1] + " dans " + ns})
+		default: // l'appel lui-même a échoué (réseau, API, délai) : le droit n'est pas vérifiable, pas forcément absent
+			unchecked = true
+			steps = append(steps, TestStep{Label: "droit " + r[0] + " " + r[1], Detail: "droit non vérifiable : " + r[0] + " " + r[1] + " : " + firstLine(o, rerr),
+				Fix: "kubectl auth can-i n'a pas répondu : vérifier la joignabilité de l'API depuis le pod, puis relancer le test (les droits restants ne sont pas contrôlés)"})
+		}
+		if unchecked {
+			break // pas 12 × 15 s sur une API injoignable
 		}
 	}
-	if missing == 0 {
+	if missing == 0 && !unchecked {
 		steps = append(steps, TestStep{Label: "droits dans " + ns, OK: true, Detail: "tous les droits du launcher accordés au ServiceAccount"})
+	}
+	if unchecked {
+		return steps // volumes et montages non contrôlés tant que l'API ne répond pas
 	}
 	steps = k8sVolumeSteps(b, e, ns, steps)
 	return append(steps, k8sMountedSteps(b, e)...)

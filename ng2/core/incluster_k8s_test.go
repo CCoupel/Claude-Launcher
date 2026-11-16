@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 )
 
@@ -79,5 +81,50 @@ func TestBackendsModelExposesCluster(t *testing.T) {
 	t.Setenv(InClusterVar, "0")
 	if m, _ := ReadBackendsModel(nil); m.InCluster || m.PodNamespace != "" {
 		t.Errorf("hors cluster : %+v", m)
+	}
+}
+
+// Revue M3 : « no » = droit manquant (conseil du chart) ; erreur de l'appel = « non vérifiable » (pas de conseil
+// helm), et le contrôle s'arrête à la première erreur (pas un délai par droit).
+func TestK8sInClusterRightsDistinguishNoFromError(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("faux kubectl en shell")
+	}
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\necho \"$*\" >> " + calls + "\n" +
+		"case \"$*\" in\n" +
+		"  *'list pods'*) echo yes;;\n" +
+		"  *'create statefulsets'*) echo no; exit 1;;\n" +
+		"  *'get pods'*) echo 'Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout' >&2; exit 1;;\n" +
+		"  *) echo yes;;\n" +
+		"esac\n"
+	if err := os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(InClusterVar, "1")
+	steps := k8sSteps(BackendConf{Type: "k8s", Namespace: "claude-ng2"})
+	var missing, unchecked *TestStep
+	for i := range steps {
+		switch {
+		case strings.Contains(steps[i].Detail, "droit manquant : create statefulsets"):
+			missing = &steps[i]
+		case strings.Contains(steps[i].Detail, "droit non vérifiable : get pods"):
+			unchecked = &steps[i]
+		}
+	}
+	if missing == nil || !strings.Contains(missing.Fix, "helm upgrade") {
+		t.Errorf("« no » : droit manquant avec le conseil du chart attendu : %+v", steps)
+	}
+	if unchecked == nil || strings.Contains(unchecked.Fix, "helm upgrade") || !strings.Contains(unchecked.Detail, "i/o timeout") {
+		t.Errorf("erreur d'appel : « non vérifiable » sans conseil helm attendu : %+v", unchecked)
+	}
+	b, _ := os.ReadFile(calls)
+	if n := strings.Count(string(b), "can-i"); n > 9 { // list pods + 5 statefulsets + scale + get pods = 8
+		t.Errorf("%d appels can-i : le contrôle doit s'arrêter à la première erreur", n)
+	}
+	if strings.Contains(string(b), "pods/exec") || strings.Contains(string(b), "get pvc") {
+		t.Errorf("les droits et volumes suivants ne doivent pas être contrôlés après l'erreur : %s", b)
 	}
 }
