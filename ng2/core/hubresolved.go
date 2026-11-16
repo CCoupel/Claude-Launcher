@@ -189,9 +189,19 @@ func routeHubChanges(content []byte, host, goos string, changes []ConfigChange) 
 		key := c.At[0]
 		switch {
 		case len(c.At) == 2 && (c.Op == "set" || c.Op == "delete"):
-			// un champ absent des deux couches (valeur par défaut) : couche commune
-			if c.Op == "delete" && !has(key, c.At[1], true) && !has(key, c.At[1], false) {
-				continue // rien à retirer
+			if c.Op == "delete" {
+				// retiré de TOUTES les couches qui le posent (système, machine) : aucune valeur masquée ne
+				// réapparaît. Un champ qui ne vient que de defaults n'est pas modifiable d'ici (contrat).
+				for _, o := range []bool{true, false} {
+					if has(key, c.At[1], o) {
+						at := []string{key, c.At[1]}
+						if o {
+							at = []string{os, key, c.At[1]}
+						}
+						out = append(out, ConfigChange{Op: "delete", At: at})
+					}
+				}
+				continue
 			}
 			out = append(out, ConfigChange{Op: c.Op, At: layerOf(key, c.At[1]), Value: c.Value})
 		case len(c.At) == 1 && c.Op == "set":

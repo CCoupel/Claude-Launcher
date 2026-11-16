@@ -38,11 +38,13 @@ type DesktopWebConf struct {
 	Listen string // hôte:port d'écoute (vide si Off)
 	// Enabled : valeur effective du commutateur (#183) ; Kept : adresse saisie gardée quand le commutateur est
 	// éteint (SavedListen telle qu'écrite dans le fichier : « 8787 », « off », « hôte:port »…).
-	Enabled   bool
-	Kept      string
-	Loopback  bool   // l'hôte d'écoute est la boucle locale
-	Source    string // bloc d'où vient le réglage
-	ListenSrc string
+	Enabled bool
+	Kept    string
+	// ExplicitOff : desktop_web.enabled vaut explicitement false (≠ listen: off ou rien, libellé v6.2.0)
+	ExplicitOff bool
+	Loopback    bool   // l'hôte d'écoute est la boucle locale
+	Source      string // bloc d'où vient le réglage
+	ListenSrc   string
 	// Warn : avertissement à l'enregistrement et dans « backends » (écoute hors boucle locale)
 	Warn string
 }
@@ -82,7 +84,7 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 	// true sans adresse → erreur de réglage
 	switch {
 	case enabled != nil && !*enabled:
-		c.Off, c.Kept = true, listen
+		c.Off, c.Kept, c.ExplicitOff = true, listen, true
 		if noListen {
 			c.Kept = ""
 		}
@@ -176,9 +178,9 @@ func PrintDesktopWeb() {
 	switch {
 	case err != nil:
 		fmt.Println("  ⚠ " + err.Error() + " : désactivée")
-	case c.Off && c.Kept != "":
+	case c.Off && c.ExplicitOff && c.Kept != "":
 		fmt.Println("  désactivée (desktop_web.enabled: false), adresse gardée : " + c.Kept)
-	case c.Off && !c.Enabled && c.Source != "défaut":
+	case c.Off && c.ExplicitOff:
 		fmt.Println("  désactivée (desktop_web.enabled: false)")
 	case c.Off:
 		fmt.Println("  désactivée (défaut) : desktop_web.listen pour l'activer, ex. 127.0.0.1:8770 (ou enabled: true avec listen)")
@@ -195,8 +197,8 @@ func DesktopWebChanged(oldContent, newContent []byte) bool {
 	return WebExposureChanged(oldContent, newContent)
 }
 
-// WebExposureChanged : les réglages qui exposent un serveur web — desktop_web (interface complète) et
-// browser_server (fichiers en lecture seule) : défauts, machines, surcharges par système — de deux contenus
+// WebExposureChanged : les réglages des deux rubriques web — desktop_web (interface complète), browser_server
+// (fichiers en lecture seule), browser_paths et browser_device (chemins et appariement du serveur de maquettes) : défauts, machines, surcharges par système — de deux contenus
 // de backends.yaml diffèrent. Un client web ne peut modifier ni l'un ni l'autre ; les autres réglages restent
 // permis. Contenu illisible : l'empreinte vide diffère, donc refus (fail-closed).
 func WebExposureChanged(oldContent, newContent []byte) bool {
@@ -209,7 +211,7 @@ func desktopWebPrint(content []byte) string {
 	if yaml.Unmarshal(content, &f) != nil {
 		return ""
 	}
-	one := func(d *DesktopWeb, bs *BrowserServer) string {
+	one := func(d *DesktopWeb, bs *BrowserServer, bp *[]BrowserPath, dev string) string {
 		x := "-"
 		if d != nil {
 			b, _ := json.Marshal(d)
@@ -220,7 +222,12 @@ func desktopWebPrint(content []byte) string {
 			b, _ := json.Marshal(bs)
 			y = string(b)
 		}
-		return x + "|" + y
+		z, dv := "-", dev
+		if bp != nil {
+			b, _ := json.Marshal(*bp)
+			z = string(b)
+		}
+		return x + "|" + y + "|" + z + "|" + dv
 	}
 	var names []string
 	for k := range f.Hubs {
@@ -228,16 +235,16 @@ func desktopWebPrint(content []byte) string {
 	}
 	sort.Strings(names)
 	var sb strings.Builder
-	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb, f.Defaults.BrowserServer))
+	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb, f.Defaults.BrowserServer, f.Defaults.BrowserPaths, ""))
 	for _, k := range names {
 		h := f.Hubs[k]
-		sb.WriteString(";" + k + "=" + one(h.DesktopWeb, h.BrowserServer))
+		sb.WriteString(";" + k + "=" + one(h.DesktopWeb, h.BrowserServer, h.BrowserPaths, h.BrowserDevice))
 		for _, o := range []struct {
 			n string
 			b *hubOSConf
 		}{{"windows", h.Windows}, {"linux", h.Linux}, {"darwin", h.Darwin}} {
 			if o.b != nil {
-				sb.WriteString("," + o.n + "=" + one(o.b.DesktopWeb, o.b.BrowserServer))
+				sb.WriteString("," + o.n + "=" + one(o.b.DesktopWeb, o.b.BrowserServer, o.b.BrowserPaths, o.b.BrowserDevice))
 			} else {
 				sb.WriteString("," + o.n + "=-")
 			}

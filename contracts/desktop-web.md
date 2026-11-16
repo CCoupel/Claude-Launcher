@@ -122,3 +122,9 @@ Jamais le jeton, comme aujourd'hui.
   (`["windows", …]`) est appliqué tel quel.
   Pour `browser_paths` et `browser_device`, `set` écrit la surcharge du système si elle les pose, sinon
   `hubs.<machine>` ; `delete` (retour au défaut) les retire de la surcharge et de `hubs.<machine>`.
+- `delete` d'un champ (`at: ["<réglage>", "<champ>"]`) le retire de **toutes** les couches qui le posent
+  (surcharge du système et `hubs.<machine>`) : aucune valeur masquée ne réapparaît. `defaults` ne s'édite pas
+  depuis « Ce poste » : un champ qui ne vient que de `defaults` n'est ni modifié ni retiré par `delete` (sans
+  erreur ; sa provenance `"defaults"` l'indique dans `sources`).
+- Client web : l'empreinte d'exposition (refus de toute modification) couvre `desktop_web`, `browser_server`,
+  `browser_paths` et `browser_device`, dans `defaults`, `hubs.<machine>` et les surcharges par système.

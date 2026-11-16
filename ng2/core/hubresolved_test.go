@@ -1,6 +1,9 @@
 package core
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 const resolvedYAML = `defaults:
   browser_server: { listen: "7000", allow: [/d] }
@@ -153,5 +156,57 @@ func TestHubResolvedBrowserPathsAndDevice(t *testing.T) {
 	}
 	if w, _ := ReadHubModel(out, "MSI", "windows"); w.Resolved.BrowserDevice != "" {
 		t.Errorf("browser_device après delete : %q", w.Resolved.BrowserDevice)
+	}
+}
+
+// M1 : browser_paths et browser_device font partie de l'empreinte des rubriques web (un client web ne les modifie pas).
+func TestWebExposureCoversBrowserPathsAndDevice(t *testing.T) {
+	base := resolvedPathsYAML
+	for name, changed := range map[string]string{
+		"browser_device": strings.Replace(base, "dev-win", "dev-autre", 1),
+		"browser_paths":  strings.Replace(base, "/w,", "/w2,", 1),
+		"defaults":       strings.Replace(base, "/d,", "/d2,", 1),
+	} {
+		if changed == base {
+			t.Fatalf("%s : le test ne modifie rien", name)
+		}
+		if !WebExposureChanged([]byte(base), []byte(changed)) {
+			t.Errorf("%s modifié : exposition vue comme inchangée", name)
+		}
+	}
+	if WebExposureChanged([]byte(base), []byte(base)) {
+		t.Error("contenu identique vu comme changé")
+	}
+}
+
+// M2 : seul enabled: false explicite donne le libellé « enabled: false » ; listen: off garde celui de v6.2.0.
+func TestDesktopWebExplicitOffOnlyWhenEnabledFalse(t *testing.T) {
+	a, _ := resolveDesktopWebFor(dwFile(t, `defaults: { desktop_web: { listen: off } }`), "PC", "linux")
+	if !a.Off || a.ExplicitOff {
+		t.Errorf("listen: off sans enabled : %+v", a)
+	}
+	b, _ := resolveDesktopWebFor(dwFile(t, `defaults: { desktop_web: { enabled: false, listen: "8787" } }`), "PC", "linux")
+	if !b.Off || !b.ExplicitOff || b.Kept != "8787" {
+		t.Errorf("enabled: false : %+v", b)
+	}
+}
+
+// M3 : delete d'un champ présent dans la machine ET dans la surcharge : retiré des deux, rien ne réapparaît.
+func TestApplyHubChangesForDeleteRemovesAllLayers(t *testing.T) {
+	out, err := ApplyHubChangesFor([]byte(resolvedYAML), "MSI", "windows", []ConfigChange{
+		{Op: "delete", At: []string{"browser_server", "listen"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _ := ReadHubModel(out, "MSI", "windows")
+	// hub (9999) et windows (8081) retirés ; reste defaults (7000)
+	if m.Resolved.BrowserServer.Listen != "7000" || m.Resolved.Sources["browser_server.listen"] != "defaults" {
+		t.Errorf("listen après delete : %q (%s), attendu 7000 (defaults) : aucune valeur masquée ne doit réapparaître",
+			m.Resolved.BrowserServer.Listen, m.Resolved.Sources["browser_server.listen"])
+	}
+	// champ venant seulement de defaults : sans effet, sans erreur
+	if _, err := ApplyHubChangesFor([]byte(resolvedYAML), "MSI", "windows", []ConfigChange{
+		{Op: "delete", At: []string{"browser_server", "allow"}}}); err != nil {
+		t.Errorf("delete d'un champ de defaults seulement : %v", err)
 	}
 }
