@@ -154,3 +154,34 @@ func TestConfLiteRootBaseDefaults(t *testing.T) {
 		t.Errorf("sans racine de base : %q", out)
 	}
 }
+
+// Revue LOT-4.1 M4 : le config.conf créé sous une racine de base (« ${CL_ROOT_BASE}/PROJETS ») est relu correctement par
+// chaque système — Linux (bash) et Windows (confLite) — avec SA forme de la racine ; jamais un chemin d'un autre système.
+func TestRootBaseConfigRelativeResolvedPerSystem(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(RootBaseVar, root)
+	conf := defaultConfigFor()
+	if strings.Contains(conf, root) || !strings.Contains(conf, "${CL_ROOT_BASE}/PROJETS") || !strings.Contains(conf, "${CL_ROOT_BASE}/.claude") {
+		t.Fatalf("la configuration créée doit être relative à la racine (aucun chemin absolu écrit) :\n%s", conf)
+	}
+	// « Windows » : confLite, racine sous forme Windows
+	t.Setenv(RootBaseVar, `D:\base`)
+	out := confLite(conf, `C:\Users\moi`)
+	if !strings.Contains(out, "root\tD:\\base/PROJETS\n") || !strings.Contains(out, "claudedir\tD:\\base/.claude\n") {
+		t.Errorf("relu par Windows (confLite) : %q", out)
+	}
+	// « Linux » : le même fichier, racine sous forme Linux, relu par bash (script de LoadConfig)
+	if runtime.GOOS == "windows" {
+		return
+	}
+	t.Setenv(RootBaseVar, root)
+	cfgDir := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", cfgDir)
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.conf"), []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LoadConfig()
+	if len(cfg.Roots) != 1 || cfg.Roots[0] != filepath.Join(root, "PROJETS") || cfg.ClaudeConfigDir != filepath.Join(root, ".claude") {
+		t.Errorf("relu par Linux : racines %v, config de claude %q", cfg.Roots, cfg.ClaudeConfigDir)
+	}
+}

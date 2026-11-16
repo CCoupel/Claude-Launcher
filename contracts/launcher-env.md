@@ -29,6 +29,13 @@
 **`config.conf` créé sous `root_base`** (première exécution) : la racine de projets et `CLAUDE_CONFIG_DIR` y sont
 proposés relativement à `root_base` (`<root_base>/PROJETS`, `<root_base>/.claude`), jamais en `$HOME/GITHUB`.
 
+**Chemins relatifs à la racine (revue LOT-4.1 M4)** : le `config.conf` créé sous une racine de base n'écrit AUCUN
+chemin absolu : `GITHUB_DIR="${CL_ROOT_BASE}/PROJETS"` et `CLAUDE_CONFIG_DIR="${CL_ROOT_BASE}/.claude"`. Le fichier est
+partagé par le hub Linux, l'exe Windows et le pod ; chacun développe `${CL_ROOT_BASE}` avec SA forme de la racine
+(bash pour Linux, la lecture intégrée `confLite` pour Windows), donc un fichier créé par l'exe Windows reste correct
+pour Linux et inversement. Le fichier n'est lu correctement que par un launcher dont `CL_ROOT_BASE` est posée (cas des
+processus lancés par tmux et du pod, qui la reçoivent).
+
 **`CLAUDE_CONFIG_DIR` sous la racine** : sans valeur dans `config.conf` (fichier neuf **ou existant** qui ne le pose
 pas), `CLAUDE_CONFIG_DIR` vaut `<root_base>/.claude` (choix assumé : la configuration de claude suit la racine).
 Une valeur posée dans `config.conf`, ou un `CLAUDE_CONFIG_DIR` déjà défini au lancement, l'emporte. La racine est

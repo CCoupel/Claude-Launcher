@@ -92,14 +92,16 @@ func RootBaseClaudeDir() string {
 }
 
 // defaultConfigFor : config.conf proposé ; sous une racine de base, la racine de projets et CLAUDE_CONFIG_DIR sont
-// ceux de la racine (jamais $HOME/GITHUB).
+// exprimés RELATIVEMENT à la racine par « ${CL_ROOT_BASE} » : le fichier est partagé entre le hub Linux, l'exe Windows et
+// le pod, chacun résout la racine sous sa propre forme de chemin (jamais un chemin Windows écrit pour Linux ni
+// l'inverse) — bash et confLite développent la variable de l'environnement du launcher. Jamais $HOME/GITHUB.
 func defaultConfigFor() string {
 	rb, _ := RootBase()
 	if rb == "" {
 		return defaultConfig
 	}
-	c := strings.Replace(defaultConfig, `GITHUB_DIR="$HOME/GITHUB"`, `GITHUB_DIR="`+RootBaseProjects()+`"`, 1)
-	return strings.Replace(c, "# CLAUDE_CONFIG_DIR=\"/chemin/partage/.claude\"", `CLAUDE_CONFIG_DIR="`+RootBaseClaudeDir()+`"`, 1)
+	c := strings.Replace(defaultConfig, `GITHUB_DIR="$HOME/GITHUB"`, `GITHUB_DIR="${CL_ROOT_BASE}/PROJETS"`, 1)
+	return strings.Replace(c, "# CLAUDE_CONFIG_DIR=\"/chemin/partage/.claude\"", `CLAUDE_CONFIG_DIR="${CL_ROOT_BASE}/.claude"`, 1)
 }
 
 // PrintRootBase : première section de « claude-launcher-ng2 backends ».
