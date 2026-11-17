@@ -1599,6 +1599,9 @@ utilise ${CL_ROOT_BASE}, non résolue… », sans jamais retomber sur un `/PROJE
   (`/var/run/secrets/kubernetes.io/serviceaccount/token`) est lisible. `CL_IN_CLUSTER=1` ou `0` force le choix.
 - Un backend k8s **sans `context`** utilise le ServiceAccount du pod (`kubectl` sans `--context` ni `KUBECONFIG`). Un
   backend **sans `namespace`** prend celui du pod.
+- En cluster, le `context` d'un backend k8s est **ignoré** (#168) : le pod n'agit que sur le cluster de son
+  ServiceAccount. Un backend copié depuis un autre poste, qui vise un autre cluster, agirait donc sur celui du pod :
+  retirez-le du `backends.yaml` du pod.
 - Sans `backends.yaml`, un backend k8s implicite est proposé, avec les volumes de `CL_K8S_VOLUMES` au format
   `<racine>=<pvc>[,<racine>=<pvc>…]`.
 - Le backend `host` est refusé dans le pod (claude n'y est pas installé), sauf `CL_ALLOW_HOST_BACKEND=1`.
@@ -1623,6 +1626,22 @@ au lieu d'un simple « injoignable ».
 
 **Arrêt** : `SIGTERM` (envoyé par le kubelet) et `SIGINT` ferment le serveur proprement, détachent les terminaux et
 sortent avec le code 0. Les projets restent ouverts dans leurs pods.
+
+**Installer par Helm** (#170, #173) : le chart `deploy/helm/claude-launcher` déploie le launcher dans le namespace. Il crée
+un StatefulSet à une réplique (la mise à jour supprime l'ancien pod avant de créer le nouveau), un Service `ClusterIP`
+seul, un ServiceAccount avec un Role limité au namespace (aucun ClusterRole), et un Ingress interne Traefik ou nginx.
+Les valeurs obligatoires (`rootBase`, `volume.existingClaim`, `ingress.controller`, `ingress.className`,
+`ingress.host`, `ingress.allowedSourceRanges`, un moyen de TLS) font échouer `helm install` avec un message qui les
+nomme. Le détail des valeurs et des objets est dans `contracts/helm-values.md` ; le guide d'installation complet viendra
+avec #185.
+
+- **Ingress** : une liste d'adresses admises, non vide (un `/0` est refusé), et HTTPS obligatoire, HTTP redirigé.
+- **Racine** : le chart ne crée ni ne supprime le PVC des projets. Le pod a un système de fichiers racine en lecture
+  seule : il n'écrit que dans `/home/launcher`, `/tmp` (emptyDir) et la racine partagée.
+- **Variables du pod** : `CL_ROOT_BASE`, `CL_HUB_NAME`, `CL_CACHE_DIR`, `CL_K8S_VOLUMES`, `CL_WEB_URL` et
+  `CL_ALLOW_HOST_BACKEND` sont posées par le chart. Les valeurs réservées ne peuvent pas être redéfinies par `extraEnv`.
+- **Désinstallation** : `helm uninstall` retire les objets du chart, mais ne touche ni au PVC, ni aux StatefulSets des
+  projets, ni aux fichiers de la racine.
 
 ## Interface
 

@@ -10,6 +10,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Added
+- Chart Helm `deploy/helm/claude-launcher` (#170, #173) : StatefulSet à une réplique (arrêt de l'ancien pod avant le démarrage du nouveau), Service `ClusterIP` seul, Role limité au namespace sans ClusterRole, Ingress interne Traefik ou nginx avec liste d'adresses admises obligatoire, non vide, et HTTPS obligatoire, racine du pod en lecture seule, valeurs réservées. Déploiement QUALIF dans le namespace `claude-qualif` sur la racine dédiée `/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF` ; PROD dans `claude-ng2`
 - Image du launcher pour le cluster : `ghcr.io/ccoupel/claude-launcher` (uid 1000, `bash`, `git`, `gh`, `kubectl`, sans `claude` ni `tmux`), construite par `deploy/image/build.sh` ; `CL_ROOT_BASE` obligatoire au démarrage (#167)
 - Mode serveur en cluster : ServiceAccount et namespace du pod, backend k8s implicite avec `CL_K8S_VOLUMES`, diagnostic des droits un par un, jeton conservé dans le cache et jamais imprimé, arrêt propre sur SIGTERM ; `CL_UPDATE_MODE=notify` (#168)
 - Connexion claude.ai depuis un pod sans `claude` : elle se fait dans un projet ouvert (`/login` dans son leader) ; une sortie réseau bloquée est signalée dans l'erreur (#175)
@@ -20,6 +21,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Réglages › Ce poste : les rubriques « Serveur de maquettes » et « Interface web » sont séparées. Le commutateur `desktop_web.enabled` allume ou éteint l'interface web sans effacer son adresse, sans relance du launcher (#183)
 
 ### Changed
+- En cluster, le `context` d'un backend k8s est ignoré : le pod agit sur le cluster de son ServiceAccount (#168)
 - Interface web derrière un proxy : le flux se reconnecte avec un délai croissant (1,5 s à 15 s) ; une session expirée (`401`/`403` sur `/api/events` ou `/api/call`) est signalée comme telle, distincte d'un refus d'hôte ou d'origine (`X-Launcher-Refusal`). Après amorçage, la page est servie en `303` sans `t` dans l'URL ; le cookie prend le préfixe `__Host-` en https (#171)
 - `desktop_web` et `browser_server` s'affichent et se modifient en valeur effective pour ce poste et ce système, avec la provenance de chaque réglage (`defaults`, `hubs.<machine>`, surcharge par système). « Retour au défaut » retire le champ de toutes les couches (#183)
 - `scripts/ci.sh` tient en moins de 60 s hors étape image : 56 s en moyenne sur trois passes, contre 119 s. Les tests de `ui/desktop` attendent désormais des évènements au lieu de dormir ; la couverture et le nombre de tests sont inchangés (#179)
