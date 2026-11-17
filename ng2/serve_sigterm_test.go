@@ -117,13 +117,26 @@ func TestServerModeOutputInCluster(t *testing.T) {
 		}
 		c := exec.Command(bin, "desktop", "--web", "--no-open", "--addr", "0.0.0.0:"+port)
 		c.Env = append(append(env, "HOME="+home, "CL_CONFIG_DIR="+filepath.Join(tmp, "cfg"), "CL_CACHE_DIR="+filepath.Join(tmp, "etat"),
-			"CL_NO_UPDATE=1", "CL_IN_CLUSTER="+inCluster, "TMUX_TMPDIR="+t.TempDir()), extraEnv...)
+			"CL_NO_UPDATE=1", "CL_IN_CLUSTER="+inCluster, "TMUX_TMPDIR="+rbTmuxDir(t),
+			"XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+rbDataHome()), extraEnv...) // données de podman hors du TempDir (runner CI : stockage aux droits restreints créé sous HOME)
+		rbOwnGroup(c)
 		out := &lockedBuf{}
 		c.Stdout, c.Stderr = out, out
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
-		defer func() { _ = c.Process.Kill(); _ = c.Wait() }()
+		exited := make(chan struct{})
+		go func() { _ = c.Wait(); close(exited) }()
+		defer func() { // arrêt propre d'abord, puis le groupe entier : aucun processus fils n'écrit plus pendant le nettoyage du TempDir
+			_ = c.Process.Signal(syscall.SIGTERM)
+			select {
+			case <-exited:
+			case <-time.After(8 * time.Second):
+			}
+			rbKillGroup(c)
+			<-exited
+			time.Sleep(200 * time.Millisecond)
+		}()
 		for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
 			if r, err := (&http.Client{Timeout: time.Second}).Get("http://127.0.0.1:" + port + "/healthz"); err == nil {
 				r.Body.Close()

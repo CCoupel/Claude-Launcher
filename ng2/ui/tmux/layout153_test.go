@@ -61,6 +61,11 @@ func l153Win(t *testing.T, marker string, nCDP, n int) (key, win, leader string,
 	if err := os.WriteFile(teamPath, []byte(`{"members":[`+strings.Join(members, ",")+`]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// #186 (même cause pour TOUS les tests de disposition, pas seulement TestRelayoutLeftZeroToTenTeammates) :
+	// RunRelayout cherche la team par le répertoire courant du leader ; sur un runner chargé il peut ne pas être encore celui
+	// du projet — la remise en page ne trouve alors aucune team et la fenêtre reste en « tiled » (leader ≈ 1/3 de la largeur).
+	// On attend la condition ici, une fois pour tous les appelants.
+	waitLeaderPath(t, win, leader, proj)
 	return
 }
 
