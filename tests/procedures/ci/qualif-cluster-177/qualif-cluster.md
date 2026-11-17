@@ -179,7 +179,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Construire et pousser un second tag candidat `v<X.Y.Z.b>` ; interface de QUALIF ouverte | Annonce « ↑ NG v<…> disponible · mise a jour par l'image », **sans** bouton d'installation | | |
+| 1 | **Annonce de version : non verifiable en QUALIF** — l'annonce suit les **releases GitHub**, pas les tags du paquet ghcr de QUALIF. Verifiee par les tests automatiques existants (mode `notify` : `TestUpdateModeNotifyOnlyValues`, alerte sans bouton d'installation) et **a la premiere release de PROD** (etape du deploiement PROD : « ↑ NG v<…> disponible · mise a jour par l'image », sans bouton d'installation) | Hors QUALIF : rien a jouer ici ; consigner « verifie en PROD » | | |
 | 2 | `helm upgrade --install … --set image.tag=v<X.Y.Z.b> --set image.digest=$(cat …/digest-v<X.Y.Z.b>)` en surveillant `kubectl get pod -w` | **L'ancien pod est arrete avant le demarrage du nouveau** (un seul pod a tout instant : pas de RollingUpdate) ; aucun refus « launcher deja actif » | | |
 | 3 | Version du nouveau pod : `kubectl exec … -- claude-launcher-ng2 version` | `v<X.Y.Z.b>` | | |
 | 4 | Reglages et factices apres la mise a jour | Conserves ; la page se reconnecte seule (aucun lien a rouvrir) | | |
