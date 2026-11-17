@@ -1,5 +1,5 @@
 # QUALIF du launcher du cluster (décision utilisateur 2026-11-17) : namespace claude-qualif, racine DÉDIÉE
-# /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF (même MooseFS, jamais la racine de PROD), avec son propre
+# /share/MFS/ROOT/CLAUDE-QUALIF (même MooseFS, jamais la racine de PROD), avec son propre
 # .config/claude-launcher-ng2/backends.yaml (mêmes types de backends que la PROD, k8s → claude-qualif).
 # Release « claude-launcher-qualif ». Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/QUALIF/.
 #   KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig \
@@ -17,10 +17,20 @@ image:
 hubName: cluster-qualif
 
 # racine de QUALIF : son PVC ne monte QUE ce dossier (la racine de PROD n'est pas visible du pod)
-rootBase: /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF
+rootBase: /share/MFS/ROOT/CLAUDE-QUALIF
 volume:
-  existingClaim: claude-projects-qualif   # PVC RWX du namespace claude-qualif (fiche administrateur)
-  mountPath: /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF
+  existingClaim: claude-projects-qualif   # PVC RWX du namespace claude-qualif, CRÉÉ PAR LE CHART (conservé à la désinstallation)
+  mountPath: /share/MFS/ROOT/CLAUDE-QUALIF
+  create:
+    enabled: true
+    storage: 100Gi
+    storageClassName: ""                  # liaison statique (aucune StorageClass ne vise un dossier MooseFS choisi)
+    persistentVolume:
+      # PV statique vers /share/MFS/ROOT/CLAUDE-QUALIF : objet du CLUSTER, créé par l'administrateur (fiche) ;
+      # le chart crée le PVC et le lie à ce PV. Variante : enabled: true + source (dans PRIVATE/QUALIF/values-local.yaml),
+      # le chart crée aussi le PV — exige un compte avec droits cluster sur les PersistentVolumes au déploiement.
+      enabled: false
+      name: claude-qualif-pv
 
 ingress:
   enabled: true

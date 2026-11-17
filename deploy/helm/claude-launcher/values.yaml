@@ -15,8 +15,18 @@ hubName: ""               # CL_HUB_NAME ; défaut : nom de la release ; unique p
 rootBase: ""              # OBLIGATOIRE — CL_ROOT_BASE, chemin absolu, = volume.mountPath ou un sous-dossier
 
 volume:
-  existingClaim: ""       # OBLIGATOIRE — PVC RWX déjà existant (jamais créé ni supprimé par le chart)
+  existingClaim: ""       # OBLIGATOIRE — nom du PVC RWX monté (existant, ou créé par le chart si create.enabled)
   mountPath: ""           # défaut : rootBase
+  # création du volume par le chart (défaut : non, le PVC existe déjà). PVC (et PV) créés avec
+  # helm.sh/resource-policy: keep → jamais supprimés par helm uninstall (les fichiers des projets y sont).
+  create:
+    enabled: false
+    storage: 100Gi
+    storageClassName: ""  # "" = liaison au PV statique ci-dessous ; une StorageClass RWX crée un dossier neuf, pas rootBase
+    persistentVolume:     # PV statique vers le dossier rootBase — objet du CLUSTER : droits d'administrateur au déploiement
+      enabled: false
+      name: ""            # défaut : <existingClaim>-pv ; seul (enabled: false) = PV déjà créé par l'administrateur, le PVC s'y lie
+      source: {}          # OBLIGATOIRE si PV : source du volume (csi / nfs / hostPath…) recopiée du PV de PROD, chemin = rootBase
 
 runAsUser: 1000           # propriétaire des fichiers du partage ; fsGroup jamais posé
 runAsGroup: 1000

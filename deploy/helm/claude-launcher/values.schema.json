@@ -77,6 +77,37 @@
         "mountPath": {
           "type": "string",
           "pattern": "^((/[^/]+)+)?$"
+        },
+        "create": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "storage": {
+              "type": "string",
+              "pattern": "^[0-9]+(Ki|Mi|Gi|Ti)$"
+            },
+            "storageClassName": {
+              "type": "string"
+            },
+            "persistentVolume": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "source": {
+                  "type": "object"
+                }
+              }
+            }
+          }
         }
       }
     },

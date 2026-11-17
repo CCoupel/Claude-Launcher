@@ -25,7 +25,13 @@
 | `nodeSelector` | table | `{}` | — | nœud imposé au pod — nécessaire quand l'image candidate n'est importée que sur certains nœuds (`image.pullPolicy: Never`) |
 | `hubName` | chaîne | nom de la release | — | `CL_HUB_NAME` — unique parmi les launchers de la même racine |
 | `rootBase` | chemin absolu | — | **oui** | `CL_ROOT_BASE` |
-| `volume.existingClaim` | chaîne | — | **oui** | PVC partagé des projets (RWX), déjà existant. Le chart ne crée ni ne supprime aucun PVC |
+| `volume.existingClaim` | chaîne | — | **oui** | nom du PVC des projets (RWX) : existant, ou créé par le chart si `volume.create.enabled` |
+| `volume.create.enabled` | booléen | `false` | — | le chart crée le PVC `existingClaim` (annotation `helm.sh/resource-policy: keep` : jamais supprimé par `helm uninstall`) |
+| `volume.create.storage` | quantité | `100Gi` | — | taille demandée |
+| `volume.create.storageClassName` | chaîne | `""` | — | `""` = liaison statique à un PV ; une StorageClass provisionnerait un dossier neuf, pas `rootBase` |
+| `volume.create.persistentVolume.name` | chaîne | `<existingClaim>-pv` | — | PV auquel le PVC est lié (`volumeName`) ; seul (sans `enabled`) = PV créé par l'administrateur |
+| `volume.create.persistentVolume.enabled` | booléen | `false` | — | le chart crée aussi le PV (objet du **cluster** : droits d'administrateur au déploiement), `Retain` + `keep`, `claimRef` vers le PVC |
+| `volume.create.persistentVolume.source` | table | `{}` | **oui** si PV créé | source du volume (bloc `csi` / `nfs` / `hostPath`…) recopiée du PV de PROD, chemin = `rootBase` ; `capacity`, `accessModes`, `claimRef`, `persistentVolumeReclaimPolicy`, `storageClassName`, `volumeMode` refusés (posés par le chart) |
 | `volume.mountPath` | chemin absolu | `rootBase` | — | chemin de montage du PVC dans le pod. `rootBase` doit être ce chemin ou un sous-dossier |
 | `runAsUser`, `runAsGroup` | entiers | `1000`, `1000` | — | propriétaire des fichiers créés. `fsGroup` n'est jamais posé (pas de changement de propriétaire récursif) |
 | `allowHostBackend` | booléen | `false` | — | `CL_ALLOW_HOST_BACKEND` |
@@ -49,12 +55,14 @@ Il n'y a **pas** de valeur pour le nombre de répliques : le StatefulSet en a to
 | Objet | Contenu |
 |-------|---------|
 | ServiceAccount | un par release |
-| Role + RoleBinding | limités au namespace, seulement les appels de `core/k8s.go` et `core/close.go` : `apps/statefulsets` (get, list, watch, create, patch, delete) ; `statefulsets/scale` (get, patch, update) ; `pods` (get, list, watch, delete) ; `pods/exec` (create) ; `events` (list) ; `persistentvolumeclaims` (get). **Aucun ClusterRole**. Ces droits équivalent à administrer le namespace : n'y mettre que le launcher et ses projets (QUALIF : namespace `claude-qualif`, racine dédiée) |
+| Role + RoleBinding | limités au namespace, seulement les appels de `core/k8s.go` et `core/close.go` : `apps/statefulsets` (get, list, watch, create, patch, delete) ; `statefulsets/scale` (get, patch, update) ; `pods` (get, list, watch, delete) ; `pods/exec` (create) ; `events` (list) ; `persistentvolumeclaims` (get). **Aucun ClusterRole**. Ces droits équivalent à administrer le namespace : n'y mettre que le launcher et ses projets (QUALIF : namespace `claude-qualif`, racine dédiée `/share/MFS/ROOT/CLAUDE-QUALIF`) |
 | StatefulSet | 1 réplique ; `runAsNonRoot`, `allowPrivilegeEscalation: false`, capacités retirées ; volume `existingClaim` monté à `volume.mountPath` ; `emptyDir` pour `/home/launcher` et `/tmp` ; sondes `httpGet /healthz` (vivant) et `/readyz` (prêt) |
 | Service | `ClusterIP`, port `service.port` |
 | Ingress | si `ingress.enabled` : hôte, TLS, classe ; HTTP redirigé vers HTTPS |
 | Middleware Traefik `ipAllowList` | si `ingress.controller: traefik` ; référencé par l'annotation `traefik.ingress.kubernetes.io/router.middlewares` |
 | Certificate cert-manager | si `ingress.tls.clusterIssuer` |
+| PersistentVolumeClaim | si `volume.create.enabled` : RWX, conservé à la désinstallation |
+| PersistentVolume | si `volume.create.persistentVolume.enabled` : RWX, `Retain`, conservé à la désinstallation |
 
 Avec `ingress.controller: nginx` : annotations `nginx.ingress.kubernetes.io/whitelist-source-range`,
 `proxy-buffering: "off"`, `proxy-read-timeout` et `proxy-send-timeout` à `3600`.
@@ -75,7 +83,7 @@ reste dans le cache, sur le volume partagé), NetworkPolicy.
 
 ## Désinstallation
 
-`helm uninstall` retire les objets du tableau ci-dessus. Il ne touche ni au PVC, ni aux StatefulSets des projets,
+`helm uninstall` retire les objets du tableau ci-dessus, **sauf** le PVC et le PV créés par le chart (`keep`). Il ne touche ni au PVC, ni aux StatefulSets des projets,
 ni aux fichiers de `rootBase`.
 
 ## Fichiers de valeurs par environnement

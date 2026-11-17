@@ -83,8 +83,12 @@ rules:
     resources: [pods/exec]
     verbs: [create, get]
   - apiGroups: [""]
-    resources: [pods/log, events, persistentvolumeclaims]
+    resources: [pods/log, events]
     verbs: [get, list]
+  # PVC de la racine créé par le chart (volume.create) ; jamais supprimé (resource-policy keep) : pas de delete
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get, list, watch, create, update, patch]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding

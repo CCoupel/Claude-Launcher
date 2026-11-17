@@ -16,8 +16,8 @@ Décision utilisateur (2026-11-17) : la QUALIF du cluster ne touche **jamais** l
 | | QUALIF | PROD |
 |---|---|---|
 | Namespace | `claude-qualif` | `claude-ng2` |
-| Racine (`rootBase`) | `/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF` | `/share/MFS/ROOT/CLAUDE_PROJETS` |
-| PVC | `claude-projects-qualif` (ne monte que la racine de QUALIF) | `claude-projets` |
+| Racine (`rootBase`) | `/share/MFS/ROOT/CLAUDE-QUALIF` | `/share/MFS/ROOT/CLAUDE_PROJETS` |
+| Volume | PVC `claude-projects-qualif` **créé par le chart** (`volume.create`, conservé à la désinstallation), lié au PV `claude-qualif-pv` créé par l'administrateur ; ne monte que la racine de QUALIF | PVC `claude-projets` existant |
 | `backends.yaml` | celui de la racine de QUALIF (ci-dessous) | le réel, inchangé |
 | Nom de hub | `cluster-qualif` | `cluster` |
 | Compte helm | `PRIVATE/QUALIF/ng2-deploy.kubeconfig` | `PRIVATE/PROD/ng2-deploy.kubeconfig` |
@@ -28,10 +28,11 @@ Décision utilisateur (2026-11-17) : la QUALIF du cluster ne touche **jamais** l
 
 ### Racine de QUALIF (créée une fois, puis réutilisée)
 
-Prérequis : dossier `/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF` créé sur MooseFS (fiche administrateur), propriétaire `1000:1000`.
+Prérequis : dossier `/share/MFS/ROOT/CLAUDE-QUALIF` et namespace `claude-qualif` (créés par l'utilisateur), propriétaire `1000:1000` ;
+PV `claude-qualif-pv` vers ce dossier (administrateur, fiche).
 
 ```
-/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF/
+/share/MFS/ROOT/CLAUDE-QUALIF/
 ├── .config/claude-launcher-ng2/backends.yaml   # écrit par deployer (ci-dessous) ; config.conf créé au 1er démarrage
 └── PROJETS/QUALIF/factice-1, factice-2         # projets factices (git init + faux claude), jamais de vrai projet
 ```
@@ -45,9 +46,9 @@ defaults:
 images: [docker.io/library/ubuntu:24.04, docker.io/library/ubuntu:26.04]
 backends:
   podman: {type: podman}
-  srv1-docker: {type: docker, host: 'tcp://192.168.1.211:2375', shared: [/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF]}
+  srv1-docker: {type: docker, host: 'tcp://192.168.1.211:2375', shared: [/share/MFS/ROOT/CLAUDE-QUALIF]}
   # même forme que la PROD (context: k8s) : en cluster le contexte est ignoré (tous les backends k8s), ServiceAccount du pod
-  k8s: {type: k8s, context: k8s, namespace: claude-qualif, volumes: {/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF: claude-projects-qualif}}
+  k8s: {type: k8s, context: k8s, namespace: claude-qualif, volumes: {/share/MFS/ROOT/CLAUDE-QUALIF: claude-projects-qualif}}
 ```
 
 Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `setup` qui pose un faux `claude` dans
@@ -55,8 +56,8 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
 
 ### Installation et contrôles
 
-1. Sauvegarde : rien à sauvegarder côté PROD (aucun fichier de PROD n'est lu ni écrit) ; vérifier
-   `kubectl --kubeconfig PRIVATE/QUALIF/ng2-deploy.kubeconfig get pvc claude-projects-qualif` → `Bound` RWX.
+1. Sauvegarde : rien à sauvegarder côté PROD (aucun fichier de PROD n'est lu ni écrit). Le PVC est créé par l'installation
+   (étape 3) ; après elle : `kubectl -n claude-qualif get pvc claude-projects-qualif` → `Bound` RWX sur `claude-qualif-pv`.
 2. Image candidate (tag **avec le « v »**, exigé par `build.sh`) : `deploy/image/build.sh v<X.Y.Z.a>`, puis
    `sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> docker://192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>`.
 3. `KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher
@@ -65,7 +66,7 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
    Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
    `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/QUALIF/values-local.yaml`**
    (`ingress: {tls: {clusterIssuer: <nom réel>}}`, jamais commité) ajouté en dernier : `-f PRIVATE/QUALIF/values-local.yaml`.
-4. URL d'amorçage : `kubectl exec statefulset/claude-launcher-qualif -- cat /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF/.cache/claude-launcher-ng2/cluster-qualif/desktop-web-token`.
+4. URL d'amorçage : `kubectl exec statefulset/claude-launcher-qualif -- cat /share/MFS/ROOT/CLAUDE-QUALIF/.cache/claude-launcher-ng2/cluster-qualif/desktop-web-token`.
 5. Diagnostic du pod : backend `k8s` → contexte ignoré, chaque droit OK dans `claude-qualif` ; ouvrir/fermer/rouvrir un factice
    (StatefulSet dans `claude-qualif` uniquement).
 6. Risque accepté (H2) : image désignée par tag, sans digest (réseau interne de confiance).
@@ -78,6 +79,7 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
    5. `curl -sk -H 'X-Forwarded-For: 192.168.1.10' …` depuis une adresse hors liste → `403` (pas d'`ipStrategy` : Traefik juge
       l'adresse de la connexion, pas l'en-tête).
    Consigner les résultats dans le rapport de QUALIF.
-8. Après validation : `helm uninstall claude-launcher-qualif -n claude-qualif`, fermer les factices
+8. Après validation : `helm uninstall claude-launcher-qualif -n claude-qualif` (le PVC `claude-projects-qualif` est **conservé** :
+   `helm.sh/resource-policy: keep`), fermer les factices
    (`kubectl -n claude-qualif delete sts -l cl.launcher=ng2,cl.backend=k8s`). La racine de QUALIF et son `backends.yaml` sont
    **gardés** pour la QUALIF suivante ; seul le dossier d'état `…/.cache/claude-launcher-ng2/cluster-qualif` (jeton) est supprimé.
