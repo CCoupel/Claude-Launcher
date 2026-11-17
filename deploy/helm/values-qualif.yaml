@@ -7,10 +7,11 @@
 #     -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=vX.Y.Z.a
 #   (PRIVATE/QUALIF/values-local.yaml : ingress.tls.clusterIssuer réel, jamais commité — voir deploy.qualif.md)
 
-# image candidate : registre interne sur srv1-docker (décision D2, jamais ghcr) ; tag donné à l'installation.
-# Risque accepté (H2) : image désignée par tag, sans digest (réseau interne de confiance).
+# image candidate : paquet ghcr DE QUALIF, séparé de la PROD (décision du 2026-11-17) ; jamais
+# ghcr.io/ccoupel/claude-launcher (PROD, écrit seulement par la CI au tag). Tag + empreinte donnés à l'installation :
+#   --set image.tag=vX.Y.Z.a --set image.digest=sha256:… (deploy.qualif.md)
 image:
-  repository: 192.168.1.211:5000/claude-launcher
+  repository: ghcr.io/ccoupel/claude-launcher-qualif
   pullPolicy: IfNotPresent
 
 # nom propre à la QUALIF : jamais celui de la PROD (« cluster ») ni celui d'un poste

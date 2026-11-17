@@ -28,6 +28,8 @@ pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux
 - **P3 — paquets ghcr publics, par l'utilisateur** : à la première release, la CI crée les paquets
   `ghcr.io/ccoupel/claude-launcher` et `ghcr.io/ccoupel/charts/claude-launcher`, **privés** par défaut. L'utilisateur les rend
   publics une fois : GitHub → profil → *Packages* → chaque paquet → *Package settings* → *Change visibility* → *Public*.
+  Le paquet de **QUALIF** `ghcr.io/ccoupel/claude-launcher-qualif` (publié depuis le poste, `deploy.qualif.md`) aussi, à sa première
+  publication. Séparation : la CI de release n'écrit que `claude-launcher` (PROD) ; la QUALIF n'écrit que `claude-launcher-qualif`.
   Sans cela le cluster ne peut pas tirer l'image (aucun secret de tirage prévu) ni `helm` lire le chart.
   Contrôle (sans jeton) : `curl -s "https://ghcr.io/token?scope=repository:ccoupel/claude-launcher:pull"` rend un `token`
   (et non `DENIED`) ; idem avec `ccoupel/charts/claude-launcher`.

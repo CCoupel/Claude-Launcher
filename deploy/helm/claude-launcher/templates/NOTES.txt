@@ -1,4 +1,4 @@
-Launcher du cluster « {{ include "cl.hubName" . }} » — image {{ .Values.image.repository }}:{{ include "cl.tag" . }}
+Launcher du cluster « {{ include "cl.hubName" . }} » — image {{ include "cl.image" . }}
 
 Racine : {{ .Values.rootBase }} (PVC {{ .Values.volume.existingClaim }} monté à {{ include "cl.mountPath" . }})
 {{- if .Values.ingress.enabled }}

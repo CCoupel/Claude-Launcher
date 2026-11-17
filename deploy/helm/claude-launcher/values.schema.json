@@ -20,7 +20,8 @@
           "minLength": 1
         },
         "tag": {
-          "type": "string"
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$|^$"
         },
         "pullPolicy": {
           "enum": [
@@ -28,6 +29,11 @@
             "Always",
             "Never"
           ]
+        },
+        "digest": {
+          "type": "string",
+          "pattern": "^(sha256:[0-9a-f]{64})?$",
+          "description": "empreinte de l'image (sha256:…), facultative"
         }
       }
     },

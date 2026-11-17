@@ -36,7 +36,7 @@ Décision utilisateur (2026-11-17) : la QUALIF du cluster ne touche **jamais** l
 ### Racine de QUALIF (créée une fois, puis réutilisée)
 
 Prérequis : dossier `/share/MFS/ROOT/CLAUDE-QUALIF` et namespace `claude-qualif` (créés par l'utilisateur, PSA `baseline`), propriétaire `1000:1000` ;
-registre `registry:2` sur srv1 (données `REGISTRY/` à la racine, hors `PROJETS/` : pas une catégorie) ;
+paquet ghcr `claude-launcher-qualif` public (P3, une fois) ;
 PV `claude-qualif-pv` vers ce dossier (administrateur, fiche).
 
 ```
@@ -67,18 +67,24 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
 1. Sauvegarde : rien à sauvegarder côté PROD (aucun fichier de PROD n'est lu ni écrit). Le PVC est créé par l'installation
    (étape 3) ; après elle : `kubectl -n claude-qualif get pvc claude-projects-qualif` → `Bound` RWX sur `claude-qualif-pv`.
 2. Image candidate `v<X.Y.Z.a>` (tag **avec le « v »**, exigé par `build.sh`) construite **depuis le binaire candidat de BUILD**
-   (BORE : aucun recompilage, sa version est contrôlée), archive OCI et empreinte à côté de lui ; le tag de production
-   (`vX.Y.Z`, ghcr) n'est jamais touché :
+   (BORE : aucun recompilage, sa version est contrôlée), puis publiée dans le paquet ghcr **de QUALIF**
+   `ghcr.io/ccoupel/claude-launcher-qualif` — **jamais** dans `ghcr.io/ccoupel/claude-launcher` (PROD, écrit seulement par la CI au tag) :
    ```bash
-   . .claude/agents/environments/qualif.env        # QUALIF_REGISTRY, QUALIF_KUBECONFIG, QUALIF_VALUES_LOCAL
+   . .claude/agents/environments/qualif.env        # QUALIF_IMAGE, QUALIF_KUBECONFIG, QUALIF_VALUES_LOCAL
    OUT_DIR=build/candidate_v<X.Y.Z> SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OCI_ARCHIVE=1 \
      deploy/image/build.sh v<X.Y.Z.a>
-   sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> \
-     docker://$QUALIF_REGISTRY/claude-launcher:v<X.Y.Z.a>
+   # jeton du compte gh (portée write:packages), jamais affiché ; fichier d'authentification temporaire dans PRIVATE/, supprimé
+   A=PRIVATE/QUALIF/.ghcr-auth.json; (umask 077; gh auth token | sudo buildah login --authfile $A -u "$(gh api user --jq .login)" --password-stdin ghcr.io)
+   sudo buildah --storage-driver vfs push --authfile $A --digestfile build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a> \
+     localhost/claude-launcher:v<X.Y.Z.a> docker://$QUALIF_IMAGE:v<X.Y.Z.a>
+   sudo rm -f $A
    ```
-   Contrôle : `curl -s http://$QUALIF_REGISTRY/v2/claude-launcher/tags/list` contient `v<X.Y.Z.a>`.
+   Contrôle : `gh api /users/CCoupel/packages/container/claude-launcher-qualif/versions --jq '.[].metadata.container.tags[]'` contient
+   `v<X.Y.Z.a>`. Première publication : le paquet `claude-launcher-qualif` est créé **privé** → le rendre **public** une fois (P3, comme la PROD :
+   aucun secret de tirage). Tirage sans jeton : `curl -s "https://ghcr.io/token?scope=repository:ccoupel/claude-launcher-qualif:pull"` rend un `token`.
 3. `KUBECONFIG=$QUALIF_KUBECONFIG helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher
-   -n claude-qualif -f deploy/helm/values-qualif.yaml -f $QUALIF_VALUES_LOCAL --set image.tag=v<X.Y.Z.a>` ;
+   -n claude-qualif -f deploy/helm/values-qualif.yaml -f $QUALIF_VALUES_LOCAL --set image.tag=v<X.Y.Z.a> --set image.digest=$(cat build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a>)` ;
+   (tag **et** empreinte : l'image installée est exactement celle publiée) ;
    `kubectl rollout status statefulset/claude-launcher-qualif`.
    Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
    `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/QUALIF/values-local.yaml`**
@@ -86,7 +92,7 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
 4. URL d'amorçage : `kubectl exec statefulset/claude-launcher-qualif -- cat /share/MFS/ROOT/CLAUDE-QUALIF/.cache/claude-launcher-ng2/cluster-qualif/desktop-web-token`.
 5. Diagnostic du pod : backend `k8s` → contexte ignoré, chaque droit OK dans `claude-qualif` ; ouvrir/fermer/rouvrir un factice
    (StatefulSet dans `claude-qualif` uniquement).
-6. Risque accepté (H2) : image désignée par tag, sans digest (réseau interne de confiance).
+6. Image désignée par son **empreinte** (étape 3) : l'ancien risque H2 (tag seul, registre HTTP interne) ne s'applique plus.
 7. **Contrôle de la liste d'adresses (H3) — obligatoire avant de déclarer l'Ingress « réservé au réseau interne »** :
    1. `kubectl -n kube-system get svc -o custom-columns=NOM:.metadata.name,POLITIQUE:.spec.externalTrafficPolicy | grep -i traefik`
       → attendu `Local` ; `Cluster` : Traefik voit l'adresse d'un nœud, la liste est inopérante → le signaler, ne pas valider.

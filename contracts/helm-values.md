@@ -21,6 +21,7 @@
 | `image.repository` | chaîne | `ghcr.io/ccoupel/claude-launcher` | — | image |
 | `image.tag` | chaîne | `appVersion` du chart | — | tag ; la mise à jour du launcher se fait en le changeant |
 | `image.pullPolicy` | chaîne | `IfNotPresent` | — | — |
+| `image.digest` | chaîne | `""` | — | empreinte `sha256:…` : image référencée `dépôt:tag@empreinte` (installée exactement telle que publiée) ; le label `app.kubernetes.io/version` garde le tag seul |
 | `imagePullSecrets` | liste | `[]` | — | secrets de tirage (registre privé ou interne) |
 | `nodeSelector` | table | `{}` | — | nœud imposé au pod — nécessaire quand l'image candidate n'est importée que sur certains nœuds (`image.pullPolicy: Never`) |
 | `hubName` | chaîne | nom de la release | — | `CL_HUB_NAME` — unique parmi les launchers de la même racine |

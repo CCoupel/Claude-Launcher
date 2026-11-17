@@ -23,7 +23,7 @@ spec:
     metadata:
       labels:
         {{- include "cl.selector" . | nindent 8 }}
-        app.kubernetes.io/version: {{ include "cl.tag" . | quote }}
+        app.kubernetes.io/version: {{ include "cl.versionLabel" . | quote }}
     spec:
       serviceAccountName: {{ include "cl.fullname" . }}
       automountServiceAccountToken: true
@@ -45,7 +45,7 @@ spec:
         # fsGroup jamais posé : pas de changement de propriétaire récursif du partage
       containers:
         - name: launcher
-          image: "{{ .Values.image.repository }}:{{ include "cl.tag" . }}"
+          image: {{ include "cl.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           securityContext:
             allowPrivilegeEscalation: false

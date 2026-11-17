@@ -6,7 +6,7 @@
 {{- define "cl.labels" -}}
 app.kubernetes.io/name: claude-launcher
 app.kubernetes.io/instance: {{ .Release.Name }}
-app.kubernetes.io/version: {{ include "cl.tag" . | quote }}
+app.kubernetes.io/version: {{ include "cl.versionLabel" . | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 {{- end -}}
@@ -18,6 +18,20 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- define "cl.tag" -}}
 {{- default .Chart.AppVersion .Values.image.tag -}}
+{{- end -}}
+
+{{/* référence de l'image : dépôt:tag, ou dépôt:tag@empreinte si image.digest (l'image installée est exactement celle publiée) */}}
+{{- define "cl.image" -}}
+{{- if .Values.image.digest -}}
+{{- printf "%s:%s@%s" .Values.image.repository (include "cl.tag" .) .Values.image.digest -}}
+{{- else -}}
+{{- printf "%s:%s" .Values.image.repository (include "cl.tag" .) -}}
+{{- end -}}
+{{- end -}}
+
+{{/* valeur de label : le tag seul (ni « @ » ni plus de 63 caractères) */}}
+{{- define "cl.versionLabel" -}}
+{{- include "cl.tag" . | trunc 63 | trimSuffix "-" | trimSuffix "." -}}
 {{- end -}}
 
 {{- define "cl.hubName" -}}

@@ -5,6 +5,7 @@
 image:
   repository: ghcr.io/ccoupel/claude-launcher
   tag: ""                 # défaut : appVersion du chart ; mise à jour du launcher = changer ce tag
+  digest: ""              # sha256:… facultatif : image installée par empreinte (dépôt:tag@empreinte)
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []      # ex. [{name: regcred}] pour un registre privé

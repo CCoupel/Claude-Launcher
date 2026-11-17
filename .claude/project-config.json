@@ -61,7 +61,8 @@
           "publish": {
             "mode": "promote",
             "build": "deploy/image/build.sh v{X.Y.Z.a} (SOURCE_BIN = binaire candidat de BUILD)",
-            "target": "192.168.1.211:5000/claude-launcher:v{X.Y.Z.a}"
+            "target": "ghcr.io/ccoupel/claude-launcher-qualif:v{X.Y.Z.a}",
+            "push": "buildah push depuis le poste (jeton gh write:packages), empreinte notée et installée"
           },
           "deploy": {
             "mechanism": "helm",
@@ -78,8 +79,8 @@
             "verified": {
               "status": "ok",
               "at": "2026-11-17T10:13:51Z",
-              "checks": ["kubeconfig-admin", "ns-claude-qualif", "psa-baseline", "can-i-chart-objects", "pv-claude-qualif-pv-available", "clusterissuer-claude-launcher-ca-ready", "registry-v2-200"],
-              "note": "compte administrateur (risque accepté) ; tirage depuis les nœuds KO : srv0 sans registre HTTP dans registries.yaml"
+              "checks": ["kubeconfig-admin", "ns-claude-qualif", "psa-baseline", "can-i-chart-objects", "pv-claude-qualif-pv-available", "clusterissuer-claude-launcher-ca-ready", "ghcr-login-write-packages"],
+              "note": "compte administrateur (risque accepté) ; registre local abandonné (2026-11-17) : image de QUALIF sur ghcr (claude-launcher-qualif)"
             }
           }
         },
