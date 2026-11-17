@@ -9,6 +9,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.3.0] — 2026-11-17
+
 ### Added
 - Commutateur « Cacher les teammates inactifs » (Réglages › Launcher, groupe « teams ») : clé `TEAM_HIDE_IDLE_ENABLED`, activée par défaut ; désactivée, tout teammate reste visible et le délai `TEAM_HIDE_IDLE` (en secondes) est conservé (#188)
 - Guide « Installer le launcher dans Kubernetes par Helm (accès interne) » dans `ng2/README.md` : prérequis, valeurs, installation par empreinte, accès sans jeton, vérifications de la liste d'adresses, mise à jour et retour arrière, limites de v6.3.0 (#185)
