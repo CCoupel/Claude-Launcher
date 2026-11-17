@@ -1627,6 +1627,13 @@ au lieu d'un simple « injoignable ».
 **Arrêt** : `SIGTERM` (envoyé par le kubelet) et `SIGINT` ferment le serveur proprement, détachent les terminaux et
 sortent avec le code 0. Les projets restent ouverts dans leurs pods.
 
+**Mode d'accès `none`** (#192) : `desktop_web.access` (ou `CL_WEB_ACCESS`) vaut `token` par défaut, avec jeton. `none`
+supprime le jeton : l'interface s'ouvre sans lien d'amorçage. Il n'est accepté qu'en boucle locale, ou avec une adresse
+publique en `https` (`url`) ; une adresse en `http` est refusée, même en boucle locale. Au passage en `none`, le fichier
+de jeton précédent est supprimé. **Risque accepté** : en `none` hors cluster, tout utilisateur ou processus de la
+machine pilote le launcher ; en cluster, l'Ingress et sa liste d'adresses sont la seule barrière. Le chart pose
+`web.access: none` par défaut et refuse `none` sans Ingress.
+
 **Installer par Helm** (#170, #173) : le chart `deploy/helm/claude-launcher` déploie le launcher dans le namespace. Il crée
 un StatefulSet à une réplique (la mise à jour supprime l'ancien pod avant de créer le nouveau), un Service `ClusterIP`
 seul, un ServiceAccount avec un Role limité au namespace (aucun ClusterRole), et un Ingress interne Traefik ou nginx.
