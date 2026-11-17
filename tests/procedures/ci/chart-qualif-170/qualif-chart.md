@@ -10,6 +10,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 - [ ] Environnement : QUALIF — **namespace `claude-qualif`** (separe de la PROD `claude-ng2`, decision du 2026-11-17), label Pod Security `pod-security.kubernetes.io/enforce: baseline` sur **les deux** namespaces (`kubectl get ns claude-ng2 claude-qualif --show-labels`) ; verifier que les pods de projets le respectent
 - [ ] **Racine de QUALIF separee** : `/share/MFS/ROOT/CLAUDE-QUALIF` (dossier cree sur MooseFS, **different** de la racine de PROD `/share/MFS/ROOT/CLAUDE_PROJETS`), PV/PVC RWX **propre a la QUALIF** `claude-projects-qualif` dans `claude-qualif` ; le PVC `claude-projets` de la PROD n'est jamais monte par la QUALIF
+- [ ] **Source du PV de QUALIF controlee** (avant toute installation) : `kubectl get pv claude-qualif-pv -o jsonpath='{.spec.csi.volumeAttributes}{.spec.nfs.path}{.spec.hostPath.path}'` (la ligne dépend du type de source ; relire aussi `kubectl get pv claude-qualif-pv -o yaml`) doit viser **`/share/MFS/ROOT/CLAUDE-QUALIF`** — jamais `/share/MFS/ROOT/CLAUDE_PROJETS` (un PV pointe la racine de PROD ferait monter la PROD par la QUALIF malgre un nom de PVC different) ; `kubectl get pv claude-qualif-pv -o jsonpath='{.spec.claimRef.namespace}/{.spec.claimRef.name}'` = `claude-qualif/claude-projects-qualif`
 - [ ] **Squelette de la racine de QUALIF** : `<racine QUALIF>/.config/claude-launcher-ng2/backends.yaml` avec **les memes types de backends que la PROD** (**podman, docker `srv1-docker` — dont `shared` pointe la racine de QUALIF — et k8s** ; pas de backend ssh), le backend `k8s` pointant `namespace: claude-qualif` et `volumes` vers le PVC de QUALIF (la ligne `context:` d'un backend k8s est ignoree en cluster : ServiceAccount du pod) ; `config.conf` cree au demarrage du pod ; **projets factices** dans la categorie `<racine QUALIF>/PROJETS/QUALIF/` (`factice-1`, `factice-2`) (depot git vide, faux `claude`) — jamais un vrai projet
 - [ ] Donnees : release `claude-launcher-qualif` installee avec `values-qualif.yaml` (**ClusterIssuer interne reel renseigne** : la valeur `a-renseigner` est refusee par le chart), image candidate `image.tag=vX.Y.Z.a` (tag sans digest : risque accepte H2, reseau interne de confiance)
 - [ ] Acces : un poste dans `192.168.1.0/24`, un poste **hors** de cette plage (ou une IP source simulee), un pod du cluster, `kubectl -n claude-qualif`
@@ -86,6 +87,9 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 |-------|--------|-----------------|----------------|------|
 | 1 | `kubectl -n claude-qualif exec claude-launcher-qualif-0 -- ls /share/MFS/ROOT` | Seule `CLAUDE-QUALIF` est visible (ou le dossier parent n'est pas monte) ; `CLAUDE_PROJETS` absent | | |
 | 2 | `kubectl -n claude-qualif exec … -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token` | Echec : fichier introuvable (le jeton PROD n'est pas lisible depuis la QUALIF) | | |
+| 2b | **Test negatif des fichiers de la PROD** depuis le pod de QUALIF : `for f in config.conf backends.yaml projects.json; do kubectl -n claude-qualif exec claude-launcher-qualif-0 -- test ! -e /share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/$f && echo "absent $f" \|\| echo "VISIBLE $f"; done` | Trois lignes `absent …` : aucun fichier de la racine de PROD n'est visible (pas de `VISIBLE`) | | |
+| 2c | `kubectl -n claude-qualif exec … -- test ! -e /share/MFS/ROOT/CLAUDE_PROJETS && echo absent` et `… -- sh -c 'mount \| grep -c CLAUDE_PROJETS'` | `absent` ; `0` occurrence : la racine de PROD n'est pas montee dans le pod | | |
+| 2d | `kubectl get pv claude-qualif-pv -o yaml` (a refaire apres l'installation) | Source inchangee : `/share/MFS/ROOT/CLAUDE-QUALIF` seulement ; lie a `claude-qualif/claude-projects-qualif` | | |
 | 3 | Variables du pod QUALIF : `kubectl exec … -- env \| grep '^CL_'` | `CL_ROOT_BASE=/share/MFS/ROOT/CLAUDE-QUALIF`, `CL_HUB_NAME=cluster-qualif` (jamais `cluster`), `CL_CACHE_DIR` sous la racine de QUALIF | | |
 | 4 | Dans l'interface de QUALIF : Reglages > Backends > Tester le backend `k8s` | Etapes vertes dans le namespace `claude-qualif` ; ligne d'information « contexte « k8s » ignore : ServiceAccount du pod » si le fichier le declare | | |
 | 5 | Ouvrir un projet factice depuis la QUALIF (StatefulSet dans `claude-qualif`) | Le pod du projet est cree dans `claude-qualif`, jamais dans `claude-ng2` ; `kubectl -n claude-ng2 get sts` inchange | | |
@@ -99,7 +103,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 - [ ] Hors de la plage : toujours `403`, y compris depuis un pod et avec un `X-Forwarded-For` forge
 - [ ] Namespace QUALIF separe, droits du ServiceAccount limites a ce namespace
 - [ ] Desinstallation sans effet sur le PVC, les projets et la racine
-- [ ] Isolation : racine, PVC, namespace et nom de hub de QUALIF distincts de ceux de la PROD ; aucun fichier de la PROD modifie ni jeton PROD lisible depuis la QUALIF
+- [ ] Isolation : racine, **source du PV**, PVC, namespace et nom de hub de QUALIF distincts de ceux de la PROD ; fichiers de la PROD absents du pod de QUALIF (`test ! -e`) ; aucun fichier de la PROD modifie ni jeton PROD lisible depuis la QUALIF
 
 ## Notes QA
 
