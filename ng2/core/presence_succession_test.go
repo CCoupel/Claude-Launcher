@@ -88,3 +88,31 @@ func TestPresenceSuccessionSamePid(t *testing.T) {
 		t.Errorf("témoin d'ancien format silencieux non repris : %v", err)
 	}
 }
+
+// La libération retire le témoin de CE launcher (régression : elle cherchait l'identifiant en préfixe du fichier et ne
+// retirait jamais rien) et ne touche jamais le témoin d'un autre.
+func TestPresenceReleaseRemovesOwnWitnessOnly(t *testing.T) {
+	withHome(t)
+	t.Setenv("CL_CACHE_DIR", t.TempDir())
+	t.Setenv("CL_HUB_NAME", "hub-release")
+	rel, err := AcquirePresence()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(presencePath()); err != nil {
+		t.Fatalf("témoin absent après la prise : %v", err)
+	}
+	rel()
+	if _, err := os.Stat(presencePath()); err == nil {
+		t.Error("le témoin n'est pas retiré à la libération")
+	}
+	rel2, err := AcquirePresence()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(presencePath(), []byte("autre-machine 1 2026-01-01T00:00:00Z autre-id autre-proc\n"), 0o644) // repris par un autre
+	rel2()
+	if _, err := os.Stat(presencePath()); err != nil {
+		t.Error("la libération a retiré le témoin d'un autre launcher")
+	}
+}

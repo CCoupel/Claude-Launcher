@@ -613,9 +613,7 @@ func RunWeb(addr string, open bool) error {
 	}()
 	// SIGTERM (arrêt d'un pod) et SIGINT : arrêt propre — serveur fermé, terminaux détachés (a.Stop après <-done),
 	// code 0 ; les projets restent ouverts dans leurs pods / tmux (#167)
-	// SIGTERM : la place du launcher est rendue TOUT DE SUITE (avant l'arrêt, parfois lent) : un arrêt qui finit en SIGKILL
-	// ne laisse pas de témoin de présence, le successeur du même nom démarre sans attendre sa péremption
-	defer onSignalOnce(func() { core.ReleasePresence(); _ = srv.Close() }, syscall.SIGTERM, os.Interrupt)()
+	defer onSignalOnce(func() { _ = srv.Close() }, syscall.SIGTERM, os.Interrupt)()
 	// mise à jour installée : même adresse et même jeton pour le nouveau
 	// binaire, port libéré avant de le lancer ; l'onglet ouvert se reconnecte
 	// (flux d'événements) au lieu d'en ouvrir un second
@@ -649,6 +647,9 @@ func onSignalOnce(fn func(), sigs ...os.Signal) (stop func()) {
 	go func() {
 		select {
 		case <-ch:
+			// la place du launcher est rendue TOUT DE SUITE (avant l'arrêt, parfois lent) : un arrêt qui finit en SIGKILL
+			// ne laisse pas de témoin de présence, le successeur du même nom démarre sans attendre
+			core.ReleasePresence()
 			signal.Stop(ch) // traitement par défaut rétabli : le prochain signal est fatal
 			fn()
 		case <-done:

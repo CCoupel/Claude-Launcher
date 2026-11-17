@@ -135,7 +135,8 @@ func AcquirePresence() (release func(), err error) {
 	rel := func() {
 		once.Do(func() {
 			close(stop)
-			if lockOwnedBy(p, token) { // jamais le témoin d'un autre
+			// jamais le témoin d'un autre : l'identifiant de la prise est le 4e champ du contenu (pas un préfixe)
+			if b, err := os.ReadFile(p); err == nil && strings.Contains(string(b), token) {
 				_ = os.Remove(p)
 			}
 		})
