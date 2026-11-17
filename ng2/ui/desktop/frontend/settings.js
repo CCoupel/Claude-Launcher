@@ -679,7 +679,7 @@ function docLocalProblems(id) {
       else if (dw === dwNorm(D.d.f.listen || '127.0.0.1:8765')) ps.push({ severity: 'error', message: 'Interface web : même adresse que le serveur de maquettes (' + dw + ') — deux serveurs distincts, choisir un autre port' });
       else if (!dwLoopback(dw)) {
         if (!D.d.f.dweb_lan) ps.push({ severity: 'error', message: 'Interface web : écoute hors de la boucle locale (' + dw + ') — cocher « Autoriser l\'accès depuis le réseau » pour la confirmer' });
-        else ps.push({ severity: 'warning', message: '⚠ Interface web ouverte au réseau (' + dw + ') : le jeton circule en clair en HTTP et toute machine qui l\'obtient pilote ce poste (terminaux, projets). Préférer un tunnel SSH ou TLS et garder l\'écoute sur la boucle locale.' });
+        else ps.push({ severity: 'warning', message: '⚠ Interface web ouverte au réseau (' + dw + ') : ' + (dwNoToken() ? 'sans jeton, toute machine qui atteint cette adresse pilote ce poste (terminaux, projets). Garder l\'écoute sur la boucle locale ou derrière une adresse publique en https.' : 'le jeton circule en clair en HTTP et toute machine qui l\'obtient pilote ce poste (terminaux, projets). Préférer un tunnel SSH ou TLS et garder l\'écoute sur la boucle locale.') });
       }
     }
     // adresse publique (#171) : http(s)://hôte[:port], sans chemin, paramètres ni identifiants
@@ -832,6 +832,7 @@ const DW_RO = 'lecture seule depuis un navigateur : à modifier dans la fenêtre
 const DW_SRV = 'mode serveur : réglage verrouillé, fixé au lancement du processus';
 const dwSnap = () => (S.snap && S.snap.webUI) || { state: 'off' };
 const dwServer = () => !!dwSnap().server;
+const dwNoToken = () => dwSnap().access === 'none'; // mode d'accès effectif (webUI.access, LOT-4.4) : sans jeton ni session
 const dwLocked = () => isWebClient() || dwServer(); // webUI : commutateur, adresses, jeton
 function dwRo(c) { if (isWebClient()) { c.readOnly = true; c.title = DW_RO; } return c; }
 function dwLock(c) { // champ de l'interface web : lecture seule (client web ou mode serveur)
@@ -839,7 +840,7 @@ function dwLock(c) { // champ de l'interface web : lecture seule (client web ou 
   return c;
 }
 const dwBandeau = () => (isWebClient() ? el('p', 'stband ro', '🔒 ' + DW_RO + '.')
-  : dwServer() ? el('p', 'stband srv', '🔒 ' + DW_SRV + ' (adresse et jeton propres au processus).') : null);
+  : dwServer() ? el('p', 'stband srv', '🔒 ' + DW_SRV + ' (adresse ' + (dwNoToken() ? '' : 'et jeton ') + 'propres au processus).') : null);
 
 // commutateur (case en forme d'interrupteur) : à l'allumage sans adresse, propose 127.0.0.1:8787
 function dwSwitch(f) {
@@ -888,7 +889,7 @@ const hubOv = (m) => ({ hint: (k) => hubSrc(m, k, ['']) });
 
 function stPageWeb(p) {
   const D0 = ST.docs.hub;
-  docPage(p, 'hub', 'Interface web' + (D0 && D0.model ? ' — ' + D0.model.hub : ''), 'Le launcher complet dans un navigateur, protégé par un jeton. Réglage propre à cette machine.', (D) => {
+  docPage(p, 'hub', 'Interface web' + (D0 && D0.model ? ' — ' + D0.model.hub : ''), (dwNoToken() ? 'Le launcher complet dans un navigateur, sans jeton : l\'accès est limité par le réseau. ' : 'Le launcher complet dans un navigateur, protégé par un jeton. ') + 'Réglage propre à cette machine.', (D) => {
     const f = D.d.f, ov = hubSrc(D.model, 'desktop_web', ['listen', 'allow_lan', 'enabled', 'url']), off = !dwServer() && !dwOn(f);
     const bd = dwBandeau(); if (bd) p.appendChild(bd);
     // Activation
@@ -906,18 +907,18 @@ function stPageWeb(p) {
     // adresse publique (#171) : affichée ; le champ éditable arrive au LOT-2.2
     const pub = dwLock(stInput(dwServer() ? (dwSnap().url || '') : f.dweb_url, (v) => { f.dweb_url = v; }, '(aucune — accès direct)'));
     const ad = stForm([
-      ['Écoute', ec, (dwLocked() ? (dwServer() ? DW_SRV : DW_RO) + ' · ' : 'off, un port (boucle locale) ou hôte:port · différente du serveur de maquettes · hors boucle locale : la case est obligatoire ; le jeton circule en HTTP, préférer un tunnel SSH/TLS ') + ov],
+      ['Écoute', ec, (dwLocked() ? (dwServer() ? DW_SRV : DW_RO) + ' · ' : 'off, un port (boucle locale) ou hôte:port · différente du serveur de maquettes · hors boucle locale : la case est obligatoire ; ' + (dwNoToken() ? 'sans jeton, toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en HTTP, préférer un tunnel SSH/TLS') + ' ') + ov],
       ['Adresse publique', pub, (dwServer() ? 'fixée au lancement (--url, CL_WEB_URL) · ' : '') + 'http(s)://hôte[:port], sans chemin · derrière un proxy inverse en HTTPS : ce nom est admis, le cookie de session devient sécurisé · ' + hubSrc(D.model, 'desktop_web', ['url'])],
     ]);
     if (off) ad.classList.add('gris');
     p.appendChild(stBox('Adresses', ad));
     // Jeton
     const tk = el('div', 'stfont');
-    tk.append(el('span', 'dim', 'Un jeton par poste, jamais affiché ici.'));
+    tk.append(el('span', dwNoToken() ? 't-yellow' : 'dim', dwNoToken() ? 'Accès sans jeton : le réseau seul protège l\'interface, il n\'y a aucun jeton à régénérer.' : 'Un jeton par poste, jamais affiché ici.'));
     const rg = stBtn('Régénérer le jeton', dwRegen);
-    if (dwLocked() || dwSnap().state !== 'on') { rg.disabled = true; rg.title = dwLocked() ? 'fenêtre native seulement' : 'interface web éteinte'; }
+    if (dwLocked() || dwNoToken() || dwSnap().state !== 'on') { rg.disabled = true; rg.title = dwNoToken() ? 'accès sans jeton : aucun jeton à régénérer' : dwLocked() ? 'fenêtre native seulement' : 'interface web éteinte'; }
     tk.append(rg);
-    const tb = stBox('Jeton d\'accès', tk); if (off) tb.classList.add('gris');
+    const tb = stBox('Jeton d\'accès', tk); if (off || dwNoToken()) tb.classList.add('gris');
     p.appendChild(tb);
   });
 }
