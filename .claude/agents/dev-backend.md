@@ -13,7 +13,7 @@
 
 - Go : version de `ng2/go.mod` (`GOTOOLCHAIN=auto`).
 - Tests ciblés en boucle DEV : `cd ng2 && go test ./core/... ` (paquets touchés), jamais toute la suite à chaque modification.
-- Avant de rendre : `scripts/ci.sh` (vet, tests, compilation croisée de l'exe Windows).
+- Avant de rendre : `go vet` et tests des paquets touchés, puis compilation de l'exe Windows (ci-dessous) — la suite complète (`scripts/ci.sh`) est jouée par QA et la CI.
 - Build Windows de test : `cd ng2 && CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -trimpath -ldflags "-s -w -H windowsgui" -o <sortie>.exe .`
 
 ## Conventions

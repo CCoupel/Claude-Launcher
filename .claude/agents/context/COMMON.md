@@ -23,7 +23,7 @@ Ils ne touchent jamais les vrais projets, le vrai `claude`, ni la session `claud
 - **Milestone non démarré** (pas de due date) : ses issues ne portent aucun label de phase ; une issue reportée vers
   un milestone futur perd le sien (sinon le panneau milestone le croit démarré).
 - **Maquette avant le développement** : toute nouvelle interface passe par une maquette validée par l'utilisateur,
-  ouverte dans Chrome par le serveur web du launcher (`commands/context/COMMON.md` §14.9), onglet laissé ouvert.
+  ouverte dans Chrome par le serveur web du launcher (`commands/context/MOCKUPS.md` §14.9), onglet laissé ouvert.
 - **README dans la PR même** : le README est mis à jour dans la PR qui change le comportement, avant fusion et release.
 
 ## Release
