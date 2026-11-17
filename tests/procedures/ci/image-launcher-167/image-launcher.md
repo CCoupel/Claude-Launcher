@@ -56,7 +56,7 @@ Reference : `contracts/launcher-env.md` (« Image de conteneur », « Launcher d
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | `kill -TERM` du processus du conteneur (ou `kubectl delete pod`) | Arret en < 10 s, code 0, serveur ferme | | |
-| 2 | Relancer sur la meme racine | Meme jeton (fichier `desktop-web-token` conserve), sessions precedentes non reprises | | |
+| 2 | Relancer sur la meme racine ; comparer l'**empreinte** du jeton avant/apres (`sha256sum <cache>/desktop-web-token`, **jamais `cat`** : le jeton n'est pas affiche) | Meme jeton (fichier `desktop-web-token` conserve : empreintes identiques), sessions precedentes non reprises | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 

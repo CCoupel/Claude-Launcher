@@ -24,6 +24,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 ## Prerequis (verifies avant tout, un par un)
 
+- [ ] **CA interne : contrainte de noms verifiee** — `openssl x509 -in PRIVATE/GLOBAL/claude-launcher-ca.crt -noout -text | grep -A4 'X509v3 Name Constraints'` : extension critique, `Permitted: DNS:launcher.local, DNS:launcher-qualif.local` (ou `DNS:.local`) et rien d'autre ; absente ou trop large : le signaler, ne pas valider ; certificat de la CA installe sur les postes
 - [ ] **Administrateur** (fiche `_work/reports/infra-admin-noeuds-20261117-090000.md`) : namespace `claude-qualif` ; PSA `baseline` sur `claude-ng2` **et** `claude-qualif` ; PV `claude-qualif-pv` vers `/share/MFS/ROOT/CLAUDE-QUALIF` (**source verifiee** : jamais `CLAUDE_PROJETS`) ; compte `ng2-deploy` dans les deux namespaces ; nom mDNS `launcher-qualif.local` (resolu par les postes, pas par les pods) ; `externalTrafficPolicy: Local` sur le Service Traefik ; ClusterIssuer interne reel (nom dans `PRIVATE/QUALIF/values-local.yaml`) ; **paquet ghcr `claude-launcher-qualif` public** (P3 : ghcr cree le paquet en prive a la premiere publication, le passer en public une fois : le cluster n'a pas de secret de tirage) et sorties reseau des noeuds vers ghcr.io
 - [ ] **`qualif.env`** (modele `qualif.env.example`) : `QUALIF_IMAGE` (`ghcr.io/ccoupel/claude-launcher-qualif`), `QUALIF_NAMESPACE` (`claude-qualif`), `QUALIF_KUBECONFIG` (`PRIVATE/QUALIF/ng2-deploy.kubeconfig`), `QUALIF_VALUES_LOCAL` (`PRIVATE/QUALIF/values-local.yaml`) renseignes ; environnement « launcher du cluster » declare dans `.claude/project-config.json` (`cluster_launcher` de QUALIF et de PROD)
 - [ ] **Acces** : `PRIVATE/QUALIF/ng2-deploy.kubeconfig` (`kubectl -n claude-qualif auth can-i create statefulsets` = `yes`) ; un poste dans `192.168.1.0/24`, un poste **hors** de la plage, un pod de test
@@ -57,7 +58,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 |-------|--------|-----------------|----------------|------|
 | 1 | Image **depuis le binaire candidat de BUILD** : `SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OUT_DIR=build/candidate_v<X.Y.Z> OCI_ARCHIVE=1 deploy/image/build.sh v<X.Y.Z.a>` | Binaire candidat repris **tel quel** ; sa version est controlee (`version` doit annoncer `v<X.Y.Z.a>`, sinon **echec**) ; image locale + archive OCI et `SHA256SUMS-image-<version>` a cote du binaire ; durees affichees | | |
 | 2 | Controles de l'image : scenarios 1 a 3 de `image-launcher-167/image-launcher.md` | Non root `1000:1000`, version = tag, `git gh kubectl bash` presents, ni `tmux` ni `claude`, entrypoint 64/66, interface servie avec dossier monte, `config.conf` cree sous la racine montee, aucun jeton imprime, SIGTERM propre | | |
-| 3 | Pousser dans le paquet **de QUALIF** : `A=PRIVATE/QUALIF/.ghcr-auth.json` (jeton `write:packages`, fichier temporaire supprime ensuite) puis `sudo buildah --storage-driver vfs push --authfile $A --digestfile build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a> localhost/claude-launcher:v<X.Y.Z.a> docker://$QUALIF_IMAGE:v<X.Y.Z.a>` (voir `deploy.qualif.md` etapes 2-3) | Pousse ; fichier d'empreinte `digest-v<X.Y.Z.a>` ecrit ; `gh api /users/CCoupel/packages/container/claude-launcher-qualif/versions` liste le tag `v<X.Y.Z.a>` ; fichier d'authentification supprime | | |
+| 3 | **Gardes avant le push** (voir `deploy.qualif.md`) : la reference de destination commence par `ghcr.io/ccoupel/claude-launcher-qualif` (**prefixe `-qualif` verifie**, jamais `ghcr.io/ccoupel/claude-launcher:`) ; le fichier d'authentification est supprime par un **`trap`** meme en cas d'echec (`ls PRIVATE/QUALIF/.ghcr-auth.json` : absent apres coup, y compris apres un push volontairement echoue) ; puis pousser dans le paquet **de QUALIF** : `A=PRIVATE/QUALIF/.ghcr-auth.json` (jeton `write:packages`, fichier temporaire supprime ensuite) puis `sudo buildah --storage-driver vfs push --authfile $A --digestfile build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a> localhost/claude-launcher:v<X.Y.Z.a> docker://$QUALIF_IMAGE:v<X.Y.Z.a>` (voir `deploy.qualif.md` etapes 2-3) | Pousse ; fichier d'empreinte `digest-v<X.Y.Z.a>` ecrit ; `gh api /users/CCoupel/packages/container/claude-launcher-qualif/versions` liste le tag `v<X.Y.Z.a>` ; fichier d'authentification supprime | | |
 | 4 | **Separation des paquets** : le paquet de PRODUCTION n'est pas touche | `gh api /users/CCoupel/packages/container/claude-launcher/versions` inchange : **aucun** tag `vX.Y.Z[.a]` cree par cette QUALIF ; rien n'est ecrit hors de `claude-launcher-qualif` | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -70,6 +71,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
+| 0 | **Rendu helm controle avant d'installer** : `helm template claude-launcher-qualif … -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=… --set image.digest=…` | Image `ghcr.io/ccoupel/claude-launcher-qualif:<tag>@sha256:…` seulement (jamais le paquet de PROD), namespace `claude-qualif`, `ipAllowList` `192.168.1.0/24`, aucun `ClusterRole` | | |
 | 1 | `helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=v<X.Y.Z.a> --set image.digest=$(cat build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a>)` (kubeconfig `ng2-deploy`) | Installation sans erreur ; `kubectl rollout status` | | |
 | 2 | `kubectl -n claude-qualif get pod,pvc,svc,ingress,certificate` | **Un seul** pod `Ready` (sonde `/readyz`) ; PVC `claude-projects-qualif` `Bound` RWX sur `claude-qualif-pv` ; Service `ClusterIP` ; Certificate `Ready` | | |
 | 3 | Journaux du pod | Message de mode serveur, **aucun jeton en clair**, aucun refus « launcher deja actif » | | |
@@ -88,7 +90,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 |-------|--------|-----------------|----------------|------|
 | 1 | Poste de `192.168.1.0/24` : `curl -sk https://launcher-qualif.local/healthz` | `200` | | |
 | 2 | IP hors plage ; depuis un pod via l'Ingress (**`.local` n'est pas resolu par les pods** : `curl -sk --resolve launcher-qualif.local:443:<IP de Traefik> https://launcher-qualif.local/healthz`, IP lue sur un poste par `getent hosts launcher-qualif.local`) ; `X-Forwarded-For` forge | `403` dans les trois cas | | |
-| 3 | Lien d'amorçage : `https://launcher-qualif.local/?t=<jeton>` (jeton lu par `kubectl exec … cat <CL_CACHE_DIR>/desktop-web-token`) | `303` vers `/`, cookie `__Host-` `Secure`, jeton absent de l'URL et de l'historique | | |
+| 3 | Lien d'amorçage : `https://launcher-qualif.local/?t=<jeton>` (**le jeton n'est jamais affiche** : `kubectl exec … cat <CL_CACHE_DIR>/desktop-web-token \| (umask 077; { printf 'https://launcher-qualif.local/?t='; cat; } > PRIVATE/QUALIF/.lien-acces)`, fichier `600`, ou presse-papiers ; ouvrir le lien puis **supprimer** le fichier / vider le presse-papiers) | `303` vers `/`, cookie `__Host-` `Secure`, jeton absent de l'URL et de l'historique | | |
 | 4 | Un autre nom d'hote / une autre origine (`curl -H 'Host: evil.test'`, `Origin` etrangere) | `403` distincts (« hote refuse », « origine refusee ») | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -130,9 +132,9 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Noter le jeton, un reglage (ex. couleur d'un projet), les `backends.yaml`/`config.conf` | — | | |
+| 1 | Noter l'**empreinte** du jeton (sans l'afficher) : `kubectl exec … sha256sum <CL_CACHE_DIR>/desktop-web-token`, un reglage (ex. couleur d'un projet), les `backends.yaml`/`config.conf` | — | | |
 | 2 | `kubectl -n claude-qualif delete pod claude-launcher-qualif-0` ; attendre `Ready` | Nouveau pod (**nouveau nom de machine** si recree sur un autre noeud) ; meme nom de hub `cluster-qualif`, aucun refus de presence | | |
-| 3 | Relire le jeton et les reglages | **Identiques** (jeton conserve dans `<CL_CACHE_DIR>/desktop-web-token`, reglages dans la racine) ; l'ancien lien d'acces fonctionne toujours | | |
+| 3 | Relire l'empreinte du jeton (`sha256sum`) et les reglages | **Identiques** (jeton conserve dans `<CL_CACHE_DIR>/desktop-web-token`, reglages dans la racine ; aucun jeton affiche) ; l'ancien lien d'acces fonctionne toujours | | |
 | 4 | Projet factice ouvert avant la suppression | Le StatefulSet du projet survit ; le launcher le retrouve et le reprend (identite stable : pas de « piloté par un autre ») | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
