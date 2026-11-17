@@ -193,6 +193,11 @@ func loadConfigAt(path string) Config {
 				}
 			case "root":
 				if r := strings.TrimSpace(f[1]); r != "" && !strings.Contains(r, rootBaseUnresolved) {
+					// Windows : « D:\base/PROJETS » (${CL_ROOT_BASE}/PROJETS développé par confLite) → séparateurs normalisés ;
+					// un chemin Linux (« /… », converti par applyConfPaths) n'est pas touché
+					if runtime.GOOS == "windows" && filepath.VolumeName(r) != "" {
+						r = filepath.Clean(r)
+					}
 					cfg.Roots = append(cfg.Roots, r)
 				}
 			case "claudedir":
