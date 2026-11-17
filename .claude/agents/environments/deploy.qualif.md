@@ -21,15 +21,22 @@ Décision utilisateur (2026-11-17) : la QUALIF du cluster ne touche **jamais** l
 | `backends.yaml` | celui de la racine de QUALIF (ci-dessous) | le réel, inchangé |
 | Nom de hub | `cluster-qualif` | `cluster` |
 | Nom d'accès | `https://launcher-qualif.local` (mDNS, domaine `.local`) | `https://launcher.local` |
-| Compte helm | `PRIVATE/QUALIF/ng2-deploy.kubeconfig` | `PRIVATE/PROD/ng2-deploy.kubeconfig` |
+| Compte helm | `PRIVATE/QUALIF/kubeconfig` (administrateur, risque accepté) | `PRIVATE/PROD/kubeconfig` (idem) |
+| Émetteur | `claude-launcher-ca` (CA interne, `PRIVATE/QUALIF/values-local.yaml`) | idem (`PRIVATE/PROD/values-local.yaml`) |
 
 > **En cluster, le contexte de TOUS les backends `k8s` est ignoré** (ServiceAccount du pod, namespace déclaré) : un backend
 > `k8s` d'un **autre cluster** déclaré dans le `backends.yaml` de cette racine agirait sur le cluster du pod (dans le namespace
 > déclaré, si le Role le permet). Ne déclarer dans ce fichier que des backends `k8s` du cluster où tourne le launcher.
 
+> **Risque accepté (décision utilisateur du 2026-11-17)** : le compte de déploiement est le kubeconfig Rancher **administrateur du
+> cluster** déposé dans `PRIVATE/<ENV>/kubeconfig` (le même pour QUALIF et PROD). `PRIVATE/` est sur la racine de PROD, montée dans
+> tous les pods de projets (root) : un projet peut lire ce fichier et administrer le cluster. Les comptes `ng2-deploy` limités
+> (`.claude-launcher/k8s-acces-deploy.sh`) restent disponibles pour réduire ce risque.
+
 ### Racine de QUALIF (créée une fois, puis réutilisée)
 
-Prérequis : dossier `/share/MFS/ROOT/CLAUDE-QUALIF` et namespace `claude-qualif` (créés par l'utilisateur), propriétaire `1000:1000` ;
+Prérequis : dossier `/share/MFS/ROOT/CLAUDE-QUALIF` et namespace `claude-qualif` (créés par l'utilisateur, PSA `baseline`), propriétaire `1000:1000` ;
+registre `registry:2` sur srv1 (données `REGISTRY/` à la racine, hors `PROJETS/` : pas une catégorie) ;
 PV `claude-qualif-pv` vers ce dossier (administrateur, fiche).
 
 ```

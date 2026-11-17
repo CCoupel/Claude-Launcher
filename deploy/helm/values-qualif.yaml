@@ -2,7 +2,7 @@
 # /share/MFS/ROOT/CLAUDE-QUALIF (même MooseFS, jamais la racine de PROD), avec son propre
 # .config/claude-launcher-ng2/backends.yaml (mêmes types de backends que la PROD, k8s → claude-qualif).
 # Release « claude-launcher-qualif ». Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/QUALIF/.
-#   KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig \
+#   KUBECONFIG=PRIVATE/QUALIF/kubeconfig \
 #   helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif \
 #     -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=vX.Y.Z.a
 #   (PRIVATE/QUALIF/values-local.yaml : ingress.tls.clusterIssuer réel, jamais commité — voir deploy.qualif.md)
@@ -41,7 +41,6 @@ ingress:
   host: launcher-qualif.local
   allowedSourceRanges: ["192.168.1.0/24"]
   tls:
-    # ClusterIssuer interne : nom NON relu (le compte ng2-tests ne peut pas lister les clusterissuers).
-    # À RENSEIGNER avant l'installation : kubectl get clusterissuer (compte admin ou ng2-deploy) ;
-    # le chart refuse « a-renseigner ».
+    # émetteur réel (claude-launcher-ca, CA interne) donné par PRIVATE/QUALIF/values-local.yaml ;
+    # le chart refuse « a-renseigner » (garde contre un oubli du fichier local).
     clusterIssuer: a-renseigner

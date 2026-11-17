@@ -24,6 +24,6 @@ ingress:
   host: launcher.local
   allowedSourceRanges: ["192.168.1.0/24"]
   tls:
-    # ClusterIssuer interne : nom NON relu (le compte ng2-tests ne peut pas lister les clusterissuers).
-    # À RENSEIGNER avant l'installation : kubectl get clusterissuer (compte admin ou ng2-deploy)
+    # émetteur réel (claude-launcher-ca, CA interne) donné par PRIVATE/PROD/values-local.yaml ;
+    # le chart refuse « a-renseigner » (garde contre un oubli du fichier local).
     clusterIssuer: a-renseigner

@@ -1,0 +1,51 @@
+# Autorité de certification interne du launcher du cluster (v6.3.0) — noms d'accès en mDNS .local
+# (launcher-qualif.local, launcher.local), qu'aucun émetteur ACME (letsencrypt-prod) ne peut certifier.
+#
+# Appliqué UNE FOIS avec un compte administrateur du cluster :
+#   kubectl apply -f deploy/cert-manager/claude-launcher-ca.yaml
+#   kubectl wait --for=condition=Ready -n cert-manager certificate/claude-launcher-ca --timeout=2m
+#   kubectl wait --for=condition=Ready clusterissuer/claude-launcher-ca --timeout=2m
+# Certificat PUBLIC de la CA (à installer sur les postes, jamais la clé) :
+#   kubectl -n cert-manager get secret claude-launcher-ca -o jsonpath='{.data.ca\.crt}' | base64 -d > PRIVATE/GLOBAL/claude-launcher-ca.crt
+# Usage par le chart : ingress.tls.clusterIssuer: claude-launcher-ca (PRIVATE/<ENV>/values-local.yaml).
+#
+# 1) émetteur auto-signé, seulement pour amorcer la CA (namespace de cert-manager)
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: claude-launcher-ca-selfsigned
+  namespace: cert-manager
+spec:
+  selfSigned: {}
+---
+# 2) certificat de la CA (clé privée dans le Secret claude-launcher-ca, namespace cert-manager)
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: claude-launcher-ca
+  namespace: cert-manager
+spec:
+  isCA: true
+  commonName: Claude-Launcher CA interne
+  subject:
+    organizations: [Claude-Launcher]
+  secretName: claude-launcher-ca
+  duration: 87600h        # 10 ans
+  renewBefore: 720h
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+    rotationPolicy: Never # même CA tant qu'elle n'est pas révoquée : les postes gardent leur confiance
+  issuerRef:
+    kind: Issuer
+    name: claude-launcher-ca-selfsigned
+    group: cert-manager.io
+---
+# 3) émetteur de cluster signé par cette CA (lit le Secret dans le namespace de cert-manager)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: claude-launcher-ca
+spec:
+  ca:
+    secretName: claude-launcher-ca

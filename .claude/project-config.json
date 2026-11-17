@@ -74,9 +74,12 @@
           "access": {
             "method": "kubeconfig",
             "credentials_env": ["QUALIF_KUBECONFIG"],
+            "credentials_file": "PRIVATE/QUALIF/kubeconfig",
             "verified": {
-              "status": "unknown",
-              "note": "à vérifier après création du compte ng2-deploy par l'administrateur (fiche infra-admin-noeuds-20261117-090000)"
+              "status": "ok",
+              "at": "2026-11-17T10:13:51Z",
+              "checks": ["kubeconfig-admin", "ns-claude-qualif", "psa-baseline", "can-i-chart-objects", "pv-claude-qualif-pv-available", "clusterissuer-claude-launcher-ca-ready", "registry-v2-200"],
+              "note": "compte administrateur (risque accepté) ; tirage depuis les nœuds KO : srv0 sans registre HTTP dans registries.yaml"
             }
           }
         },
@@ -135,9 +138,12 @@
           "access": {
             "method": "kubeconfig",
             "credentials_env": ["PROD_KUBECONFIG"],
+            "credentials_file": "PRIVATE/PROD/kubeconfig",
             "verified": {
-              "status": "unknown",
-              "note": "à vérifier après création du compte ng2-deploy par l'administrateur (fiche infra-admin-noeuds-20261117-090000)"
+              "status": "ok",
+              "at": "2026-11-17T10:13:51Z",
+              "checks": ["kubeconfig-admin", "can-i-create-ingresses-claude-ng2", "clusterissuer-claude-launcher-ca-ready"],
+              "note": "compte administrateur (risque accepté) ; PSA claude-ng2 laissé en privileged (décision utilisateur)"
             }
           }
         },
