@@ -125,7 +125,7 @@ func TestHideIdleDisableKeepsDelayAndIsReadHot(t *testing.T) {
 
 // ── réglage appliqué à la règle de visibilité : tmux réel, faux claude ───────
 
-func h188Project(t *testing.T) (a *App, r *recorder, path string, mates [2]string, tm func(args ...string) string) {
+func h188Project(t *testing.T, conf string) (a *App, r *recorder, path string, mates [2]string, tm func(args ...string) string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("pas de tmux sous Windows")
@@ -145,6 +145,12 @@ func h188Project(t *testing.T) (a *App, r *recorder, path string, mates [2]strin
 	_ = os.WriteFile(fake, []byte("#!/bin/sh\necho faux claude prêt\nwhile read -r l; do echo \"reçu:$l\"; done\n"), 0o755)
 	t.Setenv("CL_CLAUDE_BIN", fake)
 	_ = core.WriteAssignment(ps[0], "host")
+	if conf != "" { // config.conf posé APRÈS le bac à sable de ce montage (sandbox() réinitialise l'environnement) et avant l'App
+		_ = os.MkdirAll(filepath.Dir(core.ConfigPath()), 0o755)
+		if err := os.WriteFile(core.ConfigPath(), []byte(conf), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	r = &recorder{}
 	a = newApp(t, r.emit)
 	t.Cleanup(func() { a.Stop() })
@@ -212,7 +218,7 @@ func h188WaitCond(t *testing.T, what string, cond func() bool) {
 // Masquage désactivé : le teammate caché à la main réapparaît sans relance, sa marque « h » est effacée, le double-clic de
 // masquage est refusé (message), la carte TEAM porte l'état ; réactivé : le délai conservé reprend.
 func TestHideIdleDisabledShowsEverythingAndRefusesManualHide(t *testing.T) {
-	a, r, path, mates, tm := h188Project(t)
+	a, r, path, mates, tm := h188Project(t, "")
 	actif, calme := mates[0], mates[1]
 	_ = actif
 	pt := a.term(path)
@@ -282,29 +288,19 @@ func TestHideIdleDisabledShowsEverythingAndRefusesManualHide(t *testing.T) {
 
 // Masquage désactivé AU DÉMARRAGE : un inactif n'est jamais caché automatiquement, même après le délai.
 func TestHideIdleDisabledAtStartNeverHidesAutomatically(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("pas de tmux sous Windows")
-	}
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux absent")
-	}
-	sandbox(t, "", "alpha")
-	_ = os.MkdirAll(filepath.Dir(core.ConfigPath()), 0o755)
-	_ = os.WriteFile(core.ConfigPath(), []byte("TEAM_HIDE_IDLE=1\nTEAM_HIDE_IDLE_ENABLED=0\n"), 0o600)
-	a, r, path, mates, _ := h188Project(t)
-	_ = mates
-	// plusieurs tours du surveillant après le délai de 1 s : toujours 3 panes
-	for end := time.Now().Add(6 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+	a, r, path, _, _ := h188Project(t, "TEAM_HIDE_IDLE=1\nTEAM_HIDE_IDLE_ENABLED=0\n")
+	_ = r
+	// plusieurs tours du surveillant bien après le délai de 1 s (le témoin ci-dessous cache en moins d'une seconde) : toujours 3 panes
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
 		if l := a.term(path).lastLayout(); l == nil || len(l.Panes) != 3 {
 			t.Fatalf("un teammate inactif a été caché malgré TEAM_HIDE_IDLE_ENABLED=0 : %+v", l)
 		}
 	}
-	_ = r
 }
 
 // État par défaut visible sur la carte : activé avec le délai.
 func TestHideIdleCardShowsEnabledStateByDefault(t *testing.T) {
-	a, r, path, _, _ := h188Project(t)
+	a, r, path, _, _ := h188Project(t, "")
 	h188Call(t, a, "select", map[string]any{"path": path})
 	h188WaitCond(t, "cards.teamHead.hideIdle présent", func() bool { return h188HideIdle(r) != nil })
 	if h := h188HideIdle(r); h["enabled"] != true || h["delay"] != 30.0 {
@@ -315,15 +311,6 @@ func TestHideIdleCardShowsEnabledStateByDefault(t *testing.T) {
 // Témoin du test précédent : même montage SANS la désactivation — l'inactif est bien caché automatiquement après le délai
 // (sinon « jamais caché » ne prouverait rien).
 func TestHideIdleControlEnabledShortDelayHidesAutomatically(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("pas de tmux sous Windows")
-	}
-	if _, err := exec.LookPath("tmux"); err != nil {
-		t.Skip("tmux absent")
-	}
-	sandbox(t, "", "alpha")
-	_ = os.MkdirAll(filepath.Dir(core.ConfigPath()), 0o755)
-	_ = os.WriteFile(core.ConfigPath(), []byte("TEAM_HIDE_IDLE=1\n"), 0o600)
-	_, r, path, _, _ := h188Project(t)
+	_, r, path, _, _ := h188Project(t, "TEAM_HIDE_IDLE=1\n")
 	r.wait(t, 60*time.Second, "2 panes : inactif caché après le délai", isTerm(path, "layout", h188Panes(2)))
 }
