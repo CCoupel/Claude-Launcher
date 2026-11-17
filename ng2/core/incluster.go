@@ -76,9 +76,10 @@ func k8sNamespace(b BackendConf) string {
 	return "default"
 }
 
-// k8sViaServiceAccount : kubectl s'appuie sur le ServiceAccount du pod (en cluster, backend sans « context ») :
-// appelé sans --context et sans KUBECONFIG.
-func k8sViaServiceAccount(b BackendConf) bool { return InCluster() && b.Context == "" }
+// k8sViaServiceAccount : kubectl s'appuie sur le ServiceAccount du pod — appelé sans --context et sans KUBECONFIG. En
+// cluster, le « context » d'un backend k8s est IGNORÉ (il désigne un kubeconfig que le pod n'a pas) : un même
+// backends.yaml sert le hub (contexte) et le pod (ServiceAccount) sans modification. Hors cluster : inchangé.
+func k8sViaServiceAccount(b BackendConf) bool { return InCluster() }
 
 // ParseK8sVolumes : « <racine>=<pvc>[,<racine>=<pvc>…] » (CL_K8S_VOLUMES) en volumes d'un backend k8s implicite.
 func ParseK8sVolumes(s string) map[string]string {

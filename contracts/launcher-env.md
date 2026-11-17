@@ -123,8 +123,10 @@ sable : le conteneur de développement est lui-même un pod.
 
 **Effets quand le launcher est en cluster**
 
-- Backend k8s **sans `context`** : `kubectl` est appelé sans `--context` et sans `KUBECONFIG` ; il utilise le
-  ServiceAccount du pod.
+- Backend k8s : **le `context` est ignoré** (même s'il est renseigné : il désigne un kubeconfig que le pod n'a pas) ;
+  `kubectl` est appelé sans `--context` et sans `KUBECONFIG` (`env -u KUBECONFIG` si la variable est posée) et utilise
+  le ServiceAccount du pod. Un même `backends.yaml` sert donc le hub (contexte) et le pod sans modification ; le
+  diagnostic en cluster le dit : « contexte « k8s » ignoré : ServiceAccount du pod ». Hors cluster : inchangé.
 - Backend k8s **sans `namespace`** : namespace du pod (fichier
   `/var/run/secrets/kubernetes.io/serviceaccount/namespace`), et non plus `default`.
 - **Sans `backends.yaml`** : un backend implicite `k8s` (type `k8s`, namespace du pod, volumes de `CL_K8S_VOLUMES`)

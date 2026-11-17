@@ -31,10 +31,20 @@ func TestInClusterK8sHelpers(t *testing.T) {
 	if got := e.kubectl("get", "pods"); !reflect.DeepEqual(got, []string{"env", "-u", "KUBECONFIG", "kubectl", "-n", "claude-ng2", "get", "pods"}) {
 		t.Errorf("kubectl en cluster : %v", got)
 	}
-	e = Engine{BackendConf{Type: "k8s", Context: "lab"}}
-	if got := e.kubectl("get"); got[0] != "kubectl" || got[1] != "--context" {
-		t.Errorf("kubectl avec contexte : %v", got)
+	// en cluster, le contexte d'un backend est IGNORÉ (ServiceAccount du pod) : ni --context, ni KUBECONFIG
+	e = Engine{BackendConf{Type: "k8s", Context: "k8s"}}
+	if got := e.kubectl("get"); !reflect.DeepEqual(got, []string{"env", "-u", "KUBECONFIG", "kubectl", "-n", "claude-ng2", "get"}) {
+		t.Errorf("kubectl avec contexte en cluster : %v", got)
 	}
+	if ctxArg(e.B) != "" {
+		t.Errorf("conseil avec --context en cluster : %q", ctxArg(e.B))
+	}
+	// hors cluster : inchangé (--context, KUBECONFIG laissé)
+	t.Setenv(InClusterVar, "0")
+	if got := e.kubectl("get"); !reflect.DeepEqual(got, []string{"kubectl", "--context", "k8s", "-n", "default", "get"}) || ctxArg(e.B) != " --context k8s" {
+		t.Errorf("kubectl avec contexte hors cluster : %v / %q", got, ctxArg(e.B))
+	}
+	t.Setenv(InClusterVar, "1")
 	// CL_K8S_VOLUMES
 	if got := ParseK8sVolumes("/data/p=claude-projets, /autre=pvc2,mal,=x,y="); !reflect.DeepEqual(got, map[string]string{"/data/p": "claude-projets", "/autre": "pvc2"}) {
 		t.Errorf("CL_K8S_VOLUMES : %v", got)
@@ -126,5 +136,33 @@ func TestK8sInClusterRightsDistinguishNoFromError(t *testing.T) {
 	}
 	if strings.Contains(string(b), "pods/exec") || strings.Contains(string(b), "get pvc") {
 		t.Errorf("les droits et volumes suivants ne doivent pas être contrôlés après l'erreur : %s", b)
+	}
+}
+
+// En cluster, le diagnostic d'un backend avec « context » le dit (information) et appelle kubectl sans --context.
+func TestK8sInClusterIgnoresContextInDiagnostic(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("faux kubectl en shell")
+	}
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	script := "#!/bin/sh\necho \"$*\" >> " + calls + "\ncase \"$*\" in *'get pod'*) echo '{}';; *'get pvc'*) echo 'Bound [\"ReadWriteMany\"]';; *) echo yes;; esac\n"
+	_ = os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("KUBECONFIG", "/x/kubeconfig")
+	t.Setenv(InClusterVar, "1")
+	steps := k8sSteps(BackendConf{Type: "k8s", Context: "k8s", Namespace: "claude-ng2"})
+	found := false
+	for _, st := range steps {
+		if strings.Contains(st.Detail, "contexte « k8s » ignoré : ServiceAccount du pod") && st.OK {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("information « contexte ignoré » absente : %+v", steps)
+	}
+	b, _ := os.ReadFile(calls)
+	if strings.Contains(string(b), "--context") || strings.Contains(string(b), "KUBECONFIG") {
+		t.Errorf("kubectl appelé avec le contexte : %s", b)
 	}
 }

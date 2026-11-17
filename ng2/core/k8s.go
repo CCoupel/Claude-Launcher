@@ -33,7 +33,7 @@ func (e Engine) kubectl(args ...string) []string {
 	if k8sViaServiceAccount(e.B) && os.Getenv("KUBECONFIG") != "" {
 		out = []string{"env", "-u", "KUBECONFIG", "kubectl"} // ServiceAccount du pod : jamais le kubeconfig de l'environnement
 	}
-	if e.B.Context != "" {
+	if e.B.Context != "" && !k8sViaServiceAccount(e.B) { // en cluster : contexte ignoré (ServiceAccount du pod)
 		out = append(out, "--context", e.B.Context)
 	}
 	return append(append(out, "-n", k8sNamespace(e.B)), args...)
@@ -443,6 +443,10 @@ func k8sStepsInCluster(b BackendConf, e Engine, ns string, steps []TestStep) []T
 			Fix:    "vérifier que le pod a un ServiceAccount (automountServiceAccountToken) et que l'API du cluster est joignable depuis le pod"})
 	}
 	steps = append(steps, TestStep{Label: "cluster joignable, namespace " + ns + " (ServiceAccount du pod)", OK: true})
+	if b.Context != "" { // information : le backends.yaml du hub est utilisé tel quel dans le pod
+		steps = append(steps, TestStep{Label: "contexte « " + b.Context + " » ignoré", OK: true,
+			Detail: "contexte « " + b.Context + " » ignoré : ServiceAccount du pod"})
+	}
 	missing, unchecked := 0, false
 	for _, r := range k8sRequiredRights {
 		o, rerr := runQuiet(15*time.Second, e.kubectl("auth", "can-i", r[0], r[1])...)
@@ -616,7 +620,7 @@ func k8sVolumeSteps(b BackendConf, e Engine, ns string, steps []TestStep) []Test
 }
 
 func ctxArg(b BackendConf) string {
-	if b.Context != "" {
+	if b.Context != "" && !k8sViaServiceAccount(b) {
 		return " --context " + b.Context
 	}
 	return ""
