@@ -48,7 +48,8 @@ pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux
    Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
    `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/PROD/values-local.yaml`**
    (`ingress: {tls: {clusterIssuer: <nom réel>}}`, jamais commité) ajouté en dernier : `-f PRIVATE/PROD/values-local.yaml`.
-3. URL d'amorçage : `kubectl -n claude-ng2 exec statefulset/claude-launcher -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token`.
+3. URL d'amorçage — jeton jamais affiché, écrit dans un fichier privé (600) :
+   `( umask 077; . .claude/agents/environments/prod.env; t=$(KUBECONFIG=$PROD_KUBECONFIG kubectl -n claude-ng2 exec statefulset/claude-launcher -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token); printf 'https://launcher.local/?t=%s\n' "$t" > PRIVATE/PROD/url-amorcage.txt )`.
 4. Contrôles à la première installation : test négatif de la liste d'adresses (comme en QUALIF, avec `launcher.local`) ;
    prise de main hub ↔ cluster sur un projet réel, faite par l'utilisateur.
 5. Mise à jour : changer le tag (nouveau `vX.Y.Z`) — l'ancien pod s'arrête avant le démarrage du nouveau.

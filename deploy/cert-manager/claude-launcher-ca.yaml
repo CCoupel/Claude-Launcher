@@ -1,7 +1,7 @@
 # Autorité de certification interne du launcher du cluster (v6.3.0) — noms d'accès en mDNS .local
 # (launcher-qualif.local, launcher.local), qu'aucun émetteur ACME (letsencrypt-prod) ne peut certifier.
 #
-# Appliqué UNE FOIS avec un compte administrateur du cluster :
+# Appliqué avec un compte administrateur du cluster (cert-manager ≥ 1.14, porte NameConstraints active) :
 #   kubectl apply -f deploy/cert-manager/claude-launcher-ca.yaml
 #   kubectl wait --for=condition=Ready -n cert-manager certificate/claude-launcher-ca --timeout=2m
 #   kubectl wait --for=condition=Ready clusterissuer/claude-launcher-ca --timeout=2m
@@ -36,6 +36,12 @@ spec:
     algorithm: ECDSA
     size: 256
     rotationPolicy: Never # même CA tant qu'elle n'est pas révoquée : les postes gardent leur confiance
+  # contrainte de noms (extension X.509 critique) : la CA ne peut certifier QUE ces deux noms ; un certificat pour tout
+  # autre nom, même signé par elle, est refusé par les postes qui lui font confiance (limite le risque si la clé fuit)
+  nameConstraints:
+    critical: true
+    permitted:
+      dnsDomains: [launcher.local, launcher-qualif.local]
   issuerRef:
     kind: Issuer
     name: claude-launcher-ca-selfsigned

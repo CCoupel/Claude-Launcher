@@ -68,28 +68,52 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
    (étape 3) ; après elle : `kubectl -n claude-qualif get pvc claude-projects-qualif` → `Bound` RWX sur `claude-qualif-pv`.
 2. Image candidate `v<X.Y.Z.a>` (tag **avec le « v »**, exigé par `build.sh`) construite **depuis le binaire candidat de BUILD**
    (BORE : aucun recompilage, sa version est contrôlée), puis publiée dans le paquet ghcr **de QUALIF**
-   `ghcr.io/ccoupel/claude-launcher-qualif` — **jamais** dans `ghcr.io/ccoupel/claude-launcher` (PROD, écrit seulement par la CI au tag) :
+   `ghcr.io/ccoupel/claude-launcher-qualif` — **jamais** dans `ghcr.io/ccoupel/claude-launcher` (PROD, écrit seulement par la CI au tag).
+   Bloc à lancer d'un seul tenant (sous-shell : `set -e`, garde avant envoi, fichier d'authentification supprimé même en cas d'échec) :
    ```bash
-   . .claude/agents/environments/qualif.env        # QUALIF_IMAGE, QUALIF_KUBECONFIG, QUALIF_VALUES_LOCAL
-   OUT_DIR=build/candidate_v<X.Y.Z> SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OCI_ARCHIVE=1 \
-     deploy/image/build.sh v<X.Y.Z.a>
-   # jeton du compte gh (portée write:packages), jamais affiché ; fichier d'authentification temporaire dans PRIVATE/, supprimé
-   A=PRIVATE/QUALIF/.ghcr-auth.json; (umask 077; gh auth token | sudo buildah login --authfile $A -u "$(gh api user --jq .login)" --password-stdin ghcr.io)
-   sudo buildah --storage-driver vfs push --authfile $A --digestfile build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a> \
-     localhost/claude-launcher:v<X.Y.Z.a> docker://$QUALIF_IMAGE:v<X.Y.Z.a>
-   sudo rm -f $A
+   (
+     set -euo pipefail
+     . .claude/agents/environments/qualif.env      # QUALIF_IMAGE, QUALIF_KUBECONFIG, QUALIF_VALUES_LOCAL
+     V=v<X.Y.Z.a>; C=build/candidate_v<X.Y.Z>
+     REF="$QUALIF_IMAGE:$V"
+     # garde : jamais le paquet de PROD
+     case "$REF" in ghcr.io/ccoupel/claude-launcher-qualif:*) ;; *) echo "ARRÊT : $REF n'est pas dans ghcr.io/ccoupel/claude-launcher-qualif" >&2; exit 1 ;; esac
+     OUT_DIR=$C SOURCE_BIN=$C/claude-launcher-ng2-${V#v} OCI_ARCHIVE=1 deploy/image/build.sh "$V"
+     A=PRIVATE/QUALIF/.ghcr-auth.json
+     trap 'sudo rm -f "$A"' EXIT                   # jeton jamais laissé sur disque, même en cas d'échec
+     (umask 077; gh auth token | sudo buildah login --authfile "$A" -u "$(gh api user --jq .login)" --password-stdin ghcr.io)
+     sudo buildah --storage-driver vfs push --authfile "$A" --digestfile "$C/digest-$V" "localhost/claude-launcher:$V" "docker://$REF"
+     sudo chown "$(id -u):$(id -g)" "$C/digest-$V"
+     grep -qE '^sha256:[0-9a-f]{64}$' "$C/digest-$V" || { echo "ARRÊT : empreinte illisible ($C/digest-$V)" >&2; exit 1; }
+     echo "publié : $REF@$(cat "$C/digest-$V")"
+   )
    ```
    Contrôle : `gh api /users/CCoupel/packages/container/claude-launcher-qualif/versions --jq '.[].metadata.container.tags[]'` contient
    `v<X.Y.Z.a>`. Première publication : le paquet `claude-launcher-qualif` est créé **privé** → le rendre **public** une fois (P3, comme la PROD :
    aucun secret de tirage). Tirage sans jeton : `curl -s "https://ghcr.io/token?scope=repository:ccoupel/claude-launcher-qualif:pull"` rend un `token`.
-3. `KUBECONFIG=$QUALIF_KUBECONFIG helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher
-   -n claude-qualif -f deploy/helm/values-qualif.yaml -f $QUALIF_VALUES_LOCAL --set image.tag=v<X.Y.Z.a> --set image.digest=$(cat build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a>)` ;
-   (tag **et** empreinte : l'image installée est exactement celle publiée) ;
-   `kubectl rollout status statefulset/claude-launcher-qualif`.
-   Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
-   `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/QUALIF/values-local.yaml`**
-   (`ingress: {tls: {clusterIssuer: <nom réel>}}`, jamais commité) ajouté en dernier : `-f PRIVATE/QUALIF/values-local.yaml`.
-4. URL d'amorçage : `kubectl exec statefulset/claude-launcher-qualif -- cat /share/MFS/ROOT/CLAUDE-QUALIF/.cache/claude-launcher-ng2/cluster-qualif/desktop-web-token`.
+3. Installation, **après contrôle du rendu** (l'image rendue doit être `ghcr.io/ccoupel/claude-launcher-qualif:<V>@sha256:<empreinte publiée>`,
+   sinon arrêt). Émetteur `claude-launcher-ca` donné par `PRIVATE/QUALIF/values-local.yaml` (le dépôt porte `a-renseigner`, refusé par le chart) :
+   ```bash
+   (
+     set -euo pipefail
+     . .claude/agents/environments/qualif.env
+     V=v<X.Y.Z.a>; C=build/candidate_v<X.Y.Z>; D=$(cat "$C/digest-$V")
+     ARGS=(claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif -f deploy/helm/values-qualif.yaml
+           -f "$QUALIF_VALUES_LOCAL" --set "image.tag=$V" --set "image.digest=$D")
+     img=$(helm template "${ARGS[@]}" | sed -nE 's/^ +image: "?([^"]+)"?$/\1/p' | sort -u)
+     [ "$img" = "ghcr.io/ccoupel/claude-launcher-qualif:$V@$D" ] || { echo "ARRÊT : image rendue « $img »" >&2; exit 1; }
+     KUBECONFIG=$QUALIF_KUBECONFIG helm upgrade --install "${ARGS[@]}"
+     KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif rollout status statefulset/claude-launcher-qualif --timeout=5m
+   )
+   ```
+4. URL d'amorçage — **le jeton n'est jamais affiché** : il est lu dans le pod et écrit dans un fichier privé (600), à ouvrir sur le poste :
+   ```bash
+   ( umask 077; . .claude/agents/environments/qualif.env
+     t=$(KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif exec statefulset/claude-launcher-qualif -- \
+           cat /share/MFS/ROOT/CLAUDE-QUALIF/.cache/claude-launcher-ng2/cluster-qualif/desktop-web-token)
+     printf 'https://launcher-qualif.local/?t=%s\n' "$t" > PRIVATE/QUALIF/url-amorcage.txt
+     echo "URL d'amorçage : PRIVATE/QUALIF/url-amorcage.txt (${#t} caractères de jeton)" )
+   ```
 5. Diagnostic du pod : backend `k8s` → contexte ignoré, chaque droit OK dans `claude-qualif` ; ouvrir/fermer/rouvrir un factice
    (StatefulSet dans `claude-qualif` uniquement).
 6. Image désignée par son **empreinte** (étape 3) : l'ancien risque H2 (tag seul, registre HTTP interne) ne s'applique plus.
