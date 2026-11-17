@@ -109,6 +109,11 @@ jobs:
           go-version-file: ng2/go.mod
           cache-dependency-path: ng2/go.sum
 
+      # scripts/ci.sh contrôle le chart (helm) et construit l'image (buildah, préinstallé sur ubuntu-latest)
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.2
+
       # contrôles bloquants : la CI unique (scripts/ci.sh), comme en pré-validation
       - name: CI Claude-Launcher-NG2
         run: scripts/ci.sh
@@ -137,3 +142,82 @@ jobs:
             dist/claude-launcher-ng2.exe
             dist/SHA256SUMS
           generate_release_notes: true
+
+      # binaires Linux pour l'image du launcher du cluster (même build, jamais recompilés : BORE)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ng2-linux
+          path: dist/claude-launcher-ng2-linux-*
+          retention-days: 1
+
+  # ≥ v6.3 : image du launcher du cluster (ghcr) et chart Helm (OCI ghcr + archive jointe à la release).
+  # Seul travail qui écrit dans les paquets (packages: write) ; la version vient du tag, jamais modifiée.
+  release-ng2-cluster:
+    needs: [route, release-ng2]
+    if: ${{ needs.route.outputs.target == 'ng2' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # archive du chart et empreinte de l'image jointes à la release
+      packages: write   # ghcr.io/ccoupel/claude-launcher et ghcr.io/ccoupel/charts/claude-launcher
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: ng2-linux
+          path: dist
+
+      # le tag fait foi : Chart.yaml doit déjà porter la version (vérifié, jamais modifié)
+      - name: Version du chart = tag
+        run: |
+          v=${GITHUB_REF_NAME#v}
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "tag $GITHUB_REF_NAME : vX.Y.Z attendu" >&2; exit 1; }
+          cv=$(sed -nE 's/^version: *"?([^"]+)"?/\1/p' deploy/helm/claude-launcher/Chart.yaml)
+          av=$(sed -nE 's/^appVersion: *"?([^"]+)"?/\1/p' deploy/helm/claude-launcher/Chart.yaml)
+          [ "$cv" = "$v" ] && [ "$av" = "$GITHUB_REF_NAME" ] || {
+            echo "Chart.yaml : version=$cv appVersion=$av, attendu $v et $GITHUB_REF_NAME" >&2; exit 1; }
+          chmod +x dist/claude-launcher-ng2-linux-*
+
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image ghcr.io/ccoupel/claude-launcher
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: deploy/image/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          build-args: VERSION=${{ github.ref_name }}
+          tags: ghcr.io/ccoupel/claude-launcher:${{ github.ref_name }}
+          push: true
+          provenance: false
+
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.2
+
+      - name: Chart (OCI ghcr) et empreinte
+        env:
+          DIGEST: ${{ steps.image.outputs.digest }}
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          mkdir -p chart
+          helm package deploy/helm/claude-launcher -d chart
+          echo "$TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
+          helm push chart/claude-launcher-${GITHUB_REF_NAME#v}.tgz oci://ghcr.io/ccoupel/charts
+          printf 'ghcr.io/ccoupel/claude-launcher:%s@%s\n' "$GITHUB_REF_NAME" "$DIGEST" > chart/claude-launcher-image-${GITHUB_REF_NAME}.digest
+          cat chart/claude-launcher-image-${GITHUB_REF_NAME}.digest
+          (cd chart && sha256sum claude-launcher-*.tgz > SHA256SUMS-chart)
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            chart/claude-launcher-*.tgz
+            chart/claude-launcher-image-*.digest
+            chart/SHA256SUMS-chart

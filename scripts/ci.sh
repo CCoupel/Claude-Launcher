@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # CI unique de Claude-Launcher (contrat C11 du template) : appelée par
 # ng2-tests.yml, ci-branch.yml et release.yml, et en local par qa et deployer.
-# Linux : vet, tests (-race), audit govulncheck, compilation croisée de l'interface native Windows.
+# Linux : vet, tests (-race), audit govulncheck, compilation croisée de l'interface native Windows,
+# chart Helm (lint + rendu) et image du launcher du cluster (buildah, deploy/image/build.sh).
 # Windows (Git Bash) : couches communes (core), système (platform) et interface
 # native (ui/desktop) ; la coque tmux (ui/tmux) n'y tourne pas, elle est
 # seulement compilée ; l'exe est construit puis lancé (« version »).
@@ -96,6 +97,16 @@ case "$(uname -s)" in
       echo "        ou le déclarer dans .claude-launcher/env.yaml (outil manquant)" >&2
       exit 1
     fi
+    # chart et image (#177) : helm et buildah requis sous Linux — jamais de saut silencieux (les tests Go du
+    # chart s'ignoreraient sans helm) ; sudo requis hors root pour la couche d'outils de l'image
+    for tool in helm buildah; do
+      command -v "$tool" >/dev/null 2>&1 || { echo "ECHEC : $tool est requis (chart / image du launcher du cluster) :" \
+        "le déclarer dans .claude-launcher/env.yaml (outil manquant ; en CI : azure/setup-helm, buildah du runner)" >&2; exit 1; }
+    done
+    if [ "$(id -u)" != 0 ] && ! sudo -n true 2>/dev/null; then
+      echo "ECHEC : la construction de l'image exige root ou sudo sans mot de passe (couche d'outils de deploy/image/Dockerfile)" >&2
+      exit 1
+    fi
     # #179 : ui/desktop (≈ 55 s seule) en tranches simultanées, en même temps que les autres paquets.
     # Sous-paquets écartés (tests en boîte blanche, utilitaires partagés), t.Parallel() aussi (t.Setenv
     # presque partout) : sélection par -test.run sur un binaire de test compilé une fois, une tranche =
@@ -175,6 +186,33 @@ case "$(uname -s)" in
     CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags desktop,production -trimpath \
       -ldflags "-s -w -H windowsgui" -o "$out/claude-launcher-ng2.exe" .
     step_done "exe Windows"
+    # chart Helm (#170, #173) : lint et rendu des trois jeux de valeurs (minimal, QUALIF, PROD). Les refus
+    # (CIDR, TLS, valeurs réservées…) sont contrôlés par les tests Go (ng2/chart_helm_test.go, via helm template :
+    # helm lint v4 ne fait pas échouer un « fail » de template). L'émetteur réel n'est pas dans le dépôt : un nom
+    # de test est donné au rendu de QUALIF et de PROD.
+    chart=../deploy/helm/claude-launcher
+    issuer=(--set ingress.tls.clusterIssuer=ci-test)
+    minimal=(--set rootBase=/ci --set volume.existingClaim=ci --set ingress.enabled=false)
+    helm lint --quiet "$chart" "${minimal[@]}" >/dev/null
+    helm lint --quiet "$chart" -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" >/dev/null
+    helm lint --quiet "$chart" -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null
+    helm template ci "$chart" "${minimal[@]}" >/dev/null
+    helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" >/dev/null
+    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null
+    step_done "chart"
+    # image du launcher du cluster (#167, décision C3) : même Dockerfile que la release ; buildah sans démon,
+    # stockage vfs ; la couche d'outils (RUN apt) exige root → sudo hors root (deploy/image/build.sh).
+    # Cache : l'image « ci » est GARDÉE (la supprimer emporterait ses couches intermédiaires, donc le cache) ;
+    # seule l'image « ci » du passage précédent est supprimée après la construction (disque borné : une image).
+    if [ "$(id -u)" = 0 ]; then bah=(buildah); else bah=(sudo buildah); fi
+    prev=$("${bah[@]}" --storage-driver vfs images -q localhost/claude-launcher:ci 2>/dev/null || true)
+    (cd .. && OUT_DIR=build/ci deploy/image/build.sh ci) >"$out/image.log" 2>&1 || {
+      cat "$out/image.log" >&2; echo "ECHEC : construction de l'image (deploy/image/build.sh)" >&2; exit 1; }
+    tail -n 1 "$out/image.log"
+    cur=$("${bah[@]}" --storage-driver vfs images -q localhost/claude-launcher:ci 2>/dev/null || true)
+    if [ -n "$prev" ] && [ "$prev" != "$cur" ]; then "${bah[@]}" --storage-driver vfs rmi "$prev" >/dev/null 2>&1 || true; fi
+    rm -rf ../build/ci
+    step_done "image"
     ;;
 esac
 print_durations

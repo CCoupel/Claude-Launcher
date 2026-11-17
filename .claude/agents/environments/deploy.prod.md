@@ -23,9 +23,13 @@ pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux
 > `k8s` d'un **autre cluster** déclaré dans le `backends.yaml` de cette racine agirait sur le cluster du pod (dans le namespace
 > déclaré, si le Role le permet). Ne déclarer dans ce fichier que des backends `k8s` du cluster où tourne le launcher.
 
-1. Image de release : construite et publiée par la CI sur le tag (`ghcr.io/ccoupel/claude-launcher:vX.Y.Z`, paquet public).
-2. `KUBECONFIG=PRIVATE/PROD/ng2-deploy.kubeconfig helm upgrade --install claude-launcher deploy/helm/claude-launcher
-   -n claude-ng2 -f deploy/helm/values-prod.yaml -f PRIVATE/PROD/values-local.yaml` (tag = `appVersion` du chart, `vX.Y.Z`
+1. Image et chart de release : construits et publiés par la CI sur le tag (travail `release-ng2-cluster` de `release.yml`) :
+   image `ghcr.io/ccoupel/claude-launcher:vX.Y.Z` (amd64 + arm64, empreinte jointe à la release :
+   `claude-launcher-image-vX.Y.Z.digest`), chart `oci://ghcr.io/ccoupel/charts/claude-launcher` version `X.Y.Z` et archive
+   `claude-launcher-X.Y.Z.tgz` jointe. Prérequis à la 1re release : paquets ghcr **publics** (P3). Contrôle :
+   `gh release view vX.Y.Z` liste le `.tgz` et le `.digest`.
+2. `. .claude/agents/environments/prod.env` puis `KUBECONFIG=$PROD_KUBECONFIG helm upgrade --install claude-launcher deploy/helm/claude-launcher
+   -n claude-ng2 -f deploy/helm/values-prod.yaml -f $PROD_VALUES_LOCAL` (tag = `appVersion` du chart, `vX.Y.Z`
    avec le « v » ; le forcer au besoin par `--set image.tag=vX.Y.Z`) ; `kubectl rollout status statefulset/claude-launcher`.
    Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
    `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/PROD/values-local.yaml`**

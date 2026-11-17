@@ -58,10 +58,19 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
 
 1. Sauvegarde : rien à sauvegarder côté PROD (aucun fichier de PROD n'est lu ni écrit). Le PVC est créé par l'installation
    (étape 3) ; après elle : `kubectl -n claude-qualif get pvc claude-projects-qualif` → `Bound` RWX sur `claude-qualif-pv`.
-2. Image candidate (tag **avec le « v »**, exigé par `build.sh`) : `deploy/image/build.sh v<X.Y.Z.a>`, puis
-   `sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> docker://192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>`.
-3. `KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher
-   -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=v<X.Y.Z.a>` ;
+2. Image candidate `v<X.Y.Z.a>` (tag **avec le « v »**, exigé par `build.sh`) construite **depuis le binaire candidat de BUILD**
+   (BORE : aucun recompilage, sa version est contrôlée), archive OCI et empreinte à côté de lui ; le tag de production
+   (`vX.Y.Z`, ghcr) n'est jamais touché :
+   ```bash
+   . .claude/agents/environments/qualif.env        # QUALIF_REGISTRY, QUALIF_KUBECONFIG, QUALIF_VALUES_LOCAL
+   OUT_DIR=build/candidate_v<X.Y.Z> SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OCI_ARCHIVE=1 \
+     deploy/image/build.sh v<X.Y.Z.a>
+   sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> \
+     docker://$QUALIF_REGISTRY/claude-launcher:v<X.Y.Z.a>
+   ```
+   Contrôle : `curl -s http://$QUALIF_REGISTRY/v2/claude-launcher/tags/list` contient `v<X.Y.Z.a>`.
+3. `KUBECONFIG=$QUALIF_KUBECONFIG helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher
+   -n claude-qualif -f deploy/helm/values-qualif.yaml -f $QUALIF_VALUES_LOCAL --set image.tag=v<X.Y.Z.a>` ;
    `kubectl rollout status statefulset/claude-launcher-qualif`.
    Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
    `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/QUALIF/values-local.yaml`**

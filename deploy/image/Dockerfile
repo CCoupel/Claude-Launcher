@@ -5,10 +5,11 @@
 # puis copié (BORE : une seule procédure de build). Contexte de construction = racine du dépôt
 # (filtré par .dockerignore). Construction locale : deploy/image/build.sh.
 #
-#   BIN : chemin du binaire Linux dans le contexte (release : dist/claude-launcher-ng2-linux-<arch>)
+#   BIN : chemin du binaire Linux dans le contexte (défaut, release multi-architecture : dist/claude-launcher-ng2-linux-<arch>)
 FROM docker.io/library/ubuntu:26.04
 
-ARG TARGETARCH=amd64
+# architecture cible : posée par buildah / docker buildx (--platform), ou --build-arg TARGETARCH
+ARG TARGETARCH
 ARG KUBECTL_VERSION=v1.36.5
 # sommes figées ici (relevées sur dl.k8s.io le 2026-11-16), jamais téléchargées avec le binaire :
 # changer KUBECTL_VERSION impose de les relever (curl …/kubectl.sha256, pour chaque architecture)
@@ -43,7 +44,7 @@ EXPOSE 8080
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
 # déclarés APRÈS ce qui précède : un ARG qui change invalide le cache des instructions qui le suivent
-ARG BIN=dist/claude-launcher-ng2-linux-amd64
+ARG BIN=dist/claude-launcher-ng2-linux-${TARGETARCH}
 ARG VERSION=dev
 COPY --chmod=755 ${BIN} /usr/local/bin/claude-launcher-ng2
 LABEL org.opencontainers.image.title="claude-launcher" \

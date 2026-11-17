@@ -56,6 +56,30 @@
           "mechanism": "vps",
           "target": "/share/MFS/ROOT/CLAUDE_PROJETS"
         },
+        "cluster_launcher": {
+          "description": "livrable « launcher du cluster » (v6.3.0) : image + chart Helm, procédure dans deploy.qualif.md",
+          "publish": {
+            "mode": "promote",
+            "build": "deploy/image/build.sh v{X.Y.Z.a} (SOURCE_BIN = binaire candidat de BUILD)",
+            "target": "192.168.1.211:5000/claude-launcher:v{X.Y.Z.a}"
+          },
+          "deploy": {
+            "mechanism": "helm",
+            "chart": "deploy/helm/claude-launcher",
+            "values": ["deploy/helm/values-qualif.yaml", "PRIVATE/QUALIF/values-local.yaml"],
+            "release": "claude-launcher-qualif",
+            "namespace": "claude-qualif",
+            "root": "/share/MFS/ROOT/CLAUDE-QUALIF"
+          },
+          "access": {
+            "method": "kubeconfig",
+            "credentials_env": ["QUALIF_KUBECONFIG"],
+            "verified": {
+              "status": "unknown",
+              "note": "à vérifier après création du compte ng2-deploy par l'administrateur (fiche infra-admin-noeuds-20261117-090000)"
+            }
+          }
+        },
         "access": {
           "method": "local",
           "host": "",
@@ -90,6 +114,32 @@
         "deploy": {
           "mechanism": "vps",
           "target": "/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2"
+        },
+        "cluster_launcher": {
+          "description": "livrable « launcher du cluster » (v6.3.0) : image + chart Helm publiés par la CI au tag, procédure dans deploy.prod.md",
+          "publish": {
+            "mode": "rebuild-ci",
+            "trigger": "git-tag",
+            "pipeline": ".github/workflows/release.yml",
+            "job": "release-ng2-cluster",
+            "target": "ghcr.io/ccoupel/claude-launcher:vX.Y.Z + oci://ghcr.io/ccoupel/charts/claude-launcher"
+          },
+          "deploy": {
+            "mechanism": "helm",
+            "chart": "oci://ghcr.io/ccoupel/charts/claude-launcher",
+            "values": ["deploy/helm/values-prod.yaml", "PRIVATE/PROD/values-local.yaml"],
+            "release": "claude-launcher",
+            "namespace": "claude-ng2",
+            "root": "/share/MFS/ROOT/CLAUDE_PROJETS"
+          },
+          "access": {
+            "method": "kubeconfig",
+            "credentials_env": ["PROD_KUBECONFIG"],
+            "verified": {
+              "status": "unknown",
+              "note": "à vérifier après création du compte ng2-deploy par l'administrateur (fiche infra-admin-noeuds-20261117-090000)"
+            }
+          }
         },
         "access": {
           "method": "local",

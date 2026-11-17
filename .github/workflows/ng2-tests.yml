@@ -6,10 +6,10 @@ name: ng2-tests
 on:
   push:
     branches: [main, v6]
-    paths: ['ng2/**', 'scripts/ci.sh', '.github/workflows/ng2-tests.yml']
+    paths: ['ng2/**', 'deploy/**', 'scripts/ci.sh', '.github/workflows/ng2-tests.yml']
   pull_request:
     branches: [main, v6]
-    paths: ['ng2/**', 'scripts/ci.sh', '.github/workflows/ng2-tests.yml']
+    paths: ['ng2/**', 'deploy/**', 'scripts/ci.sh', '.github/workflows/ng2-tests.yml']
   workflow_dispatch:
 
 permissions:
@@ -25,8 +25,12 @@ jobs:
         with:
           go-version-file: ng2/go.mod
           cache-dependency-path: ng2/go.sum
+      # chart (helm) et image (buildah, préinstallé) contrôlés par scripts/ci.sh
+      - uses: azure/setup-helm@v4
+        with:
+          version: v4.3.2
       # toutes les étapes sont dans scripts/ci.sh (CI unique, identique en local)
-      - name: CI (vet, tests, compilation croisée de l'exe Windows)
+      - name: CI (vet, tests, exe Windows, chart, image)
         run: scripts/ci.sh
 
   # Windows (#112) : couches communes (core) et système (platform), interface

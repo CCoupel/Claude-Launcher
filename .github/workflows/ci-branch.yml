@@ -27,5 +27,10 @@ jobs:
         with:
           go-version-file: ng2/go.mod
           cache-dependency-path: ng2/go.sum
+      # Linux : scripts/ci.sh contrôle le chart (helm) et construit l'image (buildah, préinstallé)
+      - if: runner.os == 'Linux'
+        uses: azure/setup-helm@v4
+        with:
+          version: v4.3.2
       - name: CI (scripts/ci.sh)
         run: scripts/ci.sh

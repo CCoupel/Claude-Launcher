@@ -37,6 +37,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- include "cl.checkPath" (dict "name" "volume.mountPath" "path" .Values.volume.mountPath) -}}
 {{- end -}}
 {{- $mount := include "cl.mountPath" . -}}
+{{- $vc := .Values.volume.create -}}
+{{- if and (not $vc.enabled) (or $vc.persistentVolume.enabled $vc.persistentVolume.name $vc.persistentVolume.source $vc.storageClassName) -}}
+{{- fail "volume.create.persistentVolume / storageClassName posés sans volume.create.enabled : ils seraient ignorés — poser volume.create.enabled: true, ou les retirer (PVC existant)" -}}
+{{- end -}}
 {{- if not (or (eq $root $mount) (hasPrefix (printf "%s/" $mount) $root)) -}}
 {{- fail (printf "rootBase (%s) doit être volume.mountPath (%s) ou un de ses sous-dossiers" $root $mount) -}}
 {{- end -}}
