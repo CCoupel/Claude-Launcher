@@ -4,17 +4,35 @@
 
 ## Etat courant
 
-- **Version** : **6.2.0 publiée en PROD le 2026-11-16** — PR #180 (merge 6a44e52), tag v6.2.0, release GitHub
-  (linux/darwin amd64+arm64, exe Windows, SHA256SUMS), run release 43836671891. Binaire du hub remplacé
-  (`claude-launcher-ng2.bak-v6.1.0` conservé ; l'ancien exe Windows n'a PAS été sauvegardé). Site gh-pages v6.2.0 en
-  ligne (PR #181, 78d9e06, section #v62).
-- **Branche** : main (6a44e52).
-- **Travail en cours** : aucun workflow actif. Milestone #25 v6.2.0 clos (10 issues : #150 #151 #152 #153 #154 #158
-  #162 #163 #164 ; #156 fermée « not planned », déjà fonctionnelle nativement).
-- **Prochain** : milestone #26 **v6.3.0 « Kubernetisation du launcher »**, non démarré (pas de due date, aucun label de
-  phase) : #165 à #179 (15 issues, 5 lots indicatifs). #179 (accélérer les tests `ui/desktop`) est à prendre en premier.
+- **Version** : **6.3.0 publiée le 2026-11-17** — PR #195 (merge 6bea26b), tag v6.3.0, release run 44110550235,
+  milestone #26 clos (18 issues). Image `ghcr.io/ccoupel/claude-launcher` et chart OCI
+  `ghcr.io/ccoupel/charts/claude-launcher` publics. Site gh-pages v6.3.0 en ligne (PR #197). README racine avec
+  Kubernetes (PR #196, f1f23ad).
+- **Branche** : main (f1f23ad).
+- **Environnements** :
+  - QUALIF cluster : namespace `claude-qualif`, racine `/share/MFS/ROOT/CLAUDE-QUALIF`, PV `claude-qualif-pv`, image
+    `ghcr.io/ccoupel/claude-launcher-qualif:v6.3.0.9`, `https://launcher-qualif.local`.
+  - PROD cluster : namespace `claude-ng2`, launcher v6.3.0 installé (`https://launcher.local`). Noms mDNS `.local`.
+  - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
+  - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté). Registre local abandonné
+    (`registries.yaml` géré par Rancher).
+- **Travail en cours** : aucun workflow actif. Milestone #26 v6.3.0 clos.
+- **Prochain** : milestone v6.4.0 (#28) = #172, #174, #178 (authentification), #189, #190, #191 (onglets), #193
+  (kubeconfig par backend), #194 (clients ssh/podman/docker dans l'image). v7.0.0 (#27) = SaaS.
 
 ## Decisions techniques de la session
+
+- **v6.3.0** « Kubernetisation du launcher » : livrée en lots (#179 tests `ui/desktop` 119 s → 56 s ; #183/#171/#186/#187 ;
+  #165/#166 racine de base `--root-base` ; #169/#176 identité et cache par launcher, écritures partagées sous verrou ;
+  #167/#168/#175 image et mode cluster ; #170/#173 chart Helm et Ingress interne ; #177 CI image et chart ; #192 accès
+  `none` ; #185 guide d'installation ; #188 masquage des teammates désactivable).
+- **Décisions v6.3.0** :
+  - Accès web **sans jeton** en cluster (`web.access: none`, défaut du chart) : risque accepté jusqu'à l'auth v6.4.0,
+    pas de NetworkPolicy.
+  - Contexte k8s **ignoré en cluster** (ServiceAccount du pod).
+  - Variables `CL_*` posées directement sur le StatefulSet (pas de ConfigMap).
+  - #188 : masquage désactivé = tout réapparaît, marques « caché à la main » effacées ; délai en secondes.
+- **v6.2.0** : livrée avec cinq lots (#150, #151/#152/#162, #153, #154/#158/#163/#164), chacun validé en QUALIF.
 
 - **v6.2.0** : livrée avec cinq lots (#150, #151/#152/#162, #153, #154/#158/#163/#164), chacun validé en QUALIF.
 - **#154** : verrous git = `describe --dirty` supprimé (GIT_OPTIONAL_LOCKS=0, arrêt SIGTERM). `scripts/ci.sh` isole
@@ -55,7 +73,11 @@
 
 - Relancer le hub si pas fait (Échap puis `l`) ; `pkill -f 'claude-launcher-ng2 mirror'` si d'anciens mirror/layout-watch
   tournent.
-- Démarrer v6.3.0 par #179 : `scripts/ci.sh` à 117 s, `-race` ui/desktop à 111 s, budget indicatif 60 s.
+- **Vérifications humaines restantes** (v6.3.0) : `https://launcher.local` depuis un poste ; prise de main hub ↔
+  cluster sur la racine réelle ; PSA `baseline` sur `claude-ng2` non posée.
+- **À confirmer par l'utilisateur** : 3 StatefulSets de projets à 0/0 depuis 14:45 (2026-11-17).
+- **Idées** : `App.Stop` n'attend pas les terminaux (socket tmux relancé dans les tests).
+- **Consigne** : concision aux teammates (DONE ≤ 3 lignes, détail dans les rapports).
 - Dossier du hub : 20 binaires QUALIF 6.2.0.1–6.2.0.10 et deux `.bak` (dont `.bak-v6.1.0`) — nettoyage à décider.
 - Suites mineures notées, non créées en issues : verrou d'écriture de la bascule sans borne si le partage est mort ;
   message de repli `top` répété ; `config.conf` écrit non atomiquement ; procédure de déploiement : l'exe Windows n'est
