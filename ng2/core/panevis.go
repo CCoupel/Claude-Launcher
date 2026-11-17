@@ -75,7 +75,8 @@ type VisDecision struct {
 }
 
 // DecidePaneVis applique la règle du contrat. hideIdle : TEAM_HIDE_IDLE en
-// secondes (0 : jamais de masquage automatique), now : heure Unix.
+// secondes (0 : jamais de masquage automatique ; négatif : masquage DÉSACTIVÉ, #188 — rien n'est caché, les choix
+// « caché à la main » sont ignorés et effacés, ceux « fixé visible » restent), now : heure Unix.
 func DecidePaneVis(panes []VisPane, choices map[string]string, hideIdle int, now int64) VisDecision {
 	d := VisDecision{Hide: map[string]bool{}, Choices: map[string]string{}, IdleAt: map[string]int64{}}
 	for _, p := range panes {
@@ -100,10 +101,14 @@ func DecidePaneVis(panes []VisPane, choices map[string]string, hideIdle int, now
 			idleAt = now
 			d.IdleAt[p.ID] = now
 		}
+		if hideIdle < 0 && mode == visHidden {
+			mode = "" // masquage désactivé : la marque « caché à la main » est effacée
+		}
 		if mode != "" {
 			d.Choices[p.ID] = mode
 		}
 		switch {
+		case hideIdle < 0: // masquage désactivé : tout reste ou redevient visible
 		case mode == visPinned:
 		case mode == visHidden:
 			d.Hide[p.ID] = true

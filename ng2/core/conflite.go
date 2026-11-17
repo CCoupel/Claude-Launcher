@@ -172,7 +172,7 @@ func confLiteWith(src, home, fbRoot string) string {
 		"CLAUDE_DISABLE_MOUSE": "1", "CLAUDE_EXPERIMENTAL_TEAMS": "1", "CLAUDE_OPTIONS": "",
 		"LAYOUT_2ROW_LEADER_PCT": "50", "LAYOUT_3ROW_LEADER_NUM": "3", "LAYOUT_3ROW_MID_NUM": "2", "LAYOUT_3ROW_DEN": "7",
 		"PANE_ACTIVE_BRIGHTEN_STEP": "1", "PANE_INACTIVE_DARKEN_STEP": "1", "RESUME_MODE": "ask", "RESUME_MAX_AGE_H": "24",
-		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30", "LAYOUT_MODE": "top", "LAYOUT_LEFT_LEADER_PCT": "46",
+		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30", "TEAM_HIDE_IDLE_ENABLED": "1", "LAYOUT_MODE": "top", "LAYOUT_LEFT_LEADER_PCT": "46",
 	}
 	if strings.Contains(home, `\`) {
 		vars["GITHUB_DIR"] = home + `\GITHUB`
@@ -256,6 +256,7 @@ func confLiteWith(src, home, fbRoot string) string {
 	p("layoutmode", vars["LAYOUT_MODE"]+" "+vars["LAYOUT_LEFT_LEADER_PCT"])
 	p("steps", vars["PANE_ACTIVE_BRIGHTEN_STEP"]+" "+vars["PANE_INACTIVE_DARKEN_STEP"])
 	p("hideidle", vars["TEAM_HIDE_IDLE"])
+	p("hideidleon", vars["TEAM_HIDE_IDLE_ENABLED"])
 	p("usage", vars["USAGE_REFRESH_SEC"])
 	p("resume", vars["RESUME_MODE"]+" "+vars["RESUME_MAX_AGE_H"])
 	p("token", vars["GITHUB_TOKEN"])

@@ -11,6 +11,9 @@ type TeamHead struct {
 	Tpl    string `json:"tpl"`    // version cible du template du projet ; "" si inconnue
 	Claude string `json:"claude"` // version de claude du leader ; "" si le projet est fermé
 	Odd    int    `json:"odd"`    // nombre de teammates non conformes
+	// HideIdle : état du masquage des teammates inactifs (#188) : commutateur effectif et délai conservé ; renseigné par
+	// l'appelant (la configuration n'est pas connue d'ApplyTeamHead)
+	HideIdle HideIdleInfo `json:"hideIdle"`
 }
 
 // Odd* : sur quoi une ligne s'écarte de l'en-tête.

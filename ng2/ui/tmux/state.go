@@ -161,7 +161,7 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 		ti := core.ReadTplInfo(s.Path)
 		pd.tpl = ti.Target
 		pd.lines, _ = core.ApplyTeamHead(ti.Apply(
-			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.TeamHideIdle, time.Now().Unix())), ti.Target)
+			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.HideIdleArg(), time.Now().Unix())), ti.Target)
 		return pd
 	}
 }

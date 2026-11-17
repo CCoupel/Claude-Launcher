@@ -42,6 +42,9 @@ type Config struct {
 
 	// teammates inactifs cachés après ce délai en secondes (0 : jamais), #136
 	TeamHideIdle int
+	// TeamHideIdleDisabled : TEAM_HIDE_IDLE_ENABLED=0 (#188) — masquage automatique désactivé ; le délai TeamHideIdle est
+	// conservé mais rien n'est caché (voir HideIdleArg). Valeur zéro = activé (une Config littérale garde la v6.2.0).
+	TeamHideIdleDisabled bool
 
 	// config de claude (CLAUDE_CONFIG_DIR) imposée à toutes les sessions du
 	// launcher ; relative : par rapport au dossier de config.conf
@@ -67,12 +70,13 @@ CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_EN
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=(); declare -A PROJECT_LAYOUTS=()
 LAYOUT_MODE=top; LAYOUT_LEFT_LEADER_PCT=46
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
-PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; TEAM_HIDE_IDLE=30
+PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; TEAM_HIDE_IDLE=30; TEAM_HIDE_IDLE_ENABLED=1
 [[ -f "$1" ]] && source "$1" >/dev/null 2>&1
 printf 'layout\t%s %s %s %s\n' "$LAYOUT_2ROW_LEADER_PCT" "$LAYOUT_3ROW_LEADER_NUM" "$LAYOUT_3ROW_MID_NUM" "$LAYOUT_3ROW_DEN"
 printf 'layoutmode\t%s %s\n' "$LAYOUT_MODE" "$LAYOUT_LEFT_LEADER_PCT"
 printf 'steps\t%s %s\n' "$PANE_ACTIVE_BRIGHTEN_STEP" "$PANE_INACTIVE_DARKEN_STEP"
 printf 'hideidle\t%s\n' "$TEAM_HIDE_IDLE"
+printf 'hideidleon\t%s\n' "$TEAM_HIDE_IDLE_ENABLED"
 printf 'usage\t%s\n' "$USAGE_REFRESH_SEC"
 printf 'resume\t%s %s\n' "$RESUME_MODE" "$RESUME_MAX_AGE_H"
 printf 'token\t%s\n' "$GITHUB_TOKEN"
@@ -139,6 +143,8 @@ func loadConfigAt(path string) Config {
 				if n, e := strconv.Atoi(strings.TrimSpace(f[1])); e == nil && n >= 0 {
 					cfg.TeamHideIdle = n
 				}
+			case "hideidleon":
+				cfg.TeamHideIdleDisabled = strings.TrimSpace(f[1]) == "0" // absent ou autre que 0 : activé (v6.2.0)
 			case "resume":
 				if v := strings.Fields(f[1]); len(v) == 2 {
 					if v[0] == "ask" || v[0] == "always" || v[0] == "never" {
@@ -425,6 +431,9 @@ EXTRA_ENVS=()
 # délai en secondes sans activité ; ramenés dès qu'ils travaillent. 0 = jamais.
 # Double-clic sur un teammate de la carte TEAM : l'afficher / le cacher à la main.
 # TEAM_HIDE_IDLE=30
+# Masquage automatique activé (1, défaut) ou désactivé (0) : désactivé, aucun teammate n'est caché, le délai ci-dessus
+# est conservé pour le rallumage et le masquage à la main (double-clic) est refusé.
+# TEAM_HIDE_IDLE_ENABLED=1
 # Mise en page des teams : part du leader sur 2 lignes (≤ 5 teammates), en %,
 # et fractions leader / ligne du milieu sur 3 lignes (la dernière a le reste).
 # LAYOUT_2ROW_LEADER_PCT=50
@@ -492,4 +501,26 @@ func editorArgv(goos, editor, path string) []string {
 		editor = "nano"
 	}
 	return []string{"sh", "-c", editor + ` "$1"`, "_", path}
+}
+
+// HideIdleArg : valeur transmise à la règle de visibilité (DecidePaneVis, TeamLinesFor) — le délai en secondes quand le
+// masquage est activé, -1 quand il est désactivé (#188 : rien n'est caché, les choix « caché à la main » sont ignorés
+// et effacés). Les appelants existants ne passent que cette valeur.
+func (c Config) HideIdleArg() int {
+	if c.TeamHideIdleDisabled {
+		return -1
+	}
+	return c.TeamHideIdle
+}
+
+// HideIdleInfo : état du masquage pour la carte TEAM (champ teamHead.hideIdle) — Enabled : valeur effective du
+// commutateur, Delay : TEAM_HIDE_IDLE conservé même éteint. Masquage effectif : Enabled et Delay > 0.
+type HideIdleInfo struct {
+	Enabled bool `json:"enabled"`
+	Delay   int  `json:"delay"`
+}
+
+// HideIdleState : l'état du masquage de cette configuration.
+func (c Config) HideIdleState() HideIdleInfo {
+	return HideIdleInfo{Enabled: !c.TeamHideIdleDisabled, Delay: c.TeamHideIdle}
 }

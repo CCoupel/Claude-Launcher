@@ -49,7 +49,7 @@ var helpSections = []helpSection{
 	}},
 	{"Carte Team (volet d'état)", []helpRow{
 		{"double-clic sur un teammate", "inactif : le cacher / l'afficher (actif, leader : refusé) ; caché, il continue de tourner"},
-		{"surbrillance", "pane visible dans la fenêtre du projet ; TEAM_HIDE_IDLE (30 s) : masquage automatique, 0 = jamais"},
+		{"surbrillance", "pane visible dans la fenêtre du projet ; TEAM_HIDE_IDLE (30 s) : masquage automatique, 0 = jamais ; TEAM_HIDE_IDLE_ENABLED=0 le désactive"},
 	}},
 	{"Zone tmux", []helpRow{
 		{"double-clic sur un pane", "plein écran, double-clic à nouveau pour revenir"},
