@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -516,6 +517,7 @@ func TestChartIngressDisabled(t *testing.T) {
 	needHelm(t)
 	v := baseValues()
 	v["ingress"] = m{"enabled": false}
+	sub(v, "web")["access"] = "token" // LOT-4.4 : le défaut « none » exige une adresse publique https, donc un Ingress
 	o := must(t, v)
 	for _, k := range []string{"Ingress", "Middleware", "Certificate"} {
 		if len(o[k]) != 0 {
@@ -1285,5 +1287,95 @@ func TestChartImageDigest(t *testing.T) {
 				t.Errorf("tag=%q digest=%q accepté\n%.200s", tc.tag, tc.digest, out)
 			}
 		})
+	}
+}
+
+// ── LOT-4.4 : web.access (none par défaut dans le chart) → CL_WEB_ACCESS ────────────────────────────────────────
+
+func TestChartWebAccessDefaultNoneAndToken(t *testing.T) {
+	needHelm(t)
+	if e := env(t, must(t, baseValues())); e["CL_WEB_ACCESS"] != "none" {
+		t.Errorf("défaut du chart : CL_WEB_ACCESS = %q, attendu none", e["CL_WEB_ACCESS"])
+	}
+	for _, mode := range []string{"none", "token"} {
+		v := baseValues()
+		sub(v, "web")["access"] = mode
+		if e := env(t, must(t, v)); e["CL_WEB_ACCESS"] != mode {
+			t.Errorf("web.access=%s : CL_WEB_ACCESS = %q", mode, e["CL_WEB_ACCESS"])
+		}
+	}
+	// sans Ingress (port-forward) : « none » est REFUSÉ (le launcher exige une adresse publique https pour l'accès sans
+	// jeton) ; « token » est accepté
+	v := baseValues()
+	v["ingress"] = m{"enabled": false}
+	if _, out, err := render(t, v); err == nil {
+		t.Errorf("web.access: none sans Ingress accepté\n%.200s", out)
+	} else if !strings.Contains(out, "web.access") {
+		t.Errorf("le message ne nomme pas web.access : %s", out)
+	}
+	sub(v, "web")["access"] = "token"
+	if e := env(t, must(t, v)); e["CL_WEB_ACCESS"] != "token" {
+		t.Errorf("sans Ingress, token : CL_WEB_ACCESS = %q", e["CL_WEB_ACCESS"])
+	}
+}
+
+func TestChartWebAccessInvalidValuesAndReservedEnv(t *testing.T) {
+	needHelm(t)
+	must(t, baseValues())
+	for _, bad := range []any{"anonyme", "None", "NONE", "", "true", 1, false} {
+		t.Run(fmt.Sprintf("%v", bad), func(t *testing.T) {
+			v := baseValues()
+			sub(v, "web")["access"] = bad
+			_, out, err := render(t, v)
+			if err == nil {
+				t.Fatalf("web.access=%v accepté", bad)
+			}
+			if !strings.Contains(out, "access") {
+				t.Errorf("le message ne nomme pas web.access : %s", out)
+			}
+		})
+	}
+	// CL_WEB_ACCESS posée par le chart : extraEnv ne peut pas la redéfinir
+	v := baseValues()
+	v["extraEnv"] = []any{m{"name": "CL_WEB_ACCESS", "value": "none"}}
+	if _, out, err := render(t, v); err == nil {
+		t.Errorf("extraEnv CL_WEB_ACCESS accepté\n%.200s", out)
+	}
+}
+
+func TestChartEnvironmentValuesSetWebAccessNoneExplicitly(t *testing.T) {
+	needHelm(t)
+	for _, name := range []string{"qualif", "prod"} {
+		v := readValues(t, name)
+		if get(v, "web", "access") != "none" {
+			t.Errorf("values-%s.yaml : web.access = %v, attendu none écrit explicitement", name, get(v, "web", "access"))
+		}
+	}
+}
+
+// NOTES.txt : en mode none, ni lien d'amorçage ni commande de lecture du jeton ; le rappel « sans jeton » est présent.
+func TestChartNotesNoTokenInNoneBranch(t *testing.T) {
+	b, err := os.ReadFile(chartDir + "/templates/NOTES.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(b)
+	i := strings.Index(s, `eq (.Values.web.access | default "none") "none"`)
+	if i < 0 {
+		t.Fatalf("NOTES.txt : branche web.access non trouvée")
+	}
+	rest := s[i:]
+	j := strings.Index(rest, "{{- else }}")
+	if j < 0 {
+		t.Fatalf("NOTES.txt : branche token non trouvée")
+	}
+	none := rest[:j]
+	for _, bad := range []string{"?t=", "desktop-web-token", "kubectl exec", "url-amorcage", "jeton lu"} {
+		if strings.Contains(none, bad) {
+			t.Errorf("NOTES.txt, mode none : « %s » présent (plus de lien d'amorçage ni de lecture du jeton)", bad)
+		}
+	}
+	if !strings.Contains(strings.ToLower(none), "sans jeton") {
+		t.Errorf("NOTES.txt, mode none : le rappel « sans jeton » manque")
 	}
 }
