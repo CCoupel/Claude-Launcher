@@ -152,7 +152,7 @@ sable : le conteneur de développement est lui-même un pod.
 |---|-------|---------------|
 | 1 | `kubectl` présent | inchangé |
 | 2 | API joignable avec le ServiceAccount du pod | « cluster injoignable (ServiceAccount du pod) : … » — plus de « contexte « » » |
-| 3 | Droits, un par un (`kubectl auth can-i`) : `statefulsets` (get, list, create, patch, delete), `statefulsets/scale` (patch), `pods` (get, list, delete), `pods/exec` (create), `events` (list), `persistentvolumeclaims` (get) | « droit manquant : <verbe> <ressource> » + conseil « mettre à jour le Role du chart (`helm upgrade`) » |
+| 3 | Droits, un par un (`kubectl auth can-i`) : `statefulsets` (get, list, create, patch, delete), `statefulsets/scale` (patch), `pods` (get, list, delete), `pods/exec` (create), `events` (list), `persistentvolumeclaims` (get) | « droit manquant : <verbe> <ressource> » + conseil « mettre à jour le Role du chart (`helm upgrade`) » ; les sous-ressources (`statefulsets/scale`, `pods/exec`) sont contrôlées par `--subresource` (jamais la forme `TYPE/NOM`, lue comme un nom) ; erreur de l'appel (réseau, API) : « droit non vérifiable », sans ce conseil |
 | 4 | Volumes déclarés | inchangé |
 | 5 | Chaque PVC : présent, `Bound`, `ReadWriteMany` | inchangé |
 | 6 | Chaque PVC est monté **dans le pod du launcher** au chemin déclaré dans `volumes` | « volume <pvc> non monté dans le pod du launcher à <racine> » |
