@@ -423,13 +423,31 @@ func k8sReachFix(goos, msg string) string {
 }
 
 // droits exigés du ServiceAccount du pod, dans l'ordre (contracts/launcher-env.md) : verbe, ressource.
-var k8sRequiredRights = [][2]string{
-	{"get", "statefulsets"}, {"list", "statefulsets"}, {"create", "statefulsets"}, {"patch", "statefulsets"}, {"delete", "statefulsets"},
-	{"patch", "statefulsets/scale"},
-	{"get", "pods"}, {"list", "pods"}, {"delete", "pods"},
-	{"create", "pods/exec"},
-	{"list", "events"},
-	{"get", "persistentvolumeclaims"},
+var k8sRequiredRights = [][3]string{ // verbe, ressource, sous-ressource (« kubectl auth can-i … --subresource= »)
+	{"get", "statefulsets", ""}, {"list", "statefulsets", ""}, {"create", "statefulsets", ""}, {"patch", "statefulsets", ""}, {"delete", "statefulsets", ""},
+	{"patch", "statefulsets", "scale"},
+	{"get", "pods", ""}, {"list", "pods", ""}, {"delete", "pods", ""},
+	{"create", "pods", "exec"},
+	{"list", "events", ""},
+	{"get", "persistentvolumeclaims", ""},
+}
+
+// canIArgs : arguments de « kubectl auth can-i » d'un droit. Une sous-ressource se donne par --subresource : écrite
+// « pods/exec », kubectl la lit comme « le pod nommé exec » (faux négatif) ou « le StatefulSet nommé scale » (faux positif).
+func canIArgs(r [3]string) []string {
+	a := []string{"auth", "can-i", r[0], r[1]}
+	if r[2] != "" {
+		a = append(a, "--subresource="+r[2])
+	}
+	return a
+}
+
+// rightLabel : « create pods/exec » (affichage).
+func rightLabel(r [3]string) string {
+	if r[2] != "" {
+		return r[0] + " " + r[1] + "/" + r[2]
+	}
+	return r[0] + " " + r[1]
 }
 
 // k8sStepsInCluster : diagnostic d'un backend k8s depuis le pod du launcher (kubectl via le ServiceAccount).
@@ -449,16 +467,17 @@ func k8sStepsInCluster(b BackendConf, e Engine, ns string, steps []TestStep) []T
 	}
 	missing, unchecked := 0, false
 	for _, r := range k8sRequiredRights {
-		o, rerr := runQuiet(15*time.Second, e.kubectl("auth", "can-i", r[0], r[1])...)
+		o, rerr := runQuiet(15*time.Second, e.kubectl(canIArgs(r)...)...)
+		lbl := rightLabel(r)
 		switch ans := strings.TrimSpace(o); {
 		case ans == "yes":
 		case ans == "no": // réponse de l'API : le droit manque vraiment
 			missing++
-			steps = append(steps, TestStep{Label: "droit " + r[0] + " " + r[1], Detail: "droit manquant : " + r[0] + " " + r[1],
-				Fix: "mettre à jour le Role du chart (helm upgrade) : le ServiceAccount du pod doit pouvoir " + r[0] + " " + r[1] + " dans " + ns})
+			steps = append(steps, TestStep{Label: "droit " + lbl, Detail: "droit manquant : " + lbl,
+				Fix: "mettre à jour le Role du chart (helm upgrade) : le ServiceAccount du pod doit pouvoir " + lbl + " dans " + ns})
 		default: // l'appel lui-même a échoué (réseau, API, délai) : le droit n'est pas vérifiable, pas forcément absent
 			unchecked = true
-			steps = append(steps, TestStep{Label: "droit " + r[0] + " " + r[1], Detail: "droit non vérifiable : " + r[0] + " " + r[1] + " : " + firstLine(o, rerr),
+			steps = append(steps, TestStep{Label: "droit " + lbl, Detail: "droit non vérifiable : " + lbl + " : " + firstLine(o, rerr),
 				Fix: "kubectl auth can-i n'a pas répondu : vérifier la joignabilité de l'API depuis le pod, puis relancer le test (les droits restants ne sont pas contrôlés)"})
 		}
 		if unchecked {

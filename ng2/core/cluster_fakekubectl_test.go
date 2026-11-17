@@ -28,7 +28,9 @@ if [ -e "$D/down" ]; then echo "Unable to connect to the server: dial tcp 10.0.0
 while [ "$1" = "-n" ] || [ "$1" = "--context" ]; do shift 2; done
 case "$1 $2" in
   "auth can-i")
-    if grep -qx "$3 $4" "$D/deny" 2>/dev/null; then echo no; exit 1; fi
+    K="$3 $4"
+    case "$5" in --subresource=*) K="$3 $4/${5#--subresource=}";; esac
+    if grep -qx "$K" "$D/deny" 2>/dev/null; then echo no; exit 1; fi
     echo yes ;;
   "get pod") cat "$D/pod.json" 2>/dev/null || exit 1 ;;
   "get pvc") cat "$D/pvc" 2>/dev/null || exit 1 ;;

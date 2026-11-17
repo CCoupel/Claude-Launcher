@@ -166,3 +166,43 @@ func TestK8sInClusterIgnoresContextInDiagnostic(t *testing.T) {
 		t.Errorf("kubectl appelé avec le contexte : %s", b)
 	}
 }
+
+// QUALIF 6.3.0.7 : « kubectl auth can-i create pods/exec » est lu comme « le pod nommé exec » (faux négatif) et
+// « patch statefulsets/scale » comme « le StatefulSet nommé scale » : les sous-ressources se vérifient par --subresource.
+func TestK8sRightsUseSubresourceFlag(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("faux kubectl en shell")
+	}
+	dir := t.TempDir()
+	calls := filepath.Join(dir, "calls")
+	// comme le vrai kubectl : la forme TYPE/NOM positionnelle est un NOM de ressource, refusé par le Role ; --subresource accordé
+	script := "#!/bin/sh\necho \"$*\" >> " + calls + "\n" +
+		"case \"$*\" in\n" +
+		"  *pods/exec*|*statefulsets/scale*) echo no; exit 1;;\n" +
+		"  *get\\ pod*-o\\ json*) echo '{}';;\n" +
+		"  *get\\ pvc*) echo 'Bound [\"ReadWriteMany\"]';;\n" +
+		"  *) echo yes;;\n" +
+		"esac\n"
+	_ = os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o755)
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(InClusterVar, "1")
+	steps := k8sSteps(BackendConf{Type: "k8s", Namespace: "claude-qualif"})
+	for _, st := range steps {
+		if strings.Contains(st.Detail, "droit manquant") || strings.Contains(st.Detail, "non vérifiable") {
+			t.Errorf("faux droit manquant : %+v", st)
+		}
+	}
+	b, _ := os.ReadFile(calls)
+	for _, want := range []string{"--subresource=exec", "--subresource=scale"} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("%s absent des appels kubectl :\n%s", want, b)
+		}
+	}
+	if strings.Contains(string(b), "pods/exec") || strings.Contains(string(b), "statefulsets/scale") {
+		t.Errorf("sous-ressource passée en forme TYPE/NOM :\n%s", b)
+	}
+	// l'affichage garde la forme lisible
+	if rightLabel([3]string{"create", "pods", "exec"}) != "create pods/exec" {
+		t.Errorf("libellé : %q", rightLabel([3]string{"create", "pods", "exec"}))
+	}
+}
