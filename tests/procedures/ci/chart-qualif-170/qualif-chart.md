@@ -108,4 +108,4 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 ## Notes QA
 
-Risques acceptes a rappeler dans le guide : image par tag sans digest (H2), pas de NetworkPolicy, jeton dans le dossier d'etat. Desinstaller la QUALIF apres validation si elle n'est plus utile (la racine de QUALIF est separee : aucune urgence pour la PROD).
+Risques acceptes a rappeler dans le guide : image publiee sur ghcr et installee par empreinte (H2 attenue : plus de tag mutable seul), pas de NetworkPolicy, jeton dans le dossier d'etat. Desinstaller la QUALIF apres validation si elle n'est plus utile (la racine de QUALIF est separee : aucune urgence pour la PROD).
