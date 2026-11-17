@@ -85,3 +85,70 @@ func TestClusterServerModeServesAndCreatesConfigUnderRoot(t *testing.T) {
 		t.Errorf("le jeton d'accès est imprimé sur la sortie du pod : %q", m)
 	}
 }
+
+// LOT-4.4 : « desktop --web » en mode d'accès none — la sortie donne l'adresse puis « accès sans jeton », jamais
+// l'indication du fichier du jeton ni un lien « ?t= » ; aucun fichier de jeton n'est créé.
+func TestServerModeNoneStartupOutputAndNoTokenFile(t *testing.T) {
+	rbNeedBinary(t)
+	tmp := t.TempDir()
+	home := filepath.Join(tmp, "home")
+	_ = os.MkdirAll(home, 0o755)
+	bin := rbCopyBin(t, filepath.Join(tmp, "bin"))
+	port := rbFreePort(t)
+	cache := filepath.Join(tmp, "cache")
+	var env []string
+	for _, kv := range os.Environ() {
+		k := strings.SplitN(kv, "=", 2)[0]
+		if !strings.HasPrefix(k, "CL_") && k != "HOME" && k != "XDG_CACHE_HOME" && k != "TMUX" && k != "CLAUDE_CONFIG_DIR" {
+			env = append(env, kv)
+		}
+	}
+	c := exec.Command(bin, "desktop", "--web", "--no-open", "--addr", "127.0.0.1:"+port)
+	c.Env = append(env, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+rbDataHome(), "TMUX_TMPDIR="+rbTmuxDir(t),
+		"CL_WEB_ACCESS=none", "CL_CACHE_DIR="+cache, "CL_NO_UPDATE=1", "CL_IN_CLUSTER=0", "CL_DESKTOP_TOKEN=tokMustBeIgnored1234567890")
+	rbOwnGroup(c)
+	out := &lockedBuf{}
+	c.Stdout, c.Stderr = out, out
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	go func() { _ = c.Wait(); close(exited) }()
+	t.Cleanup(func() {
+		_ = c.Process.Signal(os.Interrupt)
+		select {
+		case <-exited:
+		case <-time.After(8 * time.Second):
+			rbKillGroup(c)
+			<-exited
+		}
+	})
+	base := "http://127.0.0.1:" + port
+	cl := &http.Client{Timeout: 2 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	up := false
+	for end := time.Now().Add(20 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
+		if r, err := cl.Get(base + "/healthz"); err == nil {
+			r.Body.Close()
+			up = true
+			break
+		}
+	}
+	if !up {
+		t.Fatalf("le serveur ne répond pas : %s", out.String())
+	}
+	if r, err := cl.Get(base + "/"); err != nil || r.StatusCode != 200 || len(r.Cookies()) != 0 {
+		t.Errorf("GET / sans jeton : %v %v", r, err)
+	} else {
+		r.Body.Close()
+	}
+	m := out.String()
+	if !strings.Contains(m, "127.0.0.1:"+port) || !strings.Contains(strings.ToLower(m), "sans jeton") {
+		t.Errorf("la sortie doit donner l'adresse puis « accès sans jeton » : %q", m)
+	}
+	if regexp.MustCompile(`\?t=`).MatchString(m) || strings.Contains(m, "desktop-web-token") || strings.Contains(m, "tokMustBeIgnored") {
+		t.Errorf("la sortie du mode none mentionne un jeton, son fichier ou un lien ?t= : %q", m)
+	}
+	if rbExists(filepath.Join(cache, "desktop-web-token")) {
+		t.Errorf("fichier desktop-web-token créé en mode none")
+	}
+}
