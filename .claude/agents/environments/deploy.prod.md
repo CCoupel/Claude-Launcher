@@ -54,15 +54,35 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
    `claude-launcher-image-vX.Y.Z.digest`), chart `oci://ghcr.io/ccoupel/charts/claude-launcher` version `X.Y.Z` et archive
    `claude-launcher-X.Y.Z.tgz` jointe. Prérequis à la 1re release : paquets ghcr **publics** (P3, ci-dessus). Contrôle :
    `gh release view vX.Y.Z` liste le `.tgz` et le `.digest`.
-2. `. .claude/agents/environments/prod.env` puis `KUBECONFIG=$PROD_KUBECONFIG helm upgrade --install claude-launcher deploy/helm/claude-launcher
-   -n claude-ng2 -f deploy/helm/values-prod.yaml -f $PROD_VALUES_LOCAL` (tag = `appVersion` du chart, `vX.Y.Z`
-   avec le « v » ; le forcer au besoin par `--set image.tag=vX.Y.Z`) ; `kubectl rollout status statefulset/claude-launcher`.
-   Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
-   `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/PROD/values-local.yaml`**
-   (`ingress: {tls: {clusterIssuer: <nom réel>}}`, jamais commité) ajouté en dernier : `-f PRIVATE/PROD/values-local.yaml`.
+2. Installation **par empreinte**, après **contrôle du rendu** (comme la QUALIF). L'empreinte vient de la pièce jointe
+   `claude-launcher-image-vX.Y.Z.digest` de la release (écrite par la CI, `release-ng2-cluster`) ; le chart est celui **publié** au tag
+   (`oci://ghcr.io/ccoupel/charts/claude-launcher`, version `X.Y.Z`) ; émetteur `claude-launcher-ca` par `PRIVATE/PROD/values-local.yaml`
+   (le dépôt porte `a-renseigner`, refusé par le chart). Arrêt si l'image rendue n'est pas exactement
+   `ghcr.io/ccoupel/claude-launcher:vX.Y.Z@<empreinte>` (jamais `-qualif`) ou si le namespace n'est pas `claude-ng2` :
+   ```bash
+   (
+     set -euo pipefail
+     . .claude/agents/environments/prod.env        # PROD_NAMESPACE, PROD_KUBECONFIG, PROD_VALUES_LOCAL
+     V=vX.Y.Z; T=$(mktemp -d)
+     trap 'rm -rf "$T"' EXIT
+     [ "$PROD_NAMESPACE" = claude-ng2 ] || { echo "ARRÊT : namespace de PROD « $PROD_NAMESPACE » ≠ claude-ng2" >&2; exit 1; }
+     gh release download "$V" -p "claude-launcher-image-$V.digest" -D "$T"
+     ref=$(cat "$T/claude-launcher-image-$V.digest")
+     case "$ref" in "ghcr.io/ccoupel/claude-launcher:$V@sha256:"*) ;; *) echo "ARRÊT : empreinte de release inattendue « $ref »" >&2; exit 1 ;; esac
+     D=${ref#*@}
+     [[ "$D" =~ ^sha256:[0-9a-f]{64}$ ]] || { echo "ARRÊT : empreinte illisible « $D »" >&2; exit 1; }
+     ARGS=(claude-launcher oci://ghcr.io/ccoupel/charts/claude-launcher --version "${V#v}" -n "$PROD_NAMESPACE"
+           -f deploy/helm/values-prod.yaml -f "$PROD_VALUES_LOCAL" --set "image.tag=$V" --set "image.digest=$D")
+     img=$(helm template "${ARGS[@]}" | sed -nE 's/^ +image: "?([^"]+)"?$/\1/p' | sort -u)
+     [ "$img" = "ghcr.io/ccoupel/claude-launcher:$V@$D" ] || { echo "ARRÊT : image rendue « $img »" >&2; exit 1; }
+     case "$img" in *-qualif*) echo "ARRÊT : image de QUALIF en PROD" >&2; exit 1 ;; esac
+     KUBECONFIG=$PROD_KUBECONFIG helm upgrade --install "${ARGS[@]}"
+     KUBECONFIG=$PROD_KUBECONFIG kubectl -n "$PROD_NAMESPACE" rollout status statefulset/claude-launcher --timeout=5m
+   )
+   ```
 3. URL d'amorçage — jeton jamais affiché :
    `( umask 077; . .claude/agents/environments/prod.env; U=$(mktemp -p /dev/shm claude-launcher-prod-url-XXXXXX); t=$(KUBECONFIG=$PROD_KUBECONFIG kubectl -n claude-ng2 exec statefulset/claude-launcher -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token); printf 'https://launcher.local/?t=%s\n' "$t" > "$U"; unset t; ( sleep 600; rm -f "$U" ) >/dev/null 2>&1 & echo "URL : $U (cat par l'utilisateur, effacée dans 10 min)" )`
    — fichier en mémoire (tmpfs), jamais sur le partage ni affiché par un agent.
 4. Contrôles à la première installation : test négatif de la liste d'adresses (comme en QUALIF, avec `launcher.local`) ;
    prise de main hub ↔ cluster sur un projet réel, faite par l'utilisateur.
-5. Mise à jour : changer le tag (nouveau `vX.Y.Z`) — l'ancien pod s'arrête avant le démarrage du nouveau.
+5. Mise à jour : rejouer l'étape 2 avec le nouveau `vX.Y.Z` (nouvelle empreinte) — l'ancien pod s'arrête avant le démarrage du nouveau.
