@@ -253,6 +253,10 @@ func openFakeProject(t *testing.T) fakeProj {
 	_ = core.WriteAssignment(ps[0], "host")
 	f := fakeProj{r: &recorder{}, path: ps[0], sock: sock}
 	f.a = newApp(t, f.r.emit)
+	// Les terminaux (projTerm : surveillant, mise en page) écrivent sous le HOME du test tant que l'App n'est pas arrêtée :
+	// App.Stop les détache et les attend AVANT le kill-server et l'effacement des dossiers (Cleanup en ordre inverse) ;
+	// sans cela, sous charge, « TempDir RemoveAll cleanup: … home: directory not empty ».
+	t.Cleanup(func() { f.a.Stop() })
 	if res, err := f.a.open(ps[0], core.LaunchNormal); err != nil || fmt.Sprint(res) != fmt.Sprint(map[string]any{"tab": ps[0]}) {
 		t.Fatalf("open : %v %v", res, err)
 	}
