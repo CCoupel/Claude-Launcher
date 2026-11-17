@@ -9,7 +9,8 @@ Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ 
 
 {{- if eq (.Values.web.access | default "none") "none" }}
 Accès SANS jeton (web.access: none) : ouvrir https://{{ .Values.ingress.host | default "<hôte>" }}/ depuis une adresse admise.
-L'Ingress (liste d'adresses + TLS) est la SEULE barrière : pas de NetworkPolicy (risque accepté jusqu'à v6.4.0).
+Limite (risque accepté jusqu'à l'authentification de v6.4.0, #172) : tout poste de la liste d'adresses pilote les projets,
+et tout pod du cluster atteint le Service sans passer par l'Ingress (pas de NetworkPolicy).
 {{- else }}
 URL d'amorçage (web.access: token) : https://{{ .Values.ingress.host | default "<hôte>" }}/?t=<jeton> — le jeton n'est pas écrit dans le journal ;
 il est dans le dossier d'état du launcher (voir deploy.qualif.md / deploy.prod.md : lu sans être affiché).
