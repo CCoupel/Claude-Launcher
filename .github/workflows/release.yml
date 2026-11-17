@@ -109,13 +109,16 @@ jobs:
           go-version-file: ng2/go.mod
           cache-dependency-path: ng2/go.sum
 
-      # scripts/ci.sh contrôle le chart (helm) et construit l'image (buildah, préinstallé sur ubuntu-latest)
-      - uses: azure/setup-helm@v4
+      # scripts/ci.sh contrôle le chart (helm)
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
           version: v4.3.2
 
-      # contrôles bloquants : la CI unique (scripts/ci.sh), comme en pré-validation
+      # contrôles bloquants : la CI unique (scripts/ci.sh), comme en pré-validation ; l'image n'y est pas
+      # construite (CL_CI_IMAGE=0, journalisé) : release-ng2-cluster construit et publie la vraie
       - name: CI Claude-Launcher-NG2
+        env:
+          CL_CI_IMAGE: "0"
         run: scripts/ci.sh
 
       - name: Build Claude-Launcher-NG2
@@ -135,8 +138,10 @@ jobs:
             -o ../dist/claude-launcher-ng2.exe .
           cd ../dist && sha256sum claude-launcher-ng2-* claude-launcher-ng2.exe > SHA256SUMS
 
-      - uses: softprops/action-gh-release@v2
+      # release en BROUILLON : publiée par publish-ng2 une fois l'image et le chart en place (jamais d'état partiel)
+      - uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
+          draft: true
           files: |
             dist/claude-launcher-ng2-*
             dist/claude-launcher-ng2.exe
@@ -157,12 +162,16 @@ jobs:
     if: ${{ needs.route.outputs.target == 'ng2' }}
     runs-on: ubuntu-latest
     permissions:
-      contents: write   # archive du chart et empreinte de l'image jointes à la release
+      contents: write   # pièces jointes de la release (brouillon)
       packages: write   # ghcr.io/ccoupel/claude-launcher et ghcr.io/ccoupel/charts/claude-launcher
+    env:
+      IMAGE: ghcr.io/ccoupel/claude-launcher
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      # actions épinglées par SHA complet (travail avec packages: write)
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ng2-linux
           path: dist
@@ -178,46 +187,76 @@ jobs:
             echo "Chart.yaml : version=$cv appVersion=$av, attendu $v et $GITHUB_REF_NAME" >&2; exit 1; }
           chmod +x dist/claude-launcher-ng2-linux-*
 
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3.7.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # relance : un tag d'image déjà publié n'est JAMAIS réécrit. Présent → réutilisé, à condition que son
+      # empreinte soit celle notée dans la release (sinon échec : quelqu'un a poussé autre chose sous ce tag).
+      - name: Tag d'image déjà publié ?
+        id: existing
+        run: |
+          d=$(docker buildx imagetools inspect "$IMAGE:$GITHUB_REF_NAME" --format '{{json .Manifest.Digest}}' 2>/dev/null | tr -d '"' || true)
+          echo "digest=$d" >> "$GITHUB_OUTPUT"
+          [ -n "$d" ] || { echo "$IMAGE:$GITHUB_REF_NAME absent : construction"; exit 0; }
+          mkdir -p prev && gh release download "$GITHUB_REF_NAME" -p "claude-launcher-image-$GITHUB_REF_NAME.digest" -D prev 2>/dev/null || true
+          rec=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' "prev/claude-launcher-image-$GITHUB_REF_NAME.digest" 2>/dev/null || true)
+          if [ -z "$rec" ]; then
+            echo "ECHEC : $IMAGE:$GITHUB_REF_NAME existe déjà ($d) mais aucune empreinte n'est notée dans la release : tag non réécrit, vérifier à la main" >&2; exit 1
+          fi
+          [ "$rec" = "$d" ] || { echo "ECHEC : $IMAGE:$GITHUB_REF_NAME a l'empreinte $d, la release note $rec : tag non réécrit" >&2; exit 1; }
+          echo "$IMAGE:$GITHUB_REF_NAME déjà publié ($d), conforme à la release : réutilisé sans reconstruction"
+
       - name: Image ghcr.io/ccoupel/claude-launcher
         id: image
-        uses: docker/build-push-action@v6
+        if: ${{ steps.existing.outputs.digest == '' }}
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           file: deploy/image/Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: VERSION=${{ github.ref_name }}
-          tags: ghcr.io/ccoupel/claude-launcher:${{ github.ref_name }}
+          tags: ${{ env.IMAGE }}:${{ github.ref_name }}
           push: true
           provenance: false
 
-      - uses: azure/setup-helm@v4
+      - uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
         with:
           version: v4.3.2
 
+      # chart : une version déjà présente dans le registre OCI n'est pas repoussée
       - name: Chart (OCI ghcr) et empreinte
         env:
-          DIGEST: ${{ steps.image.outputs.digest }}
+          DIGEST: ${{ steps.image.outputs.digest || steps.existing.outputs.digest }}
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          v=${GITHUB_REF_NAME#v}
           mkdir -p chart
           helm package deploy/helm/claude-launcher -d chart
           echo "$TOKEN" | helm registry login ghcr.io -u "${{ github.actor }}" --password-stdin
-          helm push chart/claude-launcher-${GITHUB_REF_NAME#v}.tgz oci://ghcr.io/ccoupel/charts
-          printf 'ghcr.io/ccoupel/claude-launcher:%s@%s\n' "$GITHUB_REF_NAME" "$DIGEST" > chart/claude-launcher-image-${GITHUB_REF_NAME}.digest
-          cat chart/claude-launcher-image-${GITHUB_REF_NAME}.digest
+          if helm show chart oci://ghcr.io/ccoupel/charts/claude-launcher --version "$v" >/dev/null 2>&1; then
+            echo "chart $v déjà publié : non repoussé"
+          else
+            helm push "chart/claude-launcher-$v.tgz" oci://ghcr.io/ccoupel/charts
+          fi
+          printf '%s:%s@%s\n' "$IMAGE" "$GITHUB_REF_NAME" "$DIGEST" > "chart/claude-launcher-image-$GITHUB_REF_NAME.digest"
+          cat "chart/claude-launcher-image-$GITHUB_REF_NAME.digest"
           (cd chart && sha256sum claude-launcher-*.tgz > SHA256SUMS-chart)
+          gh release upload "$GITHUB_REF_NAME" chart/claude-launcher-*.tgz "chart/claude-launcher-image-$GITHUB_REF_NAME.digest" chart/SHA256SUMS-chart --clobber
 
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: |
-            chart/claude-launcher-*.tgz
-            chart/claude-launcher-image-*.digest
-            chart/SHA256SUMS-chart
+  # publication de la release (brouillon jusque-là) quand binaires, image et chart sont tous en place
+  publish-ng2:
+    needs: [route, release-ng2, release-ng2-cluster]
+    if: ${{ needs.route.outputs.target == 'ng2' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Publier la release
+        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false

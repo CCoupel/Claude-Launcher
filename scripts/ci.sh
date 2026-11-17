@@ -99,11 +99,15 @@ case "$(uname -s)" in
     fi
     # chart et image (#177) : helm et buildah requis sous Linux — jamais de saut silencieux (les tests Go du
     # chart s'ignoreraient sans helm) ; sudo requis hors root pour la couche d'outils de l'image
-    for tool in helm buildah; do
+    # CL_CI_IMAGE=0 (barrière de release.yml seulement) : image non construite ici, la release la construit et la publie
+    ci_image=${CL_CI_IMAGE:-1}
+    [[ "$ci_image" =~ ^[01]$ ]] || { echo "ECHEC : CL_CI_IMAGE doit valoir 0 ou 1 (reçu « $ci_image »)" >&2; exit 1; }
+    tools=(helm); [ "$ci_image" = 1 ] && tools+=(buildah)
+    for tool in "${tools[@]}"; do
       command -v "$tool" >/dev/null 2>&1 || { echo "ECHEC : $tool est requis (chart / image du launcher du cluster) :" \
         "le déclarer dans .claude-launcher/env.yaml (outil manquant ; en CI : azure/setup-helm, buildah du runner)" >&2; exit 1; }
     done
-    if [ "$(id -u)" != 0 ] && ! sudo -n true 2>/dev/null; then
+    if [ "$ci_image" = 1 ] && [ "$(id -u)" != 0 ] && ! sudo -n true 2>/dev/null; then
       echo "ECHEC : la construction de l'image exige root ou sudo sans mot de passe (couche d'outils de deploy/image/Dockerfile)" >&2
       exit 1
     fi
@@ -204,6 +208,10 @@ case "$(uname -s)" in
     # stockage vfs ; la couche d'outils (RUN apt) exige root → sudo hors root (deploy/image/build.sh).
     # Cache : l'image « ci » est GARDÉE (la supprimer emporterait ses couches intermédiaires, donc le cache) ;
     # seule l'image « ci » du passage précédent est supprimée après la construction (disque borné : une image).
+    if [ "$ci_image" = 0 ]; then
+      echo "image : NON construite (CL_CI_IMAGE=0 — barrière de release : l'image est construite et publiée par release-ng2-cluster)"
+      step_done "image sautée"
+    else
     if [ "$(id -u)" = 0 ]; then bah=(buildah); else bah=(sudo buildah); fi
     prev=$("${bah[@]}" --storage-driver vfs images -q localhost/claude-launcher:ci 2>/dev/null || true)
     (cd .. && OUT_DIR=build/ci deploy/image/build.sh ci) >"$out/image.log" 2>&1 || {
@@ -213,6 +221,7 @@ case "$(uname -s)" in
     if [ -n "$prev" ] && [ "$prev" != "$cur" ]; then "${bah[@]}" --storage-driver vfs rmi "$prev" >/dev/null 2>&1 || true; fi
     rm -rf ../build/ci
     step_done "image"
+    fi
     ;;
 esac
 print_durations
