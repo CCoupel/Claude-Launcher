@@ -444,12 +444,13 @@ function renderCards() {
   const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
-  const card = (title, sub, body) => {
+  const card = (title, sub, body, chip) => {
     const closed = !!prefs.get('cardsClosed', {})[title];
     const k = el('div', 'card' + (closed ? ' closed' : ''));
     const h = el('div', 'ch');
     h.append(el('span', 'fold' + (closed ? '' : ' open'), '›'), el('span', '', title));
     if (sub) h.append(el('span', 'dim', ' · ' + sub));
+    if (chip) { const p = el('span', 'hidechip', chip); p.title = 'les teammates inactifs sont cachés après ce délai (Réglages › Launcher › teams)'; h.append(p); }
     h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
     k.append(h);
     if (!closed) k.append(body);
@@ -549,7 +550,9 @@ function renderCards() {
   const th = c.teamHead || {};
   const vt = (s) => (/^v/.test(s) ? s : 'v' + s);
   const sub = c.team && c.team.length ? [String(c.team.length)].concat(th.tpl ? ['tpl ' + vt(th.tpl)] : [], th.claude ? ['claude ' + th.claude] : []).join(' · ') : '';
-  card('Team', sub, tb);
+  // puce « masquage N s » (#188) : seulement quand le masquage automatique est actif (activé et délai > 0) ; aucune puce sinon
+  const hi = th.hideIdle;
+  card('Team', sub, tb, hi && hi.enabled && hi.delay > 0 ? 'masquage ' + hi.delay + ' s' : '');
   // Fichiers
   if (c.loaded) {
     const fb = el('div', 'cb'); const g = el('div', 'files');

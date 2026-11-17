@@ -786,8 +786,11 @@ function stPageConf(p) {
     }
     for (const g of D.model.groups || []) {
       const rows = [];
+      const hideOn = (bySet[g.id] || []).find((x) => x.key === 'TEAM_HIDE_IDLE_ENABLED'), hideDelay = (bySet[g.id] || []).find((x) => x.key === 'TEAM_HIDE_IDLE');
+      if (hideOn && hideDelay && hideOn.editable && hideDelay.editable) rows.push(stHideIdleRow(D, hideOn, hideDelay)); // variante A (#188) : commutateur et délai sur une ligne
       for (const x of bySet[g.id] || []) {
         if (layKeys.includes(x.key)) continue;
+        if (hideOn && hideDelay && hideOn.editable && hideDelay.editable && (x.key === 'TEAM_HIDE_IDLE_ENABLED' || x.key === 'TEAM_HIDE_IDLE')) continue;
         const hint = [x.help, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
         const cell = el('div'); cell.appendChild(confField(D, x));
         if (x.editable && x.type !== 'secret' && x.set) {
@@ -806,6 +809,24 @@ function stPageConf(p) {
     }
     if (!D.exists) p.appendChild(el('p', 'note', 'config.conf n\'existe pas encore : il sera créé à l\'enregistrement.'));
   });
+}
+// masquage des teammates inactifs (#188, variante A) : « [commutateur] Masquer après [30] s » ; désactivé, le délai reste affiché, grisé
+function stHideIdleRow(D, on, delay) {
+  const d = D.d, enabled = !!d.v[on.key];
+  const w = el('span', 'stfont');
+  const l = el('label', 'stsw' + (enabled ? ' on' : ''));
+  const c = el('input'); c.type = 'checkbox'; c.checked = enabled;
+  c.addEventListener('change', () => {
+    d.v[on.key] = c.checked; d.reset[on.key] = false;
+    if (c.checked && (String(d.v[delay.key]).trim() === '' || Number(d.v[delay.key]) === 0)) { d.v[delay.key] = '30'; d.reset[delay.key] = false; } // délai à 0 : on propose 30 s
+    stRenderPage(); stRenderFoot();
+  });
+  l.append(c, el('span', 'knob'), el('span', 'lbl', 'Masquer après'));
+  const i = stInput(d.v[delay.key], (v) => { d.v[delay.key] = v; d.reset[delay.key] = false; }, '', 'w');
+  i.inputMode = 'numeric'; i.disabled = !enabled;
+  w.append(l, i, el('span', enabled ? '' : 'dim', 's'));
+  const hint = enabled ? 'teammates inactifs depuis ce délai : panes cachés ; 0 = jamais ; le leader et les actifs restent visibles' : 'masquage désactivé : aucun teammate n\'est caché (y compris ceux cachés à la main), le double-clic de masquage est indisponible ; délai conservé pour le rallumage';
+  return ['Masquage des inactifs', w, hint];
 }
 function confShow(x) {
   const v = x.default;
