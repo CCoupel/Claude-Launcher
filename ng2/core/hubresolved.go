@@ -56,7 +56,7 @@ func hubLayers(f backendsFile, host, goos string) []hubLayer {
 func resolvedOf(f backendsFile, host, goos string) HubResolved {
 	r := HubResolved{BrowserServer: HubServerView{Allow: []string{}}, BrowserPaths: []BrowserPath{}, Sources: map[string]string{}}
 	for _, k := range []string{"browser_paths", "browser_device", "browser_server.listen", "browser_server.url", "browser_server.allow",
-		"desktop_web.listen", "desktop_web.allow_lan", "desktop_web.enabled", "desktop_web.url"} {
+		"desktop_web.listen", "desktop_web.allow_lan", "desktop_web.enabled", "desktop_web.url", "desktop_web.access"} {
 		r.Sources[k] = ""
 	}
 	for _, l := range hubLayers(f, host, goos) {
@@ -90,6 +90,9 @@ func resolvedOf(f backendsFile, host, goos string) HubResolved {
 			if d.URL != "" {
 				r.DesktopWeb.URL, r.Sources["desktop_web.url"] = d.URL, l.name
 			}
+			if d.Access != "" {
+				r.DesktopWeb.Access, r.Sources["desktop_web.access"] = d.Access, l.name
+			}
 		}
 	}
 	return r
@@ -98,7 +101,7 @@ func resolvedOf(f backendsFile, host, goos string) HubResolved {
 // hubFields : champs de chaque réglage résolu champ par champ.
 var hubFields = map[string][]string{
 	"browser_server": {"listen", "url", "allow"},
-	"desktop_web":    {"listen", "allow_lan", "enabled", "url"},
+	"desktop_web":    {"listen", "allow_lan", "enabled", "url", "access"},
 }
 
 // ApplyHubChangesFor : ApplyHubChanges, avec l'écriture des réglages browser_server et desktop_web portée sur la
@@ -155,6 +158,8 @@ func routeHubChanges(content []byte, host, goos string, changes []ConfigChange) 
 			return dw != nil && dw.Enabled != nil
 		case "desktop_web.url":
 			return dw != nil && dw.URL != ""
+		case "desktop_web.access":
+			return dw != nil && dw.Access != ""
 		}
 		return false
 	}

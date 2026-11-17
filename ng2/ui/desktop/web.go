@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -49,6 +50,8 @@ type webBridge struct {
 	// Host (sur son port), son origine exacte dans Origin, https y rend le cookie Secure. Aucun en-tête
 	// X-Forwarded-*, Forwarded ni X-Real-IP n'est lu : le schéma et l'hôte publics ne viennent que de là.
 	public *core.PublicURL
+	// access : « none » — aucun jeton, aucune session, aucun cookie (LOT-4.4) ; "" ou « token » : jeton, session, cookie
+	access string
 
 	mu       sync.Mutex           // jeton et sessions (authentification, appels)
 	sessions map[string]time.Time // identifiants de session en mémoire → dernier usage (le cookie porte l'un d'eux, jamais le jeton)
@@ -232,6 +235,9 @@ func (w *webBridge) emit(name string, data any) {
 // jeton de l'URL. Les appels (/api/call, /api/events) n'acceptent que le cookie :
 // le jeton d'une URL traîne dans l'historique, les journaux et l'en-tête Referer.
 func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
+	if w.access == core.AccessNone { // aucun jeton : l'accès repose sur l'écoute, l'Ingress et les contrôles Host / origine / JSON
+		return true
+	}
 	if c, err := r.Cookie(w.cookieName(r)); err == nil && c.Value != "" && w.validSession(c.Value) {
 		return true
 	}
@@ -243,6 +249,9 @@ func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
 // machine — serveur de maquettes, serveur de développement d'un projet — est du
 // même « site » : SameSite=Strict ne la retient pas.
 func (w *webBridge) sameOrigin(r *http.Request) bool {
+	if r.Header.Get("Sec-Fetch-Site") == "cross-site" { // le navigateur déclare une requête d'un autre site : refusée
+		return false
+	}
 	o := r.Header.Get("Origin")
 	if o == "" {
 		return true
@@ -326,11 +335,17 @@ func (w *webBridge) handler() http.Handler {
 	mux.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 			_, hasToken := r.URL.Query()["t"]
-			if !w.authorized(r, true) {
+			if w.access == core.AccessNone { // aucun jeton : « /?t=… » (ancien lien) aboutit sur l'interface, sans cookie
+				if hasToken {
+					rw.Header().Set("Cache-Control", "no-store")
+					http.Redirect(rw, r, "/", http.StatusSeeOther)
+					return
+				}
+			} else if !w.authorized(r, true) {
 				refuse(rw, "session", "jeton manquant ou invalide : ouvrir l'URL affichée au lancement")
 				return
 			}
-			if hasToken {
+			if hasToken && w.access != core.AccessNone {
 				// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire, révoqué à
 				// l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton. Aucune page
 				// n'est servie sur une URL qui porte le jeton (historique, journaux, Referer) : 303 vers « / ».
@@ -443,7 +458,7 @@ func (w *webBridge) handler() http.Handler {
 			case <-r.Context().Done():
 				return
 			case <-check.C:
-				if !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
+				if w.access != core.AccessNone && !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
 					return
 				}
 			case <-ping.C:
@@ -495,9 +510,18 @@ func RunWeb(addr string, open bool) error {
 		return perr
 	}
 	w.public = pub
-	// jeton : CL_DESKTOP_TOKEN, sinon — dans un pod — le jeton conservé (il ne change plus à chaque redémarrage du
-	// pod : un lien déjà distribué reste valable) ; hors cluster, toujours un nouveau jeton (#167)
-	if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" {
+	// mode d'accès : CL_WEB_ACCESS > desktop_web.access > token ; valeur inconnue : le serveur ne démarre pas
+	access, aerr := core.EffectiveWebAccess(c)
+	if aerr != nil {
+		return aerr
+	}
+	w.access = access
+	// jeton (mode « token » seulement) : CL_DESKTOP_TOKEN, sinon — dans un pod — le jeton conservé (il ne change plus à
+	// chaque redémarrage du pod : un lien déjà distribué reste valable) ; hors cluster, toujours un nouveau jeton (#167).
+	// Mode « none » : aucun jeton n'est tiré, lu ni écrit ; CL_DESKTOP_TOKEN est ignoré.
+	if access == core.AccessNone {
+		w.token = ""
+	} else if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" {
 		w.token = t
 	} else if core.InCluster() {
 		if t, err := desktopWebToken(); t != "" {
@@ -516,19 +540,42 @@ func RunWeb(addr string, open bool) error {
 		return err
 	}
 	warn := w.configureListener(ln)
+	if m := core.AccessNoneRefusal(access, w.strictHost, w.public); m != "" { // garde du mode « none »
+		_ = ln.Close()
+		return errors.New(m)
+	}
 	if warn != "" && !core.InCluster() { // en pod, l'écoute sur toutes les interfaces derrière l'Ingress est voulue
 		fmt.Println("⚠ " + warn)
 	}
 	// mode serveur : l'interface est le processus lui-même, toujours « on » ; le commutateur desktop_web.enabled
 	// ne s'y applique pas (#183)
 	a.webui.mu.Lock()
-	a.webui.state = WebUIState{State: "on", Listen: ln.Addr().String(), Lan: !w.strictHost, Warn: warn, Enabled: true, Server: true, URL: publicOrigin(w.public)}
+	a.webui.state = WebUIState{State: "on", Listen: ln.Addr().String(), Lan: !w.strictHost, Warn: warn, Enabled: true, Server: true, URL: publicOrigin(w.public), Access: access}
 	a.webui.mu.Unlock()
 	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.tokenNow())
 	if w.public != nil {
 		url = w.public.Origin + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
 	}
-	if core.InCluster() {
+	if access == core.AccessNone { // aucun jeton : l'adresse seule s'ouvre directement
+		url = "http://" + ln.Addr().String() + "/"
+		if w.public != nil {
+			url = w.public.Origin + "/"
+		}
+	}
+	if access == core.AccessNone {
+		// aucun jeton : l'adresse seule (dans un pod la sortie part dans les journaux, sans rien de secret)
+		base := "http://" + ln.Addr().String()
+		if w.public != nil {
+			base = w.public.Origin
+		}
+		fmt.Println("Claude Launcher (interface web) :", base+"/")
+		fmt.Println("Accès sans jeton (CL_WEB_ACCESS=none) : l'accès repose sur l'écoute locale ou sur l'adresse publique https (Ingress, liste d'adresses).")
+		if core.InCluster() {
+			fmt.Println("Arrêt par SIGTERM : serveur fermé, terminaux détachés ; les projets restent ouverts dans leurs pods.")
+		} else {
+			fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
+		}
+	} else if core.InCluster() {
 		// en pod, la sortie standard part dans les journaux (pods/log, collecte) : jamais le jeton. L'adresse est
 		// donnée sans jeton, avec l'endroit où le lire.
 		base := "http://" + ln.Addr().String()
@@ -573,7 +620,9 @@ func RunWeb(addr string, open bool) error {
 		}
 		os.Exit(0)
 	}
-	restartEnv = []string{"CL_DESKTOP_TOKEN=" + w.token}
+	if access != core.AccessNone {
+		restartEnv = []string{"CL_DESKTOP_TOKEN=" + w.token}
+	}
 	a.Start()
 	if open {
 		openURL(url)

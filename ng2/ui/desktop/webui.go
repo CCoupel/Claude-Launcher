@@ -44,6 +44,8 @@ type WebUIState struct {
 	Server  bool `json:"server"`
 	// URL : adresse publique effective (--url > CL_WEB_URL > desktop_web.url), vide sinon (#171)
 	URL string `json:"url"`
+	// Access : mode d'accès effectif, « token » ou « none » (aucun jeton ni cookie, LOT-4.4)
+	Access string `json:"access"`
 }
 
 // webUI : serveur de l'interface attaché à l'App (a.webui).
@@ -178,16 +180,27 @@ func (a *App) applyWebUI() {
 			w.state = WebUIState{State: "error", Listen: conf.Listen, Enabled: true, Msg: perr.Error()}
 			break
 		}
-		if w.srv != nil && w.listen == conf.Listen && w.pubKey == publicOrigin(pub) {
+		access, aerr := core.EffectiveWebAccess(conf)
+		if aerr == nil {
+			if m := core.AccessNoneRefusal(access, conf.Loopback, pub); m != "" {
+				aerr = errors.New(m) // garde : « none » seulement en boucle locale ou derrière une adresse publique https
+			}
+		}
+		if aerr != nil {
+			a.stopWebUILocked()
+			w.state = WebUIState{State: "error", Listen: conf.Listen, Enabled: true, Msg: aerr.Error(), Access: access}
+			break
+		}
+		if w.srv != nil && w.listen == conf.Listen && w.pubKey == publicOrigin(pub)+"|"+access {
 			return // déjà à jour
 		}
 		a.stopWebUILocked()
-		a.startWebUILocked(conf, pub)
+		a.startWebUILocked(conf, pub, access)
 	}
 	go a.changed()
 }
 
-func (a *App) startWebUILocked(conf core.DesktopWebConf, pub *core.PublicURL) {
+func (a *App) startWebUILocked(conf core.DesktopWebConf, pub *core.PublicURL, access string) {
 	w := &a.webui
 	ln, err := net.Listen("tcp", conf.Listen)
 	if err != nil {
@@ -197,19 +210,24 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf, pub *core.PublicURL) {
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	var tok string
 	var terr error
-	if w.last == "" {
-		w.last = lastDesktopWebListen() // dernier lancement
+	if access != core.AccessNone { // mode « none » : le jeton n'est ni tiré, ni lu, ni écrit
+		if w.last == "" {
+			w.last = lastDesktopWebListen() // dernier lancement
+		}
+		if w.last != "" && w.last != conf.Listen { // adresse changée (surtout hors boucle locale) : nouveau jeton
+			tok, terr = rotateDesktopWebToken()
+		} else {
+			tok, terr = desktopWebToken()
+		}
 	}
-	if w.last != "" && w.last != conf.Listen { // adresse changée (surtout hors boucle locale) : nouveau jeton
-		tok, terr = rotateDesktopWebToken()
-	} else {
-		tok, terr = desktopWebToken()
-	}
-	b := &webBridge{app: a, token: tok, subs: map[chan []byte]bool{}, port: port, hosts: conf.AllowedHosts(core.HubHost()), public: pub}
+	b := &webBridge{app: a, token: tok, subs: map[chan []byte]bool{}, port: port, hosts: conf.AllowedHosts(core.HubHost()), public: pub, access: access}
 	srv := newHTTPServer(b.handler())
-	w.srv, w.bridge, w.listen, w.last, w.pubKey = srv, b, conf.Listen, conf.Listen, publicOrigin(pub)
-	saveDesktopWebListen(conf.Listen)
-	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn, Enabled: true, URL: publicOrigin(pub)}
+	w.srv, w.bridge, w.listen, w.pubKey = srv, b, conf.Listen, publicOrigin(pub)+"|"+access
+	if access != core.AccessNone {
+		w.last = conf.Listen
+		saveDesktopWebListen(conf.Listen)
+	}
+	w.state = WebUIState{State: "on", Listen: conf.Listen, Lan: !conf.Loopback, Warn: conf.Warn, Enabled: true, URL: publicOrigin(pub), Access: access}
 	if terr != nil {
 		w.state.Msg = terr.Error()
 	}
@@ -248,22 +266,28 @@ func (a *App) webUIOpen() map[string]any {
 		pub = w.bridge.public
 	}
 	var tok string
+	noTok := false
 	if w.bridge != nil {
 		tok = w.bridge.tokenNow() // le jeton du serveur : un seul tirage
+		noTok = w.bridge.access == core.AccessNone
 	}
 	w.mu.Unlock()
 	if !on {
 		return map[string]any{"ok": false, "msg": "l'interface web est désactivée (Réglages › Ce poste › Interface web)"}
 	}
+	suffix := "/?t=" + tok
+	if noTok {
+		suffix = "/"
+	}
 	if pub != nil { // lien d'amorçage : l'adresse publique
-		openURL(pub.Origin + "/?t=" + tok)
+		openURL(pub.Origin + suffix)
 		return map[string]any{"ok": true}
 	}
 	h, port, _ := net.SplitHostPort(listen)
 	if h == "" || h == "0.0.0.0" || h == "::" {
 		h = "localhost"
 	}
-	openURL("http://" + net.JoinHostPort(h, port) + "/?t=" + tok)
+	openURL("http://" + net.JoinHostPort(h, port) + suffix)
 	return map[string]any{"ok": true}
 }
 
@@ -298,6 +322,9 @@ func (a *App) webUIRegen() map[string]any {
 	w := &a.webui
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if w.state.Access == core.AccessNone { // aucun jeton : rien à régénérer
+		return map[string]any{"ok": false, "msg": "accès sans jeton : aucun jeton à régénérer"}
+	}
 	tok, err := rotateDesktopWebToken()
 	if w.bridge != nil {
 		w.bridge.setToken(tok)
