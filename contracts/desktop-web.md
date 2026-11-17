@@ -1,5 +1,7 @@
 # Contrat — interface web : réglage, commutateur, proxy inverse (v6.3.0)
 
+> **v6.4.0** : mode `github`, adresses publiques multiples, route `/files`, version du serveur — voir `contracts/web-auth.md`.
+
 > Complète `contracts/desktop-dispatch.md` (« v6.2.0 — LOT-4 : interface web servie par la fenêtre native »). Ce
 > fichier décrit ce que #183 et #171 ajoutent. Les protections de #163 restent toutes actives : session en mémoire,
 > cookie `HttpOnly` et `SameSite=Strict`, contrôle de `Host`, contrôle d'origine, corps JSON, en-têtes de sécurité.

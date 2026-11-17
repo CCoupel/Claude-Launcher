@@ -1,5 +1,7 @@
 # Contrat — variables d'environnement et options du launcher (v6.3.0)
 
+> v6.4.0 : variables de l'authentification et des fichiers (`CL_WEB_GITHUB_*`, `CL_WEB_SESSION_*`, `CL_WEB_BROWSER_URL`, liste dans `CL_WEB_URL`) — voir `contracts/web-auth.md`.
+
 > Interface entre le launcher (`ng2`), l'image de conteneur (`deploy/image/`), le chart Helm (`deploy/helm/`) et les
 > procédures de déploiement. Ce fichier ne décrit que ce qui est ajouté ou modifié à partir de v6.3.0.
 > Le backend peut ajuster un détail pour une contrainte technique, en le notant dans `contracts/CHANGELOG.md`.

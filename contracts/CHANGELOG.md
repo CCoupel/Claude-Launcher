@@ -2,6 +2,19 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261117] — v6.4.0 (plan) : authentification GitHub, double exposition, fichiers, version du serveur, backends distants, version du template
+
+- **[NEW]** mode d'accès `github` (GitHub OAuth, un seul compte, session signée qui survit au redémarrage, déconnexion, limitation des essais) — `contracts/web-auth.md` (#172)
+- **[NEW]** routes `/auth/login`, `/auth/callback`, `/auth/logout` ; page de connexion sans information avant session (#172)
+- **[CHANGED]** `CL_WEB_URL` / `desktop_web.url` : liste de deux adresses au plus (ingress interne + externe), chaque hôte avec son origine ; `webUI.urls` (#172)
+- **[NEW]** route `/files/<chemin>` sous session, `CL_BROWSER_PATH_MAP` des sessions vers l'adresse publique, appariement sous session (#174)
+- **[NEW]** `server = {version, boot}` dans `init` et l'instantané ; bandeau « Serveur mis à jour » / reconnexion automatique (#198)
+- **[NEW]** champ `kubeconfig` d'un backend k8s (priorité sur le ServiceAccount, non modifiable depuis le web) — `contracts/backends-remote.md` (#193)
+- **[CHANGED]** image : clients ssh, docker, podman ; identifiants par Secret (#194)
+- **[BREAKING]** chart : `web.access` passe de `none` à `github` par défaut ; `web.github.*` obligatoires en `github` ; une installation existante sans `web.access` explicite doit l'écrire (`values-prod.yaml` / `values-qualif.yaml` l'écrivent déjà : `none`) — `contracts/helm-values.md` « v6.4.0 »
+- **[NEW]** chart : `externalIngress`, `networkPolicy` (activée par défaut), `rbac.extraNamespaces`, `backends.{ssh,docker,kubeconfigs}`, Secret `<release>-session`
+- **[CHANGED]** version du template : comparaisons ordonnées (`VersionNewer`), titre de la carte TEAM = version du projet, `teamHead.tplNewer` ; vérification GitHub authentifiée, conditionnelle, partagée par poste, quota visible — `contracts/template-version.md` (#199)
+
 ## [20261117] — v6.3.0, LOT-5 : commutateur du masquage des teammates inactifs (#188)
 
 - **[NEW]** clé `TEAM_HIDE_IDLE_ENABLED` de `config.conf` (`1` par défaut) : désactive le masquage sans perdre le délai `TEAM_HIDE_IDLE` — `contracts/desktop-dispatch.md`
