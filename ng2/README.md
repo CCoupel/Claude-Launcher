@@ -1858,6 +1858,12 @@ garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
   jusqu'au second double-clic ; s'il redevient actif, il reprend la règle normale. Le leader n'est jamais caché.
   En lecture seule (un autre launcher a la main), le double-clic est refusé avec un message. Fermer le projet
   ferme aussi ses teammates cachés.
+
+  **Commutateur** (v6.3.0, #188) : Réglages › Launcher, groupe « teams », « Cacher les teammates inactifs »
+  (`TEAM_HIDE_IDLE_ENABLED` dans `config.conf`, **activé par défaut**). Le délai `TEAM_HIDE_IDLE` est en **secondes** et
+  n'est pas modifié quand le commutateur est éteint. Éteint, tout teammate reste visible, les marques « caché à la main »
+  sont effacées, et le double-clic est refusé avec un message. La carte TEAM affiche une puce quand le masquage est
+  effectif. Le rallumage reprend la règle avec le délai conservé.
   **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `⚠` orange = écart de version
   (template en retard sur la version cible, le launcher ayant adopté une version plus récente, ou claude différent de
   celui du leader) ; `○` = non démarré. Les versions sont dans le titre de la carte (#151). `+` devant le nom
