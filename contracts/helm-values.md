@@ -100,38 +100,43 @@ ni aux fichiers de `rootBase`.
 `deploy/helm/values-qualif.yaml` et `deploy/helm/values-prod.yaml` : valeurs non secrètes de chaque environnement
 (nom d'hôte, classe, CIDR, `rootBase`, `web.access: none` écrit explicitement). Aucun secret : un certificat fourni reste dans `PRIVATE/<ENV>/`.
 
-## v6.4.0 — authentification, double exposition, identifiants **[CHANGED]** (#172, #174, #193, #194)
+## v6.4.0 — ingress interne libre, ingress externe authentifié, NetworkPolicy, coffre, identifiants **[CHANGED]** (#172, #174, #193, #194)
 
-> Détail du launcher : `contracts/web-auth.md`, `contracts/backends-remote.md`.
+> Révision GATE 2 (rev1). Détail : `contracts/web-auth.md`, `contracts/backends-remote.md`.
+> **Aucun BREAKING** : `web.access` garde son défaut `none` ; `ingress.*` de v6.3.0 est inchangé (ingress interne).
 
 | Valeur | Type | Défaut | Obligatoire | Rôle |
 |--------|------|--------|-------------|------|
-| `web.access` | `github` \| `none` \| `token` | **`github`** (était `none`) | — | **[BREAKING]** — `github` exige `web.github.*` ; une installation qui comptait sur le défaut `none` doit écrire `web.access: none` |
-| `web.github.clientId` | chaîne | — | **oui** si `github` | `CL_WEB_GITHUB_CLIENT_ID` (non secret) |
-| `web.github.existingSecret` | chaîne | — | **oui** si `github` | Secret créé à part (jamais dans les valeurs) avec la clé `client-secret` ; monté en lecture seule, chemin dans `CL_WEB_GITHUB_CLIENT_SECRET_FILE` |
-| `web.github.allowedUser` | login GitHub | — | **oui** si `github` | `CL_WEB_GITHUB_ALLOWED_USER` — un seul compte |
-| `web.sessionTTL` | durée | `8h` | — | `CL_WEB_SESSION_TTL` |
-| `web.browserUrl` | URL | adresse de `externalIngress` si activé, sinon de `ingress` | — | `CL_WEB_BROWSER_URL` (fichiers ouverts dans Chrome, #174) |
-| `externalIngress.enabled` | booléen | `false` | — | **NEW** — second Ingress, public |
-| `externalIngress.className`, `.host` | chaînes | — | **oui** si activé | nom DNS public ; ajouté à `CL_WEB_URL` (2e adresse) |
-| `externalIngress.tls.clusterIssuer` \| `.tls.secretName` | chaîne | — | l'un des deux | certificat reconnu (ex. émetteur ACME) — jamais la CA interne |
-| `externalIngress.allowedSourceRanges` | liste de CIDR | `[]` | — | vide = toute adresse (public) ; `web.access: none` avec un Ingress externe est **refusé au rendu** |
+| `externalIngress.enabled` | booléen | `false` | — | second Ingress, public, authentifié |
+| `externalIngress.className`, `.host` | chaînes | — | **oui** si activé | nom DNS public ; ajouté à `CL_WEB_URL` (2e adresse) et posé dans `CL_WEB_AUTH_URL` |
+| `externalIngress.tls.clusterIssuer` \| `.tls.secretName` | chaîne | — | l'un des deux | certificat reconnu (`letsencrypt-prod`) — jamais la CA interne |
+| `externalIngress.rateLimit.average`, `.burst` | entiers | `20`, `50` | — | middleware `rateLimit` |
 | `externalIngress.annotations` | table | `{}` | — | — |
-| `networkPolicy.enabled` | booléen | `true` | — | **NEW** — NetworkPolicy : entrée sur `service.port` seulement depuis les namespaces de `networkPolicy.ingressNamespaces` (contrôleur d'Ingress) ; sondes du kubelet admises ; sortie non restreinte |
-| `networkPolicy.ingressNamespaces` | liste | `[kube-system]` | — | namespaces du contrôleur d'Ingress (Traefik) |
+| `auth.oauth2Proxy.image.repository`, `.tag`, `.digest` | chaînes | `quay.io/oauth2-proxy/oauth2-proxy`, version figée, empreinte figée | — | — |
+| `auth.github.allowedUser` | login GitHub | — | **oui** si externe | `--github-user` et `CL_WEB_AUTH_USER` — un seul compte |
+| `auth.existingSecret` | chaîne | — | **oui** si externe | Secret créé à part : `client-id`, `client-secret`, `cookie-secret` (32 octets) — jamais dans les valeurs |
+| `auth.sessionTTL` | durée | `8h` | — | `--cookie-expire` |
+| `web.browserUrl` | URL | adresse externe si activée, sinon interne | — | `CL_WEB_BROWSER_URL` (#174) |
+| `networkPolicy.enabled` | booléen | **`true`** | — | entrée du pod du launcher seulement depuis `networkPolicy.ingressNamespaces` (port `service.port`) ; oauth2-proxy : entrée depuis les mêmes namespaces ; sondes du kubelet admises ; sortie non restreinte |
+| `networkPolicy.ingressNamespaces` | liste | `[traefik]` | — | namespace du contrôleur (cluster du projet : `traefik`, DaemonSet hors réseau d'hôte) |
+| `secrets.persistence.size` | quantité | `10Mi` | — | PVC `ReadWriteOnce` `<release>-secrets` (coffre, `keep`), monté en `/var/lib/claude-launcher/secrets`, `CL_SECRETS_DIR` |
+| `secrets.persistence.storageClassName` | chaîne | `""` (classe par défaut) | — | classe RWO, **jamais** la racine partagée |
 | `rbac.extraNamespaces` | liste | `[]` | — | Role + RoleBinding identiques dans chaque namespace listé (#193) |
-| `backends.ssh.secretName` | chaîne | `""` | — | Secret ssh (#194) |
 | `backends.docker.secretName` | chaîne | `""` | — | Secret TLS docker/podman (#194) |
-| `backends.kubeconfigs` | liste `{name, secretName, key}` | `[]` | — | kubeconfigs montés (#193) |
+| `backends.kubeconfigs` | liste `{name, secretName, key}` | `[]` | — | kubeconfigs montés (#193), alternative au coffre |
 
-Objets ajoutés : Ingress externe (+ Middleware `ipAllowList` si des CIDR sont donnés, Certificate si émetteur),
-NetworkPolicy, Role/RoleBinding par namespace supplémentaire, Secret `<release>-session` (clé de session de 48
-octets aléatoires, créée à la première installation, **gardée** aux mises à jour par `lookup`,
-`helm.sh/resource-policy: keep` ; `CL_WEB_SESSION_KEY_FILE`). Montages de Secret : tous en lecture seule, hors de
-`volume.mountPath` (le schéma refuse un chevauchement).
+Refus au rendu : `externalIngress.enabled` sans `auth.existingSecret` ou sans `auth.github.allowedUser` ;
+`externalIngress.allowedSourceRanges` n'existe pas (l'externe est public, protégé par l'authentification) ;
+`networkPolicy.enabled: false` avec un ingress externe → avertissement dans `NOTES.txt` (aucune requête de
+confiance : `CL_WEB_AUTH_PROXY` non posé).
 
-Variables ajoutées : `CL_WEB_GITHUB_CLIENT_ID`, `CL_WEB_GITHUB_CLIENT_SECRET_FILE`, `CL_WEB_GITHUB_ALLOWED_USER`,
-`CL_WEB_SESSION_KEY_FILE`, `CL_WEB_SESSION_TTL`, `CL_WEB_BROWSER_URL` ; `CL_WEB_URL` devient
-`https://<ingress.host>,https://<externalIngress.host>` quand les deux sont activés.
+Objets ajoutés : Ingress externe ; Middlewares `forwardAuth`, `errors`, `rateLimit`, redirection ; Deployment +
+Service `<release>-oauth2-proxy` (1 réplique, `runAsNonRoot`, lecture seule) ; Certificate si émetteur ; NetworkPolicy
+(launcher et oauth2-proxy) ; PVC `<release>-secrets` ; Role/RoleBinding par namespace supplémentaire.
 
-`NOTES.txt` : adresse(s), compte autorisé, rappel des URL de rappel à déclarer côté GitHub (`<adresse>/auth/callback`).
+Variables ajoutées dans le pod du launcher : `CL_WEB_URL` = `https://<ingress.host>,https://<externalIngress.host>`,
+`CL_WEB_AUTH_URL`, `CL_WEB_AUTH_USER`, `CL_WEB_AUTH_PROXY=1` (si NetworkPolicy et externe), `CL_WEB_BROWSER_URL`,
+`CL_SECRETS_DIR`.
+
+`NOTES.txt` : les deux adresses, le compte autorisé, l'URL de rappel à déclarer côté GitHub
+(`https://<externalIngress.host>/oauth2/callback`).

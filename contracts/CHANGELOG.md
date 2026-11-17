@@ -2,18 +2,19 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
-## [20261117] — v6.4.0 (plan) : authentification GitHub, double exposition, fichiers, version du serveur, backends distants, version du template
+## [20261117] — v6.4.0 (plan, rev1 GATE 2) : ingress externe authentifié par proxy, fichiers, version du serveur, backends distants, coffre, version du template
 
-- **[NEW]** mode d'accès `github` (GitHub OAuth, un seul compte, session signée qui survit au redémarrage, déconnexion, limitation des essais) — `contracts/web-auth.md` (#172)
-- **[NEW]** routes `/auth/login`, `/auth/callback`, `/auth/logout` ; page de connexion sans information avant session (#172)
-- **[CHANGED]** `CL_WEB_URL` / `desktop_web.url` : liste de deux adresses au plus (ingress interne + externe), chaque hôte avec son origine ; `webUI.urls` (#172)
-- **[NEW]** route `/files/<chemin>` sous session, `CL_BROWSER_PATH_MAP` des sessions vers l'adresse publique, appariement sous session (#174)
-- **[NEW]** `server = {version, boot}` dans `init` et l'instantané ; bandeau « Serveur mis à jour » / reconnexion automatique (#198)
-- **[NEW]** champ `kubeconfig` d'un backend k8s (priorité sur le ServiceAccount, non modifiable depuis le web) — `contracts/backends-remote.md` (#193)
-- **[CHANGED]** image : clients ssh, docker, podman ; identifiants par Secret (#194)
-- **[BREAKING]** chart : `web.access` passe de `none` à `github` par défaut ; `web.github.*` obligatoires en `github` ; une installation existante sans `web.access` explicite doit l'écrire (`values-prod.yaml` / `values-qualif.yaml` l'écrivent déjà : `none`) — `contracts/helm-values.md` « v6.4.0 »
-- **[NEW]** chart : `externalIngress`, `networkPolicy` (activée par défaut), `rbac.extraNamespaces`, `backends.{ssh,docker,kubeconfigs}`, Secret `<release>-session`
-- **[CHANGED]** version du template : comparaisons ordonnées (`VersionNewer`), titre de la carte TEAM = version du projet, `teamHead.tplNewer` ; vérification GitHub authentifiée, conditionnelle, partagée par poste, quota visible — `contracts/template-version.md` (#199)
+- **[NEW]** chart : `externalIngress` (public, `letsencrypt-prod`) protégé par Traefik `forwardAuth` + oauth2-proxy (GitHub, un compte), `rateLimit` ; ingress interne inchangé, sans authentification — `contracts/web-auth.md`, `contracts/helm-values.md` « v6.4.0 » (#172)
+- **[NEW]** chart : `networkPolicy` **activée par défaut** (entrée depuis le namespace `traefik`), coffre `secrets.persistence` (PVC RWO), `rbac.extraNamespaces`, `backends.{docker,kubeconfigs}`
+- **[CHANGED]** `CL_WEB_URL` / `desktop_web.url` : liste de deux adresses au plus ; `CL_WEB_AUTH_URL`, `CL_WEB_AUTH_USER`, `CL_WEB_AUTH_PROXY` ; `webUI.urls`, `webUI.user`, `webUI.logout` (#172)
+- **[NEW]** identité `X-Auth-Request-User` lue sur l'hôte authentifié seulement, pour l'affichage et les requêtes de confiance (jamais pour l'accès) (#172)
+- **[NEW]** route `/files/<chemin>`, `CL_BROWSER_PATH_MAP` des sessions vers l'adresse publique, appariement par `/files/__claude-launcher__/pair` (#174)
+- **[NEW]** `server = {version, boot}` dans `init` et l'instantané ; bandeaux « Serveur mis à jour » / reconnexion (#198)
+- **[NEW]** coffre des secrets `CL_SECRETS_DIR` ; clés ssh et `known_hosts` par backend saisies dans l'interface ; appels `backendSecretGet/Set/Delete`, `backendHostScan`, `backendKnownHostsSet` ; règle d'écriture R1/R2 à trancher — `contracts/backends-remote.md` (#194)
+- **[NEW]** `kubeconfig` d'un backend k8s : coffre (`kubeconfig: true`) ou chemin ; priorité sur le ServiceAccount (#193)
+- **[CHANGED]** image : clients ssh, docker (binaire statique), podman (`podman-remote`) (#194)
+- **[CHANGED]** version du template : comparaisons ordonnées, titre de la carte TEAM = version du projet, `teamHead.tplNewer`, vérification GitHub authentifiée, conditionnelle, partagée par poste, quota visible — `contracts/template-version.md` (#199)
+- **Aucun BREAKING** (rev1) : `web.access` garde son défaut `none`. Le mode `github` du launcher de la version précédente du plan est **abandonné**.
 
 ## [20261117] — v6.3.0, LOT-5 : commutateur du masquage des teammates inactifs (#188)
 
