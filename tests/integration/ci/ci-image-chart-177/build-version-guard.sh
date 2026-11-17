@@ -30,7 +30,8 @@ run() { # run <version demandée> : lance build.sh avec le binaire factice et le
 echo "== version annoncée différente de la version demandée : refus, aucune construction =="
 want=v6.3.0.9
 for got in "Claude-Launcher-NG2 v6.3.0.90" "Claude-Launcher-NG2 v6.3.0.9x" "Claude-Launcher-NG2 v6.3.0.9-dev" "Claude-Launcher-NG2 v6.3.0.9.1" \
-           "Claude-Launcher-NG2 v6.3.0" "Claude-Launcher-NG2 v6.3.0.8" "Claude-Launcher-NG2 v6.3.0.99"; do
+           "Claude-Launcher-NG2 v6.3.0" "Claude-Launcher-NG2 v6.3.0.8" "Claude-Launcher-NG2 v6.3.0.99" \
+           "Claude-Launcher-NG2 v6.3.0.9 extra"; do
   fake "$got"
   run "$want"; code=$?
   if [ "$code" != 0 ] && [ ! -e "$work/buildah.calls" ] && grep -q "ECHEC" "$work/run.log"; then
