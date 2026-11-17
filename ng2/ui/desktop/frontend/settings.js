@@ -17,11 +17,11 @@ const ST = {
 const ST_TYPES = ['host', 'podman', 'docker', 'ssh', 'k8s'];
 const ST_RAIL = [
   ['GLOBAL', [['backends', 'Backends'], ['pools', 'Pools'], ['defauts', 'Défauts'], ['launcher', 'Launcher'], ['conteneurs', 'Conteneurs']]],
-  ['CE POSTE', [['poste', 'Ce poste']]],
+  ['CE POSTE', [['poste', 'Ce poste'], ['maquettes', 'Serveur de maquettes'], ['web', 'Interface web']]],
   ['PROJET SÉLECTIONNÉ', [['projet', 'Projet']]],
 ];
-const ST_KIND = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'backends.yaml', launcher: 'config.conf', conteneurs: 'env.yaml', poste: 'backends.yaml', projet: 'project-env' };
-const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'backends.yaml', launcher: 'config.conf', conteneurs: 'env.yaml (launcher)', poste: 'backends.yaml → hubs.<machine> ; desktop-ui.json', projet: '.claude-launcher/env.yaml du projet' };
+const ST_KIND = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'backends.yaml', launcher: 'config.conf', conteneurs: 'env.yaml', poste: 'backends.yaml', maquettes: 'backends.yaml', web: 'backends.yaml', projet: 'project-env' };
+const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'backends.yaml', launcher: 'config.conf', conteneurs: 'env.yaml (launcher)', poste: 'backends.yaml → hubs.<machine> ; desktop-ui.json', maquettes: 'backends.yaml → hubs.<machine>.browser_server, browser_paths, browser_device', web: 'backends.yaml → hubs.<machine>.desktop_web', projet: '.claude-launcher/env.yaml du projet' };
 
 const stClone = (o) => JSON.parse(JSON.stringify(o));
 const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
@@ -303,7 +303,7 @@ function stRenderPage(soft) {
   p.textContent = '';
   if (ST.loading && stEditable()) { p.appendChild(el('p', 'dim', 'Chargement…')); return; }
   if (!ST.draft && stEditable()) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + ((ST.loadProblems[0] || {}).message || 'erreur') + ' — utiliser « Éditer en YAML ».')); return; }
-  const fn = { backends: stPageBackends, pools: stPagePools, defauts: stPageDefaults, launcher: stPageConf, conteneurs: stPageEnv, poste: stPageHub, projet: stPageProjet }[ST.page];
+  const fn = { backends: stPageBackends, pools: stPagePools, defauts: stPageDefaults, launcher: stPageConf, conteneurs: stPageEnv, poste: stPageHub, maquettes: stPageMaq, web: stPageWeb, projet: stPageProjet }[ST.page];
   fn(p);
   p.scrollTop = top;
 }
@@ -317,7 +317,7 @@ function stStateCell(name) {
   c.title = s.text || ''; // texte complet en infobulle (la cellule le coupe par « … »)
   return c;
 }
-function stAddr(b) { return b.host || (b.hosts && b.hosts.length ? b.hosts.join(', ') : '') || (b.type === 'k8s' ? [b.context, b.namespace].filter(Boolean).join(' / ') : (b.type === 'host' ? '' : '(local)')); }
+function stAddr(b) { return b.host || (b.hosts && b.hosts.length ? b.hosts.join(', ') : '') || (b.type === 'k8s' ? ([b.context, b.namespace].filter(Boolean).join(' / ') || (ST.model && ST.model.inCluster ? '(pod du launcher)' : '')) : (b.type === 'host' ? '' : '(local)')); }
 
 function stPageBackends(p) {
   const d = ST.draft;
@@ -399,8 +399,10 @@ function stBackendForm(b) {
     } else rows.push(['Contexte ' + t, stInput(b.context, (v) => { b.context = v; }, '(aucun)')]);
     rows.push(['Stockage partagé', stArea((b.shared || []).join('\n'), (v) => { b.shared = stLines(v); }, 2), 'racines vues à l\'identique par le launcher et le serveur ; une par ligne']);
   } else if (t === 'k8s') {
-    rows.push(['Contexte', stInput(b.context, (v) => { b.context = v; })]);
-    rows.push(['Namespace', stInput(b.namespace, (v) => { b.namespace = v; })]);
+    // launcher dans un pod (#168) : sans contexte, le ServiceAccount du pod ; sans namespace, celui du pod
+    const ic = !!(ST.model && ST.model.inCluster), pns = (ST.model && ST.model.podNamespace) || '';
+    rows.push(['Contexte', stInput(b.context, (v) => { b.context = v; }, ic ? 'ServiceAccount du pod' : ''), ic ? 'vide : le launcher utilise le ServiceAccount de son pod (pas de kubeconfig)' : '']);
+    rows.push(['Namespace', stInput(b.namespace, (v) => { b.namespace = v; }, ic ? (pns ? 'namespace du pod : ' + pns : 'namespace du pod') : ''), ic ? 'vide : namespace du pod du launcher (et non « default »)' : '']);
     rows.push(['Volumes', stArea(Object.entries(b.volumes || {}).map(([k, v]) => k + '=' + v).join('\n'), (v) => {
       const o = {}; for (const l of stLines(v)) { const i = l.indexOf('='); if (i > 0) o[l.slice(0, i).trim()] = l.slice(i + 1).trim(); }
       b.volumes = o;
@@ -546,8 +548,9 @@ function stPageDefaults(p) {
 // Trois documents lus par configModel (config.conf, env.yaml du launcher, hub =
 // hubs.<machine> de backends.yaml) et écrits par configApply, chacun avec son
 // brouillon, sa date, son résultat : même comportement que backends.yaml.
-const DOCS = { conf: { kind: 'config.conf', page: 'launcher' }, env: { kind: 'env.yaml', page: 'conteneurs' }, hub: { kind: 'hub', page: 'poste' } };
-const docOfPage = () => Object.keys(DOCS).find((k) => DOCS[k].page === ST.page) || '';
+const DOCS = { conf: { kind: 'config.conf', pages: ['launcher'] }, env: { kind: 'env.yaml', pages: ['conteneurs'] }, hub: { kind: 'hub', pages: ['poste', 'maquettes', 'web'] } };
+const HUB_EFF = ['browser_paths', 'browser_server', 'browser_device', 'desktop_web']; // clés des rubriques « Serveur de maquettes » / « Interface web » : résolues par le Go (model.resolved)
+const docOfPage = () => Object.keys(DOCS).find((k) => DOCS[k].pages.includes(ST.page)) || '';
 
 function docDraftOf(id, m) {
   const d = {};
@@ -557,14 +560,16 @@ function docDraftOf(id, m) {
   } else if (id === 'env') {
     d.txt = { packages: (m.packages || []).join('\n'), setup: (m.setup || []).join('\n'), on_start: (m.on_start || []).join('\n'), pbm: pjPbmText(m.packages_by_manager) };
   } else {
-    const s = m.settings || {};
+    // valeur EFFECTIVE de ce poste et de ce système (#183) : model.resolved, calculée par le Go champ par champ
+    const s = Object.assign({}, m.settings || {}), rs = m.resolved || {};
+    for (const k of HUB_EFF) if (rs[k] !== undefined) s[k] = rs[k];
     d.txt = {
       paths: (s.paths || []).map((x) => x.local + ' => ' + x.remote).join('\n'),
       browser_paths: (s.browser_paths || []).map((x) => x.container + ' => ' + x.host + (x.os ? ' | ' + x.os : '')).join('\n'),
       allow: ((s.browser_server || {}).allow || []).join('\n'),
     };
     const bs = s.browser_server || {}, ru = s.remote_user || {};
-    d.f = { listen: bs.listen || '', url: bs.url || '', uid: ru.uid == null ? '' : String(ru.uid), gid: ru.gid == null ? '' : String(ru.gid), name: ru.name || '', home: ru.home || '', hub_cache: s.hub_cache || '', browser_device: s.browser_device || '', dweb: (s.desktop_web || {}).listen || '', dweb_lan: !!(s.desktop_web || {}).allow_lan };
+    d.f = { listen: bs.listen || '', url: bs.url || '', uid: ru.uid == null ? '' : String(ru.uid), gid: ru.gid == null ? '' : String(ru.gid), name: ru.name || '', home: ru.home || '', hub_cache: s.hub_cache || '', browser_device: s.browser_device || '', dweb: (s.desktop_web || {}).listen || '', dweb_lan: !!(s.desktop_web || {}).allow_lan, dweb_en: (s.desktop_web || {}).enabled == null ? null : !!(s.desktop_web || {}).enabled, dweb_url: (s.desktop_web || {}).url || '' };
   }
   return d;
 }
@@ -596,7 +601,7 @@ async function docLoad(id, keep) {
     const old = ST.docs[id];
     ST.docs[id] = { loading: false, model: r.model, path: r.path, mtime: r.mtime, exists: r.exists, problems: r.problems || [], d: docDraftOf(id, r.model), o: docDraftOf(id, r.model), res: keep && old ? old.res : null };
   } catch (e) { ST.docs[id] = { loading: false, err: e.message }; }
-  if (ST.on && ST.page === dd.page) { stRenderPage(true); stRenderFoot(); }
+  if (ST.on && dd.pages.includes(ST.page)) { stRenderPage(true); stRenderFoot(); }
 }
 
 function docChanges(id) {
@@ -635,10 +640,11 @@ function docChanges(id) {
     const bsv = (D2) => clean({ listen: str(D2.f.listen), url: str(D2.f.url), allow: al(D2.txt.allow) });
     const ruv = (f) => clean({ uid: num(f.uid), gid: num(f.gid), name: str(f.name), home: str(f.home) });
     put(['browser_server'], bsv(d), bsv(o), !Object.keys(bsv(d)).length);
-    const dwv = (D2) => clean({ listen: str(D2.f.dweb || ''), allow_lan: D2.f.dweb_lan ? true : undefined });
+    const dwv = (D2) => clean({ enabled: D2.f.dweb_en == null ? undefined : D2.f.dweb_en, listen: str(D2.f.dweb || ''), allow_lan: D2.f.dweb_lan ? true : undefined, url: str(D2.f.dweb_url || '') });
     put(['desktop_web'], dwv(d), dwv(o), !Object.keys(dwv(d)).length);
     put(['remote_user'], ruv(d.f), ruv(o.f), !Object.keys(ruv(d.f)).length);
-    for (const k of ['hub_cache', 'browser_device']) put([k], d.f[k].trim(), o.f[k].trim(), !d.f[k].trim());
+    put(['hub_cache'], d.f.hub_cache.trim(), o.f.hub_cache.trim(), !d.f.hub_cache.trim());
+    put(['browser_device'], d.f.browser_device.trim(), o.f.browser_device.trim(), !d.f.browser_device.trim());
   }
   return ch;
 }
@@ -648,6 +654,9 @@ function dwNorm(v) {
   if (!v || v.toLowerCase() === 'off') return '';
   return /^\d+$/.test(v) ? '127.0.0.1:' + v : v;
 }
+// l'interface web est allumée : `enabled` explicite, sinon déduit de l'adresse d'écoute (règle v6.2.0)
+const dwOn = (f) => (f.dweb_en != null ? f.dweb_en : dwNorm(f.dweb) !== '');
+const DW_DEFAULT = '127.0.0.1:8787'; // adresse proposée à l'allumage sans adresse
 function dwLoopback(a) {
   const h = a.replace(/:\d+$/, '').replace(/^\[|\]$/g, '');
   return h === 'localhost' || h === '::1' || /^127\./.test(h);
@@ -663,15 +672,19 @@ function docLocalProblems(id) {
         ps.push({ severity: 'error', message: x.label + ' : entier' + (x.min != null ? ' ≥ ' + x.min : '') + (x.max != null ? ' ≤ ' + x.max : '') + ' attendu' });
     }
   } else if (id === 'hub') {
-    // Interface web (#163) : refus si même adresse que le serveur des fichiers ; avertissement hors boucle locale
+    // Interface web (#163, #183) : éteinte, ses adresses ne sont pas contrôlées ; allumée sans adresse = erreur de réglage
     const dw = dwNorm(D.d.f.dweb);
-    if (dw) {
-      if (dw === dwNorm(D.d.f.listen || '127.0.0.1:8765')) ps.push({ severity: 'error', message: 'Interface web : même adresse que le serveur web des fichiers (' + dw + ') — deux serveurs distincts, choisir un autre port' });
+    if (dwOn(D.d.f)) {
+      if (!dw) ps.push({ severity: 'error', message: 'Interface web activée sans adresse d\'écoute' });
+      else if (dw === dwNorm(D.d.f.listen || '127.0.0.1:8765')) ps.push({ severity: 'error', message: 'Interface web : même adresse que le serveur de maquettes (' + dw + ') — deux serveurs distincts, choisir un autre port' });
       else if (!dwLoopback(dw)) {
         if (!D.d.f.dweb_lan) ps.push({ severity: 'error', message: 'Interface web : écoute hors de la boucle locale (' + dw + ') — cocher « Autoriser l\'accès depuis le réseau » pour la confirmer' });
-        else ps.push({ severity: 'warning', message: '⚠ Interface web ouverte au réseau (' + dw + ') : le jeton circule en clair en HTTP et toute machine qui l\'obtient pilote ce poste (terminaux, projets). Préférer un tunnel SSH ou TLS et garder l\'écoute sur la boucle locale.' });
+        else ps.push({ severity: 'warning', message: '⚠ Interface web ouverte au réseau (' + dw + ') : ' + (dwNoToken() ? 'sans jeton, toute machine qui atteint cette adresse pilote ce poste (terminaux, projets). Garder l\'écoute sur la boucle locale ou derrière une adresse publique en https.' : 'le jeton circule en clair en HTTP et toute machine qui l\'obtient pilote ce poste (terminaux, projets). Préférer un tunnel SSH ou TLS et garder l\'écoute sur la boucle locale.') });
       }
     }
+    // adresse publique (#171) : http(s)://hôte[:port], sans chemin, paramètres ni identifiants
+    const pu = (D.d.f.dweb_url || '').trim();
+    if (pu && !/^https?:\/\/[^\/?#@\s]+$/i.test(pu)) ps.push({ severity: 'error', message: 'Interface web : adresse publique « ' + pu + ' » invalide — forme http(s)://hôte[:port], sans chemin, paramètres ni identifiants' });
     for (const k of ['uid', 'gid']) if (D.d.f[k] !== '' && !/^\d+$/.test(D.d.f[k])) ps.push({ severity: 'error', message: 'utilisateur distant : ' + k + ' numérique attendu' });
   }
   return ps;
@@ -773,8 +786,11 @@ function stPageConf(p) {
     }
     for (const g of D.model.groups || []) {
       const rows = [];
+      const hideOn = (bySet[g.id] || []).find((x) => x.key === 'TEAM_HIDE_IDLE_ENABLED'), hideDelay = (bySet[g.id] || []).find((x) => x.key === 'TEAM_HIDE_IDLE');
+      if (hideOn && hideDelay && hideOn.editable && hideDelay.editable) rows.push(stHideIdleRow(D, hideOn, hideDelay)); // variante A (#188) : commutateur et délai sur une ligne
       for (const x of bySet[g.id] || []) {
         if (layKeys.includes(x.key)) continue;
+        if (hideOn && hideDelay && hideOn.editable && hideDelay.editable && (x.key === 'TEAM_HIDE_IDLE_ENABLED' || x.key === 'TEAM_HIDE_IDLE')) continue;
         const hint = [x.help, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
         const cell = el('div'); cell.appendChild(confField(D, x));
         if (x.editable && x.type !== 'secret' && x.set) {
@@ -794,6 +810,24 @@ function stPageConf(p) {
     if (!D.exists) p.appendChild(el('p', 'note', 'config.conf n\'existe pas encore : il sera créé à l\'enregistrement.'));
   });
 }
+// masquage des teammates inactifs (#188, variante A) : « [commutateur] Masquer après [30] s » ; désactivé, le délai reste affiché, grisé
+function stHideIdleRow(D, on, delay) {
+  const d = D.d, enabled = !!d.v[on.key];
+  const w = el('span', 'stfont');
+  const l = el('label', 'stsw' + (enabled ? ' on' : ''));
+  const c = el('input'); c.type = 'checkbox'; c.checked = enabled;
+  c.addEventListener('change', () => {
+    d.v[on.key] = c.checked; d.reset[on.key] = false;
+    if (c.checked && (String(d.v[delay.key]).trim() === '' || Number(d.v[delay.key]) === 0)) { d.v[delay.key] = '30'; d.reset[delay.key] = false; } // délai à 0 : on propose 30 s
+    stRenderPage(); stRenderFoot();
+  });
+  l.append(c, el('span', 'knob'), el('span', 'lbl', 'Masquer après'));
+  const i = stInput(d.v[delay.key], (v) => { d.v[delay.key] = v; d.reset[delay.key] = false; }, '', 'w');
+  i.inputMode = 'numeric'; i.disabled = !enabled;
+  w.append(l, i, el('span', enabled ? '' : 'dim', 's'));
+  const hint = enabled ? 'teammates inactifs depuis ce délai : panes cachés ; 0 = jamais ; le leader et les actifs restent visibles' : 'masquage désactivé : aucun teammate n\'est caché (y compris ceux cachés à la main), le double-clic de masquage est indisponible ; délai conservé pour le rallumage';
+  return ['Masquage des inactifs', w, hint];
+}
 function confShow(x) {
   const v = x.default;
   if (x.type === 'bool') return v && v !== '0' ? 'activé' : 'désactivé';
@@ -812,41 +846,120 @@ function stPageEnv(p) {
   });
 }
 
-// Champ d'écoute + case « Autoriser l'accès depuis le réseau » (allow_lan) ; en lecture seule dans un client web (#163)
-// lecture seule dans un client web : desktop_web et browser_server (serveur des fichiers) se modifient dans la fenêtre native
+// ── Rubriques « Serveur de maquettes » (browser_server) et « Interface web » (desktop_web) — #183, maquette C' ──
+// Deux réglages distincts, deux pages. Lecture seule depuis un client web (#163) ; verrouillée en mode serveur
+// (`desktop --web` : webUI.server, l'interface est le processus lui-même).
 const DW_RO = 'lecture seule depuis un navigateur : à modifier dans la fenêtre native du poste';
+const DW_SRV = 'mode serveur : réglage verrouillé, fixé au lancement du processus';
+const dwSnap = () => (S.snap && S.snap.webUI) || { state: 'off' };
+const dwServer = () => !!dwSnap().server;
+const dwNoToken = () => dwSnap().access === 'none'; // mode d'accès effectif (webUI.access, LOT-4.4) : sans jeton ni session
+const dwLocked = () => isWebClient() || dwServer(); // webUI : commutateur, adresses, jeton
 function dwRo(c) { if (isWebClient()) { c.readOnly = true; c.title = DW_RO; } return c; }
-const dwHint = (ov) => (isWebClient() ? DW_RO + ' · ' : 'off (défaut), un port (boucle locale) ou hôte:port · interface complète, avec jeton · différente du serveur des fichiers · hors boucle locale : case ci-contre obligatoire ; le jeton circule en HTTP, préférer un tunnel SSH/TLS ') + ov;
-function dwListen(f) {
-  const box = el('span', 'stfont');
-  const i = stInput(f.dweb, (v) => { f.dweb = v; }, 'off');
-  const c = stCheck(f.dweb_lan, 'Autoriser l\'accès depuis le réseau (allow_lan)', (v) => { f.dweb_lan = v; stRenderFoot(); });
-  if (isWebClient()) {
-    i.readOnly = true; i.title = 'lecture seule : réglage du poste, modifiable depuis la fenêtre native';
-    const ck = c.querySelector('input'); if (ck) { ck.disabled = true; c.title = i.title; }
-  }
-  box.append(i, c);
-  return box;
+function dwLock(c) { // champ de l'interface web : lecture seule (client web ou mode serveur)
+  if (dwLocked()) { c.readOnly = true; c.title = dwServer() ? DW_SRV : DW_RO; c.classList.add('ro'); }
+  return c;
+}
+const dwBandeau = () => (isWebClient() ? el('p', 'stband ro', '🔒 ' + DW_RO + '.')
+  : dwServer() ? el('p', 'stband srv', '🔒 ' + DW_SRV + ' (adresse ' + (dwNoToken() ? '' : 'et jeton ') + 'propres au processus).') : null);
+
+// commutateur (case en forme d'interrupteur) : à l'allumage sans adresse, propose 127.0.0.1:8787
+function dwSwitch(f) {
+  const on = dwServer() ? true : dwOn(f);
+  const l = el('label', 'stsw' + (on ? ' on' : '') + (dwLocked() ? ' ro' : ''));
+  const c = el('input'); c.type = 'checkbox'; c.checked = on; c.disabled = dwLocked();
+  c.addEventListener('change', () => {
+    f.dweb_en = c.checked;
+    if (c.checked && !dwNorm(f.dweb)) f.dweb = DW_DEFAULT;
+    stRenderPage(); stRenderFoot();
+  });
+  l.append(c, el('span', 'knob'), el('span', 'lbl', dwServer() ? 'Activée — mode serveur' : isWebClient() ? (on ? 'Activée — lecture seule' : 'Désactivée — lecture seule') : on ? 'Activée' : 'Désactivée'));
+  if (dwLocked()) l.title = dwServer() ? DW_SRV : DW_RO;
+  return l;
 }
 
 // état courant de l'interface web (instantané `webUI`), ouverture dans le navigateur et régénération du jeton
 // (fenêtre native seulement) ; rafraîchi à chaque instantané tant que la page est ouverte (dwRefresh)
 function dwFill(box) {
   box.textContent = '';
-  const w = (S.snap && S.snap.webUI) || { state: 'off' };
+  const w = dwSnap();
   const txt = w.state === 'on' ? '● active sur ' + w.listen + (w.lan ? ' — ouverte au réseau' : '') + (w.msg ? ' — ' + w.msg : '') : w.state === 'error' ? '✕ ' + (w.msg || 'erreur') : '○ désactivée';
   box.append(el('span', w.state === 'on' ? (w.lan ? 't-orange' : 't-green') : w.state === 'error' ? 't-red' : 'dim', txt));
-  if (w.state === 'on' && !isWebClient()) {
+  if (w.state === 'on' && w.url) box.append(el('span', 'dim', 'atteinte par ' + w.url));
+  if (w.state === 'on' && !dwLocked()) {
     box.append(stBtn('Ouvrir dans le navigateur', async () => {
       try { const r = await call('webUIOpen', {}); if (r && r.ok === false) flash('⚠ ' + (r.msg || 'ouverture impossible')); } catch (e) { /* signalé par call */ }
     }));
-    box.append(stBtn('Régénérer le jeton', async () => {
-      try { const r = await call('webUIRegen', {}); flash(r && r.ok === false ? '⚠ ' + (r.msg || 'régénération impossible') : (r && r.msg) || 'jeton régénéré : les navigateurs déjà ouverts doivent repasser par « Ouvrir dans le navigateur »'); } catch (e) { /* signalé par call */ }
-    }));
-  } else if (w.state === 'on') box.append(el('span', 'dim', ' (ouverture et jeton : fenêtre native seulement)'));
+  } else if (w.state === 'on' && isWebClient()) box.append(el('span', 'dim', '(ouverture et jeton : fenêtre native seulement)'));
 }
 function dwStatus() { const b = el('span', 'stfont'); b.id = 'dwstatus'; dwFill(b); return b; }
 function dwRefresh() { const b = document.getElementById('dwstatus'); if (b && b.isConnected) dwFill(b); }
+
+async function dwRegen() {
+  try { const r = await call('webUIRegen', {}); flash(r && r.ok === false ? '⚠ ' + (r.msg || 'régénération impossible') : (r && r.msg) || 'jeton régénéré : les navigateurs déjà ouverts doivent repasser par « Ouvrir dans le navigateur »'); } catch (e) { /* signalé par call */ }
+}
+
+// surcharges propres au système : indication par clé (même règle que « Ce poste »)
+// provenance d'un réglage résolu : champs `reglage.champ` de model.resolved.sources ; rien quand la valeur est celle de la machine ou absente
+function hubSrc(m, reglage, champs) {
+  const src = (m.resolved && m.resolved.sources) || {}, out = [];
+  for (const c of champs) { const o = src[c ? reglage + '.' + c : reglage]; if (o && o !== 'hub' && !out.includes(o)) out.push(o); }
+  return out.length ? '⚠ valeur ' + out.map((o) => (o === 'defaults' ? 'des défauts' : 'propre à ' + o)).join(' et ') + ' : modifiée à cet endroit' : '';
+}
+const hubOv = (m) => ({ hint: (k) => hubSrc(m, k, ['']) });
+
+function stPageWeb(p) {
+  const D0 = ST.docs.hub;
+  docPage(p, 'hub', 'Interface web' + (D0 && D0.model ? ' — ' + D0.model.hub : ''), (dwNoToken() ? 'Le launcher complet dans un navigateur, sans jeton : l\'accès est limité par le réseau. ' : 'Le launcher complet dans un navigateur, protégé par un jeton. ') + 'Réglage propre à cette machine.', (D) => {
+    const f = D.d.f, ov = hubSrc(D.model, 'desktop_web', ['listen', 'allow_lan', 'enabled', 'url']), off = !dwServer() && !dwOn(f);
+    const bd = dwBandeau(); if (bd) p.appendChild(bd);
+    // Activation
+    const act = el('div');
+    act.appendChild(dwStatus());
+    p.appendChild(stBox('Activation', act, dwSwitch(f)));
+    // Adresses
+    const ec = el('span', 'stfont');
+    ec.append(dwLock(stInput(dwServer() ? (dwSnap().listen || '') : f.dweb, (v) => { f.dweb = v; }, DW_DEFAULT)),
+      (() => {
+        const c = stCheck(dwServer() ? !!dwSnap().lan : f.dweb_lan, 'Autoriser l\'accès depuis le réseau', (v) => { f.dweb_lan = v; stRenderFoot(); });
+        if (dwLocked()) { const k = c.querySelector('input'); if (k) { k.disabled = true; c.title = dwServer() ? DW_SRV : DW_RO; } }
+        return c;
+      })());
+    // adresse publique (#171) : affichée ; le champ éditable arrive au LOT-2.2
+    const pub = dwLock(stInput(dwServer() ? (dwSnap().url || '') : f.dweb_url, (v) => { f.dweb_url = v; }, '(aucune — accès direct)'));
+    const ad = stForm([
+      ['Écoute', ec, (dwLocked() ? (dwServer() ? DW_SRV : DW_RO) + ' · ' : 'off, un port (boucle locale) ou hôte:port · différente du serveur de maquettes · hors boucle locale : la case est obligatoire ; ' + (dwNoToken() ? 'sans jeton, toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en HTTP, préférer un tunnel SSH/TLS') + ' ') + ov],
+      ['Adresse publique', pub, (dwServer() ? 'fixée au lancement (--url, CL_WEB_URL) · ' : '') + 'http(s)://hôte[:port], sans chemin · derrière un proxy inverse en HTTPS : ce nom est admis, le cookie de session devient sécurisé · ' + hubSrc(D.model, 'desktop_web', ['url'])],
+    ]);
+    if (off) ad.classList.add('gris');
+    p.appendChild(stBox('Adresses', ad));
+    // Jeton
+    const tk = el('div', 'stfont');
+    tk.append(el('span', dwNoToken() ? 't-yellow' : 'dim', dwNoToken() ? 'Accès sans jeton : le réseau seul protège l\'interface, il n\'y a aucun jeton à régénérer.' : 'Un jeton par poste, jamais affiché ici.'));
+    const rg = stBtn('Régénérer le jeton', dwRegen);
+    if (dwLocked() || dwNoToken() || dwSnap().state !== 'on') { rg.disabled = true; rg.title = dwNoToken() ? 'accès sans jeton : aucun jeton à régénérer' : dwLocked() ? 'fenêtre native seulement' : 'interface web éteinte'; }
+    tk.append(rg);
+    const tb = stBox('Jeton d\'accès', tk); if (off || dwNoToken()) tb.classList.add('gris');
+    p.appendChild(tb);
+  });
+}
+
+function stPageMaq(p) {
+  const D0 = ST.docs.hub;
+  docPage(p, 'hub', 'Serveur de maquettes' + (D0 && D0.model ? ' — ' + D0.model.hub : ''), 'Sert les fichiers des projets au navigateur de ce poste, en lecture seule et sans jeton : maquettes, procédures de tests. Réglage propre à cette machine.', (D) => {
+    const m = D.model, f = D.d.f, t = D.d.txt, h = hubOv(m).hint;
+    if (isWebClient()) p.appendChild(el('p', 'stband ro', '🔒 ' + DW_RO + '.'));
+    const ln = dwNorm(f.listen);
+    const ec = stForm([
+      ['Écoute', dwRo(stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765')), (isWebClient() ? DW_RO : 'hôte:port, port seul, ou « off » pour l\'arrêter · différente de l\'interface web') + ' ' + hubSrc(m, 'browser_server', ['listen'])],
+      ['URL publiée', dwRo(stInput(f.url, (v) => { f.url = v; }, 'http://…')), 'adresse vue du navigateur ' + hubSrc(m, 'browser_server', ['url'])],
+      ['Accès autorisés', dwRo(stArea(t.allow, (v) => { t.allow = v; }, 2)), 'une adresse par ligne ' + hubSrc(m, 'browser_server', ['allow'])],
+    ]);
+    p.appendChild(stBox('Écoute', ec, el('span', ln ? 'dim' : 'dim', ln ? 'configuré sur ' + ln : '○ arrêté')));
+    p.appendChild(stBox('Chemins pour le navigateur', stForm([['Chemins', dwRo(stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3)), (isWebClient() ? DW_RO + ' · ' : '') + 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + h('browser_paths')]])));
+    p.appendChild(stBox('Navigateur apparié', stForm([['Navigateur', dwRo(stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur')), 'le Chrome de ce poste, reconnu par les sessions claude ' + h('browser_device')]])));
+  });
+}
 
 function stPageHub(p) {
   const D0 = ST.docs.hub;
@@ -854,7 +967,7 @@ function stPageHub(p) {
   docPage(p, 'hub', title, 'Réglages propres à cette machine. Les autres postes ne sont pas touchés.', (D) => {
     const m = D.model, d = D.d, t = d.txt, f = d.f;
     if (!m.present) p.appendChild(el('p', 'note', 'Aucune section pour ce poste dans backends.yaml : elle sera créée à l\'enregistrement.'));
-    const eff = m.effective || {}, over = Object.keys(eff).filter((k) => eff[k]);
+    const eff = m.effective || {}, over = Object.keys(eff).filter((k) => eff[k] && !HUB_EFF.includes(k));
     if (over.length) p.appendChild(el('p', 't-yellow', '⚠ Surcharges propres au système (' + m.goos + ') : ' + over.map((k) => k + ' (' + eff[k] + ')').join(', ') + ' — la valeur commune ci-dessous est ignorée sur ce poste pour ces clés ; la surcharge se modifie par « Éditer en YAML ».'));
     const ovHint = (k) => (eff[k] ? '⚠ surchargé par le système ' + eff[k] : '');
     // affichage
@@ -878,17 +991,6 @@ function stPageHub(p) {
     ])));
     // correspondance de chemins
     p.appendChild(stBox('Correspondance de chemins', stForm([['Chemins', stArea(t.paths, (v) => { t.paths = v; }, 3), 'un par ligne : chemin local => chemin dans le conteneur ' + ovHint('paths')]])));
-    // navigateur
-    const nav = stForm([
-      ['Chemins du navigateur', stArea(t.browser_paths, (v) => { t.browser_paths = v; }, 3), 'un par ligne : chemin du conteneur => chemin de ce poste [| système] ' + ovHint('browser_paths')],
-      ['Serveur web : écoute', dwRo(stInput(f.listen, (v) => { f.listen = v; }, '127.0.0.1:8765')), isWebClient() ? DW_RO : ovHint('browser_server')],
-      ['Interface web : écoute', dwListen(f), dwHint(ovHint('desktop_web'))],
-      ['Interface web : état', dwStatus(), ''],
-      ['Serveur web : URL', dwRo(stInput(f.url, (v) => { f.url = v; }, 'http://…')), 'adresse vue du navigateur'],
-      ['Serveur web : autorisés', dwRo(stArea(t.allow, (v) => { t.allow = v; }, 2)), 'une adresse par ligne'],
-      ['Navigateur (appariement)', stInput(f.browser_device, (v) => { f.browser_device = v; }, 'identifiant du navigateur'), ovHint('browser_device')],
-    ]);
-    p.appendChild(stBox('Navigateur', nav));
     // utilisateur distant, cache
     const ru = stForm([
       ['uid', stInput(f.uid, (v) => { f.uid = v; }, '', 'w'), ovHint('remote_user')], ['gid', stInput(f.gid, (v) => { f.gid = v; }, '', 'w')],

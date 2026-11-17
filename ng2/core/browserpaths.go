@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"claude-launcher-ng2/platform"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -132,10 +133,7 @@ func sortBrowserPaths(ps []BrowserPath) {
 }
 
 // hubName : nom de la machine du launcher, comparé aux clés de hubs:.
-func hubName() string {
-	h, _ := os.Hostname()
-	return h
-}
+func hubName() string { return platform.HostName() } // CL_HUB_NAME s'il est posé (#169)
 
 func pickHub(hubs map[string]hubConf, host string) (string, hubConf, bool) {
 	short, _, _ := strings.Cut(host, ".")

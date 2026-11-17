@@ -125,10 +125,11 @@ func (a *App) readTeamHead(path string) ([]TeamRow, *core.TeamHead) {
 	if t := a.term(path); t != nil {
 		lines = t.teamRows() // projet ouvert : depuis la mémoire du watcher
 	} else {
-		lines = core.TeamLines(core.ReadTeammates(path), path, nil, nil, a.conf().TeamHideIdle, time.Now().Unix())
+		lines = core.TeamLines(core.ReadTeammates(path), path, nil, nil, a.conf().HideIdleArg(), time.Now().Unix())
 	}
 	ti := core.ReadTplInfo(path)
 	lines, head := core.ApplyTeamHead(ti.Apply(lines), ti.Target)
+	head.HideIdle = a.conf().HideIdleState() // état du masquage : puce de la carte TEAM (#188)
 	rows := teamRows(lines)
 	teamCache.Lock()
 	teamCache.m[path] = teamEntry{time.Now(), rows, head}

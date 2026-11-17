@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"claude-launcher-ng2/platform"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -76,6 +77,11 @@ func secretEnv(k string) bool {
 }
 
 func settingsEnvKeysPath(dir string) string {
+	// liste des clés posées PAR LAUNCHER : un launcher ne retire que ce qu'il a lui-même posé (#176) ; sans
+	// CL_HUB_NAME, le fichier historique (v6.2.0)
+	if os.Getenv(platform.HubNameVar) != "" {
+		return filepath.Join(dir, "claude-launcher", "settings-env-"+HubNameSafe()+".json")
+	}
 	return filepath.Join(dir, "claude-launcher", "settings-env.json")
 }
 
@@ -83,6 +89,11 @@ func settingsEnvKeysPath(dir string) string {
 // n'écrit que si quelque chose change. Fichier illisible (JSON invalide) :
 // laissé tel quel. Une valeur secrète présente : fichier en 0600.
 func SyncSettingsEnv(dir string, vars []envVar) error {
+	// settings.json est commun à tous les launchers de la racine : lire-modifier-écrire sous verrou (#176)
+	return WithFileLock(filepath.Join(dir, "settings.json"), func() error { return syncSettingsEnv(dir, vars) })
+}
+
+func syncSettingsEnv(dir string, vars []envVar) error {
 	path := filepath.Join(dir, "settings.json")
 	doc := map[string]json.RawMessage{}
 	mode := os.FileMode(0o644)
@@ -156,13 +167,7 @@ func SyncSettingsEnv(dir string, vars []envVar) error {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return err
 		}
-		tmp := path + ".cl-tmp"
-		if err := os.WriteFile(tmp, append(out, '\n'), mode); err != nil {
-			return err
-		}
-		_ = os.Chmod(tmp, mode)
-		if err := os.Rename(tmp, path); err != nil {
-			_ = os.Remove(tmp)
+		if err := WriteFileAtomic(path, append(out, '\n'), mode); err != nil {
 			return err
 		}
 	}
@@ -176,7 +181,7 @@ func SyncSettingsEnv(dir string, vars []envVar) error {
 		if err := os.MkdirAll(filepath.Dir(settingsEnvKeysPath(dir)), 0o755); err != nil {
 			return err
 		}
-		return os.WriteFile(settingsEnvKeysPath(dir), b, 0o644)
+		return WriteFileAtomic(settingsEnvKeysPath(dir), b, 0o644)
 	}
 	return nil
 }

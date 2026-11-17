@@ -72,6 +72,7 @@ type App struct {
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
 	projSet    atomic.Pointer[map[string]bool] // projets de l'arbre (chemins), lisible sans a.mu
 	liveSnap   atomic.Pointer[map[string]bool] // projets dont la session vit dans un conteneur (autre launcher compris)
+	ready      atomic.Bool                     // chargement initial fini (/readyz) : arbre des projets disponible
 	web        bool                            // servi à un navigateur (--web) : jamais le presse-papiers de cette machine
 	openTabs   sync.Map                        // projets ouverts (chemin → true), lisible sans a.mu
 	forceAsked sync.Map                        // fermetures forcées dont la question est posée (#158)
@@ -238,6 +239,7 @@ func (a *App) Start() {
 		if a.treeCached {
 			a.perf.time("parcours", a.rescan)
 		}
+		a.ready.Store(true) // l'arbre des projets est à jour : l'application répond (/readyz)
 		a.perf.time("git", a.gitAll)
 		a.perf.write(len(a.projectPaths()))
 		a.changed()
@@ -292,6 +294,11 @@ func (a *App) Stop() {
 		go func(t *projTerm) { defer wg.Done(); t.detach() }(t)
 	}
 	wg.Wait()
+	if a.mgr != nil {
+		// gestionnaire d'état : son watcher fsnotify (instance inotify du quota de l'utilisateur) est fermé tout de suite ;
+		// l'attente d'un calcul en cours se fait à côté, sans retarder l'arrêt de l'interface
+		go a.mgr.Stop()
+	}
 }
 
 // everyTimed : every, la première exécution mesurée (journal #125).
@@ -351,7 +358,7 @@ func (a *App) emitter() {
 // ── Relectures ────────────────────────────────────────────────────────────
 
 func (a *App) treeLoop() {
-	ch := core.WatchTree(a.conf().Roots)
+	ch := core.WatchTreeUntil(a.conf().Roots, a.quit) // arrêtée avec l'App : son instance inotify est rendue
 	for {
 		select {
 		case <-a.quit:
@@ -644,6 +651,8 @@ type Alert struct {
 	Text  string `json:"text"`  // sans le ✕
 	Color string `json:"color"` // green, yellow, orange
 	Click bool   `json:"click"` // un clic agit (installer, adopter, réessayer)
+	// Notify : annonce seulement (CL_UPDATE_MODE=notify) : mise à jour par l'image, aucun bouton (#167)
+	Notify bool `json:"notify,omitempty"`
 }
 
 // UsageRow : une ligne de consommation.
@@ -798,6 +807,8 @@ func (a *App) alerts() []Alert {
 		al := Alert{Kind: "launcher", Color: "orange"}
 		tag := u.newLauncher
 		switch {
+		case core.UpdateNotifyOnly():
+			al.Text, al.Notify = "↑ NG "+tag+" disponible · mise à jour par l'image", true
 		case u.updating:
 			al.Text, al.Color = "↑ NG "+tag+" : installation…", "green"
 		case u.launcherOK:

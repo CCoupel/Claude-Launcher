@@ -1,0 +1,63 @@
+{{- if .Values.volume.create.enabled }}
+{{- $claim := .Values.volume.existingClaim }}
+{{- $pv := .Values.volume.create.persistentVolume }}
+{{- $sc := .Values.volume.create.storageClassName }}
+{{- $pvName := $pv.name }}
+{{- /* liaison statique (storageClassName "") : le PV est TOUJOURS nommé, sinon le PVC se lierait à n'importe quel PV RWX libre */ -}}
+{{- if and (eq $sc "") (not $pvName) }}
+{{- fail "volume.create.persistentVolume.name est obligatoire avec volume.create.enabled et storageClassName \"\" : nom du PV auquel lier le PVC (créé par l'administrateur, ou par le chart si persistentVolume.enabled) — sans lui, le PVC se lierait à n'importe quel PV libre" }}
+{{- end }}
+{{- if and (ne $sc "") (or $pvName $pv.enabled) }}
+{{- fail "volume.create : storageClassName (provisionnement dynamique) et persistentVolume (PV statique) sont exclusifs" }}
+{{- end }}
+{{- if $pv.enabled }}
+{{- if not $pv.source }}
+{{- fail "volume.create.persistentVolume.source est vide : recopier la source du PV de PROD (kubectl get pv claude-projets-pv -o yaml : bloc csi / nfs / hostPath…), chemin remplacé par rootBase" }}
+{{- end }}
+{{- range $k, $_ := $pv.source }}
+{{- if has $k (list "capacity" "accessModes" "claimRef" "persistentVolumeReclaimPolicy" "storageClassName" "volumeMode") }}
+{{- fail (printf "volume.create.persistentVolume.source : %s est posé par le chart, ne donner que la source du volume" $k) }}
+{{- end }}
+{{- end }}
+# PV statique vers le dossier de la racine (objet du cluster) : jamais supprimé (Retain + resource-policy keep)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: {{ $pvName }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  capacity:
+    storage: {{ .Values.volume.create.storage }}
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: {{ .Values.volume.create.storageClassName | quote }}
+  volumeMode: Filesystem
+  claimRef:
+    namespace: {{ .Release.Namespace }}
+    name: {{ $claim }}
+  {{- toYaml $pv.source | nindent 2 }}
+---
+{{- end }}
+# PVC de la racine : conservé à la désinstallation (les fichiers des projets y sont)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $claim }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: {{ .Values.volume.create.storageClassName | quote }}
+  resources:
+    requests:
+      storage: {{ .Values.volume.create.storage }}
+  {{- if eq $sc "" }}
+  # liaison explicite au PV statique : créé par le chart (persistentVolume.enabled) ou par l'administrateur (name seul)
+  volumeName: {{ $pvName }}
+  {{- end }}
+{{- end }}

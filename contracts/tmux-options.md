@@ -43,7 +43,8 @@ Valeur : entrées séparées par un espace, `<pane>:<mode>`, par exemple `%7:h %
 | `h` | caché à la main | double-clic sur un inactif visible | le teammate redevient actif, ou second double-clic |
 | `s` | visible fixé | double-clic sur un inactif caché | second double-clic (l'entrée passe à `h`), ou le teammate redevient actif |
 
-- Absence d'entrée : règle automatique (caché après `TEAM_HIDE_IDLE` secondes d'inactivité ; 0 = jamais).
+- Absence d'entrée : règle automatique (caché après `TEAM_HIDE_IDLE` secondes d'inactivité ; 0 = jamais ; jamais non
+  plus quand le masquage est désactivé — `TEAM_HIDE_IDLE_ENABLED=0`, #188, voir « Masquage désactivé »).
 - Une entrée dont le pane n'existe plus est retirée par le launcher qui a la main.
 - Écriture : par un launcher **qui a la main** sur le projet ; un launcher en lecture seule refuse la bascule
   (message à l'utilisateur) et n'écrit rien.
@@ -60,8 +61,9 @@ de launcher.
 1. Leader, agent `cdp`, pane sans agent : toujours visible.
 2. Teammate actif : toujours visible — ramené s'il était caché ; ses entrées `@cl_panevis` et `@cl_idle_at` sont
    retirées.
-3. Teammate inactif avec `s` : visible. Avec `h` : caché.
-4. Teammate inactif sans entrée : caché si `TEAM_HIDE_IDLE > 0` et inactif depuis au moins ce délai, sauf s'il a
+3. Teammate inactif avec `s` : visible. Avec `h` : caché — **sauf masquage désactivé** (#188) : visible.
+4. Teammate inactif sans entrée : caché si le masquage est activé (`TEAM_HIDE_IDLE_ENABLED`, #188), si
+   `TEAM_HIDE_IDLE > 0` et inactif depuis au moins ce délai, sauf s'il a
    le focus clavier ; visible sinon.
 
 Après chaque changement, les panes visibles sont remis en page par la règle existante (`Classify`, `ArrangeTeam`).
@@ -106,3 +108,28 @@ valeurs. L'interface native dessine ses propres en-têtes (`layout.panes[].state
   un état figé (dernière valeur posée) : limite connue, corrigée dès qu'un launcher v6.2.0 reprend la main.
 - Ligne de titre : chaque pane perd une ligne ; la géométrie reçue par l'interface native (client en mode
   contrôle) change d'autant — couvert par les tests de `ui/desktop` (lecture de la mise en page).
+
+## v6.3.0 — Masquage désactivé (`TEAM_HIDE_IDLE_ENABLED=0`, #188)
+
+Le masquage des teammates inactifs se désactive sans perdre le délai : clé `TEAM_HIDE_IDLE_ENABLED` de `config.conf`
+(`1` par défaut, `0` = désactivé), à côté de `TEAM_HIDE_IDLE` qui garde le délai.
+
+| `TEAM_HIDE_IDLE_ENABLED` | `TEAM_HIDE_IDLE` | Masquage automatique | Masquage à la main (double-clic) |
+|--------------------------|------------------|----------------------|----------------------------------|
+| absent ou `1` | `> 0` | après le délai (inchangé) | permis (inchangé) |
+| absent ou `1` | `0` | jamais (inchangé) | permis (inchangé) |
+| `0` | quelconque, conservé | **jamais** | **refusé** |
+
+Quand le masquage est désactivé, le launcher **qui a la main** sur le projet :
+
+- ne cache aucun teammate : tout pane de la réserve `cl-hidden` rattaché au projet est ramené dans sa fenêtre au
+  tour suivant de la règle, sans relance ;
+- retire les entrées `h` de `@cl_panevis` (les entrées `s` restent, sans effet) ;
+- refuse la bascule qui cacherait un teammate (message à l'utilisateur), et n'écrit rien ;
+- continue de tenir `@cl_idle_at`.
+
+Au rallumage, la règle automatique reprend avec le délai conservé, compté depuis `@cl_idle_at` : un teammate inactif
+depuis plus longtemps que le délai est caché dès le tour suivant.
+
+Un launcher en lecture seule n'écrit rien et affiche l'état reçu. Un launcher antérieur ignore la clé et applique
+l'ancienne règle aux projets dont il a la main.

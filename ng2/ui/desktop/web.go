@@ -5,6 +5,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -13,11 +14,13 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -43,6 +46,12 @@ type webBridge struct {
 	// hosts : noms admis dans l'en-tête Host (serveur de la fenêtre native, #163) ; nil : règle
 	// strictHost du mode --web
 	hosts map[string]bool
+	// public : adresse publique derrière un proxy inverse (#171) ; nil : aucune. Son nom d'hôte est admis dans
+	// Host (sur son port), son origine exacte dans Origin, https y rend le cookie Secure. Aucun en-tête
+	// X-Forwarded-*, Forwarded ni X-Real-IP n'est lu : le schéma et l'hôte publics ne viennent que de là.
+	public *core.PublicURL
+	// access : « none » — aucun jeton, aucune session, aucun cookie (LOT-4.4) ; "" ou « token » : jeton, session, cookie
+	access string
 
 	mu       sync.Mutex           // jeton et sessions (authentification, appels)
 	sessions map[string]time.Time // identifiants de session en mémoire → dernier usage (le cookie porte l'un d'eux, jamais le jeton)
@@ -91,6 +100,12 @@ func (w *webBridge) revokeAll() {
 // cookieName : « cl_session_<port> » — un cookie ne distingue pas les ports d'un même hôte, le
 // nom évite les collisions entre deux serveurs de l'interface de la machine.
 func (w *webBridge) cookieName(r *http.Request) string {
+	// adresse publique en https : préfixe __Host- (le navigateur exige Secure, Path=/ et aucun Domain : un
+	// cookie posé par un sous-domaine voisin ne peut pas le remplacer)
+	prefix := ""
+	if w.public != nil && w.public.HTTPS() {
+		prefix = "__Host-"
+	}
 	port := w.port
 	if port == "" {
 		if _, p, err := net.SplitHostPort(r.Host); err == nil {
@@ -98,9 +113,9 @@ func (w *webBridge) cookieName(r *http.Request) string {
 		}
 	}
 	if port == "" {
-		return "cl_session"
+		return prefix + "cl_session"
 	}
-	return "cl_session_" + port
+	return prefix + "cl_session_" + port
 }
 
 func (w *webBridge) newSession() string {
@@ -220,6 +235,9 @@ func (w *webBridge) emit(name string, data any) {
 // jeton de l'URL. Les appels (/api/call, /api/events) n'acceptent que le cookie :
 // le jeton d'une URL traîne dans l'historique, les journaux et l'en-tête Referer.
 func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
+	if w.access == core.AccessNone { // aucun jeton : l'accès repose sur l'écoute, l'Ingress et les contrôles Host / origine / JSON
+		return true
+	}
 	if c, err := r.Cookie(w.cookieName(r)); err == nil && c.Value != "" && w.validSession(c.Value) {
 		return true
 	}
@@ -230,9 +248,23 @@ func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
 // celui du serveur (même schéma, hôte et port). Une page d'un autre port de la
 // machine — serveur de maquettes, serveur de développement d'un projet — est du
 // même « site » : SameSite=Strict ne la retient pas.
-func sameOrigin(r *http.Request) bool {
+func (w *webBridge) sameOrigin(r *http.Request) bool {
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "cross-site": // le navigateur déclare une requête d'un autre site : refusée (les deux modes)
+		return false
+	case "same-site": // un autre sous-domaine du même site : refusé en mode « none » (aucun jeton ne le distingue)
+		if w.access == core.AccessNone {
+			return false
+		}
+	} // same-origin, none (navigation de l'utilisateur) ou absent : règles habituelles (Origin, corps JSON)
 	o := r.Header.Get("Origin")
-	return o == "" || strings.EqualFold(o, "http://"+r.Host)
+	if o == "" {
+		return true
+	}
+	if w.public != nil && w.public.MatchesHost(r.Host) { // hôte public : l'origine de l'adresse publique, exactement
+		return strings.EqualFold(o, w.public.Origin)
+	}
+	return strings.EqualFold(o, "http://"+r.Host)
 }
 
 // jsonRequest : le corps est annoncé en JSON. Une requête « simple » (text/plain,
@@ -244,6 +276,9 @@ func jsonRequest(r *http.Request) bool {
 
 // hostOK : l'en-tête Host désigne bien la boucle locale (et le port d'écoute).
 func (w *webBridge) hostOK(r *http.Request) bool {
+	if w.public != nil && w.public.MatchesHost(r.Host) { // nom de l'adresse publique, sur son port
+		return true
+	}
 	if w.hosts != nil {
 		return w.hostAllowed(r)
 	}
@@ -265,8 +300,21 @@ func (w *webBridge) hostOK(r *http.Request) bool {
 // secured : contrôle de l'en-tête Host et en-têtes de sécurité de toutes les réponses.
 func (w *webBridge) secured(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		// sondes du cluster : sans session, SANS contrôle de Host (elles appellent l'adresse du pod), et sans aucune
+		// information (ni version, ni nom, ni état des projets)
+		if (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
+			rw.Header().Set("Cache-Control", "no-store")
+			rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			if r.URL.Path == "/readyz" && w.app != nil && !w.app.ready.Load() {
+				rw.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = io.WriteString(rw, "starting\n")
+				return
+			}
+			_, _ = io.WriteString(rw, "ok\n")
+			return
+		}
 		if !w.hostOK(r) {
-			http.Error(rw, "hôte refusé", http.StatusForbidden)
+			refuse(rw, "host", "hôte refusé")
 			return
 		}
 		h := rw.Header()
@@ -278,26 +326,56 @@ func (w *webBridge) secured(next http.Handler) http.Handler {
 	})
 }
 
+// refuse : 403 dont la cause se lit dans l'en-tête X-Launcher-Refusal (host, origin, session, method) et dans le
+// corps : l'interface distingue une session perdue d'un refus d'hôte ou d'origine (#171).
+func refuse(rw http.ResponseWriter, kind, msg string) {
+	rw.Header().Set("X-Launcher-Refusal", kind)
+	http.Error(rw, msg, http.StatusForbidden)
+}
+
 func (w *webBridge) handler() http.Handler {
 	mux := http.NewServeMux()
 	assets, _ := fs.Sub(frontendFS, "frontend")
 	files := http.FileServer(http.FS(assets))
 	mux.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			if !w.authorized(r, true) {
-				http.Error(rw, "jeton manquant : ouvrir l'URL affichée au lancement", http.StatusForbidden)
+			_, hasToken := r.URL.Query()["t"]
+			if w.access == core.AccessNone { // aucun jeton : « /?t=… » (ancien lien) aboutit sur l'interface, sans cookie
+				if hasToken {
+					rw.Header().Set("Cache-Control", "no-store")
+					http.Redirect(rw, r, "/", http.StatusSeeOther)
+					return
+				}
+			} else if !w.authorized(r, true) {
+				refuse(rw, "session", "jeton manquant ou invalide : ouvrir l'URL affichée au lancement")
 				return
 			}
-			// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire,
-			// révoqué à l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton
-			http.SetCookie(rw, &http.Cookie{Name: w.cookieName(r), Value: w.newSession(), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
+			if hasToken && w.access != core.AccessNone {
+				// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire, révoqué à
+				// l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton. Aucune page
+				// n'est servie sur une URL qui porte le jeton (historique, journaux, Referer) : 303 vers « / ».
+				if subtle.ConstantTimeCompare([]byte(r.URL.Query().Get("t")), []byte(w.tokenNow())) == 1 {
+					http.SetCookie(rw, &http.Cookie{Name: w.cookieName(r), Value: w.newSession(), Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode,
+						Secure: w.public != nil && w.public.HTTPS()}) // https public : le navigateur ne renvoie le cookie qu'en HTTPS
+				}
+				rw.Header().Set("Cache-Control", "no-store")
+				http.Redirect(rw, r, "/", http.StatusSeeOther)
+				return
+			}
 		}
 		rw.Header().Set("Cache-Control", "no-store")
 		files.ServeHTTP(rw, r)
 	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || !w.authorized(r, false) || !sameOrigin(r) {
-			http.Error(rw, "refusé", http.StatusForbidden)
+		switch {
+		case r.Method != http.MethodPost:
+			refuse(rw, "method", "méthode refusée")
+			return
+		case !w.authorized(r, false):
+			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
+			return
+		case !w.sameOrigin(r):
+			refuse(rw, "origin", "origine refusée")
 			return
 		}
 		if !jsonRequest(r) {
@@ -322,8 +400,12 @@ func (w *webBridge) handler() http.Handler {
 		_ = json.NewEncoder(rw).Encode(out)
 	})
 	mux.HandleFunc("/api/events", func(rw http.ResponseWriter, r *http.Request) {
-		if !w.authorized(r, false) || !sameOrigin(r) {
-			http.Error(rw, "refusé", http.StatusForbidden)
+		switch {
+		case !w.authorized(r, false):
+			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
+			return
+		case !w.sameOrigin(r):
+			refuse(rw, "origin", "origine refusée")
 			return
 		}
 		rc := http.NewResponseController(rw)
@@ -343,7 +425,8 @@ func (w *webBridge) handler() http.Handler {
 			sid = c.Value
 		}
 		rw.Header().Set("Content-Type", "text/event-stream")
-		rw.Header().Set("Cache-Control", "no-store")
+		rw.Header().Set("Cache-Control", "no-store, no-transform") // un proxy ne met ni en tampon ni ne transforme le flux
+		rw.Header().Set("X-Accel-Buffering", "no")
 		ch := make(chan []byte, 4096)
 		w.subMu.Lock()
 		if w.subSess == nil {
@@ -380,7 +463,7 @@ func (w *webBridge) handler() http.Handler {
 			case <-r.Context().Done():
 				return
 			case <-check.C:
-				if !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
+				if w.access != core.AccessNone && !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
 					return
 				}
 			case <-ping.C:
@@ -425,8 +508,34 @@ func newHTTPServer(h http.Handler) *http.Server {
 // ouvrir le navigateur par défaut. Bloque jusqu'à la sortie.
 func RunWeb(addr string, open bool) error {
 	w := &webBridge{token: newToken(), subs: map[chan []byte]bool{}}
-	if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" { // tests
+	// adresse publique : --url > CL_WEB_URL > desktop_web.url ; invalide : le serveur ne démarre pas
+	c, _ := core.DesktopWebSetting() // c.URL : desktop_web.url, même quand l'interface de la fenêtre est éteinte
+	pub, _, perr := effectivePublicURL(c)
+	if perr != nil {
+		return perr
+	}
+	w.public = pub
+	// mode d'accès : CL_WEB_ACCESS > desktop_web.access > token ; valeur inconnue : le serveur ne démarre pas
+	access, aerr := core.EffectiveWebAccess(c)
+	if aerr != nil {
+		return aerr
+	}
+	w.access = access
+	// jeton (mode « token » seulement) : CL_DESKTOP_TOKEN, sinon — dans un pod — le jeton conservé (il ne change plus à
+	// chaque redémarrage du pod : un lien déjà distribué reste valable) ; hors cluster, toujours un nouveau jeton (#167).
+	// Mode « none » : aucun jeton n'est tiré, lu ni écrit ; CL_DESKTOP_TOKEN est ignoré.
+	if access == core.AccessNone {
+		w.token = ""
+		removeDesktopWebToken() // le fichier d'un mode « token » précédent ne reste pas sur le volume (#F3)
+	} else if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" {
 		w.token = t
+	} else if core.InCluster() {
+		if t, err := desktopWebToken(); t != "" {
+			w.token = t
+			if err != nil {
+				fmt.Fprintln(os.Stderr, "⚠ "+err.Error())
+			}
+		}
 	}
 	a := NewApp(w.emit)
 	a.web = true // le presse-papiers de cette machine n'est jamais exposé à un client web
@@ -436,12 +545,60 @@ func RunWeb(addr string, open bool) error {
 	if err != nil {
 		return err
 	}
-	if warn := w.configureListener(ln); warn != "" {
+	warn := w.configureListener(ln)
+	if m := core.AccessNoneRefusal(access, w.strictHost, w.public); m != "" { // garde du mode « none »
+		_ = ln.Close()
+		return errors.New(m)
+	}
+	if warn != "" && !core.InCluster() { // en pod, l'écoute sur toutes les interfaces derrière l'Ingress est voulue
 		fmt.Println("⚠ " + warn)
 	}
+	// mode serveur : l'interface est le processus lui-même, toujours « on » ; le commutateur desktop_web.enabled
+	// ne s'y applique pas (#183)
+	a.webui.mu.Lock()
+	a.webui.state = WebUIState{State: "on", Listen: ln.Addr().String(), Lan: !w.strictHost, Warn: warn, Enabled: true, Server: true, URL: publicOrigin(w.public), Access: access}
+	a.webui.mu.Unlock()
 	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.tokenNow())
-	fmt.Println("Claude Launcher (interface web) :", url)
-	fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
+	if w.public != nil {
+		url = w.public.Origin + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
+	}
+	if access == core.AccessNone { // aucun jeton : l'adresse seule s'ouvre directement
+		url = "http://" + ln.Addr().String() + "/"
+		if w.public != nil {
+			url = w.public.Origin + "/"
+		}
+	}
+	if access == core.AccessNone {
+		// aucun jeton : l'adresse seule (dans un pod la sortie part dans les journaux, sans rien de secret)
+		base := "http://" + ln.Addr().String()
+		if w.public != nil {
+			base = w.public.Origin
+		}
+		fmt.Println("Claude Launcher (interface web) :", base+"/")
+		fmt.Println("Accès sans jeton (CL_WEB_ACCESS=none) : l'accès repose sur l'écoute locale ou sur l'adresse publique https (Ingress, liste d'adresses).")
+		if core.InCluster() {
+			fmt.Println("Arrêt par SIGTERM : serveur fermé, terminaux détachés ; les projets restent ouverts dans leurs pods.")
+		} else {
+			fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
+		}
+	} else if core.InCluster() {
+		// en pod, la sortie standard part dans les journaux (pods/log, collecte) : jamais le jeton. L'adresse est
+		// donnée sans jeton, avec l'endroit où le lire.
+		base := "http://" + ln.Addr().String()
+		if w.public != nil {
+			base = w.public.Origin
+		}
+		fmt.Println("Claude Launcher (mode serveur) :", base+"/")
+		if os.Getenv("CL_DESKTOP_TOKEN") != "" {
+			fmt.Println("Jeton d'accès : fourni par CL_DESKTOP_TOKEN ; lien d'amorçage : " + base + "/?t=<jeton>")
+		} else {
+			fmt.Println("Jeton d'accès : à lire dans " + desktopWebTokenPath() + " (conservé d'un démarrage à l'autre) ; lien d'amorçage : " + base + "/?t=<jeton>")
+		}
+		fmt.Println("Arrêt par SIGTERM : serveur fermé, terminaux détachés ; les projets restent ouverts dans leurs pods.")
+	} else {
+		fmt.Println("Claude Launcher (interface web) :", url)
+		fmt.Println("Ctrl+C pour arrêter (les sessions des projets continuent dans tmux).")
+	}
 	srv := newHTTPServer(w.handler())
 	done := make(chan struct{})
 	quitHook = func() {
@@ -454,6 +611,9 @@ func RunWeb(addr string, open bool) error {
 		_ = srv.Serve(ln)
 		close(done)
 	}()
+	// SIGTERM (arrêt d'un pod) et SIGINT : arrêt propre — serveur fermé, terminaux détachés (a.Stop après <-done),
+	// code 0 ; les projets restent ouverts dans leurs pods / tmux (#167)
+	defer onSignalOnce(func() { _ = srv.Close() }, syscall.SIGTERM, os.Interrupt)()
 	// mise à jour installée : même adresse et même jeton pour le nouveau
 	// binaire, port libéré avant de le lancer ; l'onglet ouvert se reconnecte
 	// (flux d'événements) au lieu d'en ouvrir un second
@@ -461,12 +621,14 @@ func RunWeb(addr string, open bool) error {
 		bound := ln.Addr().String()
 		_ = srv.Close()
 		a.Stop()
-		if err := relaunch("desktop", "--web", "--addr", bound, "--no-open"); err != nil {
+		if err := relaunch(relaunchArgs(bound)...); err != nil {
 			fmt.Fprintln(os.Stderr, "relance impossible :", err)
 		}
 		os.Exit(0)
 	}
-	restartEnv = []string{"CL_DESKTOP_TOKEN=" + w.token}
+	if access != core.AccessNone {
+		restartEnv = []string{"CL_DESKTOP_TOKEN=" + w.token}
+	}
 	a.Start()
 	if open {
 		openURL(url)
@@ -474,6 +636,26 @@ func RunWeb(addr string, open bool) error {
 	<-done
 	a.Stop()
 	return nil
+}
+
+// onSignalOnce : exécute fn au PREMIER des signaux sigs, puis rend leur traitement au système (signal.Stop) : un second
+// signal tue le processus (abréger un arrêt lent). Rend la fonction qui retire la veille.
+func onSignalOnce(fn func(), sigs ...os.Signal) (stop func()) {
+	ch := make(chan os.Signal, 1)
+	signal.Notify(ch, sigs...)
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ch:
+			// la place du launcher est rendue TOUT DE SUITE (avant l'arrêt, parfois lent) : un arrêt qui finit en SIGKILL
+			// ne laisse pas de témoin de présence, le successeur du même nom démarre sans attendre
+			core.ReleasePresence()
+			signal.Stop(ch) // traitement par défaut rétabli : le prochain signal est fatal
+			fn()
+		case <-done:
+		}
+	}()
+	return func() { signal.Stop(ch); close(done) }
 }
 
 func openURL(url string) {

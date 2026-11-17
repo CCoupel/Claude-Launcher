@@ -60,12 +60,16 @@ type BackendsModel struct {
 	Pools    []PoolEntry    `json:"pools"`
 	Defaults DefaultsEntry  `json:"defaults"`
 	Images   []string       `json:"images"`
+	// InCluster : ce launcher tourne dans un pod ; PodNamespace : le namespace du pod ("" hors cluster) — libellés
+	// de l'interface (backend k8s : ServiceAccount du pod, namespace implicite, #168)
+	InCluster    bool   `json:"inCluster"`
+	PodNamespace string `json:"podNamespace"`
 }
 
 // ReadBackendsModel : modèle du contenu de backends.yaml (même décodage que le
 // chargement : mêmes types, mêmes erreurs). Contenu vide : modèle vide.
 func ReadBackendsModel(content []byte) (BackendsModel, error) {
-	m := BackendsModel{Backends: []BackendEntry{}, Pools: []PoolEntry{}, Images: []string{}}
+	m := BackendsModel{Backends: []BackendEntry{}, Pools: []PoolEntry{}, Images: []string{}, InCluster: InCluster(), PodNamespace: PodNamespace()}
 	var f backendsFile
 	if err := yaml.Unmarshal(content, &f); err != nil {
 		return m, fmt.Errorf("backends.yaml : %w", err)

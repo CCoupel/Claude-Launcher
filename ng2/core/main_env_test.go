@@ -14,6 +14,7 @@ func TestMain(m *testing.M) {
 		panic(err)
 	}
 	os.Setenv("CLAUDE_CONFIG_DIR", d)
+	os.Setenv("CL_IN_CLUSTER", "0") // le conteneur de développement est lui-même un pod : jamais de refus du backend host (#169)
 	// pas d'interrogation des vrais moteurs locaux depuis leaderAliveIn
 	LocalCtrHosts = func() map[string]bool { return nil }
 	code := m.Run()

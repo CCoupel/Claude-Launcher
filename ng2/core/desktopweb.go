@@ -4,10 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"net/url"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
 
+	"golang.org/x/net/idna"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,12 +27,33 @@ type DesktopWeb struct {
 	// AllowLAN : confirmation explicite d'une écoute hors de la boucle locale (HTTP en clair,
 	// jeton = contrôle du poste) ; sans elle, un listen non loopback est refusé
 	AllowLAN *bool `yaml:"allow_lan" json:"allow_lan,omitempty"`
+	// Enabled : commutateur (#183). Absent : v6.2.0 (allumée si listen est renseigné) ; false : éteinte, listen
+	// conservé ; true : allumée, listen obligatoire.
+	Enabled *bool `yaml:"enabled" json:"enabled,omitempty"`
+	// URL : adresse publique derrière un proxy inverse (#171) : http(s)://hôte[:port], sans chemin
+	// (PublicURL). Admise dans Host et Origin ; https → cookie Secure. Jamais d'en-tête X-Forwarded-* lu.
+	URL string `yaml:"url" json:"url,omitempty"`
+	// Access : mode d'accès de l'interface web (#LOT-4.4) : « token » (défaut : jeton, session, cookie) ou « none »
+	// (aucun jeton ni cookie ; exige une écoute en boucle locale ou une adresse publique https).
+	Access string `yaml:"access" json:"access,omitempty"`
 }
 
 // DesktopWebConf : réglage effectif.
 type DesktopWebConf struct {
-	Off       bool
-	Listen    string // hôte:port d'écoute (vide si Off)
+	Off    bool
+	Listen string // hôte:port d'écoute (vide si Off)
+	// Enabled : valeur effective du commutateur (#183) ; Kept : adresse saisie gardée quand le commutateur est
+	// éteint (SavedListen telle qu'écrite dans le fichier : « 8787 », « off », « hôte:port »…).
+	Enabled bool
+	Kept    string
+	// ExplicitOff : desktop_web.enabled vaut explicitement false (≠ listen: off ou rien, libellé v6.2.0)
+	ExplicitOff bool
+	// Access : desktop_web.access tel que posé dans les fichiers ("" : absent) ; le mode effectif (variable
+	// CL_WEB_ACCESS comprise) est rendu par EffectiveWebAccess
+	Access string
+	// URL : adresse publique posée dans les fichiers (brute, validée par ParsePublicURL par l'appelant : l'option
+	// --url et la variable CL_WEB_URL la précèdent) ; renseignée même quand l'interface est éteinte
+	URL       string
 	Loopback  bool   // l'hôte d'écoute est la boucle locale
 	Source    string // bloc d'où vient le réglage
 	ListenSrc string
@@ -42,6 +66,8 @@ type DesktopWebConf struct {
 func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, error) {
 	listen, src := "", "défaut"
 	var allowLAN bool
+	var enabled *bool
+	var pubURL, access string
 	merge := func(d *DesktopWeb, blk string) { // champ par champ : la machine l'emporte sur les défauts
 		if d == nil {
 			return
@@ -52,6 +78,15 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 		if d.AllowLAN != nil {
 			allowLAN = *d.AllowLAN
 		}
+		if d.Enabled != nil {
+			enabled = d.Enabled
+		}
+		if d.URL != "" {
+			pubURL = d.URL
+		}
+		if d.Access != "" {
+			access = d.Access
+		}
 	}
 	merge(f.Defaults.DesktopWeb, "defaults.desktop_web")
 	v := pickHubOS(f.Hubs, host, goos)
@@ -61,30 +96,58 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 	if v.ov != nil {
 		merge(v.ov.DesktopWeb, v.src("desktop_web", true))
 	}
-	c := DesktopWebConf{Source: src, ListenSrc: src}
+	c := DesktopWebConf{Source: src, ListenSrc: src, URL: strings.TrimSpace(pubURL), Access: strings.TrimSpace(access)}
+	if a := c.Access; a != "" && a != AccessToken && a != AccessNone {
+		return DesktopWebConf{Off: true, Source: src, ListenSrc: src, URL: c.URL, Access: a}, fmt.Errorf("%s : access %q inconnu (token ou none attendu)", src, a)
+	}
 	listen = strings.TrimSpace(listen)
-	if listen == "" || isOff(listen) {
+	noListen := listen == "" || isOff(listen)
+	// table enabled × listen (contracts/desktop-web.md) : absent → v6.2.0 ; false → éteinte, adresse gardée ;
+	// true sans adresse → erreur de réglage
+	switch {
+	case enabled != nil && !*enabled:
+		c.Off, c.Kept, c.ExplicitOff = true, listen, true
+		if noListen {
+			c.Kept = ""
+		}
+		return c, nil
+	case enabled != nil && noListen:
+		c.Enabled, c.Off = true, true
+		return c, fmt.Errorf("%s : interface web activée sans adresse d'écoute", src)
+	case noListen:
 		c.Off = true
 		return c, nil
 	}
+	c.Enabled = true
 	if !strings.Contains(listen, ":") {
 		listen = "127.0.0.1:" + listen // port seul : boucle locale
 	}
 	h, port, err := net.SplitHostPort(listen)
 	if n, e := strconv.Atoi(port); err != nil || e != nil || n < 1 || n > 65535 {
-		return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf("%s %q : off, un port ou hôte:port attendu", src, listen)
+		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src, URL: c.URL}, fmt.Errorf("%s %q : off, un port ou hôte:port attendu", src, listen)
 	}
 	c.Listen, c.Loopback = listen, isLoopback(h)
 	if bs, err := resolveBrowserServerFor(f, host, goos); err == nil && !bs.Off && sameListen(bs.Listen, listen) {
-		return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf(
+		return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src, URL: c.URL}, fmt.Errorf(
 			"%s %q est aussi l'adresse de browser_server (%s) : deux serveurs distincts (fichiers en lecture seule sans jeton / interface complète avec jeton) — choisir un autre port", src, listen, bs.ListenSrc)
 	}
 	if !c.Loopback {
 		if !allowLAN {
-			return DesktopWebConf{Off: true, Source: src, ListenSrc: src}, fmt.Errorf(
+			return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src, URL: c.URL}, fmt.Errorf(
 				"%s %q : écoute hors de la boucle locale refusée sans confirmation — l'interface complète (projets, terminaux) serait atteignable depuis le réseau, en HTTP clair, protégée par un jeton seulement ; ajouter allow_lan: true à desktop_web pour l'accepter (accès par le nom de la machine ; sur une écoute 0.0.0.0 ou ::, l'adresse IP est refusée par le contrôle de Host)", src, listen)
 		}
 		c.Warn = LANWarning(listen)
+	}
+	// mode « none » posé dans les fichiers : garde (boucle locale, ou adresse publique https) — la variable CL_WEB_ACCESS
+	// est contrôlée au démarrage du serveur avec l'adresse publique effective (--url, CL_WEB_URL)
+	if c.Access == AccessNone {
+		var pub *PublicURL
+		if p, perr := ParsePublicURL(c.URL); perr == nil && c.URL != "" {
+			pub = &p
+		}
+		if m := AccessNoneRefusal(AccessNone, c.Loopback, pub); m != "" {
+			return DesktopWebConf{Off: true, Enabled: true, Source: src, ListenSrc: src, URL: c.URL, Access: c.Access}, fmt.Errorf("%s : %s", src, m)
+		}
 	}
 	return c, nil
 }
@@ -148,8 +211,12 @@ func PrintDesktopWeb() {
 	switch {
 	case err != nil:
 		fmt.Println("  ⚠ " + err.Error() + " : désactivée")
+	case c.Off && c.ExplicitOff && c.Kept != "":
+		fmt.Println("  désactivée (desktop_web.enabled: false), adresse gardée : " + c.Kept)
+	case c.Off && c.ExplicitOff:
+		fmt.Println("  désactivée (desktop_web.enabled: false)")
 	case c.Off:
-		fmt.Println("  désactivée (défaut) : desktop_web.listen pour l'activer, ex. 127.0.0.1:8770")
+		fmt.Println("  désactivée (défaut) : desktop_web.listen pour l'activer, ex. 127.0.0.1:8770 (ou enabled: true avec listen)")
 	default:
 		fmt.Println("  écoute " + c.Listen + " (jeton obligatoire, conservé par poste)")
 		if c.Warn != "" {
@@ -163,8 +230,8 @@ func DesktopWebChanged(oldContent, newContent []byte) bool {
 	return WebExposureChanged(oldContent, newContent)
 }
 
-// WebExposureChanged : les réglages qui exposent un serveur web — desktop_web (interface complète) et
-// browser_server (fichiers en lecture seule) : défauts, machines, surcharges par système — de deux contenus
+// WebExposureChanged : les réglages des deux rubriques web — desktop_web (interface complète), browser_server
+// (fichiers en lecture seule), browser_paths et browser_device (chemins et appariement du serveur de maquettes) : défauts, machines, surcharges par système — de deux contenus
 // de backends.yaml diffèrent. Un client web ne peut modifier ni l'un ni l'autre ; les autres réglages restent
 // permis. Contenu illisible : l'empreinte vide diffère, donc refus (fail-closed).
 func WebExposureChanged(oldContent, newContent []byte) bool {
@@ -177,7 +244,7 @@ func desktopWebPrint(content []byte) string {
 	if yaml.Unmarshal(content, &f) != nil {
 		return ""
 	}
-	one := func(d *DesktopWeb, bs *BrowserServer) string {
+	one := func(d *DesktopWeb, bs *BrowserServer, bp *[]BrowserPath, dev string) string {
 		x := "-"
 		if d != nil {
 			b, _ := json.Marshal(d)
@@ -188,7 +255,12 @@ func desktopWebPrint(content []byte) string {
 			b, _ := json.Marshal(bs)
 			y = string(b)
 		}
-		return x + "|" + y
+		z, dv := "-", dev
+		if bp != nil {
+			b, _ := json.Marshal(*bp)
+			z = string(b)
+		}
+		return x + "|" + y + "|" + z + "|" + dv
 	}
 	var names []string
 	for k := range f.Hubs {
@@ -196,20 +268,164 @@ func desktopWebPrint(content []byte) string {
 	}
 	sort.Strings(names)
 	var sb strings.Builder
-	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb, f.Defaults.BrowserServer))
+	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb, f.Defaults.BrowserServer, f.Defaults.BrowserPaths, ""))
 	for _, k := range names {
 		h := f.Hubs[k]
-		sb.WriteString(";" + k + "=" + one(h.DesktopWeb, h.BrowserServer))
+		sb.WriteString(";" + k + "=" + one(h.DesktopWeb, h.BrowserServer, h.BrowserPaths, h.BrowserDevice))
 		for _, o := range []struct {
 			n string
 			b *hubOSConf
 		}{{"windows", h.Windows}, {"linux", h.Linux}, {"darwin", h.Darwin}} {
 			if o.b != nil {
-				sb.WriteString("," + o.n + "=" + one(o.b.DesktopWeb, o.b.BrowserServer))
+				sb.WriteString("," + o.n + "=" + one(o.b.DesktopWeb, o.b.BrowserServer, o.b.BrowserPaths, o.b.BrowserDevice))
 			} else {
 				sb.WriteString("," + o.n + "=-")
 			}
 		}
 	}
 	return sb.String()
+}
+
+// ── Adresse publique (#171) ──────────────────────────────────────────────
+
+// PublicURL : adresse publique d'une interface web derrière un proxy inverse, découpée.
+type PublicURL struct {
+	Origin string // schéma://hôte[:port] — l'origine exacte attendue pour cet hôte
+	Scheme string // http ou https
+	Host   string // nom d'hôte en minuscules, sans port ni crochets
+	Port   string // port explicite de l'adresse, "" sinon
+}
+
+// HTTPS : le proxy termine le TLS — le cookie de session est alors Secure.
+func (p PublicURL) HTTPS() bool { return p.Scheme == "https" }
+
+// ParsePublicURL : « http(s)://hôte[:port] » — sans chemin, paramètres, fragment ni identifiants. Toute autre
+// forme est une erreur de réglage (l'interface web reste éteinte, la raison est dite). L'hôte est une adresse IP
+// littérale ou un nom RFC 1123 (lettres, chiffres, « - » et « . ») ; un nom internationalisé est converti en
+// punycode (c'est ce que le navigateur envoie dans Host et Origin) ; « % » et toute autre ponctuation sont
+// refusés. Le port par défaut du schéma (443 en https, 80 en http) est retiré : l'origine et l'en-tête Host d'un
+// navigateur ne le portent jamais.
+func ParsePublicURL(raw string) (PublicURL, error) {
+	bad := func(why string) (PublicURL, error) {
+		return PublicURL{}, fmt.Errorf("adresse publique %q invalide : %s (forme attendue : https://hôte[:port] ou http://hôte[:port], sans chemin ni paramètres)", raw, why)
+	}
+	raw = strings.TrimSpace(raw)
+	u, err := url.Parse(raw)
+	switch {
+	case err != nil:
+		return bad("illisible")
+	case u.Scheme != "http" && u.Scheme != "https":
+		return bad("schéma http ou https attendu")
+	case u.Opaque != "" || u.Hostname() == "":
+		return bad("hôte manquant")
+	case u.User != nil:
+		return bad("identifiants interdits")
+	case u.Path != "" && u.Path != "/" || strings.Contains(raw, "?") || strings.Contains(raw, "#"):
+		return bad("chemin, paramètres et fragment interdits")
+	case strings.Contains(u.Host, "%"):
+		return bad("« % » interdit dans l'hôte")
+	}
+	host, herr := publicHost(u.Hostname())
+	if herr != nil {
+		return bad(herr.Error())
+	}
+	port := u.Port()
+	if port != "" {
+		if n, e := strconv.Atoi(port); e != nil || n < 1 || n > 65535 {
+			return bad("port invalide")
+		}
+	}
+	if port == "443" && u.Scheme == "https" || port == "80" && u.Scheme == "http" {
+		port = "" // port par défaut du schéma : normalisé
+	}
+	hostPort := host
+	if strings.Contains(host, ":") { // IPv6 littérale
+		hostPort = "[" + host + "]"
+	}
+	origin := u.Scheme + "://" + hostPort
+	if port != "" {
+		origin += ":" + port
+	}
+	return PublicURL{Origin: origin, Scheme: u.Scheme, Host: host, Port: port}, nil
+}
+
+// publicHost : hôte d'une adresse publique, en minuscules ASCII — IP littérale, ou nom RFC 1123 (punycode si
+// internationalisé).
+func publicHost(h string) (string, error) {
+	if ip := net.ParseIP(h); ip != nil {
+		return strings.ToLower(ip.String()), nil
+	}
+	if strings.ContainsAny(h, " /\\@[]:") {
+		return "", fmt.Errorf("caractère interdit dans l'hôte")
+	}
+	ascii, err := idna.Lookup.ToASCII(strings.ToLower(h))
+	if err != nil {
+		return "", fmt.Errorf("nom d'hôte invalide (%v)", err)
+	}
+	ascii = strings.ToLower(ascii)
+	if len(ascii) == 0 || len(ascii) > 253 {
+		return "", fmt.Errorf("nom d'hôte trop long ou vide")
+	}
+	for _, label := range strings.Split(ascii, ".") {
+		if len(label) == 0 || len(label) > 63 || label[0] == '-' || label[len(label)-1] == '-' {
+			return "", fmt.Errorf("étiquette de nom d'hôte invalide %q", label)
+		}
+		for _, c := range label {
+			if !(c >= 'a' && c <= 'z' || c >= '0' && c <= '9' || c == '-') {
+				return "", fmt.Errorf("caractère %q interdit dans le nom d'hôte", c)
+			}
+		}
+	}
+	return ascii, nil
+}
+
+// MatchesHost : l'en-tête Host d'une requête désigne l'adresse publique — son nom, sur son port (ou sans port si
+// l'adresse n'en porte pas).
+func (p PublicURL) MatchesHost(reqHost string) bool {
+	h, port, err := net.SplitHostPort(reqHost)
+	if err != nil {
+		h, port = strings.Trim(reqHost, "[]"), ""
+	}
+	return strings.EqualFold(strings.Trim(h, "[]"), p.Host) && port == p.Port
+}
+
+// ── Mode d'accès (LOT-4.4) ───────────────────────────────────────────────
+
+const (
+	AccessToken = "token" // jeton d'amorçage, session, cookie (défaut)
+	AccessNone  = "none"  // aucun jeton, aucune session, aucun cookie
+	// WebAccessVar : variable d'environnement du mode d'accès ; elle l'emporte sur desktop_web.access
+	WebAccessVar = "CL_WEB_ACCESS"
+)
+
+// EffectiveWebAccess : mode d'accès effectif de l'interface web, par priorité : variable CL_WEB_ACCESS > desktop_web.access
+// (conf.Access) > « token ». Valeur inconnue : erreur de réglage.
+func EffectiveWebAccess(conf DesktopWebConf) (string, error) {
+	v, src := strings.TrimSpace(os.Getenv(WebAccessVar)), "la variable "+WebAccessVar
+	if v == "" {
+		v, src = strings.TrimSpace(conf.Access), "desktop_web.access"
+	}
+	switch v {
+	case "":
+		return AccessToken, nil
+	case AccessToken, AccessNone:
+		return v, nil
+	}
+	return AccessToken, fmt.Errorf("%s : access %q inconnu (token ou none attendu)", src, v)
+}
+
+// AccessNoneRefusal : le mode « none » n'est admis que sur une écoute en boucle locale SANS adresse publique, ou avec une
+// adresse publique en https (derrière un proxy inverse qui porte l'accès). Une adresse publique en http est refusée même
+// sur une écoute en boucle locale : le proxy qui la porte laisserait passer le trafic en clair, sans jeton. Rend le
+// message d'erreur de réglage, "" si admis.
+func AccessNoneRefusal(access string, loopback bool, pub *PublicURL) string {
+	switch {
+	case access != AccessNone:
+		return ""
+	case pub != nil && !pub.HTTPS():
+		return "accès sans jeton refusé : adresse publique en http (https exigé : sans jeton, rien ne protège un trafic en clair)"
+	case loopback || pub != nil:
+		return ""
+	}
+	return "accès sans jeton refusé : écoute réseau sans adresse publique en https"
 }

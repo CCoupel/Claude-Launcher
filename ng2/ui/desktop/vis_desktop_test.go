@@ -101,9 +101,7 @@ func TestTeamToggleHidesPane(t *testing.T) {
 		}
 	}
 	cardHidden := func(from int, pane string, hidden bool) bool {
-		r.mu.Lock()
-		defer r.mu.Unlock()
-		for _, e := range r.evs[from:] {
+		for _, e := range r.since(from) {
 			if e["_name"] != "cards" {
 				continue
 			}
@@ -119,7 +117,7 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	// inactif : caché, il quitte la mise en page mais tourne toujours — sans
 	// attendre un tour du watcher : géométrie et carte à jour au retour de l'appel
 	pid := tm("display-message", "-p", "-t", calme, "#{pane_pid}")
-	n0 := len(r.evs)
+	n0 := r.count()
 	// pas de tick du watcher : aucune recherche de team (une par tour lent) ni
 	// lecture de la fenêtre par le tour ; seule la bascule elle-même travaille
 	f0 := atomic.LoadInt32(&pt.finds)
@@ -155,7 +153,7 @@ func TestTeamToggleHidesPane(t *testing.T) {
 		t.Fatalf("ligne caché : %+v", row)
 	}
 	// retour : visible fixé, terminal recapturé (Reset)
-	nev := len(r.evs)
+	nev := r.count()
 	t1 := time.Now()
 	if res := toggle(calme); res["ok"] != true {
 		t.Fatalf("second basculement : %v", res)
@@ -173,8 +171,7 @@ func TestTeamToggleHidesPane(t *testing.T) {
 	deadline := time.Now().Add(10 * time.Second)
 	recaptured := false
 	for !recaptured && time.Now().Before(deadline) {
-		r.mu.Lock()
-		for _, e := range r.evs[nev:] {
+		for _, e := range r.since(nev) {
 			if e["_name"] == "term" && e["kind"] == "out" {
 				for _, c := range e["chunks"].([]any) {
 					if m := c.(map[string]any); m["pane"] == calme && m["reset"] == true {
@@ -183,7 +180,6 @@ func TestTeamToggleHidesPane(t *testing.T) {
 				}
 			}
 		}
-		r.mu.Unlock()
 		time.Sleep(100 * time.Millisecond)
 	}
 	if !recaptured {

@@ -6,6 +6,20 @@
 'use strict';
 
 // ── Transport : Wails (window.go) ou HTTP + SSE ────────────────────────────
+const SESSION_MSG = 'session expirée — rouvrir le lien d\'accès';
+const DENIED_MSG = 'accès refusé : adresse ou origine non admise (voir Réglages › Interface web › Adresse publique)';
+let sessionIsLost = false; // vrai aussi après un refus d'hôte/origine : on ne réessaie plus
+function stopBanner(msg) {
+  if (sessionIsLost) return;
+  sessionIsLost = true;
+  const b = document.createElement('div');
+  b.className = 'lanbanner sessionlost'; b.id = 'sessionlost'; b.textContent = '⚠ ' + msg;
+  document.body.insertBefore(b, document.body.firstChild);
+}
+const sessionLost = () => stopBanner(SESSION_MSG);
+const accessDenied = () => stopBanner(DENIED_MSG);
+// défense en profondeur : retirer le jeton d'amorçage (?t=) de la barre d'adresse et de l'historique
+try { const u = new URL(location.href); if (u.searchParams.has('t')) { u.searchParams.delete('t'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); } } catch (e) { /* sans effet */ }
 const transport = (() => {
   const wails = () => window.go && window.go.desktop && window.go.desktop.Bridge;
   return {
@@ -15,6 +29,11 @@ const transport = (() => {
         return r ? JSON.parse(r) : null;
       }
       const res = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args: args || {} }) });
+      if (res.status === 401 || res.status === 403) { // session perdue, ou accès refusé (hôte/origine) : en-tête X-Launcher-Refusal du Go (#171)
+        const why = res.headers.get('X-Launcher-Refusal');
+        if (why === 'host' || why === 'origin') { accessDenied(); throw new Error(DENIED_MSG); }
+        sessionLost(); throw new Error(SESSION_MSG); // `session`, ou refus sans en-tête
+      }
       const j = await res.json();
       if (j.error) throw new Error(j.error);
       return j.result;
@@ -24,10 +43,23 @@ const transport = (() => {
         window.runtime.EventsOn('ev', (e) => cb(e.name, e.data));
         return;
       }
+      // Coupure du flux : nouvelle tentative après 1,5 s, délai doublé à chaque échec jusqu'à 15 s, remis à 1,5 s dès
+      // qu'une connexion aboutit. 401/403 (session perdue) : on arrête de réessayer (#171). Le test de session passe
+      // par `init` (EventSource ne donne pas le code HTTP) ; après reconnexion : init puis remise à jour de l'affichage.
+      let delay = 1500;
       const connect = () => {
         const es = new EventSource('/api/events');
+        es.onopen = () => { delay = 1500; };
         es.onmessage = (m) => { try { const e = JSON.parse(m.data); cb(e.name, e.data); } catch (err) { console.error(err); } };
-        es.onerror = () => { es.close(); setTimeout(() => { connect(); call('init').then(applyInit).catch(() => {}); }, 1500); };
+        es.onerror = () => {
+          es.close();
+          if (sessionIsLost) return;
+          const wait = delay; delay = Math.min(delay * 2, 15000);
+          setTimeout(async () => {
+            try { applyInit(await transport.call('init')); } catch (err) { if (sessionIsLost) return; }
+            if (!sessionIsLost) connect();
+          }, wait);
+        };
       };
       connect();
     },
@@ -186,7 +218,7 @@ function renderHead() {
   $('tplver').textContent = '· tpl ' + s.tpl;
   const al = $('alerts'); al.textContent = '';
   for (const a of s.alerts || []) {
-    const d = el('div', 'alert ' + a.color + (a.click ? ' click' : ''));
+    const d = el('div', 'alert ' + a.color + (a.click ? ' click' : '') + (a.notify ? ' notify' : '')); // notify : annonce seule (CL_UPDATE_MODE=notify), ni clic ni installation
     const t = el('span', 'txt', a.text); t.title = a.text;
     if (a.click) t.onclick = () => (a.kind === 'hubcfg' ? diagBox() : call('alert', { kind: a.kind }));
     const x = el('span', 'x', '✕'); x.title = 'masquer (Ctrl+U)'; x.onclick = () => call('dismiss', { kind: a.kind });
@@ -412,12 +444,13 @@ function renderCards() {
   const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
-  const card = (title, sub, body) => {
+  const card = (title, sub, body, chip) => {
     const closed = !!prefs.get('cardsClosed', {})[title];
     const k = el('div', 'card' + (closed ? ' closed' : ''));
     const h = el('div', 'ch');
     h.append(el('span', 'fold' + (closed ? '' : ' open'), '›'), el('span', '', title));
     if (sub) h.append(el('span', 'dim', ' · ' + sub));
+    if (chip) { const p = el('span', 'hidechip', chip); p.title = 'les teammates inactifs sont cachés après ce délai (Réglages › Launcher › teams)'; h.append(p); }
     h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
     k.append(h);
     if (!closed) k.append(body);
@@ -517,7 +550,9 @@ function renderCards() {
   const th = c.teamHead || {};
   const vt = (s) => (/^v/.test(s) ? s : 'v' + s);
   const sub = c.team && c.team.length ? [String(c.team.length)].concat(th.tpl ? ['tpl ' + vt(th.tpl)] : [], th.claude ? ['claude ' + th.claude] : []).join(' · ') : '';
-  card('Team', sub, tb);
+  // puce « masquage N s » (#188) : seulement quand le masquage automatique est actif (activé et délai > 0) ; aucune puce sinon
+  const hi = th.hideIdle;
+  card('Team', sub, tb, hi && hi.enabled && hi.delay > 0 ? 'masquage ' + hi.delay + ' s' : '');
   // Fichiers
   if (c.loaded) {
     const fb = el('div', 'cb'); const g = el('div', 'files');
@@ -1657,7 +1692,7 @@ function lanBanner() {
   const show = !!(w.lan && w.state === 'on' && !isWebClient());
   if (!show) { if (b) b.remove(); return; }
   if (!b) { b = el('div', 'lanbanner'); b.id = 'lanbanner'; $('main').insertBefore(b, $('tabs')); }
-  b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS') + ' (Réglages › Ce poste)';
+  b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || (w.access === 'none' ? 'sans jeton : toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS')) + ' (Réglages › Interface web)';
 }
 
 function applyInit(r) {

@@ -34,9 +34,27 @@ func Run(args []string) error {
 			i++
 		case strings.HasPrefix(a, "--addr="):
 			addr, addrSet = strings.TrimPrefix(a, "--addr="), true
+		case a == "--url" && i+1 < len(args):
+			webURLFlag = args[i+1]
+			i++
+		case strings.HasPrefix(a, "--url="):
+			webURLFlag = strings.TrimPrefix(a, "--url=")
 		case a == "--launch" || a == "--no-update":
 		default:
-			return fmt.Errorf("desktop : option inconnue %q (--web, --addr HÔTE:PORT, --no-open)", a)
+			return fmt.Errorf("desktop : option inconnue %q (--web, --addr HÔTE:PORT, --url ADRESSE_PUBLIQUE, --no-open)", a)
+		}
+	}
+	// deux launchers de même nom (CL_HUB_NAME) sur un état partagé : le second refuse de démarrer (#176)
+	release, perr := core.AcquirePresence()
+	if perr != nil {
+		return perr
+	}
+	defer release()
+	// racine de base posée (fenêtre ou --web, pod compris) : config.conf est créé sous la racine dès le premier lancement,
+	// en création exclusive (aucun écrasement), avec les chemins relatifs à la racine (#165). Sans racine : v6.2.0.
+	if rb, _ := core.RootBase(); rb != "" {
+		if _, err := core.EnsureConfig(); err != nil {
+			fmt.Fprintln(os.Stderr, "⚠ configuration non créée :", err)
 		}
 	}
 	if !web && !wailsAvailable {
@@ -47,7 +65,7 @@ func Run(args []string) error {
 		if s, err := core.DesktopWebSetting(); !addrSet && err == nil && !s.Off { // --addr l'emporte ; sinon desktop_web.listen s'il est fixé
 			addr = s.Listen
 		}
-		if addrSet {
+		if addrSet && !core.InCluster() { // en pod, --addr 0.0.0.0 derrière l'Ingress est voulu : pas d'avertissement
 			if n := addrLANNotice(addr, core.DesktopWebAllowsLAN()); n != "" {
 				fmt.Fprintln(os.Stderr, "⚠ "+n)
 			}

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"runtime"
 	"sort"
@@ -29,14 +30,13 @@ func (b BackendConf) K8s() bool { return b.Type == "k8s" }
 
 func (e Engine) kubectl(args ...string) []string {
 	out := []string{"kubectl"}
-	if e.B.Context != "" {
+	if k8sViaServiceAccount(e.B) && os.Getenv("KUBECONFIG") != "" {
+		out = []string{"env", "-u", "KUBECONFIG", "kubectl"} // ServiceAccount du pod : jamais le kubeconfig de l'environnement
+	}
+	if e.B.Context != "" && !k8sViaServiceAccount(e.B) { // en cluster : contexte ignoré (ServiceAccount du pod)
 		out = append(out, "--context", e.B.Context)
 	}
-	ns := e.B.Namespace
-	if ns == "" {
-		ns = "default"
-	}
-	return append(append(out, "-n", ns), args...)
+	return append(append(out, "-n", k8sNamespace(e.B)), args...)
 }
 
 func (e Engine) kcmd(args ...string) *exec.Cmd {
@@ -422,6 +422,147 @@ func k8sReachFix(goos, msg string) string {
 	return fix
 }
 
+// droits exigés du ServiceAccount du pod, dans l'ordre (contracts/launcher-env.md) : verbe, ressource.
+var k8sRequiredRights = [][3]string{ // verbe, ressource, sous-ressource (« kubectl auth can-i … --subresource= »)
+	{"get", "statefulsets", ""}, {"list", "statefulsets", ""}, {"create", "statefulsets", ""}, {"patch", "statefulsets", ""}, {"delete", "statefulsets", ""},
+	{"patch", "statefulsets", "scale"},
+	{"get", "pods", ""}, {"list", "pods", ""}, {"delete", "pods", ""},
+	{"create", "pods", "exec"},
+	{"list", "events", ""},
+	{"get", "persistentvolumeclaims", ""},
+}
+
+// canIArgs : arguments de « kubectl auth can-i » d'un droit. Une sous-ressource se donne par --subresource : écrite
+// « pods/exec », kubectl la lit comme « le pod nommé exec » (faux négatif) ou « le StatefulSet nommé scale » (faux positif).
+func canIArgs(r [3]string) []string {
+	a := []string{"auth", "can-i", r[0], r[1]}
+	if r[2] != "" {
+		a = append(a, "--subresource="+r[2])
+	}
+	return a
+}
+
+// rightLabel : « create pods/exec » (affichage).
+func rightLabel(r [3]string) string {
+	if r[2] != "" {
+		return r[0] + " " + r[1] + "/" + r[2]
+	}
+	return r[0] + " " + r[1]
+}
+
+// k8sStepsInCluster : diagnostic d'un backend k8s depuis le pod du launcher (kubectl via le ServiceAccount).
+// Pas de « get namespace » (il exigerait un ClusterRole) ; les droits sont contrôlés un par un ; chaque PVC doit
+// aussi être monté dans le pod du launcher au chemin déclaré.
+func k8sStepsInCluster(b BackendConf, e Engine, ns string, steps []TestStep) []TestStep {
+	out, err := runQuiet(15*time.Second, e.kubectl("auth", "can-i", "list", "pods")...)
+	if err != nil && strings.TrimSpace(out) != "no" {
+		return append(steps, TestStep{Label: "cluster joignable (ServiceAccount du pod)",
+			Detail: "cluster injoignable (ServiceAccount du pod) : " + firstLine(out, err),
+			Fix:    "vérifier que le pod a un ServiceAccount (automountServiceAccountToken) et que l'API du cluster est joignable depuis le pod"})
+	}
+	steps = append(steps, TestStep{Label: "cluster joignable, namespace " + ns + " (ServiceAccount du pod)", OK: true})
+	if b.Context != "" { // information : le backends.yaml du hub est utilisé tel quel dans le pod
+		steps = append(steps, TestStep{Label: "contexte « " + b.Context + " » ignoré", OK: true,
+			Detail: "contexte « " + b.Context + " » ignoré : ServiceAccount du pod"})
+	}
+	missing, unchecked := 0, false
+	for _, r := range k8sRequiredRights {
+		o, rerr := runQuiet(15*time.Second, e.kubectl(canIArgs(r)...)...)
+		lbl := rightLabel(r)
+		switch ans := strings.TrimSpace(o); {
+		case ans == "yes":
+		case ans == "no": // réponse de l'API : le droit manque vraiment
+			missing++
+			steps = append(steps, TestStep{Label: "droit " + lbl, Detail: "droit manquant : " + lbl,
+				Fix: "mettre à jour le Role du chart (helm upgrade) : le ServiceAccount du pod doit pouvoir " + lbl + " dans " + ns})
+		default: // l'appel lui-même a échoué (réseau, API, délai) : le droit n'est pas vérifiable, pas forcément absent
+			unchecked = true
+			steps = append(steps, TestStep{Label: "droit " + lbl, Detail: "droit non vérifiable : " + lbl + " : " + firstLine(o, rerr),
+				Fix: "kubectl auth can-i n'a pas répondu : vérifier la joignabilité de l'API depuis le pod, puis relancer le test (les droits restants ne sont pas contrôlés)"})
+		}
+		if unchecked {
+			break // pas 12 × 15 s sur une API injoignable
+		}
+	}
+	if missing == 0 && !unchecked {
+		steps = append(steps, TestStep{Label: "droits dans " + ns, OK: true, Detail: "tous les droits du launcher accordés au ServiceAccount"})
+	}
+	if unchecked {
+		return steps // volumes et montages non contrôlés tant que l'API ne répond pas
+	}
+	steps = k8sVolumeSteps(b, e, ns, steps)
+	return append(steps, k8sMountedSteps(b, e)...)
+}
+
+// k8sMountedSteps : chaque PVC déclaré est monté dans le pod du launcher au chemin déclaré.
+func k8sMountedSteps(b BackendConf, e Engine) []TestStep {
+	if len(b.Volumes) == 0 {
+		return nil
+	}
+	self := platform.RealHostName()
+	out, err := runQuiet(15*time.Second, e.kubectl("get", "pod", self, "-o", "json")...)
+	if err != nil {
+		return []TestStep{{Label: "volumes montés dans le pod du launcher", Detail: "pod du launcher illisible (" + self + ") : " + firstLine(out, err),
+			Fix: "le Role du chart doit permettre « get pods » ; le nom du pod est celui de la machine (hostname)"}}
+	}
+	mounted := podMounts(out) // chemin de montage → PVC
+	var steps []TestStep
+	roots := make([]string, 0, len(b.Volumes))
+	for r := range b.Volumes {
+		roots = append(roots, r)
+	}
+	sort.Strings(roots)
+	for _, r := range roots {
+		pvc := b.Volumes[r]
+		label := "PVC " + pvc + " monté dans le pod du launcher"
+		if mounted[strings.TrimRight(r, "/")] == pvc {
+			steps = append(steps, TestStep{Label: label, OK: true, Detail: r})
+		} else {
+			steps = append(steps, TestStep{Label: label, Detail: "volume " + pvc + " non monté dans le pod du launcher à " + r,
+				Fix: "monter le PVC " + pvc + " à " + r + " dans le pod du launcher (valeurs du chart : rootBase / volumes)"})
+		}
+	}
+	return steps
+}
+
+// podMounts : « chemin de montage → claimName » d'un pod (JSON de kubectl get pod -o json).
+func podMounts(podJSON string) map[string]string {
+	var p struct {
+		Spec struct {
+			Volumes []struct {
+				Name string `json:"name"`
+				PVC  *struct {
+					Claim string `json:"claimName"`
+				} `json:"persistentVolumeClaim"`
+			} `json:"volumes"`
+			Containers []struct {
+				Mounts []struct {
+					Name string `json:"name"`
+					Path string `json:"mountPath"`
+				} `json:"volumeMounts"`
+			} `json:"containers"`
+		} `json:"spec"`
+	}
+	out := map[string]string{}
+	if json.Unmarshal([]byte(podJSON), &p) != nil {
+		return out
+	}
+	claim := map[string]string{}
+	for _, v := range p.Spec.Volumes {
+		if v.PVC != nil {
+			claim[v.Name] = v.PVC.Claim
+		}
+	}
+	for _, c := range p.Spec.Containers {
+		for _, m := range c.Mounts {
+			if cl, ok := claim[m.Name]; ok {
+				out[strings.TrimRight(m.Path, "/")] = cl
+			}
+		}
+	}
+	return out
+}
+
 // k8sProblems : kubectl, contexte, namespace, droits, PVC (liés, ReadWriteMany).
 func k8sProblems(b BackendConf) []Problem {
 	var out []Problem
@@ -443,9 +584,9 @@ func k8sSteps(b BackendConf) []TestStep {
 	}
 	steps := []TestStep{{Label: "outil requis : kubectl", OK: true}}
 	e := Engine{b}
-	ns := b.Namespace
-	if ns == "" {
-		ns = "default"
+	ns := k8sNamespace(b)
+	if k8sViaServiceAccount(b) {
+		return k8sStepsInCluster(b, e, ns, steps)
 	}
 	if out, err := runQuiet(15*time.Second, e.kubectl("get", "namespace", ns, "-o", "name")...); err != nil {
 		if strings.Contains(out, "NotFound") || strings.Contains(out, "not found") {
@@ -462,6 +603,11 @@ func k8sSteps(b BackendConf) []TestStep {
 			Fix: "accorder un rôle (ex. edit) sur le namespace " + ns})
 	}
 	steps = append(steps, TestStep{Label: "droits dans " + ns, OK: true, Detail: "création de StatefulSets autorisée"})
+	return k8sVolumeSteps(b, e, ns, steps)
+}
+
+// k8sVolumeSteps : volumes déclarés puis un PVC par volume (présent, lié, ReadWriteMany) ; chaque PVC est jugé séparément.
+func k8sVolumeSteps(b BackendConf, e Engine, ns string, steps []TestStep) []TestStep {
 	if len(b.Volumes) == 0 {
 		return append(steps, TestStep{Label: "volumes partagés", Detail: "aucun volume partagé déclaré",
 			Fix: "« volumes: { /racine/partagée: <pvc ReadWriteMany> } » dans " + BackendsPath()})
@@ -493,7 +639,7 @@ func k8sSteps(b BackendConf) []TestStep {
 }
 
 func ctxArg(b BackendConf) string {
-	if b.Context != "" {
+	if b.Context != "" && !k8sViaServiceAccount(b) {
 		return " --context " + b.Context
 	}
 	return ""

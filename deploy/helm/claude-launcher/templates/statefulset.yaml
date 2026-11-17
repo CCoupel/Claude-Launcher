@@ -1,0 +1,121 @@
+{{- $root := .Values.rootBase -}}
+{{- $hub := include "cl.hubName" . -}}
+{{- $mount := include "cl.mountPath" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "cl.fullname" . }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  # toujours 1 : un seul launcher par nom de hub (garde de présence CL_HUB_NAME)
+  replicas: 1
+  serviceName: {{ include "cl.fullname" . }}
+  # mise à jour : le StatefulSet supprime l'ancien pod et attend sa fin AVANT de créer le nouveau
+  # (jamais deux pods du même hub en même temps, contrairement au RollingUpdate d'un Deployment)
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      {{- include "cl.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "cl.selector" . | nindent 8 }}
+        app.kubernetes.io/version: {{ include "cl.versionLabel" . | quote }}
+    spec:
+      serviceAccountName: {{ include "cl.fullname" . }}
+      automountServiceAccountToken: true
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: {{ .Values.runAsUser }}
+        runAsGroup: {{ .Values.runAsGroup }}
+        seccompProfile:
+          type: RuntimeDefault
+        # fsGroup jamais posé : pas de changement de propriétaire récursif du partage
+      containers:
+        - name: launcher
+          image: {{ include "cl.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            # écritures : /home/launcher et /tmp (emptyDir), la racine partagée (PVC) — rien d'autre
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+          env:
+            - name: CL_ROOT_BASE
+              value: {{ $root | quote }}
+            - name: CL_HUB_NAME
+              value: {{ $hub | quote }}
+            - name: CL_CACHE_DIR
+              value: {{ printf "%s/.cache/claude-launcher-ng2/%s" $root $hub | quote }}
+            - name: CL_K8S_VOLUMES
+              value: {{ printf "%s=%s" $mount .Values.volume.existingClaim | quote }}
+            - name: CL_IN_CLUSTER
+              value: "1"
+            - name: CL_UPDATE_MODE
+              value: notify
+            # interface web : none = sans jeton (Ingress = seule barrière), token = URL d'amorçage avec jeton
+            - name: CL_WEB_ACCESS
+              value: {{ .Values.web.access | default "none" | quote }}
+            {{- if .Values.ingress.enabled }}
+            - name: CL_WEB_URL
+              value: {{ printf "https://%s" .Values.ingress.host | quote }}
+            {{- end }}
+            {{- if .Values.allowHostBackend }}
+            - name: CL_ALLOW_HOST_BACKEND
+              value: "1"
+            {{- end }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          volumeMounts:
+            - name: projets
+              mountPath: {{ $mount }}
+            - name: home
+              mountPath: /home/launcher
+            - name: tmp
+              mountPath: /tmp
+          # démarrage (lecture de la racine sur MooseFS) : jusqu'à 2 min avant que la sonde de vie prenne le relais
+          startupProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet: {path: /healthz, port: http}
+            periodSeconds: 20
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet: {path: /readyz, port: http}
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          {{- with .Values.resources }}
+          resources:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      volumes:
+        - name: projets
+          persistentVolumeClaim:
+            claimName: {{ .Values.volume.existingClaim }}
+        - name: home
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}

@@ -113,6 +113,9 @@ func TestBackendTestConcurrencyLimited(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // aucun outil : réponse immédiate sans réseau
 	var r recorder
 	a := newApp(t, r.emit)
+	oldWait := backendTestWait
+	backendTestWait = 300 * time.Millisecond
+	defer func() { backendTestWait = oldWait }()
 	// deux places prises : le troisième appel est refusé (après son attente) au lieu de lancer un 3e ssh
 	backendTestSem <- struct{}{}
 	backendTestSem <- struct{}{}
@@ -148,7 +151,7 @@ func TestWebHostCheckHeadersAndTokenOnlyInCookieForCalls(t *testing.T) {
 	port := srv.Listener.Addr().String()[strings.LastIndex(srv.Listener.Addr().String(), ":")+1:]
 	// page d'amorçage : jeton de l'URL accepté, cookie posé, en-têtes de sécurité
 	resp, _ := do("GET", "/?t=tok123", "", "", "")
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("amorçage : %d", resp.StatusCode)
 	}
 	for k, v := range map[string]string{"Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY"} {
@@ -220,7 +223,7 @@ func sessionCookie(t *testing.T, base, host, token string) *http.Cookie {
 	if host != "" {
 		req.Host = host
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -262,7 +265,7 @@ func doWith(t *testing.T, base, method, path, host, cookie, body, contentType, o
 	if origin != "" {
 		req.Header.Set("Origin", origin)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -320,7 +323,7 @@ func TestWebCallRequiresJSONAndSameOrigin(t *testing.T) {
 	req.AddCookie(scBootstrap(t, srv.URL, "tok123"))
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	if resp, err := http.DefaultClient.Do(req.WithContext(ctx)); err == nil {
+	if resp, err := webClient.Do(req.WithContext(ctx)); err == nil {
 		if resp.StatusCode != 200 {
 			t.Errorf("/api/events sans Origin : %d", resp.StatusCode)
 		}

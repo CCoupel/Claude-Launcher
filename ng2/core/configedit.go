@@ -130,7 +130,7 @@ func configPathOK(kind ConfigKind, path string) bool {
 func ConfigTemplate(kind ConfigKind) string {
 	switch kind {
 	case ConfConf:
-		return defaultConfig
+		return defaultConfigFor()
 	case ConfBackends:
 		return backendsExample
 	case ConfLauncherEnv:
@@ -145,10 +145,10 @@ const backendsExample = `# backends.yaml — backends d'exécution des projets (
 # Sans ce fichier : l'hôte, et podman / docker s'ils répondent (Linux).
 #
 # backends:
-#   srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/share/MFS/ROOT] }
-#   srv1-sshd:   { type: ssh, host: srv1, engine: docker, shared: [/share/MFS/ROOT] }
+#   srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/data/partage] }
+#   srv1-sshd:   { type: ssh, host: srv1, engine: docker, shared: [/data/partage] }
 #   lab:         { type: k8s, context: k8s, namespace: claude-ng2,
-#                  volumes: { /share/MFS/ROOT: claude-shared } }
+#                  volumes: { /data/partage: claude-shared } }
 #
 # defaults:
 #   backend: srv1-docker          # exécution présélectionnée à la création d'un projet
@@ -157,7 +157,7 @@ const backendsExample = `# backends.yaml — backends d'exécution des projets (
 # hubs:                           # réglages propres à une machine (hostname)
 #   MON-PC:
 #     paths:
-#       - { local: '\\wsl.localhost\Ubuntu\share\MFS', remote: /share/MFS }
+#       - { local: '\\wsl.localhost\Ubuntu\data\partage', remote: /data/partage }
 backends: {}
 `
 

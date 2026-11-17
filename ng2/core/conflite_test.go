@@ -127,3 +127,107 @@ func TestDefaultDirs(t *testing.T) {
 		t.Errorf("éditeur windows : %q", a)
 	}
 }
+
+// #165 : sous une racine de base, confLite (Windows, sans bash) propose les mêmes défauts que le script bash.
+func TestConfLiteRootBaseDefaults(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(RootBaseVar, root)
+	out := confLite("", `C:\Users\moi`)
+	if want := "root\t" + filepath.Join(root, "PROJETS") + "\n"; !strings.Contains(out, want) {
+		t.Errorf("racine de projets sous la racine de base : %q, attendu %q", out, want)
+	}
+	if strings.Contains(out, "GITHUB") {
+		t.Errorf("la racine de projets reste $HOME/GITHUB : %q", out)
+	}
+	// un GITHUB_DIR du fichier l'emporte sur le défaut
+	if out := confLite(`GITHUB_DIR="/x/projets"`, `C:\Users\moi`); !strings.Contains(out, "root\t/x/projets\n") {
+		t.Errorf("GITHUB_DIR du fichier : %q", out)
+	}
+	// CLAUDE_CONFIG_DIR par défaut : posé par LoadConfig sous la racine
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	if cfg := LoadConfig(); cfg.ClaudeConfigDir != filepath.Join(root, ".claude") {
+		t.Errorf("CLAUDE_CONFIG_DIR par défaut : %q, attendu %q", cfg.ClaudeConfigDir, filepath.Join(root, ".claude"))
+	}
+	// sans la variable : inchangé
+	t.Setenv(RootBaseVar, "")
+	if out := confLite("", `C:\Users\moi`); !strings.Contains(out, `root`+"\t"+`C:\Users\moi\GITHUB`+"\n") {
+		t.Errorf("sans racine de base : %q", out)
+	}
+}
+
+// Revue LOT-4.1 M4 : le config.conf créé sous une racine de base (« ${CL_ROOT_BASE}/PROJETS ») est relu correctement par
+// chaque système — Linux (bash) et Windows (confLite) — avec SA forme de la racine ; jamais un chemin d'un autre système.
+func TestRootBaseConfigRelativeResolvedPerSystem(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(RootBaseVar, root)
+	conf := defaultConfigFor()
+	if strings.Contains(conf, root) || !strings.Contains(conf, "${CL_ROOT_BASE}/PROJETS") || !strings.Contains(conf, "${CL_ROOT_BASE}/.claude") {
+		t.Fatalf("la configuration créée doit être relative à la racine (aucun chemin absolu écrit) :\n%s", conf)
+	}
+	// « Windows » : confLite, racine sous forme Windows
+	t.Setenv(RootBaseVar, `D:\base`)
+	out := confLite(conf, `C:\Users\moi`)
+	if !strings.Contains(out, "root\tD:\\base/PROJETS\n") || !strings.Contains(out, "claudedir\tD:\\base/.claude\n") {
+		t.Errorf("relu par Windows (confLite) : %q", out)
+	}
+	// « Linux » : le même fichier, racine sous forme Linux, relu par bash (script de LoadConfig)
+	if runtime.GOOS == "windows" {
+		return
+	}
+	t.Setenv(RootBaseVar, root)
+	cfgDir := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", cfgDir)
+	if err := os.WriteFile(filepath.Join(cfgDir, "config.conf"), []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg := LoadConfig()
+	if len(cfg.Roots) != 1 || cfg.Roots[0] != filepath.Join(root, "PROJETS") || cfg.ClaudeConfigDir != filepath.Join(root, ".claude") {
+		t.Errorf("relu par Linux : racines %v, config de claude %q", cfg.Roots, cfg.ClaudeConfigDir)
+	}
+}
+
+// Revue LOT-4.1 M5 : un config.conf créé sous une racine (${CL_ROOT_BASE}) relu par un launcher SANS la variable
+// (exe Windows, hub en mode portable) : racine déduite de l'emplacement du fichier — mêmes chemins qu'avec la variable —,
+// sans exporter la variable ni changer RootBase() ; hors de cette forme : chemins écartés et signalés, jamais « /PROJETS ».
+func TestRootBaseConfigReadWithoutVariable(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(RootBaseVar, root)
+	conf := defaultConfigFor()
+	cfgDir := filepath.Join(root, ".config", "claude-launcher-ng2")
+	_ = os.MkdirAll(cfgDir, 0o755)
+	path := filepath.Join(cfgDir, "config.conf")
+	if err := os.WriteFile(path, []byte(conf), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	with := loadConfigAt(path)
+	// la même lecture sans la variable
+	t.Setenv(RootBaseVar, "")
+	os.Unsetenv(RootBaseVar)
+	without := loadConfigAt(path)
+	if len(without.Roots) != 1 || without.Roots[0] != filepath.Join(root, "PROJETS") || without.ClaudeConfigDir != filepath.Join(root, ".claude") ||
+		with.Roots[0] != without.Roots[0] || with.ClaudeConfigDir != without.ClaudeConfigDir {
+		t.Errorf("sans variable : racines %v, claude %q ; avec : %v, %q", without.Roots, without.ClaudeConfigDir, with.Roots, with.ClaudeConfigDir)
+	}
+	if without.RootBaseWarn != "" {
+		t.Errorf("avertissement inattendu : %s", without.RootBaseWarn)
+	}
+	if d, _ := RootBase(); d != "" || os.Getenv(RootBaseVar) != "" {
+		t.Errorf("la lecture ne doit ni poser ni exporter CL_ROOT_BASE : %q", d)
+	}
+	// « Windows » : confLite avec la racine déduite, forme Windows
+	if out := confLiteWith(conf, `C:\Users\moi`, `D:\base`); !strings.Contains(out, "root\tD:\\base/PROJETS\n") || !strings.Contains(out, "claudedir\tD:\\base/.claude\n") {
+		t.Errorf("confLite avec racine déduite : %q", out)
+	}
+	// forme qui ne correspond pas : écarté et signalé, pas de « /PROJETS »
+	other := filepath.Join(t.TempDir(), "config.conf")
+	_ = os.WriteFile(other, []byte(conf), 0o600)
+	bad := loadConfigAt(other)
+	if bad.RootBaseWarn == "" || strings.Contains(strings.Join(bad.Roots, ","), "NON_RESOLUE") || bad.ClaudeConfigDir != "" {
+		t.Errorf("racine non résolue : avertissement %q, racines %v, claude %q", bad.RootBaseWarn, bad.Roots, bad.ClaudeConfigDir)
+	}
+	for _, r := range bad.Roots {
+		if r == "/PROJETS" {
+			t.Errorf("« /PROJETS » silencieux : %v", bad.Roots)
+		}
+	}
+}

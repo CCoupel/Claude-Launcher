@@ -1,0 +1,22 @@
+Launcher du cluster « {{ include "cl.hubName" . }} » — image {{ include "cl.image" . }}
+
+Racine : {{ .Values.rootBase }} (PVC {{ .Values.volume.existingClaim }} monté à {{ include "cl.mountPath" . }})
+{{- if .Values.ingress.enabled }}
+Adresse : https://{{ .Values.ingress.host }}  (adresses admises : {{ join ", " .Values.ingress.allowedSourceRanges }})
+{{- else }}
+Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ include "cl.fullname" . }} 8080:8080
+{{- end }}
+
+{{- if eq (.Values.web.access | default "none") "none" }}
+Accès SANS jeton (web.access: none) : ouvrir https://{{ .Values.ingress.host | default "<hôte>" }}/ depuis une adresse admise.
+Limite (risque accepté jusqu'à l'authentification de v6.4.0, #172) : tout poste de la liste d'adresses pilote les projets,
+et tout pod du cluster atteint le Service sans passer par l'Ingress (pas de NetworkPolicy).
+{{- else }}
+URL d'amorçage (web.access: token) : https://{{ .Values.ingress.host | default "<hôte>" }}/?t=<jeton> — le jeton n'est pas écrit dans le journal ;
+il est dans le dossier d'état du launcher (voir deploy.qualif.md / deploy.prod.md : lu sans être affiché).
+{{- end }}
+
+État : kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "cl.fullname" . }}
+Mise à jour : changer image.tag (l'ancien pod s'arrête avant le démarrage du nouveau).
+Désinstallation : helm uninstall {{ .Release.Name }} — ne touche ni au PVC, ni aux pods de projets, ni aux fichiers de la racine.
+Non créés (risques acceptés v6.3.0) : NetworkPolicy, Secret du jeton (le jeton reste dans le cache sur le volume partagé).

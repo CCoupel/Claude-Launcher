@@ -8,7 +8,7 @@ package platform
 
 // HostPidSpace : identité du poste au format de Claude Code, sans namespace
 // (aucun leader ne peut la porter : il tourne toujours dans un conteneur).
-func HostPidSpace() string { return HostName() + "#" }
+func HostPidSpace() string { return RealHostName() + "#" }
 
 // LeaderAliveInHosts : leader d'un conteneur, invérifiable depuis Windows.
 func LeaderAliveInHosts(pid int, space string, localCtrHosts func() map[string]bool) LeaderState {

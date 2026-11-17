@@ -192,20 +192,16 @@ func zoomTiming(t *testing.T, r *recorder, pt *projTerm) {
 	for time.Now().Before(end) && len(pt.lastLayout().Panes) < 4 {
 		time.Sleep(100 * time.Millisecond)
 	}
-	time.Sleep(2 * time.Second) // recaptures des panes nouveaux, mise en page
+	time.Sleep(600 * time.Millisecond) // recaptures des panes nouveaux (tour lent bloqué par le tube : pas d'attente de tour)
 	leader := pt.lastLayout().Leader
 	step := func(zoomed bool) (visible, usable time.Duration) {
-		r.mu.Lock()
-		n := len(r.evs)
-		r.mu.Unlock()
+		n := r.count()
 		t0 := time.Now()
 		pt.zoom(leader)
 		end := time.Now().Add(15 * time.Second)
 		for time.Now().Before(end) && (visible == 0 || usable == 0) {
-			r.mu.Lock()
-			evs := r.evs[n:]
-			n = len(r.evs)
-			r.mu.Unlock()
+			evs := r.since(n)
+			n += len(evs)
 			for _, e := range evs {
 				if e["_name"] != "term" {
 					continue
@@ -231,7 +227,7 @@ func zoomTiming(t *testing.T, r *recorder, pt *projTerm) {
 		if v == 0 || u == 0 || v > 300*time.Millisecond || u > time.Second {
 			t.Errorf("zoom=%v : bascule %s (objectif < 300 ms), utilisable %s (objectif < 1 s)", z, v, u)
 		}
-		time.Sleep(1500 * time.Millisecond)
+		time.Sleep(400 * time.Millisecond)
 	}
 	// le journal de l'utilisateur dit chaque étape (desktop-perf.log)
 	pt.a.perf.flushTrace()

@@ -36,16 +36,38 @@ func (r *recorder) emit(name string, data any) {
 	r.mu.Unlock()
 }
 
+// Accesseurs sûrs en concurrence : emit est appelé par les goroutines de l'App (surveillant, flux) pendant que le
+// test lit — jamais de lecture directe de r.evs hors de ces méthodes. Les événements sont des cartes décodées une
+// fois pour toutes : la copie de la tranche suffit.
+
+// count : nombre d'événements reçus.
+func (r *recorder) count() int {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.evs)
+}
+
+// since : copie des événements à partir du rang n.
+func (r *recorder) since(n int) []map[string]any {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if n >= len(r.evs) {
+		return nil
+	}
+	return append([]map[string]any(nil), r.evs[n:]...)
+}
+
+// all : copie de tous les événements.
+func (r *recorder) all() []map[string]any { return r.since(0) }
+
 // wait : premier événement qui satisfait ok, au plus d.
 func (r *recorder) wait(t *testing.T, d time.Duration, what string, ok func(map[string]any) bool) map[string]any {
 	t.Helper()
 	end := time.Now().Add(d)
 	seen := 0
 	for time.Now().Before(end) {
-		r.mu.Lock()
-		evs := r.evs[seen:]
-		seen = len(r.evs)
-		r.mu.Unlock()
+		evs := r.since(seen)
+		seen += len(evs)
 		for _, e := range evs {
 			if ok(e) {
 				return e
@@ -58,10 +80,8 @@ func (r *recorder) wait(t *testing.T, d time.Duration, what string, ok func(map[
 }
 
 func (r *recorder) output(path string) string {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	var b strings.Builder
-	for _, e := range r.evs {
+	for _, e := range r.all() {
 		if e["_name"] == "term" && e["kind"] == "out" && e["path"] == path {
 			for _, c := range e["chunks"].([]any) {
 				b.WriteString(c.(map[string]any)["data"].(string))
@@ -84,6 +104,7 @@ func isTerm(path, kind string, more func(map[string]any) bool) func(map[string]a
 // Windows, le nettoyage de t.TempDir échouait (« directory is not empty »).
 func newApp(t *testing.T, emit Emitter) *App {
 	t.Helper()
+	fastTicks(t) // tour lent du surveillant à 150 ms : aucune attente de secondes dans les tests
 	a := NewApp(emit)
 	t.Cleanup(func() { stopBg(a) })
 	return a
@@ -387,10 +408,8 @@ func TestHostProjectWithTmux(t *testing.T) {
 	// tmux suit la dernière taille, la team est remise en page et chaque pane
 	// est recapturé une fois la rafale finie
 	resets := func() int {
-		r.mu.Lock()
-		defer r.mu.Unlock()
 		n := 0
-		for _, e := range r.evs {
+		for _, e := range r.all() {
 			if e["_name"] == "term" && e["kind"] == "out" {
 				for _, c := range e["chunks"].([]any) {
 					if cm := c.(map[string]any); cm["pane"] == leader && cm["reset"] == true {
@@ -422,7 +441,7 @@ func TestHostProjectWithTmux(t *testing.T) {
 	}
 
 	// un tour lent sans changement : une recherche de team, un seul list-panes
-	time.Sleep(1500 * time.Millisecond) // mise en page des tours précédents faite
+	settle(t) // mise en page des tours précédents faite
 	for i := 0; i < 2; i++ {
 		pt.tick(false)
 	}

@@ -20,6 +20,9 @@ type HubServerView struct {
 type HubDesktopWebView struct {
 	Listen   string `json:"listen"`
 	AllowLAN bool   `json:"allow_lan"`
+	Enabled  *bool  `json:"enabled"` // commutateur (#183) ; null : absent du fichier (v6.2.0)
+	URL      string `json:"url"`     // adresse publique (#171)
+	Access   string `json:"access"`  // mode d'accès : "" (absent : token), token ou none
 }
 
 // HubUserView : remote_user d'un poste (uid et gid absents : nil).
@@ -58,6 +61,9 @@ type HubModel struct {
 	Settings  HubSettings            `json:"settings"`
 	Overrides map[string]HubOverride `json:"overrides"`
 	Effective map[string]string      `json:"effective"`
+	// Resolved : valeurs EFFECTIVES de browser_server et desktop_web pour ce système, champ par champ, avec leur
+	// provenance (#183) : ce que les Réglages affichent et modifient (jamais une valeur masquée).
+	Resolved HubResolved `json:"resolved"`
 }
 
 func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, dw *DesktopWeb, ru *RemoteUserConf, cache, dev string) HubSettings {
@@ -76,7 +82,7 @@ func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, dw *De
 		}
 	}
 	if dw != nil {
-		s.DesktopWeb = HubDesktopWebView{Listen: dw.Listen, AllowLAN: dw.AllowLAN != nil && *dw.AllowLAN}
+		s.DesktopWeb = HubDesktopWebView{Listen: dw.Listen, AllowLAN: dw.AllowLAN != nil && *dw.AllowLAN, Enabled: dw.Enabled, URL: dw.URL, Access: dw.Access}
 	}
 	if ru != nil {
 		s.RemoteUser = HubUserView{UID: ru.UID, GID: ru.GID, Name: ru.Name, Home: ru.Home}
@@ -89,6 +95,7 @@ func hubSettingsOf(paths []PathMap, bp *[]BrowserPath, bs *BrowserServer, dw *De
 func ReadHubModel(content []byte, host, goos string) (HubModel, error) {
 	m := HubModel{Hub: host, Goos: goos, Overrides: map[string]HubOverride{}, Effective: map[string]string{}}
 	m.Settings = hubSettingsOf(nil, nil, nil, nil, nil, "", "")
+	m.Resolved = resolvedOf(backendsFile{}, host, goos)
 	for _, k := range hubOSKeys {
 		m.Effective[k] = ""
 	}
@@ -96,6 +103,7 @@ func ReadHubModel(content []byte, host, goos string) (HubModel, error) {
 	if err := yaml.Unmarshal(content, &f); err != nil {
 		return m, fmt.Errorf("backends.yaml : %w", err)
 	}
+	m.Resolved = resolvedOf(f, host, goos) // défauts compris, même sans section de la machine
 	key, h, ok := pickHub(f.Hubs, host)
 	if !ok {
 		return m, nil

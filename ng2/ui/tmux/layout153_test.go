@@ -61,6 +61,11 @@ func l153Win(t *testing.T, marker string, nCDP, n int) (key, win, leader string,
 	if err := os.WriteFile(teamPath, []byte(`{"members":[`+strings.Join(members, ",")+`]}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// #186 (même cause pour TOUS les tests de disposition, pas seulement TestRelayoutLeftZeroToTenTeammates) :
+	// RunRelayout cherche la team par le répertoire courant du leader ; sur un runner chargé il peut ne pas être encore celui
+	// du projet — la remise en page ne trouve alors aucune team et la fenêtre reste en « tiled » (leader ≈ 1/3 de la largeur).
+	// On attend la condition ici, une fois pour tous les appelants.
+	waitLeaderPath(t, win, leader, proj)
 	return
 }
 
@@ -210,7 +215,21 @@ func TestRelayoutLeftZeroToTenTeammates(t *testing.T) {
 			t.Run(fmt.Sprintf("cdp=%d/n=%d", withCDP, n), func(t *testing.T) {
 				marker := isoInner(t)
 				l153Conf(t, "LAYOUT_MODE=left\n")
-				_, win, leader, cdps, mates, _, _ := l153Win(t, marker, withCDP, n)
+				_, win, leader, cdps, mates, _, proj := l153Win(t, marker, withCDP, n)
+				// #186 : RunRelayout cherche la team par le répertoire courant du leader (pane_current_path) ; sur un
+				// runner chargé il peut ne pas être encore celui du projet (processus du pane pas encore établi) :
+				// la remise en page ne trouve alors aucune team et la fenêtre reste en « tiled » (leader ~1/3 de la
+				// largeur, 3 colonnes). On attend l'évènement, pas un délai.
+				waitLeaderPath(t, win, leader, proj)
+				t.Cleanup(func() { // diagnostic d'un échec (version de tmux du runner, disposition réelle)
+					if t.Failed() {
+						v, _ := dtmux("-V").Output()
+						lay, _ := dtmux("display-message", "-p", "-t", win, "#{window_layout}").Output()
+						pth, _ := dtmux("display-message", "-p", "-t", leader, "#{pane_current_path}").Output()
+						t.Logf("diagnostic #186 : %s | disposition %s| répertoire du leader %s (attendu %s)",
+							strings.TrimSpace(string(v)), strings.TrimSpace(string(lay))+" ", strings.TrimSpace(string(pth)), proj)
+					}
+				})
 				RunRelayout(win)
 				if n == 0 && withCDP == 0 {
 					_, rows, g := geometry(t, win)
@@ -367,4 +386,19 @@ func TestLayoutWatchFollowsConfigChange(t *testing.T) {
 	checkLeft(t, win, leader, cdps, mates, 46)
 	l153WriteConf(t, "LAYOUT_MODE=left\ndeclare -A PROJECT_LAYOUTS=([\"proj\"]=\"top\")\n")
 	waitGeom(false, "exception du projet : left → top")
+}
+
+// waitLeaderPath : attend que le répertoire courant du pane leader soit celui du projet (échéance 10 s).
+func waitLeaderPath(t *testing.T, win, leader, proj string) {
+	t.Helper()
+	want, _ := filepath.EvalSymlinks(proj)
+	end := time.Now().Add(10 * time.Second)
+	for time.Now().Before(end) {
+		got := dt(t, "display-message", "-p", "-t", leader, "#{pane_current_path}")
+		if g, err := filepath.EvalSymlinks(got); err == nil && g == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Logf("répertoire du leader %q ≠ projet %q après 10 s : la remise en page peut ne trouver aucune team", dt(t, "display-message", "-p", "-t", leader, "#{pane_current_path}"), proj)
 }

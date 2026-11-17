@@ -1,0 +1,42 @@
+{{- if .Values.ingress.enabled }}
+{{- $name := include "cl.fullname" . }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+  annotations:
+    {{- if eq .Values.ingress.controller "traefik" }}
+    # liste d'adresses d'abord, puis redirection HTTPS ; routeur sur web et websecure
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-allowlist@kubernetescrd,%s-%s-https@kubernetescrd" .Release.Namespace $name .Release.Namespace $name | quote }}
+    {{- else if eq .Values.ingress.controller "nginx" }}
+    nginx.ingress.kubernetes.io/whitelist-source-range: {{ join "," .Values.ingress.allowedSourceRanges | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # flux d'évènements et terminaux : pas de tampon, délais longs
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- end }}
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ include "cl.tlsSecret" . }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}

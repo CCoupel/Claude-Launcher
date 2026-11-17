@@ -246,6 +246,10 @@ hubs:
 - Sans configuration partagée : `claude-launcher-ng2.exe configure` (Bloc-notes) ou `⚙ config` dans
   l'interface. Dans `config.conf`, écrire un chemin Windows entre **guillemets simples** :
   `GITHUB_DIRS=('\\wsl.localhost\Ubuntu\share\MFS\ROOT\CLAUDE_PROJETS')`.
+- **Racine de base** (v6.3.0) : les chemins `…/CLAUDE_PROJETS` ci-dessus sont des exemples. Pour placer la
+  configuration, la config de claude et les projets sous un autre dossier, lancer le launcher avec
+  `--root-base <dossier>` (ou `CL_ROOT_BASE=<dossier>`). Le détail de la priorité et de ce qui est créé est dans
+  `ng2/README.md`, section « Config portable ».
 
 **Avertissements**
 
@@ -365,6 +369,9 @@ Détails : [`ng2/README.md` — Projets en conteneur](ng2/README.md#projets-en-c
 
 ---
 
+Installation dans Kubernetes par Helm (accès interne, valeurs et vérifications) : voir le guide
+[Installer le launcher dans Kubernetes par Helm (accès interne)](ng2/README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
+
 ## Mise en page des teams
 
 Dans l'onglet d'un projet (sur l'hôte ou dans son conteneur), NG2 range les panes à chaque arrivée ou
@@ -476,6 +483,14 @@ audit `govulncheck` et compilation de l'exe Windows sous Linux ; sous Windows (G
 l'interface native, puis l'exe lancé en `version`. Elle est appelée par `ng2-tests.yml` (push et PR
 vers `main`), `ci-branch.yml` (pré-validation des branches `milestone/*`, sans publier) et
 `release.yml` (avant de construire les binaires d'un tag).
+
+La CI tient en moins de 60 s hors étape image (environ 56 s mesurées sur trois passes). Le détail par étape et la
+procédure de mesure sont dans `ng2/README.md`, section « Tests ».
+
+Sous Linux, `scripts/ci.sh` contrôle aussi le chart Helm (`helm` requis) et construit l'image du launcher
+(`deploy/image/build.sh ci`, buildah requis, root ou `sudo` sans mot de passe pour la couche d'outils). Sur un poste de
+développement, l'image à chaud prend environ 15 s, et la CI complète environ 53 s. `CL_CI_IMAGE=0` saute l'étape image :
+c'est le réglage de la barrière de `release.yml`, où l'image est construite et publiée par `release-ng2-cluster`.
 
 ## Licence
 

@@ -1,0 +1,66 @@
+# Valeurs du chart du launcher du cluster — contrat : contracts/helm-values.md.
+# Les valeurs marquées OBLIGATOIRE n'ont pas de défaut : leur absence fait échouer helm install / template
+# avec un message qui les nomme (values.schema.json).
+
+image:
+  repository: ghcr.io/ccoupel/claude-launcher
+  tag: ""                 # défaut : appVersion du chart ; mise à jour du launcher = changer ce tag
+  digest: ""              # sha256:… facultatif : image installée par empreinte (dépôt:tag@empreinte)
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []      # ex. [{name: regcred}] pour un registre privé
+nodeSelector: {}          # nœud imposé (image importée sur certains nœuds seulement, pullPolicy Never)
+
+hubName: ""               # CL_HUB_NAME ; défaut : nom de la release ; unique parmi les launchers de la racine
+
+rootBase: ""              # OBLIGATOIRE — CL_ROOT_BASE, chemin absolu, = volume.mountPath ou un sous-dossier
+
+volume:
+  existingClaim: ""       # OBLIGATOIRE — nom du PVC RWX monté (existant, ou créé par le chart si create.enabled)
+  mountPath: ""           # défaut : rootBase
+  # création du volume par le chart (défaut : non, le PVC existe déjà). PVC (et PV) créés avec
+  # helm.sh/resource-policy: keep → jamais supprimés par helm uninstall (les fichiers des projets y sont).
+  create:
+    enabled: false
+    storage: 100Gi
+    storageClassName: ""  # "" = liaison au PV statique ci-dessous ; une StorageClass RWX crée un dossier neuf, pas rootBase
+    persistentVolume:     # PV statique vers le dossier rootBase — objet du CLUSTER : droits d'administrateur au déploiement
+      enabled: false
+      name: ""            # OBLIGATOIRE en liaison statique : PV auquel le PVC est lié (volumeName) — PV de l'administrateur
+                          # (enabled: false) ou créé par le chart (enabled: true) ; interdit avec une storageClassName
+      source: {}          # OBLIGATOIRE si PV : source du volume (csi / nfs / hostPath…) recopiée du PV de PROD, chemin = rootBase
+
+runAsUser: 1000           # propriétaire des fichiers du partage ; fsGroup jamais posé
+runAsGroup: 1000
+
+allowHostBackend: false   # CL_ALLOW_HOST_BACKEND
+
+# accès à l'interface web : none (défaut du chart) = sans jeton, l'Ingress (liste d'adresses + TLS) est la seule barrière ;
+# token = URL d'amorçage avec jeton (comme le launcher local). Devient CL_WEB_ACCESS dans le pod.
+web:
+  access: none
+
+service:
+  port: 8080              # Service ClusterIP uniquement (type non réglable)
+
+ingress:
+  enabled: true
+  controller: ""          # OBLIGATOIRE si Ingress — traefik | nginx
+  className: ""           # OBLIGATOIRE si Ingress — ingressClassName
+  host: ""                # OBLIGATOIRE si Ingress — nom DNS interne ; CL_WEB_URL=https://<host>
+  allowedSourceRanges: [] # OBLIGATOIRE si Ingress, non vide — CIDR admis ; 0.0.0.0/0 et ::/0 refusés
+  tls:                    # OBLIGATOIRE si Ingress — l'un des deux
+    secretName: ""        # Secret TLS fourni (créé à part ; jamais dans les valeurs)
+    clusterIssuer: ""     # émetteur cert-manager ; Secret <release>-tls
+  annotations: {}
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+
+extraEnv: []              # [{name: X, value: y}]
+
+terminationGracePeriodSeconds: 30

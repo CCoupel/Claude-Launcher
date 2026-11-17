@@ -305,3 +305,24 @@ func TestTeamCardTemplateState(t *testing.T) {
 		t.Errorf("sans compagnon : %q", rows[0])
 	}
 }
+
+// #188 : masquage désactivé — la bascule manuelle (double-clic) est refusée dans la coque comme dans la fenêtre native
+// (même message), et rien n'est caché ni écrit.
+func TestToggleCmdRefusedWhenHidingDisabled(t *testing.T) {
+	marker := isoInner(t)
+	key, win, _, proj, _, mates := visProject(t, marker)
+	cfg := visCfg()
+	cfg.TeamHideIdleDisabled = true
+	sel := Selection{Name: key, Key: key, Path: proj}
+	m := toggleCmd(sel, cfg, mates[1])().(toggleMsg)
+	if m.msg != core.HideIdleDisabledMsg {
+		t.Fatalf("message du refus : %q, attendu %q", m.msg, core.HideIdleDisabledMsg)
+	}
+	if !strings.Contains(visible(t, win), mates[1]) {
+		t.Error("un pane a été caché malgré le refus")
+	}
+	// option jamais posée : « show-options » échoue (« invalid option ») ; posée, elle ne doit rien contenir
+	if out, err := dtmux("show-options", "-w", "-v", "-t", win, "@cl_panevis").Output(); err == nil && strings.TrimSpace(string(out)) != "" {
+		t.Errorf("@cl_panevis écrit malgré le refus : %q", out)
+	}
+}

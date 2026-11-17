@@ -19,7 +19,7 @@ func TestCardsFromCacheFirst(t *testing.T) {
 	var r recorder
 	a := newApp(t, r.emit)
 	old := cardsSlow
-	cardsSlow = 2 * time.Second // partie lente simulée
+	cardsSlow = time.Second // partie lente simulée
 	t.Cleanup(func() { cardsSlow = old })
 
 	t0 := time.Now()

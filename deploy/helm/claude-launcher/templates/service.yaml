@@ -1,0 +1,16 @@
+# ClusterIP seul : l'accès passe par l'Ingress interne (liste d'adresses + TLS) ; type non réglable
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "cl.fullname" . }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  selector:
+    {{- include "cl.selector" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP

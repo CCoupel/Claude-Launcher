@@ -777,7 +777,7 @@ func (t *projTerm) watcher() {
 			}
 		}
 	}()
-	tk := time.NewTicker(time.Second)
+	tk := time.NewTicker(time.Duration(tickEvery.Load()))
 	defer tk.Stop()
 	for {
 		select {
@@ -862,9 +862,23 @@ var (
 
 // tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
 // de la team et de tmux prend plusieurs secondes) ; nul en production.
+// tickEvery : période du tour lent du surveillant (ns) ; 1 s en production, réduite par les tests pour ne plus
+// attendre des secondes ; tickDone compte les tours lents terminés (tests : attente sur évènement, pas sur délai fixe).
+var (
+	tickEvery atomic.Int64
+	tickDone  atomic.Int64
+	tickBegun atomic.Int64
+)
+
+func init() { tickEvery.Store(int64(time.Second)) }
+
 var tickSlow atomic.Int64 // durée en ns ; atomique : lue par les surveillants pendant qu'un test la fixe
 
 func (t *projTerm) tick(fast bool) {
+	if !fast {
+		tickBegun.Add(1)
+		defer tickDone.Add(1)
+	}
 	if !fast && t.a.confChangedOnDisk() { // config.conf modifié ailleurs : relu à chaud (#153)
 		t.a.configReload(core.ConfConf)
 	}
@@ -1045,7 +1059,7 @@ func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bo
 	}
 	moved := false
 	if own && tc != nil {
-		if res, err := core.ApplyPaneVisOn(f, t.win, home, panes, choices, tc, cfg.TeamHideIdle, time.Now().Unix()); err == nil && res.Changed() {
+		if res, err := core.ApplyPaneVisOn(f, t.win, home, panes, choices, tc, cfg.HideIdleArg(), time.Now().Unix()); err == nil && res.Changed() {
 			moved = true
 			if p2, c2, err := core.ProjectPanes(f, t.win, home, inCtr); err == nil {
 				panes, choices = p2, c2
@@ -1101,6 +1115,9 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	}
 	if t.cl() == nil {
 		return false, "projet fermé"
+	}
+	if t.a.conf().TeamHideIdleDisabled { // masquage désactivé : aucune bascule ne cacherait quoi que ce soit (#188)
+		return false, core.HideIdleDisabledMsg
 	}
 	t.mu.Lock()
 	tc := t.team // team du dernier tour : pas de relecture des fichiers (parfois lents)
@@ -1322,7 +1339,7 @@ func (t *projTerm) teamRows() []core.TeamLine {
 	t.mu.Lock()
 	tc := t.team
 	t.mu.Unlock()
-	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.a.conf().TeamHideIdle, time.Now().Unix())
+	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.a.conf().HideIdleArg(), time.Now().Unix())
 }
 
 // findTeam : config.json de la team du projet (compté pour les tests : une

@@ -2,6 +2,45 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261117] — v6.3.0, LOT-5 : commutateur du masquage des teammates inactifs (#188)
+
+- **[NEW]** clé `TEAM_HIDE_IDLE_ENABLED` de `config.conf` (`1` par défaut) : désactive le masquage sans perdre le délai `TEAM_HIDE_IDLE` — `contracts/desktop-dispatch.md`
+- **[NEW]** `cards.teamHead.hideIdle` (`enabled`, `delay`) : état du masquage sur la carte TEAM
+- **[CHANGED]** règle de visibilité quand le masquage est désactivé : aucun teammate caché, entrées `h` de `@cl_panevis` retirées, panes de la réserve ramenés — `contracts/tmux-options.md` « Masquage désactivé »
+- **[CHANGED]** `teamToggle` : la bascule qui cacherait un teammate est refusée quand le masquage est désactivé ; `cards.team[].hidden` faux et `idleLeft` à 0 dans ce cas
+- Aucun `BREAKING` : sans la nouvelle clé, comportement de la v6.2.0 (`TEAM_HIDE_IDLE=0` compris).
+
+## [20261117] — v6.3.0, LOT-4.4 : interface web accessible sans jeton (décision utilisateur)
+
+- **[NEW]** `desktop_web.access` (`token` | `none`, défaut `token`), variable `CL_WEB_ACCESS`, champ `webUI.access`, clé `desktop_web.access` de `configModel` / `configApply` — `contracts/desktop-web.md` « Mode d'accès »
+- **[NEW]** mode `none` : ni jeton, ni cookie, ni session ; `Host`, origine, méthode et corps JSON toujours contrôlés ; `GET /?t=…` redirigé vers `/` ; accepté seulement en boucle locale ou avec une adresse publique en `https`
+- **[NEW]** chart : valeur `web.access`, variable `CL_WEB_ACCESS` du pod — `contracts/helm-values.md`
+- **[CHANGED]** chart : accès **sans jeton par défaut** (`web.access: none`) ; `NOTES.txt` sans lien d'amorçage ; `none` sans Ingress refusé au rendu
+- **[CHANGED]** `/api/call`, `/api/events` : `Sec-Fetch-Site: cross-site` refusé (`403`, `origin`), dans les deux modes
+- **[CHANGED]** `webUIRegen` et `webUIOpen` en mode `none` : refus de la régénération, ouverture sans `?t=`
+- Aucun `BREAKING` pour le hub Linux et l'exe Windows : sans réglage, le mode reste `token`. Le serveur de maquettes n'est pas concerné.
+- Risques acceptés jusqu'à v6.4.0 (#172) : tout poste de la liste d'adresses de l'Ingress pilote les projets ; tout pod du cluster atteint le Service sans passer par l'Ingress (pas de NetworkPolicy).
+
+## [20261116] — v6.3.0 : launcher dans Kubernetes (#165 à #171, #173, #175 à #177), réglages des serveurs web (#183)
+
+- **[NEW]** `CL_ROOT_BASE` et `--root-base` : racine de base ; ordre `CL_CONFIG_DIR` > racine de base > dossier du binaire > dossier personnel (#165) — `contracts/launcher-env.md`
+- **[NEW]** `CL_HUB_NAME`, `CL_CACHE_DIR` : nom et dossier d'état du launcher (#169)
+- **[NEW]** `CL_IN_CLUSTER`, `CL_ALLOW_HOST_BACKEND`, `CL_K8S_VOLUMES` : launcher dans un cluster — backend k8s par le ServiceAccount du pod, namespace du pod, backend k8s implicite, backend `host` refusé (#168, #169)
+- **[CHANGED]** diagnostic et « Tester » d'un backend k8s **en cluster** : contrôle de chaque droit, contrôle du montage du PVC, plus d'étape `get namespace` (#168) — hors cluster, inchangé
+- **[NEW]** `CL_UPDATE_MODE` (`auto` | `notify`) : annonce de version sans installation (#167)
+- **[CHANGED]** `desktop --web` **en cluster** : jeton conservé dans le cache au lieu d'un jeton neuf à chaque démarrage (#167) — hors cluster, inchangé
+- **[CHANGED]** `desktop --web` : arrêt propre sur `SIGTERM` / `SIGINT` (#167)
+- **[NEW]** image `ghcr.io/ccoupel/claude-launcher` (tags `vX.Y.Z`, `vX.Y.Z.a`) (#167)
+- **[NEW]** `desktop_web.enabled` (commutateur) et `desktop_web.url` (adresse publique) ; option `--url`, variable `CL_WEB_URL` (#183, #171) — `contracts/desktop-web.md` ; sans `enabled`, comportement de la v6.2.0
+- **[NEW]** routes `GET /healthz` et `GET /readyz`, sans session ni contrôle de `Host`, sans information (#167)
+- **[CHANGED]** `GET /api/events` : en-têtes `X-Accel-Buffering: no` et `no-transform` ; reconnexion de l'interface à délai croissant ; session perdue signalée (#171)
+- **[CHANGED]** cookie de session : attribut `Secure` quand l'adresse publique est en `https` (#171) — sans adresse publique, inchangé
+- **[NEW]** instantané `webUI` : champs `enabled`, `url`, `server` ; `configModel` / `configApply` `kind: "hub"` : clés `desktop_web.enabled`, `desktop_web.url` (#183, #171)
+- **[NEW]** chart Helm `deploy/helm/claude-launcher` et ses valeurs (#170, #173) — `contracts/helm-values.md`
+- **[NEW]** chart : `volume.create` — le chart crée le PVC de la racine (et, en option, le PV statique : droits cluster), conservés à la désinstallation (`helm.sh/resource-policy: keep`) ; défaut inchangé (PVC existant) (#170)
+- **[CHANGED]** chart (revue et audit LOT-4.2) : Role réduit aux appels réels (`pods/exec` create seul, `statefulsets` sans update, `events` list, PVC get) ; liste d'adresses validée entrée par entrée (/8 IPv4 et /16 IPv6 au minimum) ; `rootBase` normalisé ; `extraEnv` et `ingress.annotations` ne peuvent pas remplacer les variables et annotations posées par le chart ; `clusterIssuer: a-renseigner` refusé ; racine du conteneur en lecture seule ; QUALIF dans le namespace `claude-qualif` sur la racine dédiée `/share/MFS/ROOT/CLAUDE-QUALIF` (#170, #173)
+- Aucun `BREAKING` : sans les nouvelles variables ni les nouveaux réglages, hub Linux et exe Windows se comportent comme en v6.2.0.
+
 ## [20261115] — v6.2.0 : tailles par zone (#150), carte TEAM (#151), en-têtes (#152), rafraîchir (#158), interface web (#163)
 
 - **[NEW]** préférences par poste `treeFontSize`, `cardsFontSize` (#150) — rendues aussi par `configModel` `kind: "hub"`

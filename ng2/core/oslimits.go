@@ -50,6 +50,9 @@ func remoteEngineAddr(h string) bool {
 
 // localRefusal : logique pure ; ok vrai si b est refusé sur goos.
 func localRefusal(goos string, b BackendConf, ev engineEnv) (Problem, bool) {
+	if p, ok := inClusterHostRefusal(b); ok { // dans le pod du launcher : pas de backend host (#169)
+		return p, true
+	}
 	if goos != "windows" {
 		return Problem{}, false
 	}

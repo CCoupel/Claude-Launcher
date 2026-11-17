@@ -145,6 +145,7 @@ func CtrAttachMain(args []string) error {
 
 // RunBackends : sous-commande « backends » : backends et conteneurs NG2.
 func RunBackends() error {
+	core.PrintRootBase() // racine de base effective et sa source (#165)
 	bs, err := core.LoadBackends()
 	if err != nil {
 		return err

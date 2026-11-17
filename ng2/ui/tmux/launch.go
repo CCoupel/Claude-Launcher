@@ -39,7 +39,7 @@ func selfCommand(args ...string) string {
 	if err != nil {
 		exe = "claude-launcher-ng2"
 	}
-	c := "CL_HUB=" + core.Shq(hubSession) + " CL_INNER_SOCKET=" + core.Shq(core.InnerSocket()) +
+	c := rootBasePrefix() + "CL_HUB=" + core.Shq(hubSession) + " CL_INNER_SOCKET=" + core.Shq(core.InnerSocket()) +
 		" " + core.Shq(exe)
 	for _, a := range args {
 		c += " " + core.Shq(a)
@@ -164,3 +164,12 @@ func launchProject(cfg core.Config, session string, n core.Node, latest string, 
 const endSessionCmd = core.EndSessionCmd
 
 func ensureEndSession(path string) { core.EnsureEndSession(path) }
+
+// rootBasePrefix : « CL_ROOT_BASE=… » pour les commandes lancées par tmux (elles héritent de l'environnement du
+// serveur tmux, pas de celui du launcher) ; vide sans racine de base (#165).
+func rootBasePrefix() string {
+	if d, _ := core.RootBase(); d != "" {
+		return core.RootBaseVar + "=" + core.Shq(d) + " "
+	}
+	return ""
+}

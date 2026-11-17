@@ -440,6 +440,14 @@ func LoadBackends() ([]BackendConf, error) {
 			}
 			f.Backends[t] = BackendConf{Type: t}
 		}
+		// dans un pod du launcher, sans backends.yaml : backend k8s implicite (namespace du pod, volumes de CL_K8S_VOLUMES)
+		if InCluster() {
+			k := BackendConf{Type: "k8s", Namespace: PodNamespace()}
+			if v := ParseK8sVolumes(os.Getenv(K8sVolumesVar)); len(v) > 0 {
+				k.Volumes = v
+			}
+			f.Backends["k8s"] = k
+		}
 	default:
 		return nil, err
 	}
@@ -618,16 +626,15 @@ func writeEnv(proj, img string) error {
 	if _, err := os.Stat(p); err == nil {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	return os.WriteFile(p, []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n"+
+	// création exclusive : deux launchers qui initialisent le projet en même temps n'écrasent pas l'env.yaml de l'autre
+	_, err := createExclusive(p, []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n"+
 		"# Ajouts propres au projet ; env-template.yaml (s'il existe) vient du template : ne pas le modifier.\n"+
 		"image: "+img+"\n"+
 		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n"+
 		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n"+
 		"# setup: []                 # étapes exécutées une fois, en utilisateur, dans le projet\n"+
 		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n"), 0o644)
+	return err
 }
 
 func FindBackend(name string) (BackendConf, bool) {
@@ -704,13 +711,16 @@ func saveAssignments(m map[string]string) error {
 }
 
 func WriteAssignment(proj, backend string) error {
-	m := ReadAssignments()
-	if backend == "" {
-		delete(m, proj)
-	} else {
-		m[proj] = backend // « host » compris : le projet est configuré (plus de question à l'ouverture)
-	}
-	return saveAssignments(m)
+	// lire-modifier-écrire sous verrou : deux launchers qui affectent des projets en même temps ne se perdent pas (#176)
+	return WithFileLock(assignPath(), func() error {
+		m := ReadAssignments()
+		if backend == "" {
+			delete(m, proj)
+		} else {
+			m[proj] = backend // « host » compris : le projet est configuré (plus de question à l'ouverture)
+		}
+		return saveAssignments(m)
+	})
 }
 
 // Assigned : le projet a déjà été configuré (backend choisi, host compris).
@@ -722,6 +732,10 @@ func Assigned(proj string) bool {
 // setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
 // env.yaml absent (template seul, ou rien) : créé avec ce socle.
 func setEnvImage(proj, img string) error {
+	return WithFileLock(EnvPath(proj), func() error { return setEnvImageLocked(proj, img) })
+}
+
+func setEnvImageLocked(proj, img string) error {
 	p := EnvPath(proj)
 	b, err := os.ReadFile(p)
 	if os.IsNotExist(err) {
@@ -741,7 +755,7 @@ func setEnvImage(proj, img string) error {
 	if !done {
 		lines = append([]string{"image: " + img}, lines...)
 	}
-	return os.WriteFile(p, []byte(strings.Join(lines, "\n")), 0o644)
+	return WriteFileAtomic(p, []byte(strings.Join(lines, "\n")), 0o644)
 }
 
 // projectBackend : backend affecté au projet ; host sans env.yaml ou sans
@@ -1121,11 +1135,7 @@ func ensureSharedConfig() error {
 	if err := os.MkdirAll(ClaudeDir(), 0o755); err != nil {
 		return err
 	}
-	tmp := dst + ".cl-tmp"
-	if err := os.WriteFile(tmp, b, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, dst)
+	return WriteFileAtomic(dst, b, 0o600)
 }
 
 // ExecArgv : commande exécutée dans le conteneur ; root : en root, sinon en

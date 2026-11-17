@@ -9,6 +9,34 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.3.0] — 2026-11-17
+
+### Added
+- Commutateur « Cacher les teammates inactifs » (Réglages › Launcher, groupe « teams ») : clé `TEAM_HIDE_IDLE_ENABLED`, activée par défaut ; désactivée, tout teammate reste visible et le délai `TEAM_HIDE_IDLE` (en secondes) est conservé (#188)
+- Guide « Installer le launcher dans Kubernetes par Helm (accès interne) » dans `ng2/README.md` : prérequis, valeurs, installation par empreinte, accès sans jeton, vérifications de la liste d'adresses, mise à jour et retour arrière, limites de v6.3.0 (#185)
+- Mode d'accès de l'interface web : `desktop_web.access` / `CL_WEB_ACCESS` (`token` par défaut, `none` sans jeton, réservé à la boucle locale ou à une adresse publique en https) ; chart `web.access: none` par défaut (#192)
+- Release : l'image du launcher est publiée multi-architecture (`linux/amd64`, `linux/arm64`) sur ghcr, avec son empreinte jointe à la release, et le chart Helm est publié en OCI sur ghcr avec son archive. La release en brouillon n'est publiée qu'une fois l'image et le chart en place. La version candidate de QUALIF est poussée dans le registre interne (#177)
+- `scripts/ci.sh` contrôle le chart Helm et construit l'image du launcher sous Linux ; `CL_CI_IMAGE=0` saute l'étape image (#177)
+- Chart Helm `deploy/helm/claude-launcher` (#170, #173) : StatefulSet à une réplique (arrêt de l'ancien pod avant le démarrage du nouveau), Service `ClusterIP` seul, Role limité au namespace sans ClusterRole, Ingress interne Traefik ou nginx avec liste d'adresses admises obligatoire, non vide, et HTTPS obligatoire, racine du pod en lecture seule, valeurs réservées. Déploiement QUALIF dans le namespace `claude-qualif` sur la racine dédiée `/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF` ; PROD dans `claude-ng2`
+- Image du launcher pour le cluster : `ghcr.io/ccoupel/claude-launcher` (uid 1000, `bash`, `git`, `gh`, `kubectl`, sans `claude` ni `tmux`), construite par `deploy/image/build.sh` ; `CL_ROOT_BASE` obligatoire au démarrage (#167)
+- Mode serveur en cluster : ServiceAccount et namespace du pod, backend k8s implicite avec `CL_K8S_VOLUMES`, diagnostic des droits un par un, jeton conservé dans le cache et jamais imprimé, arrêt propre sur SIGTERM ; `CL_UPDATE_MODE=notify` (#168)
+- Connexion claude.ai depuis un pod sans `claude` : elle se fait dans un projet ouvert (`/login` dans son leader) ; une sortie réseau bloquée est signalée dans l'erreur (#175)
+- Identité et cache par launcher : `CL_HUB_NAME` (nom du launcher, clé `hubs.<nom>`, identité des sessions), `CL_CACHE_DIR` (dossier de cache utilisé tel quel), `CL_IN_CLUSTER` et `CL_ALLOW_HOST_BACKEND` (#169)
+- Plusieurs launchers sur une même racine : garde de nom (`CL_HUB_NAME`), écritures partagées sous verrou puis écriture atomique (`projects.json`, `settings.json`, `env.yaml`), liste des clés de `settings.json` par launcher (#176)
+- Racine de base : option `--root-base <dossier>` et variable `CL_ROOT_BASE` ; la configuration, la config de claude et les projets se placent sous cette racine (`CLAUDE_CONFIG_DIR` par défaut `<racine>/.claude`). Racine invalide ou option vide refusées sans rien créer ; section « Racine de base » dans `backends` (#165, #166)
+- Adresse publique de l'interface web derrière un proxy inverse HTTPS : réglage `desktop_web.url`, option `--url`, variable `CL_WEB_URL` ; hôte public strict (punycode, port par défaut retiré) ; sondes `/healthz` et `/readyz` ; exemples nginx, Caddy et Traefik dans `ng2/README.md` (#171)
+- Réglages › Ce poste : les rubriques « Serveur de maquettes » et « Interface web » sont séparées. Le commutateur `desktop_web.enabled` allume ou éteint l'interface web sans effacer son adresse, sans relance du launcher (#183)
+
+### Changed
+- En cluster, le `context` d'un backend k8s est ignoré : le pod agit sur le cluster de son ServiceAccount (#168)
+- Interface web derrière un proxy : le flux se reconnecte avec un délai croissant (1,5 s à 15 s) ; une session expirée (`401`/`403` sur `/api/events` ou `/api/call`) est signalée comme telle, distincte d'un refus d'hôte ou d'origine (`X-Launcher-Refusal`). Après amorçage, la page est servie en `303` sans `t` dans l'URL ; le cookie prend le préfixe `__Host-` en https (#171)
+- `desktop_web` et `browser_server` s'affichent et se modifient en valeur effective pour ce poste et ce système, avec la provenance de chaque réglage (`defaults`, `hubs.<machine>`, surcharge par système). « Retour au défaut » retire le champ de toutes les couches (#183)
+- `scripts/ci.sh` tient en moins de 60 s hors étape image : 56 s en moyenne sur trois passes, contre 119 s. Les tests de `ui/desktop` attendent désormais des évènements au lieu de dormir ; la couverture et le nombre de tests sont inchangés (#179)
+
+### Fixed
+- Panique corrigée : une `NewRequest` en erreur ne fait plus paniquer le launcher ; `RawBase` est modifié sous verrou et le port d'écoute est repris correctement (#187)
+- Tests : `TestRelayoutLeftZeroToTenTeammates` (ui/tmux) stabilisé en attendant le répertoire du leader ; `tmux -V` est affiché par `scripts/ci.sh`. Cause du flaky non établie, à confirmer par la CI ubuntu (#186)
+
 ## [6.2.0] — 2026-11-16
 
 ### Added

@@ -159,6 +159,7 @@ func TestConfEverySettingWritesAndReadsBack(t *testing.T) {
 		"LAYOUT_3ROW_LEADER_NUM": 2, "LAYOUT_3ROW_MID_NUM": 1, "LAYOUT_3ROW_DEN": 7, "PANE_ACTIVE_BRIGHTEN_STEP": 2,
 		"PANE_INACTIVE_DARKEN_STEP": 3, "COLOR_PALETTE": []any{"17", "255", "0"}, "CTR_STOP_ON_EXIT": true, "USAGE_REFRESH_SEC": 60,
 		"LAYOUT_MODE": "left", "LAYOUT_LEFT_LEADER_PCT": 40, // #153
+		"TEAM_HIDE_IDLE_ENABLED": false, // #188
 	}
 	base := ReadConfModel("")
 	for _, s := range base.Settings {

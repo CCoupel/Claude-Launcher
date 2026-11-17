@@ -1,0 +1,33 @@
+# PROD du launcher du cluster (namespace claude-ng2, release « claude-launcher »).
+# Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/PROD/.
+#   helm upgrade --install claude-launcher deploy/helm/claude-launcher -n claude-ng2 \
+#     -f deploy/helm/values-prod.yaml -f PRIVATE/PROD/values-local.yaml   (image.tag = appVersion du chart, vX.Y.Z)
+#   (PRIVATE/PROD/values-local.yaml : ingress.tls.clusterIssuer réel, jamais commité — voir deploy.prod.md)
+
+# image de release, construite par la CI sur le tag
+image:
+  repository: ghcr.io/ccoupel/claude-launcher
+  pullPolicy: IfNotPresent
+
+hubName: cluster
+
+rootBase: /share/MFS/ROOT/CLAUDE_PROJETS
+volume:
+  existingClaim: claude-projets
+  mountPath: /share/MFS/ROOT/CLAUDE_PROJETS
+
+# interface sans jeton (défaut du chart, décision du 2026-11-17) : l'Ingress est la seule barrière
+web:
+  access: none
+
+ingress:
+  enabled: true
+  controller: traefik
+  className: traefik
+  # DNS dynamique mDNS du réseau (domaine .local) : nom publié à partir de l'hôte de l'Ingress, résolu par les postes
+  host: launcher.local
+  allowedSourceRanges: ["192.168.1.0/24"]
+  tls:
+    # émetteur réel (claude-launcher-ca, CA interne) donné par PRIVATE/PROD/values-local.yaml ;
+    # le chart refuse « a-renseigner » (garde contre un oubli du fichier local).
+    clusterIssuer: a-renseigner

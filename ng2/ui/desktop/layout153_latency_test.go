@@ -56,9 +56,9 @@ func TestLayoutToggleRelayoutsImmediately(t *testing.T) {
 		return 0
 	}
 	waitW("top initial", 20*time.Second, func(w float64) bool { return w > 90 })
-	time.Sleep(1500 * time.Millisecond) // le surveillant est au repos
+	settle(t) // le surveillant est au repos
 	// partage réseau (Windows → \\wsl.localhost) : chaque tour lent du surveillant prend plusieurs secondes
-	tickSlow.Store(int64(4 * time.Second))
+	tickSlow.Store(int64(2 * time.Second))
 	defer tickSlow.Store(0)
 
 	args := func(v any) json.RawMessage { b, _ := json.Marshal(v); return b }
@@ -71,7 +71,7 @@ func TestLayoutToggleRelayoutsImmediately(t *testing.T) {
 	if d1 > time.Second {
 		t.Errorf("bascule du projet : %v, attendu moins d'une seconde", d1)
 	}
-	time.Sleep(1500 * time.Millisecond)
+	settleSlow(t, 2*time.Second)
 	if res, _ := f.a.Dispatch("projectApply", args(map[string]any{"path": f.path, "layout": ""})); res.(map[string]any)["ok"] != true {
 		t.Fatalf("projectApply top : %v", res)
 	}
@@ -81,7 +81,7 @@ func TestLayoutToggleRelayoutsImmediately(t *testing.T) {
 		t.Errorf("retour : %v, attendu moins d'une seconde", d2)
 	}
 	// 2. LAYOUT_MODE enregistré depuis les Réglages (config.conf)
-	time.Sleep(1500 * time.Millisecond)
+	settleSlow(t, 2*time.Second)
 	mt := func() string { st, _ := os.Stat(core.ConfigPath()); return st.ModTime().Format(time.RFC3339Nano) }
 	if res, err := f.a.Dispatch("configApply", args(map[string]any{"kind": "config.conf", "mtime": mt(), "changes": []map[string]any{
 		{"op": "set", "at": []string{"LAYOUT_MODE"}, "value": "left"}}})); err != nil || res.(map[string]any)["saved"] != true {
@@ -144,17 +144,17 @@ func waitUntil(t *testing.T, what string, d time.Duration, ok func() bool) {
 func TestToggleDuringSlowTickLaysOutOnceAndKeepsNewOrganisation(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
-	tickSlow.Store(int64(2500 * time.Millisecond)) // le prochain tour lent dure 2,5 s
+	settle(t)
+	tickSlow.Store(int64(1200 * time.Millisecond)) // le prochain tour lent dure 1,2 s
 	defer tickSlow.Store(0)
-	time.Sleep(1100 * time.Millisecond) // un tour lent est en cours : sa configuration est déjà lue
+	waitTicksStarted(t) // un tour lent est en cours : sa configuration est déjà lue
 	before := arrangeCalls.Load()
 	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
 	if res, err := f.a.Dispatch("projectApply", args); err != nil || res.(map[string]any)["ok"] != true {
 		t.Fatalf("projectApply : %v %v", res, err)
 	}
 	waitUntil(t, "left", 3*time.Second, func() bool { w := leaderW(); return w > 30 && w < 60 })
-	time.Sleep(6 * time.Second) // plusieurs tours lents complets
+	settleTicks(t, 2) // plusieurs tours lents complets
 	if w := leaderW(); w < 30 || w > 60 {
 		t.Errorf("organisation finale : leader à %.0f %%, attendu la nouvelle (left)", w)
 	}
@@ -167,13 +167,13 @@ func TestToggleDuringSlowTickLaysOutOnceAndKeepsNewOrganisation(t *testing.T) {
 func TestToggleWithUnreadableWindowIsRetried(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
+	settle(t)
 	readWinFail.Store(true)
 	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
 	if res, err := f.a.Dispatch("projectApply", args); err != nil || res.(map[string]any)["ok"] != true {
 		t.Fatalf("projectApply : %v %v", res, err)
 	}
-	time.Sleep(600 * time.Millisecond) // relayoutNow a échoué (fenêtre illisible)
+	settleTicks(t, 1) // relayoutNow a échoué (fenêtre illisible) ; un tour complet du surveillant échoue aussi : rien n'est appliqué
 	if w := leaderW(); w < 90 {
 		t.Fatalf("mise en page appliquée malgré une fenêtre illisible : leader à %.0f %%", w)
 	}
@@ -186,9 +186,9 @@ func TestToggleWithUnreadableWindowIsRetried(t *testing.T) {
 func TestToggleUsesAtMostTwoTmuxRoundTrips(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
+	settle(t)
 	for _, layout := range []string{"left", "", "left"} {
-		time.Sleep(1200 * time.Millisecond)
+		settle(t)
 		lastRelayoutRounds.Store(0)
 		args, _ := json.Marshal(map[string]any{"path": f.path, "layout": layout})
 		if res, err := f.a.Dispatch("projectApply", args); err != nil || res.(map[string]any)["ok"] != true {
@@ -207,8 +207,8 @@ func TestToggleUsesAtMostTwoTmuxRoundTrips(t *testing.T) {
 func TestLayoutAppliedBeforeConfigIsWritten(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
-	persistDelay.Store(int64(3 * time.Second))
+	settle(t)
+	persistDelay.Store(int64(1500 * time.Millisecond))
 	defer persistDelay.Store(0)
 	t0 := time.Now()
 	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
@@ -243,7 +243,7 @@ func TestLayoutAppliedBeforeConfigIsWritten(t *testing.T) {
 func TestLayoutRolledBackWhenConfigCannotBeWritten(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
+	settle(t)
 	// config.conf illisible (un dossier à sa place) : l'écriture échoue, portable
 	if err := os.MkdirAll(core.ConfigPath(), 0o755); err != nil {
 		t.Fatal(err)
@@ -260,7 +260,7 @@ func TestLayoutRolledBackWhenConfigCannotBeWritten(t *testing.T) {
 func TestRapidTogglesLastClickWins(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
+	settle(t)
 	persistDelay.Store(int64(600 * time.Millisecond)) // chaque écriture dure 0,6 s
 	defer persistDelay.Store(0)
 	layoutWrites.Store(0)
@@ -326,11 +326,11 @@ func TestRapidTogglesLastClickWins(t *testing.T) {
 func TestTransportFailureIsNotATmuxRefusal(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
+	settle(t)
 	batchFail.Store(true)
 	args, _ := json.Marshal(map[string]any{"path": f.path, "layout": "left"})
 	_, _ = f.a.Dispatch("projectApply", args)
-	time.Sleep(500 * time.Millisecond)
+	settleTicks(t, 1) // un tour complet du surveillant avec le transport en échec
 	if m := f.a.Snapshot().Msg; strings.Contains(m, "refusé par tmux") {
 		t.Errorf("échec de transport pris pour un refus de tmux : %q", m)
 	}
@@ -350,7 +350,7 @@ func isLeftOf(leaderW func() float64) func() bool {
 func TestRelayoutUsesOneConfigSnapshot(t *testing.T) {
 	f, leaderW := fakeTeamProject(t)
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
-	time.Sleep(1500 * time.Millisecond)
+	settle(t)
 	base := filepath.Base(f.path)
 	relayoutMid = func() { f.a.setLayoutOverride(base, "top") } // la demande change entre la signature et le plan
 	defer func() { relayoutMid = nil }()
@@ -362,4 +362,53 @@ func TestRelayoutUsesOneConfigSnapshot(t *testing.T) {
 	if left != strings.HasPrefix(sig, "left") {
 		t.Errorf("signature %q incohérente avec la mise en page appliquée (leader à %.0f %%)", sig, leaderW())
 	}
+}
+
+// fastTicks : tour lent du surveillant à 150 ms au lieu d'1 s pour la durée du test (aucune attente de secondes).
+func fastTicks(t *testing.T) {
+	t.Helper()
+	old := tickEvery.Swap(int64(150 * time.Millisecond))
+	t.Cleanup(func() { tickEvery.Store(old) })
+}
+
+// settleTicks : attend que n tours lents de plus soient terminés (attente sur évènement, échéance 20 s).
+// Les compteurs tickDone/tickBegun sont GLOBAUX (tous les surveillants du processus) : « n tours quelque part », pas
+// « n tours de ce projet » — valable tant qu'un test n'ouvre qu'un projet. Un tour déjà en cours à l'appel compte
+// pour 1 : settle(t) garantit au moins un tour complet démarré après l'appel.
+func settleTicks(t *testing.T, n int64) {
+	t.Helper()
+	target := tickDone.Load() + n
+	end := time.Now().Add(20 * time.Second)
+	for tickDone.Load() < target {
+		if time.Now().After(end) {
+			t.Fatalf("surveillant : %d tour(s) lent(s) non terminé(s) en 20 s", n)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+// settle : le surveillant est au repos — deux tours lents complets sans changement.
+func settle(t *testing.T) { t.Helper(); settleTicks(t, 2) }
+
+// waitTicksStarted : un tour lent est démarré (le tour lent suivant le démarrage d'une bascule lit déjà la config).
+func waitTicksStarted(t *testing.T) {
+	t.Helper()
+	target := tickBegun.Load() + 1
+	end := time.Now().Add(20 * time.Second)
+	for tickBegun.Load() < target {
+		if time.Now().After(end) {
+			t.Fatal("surveillant : aucun nouveau tour lent démarré en 20 s")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	time.Sleep(50 * time.Millisecond) // le tour a lu sa configuration
+}
+
+// settleSlow : repos du surveillant alors qu'un tour lent simulé (d) est en cours : le tour en cours finit, puis deux
+// tours rapides complets ; le ralentissement est rétabli ensuite.
+func settleSlow(t *testing.T, d time.Duration) {
+	t.Helper()
+	tickSlow.Store(0)
+	settle(t)
+	tickSlow.Store(int64(d))
 }

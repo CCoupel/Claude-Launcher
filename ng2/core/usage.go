@@ -277,7 +277,7 @@ func NeedsFetch(refreshSec int) bool {
 func FetchUsage(refreshSec int) {
 	path := usageCachePath()
 	_ = os.MkdirAll(filepath.Dir(path), 0o755)
-	fail := func(msg string) { _ = os.WriteFile(path+".err", []byte(msg), 0o644) }
+	fail := func(msg string) { _ = WriteFileAtomic(path+".err", []byte(msg), 0o644) }
 
 	cb, err := os.ReadFile(credentialsPath())
 	var creds struct {
@@ -295,7 +295,7 @@ func FetchUsage(refreshSec int) {
 	req.Header.Set("Accept", "application/json")
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
-		fail("endpoint indisponible")
+		fail("endpoint indisponible" + NetBlockedHint())
 		return
 	}
 	defer resp.Body.Close()
@@ -380,6 +380,6 @@ func tooMany(path, retryAfter string) time.Duration {
 	if wait > usageMaxWait {
 		wait = usageMaxWait
 	}
-	_ = os.WriteFile(path+".wait", []byte(strconv.Itoa(int(wait.Seconds()))), 0o644)
+	_ = WriteFileAtomic(path+".wait", []byte(strconv.Itoa(int(wait.Seconds()))), 0o644)
 	return wait
 }

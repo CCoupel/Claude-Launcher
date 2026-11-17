@@ -230,7 +230,7 @@ func applyVis(cfg core.Config, pw projWin, leader, teamPath string, now time.Tim
 	if home == "" {
 		return false
 	}
-	res, err := core.ApplyPaneVis(t, pw.win, home, &tc, cfg.TeamHideIdle, now.Unix(), pw.isCtr())
+	res, err := core.ApplyPaneVis(t, pw.win, home, &tc, cfg.HideIdleArg(), now.Unix(), pw.isCtr())
 	if err != nil || !res.Changed() {
 		return false
 	}

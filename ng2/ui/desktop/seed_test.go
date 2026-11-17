@@ -108,25 +108,20 @@ func openWith(t *testing.T, script string) *panelHost {
 // reseeded : flux d'amorçage du pane qui suit l'action do.
 func (h *panelHost) reseeded(t *testing.T, pane string, do func()) string {
 	t.Helper()
-	h.r.mu.Lock()
-	n := len(h.r.evs)
-	h.r.mu.Unlock()
+	n := h.r.count()
 	do()
 	end := time.Now().Add(10 * time.Second)
 	for time.Now().Before(end) {
-		h.r.mu.Lock()
-		for _, e := range h.r.evs[n:] {
+		for _, e := range h.r.since(n) {
 			if e["_name"] == "term" && e["kind"] == "out" && e["path"] == h.path {
 				for _, c := range e["chunks"].([]any) {
 					c := c.(map[string]any)
 					if c["pane"] == pane && c["reset"] == true {
-						h.r.mu.Unlock()
 						return c["data"].(string)
 					}
 				}
 			}
 		}
-		h.r.mu.Unlock()
 		time.Sleep(50 * time.Millisecond)
 	}
 	t.Fatalf("pas d'amorçage de %s", pane)
@@ -205,6 +200,7 @@ func TestPaneBorderDragAndMouse(t *testing.T) {
 	if len(h.pt.lastLayout().Panes) < 2 {
 		t.Fatal("second pane absent de la mise en page")
 	}
+	settle(t) // le surveillant a remis en page le nouveau pane : sa remise en page ne passe pas après le resize
 	w0, _ := strconv.Atoi(strings.TrimSpace(h.tm("display", "-p", "-t", leader, "#{pane_width}")))
 	axis := "x"
 	if strings.TrimSpace(h.tm("display", "-p", "-t", leader, "#{pane_at_right}")) == "1" {

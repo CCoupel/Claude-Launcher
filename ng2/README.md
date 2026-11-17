@@ -120,11 +120,70 @@ launcher (hôte et conteneurs) ; un chemin relatif l'est par rapport au dossier 
 qui garde l'ensemble portable. Une variable `CLAUDE_CONFIG_DIR` déjà définie au lancement l'emporte.
 
 ```bash
-# /share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/config.conf
+# /share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/config.conf   (exemple de racine)
 PROJECT_BASE="/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS/"
 GITHUB_DIRS=("$PROJECT_BASE")
 CLAUDE_CONFIG_DIR="../../.claude"          # = /share/MFS/ROOT/CLAUDE_PROJETS/.claude
 ```
+
+**Racine de base** (v6.3.0, #165). `/share/MFS/ROOT/CLAUDE_PROJETS` n'est qu'un exemple : aucun chemin n'est supposé.
+Pour une autre racine, on passe `--root-base <dossier>` (ou `CL_ROOT_BASE=<dossier>`) ; l'option l'emporte sur la
+variable. Elle est reportée dans `CL_ROOT_BASE` du processus, donc conservée à chaque relance, et transmise aux
+sous-commandes lancées par tmux (`nav`, `state`, `mirror`…).
+
+Dossier de configuration, par ordre de priorité :
+
+1. `CL_CONFIG_DIR` ;
+2. `<racine>/.config/claude-launcher-ng2`, retenu même si `config.conf` n'y existe pas encore ;
+3. `.config/claude-launcher-ng2` à côté du binaire, s'il contient un `config.conf` (portable, inchangé) ;
+4. le dossier personnel (inchangé).
+
+Sous la racine, le launcher place donc sa configuration (`.config/claude-launcher-ng2` : `config.conf`,
+`backends.yaml`, `projects.json`), la config de claude (`.claude`) et les projets (`PROJETS`, proposé à la création de
+`config.conf`). `CLAUDE_CONFIG_DIR` vaut `<racine>/.claude` tant que `config.conf` ne le pose pas, et une valeur déjà
+définie au lancement l'emporte.
+
+- Racine absente, qui n'est pas un dossier ou qui est illisible : erreur qui nomme le chemin et sa source (`CL_ROOT_BASE`
+  ou `--root-base`), code de sortie non nul, rien n'est créé.
+- Option sans valeur (`--root-base`, `--root-base=`) : erreur explicite, la variable n'est pas effacée en silence.
+- `claude-launcher-ng2 backends` affiche en tête la section « Racine de base » : racine et sa source, configuration,
+  cache, config de claude, projets.
+- Avec `--root-base` seul, le cache (jeton, état, journaux) reste sous le dossier personnel `~/.cache/claude-launcher-ng2`
+  (`$XDG_CACHE_HOME` ou `~/.cache`). C'est un état propre à chaque launcher, jamais partagé : seul `CL_CACHE_DIR` le
+  déplace. La ligne « cache » de la section « Racine de base » indique sa source (`CL_CACHE_DIR` ou « défaut »).
+
+**Identité et cache d'un launcher** (v6.3.0, #169) :
+
+- `CL_HUB_NAME` donne au launcher un nom à la place de celui de la machine. Ce nom sert de clé `hubs.<nom>` dans
+  `backends.yaml`, d'identité de propriétaire des sessions (`LauncherID`) et d'hôte admis des serveurs web. Il doit
+  respecter `^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$` ; une valeur invalide arrête le démarrage, rien n'est créé.
+- Le nom réel de la machine reste celui des espaces de PID des teams, écrits par Claude Code : `CL_HUB_NAME` ne change
+  que l'identité du launcher.
+- `CL_CACHE_DIR` est le dossier de cache, utilisé tel quel, et il est créé s'il manque. Il contient les jetons, les
+  préférences, le navigateur apparié, l'état par projet, le cache des milestones (`milestones-v2.json`) et le témoin de
+  présence. Convention du chart : `CL_CACHE_DIR=<rootBase>/.cache/claude-launcher-ng2/<hubName>`.
+
+**Plusieurs launchers sur une même racine** (v6.3.0, #176). Ce qui est **commun** : la racine, `projects.json`, le
+`settings.json` de `CLAUDE_CONFIG_DIR`, l'`env.yaml` des projets. Ce qui est **propre** à chaque launcher : le cache,
+le témoin de présence et l'identité.
+
+- **Garde de nom** : avec `CL_HUB_NAME` posé, un témoin `hub-<nom>.presence` est tenu dans `CL_CACHE_DIR`, renouvelé
+  toutes les 3 s. Un second launcher de même nom refuse de démarrer (`desktop`), avec un message qui nomme le launcher
+  déjà actif, code 1. Le témoin est repris après 10 s, ou tout de suite si son processus est mort sur la même machine.
+  Sans `CL_HUB_NAME`, aucun contrôle : deux launchers sans nom sur le même état démarrent tous deux, comme en v6.2.0.
+  Deux launchers qui partagent une racine doivent donc porter des noms différents.
+- **Un seul pilote** : les écritures partagées (`projects.json`, `settings.json`, `env.yaml`) se font sous un verrou
+  court (`<fichier>.lock`, création exclusive, repris après 20 s), puis en écriture atomique (fichier temporaire puis
+  renommage). Un verrou périmé (60 s) est repris sous un second verrou (`<fichier>.reclaim`). Les écarts d'horloge entre
+  launchers doivent rester très inférieurs à 60 s, car la péremption se mesure sur la date du fichier.
+- **`settings.json`** : chaque launcher tient la liste des clés qu'il a posées dans son propre fichier
+  (`claude-launcher/settings-env-<nom>.json` avec `CL_HUB_NAME`, `settings-env.json` sans). Il ne retire que ses clés.
+  Si deux launchers posent la même clé avec des valeurs différentes, **le dernier écrivain gagne**.
+
+**Variables de cluster** (v6.3.0, #168, #169) : `CL_IN_CLUSTER=1` ou `0` force la détection du cluster (absente :
+automatique, d'après `KUBERNETES_SERVICE_HOST` et le jeton du ServiceAccount). `CL_ALLOW_HOST_BACKEND=1` autorise le
+backend `host` dans un launcher en cluster, où il est refusé par défaut (claude n'y est pas installé). Les tests fixent
+`CL_IN_CLUSTER=0`, car le conteneur de développement est lui-même un pod. Le détail est dans `contracts/launcher-env.md`.
 
 La configuration est `config.conf` (relue par bash : `GITHUB_DIRS`,
 `CLAUDE_OPTIONS`, `RESUME_MODE`, `CTR_STOP_ON_EXIT`, `TEAM_HIDE_IDLE`, `COLOR_PALETTE`, `USAGE_REFRESH_SEC`, `LAYOUT_*`, `PANE_*_STEP`…), créée au
@@ -686,6 +745,11 @@ Ordre de priorité, champ par champ (`listen`, `url`, `allow`) :
 `hubs.<machine>.<système>.browser_server` > `hubs.<machine>.browser_server` >
 `defaults.browser_server` > défaut (`127.0.0.1:8765`, ou `127.0.0.1:8766` pour l'exe Windows,
 voir la section Windows).
+
+Dans Réglages › Ce poste, la rubrique « Serveur de maquettes » affiche la **valeur effective** pour ce poste et ce
+système, avec sa provenance : `defaults`, `hubs.<machine>`, le nom du système (`windows`, `linux`, `darwin`) quand une
+surcharge le pose, ou rien si aucune couche ne le pose. Modifier un champ l'écrit sur la couche qui gagne ; « retour au
+défaut » le retire de toutes les couches qui le posent, sans laisser réapparaître une valeur masquée.
 
 `url` est la base annoncée au template. Elle est déduite de `listen` par défaut : `localhost` en
 boucle locale, le nom de la machine si le serveur écoute sur toutes les interfaces. Attention :
@@ -1375,9 +1439,17 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
   elle se déclare dans `defaults`, `hubs.<machine>` et se surcharge par système (`.windows`, `.linux`, `.darwin`), champ par
   champ. Une écoute hors boucle locale exige `allow_lan: true` ; le même port que `browser_server` du même système est refusé.
 
+  Le commutateur `enabled` (v6.3.0, #183) allume ou éteint l'interface sans toucher à `listen` : `enabled: false` garde
+  l'adresse, `enabled: true` exige une adresse d'écoute (sinon erreur « interface web activée sans adresse d'écoute »).
+  Absent, l'interface est allumée si `listen` est renseigné, comme en v6.2.0. Le changement s'applique à l'enregistrement,
+  sans relance, et n'affecte pas le serveur des maquettes. Dans Réglages › Ce poste, la rubrique « Interface web » affiche
+  la valeur effective pour ce poste et ce système, avec sa provenance comme pour le serveur de maquettes ; le commutateur
+  propose `127.0.0.1:8787` quand on l'allume sans adresse saisie. En mode serveur (`desktop --web`), `enabled` est
+  ignoré. Depuis un client web, `desktop_web` et `browser_server` sont en lecture seule.
+
   ```yaml
   defaults:
-    desktop_web: { listen: "8770" }                 # port seul = boucle locale (127.0.0.1:8770)
+    desktop_web: { enabled: true, listen: "8770" }  # port seul = boucle locale (127.0.0.1:8770)
   hubs:
     MSI:
       desktop_web: { listen: "0.0.0.0:8770", allow_lan: true }   # réseau : accès par le nom de la machine
@@ -1386,6 +1458,83 @@ CLAUDE_CONFIG_DIR="$PROJECT_BASE/../.claude"
   ```
 
   Une écoute `":8770"` (sans hôte) n'est pas reconnue comme boucle locale : elle est refusée sans `allow_lan: true`.
+
+#### Adresse publique derrière un proxy inverse (v6.3.0, #171)
+
+Quand l'interface web est servie derrière un proxy HTTPS (Ingress, Traefik, nginx, Caddy), le navigateur ne voit pas
+l'adresse d'écoute. Le réglage `url` donne l'adresse publique :
+
+```yaml
+defaults:
+  desktop_web: { enabled: true, listen: "0.0.0.0:8770", allow_lan: true, url: "https://launcher.exemple" }
+```
+
+- **Forme** : `http://hôte[:port]` ou `https://hôte[:port]`, sans chemin, sans paramètres, sans identifiants. Toute
+  autre forme éteint l'interface et affiche la raison dans l'état (`webUI.msg`).
+- **Sources**, par priorité : option `--url` > variable `CL_WEB_URL` > `desktop_web.url`.
+- **Hôte** : un nom RFC 1123 (lettres, chiffres, `-`, `.`) ou une adresse IP. Un nom internationalisé est converti en
+  punycode. `%`, `_`, espaces et autre ponctuation sont refusés.
+- **Port** : le port par défaut du schéma est retiré (`https://h:443` ≡ `https://h`), comme le font `Host` et `Origin`
+  du navigateur.
+- L'interface est toujours servie à la racine du nom : pas de préfixe de chemin.
+- **En-têtes** : aucun `X-Forwarded-*`, `Forwarded` ni `X-Real-IP` n'est lu. Le schéma et l'hôte publics viennent
+  seulement de `url`.
+
+Effets : le `Host` admis est celui de `url` (sur son port) en plus de la boucle locale et de la machine. L'origine admise
+est exactement celle de `url`. Le cookie de session prend `Secure` quand `url` est en `https`, et son nom devient
+`__Host-cl_session_<port>` (ou `__Host-cl_session`). Un accès direct au port d'écoute en HTTP ne garde donc pas de session.
+
+**Amorçage** : `GET /?t=<jeton>` ne sert jamais la page. Un jeton valide pose le cookie et répond `303` vers `/`, sans
+`t`. Un jeton invalide sans session répond `403` ; avec une session valide, `303` sans nouveau cookie. Le jeton
+reste réutilisable jusqu'à sa régénération : il apparaît donc dans les journaux du proxy à la première requête, à
+masquer côté proxy.
+
+**Refus `403`** : l'en-tête `X-Launcher-Refusal` indique la cause. `host` : hôte non admis. `origin` : origine non admise.
+`session` : cookie absent, expiré ou révoqué. `method` : méthode non permise sur `/api/call`. Seul `session` signifie
+« session perdue » ; l'interface n'affiche la bannière d'expiration que dans ce cas.
+
+**Sondes** : `GET /healthz` répond `200 ok` dès que le serveur vit. `GET /readyz` répond `200 ok` quand le chargement
+initial est fini, `503` avant. Les deux sont sans session et hors contrôle de `Host`, et ne révèlent rien (ni version,
+ni état des projets). Elles servent aux sondes de Kubernetes.
+
+**Exemples de proxy** (à valider en QUALIF) :
+
+```nginx
+# nginx : le Host public est transmis ; le flux SSE n'est pas tamponné
+location / {
+    proxy_pass http://127.0.0.1:8770;
+    proxy_set_header Host $http_host;          # port public inclus
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+}
+location /api/events {
+    proxy_pass http://127.0.0.1:8770;
+    proxy_set_header Host $http_host;
+    proxy_buffering off;
+    proxy_read_timeout 300s;                   # > battement de 20 s
+}
+```
+
+```caddyfile
+# Caddy : Host transmis par défaut ; flush immédiat pour le flux SSE
+launcher.exemple {
+    reverse_proxy 127.0.0.1:8770 {
+        flush_interval -1
+    }
+}
+```
+
+```yaml
+# Traefik : pas de middleware buffering sur la route ; le délai de lecture de l'entrypoint doit dépasser 20 s
+entryPoints:
+  websecure:
+    transport:
+      respondingTimeouts:
+        readTimeout: 300s
+```
+
+**Rappel** : derrière le proxy, ne publiez pas le port d'écoute autrement (Service, `hostPort`, pare-feu ouvert) : le
+jeton est alors la seule barrière. Sur Kubernetes, gardez un `ClusterIP` et le proxy de l'Ingress.
 
 ### Prérequis : outils externes
 
@@ -1415,6 +1564,229 @@ interface native comprise), avec les binaires Linux et macOS (noms inchangés) e
 d'exécution ne peut pas être remplacé : il est renommé `claude-launcher-ng2.exe.old`, le nouveau
 est posé à sa place et lancé, puis l'ancien processus se termine ; le `.old` est supprimé au
 démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
+
+## Launcher dans un cluster (v6.3.0)
+
+Le launcher peut tourner dans un pod Kubernetes, comme **serveur** de l'interface web (`desktop --web`), à côté des
+projets qu'il ouvre. Il se pilote depuis un navigateur, derrière un Ingress (adresse publique : réglage `desktop_web.url`,
+voir « Interface web de la fenêtre native » plus haut).
+
+**L'image** (#167) : `ghcr.io/ccoupel/claude-launcher` (paquet public), tags `vX.Y.Z` et `vX.Y.Z.a`. Elle contient le
+binaire statique, `bash`, `git`, `gh` et `kubectl` (version fixée, somme vérifiée à la construction). **Ni `claude` ni
+`tmux`** : les sessions des projets tournent dans leurs conteneurs ou leurs pods.
+
+- Construction : `deploy/image/build.sh <vX.Y.Z[.a]>` (buildah). Le binaire est compilé avec la même commande que
+  `release.yml`, puis mis dans l'image. `OCI_ARCHIVE=1` produit aussi une archive OCI et son `SHA256SUMS`.
+- Utilisateur non root, uid:gid `1000:1000` (remplaçables par le chart). `HOME=/home/launcher` n'est **pas** persistant.
+- Port `8080`. `CL_UPDATE_MODE=notify` : la nouvelle version est annoncée, mais le pod ne se met pas à jour seul, c'est
+  l'image qui change.
+- **`CL_ROOT_BASE` est obligatoire** : le point d'entrée (`entrypoint.sh`) refuse de démarrer sans elle (code `64`), et
+  aussi si elle ne désigne pas un dossier, par exemple un volume non monté (code `66`). Le chart la pose (`rootBase`).
+- Le point d'entrée lance `desktop --web --addr 0.0.0.0:8080 --no-open`, avec `--url` si `CL_WEB_URL` est posée. Il
+  laisse passer `version`, `backends` et `help` pour le diagnostic.
+
+**Config au démarrage** : si `config.conf` n'existe pas sous la racine, il est créé dans
+`<racine>/.config/claude-launcher-ng2`, avec `GITHUB_DIR="${CL_ROOT_BASE}/PROJETS"` et
+`CLAUDE_CONFIG_DIR="${CL_ROOT_BASE}/.claude"` (aucun chemin absolu écrit). Le fichier est partagé par le hub Linux, l'exe
+Windows et le pod, chacun développe `${CL_ROOT_BASE}` avec sa propre forme de la racine. Si `CL_ROOT_BASE` n'est pas
+dans l'environnement (exe Windows, mode portable), la racine est déduite de l'emplacement du fichier, pour cette lecture
+seulement. Si elle ne correspond pas, les chemins qui en dérivent sont écartés et `backends` affiche « ⚠ config.conf
+utilise ${CL_ROOT_BASE}, non résolue… », sans jamais retomber sur un `/PROJETS` silencieux.
+
+**Détection et identité** :
+
+- Le launcher se croit dans un cluster quand `KUBERNETES_SERVICE_HOST` est posé et que le jeton du ServiceAccount
+  (`/var/run/secrets/kubernetes.io/serviceaccount/token`) est lisible. `CL_IN_CLUSTER=1` ou `0` force le choix.
+- Un backend k8s **sans `context`** utilise le ServiceAccount du pod (`kubectl` sans `--context` ni `KUBECONFIG`). Un
+  backend **sans `namespace`** prend celui du pod.
+- En cluster, le `context` d'un backend k8s est **ignoré** (#168) : le pod n'agit que sur le cluster de son
+  ServiceAccount. Un backend copié depuis un autre poste, qui vise un autre cluster, agirait donc sur celui du pod :
+  retirez-le du `backends.yaml` du pod.
+- Sans `backends.yaml`, un backend k8s implicite est proposé, avec les volumes de `CL_K8S_VOLUMES` au format
+  `<racine>=<pvc>[,<racine>=<pvc>…]`.
+- Le backend `host` est refusé dans le pod (claude n'y est pas installé), sauf `CL_ALLOW_HOST_BACKEND=1`.
+
+**« Tester » un backend k8s** : les droits sont vérifiés un par un (`kubectl auth can-i`) : `statefulsets`, `pods`,
+`pods/exec`, `events`, `persistentvolumeclaims`. Un droit absent affiche « droit manquant : verbe ressource » avec le
+conseil de mettre à jour le Role du chart (`helm upgrade`). Si la vérification elle-même échoue, l'étape affiche
+« droit non vérifiable » avec la cause renvoyée par `kubectl`. Les volumes déclarés doivent être présents, `Bound`,
+`ReadWriteMany`, et montés dans le pod du launcher au chemin prévu.
+
+**Jeton de l'interface** : en cluster, le jeton n'est **jamais imprimé** dans les journaux du pod. Le journal indique
+seulement le fichier où le lire : `<cache>/desktop-web-token` (0600), créé au premier démarrage et conservé d'un
+redémarrage à l'autre. `CL_DESKTOP_TOKEN` le remplace s'il est posé. Pour le lire, passer par `kubectl exec` sur le
+pod, et placer `CL_CACHE_DIR` sur le volume de la racine (convention du chart) : sans cela, le jeton est perdu au
+redémarrage du pod.
+
+**Connexion claude.ai et GitHub** (#175) : le pod n'a pas `claude`. La connexion claude.ai ne se fait donc pas dans le
+pod : elle se fait dans un projet ouvert depuis le launcher, en lançant `/login` dans son leader. Elle est partagée
+par la config de claude commune (`CLAUDE_CONFIG_DIR`). Le pod doit pouvoir joindre `claude.ai` et GitHub : si une
+sortie réseau est bloquée (NetworkPolicy, proxy, DNS du cluster), le launcher le signale dans le message d'erreur,
+au lieu d'un simple « injoignable ».
+
+**Arrêt** : `SIGTERM` (envoyé par le kubelet) et `SIGINT` ferment le serveur proprement, détachent les terminaux et
+sortent avec le code 0. Les projets restent ouverts dans leurs pods.
+
+**Mode d'accès `none`** (#192) : `desktop_web.access` (ou `CL_WEB_ACCESS`) vaut `token` par défaut, avec jeton. `none`
+supprime le jeton : l'interface s'ouvre sans lien d'amorçage. Il n'est accepté qu'en boucle locale, ou avec une adresse
+publique en `https` (`url`) ; une adresse en `http` est refusée, même en boucle locale. Au passage en `none`, le fichier
+de jeton précédent est supprimé. **Risque accepté** : en `none` hors cluster, tout utilisateur ou processus de la
+machine pilote le launcher ; en cluster, l'Ingress et sa liste d'adresses sont la seule barrière. Le chart pose
+`web.access: none` par défaut et refuse `none` sans Ingress.
+
+**Installer par Helm** (#170, #173) : le chart `deploy/helm/claude-launcher` déploie le launcher dans le namespace. Il crée
+un StatefulSet à une réplique (la mise à jour supprime l'ancien pod avant de créer le nouveau), un Service `ClusterIP`
+seul, un ServiceAccount avec un Role limité au namespace (aucun ClusterRole), et un Ingress interne Traefik ou nginx.
+Les valeurs obligatoires (`rootBase`, `volume.existingClaim`, `ingress.controller`, `ingress.className`,
+`ingress.host`, `ingress.allowedSourceRanges`, un moyen de TLS) font échouer `helm install` avec un message qui les
+nomme. Le détail des valeurs et des objets est dans `contracts/helm-values.md` ; le guide d'installation complet viendra
+avec #185.
+
+- **Ingress** : une liste d'adresses admises, non vide (un `/0` est refusé), et HTTPS obligatoire, HTTP redirigé.
+- **Racine** : le chart ne crée ni ne supprime le PVC des projets. Le pod a un système de fichiers racine en lecture
+  seule : il n'écrit que dans `/home/launcher`, `/tmp` (emptyDir) et la racine partagée.
+- **Variables du pod** : `CL_ROOT_BASE`, `CL_HUB_NAME`, `CL_CACHE_DIR`, `CL_K8S_VOLUMES`, `CL_WEB_URL` et
+  `CL_ALLOW_HOST_BACKEND` sont posées par le chart. Les valeurs réservées ne peuvent pas être redéfinies par `extraEnv`.
+- **Désinstallation** : `helm uninstall` retire les objets du chart, mais ne touche ni au PVC, ni aux StatefulSets des
+  projets, ni aux fichiers de la racine.
+
+### Installer le launcher dans Kubernetes par Helm (accès interne)
+
+Ce guide installe le launcher dans un namespace Kubernetes, accessible **seulement depuis le réseau interne**, avec le
+chart `deploy/helm/claude-launcher`. Les valeurs complètes sont dans `contracts/helm-values.md`.
+
+#### 1. Prérequis
+
+- Un cluster avec un Ingress Traefik ou nginx, et cert-manager. Un namespace dédié : le Role du chart est limité à ce
+  namespace, mais il équivaut à administrer le namespace. N'y mettez que le launcher et ses projets.
+- Un volume RWX pour la racine des projets, sous l'une de ces formes : un PVC existant (`volume.existingClaim`) ; un PVC
+  créé par le chart (`volume.create.enabled: true`) lié à un PV fourni par l'administrateur (`volume.create.persistentVolume.name`) ; ou
+  un PV créé aussi par le chart (`persistentVolume.enabled: true`, droits d'administrateur).
+- Un nom d'accès en `.local` (mDNS), par exemple `launcher.local`. Les pods ne résolvent pas les noms `.local`.
+- Une CA interne pour cert-manager, avec des contraintes de noms (`nameConstraints`) sur `launcher.local`. Le certificat
+  **public** de cette CA s'installe une fois sur chaque poste qui y accède. La clé ne sort jamais du cluster.
+- Une image publiée : l'empreinte est jointe à la release, dans `claude-launcher-image-vX.Y.Z.digest`, sous la forme
+  `dépôt:tag@sha256:…`. Pour n'en garder que `sha256:…` : `sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-vX.Y.Z.digest`.
+- Le namespace doit exister avant l'installation (le guide n'utilise pas `--create-namespace`) : `kubectl create namespace claude-ng2`,
+  avec le niveau de Pod Security que fixe l'administrateur (le pod ne demande aucun privilège).
+
+#### 2. Valeurs
+
+```yaml
+# values.yaml — exemple, à adapter
+rootBase: /data/projets                        # chemin absolu de la racine des projets, dans le pod
+hubName: cluster                               # unique parmi les launchers de cette racine
+volume:
+  existingClaim: projets
+ingress:
+  controller: traefik                          # ou nginx
+  className: traefik
+  host: launcher.local
+  allowedSourceRanges: ["192.168.1.0/24"]      # seules adresses admises, non vide ; minimum /8 (IPv4), /16 (IPv6)
+  tls:
+    clusterIssuer: claude-launcher-ca          # ou secretName, un des deux
+web:
+  access: none                                 # défaut du chart : pas de jeton, l'Ingress est la barrière
+```
+
+Valeurs obligatoires : `rootBase`, `volume.existingClaim`, `ingress.controller`, `ingress.className`, `ingress.host`,
+`ingress.allowedSourceRanges`, et l'un de `ingress.tls.secretName` ou `ingress.tls.clusterIssuer`. Une absente fait échouer
+`helm install` avec un message qui la nomme. `allowedSourceRanges` refuse tout `/0` et tout préfixe plus large.
+
+#### 3. Installation
+
+Installez l'image **par son empreinte** : le chart la référence `dépôt:tag@sha256:…`, telle qu'elle a été publiée.
+
+```bash
+VERSION=X.Y.Z                                  # version du chart et du launcher
+TAG=v$VERSION
+DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
+[ -n "$DIGEST" ] || { echo "empreinte absente : arrêter" >&2; exit 1; }
+CHART=oci://ghcr.io/ccoupel/charts/claude-launcher
+
+helm template claude-launcher "$CHART" --version "$VERSION" -n claude-ng2 \
+  -f values.yaml --set image.tag="$TAG" --set image.digest="$DIGEST" | grep 'image:'
+# contrôle : ghcr.io/ccoupel/claude-launcher:$TAG@$DIGEST — sinon arrêter
+
+helm upgrade --install claude-launcher "$CHART" --version "$VERSION" -n claude-ng2 \
+  -f values.yaml --set image.tag="$TAG" --set image.digest="$DIGEST"
+kubectl -n claude-ng2 rollout status statefulset/claude-launcher --timeout=5m
+kubectl -n claude-ng2 get certificate                  # READY True
+```
+
+Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont créés par le launcher, pas par le chart.
+
+#### 4. Accès
+
+- **`web.access: none`** (défaut) : ouvrez `https://launcher.local/` depuis une adresse de la liste. Il n'y a pas de jeton
+  ni de lien d'amorçage. Contrôle : `kubectl -n claude-ng2 exec statefulset/claude-launcher -- printenv CL_WEB_ACCESS` → `none`.
+- **`web.access: token`** : le jeton ne s'affiche jamais dans les journaux du pod. Lisez-le dans le fichier
+  `<rootBase>/.cache/claude-launcher-ng2/<hubName>/desktop-web-token` du pod, par `kubectl exec`, puis donnez-le à l'utilisateur
+  par un canal sûr. Ne l'écrivez pas sur un partage.
+- La CA doit être installée sur le poste, sinon le navigateur refuse le certificat.
+
+#### 5. Vérifications obligatoires
+
+Avant de déclarer l'accès « réservé au réseau interne », vérifiez la liste d'adresses :
+
+1. Traefik doit garder l'adresse du client : `kubectl -n kube-system get svc -o custom-columns=NOM:.metadata.name,POLITIQUE:.spec.externalTrafficPolicy`
+   → `Local` pour Traefik. Avec `Cluster`, Traefik voit l'adresse d'un nœud, la liste ne sert à rien : ne pas valider.
+2. Depuis une adresse de la liste : `curl -sk -o /dev/null -w '%{http_code}' https://launcher.local/healthz` → `200`.
+3. Depuis une adresse hors liste (autre réseau, VPN) : même commande → `403`.
+4. Depuis un pod du cluster qui passe par l'Ingress → `403`. Les pods ne résolvent pas `.local` : passez `--resolve`.
+   ```bash
+   IP_TRAEFIK=$(kubectl -n kube-system get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+   kubectl -n claude-ng2 run curl-test --rm -it --restart=Never --image=curlimages/curl -- \
+     curl -sk -o /dev/null -w '%{http_code}\n' --resolve "launcher.local:443:$IP_TRAEFIK" https://launcher.local/healthz
+   ```
+   Le nom du service Traefik et l'adresse exposée dépendent de l'installation : adaptez `IP_TRAEFIK` (`kubectl -n kube-system get svc`).
+5. Un en-tête `X-Forwarded-For` ne change rien : le contrôle porte sur l'adresse de la connexion. Depuis une adresse
+   hors liste, contrôlez-le ainsi :
+   ```bash
+   curl -sk -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 192.168.1.10' https://launcher.local/healthz   # → 403
+   ```
+
+#### 6. Mise à jour et retour arrière
+
+- **Mise à jour** : relancez `helm upgrade --install` avec le nouveau `image.tag` et le nouveau `image.digest`. Ne réutilisez
+  jamais un tag déjà publié.
+- **Retour arrière** : `helm rollback claude-launcher <révision> -n claude-ng2`. Les projets restent dans leurs pods.
+- **Désinstallation** : `helm uninstall` retire les objets du chart. Il ne touche ni au PVC ni au PV créés par le chart
+  (`keep`), ni aux StatefulSets des projets, ni aux fichiers de la racine.
+
+#### 7. Cohabitation avec l'exe Windows
+
+Un poste Windows peut partager la même racine. Ce partage n'est correct que dans les cas suivants :
+
+- **`config.conf` créé par v6.3.0 sous une racine de base** : ses chemins sont écrits `${CL_ROOT_BASE}`, que chaque launcher
+  développe avec sa propre forme de la racine. Un `config.conf` **existant** (la racine de PROD, par exemple) garde ses
+  chemins tels quels : il n'est pas réécrit.
+- **Limite** : ne partagez pas une racine **neuve** créée par v6.3.0 avec un launcher antérieur à v6.3.0. Il ne développe
+  pas `${CL_ROOT_BASE}` et ne trouve donc pas ses projets.
+
+Chaque launcher a son propre cache et son propre nom de hub : le launcher du cluster se nomme `hubName`, et le poste
+garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
+
+#### 8. Limites de v6.3.0 (risques acceptés)
+
+- **Pas de NetworkPolicy** : tout pod du cluster atteint le Service sans passer par l'Ingress. Le Service est `ClusterIP`.
+- **`web.access: none`** : tout poste de la liste pilote les projets, et tout pod du cluster atteint le Service. Ce risque
+  est accepté jusqu'à l'authentification de v6.4.0 (#172).
+- **Jeton en clair sur le volume partagé** (`web.access: token`) : le jeton reste dans `<cache>/desktop-web-token`, sur le
+  volume partagé de la racine. Il est donc lisible par tout pod qui monte ce volume, y compris les pods de projets. Risque
+  accepté jusqu'à v6.4.0. Avec `web.access: none`, aucun jeton n'est tiré, lu ni écrit : le fichier n'existe pas, et il est
+  supprimé au passage en `none`.
+- **Saturation possible** : 32 flux `/api/events` au total, ouvrables par tout client qui atteint le port.
+- **Contexte k8s ignoré en cluster** : un backend `k8s` d'un autre cluster, déclaré dans la racine, agirait sur le cluster du
+  pod. Ne déclarez que des backends `k8s` du cluster où tourne le launcher.
+- **Hors cluster, `web.access: none`** : tout processus local pilote le launcher.
+- **Backends distants** : depuis le launcher du cluster, seul le backend `k8s` fonctionne. Les backends ssh, podman et docker demandent des clients absents de l'image (issue prévue en v6.4.0).
+- **Hors cluster, `web.access` vaut `token` par défaut** (launcher), alors que le chart pose `none`.
+- **Tag mutable** : si `image.digest` n'est pas posé, `image.tag` peut désigner une image différente demain. Posez toujours
+  l'empreinte. Le paquet ghcr de l'image est public : toute personne peut la tirer.
+- **Refus de NodePort et LoadBalancer** : le chart refuse ces types de Service ; seul `ClusterIP` est admis.
+- **Serveur de fichiers des maquettes** (`browser_server`) : non exposé par le pod en cluster (#174, prévu en v6.4.0).
+- Ne publiez jamais l'Ingress hors du réseau interne, et n'exposez pas le port d'écoute autrement.
 
 ## Interface
 
@@ -1487,6 +1859,12 @@ démarrage suivant. Linux et macOS : inchangé (rename atomique, puis `execve`).
   jusqu'au second double-clic ; s'il redevient actif, il reprend la règle normale. Le leader n'est jamais caché.
   En lecture seule (un autre launcher a la main), le double-clic est refusé avec un message. Fermer le projet
   ferme aussi ses teammates cachés.
+
+  **Commutateur** (v6.3.0, #188) : Réglages › Launcher, groupe « teams », « Cacher les teammates inactifs »
+  (`TEAM_HIDE_IDLE_ENABLED` dans `config.conf`, **activé par défaut**). Le délai `TEAM_HIDE_IDLE` est en **secondes** et
+  n'est pas modifié quand le commutateur est éteint. Éteint, tout teammate reste visible, les marques « caché à la main »
+  sont effacées, et le double-clic est refusé avec un message. La carte TEAM affiche une puce quand le masquage est
+  effectif. Le rallumage reprend la règle avec le délai conservé.
   **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `⚠` orange = écart de version
   (template en retard sur la version cible, le launcher ayant adopté une version plus récente, ou claude différent de
   celui du leader) ; `○` = non démarré. Les versions sont dans le titre de la carte (#151). `+` devant le nom
@@ -1746,6 +2124,12 @@ ou si un socket de test tombe dans `/tmp/tmux-<uid>` (garde limitée aux préfix
 réel `cl`, `cl-hidden` et le serveur `claude-desk-ng2` sont ignorés), ou si un `index.lock` subsiste dans le dépôt après les tests (un git concurrent bref est toléré ; le verrou est celui de
 `git rev-parse --git-path index.lock`, valable en worktree). Les lectures git du launcher ne prennent plus de verrou (`GIT_OPTIONAL_LOCKS=0`) et n'exécutent plus
 `git describe --dirty` : le suffixe `-dirty` vient de `git status --porcelain`.
+
+Durée de la CI : `scripts/ci.sh` tient en moins de 60 s hors étape image (moyenne de trois passes : 56 s
+sur le conteneur de développement, contre 119 s avant les attentes sur évènement de `ui/desktop`). Le chemin critique est
+`go test -race` de `ui/desktop` (~48 s) ; `go vet`, la compilation croisée Windows et `govulncheck` prennent quelques secondes
+chacun. L'étape image (LOT-4) aura son propre budget. Procédure de mesure par étape :
+`tests/procedures/ci/ci-60s-179/mesure-ci-60s.md`. Marge faible (~4 s) : une machine plus chargée peut dépasser 60 s.
 
 Interface native (`ui/desktop`) : décodeur du mode contrôle de tmux (séquence réelle de tmux 3.6,
 `%output` en octal, layouts, UTF-8 coupé), état et légende des cartes, appels, et un projet sur

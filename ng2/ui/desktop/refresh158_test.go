@@ -31,10 +31,8 @@ func rawPath(p string) json.RawMessage {
 
 // refreshEvents : tous les évènements « refresh » du projet, dans l'ordre.
 func (r *recorder) refreshEvents(path string) []map[string]any {
-	r.mu.Lock()
-	defer r.mu.Unlock()
 	var out []map[string]any
-	for _, e := range r.evs {
+	for _, e := range r.all() {
 		if e["_name"] == "refresh" && e["path"] == path {
 			out = append(out, e)
 		}
@@ -151,14 +149,32 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if testing.Short() {
 		t.Skip("≈ 5 à 30 s")
 	}
+	oldTimeout := refreshTimeout
+	refreshTimeout = 300 * time.Millisecond // le délai global (30 s en production) ne se subit pas en entier
+	var app *App
+	t.Cleanup(func() { // rétabli quand plus aucun rafraîchissement ne lit le délai (go test -race)
+		end := time.Now().Add(15 * time.Second)
+		for time.Now().Before(end) {
+			busy := false
+			if app != nil {
+				app.refreshing.Range(func(_, _ any) bool { busy = true; return false })
+			}
+			if !busy {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		refreshTimeout = oldTimeout
+	})
 	ps := sandbox(t, "", "alpha")
 	bin := t.TempDir()
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec sleep 120\n"), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(bin, "git"), []byte("#!/bin/sh\nexec sleep 0.6\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var r recorder
 	a := newApp(t, r.emit)
+	app = a
 	t0 := time.Now()
 	first, err := a.Dispatch("refreshProject", rawPath(ps[0]))
 	if err != nil || first.(map[string]any)["ok"] != true {
@@ -171,9 +187,9 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if m := second.(map[string]any); m["ok"] != false || m["msg"] == "" || m["msg"] == nil {
 		t.Errorf("second refreshProject pendant l'opération : %v, attendu {ok:false, msg}", second)
 	}
-	last := waitRefreshDone(t, &r, ps[0], 40*time.Second)
-	if d := time.Since(t0); d > 35*time.Second {
-		t.Errorf("done après %v : le délai global est de 30 s", d.Round(time.Second))
+	last := waitRefreshDone(t, &r, ps[0], refreshTimeout+10*time.Second)
+	if d := time.Since(t0); d > refreshTimeout+5*time.Second {
+		t.Errorf("done après %v : le délai global est de %v", d.Round(time.Second), refreshTimeout)
 	}
 	for id, st := range stepStates(t, last) {
 		if st == "wait" || st == "run" {
@@ -181,10 +197,21 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 		}
 	}
 	// l'opération terminée, un nouveau rafraîchissement est accepté
+	dones := func() (n int) {
+		for _, e := range r.refreshEvents(ps[0]) {
+			if e["done"] == true {
+				n++
+			}
+		}
+		return
+	}
+	before := dones()
 	if res, _ := a.Dispatch("refreshProject", rawPath(ps[0])); res.(map[string]any)["ok"] != true {
 		t.Errorf("refreshProject refusé après la fin du précédent : %v", res)
 	}
-	waitRefreshDone(t, &r, ps[0], 40*time.Second)
+	r.wait(t, refreshTimeout+10*time.Second, "done du second rafraîchissement", func(e map[string]any) bool {
+		return e["_name"] == "refresh" && e["path"] == ps[0] && e["done"] == true && dones() > before
+	})
 }
 
 // ── Intégration : projet factice, faux claude, tmux isolé ────────────────
@@ -212,12 +239,38 @@ func openFakeProject(t *testing.T) fakeProj {
 		t.Skip("tmux absent")
 	}
 	ps := sandbox(t, "", "alpha")
+	sockName := "cl-desk-r158-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano()%100000, 10)
+	// GARANTIE (enregistrée en premier, donc exécutée EN DERNIER, variables d'environnement restaurées) : aucun serveur tmux de ce
+	// test ni son fichier de socket ne survit, où qu'il ait été créé — dossier isolé du test, dossier de l'environnement d'origine
+	// (TMUX_TMPDIR de ci.sh) ou /tmp/tmux-<uid> par défaut. La garde de ci.sh (#154) échoue sinon (« sockets tmux de test
+	// laissés »). `tmux -S <chemin>` ne dépend pas de l'environnement ; plusieurs passes : un terminal encore vivant a pu relancer
+	// le serveur après le kill-server.
+	origTmpdir := os.Getenv("TMUX_TMPDIR")
+	t.Cleanup(func() {
+		uid := strconv.Itoa(os.Getuid())
+		var socks []string
+		for _, base := range []string{origTmpdir, "/tmp", os.Getenv("TMUX_TMPDIR")} {
+			if base == "" {
+				continue
+			}
+			socks = append(socks, filepath.Join(base, "tmux-"+uid, sockName))
+		}
+		for pass := 0; pass < 3; pass++ {
+			for _, sk := range socks {
+				if _, err := os.Stat(sk); err == nil {
+					_ = exec.Command("tmux", "-S", sk, "kill-server").Run()
+					_ = os.Remove(sk)
+				}
+			}
+			time.Sleep(150 * time.Millisecond)
+		}
+	})
 	if d, err := os.MkdirTemp("", "cltmux"); err == nil { // court : limite des sockets unix ; jamais /tmp/tmux-<uid>
 		t.Setenv("TMUX_TMPDIR", d)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
 	t.Setenv("TMUX", "")
-	sock := "cl-desk-r158-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano()%100000, 10)
+	sock := sockName
 	t.Setenv("CL_DESK_SOCKET", sock)
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() }) // exécuté avant la suppression du dossier
 	fake := filepath.Join(t.TempDir(), "claude")
@@ -226,6 +279,10 @@ func openFakeProject(t *testing.T) fakeProj {
 	_ = core.WriteAssignment(ps[0], "host")
 	f := fakeProj{r: &recorder{}, path: ps[0], sock: sock}
 	f.a = newApp(t, f.r.emit)
+	// Les terminaux (projTerm : surveillant, mise en page) écrivent sous le HOME du test tant que l'App n'est pas arrêtée :
+	// App.Stop les détache et les attend AVANT le kill-server et l'effacement des dossiers (Cleanup en ordre inverse) ;
+	// sans cela, sous charge, « TempDir RemoveAll cleanup: … home: directory not empty ».
+	t.Cleanup(func() { f.a.Stop() })
 	if res, err := f.a.open(ps[0], core.LaunchNormal); err != nil || fmt.Sprint(res) != fmt.Sprint(map[string]any{"tab": ps[0]}) {
 		t.Fatalf("open : %v %v", res, err)
 	}

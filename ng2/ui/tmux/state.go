@@ -161,7 +161,7 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 		ti := core.ReadTplInfo(s.Path)
 		pd.tpl = ti.Target
 		pd.lines, _ = core.ApplyTeamHead(ti.Apply(
-			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.TeamHideIdle, time.Now().Unix())), ti.Target)
+			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.HideIdleArg(), time.Now().Unix())), ti.Target)
 		return pd
 	}
 }
@@ -235,6 +235,9 @@ func toggleCmd(s Selection, cfg core.Config, pane string) tea.Cmd {
 		pw := projectOf(exactW(hubSession, s.Key))
 		if ro, _ := tout(hub, "display-message", "-p", "-t", pw.hubWin, "#{@cl_readonly}"); ro == "1" {
 			return toggleMsg{path: s.Path, msg: "lecture seule : un autre launcher a la main sur ce projet"}
+		}
+		if cfg.TeamHideIdleDisabled { // masquage désactivé : aucune bascule ne cacherait quoi que ce soit (#188)
+			return toggleMsg{path: s.Path, msg: core.HideIdleDisabledMsg}
 		}
 		teamPath := findTeamConfig(s.Path)
 		var tc *core.TeamConfig

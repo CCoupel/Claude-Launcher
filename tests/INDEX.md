@@ -23,3 +23,14 @@
 | tests/procedures/ui-desktop/interface-web-163/ | procedure | ui-desktop | Interface web servie par la fenetre native : reglage a chaud, jeton, hors boucle locale, presse-papiers (#163) | feature | critical |
 | tests/procedures/ui-desktop/organisations-153/ | procedure | ui-desktop | Organisations de la fenetre : leader a gauche, exception par projet, panes caches (#153) | feature | |
 | tests/procedures/ui-tmux/organisations-153/ | procedure | ui-tmux | Coque Linux : leader a gauche, PROJECT_LAYOUTS, Ctrl+B R (#153) | feature | |
+| tests/procedures/ci/ci-60s-179/ | procedure | main | CI sous 60 s : trois passes de scripts/ci.sh, nombre de tests et couverture (#179) | feature | slow |
+| tests/procedures/ui-desktop/serveurs-web-183/ | procedure | ui-desktop | Reglages : deux serveurs web separes, commutateur de l'interface web (#183) | feature | |
+| tests/procedures/ui-desktop/proxy-https-171/ | procedure | ui-desktop | Interface web derriere un proxy HTTPS : endurance 1 h, session expiree, hote/origine, stabilisation #186/#187 (#171) | feature | slow |
+| tests/procedures/ui-desktop/racine-base-165/ | procedure | ui-desktop | Racine de base configurable CL_ROOT_BASE / --root-base, demarrage Windows (#165) | feature | |
+| tests/procedures/ci/image-launcher-167/ | procedure | main | Image du launcher du cluster : non root, version, interface servie avec dossier monte, arret propre, QUALIF k8s (#167, #168) | feature | slow |
+| tests/integration/helm/ | integration | main | Chart Helm : lint, rendu contrôlé, aucun ClusterRole, ClusterIP, liste d'adresses (Traefik/nginx), TLS obligatoire, variables et sécurité du pod (#170, #173) | feature | |
+| tests/procedures/ci/chart-qualif-170/ | procedure | main | Chart en QUALIF : namespace separe, liste d'adresses (test negatif hors plage, depuis un pod, X-Forwarded-For), droits, desinstallation (#170, #173) | feature | slow |
+| tests/procedures/ci/qualif-cluster-177/ | procedure | main | QUALIF de bout en bout du launcher du cluster : CI/image, installation, Ingress autorise/refuse, projet factice, pod recree, cohabitation, 1 h, mise a jour par tag, desinstallation, isolation (#177) | feature | slow |
+| tests/integration/ci/ci-image-chart-177/ | integration | main | Garde de scripts/ci.sh : outil manquant = echec explicite, etapes chart et image mesurees, budgets D1, une seule image ci gardee (#177) | feature | slow |
+| tests/procedures/ci/install-guide-185/ | procedure | main | Installation par Helm en suivant le guide seul, sur une autre racine : prerequis, installation, acces sans jeton, mise a jour/retour arriere, limites dites, desinstallation, releve des ecarts (#185) | feature | slow |
+| tests/procedures/ui-desktop/masquage-inactifs-188/ | procedure | ui-desktop | Commutateur du masquage des teammates inactifs : defaut v6.2.0, desactive (tout reapparait, delai conserve, double-clic refuse), puce de la carte TEAM, coque tmux (#188) | feature | |

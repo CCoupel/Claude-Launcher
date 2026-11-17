@@ -88,13 +88,13 @@ func navWidth() (nav, win int) {
 // ── Coque ─────────────────────────────────────────────────────────────────
 
 func stateCommand(exe string) string {
-	return supervised(roleInfo, "CL_HUB="+core.Shq(hubSession)+" CL_OUTER_SOCKET="+core.Shq(outerSocket())+
+	return supervised(roleInfo, rootBasePrefix()+"CL_HUB="+core.Shq(hubSession)+" CL_OUTER_SOCKET="+core.Shq(outerSocket())+
 		" CL_INNER_SOCKET="+core.Shq(core.InnerSocket())+" "+core.Shq(exe)+" state")
 }
 
 func navCommand(exe string) string {
-	return supervised(roleNav, fmt.Sprintf("CL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
-		core.Shq(hubSession), core.Shq(outerSocket()), core.Shq(core.InnerSocket()), core.Shq(exe)))
+	return supervised(roleNav, fmt.Sprintf("%sCL_SHELL=1 CL_HUB=%s CL_OUTER_SOCKET=%s CL_INNER_SOCKET=%s %s nav --launch",
+		rootBasePrefix(), core.Shq(hubSession), core.Shq(outerSocket()), core.Shq(core.InnerSocket()), core.Shq(exe)))
 }
 
 // supervised : commande d'un pane de la coque relancée en boucle. Sans elle, le

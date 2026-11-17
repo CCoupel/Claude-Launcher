@@ -1,0 +1,35 @@
+# Droits du launcher, limités au namespace de la release : seulement les appels kubectl de core/k8s.go
+# et core/close.go (apply, get, delete, wait, exec, scale, events). Aucun ClusterRole.
+# ATTENTION : créer des StatefulSets et ouvrir un shell (pods/exec) dans n'importe quel pod du namespace
+# équivaut à l'administrer : n'y mettre que le launcher et les pods de ses projets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "cl.fullname" . }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+rules:
+  # apply (get/create/patch), liste des projets, delete --wait (watch)
+  - apiGroups: [apps]
+    resources: [statefulsets]
+    verbs: [get, list, watch, create, patch, delete]
+  # fermeture d'un projet : kubectl scale --replicas=0 (core/close.go)
+  - apiGroups: [apps]
+    resources: [statefulsets/scale]
+    verbs: [get, patch, update]
+  # état, liste, wait --for=condition=Ready (watch), suppression
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch, delete]
+  # kubectl exec (terminaux) : create seul
+  - apiGroups: [""]
+    resources: [pods/exec]
+    verbs: [create]
+  # diagnostic d'échec de démarrage (get events --field-selector)
+  - apiGroups: [""]
+    resources: [events]
+    verbs: [list]
+  # diagnostic : PVC lié et ReadWriteMany
+  - apiGroups: [""]
+    resources: [persistentvolumeclaims]
+    verbs: [get]

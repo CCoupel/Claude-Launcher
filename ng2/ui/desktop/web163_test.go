@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -25,14 +26,35 @@ import (
 // réglage `desktop_web` (origine « web », portée par chaque appel). Ports libres tirés au hasard, jamais de
 // vrai moteur, de vrai projet ni de presse-papiers du poste (hooks de test).
 
+// l4PortsGiven : ports déjà remis par l4FreePort dans ce processus de test — le noyau peut rendre le même port
+// libéré deux fois de suite ; un port n'est donc jamais remis deux fois.
+var (
+	l4PortsMu    sync.Mutex
+	l4PortsGiven = map[int]bool{}
+)
+
+// l4FreePort : port libre de la boucle locale. Il est relâché avant que l'application ne l'écoute : un autre test (ou
+// un autre processus de test, les tranches de ci.sh tournent en parallèle) peut le prendre entre-temps — c'est
+// l4WaitWebUI qui réessaie alors le démarrage (« address already in use »).
 func l4FreePort(t *testing.T) int {
 	t.Helper()
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
+	for try := 0; try < 50; try++ {
+		ln, err := net.Listen("tcp", "127.0.0.1:0")
+		if err != nil {
+			t.Fatal(err)
+		}
+		p := ln.Addr().(*net.TCPAddr).Port
+		ln.Close()
+		l4PortsMu.Lock()
+		dup := l4PortsGiven[p]
+		l4PortsGiven[p] = true
+		l4PortsMu.Unlock()
+		if !dup {
+			return p
+		}
 	}
-	defer ln.Close()
-	return ln.Addr().(*net.TCPAddr).Port
+	t.Fatal("aucun port libre inédit")
+	return 0
 }
 
 // l4WriteBackends : backends.yaml du bac à sable (le serveur des fichiers est éteint : seul le serveur de
@@ -65,6 +87,14 @@ func l4WaitWebUI(t *testing.T, a *App, state string, d time.Duration) map[string
 		w = l4WebUIOf(t, a)
 		if w["state"] == state {
 			return w
+		}
+		// démarrage refusé parce que le port tiré vient d'être pris ailleurs : on réessaie (course de port des tests)
+		if state == "on" && w["state"] == "error" {
+			if msg, _ := w["msg"].(string); strings.Contains(msg, "in use") || strings.Contains(msg, "utilisé") {
+				a.applyWebUI()
+				time.Sleep(100 * time.Millisecond)
+				continue
+			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -159,7 +189,7 @@ func TestDesktopWebPriorityAndListenForms(t *testing.T) {
 				t.Errorf("webUI.listen = %v, attendu %s", w["listen"], want)
 			}
 			resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(tc.port), "GET", "/?t="+l4WebToken(t), "", "", "", "", "")
-			if resp.StatusCode != 200 {
+			if resp.StatusCode != http.StatusSeeOther {
 				t.Errorf("amorçage sur %d : %d", tc.port, resp.StatusCode)
 			}
 		})
@@ -192,12 +222,12 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 		}
 	}
 	reach := func(p int) bool {
-		resp, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/?t=" + l4WebToken(t))
+		resp, err := webClient.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/?t=" + l4WebToken(t))
 		if err != nil {
 			return false
 		}
 		resp.Body.Close()
-		return resp.StatusCode == 200
+		return resp.StatusCode == http.StatusSeeOther
 	}
 	waitReach := func(p int, want bool) {
 		t.Helper()
@@ -226,9 +256,9 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 	}
 	waitReach(p2, true)
 	waitReach(p1, false)
-	if r, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p2) + "/?t=" + tok1); err == nil {
+	if r, err := webClient.Get("http://127.0.0.1:" + strconv.Itoa(p2) + "/?t=" + tok1); err == nil {
 		r.Body.Close()
-		if r.StatusCode == 200 {
+		if r.StatusCode != http.StatusForbidden {
 			t.Error("l'ancien jeton ouvre encore le serveur déplacé")
 		}
 	}
@@ -293,7 +323,7 @@ func TestDesktopWebTokenPerHostKeptAndPrivate(t *testing.T) {
 	if l4WebToken(t) != tok {
 		t.Error("jeton changé après relance : un navigateur déjà ouvert ne serait plus valable")
 	}
-	if resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+tok, "", "", "", "", ""); resp.StatusCode != 200 {
+	if resp, _ := l4DoWeb(t, "127.0.0.1:"+strconv.Itoa(p), "GET", "/?t="+tok, "", "", "", "", ""); resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("ancien jeton refusé après relance : %d", resp.StatusCode)
 	}
 }
@@ -313,7 +343,7 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 	}
 	// page d'amorçage : jeton de l'URL accepté ; cookie HttpOnly SameSite=Strict ; en-têtes de sécurité
 	resp := do("GET", "/?t="+tok, "", "", "", "", "")
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("amorçage : %d", resp.StatusCode)
 	}
 	var ck *http.Cookie
@@ -335,7 +365,7 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 	oldReq, _ := http.NewRequest("POST", "http://"+addr+"/api/call", strings.NewReader(`{"method":"configFiles","args":{}}`))
 	oldReq.Header.Set("Content-Type", "application/json")
 	oldReq.AddCookie(&http.Cookie{Name: "cl_token", Value: tok})
-	if r, err := http.DefaultClient.Do(oldReq); err != nil || r.StatusCode != 403 {
+	if r, err := webClient.Do(oldReq); err != nil || r.StatusCode != 403 {
 		t.Errorf("cookie cl_token=jeton : %v %v, attendu 403", r, err)
 	}
 	for k, v := range map[string]string{"Referrer-Policy": "no-referrer", "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY"} {
@@ -382,7 +412,7 @@ func TestDesktopWebProtectionsLoopback(t *testing.T) {
 		}
 	}
 	for _, h := range []string{"localhost:" + strconv.Itoa(p), "127.0.0.1:" + strconv.Itoa(p)} {
-		if r := do("GET", "/?t="+tok, h, "", "", "", ""); r.StatusCode != 200 {
+		if r := do("GET", "/?t="+tok, h, "", "", "", ""); r.StatusCode != http.StatusSeeOther {
 			t.Errorf("Host %q refusé : %d", h, r.StatusCode)
 		}
 	}
@@ -417,7 +447,7 @@ func TestDesktopWebProtectionsNonLoopback(t *testing.T) {
 	machine, _ := os.Hostname()
 	sp := strconv.Itoa(p)
 	for _, h := range []string{"localhost:" + sp, machine + ":" + sp} {
-		if resp, _ := l4DoWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != 200 {
+		if resp, _ := l4DoWeb(t, addr, "GET", "/?t="+tok, h, "", "", "", ""); resp.StatusCode != http.StatusSeeOther {
 			t.Errorf("Host %q refusé en écoute hors boucle locale : %d", h, resp.StatusCode)
 		}
 	}
@@ -533,7 +563,7 @@ func TestDesktopWebTwoClientsShareState(t *testing.T) {
 	// flux d'évènements du client web
 	req, _ := http.NewRequest("GET", "http://"+addr+"/api/events", nil)
 	req.AddCookie(scBootstrap(t, "http://"+addr, tok))
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil || resp.StatusCode != 200 {
 		t.Fatalf("flux d'évènements : %v %v", resp, err)
 	}
@@ -583,14 +613,12 @@ collect:
 				break collect
 			}
 			seenWeb[n] = true
-			r.mu.Lock()
 			common := false
-			for _, e := range r.evs {
+			for _, e := range r.all() {
 				if seenWeb[e["_name"].(string)] {
 					common = true
 				}
 			}
-			r.mu.Unlock()
 			if common {
 				break collect
 			}
@@ -623,4 +651,54 @@ func TestDesktopWebCallsKeepDispatchGuards(t *testing.T) {
 		t.Errorf("appel inconnu accepté : %v", v)
 	}
 	_ = io.Discard
+}
+
+// #183 : commutateur à chaud — éteindre arrête le serveur de l'interface (adresse gardée), rallumer le redémarre
+// sans relancer le launcher ; webUI.enabled suit.
+func TestDesktopWebSwitchHotAndAddressKept(t *testing.T) {
+	sandbox(t, "", "alpha")
+	p := l4FreePort(t)
+	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+strconv.Itoa(p)+"\" }\n")
+	a := l4StartNative(t)
+	w := l4WaitWebUI(t, a, "on", 8*time.Second)
+	if w["enabled"] != true || w["server"] != false {
+		t.Fatalf("webUI allumée (enabled absent, listen posé : v6.2.0) : %v", w)
+	}
+	set := func(v bool) {
+		t.Helper()
+		m, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"hub"}`))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(map[string]any{"kind": "hub", "mtime": m.(map[string]any)["mtime"], "changes": []any{
+			map[string]any{"op": "set", "at": []string{"desktop_web", "enabled"}, "value": v}}})
+		res, err := a.Dispatch("configApply", b)
+		if rm, _ := res.(map[string]any); err != nil || rm == nil || rm["saved"] != true {
+			t.Fatalf("configApply enabled=%v : %v %v", v, res, err)
+		}
+	}
+	set(false)
+	w = l4WaitWebUI(t, a, "off", 8*time.Second)
+	if w["enabled"] != false || w["listen"] != "127.0.0.1:"+strconv.Itoa(p) {
+		t.Errorf("éteinte : %v, attendu enabled=false et l'adresse gardée", w)
+	}
+	if _, err := http.Get("http://127.0.0.1:" + strconv.Itoa(p) + "/"); err == nil {
+		t.Error("le serveur répond encore après extinction")
+	}
+	set(true)
+	w = l4WaitWebUI(t, a, "on", 8*time.Second)
+	if w["enabled"] != true {
+		t.Errorf("rallumée : %v", w)
+	}
+}
+
+// #183 : enabled: true sans adresse = erreur de réglage visible, rien n'écoute.
+func TestDesktopWebEnabledWithoutListenIsError(t *testing.T) {
+	sandbox(t, "", "alpha")
+	l4WriteBackends(t, "  desktop_web: { enabled: true }\n")
+	a := l4StartNative(t)
+	w := l4WaitWebUI(t, a, "error", 8*time.Second)
+	if !strings.Contains(w["msg"].(string), "sans adresse d'écoute") || w["enabled"] != true {
+		t.Errorf("erreur attendue : %v", w)
+	}
 }

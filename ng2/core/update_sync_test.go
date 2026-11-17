@@ -24,9 +24,8 @@ func TestSyncInitProject(t *testing.T) {
 		_, _ = w.Write([]byte(body))
 	}))
 	defer srv.Close()
-	old := RawBase
-	RawBase = srv.URL
-	defer func() { RawBase = old }()
+	old := SetRawBase(srv.URL)
+	defer SetRawBase(old)
 
 	if !syncInitProject("abc123") {
 		t.Fatal("la synchronisation aurait dû réussir")

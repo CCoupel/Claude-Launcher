@@ -30,7 +30,7 @@ func openSSE(t *testing.T, base string, c *http.Cookie) *http.Response {
 	t.Helper()
 	req, _ := http.NewRequest("GET", base+"/api/events", nil)
 	req.AddCookie(c)
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -130,7 +130,7 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 		t.Skipf("abonnés non retirés (%d) : les tampons de ce système absorbent l'inondation", left)
 	}
 	// les gestionnaires sont encore bloqués dans Write : ils comptent toujours dans le plafond
-	if resp, err := http.DefaultClient.Do(func() *http.Request {
+	if resp, err := webClient.Do(func() *http.Request {
 		req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
 		req.AddCookie(c)
 		return req
@@ -145,7 +145,7 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 	for {
 		req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
 		req.AddCookie(c)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := webClient.Do(req)
 		if err == nil && resp.StatusCode == 200 {
 			resp.Body.Close()
 			return

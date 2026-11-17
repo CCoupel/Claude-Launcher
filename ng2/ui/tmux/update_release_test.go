@@ -36,10 +36,12 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	oldAPI, oldRaw, oldRel, oldVer, oldSynced := core.ApiBase, core.RawBase, core.ReleaseBase, core.NgVersion, core.InitSynced
-	core.ApiBase, core.RawBase, core.ReleaseBase, core.NgVersion, core.InitSynced = srv.URL, srv.URL, srv.URL+"/rel", "v5.0.0", false
+	oldRaw := core.SetRawBase(srv.URL)
+	oldAPI, oldRel, oldVer, oldSynced := core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced
+	core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced = srv.URL, srv.URL+"/rel", "v5.0.0", false
 	defer func() {
-		core.ApiBase, core.RawBase, core.ReleaseBase, core.NgVersion, core.InitSynced = oldAPI, oldRaw, oldRel, oldVer, oldSynced
+		core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced = oldAPI, oldRel, oldVer, oldSynced
+		core.SetRawBase(oldRaw)
 	}()
 
 	check := func() core.UpdMsg {

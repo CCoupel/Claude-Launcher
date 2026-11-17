@@ -1,0 +1,8 @@
+# Contexte de construction de deploy/image/Dockerfile = racine du dépôt : tout est exclu sauf
+# le point d'entrée et les binaires Linux déjà construits (release : dist/, candidat : build/candidate_*/, contrôle de ci.sh : build/ci/).
+# Rien du dépôt (sources, .git, PRIVATE/, _work/, .env) n'entre dans le contexte.
+*
+!deploy/image/entrypoint.sh
+!dist/claude-launcher-ng2-linux-*
+!build/candidate_*/claude-launcher-ng2-linux-*
+!build/ci/claude-launcher-ng2-linux-*

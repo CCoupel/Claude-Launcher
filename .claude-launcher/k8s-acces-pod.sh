@@ -14,7 +14,9 @@
 set -euo pipefail
 CTX=${CTX:-k8s}
 NS=claude-ng2
-OUT=/share/MFS/ROOT/CLAUDE_PROJETS/.kube/ng2-tests.kubeconfig
+# racine partagée (lue par le bootstrap des pods) : CL_ROOT_BASE si posée, sinon la racine actuelle (#166)
+ROOT_BASE=${CL_ROOT_BASE:-/share/MFS/ROOT/CLAUDE_PROJETS}
+OUT=$ROOT_BASE/.kube/ng2-tests.kubeconfig
 K="kubectl --context $CTX"
 
 $K apply -f - <<EOF

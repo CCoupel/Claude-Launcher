@@ -302,7 +302,7 @@ func TeamLinesFor(tm []Teammate, members map[string]TeamMember, panes []ProjPane
 		agent := cmp.Or(t.Name, typ)
 		started[typ], started[name], started[agent] = true, true, true
 		l := TeamLine{Name: name, Agent: agent, Tag: t.Tag, Companion: t.Companion, Model: cmp.Or(mb.Model, t.Model), Effort: t.Effort,
-			Claude: claudeVersion(p.Cmd, p.PID), Pane: p.ID, Started: true, Hidden: p.Hidden,
+			Claude: claudeVersion(p.Cmd, p.PID), Pane: p.ID, Started: true, Hidden: p.Hidden && hideIdle >= 0, // désactivé : jamais « caché »
 			Pinned: choices[p.ID] == visPinned}
 		l.Active = ok && mb.IsActive
 		if !prot[p.ID] && !l.Active && choices[p.ID] == "" && hideIdle > 0 && !p.Hidden {

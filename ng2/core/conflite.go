@@ -162,16 +162,23 @@ func tildeEnds(src string, j int) bool {
 }
 
 // confLite : lignes « TAG<TAB>valeur » de LoadConfig pour le contenu src.
-func confLite(src, home string) string {
+func confLite(src, home string) string { return confLiteWith(src, home, "") }
+
+// confLiteWith : confLite ; fbRoot, s'il n'est pas vide, est la valeur de ${CL_ROOT_BASE} quand la variable est absente
+// de l'environnement (racine déduite de l'emplacement du fichier).
+func confLiteWith(src, home, fbRoot string) string {
 	vars := map[string]string{
 		"HOME": home, "GITHUB_DIR": home + "/GITHUB", "USAGE_REFRESH_SEC": "120", "GITHUB_TOKEN": "",
 		"CLAUDE_DISABLE_MOUSE": "1", "CLAUDE_EXPERIMENTAL_TEAMS": "1", "CLAUDE_OPTIONS": "",
 		"LAYOUT_2ROW_LEADER_PCT": "50", "LAYOUT_3ROW_LEADER_NUM": "3", "LAYOUT_3ROW_MID_NUM": "2", "LAYOUT_3ROW_DEN": "7",
 		"PANE_ACTIVE_BRIGHTEN_STEP": "1", "PANE_INACTIVE_DARKEN_STEP": "1", "RESUME_MODE": "ask", "RESUME_MAX_AGE_H": "24",
-		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30", "LAYOUT_MODE": "top", "LAYOUT_LEFT_LEADER_PCT": "46",
+		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30", "TEAM_HIDE_IDLE_ENABLED": "1", "LAYOUT_MODE": "top", "LAYOUT_LEFT_LEADER_PCT": "46",
 	}
 	if strings.Contains(home, `\`) {
 		vars["GITHUB_DIR"] = home + `\GITHUB`
+	}
+	if p := RootBaseProjects(); p != "" { // racine de base (#165) : même défaut que le script bash de LoadConfig
+		vars["GITHUB_DIR"] = p
 	}
 	claudeDirSet := false
 	arrays := map[string][]string{"GITHUB_DIRS": nil, "EXTRA_ENVS": nil, "COLOR_PALETTE": strings.Fields("17 52 22 53 58 23 54 238 18 59")}
@@ -183,7 +190,10 @@ func confLite(src, home string) string {
 		if a, ok := arrays[n]; ok && len(a) > 0 {
 			return a[0]
 		}
-		return os.Getenv(n)
+		if v := os.Getenv(n); v != "" || n != RootBaseVar {
+			return v
+		}
+		return fbRoot
 	}
 	isName := func(s string) bool {
 		if s == "" {
@@ -246,6 +256,7 @@ func confLite(src, home string) string {
 	p("layoutmode", vars["LAYOUT_MODE"]+" "+vars["LAYOUT_LEFT_LEADER_PCT"])
 	p("steps", vars["PANE_ACTIVE_BRIGHTEN_STEP"]+" "+vars["PANE_INACTIVE_DARKEN_STEP"])
 	p("hideidle", vars["TEAM_HIDE_IDLE"])
+	p("hideidleon", vars["TEAM_HIDE_IDLE_ENABLED"])
 	p("usage", vars["USAGE_REFRESH_SEC"])
 	p("resume", vars["RESUME_MODE"]+" "+vars["RESUME_MAX_AGE_H"])
 	p("token", vars["GITHUB_TOKEN"])

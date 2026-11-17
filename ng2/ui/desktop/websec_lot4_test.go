@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -27,7 +28,7 @@ func scGet(t *testing.T, base, path, host string, cookies ...*http.Cookie) (*htt
 	for _, c := range cookies {
 		req.AddCookie(c)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := webClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,12 +39,22 @@ func scGet(t *testing.T, base, path, host string, cookies ...*http.Cookie) (*htt
 
 func scCall(t *testing.T, base string, c *http.Cookie, body string) int {
 	t.Helper()
-	req, _ := http.NewRequest("POST", base+"/api/call", strings.NewReader(body))
-	req.Header.Set("Content-Type", "application/json")
-	if c != nil {
-		req.AddCookie(c)
+	// Un appel après l'arrêt puis la relance du serveur sur la même adresse peut partir sur une connexion persistante
+	// de l'ANCIEN serveur (fermée) : le client rend alors « EOF » sans avoir rien envoyé d'utile. Une seule nouvelle
+	// tentative, sur une connexion neuve ; les appels de ces tests sont idempotents (refresh).
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		req, _ := http.NewRequest("POST", base+"/api/call", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		if c != nil {
+			req.AddCookie(c)
+		}
+		if resp, err = webClient.Do(req); err == nil {
+			break
+		}
+		webClient.CloseIdleConnections()
 	}
-	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +67,7 @@ func scCall(t *testing.T, base string, c *http.Cookie, body string) int {
 func scBootstrap(t *testing.T, base, tok string) *http.Cookie {
 	t.Helper()
 	resp, _ := scGet(t, base, "/?t="+tok, "")
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusSeeOther {
 		t.Fatalf("amorçage : %d", resp.StatusCode)
 	}
 	for _, c := range resp.Cookies() {
@@ -93,11 +104,11 @@ func TestRunWebListenerOutsideLoopbackChecksHost(t *testing.T) {
 	if resp, _ := scGet(t, base, "/?t=tokM1", "evil.example:"+port); resp.StatusCode != 403 {
 		t.Errorf("Host étranger sur écoute 0.0.0.0 : %d, attendu 403 (DNS rebinding)", resp.StatusCode)
 	}
-	if resp, _ := scGet(t, base, "/?t=tokM1", "localhost:"+port); resp.StatusCode != 200 {
+	if resp, _ := scGet(t, base, "/?t=tokM1", "localhost:"+port); resp.StatusCode != http.StatusSeeOther {
 		t.Errorf("Host localhost : %d", resp.StatusCode)
 	}
 	if h, _ := os.Hostname(); h != "" {
-		if resp, _ := scGet(t, base, "/?t=tokM1", h+":"+port); resp.StatusCode != 200 {
+		if resp, _ := scGet(t, base, "/?t=tokM1", h+":"+port); resp.StatusCode != http.StatusSeeOther {
 			t.Errorf("Host = nom de la machine : %d", resp.StatusCode)
 		}
 	}
@@ -148,8 +159,7 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	a := newApp(t, r.emit)
 	p1 := l4FreePort(t)
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p1)+"\" }\n")
-	a.applyWebUI()
-	l4WaitWebUI(t, a, "on", 5*time.Second)
+	applyWebUIUntilOn(t, a)
 	tok1, _ := desktopWebToken()
 	base := "http://127.0.0.1:" + itoa(p1)
 	c := scBootstrap(t, base, tok1)
@@ -161,8 +171,7 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	l4WriteBackends(t, "  desktop_web: { listen: off }\n")
 	a.applyWebUI()
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p1)+"\" }\n")
-	a.applyWebUI()
-	l4WaitWebUI(t, a, "on", 5*time.Second)
+	applyWebUIUntilOn(t, a)
 	if st := scCall(t, base, c, call); st != 403 {
 		t.Errorf("ancienne session après arrêt/relance : %d, attendu 403", st)
 	}
@@ -172,8 +181,7 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	// adresse changée : nouveau jeton
 	p2 := l4FreePort(t)
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p2)+"\" }\n")
-	a.applyWebUI()
-	l4WaitWebUI(t, a, "on", 5*time.Second)
+	applyWebUIUntilOn(t, a)
 	if tok2, _ := desktopWebToken(); tok2 == tok1 {
 		t.Error("jeton conservé malgré le changement d'adresse d'écoute")
 	}
@@ -199,6 +207,28 @@ func TestWebSessionRevokedOnStopAndTokenRotates(t *testing.T) {
 	if resp, _ := scGet(t, base2, "/?t="+tok2, ""); resp.StatusCode != 403 {
 		t.Errorf("ancien lien après régénération : %d", resp.StatusCode)
 	}
+}
+
+// applyWebUIUntilOn : applyWebUI puis attente de l'état « on » ; un bind refusé (« address already in use » : le
+// port vient d'être libéré, ou repris par un autre test du paquet entre le tirage et l'écoute) est réessayé (#187 b).
+func applyWebUIUntilOn(t *testing.T, a *App) {
+	t.Helper()
+	var w map[string]any
+	for try := 0; try < 20; try++ {
+		a.applyWebUI()
+		end := time.Now().Add(1500 * time.Millisecond)
+		for time.Now().Before(end) {
+			if w = l4WebUIOf(t, a); w["state"] == "on" {
+				return
+			}
+			time.Sleep(30 * time.Millisecond)
+		}
+		if msg, _ := w["msg"].(string); w["state"] == "error" && !strings.Contains(msg, "in use") && !strings.Contains(msg, "utilisé") {
+			break // autre erreur : inutile de réessayer
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("webUI.state = %v, attendu on (%v)", w["state"], w)
 }
 
 func itoa(n int) string { b, _ := json.Marshal(n); return string(b) }
@@ -292,7 +322,7 @@ func TestWebSubscribersAreCapped(t *testing.T) {
 	for i := 0; i <= maxSubscribers; i++ {
 		req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
 		req.AddCookie(c)
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := webClient.Do(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -313,16 +343,33 @@ func TestWebUIStateLanAndWarn(t *testing.T) {
 	sandbox(t, "", "alpha")
 	var r recorder
 	a := newApp(t, r.emit)
-	p := l4FreePort(t)
-	l4WriteBackends(t, "  desktop_web: { listen: \"0.0.0.0:"+itoa(p)+"\", allow_lan: true }\n")
-	a.applyWebUI()
-	s := l4WaitWebUI(t, a, "on", 5*time.Second)
+	// #187 : un port choisi puis relâché peut être repris par un autre processus avant l'écoute : en cas de
+	// « address already in use », un autre port est tiré (jamais d'échec pour une course sur le port)
+	applyOn := func(listenOf func(p int) string, allow string) map[string]any {
+		t.Helper()
+		for try := 0; try < 8; try++ {
+			l4WriteBackends(t, "  desktop_web: { listen: \""+listenOf(l4FreePort(t))+"\""+allow+" }\n")
+			a.applyWebUI()
+			end := time.Now().Add(5 * time.Second)
+			for time.Now().Before(end) {
+				w := l4WebUIOf(t, a)
+				if w["state"] == "on" {
+					return w
+				}
+				if w["state"] == "error" && strings.Contains(fmt.Sprint(w["msg"]), "address already in use") {
+					break // port repris entre-temps : on en tire un autre
+				}
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		t.Fatal("aucune écoute possible après 8 ports")
+		return nil
+	}
+	s := applyOn(func(p int) string { return "0.0.0.0:" + itoa(p) }, ", allow_lan: true")
 	if s["lan"] != true || s["warn"] == "" || s["msg"] != "" {
 		t.Errorf("webUI = %v, attendu lan, warn renseigné, msg vide", s)
 	}
-	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+itoa(p)+"\" }\n")
-	a.applyWebUI()
-	s = l4WaitWebUI(t, a, "on", 5*time.Second)
+	s = applyOn(func(p int) string { return "127.0.0.1:" + itoa(p) }, "")
 	if s["lan"] == true || s["warn"] != "" {
 		t.Errorf("boucle locale : %v, attendu lan faux, pas d'avertissement", s)
 	}

@@ -82,14 +82,21 @@ func dirsSig(dirs []string) string {
 
 // WatchTree : envoie sur le canal rendu à chaque changement de l'arborescence
 // (rafales regroupées ; un signal en attente suffit).
-func WatchTree(roots []string) <-chan struct{} {
+func WatchTree(roots []string) <-chan struct{} { return WatchTreeUntil(roots, nil) }
+
+// WatchTreeUntil : WatchTree, arrêtée quand done est fermé — le watcher fsnotify est fermé (son instance inotify,
+// comptée dans le quota de l'utilisateur, est rendue) et la goroutine se termine. done nil : jamais arrêtée.
+func WatchTreeUntil(roots []string, done <-chan struct{}) <-chan struct{} {
 	c := make(chan struct{}, 1)
-	go runTreeWatch(roots, c)
+	go runTreeWatch(roots, c, done)
 	return c
 }
 
-func runTreeWatch(roots []string, c chan<- struct{}) {
+func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 	w, _ := fsnotify.NewWatcher()
+	if w != nil {
+		defer w.Close()
+	}
 	var events <-chan fsnotify.Event
 	var errs <-chan error
 	if w != nil {
@@ -127,9 +134,12 @@ func runTreeWatch(roots []string, c chan<- struct{}) {
 	}
 	setup()
 	tick := time.NewTicker(treePollEvery)
+	defer tick.Stop()
 	var debounce <-chan time.Time
 	for {
 		select {
+		case <-done:
+			return
 		case ev := <-events:
 			if ev.Op != fsnotify.Chmod && ev.Op != fsnotify.Write {
 				debounce = time.After(treeDebounce)
