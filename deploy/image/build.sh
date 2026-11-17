@@ -33,7 +33,9 @@ t0=${EPOCHREALTIME/[.,]/}
 if [ -n "${SOURCE_BIN:-}" ]; then
   [ -x "$SOURCE_BIN" ] || { echo "ECHEC : SOURCE_BIN=$SOURCE_BIN absent ou non exécutable" >&2; exit 1; }
   got=$("$SOURCE_BIN" version 2>/dev/null || true)
-  [[ "$got" == *" $version"* ]] || { echo "ECHEC : $SOURCE_BIN annonce « $got », attendu la version $version" >&2; exit 1; }
+  # égalité EXACTE avec le dernier champ (« Claude-Launcher-NG2 v6.3.0.4 » → v6.3.0.4) : v6.3.0.40 ≠ v6.3.0.4
+  gotv=${got##* }
+  [ "$gotv" = "$version" ] || { echo "ECHEC : $SOURCE_BIN annonce « $got » (version « $gotv »), attendu exactement $version" >&2; exit 1; }
   [ "$(realpath "$SOURCE_BIN")" = "$(realpath -m "$bin")" ] || cp "$SOURCE_BIN" "$bin"
 else
   ( cd ng2 && CGO_ENABLED=0 GOOS=linux GOARCH=$arch go build -trimpath \
