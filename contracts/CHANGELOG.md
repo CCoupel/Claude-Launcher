@@ -2,19 +2,17 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
-## [20261117] — v6.4.0 (plan, rev1 GATE 2) : ingress externe authentifié par proxy, fichiers, version du serveur, backends distants, coffre, version du template
+## [20261117] — v6.4.0 (plan, rev2 GATE 2) : fichiers et version du serveur, backends distants, coffre, NetworkPolicy, version du template
 
-- **[NEW]** chart : `externalIngress` (public, `letsencrypt-prod`) protégé par Traefik `forwardAuth` + oauth2-proxy (GitHub, un compte), `rateLimit` ; ingress interne inchangé, sans authentification — `contracts/web-auth.md`, `contracts/helm-values.md` « v6.4.0 » (#172)
-- **[NEW]** chart : `networkPolicy` **activée par défaut** (entrée depuis le namespace `traefik`), coffre `secrets.persistence` (PVC RWO), `rbac.extraNamespaces`, `backends.{docker,kubeconfigs}`
-- **[CHANGED]** `CL_WEB_URL` / `desktop_web.url` : liste de deux adresses au plus ; `CL_WEB_AUTH_URL`, `CL_WEB_AUTH_USER`, `CL_WEB_AUTH_PROXY` ; `webUI.urls`, `webUI.user`, `webUI.logout` (#172)
-- **[NEW]** identité `X-Auth-Request-User` lue sur l'hôte authentifié seulement, pour l'affichage et les requêtes de confiance (jamais pour l'accès) (#172)
-- **[NEW]** route `/files/<chemin>`, `CL_BROWSER_PATH_MAP` des sessions vers l'adresse publique, appariement par `/files/__claude-launcher__/pair` (#174)
+- **Retiré (rev2)** : toute authentification de v6.4.0 (#172 déplacée en v7.0.0) : oauth2-proxy, `forwardAuth`, `CL_WEB_AUTH_*`, identité transmise, adresses publiques multiples. `contracts/web-auth.md` renommé `contracts/web-server.md` ; la piste v7.0.0 y est notée.
+- **[NEW]** route `/files/<chemin>`, `CL_BROWSER_PATH_MAP` des sessions vers l'adresse de l'ingress interne, appariement par `/files/__claude-launcher__/pair` (#174) — `contracts/web-server.md`
 - **[NEW]** `server = {version, boot}` dans `init` et l'instantané ; bandeaux « Serveur mis à jour » / reconnexion (#198)
-- **[NEW]** coffre des secrets `CL_SECRETS_DIR` ; clés ssh et `known_hosts` par backend saisies dans l'interface ; appels `backendSecretGet/Set/Delete`, `backendHostScan`, `backendKnownHostsSet` ; règle d'écriture R1/R2 à trancher — `contracts/backends-remote.md` (#194)
-- **[NEW]** `kubeconfig` d'un backend k8s : coffre (`kubeconfig: true`) ou chemin ; priorité sur le ServiceAccount (#193)
+- **[NEW]** chart : `networkPolicy` **activée par défaut**, coffre `secrets.persistence`, `rbac.extraNamespaces`, `backends.{docker,kubeconfigs}` ; `externalIngress.*` **préparé mais refusé au rendu** — `contracts/helm-values.md` « v6.4.0 »
+- **[NEW]** coffre des secrets `CL_SECRETS_DIR` ; clés ssh et `known_hosts` par backend saisies dans l'interface ; appels `backendSecretGet/Set/Delete`, `backendHostScan`, `backendKnownHostsSet` ; **règle d'écriture provisoire** (ingress interne et fenêtre native) jusqu'à v7.0.0 — `contracts/backends-remote.md` (#194)
+- **[NEW]** `kubeconfig` d'un backend k8s : coffre (`kubeconfig: true`) ou chemin ; priorité sur le ServiceAccount (#193). **[CHANGED]** par rapport au texte de #193 : le champ est modifiable depuis l'interface (règle provisoire), hors de l'empreinte d'exposition en v6.4.0
 - **[CHANGED]** image : clients ssh, docker (binaire statique), podman (`podman-remote`) (#194)
 - **[CHANGED]** version du template : comparaisons ordonnées, titre de la carte TEAM = version du projet, `teamHead.tplNewer`, vérification GitHub authentifiée, conditionnelle, partagée par poste, quota visible — `contracts/template-version.md` (#199)
-- **Aucun BREAKING** (rev1) : `web.access` garde son défaut `none`. Le mode `github` du launcher de la version précédente du plan est **abandonné**.
+- **Aucun BREAKING.**
 
 ## [20261117] — v6.3.0, LOT-5 : commutateur du masquage des teammates inactifs (#188)
 

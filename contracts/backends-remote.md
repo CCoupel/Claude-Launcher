@@ -1,7 +1,8 @@
 # Contrat — backends distants et autres clusters depuis le pod du launcher (v6.4.0, #193, #194)
 
-> Révision GATE 2 du 2026-11-17 (rev1) : les clés ssh sont fournies **par l'interface**, par backend ssh.
-> Complète `contracts/helm-values.md`, `contracts/web-auth.md`. Hors cluster (hub, exe), rien ne change sans les
+> Révisions GATE 2 du 2026-11-17 : rev1 (clés ssh fournies **par l'interface**, par backend ssh) ; rev2 (écriture
+> permise depuis l'ingress interne, règle provisoire jusqu'à v7.0.0).
+> Complète `contracts/helm-values.md`, `contracts/web-server.md`. Hors cluster (hub, exe), rien ne change sans les
 > nouveaux champs.
 
 ## Image **[CHANGED]** (#194)
@@ -55,26 +56,24 @@ Dossier `CL_SECRETS_DIR`, `0700`, un sous-dossier par backend (`<dossier>/<backe
 | `backendKnownHostsSet` | `{backend, lines}` | `{ ok, msg }` |
 | `backendSecretDelete` | `{backend, what: "key" \| "known_hosts" \| "all"}` | `{ ok }` |
 
-## Règle des secrets **[NEW]** — à trancher au GATE 2
+## Règle d'écriture des secrets **[NEW]** — provisoire en v6.4.0
 
-Qui peut **écrire** un secret (clé ssh, `known_hosts`, kubeconfig) ? La lecture de la clé publique et des empreintes
-est permise à tout client qui voit les Réglages.
+Qui peut **écrire** un secret (clé ssh, `known_hosts`, kubeconfig) en v6.4.0 :
 
-| Client | Règle R1 (**recommandée**) | Règle R2 |
-|--------|----------------------------|----------|
+| Client | v6.4.0 (provisoire, décision utilisateur 2026-11-17) | v7.0.0 (règle R1, avec l'authentification) |
+|--------|-------------------------------------------------------|---------------------------------------------|
 | fenêtre native (hub, exe) | oui | oui |
-| client web du hub / de l'exe (mode `token`) | non (comme les réglages d'exposition en v6.3.0) | oui |
-| client web de l'**ingress externe**, requête de confiance (`contracts/web-auth.md`) | oui | oui |
-| client web de l'**ingress interne** (sans authentification) | **non** : refus « secret modifiable seulement par une session authentifiée » | oui |
+| client web du hub / de l'exe (mode `token`) | oui | à rediscuter |
+| client web de l'ingress interne (cluster, `none`, LAN) | **oui** | non : session authentifiée exigée |
 
-- **Pourquoi R1** : sur l'interne, toute machine du LAN pourrait remplacer `known_hosts` et la clé d'un backend, donc
-  envoyer les projets vers une machine qu'elle contrôle (interception de code et de données) **sans laisser de
-  trace dans un terminal**. Elle peut déjà piloter les terminaux, mais c'est visible. R1 aligne les secrets sur la
-  règle de #193 (kubeconfig non modifiable depuis le web), tout en restant faisable en cluster par l'hôte externe.
-- **Conséquence de R1** : dans le cluster, saisir une clé exige de passer **une fois** par l'adresse externe
-  (connexion GitHub). Sans ingress externe, la saisie passe par `kubectl exec` (procédure documentée) : le coffre
-  est propre à chaque launcher et n'est pas partagé avec un hub.
-- R2 : plus simple, cohérent avec « le LAN est de confiance » ; risque ci-dessus accepté.
+- Ce qui reste exigé dans tous les cas : clé privée jamais relue ni affichée, coffre hors partage, empreinte de
+  l'hôte confirmée explicitement, aucune trace des contenus dans les journaux.
+- **Risque accepté (v6.4.0)** : toute machine du LAN admise par la liste d'adresses peut déposer ou remplacer la clé
+  et l'empreinte d'un backend, et donc envoyer les projets vers une machine qu'elle contrôle sans laisser de trace dans
+  un terminal. Elle pouvait déjà piloter les terminaux. Chaque écriture est journalisée (backend, type de secret,
+  empreinte, adresse source vue par le serveur, sans contenu) et affichée dans les Réglages (« modifié le … »).
+- Le kubeconfig de #193 suit la même règle provisoire. Sa clé de backend (`kubeconfig`) reste hors de l'empreinte
+  d'exposition `WebExposureChanged` en v6.4.0, par cohérence ; elle y entrera avec R1 en v7.0.0.
 
 ## kubeconfig d'un backend k8s **[CHANGED]** (#193, cohérence avec la règle des secrets)
 
@@ -90,10 +89,9 @@ backends:
 ```
 
 - Le kubeconfig peut être **déposé par l'interface** dans le coffre (`backendSecretSet` avec `{backend, kubeconfig}`),
-  avec la même règle d'écriture que les clés ssh (R1 ou R2). Il n'est jamais relu ni affiché (contextes listés seulement).
+  avec la même règle d'écriture que les clés ssh (provisoire en v6.4.0). Il n'est jamais relu ni affiché (contextes listés seulement).
 - `kubeconfig:` comme chemin reste possible (Secret monté par le chart, `backends.kubeconfigs`), modifiable seulement
-  par le fichier `backends.yaml` ou un client autorisé par la règle (la clé entre dans l'empreinte d'exposition :
-  refus aux autres clients web).
+  par le fichier `backends.yaml` ou les Réglages (même règle provisoire).
 - **Priorité** : `kubeconfig` du backend > ServiceAccount du pod (en cluster) > `KUBECONFIG` / `~/.kube/config`.
   Avec `kubeconfig`, `context` est honoré même en cluster ; kubectl reçoit `--kubeconfig` (jamais de `KUBECONFIG`
   hérité).

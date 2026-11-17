@@ -100,43 +100,28 @@ ni aux fichiers de `rootBase`.
 `deploy/helm/values-qualif.yaml` et `deploy/helm/values-prod.yaml` : valeurs non secrètes de chaque environnement
 (nom d'hôte, classe, CIDR, `rootBase`, `web.access: none` écrit explicitement). Aucun secret : un certificat fourni reste dans `PRIVATE/<ENV>/`.
 
-## v6.4.0 — ingress interne libre, ingress externe authentifié, NetworkPolicy, coffre, identifiants **[CHANGED]** (#172, #174, #193, #194)
+## v6.4.0 — NetworkPolicy, coffre, identifiants, ingress externe préparé **[CHANGED]** (#174, #193, #194)
 
-> Révision GATE 2 (rev1). Détail : `contracts/web-auth.md`, `contracts/backends-remote.md`.
-> **Aucun BREAKING** : `web.access` garde son défaut `none` ; `ingress.*` de v6.3.0 est inchangé (ingress interne).
+> Révision GATE 2 n°2 (rev2) : **aucune authentification** en v6.4.0 (#172 en v7.0.0). Détail :
+> `contracts/web-server.md`, `contracts/backends-remote.md`. **Aucun BREAKING** : `web.access` garde son défaut
+> `none`, et `ingress.*` de v6.3.0 est inchangé.
 
 | Valeur | Type | Défaut | Obligatoire | Rôle |
 |--------|------|--------|-------------|------|
-| `externalIngress.enabled` | booléen | `false` | — | second Ingress, public, authentifié |
-| `externalIngress.className`, `.host` | chaînes | — | **oui** si activé | nom DNS public ; ajouté à `CL_WEB_URL` (2e adresse) et posé dans `CL_WEB_AUTH_URL` |
-| `externalIngress.tls.clusterIssuer` \| `.tls.secretName` | chaîne | — | l'un des deux | certificat reconnu (`letsencrypt-prod`) — jamais la CA interne |
-| `externalIngress.rateLimit.average`, `.burst` | entiers | `20`, `50` | — | middleware `rateLimit` |
-| `externalIngress.annotations` | table | `{}` | — | — |
-| `auth.oauth2Proxy.image.repository`, `.tag`, `.digest` | chaînes | `quay.io/oauth2-proxy/oauth2-proxy`, version figée, empreinte figée | — | — |
-| `auth.github.allowedUser` | login GitHub | — | **oui** si externe | `--github-user` et `CL_WEB_AUTH_USER` — un seul compte |
-| `auth.existingSecret` | chaîne | — | **oui** si externe | Secret créé à part : `client-id`, `client-secret`, `cookie-secret` (32 octets) — jamais dans les valeurs |
-| `auth.sessionTTL` | durée | `8h` | — | `--cookie-expire` |
-| `web.browserUrl` | URL | adresse externe si activée, sinon interne | — | `CL_WEB_BROWSER_URL` (#174) |
-| `networkPolicy.enabled` | booléen | **`true`** | — | entrée du pod du launcher seulement depuis `networkPolicy.ingressNamespaces` (port `service.port`) ; oauth2-proxy : entrée depuis les mêmes namespaces ; sondes du kubelet admises ; sortie non restreinte |
-| `networkPolicy.ingressNamespaces` | liste | `[traefik]` | — | namespace du contrôleur (cluster du projet : `traefik`, DaemonSet hors réseau d'hôte) |
-| `secrets.persistence.size` | quantité | `10Mi` | — | PVC `ReadWriteOnce` `<release>-secrets` (coffre, `keep`), monté en `/var/lib/claude-launcher/secrets`, `CL_SECRETS_DIR` |
+| `networkPolicy.enabled` | booléen | **`true`** | — | entrée du pod seulement depuis `networkPolicy.ingressNamespaces`, port `service.port` ; sondes du kubelet admises ; sortie non restreinte (backends distants, GitHub) |
+| `networkPolicy.ingressNamespaces` | liste | `[traefik]` | — | namespace du contrôleur d'Ingress (cluster du projet : `traefik`, DaemonSet hors réseau d'hôte) |
+| `secrets.persistence.size` | quantité | `10Mi` | — | PVC `ReadWriteOnce` `<release>-secrets` (coffre, `helm.sh/resource-policy: keep`), monté en `/var/lib/claude-launcher/secrets`, `CL_SECRETS_DIR` |
 | `secrets.persistence.storageClassName` | chaîne | `""` (classe par défaut) | — | classe RWO, **jamais** la racine partagée |
 | `rbac.extraNamespaces` | liste | `[]` | — | Role + RoleBinding identiques dans chaque namespace listé (#193) |
-| `backends.docker.secretName` | chaîne | `""` | — | Secret TLS docker/podman (#194) |
-| `backends.kubeconfigs` | liste `{name, secretName, key}` | `[]` | — | kubeconfigs montés (#193), alternative au coffre |
+| `backends.docker.secretName` | chaîne | `""` | — | Secret TLS docker/podman (`ca.pem`, `cert.pem`, `key.pem`), monté en `/var/run/claude-launcher/docker` (#194) |
+| `backends.kubeconfigs` | liste `{name, secretName, key}` | `[]` | — | kubeconfigs montés en `/var/run/claude-launcher/kube/<name>/config` (#193), alternative au coffre |
+| `externalIngress.enabled` | booléen | `false` | — | **préparé, refusé** : `true` fait échouer le rendu (« ingress externe refusé : aucune authentification avant v7.0.0 (#172) ») |
+| `externalIngress.className`, `.host`, `.tls.clusterIssuer` (`letsencrypt-prod`) \| `.tls.secretName`, `.annotations` | — | — | — | déclarés dans `values.yaml` et le schéma, inutilisés en v6.4.0 ; le template `ingress-external.yaml` existe mais n'est rendu qu'après le contrôle ci-dessus (donc jamais en v6.4.0) |
 
-Refus au rendu : `externalIngress.enabled` sans `auth.existingSecret` ou sans `auth.github.allowedUser` ;
-`externalIngress.allowedSourceRanges` n'existe pas (l'externe est public, protégé par l'authentification) ;
-`networkPolicy.enabled: false` avec un ingress externe → avertissement dans `NOTES.txt` (aucune requête de
-confiance : `CL_WEB_AUTH_PROXY` non posé).
+Objets ajoutés : NetworkPolicy ; PVC `<release>-secrets` ; Role/RoleBinding par namespace supplémentaire. Montages de
+Secret : en lecture seule, hors de `volume.mountPath` (le schéma refuse un chevauchement).
 
-Objets ajoutés : Ingress externe ; Middlewares `forwardAuth`, `errors`, `rateLimit`, redirection ; Deployment +
-Service `<release>-oauth2-proxy` (1 réplique, `runAsNonRoot`, lecture seule) ; Certificate si émetteur ; NetworkPolicy
-(launcher et oauth2-proxy) ; PVC `<release>-secrets` ; Role/RoleBinding par namespace supplémentaire.
+Variable ajoutée dans le pod : `CL_SECRETS_DIR`.
 
-Variables ajoutées dans le pod du launcher : `CL_WEB_URL` = `https://<ingress.host>,https://<externalIngress.host>`,
-`CL_WEB_AUTH_URL`, `CL_WEB_AUTH_USER`, `CL_WEB_AUTH_PROXY=1` (si NetworkPolicy et externe), `CL_WEB_BROWSER_URL`,
-`CL_SECRETS_DIR`.
-
-`NOTES.txt` : les deux adresses, le compte autorisé, l'URL de rappel à déclarer côté GitHub
-(`https://<externalIngress.host>/oauth2/callback`).
+`NOTES.txt` : rappelle que l'interface n'a pas d'authentification (liste d'adresses de l'ingress interne seule) et
+que l'ingress externe attend v7.0.0.
