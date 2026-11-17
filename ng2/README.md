@@ -1665,21 +1665,24 @@ chart `deploy/helm/claude-launcher`. Les valeurs complètes sont dans `contracts
 - Un nom d'accès en `.local` (mDNS), par exemple `launcher.local`. Les pods ne résolvent pas les noms `.local`.
 - Une CA interne pour cert-manager, avec des contraintes de noms (`nameConstraints`) sur `launcher.local`. Le certificat
   **public** de cette CA s'installe une fois sur chaque poste qui y accède. La clé ne sort jamais du cluster.
-- Une image publiée : l'empreinte `sha256:…` est jointe à la release (`claude-launcher-image-vX.Y.Z.digest`).
+- Une image publiée : l'empreinte est jointe à la release, dans `claude-launcher-image-vX.Y.Z.digest`, sous la forme
+  `dépôt:tag@sha256:…`. Pour n'en garder que `sha256:…` : `sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-vX.Y.Z.digest`.
+- Le namespace doit exister avant l'installation (le guide n'utilise pas `--create-namespace`) : `kubectl create namespace claude-ng2`,
+  avec le niveau de Pod Security que fixe l'administrateur (le pod ne demande aucun privilège).
 
 #### 2. Valeurs
 
 ```yaml
 # values.yaml — exemple, à adapter
-rootBase: /share/MFS/ROOT/CLAUDE_PROJETS       # chemin absolu de la racine des projets, dans le pod
+rootBase: /data/projets                        # chemin absolu de la racine des projets, dans le pod
 hubName: cluster                               # unique parmi les launchers de cette racine
 volume:
-  existingClaim: claude-projets
+  existingClaim: projets
 ingress:
   controller: traefik                          # ou nginx
   className: traefik
   host: launcher.local
-  allowedSourceRanges: ["192.168.1.0/24"]      # seules adresses admises, non vide
+  allowedSourceRanges: ["192.168.1.0/24"]      # seules adresses admises, non vide ; minimum /8 (IPv4), /16 (IPv6)
   tls:
     clusterIssuer: claude-launcher-ca          # ou secretName, un des deux
 web:
@@ -1695,12 +1698,18 @@ Valeurs obligatoires : `rootBase`, `volume.existingClaim`, `ingress.controller`,
 Installez l'image **par son empreinte** : le chart la référence `dépôt:tag@sha256:…`, telle qu'elle a été publiée.
 
 ```bash
-helm template claude-launcher oci://ghcr.io/ccoupel/charts/claude-launcher --version X.Y.Z -n claude-ng2 \
-  -f values.yaml --set image.tag=vX.Y.Z --set image.digest=sha256:<empreinte> | grep 'image:'
-# contrôle : ghcr.io/ccoupel/claude-launcher:vX.Y.Z@sha256:<empreinte>, sinon arrêter
+VERSION=X.Y.Z                                  # version du chart et du launcher
+TAG=v$VERSION
+DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
+[ -n "$DIGEST" ] || { echo "empreinte absente : arrêter" >&2; exit 1; }
+CHART=oci://ghcr.io/ccoupel/charts/claude-launcher
 
-helm upgrade --install claude-launcher oci://ghcr.io/ccoupel/charts/claude-launcher --version X.Y.Z -n claude-ng2 \
-  -f values.yaml --set image.tag=vX.Y.Z --set image.digest=sha256:<empreinte>
+helm template claude-launcher "$CHART" --version "$VERSION" -n claude-ng2 \
+  -f values.yaml --set image.tag="$TAG" --set image.digest="$DIGEST" | grep 'image:'
+# contrôle : ghcr.io/ccoupel/claude-launcher:$TAG@$DIGEST — sinon arrêter
+
+helm upgrade --install claude-launcher "$CHART" --version "$VERSION" -n claude-ng2 \
+  -f values.yaml --set image.tag="$TAG" --set image.digest="$DIGEST"
 kubectl -n claude-ng2 rollout status statefulset/claude-launcher --timeout=5m
 kubectl -n claude-ng2 get certificate                  # READY True
 ```
@@ -1725,7 +1734,17 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
 2. Depuis une adresse de la liste : `curl -sk -o /dev/null -w '%{http_code}' https://launcher.local/healthz` → `200`.
 3. Depuis une adresse hors liste (autre réseau, VPN) : même commande → `403`.
 4. Depuis un pod du cluster qui passe par l'Ingress → `403`. Les pods ne résolvent pas `.local` : passez `--resolve`.
-5. Un en-tête `X-Forwarded-For` ne change rien : le contrôle porte sur l'adresse de la connexion.
+   ```bash
+   IP_TRAEFIK=$(kubectl -n kube-system get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+   kubectl -n claude-ng2 run curl-test --rm -it --restart=Never --image=curlimages/curl -- \
+     curl -sk -o /dev/null -w '%{http_code}\n' --resolve "launcher.local:443:$IP_TRAEFIK" https://launcher.local/healthz
+   ```
+   Le nom du service Traefik et l'adresse exposée dépendent de l'installation : adaptez `IP_TRAEFIK` (`kubectl -n kube-system get svc`).
+5. Un en-tête `X-Forwarded-For` ne change rien : le contrôle porte sur l'adresse de la connexion. Depuis une adresse
+   hors liste, contrôlez-le ainsi :
+   ```bash
+   curl -sk -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 192.168.1.10' https://launcher.local/healthz   # → 403
+   ```
 
 #### 6. Mise à jour et retour arrière
 
@@ -1737,15 +1756,26 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
 
 #### 7. Cohabitation avec l'exe Windows
 
-Un poste Windows peut utiliser la même racine. `config.conf` contient `${CL_ROOT_BASE}`, que chaque launcher développe
-avec sa propre forme de la racine. Chaque launcher a son propre cache et son propre nom de hub : le launcher du cluster se
-nomme `hubName`, et le poste garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
+Un poste Windows peut partager la même racine. Ce partage n'est correct que dans les cas suivants :
+
+- **`config.conf` créé par v6.3.0 sous une racine de base** : ses chemins sont écrits `${CL_ROOT_BASE}`, que chaque launcher
+  développe avec sa propre forme de la racine. Un `config.conf` **existant** (la racine de PROD, par exemple) garde ses
+  chemins tels quels : il n'est pas réécrit.
+- **Limite** : ne partagez pas une racine **neuve** créée par v6.3.0 avec un launcher antérieur à v6.3.0. Il ne développe
+  pas `${CL_ROOT_BASE}` et ne trouve donc pas ses projets.
+
+Chaque launcher a son propre cache et son propre nom de hub : le launcher du cluster se nomme `hubName`, et le poste
+garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
 
 #### 8. Limites de v6.3.0 (risques acceptés)
 
 - **Pas de NetworkPolicy** : tout pod du cluster atteint le Service sans passer par l'Ingress. Le Service est `ClusterIP`.
 - **`web.access: none`** : tout poste de la liste pilote les projets, et tout pod du cluster atteint le Service. Ce risque
   est accepté jusqu'à l'authentification de v6.4.0 (#172).
+- **Jeton en clair sur le volume partagé** (`web.access: token`) : le jeton reste dans `<cache>/desktop-web-token`, sur le
+  volume partagé de la racine. Il est donc lisible par tout pod qui monte ce volume, y compris les pods de projets. Risque
+  accepté jusqu'à v6.4.0. Avec `web.access: none`, aucun jeton n'est tiré, lu ni écrit : le fichier n'existe pas, et il est
+  supprimé au passage en `none`.
 - **Saturation possible** : 32 flux `/api/events` au total, ouvrables par tout client qui atteint le port.
 - **Contexte k8s ignoré en cluster** : un backend `k8s` d'un autre cluster, déclaré dans la racine, agirait sur le cluster du
   pod. Ne déclarez que des backends `k8s` du cluster où tourne le launcher.
