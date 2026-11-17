@@ -369,8 +369,8 @@ Détails : [`ng2/README.md` — Projets en conteneur](ng2/README.md#projets-en-c
 
 ---
 
-Installation dans Kubernetes par Helm (accès interne, valeurs et vérifications) : voir `ng2/README.md`, section
-« Installer le launcher dans Kubernetes par Helm (accès interne) ».
+Installation dans Kubernetes par Helm (accès interne, valeurs et vérifications) : voir le guide
+[Installer le launcher dans Kubernetes par Helm (accès interne)](ng2/README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
 
 ## Mise en page des teams
 

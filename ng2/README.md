@@ -1780,6 +1780,11 @@ garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
 - **Contexte k8s ignoré en cluster** : un backend `k8s` d'un autre cluster, déclaré dans la racine, agirait sur le cluster du
   pod. Ne déclarez que des backends `k8s` du cluster où tourne le launcher.
 - **Hors cluster, `web.access: none`** : tout processus local pilote le launcher.
+- **Hors cluster, `web.access` vaut `token` par défaut** (launcher), alors que le chart pose `none`.
+- **Tag mutable** : si `image.digest` n'est pas posé, `image.tag` peut désigner une image différente demain. Posez toujours
+  l'empreinte. Le paquet ghcr de l'image est public : toute personne peut la tirer.
+- **Refus de NodePort et LoadBalancer** : le chart refuse ces types de Service ; seul `ClusterIP` est admis.
+- **Serveur de fichiers des maquettes** (`browser_server`) : non exposé par le pod en cluster (#174, prévu en v6.4.0).
 - Ne publiez jamais l'Ingress hors du réseau interne, et n'exposez pas le port d'écoute autrement.
 
 ## Interface
