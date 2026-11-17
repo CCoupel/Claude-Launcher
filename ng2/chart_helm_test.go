@@ -884,6 +884,7 @@ func withVolumeCreate(v m, mod func(c m)) m {
 	v = clone(v)
 	c := sub(v, "volume", "create")
 	c["enabled"] = true
+	sub(c, "persistentVolume")["name"] = "claude-projets-pv" // le nom du PV est OBLIGATOIRE avec volume.create (liaison statique explicite)
 	if mod != nil {
 		mod(c)
 	}
@@ -937,9 +938,9 @@ func TestChartCreatesPVCKeptAtUninstall(t *testing.T) {
 	if sc, ok := spec["storageClassName"]; !ok || sc != "" {
 		t.Errorf("storageClassName = %v, attendu \"\" explicite (liaison statique, pas de StorageClass par défaut)", spec["storageClassName"])
 	}
-	// sans nom ni création du PV : volumeName ABSENT (confirmé par infra : « volumeName si name posé OU enabled »)
-	if vn, has := spec["volumeName"]; has {
-		t.Errorf("volumeName = %v posé sans persistentVolume.name ni persistentVolume.enabled", vn)
+	// le nom du PV est obligatoire : volumeName est TOUJOURS rendu (jamais de liaison à « n'importe quel PV compatible »)
+	if spec["volumeName"] != "claude-projets-pv" {
+		t.Errorf("volumeName = %v, attendu le nom du PV (claude-projets-pv), toujours rendu", spec["volumeName"])
 	}
 	if len(o["PersistentVolume"]) != 0 {
 		t.Errorf("PV créé alors que persistentVolume.enabled est faux (le PV est celui de l'administrateur)")
@@ -1079,5 +1080,53 @@ func TestChartQualifValuesCreateItsOwnPVC(t *testing.T) {
 	}
 	if strings.Contains(out, "claimName: claude-projets\n") {
 		t.Errorf("le pod de QUALIF monte le PVC de la PROD")
+	}
+}
+
+// Nom du PV obligatoire (décision CDP du 2026-11-17) : sans lui, le PVC se lierait à n'importe quel PV compatible.
+func TestChartVolumeCreateRequiresPersistentVolumeName(t *testing.T) {
+	needHelm(t)
+	must(t, withVolumeCreate(baseValues(), nil)) // précondition : avec le nom, ça rend
+	v := withVolumeCreate(baseValues(), func(c m) { delete(sub(c, "persistentVolume"), "name") })
+	_, out, err := render(t, v)
+	if err == nil {
+		t.Fatalf("volume.create.enabled sans persistentVolume.name accepté (liaison à n'importe quel PV compatible)")
+	}
+	if !strings.Contains(out, "persistentVolume.name") && !strings.Contains(out, "persistentVolume") {
+		t.Errorf("le message ne nomme pas persistentVolume.name : %s", out)
+	}
+	// avec le PV créé par le chart, le nom reste obligatoire
+	v2 := pvValues(nil)
+	delete(sub(v2, "volume", "create", "persistentVolume"), "name")
+	if _, out, err := render(t, v2); err == nil {
+		t.Errorf("PV créé sans nom accepté\n%.200s", out)
+	}
+	// pas de création : le nom n'est pas exigé
+	must(t, baseValues())
+}
+
+// StorageClass (provisionnement dynamique) : le nom du PV n'est pas exigé, mais persistentVolume.enabled est exclu
+// (un dossier neuf, pas rootBase).
+func TestChartVolumeCreateStorageClassExcludesPersistentVolume(t *testing.T) {
+	needHelm(t)
+	v := withVolumeCreate(baseValues(), func(c m) {
+		delete(sub(c, "persistentVolume"), "name")
+		c["storageClassName"] = "moosefs-dyn"
+	})
+	o, out, err := render(t, v)
+	if err != nil {
+		t.Fatalf("StorageClass sans nom de PV refusée : %s", out)
+	}
+	spec := get(o["PersistentVolumeClaim"][0], "spec").(m)
+	if spec["storageClassName"] != "moosefs-dyn" {
+		t.Errorf("storageClassName = %v", spec["storageClassName"])
+	}
+	if _, has := spec["volumeName"]; has {
+		t.Errorf("volumeName posé avec une StorageClass (provisionnement dynamique) : %v", spec["volumeName"])
+	}
+	v2 := pvValues(nil)
+	sub(v2, "volume", "create")["storageClassName"] = "moosefs-dyn"
+	if _, out, err := render(t, v2); err == nil {
+		t.Errorf("StorageClass ET PV créé acceptés\n%.200s", out)
 	}
 }
