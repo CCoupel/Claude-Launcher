@@ -55,7 +55,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Image **depuis le binaire candidat de BUILD** : `SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OUT_DIR=build/candidate_v<X.Y.Z> deploy/image/build.sh v<X.Y.Z.a>` | Binaire candidat repris **tel quel** ; sa version est controlee (`version` doit annoncer `v<X.Y.Z.a>`, sinon **echec**) ; image locale + archive OCI et `SHA256SUMS-image-<version>` a cote du binaire ; durees affichees | | |
+| 1 | Image **depuis le binaire candidat de BUILD** : `SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OUT_DIR=build/candidate_v<X.Y.Z> OCI_ARCHIVE=1 deploy/image/build.sh v<X.Y.Z.a>` | Binaire candidat repris **tel quel** ; sa version est controlee (`version` doit annoncer `v<X.Y.Z.a>`, sinon **echec**) ; image locale + archive OCI et `SHA256SUMS-image-<version>` a cote du binaire ; durees affichees | | |
 | 2 | Controles de l'image : scenarios 1 a 3 de `image-launcher-167/image-launcher.md` | Non root `1000:1000`, version = tag, `git gh kubectl bash` presents, ni `tmux` ni `claude`, entrypoint 64/66, interface servie avec dossier monte, `config.conf` cree sous la racine montee, aucun jeton imprime, SIGTERM propre | | |
 | 3 | Pousser : `sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> docker://192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>` | Pousse ; `curl http://192.168.1.211:5000/v2/claude-launcher/tags/list` liste le tag | | |
 | 4 | Le tag de PRODUCTION n'est pas touche | Aucun tag `vX.Y.Z` (sans `.a`) cree ni modifie ; rien sur ghcr | | |
