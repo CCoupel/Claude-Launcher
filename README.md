@@ -1,7 +1,7 @@
 # Claude Launcher
 
 Launcher pour piloter plusieurs projets Claude Code en parallèle : coque tmux sous Linux et macOS,
-application native sous Windows. Compagnon de
+application native sous Windows, ou launcher dans un cluster Kubernetes (Helm). Compagnon de
 [`claude_project_template`](https://github.com/CCoupel/claude_project_template) — mais utilisable
 avec n'importe quel projet Claude Code.
 
@@ -14,6 +14,7 @@ même cœur.
 |---|---|---|
 | **Linux, macOS** | la **coque tmux** : navigateur de projets à gauche, tmux à droite ([ci-dessous](#linux-et-macos--la-coque-tmux)) | sur l'hôte, ou dans un conteneur local ou distant |
 | **Windows** (v6) | une **application native** (`claude-launcher-ng2.exe`) : arbre des projets, cartes, un terminal par agent ([ci-dessous](#windows--lapplication-native)) | dans un conteneur **distant** (docker/podman en `tcp://` ou `ssh://`, `ssh`, Kubernetes) |
+| **Kubernetes** (Helm, v6.3) | l'**interface web** servie par un pod du cluster, derrière un Ingress interne ([ci-dessous](#kubernetes-helm--le-launcher-dans-le-cluster)) | dans des pods du même namespace (backend `k8s`) |
 
 Depuis la v5, un projet peut **s'exécuter dans un conteneur** (podman, docker, podman ou docker par
 ssh, Kubernetes) : il n'installe plus rien sur votre OS, choisit sa distribution (Debian, Ubuntu,
@@ -133,6 +134,42 @@ raccourcis et fonctionnement : [`ng2/README.md` — Interface native](ng2/README
 
 Sous Linux, `claude-launcher-ng2 desktop` sert la même interface dans le navigateur ; la coque tmux
 reste le défaut.
+
+---
+
+## Kubernetes (Helm) : le launcher dans le cluster
+
+Le launcher peut tourner **dans un pod Kubernetes** et servir son interface web à un réseau interne. Il pilote les
+projets, qui tournent dans des pods du même namespace. Le chart Helm `claude-launcher` installe le tout : un
+StatefulSet à une réplique, un Service `ClusterIP`, un ServiceAccount avec un Role limité au namespace, et un Ingress
+Traefik ou nginx. L'image est publiée sur ghcr, avec son empreinte jointe à chaque release.
+
+**Prérequis** : un cluster avec Traefik ou nginx et cert-manager ; un namespace dédié ; un volume RWX pour la racine
+des projets (PVC existant, ou créé par le chart) ; un nom `.local` (mDNS) pour l'accès, par exemple `launcher.local` ;
+une CA interne cert-manager dont le certificat public est installé sur les postes.
+
+```bash
+VERSION=6.3.0
+TAG=v$VERSION
+DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
+CHART=oci://ghcr.io/ccoupel/charts/claude-launcher
+
+helm upgrade --install claude-launcher "$CHART" --version "$VERSION" -n claude-ng2 \
+  -f values.yaml --set image.tag="$TAG" --set image.digest="$DIGEST"
+```
+
+Valeurs clés (`values.yaml`) : `rootBase` (racine des projets, dans le pod), `hubName`, `volume.existingClaim`,
+`ingress.controller` (`traefik` ou `nginx`), `ingress.className`, `ingress.host`, `ingress.allowedSourceRanges` (liste
+d'adresses admises, non vide, jamais `/0`), `ingress.tls.clusterIssuer` ou `secretName`. Le défaut `web.access: none`
+s'ouvre **sans jeton** : `https://launcher.local/` depuis une adresse de la liste.
+
+**Limites de v6.3** (risques acceptés) : pas de NetworkPolicy ; la liste d'adresses de l'Ingress est la seule barrière
+tant que l'authentification n'est pas livrée (v6.4.0, #172) ; le contexte d'un backend `k8s` est ignoré en cluster ; les
+backends distants (ssh, podman, docker) ne fonctionnent pas depuis le pod ; ne jamais exposer l'Ingress hors du réseau
+interne.
+
+Le guide complet (valeurs, vérifications de la liste d'adresses, mise à jour, retour arrière, cohabitation avec
+l'exe Windows) est dans [`ng2/README.md`](ng2/README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
 
 ---
 
@@ -269,6 +306,11 @@ correspondance des chemins, serveur web, réglages ignorés. L'exe se met à jou
 l'annonce orange → jaune → verte prépare la nouvelle version, un clic l'installe (l'ancien exe est
 renommé en `.old`, supprimé au lancement suivant). Détails :
 [`ng2/README.md` — Windows](ng2/README.md#windows-v6).
+
+### Kubernetes (Helm)
+
+Installation du launcher dans le cluster : voir
+[Kubernetes (Helm) : le launcher dans le cluster](#kubernetes-helm--le-launcher-dans-le-cluster) ci-dessus.
 
 ### Configuration (`config.conf`)
 
