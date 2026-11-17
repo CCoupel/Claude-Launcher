@@ -937,10 +937,9 @@ func TestChartCreatesPVCKeptAtUninstall(t *testing.T) {
 	if sc, ok := spec["storageClassName"]; !ok || sc != "" {
 		t.Errorf("storageClassName = %v, attendu \"\" explicite (liaison statique, pas de StorageClass par défaut)", spec["storageClassName"])
 	}
-	// sans nom ni création du PV : liaison statique par défaut (le contrat donne « <existingClaim>-pv » comme nom par
-	// défaut du PV) — volumeName absent (tout PV statique compatible) ou égal à ce nom, jamais un autre
-	if vn, has := spec["volumeName"]; has && vn != "claude-projets-pv" {
-		t.Errorf("volumeName = %v, attendu absent ou <existingClaim>-pv", vn)
+	// sans nom ni création du PV : volumeName ABSENT (confirmé par infra : « volumeName si name posé OU enabled »)
+	if vn, has := spec["volumeName"]; has {
+		t.Errorf("volumeName = %v posé sans persistentVolume.name ni persistentVolume.enabled", vn)
 	}
 	if len(o["PersistentVolume"]) != 0 {
 		t.Errorf("PV créé alors que persistentVolume.enabled est faux (le PV est celui de l'administrateur)")
