@@ -18,14 +18,14 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | Racine | `/share/MFS/ROOT/CLAUDE-QUALIF` (PROD : `/share/MFS/ROOT/CLAUDE_PROJETS`, jamais touchee) |
 | Volume | PVC `claude-projects-qualif` cree par le chart, lie au PV `claude-qualif-pv` (administrateur) |
 | Nom de hub / release | `cluster-qualif` / `claude-launcher-qualif` |
-| Image | `192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>` (registre interne, HTTP, sans digest : risque accepte H2) |
+| Image | `ghcr.io/ccoupel/claude-launcher-qualif:v<X.Y.Z.a>@sha256:<empreinte>` — paquet ghcr **separe de la PROD** (`ghcr.io/ccoupel/claude-launcher`, ecrit par la CI au tag seulement) ; installee **par empreinte** (`image.digest`) |
 | Acces | `https://launcher-qualif.local` (Ingress Traefik, `192.168.1.0/24`) |
 | Projets | factices seulement : `<racine>/PROJETS/QUALIF/factice-1`, `factice-2` (faux `claude`) |
 
 ## Prerequis (verifies avant tout, un par un)
 
-- [ ] **Administrateur** (fiche `_work/reports/infra-admin-noeuds-20261117-090000.md`) : namespace `claude-qualif` ; PSA `baseline` sur `claude-ng2` **et** `claude-qualif` ; PV `claude-qualif-pv` vers `/share/MFS/ROOT/CLAUDE-QUALIF` (**source verifiee** : jamais `CLAUDE_PROJETS`) ; compte `ng2-deploy` dans les deux namespaces ; nom mDNS `launcher-qualif.local` (resolu par les postes, pas par les pods) ; `externalTrafficPolicy: Local` sur le Service Traefik ; ClusterIssuer interne reel (nom dans `PRIVATE/QUALIF/values-local.yaml`) ; registre `192.168.1.211:5000` demarre et noeuds configures pour le tirage HTTP
-- [ ] **`qualif.env`** (modele `qualif.env.example`) : `QUALIF_REGISTRY` (`192.168.1.211:5000`), `QUALIF_NAMESPACE` (`claude-qualif`), `QUALIF_KUBECONFIG` (`PRIVATE/QUALIF/ng2-deploy.kubeconfig`), `QUALIF_VALUES_LOCAL` (`PRIVATE/QUALIF/values-local.yaml`) renseignes ; environnement « launcher du cluster » declare dans `.claude/project-config.json` (`cluster_launcher` de QUALIF et de PROD)
+- [ ] **Administrateur** (fiche `_work/reports/infra-admin-noeuds-20261117-090000.md`) : namespace `claude-qualif` ; PSA `baseline` sur `claude-ng2` **et** `claude-qualif` ; PV `claude-qualif-pv` vers `/share/MFS/ROOT/CLAUDE-QUALIF` (**source verifiee** : jamais `CLAUDE_PROJETS`) ; compte `ng2-deploy` dans les deux namespaces ; nom mDNS `launcher-qualif.local` (resolu par les postes, pas par les pods) ; `externalTrafficPolicy: Local` sur le Service Traefik ; ClusterIssuer interne reel (nom dans `PRIVATE/QUALIF/values-local.yaml`) ; **paquet ghcr `claude-launcher-qualif` public** (P3 : ghcr cree le paquet en prive a la premiere publication, le passer en public une fois : le cluster n'a pas de secret de tirage) et sorties reseau des noeuds vers ghcr.io
+- [ ] **`qualif.env`** (modele `qualif.env.example`) : `QUALIF_IMAGE` (`ghcr.io/ccoupel/claude-launcher-qualif`), `QUALIF_NAMESPACE` (`claude-qualif`), `QUALIF_KUBECONFIG` (`PRIVATE/QUALIF/ng2-deploy.kubeconfig`), `QUALIF_VALUES_LOCAL` (`PRIVATE/QUALIF/values-local.yaml`) renseignes ; environnement « launcher du cluster » declare dans `.claude/project-config.json` (`cluster_launcher` de QUALIF et de PROD)
 - [ ] **Acces** : `PRIVATE/QUALIF/ng2-deploy.kubeconfig` (`kubectl -n claude-qualif auth can-i create statefulsets` = `yes`) ; un poste dans `192.168.1.0/24`, un poste **hors** de la plage, un pod de test
 - [ ] **Racine de QUALIF** : dossier cree (proprietaire `1000:1000`), `backends.yaml` de QUALIF (memes types que la PROD, `k8s` → `claude-qualif`, volumes → `claude-projects-qualif`), projets factices avec faux `claude` — voir `deploy.qualif.md`
 - [ ] **Sauvegarde** horodatee des fichiers de la racine de PROD (`config.conf`, `backends.yaml`, `projects.json`, jeton) pour la comparaison finale (scenario 12)
@@ -49,7 +49,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 ---
 
-### Scenario 2 — Image candidate construite et publiee dans le registre interne
+### Scenario 2 — Image candidate construite et publiee dans le paquet ghcr de QUALIF
 
 **Validation** : AUTO — **Issues** : #167, #177
 
@@ -57,8 +57,8 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 |-------|--------|-----------------|----------------|------|
 | 1 | Image **depuis le binaire candidat de BUILD** : `SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OUT_DIR=build/candidate_v<X.Y.Z> OCI_ARCHIVE=1 deploy/image/build.sh v<X.Y.Z.a>` | Binaire candidat repris **tel quel** ; sa version est controlee (`version` doit annoncer `v<X.Y.Z.a>`, sinon **echec**) ; image locale + archive OCI et `SHA256SUMS-image-<version>` a cote du binaire ; durees affichees | | |
 | 2 | Controles de l'image : scenarios 1 a 3 de `image-launcher-167/image-launcher.md` | Non root `1000:1000`, version = tag, `git gh kubectl bash` presents, ni `tmux` ni `claude`, entrypoint 64/66, interface servie avec dossier monte, `config.conf` cree sous la racine montee, aucun jeton imprime, SIGTERM propre | | |
-| 3 | Pousser : `sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> docker://192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>` | Pousse ; `curl http://192.168.1.211:5000/v2/claude-launcher/tags/list` liste le tag | | |
-| 4 | Le tag de PRODUCTION n'est pas touche | Aucun tag `vX.Y.Z` (sans `.a`) cree ni modifie ; rien sur ghcr | | |
+| 3 | Pousser dans le paquet **de QUALIF** : `A=PRIVATE/QUALIF/.ghcr-auth.json` (jeton `write:packages`, fichier temporaire supprime ensuite) puis `sudo buildah --storage-driver vfs push --authfile $A --digestfile build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a> localhost/claude-launcher:v<X.Y.Z.a> docker://$QUALIF_IMAGE:v<X.Y.Z.a>` (voir `deploy.qualif.md` etapes 2-3) | Pousse ; fichier d'empreinte `digest-v<X.Y.Z.a>` ecrit ; `gh api /users/CCoupel/packages/container/claude-launcher-qualif/versions` liste le tag `v<X.Y.Z.a>` ; fichier d'authentification supprime | | |
+| 4 | **Separation des paquets** : le paquet de PRODUCTION n'est pas touche | `gh api /users/CCoupel/packages/container/claude-launcher/versions` inchange : **aucun** tag `vX.Y.Z[.a]` cree par cette QUALIF ; rien n'est ecrit hors de `claude-launcher-qualif` | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -70,7 +70,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | `helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=v<X.Y.Z.a>` (kubeconfig `ng2-deploy`) | Installation sans erreur ; `kubectl rollout status` | | |
+| 1 | `helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=v<X.Y.Z.a> --set image.digest=$(cat build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a>)` (kubeconfig `ng2-deploy`) | Installation sans erreur ; `kubectl rollout status` | | |
 | 2 | `kubectl -n claude-qualif get pod,pvc,svc,ingress,certificate` | **Un seul** pod `Ready` (sonde `/readyz`) ; PVC `claude-projects-qualif` `Bound` RWX sur `claude-qualif-pv` ; Service `ClusterIP` ; Certificate `Ready` | | |
 | 3 | Journaux du pod | Message de mode serveur, **aucun jeton en clair**, aucun refus « launcher deja actif » | | |
 | 4 | `<racine>/.config/claude-launcher-ng2/config.conf` | Cree au premier demarrage ; chemins sous la racine de QUALIF | | |
@@ -177,7 +177,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | Construire et pousser un second tag candidat `v<X.Y.Z.b>` ; interface de QUALIF ouverte | Annonce « ↑ NG v<…> disponible · mise a jour par l'image », **sans** bouton d'installation | | |
-| 2 | `helm upgrade --install … --set image.tag=v<X.Y.Z.b>` en surveillant `kubectl get pod -w` | **L'ancien pod est arrete avant le demarrage du nouveau** (un seul pod a tout instant : pas de RollingUpdate) ; aucun refus « launcher deja actif » | | |
+| 2 | `helm upgrade --install … --set image.tag=v<X.Y.Z.b> --set image.digest=$(cat …/digest-v<X.Y.Z.b>)` en surveillant `kubectl get pod -w` | **L'ancien pod est arrete avant le demarrage du nouveau** (un seul pod a tout instant : pas de RollingUpdate) ; aucun refus « launcher deja actif » | | |
 | 3 | Version du nouveau pod : `kubectl exec … -- claude-launcher-ng2 version` | `v<X.Y.Z.b>` | | |
 | 4 | Jeton, reglages, factices apres la mise a jour | Conserves ; session de l'interface a rouvrir (lien d'acces inchange) | | |
 | 5 | Retour au tag precedent (`helm rollback` ou `--set image.tag=…`) | Fonctionne de la meme facon | | |
@@ -215,7 +215,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 ## Criteres de Validation
 
 - [ ] CI verte (<= 60 s hors image, image a chaud <= 20 s), chart controle par `helm template`
-- [ ] Image candidate non root, publiee dans le registre interne, tag de production intact
+- [ ] Image candidate non root, publiee dans le paquet ghcr **de QUALIF** (`claude-launcher-qualif`), installee par empreinte ; paquet de production intact
 - [ ] Installation, acces autorise, refus hors plage / depuis un pod / `X-Forwarded-For` forge
 - [ ] Projet factice ouvert, utilise, ferme dans `claude-qualif` ; « Tester » nomme chaque droit
 - [ ] Pod recree : jeton et reglages conserves ; cohabitation sans perte d'ecriture ; un seul pilote
@@ -225,4 +225,4 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 ## Notes QA
 
-Duree : environ 3 h (scenario 9 en tache de fond). Risques acceptes (H2 : tag sans digest ; pas de NetworkPolicy ; jeton dans le dossier d'etat) a rappeler dans le guide. Apres la QUALIF : desinstaller si inutile ; la racine de QUALIF est separee, aucune urgence pour la PROD.
+Duree : environ 3 h (scenario 9 en tache de fond). Risques acceptes ( pas de NetworkPolicy ; jeton dans le dossier d'etat) a rappeler dans le guide. Apres la QUALIF : desinstaller si inutile ; la racine de QUALIF est separee, aucune urgence pour la PROD.

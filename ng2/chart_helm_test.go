@@ -1178,3 +1178,112 @@ func TestChartPersistentVolumeValuesWithoutCreateAreRefused(t *testing.T) {
 		t.Errorf("persistentVolume.enabled avec volume.create.enabled=false accepté")
 	}
 }
+
+// ── image : paquets ghcr séparés QUALIF / PROD, image.digest ─────────────────────────────────────────────────
+// Décision du 2026-11-17 : l'image de QUALIF vit dans un paquet SÉPARÉ (ghcr.io/ccoupel/claude-launcher-qualif), jamais
+// dans celui de PROD (ghcr.io/ccoupel/claude-launcher, écrit par la CI au tag seulement).
+
+const (
+	prodImageRepo   = "ghcr.io/ccoupel/claude-launcher"
+	qualifImageRepo = "ghcr.io/ccoupel/claude-launcher-qualif"
+)
+
+func podImage(t *testing.T, o map[string][]m) string {
+	t.Helper()
+	c := pod(t, o)["containers"].([]any)[0].(m)
+	img, _ := c["image"].(string)
+	return img
+}
+
+func TestChartQualifAndProdImagesAreSeparatePackages(t *testing.T) {
+	needHelm(t)
+	q, p := readValues(t, "qualif"), readValues(t, "prod")
+	if get(q, "image", "repository") != qualifImageRepo {
+		t.Errorf("QUALIF : image.repository = %v, attendu %s", get(q, "image", "repository"), qualifImageRepo)
+	}
+	if get(p, "image", "repository") != prodImageRepo {
+		t.Errorf("PROD : image.repository = %v, attendu %s", get(p, "image", "repository"), prodImageRepo)
+	}
+	issuer := []string{"--set", "ingress.tls.clusterIssuer=interne-test"}
+	qout, qerr, err := helm(t, append([]string{"template", "claude-launcher-qualif", chartDir, "-n", "claude-qualif", "-f", "../deploy/helm/values-qualif.yaml", "--set", "image.tag=v6.3.0.1"}, issuer...)...)
+	if err != nil {
+		t.Fatalf("rendu QUALIF : %v\n%s", err, qerr)
+	}
+	if strings.Contains(qout, prodImageRepo+":") || strings.Contains(qout, prodImageRepo+"@") {
+		t.Errorf("le rendu QUALIF référence l'image de PROD (%s) : jamais dans le paquet de production", prodImageRepo)
+	}
+	if !strings.Contains(qout, qualifImageRepo+":v6.3.0.1") {
+		t.Errorf("le rendu QUALIF ne référence pas %s:v6.3.0.1", qualifImageRepo)
+	}
+	pout, perr, err := helm(t, append([]string{"template", "claude-launcher", chartDir, "-n", "claude-ng2", "-f", "../deploy/helm/values-prod.yaml"}, issuer...)...)
+	if err != nil {
+		t.Fatalf("rendu PROD : %v\n%s", err, perr)
+	}
+	for _, l := range strings.Split(pout, "\n") { // les commentaires du gabarit sont ignorés : seuls les objets comptent
+		if tl := strings.TrimSpace(l); !strings.HasPrefix(tl, "#") && strings.Contains(strings.ToLower(l), "qualif") {
+			t.Errorf("le rendu PROD mentionne la QUALIF (paquet, namespace ou nom) : %q", l)
+		}
+	}
+	if !strings.Contains(pout, prodImageRepo+":") {
+		t.Errorf("le rendu PROD ne référence pas %s", prodImageRepo)
+	}
+	// la CI ne publie la release que dans le paquet de PROD
+	b, err := os.ReadFile("../.github/workflows/release.yml")
+	if err != nil {
+		t.Fatalf("release.yml : %v", err)
+	}
+	rel := string(b)
+	if strings.Contains(rel, "claude-launcher-qualif") {
+		t.Errorf("release.yml cite le paquet de QUALIF : la release ne pousse que %s", prodImageRepo)
+	}
+	if !strings.Contains(rel, "ghcr.io/ccoupel/claude-launcher") && !strings.Contains(rel, "ghcr.io/${{ github.repository_owner }}/claude-launcher") && !strings.Contains(rel, "claude-launcher") {
+		t.Errorf("release.yml ne cite pas l'image du launcher")
+	}
+}
+
+func TestChartImageDigest(t *testing.T) {
+	needHelm(t)
+	digest := "sha256:" + strings.Repeat("ab12", 16) // 64 hex
+	v := baseValues()
+	img := sub(v, "image")
+	img["repository"], img["tag"], img["digest"] = qualifImageRepo, "v6.3.0.9", digest
+	o := must(t, v)
+	if got := podImage(t, o); got != qualifImageRepo+":v6.3.0.9@"+digest {
+		t.Errorf("image = %q, attendu repo:tag@digest", got)
+	}
+	// l'étiquette de version reste le tag seul
+	ss := o["StatefulSet"][0]
+	for _, lab := range []any{get(ss, "metadata", "labels", "app.kubernetes.io/version"), get(ss, "spec", "template", "metadata", "labels", "app.kubernetes.io/version")} {
+		if lab != nil && lab != "v6.3.0.9" {
+			t.Errorf("app.kubernetes.io/version = %v, attendu le tag seul v6.3.0.9 (sans empreinte)", lab)
+		}
+	}
+	// sans digest : repo:tag
+	v2 := baseValues()
+	sub(v2, "image")["tag"] = "v6.3.0.9"
+	if got := podImage(t, must(t, v2)); strings.Contains(got, "@") || !strings.HasSuffix(got, ":v6.3.0.9") {
+		t.Errorf("image sans digest = %q", got)
+	}
+	// refus : tag contenant une empreinte, digest non sha256 ou mal formé
+	for _, tc := range []struct{ name, tag, digest string }{
+		{"tag@digest", "v6.3.0.9@" + digest, ""},
+		{"tag avec @", "v6.3.0.9@x", ""},
+		{"digest md5", "v6.3.0.9", "md5:" + strings.Repeat("a", 32)},
+		{"digest trop court", "v6.3.0.9", "sha256:abc"},
+		{"digest non hexadécimal", "v6.3.0.9", "sha256:" + strings.Repeat("z", 64)},
+		{"digest sans préfixe", "v6.3.0.9", strings.Repeat("a", 64)},
+		{"digest majuscules/long", "v6.3.0.9", "sha256:" + strings.Repeat("a", 65)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := baseValues()
+			im := sub(v, "image")
+			im["tag"] = tc.tag
+			if tc.digest != "" {
+				im["digest"] = tc.digest
+			}
+			if _, out, err := render(t, v); err == nil {
+				t.Errorf("tag=%q digest=%q accepté\n%.200s", tc.tag, tc.digest, out)
+			}
+		})
+	}
+}
