@@ -14,6 +14,7 @@ desktop_web:
   listen: 127.0.0.1:8787         # inchangé
   allow_lan: false               # inchangé
   url: https://launcher.exemple  # NEW (#171) — adresse publique derrière un proxy inverse
+  access: token                  # NEW (LOT-4.4) — token (défaut) | none : voir « Mode d'accès »
 ```
 
 **`enabled`** (commutateur)
@@ -82,21 +83,22 @@ desktop_web:
 
 ```json
 "webUI": { "state": "off" | "on" | "error", "listen": "127.0.0.1:8787", "lan": false, "warn": "", "msg": "",
-           "enabled": true, "url": "https://launcher.exemple", "server": false }
+           "enabled": true, "url": "https://launcher.exemple", "server": false, "access": "token" }
 ```
 
 | Champ | Sens |
 |-------|------|
 | `enabled` | **NEW** — valeur effective du commutateur |
 | `url` | **NEW** — adresse publique effective, vide sinon |
+| `access` | **NEW** (LOT-4.4) — mode d'accès effectif : `"token"` ou `"none"` |
 | `server` | **NEW** — vrai en mode serveur (`desktop --web`) : `state` vaut alors toujours `on`, `listen` est l'adresse du lancement |
 
 Jamais le jeton, comme aujourd'hui.
 
 ## `configModel` / `configApply`, `kind: "hub"` **[CHANGED]** (#183)
 
-`settings.desktop_web` gagne `enabled` (booléen ou absent) et `url` (chaîne). Les clés de changement
-`desktop_web.enabled` et `desktop_web.url` suivent les règles des clés existantes `desktop_web.listen` et
+`settings.desktop_web` gagne `enabled` (booléen ou absent), `url` (chaîne) et `access` (`token` | `none` | absent,
+LOT-4.4). Les clés de changement `desktop_web.enabled`, `desktop_web.url` et `desktop_web.access` suivent les règles des clés existantes `desktop_web.listen` et
 `desktop_web.allow_lan` (validation, refus à un client web, surcharge par système en lecture seule).
 
 ## Valeurs effectives par système **[CHANGED]** (#183, exigence de cohérence des Réglages)
@@ -153,3 +155,62 @@ Dans un pod, la sortie standard ne porte pas le jeton : adresse (publique si `ur
 `<cache>/desktop-web-token` ou de `CL_DESKTOP_TOKEN`, message d'arrêt par `SIGTERM`, pas d'avertissement
 d'écoute hors boucle locale. Le lien d'amorçage complet reste celui de `webUIOpen` (fenêtre) ; hors cluster, la sortie
 est inchangée.
+
+## Mode d'accès : `token` ou `none` **[NEW]** (LOT-4.4 — décision utilisateur du 2026-11-17)
+
+**Réglage** : `desktop_web.access`, valeurs `token` (défaut) et `none`. Sources, par priorité : variable
+`CL_WEB_ACCESS` > `desktop_web.access` (couches `hubs.<machine>.<système>` > `hubs.<machine>` > `defaults`).
+Valeur inconnue : erreur de réglage, interface éteinte, raison dans `webUI.msg`.
+
+- Défaut du launcher (hub Linux, exe Windows) : `token` — comportement inchangé.
+- Défaut du chart Helm : `none` (`contracts/helm-values.md`).
+- Le serveur de maquettes (`browser_server`) et son jeton d'appariement ne sont pas concernés.
+
+**Garde** : `none` n'est accepté que si l'écoute est en boucle locale, **ou** si une adresse publique (`url`) en
+`https` est réglée. Sinon : erreur de réglage, interface éteinte (en `desktop --web` : le processus s'arrête, code
+non nul), message « accès sans jeton refusé : écoute réseau sans adresse publique en https ».
+
+**Ce que devient chaque protection**
+
+| Protection | `token` (inchangé) | `none` |
+|------------|--------------------|--------|
+| Jeton, lien d'amorçage `/?t=…` | exigés | aucun : le jeton n'est ni tiré, ni lu, ni écrit ; `<cache>/desktop-web-token` n'est pas créé ; `CL_DESKTOP_TOKEN` est ignoré |
+| Cookie de session | posé à l'amorçage | **aucun cookie posé** ; un cookie reçu est ignoré |
+| Session en mémoire | 8 h, 64 au plus | aucune |
+| Contrôle de `Host` | oui | **conservé**, identique |
+| Contrôle d'origine (`/api/call`, `/api/events`) | oui | **conservé**, identique |
+| `POST` seul et corps JSON exigé sur `/api/call` | oui | **conservés** |
+| En-têtes de sécurité, 32 flux au plus | oui | **conservés** |
+| `/healthz`, `/readyz` | oui | **conservés** |
+| Réglages refusés à un client web | oui | **conservé** — `desktop_web.access` compris |
+
+**Routes en mode `none`**
+
+| Route | Réponse |
+|-------|---------|
+| `GET /`, `GET /index.html` | la page, sans jeton ni cookie |
+| `GET /?t=<quelconque>` (ancien lien) | `303` vers `/`, `Cache-Control: no-store`, sans cookie |
+| `POST /api/call` | pas de contrôle de session ; `Host`, origine, méthode et corps JSON contrôlés comme en `token` |
+| `GET /api/events` | pas de contrôle de session ; `Host` et origine contrôlés ; le flux n'est rattaché à aucune session |
+
+- `X-Launcher-Refusal: session` n'est jamais émis en mode `none`. `host`, `origin` et `method` sont inchangés.
+- Après un redémarrage du serveur, une page ouverte se reconnecte seule (pas de « session expirée »).
+
+**Dans les deux modes — `Sec-Fetch-Site`** : un appel à `/api/call` ou `/api/events` dont l'en-tête
+`Sec-Fetch-Site` vaut `cross-site` reçoit `403`, `X-Launcher-Refusal: origin`. En-tête absent (navigateur ancien,
+outil en ligne de commande) : pas de refus à ce titre.
+
+**Actions de la fenêtre native en mode `none`**
+
+- `webUIRegen` : `{ "ok": false, "msg": "accès sans jeton : aucun jeton à régénérer" }`.
+- `webUIOpen` : ouvre l'adresse sans `?t=`.
+- Rubrique « Interface web » : l'encadré « Jeton d'accès » affiche « accès sans jeton », bouton « Régénérer le
+  jeton » désactivé. Aucun contrôle n'est ajouté à l'écran : le mode se règle par le fichier, la variable ou le chart.
+
+**Sortie de démarrage de `desktop --web`** en mode `none` (en cluster ou non) : l'adresse (publique si `url`) sans
+`?t=`, puis la ligne « accès sans jeton (`access: none`) ». Aucune mention du fichier du jeton ni de
+`CL_DESKTOP_TOKEN`.
+
+**Risques acceptés par l'utilisateur jusqu'à v6.4.0** (#172) : en mode `none` derrière l'Ingress, tout poste de la
+liste d'adresses pilote les projets ; tout pod du cluster atteint le Service du launcher sans passer par l'Ingress
+(pas de NetworkPolicy).

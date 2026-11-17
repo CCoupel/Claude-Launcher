@@ -36,6 +36,7 @@
 | `volume.mountPath` | chemin absolu | `rootBase` | — | chemin de montage du PVC dans le pod. `rootBase` doit être ce chemin ou un sous-dossier |
 | `runAsUser`, `runAsGroup` | entiers | `1000`, `1000` | — | propriétaire des fichiers créés. `fsGroup` n'est jamais posé (pas de changement de propriétaire récursif) |
 | `allowHostBackend` | booléen | `false` | — | `CL_ALLOW_HOST_BACKEND` |
+| `web.access` | `none` \| `token` | `none` | — | **NEW** (LOT-4.4) — mode d'accès de l'interface web, devient `CL_WEB_ACCESS`. `none` : sans jeton, l'Ingress et sa liste d'adresses sont la seule barrière. `none` avec `ingress.enabled: false` est refusé au rendu (« accès sans jeton sans Ingress : poser web.access: token ») |
 | `service.port` | entier | `8080` | — | Service `ClusterIP` — type non réglable |
 | `ingress.enabled` | booléen | `true` | — | `false` : aucun Ingress (diagnostic par `kubectl port-forward` seulement) |
 | `ingress.controller` | `traefik` \| `nginx` | — | **oui** si Ingress | décide de la forme de la liste d'adresses et des annotations |
@@ -68,8 +69,14 @@ Il n'y a **pas** de valeur pour le nombre de répliques : le StatefulSet en a to
 Avec `ingress.controller: nginx` : annotations `nginx.ingress.kubernetes.io/whitelist-source-range`,
 `proxy-buffering: "off"`, `proxy-read-timeout` et `proxy-send-timeout` à `3600`.
 
-**Non créés en v6.3.0** (risques acceptés, à rappeler dans le guide) : Secret du jeton de l'interface (le jeton
-reste dans le cache, sur le volume partagé), NetworkPolicy.
+**Non créés en v6.3.0** (risques acceptés, à rappeler dans le guide) : NetworkPolicy ; Secret du jeton de
+l'interface (avec `web.access: token`, le jeton reste dans le cache, sur le volume partagé ; avec `web.access: none`,
+il n'y a pas de jeton).
+
+**Avec `web.access: none`** (défaut, décision utilisateur du 2026-11-17) : tout poste de la liste d'adresses de
+l'Ingress pilote les projets, et tout pod du cluster atteint le Service sans passer par l'Ingress. Risques acceptés
+jusqu'à l'authentification de v6.4.0 (#172). `NOTES.txt` donne l'adresse seule, sans lien d'amorçage, et rappelle
+cette limite.
 
 ## Variables posées dans le pod
 
@@ -80,6 +87,7 @@ reste dans le cache, sur le volume partagé), NetworkPolicy.
 | `CL_CACHE_DIR` | `<rootBase>/.cache/claude-launcher-ng2/<hubName>` |
 | `CL_K8S_VOLUMES` | `<volume.mountPath>=<volume.existingClaim>` |
 | `CL_WEB_URL` | `https://<ingress.host>` si Ingress |
+| `CL_WEB_ACCESS` | `web.access` |
 | `CL_ALLOW_HOST_BACKEND` | `1` si `allowHostBackend` |
 
 ## Désinstallation
@@ -90,4 +98,4 @@ ni aux fichiers de `rootBase`.
 ## Fichiers de valeurs par environnement
 
 `deploy/helm/values-qualif.yaml` et `deploy/helm/values-prod.yaml` : valeurs non secrètes de chaque environnement
-(nom d'hôte, classe, CIDR, `rootBase`). Aucun secret : un certificat fourni reste dans `PRIVATE/<ENV>/`.
+(nom d'hôte, classe, CIDR, `rootBase`, `web.access: none` écrit explicitement). Aucun secret : un certificat fourni reste dans `PRIVATE/<ENV>/`.

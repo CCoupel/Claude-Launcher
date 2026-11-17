@@ -2,6 +2,17 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261117] — v6.3.0, LOT-4.4 : interface web accessible sans jeton (décision utilisateur)
+
+- **[NEW]** `desktop_web.access` (`token` | `none`, défaut `token`), variable `CL_WEB_ACCESS`, champ `webUI.access`, clé `desktop_web.access` de `configModel` / `configApply` — `contracts/desktop-web.md` « Mode d'accès »
+- **[NEW]** mode `none` : ni jeton, ni cookie, ni session ; `Host`, origine, méthode et corps JSON toujours contrôlés ; `GET /?t=…` redirigé vers `/` ; accepté seulement en boucle locale ou avec une adresse publique en `https`
+- **[NEW]** chart : valeur `web.access`, variable `CL_WEB_ACCESS` du pod — `contracts/helm-values.md`
+- **[CHANGED]** chart : accès **sans jeton par défaut** (`web.access: none`) ; `NOTES.txt` sans lien d'amorçage ; `none` sans Ingress refusé au rendu
+- **[CHANGED]** `/api/call`, `/api/events` : `Sec-Fetch-Site: cross-site` refusé (`403`, `origin`), dans les deux modes
+- **[CHANGED]** `webUIRegen` et `webUIOpen` en mode `none` : refus de la régénération, ouverture sans `?t=`
+- Aucun `BREAKING` pour le hub Linux et l'exe Windows : sans réglage, le mode reste `token`. Le serveur de maquettes n'est pas concerné.
+- Risques acceptés jusqu'à v6.4.0 (#172) : tout poste de la liste d'adresses de l'Ingress pilote les projets ; tout pod du cluster atteint le Service sans passer par l'Ingress (pas de NetworkPolicy).
+
 ## [20261116] — v6.3.0 : launcher dans Kubernetes (#165 à #171, #173, #175 à #177), réglages des serveurs web (#183)
 
 - **[NEW]** `CL_ROOT_BASE` et `--root-base` : racine de base ; ordre `CL_CONFIG_DIR` > racine de base > dossier du binaire > dossier personnel (#165) — `contracts/launcher-env.md`

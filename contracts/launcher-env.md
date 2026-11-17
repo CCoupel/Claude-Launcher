@@ -133,7 +133,8 @@ sable : le conteneur de développement est lui-même un pod.
   est proposé, comme podman et docker détectés aujourd'hui.
 - Backend `host` : refusé, message « backend host refusé dans le pod du launcher (claude n'y est pas installé) »,
   sauf `CL_ALLOW_HOST_BACKEND=1`. Aucun outil n'est réclamé pour un backend indisponible.
-- Jeton de l'interface en `desktop --web` : `CL_DESKTOP_TOKEN` s'il est fourni, sinon le jeton **conservé** dans
+- Jeton de l'interface en `desktop --web`, **en mode d'accès `token` seulement** (`CL_WEB_ACCESS`, ci-dessous ; en
+  mode `none` il n'y a aucun jeton) : `CL_DESKTOP_TOKEN` s'il est fourni, sinon le jeton **conservé** dans
   `<cache>/desktop-web-token` (créé au premier démarrage, 0600). Il ne change plus à chaque redémarrage du pod.
   Hors cluster, `desktop --web` tire toujours un nouveau jeton (inchangé).
 
@@ -167,13 +168,15 @@ L'étape `get namespace` n'est pas jouée en cluster : elle exigerait un Cluster
 | `--addr HÔTE:PORT` | — | inchangé |
 | `--no-open` | — | inchangé |
 | `--url <adresse publique>` | `CL_WEB_URL` | adresse publique derrière un proxy inverse — voir `contracts/desktop-web.md` |
+| — | `CL_WEB_ACCESS` | **NEW** (LOT-4.4) — mode d'accès de l'interface web : `token` (défaut) ou `none` (sans jeton, ni cookie, ni session). L'emporte sur `desktop_web.access`. `none` exige une écoute en boucle locale ou une adresse publique en `https` — voir `contracts/desktop-web.md` « Mode d'accès » |
 
 **Sortie de démarrage en cluster** (`CL_IN_CLUSTER` ou détection automatique) : la sortie standard part dans les
 journaux du pod (`pods/log`, collecte) : **le jeton n'y est jamais imprimé**. Le lancement affiche l'adresse sans
 jeton, l'endroit où lire le jeton (`<cache>/desktop-web-token`, ou « fourni par `CL_DESKTOP_TOKEN` ») et le message
 d'arrêt du mode serveur (« Arrêt par SIGTERM… ») à la place de « Ctrl+C pour arrêter ». L'avertissement
 « écoute hors de la boucle locale sans allow_lan » (`--addr 0.0.0.0` derrière l'Ingress) n'est pas affiché. Hors
-cluster : sortie inchangée (lien d'amorçage avec jeton, Ctrl+C, avertissement).
+cluster : sortie inchangée (lien d'amorçage avec jeton, Ctrl+C, avertissement). En mode d'accès `none` (LOT-4.4) :
+l'adresse et la ligne « accès sans jeton », sans mention du fichier du jeton.
 
 Arrêt : `SIGTERM` et `SIGINT` déclenchent un arrêt propre (serveur fermé, terminaux détachés, code 0). Les projets
 restent ouverts dans leurs pods, comme à la fermeture de la fenêtre.
