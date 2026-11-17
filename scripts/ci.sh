@@ -214,7 +214,9 @@ case "$(uname -s)" in
     else
     if [ "$(id -u)" = 0 ]; then bah=(buildah); else bah=(sudo buildah); fi
     prev=$("${bah[@]}" --storage-driver vfs images -q localhost/claude-launcher:ci 2>/dev/null || true)
-    (cd .. && OUT_DIR=build/ci deploy/image/build.sh ci) >"$out/image.log" 2>&1 || {
+    # appel par bash : ne dépend pas du bit exécutable (perdu si le dépôt est extrait sans les modes de fichier)
+    [ -r ../deploy/image/build.sh ] || { echo "ECHEC : deploy/image/build.sh absent ou illisible" >&2; exit 1; }
+    (cd .. && OUT_DIR=build/ci bash deploy/image/build.sh ci) >"$out/image.log" 2>&1 || {
       cat "$out/image.log" >&2; echo "ECHEC : construction de l'image (deploy/image/build.sh)" >&2; exit 1; }
     tail -n 1 "$out/image.log"
     cur=$("${bah[@]}" --storage-driver vfs images -q localhost/claude-launcher:ci 2>/dev/null || true)
