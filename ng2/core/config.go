@@ -503,6 +503,10 @@ func editorArgv(goos, editor, path string) []string {
 	return []string{"sh", "-c", editor + ` "$1"`, "_", path}
 }
 
+// HideIdleDisabledMsg : refus de la bascule manuelle (double-clic de masquage) quand le masquage est désactivé (#188) —
+// même message dans la fenêtre native et dans la coque tmux.
+const HideIdleDisabledMsg = "masquage désactivé : l'activer dans les Réglages"
+
 // HideIdleArg : valeur transmise à la règle de visibilité (DecidePaneVis, TeamLinesFor) — le délai en secondes quand le
 // masquage est activé, -1 quand il est désactivé (#188 : rien n'est caché, les choix « caché à la main » sont ignorés
 // et effacés). Les appelants existants ne passent que cette valeur.

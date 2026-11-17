@@ -1117,7 +1117,7 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 		return false, "projet fermé"
 	}
 	if t.a.conf().TeamHideIdleDisabled { // masquage désactivé : aucune bascule ne cacherait quoi que ce soit (#188)
-		return false, "masquage désactivé : l'activer dans les Réglages"
+		return false, core.HideIdleDisabledMsg
 	}
 	t.mu.Lock()
 	tc := t.team // team du dernier tour : pas de relecture des fichiers (parfois lents)

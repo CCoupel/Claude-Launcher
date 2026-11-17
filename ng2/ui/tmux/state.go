@@ -236,6 +236,9 @@ func toggleCmd(s Selection, cfg core.Config, pane string) tea.Cmd {
 		if ro, _ := tout(hub, "display-message", "-p", "-t", pw.hubWin, "#{@cl_readonly}"); ro == "1" {
 			return toggleMsg{path: s.Path, msg: "lecture seule : un autre launcher a la main sur ce projet"}
 		}
+		if cfg.TeamHideIdleDisabled { // masquage désactivé : aucune bascule ne cacherait quoi que ce soit (#188)
+			return toggleMsg{path: s.Path, msg: core.HideIdleDisabledMsg}
+		}
 		teamPath := findTeamConfig(s.Path)
 		var tc *core.TeamConfig
 		if teamPath != "" {
