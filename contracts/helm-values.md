@@ -28,8 +28,8 @@
 | `volume.existingClaim` | chaîne | — | **oui** | nom du PVC des projets (RWX) : existant, ou créé par le chart si `volume.create.enabled` |
 | `volume.create.enabled` | booléen | `false` | — | le chart crée le PVC `existingClaim` (annotation `helm.sh/resource-policy: keep` : jamais supprimé par `helm uninstall`) |
 | `volume.create.storage` | quantité | `100Gi` | — | taille demandée |
-| `volume.create.storageClassName` | chaîne | `""` | — | `""` = liaison statique à un PV ; une StorageClass provisionnerait un dossier neuf, pas `rootBase` |
-| `volume.create.persistentVolume.name` | chaîne | `<existingClaim>-pv` | — | PV auquel le PVC est lié (`volumeName`) ; seul (sans `enabled`) = PV créé par l'administrateur |
+| `volume.create.storageClassName` | chaîne | `""` | — | `""` = liaison statique au PV `persistentVolume.name` ; une StorageClass (provisionnement dynamique, dossier neuf, pas `rootBase`) exclut `persistentVolume` |
+| `volume.create.persistentVolume.name` | chaîne | — | **oui** si `volume.create.enabled` et `storageClassName: ""` | nom du PV auquel le PVC est lié (`volumeName`, toujours rendu) : PV créé par l'administrateur (`persistentVolume.enabled: false`) ou par le chart (`true`). Sans lui, refus (le PVC se lierait à n'importe quel PV RWX libre). Interdit avec une `storageClassName` |
 | `volume.create.persistentVolume.enabled` | booléen | `false` | — | le chart crée aussi le PV (objet du **cluster** : droits d'administrateur au déploiement), `Retain` + `keep`, `claimRef` vers le PVC |
 | `volume.create.persistentVolume.source` | table | `{}` | **oui** si PV créé | source du volume (bloc `csi` / `nfs` / `hostPath`…) recopiée du PV de PROD, chemin = `rootBase` ; `capacity`, `accessModes`, `claimRef`, `persistentVolumeReclaimPolicy`, `storageClassName`, `volumeMode` refusés (posés par le chart) |
 | `volume.mountPath` | chemin absolu | `rootBase` | — | chemin de montage du PVC dans le pod. `rootBase` doit être ce chemin ou un sous-dossier |

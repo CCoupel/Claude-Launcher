@@ -25,7 +25,8 @@ volume:
     storageClassName: ""  # "" = liaison au PV statique ci-dessous ; une StorageClass RWX crée un dossier neuf, pas rootBase
     persistentVolume:     # PV statique vers le dossier rootBase — objet du CLUSTER : droits d'administrateur au déploiement
       enabled: false
-      name: ""            # défaut : <existingClaim>-pv ; seul (enabled: false) = PV déjà créé par l'administrateur, le PVC s'y lie
+      name: ""            # OBLIGATOIRE en liaison statique : PV auquel le PVC est lié (volumeName) — PV de l'administrateur
+                          # (enabled: false) ou créé par le chart (enabled: true) ; interdit avec une storageClassName
       source: {}          # OBLIGATOIRE si PV : source du volume (csi / nfs / hostPath…) recopiée du PV de PROD, chemin = rootBase
 
 runAsUser: 1000           # propriétaire des fichiers du partage ; fsGroup jamais posé
