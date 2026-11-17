@@ -37,6 +37,18 @@ pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux
   `deploy.qualif.md`) ; émetteur `claude-launcher-ca` (`PRIVATE/PROD/values-local.yaml`) ; nom mDNS `launcher.local` ; fiche administrateur
   (`_work/reports/infra-admin-noeuds-20261117-090000.md`).
 
+**Certificats** — tous émis et renouvelés par cert-manager
+
+Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à **lire** ou **vérifier** (`x509 -noout`, `verify`).
+- **CA `claude-launcher-ca`** : `Certificate` cert-manager (`isCA`, `nameConstraints` critiques : `launcher.local`, `launcher-qualif.local`)
+  amorcé par l'Issuer `selfSigned`, exposé par le **ClusterIssuer `claude-launcher-ca`** (`deploy/cert-manager/claude-launcher-ca.yaml`).
+  Renouvelé par cert-manager 30 jours avant l'échéance (2036), avec **la même clé** (`rotationPolicy: Never`) : les postes qui font
+  confiance à la CA n'ont rien à refaire. Seul le certificat **public** est exporté (`PRIVATE/GLOBAL/claude-launcher-ca.crt`), jamais la clé.
+- **Certificat de l'Ingress** : `Certificate` créé par le chart (`templates/certificate.yaml`, `issuerRef: ClusterIssuer claude-launcher-ca`
+  via `PRIVATE/PROD/values-local.yaml`) ; émis et renouvelé automatiquement par cert-manager (durée par défaut 90 jours, renouvelé aux 2/3).
+  Contrôle : `kubectl -n claude-ng2 get certificate` → `READY True`.
+- **Certificats d'essai** éventuels : toujours des `Certificate` cert-manager (supprimés après l'essai), jamais `openssl req`/`x509 -signkey`.
+
 1. Image et chart de release : construits et publiés par la CI sur le tag (travail `release-ng2-cluster` de `release.yml`) :
    image `ghcr.io/ccoupel/claude-launcher:vX.Y.Z` (amd64 + arm64, empreinte jointe à la release :
    `claude-launcher-image-vX.Y.Z.digest`), chart `oci://ghcr.io/ccoupel/charts/claude-launcher` version `X.Y.Z` et archive

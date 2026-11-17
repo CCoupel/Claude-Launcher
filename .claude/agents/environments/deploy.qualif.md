@@ -62,6 +62,18 @@ backends:
 Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `setup` qui pose un faux `claude` dans
 `~/.local/bin` (script qui affiche une invite et lit l'entrée) — jamais de vraie session claude.
 
+### Certificats — tous émis et renouvelés par cert-manager
+
+Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à **lire** ou **vérifier** (`x509 -noout`, `verify`).
+- **CA `claude-launcher-ca`** : `Certificate` cert-manager (`isCA`, `nameConstraints` critiques : `launcher.local`, `launcher-qualif.local`)
+  amorcé par l'Issuer `selfSigned`, exposé par le **ClusterIssuer `claude-launcher-ca`** (`deploy/cert-manager/claude-launcher-ca.yaml`).
+  Renouvelé par cert-manager 30 jours avant l'échéance (2036), avec **la même clé** (`rotationPolicy: Never`) : les postes qui font
+  confiance à la CA n'ont rien à refaire. Seul le certificat **public** est exporté (`PRIVATE/GLOBAL/claude-launcher-ca.crt`), jamais la clé.
+- **Certificat de l'Ingress** : `Certificate` créé par le chart (`templates/certificate.yaml`, `issuerRef: ClusterIssuer claude-launcher-ca`
+  via `PRIVATE/<ENV>/values-local.yaml`) ; émis et renouvelé automatiquement par cert-manager (durée par défaut 90 jours, renouvelé aux 2/3).
+  Contrôle : `kubectl -n claude-qualif get certificate` → `READY True`.
+- **Certificats d'essai** éventuels : toujours des `Certificate` cert-manager (supprimés après l'essai), jamais `openssl req`/`x509 -signkey`.
+
 ### Installation et contrôles
 
 1. Sauvegarde : rien à sauvegarder côté PROD (aucun fichier de PROD n'est lu ni écrit). Le PVC est créé par l'installation
