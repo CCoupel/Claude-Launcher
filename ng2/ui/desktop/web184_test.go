@@ -470,8 +470,13 @@ func TestWebAccessNoneRemovesStaleTokenFile(t *testing.T) {
 	}
 	w184Wait(t, "webUI.access = none", func() bool { return l4WebUIOf(t, a)["access"] == "none" })
 	w184Wait(t, "desktop-web-token supprimé après le passage à chaud en none", func() bool { return !w184TokenFileExists() })
+}
 
-	// au démarrage : fichier résiduel posé avant le lancement en none
+// F3 (suite, test SÉPARÉ : sa propre App et son propre bac à sable) : au démarrage en none, le fichier résiduel est supprimé ;
+// retour en token : un nouveau jeton est tiré. Raison du découpage : deux App vivantes dans le même test partageaient le
+// même environnement (CL_CONFIG_DIR, cache) après le second sandbox() — la première, en none, supprimait le jeton que la
+// seconde, en token, recréait, et les deux se disputaient le port : l'attente pouvait ne jamais aboutir.
+func TestWebAccessNoneRemovesStaleTokenFileAtStartThenTokenAgain(t *testing.T) {
 	sandbox(t, "", "alpha")
 	_ = os.MkdirAll(core.CacheDir(), 0o755)
 	if err := os.WriteFile(l4TokenFile(), []byte("jeton-residuel-0123456789abcdef"), 0o600); err != nil {
@@ -485,8 +490,13 @@ func TestWebAccessNoneRemovesStaleTokenFile(t *testing.T) {
 
 	// retour en token : un nouveau jeton est tiré (le fichier réapparaît) ; le réglage est relu jusqu'à son effet
 	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: true, listen: \"127.0.0.1:%d\", access: token }\n", p))
+	a2.applyWebUI()
+	last := time.Now()
 	w184Wait(t, "retour en mode token : jeton recréé", func() bool {
-		a2.applyWebUI()
+		if time.Since(last) > 2*time.Second { // relecture rare (réessai) : pas de tempête de redémarrages du serveur
+			a2.applyWebUI()
+			last = time.Now()
+		}
 		return l4WebUIOf(t, a2)["access"] == "token" && w184TokenFileExists()
 	})
 }
