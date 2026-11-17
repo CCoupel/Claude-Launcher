@@ -10,6 +10,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Added
+- Guide « Installer le launcher dans Kubernetes par Helm (accès interne) » dans `ng2/README.md` : prérequis, valeurs, installation par empreinte, accès sans jeton, vérifications de la liste d'adresses, mise à jour et retour arrière, limites de v6.3.0 (#185)
 - Mode d'accès de l'interface web : `desktop_web.access` / `CL_WEB_ACCESS` (`token` par défaut, `none` sans jeton, réservé à la boucle locale ou à une adresse publique en https) ; chart `web.access: none` par défaut (#192)
 - Release : l'image du launcher est publiée multi-architecture (`linux/amd64`, `linux/arm64`) sur ghcr, avec son empreinte jointe à la release, et le chart Helm est publié en OCI sur ghcr avec son archive. La release en brouillon n'est publiée qu'une fois l'image et le chart en place. La version candidate de QUALIF est poussée dans le registre interne (#177)
 - `scripts/ci.sh` contrôle le chart Helm et construit l'image du launcher sous Linux ; `CL_CI_IMAGE=0` saute l'étape image (#177)

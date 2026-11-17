@@ -369,6 +369,9 @@ Détails : [`ng2/README.md` — Projets en conteneur](ng2/README.md#projets-en-c
 
 ---
 
+Installation dans Kubernetes par Helm (accès interne, valeurs et vérifications) : voir `ng2/README.md`, section
+« Installer le launcher dans Kubernetes par Helm (accès interne) ».
+
 ## Mise en page des teams
 
 Dans l'onglet d'un projet (sur l'hôte ou dans son conteneur), NG2 range les panes à chaque arrivée ou

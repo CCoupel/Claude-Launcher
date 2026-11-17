@@ -1650,6 +1650,108 @@ avec #185.
 - **Désinstallation** : `helm uninstall` retire les objets du chart, mais ne touche ni au PVC, ni aux StatefulSets des
   projets, ni aux fichiers de la racine.
 
+### Installer le launcher dans Kubernetes par Helm (accès interne)
+
+Ce guide installe le launcher dans un namespace Kubernetes, accessible **seulement depuis le réseau interne**, avec le
+chart `deploy/helm/claude-launcher`. Les valeurs complètes sont dans `contracts/helm-values.md`.
+
+#### 1. Prérequis
+
+- Un cluster avec un Ingress Traefik ou nginx, et cert-manager. Un namespace dédié : le Role du chart est limité à ce
+  namespace, mais il équivaut à administrer le namespace. N'y mettez que le launcher et ses projets.
+- Un volume RWX pour la racine des projets, sous l'une de ces formes : un PVC existant (`volume.existingClaim`) ; un PVC
+  créé par le chart (`volume.create.enabled: true`) lié à un PV fourni par l'administrateur (`volume.create.persistentVolume.name`) ; ou
+  un PV créé aussi par le chart (`persistentVolume.enabled: true`, droits d'administrateur).
+- Un nom d'accès en `.local` (mDNS), par exemple `launcher.local`. Les pods ne résolvent pas les noms `.local`.
+- Une CA interne pour cert-manager, avec des contraintes de noms (`nameConstraints`) sur `launcher.local`. Le certificat
+  **public** de cette CA s'installe une fois sur chaque poste qui y accède. La clé ne sort jamais du cluster.
+- Une image publiée : l'empreinte `sha256:…` est jointe à la release (`claude-launcher-image-vX.Y.Z.digest`).
+
+#### 2. Valeurs
+
+```yaml
+# values.yaml — exemple, à adapter
+rootBase: /share/MFS/ROOT/CLAUDE_PROJETS       # chemin absolu de la racine des projets, dans le pod
+hubName: cluster                               # unique parmi les launchers de cette racine
+volume:
+  existingClaim: claude-projets
+ingress:
+  controller: traefik                          # ou nginx
+  className: traefik
+  host: launcher.local
+  allowedSourceRanges: ["192.168.1.0/24"]      # seules adresses admises, non vide
+  tls:
+    clusterIssuer: claude-launcher-ca          # ou secretName, un des deux
+web:
+  access: none                                 # défaut du chart : pas de jeton, l'Ingress est la barrière
+```
+
+Valeurs obligatoires : `rootBase`, `volume.existingClaim`, `ingress.controller`, `ingress.className`, `ingress.host`,
+`ingress.allowedSourceRanges`, et l'un de `ingress.tls.secretName` ou `ingress.tls.clusterIssuer`. Une absente fait échouer
+`helm install` avec un message qui la nomme. `allowedSourceRanges` refuse tout `/0` et tout préfixe plus large.
+
+#### 3. Installation
+
+Installez l'image **par son empreinte** : le chart la référence `dépôt:tag@sha256:…`, telle qu'elle a été publiée.
+
+```bash
+helm template claude-launcher oci://ghcr.io/ccoupel/charts/claude-launcher --version X.Y.Z -n claude-ng2 \
+  -f values.yaml --set image.tag=vX.Y.Z --set image.digest=sha256:<empreinte> | grep 'image:'
+# contrôle : ghcr.io/ccoupel/claude-launcher:vX.Y.Z@sha256:<empreinte>, sinon arrêter
+
+helm upgrade --install claude-launcher oci://ghcr.io/ccoupel/charts/claude-launcher --version X.Y.Z -n claude-ng2 \
+  -f values.yaml --set image.tag=vX.Y.Z --set image.digest=sha256:<empreinte>
+kubectl -n claude-ng2 rollout status statefulset/claude-launcher --timeout=5m
+kubectl -n claude-ng2 get certificate                  # READY True
+```
+
+Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont créés par le launcher, pas par le chart.
+
+#### 4. Accès
+
+- **`web.access: none`** (défaut) : ouvrez `https://launcher.local/` depuis une adresse de la liste. Il n'y a pas de jeton
+  ni de lien d'amorçage. Contrôle : `kubectl -n claude-ng2 exec statefulset/claude-launcher -- printenv CL_WEB_ACCESS` → `none`.
+- **`web.access: token`** : le jeton ne s'affiche jamais dans les journaux du pod. Lisez-le dans le fichier
+  `<rootBase>/.cache/claude-launcher-ng2/<hubName>/desktop-web-token` du pod, par `kubectl exec`, puis donnez-le à l'utilisateur
+  par un canal sûr. Ne l'écrivez pas sur un partage.
+- La CA doit être installée sur le poste, sinon le navigateur refuse le certificat.
+
+#### 5. Vérifications obligatoires
+
+Avant de déclarer l'accès « réservé au réseau interne », vérifiez la liste d'adresses :
+
+1. Traefik doit garder l'adresse du client : `kubectl -n kube-system get svc -o custom-columns=NOM:.metadata.name,POLITIQUE:.spec.externalTrafficPolicy`
+   → `Local` pour Traefik. Avec `Cluster`, Traefik voit l'adresse d'un nœud, la liste ne sert à rien : ne pas valider.
+2. Depuis une adresse de la liste : `curl -sk -o /dev/null -w '%{http_code}' https://launcher.local/healthz` → `200`.
+3. Depuis une adresse hors liste (autre réseau, VPN) : même commande → `403`.
+4. Depuis un pod du cluster qui passe par l'Ingress → `403`. Les pods ne résolvent pas `.local` : passez `--resolve`.
+5. Un en-tête `X-Forwarded-For` ne change rien : le contrôle porte sur l'adresse de la connexion.
+
+#### 6. Mise à jour et retour arrière
+
+- **Mise à jour** : relancez `helm upgrade --install` avec le nouveau `image.tag` et le nouveau `image.digest`. Ne réutilisez
+  jamais un tag déjà publié.
+- **Retour arrière** : `helm rollback claude-launcher <révision> -n claude-ng2`. Les projets restent dans leurs pods.
+- **Désinstallation** : `helm uninstall` retire les objets du chart. Il ne touche ni au PVC ni au PV créés par le chart
+  (`keep`), ni aux StatefulSets des projets, ni aux fichiers de la racine.
+
+#### 7. Cohabitation avec l'exe Windows
+
+Un poste Windows peut utiliser la même racine. `config.conf` contient `${CL_ROOT_BASE}`, que chaque launcher développe
+avec sa propre forme de la racine. Chaque launcher a son propre cache et son propre nom de hub : le launcher du cluster se
+nomme `hubName`, et le poste garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
+
+#### 8. Limites de v6.3.0 (risques acceptés)
+
+- **Pas de NetworkPolicy** : tout pod du cluster atteint le Service sans passer par l'Ingress. Le Service est `ClusterIP`.
+- **`web.access: none`** : tout poste de la liste pilote les projets, et tout pod du cluster atteint le Service. Ce risque
+  est accepté jusqu'à l'authentification de v6.4.0 (#172).
+- **Saturation possible** : 32 flux `/api/events` au total, ouvrables par tout client qui atteint le port.
+- **Contexte k8s ignoré en cluster** : un backend `k8s` d'un autre cluster, déclaré dans la racine, agirait sur le cluster du
+  pod. Ne déclarez que des backends `k8s` du cluster où tourne le launcher.
+- **Hors cluster, `web.access: none`** : tout processus local pilote le launcher.
+- Ne publiez jamais l'Ingress hors du réseau interne, et n'exposez pas le port d'écoute autrement.
+
 ## Interface
 
 - **Gauche** : navigateur (40 colonnes par défaut). Projets en arbre, deux badges git
