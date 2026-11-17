@@ -24,6 +24,12 @@ import (
 var (
 	presenceBeat  = 3 * time.Second
 	presenceStale = 10 * time.Second
+	// presenceSuccessorStale : un témoin de même machine et de même pid mais d'un autre processus (pod recréé sous le même
+	// nom) n'est repris qu'après ce silence de battement ; un prédécesseur encore vivant (nœud isolé, pod forcé) bat
+	// toutes les presenceBeat et n'est donc jamais écrasé. presenceWait : durée pendant laquelle le démarrage attend,
+	// dans le processus, que ce silence soit établi avant de refuser.
+	presenceSuccessorStale = 6 * time.Second
+	presenceWait           = 15 * time.Second
 )
 
 func presencePath() string { return filepath.Join(CacheDir(), "hub-"+HubNameSafe()+".presence") }
@@ -53,7 +59,11 @@ func AcquirePresence() (release func(), err error) {
 	token := newLockToken()
 	// contenu : <nom réel de la machine> <pid> <date> <identifiant de cette prise> <identifiant du processus>
 	me := fmt.Sprintf("%s %d %s %s %s", platform.RealHostName(), os.Getpid(), time.Now().Format(time.RFC3339), token, processNonce)
+	waitUntil := time.Now().Add(presenceWait)
 	for try, reclaims := 0, 0; ; try++ {
+		if try > 400 { // 100 s d'attente au plus, jamais de boucle sans fin
+			return nil, errors.New("témoin de présence inaccessible : " + p)
+		}
 		created, cerr := createExclusive(p, []byte(me+"\n"), 0o644)
 		if cerr != nil {
 			if lockBusyErr(cerr) && try < 20 { // Windows : suppression du témoin en cours chez un lecteur : réessayer
@@ -67,18 +77,35 @@ func AcquirePresence() (release func(), err error) {
 		}
 		b, _ := os.ReadFile(p)
 		st, serr := os.Stat(p)
-		dead := presenceDead(string(b))
-		if serr == nil && !dead && time.Since(st.ModTime()) < presenceStale {
+		dead, successor := presenceDead(string(b)), presenceSuccessor(string(b))
+		age := time.Duration(0)
+		if serr == nil {
+			age = time.Since(st.ModTime())
+		}
+		switch {
+		case serr != nil: // disparu entre-temps : nouvelle tentative de création
+			continue
+		case dead || age >= presenceStale: // rédacteur disparu (pid mort) ou périmé : repris
+			reclaims++
+			if dead {
+				_, _ = reclaimStaleIf(p, presenceStale, string(b))
+			} else {
+				_, _ = reclaimStale(p, presenceStale)
+			}
+		case successor && age >= presenceSuccessorStale: // prédécesseur de même pid, sans battement depuis assez longtemps
+			reclaims++
+			_, _ = reclaimStaleIf(p, presenceStale, string(b))
+		case successor && time.Now().Before(waitUntil):
+			// peut-être un prédécesseur qui vient d'être arrêté : attendre ICI le silence de son battement (jamais de
+			// sortie en code 1 : le pod ne redémarre pas pour rien), puis le reprendre
+			time.Sleep(250 * time.Millisecond)
+			continue
+		default:
 			return nil, fmt.Errorf("launcher « %s » déjà actif (%s) sur %s : un second launcher de même nom est refusé — choisir un autre CL_HUB_NAME",
 				hubName(), strings.TrimSpace(string(b)), filepath.Dir(p))
 		}
-		if reclaims++; reclaims > 4 {
+		if reclaims > 4 {
 			return nil, errors.New("témoin de présence illisible : " + p)
-		}
-		if dead { // rédacteur disparu (même machine : pid mort, ou prédécesseur de même pid) : repris même s'il est frais
-			_, _ = reclaimStaleIf(p, presenceStale, string(b))
-		} else { // périmé : repris, un seul gagnant
-			_, _ = reclaimStale(p, presenceStale)
 		}
 	}
 	stop := make(chan struct{})
@@ -135,20 +162,28 @@ func ReleasePresence() {
 	}
 }
 
-// presenceDead : le témoin vient d'un processus de cette machine qui n'existe plus — son pid n'existe plus, ou c'est le
-// pid de CE processus mais avec un autre identifiant de processus (ou sans : ancien format) : un prédécesseur du même
-// pid (pod recréé sous le même nom, pid 1 dans les deux cas). Le même processus (même identifiant) n'est jamais mort.
+// presenceDead : le témoin vient d'un processus de cette machine dont le pid n'existe plus (sûr : repris tout de suite).
 func presenceDead(content string) bool {
 	f := strings.Fields(content)
 	if len(f) < 2 || f[0] != platform.RealHostName() {
 		return false
 	}
 	pid, err := strconv.Atoi(f[1])
-	if err != nil || pid <= 0 {
+	if err != nil || pid <= 0 || pid == os.Getpid() {
 		return false
 	}
-	if pid == os.Getpid() {
-		return len(f) < 5 || f[4] != processNonce
-	}
 	return !platform.ProcessAlive(pid)
+}
+
+// presenceSuccessor : le témoin porte le pid de CE processus mais l'identifiant d'un autre (ou aucun : ancien format) —
+// le rédacteur est probablement un prédécesseur du même pid (pod recréé sous le même nom, pid 1 dans les deux cas). Le
+// pid ne dit pas s'il est encore vivant (nœud isolé, pod forcé) : seul le silence de son battement le prouve, d'où
+// presenceSuccessorStale. Le même processus (même identifiant) n'est jamais un prédécesseur.
+func presenceSuccessor(content string) bool {
+	f := strings.Fields(content)
+	if len(f) < 2 || f[0] != platform.RealHostName() {
+		return false
+	}
+	pid, err := strconv.Atoi(f[1])
+	return err == nil && pid == os.Getpid() && (len(f) < 5 || f[4] != processNonce)
 }

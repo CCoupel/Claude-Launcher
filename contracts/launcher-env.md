@@ -85,11 +85,14 @@ Racine de base : /data/cl (CL_ROOT_BASE)        # ou « (--root-base) », ou « 
   posé, un témoin `hub-<nom>.presence` est tenu dans le dossier d'état (`CL_CACHE_DIR`, renouvelé toutes les 3 s,
   repris après 10 s ou si son processus est mort sur la même machine) ; un second launcher du même nom refuse de
   démarrer (`desktop`), message nommant le launcher déjà actif, code 1. Sans `CL_HUB_NAME`, aucun contrôle.
-  Contenu du témoin : `<nom réel de la machine> <pid> <date> <identifiant de la prise> <identifiant du processus>`. Un
-  témoin de la même machine dont le pid n'existe plus, **ou dont le pid est celui du processus qui démarre avec un
-  autre identifiant de processus** (pod de StatefulSet recréé sous le même nom : même pid 1), est repris tout de suite,
-  sans attendre la péremption ; un témoin d'ancien format (sans identifiant de processus) au même nom de machine et au
-  même pid est repris de même. Au `SIGTERM`, la place est rendue dès le début de l'arrêt.
+  Contenu du témoin : `<nom réel de la machine> <pid> <date> <identifiant de la prise> <identifiant du processus>`.
+  Reprise : (1) pid de la même machine qui n'existe plus : tout de suite ; (2) témoin sans battement depuis 10 s :
+  repris ; (3) **pod recréé sous le même nom** (même machine, **même pid** 1, autre identifiant de processus, ou
+  sans identifiant : ancien format 6.3.0.x) : repris seulement quand son battement est silencieux depuis 6 s — un
+  prédécesseur encore vivant (nœud isolé, pod forcé) bat toutes les 3 s et n'est jamais écrasé. Dans ce cas le
+  démarrage **attend dans le processus** (15 s au plus, sans sortie en code 1, donc sans redémarrage du pod), puis
+  refuse en nommant le prédécesseur. Le même processus et un autre processus vivant sont refusés tout de suite. Au
+  `SIGTERM`, la place est rendue dès le début de l'arrêt.
 - Le nom réel de la machine reste celui des espaces de PID des teams (écrits par Claude Code) ; `CL_HUB_NAME` ne
   change que l'identité du launcher.
 - **Cache par défaut sous une racine de base** : il reste sous le dossier personnel (`$XDG_CACHE_HOME` ou
