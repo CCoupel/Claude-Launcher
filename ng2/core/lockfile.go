@@ -47,6 +47,12 @@ func lockOwnedBy(path, token string) bool {
 // fichier a été recréé entre-temps) le voient frais sous le verrou de reprise et n'y touchent pas. Rend vrai si le
 // fichier n'est plus là.
 func reclaimStale(path string, stale time.Duration) (bool, error) {
+	return reclaimStaleIf(path, stale, "")
+}
+
+// reclaimStaleIf : reclaimStale ; expect non vide : le fichier n'est retiré que s'il porte encore CE contenu (le
+// constat de péremption — âge, ou rédacteur disparu — porte sur lui : un témoin recréé entre-temps n'est pas retiré).
+func reclaimStaleIf(path string, stale time.Duration, expect string) (bool, error) {
 	guard := path + ".reclaim"
 	token := newLockToken()
 	created, err := createExclusive(guard, []byte(token+"\n"), 0o644)
@@ -68,7 +74,11 @@ func reclaimStale(path string, stale time.Duration) (bool, error) {
 	if err != nil {
 		return true, nil // déjà parti
 	}
-	if time.Since(st.ModTime()) <= stale {
+	if expect != "" {
+		if b, rerr := os.ReadFile(path); rerr != nil || string(b) != expect {
+			return false, nil // recréé depuis le constat : vivant
+		}
+	} else if time.Since(st.ModTime()) <= stale {
 		return false, nil // recréé depuis le constat : vivant
 	}
 	if rerr := removeRetry(path); rerr != nil {

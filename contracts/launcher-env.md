@@ -85,6 +85,11 @@ Racine de base : /data/cl (CL_ROOT_BASE)        # ou « (--root-base) », ou « 
   posé, un témoin `hub-<nom>.presence` est tenu dans le dossier d'état (`CL_CACHE_DIR`, renouvelé toutes les 3 s,
   repris après 10 s ou si son processus est mort sur la même machine) ; un second launcher du même nom refuse de
   démarrer (`desktop`), message nommant le launcher déjà actif, code 1. Sans `CL_HUB_NAME`, aucun contrôle.
+  Contenu du témoin : `<nom réel de la machine> <pid> <date> <identifiant de la prise> <identifiant du processus>`. Un
+  témoin de la même machine dont le pid n'existe plus, **ou dont le pid est celui du processus qui démarre avec un
+  autre identifiant de processus** (pod de StatefulSet recréé sous le même nom : même pid 1), est repris tout de suite,
+  sans attendre la péremption ; un témoin d'ancien format (sans identifiant de processus) au même nom de machine et au
+  même pid est repris de même. Au `SIGTERM`, la place est rendue dès le début de l'arrêt.
 - Le nom réel de la machine reste celui des espaces de PID des teams (écrits par Claude Code) ; `CL_HUB_NAME` ne
   change que l'identité du launcher.
 - **Cache par défaut sous une racine de base** : il reste sous le dossier personnel (`$XDG_CACHE_HOME` ou

@@ -40,13 +40,19 @@ func HubNameSafe() string {
 
 // AcquirePresence : prend la place du launcher de ce nom (CL_HUB_NAME posé seulement). Rend la fonction qui la libère,
 // ou une erreur nommant le launcher déjà actif.
+// processNonce : identifiant de CE processus (tiré une fois au démarrage), écrit dans le témoin. Un pod de StatefulSet
+// recréé a le même nom de machine et le même pid (1) que son prédécesseur : le pid seul ne distingue pas deux
+// processus successifs, l'identifiant oui.
+var processNonce = newLockToken()
+
 func AcquirePresence() (release func(), err error) {
 	if os.Getenv(platform.HubNameVar) == "" {
 		return func() {}, nil
 	}
 	p := presencePath()
 	token := newLockToken()
-	me := fmt.Sprintf("%s %d %s %s", platform.RealHostName(), os.Getpid(), time.Now().Format(time.RFC3339), token)
+	// contenu : <nom réel de la machine> <pid> <date> <identifiant de cette prise> <identifiant du processus>
+	me := fmt.Sprintf("%s %d %s %s %s", platform.RealHostName(), os.Getpid(), time.Now().Format(time.RFC3339), token, processNonce)
 	for try, reclaims := 0, 0; ; try++ {
 		created, cerr := createExclusive(p, []byte(me+"\n"), 0o644)
 		if cerr != nil {
@@ -61,14 +67,19 @@ func AcquirePresence() (release func(), err error) {
 		}
 		b, _ := os.ReadFile(p)
 		st, serr := os.Stat(p)
-		if serr == nil && !presenceDead(string(b)) && time.Since(st.ModTime()) < presenceStale {
+		dead := presenceDead(string(b))
+		if serr == nil && !dead && time.Since(st.ModTime()) < presenceStale {
 			return nil, fmt.Errorf("launcher « %s » déjà actif (%s) sur %s : un second launcher de même nom est refusé — choisir un autre CL_HUB_NAME",
 				hubName(), strings.TrimSpace(string(b)), filepath.Dir(p))
 		}
 		if reclaims++; reclaims > 4 {
 			return nil, errors.New("témoin de présence illisible : " + p)
 		}
-		_, _ = reclaimStale(p, presenceStale) // abandonné : repris, un seul gagnant (renommage atomique)
+		if dead { // rédacteur disparu (même machine : pid mort, ou prédécesseur de même pid) : repris même s'il est frais
+			_, _ = reclaimStaleIf(p, presenceStale, string(b))
+		} else { // périmé : repris, un seul gagnant
+			_, _ = reclaimStale(p, presenceStale)
+		}
 	}
 	stop := make(chan struct{})
 	beat := presenceBeat // lu ici : le goroutine ne touche jamais la variable du paquet (tests qui la changent)
@@ -124,7 +135,9 @@ func ReleasePresence() {
 	}
 }
 
-// presenceDead : le témoin vient d'un processus de cette machine qui n'existe plus.
+// presenceDead : le témoin vient d'un processus de cette machine qui n'existe plus — son pid n'existe plus, ou c'est le
+// pid de CE processus mais avec un autre identifiant de processus (ou sans : ancien format) : un prédécesseur du même
+// pid (pod recréé sous le même nom, pid 1 dans les deux cas). Le même processus (même identifiant) n'est jamais mort.
 func presenceDead(content string) bool {
 	f := strings.Fields(content)
 	if len(f) < 2 || f[0] != platform.RealHostName() {
@@ -133,6 +146,9 @@ func presenceDead(content string) bool {
 	pid, err := strconv.Atoi(f[1])
 	if err != nil || pid <= 0 {
 		return false
+	}
+	if pid == os.Getpid() {
+		return len(f) < 5 || f[4] != processNonce
 	}
 	return !platform.ProcessAlive(pid)
 }
