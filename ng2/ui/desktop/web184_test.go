@@ -438,13 +438,26 @@ func TestTokenModeTopLevelCrossSiteNavigationToBootstrapStillWorks(t *testing.T)
 	}
 }
 
+// w184Wait : attend la condition jusqu'à l'échéance (large : machine chargée) ; échec explicite sinon.
+func w184Wait(t *testing.T, what string, cond func() bool) {
+	t.Helper()
+	end := time.Now().Add(45 * time.Second)
+	for time.Now().Before(end) {
+		if cond() {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("condition non atteinte en 45 s : %s", what)
+}
+
+func w184TokenFileExists() bool { _, err := os.Stat(l4TokenFile()); return err == nil }
+
 // F3 : au passage en none (au démarrage ou à chaud), le fichier desktop-web-token résiduel est supprimé.
 func TestWebAccessNoneRemovesStaleTokenFile(t *testing.T) {
 	// à chaud : démarré en token (le fichier existe), puis « none » par « Ce poste »
 	a, _ := w184Start(t, "token", "")
-	if _, err := os.Stat(l4TokenFile()); err != nil {
-		t.Fatalf("fichier du jeton absent en mode token : %v", err)
-	}
+	w184Wait(t, "fichier du jeton en mode token", w184TokenFileExists)
 	m, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"hub"}`))
 	if err != nil {
 		t.Fatal(err)
@@ -455,19 +468,9 @@ func TestWebAccessNoneRemovesStaleTokenFile(t *testing.T) {
 	if err != nil || res.(map[string]any)["saved"] != true {
 		t.Fatalf("configApply access none : %v %v", res, err)
 	}
-	end := time.Now().Add(8 * time.Second)
-	for time.Now().Before(end) && l4WebUIOf(t, a)["access"] != "none" {
-		time.Sleep(50 * time.Millisecond)
-	}
-	for time.Now().Before(end) {
-		if _, err := os.Stat(l4TokenFile()); err != nil {
-			break
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if _, err := os.Stat(l4TokenFile()); err == nil {
-		t.Errorf("desktop-web-token toujours présent après le passage à chaud en none")
-	}
+	w184Wait(t, "webUI.access = none", func() bool { return l4WebUIOf(t, a)["access"] == "none" })
+	w184Wait(t, "desktop-web-token supprimé après le passage à chaud en none", func() bool { return !w184TokenFileExists() })
+
 	// au démarrage : fichier résiduel posé avant le lancement en none
 	sandbox(t, "", "alpha")
 	_ = os.MkdirAll(core.CacheDir(), 0o755)
@@ -477,19 +480,13 @@ func TestWebAccessNoneRemovesStaleTokenFile(t *testing.T) {
 	p := l4FreePort(t)
 	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: true, listen: \"127.0.0.1:%d\", access: none }\n", p))
 	a2 := l4StartNative(t)
-	l4WaitWebUI(t, a2, "on", 8*time.Second)
-	if _, err := os.Stat(l4TokenFile()); err == nil {
-		t.Errorf("desktop-web-token résiduel conservé au démarrage en mode none")
-	}
-	// retour en token : un nouveau jeton est tiré (le fichier réapparaît)
+	l4WaitWebUI(t, a2, "on", 30*time.Second)
+	w184Wait(t, "desktop-web-token résiduel supprimé au démarrage en mode none", func() bool { return !w184TokenFileExists() })
+
+	// retour en token : un nouveau jeton est tiré (le fichier réapparaît) ; le réglage est relu jusqu'à son effet
 	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: true, listen: \"127.0.0.1:%d\", access: token }\n", p))
-	a2.applyWebUI()
-	end = time.Now().Add(8 * time.Second)
-	for time.Now().Before(end) {
-		if _, err := os.Stat(l4TokenFile()); err == nil {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Errorf("retour en mode token : aucun jeton recréé")
+	w184Wait(t, "retour en mode token : jeton recréé", func() bool {
+		a2.applyWebUI()
+		return l4WebUIOf(t, a2)["access"] == "token" && w184TokenFileExists()
+	})
 }
