@@ -42,14 +42,14 @@ Reference : `contracts/launcher-env.md` (« Image de conteneur », « Launcher d
 | 2 | `CL_ROOT_BASE=/nulle-part` | Refus, code 66 | | |
 | 3 | Racine factice montee (`-v <racine>:/racine`, `CL_ROOT_BASE=/racine`, `CL_IN_CLUSTER=0`), attendre 10 s | `/healthz` et `/readyz` : 200 `ok`, sans cookie ni information | | |
 | 4 | `ls <racine>/.config/claude-launcher-ng2/config.conf` apres 10 s | **Present** (constat infra : non cree en 7 s — voir test `TestClusterServerModeServesAndCreatesConfigUnderRoot`) | | |
-| 5 | Sortie du conteneur (`buildah logs` / `kubectl logs`) | Aucun jeton d'acces en clair (`?t=<jeton>` seulement en espace reserve) ; message d'arret par SIGTERM adapte au mode serveur | | |
+| 5 | Sortie du conteneur (`buildah logs` / `kubectl logs`) | Mode `token` : aucun jeton d'acces en clair (`?t=<jeton>` seulement en espace reserve) ; mode `none` (`CL_WEB_ACCESS=none` + adresse publique https) : l'adresse puis « acces sans jeton », aucun fichier `desktop-web-token` ; message d'arret par SIGTERM adapte au mode serveur | | |
 | 6 | `~/.config` du conteneur | Absent (tout est sous la racine de base) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
 ---
 
-### Scenario 3 — Arret propre et jeton conserve
+### Scenario 3 — Arret propre ; jeton conserve (mode `token` seulement)
 
 **Validation** : AUTO — **Issues** : #167
 
@@ -80,7 +80,7 @@ Reference : `contracts/launcher-env.md` (« Image de conteneur », « Launcher d
 
 - [ ] Image non root, version du tag, outils attendus, ni `tmux` ni `claude`
 - [ ] Interface servie avec un dossier monte, sondes sans information, `config.conf` sous la racine
-- [ ] Arret propre, jeton conserve, aucun jeton dans les journaux
+- [ ] Arret propre ; mode `token` : jeton conserve, aucun jeton dans les journaux ; mode `none` : aucun jeton ni fichier de jeton
 - [ ] Diagnostic k8s depuis le pod : chaque droit et chaque montage nommes
 
 ## Notes QA

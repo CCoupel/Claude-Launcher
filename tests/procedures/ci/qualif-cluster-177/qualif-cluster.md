@@ -19,7 +19,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | Volume | PVC `claude-projects-qualif` cree par le chart, lie au PV `claude-qualif-pv` (administrateur) |
 | Nom de hub / release | `cluster-qualif` / `claude-launcher-qualif` |
 | Image | `ghcr.io/ccoupel/claude-launcher-qualif:v<X.Y.Z.a>@sha256:<empreinte>` — paquet ghcr **separe de la PROD** (`ghcr.io/ccoupel/claude-launcher`, ecrit par la CI au tag seulement) ; installee **par empreinte** (`image.digest`) |
-| Acces | `https://launcher-qualif.local` (Ingress Traefik, `192.168.1.0/24`) |
+| Acces | `https://launcher-qualif.local` (Ingress Traefik, `192.168.1.0/24`) — **sans jeton** (`web.access: none`, defaut du chart : l'Ingress et sa liste d'adresses sont la seule barriere) |
 | Projets | factices seulement : `<racine>/PROJETS/QUALIF/factice-1`, `factice-2` (faux `claude`) |
 
 ## Prerequis (verifies avant tout, un par un)
@@ -29,7 +29,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 - [ ] **`qualif.env`** (modele `qualif.env.example`) : `QUALIF_IMAGE` (`ghcr.io/ccoupel/claude-launcher-qualif`), `QUALIF_NAMESPACE` (`claude-qualif`), `QUALIF_KUBECONFIG` (`PRIVATE/QUALIF/ng2-deploy.kubeconfig`), `QUALIF_VALUES_LOCAL` (`PRIVATE/QUALIF/values-local.yaml`) renseignes ; environnement « launcher du cluster » declare dans `.claude/project-config.json` (`cluster_launcher` de QUALIF et de PROD)
 - [ ] **Acces** : `PRIVATE/QUALIF/ng2-deploy.kubeconfig` (`kubectl -n claude-qualif auth can-i create statefulsets` = `yes`) ; un poste dans `192.168.1.0/24`, un poste **hors** de la plage, un pod de test
 - [ ] **Racine de QUALIF** : dossier cree (proprietaire `1000:1000`), `backends.yaml` de QUALIF (memes types que la PROD, `k8s` → `claude-qualif`, volumes → `claude-projects-qualif`), projets factices avec faux `claude` — voir `deploy.qualif.md`
-- [ ] **Sauvegarde** horodatee des fichiers de la racine de PROD (`config.conf`, `backends.yaml`, `projects.json`, jeton) pour la comparaison finale (scenario 12)
+- [ ] **Sauvegarde** horodatee des fichiers de la racine de PROD (`config.conf`, `backends.yaml`, `projects.json`, reglages) pour la comparaison finale (scenario 12)
 - [ ] Binaire candidat compile (`deploy/image/build.sh v<X.Y.Z.a>`) depuis le **HEAD du milestone**
 
 ## Scenarios
@@ -74,7 +74,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | 0 | **Rendu helm controle avant d'installer** : `helm template claude-launcher-qualif … -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=… --set image.digest=…` | **Image rendue exactement `ghcr.io/ccoupel/claude-launcher-qualif:$V@$D`** (sinon `ARRET : image rendue …`, pas d'installation) — jamais le paquet de PROD ; namespace `claude-qualif`, `ipAllowList` `192.168.1.0/24`, aucun `ClusterRole` | | |
 | 1 | `helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=v<X.Y.Z.a> --set image.digest=$(cat build/candidate_v<X.Y.Z>/digest-v<X.Y.Z.a>)` (kubeconfig `ng2-deploy`) | Installation sans erreur ; `kubectl rollout status` | | |
 | 2 | `kubectl -n claude-qualif get pod,pvc,svc,ingress,certificate` | **Un seul** pod `Ready` (sonde `/readyz`) ; PVC `claude-projects-qualif` `Bound` RWX sur `claude-qualif-pv` ; Service `ClusterIP` ; Certificate `Ready` | | |
-| 3 | Journaux du pod | Message de mode serveur, **aucun jeton en clair**, aucun refus « launcher deja actif » | | |
+| 3 | Journaux du pod | Message de mode serveur, l'adresse puis une ligne « acces sans jeton » ; **aucun lien `?t=`**, aucun refus « launcher deja actif » ; `kubectl exec … -- test ! -e <CL_CACHE_DIR>/desktop-web-token && echo absent` → `absent` | | |
 | 4 | `<racine>/.config/claude-launcher-ng2/config.conf` | Cree au premier demarrage ; chemins sous la racine de QUALIF | | |
 | 5 | Droits : `kubectl auth can-i --list --as=system:serviceaccount:claude-qualif:claude-launcher-qualif -n claude-qualif` | Les droits du Role seulement ; rien dans `claude-ng2` ni au niveau du cluster | | |
 
@@ -82,7 +82,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 ---
 
-### Scenario 4 — Acces par l'Ingress : autorise et refuse (H3)
+### Scenario 4 — Acces par l'Ingress, sans jeton : autorise, refuse (H3) et refus conserves
 
 **Validation** : AUTO — **Issues** : #170, #171 — voir `qualif-chart.md` scenario 2 (a jouer en entier)
 
@@ -90,8 +90,9 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 |-------|--------|-----------------|----------------|------|
 | 1 | Poste de `192.168.1.0/24` : `curl -sk https://launcher-qualif.local/healthz` | `200` | | |
 | 2 | IP hors plage ; depuis un pod via l'Ingress (**`.local` n'est pas resolu par les pods** : `curl -sk --resolve launcher-qualif.local:443:<IP de Traefik> https://launcher-qualif.local/healthz`, IP lue sur un poste par `getent hosts launcher-qualif.local`) ; `X-Forwarded-For` forge | `403` dans les trois cas | | |
-| 3 | Lien d'amorçage : `https://launcher-qualif.local/?t=<jeton>` (**le jeton n'est jamais affiche ni lu par un agent** : etape 4 de `deploy.qualif.md` — l'URL est ecrite dans un fichier `/dev/shm/claude-launcher-qualif-url-XXXXXX` (`mktemp -p /dev/shm`, `600`) dont **seul le chemin** est affiche ; **l'UTILISATEUR** l'ouvre (`cat` dans son terminal) ; efface seul apres 10 min ; PROD : `/dev/shm/claude-launcher-prod-url-XXXXXX` ; aucun fichier de jeton sous `PRIVATE/`) | `303` vers `/`, cookie `__Host-` `Secure`, jeton absent de l'URL et de l'historique | | |
-| 4 | Un autre nom d'hote / une autre origine (`curl -H 'Host: evil.test'`, `Origin` etrangere) | `403` distincts (« hote refuse », « origine refusee ») | | |
+| 3 | **L'adresse s'ouvre directement** : `https://launcher-qualif.local/` (aucun lien d'amorçage, aucune lecture de jeton) | Interface affichee sans redirection ; **aucun cookie** (outils du navigateur) ; terminaux et evenements fonctionnent ; un **ancien lien** `https://launcher-qualif.local/?t=n-importe-quoi` aboutit sur l'interface (`303` vers `/`) ; `desktop-web-token` absent du dossier d'etat | | |
+| 4 | Refus conserves : `curl -sk -H 'Host: evil.test' …` ; `curl -sk -X POST -H 'Origin: https://evil.test' -H 'Content-Type: application/json' -d '{"method":"refresh","args":{}}' …/api/call` ; `curl -sk -X POST -d x …/api/call` (corps non JSON) ; `curl -sk -H 'Sec-Fetch-Site: cross-site' -X POST -H 'Content-Type: application/json' -d '{…}' …/api/call` | `403` « hote refuse » ; `403` « origine refusee » ; refus du corps non JSON ; `403` « origine refusee » pour `cross-site` ; jamais de refus « session » | | |
+| 5 | **Barriere unique** : depuis une adresse hors liste, puis depuis un pod **directement par le Service** (`curl http://claude-launcher-qualif.claude-qualif:8080/healthz` et `/api/call`, hors Ingress) | Hors liste via l'Ingress : `403`. Par le Service depuis un pod : **repond sans jeton** — risque **accepte** jusqu'a v6.4.0 (#172) : a consigner, pas un echec | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -126,15 +127,15 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 ---
 
-### Scenario 7 — Pod recree : jeton et reglages conserves
+### Scenario 7 — Pod recree : reglages conserves, page reconnectee
 
 **Validation** : AUTO — **Issues** : #167, #169
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Noter l'**empreinte** du jeton (sans l'afficher) : `kubectl exec … sha256sum <CL_CACHE_DIR>/desktop-web-token`, un reglage (ex. couleur d'un projet), les `backends.yaml`/`config.conf` | — | | |
+| 1 | Noter un reglage (ex. couleur d'un projet) et les `backends.yaml`/`config.conf` ; garder la page de l'interface ouverte | — | | |
 | 2 | `kubectl -n claude-qualif delete pod claude-launcher-qualif-0` ; attendre `Ready` | Nouveau pod (**nouveau nom de machine** si recree sur un autre noeud) ; meme nom de hub `cluster-qualif`, aucun refus de presence | | |
-| 3 | Relire l'empreinte du jeton (`sha256sum`) et les reglages | **Identiques** (jeton conserve dans `<CL_CACHE_DIR>/desktop-web-token`, reglages dans la racine ; aucun jeton affiche) ; l'ancien lien d'acces fonctionne toujours | | |
+| 3 | Relire les reglages ; observer la page ouverte | Reglages **identiques** ; la page **se reconnecte seule**, **sans « session expiree »** (plus de session) ; l'ancien lien `/?t=…` aboutit sur l'interface | | |
 | 4 | Projet factice ouvert avant la suppression | Le StatefulSet du projet survit ; le launcher le retrouve et le reprend (identite stable : pas de « piloté par un autre ») | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -166,7 +167,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | 1 | Interface ouverte via `launcher-qualif.local`, un factice ouvert, 1 h sans action | Aucune erreur ; flux d'evenements vivant malgre le delai de lecture de l'Ingress (`readTimeout` Traefik) ; battement <= 20 s | | |
 | 2 | Toutes les 10 min : action dans le terminal du factice | Reponse immediate | | |
 | 3 | Couper l'Ingress 30 s (`kubectl -n <ns-traefik> rollout restart deploy/traefik`) | Reconnexion automatique (1,5 s → 15 s) ; terminaux repris | | |
-| 4 | Regenerer le jeton depuis le pod (Reglages > Interface web) | Onglet : « session expiree — rouvrir le lien d'acces » ; nouveau lien fonctionnel | | |
+| 4 | Redemarrer le pod (`kubectl -n claude-qualif delete pod claude-launcher-qualif-0`) pendant que la page est ouverte | La page se **reconnecte seule** (1,5 s → 15 s) apres le redemarrage, **sans « session expiree »** ; terminaux repris | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -181,7 +182,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | 1 | Construire et pousser un second tag candidat `v<X.Y.Z.b>` ; interface de QUALIF ouverte | Annonce « ↑ NG v<…> disponible · mise a jour par l'image », **sans** bouton d'installation | | |
 | 2 | `helm upgrade --install … --set image.tag=v<X.Y.Z.b> --set image.digest=$(cat …/digest-v<X.Y.Z.b>)` en surveillant `kubectl get pod -w` | **L'ancien pod est arrete avant le demarrage du nouveau** (un seul pod a tout instant : pas de RollingUpdate) ; aucun refus « launcher deja actif » | | |
 | 3 | Version du nouveau pod : `kubectl exec … -- claude-launcher-ng2 version` | `v<X.Y.Z.b>` | | |
-| 4 | Jeton, reglages, factices apres la mise a jour | Conserves ; session de l'interface a rouvrir (lien d'acces inchange) | | |
+| 4 | Reglages et factices apres la mise a jour | Conserves ; la page se reconnecte seule (aucun lien a rouvrir) | | |
 | 5 | Retour au tag precedent (`helm rollback` ou `--set image.tag=…`) | Fonctionne de la meme facon | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -196,7 +197,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 |-------|--------|-----------------|----------------|------|
 | 1 | Fermer les projets factices ; `helm uninstall claude-launcher-qualif -n claude-qualif` | Objets du chart retires (StatefulSet, Service, Ingress, Role, RoleBinding, ServiceAccount, Certificate/Middleware) | | |
 | 2 | `kubectl -n claude-qualif get pvc` ; `kubectl get pv claude-qualif-pv` | **PVC `claude-projects-qualif` et PV conserves** (`helm.sh/resource-policy: keep`) ; fichiers de la racine intacts | | |
-| 3 | Reinstaller (scenario 3) | Reprise avec le meme PVC, memes reglages, meme jeton | | |
+| 3 | Reinstaller (scenario 3) | Reprise avec le meme PVC, memes reglages | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -220,11 +221,11 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 - [ ] Image candidate non root, publiee dans le paquet ghcr **de QUALIF** (`claude-launcher-qualif`), installee par empreinte ; paquet de production intact
 - [ ] Installation, acces autorise, refus hors plage / depuis un pod / `X-Forwarded-For` forge
 - [ ] Projet factice ouvert, utilise, ferme dans `claude-qualif` ; « Tester » nomme chaque droit
-- [ ] Pod recree : jeton et reglages conserves ; cohabitation sans perte d'ecriture ; un seul pilote
+- [ ] Pod recree : reglages conserves, page reconnectee sans « session expiree » ; cohabitation sans perte d'ecriture ; un seul pilote
 - [ ] Une heure a travers l'Ingress reel ; reconnexion apres coupure
 - [ ] Mise a jour par tag : ancien pod arrete avant le nouveau ; desinstallation : PVC/PV conserves
 - [ ] PROD intacte (fichiers identiques a la sauvegarde, aucun objet modifie dans `claude-ng2`)
 
 ## Notes QA
 
-Duree : environ 3 h (scenario 9 en tache de fond). Risques acceptes ( pas de NetworkPolicy ; jeton dans le dossier d'etat) a rappeler dans le guide. Apres la QUALIF : desinstaller si inutile ; la racine de QUALIF est separee, aucune urgence pour la PROD.
+Duree : environ 3 h (scenario 9 en tache de fond). Risques acceptes (pas de NetworkPolicy : tout pod atteint le Service sans jeton ; Ingress et liste d'adresses seule barriere, jusqu'a v6.4.0 #172) a rappeler dans le guide. Apres la QUALIF : desinstaller si inutile ; la racine de QUALIF est separee, aucune urgence pour la PROD.

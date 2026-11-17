@@ -16,7 +16,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 - [ ] **Contrainte de noms de la CA interne** verifiee (certificat PUBLIC `PRIVATE/GLOBAL/claude-launcher-ca.crt`) : `openssl x509 -in PRIVATE/GLOBAL/claude-launcher-ca.crt -noout -text \| grep -A4 'X509v3 Name Constraints'` doit montrer l'extension **critique** avec `Permitted: DNS:launcher.local, DNS:launcher-qualif.local` et **aucun** autre nom — `DNS:.local` est **refuse** (il autoriserait tout nom `.local`) ; absente ou trop large (ex. `DNS:` vide, `DNS:.local`) : le signaler a l'administrateur, ne pas valider ; `openssl x509 -noout -subject -issuer -dates -fingerprint -sha256` releve dans le rapport
 - [ ] **Nom d'acces `launcher-qualif.local` (mDNS)** : resolu par les postes du reseau, **pas par les pods** (nsswitch `files dns`) ; **certificat : CA interne obligatoire** (ACME impossible en `.local`) — ClusterIssuer interne reel
 - [ ] Acces : un poste dans `192.168.1.0/24`, un poste **hors** de cette plage (ou une IP source simulee), un pod du cluster, `kubectl -n claude-qualif`
-- [ ] **La PROD n'est pas touchee** : `config.conf`, `backends.yaml`, `projects.json`, reglages et jeton de la racine reelle restent inchanges pendant toute la QUALIF (sauvegarde horodatee avant, comparaison apres)
+- [ ] **La PROD n'est pas touchee** : `config.conf`, `backends.yaml`, `projects.json`, reglages de la racine reelle restent inchanges pendant toute la QUALIF (sauvegarde horodatee avant, comparaison apres)
 
 ## Scenarios
 
@@ -59,7 +59,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Depuis un pod, `curl http://claude-launcher-qualif.claude-qualif:8080/` (Service interne, hors Ingress) | Reponse HTTP sans cookie de session exploitable (cookie `Secure`, `__Host-`) ; **risque accepte** : pas de NetworkPolicy en v6.3.0 (#172 en v6.4.0) | | |
+| 1 | Depuis un pod, `curl http://claude-launcher-qualif.claude-qualif:8080/healthz` puis `POST /api/call` (Service interne, hors Ingress) | **Repond sans jeton** (aucune barriere derriere l'Ingress) : **risque accepte** jusqu'a v6.4.0 (#172, NetworkPolicy), a consigner dans le rapport — pas un echec ; refus conserves : `Host` etranger → `403` « hote refuse », `Origin` etrangere → `403` « origine refusee » | | |
 | 2 | `kubectl auth can-i --list --as=system:serviceaccount:claude-qualif:claude-launcher-qualif -n claude-qualif` | Seulement les droits du Role ; **rien** dans `claude-ng2` (PROD) ni au niveau du cluster | | |
 | 3 | `kubectl -n claude-qualif get pvc` ; `kubectl -n claude-qualif get statefulset claude-launcher-qualif -o jsonpath='{.spec.template.spec.volumes}'` | Seul le PVC **de QUALIF** `claude-projects-qualif` est monte (jamais `claude-projets`) ; il est cree par le chart (RWX, lie a `claude-qualif-pv`, annotation `helm.sh/resource-policy: keep`) | | |
 | 4 | Pods de projets de QUALIF sous le label PSA `baseline` | Demarrent sans refus de politique (sinon : le signaler) | | |
@@ -74,7 +74,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Depuis le poste de `192.168.1.0/24` : **le jeton n'est jamais affiche ni lu par un agent** — etape 4 de `deploy.qualif.md` : l'URL d'amorçage est ecrite dans un fichier `/dev/shm/claude-launcher-qualif-url-XXXXXX` (`mktemp -p /dev/shm`, `600`), dont **seul le chemin** est affiche ; **l'UTILISATEUR** l'ouvre (`cat` dans son propre terminal ou ouverture du lien) ; le fichier est efface seul apres 10 min (pas de fichier sous `PRIVATE/`) ; ouvrir `https://launcher-qualif.local/` | Redirection vers `/` (jeton retire de l'URL), interface affichee, terminaux et evenements fonctionnent
+| 1 | Depuis le poste de `192.168.1.0/24` (**sans jeton** : `web.access: none`) : ouvrir `https://launcher-qualif.local/` | L'interface s'ouvre **directement** : ni lien d'amorçage, ni lecture de jeton, **aucun cookie** ; terminaux et evenements fonctionnent ; un ancien lien `/?t=…` aboutit sur l'interface (`303` vers `/`) | | |
 | 2 | `helm uninstall … -n claude-qualif` | Objets du chart retires ; PVC, StatefulSets des projets et fichiers de la racine **intacts** | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -83,12 +83,12 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 **Validation** : AUTO — **Issues** : #170, #171
 
-**Objectif** : QUALIF et PROD ont des racines et des PVC distincts ; le pod de QUALIF ne peut ni lire le jeton, ni modifier les fichiers du launcher de PROD. (Remplace l'ancien scenario « regenerer le jeton PROD » : sans objet des que les racines sont distinctes.)
+**Objectif** : QUALIF et PROD ont des racines et des PVC distincts ; le pod de QUALIF ne peut ni lire le dossier d'etat, ni modifier les fichiers du launcher de PROD. (Remplace l'ancien scenario « regenerer le jeton PROD » : sans objet des que les racines sont distinctes.)
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | `kubectl -n claude-qualif exec claude-launcher-qualif-0 -- ls /share/MFS/ROOT` | Seule `CLAUDE-QUALIF` est visible (ou le dossier parent n'est pas monte) ; `CLAUDE_PROJETS` absent | | |
-| 2 | `kubectl -n claude-qualif exec … -- test ! -e /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token && echo absent` (**sans `cat`** : aucun jeton n'est affiche) | `absent` : le jeton PROD n'est pas lisible depuis la QUALIF | | |
+| 2 | `kubectl -n claude-qualif exec … -- test ! -e /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2 && echo absent` (le dossier d'etat de la PROD n'est pas visible) | `absent` | | |
 | 2b | **Test negatif des fichiers de la PROD** depuis le pod de QUALIF : `for f in config.conf backends.yaml projects.json; do kubectl -n claude-qualif exec claude-launcher-qualif-0 -- test ! -e /share/MFS/ROOT/CLAUDE_PROJETS/.config/claude-launcher-ng2/$f && echo "absent $f" \|\| echo "VISIBLE $f"; done` | Trois lignes `absent …` : aucun fichier de la racine de PROD n'est visible (pas de `VISIBLE`) | | |
 | 2c | `kubectl -n claude-qualif exec … -- test ! -e /share/MFS/ROOT/CLAUDE_PROJETS && echo absent` et `… -- sh -c 'mount \| grep -c CLAUDE_PROJETS'` | `absent` ; `0` occurrence : la racine de PROD n'est pas montee dans le pod | | |
 | 2d | `kubectl get pv claude-qualif-pv -o yaml` (a refaire apres l'installation) | Source inchangee : `/share/MFS/ROOT/CLAUDE-QUALIF` seulement ; lie a `claude-qualif/claude-projects-qualif` | | |
@@ -109,4 +109,4 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 ## Notes QA
 
-Risques acceptes a rappeler dans le guide : image publiee sur ghcr et installee par empreinte (H2 attenue : plus de tag mutable seul), pas de NetworkPolicy, jeton dans le dossier d'etat. Desinstaller la QUALIF apres validation si elle n'est plus utile (la racine de QUALIF est separee : aucune urgence pour la PROD).
+Risques acceptes a rappeler dans le guide : image publiee sur ghcr et installee par empreinte (H2 attenue : plus de tag mutable seul), pas de NetworkPolicy (interface **sans jeton** : Ingress et liste d'adresses = seule barriere, tout pod atteint le Service) jusqu'a v6.4.0 (#172). Desinstaller la QUALIF apres validation si elle n'est plus utile (la racine de QUALIF est separee : aucune urgence pour la PROD).
