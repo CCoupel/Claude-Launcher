@@ -1780,6 +1780,7 @@ garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
 - **Contexte k8s ignoré en cluster** : un backend `k8s` d'un autre cluster, déclaré dans la racine, agirait sur le cluster du
   pod. Ne déclarez que des backends `k8s` du cluster où tourne le launcher.
 - **Hors cluster, `web.access: none`** : tout processus local pilote le launcher.
+- **Backends distants** : depuis le launcher du cluster, seul le backend `k8s` fonctionne. Les backends ssh, podman et docker demandent des clients absents de l'image (issue prévue en v6.4.0).
 - **Hors cluster, `web.access` vaut `token` par défaut** (launcher), alors que le chart pose `none`.
 - **Tag mutable** : si `image.digest` n'est pas posé, `image.tag` peut désigner une image différente demain. Posez toujours
   l'empreinte. Le paquet ghcr de l'image est public : toute personne peut la tirer.
