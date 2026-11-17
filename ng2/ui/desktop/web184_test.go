@@ -334,3 +334,162 @@ func TestWebAccessTokenModeUnchanged(t *testing.T) {
 		t.Errorf("fichier du jeton absent en mode token : %v", err)
 	}
 }
+
+// ── cycle 1 (audit sécurité LOT-4.4) ─────────────────────────────────────────
+
+// M1 : « none » refusé dès qu'une adresse publique est donnée et n'est pas https, même en boucle locale ;
+// la boucle locale SANS adresse publique reste admise, et avec une adresse https aussi.
+func TestWebAccessNoneRefusedWithPublicHTTPURLEvenOnLoopback(t *testing.T) {
+	for _, tc := range []struct {
+		name, pub string
+		ok        bool
+	}{
+		{"boucle locale seule", "", true},
+		{"boucle locale + url https", "https://launcher.test", true},
+		{"boucle locale + url http", "http://launcher.test", false},
+		{"boucle locale + url http avec port", "http://launcher.test:8080", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			sandbox(t, "", "alpha")
+			p := l4FreePort(t)
+			blk := fmt.Sprintf("{ enabled: true, listen: \"127.0.0.1:%d\", access: none", p)
+			if tc.pub != "" {
+				blk += fmt.Sprintf(", url: \"%s\"", tc.pub)
+			}
+			l4WriteBackends(t, "  desktop_web: "+blk+" }\n")
+			a := l4StartNative(t)
+			if tc.ok {
+				l4WaitWebUI(t, a, "on", 8*time.Second)
+				return
+			}
+			w := l4WaitWebUI(t, a, "error", 8*time.Second)
+			if msg, _ := w["msg"].(string); !strings.Contains(msg, "sans jeton") || !strings.Contains(msg, "https") {
+				t.Errorf("message %q, attendu une raison claire (accès sans jeton refusé, adresse publique non https)", msg)
+			}
+			if d183Reach(p) {
+				t.Errorf("l'interface sans jeton écoute malgré une adresse publique en http")
+			}
+		})
+	}
+}
+
+// M2 : en mode none, Sec-Fetch-Site: same-site est refusé (seuls same-origin et none sont admis) ; en mode token il est admis.
+func TestSecFetchSiteSameSiteRefusedInNoneOnly(t *testing.T) {
+	for _, tc := range []struct {
+		mode     string
+		wantCode int
+	}{{"none", 403}, {"token", 200}} {
+		t.Run(tc.mode, func(t *testing.T) {
+			_, p := w184Start(t, tc.mode, "")
+			host := "127.0.0.1:" + strconv.Itoa(p)
+			var cookies []*http.Cookie
+			if tc.mode == "token" {
+				ck, _ := w171Session(t, p, l4WebToken(t), host)
+				cookies = []*http.Cookie{ck}
+			}
+			h := map[string]string{"Content-Type": "application/json", "Sec-Fetch-Site": "same-site"}
+			r, _ := w171Do(t, p, "POST", "/api/call", host, h, w171Call, cookies...)
+			if r.StatusCode != tc.wantCode {
+				t.Errorf("/api/call same-site (%s) : %d, attendu %d", tc.mode, r.StatusCode, tc.wantCode)
+			}
+			if tc.wantCode == 403 && r.Header.Get("X-Launcher-Refusal") != "origin" {
+				t.Errorf("refus %q, attendu origin", r.Header.Get("X-Launcher-Refusal"))
+			}
+			st, kind := w184Events(t, p, host, map[string]string{"Sec-Fetch-Site": "same-site"}, cookies...)
+			if st != tc.wantCode || (tc.wantCode == 403 && kind != "origin") {
+				t.Errorf("/api/events same-site (%s) : %d %q, attendu %d", tc.mode, st, kind, tc.wantCode)
+			}
+			// en none, same-origin et none restent admis ; en-tête absent : règles actuelles
+			for _, ok := range []string{"same-origin", "none", ""} {
+				hh := map[string]string{"Content-Type": "application/json"}
+				if ok != "" {
+					hh["Sec-Fetch-Site"] = ok
+				}
+				if r, _ := w171Do(t, p, "POST", "/api/call", host, hh, w171Call, cookies...); r.StatusCode != 200 {
+					t.Errorf("%s : Sec-Fetch-Site=%q : %d, attendu 200", tc.mode, ok, r.StatusCode)
+				}
+			}
+		})
+	}
+}
+
+// F1 : mode token — une navigation de premier niveau depuis un autre site vers /?t=<jeton> (lien cliqué) reste admise :
+// le refus de cross-site ne vise que /api/call et /api/events.
+func TestTokenModeTopLevelCrossSiteNavigationToBootstrapStillWorks(t *testing.T) {
+	_, p := w184Start(t, "token", "")
+	host := "127.0.0.1:" + strconv.Itoa(p)
+	h := map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document", "Sec-Fetch-User": "?1"}
+	resp, _ := w171Do(t, p, "GET", "/?t="+l4WebToken(t), host, h, "")
+	if resp.StatusCode != http.StatusSeeOther || resp.Header.Get("Location") != "/" {
+		t.Errorf("navigation cross-site vers /?t= : %d (Location %q), attendu 303 vers /", resp.StatusCode, resp.Header.Get("Location"))
+	}
+	got := false
+	for _, c := range resp.Cookies() {
+		got = got || strings.Contains(c.Name, "cl_session")
+	}
+	if !got {
+		t.Errorf("pas de cookie de session posé par la navigation cross-site")
+	}
+	// … alors que l'API, depuis un autre site, reste refusée
+	hh := map[string]string{"Content-Type": "application/json", "Sec-Fetch-Site": "cross-site"}
+	ck := resp.Cookies()
+	if r, _ := w171Do(t, p, "POST", "/api/call", host, hh, w171Call, ck...); r.StatusCode != 403 {
+		t.Errorf("/api/call cross-site : %d, attendu 403", r.StatusCode)
+	}
+}
+
+// F3 : au passage en none (au démarrage ou à chaud), le fichier desktop-web-token résiduel est supprimé.
+func TestWebAccessNoneRemovesStaleTokenFile(t *testing.T) {
+	// à chaud : démarré en token (le fichier existe), puis « none » par « Ce poste »
+	a, _ := w184Start(t, "token", "")
+	if _, err := os.Stat(l4TokenFile()); err != nil {
+		t.Fatalf("fichier du jeton absent en mode token : %v", err)
+	}
+	m, err := a.Dispatch("configModel", json.RawMessage(`{"kind":"hub"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(map[string]any{"kind": "hub", "mtime": m.(map[string]any)["mtime"], "changes": []map[string]any{
+		{"op": "set", "at": []string{"desktop_web", "access"}, "value": "none"}}})
+	res, err := a.DispatchFrom(originWindow, "configApply", b)
+	if err != nil || res.(map[string]any)["saved"] != true {
+		t.Fatalf("configApply access none : %v %v", res, err)
+	}
+	end := time.Now().Add(8 * time.Second)
+	for time.Now().Before(end) && l4WebUIOf(t, a)["access"] != "none" {
+		time.Sleep(50 * time.Millisecond)
+	}
+	for time.Now().Before(end) {
+		if _, err := os.Stat(l4TokenFile()); err != nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if _, err := os.Stat(l4TokenFile()); err == nil {
+		t.Errorf("desktop-web-token toujours présent après le passage à chaud en none")
+	}
+	// au démarrage : fichier résiduel posé avant le lancement en none
+	sandbox(t, "", "alpha")
+	_ = os.MkdirAll(core.CacheDir(), 0o755)
+	if err := os.WriteFile(l4TokenFile(), []byte("jeton-residuel-0123456789abcdef"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	p := l4FreePort(t)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: true, listen: \"127.0.0.1:%d\", access: none }\n", p))
+	a2 := l4StartNative(t)
+	l4WaitWebUI(t, a2, "on", 8*time.Second)
+	if _, err := os.Stat(l4TokenFile()); err == nil {
+		t.Errorf("desktop-web-token résiduel conservé au démarrage en mode none")
+	}
+	// retour en token : un nouveau jeton est tiré (le fichier réapparaît)
+	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: true, listen: \"127.0.0.1:%d\", access: token }\n", p))
+	a2.applyWebUI()
+	end = time.Now().Add(8 * time.Second)
+	for time.Now().Before(end) {
+		if _, err := os.Stat(l4TokenFile()); err == nil {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Errorf("retour en mode token : aucun jeton recréé")
+}
