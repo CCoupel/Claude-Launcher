@@ -80,7 +80,9 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
      KUBECONFIG=$PROD_KUBECONFIG kubectl -n "$PROD_NAMESPACE" rollout status statefulset/claude-launcher --timeout=5m
    )
    ```
-3. URL d'amorçage — jeton jamais affiché :
+3. Accès : **`web.access: none`** (valeur de PROD) → `https://launcher.local/` directement, sans jeton, depuis `192.168.1.0/24` ; l'Ingress
+   est la seule barrière (pas de NetworkPolicy, risque accepté jusqu'à v6.4.0) → test négatif de la liste d'adresses obligatoire à la
+   première installation. Seulement si `web.access: token`, URL d'amorçage — jeton jamais affiché :
    `( umask 077; . .claude/agents/environments/prod.env; U=$(mktemp -p /dev/shm claude-launcher-prod-url-XXXXXX); t=$(KUBECONFIG=$PROD_KUBECONFIG kubectl -n claude-ng2 exec statefulset/claude-launcher -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token); printf 'https://launcher.local/?t=%s\n' "$t" > "$U"; unset t; ( sleep 600; rm -f "$U" ) >/dev/null 2>&1 & echo "URL : $U (cat par l'utilisateur, effacée dans 10 min)" )`
    — fichier en mémoire (tmpfs), jamais sur le partage ni affiché par un agent.
 4. Contrôles à la première installation : test négatif de la liste d'adresses (comme en QUALIF, avec `launcher.local`) ;

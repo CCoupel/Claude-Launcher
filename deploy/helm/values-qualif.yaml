@@ -33,6 +33,10 @@ volume:
       enabled: false
       name: claude-qualif-pv
 
+# interface sans jeton (défaut du chart, décision du 2026-11-17) : l'Ingress est la seule barrière
+web:
+  access: none
+
 ingress:
   enabled: true
   controller: traefik

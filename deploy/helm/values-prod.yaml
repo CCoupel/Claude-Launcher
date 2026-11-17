@@ -16,6 +16,10 @@ volume:
   existingClaim: claude-projets
   mountPath: /share/MFS/ROOT/CLAUDE_PROJETS
 
+# interface sans jeton (défaut du chart, décision du 2026-11-17) : l'Ingress est la seule barrière
+web:
+  access: none
+
 ingress:
   enabled: true
   controller: traefik

@@ -35,6 +35,11 @@ runAsGroup: 1000
 
 allowHostBackend: false   # CL_ALLOW_HOST_BACKEND
 
+# accès à l'interface web : none (défaut du chart) = sans jeton, l'Ingress (liste d'adresses + TLS) est la seule barrière ;
+# token = URL d'amorçage avec jeton (comme le launcher local). Devient CL_WEB_ACCESS dans le pod.
+web:
+  access: none
+
 service:
   port: 8080              # Service ClusterIP uniquement (type non réglable)
 

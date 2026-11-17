@@ -121,7 +121,11 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
      KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif rollout status statefulset/claude-launcher-qualif --timeout=5m
    )
    ```
-4. URL d'amorçage — **le jeton n'est jamais affiché ni écrit sur le partage** : lu dans le pod, écrit dans un fichier en mémoire
+4. Accès à l'interface : **`web.access: none`** (valeur de QUALIF et défaut du chart) → ouvrir directement `https://launcher-qualif.local/`
+   depuis une adresse de `192.168.1.0/24`, **sans jeton** ni URL d'amorçage. L'Ingress (liste d'adresses + TLS) est la seule barrière :
+   pas de NetworkPolicy (risque accepté jusqu'à v6.4.0) — le test négatif H3 (étape 7) est donc **obligatoire** avant validation.
+   Contrôle : `kubectl -n claude-qualif exec statefulset/claude-launcher-qualif -- printenv CL_WEB_ACCESS` → `none`.
+   Seulement si `web.access: token` — URL d'amorçage, **jeton jamais affiché ni écrit sur le partage** : lu dans le pod, écrit dans un fichier en mémoire
    (tmpfs `/dev/shm`, 600) que **l'utilisateur** ouvre dans son terminal ; le fichier s'efface seul au bout de 10 min :
    ```bash
    ( umask 077; . .claude/agents/environments/qualif.env

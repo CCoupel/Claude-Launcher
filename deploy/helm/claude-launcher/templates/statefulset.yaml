@@ -70,6 +70,9 @@ spec:
               value: "1"
             - name: CL_UPDATE_MODE
               value: notify
+            # interface web : none = sans jeton (Ingress = seule barrière), token = URL d'amorçage avec jeton
+            - name: CL_WEB_ACCESS
+              value: {{ .Values.web.access | default "none" | quote }}
             {{- if .Values.ingress.enabled }}
             - name: CL_WEB_URL
               value: {{ printf "https://%s" .Values.ingress.host | quote }}
