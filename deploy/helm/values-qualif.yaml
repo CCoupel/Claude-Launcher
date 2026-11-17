@@ -4,7 +4,8 @@
 # Release « claude-launcher-qualif ». Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/QUALIF/.
 #   KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig \
 #   helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif \
-#     -f deploy/helm/values-qualif.yaml --set image.tag=vX.Y.Z.a
+#     -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=vX.Y.Z.a
+#   (PRIVATE/QUALIF/values-local.yaml : ingress.tls.clusterIssuer réel, jamais commité — voir deploy.qualif.md)
 
 # image candidate : registre interne sur srv1-docker (décision D2, jamais ghcr) ; tag donné à l'installation.
 # Risque accepté (H2) : image désignée par tag, sans digest (réseau interne de confiance).

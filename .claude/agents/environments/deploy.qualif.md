@@ -22,6 +22,10 @@ Décision utilisateur (2026-11-17) : la QUALIF du cluster ne touche **jamais** l
 | Nom de hub | `cluster-qualif` | `cluster` |
 | Compte helm | `PRIVATE/QUALIF/ng2-deploy.kubeconfig` | `PRIVATE/PROD/ng2-deploy.kubeconfig` |
 
+> **En cluster, le contexte de TOUS les backends `k8s` est ignoré** (ServiceAccount du pod, namespace déclaré) : un backend
+> `k8s` d'un **autre cluster** déclaré dans le `backends.yaml` de cette racine agirait sur le cluster du pod (dans le namespace
+> déclaré, si le Role le permet). Ne déclarer dans ce fichier que des backends `k8s` du cluster où tourne le launcher.
+
 ### Racine de QUALIF (créée une fois, puis réutilisée)
 
 Prérequis : dossier `/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF` créé sur MooseFS (fiche administrateur), propriétaire `1000:1000`.
@@ -42,7 +46,7 @@ images: [docker.io/library/ubuntu:24.04, docker.io/library/ubuntu:26.04]
 backends:
   podman: {type: podman}
   srv1-docker: {type: docker, host: 'tcp://192.168.1.211:2375', shared: [/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF]}
-  # même forme que la PROD (context: k8s) : en cluster le contexte est ignoré, le ServiceAccount du pod est utilisé
+  # même forme que la PROD (context: k8s) : en cluster le contexte est ignoré (tous les backends k8s), ServiceAccount du pod
   k8s: {type: k8s, context: k8s, namespace: claude-qualif, volumes: {/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF: claude-projects-qualif}}
 ```
 
@@ -53,10 +57,14 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
 
 1. Sauvegarde : rien à sauvegarder côté PROD (aucun fichier de PROD n'est lu ni écrit) ; vérifier
    `kubectl --kubeconfig PRIVATE/QUALIF/ng2-deploy.kubeconfig get pvc claude-projects-qualif` → `Bound` RWX.
-2. Image candidate : `deploy/image/build.sh <X.Y.Z.a>`, puis
-   `sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:<X.Y.Z.a> docker://192.168.1.211:5000/claude-launcher:<X.Y.Z.a>`.
+2. Image candidate (tag **avec le « v »**, exigé par `build.sh`) : `deploy/image/build.sh v<X.Y.Z.a>`, puis
+   `sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> docker://192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>`.
 3. `KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher
-   -n claude-qualif -f deploy/helm/values-qualif.yaml --set image.tag=<X.Y.Z.a>` ; `kubectl rollout status statefulset/claude-launcher-qualif`.
+   -n claude-qualif -f deploy/helm/values-qualif.yaml -f PRIVATE/QUALIF/values-local.yaml --set image.tag=v<X.Y.Z.a>` ;
+   `kubectl rollout status statefulset/claude-launcher-qualif`.
+   Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
+   `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/QUALIF/values-local.yaml`**
+   (`ingress: {tls: {clusterIssuer: <nom réel>}}`, jamais commité) ajouté en dernier : `-f PRIVATE/QUALIF/values-local.yaml`.
 4. URL d'amorçage : `kubectl exec statefulset/claude-launcher-qualif -- cat /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF/.cache/claude-launcher-ng2/cluster-qualif/desktop-web-token`.
 5. Diagnostic du pod : backend `k8s` → contexte ignoré, chaque droit OK dans `claude-qualif` ; ouvrir/fermer/rouvrir un factice
    (StatefulSet dans `claude-qualif` uniquement).

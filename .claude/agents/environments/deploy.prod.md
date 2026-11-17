@@ -19,9 +19,17 @@ Réglages actuels inchangés : racine `/share/MFS/ROOT/CLAUDE_PROJETS`, `backend
 `namespace: claude-ng2`) — en cluster le contexte est ignoré et le ServiceAccount du pod est utilisé : le launcher du cluster
 pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux postes).
 
+> **En cluster, le contexte de TOUS les backends `k8s` est ignoré** (ServiceAccount du pod, namespace déclaré) : un backend
+> `k8s` d'un **autre cluster** déclaré dans le `backends.yaml` de cette racine agirait sur le cluster du pod (dans le namespace
+> déclaré, si le Role le permet). Ne déclarer dans ce fichier que des backends `k8s` du cluster où tourne le launcher.
+
 1. Image de release : construite et publiée par la CI sur le tag (`ghcr.io/ccoupel/claude-launcher:vX.Y.Z`, paquet public).
 2. `KUBECONFIG=PRIVATE/PROD/ng2-deploy.kubeconfig helm upgrade --install claude-launcher deploy/helm/claude-launcher
-   -n claude-ng2 -f deploy/helm/values-prod.yaml` (tag = `appVersion` du chart) ; `kubectl rollout status statefulset/claude-launcher`.
+   -n claude-ng2 -f deploy/helm/values-prod.yaml -f PRIVATE/PROD/values-local.yaml` (tag = `appVersion` du chart, `vX.Y.Z`
+   avec le « v » ; le forcer au besoin par `--set image.tag=vX.Y.Z`) ; `kubectl rollout status statefulset/claude-launcher`.
+   Le nom de l'émetteur n'est pas dans le dépôt (`values-*.yaml` portent `a-renseigner`, refusé par le chart) : le donner par
+   `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/PROD/values-local.yaml`**
+   (`ingress: {tls: {clusterIssuer: <nom réel>}}`, jamais commité) ajouté en dernier : `-f PRIVATE/PROD/values-local.yaml`.
 3. URL d'amorçage : `kubectl -n claude-ng2 exec statefulset/claude-launcher -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token`.
 4. Contrôles à la première installation : test négatif de la liste d'adresses (comme en QUALIF, avec `launcher.coupel.lan`) ;
    prise de main hub ↔ cluster sur un projet réel, faite par l'utilisateur.
