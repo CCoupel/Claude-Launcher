@@ -2,6 +2,14 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261117] — v6.3.0, LOT-5 : commutateur du masquage des teammates inactifs (#188)
+
+- **[NEW]** clé `TEAM_HIDE_IDLE_ENABLED` de `config.conf` (`1` par défaut) : désactive le masquage sans perdre le délai `TEAM_HIDE_IDLE` — `contracts/desktop-dispatch.md`
+- **[NEW]** `cards.teamHead.hideIdle` (`enabled`, `delay`) : état du masquage sur la carte TEAM
+- **[CHANGED]** règle de visibilité quand le masquage est désactivé : aucun teammate caché, entrées `h` de `@cl_panevis` retirées, panes de la réserve ramenés — `contracts/tmux-options.md` « Masquage désactivé »
+- **[CHANGED]** `teamToggle` : la bascule qui cacherait un teammate est refusée quand le masquage est désactivé ; `cards.team[].hidden` faux et `idleLeft` à 0 dans ce cas
+- Aucun `BREAKING` : sans la nouvelle clé, comportement de la v6.2.0 (`TEAM_HIDE_IDLE=0` compris).
+
 ## [20261117] — v6.3.0, LOT-4.4 : interface web accessible sans jeton (décision utilisateur)
 
 - **[NEW]** `desktop_web.access` (`token` | `none`, défaut `token`), variable `CL_WEB_ACCESS`, champ `webUI.access`, clé `desktop_web.access` de `configModel` / `configApply` — `contracts/desktop-web.md` « Mode d'accès »

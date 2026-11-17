@@ -197,6 +197,7 @@ Chaque réglage :
   problème ne le contient (remplacé par `***`).
 - Réglages : `GITHUB_DIR`, `GITHUB_DIRS`, `GITHUB_TOKEN`, `CLAUDE_OPTIONS`, `CLAUDE_DISABLE_MOUSE`,
   `CLAUDE_EXPERIMENTAL_TEAMS`, `CLAUDE_CONFIG_DIR`, `EXTRA_ENVS`, `RESUME_MODE`, `RESUME_MAX_AGE_H`, `TEAM_HIDE_IDLE`,
+  `TEAM_HIDE_IDLE_ENABLED` (v6.3.0, #188),
   `LAYOUT_2ROW_LEADER_PCT`, `LAYOUT_3ROW_LEADER_NUM`, `LAYOUT_3ROW_MID_NUM`, `LAYOUT_3ROW_DEN`,
   `PANE_ACTIVE_BRIGHTEN_STEP`, `PANE_INACTIVE_DARKEN_STEP`, `COLOR_PALETTE`, `CTR_STOP_ON_EXIT`, `USAGE_REFRESH_SEC`.
   `PROJECT_COLORS` est réglé par projet (`projectApply`).
@@ -565,3 +566,39 @@ passe que `color` (un seul enregistrement de `config.conf`) ; `colorSaved` devie
 L'organisation est appliquée par le launcher qui a la main, avec **sa** configuration ; un launcher en lecture seule
 affiche la disposition reçue. Aucune option tmux nouvelle.
 
+## v6.3.0 — LOT-5 : commutateur du masquage des teammates inactifs (#188)
+
+### Réglage `TEAM_HIDE_IDLE_ENABLED` de `config.conf` **[NEW]**
+
+```json
+{ "key": "TEAM_HIDE_IDLE_ENABLED", "group": "teams", "label": "Cacher les teammates inactifs",
+  "type": "bool", "value": true, "default": true, "set": false, "editable": true }
+```
+
+- Fichier : `1` / `0`. Absent : activé (comportement de la v6.2.0).
+- `TEAM_HIDE_IDLE` garde le délai, en secondes ; il n'est pas modifié quand le commutateur est éteint.
+- Le commutateur ne se trouve que dans les Réglages (page « Launcher », groupe « teams »). La carte TEAM affiche
+  l'état, sans action.
+- Quand l'utilisateur allume le commutateur alors que le délai vaut `0`, l'interface propose `30`.
+- Pris en compte sans relance : `config.conf` est relu à l'enregistrement. Règle appliquée :
+  `contracts/tmux-options.md` « Masquage désactivé ».
+
+### `cards` — champ `teamHead.hideIdle` **[NEW]**
+
+```json
+"teamHead": { "tpl": "v5.9.4", "claude": "2.1.87", "odd": 2, "hideIdle": { "enabled": true, "delay": 30 } }
+```
+
+- `enabled` : valeur effective de `TEAM_HIDE_IDLE_ENABLED`. `delay` : `TEAM_HIDE_IDLE`, en secondes, conservé même
+  quand `enabled` est faux.
+- Masquage effectif : `enabled` vrai **et** `delay > 0`.
+- Calcul dans `core` (même résultat pour la carte de la coque Linux).
+
+### `cards.team[]` quand le masquage est désactivé **[CHANGED]**
+
+`hidden` vaut toujours faux et `idleLeft` vaut `0`. `pinned` garde son sens.
+
+### `teamToggle` **[CHANGED]**
+
+Nouveau cas de refus : la bascule qui cacherait un teammate alors que le masquage est désactivé rend
+`{ "ok": false, "msg": "masquage désactivé : l'activer dans les Réglages" }`. Les autres cas sont inchangés.
