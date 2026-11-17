@@ -249,9 +249,14 @@ func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
 // machine — serveur de maquettes, serveur de développement d'un projet — est du
 // même « site » : SameSite=Strict ne la retient pas.
 func (w *webBridge) sameOrigin(r *http.Request) bool {
-	if r.Header.Get("Sec-Fetch-Site") == "cross-site" { // le navigateur déclare une requête d'un autre site : refusée
+	switch r.Header.Get("Sec-Fetch-Site") {
+	case "cross-site": // le navigateur déclare une requête d'un autre site : refusée (les deux modes)
 		return false
-	}
+	case "same-site": // un autre sous-domaine du même site : refusé en mode « none » (aucun jeton ne le distingue)
+		if w.access == core.AccessNone {
+			return false
+		}
+	} // same-origin, none (navigation de l'utilisateur) ou absent : règles habituelles (Origin, corps JSON)
 	o := r.Header.Get("Origin")
 	if o == "" {
 		return true
@@ -521,6 +526,7 @@ func RunWeb(addr string, open bool) error {
 	// Mode « none » : aucun jeton n'est tiré, lu ni écrit ; CL_DESKTOP_TOKEN est ignoré.
 	if access == core.AccessNone {
 		w.token = ""
+		removeDesktopWebToken() // le fichier d'un mode « token » précédent ne reste pas sur le volume (#F3)
 	} else if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" {
 		w.token = t
 	} else if core.InCluster() {

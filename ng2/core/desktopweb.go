@@ -414,10 +414,17 @@ func EffectiveWebAccess(conf DesktopWebConf) (string, error) {
 	return AccessToken, fmt.Errorf("%s : access %q inconnu (token ou none attendu)", src, v)
 }
 
-// AccessNoneRefusal : le mode « none » n'est admis que sur une écoute en boucle locale, ou avec une adresse publique en
-// https (derrière un proxy inverse qui porte l'accès) ; sinon le message d'erreur de réglage, "" si admis.
+// AccessNoneRefusal : le mode « none » n'est admis que sur une écoute en boucle locale SANS adresse publique, ou avec une
+// adresse publique en https (derrière un proxy inverse qui porte l'accès). Une adresse publique en http est refusée même
+// sur une écoute en boucle locale : le proxy qui la porte laisserait passer le trafic en clair, sans jeton. Rend le
+// message d'erreur de réglage, "" si admis.
 func AccessNoneRefusal(access string, loopback bool, pub *PublicURL) string {
-	if access != AccessNone || loopback || (pub != nil && pub.HTTPS()) {
+	switch {
+	case access != AccessNone:
+		return ""
+	case pub != nil && !pub.HTTPS():
+		return "accès sans jeton refusé : adresse publique en http (https exigé : sans jeton, rien ne protège un trafic en clair)"
+	case loopback || pub != nil:
 		return ""
 	}
 	return "accès sans jeton refusé : écoute réseau sans adresse publique en https"

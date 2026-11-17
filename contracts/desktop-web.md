@@ -163,12 +163,17 @@ est inchangée.
 Valeur inconnue : erreur de réglage, interface éteinte, raison dans `webUI.msg`.
 
 - Défaut du launcher (hub Linux, exe Windows) : `token` — comportement inchangé.
+- Au démarrage ou au passage en `none`, le fichier `<cache>/desktop-web-token` d'un mode `token` précédent est **supprimé**
+  (une suppression impossible n'empêche pas le démarrage : le fichier n'est plus lu). Retour en `token` : nouveau jeton.
 - Défaut du chart Helm : `none` (`contracts/helm-values.md`).
 - Le serveur de maquettes (`browser_server`) et son jeton d'appariement ne sont pas concernés.
 
 **Garde** : `none` n'est accepté que si l'écoute est en boucle locale, **ou** si une adresse publique (`url`) en
 `https` est réglée. Sinon : erreur de réglage, interface éteinte (en `desktop --web` : le processus s'arrête, code
 non nul), message « accès sans jeton refusé : écoute réseau sans adresse publique en https ».
+Une adresse publique en `http` est **refusée même sur une écoute en boucle locale** (message « accès sans jeton
+refusé : adresse publique en http (https exigé : … ») : sans jeton, rien ne protège un trafic en clair derrière le
+proxy. Boucle locale sans adresse publique : admise.
 
 **Ce que devient chaque protection**
 
@@ -199,6 +204,10 @@ non nul), message « accès sans jeton refusé : écoute réseau sans adresse pu
 **Dans les deux modes — `Sec-Fetch-Site`** : un appel à `/api/call` ou `/api/events` dont l'en-tête
 `Sec-Fetch-Site` vaut `cross-site` reçoit `403`, `X-Launcher-Refusal: origin`. En-tête absent (navigateur ancien,
 outil en ligne de commande) : pas de refus à ce titre.
+**En mode `none` seulement** : `Sec-Fetch-Site: same-site` (autre sous-domaine du même site) reçoit aussi `403`,
+`X-Launcher-Refusal: origin` — aucun jeton ne distingue cette page du navigateur de l'utilisateur ; sont admis
+`same-origin`, `none` (navigation de l'utilisateur) et l'en-tête absent (règles habituelles : `Origin`, corps JSON).
+En mode `token`, `same-site` reste admis.
 
 **Actions de la fenêtre native en mode `none`**
 

@@ -62,6 +62,13 @@ type webUI struct {
 // desktopWebTokenPath : jeton de l'interface web, tiré une fois par poste.
 func desktopWebTokenPath() string { return filepath.Join(core.CacheDir(), "desktop-web-token") }
 
+// removeDesktopWebToken : supprime le fichier du jeton (passage en mode « none ») ; absent : sans effet. Un échec de
+// suppression (droits) n'empêche pas le démarrage : le fichier n'est plus lu.
+func removeDesktopWebToken() {
+	_ = os.Remove(desktopWebTokenPath())
+	_ = os.Remove(desktopWebTokenPath() + ".new")
+}
+
 // desktopWebToken : jeton conservé (CacheDir()/desktop-web-token, 0600) pour qu'un navigateur
 // qui a le lien reste valable après une relance de la fenêtre ; créé atomiquement (O_EXCL, 0600).
 // Erreur : le jeton rendu n'est alors pas conservé (la raison est dite dans webUI.msg).
@@ -210,7 +217,9 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf, pub *core.PublicURL, ac
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	var tok string
 	var terr error
-	if access != core.AccessNone { // mode « none » : le jeton n'est ni tiré, ni lu, ni écrit
+	if access == core.AccessNone { // mode « none » : le jeton n'est ni tiré, ni lu, ni écrit — et celui d'un mode « token » précédent est supprimé
+		removeDesktopWebToken()
+	} else {
 		if w.last == "" {
 			w.last = lastDesktopWebListen() // dernier lancement
 		}
