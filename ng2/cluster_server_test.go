@@ -152,3 +152,19 @@ func TestServerModeNoneStartupOutputAndNoTokenFile(t *testing.T) {
 		t.Errorf("fichier desktop-web-token créé en mode none")
 	}
 }
+
+// LOT-4.4 : en « desktop --web », le mode none sur une écoute réseau SANS adresse publique https n'est pas démarré :
+// arrêt avec un code non nul et un message qui dit pourquoi ; avec --url https : démarre.
+func TestServerModeNoneRefusedOnNetworkListenWithoutHTTPSURL(t *testing.T) {
+	rbNeedBinary(t)
+	home := t.TempDir()
+	bin := rbCopyBin(t, filepath.Join(t.TempDir(), "bin"))
+	port := rbFreePort(t)
+	out, errOut, code := rbRun(t, bin, home, []string{"CL_WEB_ACCESS=none", "CL_IN_CLUSTER=0"}, "desktop", "--web", "--no-open", "--addr", "0.0.0.0:"+port)
+	if code == 0 {
+		t.Fatalf("code 0 : le mode none sur 0.0.0.0 sans https a démarré\n%s%s", out, errOut)
+	}
+	if m := out + errOut; !strings.Contains(m, "sans jeton") {
+		t.Errorf("le message ne dit pas pourquoi (accès sans jeton refusé) : %q", m)
+	}
+}
