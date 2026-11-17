@@ -239,12 +239,38 @@ func openFakeProject(t *testing.T) fakeProj {
 		t.Skip("tmux absent")
 	}
 	ps := sandbox(t, "", "alpha")
+	sockName := "cl-desk-r158-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano()%100000, 10)
+	// GARANTIE (enregistrée en premier, donc exécutée EN DERNIER, variables d'environnement restaurées) : aucun serveur tmux de ce
+	// test ni son fichier de socket ne survit, où qu'il ait été créé — dossier isolé du test, dossier de l'environnement d'origine
+	// (TMUX_TMPDIR de ci.sh) ou /tmp/tmux-<uid> par défaut. La garde de ci.sh (#154) échoue sinon (« sockets tmux de test
+	// laissés »). `tmux -S <chemin>` ne dépend pas de l'environnement ; plusieurs passes : un terminal encore vivant a pu relancer
+	// le serveur après le kill-server.
+	origTmpdir := os.Getenv("TMUX_TMPDIR")
+	t.Cleanup(func() {
+		uid := strconv.Itoa(os.Getuid())
+		var socks []string
+		for _, base := range []string{origTmpdir, "/tmp", os.Getenv("TMUX_TMPDIR")} {
+			if base == "" {
+				continue
+			}
+			socks = append(socks, filepath.Join(base, "tmux-"+uid, sockName))
+		}
+		for pass := 0; pass < 3; pass++ {
+			for _, sk := range socks {
+				if _, err := os.Stat(sk); err == nil {
+					_ = exec.Command("tmux", "-S", sk, "kill-server").Run()
+					_ = os.Remove(sk)
+				}
+			}
+			time.Sleep(150 * time.Millisecond)
+		}
+	})
 	if d, err := os.MkdirTemp("", "cltmux"); err == nil { // court : limite des sockets unix ; jamais /tmp/tmux-<uid>
 		t.Setenv("TMUX_TMPDIR", d)
 		t.Cleanup(func() { _ = os.RemoveAll(d) })
 	}
 	t.Setenv("TMUX", "")
-	sock := "cl-desk-r158-" + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(time.Now().UnixNano()%100000, 10)
+	sock := sockName
 	t.Setenv("CL_DESK_SOCKET", sock)
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() }) // exécuté avant la suppression du dossier
 	fake := filepath.Join(t.TempDir(), "claude")
