@@ -788,9 +788,28 @@ func TestChartRoleCoversLauncherChecksWithoutExtraExecRights(t *testing.T) {
 	}
 }
 
-// Namespace QUALIF séparé (décision H1) : les valeurs QUALIF s'installent dans claude-ng2-qualif, la PROD dans
-// claude-ng2 ; le rendu suit le namespace de la release.
-func TestChartQualifNamespaceIsSeparate(t *testing.T) {
+// Environnements (décision du 2026-11-17, remplace C1 et claude-ng2-qualif) : QUALIF dans le namespace `claude-qualif`
+// sur SA racine (/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF, volume propre) ; PROD inchangée (namespace claude-ng2, racine
+// /share/MFS/ROOT/CLAUDE_PROJETS, PVC claude-projets). Le pod de QUALIF ne monte jamais la racine de PROD.
+const (
+	qualifRoot = "/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF"
+	prodRoot   = "/share/MFS/ROOT/CLAUDE_PROJETS"
+)
+
+func readValues(t *testing.T, env string) m {
+	t.Helper()
+	b, err := os.ReadFile("../deploy/helm/values-" + env + ".yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var v m
+	if err := yaml.Unmarshal(b, &v); err != nil {
+		t.Fatal(err)
+	}
+	return v
+}
+
+func TestChartQualifNamespaceAndRootAreSeparateFromProd(t *testing.T) {
 	needHelm(t)
 	read := func(f string) string {
 		b, err := os.ReadFile(f)
@@ -799,30 +818,60 @@ func TestChartQualifNamespaceIsSeparate(t *testing.T) {
 		}
 		return string(b)
 	}
-	q, p := read("../deploy/helm/values-qualif.yaml"), read("../deploy/helm/values-prod.yaml")
-	if !strings.Contains(q, "claude-ng2-qualif") {
-		t.Errorf("values-qualif.yaml ne cite pas le namespace claude-ng2-qualif")
+	qtxt, ptxt := read("../deploy/helm/values-qualif.yaml"), read("../deploy/helm/values-prod.yaml")
+	if !strings.Contains(qtxt, "claude-qualif") || strings.Contains(qtxt, "claude-ng2-qualif") {
+		t.Errorf("values-qualif.yaml : namespace claude-qualif attendu (claude-ng2-qualif est abandonné)")
 	}
-	if strings.Contains(q, "-n claude-ng2 ") || strings.Contains(q, "-n claude-ng2\n") {
+	if strings.Contains(qtxt, "-n claude-ng2 ") || strings.Contains(qtxt, "-n claude-ng2\n") {
 		t.Errorf("values-qualif.yaml installe encore dans le namespace de la PROD (claude-ng2)")
 	}
-	if !strings.Contains(p, "claude-ng2") || strings.Contains(p, "claude-ng2-qualif") {
-		t.Errorf("values-prod.yaml : namespace claude-ng2 attendu, sans mention de la QUALIF")
+	if !strings.Contains(ptxt, "claude-ng2") || strings.Contains(ptxt, "qualif") && strings.Contains(strings.ReplaceAll(ptxt, "claude-launcher-qualif", ""), "claude-qualif") {
+		t.Errorf("values-prod.yaml : namespace claude-ng2 attendu, sans mention du namespace de la QUALIF")
 	}
-	out, errOut, err := helm(t, "template", "claude-launcher-qualif", chartDir, "-n", "claude-ng2-qualif",
+	q, p := readValues(t, "qualif"), readValues(t, "prod")
+	// PROD : réglages actuels inchangés
+	if p["rootBase"] != prodRoot || get(p, "volume", "existingClaim") != "claude-projets" {
+		t.Errorf("PROD : rootBase %v / PVC %v, attendu %s / claude-projets (réglages actuels)", p["rootBase"], get(p, "volume", "existingClaim"), prodRoot)
+	}
+	// QUALIF : racine propre, volume propre, jamais celui de la PROD
+	if q["rootBase"] != qualifRoot {
+		t.Errorf("QUALIF : rootBase %v, attendu %s", q["rootBase"], qualifRoot)
+	}
+	if mp, _ := get(q, "volume", "mountPath").(string); mp != "" && mp != qualifRoot {
+		t.Errorf("QUALIF : volume.mountPath %v, attendu %s (ou absent)", mp, qualifRoot)
+	}
+	if get(q, "volume", "existingClaim") == get(p, "volume", "existingClaim") || get(q, "volume", "existingClaim") == "claude-projets" {
+		t.Errorf("QUALIF : PVC %v identique à celui de la PROD — le pod de QUALIF monterait la racine de PROD", get(q, "volume", "existingClaim"))
+	}
+	for _, r := range []any{q["rootBase"], get(q, "volume", "mountPath")} {
+		if rs, _ := r.(string); rs != "" && (rs == prodRoot || strings.HasPrefix(rs, prodRoot+"/")) {
+			t.Errorf("QUALIF : chemin %s dans la racine de PROD", rs)
+		}
+	}
+	if q["hubName"] == "" || q["hubName"] == p["hubName"] {
+		t.Errorf("hubName : %v / %v — distincts attendus", q["hubName"], p["hubName"])
+	}
+	// rendu QUALIF dans claude-qualif : variables sous la racine de QUALIF, objets dans le namespace de la release
+	out, errOut, err := helm(t, "template", "claude-launcher-qualif", chartDir, "-n", "claude-qualif",
 		"-f", "../deploy/helm/values-qualif.yaml", "--set", "ingress.tls.clusterIssuer=interne-test")
 	if err != nil {
-		t.Fatalf("rendu QUALIF dans claude-ng2-qualif : %v\n%s", err, errOut)
+		t.Fatalf("rendu QUALIF dans claude-qualif : %v\n%s", err, errOut)
 	}
-	if !strings.Contains(out, "namespace: claude-ng2-qualif") {
-		t.Errorf("le rendu ne suit pas le namespace de la release")
+	if !strings.Contains(out, "namespace: claude-qualif") || strings.Contains(out, "namespace: claude-ng2\n") || strings.Contains(out, prodRoot) {
+		t.Errorf("le rendu QUALIF doit rester dans claude-qualif et ne jamais citer la racine de PROD")
 	}
-	if strings.Contains(out, "namespace: claude-ng2\n") {
-		t.Errorf("objet rendu dans le namespace de la PROD")
+	o, _, _ := render(t, q, "-n", "claude-qualif", "--set", "ingress.tls.clusterIssuer=interne-test")
+	e := env(t, o)
+	if e["CL_ROOT_BASE"] != qualifRoot || !strings.HasPrefix(e["CL_CACHE_DIR"], qualifRoot+"/.cache/claude-launcher-ng2/") {
+		t.Errorf("variables du pod de QUALIF : CL_ROOT_BASE=%q CL_CACHE_DIR=%q", e["CL_ROOT_BASE"], e["CL_CACHE_DIR"])
 	}
-	// script de déploiement : un compte par namespace
-	b, _ := os.ReadFile("../.claude-launcher/k8s-acces-deploy.sh")
-	if len(b) > 0 && !(strings.Contains(string(b), "claude-ng2-qualif") && strings.Contains(string(b), "claude-ng2")) {
-		t.Errorf(".claude-launcher/k8s-acces-deploy.sh ne traite pas les deux namespaces")
+	if e["CL_HUB_NAME"] == p["hubName"] {
+		t.Errorf("le pod de QUALIF porte le nom de hub de la PROD (%q)", e["CL_HUB_NAME"])
+	}
+	// script de déploiement : un compte par namespace (QUALIF dans claude-qualif)
+	if b, _ := os.ReadFile("../.claude-launcher/k8s-acces-deploy.sh"); len(b) > 0 {
+		if !strings.Contains(string(b), "claude-qualif") || !strings.Contains(string(b), "claude-ng2") || strings.Contains(string(b), "claude-ng2-qualif") {
+			t.Errorf(".claude-launcher/k8s-acces-deploy.sh : claude-qualif et claude-ng2 attendus, plus claude-ng2-qualif")
+		}
 	}
 }
