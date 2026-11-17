@@ -1129,4 +1129,12 @@ func TestChartVolumeCreateStorageClassExcludesPersistentVolume(t *testing.T) {
 	if _, out, err := render(t, v2); err == nil {
 		t.Errorf("StorageClass ET PV créé acceptés\n%.200s", out)
 	}
+	// StorageClass ET nom de PV (liaison statique) : exclusifs aussi, même sans création du PV
+	v3 := withVolumeCreate(baseValues(), func(c m) { c["storageClassName"] = "moosefs-dyn" })
+	_, out3, err3 := render(t, v3)
+	if err3 == nil {
+		t.Errorf("StorageClass ET persistentVolume.name acceptés (liaison statique et provisionnement dynamique)")
+	} else if !strings.Contains(out3, "exclusif") {
+		t.Errorf("le message ne dit pas que les deux sont exclusifs : %s", out3)
+	}
 }
