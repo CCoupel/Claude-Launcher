@@ -58,7 +58,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 |-------|--------|-----------------|----------------|------|
 | 1 | Depuis un pod, `curl http://claude-launcher-qualif.claude-qualif:8080/` (Service interne, hors Ingress) | Reponse HTTP sans cookie de session exploitable (cookie `Secure`, `__Host-`) ; **risque accepte** : pas de NetworkPolicy en v6.3.0 (#172 en v6.4.0) | | |
 | 2 | `kubectl auth can-i --list --as=system:serviceaccount:claude-qualif:claude-launcher-qualif -n claude-qualif` | Seulement les droits du Role ; **rien** dans `claude-ng2` (PROD) ni au niveau du cluster | | |
-| 3 | `kubectl -n claude-qualif get pvc` ; `kubectl -n claude-qualif get statefulset claude-launcher-qualif -o jsonpath='{.spec.template.spec.volumes}'` | Seul le PVC **de QUALIF** est monte (jamais `claude-projets`) ; le chart n'en cree aucun | | |
+| 3 | `kubectl -n claude-qualif get pvc` ; `kubectl -n claude-qualif get statefulset claude-launcher-qualif -o jsonpath='{.spec.template.spec.volumes}'` | Seul le PVC **de QUALIF** `claude-projects-qualif` est monte (jamais `claude-projets`) ; il est cree par le chart (RWX, lie a `claude-qualif-pv`, annotation `helm.sh/resource-policy: keep`) | | |
 | 4 | Pods de projets de QUALIF sous le label PSA `baseline` | Demarrent sans refus de politique (sinon : le signaler) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL

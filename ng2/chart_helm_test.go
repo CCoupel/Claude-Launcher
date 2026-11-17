@@ -875,3 +875,210 @@ func TestChartQualifNamespaceAndRootAreSeparateFromProd(t *testing.T) {
 		}
 	}
 }
+
+// ── volume.create : le chart peut créer le PVC (et, en option, le PV statique) de la racine ──────────────────────
+// Contrat : contracts/helm-values.md (volume.create.*). Le PVC et le PV portent helm.sh/resource-policy: keep :
+// `helm uninstall` ne les supprime jamais (ni les fichiers de la racine).
+
+func withVolumeCreate(v m, mod func(c m)) m {
+	v = clone(v)
+	c := sub(v, "volume", "create")
+	c["enabled"] = true
+	if mod != nil {
+		mod(c)
+	}
+	return v
+}
+
+func annotationsOf(o m) m {
+	a, _ := get(o, "metadata", "annotations").(m)
+	return a
+}
+
+func TestChartCreatesNoVolumeByDefault(t *testing.T) {
+	needHelm(t)
+	o := must(t, baseValues())
+	for _, k := range []string{"PersistentVolumeClaim", "PersistentVolume"} {
+		if len(o[k]) != 0 {
+			t.Errorf("%s créé sans volume.create.enabled (le PVC existant n'est ni créé ni supprimé par le chart)", k)
+		}
+	}
+	// environnement de PROD : aucun PV/PVC rendu
+	out, errOut, err := helm(t, "template", "claude-launcher", chartDir, "-n", "claude-ng2", "-f", "../deploy/helm/values-prod.yaml", "--set", "ingress.tls.clusterIssuer=interne-test")
+	if err != nil {
+		t.Fatalf("rendu PROD : %v\n%s", err, errOut)
+	}
+	if strings.Contains(out, "kind: PersistentVolume") {
+		t.Errorf("PV ou PVC rendu par les valeurs de PROD (inchangées : le PVC claude-projets existe déjà)")
+	}
+}
+
+func TestChartCreatesPVCKeptAtUninstall(t *testing.T) {
+	needHelm(t)
+	o := must(t, withVolumeCreate(baseValues(), nil))
+	pvcs := o["PersistentVolumeClaim"]
+	if len(pvcs) != 1 {
+		t.Fatalf("%d PVC, attendu 1", len(pvcs))
+	}
+	pvc := pvcs[0]
+	if get(pvc, "metadata", "name") != "claude-projets" {
+		t.Errorf("PVC nommé %v, attendu volume.existingClaim (claude-projets)", get(pvc, "metadata", "name"))
+	}
+	if annotationsOf(pvc)["helm.sh/resource-policy"] != "keep" {
+		t.Errorf("annotation helm.sh/resource-policy = %v, attendu keep (jamais supprimé par helm uninstall)", annotationsOf(pvc)["helm.sh/resource-policy"])
+	}
+	spec, _ := pvc["spec"].(m)
+	if modes, _ := spec["accessModes"].([]any); len(modes) != 1 || modes[0] != "ReadWriteMany" {
+		t.Errorf("accessModes = %v, attendu [ReadWriteMany]", spec["accessModes"])
+	}
+	if get(spec, "resources", "requests", "storage") != "100Gi" {
+		t.Errorf("taille par défaut = %v, attendu 100Gi", get(spec, "resources", "requests", "storage"))
+	}
+	if sc, ok := spec["storageClassName"]; !ok || sc != "" {
+		t.Errorf("storageClassName = %v, attendu \"\" explicite (liaison statique, pas de StorageClass par défaut)", spec["storageClassName"])
+	}
+	// sans nom ni création du PV : liaison statique par défaut (le contrat donne « <existingClaim>-pv » comme nom par
+	// défaut du PV) — volumeName absent (tout PV statique compatible) ou égal à ce nom, jamais un autre
+	if vn, has := spec["volumeName"]; has && vn != "claude-projets-pv" {
+		t.Errorf("volumeName = %v, attendu absent ou <existingClaim>-pv", vn)
+	}
+	if len(o["PersistentVolume"]) != 0 {
+		t.Errorf("PV créé alors que persistentVolume.enabled est faux (le PV est celui de l'administrateur)")
+	}
+	// le StatefulSet monte bien ce PVC
+	found := false
+	for _, x := range pod(t, o)["volumes"].([]any) {
+		if get(x, "persistentVolumeClaim", "claimName") == "claude-projets" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("le pod ne monte pas le PVC")
+	}
+	// valeurs personnalisées
+	o2 := must(t, withVolumeCreate(baseValues(), func(c m) {
+		c["storage"] = "5Ti"
+		sub(c, "persistentVolume")["name"] = "pv-admin"
+	}))
+	spec2 := get(o2["PersistentVolumeClaim"][0], "spec").(m)
+	if get(spec2, "resources", "requests", "storage") != "5Ti" || spec2["volumeName"] != "pv-admin" {
+		t.Errorf("taille / PV nommé non pris en compte : %v / %v", get(spec2, "resources", "requests", "storage"), spec2["volumeName"])
+	}
+	if len(o2["PersistentVolume"]) != 0 {
+		t.Errorf("PV créé avec le seul nom (sans persistentVolume.enabled)")
+	}
+}
+
+func pvValues(mod func(src m)) m {
+	return withVolumeCreate(baseValues(), func(c m) {
+		pv := sub(c, "persistentVolume")
+		pv["enabled"] = true
+		src := m{"nfs": m{"server": "10.0.0.5", "path": "/data/p"}}
+		if mod != nil {
+			mod(src)
+		}
+		pv["source"] = src
+	})
+}
+
+func TestChartCreatesStaticPVRetainedAndBound(t *testing.T) {
+	needHelm(t)
+	o := must(t, pvValues(nil))
+	if len(o["PersistentVolume"]) != 1 || len(o["PersistentVolumeClaim"]) != 1 {
+		t.Fatalf("%d PV et %d PVC, attendu 1 et 1", len(o["PersistentVolume"]), len(o["PersistentVolumeClaim"]))
+	}
+	pv := o["PersistentVolume"][0]
+	if get(pv, "metadata", "name") != "claude-projets-pv" {
+		t.Errorf("PV nommé %v, attendu <existingClaim>-pv", get(pv, "metadata", "name"))
+	}
+	if annotationsOf(pv)["helm.sh/resource-policy"] != "keep" {
+		t.Errorf("PV sans helm.sh/resource-policy: keep")
+	}
+	spec := pv["spec"].(m)
+	if spec["persistentVolumeReclaimPolicy"] != "Retain" {
+		t.Errorf("persistentVolumeReclaimPolicy = %v, attendu Retain", spec["persistentVolumeReclaimPolicy"])
+	}
+	if modes, _ := spec["accessModes"].([]any); len(modes) != 1 || modes[0] != "ReadWriteMany" {
+		t.Errorf("accessModes du PV = %v", spec["accessModes"])
+	}
+	if get(spec, "claimRef", "name") != "claude-projets" || get(spec, "claimRef", "namespace") == nil {
+		t.Errorf("claimRef = %v, attendu le PVC du chart (nom et namespace)", spec["claimRef"])
+	}
+	if get(spec, "nfs", "path") != "/data/p" || get(spec, "nfs", "server") != "10.0.0.5" {
+		t.Errorf("source recopiée telle quelle : %v", spec["nfs"])
+	}
+	if get(spec, "capacity", "storage") != "100Gi" {
+		t.Errorf("capacité du PV = %v, attendu celle du PVC (100Gi)", get(spec, "capacity", "storage"))
+	}
+	if ns := get(pv, "metadata", "namespace"); ns != nil {
+		t.Errorf("PV avec un namespace (%v) : objet du cluster", ns)
+	}
+	// le PV est un objet du cluster : aucun ClusterRole n'est créé pour autant
+	if len(o["ClusterRole"]) != 0 || len(o["ClusterRoleBinding"]) != 0 {
+		t.Errorf("ClusterRole créé pour gérer le PV (droits d'administrateur au déploiement, pas au pod)")
+	}
+	pvcSpec := get(o["PersistentVolumeClaim"][0], "spec").(m)
+	if pvcSpec["volumeName"] != "claude-projets-pv" {
+		t.Errorf("le PVC n'est pas lié au PV créé : %v", pvcSpec["volumeName"])
+	}
+}
+
+func TestChartPVSourceMandatoryAndPlatformKeysRefused(t *testing.T) {
+	needHelm(t)
+	must(t, pvValues(nil)) // précondition : une configuration valide rend
+	// PV demandé sans source
+	v := withVolumeCreate(baseValues(), func(c m) { sub(c, "persistentVolume")["enabled"] = true })
+	if _, out, err := render(t, v); err == nil {
+		t.Errorf("PV sans source accepté\n%.200s", out)
+	} else if !strings.Contains(out, "source") {
+		t.Errorf("le message ne nomme pas « source » : %s", out)
+	}
+	// clés posées par le chart, refusées dans la source
+	for _, key := range []string{"capacity", "accessModes", "claimRef", "persistentVolumeReclaimPolicy", "storageClassName", "volumeMode"} {
+		t.Run(key, func(t *testing.T) {
+			var val any = "x"
+			switch key {
+			case "capacity", "claimRef":
+				val = m{"name": "x"}
+			case "accessModes":
+				val = []any{"ReadWriteOnce"}
+			}
+			v := pvValues(func(src m) { src[key] = val })
+			if _, out, err := render(t, v); err == nil {
+				t.Errorf("clé %s acceptée dans persistentVolume.source\n%.200s", key, out)
+			} else if !strings.Contains(out, key) {
+				t.Errorf("le message ne nomme pas %s : %s", key, out)
+			}
+		})
+	}
+}
+
+// Valeurs de QUALIF : PVC créé par le chart (claude-projects-qualif, lié au PV de l'administrateur claude-qualif-pv),
+// aucun PV rendu ; rootBase de QUALIF montée seulement.
+func TestChartQualifValuesCreateItsOwnPVC(t *testing.T) {
+	needHelm(t)
+	q := readValues(t, "qualif")
+	o, out, err := render(t, q, "-n", "claude-qualif", "--set", "ingress.tls.clusterIssuer=interne-test")
+	if err != nil {
+		t.Fatalf("rendu QUALIF : %v\n%s", err, out)
+	}
+	if len(o["PersistentVolumeClaim"]) != 1 {
+		t.Fatalf("%d PVC rendus pour la QUALIF, attendu 1", len(o["PersistentVolumeClaim"]))
+	}
+	pvc := o["PersistentVolumeClaim"][0]
+	if get(pvc, "metadata", "name") != "claude-projects-qualif" || (get(pvc, "metadata", "namespace") != nil && get(pvc, "metadata", "namespace") != "claude-qualif") {
+		t.Errorf("PVC de QUALIF : %v / %v", get(pvc, "metadata", "name"), get(pvc, "metadata", "namespace"))
+	}
+	if get(pvc, "spec", "volumeName") != "claude-qualif-pv" {
+		t.Errorf("volumeName = %v, attendu claude-qualif-pv", get(pvc, "spec", "volumeName"))
+	}
+	if annotationsOf(pvc)["helm.sh/resource-policy"] != "keep" {
+		t.Errorf("PVC de QUALIF supprimable par helm uninstall")
+	}
+	if len(o["PersistentVolume"]) != 0 {
+		t.Errorf("PV rendu par défaut pour la QUALIF (créé par l'administrateur)")
+	}
+	if strings.Contains(out, "claimName: claude-projets\n") {
+		t.Errorf("le pod de QUALIF monte le PVC de la PROD")
+	}
+}
