@@ -1138,3 +1138,43 @@ func TestChartVolumeCreateStorageClassExcludesPersistentVolume(t *testing.T) {
 		t.Errorf("le message ne dit pas que les deux sont exclusifs : %s", out3)
 	}
 }
+
+// Valeurs volume.create.persistentVolume.* posées SANS volume.create.enabled : refusées (elles seraient ignorées en
+// silence : on croirait un PV créé alors qu'aucun objet ne l'est). Observation QA LOT-4.2.
+func TestChartPersistentVolumeValuesWithoutCreateAreRefused(t *testing.T) {
+	needHelm(t)
+	must(t, baseValues()) // précondition
+	must(t, pvValues(nil))
+	for _, tc := range []struct {
+		name string
+		mod  func(pv m)
+	}{
+		{"enabled", func(pv m) {
+			pv["enabled"] = true
+			pv["name"] = "claude-projets-pv"
+			pv["source"] = m{"nfs": m{"server": "10.0.0.5", "path": "/data/p"}}
+		}},
+		{"source", func(pv m) { pv["source"] = m{"nfs": m{"server": "10.0.0.5", "path": "/data/p"}} }},
+		{"name", func(pv m) { pv["name"] = "claude-projets-pv" }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			v := clone(baseValues())
+			tc.mod(sub(v, "volume", "create", "persistentVolume"))
+			_, out, err := render(t, v)
+			if err == nil {
+				t.Fatalf("persistentVolume.%s posé sans volume.create.enabled accepté (ignoré en silence)", tc.name)
+			}
+			if !strings.Contains(out, "volume.create.enabled") {
+				t.Errorf("le message ne nomme pas volume.create.enabled : %s", out)
+			}
+		})
+	}
+	// create.enabled explicitement faux : même refus
+	v := clone(baseValues())
+	c := sub(v, "volume", "create")
+	c["enabled"] = false
+	sub(c, "persistentVolume")["enabled"] = true
+	if _, _, err := render(t, v); err == nil {
+		t.Errorf("persistentVolume.enabled avec volume.create.enabled=false accepté")
+	}
+}

@@ -25,6 +25,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 ## Prerequis (verifies avant tout, un par un)
 
 - [ ] **Administrateur** (fiche `_work/reports/infra-admin-noeuds-20261117-090000.md`) : namespace `claude-qualif` ; PSA `baseline` sur `claude-ng2` **et** `claude-qualif` ; PV `claude-qualif-pv` vers `/share/MFS/ROOT/CLAUDE-QUALIF` (**source verifiee** : jamais `CLAUDE_PROJETS`) ; compte `ng2-deploy` dans les deux namespaces ; DNS `launcher-qualif.coupel.lan` ; `externalTrafficPolicy: Local` sur le Service Traefik ; ClusterIssuer interne reel (nom dans `PRIVATE/QUALIF/values-local.yaml`) ; registre `192.168.1.211:5000` demarre et noeuds configures pour le tirage HTTP
+- [ ] **`qualif.env`** (modele `qualif.env.example`) : `QUALIF_REGISTRY` (`192.168.1.211:5000`), `QUALIF_NAMESPACE` (`claude-qualif`), `QUALIF_KUBECONFIG` (`PRIVATE/QUALIF/ng2-deploy.kubeconfig`), `QUALIF_VALUES_LOCAL` (`PRIVATE/QUALIF/values-local.yaml`) renseignes ; environnement « launcher du cluster » declare dans `.claude/project-config.json` (`cluster_launcher` de QUALIF et de PROD)
 - [ ] **Acces** : `PRIVATE/QUALIF/ng2-deploy.kubeconfig` (`kubectl -n claude-qualif auth can-i create statefulsets` = `yes`) ; un poste dans `192.168.1.0/24`, un poste **hors** de la plage, un pod de test
 - [ ] **Racine de QUALIF** : dossier cree (proprietaire `1000:1000`), `backends.yaml` de QUALIF (memes types que la PROD, `k8s` → `claude-qualif`, volumes → `claude-projects-qualif`), projets factices avec faux `claude` — voir `deploy.qualif.md`
 - [ ] **Sauvegarde** horodatee des fichiers de la racine de PROD (`config.conf`, `backends.yaml`, `projects.json`, jeton) pour la comparaison finale (scenario 12)
@@ -41,8 +42,8 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | 1 | Trois passes de `scripts/ci.sh` dans le conteneur de developpement (voir `tests/procedures/ci/ci-60s-179/`) | Trois passes vertes ; duree de chaque etape affichee ; **hors etape image** : moyenne <= 60 s | | |
 | 2 | Duree de l'**etape image a chaud** (relevee dans la ligne `durees`) | <= 20 s (budget D1) ; a froid : relevee, sans budget | | |
 | 3 | `helm lint --strict` + rendu : les 29 `TestChart*` verts (`go test -run TestChart ./ng2`) | Verts ; chaque refus (adresses, `rootBase`, valeurs reservees, TLS, nom du PV…) prouve par `helm template` | | |
-| 4 | Garde : sans `buildah` ou sans `helm`, `ci.sh` sous Linux | **Echec explicite** (message nommant l'outil), jamais un saut silencieux ; sous Windows : pas d'image | | |
-| 5 | Garde : l'image construite par `ci.sh` est supprimee apres usage (stockage vfs) | `buildah images` ne garde pas d'image de travail apres la passe | | |
+| 4 | **Garde automatique de `ci.sh`** : `tests/integration/ci/ci-image-chart-177/ci-guard.sh` (~2 min 15 ; jamais depuis `ci.sh`) | `GARDE ci.sh : OK` : sans `helm` puis sans `buildah` → **echec explicite** (code != 0, message « <outil> est requis », jamais « CI OK ») ; deux passages complets avec les etapes `chart` et `image` dans la ligne `durees` ; image a chaud <= 20 s, hors image <= 60 s ; **une seule** image `localhost/claude-launcher:ci` (celle du passage precedent supprimee), `build/ci` supprime ; sous Windows : ni chart ni image | | |
+| 5 | Refus du chart : `persistentVolume.*` pose sans `volume.create.enabled` | Refuse en nommant `volume.create.enabled` (`TestChartPersistentVolumeValuesWithoutCreateAreRefused`) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -54,7 +55,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | `deploy/image/build.sh v<X.Y.Z.a>` | Binaire statique par la commande de `release.yml`, image locale ; durees affichees | | |
+| 1 | Image **depuis le binaire candidat de BUILD** : `SOURCE_BIN=build/candidate_v<X.Y.Z>/claude-launcher-ng2-<X.Y.Z.a> OUT_DIR=build/candidate_v<X.Y.Z> deploy/image/build.sh v<X.Y.Z.a>` | Binaire candidat repris **tel quel** ; sa version est controlee (`version` doit annoncer `v<X.Y.Z.a>`, sinon **echec**) ; image locale + archive OCI et `SHA256SUMS-image-<version>` a cote du binaire ; durees affichees | | |
 | 2 | Controles de l'image : scenarios 1 a 3 de `image-launcher-167/image-launcher.md` | Non root `1000:1000`, version = tag, `git gh kubectl bash` presents, ni `tmux` ni `claude`, entrypoint 64/66, interface servie avec dossier monte, `config.conf` cree sous la racine montee, aucun jeton imprime, SIGTERM propre | | |
 | 3 | Pousser : `sudo buildah --storage-driver vfs push --tls-verify=false localhost/claude-launcher:v<X.Y.Z.a> docker://192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>` | Pousse ; `curl http://192.168.1.211:5000/v2/claude-launcher/tags/list` liste le tag | | |
 | 4 | Le tag de PRODUCTION n'est pas touche | Aucun tag `vX.Y.Z` (sans `.a`) cree ni modifie ; rien sur ghcr | | |

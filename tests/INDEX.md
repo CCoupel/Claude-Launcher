@@ -31,3 +31,4 @@
 | tests/integration/helm/ | integration | main | Chart Helm : lint, rendu contrôlé, aucun ClusterRole, ClusterIP, liste d'adresses (Traefik/nginx), TLS obligatoire, variables et sécurité du pod (#170, #173) | feature | |
 | tests/procedures/ci/chart-qualif-170/ | procedure | main | Chart en QUALIF : namespace separe, liste d'adresses (test negatif hors plage, depuis un pod, X-Forwarded-For), droits, desinstallation (#170, #173) | feature | slow |
 | tests/procedures/ci/qualif-cluster-177/ | procedure | main | QUALIF de bout en bout du launcher du cluster : CI/image, installation, Ingress autorise/refuse, projet factice, pod recree, cohabitation, 1 h, mise a jour par tag, desinstallation, isolation (#177) | feature | slow |
+| tests/integration/ci/ci-image-chart-177/ | integration | main | Garde de scripts/ci.sh : outil manquant = echec explicite, etapes chart et image mesurees, budgets D1, une seule image ci gardee (#177) | feature | slow |
