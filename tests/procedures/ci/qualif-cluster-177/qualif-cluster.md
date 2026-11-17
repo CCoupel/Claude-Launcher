@@ -183,7 +183,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | 2 | `helm upgrade --install … --set image.tag=v<X.Y.Z.b> --set image.digest=$(cat …/digest-v<X.Y.Z.b>)` en surveillant `kubectl get pod -w` | **L'ancien pod est arrete avant le demarrage du nouveau** (un seul pod a tout instant : pas de RollingUpdate) ; aucun refus « launcher deja actif » | | |
 | 3 | Version du nouveau pod : `kubectl exec … -- claude-launcher-ng2 version` | `v<X.Y.Z.b>` | | |
 | 4 | Reglages et factices apres la mise a jour | Conserves ; la page se reconnecte seule (aucun lien a rouvrir) | | |
-| 5 | Retour au tag precedent (`helm rollback` ou `--set image.tag=…`) | Fonctionne de la meme facon | | |
+| 5 | **Retour arriere rapide** : des que le nouveau pod est `Ready`, `helm rollback claude-launcher-qualif -n claude-qualif` (ou `--set image.tag=<precedent>`), **sans attendre** (moins de 10 s apres l'arret de l'ancien pod) | Le pod recree **a le meme nom** (`claude-launcher-qualif-0`) et le meme hostname : il **reprend le temoin de presence** de son predecesseur tout de suite ; **0 redemarrage** : `kubectl -n claude-qualif get pod claude-launcher-qualif-0 -o jsonpath='{.status.containerStatuses[0].restartCount}'` = `0` ; aucune ligne « launcher deja actif » dans `kubectl logs` ni `kubectl logs --previous` ; `Ready` en un seul demarrage. Repeter 3 fois (aller-retour de tags) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
