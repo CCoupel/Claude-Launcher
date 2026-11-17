@@ -39,10 +39,20 @@ func twAcquire(t *testing.T) (string, func()) {
 // twForeignNonce : contenu d'un témoin frais écrit par « un autre processus » : champs de own (hôte pid date id [nonce]) avec
 // l'identifiant de processus remplacé ; hostOverride/pidOverride (si non vides) remplacent l'hôte et le pid.
 func twWitness(t *testing.T, host string, pid int, fields ...string) {
+	twWitnessAged(t, 0, host, pid, fields...)
+}
+
+// twWitnessAged : témoin vieilli de age (date du fichier) : un prédécesseur de même pid n'est repris qu'après
+// presenceSuccessorStale sans battement ; on vieillit le témoin plutôt que d'attendre.
+func twWitnessAged(t *testing.T, age time.Duration, host string, pid int, fields ...string) {
 	t.Helper()
 	line := host + " " + itoaCore(pid) + " " + time.Now().Format(time.RFC3339) + " " + strings.Join(fields, " ")
 	if err := os.WriteFile(presencePath(), []byte(strings.TrimSpace(line)+"\n"), 0o644); err != nil { // mtime = maintenant : témoin FRAIS
 		t.Fatal(err)
+	}
+	if age > 0 {
+		old := time.Now().Add(-age)
+		_ = os.Chtimes(presencePath(), old, old)
 	}
 }
 
@@ -71,8 +81,12 @@ func TestPresenceSuccessorWithSamePIDTakesOverFreshWitness(t *testing.T) {
 	// même hôte et même pid, identifiants différents (id du launcher et identifiant de processus d'un AUTRE processus)
 	fields := append([]string{}, f[3:]...)
 	fields[len(fields)-1] = "predecesseur-disparu-0123456789abcdef"
-	twWitness(t, f[0], os.Getpid(), fields...)
+	twWitnessAged(t, presenceSuccessorStale+2*time.Second, f[0], os.Getpid(), fields...) // sans battement depuis plus que presenceSuccessorStale
+	t0 := time.Now()
 	rel2, err := AcquirePresence()
+	if time.Since(t0) > 3*time.Second {
+		t.Errorf("reprise lente (%v) : un témoin déjà silencieux doit être repris tout de suite", time.Since(t0))
+	}
 	if err != nil {
 		t.Fatalf("le successeur (même nom de machine, même pid 1 dans son conteneur) est refusé : %v", err)
 	}
@@ -132,7 +146,7 @@ func TestPresenceOldFormatWitnessWithSamePIDIsTakenOver(t *testing.T) {
 	if len(old) > 1 {
 		old = old[:len(old)-1]
 	}
-	twWitness(t, f[0], os.Getpid(), old...)
+	twWitnessAged(t, presenceSuccessorStale+2*time.Second, f[0], os.Getpid(), old...)
 	rel2, err := AcquirePresence()
 	if err != nil {
 		t.Fatalf("témoin de l'ancien format, même hôte et même pid, refusé : %v", err)
