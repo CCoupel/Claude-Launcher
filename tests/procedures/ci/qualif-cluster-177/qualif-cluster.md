@@ -19,12 +19,12 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 | Volume | PVC `claude-projects-qualif` cree par le chart, lie au PV `claude-qualif-pv` (administrateur) |
 | Nom de hub / release | `cluster-qualif` / `claude-launcher-qualif` |
 | Image | `192.168.1.211:5000/claude-launcher:v<X.Y.Z.a>` (registre interne, HTTP, sans digest : risque accepte H2) |
-| Acces | `https://launcher-qualif.coupel.lan` (Ingress Traefik, `192.168.1.0/24`) |
+| Acces | `https://launcher-qualif.local` (Ingress Traefik, `192.168.1.0/24`) |
 | Projets | factices seulement : `<racine>/PROJETS/QUALIF/factice-1`, `factice-2` (faux `claude`) |
 
 ## Prerequis (verifies avant tout, un par un)
 
-- [ ] **Administrateur** (fiche `_work/reports/infra-admin-noeuds-20261117-090000.md`) : namespace `claude-qualif` ; PSA `baseline` sur `claude-ng2` **et** `claude-qualif` ; PV `claude-qualif-pv` vers `/share/MFS/ROOT/CLAUDE-QUALIF` (**source verifiee** : jamais `CLAUDE_PROJETS`) ; compte `ng2-deploy` dans les deux namespaces ; DNS `launcher-qualif.coupel.lan` ; `externalTrafficPolicy: Local` sur le Service Traefik ; ClusterIssuer interne reel (nom dans `PRIVATE/QUALIF/values-local.yaml`) ; registre `192.168.1.211:5000` demarre et noeuds configures pour le tirage HTTP
+- [ ] **Administrateur** (fiche `_work/reports/infra-admin-noeuds-20261117-090000.md`) : namespace `claude-qualif` ; PSA `baseline` sur `claude-ng2` **et** `claude-qualif` ; PV `claude-qualif-pv` vers `/share/MFS/ROOT/CLAUDE-QUALIF` (**source verifiee** : jamais `CLAUDE_PROJETS`) ; compte `ng2-deploy` dans les deux namespaces ; nom mDNS `launcher-qualif.local` (resolu par les postes, pas par les pods) ; `externalTrafficPolicy: Local` sur le Service Traefik ; ClusterIssuer interne reel (nom dans `PRIVATE/QUALIF/values-local.yaml`) ; registre `192.168.1.211:5000` demarre et noeuds configures pour le tirage HTTP
 - [ ] **`qualif.env`** (modele `qualif.env.example`) : `QUALIF_REGISTRY` (`192.168.1.211:5000`), `QUALIF_NAMESPACE` (`claude-qualif`), `QUALIF_KUBECONFIG` (`PRIVATE/QUALIF/ng2-deploy.kubeconfig`), `QUALIF_VALUES_LOCAL` (`PRIVATE/QUALIF/values-local.yaml`) renseignes ; environnement « launcher du cluster » declare dans `.claude/project-config.json` (`cluster_launcher` de QUALIF et de PROD)
 - [ ] **Acces** : `PRIVATE/QUALIF/ng2-deploy.kubeconfig` (`kubectl -n claude-qualif auth can-i create statefulsets` = `yes`) ; un poste dans `192.168.1.0/24`, un poste **hors** de la plage, un pod de test
 - [ ] **Racine de QUALIF** : dossier cree (proprietaire `1000:1000`), `backends.yaml` de QUALIF (memes types que la PROD, `k8s` → `claude-qualif`, volumes → `claude-projects-qualif`), projets factices avec faux `claude` — voir `deploy.qualif.md`
@@ -86,9 +86,9 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Poste de `192.168.1.0/24` : `curl -sk https://launcher-qualif.coupel.lan/healthz` | `200` | | |
-| 2 | IP hors plage ; depuis un pod via l'Ingress ; `X-Forwarded-For` forge | `403` dans les trois cas | | |
-| 3 | Lien d'amorçage : `https://launcher-qualif.coupel.lan/?t=<jeton>` (jeton lu par `kubectl exec … cat <CL_CACHE_DIR>/desktop-web-token`) | `303` vers `/`, cookie `__Host-` `Secure`, jeton absent de l'URL et de l'historique | | |
+| 1 | Poste de `192.168.1.0/24` : `curl -sk https://launcher-qualif.local/healthz` | `200` | | |
+| 2 | IP hors plage ; depuis un pod via l'Ingress (**`.local` n'est pas resolu par les pods** : `curl -sk --resolve launcher-qualif.local:443:<IP de Traefik> https://launcher-qualif.local/healthz`, IP lue sur un poste par `getent hosts launcher-qualif.local`) ; `X-Forwarded-For` forge | `403` dans les trois cas | | |
+| 3 | Lien d'amorçage : `https://launcher-qualif.local/?t=<jeton>` (jeton lu par `kubectl exec … cat <CL_CACHE_DIR>/desktop-web-token`) | `303` vers `/`, cookie `__Host-` `Secure`, jeton absent de l'URL et de l'historique | | |
 | 4 | Un autre nom d'hote / une autre origine (`curl -H 'Host: evil.test'`, `Origin` etrangere) | `403` distincts (« hote refuse », « origine refusee ») | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -161,7 +161,7 @@ Commandes de deploiement : `.claude/agents/environments/deploy.qualif.md`. Tests
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Interface ouverte via `launcher-qualif.coupel.lan`, un factice ouvert, 1 h sans action | Aucune erreur ; flux d'evenements vivant malgre le delai de lecture de l'Ingress (`readTimeout` Traefik) ; battement <= 20 s | | |
+| 1 | Interface ouverte via `launcher-qualif.local`, un factice ouvert, 1 h sans action | Aucune erreur ; flux d'evenements vivant malgre le delai de lecture de l'Ingress (`readTimeout` Traefik) ; battement <= 20 s | | |
 | 2 | Toutes les 10 min : action dans le terminal du factice | Reponse immediate | | |
 | 3 | Couper l'Ingress 30 s (`kubectl -n <ns-traefik> rollout restart deploy/traefik`) | Reconnexion automatique (1,5 s → 15 s) ; terminaux repris | | |
 | 4 | Regenerer le jeton depuis le pod (Reglages > Interface web) | Onglet : « session expiree — rouvrir le lien d'acces » ; nouveau lien fonctionnel | | |

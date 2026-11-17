@@ -13,6 +13,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 - [ ] **Source du PV de QUALIF controlee** (avant toute installation) : `kubectl get pv claude-qualif-pv -o jsonpath='{.spec.csi.volumeAttributes}{.spec.nfs.path}{.spec.hostPath.path}'` (la ligne dépend du type de source ; relire aussi `kubectl get pv claude-qualif-pv -o yaml`) doit viser **`/share/MFS/ROOT/CLAUDE-QUALIF`** — jamais `/share/MFS/ROOT/CLAUDE_PROJETS` (un PV pointe la racine de PROD ferait monter la PROD par la QUALIF malgre un nom de PVC different) ; `kubectl get pv claude-qualif-pv -o jsonpath='{.spec.claimRef.namespace}/{.spec.claimRef.name}'` = `claude-qualif/claude-projects-qualif`
 - [ ] **Squelette de la racine de QUALIF** : `<racine QUALIF>/.config/claude-launcher-ng2/backends.yaml` avec **les memes types de backends que la PROD** (**podman, docker `srv1-docker` — dont `shared` pointe la racine de QUALIF — et k8s** ; pas de backend ssh), le backend `k8s` pointant `namespace: claude-qualif` et `volumes` vers le PVC de QUALIF (la ligne `context:` d'un backend k8s est ignoree en cluster : ServiceAccount du pod) ; `config.conf` cree au demarrage du pod ; **projets factices** dans la categorie `<racine QUALIF>/PROJETS/QUALIF/` (`factice-1`, `factice-2`) (depot git vide, faux `claude`) — jamais un vrai projet
 - [ ] Donnees : release `claude-launcher-qualif` installee avec `values-qualif.yaml` (**ClusterIssuer interne reel renseigne** : la valeur `a-renseigner` est refusee par le chart), image candidate `image.tag=vX.Y.Z.a` (tag sans digest : risque accepte H2, reseau interne de confiance)
+- [ ] **Nom d'acces `launcher-qualif.local` (mDNS)** : resolu par les postes du reseau, **pas par les pods** (nsswitch `files dns`) ; **certificat : CA interne obligatoire** (ACME impossible en `.local`) — ClusterIssuer interne reel
 - [ ] Acces : un poste dans `192.168.1.0/24`, un poste **hors** de cette plage (ou une IP source simulee), un pod du cluster, `kubectl -n claude-qualif`
 - [ ] **La PROD n'est pas touchee** : `config.conf`, `backends.yaml`, `projects.json`, reglages et jeton de la racine reelle restent inchanges pendant toute la QUALIF (sauvegarde horodatee avant, comparaison apres)
 
@@ -40,9 +41,9 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Depuis un poste de `192.168.1.0/24` : `curl -sk -o /dev/null -w '%{http_code}' https://launcher-qualif.coupel.lan/healthz` | `200` | | |
+| 1 | Depuis un poste de `192.168.1.0/24` : `curl -sk -o /dev/null -w '%{http_code}' https://launcher-qualif.local/healthz` | `200` | | |
 | 2 | Depuis une IP **hors** de `192.168.1.0/24` (autre sous-reseau / VPN) : meme requete | **`403`** (refus par le Middleware `ipAllowList`), jamais `200` | | |
-| 3 | Depuis un **pod** du cluster, en passant par l'Ingress (`kubectl run -it --rm curl --image=<curl> -- curl -sk https://launcher-qualif.coupel.lan/healthz`) | **`403`** : l'IP source vue par Traefik est celle du pod (hors liste), pas une adresse de noeud admise | | |
+| 3 | Depuis un **pod** du cluster, en passant par l'Ingress (**les pods ne resolvent pas `.local`** — pas de mDNS : `kubectl run -it --rm curl --image=<curl> -- curl -sk --resolve launcher-qualif.local:443:<IP de Traefik> https://launcher-qualif.local/healthz`, IP lue sur un poste par `getent hosts launcher-qualif.local`) | **`403`** : l'IP source vue par Traefik est celle du pod (hors liste), pas une adresse de noeud admise | | |
 | 4 | `kubectl -n <ns-traefik> get svc <service traefik> -o jsonpath='{.spec.externalTrafficPolicy}'` | `Local` (l'IP source du client est conservee) ; si `Cluster` : le test 2 est a refaire en lisant les journaux Traefik (l'IP vue est celle du noeud) et a signaler | | |
 | 5 | Journaux Traefik pendant les etapes 2 et 3 | L'IP source journalisee est celle du client de test, pas celle d'un noeud | | |
 | 6 | `ipStrategy` du Middleware (`kubectl get middleware -o yaml`) | Explicite si posee (profondeur / exclusions documentees) ; aucun en-tete `X-Forwarded-For` falsifiable n'elargit la liste (requete avec `X-Forwarded-For: 192.168.1.10` depuis une IP hors liste → `403`) | | |
@@ -72,7 +73,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Depuis le poste de `192.168.1.0/24` : jeton lu avec `kubectl exec … cat <CL_CACHE_DIR>/desktop-web-token`, ouvrir `https://launcher-qualif.coupel.lan/?t=<jeton>` | Redirection vers `/` (jeton retire de l'URL), interface affichee, terminaux et evenements fonctionnent | | |
+| 1 | Depuis le poste de `192.168.1.0/24` : jeton lu avec `kubectl exec … cat <CL_CACHE_DIR>/desktop-web-token`, ouvrir `https://launcher-qualif.local/?t=<jeton>` | Redirection vers `/` (jeton retire de l'URL), interface affichee, terminaux et evenements fonctionnent | | |
 | 2 | `helm uninstall … -n claude-qualif` | Objets du chart retires ; PVC, StatefulSets des projets et fichiers de la racine **intacts** | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
