@@ -69,7 +69,8 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
 2. Image candidate `v<X.Y.Z.a>` (tag **avec le « v »**, exigé par `build.sh`) construite **depuis le binaire candidat de BUILD**
    (BORE : aucun recompilage, sa version est contrôlée), puis publiée dans le paquet ghcr **de QUALIF**
    `ghcr.io/ccoupel/claude-launcher-qualif` — **jamais** dans `ghcr.io/ccoupel/claude-launcher` (PROD, écrit seulement par la CI au tag).
-   Bloc à lancer d'un seul tenant (sous-shell : `set -e`, garde avant envoi, fichier d'authentification supprimé même en cas d'échec) :
+   Bloc à lancer d'un seul tenant (sous-shell : `set -e`, garde avant envoi, identifiants en tmpfs, déconnexion et suppression même en cas
+   d'échec ; post-condition : aucun `PRIVATE/QUALIF/.ghcr-auth.json`) :
    ```bash
    (
      set -euo pipefail
@@ -79,8 +80,10 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
      # garde : jamais le paquet de PROD
      case "$REF" in ghcr.io/ccoupel/claude-launcher-qualif:*) ;; *) echo "ARRÊT : $REF n'est pas dans ghcr.io/ccoupel/claude-launcher-qualif" >&2; exit 1 ;; esac
      OUT_DIR=$C SOURCE_BIN=$C/claude-launcher-ng2-${V#v} OCI_ARCHIVE=1 deploy/image/build.sh "$V"
-     A=PRIVATE/QUALIF/.ghcr-auth.json
-     trap 'sudo rm -f "$A"' EXIT                   # jeton jamais laissé sur disque, même en cas d'échec
+     # identifiants ghcr en mémoire (tmpfs /dev/shm), JAMAIS sur le partage ; déconnexion + suppression même en échec
+     A=$(mktemp -p /dev/shm claude-launcher-ghcr-XXXXXX.json)
+     printf '{}' > "$A"                           # buildah exige un JSON valide, pas un fichier vide
+     trap 'sudo buildah logout --authfile "$A" ghcr.io >/dev/null 2>&1; sudo rm -f "$A"; test ! -e PRIVATE/QUALIF/.ghcr-auth.json' EXIT
      (umask 077; gh auth token | sudo buildah login --authfile "$A" -u "$(gh api user --jq .login)" --password-stdin ghcr.io)
      sudo buildah --storage-driver vfs push --authfile "$A" --digestfile "$C/digest-$V" "localhost/claude-launcher:$V" "docker://$REF"
      sudo chown "$(id -u):$(id -g)" "$C/digest-$V"
@@ -106,14 +109,18 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
      KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif rollout status statefulset/claude-launcher-qualif --timeout=5m
    )
    ```
-4. URL d'amorçage — **le jeton n'est jamais affiché** : il est lu dans le pod et écrit dans un fichier privé (600), à ouvrir sur le poste :
+4. URL d'amorçage — **le jeton n'est jamais affiché ni écrit sur le partage** : lu dans le pod, écrit dans un fichier en mémoire
+   (tmpfs `/dev/shm`, 600) que **l'utilisateur** ouvre dans son terminal ; le fichier s'efface seul au bout de 10 min :
    ```bash
    ( umask 077; . .claude/agents/environments/qualif.env
+     U=$(mktemp -p /dev/shm claude-launcher-qualif-url-XXXXXX)
      t=$(KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif exec statefulset/claude-launcher-qualif -- \
            cat /share/MFS/ROOT/CLAUDE-QUALIF/.cache/claude-launcher-ng2/cluster-qualif/desktop-web-token)
-     printf 'https://launcher-qualif.local/?t=%s\n' "$t" > PRIVATE/QUALIF/url-amorcage.txt
-     echo "URL d'amorçage : PRIVATE/QUALIF/url-amorcage.txt (${#t} caractères de jeton)" )
+     printf 'https://launcher-qualif.local/?t=%s\n' "$t" > "$U"; unset t
+     ( sleep 600; rm -f "$U" ) >/dev/null 2>&1 &
+     echo "URL d'amorçage : $U (à ouvrir par l'utilisateur : cat $U ; effacée dans 10 min)" )
    ```
+   Les agents ne lisent jamais ce fichier ; l'utilisateur peut l'effacer dès l'ouverture (`rm -f /dev/shm/claude-launcher-qualif-url-*`).
 5. Diagnostic du pod : backend `k8s` → contexte ignoré, chaque droit OK dans `claude-qualif` ; ouvrir/fermer/rouvrir un factice
    (StatefulSet dans `claude-qualif` uniquement).
 6. Image désignée par son **empreinte** (étape 3) : l'ancien risque H2 (tag seul, registre HTTP interne) ne s'applique plus.
