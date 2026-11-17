@@ -1,7 +1,9 @@
-# QUALIF du launcher du cluster : namespace À PART claude-ng2-qualif (décision H1 : le Role du launcher
-# administre son namespace, la QUALIF ne doit pas toucher aux pods de projets de la PROD dans claude-ng2),
-# release « claude-launcher-qualif ». Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/QUALIF/.
-#   helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-ng2-qualif \
+# QUALIF du launcher du cluster (décision utilisateur 2026-11-17) : namespace claude-qualif, racine DÉDIÉE
+# /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF (même MooseFS, jamais la racine de PROD), avec son propre
+# .config/claude-launcher-ng2/backends.yaml (mêmes types de backends que la PROD, k8s → claude-qualif).
+# Release « claude-launcher-qualif ». Valeurs non secrètes uniquement ; un certificat fourni reste dans PRIVATE/QUALIF/.
+#   KUBECONFIG=PRIVATE/QUALIF/ng2-deploy.kubeconfig \
+#   helm upgrade --install claude-launcher-qualif deploy/helm/claude-launcher -n claude-qualif \
 #     -f deploy/helm/values-qualif.yaml --set image.tag=vX.Y.Z.a
 
 # image candidate : registre interne sur srv1-docker (décision D2, jamais ghcr) ; tag donné à l'installation.
@@ -13,12 +15,11 @@ image:
 # nom propre à la QUALIF : jamais celui de la PROD (« cluster ») ni celui d'un poste
 hubName: cluster-qualif
 
-# racine RÉELLE (décision C1) : la QUALIF lit et écrit les fichiers de production — voir les mitigations
-# de la procédure de QUALIF (sauvegarde avant, projets factices seulement, désinstallation dès validation)
-rootBase: /share/MFS/ROOT/CLAUDE_PROJETS
+# racine de QUALIF : son PVC ne monte QUE ce dossier (la racine de PROD n'est pas visible du pod)
+rootBase: /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF
 volume:
-  existingClaim: claude-projets           # PVC du namespace claude-ng2-qualif, même stockage MooseFS (fiche admin)
-  mountPath: /share/MFS/ROOT/CLAUDE_PROJETS
+  existingClaim: claude-projects-qualif   # PVC RWX du namespace claude-qualif (fiche administrateur)
+  mountPath: /share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF
 
 ingress:
   enabled: true
@@ -28,5 +29,6 @@ ingress:
   allowedSourceRanges: ["192.168.1.0/24"]
   tls:
     # ClusterIssuer interne : nom NON relu (le compte ng2-tests ne peut pas lister les clusterissuers).
-    # À RENSEIGNER avant l'installation : kubectl get clusterissuer (compte admin ou ng2-deploy)
+    # À RENSEIGNER avant l'installation : kubectl get clusterissuer (compte admin ou ng2-deploy) ;
+    # le chart refuse « a-renseigner ».
     clusterIssuer: a-renseigner

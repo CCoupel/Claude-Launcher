@@ -1,7 +1,7 @@
 #!/bin/bash
 # Comptes de déploiement « ng2-deploy » : installent et mettent à jour le chart Helm du launcher du cluster
 # (deploy/helm/claude-launcher, contracts/helm-values.md). Un compte PAR NAMESPACE (décision H1, LOT-4.2) :
-#   QUALIF → namespace claude-ng2-qualif      PROD → namespace claude-ng2
+#   QUALIF → namespace claude-qualif      PROD → namespace claude-ng2
 #
 # À lancer UNE FOIS par l'administrateur, depuis une machine qui a déjà un accès administrateur au
 # cluster (WSL), à la racine du projet :   bash .claude-launcher/k8s-acces-deploy.sh
@@ -23,7 +23,7 @@
 #
 # Variables : CTX (contexte admin, défaut k8s), SERVER (URL de l'API écrite dans le kubeconfig, défaut
 # l'adresse interne au cluster, celle des pods de développement), ENVS (défaut « QUALIF PROD »),
-# NS_QUALIF (défaut claude-ng2-qualif), NS_PROD (défaut claude-ng2).
+# NS_QUALIF (défaut claude-qualif), NS_PROD (défaut claude-ng2).
 #
 # Révoquer un environnement :  kubectl --context k8s -n claude-ng2 delete secret ng2-deploy-prod-token
 # Tout retirer (par environnement, ici PROD) :
@@ -31,7 +31,7 @@
 #   kubectl --context k8s delete clusterrole/ng2-deploy-namespace-prod clusterrolebinding/ng2-deploy-namespace-prod
 set -euo pipefail
 CTX=${CTX:-k8s}
-NS_QUALIF=${NS_QUALIF:-claude-ng2-qualif}
+NS_QUALIF=${NS_QUALIF:-claude-qualif}
 NS_PROD=${NS_PROD:-claude-ng2}
 ns_of() { case "$1" in QUALIF) echo "$NS_QUALIF" ;; PROD) echo "$NS_PROD" ;; *) echo "⚠ environnement inconnu : $1 (QUALIF ou PROD)" >&2; exit 1 ;; esac; }
 SERVER=${SERVER:-https://kubernetes.default.svc}
