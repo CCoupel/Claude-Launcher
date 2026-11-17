@@ -20,6 +20,7 @@ Décision utilisateur (2026-11-17) : la QUALIF du cluster ne touche **jamais** l
 | Volume | PVC `claude-projects-qualif` **créé par le chart** (`volume.create`, conservé à la désinstallation), lié au PV `claude-qualif-pv` créé par l'administrateur ; ne monte que la racine de QUALIF | PVC `claude-projets` existant |
 | `backends.yaml` | celui de la racine de QUALIF (ci-dessous) | le réel, inchangé |
 | Nom de hub | `cluster-qualif` | `cluster` |
+| Nom d'accès | `https://launcher-qualif.local` (mDNS, domaine `.local`) | `https://launcher.local` |
 | Compte helm | `PRIVATE/QUALIF/ng2-deploy.kubeconfig` | `PRIVATE/PROD/ng2-deploy.kubeconfig` |
 
 > **En cluster, le contexte de TOUS les backends `k8s` est ignoré** (ServiceAccount du pod, namespace déclaré) : un backend
@@ -82,9 +83,11 @@ Projets factices : `git init` ; `.claude-launcher/env.yaml` avec une étape `set
 7. **Contrôle de la liste d'adresses (H3) — obligatoire avant de déclarer l'Ingress « réservé au réseau interne »** :
    1. `kubectl -n kube-system get svc -o custom-columns=NOM:.metadata.name,POLITIQUE:.spec.externalTrafficPolicy | grep -i traefik`
       → attendu `Local` ; `Cluster` : Traefik voit l'adresse d'un nœud, la liste est inopérante → le signaler, ne pas valider.
-   2. Depuis un poste de `192.168.1.0/24` : `curl -sk -o /dev/null -w '%{http_code}' https://launcher-qualif.coupel.lan/healthz` → `200`.
+   2. Depuis un poste de `192.168.1.0/24` : `curl -sk -o /dev/null -w '%{http_code}' https://launcher-qualif.local/healthz` → `200`.
    3. Depuis une adresse **hors** de `192.168.1.0/24` (autre réseau, VPN, partage de connexion) : même commande → `403`.
-   4. Depuis un pod du cluster passant par l'Ingress (`kubectl -n claude-qualif exec <pod> -- curl -sk …`) → `403`.
+   4. Depuis un pod du cluster passant par l'Ingress → `403` (adresse de pod 10.42.x hors de la liste). Les pods ne résolvent pas
+      les noms `.local` (pas de mDNS) : `kubectl -n claude-qualif exec <pod> -- curl -sk --resolve launcher-qualif.local:443:<IP de
+      Traefik> https://launcher-qualif.local/healthz` (IP : `getent hosts launcher-qualif.local` sur un poste).
    5. `curl -sk -H 'X-Forwarded-For: 192.168.1.10' …` depuis une adresse hors liste → `403` (pas d'`ipStrategy` : Traefik juge
       l'adresse de la connexion, pas l'en-tête).
    Consigner les résultats dans le rapport de QUALIF.

@@ -36,7 +36,9 @@ ingress:
   enabled: true
   controller: traefik
   className: traefik
-  host: launcher-qualif.coupel.lan        # à déclarer dans le DNS interne (vers le contrôleur Traefik)
+  # DNS dynamique mDNS du réseau (domaine .local) : le nom est publié à partir de l'hôte de l'Ingress, aucun
+  # enregistrement à créer ; résolu par les postes (mDNS), PAS par les pods (nsswitch « files dns »)
+  host: launcher-qualif.local
   allowedSourceRanges: ["192.168.1.0/24"]
   tls:
     # ClusterIssuer interne : nom NON relu (le compte ng2-tests ne peut pas lister les clusterissuers).

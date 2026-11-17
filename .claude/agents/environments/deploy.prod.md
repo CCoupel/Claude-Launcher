@@ -31,7 +31,7 @@ pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux
   Sans cela le cluster ne peut pas tirer l'image (aucun secret de tirage prévu) ni `helm` lire le chart.
   Contrôle (sans jeton) : `curl -s "https://ghcr.io/token?scope=repository:ccoupel/claude-launcher:pull"` rend un `token`
   (et non `DENIED`) ; idem avec `ccoupel/charts/claude-launcher`.
-- Comptes `ng2-deploy`, DNS `launcher.coupel.lan`, émetteur, Pod Security : fiche administrateur
+- Comptes `ng2-deploy`, nom mDNS `launcher.local` (DNS dynamique du réseau), émetteur, Pod Security : fiche administrateur
   (`_work/reports/infra-admin-noeuds-20261117-090000.md`).
 
 1. Image et chart de release : construits et publiés par la CI sur le tag (travail `release-ng2-cluster` de `release.yml`) :
@@ -46,6 +46,6 @@ pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux
    `--set ingress.tls.clusterIssuer=<nom réel>`, ou par un fichier de valeurs local **`PRIVATE/PROD/values-local.yaml`**
    (`ingress: {tls: {clusterIssuer: <nom réel>}}`, jamais commité) ajouté en dernier : `-f PRIVATE/PROD/values-local.yaml`.
 3. URL d'amorçage : `kubectl -n claude-ng2 exec statefulset/claude-launcher -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token`.
-4. Contrôles à la première installation : test négatif de la liste d'adresses (comme en QUALIF, avec `launcher.coupel.lan`) ;
+4. Contrôles à la première installation : test négatif de la liste d'adresses (comme en QUALIF, avec `launcher.local`) ;
    prise de main hub ↔ cluster sur un projet réel, faite par l'utilisateur.
 5. Mise à jour : changer le tag (nouveau `vX.Y.Z`) — l'ancien pod s'arrête avant le démarrage du nouveau.

@@ -39,7 +39,7 @@
 | `ingress.enabled` | booléen | `true` | — | `false` : aucun Ingress (diagnostic par `kubectl port-forward` seulement) |
 | `ingress.controller` | `traefik` \| `nginx` | — | **oui** si Ingress | décide de la forme de la liste d'adresses et des annotations |
 | `ingress.className` | chaîne | — | **oui** si Ingress | `ingressClassName` |
-| `ingress.host` | nom DNS | — | **oui** si Ingress | nom interne dédié ; devient `CL_WEB_URL=https://<host>` |
+| `ingress.host` | nom DNS | — | **oui** si Ingress | nom dédié ; devient `CL_WEB_URL=https://<host>` (en-tête `Host` attendu par le serveur web). Réseau du projet : DNS dynamique mDNS, domaine `.local` (`launcher-qualif.local`, `launcher.local`) — non résolu depuis les pods |
 | `ingress.allowedSourceRanges` | liste de CIDR | — | **oui** si Ingress, **non vide** | seules adresses admises. Chaque entrée est validée (IPv4 : octets 0–255, masque /8 à /32 ; IPv6 : masque /16 à /128) : tout /0, quelle que soit son écriture, et tout préfixe plus large est refusé |
 | `ingress.tls.secretName` | chaîne | — | l'un des deux | Secret TLS fourni |
 | `ingress.tls.clusterIssuer` | chaîne | — | l'un des deux | émetteur cert-manager ; le Secret est alors `<release>-tls` |
