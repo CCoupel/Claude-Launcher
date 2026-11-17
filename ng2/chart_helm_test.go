@@ -789,10 +789,10 @@ func TestChartRoleCoversLauncherChecksWithoutExtraExecRights(t *testing.T) {
 }
 
 // Environnements (décision du 2026-11-17, remplace C1 et claude-ng2-qualif) : QUALIF dans le namespace `claude-qualif`
-// sur SA racine (/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF, volume propre) ; PROD inchangée (namespace claude-ng2, racine
+// sur SA racine (/share/MFS/ROOT/CLAUDE-QUALIF, volume propre) ; PROD inchangée (namespace claude-ng2, racine
 // /share/MFS/ROOT/CLAUDE_PROJETS, PVC claude-projets). Le pod de QUALIF ne monte jamais la racine de PROD.
 const (
-	qualifRoot = "/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF"
+	qualifRoot = "/share/MFS/ROOT/CLAUDE-QUALIF"
 	prodRoot   = "/share/MFS/ROOT/CLAUDE_PROJETS"
 )
 

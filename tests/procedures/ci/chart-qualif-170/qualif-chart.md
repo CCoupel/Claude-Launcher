@@ -9,7 +9,7 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 ## Prerequis
 
 - [ ] Environnement : QUALIF — **namespace `claude-qualif`** (separe de la PROD `claude-ng2`, decision du 2026-11-17), label Pod Security `pod-security.kubernetes.io/enforce: baseline` sur **les deux** namespaces (`kubectl get ns claude-ng2 claude-qualif --show-labels`) ; verifier que les pods de projets le respectent
-- [ ] **Racine de QUALIF separee** : `/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF` (dossier cree sur MooseFS, **different** de la racine de PROD `/share/MFS/ROOT/CLAUDE_PROJETS`), PV/PVC RWX **propre a la QUALIF** `claude-projects-qualif` dans `claude-qualif` ; le PVC `claude-projets` de la PROD n'est jamais monte par la QUALIF
+- [ ] **Racine de QUALIF separee** : `/share/MFS/ROOT/CLAUDE-QUALIF` (dossier cree sur MooseFS, **different** de la racine de PROD `/share/MFS/ROOT/CLAUDE_PROJETS`), PV/PVC RWX **propre a la QUALIF** `claude-projects-qualif` dans `claude-qualif` ; le PVC `claude-projets` de la PROD n'est jamais monte par la QUALIF
 - [ ] **Squelette de la racine de QUALIF** : `<racine QUALIF>/.config/claude-launcher-ng2/backends.yaml` avec **les memes types de backends que la PROD** (**podman, docker `srv1-docker` — dont `shared` pointe la racine de QUALIF — et k8s** ; pas de backend ssh), le backend `k8s` pointant `namespace: claude-qualif` et `volumes` vers le PVC de QUALIF (la ligne `context:` d'un backend k8s est ignoree en cluster : ServiceAccount du pod) ; `config.conf` cree au demarrage du pod ; **projets factices** dans la categorie `<racine QUALIF>/PROJETS/QUALIF/` (`factice-1`, `factice-2`) (depot git vide, faux `claude`) — jamais un vrai projet
 - [ ] Donnees : release `claude-launcher-qualif` installee avec `values-qualif.yaml` (**ClusterIssuer interne reel renseigne** : la valeur `a-renseigner` est refusee par le chart), image candidate `image.tag=vX.Y.Z.a` (tag sans digest : risque accepte H2, reseau interne de confiance)
 - [ ] Acces : un poste dans `192.168.1.0/24`, un poste **hors** de cette plage (ou une IP source simulee), un pod du cluster, `kubectl -n claude-qualif`
@@ -84,9 +84,9 @@ Reference : `contracts/helm-values.md`, `deploy/helm/values-qualif.yaml`, audit 
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | `kubectl -n claude-qualif exec claude-launcher-qualif-0 -- ls /share/MFS/ROOT` | Seule `CLAUDE-PROJECTS-QUALIF` est visible (ou le dossier parent n'est pas monte) ; `CLAUDE_PROJETS` absent | | |
+| 1 | `kubectl -n claude-qualif exec claude-launcher-qualif-0 -- ls /share/MFS/ROOT` | Seule `CLAUDE-QUALIF` est visible (ou le dossier parent n'est pas monte) ; `CLAUDE_PROJETS` absent | | |
 | 2 | `kubectl -n claude-qualif exec … -- cat /share/MFS/ROOT/CLAUDE_PROJETS/.cache/claude-launcher-ng2/cluster/desktop-web-token` | Echec : fichier introuvable (le jeton PROD n'est pas lisible depuis la QUALIF) | | |
-| 3 | Variables du pod QUALIF : `kubectl exec … -- env \| grep '^CL_'` | `CL_ROOT_BASE=/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF`, `CL_HUB_NAME=cluster-qualif` (jamais `cluster`), `CL_CACHE_DIR` sous la racine de QUALIF | | |
+| 3 | Variables du pod QUALIF : `kubectl exec … -- env \| grep '^CL_'` | `CL_ROOT_BASE=/share/MFS/ROOT/CLAUDE-QUALIF`, `CL_HUB_NAME=cluster-qualif` (jamais `cluster`), `CL_CACHE_DIR` sous la racine de QUALIF | | |
 | 4 | Dans l'interface de QUALIF : Reglages > Backends > Tester le backend `k8s` | Etapes vertes dans le namespace `claude-qualif` ; ligne d'information « contexte « k8s » ignore : ServiceAccount du pod » si le fichier le declare | | |
 | 5 | Ouvrir un projet factice depuis la QUALIF (StatefulSet dans `claude-qualif`) | Le pod du projet est cree dans `claude-qualif`, jamais dans `claude-ng2` ; `kubectl -n claude-ng2 get sts` inchange | | |
 | 6 | En fin de QUALIF : comparer les fichiers de la racine de PROD a la sauvegarde d'avant (`config.conf`, `backends.yaml`, `projects.json`, reglages, `desktop-web-token`) | **Identiques** (aucune ecriture de la QUALIF) ; le launcher de PROD n'a pas ete interrompu | | |
