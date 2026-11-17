@@ -65,6 +65,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail (printf "extraEnv : %s est posée par le chart (valeur dédiée : rootBase, hubName, allowHostBackend, web.access, ingress.host…), refusée" .name) -}}
 {{- end -}}
 {{- end -}}
+{{- if and (not .Values.ingress.enabled) (eq (.Values.web.access | default "none") "none") -}}
+{{- fail "web.access: none sans Ingress refusé (accès sans jeton sans Ingress : poser web.access: token) — le launcher exige une adresse publique https pour l'accès sans jeton" -}}
+{{- end -}}
 {{- if .Values.ingress.enabled -}}
 {{- $_ := required "ingress.controller est obligatoire quand ingress.enabled (traefik ou nginx)" .Values.ingress.controller -}}
 {{- $_ := required "ingress.className est obligatoire quand ingress.enabled" .Values.ingress.className -}}

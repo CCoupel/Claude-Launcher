@@ -196,7 +196,7 @@ case "$(uname -s)" in
     # de test est donné au rendu de QUALIF et de PROD.
     chart=../deploy/helm/claude-launcher
     issuer=(--set ingress.tls.clusterIssuer=ci-test)
-    minimal=(--set rootBase=/ci --set volume.existingClaim=ci --set ingress.enabled=false)
+    minimal=(--set rootBase=/ci --set volume.existingClaim=ci --set ingress.enabled=false --set web.access=token)
     helm lint --quiet "$chart" "${minimal[@]}" >/dev/null
     helm lint --quiet "$chart" -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" >/dev/null
     helm lint --quiet "$chart" -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null
