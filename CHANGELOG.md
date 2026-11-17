@@ -10,6 +10,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Added
+- Release : l'image du launcher est publiée multi-architecture (`linux/amd64`, `linux/arm64`) sur ghcr, avec son empreinte jointe à la release, et le chart Helm est publié en OCI sur ghcr avec son archive. La release en brouillon n'est publiée qu'une fois l'image et le chart en place. La version candidate de QUALIF est poussée dans le registre interne (#177)
+- `scripts/ci.sh` contrôle le chart Helm et construit l'image du launcher sous Linux ; `CL_CI_IMAGE=0` saute l'étape image (#177)
 - Chart Helm `deploy/helm/claude-launcher` (#170, #173) : StatefulSet à une réplique (arrêt de l'ancien pod avant le démarrage du nouveau), Service `ClusterIP` seul, Role limité au namespace sans ClusterRole, Ingress interne Traefik ou nginx avec liste d'adresses admises obligatoire, non vide, et HTTPS obligatoire, racine du pod en lecture seule, valeurs réservées. Déploiement QUALIF dans le namespace `claude-qualif` sur la racine dédiée `/share/MFS/ROOT/CLAUDE-PROJECTS-QUALIF` ; PROD dans `claude-ng2`
 - Image du launcher pour le cluster : `ghcr.io/ccoupel/claude-launcher` (uid 1000, `bash`, `git`, `gh`, `kubectl`, sans `claude` ni `tmux`), construite par `deploy/image/build.sh` ; `CL_ROOT_BASE` obligatoire au démarrage (#167)
 - Mode serveur en cluster : ServiceAccount et namespace du pod, backend k8s implicite avec `CL_K8S_VOLUMES`, diagnostic des droits un par un, jeton conservé dans le cache et jamais imprimé, arrêt propre sur SIGTERM ; `CL_UPDATE_MODE=notify` (#168)

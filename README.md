@@ -484,6 +484,11 @@ vers `main`), `ci-branch.yml` (pré-validation des branches `milestone/*`, sans 
 La CI tient en moins de 60 s hors étape image (environ 56 s mesurées sur trois passes). Le détail par étape et la
 procédure de mesure sont dans `ng2/README.md`, section « Tests ».
 
+Sous Linux, `scripts/ci.sh` contrôle aussi le chart Helm (`helm` requis) et construit l'image du launcher
+(`deploy/image/build.sh ci`, buildah requis, root ou `sudo` sans mot de passe pour la couche d'outils). Sur un poste de
+développement, l'image à chaud prend environ 15 s, et la CI complète environ 53 s. `CL_CI_IMAGE=0` saute l'étape image :
+c'est le réglage de la barrière de `release.yml`, où l'image est construite et publiée par `release-ng2-cluster`.
+
 ## Licence
 
 Copyright (C) 2026 ccoupel
