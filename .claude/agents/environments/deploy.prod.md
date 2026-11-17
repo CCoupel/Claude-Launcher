@@ -23,10 +23,21 @@ pilote **les mêmes pods de projets** que le hub (prise de main comme entre deux
 > `k8s` d'un **autre cluster** déclaré dans le `backends.yaml` de cette racine agirait sur le cluster du pod (dans le namespace
 > déclaré, si le Role le permet). Ne déclarer dans ce fichier que des backends `k8s` du cluster où tourne le launcher.
 
+**Prérequis de la première release (une seule fois)**
+
+- **P3 — paquets ghcr publics, par l'utilisateur** : à la première release, la CI crée les paquets
+  `ghcr.io/ccoupel/claude-launcher` et `ghcr.io/ccoupel/charts/claude-launcher`, **privés** par défaut. L'utilisateur les rend
+  publics une fois : GitHub → profil → *Packages* → chaque paquet → *Package settings* → *Change visibility* → *Public*.
+  Sans cela le cluster ne peut pas tirer l'image (aucun secret de tirage prévu) ni `helm` lire le chart.
+  Contrôle (sans jeton) : `curl -s "https://ghcr.io/token?scope=repository:ccoupel/claude-launcher:pull"` rend un `token`
+  (et non `DENIED`) ; idem avec `ccoupel/charts/claude-launcher`.
+- Comptes `ng2-deploy`, DNS `launcher.coupel.lan`, émetteur, Pod Security : fiche administrateur
+  (`_work/reports/infra-admin-noeuds-20261117-090000.md`).
+
 1. Image et chart de release : construits et publiés par la CI sur le tag (travail `release-ng2-cluster` de `release.yml`) :
    image `ghcr.io/ccoupel/claude-launcher:vX.Y.Z` (amd64 + arm64, empreinte jointe à la release :
    `claude-launcher-image-vX.Y.Z.digest`), chart `oci://ghcr.io/ccoupel/charts/claude-launcher` version `X.Y.Z` et archive
-   `claude-launcher-X.Y.Z.tgz` jointe. Prérequis à la 1re release : paquets ghcr **publics** (P3). Contrôle :
+   `claude-launcher-X.Y.Z.tgz` jointe. Prérequis à la 1re release : paquets ghcr **publics** (P3, ci-dessus). Contrôle :
    `gh release view vX.Y.Z` liste le `.tgz` et le `.digest`.
 2. `. .claude/agents/environments/prod.env` puis `KUBECONFIG=$PROD_KUBECONFIG helm upgrade --install claude-launcher deploy/helm/claude-launcher
    -n claude-ng2 -f deploy/helm/values-prod.yaml -f $PROD_VALUES_LOCAL` (tag = `appVersion` du chart, `vX.Y.Z`
