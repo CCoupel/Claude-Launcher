@@ -479,8 +479,8 @@ Quatre façons d'atteindre un moteur de conteneurs, plus Kubernetes :
 
 ```yaml
 backends:
-  srv1-docker: { type: docker, host: tcp://192.168.1.211:2375,  shared: [/share/MFS/ROOT] }
-  srv2-podman: { type: podman, host: tcp://192.168.1.212:8888,  shared: [/share/MFS/ROOT] }
+  srv1-docker: { type: docker, host: tcp://192.0.2.21:2375,  shared: [/share/MFS/ROOT] }
+  srv2-podman: { type: podman, host: tcp://192.0.2.22:8888,  shared: [/share/MFS/ROOT] }
   srv1-sshd:   { type: ssh, host: srv1, engine: docker,          shared: [/share/MFS/ROOT] }
   srv2-sshp:   { type: ssh, host: srv2, engine: podman,          shared: [/share/MFS/ROOT] }
 ```
@@ -501,7 +501,7 @@ et **le launcher choisit le serveur** :
 ```yaml
 backends:
   docker-pool: { type: docker, shared: [/share/MFS/ROOT],
-                 hosts: [tcp://192.168.1.211:2375, tcp://192.168.1.212:2375, tcp://192.168.1.213:2375] }
+                 hosts: [tcp://192.0.2.21:2375, tcp://192.0.2.22:2375, tcp://192.0.2.23:2375] }
   ssh-pool:    { type: ssh, engine: podman, shared: [/share/MFS/ROOT], hosts: [srv1, srv2] }
 ```
 
@@ -538,7 +538,7 @@ cite par `pool:` (à la place de `hosts:`) :
 ```yaml
 pools:
   dev:
-    hosts: [192.168.1.211, 192.168.1.212, 192.168.1.213]
+    hosts: [192.0.2.21, 192.0.2.22, 192.0.2.23]
   gros:
     hosts: [srv6, srv7, srv8]
     drain: [srv7]                # maintenance : plus de nouveaux projets
@@ -1675,9 +1675,26 @@ versions natives : le hub Linux et l'exe Windows peuvent tourner **en même temp
   créé par le chart (`volume.create.enabled: true`) lié à un PV fourni par l'administrateur (`volume.create.persistentVolume.name`) ;
   ou un PV créé aussi par le chart (`volume.create.persistentVolume.enabled: true`, droits d'administrateur). Une
   StorageClass RWX convient pour un dossier neuf (`volume.create.storageClassName`).
+- **Un PV créé par le chart** se déclare avec la **source du PV de production**, recopiée telle quelle (`source`, bloc `csi`,
+  `nfs` ou `hostPath`) ; seul le chemin change. Exemple MooseFS :
+  ```yaml
+  persistentVolume:
+    name: projets-pv
+    enabled: true
+    source:
+      csi:
+        driver: csi.moosefs.com
+        volumeHandle: projets-pv            # identifiant unique du PV : celui du PV de PROD, adapté
+        volumeAttributes:
+          mfsSubDir: /projets               # dossier MooseFS de la racine
+  ```
+  **Le dossier doit exister avant `helm install`** (créé avec des droits sur la racine MooseFS, par exemple depuis un poste
+  qui la monte). Sans lui, le pod reste en `Init:0/1` et l'événement affiche `bad mount point … No such file or directory`.
+  Le guide ne crée aucun dossier à votre place.
 - Un nom d'accès en `.local` (mDNS), par exemple `launcher.local`. Les pods ne résolvent pas les noms `.local`.
 - Une CA interne pour cert-manager, avec des contraintes de noms (`nameConstraints`) sur `launcher.local`. Le certificat
-  **public** de cette CA s'installe une fois sur chaque poste qui y accède. La clé ne sort jamais du cluster.
+  **public** de cette CA s'installe une fois sur chaque poste qui y accède. La clé ne sort jamais du cluster. Un nom d'essai
+  doit être un sous-domaine de `launcher.local` (ex. `guide-test.launcher.local`) : la CA refuse les autres.
 - Une image publiée : l'empreinte est jointe à la release, dans `claude-launcher-image-vX.Y.Z.digest`, sous la forme
   `dépôt:tag@sha256:…`. Pour n'en garder que `sha256:…` : `sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-vX.Y.Z.digest`.
 - Le namespace doit exister avant l'installation (le guide n'utilise pas `--create-namespace`) : `kubectl create namespace claude-ng2`,
@@ -1686,18 +1703,35 @@ versions natives : le hub Linux et l'exe Windows peuvent tourner **en même temp
 #### 2. Valeurs
 
 ```yaml
-# values.yaml — exemple, à adapter
+# values.yaml — exemple complet, à adapter
 rootBase: /data/projets                        # chemin absolu de la racine des projets, dans le pod
 hubName: cluster                               # unique parmi les launchers de cette racine
+image:
+  repository: ghcr.io/ccoupel/claude-launcher  # défaut ; un miroir interne le remplace
+  # tag et digest : posés à l'installation par --set (§3), jamais dans ce fichier
 volume:
-  existingClaim: projets
+  existingClaim: projets                       # nom du PVC des projets (créé ci-dessous si create.enabled)
+  create:
+    enabled: true                              # false si le PVC existe déjà
+    storage: 100Gi
+    storageClassName: ""                       # "" = liaison statique au PV ci-dessous
+    persistentVolume:
+      name: projets-pv                         # obligatoire si storageClassName est ""
+      enabled: true                            # false si le PV est fourni par l'administrateur
+      source:                                  # obligatoire si enabled: true (voir §1)
+        csi:
+          driver: csi.moosefs.com
+          volumeHandle: projets-pv
+          volumeAttributes:
+            mfsSubDir: /projets
 ingress:
   controller: traefik                          # ou nginx
   className: traefik
-  host: launcher.local
-  allowedSourceRanges: ["192.0.2.0/24"]      # seules adresses admises, non vide ; minimum /8 (IPv4), /16 (IPv6)
+  host: launcher.local                         # ou guide-test.launcher.local pour un essai
+  allowedSourceRanges: ["192.0.2.0/24"]        # seules adresses admises, non vide ; minimum /8 (IPv4), /16 (IPv6)
   tls:
     clusterIssuer: claude-launcher-ca          # ou secretName, un des deux
+  annotations: {}
 web:
   access: none                                 # défaut du chart : pas de jeton, l'Ingress est la barrière
 networkPolicy:
@@ -1731,6 +1765,10 @@ ClusterRole. Le launcher n'a aucun droit sur les Secrets Kubernetes : son coffre
 
 Installez l'image **par son empreinte** : le chart la référence `dépôt:tag@sha256:…`, telle qu'elle a été publiée.
 
+> **Pré-version (QUALIF, essai)** : le chart OCI publié et le fichier `.digest` de release n'existent qu'après une release.
+> Pour une pré-version, installez le chart local de la branche, avec l'empreinte relevée sur le déploiement QUALIF :
+> `helm upgrade --install claude-launcher ./deploy/helm/claude-launcher -n <ns> -f values.yaml --set image.tag=<tag> --set image.digest=sha256:<empreinte>`.
+
 ```bash
 VERSION=X.Y.Z                                  # version du chart et du launcher
 TAG=v$VERSION
@@ -1757,7 +1795,10 @@ Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont cr
 - **`web.access: token`** : le jeton ne s'affiche jamais dans les journaux du pod. Lisez-le dans le fichier
   `<rootBase>/.cache/claude-launcher-ng2/<hubName>/desktop-web-token` du pod, par `kubectl exec`, puis donnez-le à l'utilisateur
   par un canal sûr. Ne l'écrivez pas sur un partage.
-- **Fichiers des projets** : `https://launcher.local/files/<projet>/<chemin relatif>`. Les sessions du cluster utilisent
+- **Fichiers des projets** : `https://launcher.local/files/<projet>/<chemin relatif>`. `<projet>` n'est pas le nom court :
+  c'est le nom du projet dans le launcher, `<catégorie>-<projet>` (ex. `guide-p1` pour le projet `p1` de la catégorie `guide`).
+  `/files/p1/…` et `/files/GUIDE/p1/…` donnent `404`. Le projet doit figurer dans l'arbre des projets du launcher ; si deux
+  projets portent le même nom, rien n'est servi (`404`, journalisé côté serveur). Les sessions du cluster utilisent
   `CL_WEB_URL/files` ; le chemin interne du pod n'apparaît jamais. Les fichiers sont servis avec une CSP `sandbox` (origine
   opaque) et les fichiers sensibles sont exclus (voir §9).
 - La CA doit être installée sur le poste, sinon le navigateur refuse le certificat.
@@ -1766,24 +1807,27 @@ Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont cr
 
 Avant de déclarer l'accès « réservé au réseau interne », vérifiez la liste d'adresses :
 
-1. Traefik doit garder l'adresse du client : `kubectl -n kube-system get svc -o custom-columns=NOM:.metadata.name,POLITIQUE:.spec.externalTrafficPolicy`
-   → `Local` pour Traefik. Avec `Cluster`, Traefik voit l'adresse d'un nœud, la liste ne sert à rien : ne pas valider.
+1. Traefik doit garder l'adresse du client : `kubectl get svc -A -o custom-columns=NS:.metadata.namespace,NOM:.metadata.name,POLITIQUE:.spec.externalTrafficPolicy | grep -i traefik`
+   → `Local`. Sur RKE2, Traefik est dans le namespace `traefik`. Avec `Cluster`, Traefik voit l'adresse d'un nœud, la liste ne sert à rien : ne pas valider.
 2. Depuis une adresse de la liste : `curl -sk -o /dev/null -w '%{http_code}' https://launcher.local/healthz` → `200`.
 3. Depuis une adresse hors liste (autre réseau, VPN) : même commande → `403`.
-4. Depuis un pod du cluster qui passe par l'Ingress → `403`. Les pods ne résolvent pas `.local` : passez `--resolve`.
+4. Depuis un pod du cluster qui passe par l'Ingress. **Ce contrôle ne prouve la liste que si les nœuds du cluster n'en font
+   pas partie.** Traefik voit l'adresse source : pour un pod, c'est l'adresse du nœud où il tourne. Si cette adresse est dans
+   `allowedSourceRanges`, la réponse est `200` : la liste admet les nœuds, ce n'est pas une faille. Dans ce cas, n'en concluez
+   rien, ou réduisez la liste pour exclure les nœuds. Les pods ne résolvent pas `.local` : passez `--resolve`.
    ```bash
-   IP_TRAEFIK=$(kubectl -n kube-system get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
-   kubectl -n claude-ng2 run curl-test --rm -it --restart=Never --image=curlimages/curl -- \
-     curl -sk -o /dev/null -w '%{http_code}\n' --resolve "launcher.local:443:$IP_TRAEFIK" https://launcher.local/healthz
+   IP_LB=$(kubectl -n traefik get svc traefik -o jsonpath='{.status.loadBalancer.ingress[0].ip}')   # adresse du LB Traefik
+   kubectl -n claude-ng2 run curl-test --rm -i --restart=Never --image=curlimages/curl -- \
+     curl -sk -o /dev/null -w '%{http_code}\n' --resolve "launcher.local:443:$IP_LB" https://launcher.local/healthz
    ```
-   Le nom du service Traefik et l'adresse exposée dépendent de l'installation : adaptez `IP_TRAEFIK` (`kubectl -n kube-system get svc`).
+   Si Traefik est exposé autrement (NodePort), adaptez la commande à `kubectl -n traefik get svc`. En terminal, `-it` remplace `-i`.
 5. Un en-tête `X-Forwarded-For` ne change rien : le contrôle porte sur l'adresse de la connexion. Depuis une adresse
    hors liste, contrôlez-le ainsi :
    ```bash
    curl -sk -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 192.0.2.10' https://launcher.local/healthz   # → 403
    ```
 6. **NetworkPolicy** : un pod qui n'est pas Traefik ne joint pas le launcher, même dans le namespace du launcher. Depuis un pod de test :
-   `kubectl -n claude-ng2 run np-test --rm -it --restart=Never --image=curlimages/curl -- curl -s -m 5 http://claude-launcher.claude-ng2.svc:8080/healthz`
+   `kubectl -n claude-ng2 run np-test --rm -i --restart=Never --image=curlimages/curl -- curl -s -m 5 http://claude-launcher.claude-ng2.svc:8080/healthz`
    → échec (délai). Une entrée par l'Ingress reste admise.
 
 #### 6. Mise à jour et retour arrière
@@ -1795,9 +1839,14 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
   à l'installation, ou `--reset-then-reuse-values` (même règle que `deploy.*.md`).
 - **Retour arrière** : `helm rollback claude-launcher <révision> -n claude-ng2`. Les projets restent dans leurs pods.
 - **Désinstallation** : `helm uninstall` retire les objets du chart. Il ne touche ni au PVC ni au PV créés par le chart
-  (`keep`), ni au PVC du coffre (`<release>-secrets`, `keep`), ni aux StatefulSets des projets, ni aux fichiers de la racine.
-- **Essai sur une autre racine** : avant toute bascule, testez sur une racine dédiée au test (un autre `rootBase`, un autre
-  `hubName` et un namespace de test, par exemple `claude-qualif`). N'ouvrez jamais un essai sur la racine de production.
+  (`keep`, purge : voir l'essai ci-dessus), ni au PVC du coffre (`<release>-secrets`, `keep`), ni aux StatefulSets des projets, ni aux fichiers de la racine.
+- **Essai sur une autre racine** : testez d'abord sur une racine dédiée (un autre `rootBase` et `volume`, un `hubName` et un
+  namespace de test, par exemple `claude-guide-test`). N'ouvrez jamais un essai sur la racine de production. Créez le dossier
+  de la racine d'essai sur MooseFS **avant** `helm install` (§1).
+- **Purge d'un essai** : `helm uninstall` garde les volumes. Supprimez le PVC des projets et le PVC du coffre
+  (`kubectl -n <ns> delete pvc <existingClaim> <release>-secrets`), puis les PV restés `Released` (`kubectl get pv` : celui du
+  chart, et celui du coffre, dynamique, classe `retain`, retrouvé par `kubectl -n <ns> get pvc <release>-secrets -o jsonpath='{.spec.volumeName}'`).
+  Enfin, supprimez le dossier MooseFS de la racine d'essai. Ne purgez jamais la racine de production.
 
 #### 7. Cohabitation : cluster, hub Linux et exe Windows sur la même racine
 

@@ -276,7 +276,7 @@ PY
 
 ```yaml
 backends:
-  srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/share/MFS/ROOT] }
+  srv1-docker: { type: docker, host: tcp://192.0.2.21:2375, shared: [/share/MFS/ROOT] }
   srv1:        { type: ssh, host: srv1, engine: podman,          shared: [/share/MFS/ROOT] }
   lab:         { type: k8s, context: k8s, namespace: claude-ng2,
                  volumes: { /share/MFS/ROOT: claude-shared } }   # PVC ReadWriteMany sur ce partage
