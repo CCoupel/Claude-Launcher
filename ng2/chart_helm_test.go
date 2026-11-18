@@ -160,6 +160,18 @@ func env(t *testing.T, o map[string][]m) map[string]string {
 	return out
 }
 
+// projectPVCs : les PVC rendus hors coffre des secrets (<release>-secrets, #194, toujours présent) — ce sont les
+// PVC du volume des projets, seuls visés par volume.create.
+func projectPVCs(o map[string][]m) []m {
+	var out []m
+	for _, p := range o["PersistentVolumeClaim"] {
+		if n, _ := get(p, "metadata", "name").(string); !strings.HasSuffix(n, "-secrets") {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 // ── lint ─────────────────────────────────────────────────────────────────────
 
 func TestChartLint(t *testing.T) {
@@ -211,10 +223,17 @@ func TestChartObjectsAndNoClusterWideRights(t *testing.T) {
 			t.Errorf("objet %s absent du rendu", k)
 		}
 	}
-	for _, k := range []string{"ClusterRole", "ClusterRoleBinding", "NetworkPolicy", "PersistentVolumeClaim", "Deployment", "Namespace"} {
+	for _, k := range []string{"ClusterRole", "ClusterRoleBinding", "NetworkPolicy", "Deployment", "Namespace"} {
 		if len(o[k]) != 0 {
 			t.Errorf("objet %s créé (refusé par le contrat)", k)
 		}
+	}
+	// aucun PVC pour les projets sans volume.create ; seul le coffre des secrets (#194) est créé
+	if n := len(projectPVCs(o)); n != 0 {
+		t.Errorf("%d PVC de projets créé(s) sans volume.create (refusé par le contrat)", n)
+	}
+	if n := len(o["PersistentVolumeClaim"]); n != 1 {
+		t.Errorf("%d PVC rendus, attendu 1 (coffre <release>-secrets)", n)
 	}
 	// Secret du jeton de l'interface : non créé (risque accepté)
 	for _, s := range o["Secret"] {
@@ -901,27 +920,36 @@ func annotationsOf(o m) m {
 func TestChartCreatesNoVolumeByDefault(t *testing.T) {
 	needHelm(t)
 	o := must(t, baseValues())
-	for _, k := range []string{"PersistentVolumeClaim", "PersistentVolume"} {
-		if len(o[k]) != 0 {
-			t.Errorf("%s créé sans volume.create.enabled (le PVC existant n'est ni créé ni supprimé par le chart)", k)
-		}
+	if n := len(projectPVCs(o)); n != 0 {
+		t.Errorf("PVC de projets créé sans volume.create.enabled (le PVC existant n'est ni créé ni supprimé par le chart)")
+	}
+	if n := len(o["PersistentVolume"]); n != 0 {
+		t.Errorf("PersistentVolume créé sans volume.create.enabled")
 	}
 	// environnement de PROD : aucun PV/PVC rendu
 	out, errOut, err := helm(t, "template", "claude-launcher", chartDir, "-n", "claude-ng2", "-f", "../deploy/helm/values-prod.yaml", "--set", "ingress.tls.clusterIssuer=interne-test")
 	if err != nil {
 		t.Fatalf("rendu PROD : %v\n%s", err, errOut)
 	}
-	if strings.Contains(out, "kind: PersistentVolume") {
-		t.Errorf("PV ou PVC rendu par les valeurs de PROD (inchangées : le PVC claude-projets existe déjà)")
+	// seul le coffre <release>-secrets est rendu (« kind: PersistentVolumeClaim » ne suffit plus à déceler un PVC de projets)
+	if strings.Contains(out, "kind: PersistentVolume\n") {
+		t.Errorf("PV rendu par les valeurs de PROD (inchangées)")
+	}
+	if strings.Contains(out, "name: claude-projets\n") && strings.Contains(out, "kind: PersistentVolumeClaim") {
+		for _, doc := range strings.Split(out, "\n---") {
+			if strings.Contains(doc, "kind: PersistentVolumeClaim") && !strings.Contains(doc, "-secrets") {
+				t.Errorf("PVC de projets rendu par les valeurs de PROD (le PVC claude-projets existe déjà) :\n%s", doc)
+			}
+		}
 	}
 }
 
 func TestChartCreatesPVCKeptAtUninstall(t *testing.T) {
 	needHelm(t)
 	o := must(t, withVolumeCreate(baseValues(), nil))
-	pvcs := o["PersistentVolumeClaim"]
+	pvcs := projectPVCs(o)
 	if len(pvcs) != 1 {
-		t.Fatalf("%d PVC, attendu 1", len(pvcs))
+		t.Fatalf("%d PVC de projets, attendu 1", len(pvcs))
 	}
 	pvc := pvcs[0]
 	if get(pvc, "metadata", "name") != "claude-projets" {
@@ -962,7 +990,7 @@ func TestChartCreatesPVCKeptAtUninstall(t *testing.T) {
 		c["storage"] = "5Ti"
 		sub(c, "persistentVolume")["name"] = "pv-admin"
 	}))
-	spec2 := get(o2["PersistentVolumeClaim"][0], "spec").(m)
+	spec2 := get(projectPVCs(o2)[0], "spec").(m)
 	if get(spec2, "resources", "requests", "storage") != "5Ti" || spec2["volumeName"] != "pv-admin" {
 		t.Errorf("taille / PV nommé non pris en compte : %v / %v", get(spec2, "resources", "requests", "storage"), spec2["volumeName"])
 	}
@@ -986,8 +1014,8 @@ func pvValues(mod func(src m)) m {
 func TestChartCreatesStaticPVRetainedAndBound(t *testing.T) {
 	needHelm(t)
 	o := must(t, pvValues(nil))
-	if len(o["PersistentVolume"]) != 1 || len(o["PersistentVolumeClaim"]) != 1 {
-		t.Fatalf("%d PV et %d PVC, attendu 1 et 1", len(o["PersistentVolume"]), len(o["PersistentVolumeClaim"]))
+	if len(o["PersistentVolume"]) != 1 || len(projectPVCs(o)) != 1 {
+		t.Fatalf("%d PV et %d PVC de projets, attendu 1 et 1", len(o["PersistentVolume"]), len(projectPVCs(o)))
 	}
 	pv := o["PersistentVolume"][0]
 	if get(pv, "metadata", "name") != "claude-projets-pv" {
@@ -1019,7 +1047,7 @@ func TestChartCreatesStaticPVRetainedAndBound(t *testing.T) {
 	if len(o["ClusterRole"]) != 0 || len(o["ClusterRoleBinding"]) != 0 {
 		t.Errorf("ClusterRole créé pour gérer le PV (droits d'administrateur au déploiement, pas au pod)")
 	}
-	pvcSpec := get(o["PersistentVolumeClaim"][0], "spec").(m)
+	pvcSpec := get(projectPVCs(o)[0], "spec").(m)
 	if pvcSpec["volumeName"] != "claude-projets-pv" {
 		t.Errorf("le PVC n'est pas lié au PV créé : %v", pvcSpec["volumeName"])
 	}
@@ -1064,10 +1092,10 @@ func TestChartQualifValuesCreateItsOwnPVC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rendu QUALIF : %v\n%s", err, out)
 	}
-	if len(o["PersistentVolumeClaim"]) != 1 {
-		t.Fatalf("%d PVC rendus pour la QUALIF, attendu 1", len(o["PersistentVolumeClaim"]))
+	if len(projectPVCs(o)) != 1 {
+		t.Fatalf("%d PVC de projets rendus pour la QUALIF, attendu 1", len(projectPVCs(o)))
 	}
-	pvc := o["PersistentVolumeClaim"][0]
+	pvc := projectPVCs(o)[0]
 	if get(pvc, "metadata", "name") != "claude-projects-qualif" || (get(pvc, "metadata", "namespace") != nil && get(pvc, "metadata", "namespace") != "claude-qualif") {
 		t.Errorf("PVC de QUALIF : %v / %v", get(pvc, "metadata", "name"), get(pvc, "metadata", "namespace"))
 	}
@@ -1119,7 +1147,7 @@ func TestChartVolumeCreateStorageClassExcludesPersistentVolume(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StorageClass sans nom de PV refusée : %s", out)
 	}
-	spec := get(o["PersistentVolumeClaim"][0], "spec").(m)
+	spec := get(projectPVCs(o)[0], "spec").(m)
 	if spec["storageClassName"] != "moosefs-dyn" {
 		t.Errorf("storageClassName = %v", spec["storageClassName"])
 	}
