@@ -1801,6 +1801,7 @@ function onEvent(name, data) {
   switch (name) {
     case 'state': applyState(data); break;
     case 'cards': takeCards(data); break;
+    case 'hello': onServerInfo(data && data.server); break; // version et démarrage du serveur à l'ouverture du flux (#198)
     case 'refresh': onRefresh(data); break;
     case 'term': {
       const v = ensureView(data.path);
