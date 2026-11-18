@@ -12,8 +12,8 @@ func TestArretAttendLesOuvertures(t *testing.T) {
 	if !a.waitOpenings(50 * time.Millisecond) {
 		t.Error("aucune ouverture : rendu immédiat attendu")
 	}
-	a.opening.Add(1)
-	go func() { time.Sleep(300 * time.Millisecond); a.opening.Done() }()
+	a.openGate.begin()
+	go func() { time.Sleep(300 * time.Millisecond); a.openGate.end() }()
 	start := time.Now()
 	if !a.waitOpenings(3 * time.Second) {
 		t.Fatal("ouverture finie dans le délai : l'attente doit réussir")
@@ -28,8 +28,8 @@ func TestArretAttendLesOuvertures(t *testing.T) {
 func TestArretNAttendPasAuDela(t *testing.T) {
 	var r recorder
 	a := newApp(t, r.emit)
-	a.opening.Add(1)
-	defer a.opening.Done()
+	a.openGate.begin()
+	defer a.openGate.end()
 	start := time.Now()
 	if a.waitOpenings(200 * time.Millisecond) {
 		t.Fatal("ouverture non finie : l'attente doit expirer")
@@ -46,11 +46,32 @@ func TestStopAttendUneOuvertureEnCours(t *testing.T) {
 	defer func() { shutdownOpenWait = old }()
 	var r recorder
 	a := newApp(t, r.emit)
-	a.opening.Add(1)
-	go func() { time.Sleep(400 * time.Millisecond); a.opening.Done() }()
+	a.openGate.begin()
+	go func() { time.Sleep(400 * time.Millisecond); a.openGate.end() }()
 	start := time.Now()
 	a.Stop()
 	if d := time.Since(start); d < 350*time.Millisecond {
 		t.Errorf("Stop n'a pas attendu l'ouverture en cours (%v)", d)
+	}
+}
+
+// begin / end / wait concurrents : pas de course (go test -race), le compteur retombe à zéro.
+func TestOpenGateConcurrent(t *testing.T) {
+	var g openGate
+	done := make(chan struct{})
+	for i := 0; i < 20; i++ {
+		go func() {
+			g.begin()
+			time.Sleep(time.Millisecond)
+			g.end()
+			done <- struct{}{}
+		}()
+		go func() { g.wait(time.Millisecond) }()
+	}
+	for i := 0; i < 20; i++ {
+		<-done
+	}
+	if !g.wait(time.Second) {
+		t.Error("compteur non retombé à zéro")
 	}
 }

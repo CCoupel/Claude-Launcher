@@ -29,10 +29,10 @@ type Emitter func(name string, data any)
 
 // App : état du launcher vu par l'interface.
 type App struct {
-	opening sync.WaitGroup // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
-	cfg     core.Config
-	confMu  sync.RWMutex // cfg relue à chaud (config.go)
-	confAt  time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
+	openGate openGate // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
+	cfg      core.Config
+	confMu   sync.RWMutex // cfg relue à chaud (config.go)
+	confAt   time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
 	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
@@ -312,13 +312,52 @@ var shutdownOpenWait = 20 * time.Second
 // waitOpenings : attend la fin des ouvertures de projet en cours (bootstrap, création de la session), au plus max.
 // Passé le délai, l'arrêt continue : les terminaux sont détachés, et le bootstrap — détaché du launcher dans le
 // conteneur — se termine sans lui ; la prochaine ouverture ou le rattachement répare ce qui manque.
-func (a *App) waitOpenings(max time.Duration) bool {
-	done := make(chan struct{})
-	go func() { a.opening.Wait(); close(done) }()
-	select {
-	case <-done:
+func (a *App) waitOpenings(max time.Duration) bool { return a.openGate.wait(max) }
+
+// openGate : compteur des ouvertures en cours. Pas de sync.WaitGroup : son Add concurrent d'un Wait (compteur à zéro)
+// est une course de données ; ici begin / end / wait sont sous le même verrou.
+type openGate struct {
+	mu sync.Mutex
+	n  int
+	ch chan struct{} // fermé quand le compteur retombe à zéro
+}
+
+func (g *openGate) begin() {
+	g.mu.Lock()
+	g.n++
+	g.mu.Unlock()
+}
+
+func (g *openGate) end() {
+	g.mu.Lock()
+	if g.n--; g.n <= 0 {
+		g.n = 0
+		if g.ch != nil {
+			close(g.ch)
+			g.ch = nil
+		}
+	}
+	g.mu.Unlock()
+}
+
+// wait : vrai quand plus aucune ouverture n'est en cours, faux si elles durent plus que max.
+func (g *openGate) wait(max time.Duration) bool {
+	g.mu.Lock()
+	if g.n == 0 {
+		g.mu.Unlock()
 		return true
-	case <-time.After(max):
+	}
+	if g.ch == nil {
+		g.ch = make(chan struct{})
+	}
+	ch := g.ch
+	g.mu.Unlock()
+	t := time.NewTimer(max)
+	defer t.Stop()
+	select {
+	case <-ch:
+		return true
+	case <-t.C:
 		return false
 	}
 }

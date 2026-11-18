@@ -57,22 +57,30 @@ func bootstrapStarter(dir string) string {
 	d := Shq(dir)
 	return `umask 077; d=` + d + `
 mkdir -p "$d" || exit 1
-if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ] && kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null; then
+alive() { [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ] && kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null; }
+# en cours ? un pid mort sans code de sortie est confirmé 1 s plus tard (le lanceur peut être mort juste avant que
+# le bootstrap n'écrive son propre pid)
+running() { alive && return 0; if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ]; then sleep 1; alive && return 0; fi; return 1; }
+if running; then
   cat >/dev/null
   echo "  bootstrap déjà en cours dans le conteneur : suivi"
 else
   cat > "$d/run.sh.new" && mv "$d/run.sh.new" "$d/run.sh" || exit 1
-  rm -f "$d/boot.rc" "$d/boot.pid"; : > "$d/boot.log"
+  rm -f "$d/boot.rc"; : > "$d/boot.log"
+  echo $$ > "$d/boot.pid" # pid provisoire (ce shell reste vivant pendant le suivi) : jamais de fenêtre sans pid
   S=''; command -v setsid >/dev/null 2>&1 && S=setsid
-  $S nohup sh -c 'echo $$ > "$1/boot.pid"; sh "$1/run.sh" > "$1/boot.log" 2>&1; echo $? > "$1/boot.rc.new"; mv "$1/boot.rc.new" "$1/boot.rc"' sh "$d" >/dev/null 2>&1 </dev/null &
+  # les fichiers d'état restent en 0600 (umask 077) ; le bootstrap lui-même tourne en umask 022 (ses fichiers, ex.
+  # /etc/cl-tmux.conf, doivent rester lisibles) ; run.sh (il peut contenir le setup d'env.yaml) est supprimé à la fin
+  $S nohup sh -c 'echo $$ > "$1/boot.pid"; (umask 022; sh "$1/run.sh") > "$1/boot.log" 2>&1; rc=$?; rm -f "$1/run.sh"; echo $rc > "$1/boot.rc.new"; mv "$1/boot.rc.new" "$1/boot.rc"' sh "$d" >/dev/null 2>&1 </dev/null &
 fi
 tail -n +1 -f "$d/boot.log" 2>/dev/null &
 T=$!
 n=0
 while [ ! -f "$d/boot.rc" ]; do
   if [ -f "$d/boot.pid" ] && ! kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && [ ! -f "$d/boot.rc" ]; then
-    sleep 0.3 2>/dev/null || sleep 1
+    sleep 1
     [ -f "$d/boot.rc" ] && break
+    kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && continue
     kill $T 2>/dev/null; echo "bootstrap interrompu dans le conteneur (reprise à la prochaine ouverture)" >&2; exit 1
   fi
   n=$((n+1)); [ $n -gt 20 ] && [ ! -f "$d/boot.pid" ] && { kill $T 2>/dev/null; echo "bootstrap non démarré" >&2; exit 1; }
@@ -99,7 +107,10 @@ func (e Engine) Bootstrap(name, proj string, env EnvSpec, log io.Writer) error {
 func (e Engine) BootstrapIncomplete(name string) bool {
 	d := Shq(bootDir)
 	probe := `d=` + d + `; [ -s "$d/bootstrap" ] && exit 1
-if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ] && kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null; then exit 1; fi
+if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ]; then
+  kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && exit 1
+  sleep 1; kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && exit 1
+fi
 exit 0`
 	return e.Exec(name, true, nil, io.Discard, "sh", "-c", probe) == nil
 }

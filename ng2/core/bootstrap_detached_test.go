@@ -102,7 +102,19 @@ func TestBootstrapInterromputEstRepris(t *testing.T) {
 	unixOnly(t)
 	dir := t.TempDir()
 	c, out := startStarter(t, dir, "sleep 30\n")
-	pid, _ := strconv.Atoi(waitFile(t, filepath.Join(dir, "boot.pid"), 3*time.Second))
+	// boot.pid porte d'abord le pid du lanceur (provisoire), puis celui du bootstrap détaché
+	var pid int
+	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+		if b, err := os.ReadFile(filepath.Join(dir, "boot.pid")); err == nil {
+			if n, _ := strconv.Atoi(strings.TrimSpace(string(b))); n != 0 && n != c.Process.Pid {
+				pid = n
+				break
+			}
+		}
+	}
+	if pid == 0 {
+		t.Fatal("pid du bootstrap détaché introuvable")
+	}
 	_ = syscall.Kill(pid, syscall.SIGKILL) // le processus détaché meurt (OOM, nœud…)
 	if err := c.Wait(); err == nil || !strings.Contains(out.String(), "interrompu") {
 		t.Errorf("suivi d'un bootstrap tué : %v %q", err, out.String())
@@ -156,5 +168,38 @@ func TestBootstrapIncompleteEtReparation(t *testing.T) {
 	_ = os.Remove(filepath.Join(d, "bootstrap"))
 	if err := e.Bootstrap("pod-0", "/p", EnvSpec{}, &bytes.Buffer{}); err == nil || !strings.Contains(err.Error(), "bootstrap") {
 		t.Errorf("échec attendu : %v", err)
+	}
+}
+
+// Droits : les fichiers d'état restent en 0600 (run.sh, supprimé à la fin, peut contenir le setup d'env.yaml), mais ce
+// que le bootstrap produit n'hérite pas du umask 077 (ex. /etc/cl-tmux.conf doit rester lisible : 0644).
+func TestBootstrapDroitsDesFichiers(t *testing.T) {
+	unixOnly(t)
+	dir := t.TempDir()
+	made := filepath.Join(dir, "cl-tmux.conf")
+	c, out := startStarter(t, dir, "echo ok > "+made+"\nmkdir "+filepath.Join(dir, "sous")+"\n")
+	if err := c.Wait(); err != nil {
+		t.Fatalf("bootstrap : %v %q", err, out.String())
+	}
+	mode := func(p string) os.FileMode {
+		st, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("%s : %v", p, err)
+		}
+		return st.Mode().Perm()
+	}
+	if m := mode(made); m != 0o644 {
+		t.Errorf("fichier produit par le bootstrap : %o, attendu 644 (umask 022)", m)
+	}
+	if m := mode(filepath.Join(dir, "sous")); m != 0o755 {
+		t.Errorf("dossier produit par le bootstrap : %o, attendu 755", m)
+	}
+	for _, f := range []string{"boot.log", "boot.pid", "boot.rc"} {
+		if m := mode(filepath.Join(dir, f)); m != 0o600 {
+			t.Errorf("fichier d'état %s : %o, attendu 600", f, m)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(dir, "run.sh")); err == nil {
+		t.Error("run.sh (peut contenir le setup d'env.yaml) doit être supprimé après le bootstrap")
 	}
 }

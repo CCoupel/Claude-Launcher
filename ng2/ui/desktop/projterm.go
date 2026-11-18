@@ -251,9 +251,9 @@ func newProjTerm(a *App, n core.Node, mode core.LaunchMode) *projTerm {
 // run : ouverture complète, puis attente de la fin du client.
 func (t *projTerm) run() {
 	go t.flusher()
-	t.a.opening.Add(1) // ouverture en cours : l'arrêt du launcher l'attend (Stop, #198)
+	t.a.openGate.begin() // ouverture en cours : l'arrêt du launcher l'attend (Stop, #198)
 	err := t.prepare()
-	t.a.opening.Done()
+	t.a.openGate.end()
 	if err != nil {
 		fmt.Fprintf(t, "\r\n\033[1;31m⚠ %v\033[0m\r\n", strings.ReplaceAll(err.Error(), "\n", "\r\n"))
 		t.setState("error", err.Error())

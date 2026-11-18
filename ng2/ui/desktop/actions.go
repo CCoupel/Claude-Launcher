@@ -146,7 +146,8 @@ func (a *App) reattach() {
 			if !e.Of(f).HasSession(f.Name) {
 				// conteneur en marche mais installé à moitié (launcher coupé pendant l'ouverture, #198) : l'installation est
 				// terminée en tâche de fond, sans ouvrir de session (la prochaine ouverture ira vite)
-				if ef := e.Of(f); ef.BootstrapIncomplete(f.Name) {
+				// jamais sur un projet piloté par un autre launcher (propriétaire vivant) : ForeignOwner d'abord
+				if ef := e.Of(f); core.ForeignOwner(f.Project) == "" && ef.BootstrapIncomplete(f.Name) {
 					go func(ef core.Engine, name, proj string) { _ = ef.RepairBootstrap(name, proj) }(ef, f.Name, f.Project)
 				}
 				continue
