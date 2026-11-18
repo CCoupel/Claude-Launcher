@@ -27,7 +27,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Chart Helm : `rbac.extraNamespaces` (Role et RoleBinding dans d'autres namespaces du même cluster), `backends.kubeconfigs`, PVC du coffre `<release>-secrets` (`keep`), `backends.docker.secretName` pour un Secret TLS docker/podman (#193, #194)
 
 ### Changed
-- **Changement hub et exe** : le serveur de maquettes local (hub `8765`, exe `8766`) ne sert plus `PRIVATE`, `.git`, `.claude`, les fichiers d'identifiants, ni `_work` hors `_work/mockup` ; `/files` refuse les requêtes cross-site (sauf sous-ressources de maquette) (#174)
+- **Changement hub et exe** : le serveur de maquettes local (hub `8765`, exe `8766`) ne sert plus `PRIVATE`, `.git`, `.claude`, les fichiers d'identifiants, ni `_work` hors `_work/mockup` ; `/files` refuse les requêtes cross-site, sauf les sous-ressources de maquette et la navigation de premier niveau (ouverture d'une maquette par l'extension ou un lien), acceptée de toute provenance (#174)
 - La version du template est comparée dans l'ordre (`VersionNewer`) ; l'état « à mettre à jour » ne vaut que si la version adoptée est strictement plus récente que celle du projet (#199)
 - La question au lancement ne propose plus de retour en arrière : une cible égale ou plus ancienne que la version du projet n'est jamais proposée (#199)
 - La carte TEAM affiche la version du projet (et non plus la version adoptée) ; la version adoptée ne change qu'au clic sur l'annonce (#199)
@@ -39,7 +39,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Un kubeconfig illisible met le backend en erreur, sans repli sur le ServiceAccount du pod (#193)
 
 ### Fixed
-- Windows : interblocage du surveillant de fichiers corrigé (présent en v6.3.0) : la mise à jour d'état et de l'arbre, et l'arrêt, se figeaient lors de créations de dossiers en rafale
+- Windows : interblocage du surveillant de fichiers corrigé (probablement présent en v6.3.0, non reproduit sur un exe publié) : la mise à jour d'état et de l'arbre, et l'arrêt, se figeaient lors de créations de dossiers en rafale
 - Windows : nom de projet (`CtrName`) sans correspondance corrigé ; `/files` servi sous Windows
 - Arrêt borné à 25 s au pire : 20 s d'attente des ouvertures en cours, puis détachement des terminaux, sous le délai de grâce de 30 s du pod (#198)
 - Courses de données sous `-race` corrigées : variables globales de réglage (délais, crochets, URL de l'API, présence, verrous), `NgVersion` et `InitSynced` lues et écrites sous verrou (#174)
