@@ -55,3 +55,45 @@ func TestFluxSSEEnvoieHello198(t *testing.T) {
 		t.Fatal("aucun évènement à l'ouverture du flux")
 	}
 }
+
+// Un vrai évènement `ping` ({"name":"ping"}) arrive périodiquement : visible en JS (onmessage), contrairement au
+// commentaire « : ping » (#198).
+func TestFluxSSEEnvoiePing198(t *testing.T) {
+	old := ssePingEvery
+	ssePingEvery = 150 * time.Millisecond
+	defer func() { ssePingEvery = old }()
+	sandbox(t, "", "alpha")
+	p := l4FreePort(t)
+	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+strconv.Itoa(p)+"\" }\n")
+	var r recorder
+	a := newApp(t, r.emit)
+	a.Start()
+	t.Cleanup(func() { stopNative(a) })
+	l4WaitWebUI(t, a, "on", 8*time.Second)
+	addr, tok := "127.0.0.1:"+strconv.Itoa(p), l4WebToken(t)
+	req, _ := http.NewRequest("GET", "http://"+addr+"/api/events", nil)
+	req.AddCookie(scBootstrap(t, "http://"+addr, tok))
+	resp, err := webClient.Do(req)
+	if err != nil || resp.StatusCode != 200 {
+		t.Fatalf("flux : %v %v", resp, err)
+	}
+	defer resp.Body.Close()
+	got := make(chan int, 1)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		n := 0
+		for sc.Scan() {
+			if sc.Text() == `data: {"name":"ping"}` {
+				if n++; n == 2 {
+					got <- n
+					return
+				}
+			}
+		}
+	}()
+	select {
+	case <-got:
+	case <-time.After(5 * time.Second):
+		t.Fatal("moins de deux évènements ping reçus")
+	}
+}

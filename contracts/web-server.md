@@ -39,6 +39,10 @@
   `server` reçu : si son `init` a échoué pendant le redémarrage (502/503 de l'ingress), il compare quand même version et
   boot au premier `init` de la page (bandeau « Serveur mis à jour » ou « Serveur redémarré ») et rejoue `init`. Un
   client qui ne connaît pas `hello` l'ignore.
+- **Évènement `ping`** : toutes les 15 s le serveur envoie `data: {"name":"ping"}` (précédé du commentaire `: ping`,
+  conservé pour les proxys). Contrairement au commentaire, il atteint `onmessage` : le client s'en sert pour détecter un
+  flux à moitié ouvert (aucun message — ni évènement ni `ping` — depuis plus de ~2 intervalles : fermer le flux et
+  reconnecter, avec `init` rejoué).
 - Client web : il garde le `server` du premier `init` de la page. Après une reconnexion du flux :
   - `version` différente → bandeau « Serveur mis à jour (vX) — Recharger » (rechargement de la page) ;
   - même `version`, `boot` différent → bandeau « Serveur redémarré — reconnexion des terminaux… », terminaux

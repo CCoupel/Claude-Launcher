@@ -461,7 +461,7 @@ func (w *webBridge) handler() http.Handler {
 				return
 			}
 		}
-		ping := time.NewTicker(20 * time.Second)
+		ping := time.NewTicker(ssePingEvery)
 		defer ping.Stop()
 		check := time.NewTicker(checkEvery())
 		defer check.Stop()
@@ -474,7 +474,8 @@ func (w *webBridge) handler() http.Handler {
 					return
 				}
 			case <-ping.C:
-				if !send(": ping\n\n") {
+				// commentaire (proxys, tampons) + vrai évènement : le client le voit en JS et détecte un flux à moitié ouvert
+				if !send(": ping\n\ndata: {\"name\":\"ping\"}\n\n") {
 					return
 				}
 			case b, ok := <-ch:
@@ -489,6 +490,9 @@ func (w *webBridge) handler() http.Handler {
 	})
 	return w.secured(mux)
 }
+
+// ssePingEvery : cadence du ping du flux d'évènements (#198) ; remplacée dans les tests.
+var ssePingEvery = 15 * time.Second
 
 // configureListener : port, contrôle de Host selon l'écoute. Boucle locale : 127.0.0.1, localhost,
 // [::1] ; toute autre écoute : les noms de desktop_web (hôte d'écoute, nom de la machine, localhost)
