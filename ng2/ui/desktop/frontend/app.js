@@ -20,6 +20,36 @@ const sessionLost = () => stopBanner(SESSION_MSG);
 const accessDenied = () => stopBanner(DENIED_MSG);
 // défense en profondeur : retirer le jeton d'amorçage (?t=) de la barre d'adresse et de l'historique
 try { const u = new URL(location.href); if (u.searchParams.has('t')) { u.searchParams.delete('t'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); } } catch (e) { /* sans effet */ }
+// Flux d'évènements (SSE) et reconnexion (#171, #198). Le flux n'envoie aucun état à l'ouverture : à chaque
+// (ré)ouverture après coupure, `init` est rejoué D'ABORD (état, version et démarrage du serveur) ; tant qu'il échoue
+// (pod qui démarre : 502/503 de l'ingress), le flux n'est pas rouvert et l'essai est répété (1,5 s doublé jusqu'à
+// 15 s). Bandeau « connexion perdue » pendant la coupure. 401/403 (session perdue) : on arrête (#171).
+function startFlow(env) {
+  let delay = 1500, down = false;
+  const lose = () => { if (!down) { down = true; env.banner(true); } };
+  const retry = () => { if (env.lost()) return; lose(); const w = delay; delay = Math.min(delay * 2, 15000); env.setTimeout(reconnect, w); };
+  const open = () => {
+    const es = new env.EventSource('/api/events');
+    es.onopen = () => { delay = 1500; if (down) { down = false; env.banner(false); } };
+    es.onmessage = (m) => { try { const e = JSON.parse(m.data); env.cb(e.name, e.data); } catch (err) { console.error(err); } };
+    es.onerror = () => { es.close(); retry(); };
+  };
+  const reconnect = async () => {
+    let r;
+    try { r = await env.init(); } catch (err) { if (env.lost()) return; console.warn('[flux] init échoué, nouvel essai :', err && err.message); retry(); return; }
+    try { env.applyInit(r); } catch (err) { console.error('[flux] erreur d\'applyInit :', err); }
+    open();
+  };
+  open();
+}
+function connBanner(on) {
+  let b = document.getElementById('connbanner');
+  if (!on) { if (b) b.remove(); return; }
+  if (b) return;
+  b = document.createElement('div'); b.id = 'connbanner'; b.className = 'lanbanner'; b.textContent = '⚠ connexion au serveur perdue — nouvel essai…';
+  const main = document.getElementById('main'), tabs = document.getElementById('tabs');
+  if (main && tabs && tabs.parentNode === main) main.insertBefore(b, tabs); else document.body.insertBefore(b, document.body.firstChild);
+}
 const transport = (() => {
   const wails = () => window.go && window.go.desktop && window.go.desktop.Bridge;
   return {
@@ -43,25 +73,7 @@ const transport = (() => {
         window.runtime.EventsOn('ev', (e) => cb(e.name, e.data));
         return;
       }
-      // Coupure du flux : nouvelle tentative après 1,5 s, délai doublé à chaque échec jusqu'à 15 s, remis à 1,5 s dès
-      // qu'une connexion aboutit. 401/403 (session perdue) : on arrête de réessayer (#171). Le test de session passe
-      // par `init` (EventSource ne donne pas le code HTTP) ; après reconnexion : init puis remise à jour de l'affichage.
-      let delay = 1500;
-      const connect = () => {
-        const es = new EventSource('/api/events');
-        es.onopen = () => { delay = 1500; };
-        es.onmessage = (m) => { try { const e = JSON.parse(m.data); cb(e.name, e.data); } catch (err) { console.error(err); } };
-        es.onerror = () => {
-          es.close();
-          if (sessionIsLost) return;
-          const wait = delay; delay = Math.min(delay * 2, 15000);
-          setTimeout(async () => {
-            try { applyInit(await transport.call('init')); } catch (err) { if (sessionIsLost) return; }
-            if (!sessionIsLost) connect();
-          }, wait);
-        };
-      };
-      connect();
+      startFlow({ EventSource, init: () => transport.call('init'), applyInit, cb, setTimeout, banner: connBanner, lost: () => sessionIsLost });
     },
   };
 })();
@@ -1741,17 +1753,28 @@ function graceEnd(timeout) {
   if (timeout) for (const p of left) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of Object.keys(leaders.tiles || {})) transport.call('termSync', { path: p }).catch(() => {});
   if (S.srvGen !== g.gen) return; // un autre bandeau (mise à jour) a pris la place : ne pas l'effacer
-  if (left.length && timeout) srvBanner('orange', left.length + (left.length > 1 ? ' terminaux non rattachés' : ' terminal non rattaché') + ' — recharger', true);
+  const parts = [];
+  if (g.refused.length) parts.push('session introuvable — rouvrir le projet : ' + g.refused.map((p) => String(p).split('/').filter(Boolean).pop() || p).join(', '));
+  if (left.length && timeout) parts.push(left.length + (left.length > 1 ? ' terminaux non rattachés' : ' terminal non rattaché') + ' — recharger');
+  if (parts.length) srvBanner('orange', parts.join(' · '), left.length > 0 && timeout);
   else srvBanner('', '');
+}
+// Rattachement refusé par le serveur ({ok:false} : session absente, onglet en erreur) : message clair pour ce projet.
+function graceRefuse(p) {
+  const g = S.grace; if (!g || !g.pending.has(p)) return;
+  g.pending.delete(p); g.refused.push(p);
+  dropView(p); if (S.view === p) S.view = 'leaders';
+  if (!g.pending.size) graceEnd(false);
 }
 // Repli à 5 s : une vue qui attend encore son onglet demande un rattachement (une fois) ; jamais de création côté serveur.
 function graceFallback() {
   const g = S.grace; if (!g) return;
-  for (const p of g.pending) transport.call('reattach', { path: p }).then(() => graceStep(), () => {});
+  for (const p of [...g.pending]) transport.call('reattach', { path: p }).then((r) => { if (r && r.ok === false) graceRefuse(p); else graceStep(); }, () => {});
 }
 function onServerInfo(next) {
   if (!next) return;
   const act = serverVersionAction(S.server, next);
+  console.info('[serveur] avant', S.server, 'après', next, '→', act);
   if (!S.server) { S.server = next; return; }
   if (act === 'update') {
     S.srvGen = (S.srvGen || 0) + 1;
@@ -1760,7 +1783,7 @@ function onServerInfo(next) {
     S.server = next;
     const gen = S.srvGen = (S.srvGen || 0) + 1;
     if (S.grace) { clearTimeout(S.grace.timer); clearTimeout(S.grace.fb); }
-    S.grace = { pending: new Set(Object.keys(S.views)), gen, timer: setTimeout(() => graceEnd(true), REATTACH_MS), fb: setTimeout(graceFallback, REATTACH_FALLBACK_MS) };
+    S.grace = { pending: new Set(Object.keys(S.views)), refused: [], gen, timer: setTimeout(() => graceEnd(true), REATTACH_MS), fb: setTimeout(graceFallback, REATTACH_FALLBACK_MS) };
     srvBanner('orange', '⟳ Serveur redémarré — reconnexion des terminaux…');
   }
 }

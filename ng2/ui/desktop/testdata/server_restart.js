@@ -10,7 +10,7 @@ function grab(name) {
   for (let k = src.indexOf('{', at); k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && --d === 0) { end = k + 1; break; } }
   return src.slice(at, end);
 }
-const code = ['serverVersionAction', 'reattachPlan', 'graceStep', 'graceEnd', 'graceFallback', 'onServerInfo'].map(grab).join('\n');
+const code = ['serverVersionAction', 'reattachPlan', 'graceStep', 'graceEnd', 'graceFallback', 'graceRefuse', 'onServerInfo'].map(grab).join('\n');
 const log = { sync: [], drop: [], banner: [] };
 const ctx = {
   S: { views: { '/a': {}, '/b': {} }, view: '/b', snap: { tabs: [] }, server: { version: 'v6.4.0', boot: 'x' } },
@@ -20,7 +20,7 @@ const ctx = {
   srvBanner: (k, t) => log.banner.push(k + '|' + t), setTimeout, clearTimeout,
 };
 vm.createContext(ctx);
-vm.runInContext(code + '\nglobalThis.api = { onServerInfo, graceStep, graceEnd };', ctx);
+vm.runInContext(code + '\nglobalThis.api = { onServerInfo, graceStep, graceEnd, graceFallback };', ctx);
 const fail = (m) => { console.log('KO ' + m); process.exit(1); };
 (async () => {
   ctx.api.onServerInfo({ version: 'v6.4.0', boot: 'y' });                // redémarrage
@@ -47,5 +47,13 @@ const fail = (m) => { console.log('KO ' + m); process.exit(1); };
   ctx.api.onServerInfo({ version: 'v6.5.0', boot: 'w2' });                 // mise à jour : nouveau bandeau bleu
   const before = log.banner.length; ctx.S.snap = { tabs: [{ path: '/a' }] }; ctx.api.graceStep();
   if (log.banner.length !== before) fail('le bandeau bleu a été touché : ' + log.banner.slice(before));
+  // reattach {ok:false} : message clair pour ce projet, vue retirée, pas d'abandon silencieux
+  log.banner.length = 0; log.drop.length = 0; ctx.S.views = { '/p/projet-x': {} }; ctx.S.snap = { tabs: [] }; ctx.S.view = '/p/projet-x';
+  ctx.transport.call = (m, a) => Promise.resolve(m === 'reattach' ? { ok: false } : {});
+  ctx.api.onServerInfo({ version: 'v6.4.0', boot: 'q' });
+  ctx.api.graceFallback();
+  await new Promise((r) => setTimeout(r, 10));
+  if (log.drop.join() !== '/p/projet-x') fail('vue refusée non retirée : ' + log.drop);
+  if (!/session introuvable — rouvrir le projet : projet-x/.test(log.banner[log.banner.length - 1] || '')) fail('message « session introuvable » absent : ' + log.banner);
   console.log('OK'); process.exit(0);
 })();
