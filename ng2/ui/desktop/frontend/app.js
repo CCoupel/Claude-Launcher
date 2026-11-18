@@ -907,7 +907,95 @@ function applyLayoutPrefs() {
 }
 
 // ── Onglets ────────────────────────────────────────────────────────────────
+// Onglets de projets (#189, #190, #191) — fonctions pures (testées par node : testdata/tabs_bar.js).
+// tabView : titre = nom seul, toujours ; couleur du projet même hors sélection ; « agent au travail » en infobulle.
+function tabView(t, on) {
+  return { title: t.name, tip: t.busy ? 'agent au travail' : '', color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy && !on ? ['busy'] : []) };
+}
+// tabOrder : ordre enregistré d'abord ; les chemins nouveaux à la fin (ordre d'origine) ; les disparus ignorés.
+function tabOrder(paths, saved) {
+  const known = (saved || []).filter((p) => paths.includes(p));
+  return known.concat(paths.filter((p) => !known.includes(p)));
+}
+// tabMove : `path` à l'indice final `index` (borné) ; Teamleaders jamais déplaçable ; chemin inconnu ignoré.
+function tabMove(order, path, index) {
+  const from = order.indexOf(path);
+  if (from < 0 || path === 'leaders') return order.slice();
+  const out = order.filter((p) => p !== path);
+  out.splice(Math.max(0, Math.min(out.length, index)), 0, path);
+  return out;
+}
+function tabOrderLoad(store) {
+  try { const v = JSON.parse(store.getItem('cl.tabOrder')); return Array.isArray(v) ? v.filter((p) => typeof p === 'string') : []; } catch (e) { return []; }
+}
+function tabOrderSave(store, order) { try { if (!store) return; store.setItem('cl.tabOrder', JSON.stringify(order)); } catch (e) { /* stockage indisponible : ordre non conservé */ } }
+function tabCycleTarget(ids, cur, d) { return ids[(Math.max(0, ids.indexOf(cur)) + d + ids.length) % ids.length]; }
+// dropIndex : point d'insertion (0..n) d'après l'abscisse x et les milieux des onglets, dans l'ordre affiché.
+function dropIndex(mids, x) { let i = 0; while (i < mids.length && x > mids[i]) i++; return i; }
+// tabDragStep : machine du glisser. ev : down{path,x,onClose} | move{x} | up | key{key} ; action : start | drop | cancel | click.
+function tabDragStep(state, ev) {
+  const st = state || { phase: 'idle' };
+  switch (ev.type) {
+    case 'down':
+      if (ev.onClose) return { state: { phase: 'close' }, action: null };            // × ne lance jamais de glisser
+      if (ev.path === 'leaders') return { state: { phase: 'fixed' }, action: null };  // Teamleaders reste fixe
+      return { state: { phase: 'down', x: ev.x }, action: null };
+    case 'move':
+      if (st.phase === 'down' && Math.abs(ev.x - st.x) >= 5) return { state: { phase: 'drag' }, action: 'start' };
+      return { state: st, action: null };
+    case 'up':
+      if (st.phase === 'drag') return { state: { phase: 'idle' }, action: 'drop' };
+      if (st.phase === 'down' || st.phase === 'fixed') return { state: { phase: 'idle' }, action: 'click' };
+      return { state: { phase: 'idle' }, action: null };
+    case 'key':
+      if (ev.key === 'Escape' && st.phase === 'drag') return { state: { phase: 'cancelled' }, action: 'cancel' };
+      return { state: st, action: null };
+  }
+  return { state: st, action: null };
+}
+function savedTabOrder() { try { return tabOrderLoad(localStorage); } catch (e) { return []; } }
+// Onglets dans l'ordre affiché (ordre enregistré par poste, nouveaux à la fin).
+function displayedTabs() {
+  const tabs = (S.snap && S.snap.tabs) || [];
+  const by = new Map(tabs.map((t) => [t.path, t]));
+  return tabOrder(tabs.map((t) => t.path), savedTabOrder()).map((p) => by.get(p));
+}
+// Glisser-déposer : après 5 px, trait bleu au point de dépôt, Échap annule, × ne lance jamais de glisser.
+function startTabDrag(ev, path) {
+  if (ev.button !== 0) return;
+  let ds = tabDragStep({ phase: 'idle' }, { type: 'down', path, x: ev.clientX, onClose: !!ev.target.closest('.x') }).state;
+  let at = 0, ind = null; const tabEl = ev.currentTarget, bar = $('tabs').querySelector('.tscroll');
+  const tabsEls = () => [...bar.querySelectorAll('.tab')];
+  const finish = (r) => {
+    document.removeEventListener('pointermove', move, true); document.removeEventListener('pointerup', up, true); document.removeEventListener('keydown', key, true);
+    if (ind) ind.remove();
+    if (r === 'drop' || r === 'cancel') {
+      tabEl.classList.remove('ghost');
+      if (r === 'drop') {
+        const cur = displayedTabs().map((t) => t.path), from = cur.indexOf(path);
+        tabOrderSave(localStorageOrNull(), tabMove(cur, path, at > from ? at - 1 : at));
+      }
+      S.noClick = true; setTimeout(() => { S.noClick = false; }, 0); // le clic qui suit le dépôt ne sélectionne pas
+      S.drag = null; renderTabs();
+    }
+  };
+  const step = (e) => { const r = tabDragStep(ds, e); ds = r.state; return r.action; };
+  const move = (e) => {
+    const a = step({ type: 'move', x: e.clientX });
+    if (a === 'start') { S.drag = { path }; tabEl.classList.add('ghost'); ind = el('div', 'tdrop'); bar.appendChild(ind); }
+    if (!S.drag) return;
+    const els = tabsEls(), box = bar.getBoundingClientRect();
+    at = dropIndex(els.map((t) => t.offsetLeft + t.offsetWidth / 2 - bar.scrollLeft + box.left), e.clientX);
+    const ref = els[Math.min(at, els.length - 1)];
+    ind.style.left = (at >= els.length ? ref.offsetLeft + ref.offsetWidth : ref.offsetLeft) - 2 + 'px';
+  };
+  const up = () => { const a = step({ type: 'up' }); finish(a === 'drop' ? 'drop' : 'end'); };
+  const key = (e) => { if (e.key === 'Escape' && step({ type: 'key', key: 'Escape' }) === 'cancel') { e.preventDefault(); e.stopPropagation(); finish('cancel'); } };
+  document.addEventListener('pointermove', move, true); document.addEventListener('pointerup', up, true); document.addEventListener('keydown', key, true);
+}
+function localStorageOrNull() { try { return localStorage; } catch (e) { return null; } }
 function renderTabs() {
+  if (S.drag) return; // glisser en cours : l'affichage est rafraîchi à la fin du geste
   const bar = $('tabs'); bar.textContent = '';
   // Teamleaders (#162) : pastille à contour épinglée à gauche, hors de la zone qui défile, suivie d'un filet, sans ×
   const lt = el('div', 'tl' + (S.view === 'leaders' ? ' on' : ''));
@@ -915,21 +1003,23 @@ function renderTabs() {
   lt.onclick = () => showView('leaders');
   const scroll = el('div', 'tscroll');
   bar.append(lt, el('div', 'tsep'), scroll, layoutButton());
-  for (const t of (S.snap && S.snap.tabs) || []) {
+  for (const t of displayedTabs()) {
     const d = el('div', 'tab'); d.dataset.path = t.path;
     // #189 : couleur du projet en variable CSS (liseré bas hors sélection, fond plein sélectionné) ;
     // #190 : titre = nom seul, emplacement d'état réservé (largeur fixe) — rien ne change à la sélection
-    d.style.setProperty('--c', t.color || '#1F4FD1');
-    if (S.view === t.path) d.classList.add('on');
-    if (t.busy) { d.classList.add('busy'); d.title = 'agent au travail'; }
-    d.append(el('span', '', t.name), el('span', 'slot'));
+    const tv = tabView(t, S.view === t.path);
+    d.style.setProperty('--c', tv.color);
+    for (const c of tv.cls) d.classList.add(c);
+    if (tv.tip) d.title = tv.tip;
+    d.append(el('span', '', tv.title), el('span', 'slot'));
     if (t.state === 'opening') d.append(el('span', 'st', '⏳'));
     if (t.state === 'error') d.append(el('span', 'st t-red', '⚠'));
     if (t.readOnly) d.append(el('span', 'st', '👁'));
     const x = el('span', 'x', '×'); x.title = 'détacher (la session continue dans tmux)';
     x.onclick = (e) => { e.stopPropagation(); detachTab(t.path); };
     d.appendChild(x);
-    d.onclick = () => showView(t.path, true);
+    d.onclick = () => { if (S.noClick) return; showView(t.path, true); };
+    d.addEventListener('pointerdown', (e) => startTabDrag(e, t.path));
     scroll.appendChild(d);
   }
   fitLeadersTab();
@@ -1017,9 +1107,9 @@ if (typeof ResizeObserver === 'function') {
   }).observe($('tabs'));
 }
 function cycleTab(d) {
-  const ids = ['leaders'].concat(((S.snap && S.snap.tabs) || []).map((t) => t.path));
-  const i = ids.indexOf(S.view);
-  showView(ids[(i + d + ids.length) % ids.length], true);
+  const tabs = displayedTabs(); // ordre affiché (#191)
+  const ids = ['leaders'].concat(tabs.map((t) => t.path));
+  showView(tabCycleTarget(ids, S.view, d), true); // (i + d + ids.length) % ids.length : circulaire
 }
 function detachTab(path) {
   call('detach', { path });
