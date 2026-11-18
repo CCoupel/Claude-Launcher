@@ -39,3 +39,7 @@
 | tests/procedures/ui-web/cles-ssh-backends-194/ | procedure | ui-web | Cles ssh des backends distants depuis le pod : generer/coller, empreinte confirmee, Tester ssh/podman/docker (#194) | feature | |
 | ng2/ui/desktop/secrets194_test.go | unitaire | ui-desktop | Coffre des secrets, paire ssh, phrase de passe refusee, known_hosts confirme, journal sans contenu, ssh avec la cle du coffre (#194) | feature | |
 | ng2/chart_secrets194_test.go | integration | chart | PVC du coffre, CL_SECRETS_DIR, aucun droit secrets, Secret TLS docker facultatif, clients dans l image (#194) | feature | |
+| tests/procedures/ui-web/kubeconfig-backend-193/ | procedure | ui-web | Kubeconfig par backend k8s depuis le pod, namespace jetable, fichier illisible sans repli (#193) | feature | |
+| ng2/core/kubeconfig193_test.go | unitaire | core | Priorite kubeconfig > ServiceAccount > KUBECONFIG, --kubeconfig/--context, illisible sans repli, Tester (#193) | feature | |
+| ng2/ui/desktop/kubeconfig193_test.go | unitaire | ui-desktop | Depot du kubeconfig dans le coffre : contextes listes, jamais relu ni journalise, refus motives (#193) | feature | |
+| ng2/chart_kubeconfig193_test.go | integration | chart | rbac.extraNamespaces et backends.kubeconfigs en lecture seule 0444 (#193) | feature | |
