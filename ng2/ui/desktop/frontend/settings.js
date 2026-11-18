@@ -85,6 +85,7 @@ function stBackendValue(b) {
   if (b.hosts && b.hosts.length) v.hosts = b.hosts;
   if (b.shared && b.shared.length) v.shared = b.shared;
   if (b.volumes && Object.keys(b.volumes).length) v.volumes = b.volumes;
+  if (b.kubeconfig) v.kubeconfig = b.kubeconfig; // true (coffre) ou chemin (#193)
   if (b.spread != null) v.spread = !!b.spread;
   if (b.pod && Object.keys(b.pod).length) v.pod = b.pod;
   return v;
@@ -424,6 +425,7 @@ function stBackendForm(b) {
   stFillTests(out, b);
   body.appendChild(out);
   if (t === 'ssh' && b.name) body.appendChild(stSshBox(b));
+  if (t === 'k8s' && b.name) body.appendChild(stKubeBox(b));
   return stBox(b.name || '(sans nom)', body, test);
 }
 
@@ -441,6 +443,71 @@ async function stSshLoad(b, box) {
   try { S2.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { S2.err = e.message; }
   S2.loading = false;
   if (ST.ssh === S2) stSshFill(b, box);
+}
+// ── Kubeconfig d'un backend k8s (#193) : même principe que l'encadré ssh ──
+// Contenu jamais affiché ni relu ; champ vidé après l'envoi. Le choix « kubeconfig: true » et du contexte
+// passe par le brouillon (enregistré avec le reste de la fiche).
+function stKubeBox(b) {
+  const box = el('div', 'stbox stssh');
+  if (!ST.kube || ST.kube.name !== b.name) { ST.kube = { name: b.name, info: null, edit: false, msg: '', err: '', busy: false, loading: true }; stKubeLoad(b, box); }
+  stKubeFill(b, box);
+  return box;
+}
+async function stKubeLoad(b, box) {
+  const K = ST.kube;
+  try { K.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { K.err = e.message; }
+  K.loading = false;
+  if (ST.kube === K) stKubeFill(b, box);
+}
+function stKubeFill(b, box) {
+  const K = ST.kube, i = K.info || {};
+  box.textContent = '';
+  const h = el('div', 'bh'); h.append(el('span', '', '🔑 Kubeconfig'), el('span', 'dim', ' — coffre du launcher, hors partage'));
+  const bb = el('div', 'bb');
+  const redo = () => stKubeFill(b, box);
+  const act = async (fn) => {
+    if (K.busy) return; K.busy = true; K.err = ''; K.msg = ''; redo();
+    try { await fn(); } catch (e) { K.err = e.message; }
+    K.busy = false;
+    try { K.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { /* conservé */ }
+    if (ST.kube === K) { redo(); stRenderFoot(); }
+  };
+  const isPath = typeof b.kubeconfig === 'string';
+  const when = (t) => (t ? ' · modifié le ' + new Date(t).toLocaleString('fr-FR') + ' (source non vérifiée : adresse transmise par l\'ingress, X-Forwarded-For)' : '');
+  if (K.loading) bb.appendChild(el('div', 'dim', 'lecture du coffre…'));
+  else {
+    const st = el('div');
+    if (isPath) st.append(el('span', 'm', 'chemin : ' + b.kubeconfig), el('span', 'dim', '  (fichier du poste, jamais relu ici)'));
+    else if (i.hasKubeconfig) st.append(el('span', 't-green', 'déposé'), el('span', 'dim', ' (contenu jamais affiché)' + when(i.kubeconfigModified)), b.kubeconfig ? el('span') : el('span', 't-orange', ' · non activé : enregistrer la fiche'));
+    else st.append(el('span', 'dim', 'aucun : kubectl utilise le contexte du poste ou le ServiceAccount du pod'));
+    bb.appendChild(st);
+    const ctxs = i.kubeContexts || [];
+    if (ctxs.length && i.hasKubeconfig && !isPath) {
+      bb.appendChild(stForm([['Contexte', stSelect(b.context || '', [['', '(contexte courant du fichier)']].concat(ctxs.map((c) => [c, c])), (v) => { b.context = v; }), 'contextes du kubeconfig déposé']]));
+    }
+    if (!K.edit) {
+      const bar = el('div', 'stbar');
+      bar.append(stBtn(i.hasKubeconfig || isPath ? 'Remplacer' : 'Déposer un kubeconfig', () => { K.edit = true; K.msg = ''; redo(); }));
+      if (i.hasKubeconfig) bar.append(stBtn('Supprimer', () => { if (!confirm('Supprimer le kubeconfig du backend « ' + b.name + ' » ?')) return; act(async () => { await call('backendSecretDelete', { backend: b.name, what: 'kubeconfig' }); if (b.kubeconfig === true) { delete b.kubeconfig; b.context = ''; } K.msg = 'kubeconfig supprimé : enregistrer la fiche'; }); }, 'dg'));
+      bb.appendChild(bar);
+    } else {
+      const ta = el('textarea', 'stin stta'); ta.rows = 6; ta.spellcheck = false; ta.autocomplete = 'off'; ta.placeholder = 'apiVersion: v1\nkind: Config\n…';
+      const file = el('input'); file.type = 'file';
+      file.onchange = () => { const f = file.files[0]; if (f) f.text().then((t) => { ta.value = t; }); };
+      bb.appendChild(stForm([['Fichier', file, 'ou coller le contenu ci-dessous'], ['Contenu', ta, 'formes *-data seulement (pas d\'exec, de chemins de fichiers ni de auth-provider) ; jamais relu après l\'envoi']]));
+      const bar = el('div', 'stbar');
+      bar.append(stBtn('Enregistrer', () => act(async () => {
+        const r = await call('backendSecretSet', { backend: b.name, kubeconfig: ta.value });
+        ta.value = ''; file.value = '';
+        if (r.ok) { K.edit = false; b.kubeconfig = true; K.msg = 'kubeconfig enregistré ' + (r.fingerprint || '') + ' — enregistrer la fiche pour l\'activer'; } else K.err = r.msg || 'dépôt refusé';
+      }), 'pri'), stBtn('Annuler', () => { K.edit = false; redo(); }));
+      bb.appendChild(bar);
+    }
+  }
+  if (K.busy) bb.appendChild(el('div', 'dim', 'en cours…'));
+  if (K.msg) bb.appendChild(el('div', 't-green', K.msg));
+  if (K.err) bb.appendChild(el('div', 't-red', '⚠ ' + K.err));
+  box.append(h, bb);
 }
 function stSshFill(b, box) {
   const S2 = ST.ssh, i = S2.info || {};
