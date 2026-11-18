@@ -440,6 +440,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// le cycle de 10 min continue de son côté : pas de second minuteur
 			m.checking = false
 			switch {
+			case msg.Err == core.UpdErrQuota:
+				m.msg = "⚠ vérification GitHub impossible (quota, reprise " + msg.RetryAt.Format("15:04") + ")"
 			case !msg.Ok:
 				m.msg = "⚠ GitHub injoignable"
 			case m.newLauncher != "":
@@ -452,9 +454,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// release attendue : revérifie plus souvent pour passer au vert
 		if (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK) {
-			return m, tea.Batch(prepCmd, core.UpdTickCmd(2*time.Minute))
+			return m, tea.Batch(prepCmd, core.UpdTickCmd(core.NextUpdateDelay(msg, 2*time.Minute)))
 		}
-		return m, tea.Batch(prepCmd, core.UpdTickCmd(10*time.Minute))
+		return m, tea.Batch(prepCmd, core.UpdTickCmd(core.NextUpdateDelay(msg, 10*time.Minute)))
 	case prefStepMsg:
 		if msg.tag == m.prefTag {
 			m.prefStep = msg.step

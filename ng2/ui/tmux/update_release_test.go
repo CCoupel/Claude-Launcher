@@ -16,6 +16,7 @@ import (
 func TestUpdatesTagThenRelease(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CL_SCRIPT", filepath.Join(dir, "claude-launcher.sh"))
+	t.Setenv(core.CacheDirVar, filepath.Join(dir, "cache")) // résultat partagé update-check.json : jamais le vrai cache
 	tplSha, tplName, ngPublished, tplPublished := "t1", "v5.0.0", false, false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch p := r.URL.Path; {
@@ -46,7 +47,7 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 
 	check := func() core.UpdMsg {
 		t.Helper()
-		msg, ok := core.CheckUpdates(false)().(core.UpdMsg)
+		msg, ok := core.CheckUpdates(true)().(core.UpdMsg)
 		if !ok || !msg.Ok {
 			t.Fatalf("vérification en échec : %+v", msg)
 		}

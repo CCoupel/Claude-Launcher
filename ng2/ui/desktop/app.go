@@ -93,6 +93,8 @@ type updState struct {
 	prefTag, prefStep, prefErr, prefFile, prefSum string
 	prefBusy, updating, checking                  bool
 	hideLauncher, hideTpl, hideHub                bool
+	errKind                                       string    // "" | "quota" | "network" : vérification GitHub en échec (#199)
+	errRetry                                      time.Time // reprise annoncée (quota)
 }
 
 // NewApp : état initial (arborescence, caches) ; Start lance les relectures.
@@ -647,7 +649,7 @@ type Row struct {
 
 // Alert : annonce de mise à jour.
 type Alert struct {
-	Kind  string `json:"kind"`  // launcher, template
+	Kind  string `json:"kind"`  // launcher, template, github (#199)
 	Text  string `json:"text"`  // sans le ✕
 	Color string `json:"color"` // green, yellow, orange
 	Click bool   `json:"click"` // un clic agit (installer, adopter, réessayer)
@@ -838,6 +840,13 @@ func (a *App) alerts() []Alert {
 			al.Text, al.Color, al.Click = "↑ tpl "+u.newTpl+" · cliquer pour installer", "green", true
 		}
 		out = append(out, al)
+	}
+	// vérification GitHub impossible : visible en continu, orange, non cliquable (#199)
+	switch u.errKind {
+	case core.UpdErrQuota:
+		out = append(out, Alert{Kind: "github", Color: "orange", Text: "⚠ vérification GitHub impossible (quota, reprise " + u.errRetry.Format("15:04") + ")"})
+	case core.UpdErrNetwork:
+		out = append(out, Alert{Kind: "github", Color: "orange", Text: "⚠ GitHub injoignable"})
 	}
 	return out
 }

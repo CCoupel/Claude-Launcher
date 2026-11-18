@@ -25,7 +25,8 @@ func (a *App) updateLoop() {
 			return
 		case <-time.After(d):
 		}
-		a.applyUpd(core.CheckUpdatesNow(false))
+		msg := core.CheckUpdatesNow(false)
+		a.applyUpd(msg)
 		a.mu.Lock()
 		u := a.upd
 		a.mu.Unlock()
@@ -33,6 +34,7 @@ func (a *App) updateLoop() {
 		if (u.newLauncher != "" && !u.launcherOK) || (u.newTpl != "" && !u.tplOK) {
 			d = 2 * time.Minute
 		}
+		d = core.NextUpdateDelay(msg, d) // quota épuisé : pas d'appel avant la reprise (#199)
 	}
 }
 
@@ -41,6 +43,7 @@ func (a *App) applyUpd(msg core.UpdMsg) {
 	a.mu.Lock()
 	u := &a.upd
 	prep := ""
+	u.errKind, u.errRetry = msg.Err, msg.RetryAt
 	if msg.Ok {
 		tag := ""
 		if core.VersionNewer(core.NgVersion, msg.LauncherTag) {
@@ -65,6 +68,8 @@ func (a *App) applyUpd(msg core.UpdMsg) {
 	if msg.Manual {
 		u.checking = false
 		switch {
+		case msg.Err == core.UpdErrQuota:
+			a.msg = "⚠ vérification GitHub impossible (quota, reprise " + msg.RetryAt.Format("15:04") + ")"
 		case !msg.Ok:
 			a.msg = "⚠ GitHub injoignable"
 		case u.newLauncher != "":

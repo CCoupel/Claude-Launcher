@@ -168,6 +168,9 @@ type progress func(n, total int64)
 func httpGetP(url string, timeout time.Duration, accept string, prog progress) ([]byte, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
+	if t := githubToken(); t != "" && strings.HasPrefix(url, ApiBase) { // jeton : seulement vers l'API (#199)
+		req.Header.Set("Authorization", "Bearer "+t)
+	}
 	if accept != "" {
 		req.Header.Set("Accept", accept)
 	}
