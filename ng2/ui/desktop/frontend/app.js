@@ -910,7 +910,7 @@ function applyLayoutPrefs() {
 // Onglets de projets (#189, #190, #191) — fonctions pures (testées par node : testdata/tabs_bar.js).
 // tabView : titre = nom seul, toujours ; couleur du projet même hors sélection ; « agent au travail » en infobulle.
 function tabView(t, on) {
-  return { title: t.name, tip: t.busy ? 'agent au travail' : '', color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy && !on ? ['busy'] : []) };
+  return { title: t.name, tip: t.busy ? 'agent au travail' : '', color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy ? ['busy'] : []) };
 }
 // tabOrder : ordre enregistré d'abord ; les chemins nouveaux à la fin (ordre d'origine) ; les disparus ignorés.
 function tabOrder(paths, saved) {
@@ -960,14 +960,23 @@ function displayedTabs() {
   const by = new Map(tabs.map((t) => [t.path, t]));
   return tabOrder(tabs.map((t) => t.path), savedTabOrder()).map((p) => by.get(p));
 }
-// Glisser-déposer : après 5 px, trait bleu au point de dépôt, Échap annule, × ne lance jamais de glisser.
+// Glisser-déposer : après 5 px, trait bleu au point de dépôt, Échap annule, × ne lance jamais de glisser ; pointercancel et
+// perte du focus de la fenêtre annulent proprement ; la barre défile seule près de ses bords si elle déborde.
 function startTabDrag(ev, path) {
   if (ev.button !== 0) return;
   let ds = tabDragStep({ phase: 'idle' }, { type: 'down', path, x: ev.clientX, onClose: !!ev.target.closest('.x') }).state;
-  let at = 0, ind = null; const tabEl = ev.currentTarget, bar = $('tabs').querySelector('.tscroll');
+  let at = 0, ind = null, lastX = ev.clientX, speed = 0, iv = null; const tabEl = ev.currentTarget, bar = $('tabs').querySelector('.tscroll');
   const tabsEls = () => [...bar.querySelectorAll('.tab')];
+  const place = () => {
+    const els = tabsEls(), box = bar.getBoundingClientRect();
+    at = dropIndex(els.map((t) => t.offsetLeft + t.offsetWidth / 2 - bar.scrollLeft + box.left), lastX);
+    const ref = els[Math.min(at, els.length - 1)];
+    ind.style.left = (at >= els.length ? ref.offsetLeft + ref.offsetWidth : ref.offsetLeft) - 2 + 'px';
+  };
   const finish = (r) => {
     document.removeEventListener('pointermove', move, true); document.removeEventListener('pointerup', up, true); document.removeEventListener('keydown', key, true);
+    document.removeEventListener('pointercancel', abort, true); window.removeEventListener('blur', abort);
+    clearInterval(iv);
     if (ind) ind.remove();
     if (r === 'drop' || r === 'cancel') {
       tabEl.classList.remove('ghost');
@@ -981,17 +990,22 @@ function startTabDrag(ev, path) {
   };
   const step = (e) => { const r = tabDragStep(ds, e); ds = r.state; return r.action; };
   const move = (e) => {
+    lastX = e.clientX;
     const a = step({ type: 'move', x: e.clientX });
-    if (a === 'start') { S.drag = { path }; tabEl.classList.add('ghost'); ind = el('div', 'tdrop'); bar.appendChild(ind); }
+    if (a === 'start') {
+      S.drag = { path }; tabEl.classList.add('ghost'); ind = el('div', 'tdrop'); bar.appendChild(ind);
+      iv = setInterval(() => { if (speed) { bar.scrollLeft += speed; place(); } }, 16); // défilement près des bords
+    }
     if (!S.drag) return;
-    const els = tabsEls(), box = bar.getBoundingClientRect();
-    at = dropIndex(els.map((t) => t.offsetLeft + t.offsetWidth / 2 - bar.scrollLeft + box.left), e.clientX);
-    const ref = els[Math.min(at, els.length - 1)];
-    ind.style.left = (at >= els.length ? ref.offsetLeft + ref.offsetWidth : ref.offsetLeft) - 2 + 'px';
+    const box = bar.getBoundingClientRect(), edge = 36;
+    speed = bar.scrollWidth <= bar.clientWidth ? 0 : e.clientX < box.left + edge ? -Math.ceil((box.left + edge - e.clientX) / 4) : e.clientX > box.right - edge ? Math.ceil((e.clientX - (box.right - edge)) / 4) : 0;
+    place();
   };
   const up = () => { const a = step({ type: 'up' }); finish(a === 'drop' ? 'drop' : 'end'); };
   const key = (e) => { if (e.key === 'Escape' && step({ type: 'key', key: 'Escape' }) === 'cancel') { e.preventDefault(); e.stopPropagation(); finish('cancel'); } };
+  const abort = () => { finish(S.drag ? 'cancel' : 'end'); }; // pointercancel, fenêtre qui perd le focus
   document.addEventListener('pointermove', move, true); document.addEventListener('pointerup', up, true); document.addEventListener('keydown', key, true);
+  document.addEventListener('pointercancel', abort, true); window.addEventListener('blur', abort);
 }
 function localStorageOrNull() { try { return localStorage; } catch (e) { return null; } }
 function renderTabs() {
