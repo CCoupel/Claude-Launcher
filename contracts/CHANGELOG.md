@@ -2,6 +2,10 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261118] — v6.4.0, LOT-5 : budget d'arrêt (#198)
+
+- **[CHANGED]** arrêt du launcher borné à **25 s au pire** (ouvertures 20 s + détachements des terminaux 5 s) ; schéma du chart : `terminationGracePeriodSeconds` `minimum: 30` — l'écart signalé le 2026-11-18 est résolu — `contracts/web-server.md` « Cohérence avec le délai de grâce du pod »
+
 ## [20261118] — v6.4.0, LOT-4 : `/files/<projet>/<chemin relatif>` (#174, décision utilisateur au GATE LOT-4)
 
 - **[BREAKING]** (interne au milestone, aucune version publiée) : `/files/<chemin interne complet>` **supprimé** ; forme unique `/files/<projet>/<chemin relatif>`, `<projet>` = nom du projet dans le launcher, projets connus seulement (inconnu → `404`) ; `/files/` sans liste (`404`) ; premiers segments en `__` réservés (appariement `/files/__claude-launcher__/pair`) — `contracts/web-server.md` « Fichiers des projets par l'interface »

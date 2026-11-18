@@ -161,22 +161,14 @@ Wails ; il n'y a jamais d'erreur (`error` absent) : tout échec est `ok: false`,
 
 | Élément | Valeur |
 |---------|--------|
-| `terminationGracePeriodSeconds` du chart (`values.yaml`) | `30` par défaut ; schéma : entier, `minimum: 0` |
-| attente des ouvertures à l'arrêt (`shutdownOpenWait`, `ui/desktop/app.go`) | `20 s`, fixe (non réglable) |
-| marge restante pour détacher les terminaux et quitter | ~10 s avec le défaut |
+| `terminationGracePeriodSeconds` du chart (`values.yaml`) | `30` par défaut ; schéma : entier, **`minimum: 30`** |
+| attente des ouvertures à l'arrêt (`shutdownOpenWait`, `ui/desktop/app.go`) | `20 s` au plus |
+| détachement des terminaux (`detachWait`) | `5 s` au plus ; un détachement bloqué ne retient pas l'arrêt (sessions conservées dans leurs conteneurs) |
+| **budget d'arrêt** | **25 s au pire**, sous le délai de grâce de 30 s |
 
-Avec le défaut, c'est cohérent : 20 s + détachement < 30 s, et le kubelet n'envoie pas `SIGKILL` pendant
-l'arrêt propre.
-
-**Écart (signalé)** : le schéma accepte un `terminationGracePeriodSeconds` inférieur à ~25 s, alors que l'attente
-reste fixée à 20 s. Avec, par exemple, `10`, le pod est tué (`SIGKILL`) pendant l'attente : les terminaux ne sont pas
-détachés proprement (sans perte : les sessions tmux et le bootstrap détaché continuent dans les conteneurs, et le
-rattachement suivant répare). Correctifs possibles, au choix de dev-backend et infra :
-1. schéma : `minimum: 30` (ou 25), avec un message ;
-2. launcher : attente dérivée d'une variable posée par le chart (`CL_SHUTDOWN_WAIT` = délai de grâce − 10 s, plancher
-   0), à ajouter à `contracts/launcher-env.md`.
-
-Les valeurs QUALIF et PROD n'écrivent pas cette valeur : elles ont le défaut de 30 s.
+L'écart signalé plus tôt (schéma à `minimum: 0` face à une attente fixe) est **résolu** : le schéma refuse un délai de
+grâce inférieur à 30 s, et l'arrêt est borné à 25 s. Les valeurs QUALIF et PROD n'écrivent pas cette valeur : elles
+ont le défaut de 30 s.
 
 ## Piste v7.0.0 — authentification de l'ingress externe (#172, hors v6.4.0)
 
