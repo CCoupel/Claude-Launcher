@@ -1653,15 +1653,64 @@ avec #185.
 ### Installer le launcher dans Kubernetes par Helm (accès interne)
 
 Ce guide installe le launcher dans un namespace Kubernetes, accessible **seulement depuis le réseau interne**, avec le
-chart `deploy/helm/claude-launcher`. Les valeurs complètes sont dans `contracts/helm-values.md`.
+chart `deploy/helm/claude-launcher`. Les valeurs complètes sont dans `contracts/helm-values.md`. Le guide couvre l'état
+livré en **v6.4.0** : **aucune authentification** (elle arrive en v7.0.0, #172). La liste d'adresses de l'Ingress
+interne est la seule barrière d'accès.
+
+Le schéma ci-dessous montre les zones de confiance : le poste et le LAN, le cluster, et ce qui reste hors cluster.
+Les flèches qui franchissent une frontière portent ce qui les protège. Le launcher du cluster ne remplace pas les
+versions natives : le hub Linux et l'exe Windows peuvent tourner **en même temps** sur la même racine partagée.
+
+<!-- Schéma : maquette B (zones de confiance), SVG inline, texte sélectionnable -->
+<div>
+
+<svg viewBox="0 0 1160 560" width="1160" height="560" role="img" aria-label="Zones de confiance : poste et LAN, cluster, hors cluster" font-family="sans-serif">
+  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1B1F27"/></marker></defs>
+    <rect fill="#FFFFFF" stroke="#C9CED6" stroke-width="1.2" x="10" y="10" width="230" height="540" rx="10"/><text fill="#1B1F27" font-size="12" font-weight="600" x="24" y="34">Poste et LAN</text><text fill="#5B6372" font-size="10.5" x="24" y="50">192.168.1.0/24</text>
+    <rect fill="#FFFFFF" stroke="#C9CED6" stroke-width="1.2" x="24" y="64" width="202" height="112" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="86">Navigateur</text><text fill="#5B6372" font-size="10.5" x="36" y="104">interface web du cluster</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="122">https://launcher.local</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="140">/files/&lt;projet&gt;/…</text><text fill="#5B6372" font-size="10.5" x="36" y="160">extension claude : maquettes</text>
+    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="24" y="190" width="202" height="122" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="212">Hub Linux</text><text fill="#5B6372" font-size="10.5" x="36" y="230">coque tmux (terminal)</text><text fill="#5B6372" font-size="10.5" x="36" y="246">interface web : mode jeton (option)</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="264">maquettes 127.0.0.1:8765 (défaut Linux)</text><text fill="#1E8E4E" font-size="10.5" font-weight="600" x="36" y="284">même racine partagée</text><text fill="#5B6372" font-size="10.5" x="36" y="300">backends : podman, ssh, k8s…</text>
+    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="24" y="326" width="202" height="122" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="348">Exe Windows</text><text fill="#5B6372" font-size="10.5" x="36" y="366">fenêtre native (Wails)</text><text fill="#5B6372" font-size="10.5" x="36" y="382">interface web : mode jeton (option)</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="400">maquettes 127.0.0.1:8766</text><text fill="#5B6372" font-size="10.5" x="36" y="414">(défaut Windows, réglable)</text><text fill="#1E8E4E" font-size="10.5" font-weight="600" x="36" y="434">même racine partagée</text>
+    <rect fill="#E9F7EF" stroke="#1E8E4E" stroke-width="1.4" x="24" y="462" width="202" height="76" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="482">En même temps</text><text fill="#5B6372" font-size="10.5" x="36" y="500">un seul launcher pilote un</text><text fill="#5B6372" font-size="10.5" x="36" y="514">projet à la fois (témoin de</text><text fill="#5B6372" font-size="10.5" x="36" y="528">présence) ; prise de main</text>
+    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="270" y="10" width="610" height="540" rx="10"/><text fill="#1B1F27" font-size="12" font-weight="600" x="284" y="34">Cluster RKE2</text>
+    <rect fill="#F3F6FC" stroke="#1F4FD1" stroke-width="1" stroke-dasharray="5 3" x="284" y="56" width="170" height="200" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="296" y="78">ns traefik</text><text fill="#5B6372" font-size="10.5" x="296" y="98">Traefik (DaemonSet)</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="296" y="116">LB 192.168.1.150</text><text fill="#5B6372" font-size="10.5" x="296" y="138">Ingress interne :</text><text fill="#5B6372" font-size="10.5" x="296" y="154">ipAllowList LAN</text><text fill="#5B6372" font-size="10.5" x="296" y="170">TLS CA interne</text><text fill="#5B6372" font-size="10.5" x="296" y="186">(cert-manager)</text>
+    <rect fill="none" stroke="#9AA1AC" stroke-width="1.4" stroke-dasharray="6 4" x="296" y="200" width="146" height="46" rx="6"/><text fill="#7A818C" font-size="11" font-style="italic" x="304" y="218">Ingress externe</text><text fill="#7A818C" font-size="11" font-style="italic" x="304" y="236">v7.0.0 · refusé</text>
+    <rect fill="#F3F6FC" stroke="#1F4FD1" stroke-width="1" stroke-dasharray="5 3" x="480" y="56" width="386" height="330" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="492" y="78">ns du launcher (claude-ng2 / claude-qualif)</text>
+    <rect fill="#E9F7EF" stroke="#1E8E4E" stroke-width="1.4" x="492" y="92" width="110" height="64" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="502" y="114">NetworkPolicy</text><text fill="#5B6372" font-size="10.5" x="502" y="132">pods Traefik seuls</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="502" y="148">port http</text>
+    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="620" y="92" width="234" height="150" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="632" y="114">Pod launcher</text><text fill="#5B6372" font-size="10.5" x="632" y="132">StatefulSet · 1 réplique</text><text fill="#5B6372" font-size="10.5" x="632" y="150">interface web (access: none)</text><text fill="#5B6372" font-size="10.5" x="632" y="168">ServiceAccount + Role</text><text fill="#1E8E4E" font-size="10.5" font-weight="600" x="632" y="192">arrêt ≤ 25 s (grâce 30 s)</text><text fill="#5B6372" font-size="10.5" x="632" y="210">clients ssh · docker · podman</text><text fill="#5B6372" font-size="10.5" x="632" y="228">kubectl</text>
+    <rect fill="#FFFFFF" stroke="#C9CED6" stroke-width="1.2" x="492" y="260" width="170" height="54" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="502" y="282">Racine partagée</text><text fill="#5B6372" font-size="10.5" x="502" y="300">PVC RWX · CL_ROOT_BASE</text>
+    <rect fill="#E9F7EF" stroke="#1E8E4E" stroke-width="1.4" x="676" y="260" width="178" height="54" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="686" y="282">Coffre (PVC RWO)</text><text fill="#5B6372" font-size="10.5" x="686" y="300">un dossier par backend</text>
+    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="492" y="326" width="362" height="50" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="502" y="348">Pods des projets</text><text fill="#5B6372" font-size="10.5" x="630" y="348">un StatefulSet par projet · même racine</text>
+    <rect fill="#F3F6FC" stroke="#1F4FD1" stroke-width="1" stroke-dasharray="5 3" x="480" y="402" width="386" height="96" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="492" y="424">ns supplémentaires (rbac.extraNamespaces)</text><text fill="#5B6372" font-size="10.5" x="492" y="444">même Role, RoleBinding vers le ServiceAccount du launcher</text>
+    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="492" y="454" width="362" height="34" rx="6"/><text fill="#5B6372" font-size="10.5" x="502" y="476">pods des projets d'un autre namespace</text>
+    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="910" y="10" width="240" height="540" rx="10"/><text fill="#1B1F27" font-size="12" font-weight="600" x="924" y="34">Hors cluster</text>
+    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="924" y="56" width="212" height="90" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="936" y="78">Backends distants</text><text fill="#5B6372" font-size="10.5" x="936" y="96">ssh · podman · docker</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="936" y="114">192.168.1.211 :22 / :2375</text><text fill="#5B6372" font-size="10.5" x="936" y="132">clé + empreinte : coffre</text>
+    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="924" y="166" width="212" height="70" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="936" y="188">Autre cluster</text><text fill="#5B6372" font-size="10.5" x="936" y="206">kubeconfig du backend</text><text fill="#5B6372" font-size="10.5" x="936" y="222">(coffre ou Secret monté)</text>
+    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="924" y="256" width="212" height="56" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="936" y="278">GitHub</text><text fill="#5B6372" font-size="10.5" x="936" y="296">vérification de version</text>
+    <rect fill="none" stroke="#9AA1AC" stroke-width="1.4" stroke-dasharray="6 4" x="924" y="332" width="212" height="70" rx="8"/><text fill="#7A818C" font-size="11" font-style="italic" x="936" y="354">Internet</text><text fill="#7A818C" font-size="11" font-style="italic" x="936" y="372">aucun accès en v6.4.0</text><text fill="#7A818C" font-size="11" font-style="italic" x="936" y="390">(externe : v7.0.0)</text>
+    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M226 120 H280" marker-end="url(#ar)"/><text fill="#5B6372" font-size="10.5" x="232" y="112">https</text>
+    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M454 124 H488" marker-end="url(#ar)"/><path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M602 124 H616" marker-end="url(#ar)"/>
+    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M780 242 V256" marker-end="url(#ar)"/><path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M640 242 V256" marker-end="url(#ar)"/>
+    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 212 H864 V351 H858" marker-end="url(#ar)"/><path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 230 H874 V471 H858" marker-end="url(#ar)"/>
+    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 110 H920" marker-end="url(#ar)"/><text fill="#5B6372" font-size="10.5" x="862" y="104">ssh / tcp</text>
+    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 150 C890 150 890 200 920 200" marker-end="url(#ar)"/>
+    <path fill="none" stroke="#5B6372" stroke-width="1.2" stroke-dasharray="4 3" d="M854 225 C895 225 895 284 920 284" marker-end="url(#ar)"/>
+    <path fill="none"  stroke-width="1.3" d="M226 284 H466 V280 H488" marker-end="url(#ar)" stroke="#1E8E4E"/>
+    <path fill="none"  stroke-width="1.3" d="M226 420 H470 V300 H488" marker-end="url(#ar)" stroke="#1E8E4E"/>
+    <text fill="#1E8E4E" font-size="10.5" font-weight="600" x="300" y="278">même racine partagée (RWX)</text>
+    <text fill="#5B6372" font-size="10.5" x="290" y="446">prise de main : le témoin</text>
+    <text fill="#5B6372" font-size="10.5" x="290" y="460">de présence dit qui pilote</text>
+    </svg>
+
+</div>
 
 #### 1. Prérequis
 
-- Un cluster avec un Ingress Traefik ou nginx, et cert-manager. Un namespace dédié : le Role du chart est limité à ce
-  namespace, mais il équivaut à administrer le namespace. N'y mettez que le launcher et ses projets.
+- Un cluster RKE2 (ou équivalent) avec un Ingress Traefik ou nginx, et cert-manager. Un namespace dédié : le Role du chart
+  est limité à ce namespace, mais il équivaut à administrer le namespace. N'y mettez que le launcher et ses projets.
 - Un volume RWX pour la racine des projets, sous l'une de ces formes : un PVC existant (`volume.existingClaim`) ; un PVC
-  créé par le chart (`volume.create.enabled: true`) lié à un PV fourni par l'administrateur (`volume.create.persistentVolume.name`) ; ou
-  un PV créé aussi par le chart (`persistentVolume.enabled: true`, droits d'administrateur).
+  créé par le chart (`volume.create.enabled: true`) lié à un PV fourni par l'administrateur (`volume.create.persistentVolume.name`) ;
+  ou un PV créé aussi par le chart (`volume.create.persistentVolume.enabled: true`, droits d'administrateur). Une
+  StorageClass RWX convient pour un dossier neuf (`volume.create.storageClassName`).
 - Un nom d'accès en `.local` (mDNS), par exemple `launcher.local`. Les pods ne résolvent pas les noms `.local`.
 - Une CA interne pour cert-manager, avec des contraintes de noms (`nameConstraints`) sur `launcher.local`. Le certificat
   **public** de cette CA s'installe une fois sur chaque poste qui y accède. La clé ne sort jamais du cluster.
@@ -1687,11 +1736,32 @@ ingress:
     clusterIssuer: claude-launcher-ca          # ou secretName, un des deux
 web:
   access: none                                 # défaut du chart : pas de jeton, l'Ingress est la barrière
+networkPolicy:
+  enabled: true                                # défaut : entrée au pod seulement depuis les pods Traefik
+  ingressNamespaces: [traefik]
+  ingressPodSelector: {app.kubernetes.io/name: traefik}
+  ingressCIDRs: []                             # Traefik en réseau d'hôte : adresses des nœuds
+secrets:
+  persistence:
+    size: 10Mi                                 # PVC RWO <release>-secrets (coffre des clés ssh et kubeconfig)
+rbac:
+  extraNamespaces: []                          # autres namespaces du même cluster (Role + RoleBinding, pas de ClusterRole)
+backends:
+  kubeconfigs: []                              # [{name, secretName, key}] : kubeconfig d'un autre cluster, en lecture seule
+  docker:
+    secretName: ""                             # Secret TLS docker/podman (ca.pem, cert.pem, key.pem)
+terminationGracePeriodSeconds: 30              # minimum 30 : le launcher attend jusqu'à 20 s les ouvertures en cours
+externalIngress:
+  enabled: false                               # true est refusé au rendu tant qu'il n'y a pas d'authentification (v7.0.0)
 ```
 
 Valeurs obligatoires : `rootBase`, `volume.existingClaim`, `ingress.controller`, `ingress.className`, `ingress.host`,
 `ingress.allowedSourceRanges`, et l'un de `ingress.tls.secretName` ou `ingress.tls.clusterIssuer`. Une absente fait échouer
 `helm install` avec un message qui la nomme. `allowedSourceRanges` refuse tout `/0` et tout préfixe plus large.
+`terminationGracePeriodSeconds` en dessous de 30 est refusé par le schéma. `externalIngress.enabled: true` fait échouer le rendu.
+
+**Droits** : un Role et un RoleBinding limités au namespace (et à chaque namespace de `rbac.extraNamespaces`), jamais de
+ClusterRole. Le launcher n'a aucun droit sur les Secrets Kubernetes : son coffre est un PVC.
 
 #### 3. Installation
 
@@ -1723,6 +1793,9 @@ Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont cr
 - **`web.access: token`** : le jeton ne s'affiche jamais dans les journaux du pod. Lisez-le dans le fichier
   `<rootBase>/.cache/claude-launcher-ng2/<hubName>/desktop-web-token` du pod, par `kubectl exec`, puis donnez-le à l'utilisateur
   par un canal sûr. Ne l'écrivez pas sur un partage.
+- **Fichiers des projets** : `https://launcher.local/files/<projet>/<chemin relatif>`. Les sessions du cluster utilisent
+  `CL_WEB_URL/files` ; le chemin interne du pod n'apparaît jamais. Les fichiers sont servis avec une CSP `sandbox` (origine
+  opaque) et les fichiers sensibles sont exclus (voir §8).
 - La CA doit être installée sur le poste, sinon le navigateur refuse le certificat.
 
 #### 5. Vérifications obligatoires
@@ -1745,48 +1818,84 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
    ```bash
    curl -sk -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 192.168.1.10' https://launcher.local/healthz   # → 403
    ```
+6. **NetworkPolicy** : un pod d'un autre namespace ne joint pas le launcher directement. Depuis un pod qui n'est pas Traefik :
+   `kubectl -n claude-ng2 run np-test --rm -it --restart=Never --image=curlimages/curl -- curl -s -m 5 http://claude-launcher.claude-ng2.svc:8080/healthz`
+   → échec (délai). Une entrée par l'Ingress reste admise.
 
 #### 6. Mise à jour et retour arrière
 
 - **Mise à jour** : relancez `helm upgrade --install` avec le nouveau `image.tag` et le nouveau `image.digest`. Ne réutilisez
   jamais un tag déjà publié.
+- **Jamais `--reuse-values` seul** : il ne reprend que les valeurs enregistrées et n'applique pas les défauts du chart de la
+  nouvelle version (une clé ajoutée, comme `networkPolicy.*`, resterait absente). Utilisez `-f values.yaml` complet, comme
+  à l'installation, ou `--reset-then-reuse-values` (même règle que `deploy.*.md`).
 - **Retour arrière** : `helm rollback claude-launcher <révision> -n claude-ng2`. Les projets restent dans leurs pods.
 - **Désinstallation** : `helm uninstall` retire les objets du chart. Il ne touche ni au PVC ni au PV créés par le chart
-  (`keep`), ni aux StatefulSets des projets, ni aux fichiers de la racine.
+  (`keep`), ni au PVC du coffre (`<release>-secrets`, `keep`), ni aux StatefulSets des projets, ni aux fichiers de la racine.
+- **Essai sur une autre racine** : avant toute bascule, testez sur une racine dédiée au test (un autre `rootBase`, un autre
+  `hubName` et un namespace de test, par exemple `claude-qualif`). N'ouvrez jamais un essai sur la racine de production.
 
-#### 7. Cohabitation avec l'exe Windows
+#### 7. Cohabitation : cluster, hub Linux et exe Windows sur la même racine
 
-Un poste Windows peut partager la même racine. Ce partage n'est correct que dans les cas suivants :
+Trois launchers peuvent partager la même racine : celui du cluster (interface web, `web.access: none`), le hub Linux (coque
+tmux) et l'exe Windows (fenêtre native). Chacun a son cache et son nom (`hubName` ; `CL_HUB_NAME` sur le poste). Deux
+launchers de même nom sont refusés.
 
+- **Un seul launcher pilote un projet à la fois** : un témoin de présence indique qui pilote. Les autres affichent le projet
+  « ouvert ailleurs » et proposent la **prise de main**.
+- **Serveur de maquettes local** (hub et exe, pas le cluster) : `127.0.0.1:8765` par défaut pour le hub Linux, `127.0.0.1:8766`
+  par défaut pour l'exe Windows. Le port se règle par `browser_server.listen` (par système : `hubs.<machine>.<système>.browser_server.listen`).
+  Ce n'est pas « seul sur le poste » qui décide : l'exe reste sur 8766 tant qu'il n'a pas été réglé autrement.
 - **`config.conf` créé par v6.3.0 sous une racine de base** : ses chemins sont écrits `${CL_ROOT_BASE}`, que chaque launcher
   développe avec sa propre forme de la racine. Un `config.conf` **existant** (la racine de PROD, par exemple) garde ses
   chemins tels quels : il n'est pas réécrit.
 - **Limite** : ne partagez pas une racine **neuve** créée par v6.3.0 avec un launcher antérieur à v6.3.0. Il ne développe
   pas `${CL_ROOT_BASE}` et ne trouve donc pas ses projets.
 
-Chaque launcher a son propre cache et son propre nom de hub : le launcher du cluster se nomme `hubName`, et le poste
-garde son nom ou prend `CL_HUB_NAME`. Deux launchers de même nom sont refusés.
+#### 8. Backends distants depuis le pod
 
-#### 8. Limites de v6.3.0 (risques acceptés)
+- **`k8s`** : fonctionne par défaut (ServiceAccount du pod, cluster du pod).
+- **kubeconfig par backend** (`backends.<nom>.kubeconfig`) : un autre cluster se déclare avec son kubeconfig, déposé dans le
+  coffre depuis les Réglages (`kubeconfig: true`) ou monté par le chart (`backends.kubeconfigs`, `kubeconfig: /chemin`). Sans
+  repli sur le ServiceAccount si le fichier est illisible. Le launcher refuse les kubeconfigs qui exécutent une commande
+  (`exec`, `auth-provider`) ou lisent un fichier du poste (`client-certificate`, `client-key`, `tokenFile`,
+  `certificate-authority`). Il signale `insecure-skip-tls-verify` et `proxy-url`. Les contextes sont listés, le contenu jamais
+  affiché.
+- **ssh** : les clés et les empreintes se saisissent dans les Réglages du backend, par adresse **IP** plutôt que par nom
+  court. Clé privée jamais relue ni affichée, phrase de passe refusée, empreinte confirmée explicitement, écritures journalisées
+  sans contenu (`<CacheDir>/secrets-journal.jsonl`). Le client `ssh` est dans l'image.
+- **podman et docker** : les clients sont dans l'image, mais ni démon ni service n'y tourne. Un `docker` en TLS se monte par
+  `backends.docker.secretName` (`DOCKER_CERT_PATH`, `DOCKER_TLS_VERIFY=1`). Un `tcp://…:2375` sans TLS reste accepté.
+- **« Tester »** : vérifie le client présent, la clé et l'empreinte (ssh), puis l'accès.
 
-- **Pas de NetworkPolicy** : tout pod du cluster atteint le Service sans passer par l'Ingress. Le Service est `ClusterIP`.
-- **`web.access: none`** : tout poste de la liste pilote les projets, et tout pod du cluster atteint le Service. Ce risque
-  est accepté jusqu'à l'authentification de v6.4.0 (#172).
-- **Jeton en clair sur le volume partagé** (`web.access: token`) : le jeton reste dans `<cache>/desktop-web-token`, sur le
-  volume partagé de la racine. Il est donc lisible par tout pod qui monte ce volume, y compris les pods de projets. Risque
-  accepté jusqu'à v6.4.0. Avec `web.access: none`, aucun jeton n'est tiré, lu ni écrit : le fichier n'existe pas, et il est
-  supprimé au passage en `none`.
+#### 9. Limites de v6.4.0 (risques acceptés)
+
+Ces risques sont acceptés pour v6.4.0 et levés par la règle R1 de **v7.0.0** (#172) : session authentifiée exigée pour toute
+écriture et tout accès aux fichiers.
+
+- **Pas d'authentification.** Tout poste de la liste d'adresses de l'Ingress pilote les projets. Ne publiez jamais l'Ingress
+  hors du réseau interne, et n'exposez pas le port d'écoute autrement. L'ingress externe (`externalIngress`) reste refusé.
+- **Écriture des secrets depuis le LAN** (clés ssh, `known_hosts`, kubeconfig) : une machine admise peut redéclarer un backend
+  ssh, y déposer sa clé et son empreinte, puis lancer un projet qui exécute des commandes sur un hôte qu'elle contrôle. Atténuations :
+  liste d'adresses, NetworkPolicy, journal des écritures, relevé d'empreinte limité aux backends déclarés (ni loopback, ni
+  link-local, ni adresse du pod).
+- **`/files` lisible depuis le LAN** : les fichiers des projets sont servis, sauf les éléments sensibles (`PRIVATE`, `.git`,
+  `.claude`, `.env*`, clés, identifiants d'outils comme `.git-credentials`, `.npmrc`, `.docker`, `*.p12`, `*.pfx`, `*.jks`),
+  les dossiers d'état du launcher et `_work/tmp`. Dans `_work`, seul `_work/mockup` est servi. Les requêtes cross-site sont
+  refusées, sauf les sous-ressources de maquette.
+- **Script cross-site d'une maquette** : une page tierce peut exécuter un fichier `.js` d'un projet servi sous `/files` et lire
+  ses variables globales. Les scripts de maquette ne sont pas restreints en `connect-src` (CDN et API publiques).
+- **`web.access: token`** : le jeton reste dans `<cache>/desktop-web-token`, sur le volume partagé de la racine : tout pod qui
+  monte ce volume, y compris les pods de projets, peut le lire. Avec `web.access: none`, aucun jeton n'existe.
 - **Saturation possible** : 32 flux `/api/events` au total, ouvrables par tout client qui atteint le port.
-- **Contexte k8s ignoré en cluster** : un backend `k8s` d'un autre cluster, déclaré dans la racine, agirait sur le cluster du
-  pod. Ne déclarez que des backends `k8s` du cluster où tourne le launcher.
-- **Hors cluster, `web.access: none`** : tout processus local pilote le launcher.
-- **Backends distants** : depuis le launcher du cluster, seul le backend `k8s` fonctionne. Les backends ssh, podman et docker demandent des clients absents de l'image (issue prévue en v6.4.0).
-- **Hors cluster, `web.access` vaut `token` par défaut** (launcher), alors que le chart pose `none`.
+- **Contexte k8s** : sans `kubeconfig` du backend, le `context` d'un backend `k8s` est ignoré en cluster. Déclarez seulement
+  des backends `k8s` du cluster où tourne le launcher.
+- **Hors cluster, `web.access: none`** : tout processus local pilote le launcher. Hors cluster, `web.access` vaut `token` par défaut.
 - **Tag mutable** : si `image.digest` n'est pas posé, `image.tag` peut désigner une image différente demain. Posez toujours
   l'empreinte. Le paquet ghcr de l'image est public : toute personne peut la tirer.
-- **Refus de NodePort et LoadBalancer** : le chart refuse ces types de Service ; seul `ClusterIP` est admis.
-- **Serveur de fichiers des maquettes** (`browser_server`) : non exposé par le pod en cluster (#174, prévu en v6.4.0).
-- Ne publiez jamais l'Ingress hors du réseau interne, et n'exposez pas le port d'écoute autrement.
+- **Types de Service** : le chart refuse `NodePort` et `LoadBalancer` ; seul `ClusterIP` est admis.
+- **Arrêt** : le launcher attend au plus 20 s les ouvertures de projet en cours, puis détache les terminaux ; avec le délai de
+  grâce de 30 s, l'arrêt tient en 25 s au pire. Les sessions tmux continuent dans leurs conteneurs.
 
 ## Interface
 
