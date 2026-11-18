@@ -34,3 +34,5 @@
 | tests/integration/ci/ci-image-chart-177/ | integration | main | Garde de scripts/ci.sh : outil manquant = echec explicite, etapes chart et image mesurees, budgets D1, une seule image ci gardee (#177) | feature | slow |
 | tests/procedures/ci/install-guide-185/ | procedure | main | Installation par Helm en suivant le guide seul, sur une autre racine : prerequis, installation, acces sans jeton, mise a jour/retour arriere, limites dites, desinstallation, releve des ecarts (#185) | feature | slow |
 | tests/procedures/ui-desktop/masquage-inactifs-188/ | procedure | ui-desktop | Commutateur du masquage des teammates inactifs : defaut v6.2.0, desactive (tout reapparait, delai conserve, double-clic refuse), puce de la carte TEAM, coque tmux (#188) | feature | |
+| tests/procedures/ui-desktop/version-template-199/ | procedure | ui-desktop | Version du template juste, ⚠ carte TEAM, alerte quota GitHub (#199) | feature | |
+| ng2/core/tplversion199_test.go | unitaire | core | Comparaisons de versions, carte TEAM, verification GitHub : jeton, ETag, quota, resultat partage (#199) | feature | |
