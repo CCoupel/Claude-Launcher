@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/core"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -14,6 +15,10 @@ func TestBackendSecretCalls(t *testing.T) {
 	d := filepath.Join(t.TempDir(), "secrets")
 	t.Setenv("CL_SECRETS_DIR", d)
 	t.Setenv("CL_ROOT_BASE", "")
+	t.Setenv(core.CacheDirVar, filepath.Join(t.TempDir(), "cache"))
+	cfg := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", cfg)
+	_ = os.WriteFile(filepath.Join(cfg, "backends.yaml"), []byte("backends:\n  srv: { type: ssh, host: 192.168.1.210 }\n"), 0o644)
 	var r recorder
 	a := newApp(t, r.emit)
 	call := func(from origin, src, m string, args any) map[string]any {
@@ -42,14 +47,14 @@ func TestBackendSecretCalls(t *testing.T) {
 	if bad := call(originWeb, "x", "backendSecretSet", map[string]any{"backend": "srv", "privateKey": "x", "publicKey": "y"}); bad["ok"] != false {
 		t.Errorf("clé invalide acceptée : %v", bad)
 	}
-	j, _ := os.ReadFile(filepath.Join(d, "journal.jsonl"))
+	j, _ := os.ReadFile(filepath.Join(core.CacheDir(), "secrets-journal.jsonl"))
 	if !strings.Contains(string(j), "192.168.1.50") {
 		t.Errorf("source absente du journal : %s", j)
 	}
 	if del := call(originWindow, "", "backendSecretDelete", map[string]any{"backend": "srv", "what": "all"}); del["ok"] != true {
 		t.Errorf("suppression : %v", del)
 	}
-	j, _ = os.ReadFile(filepath.Join(d, "journal.jsonl"))
+	j, _ = os.ReadFile(filepath.Join(core.CacheDir(), "secrets-journal.jsonl"))
 	if !strings.Contains(string(j), "fenêtre native") {
 		t.Errorf("source fenêtre absente : %s", j)
 	}

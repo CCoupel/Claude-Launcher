@@ -18,6 +18,7 @@ func secretsEnv(t *testing.T) string {
 	t.Helper()
 	d := filepath.Join(t.TempDir(), "secrets")
 	t.Setenv(SecretsDirVar, d)
+	t.Setenv(CacheDirVar, filepath.Join(t.TempDir(), "cache"))
 	t.Setenv("CL_ROOT_BASE", "")
 	return d
 }
@@ -50,7 +51,7 @@ func TestSecretsPaireEtLecture(t *testing.T) {
 		t.Error("la clé privée ne doit jamais être rendue")
 	}
 	// journal : l'empreinte, pas le contenu
-	j, _ := os.ReadFile(filepath.Join(d, secretJournal))
+	j, _ := os.ReadFile(filepath.Join(CacheDir(), secretJournal))
 	if !strings.Contains(string(j), fp) || strings.Contains(string(j), "PRIVATE KEY") || !strings.Contains(string(j), `"source":"test"`) {
 		t.Errorf("journal : %s", j)
 	}

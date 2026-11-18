@@ -36,7 +36,7 @@ const (
 	secretKeyFile   = "id"
 	secretPubFile   = "id.pub"
 	secretKnownFile = "known_hosts"
-	secretJournal   = "journal.jsonl"
+	secretJournal   = "secrets-journal.jsonl" // dans CacheDir(), hors du coffre
 )
 
 var backendNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
@@ -493,10 +493,9 @@ func sshBaseArgs(backend string, connectTimeout string) []string {
 
 // journalSecret : une ligne par écriture (backend, type, action, empreinte, source) — jamais de contenu.
 func journalSecret(backend, secret, action, fingerprint, source string) {
-	dir := secretsDirRaw()
 	b, _ := json.Marshal(map[string]string{"at": time.Now().UTC().Format(time.RFC3339), "backend": backend, "secret": secret,
 		"action": action, "fingerprint": fingerprint, "source": source})
-	f, err := os.OpenFile(filepath.Join(dir, secretJournal), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	f, err := os.OpenFile(filepath.Join(CacheDir(), secretJournal), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}

@@ -43,6 +43,11 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 	}
 	w := core.SecretWrite{Source: src}
+	if method == "backendSecretSet" || method == "backendKnownHostsSet" { // écriture : seulement pour un backend ssh déclaré
+		if err := sshBackendDeclared(in.Backend); err != nil {
+			return map[string]any{"ok": false, "msg": err.Error()}, nil
+		}
+	}
 	switch method {
 	case "backendSecretGet":
 		return core.SecretGet(in.Backend)
@@ -96,4 +101,21 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 		return map[string]any{"ok": true}, nil
 	}
 	return nil, fmt.Errorf("%s : inconnu", method)
+}
+
+// sshBackendDeclared : le backend existe dans backends.yaml et est de type ssh (enregistrer le backend d'abord).
+func sshBackendDeclared(name string) error {
+	bs, err := core.LoadBackends()
+	if err != nil {
+		return err
+	}
+	for _, b := range bs {
+		if b.Name == name {
+			if b.Type != "ssh" {
+				return fmt.Errorf("backend %q : les clés ssh ne concernent que les backends ssh", name)
+			}
+			return nil
+		}
+	}
+	return fmt.Errorf("backend %q inconnu : l'enregistrer dans les réglages avant d'y déposer une clé", name)
 }
