@@ -674,7 +674,7 @@ func ownPortHint(machine, goos string) string {
 		port = "8765"
 	}
 	return "Pour un serveur propre à ce launcher : un autre port pour ce système, hubs." + machine + "." + sys +
-		".browser_server.listen (ex. 127.0.0.1:" + port + ") ; hubs." + machine + ".browser_server vaut pour les deux systèmes du même nom de machine, voir le README (section Windows)."
+		".browser_server.listen (ex. 127.0.0.1:" + port + ") ; hubs." + machine + ".browser_server vaut pour les deux systèmes du même nom de machine, voir ng2/docs/windows.md (section Windows)."
 }
 
 // PrintBrowserServer : section de « claude-launcher-ng2 backends ».
