@@ -35,6 +35,10 @@ func TestTabsBarStyle189(t *testing.T) {
 	if !regexp.MustCompile(`\.tab[^{]*\{[^}]*3px`).MatchString(css) {
 		t.Error("liseré de 3 px à la couleur du projet absent des règles .tab")
 	}
+	// maquette B : l'onglet sélectionné occupé (.tab.on.busy) garde son ⚙, blanc sur le fond de la couleur du projet
+	if !regexp.MustCompile(`\.tab\.on\.busy[^{]*\{[^}]*(color|content)`).MatchString(css) {
+		t.Error("règle CSS .tab.on.busy absente (⚙ blanc de l'onglet sélectionné et occupé)")
+	}
 	app := asset(t, "app.js")
 	if strings.Contains(app, "' · agent au travail'") && !strings.Contains(app, "tabView(") {
 		t.Error("« agent au travail » ne doit plus s'ajouter au titre : infobulle seulement")

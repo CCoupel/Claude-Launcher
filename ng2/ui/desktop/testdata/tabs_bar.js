@@ -1,9 +1,10 @@
 // Simulation (node) des onglets de projets (#189 couleur hors sélection, #190 titre stable, #191 ordre par glisser-déposer).
 // Usage : node tabs_bar.js app.js
 // Contrat des fonctions pures exposées par app.js (maquette B : tab_bar__couleur_titre_ordre.html) :
-//   tabView(t, on)                → { title, tip, color, cls[] } ; title = t.name TOUJOURS (sélectionné ou non, occupé ou non) ;
-//                                   tip = « agent au travail » seulement si t.busy ; color = t.color (ou défaut) même hors sélection ;
-//                                   cls contient 'on' ssi sélectionné, 'busy' ssi t.busy et non sélectionné
+//   tabView(t, on)                → { title, tip, color, gear, cls[] } ; title = t.name TOUJOURS (sélectionné ou non, occupé ou non) ;
+//                                   tip = « agent au travail » seulement si t.busy (sélectionné ou non) ; color = t.color (ou défaut) même hors sélection ;
+//                                   gear = true ssi t.busy (⚙ dans l'emplacement d'état, sélectionné ou non : .tab.on.busy, ⚙ blanc) ;
+//                                   cls contient 'on' ssi sélectionné, 'busy' ssi t.busy (sélectionné OU non)
 //   tabOrder(paths, saved)        → chemins dans l'ordre enregistré ; absents de saved à la fin (ordre d'origine) ; chemins disparus ignorés
 //   tabMove(order, path, index)   → nouvel ordre (index borné) ; 'leaders' jamais déplaçable ; chemin inconnu ignoré
 //   tabOrderLoad(store)           → tableau de chemins lu dans store.getItem('cl.tabOrder') ; [] si absent, invalide ou stockage qui lève
@@ -39,7 +40,13 @@ eq('pas d\'infobulle si au repos', F.tabView(t, false).tip, '');
 eq('couleur du projet hors sélection', F.tabView(t, false).color, '#C0392B');
 eq('couleur du projet sélectionné', F.tabView(t, true).color, '#C0392B');
 eq('classe on seulement si sélectionné', [F.tabView(t, true).cls.includes('on'), F.tabView(t, false).cls.includes('on')], [true, false]);
-eq('classe busy hors sélection seulement', [F.tabView(tb, false).cls.includes('busy'), F.tabView(tb, true).cls.includes('busy')], [true, false]);
+eq('classe busy sélectionné ou non (maquette B : .tab.on.busy)', [F.tabView(tb, false).cls.includes('busy'), F.tabView(tb, true).cls.includes('busy')], [true, true]);
+eq('onglet sélectionné et occupé : on + busy', F.tabView(tb, true).cls.slice().sort(), ['busy', 'on']);
+eq('⚙ présent dès que busy, sélectionné ou non', [F.tabView(tb, false).gear, F.tabView(tb, true).gear], [true, true]);
+eq('pas de ⚙ au repos', [F.tabView(t, false).gear, F.tabView(t, true).gear], [false, false]);
+eq('classe busy absente au repos', [F.tabView(t, false).cls.includes('busy'), F.tabView(t, true).cls.includes('busy')], [false, false]);
+eq('titre inchangé : sélectionné et occupé', F.tabView(tb, true).title, 'alpha');
+eq('infobulle aussi sélectionné et occupé', /agent au travail/.test(F.tabView(tb, true).tip), true);
 eq('couleur par défaut si absente', typeof F.tabView({ name: 'x', path: '/x' }, false).color, 'string');
 
 // #191 ordre
