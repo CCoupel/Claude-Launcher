@@ -1236,8 +1236,8 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		// cartes en cache tout de suite, complétées en tâche de fond (#130)
 		return a.selectCards(arg.Path), nil
 	case "setTheme": // thème Auto / Jour / Nuit (#133) : barre de titre de la fenêtre
-		if themeHook.Get() != nil {
-			themeHook.Get()(arg.Mode)
+		if h := themeHook.Get(); h != nil {
+			h(arg.Mode)
 		}
 		return nil, nil
 	case "cardsFor": // projet survolé ou voisin : préparé à l'avance (#130)

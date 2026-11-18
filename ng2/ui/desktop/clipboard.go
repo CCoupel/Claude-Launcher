@@ -33,19 +33,23 @@ func clipboardUnavailable() map[string]any {
 		"msg": "presse-papiers du poste indisponible ici : le navigateur sera utilisé (contexte sécurisé : localhost)"}
 }
 
-func (a *App) clipboardUsable() bool {
-	return !a.web && clipboardSetHook.Get() != nil && clipboardGetHook.Get() != nil
+// clipboardHooks : les deux crochets, lus UNE fois (un test ou le démarrage de la fenêtre peut les remplacer pendant un
+// appel) ; faux en mode web ou si l'un manque.
+func (a *App) clipboardHooks() (set func(string) error, get func() (string, error), ok bool) {
+	set, get = clipboardSetHook.Get(), clipboardGetHook.Get()
+	return set, get, !a.web && set != nil && get != nil
 }
 
 // clipboardWrite : copie text dans le presse-papiers du poste.
 func (a *App) clipboardWrite(text string) map[string]any {
-	if !a.clipboardUsable() {
+	set, _, ok := a.clipboardHooks()
+	if !ok {
 		return clipboardUnavailable()
 	}
 	if len(text) > maxClipboardWrite {
 		return map[string]any{"ok": false, "msg": fmt.Sprintf("texte trop volumineux pour le presse-papiers (%d Mo au plus)", maxClipboardWrite>>20)}
 	}
-	if err := clipboardSetHook.Get()(text); err != nil {
+	if err := set(text); err != nil {
 		return map[string]any{"ok": false, "msg": "copie impossible : " + err.Error()}
 	}
 	return map[string]any{"ok": true}
@@ -53,10 +57,11 @@ func (a *App) clipboardWrite(text string) map[string]any {
 
 // clipboardRead : texte du presse-papiers du poste (vide s'il n'en contient pas).
 func (a *App) clipboardRead() map[string]any {
-	if !a.clipboardUsable() {
+	_, get, ok := a.clipboardHooks()
+	if !ok {
 		return clipboardUnavailable()
 	}
-	text, err := clipboardGetHook.Get()()
+	text, err := get()
 	if err != nil {
 		return map[string]any{"ok": false, "msg": "lecture du presse-papiers impossible : " + err.Error()}
 	}

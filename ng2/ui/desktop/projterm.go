@@ -1207,8 +1207,8 @@ func (t *projTerm) relayoutNow() {
 	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
 		return
 	}
-	if relayoutMid.Get() != nil {
-		relayoutMid.Get()()
+	if h := relayoutMid.Get(); h != nil {
+		h()
 	}
 	c := t.cl()
 	if c == nil {
