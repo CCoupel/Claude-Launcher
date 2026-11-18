@@ -109,6 +109,7 @@ ni aux fichiers de `rootBase`.
 | Valeur | Type | Défaut | Obligatoire | Rôle |
 |--------|------|--------|-------------|------|
 | `networkPolicy.enabled` | booléen | **`true`** | — | entrée du pod seulement depuis `networkPolicy.ingressNamespaces`, port `service.port` ; sondes du kubelet admises ; sortie non restreinte (backends distants, GitHub) |
+| `networkPolicy.ingressCIDRs` | liste de CIDR | `[]` | — | sources `ipBlock` en plus (Traefik en réseau d'hôte : adresses des nœuds) ; sans namespace ni CIDR, le rendu est refusé |
 | `networkPolicy.ingressNamespaces` | liste | `[traefik]` | — | namespace du contrôleur d'Ingress (cluster du projet : `traefik`, DaemonSet hors réseau d'hôte) |
 | `secrets.persistence.size` | quantité | `10Mi` | — | PVC `ReadWriteOnce` `<release>-secrets` (coffre, `helm.sh/resource-policy: keep`), monté en `/var/lib/claude-launcher/secrets`, `CL_SECRETS_DIR` |
 | `secrets.persistence.storageClassName` | chaîne | `""` (classe par défaut) | — | classe RWO, **jamais** la racine partagée |

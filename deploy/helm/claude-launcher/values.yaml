@@ -68,6 +68,23 @@ secrets:
     size: 10Mi
     storageClassName: ""  # "" = classe par défaut du cluster (RWO) ; jamais la racine partagée
 
+# NetworkPolicy (#200, défaut : activée) : entrée du pod seulement depuis le namespace du contrôleur d'Ingress ;
+# sondes du kubelet admises par le CNI ; sortie non restreinte. Traefik en réseau d'hôte : ingressCIDRs = adresses des nœuds.
+networkPolicy:
+  enabled: true
+  ingressNamespaces: [traefik]
+  ingressCIDRs: []
+
+# Ingress externe PRÉPARÉ, REFUSÉ au rendu tant que l'authentification n'existe pas (v7.0.0, #172)
+externalIngress:
+  enabled: false
+  className: ""
+  host: ""
+  tls:
+    clusterIssuer: ""     # ex. letsencrypt-prod
+    secretName: ""
+  annotations: {}
+
 rbac:
   extraNamespaces: []     # #193 : même Role + RoleBinding (ServiceAccount du pod) dans chaque namespace listé ; aucun ClusterRole
 

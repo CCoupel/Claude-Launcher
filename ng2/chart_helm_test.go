@@ -223,7 +223,7 @@ func TestChartObjectsAndNoClusterWideRights(t *testing.T) {
 			t.Errorf("objet %s absent du rendu", k)
 		}
 	}
-	for _, k := range []string{"ClusterRole", "ClusterRoleBinding", "NetworkPolicy", "Deployment", "Namespace"} {
+	for _, k := range []string{"ClusterRole", "ClusterRoleBinding", "Deployment", "Namespace"} {
 		if len(o[k]) != 0 {
 			t.Errorf("objet %s créé (refusé par le contrat)", k)
 		}

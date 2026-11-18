@@ -58,6 +58,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not (or (eq $root $mount) (hasPrefix (printf "%s/" $mount) $root)) -}}
 {{- fail (printf "rootBase (%s) doit être volume.mountPath (%s) ou un de ses sous-dossiers" $root $mount) -}}
 {{- end -}}
+{{- if .Values.externalIngress.enabled -}}
+{{- fail "ingress externe refusé : aucune authentification avant v7.0.0 (#172) — l'interface web ne doit pas être exposée hors du LAN (externalIngress.enabled: false)" -}}
+{{- end -}}
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.ingressNamespaces) (not .Values.networkPolicy.ingressCIDRs) -}}
+{{- fail "networkPolicy.enabled sans ingressNamespaces ni ingressCIDRs : plus aucune entrée admise (même l'Ingress) — donner le namespace du contrôleur, ou networkPolicy.enabled: false" -}}
+{{- end -}}
 {{- /* montages du chart : la racine partagée ne chevauche ni le coffre ni le Secret docker */ -}}
 {{- range $p := list "/var/lib/claude-launcher/secrets" "/var/run/claude-launcher/docker" -}}
 {{- if or (eq $mount $p) (hasPrefix (printf "%s/" $mount) $p) (hasPrefix (printf "%s/" $p) $mount) -}}
