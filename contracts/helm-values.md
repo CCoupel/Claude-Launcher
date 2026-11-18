@@ -100,7 +100,7 @@ ni aux fichiers de `rootBase`.
 `deploy/helm/values-qualif.yaml` et `deploy/helm/values-prod.yaml` : valeurs non secrètes de chaque environnement
 (nom d'hôte, classe, CIDR, `rootBase`, `web.access: none` écrit explicitement). Aucun secret : un certificat fourni reste dans `PRIVATE/<ENV>/`.
 
-## v6.4.0 — NetworkPolicy, coffre, identifiants, ingress externe préparé **[CHANGED]** (#174, #193, #194)
+## v6.4.0 — NetworkPolicy, coffre, identifiants, ingress externe préparé **[CHANGED]** (#174, #193, #194, #200)
 
 > Révision GATE 2 n°2 (rev2) : **aucune authentification** en v6.4.0 (#172 en v7.0.0). Détail :
 > `contracts/web-server.md`, `contracts/backends-remote.md`. **Aucun BREAKING** : `web.access` garde son défaut

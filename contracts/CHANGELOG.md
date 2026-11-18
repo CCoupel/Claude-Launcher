@@ -2,6 +2,11 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261118] — v6.4.0, LOT-4 : CSP de `/files`, sources de la NetworkPolicy (#174, #200)
+
+- **[CHANGED]** `/files` : `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` au lieu de `sandbox` seul (scripts des maquettes exécutés dans une origine opaque, jamais `allow-same-origin`) — `contracts/web-server.md` (commit ffcfc72, dev-backend ; avis security en cours)
+- **[NEW]** chart : `networkPolicy.ingressCIDRs` (sources `ipBlock` en plus des namespaces ; rendu refusé sans namespace ni CIDR) — `contracts/helm-values.md` « v6.4.0 » (commit 441f093, infra)
+
 ## [20261118] — v6.4.0 : appel `reattach` (#198)
 
 - **[NEW]** `reattach {path}` → `{ok, tab}` : rattache l'onglet à une session tmux survivante après un redémarrage du serveur, sans rien créer ; appelé par le client en repli au bout d'environ 5 s (abandon à 20 s) ; `ok: false` sans erreur quand la session manque, appartient à un autre launcher, ou que l'onglet est en lecture seule ou en erreur — `contracts/web-server.md` « Appel reattach » (commit 3c0b868)

@@ -10,8 +10,9 @@
 - **Ingress interne** : inchangé depuis v6.3.0 (`ipAllowList` 192.168.1.0/24, `claude-launcher-ca`). Le Service
   Traefik est en `externalTrafficPolicy: Local` (adresse source conservée). Test critique en QUALIF : depuis Internet,
   `Host: launcher-qualif.local` vers l'IP publique → `403`.
-- **NetworkPolicy** activée par défaut (`contracts/helm-values.md`) : le pod n'est joignable que depuis le namespace
-  `traefik`. Plus aucun pod du cluster ne contourne l'Ingress.
+- **NetworkPolicy** activée par défaut (#200, `contracts/helm-values.md`) : le pod n'est joignable que depuis les
+  namespaces `networkPolicy.ingressNamespaces` (défaut `traefik`) et les CIDR `networkPolicy.ingressCIDRs` (vide par
+  défaut ; adresses des nœuds si Traefik passe en réseau d'hôte). Plus aucun pod du cluster ne contourne l'Ingress.
 - **Ingress externe : préparé, désactivé.** Le chart déclare `externalIngress.*`, mais `externalIngress.enabled: true`
   fait **échouer le rendu** (`fail` Helm) avec le message « ingress externe refusé : aucune authentification avant
   v7.0.0 (#172) ». Le launcher n'a qu'une adresse publique (`CL_WEB_URL`, v6.3.0).
