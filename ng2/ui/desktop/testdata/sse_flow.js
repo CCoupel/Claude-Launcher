@@ -10,6 +10,9 @@ for (let k = src.indexOf('{', at); k < src.length; k++) { if (src[k] === '{') d+
 const ctx = { console: { warn() {}, error() {}, info() {} } };
 vm.createContext(ctx);
 vm.runInContext(src.slice(at, end) + '\nglobalThis.startFlow = startFlow;', ctx);
+// Les natifs du navigateur (setTimeout, fetch…) lèvent « Illegal invocation » quand ils sont appelés comme méthode d'un
+// autre objet (this ≠ window) : node, lui, l'accepte. nat() reproduit ce refus ; tout env.* natif doit être lié.
+const nat = (f) => function (...a) { if (this !== undefined && this !== globalThis) throw new TypeError('Illegal invocation'); return f(...a); };
 const log = [], sources = [];
 class ES { constructor(u) { this.u = u; sources.push(this); log.push('open'); } close() { log.push('close'); } }
 const timers = [], watches = [];
@@ -87,5 +90,15 @@ const tick = async () => { const [f] = timers.shift(); await f(); };
   s3[0].onerror();
   for (let i = 0; i < 4; i++) await t3.shift()[0]();
   if (r3.slice(0, 4).join() !== '8000,16000,30000,30000' && r3.slice(0, 3).join() !== '8000,16000,30000') fail('délais d\'init : ' + r3);
+  // environnement réel (flowEnv) avec des natifs stricts : aucun ne doit être appelé comme méthode d'env
+  const c4 = { setTimeout: nat((f, ms) => setTimeout(f, ms)), clearTimeout: nat((h) => clearTimeout(h)), EventSource: ES, sessionIsLost: false,
+    transport: { call: nat(async () => ({ ok: 1 })) }, applyInit() {}, connBanner() {}, console };
+  vm.createContext(c4);
+  vm.runInContext(grab('flowEnv') + '\nglobalThis.flowEnv = flowEnv;', c4);
+  const e4 = c4.flowEnv(() => {});
+  try {
+    const h = e4.watch(() => {}, 1); e4.unwatch(h); e4.setTimeout(() => {}, 1); e4.newES('/api/events');
+    await e4.race(Promise.resolve(1), 5); await e4.init(); e4.banner(false); e4.lost();
+  } catch (err) { fail('natif appelé comme méthode d\'env : ' + err.message); }
   console.log('OK'); process.exit(0);
 })();

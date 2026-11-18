@@ -24,6 +24,15 @@ try { const u = new URL(location.href); if (u.searchParams.has('t')) { u.searchP
 // (ré)ouverture après coupure, `init` est rejoué D'ABORD (état, version et démarrage du serveur) ; tant qu'il échoue
 // (pod qui démarre : 502/503 de l'ingress), le flux n'est pas rouvert et l'essai est répété (1,5 s doublé jusqu'à
 // 15 s). Bandeau « connexion perdue » pendant la coupure. 401/403 (session perdue) : on arrête (#171).
+// Environnement réel de startFlow : chaque natif est appelé nu (jamais comme méthode d'env : « Illegal invocation »).
+function flowEnv(cb) {
+  return {
+    watch: (f, ms) => setTimeout(f, ms), unwatch: (h) => clearTimeout(h), setTimeout: (f, ms) => setTimeout(f, ms),
+    newES: (u) => new EventSource(u),
+    race: (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('délai dépassé')), ms))]),
+    init: () => transport.call('init'), applyInit, cb, banner: connBanner, lost: () => sessionIsLost,
+  };
+}
 function startFlow(env) {
   let delay = 1500, down = false, initMs = 8000; // délai d'init : 8, 16 puis 30 s au plus
   const lose = () => { if (!down) { down = true; env.banner(true); } };
@@ -83,7 +92,7 @@ const transport = (() => {
         window.runtime.EventsOn('ev', (e) => cb(e.name, e.data));
         return;
       }
-      startFlow({ watch: (f, ms) => setTimeout(f, ms), unwatch: (h) => clearTimeout(h), newES: (u) => new EventSource(u), race: (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('délai dépassé')), ms))]), init: () => transport.call('init'), applyInit, cb, setTimeout, banner: connBanner, lost: () => sessionIsLost });
+      startFlow(flowEnv(cb));
     },
   };
 })();
