@@ -5,6 +5,8 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
+	"net"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -158,5 +160,82 @@ func TestSshArgsAvecCle(t *testing.T) {
 		if !strings.Contains(a, w) {
 			t.Errorf("option %q absente : %s", w, a)
 		}
+	}
+}
+
+func TestHostScanRefuseLoopbackEtPod(t *testing.T) {
+	old := keyscan
+	defer func() { keyscan = old }()
+	called := false
+	keyscan = func(h, p string) ([]byte, error) { called = true; return nil, nil }
+	for _, h := range []string{"127.0.0.1", "user@localhost", "::1", "[::1]:22", "0.0.0.0"} {
+		if _, err := HostScan(h); err == nil || !strings.Contains(err.Error(), "refusé") {
+			t.Errorf("%s : relevé accepté (%v)", h, err)
+		}
+	}
+	// une adresse de l'une des interfaces du pod
+	if as, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range as {
+			if ipn, ok := a.(*net.IPNet); ok && !ipn.IP.IsLoopback() && ipn.IP.To4() != nil {
+				if _, err := HostScan("root@" + ipn.IP.String()); err == nil {
+					t.Errorf("adresse du pod %s acceptée", ipn.IP)
+				}
+				break
+			}
+		}
+	}
+	if called {
+		t.Error("ssh-keyscan lancé vers une adresse refusée")
+	}
+}
+
+func TestSecretEcritureRefuseSiACLEchoue(t *testing.T) {
+	d := secretsEnv(t)
+	old := restrictACL
+	restrictACL = func(string, bool) error { return errors.New("icacls en échec") }
+	defer func() { restrictACL = old }()
+	priv, pub, _ := generateKeyPair("a")
+	if _, _, err := SecretSetKey("srv", string(priv), string(pub), false, SecretWrite{}); err == nil || !strings.Contains(err.Error(), "icacls") {
+		t.Errorf("écriture acceptée malgré l'échec d'ACL : %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(d, "srv", "id")); err == nil {
+		t.Error("clé écrite malgré l'échec d'ACL")
+	}
+}
+
+func TestSecretEcritureRefuseSiJournalInaccessible(t *testing.T) {
+	d := secretsEnv(t)
+	// le « dossier de cache » est un fichier : le journal ne peut pas être écrit
+	f := filepath.Join(t.TempDir(), "fichier")
+	_ = os.WriteFile(f, nil, 0o600)
+	t.Setenv(CacheDirVar, filepath.Join(f, "cache"))
+	priv, pub, _ := generateKeyPair("a")
+	if _, _, err := SecretSetKey("srv", string(priv), string(pub), false, SecretWrite{}); err == nil || !strings.Contains(err.Error(), "journal") {
+		t.Errorf("écriture acceptée sans journal : %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(d, "srv", "id")); err == nil {
+		t.Error("clé écrite sans journal")
+	}
+}
+
+func TestSshArgsCoffreRefuseALUsage(t *testing.T) {
+	d := secretsEnv(t)
+	priv, pub, _ := generateKeyPair("a")
+	if _, _, err := SecretSetKey("srv", string(priv), string(pub), false, SecretWrite{}); err != nil {
+		t.Fatal(err)
+	}
+	secretsCheck.Lock()
+	secretsCheck.m = map[string]secretsCheckEntry{}
+	secretsCheck.Unlock()
+	if len(sshSecretArgs("srv")) == 0 {
+		t.Fatal("coffre sain : options attendues")
+	}
+	// le coffre se retrouve sous la racine partagée
+	t.Setenv("CL_ROOT_BASE", filepath.Dir(d))
+	secretsCheck.Lock()
+	secretsCheck.m = map[string]secretsCheckEntry{}
+	secretsCheck.Unlock()
+	if a := sshSecretArgs("srv"); len(a) != 0 {
+		t.Errorf("clé d'un coffre sous la zone partagée utilisée : %v", a)
 	}
 }

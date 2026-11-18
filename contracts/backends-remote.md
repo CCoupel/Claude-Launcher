@@ -66,6 +66,7 @@ Qui peut **écrire** un secret (clé ssh, `known_hosts`, kubeconfig) en v6.4.0 :
 | client web du hub / de l'exe (mode `token`) | oui | à rediscuter |
 | client web de l'ingress interne (cluster, `none`, LAN) | **oui** | non : session authentifiée exigée |
 
+- Le journal des écritures est `<CacheDir>/secrets-journal.jsonl` (hors du coffre) ; il est écrit **avant** le secret : un journal inaccessible, comme une ACL Windows impossible à poser, refuse l'écriture. Écriture et relevé d'empreinte (`backendHostScan`, adresse du backend déclaré, jamais loopback ni adresse du pod) exigent un backend ssh déclaré ; le dossier du coffre n'est montré qu'à la fenêtre native.
 - Ce qui reste exigé dans tous les cas : clé privée jamais relue ni affichée, coffre hors partage, empreinte de
   l'hôte confirmée explicitement, aucune trace des contenus dans les journaux.
 - **Risque accepté (v6.4.0)** : toute machine du LAN admise par la liste d'adresses peut déposer ou remplacer la clé

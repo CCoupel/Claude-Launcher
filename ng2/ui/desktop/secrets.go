@@ -12,6 +12,9 @@ import (
 // Règle d'écriture provisoire de la v6.4.0 : tous les clients écrivent (fenêtre native, client web du hub, ingress
 // interne) ; la clé privée n'est jamais renvoyée ; chaque écriture est journalisée (sans contenu) avec sa source.
 
+// nativeSource : source journalisée des appels de la fenêtre native.
+const nativeSource = "fenêtre native"
+
 // secretMethods : appels du coffre.
 var secretMethods = map[string]bool{"backendSecretGet": true, "backendSecretSet": true, "backendSecretDelete": true,
 	"backendHostScan": true, "backendKnownHostsSet": true}
@@ -20,7 +23,7 @@ var secretMethods = map[string]bool{"backendSecretGet": true, "backendSecretSet"
 func (a *App) DispatchFromAddr(from origin, src, method string, raw json.RawMessage) (any, error) {
 	if secretMethods[method] {
 		if from != originWeb {
-			src = "fenêtre native"
+			src = nativeSource
 		} else if src == "" {
 			src = "navigateur"
 		}
@@ -32,7 +35,6 @@ func (a *App) DispatchFromAddr(from origin, src, method string, raw json.RawMess
 func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 	var in struct {
 		Backend    string          `json:"backend"`
-		Host       string          `json:"host"`
 		PrivateKey string          `json:"privateKey"`
 		PublicKey  string          `json:"publicKey"`
 		Generate   bool            `json:"generate"`
@@ -43,14 +45,18 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 		return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 	}
 	w := core.SecretWrite{Source: src}
-	if method == "backendSecretSet" || method == "backendKnownHostsSet" { // écriture : seulement pour un backend ssh déclaré
+	if method == "backendSecretSet" || method == "backendKnownHostsSet" || method == "backendHostScan" { // écriture et relevé : seulement pour un backend ssh déclaré
 		if err := sshBackendDeclared(in.Backend); err != nil {
 			return map[string]any{"ok": false, "msg": err.Error()}, nil
 		}
 	}
 	switch method {
 	case "backendSecretGet":
-		return core.SecretGet(in.Backend)
+		info, err := core.SecretGet(in.Backend)
+		if src != nativeSource { // le chemin du coffre n'est montré qu'à la fenêtre native
+			info.Dir = ""
+		}
+		return info, err
 	case "backendSecretSet":
 		fp, pub, err := core.SecretSetKey(in.Backend, in.PrivateKey, in.PublicKey, in.Generate, w)
 		if err != nil {
@@ -62,11 +68,11 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 		}
 		return map[string]any{"ok": true, "fingerprint": fp, "publicKey": pub, "msg": msg}, nil
 	case "backendHostScan":
-		dest := in.Host
+		dest := "" // l'adresse est celle du backend déclaré, jamais celle du client
 		if bs, err := core.LoadBackends(); err == nil {
 			for _, b := range bs {
-				if b.Name == in.Backend && b.Type == "ssh" && b.Host != "" {
-					dest = b.Host // le backend enregistré l'emporte sur l'adresse du formulaire
+				if b.Name == in.Backend && b.Type == "ssh" {
+					dest = b.Host
 				}
 			}
 		}

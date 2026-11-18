@@ -9,12 +9,14 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/crypto/ssh"
@@ -38,6 +40,10 @@ const (
 	secretKnownFile = "known_hosts"
 	secretJournal   = "secrets-journal.jsonl" // dans CacheDir(), hors du coffre
 )
+
+// restrictACL : droits réservés à l'utilisateur (ACL sous Windows) ; remplacé dans les tests. Un échec refuse
+// l'écriture dans le coffre.
+var restrictACL = platform.RestrictToUser
 
 var backendNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 
@@ -124,7 +130,9 @@ func SecretsDir() (string, error) {
 			return "", fmt.Errorf("coffre des secrets : %w", err)
 		}
 		_ = os.Chmod(dir, 0o700)
-		_ = platform.RestrictToUser(dir, true)
+		if err := restrictACL(dir, true); err != nil {
+			return "", fmt.Errorf("coffre des secrets : droits du dossier impossibles à restreindre : %w", err)
+		}
 	}
 	return dir, nil
 }
@@ -153,7 +161,9 @@ func secretBackendDir(name string, create bool) (string, error) {
 		return "", fmt.Errorf("coffre des secrets : %w", err)
 	}
 	_ = os.Chmod(d, 0o700)
-	_ = platform.RestrictToUser(d, true)
+	if err := restrictACL(d, true); err != nil {
+		return "", fmt.Errorf("coffre des secrets : droits du dossier impossibles à restreindre : %w", err)
+	}
 	return d, nil
 }
 
@@ -178,7 +188,10 @@ func writeSecretFile(path string, data []byte) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	_ = platform.RestrictToUser(tmp, false)
+	if err := restrictACL(tmp, false); err != nil {
+		_ = os.Remove(tmp)
+		return fmt.Errorf("droits du fichier impossibles à restreindre : %w", err)
+	}
 	if err := os.Rename(tmp, path); err != nil {
 		_ = os.Remove(tmp)
 		return err
@@ -335,6 +348,13 @@ func SecretSetKey(backend, privateKey, publicKey string, generate bool, w Secret
 	if err != nil {
 		return "", "", err
 	}
+	what := "set"
+	if generate {
+		what = "generate"
+	}
+	if err := journalSecret(backend, "ssh-key", what, fingerprint, w.Source); err != nil {
+		return "", "", err
+	}
 	// la clé publique d'abord : un échec n'écrase jamais une clé privée par une moitié de paire
 	if err := writeSecretFile(filepath.Join(d, secretPubFile), pubB); err != nil {
 		return "", "", fmt.Errorf("écriture de la clé publique : %w", err)
@@ -342,11 +362,6 @@ func SecretSetKey(backend, privateKey, publicKey string, generate bool, w Secret
 	if err := writeSecretFile(filepath.Join(d, secretKeyFile), privB); err != nil {
 		return "", "", fmt.Errorf("écriture de la clé privée : %w", err)
 	}
-	what := "set"
-	if generate {
-		what = "generate"
-	}
-	journalSecret(backend, "ssh-key", what, fingerprint, w.Source)
 	return fingerprint, strings.TrimSpace(string(pubB)), nil
 }
 
@@ -369,10 +384,12 @@ func SecretSetKnownHosts(backend, lines string, w SecretWrite) (int, error) {
 		sb.WriteString(e.Line + "\n")
 		fps = append(fps, e.Fingerprint)
 	}
+	if err := journalSecret(backend, "known_hosts", "set", strings.Join(fps, ","), w.Source); err != nil {
+		return 0, err
+	}
 	if err := writeSecretFile(filepath.Join(d, secretKnownFile), []byte(sb.String())); err != nil {
 		return 0, err
 	}
-	journalSecret(backend, "known_hosts", "set", strings.Join(fps, ","), w.Source)
 	return len(es), nil
 }
 
@@ -393,6 +410,9 @@ func SecretDelete(backend, what string, w SecretWrite) error {
 	default:
 		return fmt.Errorf("suppression : « %s » inconnu (key, known_hosts, all)", what)
 	}
+	if err := journalSecret(backend, what, "delete", "", w.Source); err != nil {
+		return err
+	}
 	for _, n := range names {
 		if err := os.Remove(filepath.Join(d, n)); err != nil && !os.IsNotExist(err) {
 			return err
@@ -401,7 +421,6 @@ func SecretDelete(backend, what string, w SecretWrite) error {
 	if what == "all" {
 		_ = os.Remove(d) // le dossier, s'il est vide
 	}
-	journalSecret(backend, what, "delete", "", w.Source)
 	return nil
 }
 
@@ -452,6 +471,9 @@ func HostScan(dest string) ([]KnownHostEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := hostScanRefused(host); err != nil {
+		return nil, err
+	}
 	out, err := keyscan(host, port)
 	if err != nil && len(out) == 0 {
 		var ee *exec.Error
@@ -475,6 +497,9 @@ func sshSecretArgs(backend string) []string {
 	if backend == "" || checkBackendName(backend) != nil {
 		return nil
 	}
+	if secretsDirUnsafe() {
+		return nil // coffre déplacé sous une zone partagée ou aux droits trop larges : jamais utilisé
+	}
 	d := filepath.Join(secretsDirRaw(), backend)
 	key := filepath.Join(d, secretKeyFile)
 	if _, err := os.Stat(key); err != nil {
@@ -491,14 +516,70 @@ func sshBaseArgs(backend string, connectTimeout string) []string {
 
 // ── Journal des écritures ─────────────────────────────────────────────────
 
-// journalSecret : une ligne par écriture (backend, type, action, empreinte, source) — jamais de contenu.
-func journalSecret(backend, secret, action, fingerprint, source string) {
+// journalSecret : une ligne par écriture, dans <CacheDir>/secrets-journal.jsonl (hors du coffre) ; écrite AVANT le secret :
+// un journal inaccessible refuse l'écriture ; (backend, type, action, empreinte, source) — jamais de contenu.
+func journalSecret(backend, secret, action, fingerprint, source string) error {
 	b, _ := json.Marshal(map[string]string{"at": time.Now().UTC().Format(time.RFC3339), "backend": backend, "secret": secret,
 		"action": action, "fingerprint": fingerprint, "source": source})
 	f, err := os.OpenFile(filepath.Join(CacheDir(), secretJournal), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return
+		return fmt.Errorf("journal des écritures inaccessible (%s) : écriture refusée", err)
 	}
 	defer f.Close()
-	_, _ = f.Write(append(b, '\n'))
+	if _, err := f.Write(append(b, '\n')); err != nil {
+		return fmt.Errorf("journal des écritures inaccessible (%s) : écriture refusée", err)
+	}
+	return nil
+}
+
+// secretsDirUnsafe : le coffre est-il refusé à l'usage ? Contrôle (racines partagées : lecture de backends.yaml)
+// mémorisé 30 s par emplacement : ssh est appelé très souvent.
+func secretsDirUnsafe() bool {
+	dir := secretsDirRaw()
+	secretsCheck.Lock()
+	defer secretsCheck.Unlock()
+	if e, ok := secretsCheck.m[dir]; ok && time.Since(e.at) < 30*time.Second {
+		return e.bad
+	}
+	bad := checkSecretsDir(dir, secretsForbiddenRoots()) != nil
+	secretsCheck.m[dir] = secretsCheckEntry{at: time.Now(), bad: bad}
+	return bad
+}
+
+type secretsCheckEntry struct {
+	at  time.Time
+	bad bool
+}
+
+var secretsCheck = struct {
+	sync.Mutex
+	m map[string]secretsCheckEntry
+}{m: map[string]secretsCheckEntry{}}
+
+// hostScanRefused : le relevé d'empreinte ne vise ni la boucle locale, ni une adresse du pod / de la machine du
+// launcher (ssh-keyscan servirait de sonde du réseau interne du pod).
+func hostScanRefused(host string) error {
+	if strings.EqualFold(host, "localhost") {
+		return fmt.Errorf("relevé refusé : %s est la machine du launcher", host)
+	}
+	ips := []net.IP{}
+	if ip := net.ParseIP(host); ip != nil {
+		ips = append(ips, ip)
+	} else if r, err := net.LookupIP(host); err == nil {
+		ips = r
+	}
+	local := map[string]bool{}
+	if as, err := net.InterfaceAddrs(); err == nil {
+		for _, a := range as {
+			if ipn, ok := a.(*net.IPNet); ok {
+				local[ipn.IP.String()] = true
+			}
+		}
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() || ip.IsUnspecified() || local[ip.String()] {
+			return fmt.Errorf("relevé refusé : %s désigne la machine du launcher (%s)", host, ip)
+		}
+	}
+	return nil
 }
