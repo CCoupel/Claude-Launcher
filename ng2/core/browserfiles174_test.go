@@ -135,3 +135,44 @@ func TestFilesHandlerFormeProjet(t *testing.T) {
 		t.Errorf("appariement, jeton faux : %d, attendu 403", c)
 	}
 }
+
+// Racine d'un projet Windows sans correspondance de chemins : « C:/… » (ou C:\…), sans « / » initial, avec un chemin local
+// distinct (forme courte 8.3 / longue) — simulé ici par une fonction local qui change de préfixe. /files/<projet> doit servir
+// les fichiers, jamais afficher la racine, et refuser toujours les éléments sensibles (CI Windows).
+func TestFilesRacineSansSlashInitial(t *testing.T) {
+	real := t.TempDir()
+	for rel, c := range map[string]string{"doc/m.html": "maq", "doc/.env": "SECRET", "_work/mockup/a.css": "css"} {
+		p := filepath.Join(real, rel)
+		_ = os.MkdirAll(filepath.Dir(p), 0o755)
+		_ = os.WriteFile(p, []byte(c), 0o644)
+	}
+	root := "X:/Users/RUNNER~1/proj" // espace des URL internes : pas de « / » initial
+	local := func(p string) string {
+		if rest, ok := strings.CutPrefix(p, root); ok {
+			return real + rest
+		}
+		return p
+	}
+	fs := projectFileServer("p", root, local)
+	get := func(rel string) (int, string) {
+		// comme NewFilesHandler : le chemin interne est posé tel quel dans l'URL de la requête (pas de « / » initial)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", "/x", nil)
+		req.URL.Path = root + rel
+		fs.ServeHTTP(w, req)
+		b, _ := io.ReadAll(w.Result().Body)
+		return w.Code, string(b)
+	}
+	if c, b := get("/doc/m.html"); c != 200 || b != "maq" {
+		t.Errorf("fichier : %d %q (racine %q, local %q)", c, b, root, local(root))
+	}
+	if c, b := get("/_work/mockup/a.css"); c != 200 || b != "css" {
+		t.Errorf("maquette : %d %q", c, b)
+	}
+	if c, b := get("/doc/.env"); c != 404 {
+		t.Errorf(".env : %d %.20q (404 attendu)", c, b)
+	}
+	if c, b := get("/doc/"); c != 200 || strings.Contains(b, "X:") || strings.Contains(b, real) || !strings.Contains(b, "m.html") {
+		t.Errorf("liste : %d %.200q", c, b)
+	}
+}

@@ -67,6 +67,8 @@ func TestFilesNomDeProjetAmbigu(t *testing.T) {
 		t.Errorf("nom ambigu servi : %d %q", code, body)
 	}
 	if code, body := get("/files/" + core.CtrName(p3) + "/m.html"); code != 200 || body != "UNIQUE" {
-		t.Errorf("projet de nom unique : %d %q", code, body)
+		// chemins comparés : dans la sortie du test seulement (jamais dans la réponse HTTP) — diagnostic des CI Windows
+		root, ok := a.projectRootByName(core.CtrName(p3))
+		t.Errorf("projet de nom unique : %d %q — nom %q, projet %q, RemotePath %q, racine résolue %q (%v)", code, body, core.CtrName(p3), p3, core.RemotePath(p3), root, ok)
 	}
 }

@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -23,6 +24,11 @@ func TestFilesSousRessourcesDeMaquette(t *testing.T) {
 		_ = os.WriteFile(filepath.Join(ps[0], "_work", "mockup", "m.css"), []byte("a{}"), 0o644)
 		_ = os.WriteFile(filepath.Join(ps[0], ".env"), []byte("SECRET=1"), 0o644)
 		u := "/files/" + core.CtrName(ps[0]) // forme unique /files/<projet>/<chemin relatif> (contrat 8b8e0cb)
+		// chemins comparés : dans la sortie du test seulement (jamais dans la réponse HTTP) — diagnostic des CI Windows
+		diag := func() string {
+			root, ok := a.projectRootByName(core.CtrName(ps[0]))
+			return fmt.Sprintf(" [nom %q, projet %q, RemotePath %q, racine résolue %q (%v)]", core.CtrName(ps[0]), ps[0], core.RemotePath(ps[0]), root, ok)
+		}
 		var cookie *http.Cookie
 		if mode == core.AccessToken {
 			cookie = scBootstrap(t, srv.URL, "tok174tok174tok174")
@@ -45,13 +51,13 @@ func TestFilesSousRessourcesDeMaquette(t *testing.T) {
 		css := u + "/_work/mockup/m.css"
 		for _, dest := range []string{"style", "script", "image", "font", "audio", "video", "track"} {
 			if c := get(css, map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Dest": dest}); c != 200 {
-				t.Errorf("%s : sous-ressource %s cross-site : %d, attendu 200", mode, dest, c)
+				t.Errorf("%s : sous-ressource %s cross-site : %d, attendu 200%s", mode, dest, c, diag())
 			}
 		}
 		// navigation de premier niveau (extension de navigateur, lien d'un autre site) : acceptée, même cross-site / same-site
 		for _, site := range []string{"cross-site", "same-site", "none", "same-origin"} {
 			if c := get(css, map[string]string{"Sec-Fetch-Site": site, "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate"}); c != 200 {
-				t.Errorf("%s : navigation %s : %d, attendu 200", mode, site, c)
+				t.Errorf("%s : navigation %s : %d, attendu 200%s", mode, site, c, diag())
 			}
 		}
 		// cadres, objets, fetch/XHR, document hors navigation, en-têtes absents : refusés d'un autre site

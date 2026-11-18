@@ -410,6 +410,11 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := path.Clean("/" + r.URL.Path)
+	if s.root != "" {
+		// mode projet : le chemin est DÉJÀ le chemin interne (racine + relatif) ; la racine d'un projet Windows sans
+		// correspondance de chemins (C:\Users\…) ne commence pas par « / » : l'ajouter casserait la comparaison à la racine
+		p = path.Clean(r.URL.Path)
+	}
 	if p == browserPairPath && s.token != nil {
 		s.servePair(w, r)
 		return
@@ -768,10 +773,15 @@ func NewFilesHandler(resolve func(name string) (root string, ok bool)) http.Hand
 		}
 		r2 := r.Clone(r.Context())
 		r2.URL.Path, r2.URL.RawPath = inner, ""
-		fs := fileServer{roots: func() []string { return []string{root} }, local: LocalPath, root: root,
-			prefix: FilesPrefix + "/" + url.PathEscape(name), csp: filesCSP}
-		fs.ServeHTTP(w, r2)
+		projectFileServer(name, root, LocalPath).ServeHTTP(w, r2)
 	})
+}
+
+// projectFileServer : le serveur de fichiers d'UN projet (racine root dans l'espace des URL internes ; local : chemin
+// interne → chemin local).
+func projectFileServer(name, root string, local func(string) string) fileServer {
+	return fileServer{roots: func() []string { return []string{root} }, local: local, root: root,
+		prefix: FilesPrefix + "/" + url.PathEscape(name), csp: filesCSP}
 }
 
 // ServerFilesBase : base d'URL des fichiers pour les sessions en mode serveur dans un cluster
