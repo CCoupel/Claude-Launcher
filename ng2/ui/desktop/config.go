@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -483,13 +484,13 @@ func (a *App) configApplyAs(web bool, kind core.ConfigKind, project, mtime strin
 var backendTestSem = make(chan struct{}, 2)
 
 // backendTestWait : attente d'une place avant de refuser un test de backend (tests : réduite).
-var backendTestWait = 3 * time.Second
+var backendTestWait = tun.Of(3 * time.Second)
 
 func (a *App) backendTest(be core.BackendEntry) map[string]any {
 	select {
 	case backendTestSem <- struct{}{}:
 		defer func() { <-backendTestSem }()
-	case <-time.After(backendTestWait):
+	case <-time.After(backendTestWait.Get()):
 		return map[string]any{"steps": []core.TestStep{{Label: "test refusé", Detail: "trop de tests de backend en cours",
 			Fix: "attendre la fin des tests en cours, puis recommencer"}}}
 	}
@@ -549,10 +550,10 @@ func (a *App) refreshHubWarns(read func() []string) <-chan struct{} {
 
 // foreignOwner : propriétaire vivant d'une session d'un autre launcher (remplacé
 // dans les tests : aucun accès aux moteurs ni au réseau).
-var foreignOwner = core.ForeignOwner
+var foreignOwner = tun.Of(core.ForeignOwner)
 
 // foreignOwnerTimeout : délai global de la vérification du propriétaire.
-var foreignOwnerTimeout = 5 * time.Second
+var foreignOwnerTimeout = tun.Of(5 * time.Second)
 
 // projectOpen : le projet est ouvert, ici (onglet) ou par un autre launcher
 // (session tmux vivante dans son conteneur, vue à la dernière lecture des
@@ -599,11 +600,11 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 		// injoignable ne doit pas bloquer l'écran ; au délai, on refuse plutôt que
 		// de laisser passer un changement sur un projet peut-être ouvert ailleurs
 		res := make(chan string, 1)
-		go func() { res <- foreignOwner(path) }()
+		go func() { res <- foreignOwner.Get()(path) }()
 		select {
 		case who := <-res:
 			open = who != ""
-		case <-time.After(foreignOwnerTimeout):
+		case <-time.After(foreignOwnerTimeout.Get()):
 			return map[string]any{"ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)"}, nil
 		}
 	}

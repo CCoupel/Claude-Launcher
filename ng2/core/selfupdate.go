@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"claude-launcher-ng2/internal/tun"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -28,12 +29,12 @@ import (
 // (version absente ou suffixée, ex. « dev », « v3.0.1+fix ») ne se remplace pas.
 
 // ReleaseBase : racine des fichiers de release (CL_RELEASE_BASE la remplace, pour les tests).
-var ReleaseBase = func() string {
+var ReleaseBase = tun.Of(func() string {
 	if b := os.Getenv("CL_RELEASE_BASE"); b != "" {
 		return strings.TrimRight(b, "/")
 	}
 	return "https://github.com/" + LauncherRepo + "/releases/download"
-}()
+}())
 
 var ReleaseVerRe = regexp.MustCompile(`^v\d+\.\d+\.\d+$`)
 
@@ -84,12 +85,12 @@ func SelfUpdate() {
 	if bin == "" && script == "" {
 		return
 	}
-	if !releaseReady(ReleaseBase + "/" + tag) {
+	if !releaseReady(ReleaseBase.Get() + "/" + tag) {
 		fmt.Printf("\033[38;5;208m  ↑ %s %s : release pas encore publiée — démarrage avec la version en place\033[0m\n", NgName, tag)
 		return
 	}
 	fmt.Printf("\033[1;32m  ↑ %s %s disponible — mise à jour…\033[0m\n", NgName, tag)
-	binDone, scriptDone, err := applyUpdate(ReleaseBase+"/"+tag, bin, script)
+	binDone, scriptDone, err := applyUpdate(ReleaseBase.Get()+"/"+tag, bin, script)
 	if scriptDone {
 		fmt.Println("  ✓ script mis à jour :", script)
 	}
@@ -168,7 +169,7 @@ type progress func(n, total int64)
 func httpGetP(url string, timeout time.Duration, accept string, prog progress) ([]byte, error) {
 	req, _ := http.NewRequest("GET", url, nil)
 	req.Header.Set("User-Agent", "Claude-Launcher-NG")
-	if t := githubToken(); t != "" && strings.HasPrefix(url, ApiBase) { // jeton : seulement vers l'API (#199)
+	if t := githubToken(); t != "" && strings.HasPrefix(url, ApiBase.Get()) { // jeton : seulement vers l'API (#199)
 		req.Header.Set("Authorization", "Bearer "+t)
 	}
 	if accept != "" {
@@ -212,14 +213,14 @@ func ReleaseGetP(url string, timeout time.Duration, prog progress) ([]byte, erro
 	if err == nil || !retryable(err) {
 		return b, err
 	}
-	time.Sleep(ReleaseRetryWait)
+	time.Sleep(ReleaseRetryWait.Get())
 	if b, err = httpGetP(url, timeout, "", prog); err == nil || !retryable(err) {
 		return b, err
 	}
-	if !strings.HasPrefix(url, ReleaseBase+"/") {
+	if !strings.HasPrefix(url, ReleaseBase.Get()+"/") {
 		return nil, err
 	}
-	rest := strings.SplitN(strings.TrimPrefix(url, ReleaseBase+"/"), "/", 2) // <tag>/<nom>
+	rest := strings.SplitN(strings.TrimPrefix(url, ReleaseBase.Get()+"/"), "/", 2) // <tag>/<nom>
 	if len(rest) != 2 {
 		return nil, err
 	}
@@ -233,7 +234,7 @@ func ReleaseGetP(url string, timeout time.Duration, prog progress) ([]byte, erro
 	return b, nil
 }
 
-var ReleaseRetryWait = 2 * time.Second
+var ReleaseRetryWait = tun.Of(2 * time.Second)
 
 // retryable : erreur réseau ou réponse 5xx (pas un 404 : fichier absent).
 func retryable(err error) bool {
@@ -249,7 +250,7 @@ func apiAsset(tag, name string, timeout time.Duration, prog progress) ([]byte, e
 	}
 	for _, a := range rel {
 		if a.Name == name {
-			return httpGetP(fmt.Sprintf("%s/repos/%s/releases/assets/%d", ApiBase, LauncherRepo, a.ID), timeout, "application/octet-stream", prog)
+			return httpGetP(fmt.Sprintf("%s/repos/%s/releases/assets/%d", ApiBase.Get(), LauncherRepo, a.ID), timeout, "application/octet-stream", prog)
 		}
 	}
 	return nil, fmt.Errorf("%s absent de la release %s", name, tag)
@@ -263,7 +264,7 @@ type relAsset struct {
 
 // releaseAssets : fichiers de la release tag du launcher, selon l'API.
 func releaseAssets(tag string) ([]relAsset, error) {
-	b, err := httpGet(ApiBase+"/repos/"+LauncherRepo+"/releases/tags/"+tag, 10*time.Second)
+	b, err := httpGet(ApiBase.Get()+"/repos/"+LauncherRepo+"/releases/tags/"+tag, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +286,7 @@ func ReleasePublished(tag string) bool {
 		if err.Error() == "HTTP 404" {
 			return false
 		}
-		return releaseReady(ReleaseBase + "/" + tag)
+		return releaseReady(ReleaseBase.Get() + "/" + tag)
 	}
 	got := map[string]bool{}
 	for _, a := range as {

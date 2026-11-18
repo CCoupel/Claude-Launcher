@@ -148,8 +148,8 @@ func BrowserEnvVars() []envVar {
 	machine := hubName()
 	// réglages du système de ce launcher : l'exe Windows et le hub Linux du
 	// même poste ont chacun leur serveur, donc leur port et leur jeton
-	ps, _, _ := resolveBrowserPathsFor(f, machine, knownRoots(), onWSL(), pathsGOOS)
-	c, err := resolveBrowserServerFor(f, machine, pathsGOOS)
+	ps, _, _ := resolveBrowserPathsFor(f, machine, knownRoots(), onWSL(), pathsGOOS.Get())
+	c, err := resolveBrowserServerFor(f, machine, pathsGOOS.Get())
 	if err != nil {
 		c.Off = true
 	}
@@ -160,7 +160,7 @@ func BrowserEnvVars() []envVar {
 	if !c.Off {
 		tok = browserToken()
 	}
-	dev, src := browserDeviceFor(f, machine, pathsGOOS)
+	dev, src := browserDeviceFor(f, machine, pathsGOOS.Get())
 	return []envVar{
 		{browserPathVar, browserPathJSON(ps)},
 		{browserHintVar, browserHint(c, dev, src, tok, machine, ps)},
@@ -267,7 +267,7 @@ func syncBrowserHook(dir string) error {
 
 // PrintBrowserDevice : section de « claude-launcher-ng2 backends ».
 func PrintBrowserDevice() {
-	dev, src := browserDeviceFor(readBackendsFile(), hubName(), pathsGOOS)
+	dev, src := browserDeviceFor(readBackendsFile(), hubName(), pathsGOOS.Get())
 	fmt.Printf("\nNavigateur du hub (machine %s) :\n", hubName())
 	if dev == "" {
 		fmt.Println("  pas encore identifié : la première session claude qui utilise Chrome fait l'appariement")

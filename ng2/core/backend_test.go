@@ -369,9 +369,9 @@ func TestCtrHostIsProjectName(t *testing.T) {
 // conteneur local arrêté, hostname = nom du projet : reconnu par les moteurs locaux
 func TestLeaderLocalStoppedByProjectHost(t *testing.T) {
 	unixOnly(t)
-	old := LocalCtrHosts
-	defer func() { LocalCtrHosts = old }()
-	LocalCtrHosts = func() map[string]bool { return map[string]bool{"mon-projet": true} }
+	old := LocalCtrHosts.Get()
+	defer func() { LocalCtrHosts.Set(old) }()
+	LocalCtrHosts.Set(func() map[string]bool { return map[string]bool{"mon-projet": true} })
 	if leaderAliveIn(42, "mon-projet#pid:[1]") != platform.LeaderDead {
 		t.Error("conteneur local arrêté : le leader doit être mort")
 	}

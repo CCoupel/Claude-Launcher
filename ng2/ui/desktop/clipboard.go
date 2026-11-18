@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"time"
 )
@@ -16,8 +17,8 @@ import (
 // consultés, même s'ils existaient.
 
 var (
-	clipboardSetHook func(text string) error // nil : pas de presse-papiers Go
-	clipboardGetHook func() (string, error)  // idem
+	clipboardSetHook = tun.Of[func(text string) error](nil) // nil : pas de presse-papiers Go
+	clipboardGetHook = tun.Of[func() (string, error)](nil)  // idem
 )
 
 const (
@@ -33,7 +34,7 @@ func clipboardUnavailable() map[string]any {
 }
 
 func (a *App) clipboardUsable() bool {
-	return !a.web && clipboardSetHook != nil && clipboardGetHook != nil
+	return !a.web && clipboardSetHook.Get() != nil && clipboardGetHook.Get() != nil
 }
 
 // clipboardWrite : copie text dans le presse-papiers du poste.
@@ -44,7 +45,7 @@ func (a *App) clipboardWrite(text string) map[string]any {
 	if len(text) > maxClipboardWrite {
 		return map[string]any{"ok": false, "msg": fmt.Sprintf("texte trop volumineux pour le presse-papiers (%d Mo au plus)", maxClipboardWrite>>20)}
 	}
-	if err := clipboardSetHook(text); err != nil {
+	if err := clipboardSetHook.Get()(text); err != nil {
 		return map[string]any{"ok": false, "msg": "copie impossible : " + err.Error()}
 	}
 	return map[string]any{"ok": true}
@@ -55,7 +56,7 @@ func (a *App) clipboardRead() map[string]any {
 	if !a.clipboardUsable() {
 		return clipboardUnavailable()
 	}
-	text, err := clipboardGetHook()
+	text, err := clipboardGetHook.Get()()
 	if err != nil {
 		return map[string]any{"ok": false, "msg": "lecture du presse-papiers impossible : " + err.Error()}
 	}

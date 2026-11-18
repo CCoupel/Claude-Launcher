@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -67,13 +68,13 @@ const (
 )
 
 // sessionIdle : durée d'inactivité au-delà de laquelle une session expire (variable : tests).
-var sessionIdle = 8 * time.Hour
+var sessionIdle = tun.Of(8 * time.Hour)
 
 // maxSubscribers : plafond de flux d'évènements ouverts (un navigateur en ouvre un) ; variable : tests.
-var maxSubscribers = 32
+var maxSubscribers = tun.Of(32)
 
 // sseWriteTimeout : échéance de chaque envoi d'évènement ; au-delà (connexion figée) le flux est fermé.
-var sseWriteTimeout = 10 * time.Second
+var sseWriteTimeout = tun.Of(10 * time.Second)
 
 // setToken : nouveau jeton ; sessions et flux ouverts révoqués.
 func (w *webBridge) setToken(t string) {
@@ -127,7 +128,7 @@ func (w *webBridge) newSession() string {
 		w.sessions = map[string]time.Time{}
 	}
 	for k, at := range w.sessions { // expirées d'abord
-		if now.Sub(at) > sessionIdle {
+		if now.Sub(at) > sessionIdle.Get() {
 			delete(w.sessions, k)
 			gone = append(gone, k)
 		}
@@ -153,7 +154,7 @@ func (w *webBridge) sessionAlive(id string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	at, ok := w.sessions[id]
-	return ok && time.Since(at) <= sessionIdle
+	return ok && time.Since(at) <= sessionIdle.Get()
 }
 
 // dropSubs : ferme les flux rattachés aux sessions ids.
@@ -178,7 +179,7 @@ func (w *webBridge) dropSubs(ids ...string) {
 
 // checkEvery : période de contrôle de la session d'un flux ouvert (courte si l'inactivité tolérée l'est).
 func checkEvery() time.Duration {
-	d := sessionIdle / 4
+	d := sessionIdle.Get() / 4
 	if d > 5*time.Second {
 		d = 5 * time.Second
 	}
@@ -197,7 +198,7 @@ func (w *webBridge) validSession(id string) bool {
 	if !ok {
 		return false
 	}
-	if now.Sub(at) > sessionIdle {
+	if now.Sub(at) > sessionIdle.Get() {
 		delete(w.sessions, id)
 		return false
 	}
@@ -435,7 +436,7 @@ func (w *webBridge) handler() http.Handler {
 			return
 		}
 		// plafond : un gestionnaire compte jusqu'à sa vraie sortie, même si emit l'a retiré des abonnés
-		if int(w.active.Add(1)) > maxSubscribers {
+		if int(w.active.Add(1)) > maxSubscribers.Get() {
 			w.active.Add(-1)
 			http.Error(rw, "trop de flux d'évènements ouverts", http.StatusServiceUnavailable)
 			return
@@ -466,7 +467,7 @@ func (w *webBridge) handler() http.Handler {
 		}()
 		// chaque envoi a son échéance : une connexion figée fait échouer l'écriture au lieu de bloquer le gestionnaire
 		send := func(format string, args ...any) bool {
-			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout.Get()))
 			if _, err := fmt.Fprintf(rw, format, args...); err != nil {
 				return false
 			}
@@ -482,7 +483,7 @@ func (w *webBridge) handler() http.Handler {
 				return
 			}
 		}
-		ping := time.NewTicker(ssePingEvery)
+		ping := time.NewTicker(ssePingEvery.Get())
 		defer ping.Stop()
 		check := time.NewTicker(checkEvery())
 		defer check.Stop()
@@ -513,7 +514,7 @@ func (w *webBridge) handler() http.Handler {
 }
 
 // ssePingEvery : cadence du ping du flux d'évènements (#198) ; remplacée dans les tests.
-var ssePingEvery = 15 * time.Second
+var ssePingEvery = tun.Of(15 * time.Second)
 
 // configureListener : port, contrôle de Host selon l'écoute. Boucle locale : 127.0.0.1, localhost,
 // [::1] ; toute autre écoute : les noms de desktop_web (hôte d'écoute, nom de la machine, localhost)
@@ -633,12 +634,12 @@ func RunWeb(addr string, open bool) error {
 	}
 	srv := newHTTPServer(w.handler())
 	done := make(chan struct{})
-	quitHook = func() {
+	quitHook.Set(func() {
 		go func() {
 			time.Sleep(200 * time.Millisecond)
 			_ = srv.Close()
 		}()
-	}
+	})
 	go func() {
 		_ = srv.Serve(ln)
 		close(done)
@@ -649,7 +650,7 @@ func RunWeb(addr string, open bool) error {
 	// mise à jour installée : même adresse et même jeton pour le nouveau
 	// binaire, port libéré avant de le lancer ; l'onglet ouvert se reconnecte
 	// (flux d'événements) au lieu d'en ouvrir un second
-	restartApp = func() {
+	restartApp.Set(func() {
 		bound := ln.Addr().String()
 		_ = srv.Close()
 		a.Stop()
@@ -657,9 +658,9 @@ func RunWeb(addr string, open bool) error {
 			fmt.Fprintln(os.Stderr, "relance impossible :", err)
 		}
 		os.Exit(0)
-	}
+	})
 	if access != core.AccessNone {
-		restartEnv = []string{"CL_DESKTOP_TOKEN=" + w.token}
+		restartEnv.Set([]string{"CL_DESKTOP_TOKEN=" + w.token})
 	}
 	a.Start()
 	if open {

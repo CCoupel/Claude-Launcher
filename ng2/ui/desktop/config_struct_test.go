@@ -421,14 +421,14 @@ func TestProjectApplyForeignOwnerTimeout(t *testing.T) {
 	a := newApp(t, r.emit)
 	_ = os.WriteFile(core.BackendsPath(), []byte("backends:\n  lab: { type: docker, host: 'tcp://10.0.0.1:2375', shared: [/share] }\n"), 0o644)
 	release, started, finished := make(chan struct{}), make(chan struct{}), make(chan struct{})
-	oldO, oldT := foreignOwner, foreignOwnerTimeout
-	foreignOwner = func(string) string { // moteur injoignable : ne répond pas
+	oldO, oldT := foreignOwner.Get(), foreignOwnerTimeout.Get()
+	foreignOwner.Set(func(string) string { // moteur injoignable : ne répond pas
 		close(started) // la goroutine de projectApply a lu foreignOwner : synchronise avec le test (-race)
 		<-release
 		close(finished)
 		return ""
-	}
-	foreignOwnerTimeout = 150 * time.Millisecond
+	})
+	foreignOwnerTimeout.Set(150 * time.Millisecond)
 	// Restauration des variables de paquet APRÈS la fin de la goroutine de projectApply (#164) : sinon
 	// l'écriture de nettoyage et la lecture de foreignOwner par cette goroutine sont une data race.
 	t.Cleanup(func() {
@@ -438,7 +438,8 @@ func TestProjectApplyForeignOwnerTimeout(t *testing.T) {
 			<-finished
 		default: // jamais lancée (échec précoce du test) : rien à attendre
 		}
-		foreignOwner, foreignOwnerTimeout = oldO, oldT
+		foreignOwner.Set(oldO)
+		foreignOwnerTimeout.Set(oldT)
 	})
 	t0 := time.Now()
 	res, err := a.projectApply(proj, core.ProjectChange{Backend: ptr("lab"), Image: ptr("docker.io/library/debian:12")})

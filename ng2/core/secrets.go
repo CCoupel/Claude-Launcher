@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"claude-launcher-ng2/internal/tun"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -44,7 +45,7 @@ const (
 
 // restrictACL : droits réservés à l'utilisateur (ACL sous Windows) ; remplacé dans les tests. Un échec refuse
 // l'écriture dans le coffre.
-var restrictACL = platform.RestrictToUser
+var restrictACL = tun.Of(platform.RestrictToUser)
 
 var backendNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 
@@ -143,7 +144,7 @@ func SecretsDir() (string, error) {
 			return "", fmt.Errorf("coffre des secrets : %w", err)
 		}
 		_ = os.Chmod(dir, 0o700)
-		if err := restrictACL(dir, true); err != nil {
+		if err := restrictACL.Get()(dir, true); err != nil {
 			return "", fmt.Errorf("coffre des secrets : droits du dossier impossibles à restreindre : %w", err)
 		}
 	}
@@ -174,7 +175,7 @@ func secretBackendDir(name string, create bool) (string, error) {
 		return "", fmt.Errorf("coffre des secrets : %w", err)
 	}
 	_ = os.Chmod(d, 0o700)
-	if err := restrictACL(d, true); err != nil {
+	if err := restrictACL.Get()(d, true); err != nil {
 		return "", fmt.Errorf("coffre des secrets : droits du dossier impossibles à restreindre : %w", err)
 	}
 	return d, nil
@@ -201,7 +202,7 @@ func writeSecretFile(path string, data []byte) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := restrictACL(tmp, false); err != nil {
+	if err := restrictACL.Get()(tmp, false); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("droits du fichier impossibles à restreindre : %w", err)
 	}
@@ -480,7 +481,7 @@ func sshHostPort(dest string) (host, port string, err error) {
 }
 
 // keyscan : lanceur de ssh-keyscan (remplacé dans les tests).
-var keyscan = func(host, port string) ([]byte, error) {
+var keyscan = tun.Of(func(host, port string) ([]byte, error) {
 	args := []string{"-T", "5"}
 	if port != "" {
 		args = append(args, "-p", port)
@@ -489,7 +490,7 @@ var keyscan = func(host, port string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
 	defer cancel()
 	return platform.NoWindow(exec.CommandContext(ctx, "ssh-keyscan", args...)).Output()
-}
+})
 
 // HostScan : relève les empreintes de l'hôte du backend (ssh-keyscan). Rien n'est enregistré.
 func HostScan(dest string) ([]KnownHostEntry, error) {
@@ -501,7 +502,7 @@ func HostScan(dest string) ([]KnownHostEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	out, err := keyscan(ip.String(), port) // l'adresse vérifiée, jamais le nom (pas de seconde résolution)
+	out, err := keyscan.Get()(ip.String(), port) // l'adresse vérifiée, jamais le nom (pas de seconde résolution)
 	if err != nil && len(out) == 0 {
 		var ee *exec.Error
 		if errors.As(err, &ee) {

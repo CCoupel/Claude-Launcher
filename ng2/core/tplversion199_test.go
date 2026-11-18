@@ -279,9 +279,9 @@ func (g *ghFake) start(t *testing.T) {
 		_, _ = fmt.Fprintf(w, `[{"name":%q,"commit":{"sha":%q}}]`, tag, sha)
 	}))
 	t.Cleanup(srv.Close)
-	old := ApiBase
-	ApiBase = srv.URL
-	t.Cleanup(func() { ApiBase = old })
+	old := ApiBase.Get()
+	ApiBase.Set(srv.URL)
+	t.Cleanup(func() { ApiBase.Set(old) })
 }
 
 func (g *ghFake) count() int { g.mu.Lock(); defer g.mu.Unlock(); return g.hits }
@@ -490,9 +490,9 @@ func TestInjoignable199(t *testing.T) {
 	srv := httptest.NewServer(http.NotFoundHandler())
 	url := srv.URL
 	srv.Close() // plus personne n'écoute
-	old := ApiBase
-	ApiBase = url
-	defer func() { ApiBase = old }()
+	old := ApiBase.Get()
+	ApiBase.Set(url)
+	defer func() { ApiBase.Set(old) }()
 	out := CheckUpdatesNow(true)
 	if e := field199(t, out, "Err").String(); e != "network" {
 		t.Errorf("Err = %q, attendu network", e)

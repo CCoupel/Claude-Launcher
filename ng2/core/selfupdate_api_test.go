@@ -38,16 +38,18 @@ func TestReleaseGetAPIFallback(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	oldAPI, oldRel, oldWait := ApiBase, ReleaseBase, ReleaseRetryWait
-	ApiBase, ReleaseBase, ReleaseRetryWait = srv.URL, srv.URL+"/rel", time.Millisecond
-	defer func() { ApiBase, ReleaseBase, ReleaseRetryWait = oldAPI, oldRel, oldWait }()
+	oldAPI, oldRel, oldWait := ApiBase.Get(), ReleaseBase.Get(), ReleaseRetryWait.Get()
+	ApiBase.Set(srv.URL)
+	ReleaseBase.Set(srv.URL + "/rel")
+	ReleaseRetryWait.Set(time.Millisecond)
+	defer func() { ApiBase.Set(oldAPI); ReleaseBase.Set(oldRel); ReleaseRetryWait.Set(oldWait) }()
 
-	if !releaseReady(ReleaseBase + "/v9.9.9") {
+	if !releaseReady(ReleaseBase.Get() + "/v9.9.9") {
 		t.Fatal("release non vue prête malgré l'API")
 	}
 	dst := filepath.Join(t.TempDir(), "ng2")
 	_ = os.WriteFile(dst, []byte("ancien"), 0o755)
-	done, _, err := applyUpdate(ReleaseBase+"/v9.9.9", dst, "")
+	done, _, err := applyUpdate(ReleaseBase.Get()+"/v9.9.9", dst, "")
 	got, _ := os.ReadFile(dst)
 	if err != nil || !done || string(got) != string(bin) {
 		t.Fatalf("mise à jour par l'API : %v %v %q", err, done, got)
@@ -56,7 +58,7 @@ func TestReleaseGetAPIFallback(t *testing.T) {
 		t.Errorf("lien direct essayé %d fois, attendu 2 par fichier", direct)
 	}
 	// 404 : pas de repli (fichier absent, pas une panne)
-	if _, err := releaseGet(ReleaseBase+"/v9.9.9/absent", time.Second); err == nil || err.Error() != "HTTP 404" {
+	if _, err := releaseGet(ReleaseBase.Get()+"/v9.9.9/absent", time.Second); err == nil || err.Error() != "HTTP 404" {
 		t.Errorf("404 : %v", err)
 	}
 }

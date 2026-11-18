@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -23,8 +24,8 @@ import (
 // partages Windows, là où flock n'est pas fiable ; un verrou plus vieux que fileLockStale (processus mort) est repris.
 
 var (
-	fileLockStale   = 60 * time.Second // très au-dessus de la durée d'une section (quelques ms) : un verrou plus vieux est celui d'un processus mort
-	fileLockTimeout = 90 * time.Second // attente maximale du verrou (au-delà de fileLockStale : un verrou abandonné est repris avant)
+	fileLockStale   = tun.Of(60 * time.Second) // très au-dessus de la durée d'une section (quelques ms) : un verrou plus vieux est celui d'un processus mort
+	fileLockTimeout = tun.Of(90 * time.Second) // attente maximale du verrou (au-delà de fileLockStale : un verrou abandonné est repris avant)
 )
 
 // newLockToken : identifiant unique d'un détenteur (pid + aléa) ; le fichier verrou le porte, la libération ne
@@ -106,7 +107,7 @@ func WithFileLock(target string, fn func() error) error {
 		return err
 	}
 	token := newLockToken()
-	deadline := time.Now().Add(fileLockTimeout)
+	deadline := time.Now().Add(fileLockTimeout.Get())
 	var lastErr error // dernière cause d'échec (accès refusé, suppression impossible) : jointe à l'erreur d'échéance
 	for wait := 2 * time.Millisecond; ; {
 		created, err := createExclusive(lock, []byte(token+" "+LauncherID()+"\n"), 0o644)
@@ -119,8 +120,8 @@ func WithFileLock(target string, fn func() error) error {
 		if created {
 			break
 		}
-		if st, serr := os.Stat(lock); serr == nil && time.Since(st.ModTime()) > fileLockStale {
-			ok, rerr := reclaimStale(lock, fileLockStale)
+		if st, serr := os.Stat(lock); serr == nil && time.Since(st.ModTime()) > fileLockStale.Get() {
+			ok, rerr := reclaimStale(lock, fileLockStale.Get())
 			if ok {
 				continue // périmé retiré : nouvelle tentative tout de suite
 			}
@@ -152,9 +153,9 @@ func lockTimeoutError(target string, last error) error {
 	case last != nil && errors.Is(last, os.ErrPermission):
 		return fmt.Errorf("verrou de %s : droits insuffisants pour le prendre ou retirer un verrou périmé (%w) — vérifier les droits du dossier", name, last)
 	case last != nil:
-		return fmt.Errorf("verrou de %s pris depuis plus de %v, retrait impossible (%w)", name, fileLockTimeout, last)
+		return fmt.Errorf("verrou de %s pris depuis plus de %v, retrait impossible (%w)", name, fileLockTimeout.Get(), last)
 	}
-	return fmt.Errorf("verrou de %s pris depuis plus de %v : un autre launcher écrit ce fichier", name, fileLockTimeout)
+	return fmt.Errorf("verrou de %s pris depuis plus de %v : un autre launcher écrit ce fichier", name, fileLockTimeout.Get())
 }
 
 // lockBusyErr : l'échec de création du verrou veut dire « occupé », pas « impossible ». Sous Windows, un fichier

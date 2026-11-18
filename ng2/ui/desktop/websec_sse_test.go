@@ -45,9 +45,9 @@ func TestSSEClosedWhenSessionExpires(t *testing.T) {
 	srv := httptest.NewServer(w.handler())
 	defer srv.Close()
 	c := scBootstrap(t, srv.URL, "tokE1tokE1tokE1")
-	old := sessionIdle
-	sessionIdle = 150 * time.Millisecond
-	defer func() { sessionIdle = old }()
+	old := sessionIdle.Get()
+	sessionIdle.Set(150 * time.Millisecond)
+	defer func() { sessionIdle.Set(old) }()
 	resp := openSSE(t, srv.URL, c)
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {
@@ -91,9 +91,10 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 	sandbox(t, "", "alpha")
 	var r recorder
 	a := newApp(t, r.emit)
-	oldMax, oldTO := maxSubscribers, sseWriteTimeout
-	maxSubscribers, sseWriteTimeout = 2, 1500*time.Millisecond
-	defer func() { maxSubscribers, sseWriteTimeout = oldMax, oldTO }()
+	oldMax, oldTO := maxSubscribers.Get(), sseWriteTimeout.Get()
+	maxSubscribers.Set(2)
+	sseWriteTimeout.Set(1500 * time.Millisecond)
+	defer func() { maxSubscribers.Set(oldMax); sseWriteTimeout.Set(oldTO) }()
 	w := &webBridge{app: a, token: "tokE3tokE3tokE3", subs: map[chan []byte]bool{}, strictHost: true}
 	srv := httptest.NewServer(w.handler())
 	defer srv.Close()
@@ -105,7 +106,7 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 			cn.Close()
 		}
 	}()
-	for i := 0; i < maxSubscribers; i++ {
+	for i := 0; i < maxSubscribers.Get(); i++ {
 		cn, err := net.Dial("tcp", strings.TrimPrefix(srv.URL, "http://"))
 		if err != nil {
 			t.Fatal(err)

@@ -16,9 +16,10 @@ func TestPresenceSuccessionSamePid(t *testing.T) {
 	withHome(t)
 	t.Setenv("CL_CACHE_DIR", t.TempDir())
 	t.Setenv("CL_HUB_NAME", "hub-succession")
-	oldW, oldS := presenceWait, presenceSuccessorStale
-	presenceWait, presenceSuccessorStale = 700*time.Millisecond, 400*time.Millisecond
-	defer func() { presenceWait, presenceSuccessorStale = oldW, oldS }()
+	oldW, oldS := presenceWait.Get(), presenceSuccessorStale.Get()
+	presenceWait.Set(700 * time.Millisecond)
+	presenceSuccessorStale.Set(400 * time.Millisecond)
+	defer func() { presenceWait.Set(oldW); presenceSuccessorStale.Set(oldS) }()
 	host, pid := platform.RealHostName(), os.Getpid()
 	now := time.Now().Format(time.RFC3339)
 	write := func(content string, age time.Duration) {
@@ -46,7 +47,8 @@ func TestPresenceSuccessionSamePid(t *testing.T) {
 	// processus puis refuse en nommant le prédécesseur ; ici le battement continue
 	// marges larges (battement 50 ms contre 1 s de silence exigé) : un runner lent (Windows en CI) peut retarder un
 	// battement de plusieurs centaines de ms sans que le prédécesseur ne paraisse silencieux
-	presenceWait, presenceSuccessorStale = 1500*time.Millisecond, time.Second
+	presenceWait.Set(1500 * time.Millisecond)
+	presenceSuccessorStale.Set(time.Second)
 	stop := make(chan struct{})
 	go func() {
 		for {
@@ -62,7 +64,8 @@ func TestPresenceSuccessionSamePid(t *testing.T) {
 	write(fmt.Sprintf("%s %d %s tok vivant", host, pid, now), 0)
 	d, err := acquire()
 	close(stop)
-	presenceWait, presenceSuccessorStale = 700*time.Millisecond, 400*time.Millisecond // marges d'origine pour la suite
+	presenceWait.Set(700 * time.Millisecond)
+	presenceSuccessorStale.Set(400 * time.Millisecond) // marges d'origine pour la suite
 	if err == nil || !strings.Contains(err.Error(), "vivant") || d < time.Second {
 		t.Errorf("prédécesseur au battement frais : erreur %v après %v (attente puis refus nommant le prédécesseur attendus)", err, d)
 	}

@@ -198,7 +198,7 @@ func (c serverConf) allowedHosts(machine string) map[string]bool {
 // browserServer : réglage effectif de ce launcher, sur son système (surcharge
 // hubs.<machine>.<système> comprise).
 func browserServer() (serverConf, error) {
-	return resolveBrowserServerFor(readBackendsFile(), hubName(), pathsGOOS)
+	return resolveBrowserServerFor(readBackendsFile(), hubName(), pathsGOOS.Get())
 }
 
 // ── Gestionnaire HTTP ─────────────────────────────────────────────────────

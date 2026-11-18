@@ -49,9 +49,9 @@ func twClusterEnv(t *testing.T) {
 	withHome(t)
 	ns := filepath.Join(t.TempDir(), "namespace")
 	_ = os.WriteFile(ns, []byte("claude-ng2\n"), 0o644)
-	old := saNamespacePath
-	saNamespacePath = ns
-	t.Cleanup(func() { saNamespacePath = old })
+	old := saNamespacePath.Get()
+	saNamespacePath.Set(ns)
+	t.Cleanup(func() { saNamespacePath.Set(old) })
 	t.Setenv(InClusterVar, "1")
 	t.Setenv("KUBECONFIG", "/ne/doit/jamais/servir")
 }

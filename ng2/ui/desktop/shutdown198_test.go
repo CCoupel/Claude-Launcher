@@ -41,9 +41,9 @@ func TestArretNAttendPasAuDela(t *testing.T) {
 
 // Stop attend les ouvertures (shutdownOpenWait) puis détache.
 func TestStopAttendUneOuvertureEnCours(t *testing.T) {
-	old := shutdownOpenWait
-	shutdownOpenWait = 2 * time.Second
-	defer func() { shutdownOpenWait = old }()
+	old := shutdownOpenWait.Get()
+	shutdownOpenWait.Set(2 * time.Second)
+	defer func() { shutdownOpenWait.Set(old) }()
 	var r recorder
 	a := newApp(t, r.emit)
 	a.openGate.begin()

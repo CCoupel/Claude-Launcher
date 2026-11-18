@@ -24,9 +24,8 @@ func TestInitSyncConcurrent(t *testing.T) {
 	}))
 	defer srv.Close()
 	old := SetRawBase(srv.URL)
-	oldSynced := InitSynced
-	InitSynced = false
-	defer func() { SetRawBase(old); InitSynced = oldSynced }()
+	oldSynced := SetInitSynced(false)
+	defer func() { SetRawBase(old); SetInitSynced(oldSynced) }()
 
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {

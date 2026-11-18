@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"os"
 	"strings"
 )
@@ -51,14 +52,14 @@ func inClusterHostRefusal(b BackendConf) (Problem, bool) {
 }
 
 // saNamespacePath : namespace du pod (variable : tests).
-var saNamespacePath = "/var/run/secrets/kubernetes.io/serviceaccount/namespace"
+var saNamespacePath = tun.Of("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
 
 // PodNamespace : namespace du pod du launcher ("" hors cluster ou illisible).
 func PodNamespace() string {
 	if !InCluster() {
 		return ""
 	}
-	b, err := os.ReadFile(saNamespacePath)
+	b, err := os.ReadFile(saNamespacePath.Get())
 	if err != nil {
 		return ""
 	}

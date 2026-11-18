@@ -20,10 +20,10 @@ import (
 func fakeClipboard(t *testing.T) *string {
 	t.Helper()
 	var content string
-	oldSet, oldGet := clipboardSetHook, clipboardGetHook
-	clipboardSetHook = func(s string) error { content = s; return nil }
-	clipboardGetHook = func() (string, error) { return content, nil }
-	t.Cleanup(func() { clipboardSetHook, clipboardGetHook = oldSet, oldGet })
+	oldSet, oldGet := clipboardSetHook.Get(), clipboardGetHook.Get()
+	clipboardSetHook.Set(func(s string) error { content = s; return nil })
+	clipboardGetHook.Set(func() (string, error) { return content, nil })
+	t.Cleanup(func() { clipboardSetHook.Set(oldSet); clipboardGetHook.Set(oldGet) })
 	return &content
 }
 
@@ -65,8 +65,8 @@ func TestClipboardWriteReadAndLimits(t *testing.T) {
 		t.Errorf("lecture trop grande acceptée : %v", rd["ok"])
 	}
 	// erreurs du système : rendues, pas une erreur d'appel
-	clipboardSetHook = func(string) error { return errors.New("presse-papiers verrouillé") }
-	clipboardGetHook = func() (string, error) { return "", errors.New("presse-papiers verrouillé") }
+	clipboardSetHook.Set(func(string) error { return errors.New("presse-papiers verrouillé") })
+	clipboardGetHook.Set(func() (string, error) { return "", errors.New("presse-papiers verrouillé") })
 	for _, m := range []string{"clipboardWrite", "clipboardRead"} {
 		if v := dispatchMap(t, a, m, map[string]any{"text": "x"}); v["ok"] != false || v["unavailable"] != nil || !strings.Contains(fmt.Sprint(v["msg"]), "verrouillé") {
 			t.Errorf("%s : %v", m, v)
@@ -80,9 +80,10 @@ func TestClipboardUnavailableAndNeverTheHostClipboardInWebMode(t *testing.T) {
 	sandbox(t, "", "alpha")
 	var r recorder
 	a := newApp(t, r.emit)
-	oldSet, oldGet := clipboardSetHook, clipboardGetHook
-	t.Cleanup(func() { clipboardSetHook, clipboardGetHook = oldSet, oldGet })
-	clipboardSetHook, clipboardGetHook = nil, nil
+	oldSet, oldGet := clipboardSetHook.Get(), clipboardGetHook.Get()
+	t.Cleanup(func() { clipboardSetHook.Set(oldSet); clipboardGetHook.Set(oldGet) })
+	clipboardSetHook.Set(nil)
+	clipboardGetHook.Set(nil)
 	for _, m := range []string{"clipboardWrite", "clipboardRead"} {
 		if v := dispatchMap(t, a, m, map[string]any{"text": "x"}); v["ok"] != false || v["unavailable"] != true || v["msg"] == nil {
 			t.Errorf("%s sans crochet : %v", m, v)
@@ -90,8 +91,8 @@ func TestClipboardUnavailableAndNeverTheHostClipboardInWebMode(t *testing.T) {
 	}
 	// --web : des crochets existent (poste avec presse-papiers) mais ne sont jamais appelés
 	called := 0
-	clipboardSetHook = func(string) error { called++; return nil }
-	clipboardGetHook = func() (string, error) { called++; return "secret du poste", nil }
+	clipboardSetHook.Set(func(string) error { called++; return nil })
+	clipboardGetHook.Set(func() (string, error) { called++; return "secret du poste", nil })
 	a.web = true
 	for _, m := range []string{"clipboardWrite", "clipboardRead"} {
 		v := dispatchMap(t, a, m, map[string]any{"text": "x"})

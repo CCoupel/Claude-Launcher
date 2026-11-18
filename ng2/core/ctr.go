@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	_ "embed"
 	"encoding/base64"
 	"fmt"
@@ -46,7 +47,7 @@ func bootstrapVars(proj string, env EnvSpec) string {
 
 // bootDir : dossier de l'état du bootstrap dans le conteneur (script, journal, pid, code de sortie, marqueur) ;
 // remplacé dans les tests.
-var bootDir = "/var/lib/cl"
+var bootDir = tun.Of("/var/lib/cl")
 
 // bootstrapStarter : commande sh -c exécutée en root, UN seul exec (le script de bootstrap arrive par stdin).
 // Le bootstrap lui-même tourne DÉTACHÉ du launcher (setsid + nohup, sortie dans boot.log, code dans boot.rc) : il va
@@ -95,7 +96,7 @@ exit "$(cat "$d/boot.rc")"
 // Bootstrap : script exécuté en root dans le conteneur (idempotent, cf. bootstrap.sh), détaché du launcher.
 func (e Engine) Bootstrap(name, proj string, env EnvSpec, log io.Writer) error {
 	script := bootstrapVars(proj, env) + bootstrapScript
-	if err := e.Exec(name, true, strings.NewReader(script), log, "sh", "-c", bootstrapStarter(bootDir)); err != nil {
+	if err := e.Exec(name, true, strings.NewReader(script), log, "sh", "-c", bootstrapStarter(bootDir.Get())); err != nil {
 		return fmt.Errorf("bootstrap : %w", err)
 	}
 	return nil
@@ -105,7 +106,7 @@ func (e Engine) Bootstrap(name, proj string, env EnvSpec, log io.Writer) error {
 // pod sans utilisateur ni tmux après un launcher coupé en pleine ouverture), et aucun bootstrap n'est en cours. Faux en
 // cas de doute (conteneur injoignable).
 func (e Engine) BootstrapIncomplete(name string) bool {
-	d := Shq(bootDir)
+	d := Shq(bootDir.Get())
 	probe := `d=` + d + `; [ -s "$d/bootstrap" ] && exit 1
 if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ]; then
   kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && exit 1

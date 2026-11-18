@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
@@ -347,12 +348,12 @@ func (a *App) webUIRegen() map[string]any {
 }
 
 // webURLFlag : option --url de la ligne de commande (#171) ; la plus prioritaire.
-var webURLFlag string
+var webURLFlag = tun.Of("")
 
 // effectivePublicURL : adresse publique effective, par priorité : option --url > variable CL_WEB_URL >
 // desktop_web.url (conf.URL). Aucune adresse : nil, sans erreur. Forme invalide : erreur de réglage.
 func effectivePublicURL(conf core.DesktopWebConf) (*core.PublicURL, string, error) {
-	raw, src := strings.TrimSpace(webURLFlag), "l'option --url"
+	raw, src := strings.TrimSpace(webURLFlag.Get()), "l'option --url"
 	if raw == "" {
 		raw, src = strings.TrimSpace(os.Getenv("CL_WEB_URL")), "la variable CL_WEB_URL"
 	}
@@ -380,8 +381,8 @@ func publicOrigin(p *core.PublicURL) string {
 // relaunchArgs : arguments de la relance du mode serveur après une mise à jour (même adresse, même adresse publique).
 func relaunchArgs(bound string) []string {
 	a := []string{"desktop", "--web", "--addr", bound, "--no-open"}
-	if webURLFlag != "" {
-		a = append(a, "--url", webURLFlag)
+	if webURLFlag.Get() != "" {
+		a = append(a, "--url", webURLFlag.Get())
 	}
 	return a
 }

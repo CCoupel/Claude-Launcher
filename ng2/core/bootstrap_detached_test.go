@@ -141,9 +141,9 @@ func TestBootstrapIncompleteEtReparation(t *testing.T) {
 	unixOnly(t)
 	fakeExecKubectl(t)
 	d := t.TempDir()
-	oldDir, oldScript := bootDir, bootstrapScript
-	bootDir = d
-	defer func() { bootDir, bootstrapScript = oldDir, oldScript }()
+	oldDir, oldScript := bootDir.Get(), bootstrapScript
+	bootDir.Set(d)
+	defer func() { bootDir.Set(oldDir); bootstrapScript = oldScript }()
 	e := Engine{BackendConf{Name: "k", Type: "k8s", Namespace: "ns"}}
 
 	if !e.BootstrapIncomplete("pod-0") {

@@ -12,6 +12,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -285,7 +286,7 @@ func (a *App) Stop() {
 		close(a.quit)
 	}
 	a.stopWebUI()
-	a.waitOpenings(shutdownOpenWait) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
+	a.waitOpenings(shutdownOpenWait.Get()) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
 	for _, t := range a.terms {
@@ -307,7 +308,7 @@ func (a *App) Stop() {
 
 // shutdownOpenWait : au plus combien de temps l'arrêt attend les ouvertures de projet en cours (le délai de grâce
 // du pod est de 30 s par défaut : de la marge pour détacher les terminaux et quitter). Remplacé dans les tests.
-var shutdownOpenWait = 20 * time.Second
+var shutdownOpenWait = tun.Of(20 * time.Second)
 
 // waitOpenings : attend la fin des ouvertures de projet en cours (bootstrap, création de la session), au plus max.
 // Passé le délai, l'arrêt continue : les terminaux sont détachés, et le bootstrap — détaché du launcher dans le
@@ -1235,8 +1236,8 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		// cartes en cache tout de suite, complétées en tâche de fond (#130)
 		return a.selectCards(arg.Path), nil
 	case "setTheme": // thème Auto / Jour / Nuit (#133) : barre de titre de la fenêtre
-		if themeHook != nil {
-			themeHook(arg.Mode)
+		if themeHook.Get() != nil {
+			themeHook.Get()(arg.Mode)
 		}
 		return nil, nil
 	case "cardsFor": // projet survolé ou voisin : préparé à l'avance (#130)

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -28,7 +29,7 @@ type TestStep struct {
 }
 
 // TestBackendTimeout borne le test entier (un ssh ou un cluster lent).
-var TestBackendTimeout = 45 * time.Second
+var TestBackendTimeout = tun.Of(45 * time.Second)
 
 // TestBackend : étapes du test de b (pool : chaque serveur à son tour,
 // étapes préfixées par le serveur). Au-delà du délai, une dernière étape
@@ -52,7 +53,7 @@ func testBackend(b BackendConf, goos string, ev engineEnv, look func(string) (st
 			mu.Unlock()
 		})
 	}()
-	timer := time.NewTimer(TestBackendTimeout)
+	timer := time.NewTimer(TestBackendTimeout.Get())
 	defer timer.Stop()
 	select {
 	case <-done:
@@ -62,7 +63,7 @@ func testBackend(b BackendConf, goos string, ev engineEnv, look func(string) (st
 	case <-timer.C:
 		mu.Lock()
 		defer mu.Unlock()
-		return append(append([]TestStep(nil), steps...), TestStep{Label: "délai", Detail: fmt.Sprintf("test interrompu après %d s", int(TestBackendTimeout.Seconds())),
+		return append(append([]TestStep(nil), steps...), TestStep{Label: "délai", Detail: fmt.Sprintf("test interrompu après %d s", int(TestBackendTimeout.Get().Seconds())),
 			Fix: "le backend répond trop lentement : vérifier le réseau, le démon ou le cluster"})
 	}
 }

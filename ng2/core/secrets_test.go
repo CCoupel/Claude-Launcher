@@ -133,13 +133,13 @@ func TestSecretsKnownHostsEtScan(t *testing.T) {
 	if len(info.KnownHosts) != 1 || !strings.HasPrefix(info.KnownHosts[0].Fingerprint, "SHA256:") {
 		t.Errorf("empreintes : %+v", info.KnownHosts)
 	}
-	old := keyscan
-	defer func() { keyscan = old }()
+	old := keyscan.Get()
+	defer func() { keyscan.Set(old) }()
 	var gh, gp string
-	keyscan = func(h, p string) ([]byte, error) {
+	keyscan.Set(func(h, p string) ([]byte, error) {
 		gh, gp = h, p
 		return []byte("192.168.1.210 " + strings.SplitN(line, " ", 2)[1] + "\n"), nil
-	}
+	})
 	es, err := HostScan("user@192.168.1.210:2222")
 	if err != nil || len(es) != 1 || gh != "192.168.1.210" || gp != "2222" || !strings.HasPrefix(es[0].Line, "[192.168.1.210]:2222 ssh-ed25519 ") {
 		t.Errorf("HostScan : %v %v %q %q", es, err, gh, gp)
@@ -167,10 +167,10 @@ func TestSshArgsAvecCle(t *testing.T) {
 }
 
 func TestHostScanRefuseLoopbackEtPod(t *testing.T) {
-	old := keyscan
-	defer func() { keyscan = old }()
+	old := keyscan.Get()
+	defer func() { keyscan.Set(old) }()
 	called := false
-	keyscan = func(h, p string) ([]byte, error) { called = true; return nil, nil }
+	keyscan.Set(func(h, p string) ([]byte, error) { called = true; return nil, nil })
 	for _, h := range []string{"127.0.0.1", "user@localhost", "::1", "[::1]:22", "0.0.0.0", "169.254.169.254", "fe80::1", "[fe80::1]:22", "224.0.0.1"} {
 		if _, err := HostScan(h); err == nil || !strings.Contains(err.Error(), "refusé") {
 			t.Errorf("%s : relevé accepté (%v)", h, err)
@@ -194,9 +194,9 @@ func TestHostScanRefuseLoopbackEtPod(t *testing.T) {
 
 func TestSecretEcritureRefuseSiACLEchoue(t *testing.T) {
 	d := secretsEnv(t)
-	old := restrictACL
-	restrictACL = func(string, bool) error { return errors.New("icacls en échec") }
-	defer func() { restrictACL = old }()
+	old := restrictACL.Get()
+	restrictACL.Set(func(string, bool) error { return errors.New("icacls en échec") })
+	defer func() { restrictACL.Set(old) }()
 	priv, pub, _ := generateKeyPair("a")
 	if _, _, err := SecretSetKey("srv", string(priv), string(pub), false, SecretWrite{}); err == nil || !strings.Contains(err.Error(), "icacls") {
 		t.Errorf("écriture acceptée malgré l'échec d'ACL : %v", err)

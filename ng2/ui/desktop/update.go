@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"os"
 	"os/exec"
 	"time"
@@ -198,21 +199,21 @@ func (a *App) install(tag, path, sum string) {
 	a.mu.Unlock()
 	a.changed()
 	if r.BinDone {
-		restartApp()
+		restartApp.Get()()
 	}
 }
 
 // restartApp : relance le binaire installé (nouvelle fenêtre) et quitte ; le
 // mode web la remplace (même adresse, port libéré d'abord, web.go).
-var restartApp = func() {
+var restartApp = tun.Of(func() {
 	if relaunch(os.Args[1:]...) == nil {
 		time.Sleep(300 * time.Millisecond)
-		quitHook()
+		quitHook.Get()()
 	}
-}
+})
 
 // restartEnv : variables ajoutées pour le binaire relancé.
-var restartEnv []string
+var restartEnv = tun.Of([]string(nil))
 
 // relaunch : lance le binaire installé avec args, sans mise à jour au démarrage.
 func relaunch(args ...string) error {
@@ -221,14 +222,14 @@ func relaunch(args ...string) error {
 		return err
 	}
 	c := exec.Command(exe, args...)
-	c.Env = append(append(os.Environ(), "CL_NO_UPDATE=1"), restartEnv...)
+	c.Env = append(append(os.Environ(), "CL_NO_UPDATE=1"), restartEnv.Get()...)
 	core.ReleasePresence() // la place est rendue : le binaire relancé ne doit pas être refusé par son prédécesseur (#176)
 	return c.Start()
 }
 
 // themeHook : thème de la fenêtre native (« light », « dark », « auto ») ; nil
 // en mode web (le navigateur suit la page).
-var themeHook func(mode string)
+var themeHook = tun.Of[func(mode string)](nil)
 
 // quitHook : fermeture de l'interface (Wails : runtime.Quit ; web : sortie).
-var quitHook = func() { os.Exit(0) }
+var quitHook = tun.Of(func() { os.Exit(0) })

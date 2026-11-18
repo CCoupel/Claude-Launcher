@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"claude-launcher-ng2/internal/tun"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -149,12 +150,12 @@ func verParts(v string) [4]int {
 }
 
 // ApiBase : API GitHub (CL_API_BASE la remplace, pour les tests).
-var ApiBase = func() string {
+var ApiBase = tun.Of(func() string {
 	if b := os.Getenv("CL_API_BASE"); b != "" {
 		return strings.TrimRight(b, "/")
 	}
 	return "https://api.github.com"
-}()
+}())
 
 func firstTag(repo string) (name, sha string, err error) {
 	return pickTag(repo, func([]tagRef) int { return 0 })
@@ -195,7 +196,7 @@ func pickTag(repo string, choose func([]tagRef) int) (name, sha string, err erro
 // pickTagCond : liste des tags avec requête conditionnelle (etag mémorisé). notMod : 304, rien n'est lu (le
 // résultat mémorisé reste valable). Les échecs sont des *ghError (quota, réseau).
 func pickTagCond(repo, etag string, choose func([]tagRef) int) (name, sha, newEtag string, notMod bool, err error) {
-	req, _ := http.NewRequest("GET", ApiBase+"/repos/"+repo+"/tags?per_page=100", nil)
+	req, _ := http.NewRequest("GET", ApiBase.Get()+"/repos/"+repo+"/tags?per_page=100", nil)
 	ghHeaders(req)
 	if etag != "" {
 		req.Header.Set("If-None-Match", etag)
@@ -364,7 +365,7 @@ func tplReleased(tag string) bool {
 	if v := os.Getenv("CL_FAKE_TPL_RELEASED"); v != "" {
 		return v == tag
 	}
-	req, err := http.NewRequest("GET", ApiBase+"/repos/"+TemplateRepo+"/releases/tags/"+tag, nil)
+	req, err := http.NewRequest("GET", ApiBase.Get()+"/repos/"+TemplateRepo+"/releases/tags/"+tag, nil)
 	if err != nil {
 		return false
 	}
@@ -378,19 +379,26 @@ func tplReleased(tag string) bool {
 }
 
 // RawBase : serveur des fichiers bruts GitHub (CL_RAW_BASE le remplace, pour les tests).
-var RawBase = func() string {
+var RawBase = tun.Of(func() string {
 	if b := os.Getenv("CL_RAW_BASE"); b != "" {
 		return strings.TrimRight(b, "/")
 	}
 	return "https://raw.githubusercontent.com"
-}()
+}())
 
 // SetRawBase : remplace RawBase sous initMu (tests) — une vérification de mise à jour encore en cours ne lit jamais
 // RawBase pendant qu'il change (course de données, #187) ; rend l'ancienne valeur.
 func SetRawBase(v string) (old string) {
 	initMu.Lock()
 	defer initMu.Unlock()
-	old, RawBase = RawBase, v
+	return RawBase.Set(v)
+}
+
+// SetInitSynced : remplace InitSynced sous initMu (tests) ; rend l'ancienne valeur.
+func SetInitSynced(v bool) (old bool) {
+	initMu.Lock()
+	defer initMu.Unlock()
+	old, InitSynced = InitSynced, v
 	return old
 }
 
@@ -432,7 +440,7 @@ func InitProjectPath() string { return filepath.Join(cacheBase(), "init-project.
 func syncInitProject(ref string) bool {
 	initMu.Lock() // un seul téléchargement à la fois : le fichier temporaire est commun
 	defer initMu.Unlock()
-	url := RawBase + "/" + TemplateRepo + "/" + ref + "/init-project.md"
+	url := RawBase.Get() + "/" + TemplateRepo + "/" + ref + "/init-project.md"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil { // adresse invalide : pas de synchronisation (jamais de panique sur req nil, #187)
 		return false

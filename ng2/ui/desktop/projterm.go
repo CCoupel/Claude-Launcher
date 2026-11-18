@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bufio"
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"io"
 	"os"
@@ -860,7 +861,7 @@ var (
 	// lastRelayoutRounds : allers-retours tmux de la dernière remise en page immédiate (tests : borne de coût)
 	lastRelayoutRounds atomic.Int64
 	// relayoutMid : tests, appelé entre le calcul de la signature et celui du plan
-	relayoutMid func()
+	relayoutMid = tun.Of[func()](nil)
 )
 
 // tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
@@ -1206,8 +1207,8 @@ func (t *projTerm) relayoutNow() {
 	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
 		return
 	}
-	if relayoutMid != nil {
-		relayoutMid()
+	if relayoutMid.Get() != nil {
+		relayoutMid.Get()()
 	}
 	c := t.cl()
 	if c == nil {

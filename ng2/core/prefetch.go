@@ -20,7 +20,7 @@ func PrefPath(tag string) string {
 // Prefetch : télécharge le binaire de tag (sauf s'il est déjà là), puis
 // SHA256SUMS, puis contrôle la somme ; renvoie le fichier prêt et sa somme.
 func Prefetch(tag string, step func(string)) (path, sum string, err error) {
-	base := ReleaseBase + "/" + tag
+	base := ReleaseBase.Get() + "/" + tag
 	path = PrefPath(tag)
 	body, rerr := os.ReadFile(path)
 	if rerr != nil {

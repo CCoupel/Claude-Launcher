@@ -647,7 +647,7 @@ func (a *App) quitApp(mode string) error {
 	}
 	go func() {
 		a.Stop()
-		quitHook()
+		quitHook.Get()()
 	}()
 	return nil
 }

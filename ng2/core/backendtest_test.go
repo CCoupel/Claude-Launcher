@@ -43,9 +43,9 @@ func TestTestBackendMissingTools(t *testing.T) {
 
 // Délai : un test qui ne rend pas la main est interrompu, avec ce qui a été vu.
 func TestTestBackendTimeout(t *testing.T) {
-	old := TestBackendTimeout
-	TestBackendTimeout = 150 * time.Millisecond
-	t.Cleanup(func() { TestBackendTimeout = old })
+	old := TestBackendTimeout.Get()
+	TestBackendTimeout.Set(150 * time.Millisecond)
+	t.Cleanup(func() { TestBackendTimeout.Set(old) })
 	look := func(string) (string, error) { time.Sleep(2 * time.Second); return "", fmt.Errorf("lent") }
 	t0 := time.Now()
 	st := testBackend(BackendConf{Name: "d", Type: "docker", Host: "tcp://x:1"}, "linux", engineEnv{}, look)
@@ -100,9 +100,9 @@ func TestBackendStatesFromCache(t *testing.T) {
 	// absent : en cours (le diagnostic réel part en tâche de fond ; dans un test
 	// sans docker il échoue vite, sans réseau : l'hôte est une adresse locale fermée)
 	launched := make(chan string, 4)
-	old := diagnoseBg
-	diagnoseBg = func(b BackendConf) { launched <- b.Name }
-	t.Cleanup(func() { diagnoseBg = old })
+	old := diagnoseBg.Get()
+	diagnoseBg.Set(func(b BackendConf) { launched <- b.Name })
+	t.Cleanup(func() { diagnoseBg.Set(old) })
 	cold := BackendConf{Name: "cold", Type: "docker", Host: "tcp://cold:1"}
 	if s := BackendStates([]BackendConf{cold})["cold"]; !s.Pending || s.OK {
 		t.Fatalf("absent : %+v", s)
@@ -156,9 +156,9 @@ func TestBackendKeyIgnoresPointers(t *testing.T) {
 		t.Fatalf("cache manqué : %v %v", ps, ok)
 	}
 	launched := make(chan string, 2)
-	old := diagnoseBg
-	diagnoseBg = func(b BackendConf) { launched <- b.Name }
-	t.Cleanup(func() { diagnoseBg = old })
+	old := diagnoseBg.Get()
+	diagnoseBg.Set(func(b BackendConf) { launched <- b.Name })
+	t.Cleanup(func() { diagnoseBg.Set(old) })
 	if s := BackendStates([]BackendConf{mk(&yes2)})["lab"]; s.Pending || !s.OK {
 		t.Fatalf("état : %+v", s)
 	}
@@ -209,9 +209,9 @@ func TestOptionLikeAddressRefused(t *testing.T) {
 // Le délai ne laisse pas la goroutine du test bloquée : même avec plus d'étapes
 // que n'en contiendrait un canal tamponné, elle va au bout et s'arrête.
 func TestTestBackendTimeoutLeavesNoGoroutine(t *testing.T) {
-	old := TestBackendTimeout
-	TestBackendTimeout = 5 * time.Millisecond
-	t.Cleanup(func() { TestBackendTimeout = old })
+	old := TestBackendTimeout.Get()
+	TestBackendTimeout.Set(5 * time.Millisecond)
+	t.Cleanup(func() { TestBackendTimeout.Set(old) })
 	hosts := make([]string, 200)
 	for i := range hosts {
 		hosts[i] = fmt.Sprintf("srv%d", i)

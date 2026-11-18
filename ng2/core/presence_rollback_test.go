@@ -81,7 +81,7 @@ func TestPresenceSuccessorWithSamePIDTakesOverFreshWitness(t *testing.T) {
 	// même hôte et même pid, identifiants différents (id du launcher et identifiant de processus d'un AUTRE processus)
 	fields := append([]string{}, f[3:]...)
 	fields[len(fields)-1] = "predecesseur-disparu-0123456789abcdef"
-	twWitnessAged(t, presenceSuccessorStale+2*time.Second, f[0], os.Getpid(), fields...) // sans battement depuis plus que presenceSuccessorStale
+	twWitnessAged(t, presenceSuccessorStale.Get()+2*time.Second, f[0], os.Getpid(), fields...) // sans battement depuis plus que presenceSuccessorStale
 	t0 := time.Now()
 	rel2, err := AcquirePresence()
 	if time.Since(t0) > 3*time.Second {
@@ -146,7 +146,7 @@ func TestPresenceOldFormatWitnessWithSamePIDIsTakenOver(t *testing.T) {
 	if len(old) > 1 {
 		old = old[:len(old)-1]
 	}
-	twWitnessAged(t, presenceSuccessorStale+2*time.Second, f[0], os.Getpid(), old...)
+	twWitnessAged(t, presenceSuccessorStale.Get()+2*time.Second, f[0], os.Getpid(), old...)
 	rel2, err := AcquirePresence()
 	if err != nil {
 		t.Fatalf("témoin de l'ancien format, même hôte et même pid, refusé : %v", err)

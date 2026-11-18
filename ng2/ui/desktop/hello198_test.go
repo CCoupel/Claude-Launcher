@@ -59,9 +59,9 @@ func TestFluxSSEEnvoieHello198(t *testing.T) {
 // Un vrai évènement `ping` ({"name":"ping"}) arrive périodiquement : visible en JS (onmessage), contrairement au
 // commentaire « : ping » (#198).
 func TestFluxSSEEnvoiePing198(t *testing.T) {
-	old := ssePingEvery
-	ssePingEvery = 150 * time.Millisecond
-	defer func() { ssePingEvery = old }()
+	old := ssePingEvery.Get()
+	ssePingEvery.Set(150 * time.Millisecond)
+	defer func() { ssePingEvery.Set(old) }()
 	sandbox(t, "", "alpha")
 	p := l4FreePort(t)
 	l4WriteBackends(t, "  desktop_web: { listen: \"127.0.0.1:"+strconv.Itoa(p)+"\" }\n")

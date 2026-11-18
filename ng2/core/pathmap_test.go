@@ -149,9 +149,9 @@ func withHubPaths(t *testing.T, extra string) {
 // contrôlé (stat) au plus une fois par hubRecheck
 func TestHubSettingsCache(t *testing.T) {
 	withHubPaths(t, "")
-	old := hubRecheck
-	defer func() { hubRecheck = old }()
-	hubRecheck = time.Hour
+	old := hubRecheck.Get()
+	defer func() { hubRecheck.Set(old) }()
+	hubRecheck.Set(time.Hour)
 	n := hubLoads
 	for i := 0; i < 100; i++ {
 		_ = CtrName(wslMFS + `\ROOT\CAT\proj`)
@@ -167,7 +167,7 @@ func TestHubSettingsCache(t *testing.T) {
 		t.Error("relu avant la fin de la fenêtre de contrôle")
 	}
 	// fenêtre écoulée : changement vu
-	hubRecheck = 0
+	hubRecheck.Set(0)
 	if RemotePath(wslMFS) != "/autre/racine" || hubLoads-n != 2 {
 		t.Errorf("changement non vu : %q, %d lectures", RemotePath(wslMFS), hubLoads-n)
 	}

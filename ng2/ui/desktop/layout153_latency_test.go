@@ -352,11 +352,11 @@ func TestRelayoutUsesOneConfigSnapshot(t *testing.T) {
 	waitUntil(t, "top initial", 20*time.Second, func() bool { return leaderW() > 90 })
 	settle(t)
 	base := filepath.Base(f.path)
-	relayoutMid = func() { f.a.setLayoutOverride(base, "top") } // la demande change entre la signature et le plan
-	defer func() { relayoutMid = nil }()
+	relayoutMid.Set(func() { f.a.setLayoutOverride(base, "top") }) // la demande change entre la signature et le plan
+	defer func() { relayoutMid.Set(nil) }()
 	f.a.setLayoutOverride(base, "left")
 	f.a.term(f.path).relayoutNow()
-	relayoutMid = nil
+	relayoutMid.Set(nil)
 	sig := f.a.term(f.path).watch.layoutSig
 	left := isLeftOf(leaderW)()
 	if left != strings.HasPrefix(sig, "left") {

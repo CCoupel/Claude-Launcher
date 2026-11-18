@@ -37,7 +37,7 @@ func TestStaleLockReclaimedByOneHolderAtATime(t *testing.T) {
 	if err := os.WriteFile(lock, []byte("mort\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	old := time.Now().Add(-2 * fileLockStale)
+	old := time.Now().Add(-2 * fileLockStale.Get())
 	_ = os.Chtimes(lock, old, old)
 	var inside, maxInside, done atomic.Int32
 	var wg sync.WaitGroup
@@ -91,9 +91,10 @@ func TestStaleLockUnremovableGivesBoundedExplicitError(t *testing.T) {
 	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("exige un dossier non modifiable (non root, hors Windows)")
 	}
-	oldS, oldT := fileLockStale, fileLockTimeout
-	fileLockStale, fileLockTimeout = 50*time.Millisecond, 300*time.Millisecond
-	defer func() { fileLockStale, fileLockTimeout = oldS, oldT }()
+	oldS, oldT := fileLockStale.Get(), fileLockTimeout.Get()
+	fileLockStale.Set(50 * time.Millisecond)
+	fileLockTimeout.Set(300 * time.Millisecond)
+	defer func() { fileLockStale.Set(oldS); fileLockTimeout.Set(oldT) }()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "f.json")
 	lock := target + ".lock"
