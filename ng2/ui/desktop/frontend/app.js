@@ -1721,28 +1721,33 @@ function srvBanner(kind, text, withBtn) {
 // Redémarrage du serveur : il se rattache lui-même, de façon asynchrone, aux sessions tmux vivantes (a.reattach) ;
 // le client ne recrée rien. Les vues ouvertes sont gardées (S.grace) le temps que les onglets reviennent dans
 // l'état poussé ; chacune est resynchronisée dès que son onglet réapparaît. Fonction pure, testée par node.
-const REATTACH_MS = 20000;
-function reattachPlan(pending, openPaths) {
-  const open = new Set(openPaths);
+const REATTACH_MS = 20000, REATTACH_FALLBACK_MS = 5000;
+function reattachPlan(pending, tabs) {
+  const open = new Set((tabs || []).filter((t) => !t.state || t.state === 'ready').map((t) => t.path)); // « opening » : termSync serait ignoré
   const ready = [], left = [];
   for (const p of pending) (open.has(p) ? ready : left).push(p);
   return { ready, left };
 }
 function graceStep() {
   const g = S.grace; if (!g) return;
-  const plan = reattachPlan(g.pending, ((S.snap && S.snap.tabs) || []).map((t) => t.path));
+  const plan = reattachPlan(g.pending, (S.snap && S.snap.tabs) || []);
   for (const p of plan.ready) { g.pending.delete(p); transport.call('termSync', { path: p }).catch(() => {}); }
   if (!g.pending.size) graceEnd(false);
 }
 function graceEnd(timeout) {
   const g = S.grace; if (!g) return;
-  S.grace = null; clearTimeout(g.timer);
+  S.grace = null; clearTimeout(g.timer); clearTimeout(g.fb);
   const left = [...g.pending];
   if (timeout) for (const p of left) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of Object.keys(leaders.tiles || {})) transport.call('termSync', { path: p }).catch(() => {});
   if (S.srvGen !== g.gen) return; // un autre bandeau (mise à jour) a pris la place : ne pas l'effacer
-  if (left.length && timeout) srvBanner('orange', left.length + ' terminal' + (left.length > 1 ? 'aux' : '') + ' non rattaché' + (left.length > 1 ? 's' : '') + ' — recharger', true);
+  if (left.length && timeout) srvBanner('orange', left.length + (left.length > 1 ? ' terminaux non rattachés' : ' terminal non rattaché') + ' — recharger', true);
   else srvBanner('', '');
+}
+// Repli à 5 s : une vue qui attend encore son onglet demande un rattachement (une fois) ; jamais de création côté serveur.
+function graceFallback() {
+  const g = S.grace; if (!g) return;
+  for (const p of g.pending) transport.call('reattach', { path: p }).then(() => graceStep(), () => {});
 }
 function onServerInfo(next) {
   if (!next) return;
@@ -1754,8 +1759,8 @@ function onServerInfo(next) {
   } else if (act === 'restart') {
     S.server = next;
     const gen = S.srvGen = (S.srvGen || 0) + 1;
-    if (S.grace) clearTimeout(S.grace.timer);
-    S.grace = { pending: new Set(Object.keys(S.views)), gen, timer: setTimeout(() => graceEnd(true), REATTACH_MS) };
+    if (S.grace) { clearTimeout(S.grace.timer); clearTimeout(S.grace.fb); }
+    S.grace = { pending: new Set(Object.keys(S.views)), gen, timer: setTimeout(() => graceEnd(true), REATTACH_MS), fb: setTimeout(graceFallback, REATTACH_FALLBACK_MS) };
     srvBanner('orange', '⟳ Serveur redémarré — reconnexion des terminaux…');
   }
 }

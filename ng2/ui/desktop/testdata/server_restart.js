@@ -10,12 +10,12 @@ function grab(name) {
   for (let k = src.indexOf('{', at); k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && --d === 0) { end = k + 1; break; } }
   return src.slice(at, end);
 }
-const code = ['serverVersionAction', 'reattachPlan', 'graceStep', 'graceEnd', 'onServerInfo'].map(grab).join('\n');
+const code = ['serverVersionAction', 'reattachPlan', 'graceStep', 'graceEnd', 'graceFallback', 'onServerInfo'].map(grab).join('\n');
 const log = { sync: [], drop: [], banner: [] };
 const ctx = {
   S: { views: { '/a': {}, '/b': {} }, view: '/b', snap: { tabs: [] }, server: { version: 'v6.4.0', boot: 'x' } },
-  REATTACH_MS: 30, leaders: { tiles: {} }, verTxt: (v) => v,
-  transport: { call: (m, a) => { log.sync.push(m + ':' + a.path); return Promise.resolve(); } },
+  REATTACH_MS: 80, REATTACH_FALLBACK_MS: 20, leaders: { tiles: {} }, verTxt: (v) => v,
+  transport: { call: (m, a) => { log.sync.push(m + ':' + a.path); return Promise.resolve({ ok: true }); } },
   dropView: (p) => { log.drop.push(p); delete ctx.S.views[p]; },
   srvBanner: (k, t) => log.banner.push(k + '|' + t), setTimeout, clearTimeout,
 };
@@ -29,9 +29,13 @@ const fail = (m) => { console.log('KO ' + m); process.exit(1); };
   ctx.S.snap = { tabs: [{ path: '/a' }] }; ctx.api.graceStep();            // le serveur a rattaché /a seulement
   if (log.sync.join() !== 'termSync:/a') fail('termSync de /a attendu : ' + log.sync);
   if (log.drop.length) fail('vue retirée trop tôt : ' + log.drop);
-  await new Promise((r) => setTimeout(r, 60));                             // délai écoulé : /b n'est pas revenue
+  await new Promise((r) => setTimeout(r, 40));                             // repli : /b demande un rattachement, une fois
+  if (log.sync.join() !== 'termSync:/a,reattach:/b') fail('repli reattach de /b attendu : ' + log.sync);
+  ctx.S.snap = { tabs: [{ path: '/a', state: 'ready' }, { path: '/b', state: 'opening' }] }; ctx.api.graceStep();
+  if (log.sync.includes('termSync:/b')) fail('termSync avant « ready »');
+  await new Promise((r) => setTimeout(r, 80));                             // délai écoulé : /b n'est pas revenue
   if (log.drop.join() !== '/b' || ctx.S.view !== 'leaders') fail('/b aurait dû être retirée et signalée : ' + log.drop);
-  if (!/1 terminal non rattaché — recharger/.test(log.banner[log.banner.length - 1])) fail('bandeau « non rattaché » absent : ' + log.banner);
+  if (!/^orange\|1 terminal non rattaché — recharger$/.test(log.banner[log.banner.length - 1])) fail('bandeau « non rattaché » absent : ' + log.banner);
   // tout revient : bandeau retiré sans « non rattaché »
   log.banner.length = 0; log.sync.length = 0; ctx.S.views = { '/a': {} }; ctx.S.snap = { tabs: [] };
   ctx.api.onServerInfo({ version: 'v6.4.0', boot: 'z' });
