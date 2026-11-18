@@ -5,6 +5,7 @@
 ## [20261118] — v6.4.0 : appel `reattach` (#198)
 
 - **[NEW]** `reattach {path}` → `{ok, tab}` : rattache l'onglet à une session tmux survivante après un redémarrage du serveur, sans rien créer ; appelé par le client en repli au bout d'environ 5 s (abandon à 20 s) ; `ok: false` sans erreur quand la session manque, appartient à un autre launcher, ou que l'onglet est en lecture seule ou en erreur — `contracts/web-server.md` « Appel reattach » (commit 3c0b868)
+- **[CHANGED]** arrêt du launcher et ouverture d'un projet (aucun changement d'API, commit cb07c97) : bootstrap du conteneur détaché du launcher (`setsid nohup`, `/var/lib/cl/boot.{log,pid,rc}`, un seul exec, jamais relancé s'il tourne), arrêt qui attend les ouvertures en cours 20 s au plus, conteneur à moitié installé réparé au démarrage (sans session) ou à l'ouverture — `contracts/web-server.md` « Arrêt du launcher et ouverture d'un projet » ; écart signalé : `terminationGracePeriodSeconds` du schéma sans minimum face à l'attente fixe de 20 s
 
 ## [20261117] — v6.4.0 (plan, rev2 GATE 2) : fichiers et version du serveur, backends distants, coffre, NetworkPolicy, version du template
 

@@ -92,9 +92,40 @@ Wails ; il n'y a jamais d'erreur (`error` absent) : tout échec est `ok: false`,
 - Le **bootstrap d'un conteneur est détaché du launcher** : un seul `exec` écrit le script dans `/var/lib/cl/run.sh`, le
   lance sous `setsid nohup` (journal `boot.log`, pid `boot.pid`, code `boot.rc`) et ne fait que suivre le journal. Il va
   au bout même si le launcher meurt ; un bootstrap déjà en cours est suivi, jamais relancé.
-- Un conteneur **resté à moitié installé** (pas de marqueur `/var/lib/cl/bootstrap`, aucun bootstrap en cours) est réparé
-  au démarrage du launcher (rattachement, sans ouvrir de session) ou à la prochaine ouverture (bootstrap idempotent).
+- Un conteneur **resté à moitié installé** (pas de marqueur `/var/lib/cl/bootstrap`, aucun bootstrap en cours) est
+  réparé :
+  - au démarrage du launcher, pendant le rattachement automatique (`App.reattach`) : bootstrap relancé en tâche de
+    fond, **sans créer de session** ;
+  - à la prochaine ouverture : `open` rejoue toujours le bootstrap (idempotent) avant la session.
+
+  `reattach {path}` ne répare pas : sans session vivante, il répond `ok: false`.
+- **États du bootstrap** (dossier `/var/lib/cl` du conteneur, `umask 077`) : `run.sh` (script reçu par stdin),
+  `boot.log`, `boot.pid`, `boot.rc` (écrit de façon atomique à la fin), marqueur `bootstrap` (installation aboutie).
+  Le suivi rend le code de `boot.rc`. Un bootstrap interrompu (processus mort sans `boot.rc`) donne une erreur
+  « bootstrap interrompu dans le conteneur (reprise à la prochaine ouverture) » ; un bootstrap qui ne démarre pas en
+  ~4 s donne « bootstrap non démarré ».
 - Aucun changement d'API.
+
+### Cohérence avec le délai de grâce du pod
+
+| Élément | Valeur |
+|---------|--------|
+| `terminationGracePeriodSeconds` du chart (`values.yaml`) | `30` par défaut ; schéma : entier, `minimum: 0` |
+| attente des ouvertures à l'arrêt (`shutdownOpenWait`, `ui/desktop/app.go`) | `20 s`, fixe (non réglable) |
+| marge restante pour détacher les terminaux et quitter | ~10 s avec le défaut |
+
+Avec le défaut, c'est cohérent : 20 s + détachement < 30 s, et le kubelet n'envoie pas `SIGKILL` pendant
+l'arrêt propre.
+
+**Écart (signalé)** : le schéma accepte un `terminationGracePeriodSeconds` inférieur à ~25 s, alors que l'attente
+reste fixée à 20 s. Avec, par exemple, `10`, le pod est tué (`SIGKILL`) pendant l'attente : les terminaux ne sont pas
+détachés proprement (sans perte : les sessions tmux et le bootstrap détaché continuent dans les conteneurs, et le
+rattachement suivant répare). Correctifs possibles, au choix de dev-backend et infra :
+1. schéma : `minimum: 30` (ou 25), avec un message ;
+2. launcher : attente dérivée d'une variable posée par le chart (`CL_SHUTDOWN_WAIT` = délai de grâce − 10 s, plancher
+   0), à ajouter à `contracts/launcher-env.md`.
+
+Les valeurs QUALIF et PROD n'écrivent pas cette valeur : elles ont le défaut de 30 s.
 
 ## Piste v7.0.0 — authentification de l'ingress externe (#172, hors v6.4.0)
 
