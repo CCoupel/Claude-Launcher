@@ -1077,6 +1077,13 @@ func (a *App) DispatchFrom(from origin, method string, raw json.RawMessage) (any
 func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error) {
 	// méthodes aux arguments structurés (le décodage générique ci-dessous
 	// attend des chaînes : « backend » y est un nom, ici un objet)
+	if secretMethods[method] { // appel direct sans adresse source (tests, liaison)
+		src := "fenêtre native"
+		if web {
+			src = "navigateur"
+		}
+		return a.secretCall(src, method, raw)
+	}
 	switch method {
 	case "projectSettings":
 		var in struct {

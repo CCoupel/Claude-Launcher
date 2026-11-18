@@ -391,7 +391,7 @@ func (w *webBridge) handler() http.Handler {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		res, err := w.app.DispatchFrom(originWeb, req.Method, req.Args)
+		res, err := w.app.DispatchFromAddr(originWeb, requestSource(r), req.Method, req.Args)
 		out := map[string]any{"result": res}
 		if err != nil {
 			out["error"] = err.Error()
@@ -682,4 +682,20 @@ func listenRetry(addr string, d time.Duration) (net.Listener, error) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// requestSource : adresse source d'un appel web, pour le journal des écritures de secrets : l'adresse de la
+// connexion et, derrière un ingress, X-Forwarded-For (indication, non fiable).
+func requestSource(r *http.Request) string {
+	s := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(s); err == nil {
+		s = h
+	}
+	if x := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); x != "" {
+		if len(x) > 100 {
+			x = x[:100]
+		}
+		s += " (X-Forwarded-For: " + strings.NewReplacer("\n", " ", "\r", " ").Replace(x) + ")"
+	}
+	return s
 }

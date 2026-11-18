@@ -863,7 +863,7 @@ func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
 func (e Engine) cliT(tty bool, args ...string) []string {
 	switch e.B.Type {
 	case "ssh":
-		out := append([]string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...)
+		out := append(append([]string{"ssh"}, sshBaseArgs(e.B.Name, "10")...), sshMux()...)
 		if tty {
 			out = append(out, "-t")
 		}
