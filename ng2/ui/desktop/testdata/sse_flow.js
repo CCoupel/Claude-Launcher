@@ -92,7 +92,7 @@ const tick = async () => { const [f] = timers.shift(); await f(); };
   if (r3.slice(0, 4).join() !== '8000,16000,30000,30000' && r3.slice(0, 3).join() !== '8000,16000,30000') fail('délais d\'init : ' + r3);
   // environnement réel (flowEnv) avec des natifs stricts : aucun ne doit être appelé comme méthode d'env
   const c4 = { setTimeout: nat((f, ms) => setTimeout(f, ms)), clearTimeout: nat((h) => clearTimeout(h)), EventSource: ES, sessionIsLost: false,
-    transport: { call: nat(async () => ({ ok: 1 })) }, applyInit() {}, connBanner() {}, console };
+    transport: { call: async () => ({ ok: 1 }) }, applyInit() {}, connBanner() {}, console };
   vm.createContext(c4);
   vm.runInContext(grab('flowEnv') + '\nglobalThis.flowEnv = flowEnv;', c4);
   const e4 = c4.flowEnv(() => {});
