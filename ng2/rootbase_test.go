@@ -452,7 +452,8 @@ func TestFullInstallOnFakeRoot(t *testing.T) {
 		}
 	}
 	c := exec.Command(bin, "desktop", "--web", "--no-open", "--addr", "127.0.0.1:"+port)
-	c.Env = append(append(cmdEnv, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "CL_NO_UPDATE=1"), env...)
+	c.Env = append(append(cmdEnv, "HOME="+home, "XDG_CACHE_HOME="+filepath.Join(home, ".cache"), "XDG_DATA_HOME="+rbDataHome(), "CL_NO_UPDATE=1"), env...)
+	rbOwnGroup(c)
 	stdout, _ := c.StdoutPipe()
 	se := &lockedBuf{} // lu dans le chemin d'échec pendant que le sous-processus écrit encore
 	c.Stderr = se
@@ -478,6 +479,7 @@ func TestFullInstallOnFakeRoot(t *testing.T) {
 			_ = c.Process.Kill()
 			<-exited
 		}
+		rbKillGroup(c) // processus fils (podman…) : plus rien ne tourne à l'effacement des dossiers
 		time.Sleep(300 * time.Millisecond)
 	}
 	defer stop()
