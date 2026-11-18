@@ -370,6 +370,19 @@ func (w *webBridge) handler() http.Handler {
 	// protection est l'ingress interne), session exigée en mode jeton ; l'appariement du navigateur a son propre jeton
 	filesH := core.NewFilesHandler()
 	mux.HandleFunc(core.FilesPrefix+"/", func(rw http.ResponseWriter, r *http.Request) {
+		// Sec-Fetch-Site comme pour l'interface (contrat « Contrôles ») : ce qui vient d'un autre site est refusé (même
+		// site : refusé aussi en mode « none », aucun jeton ne le distingue) ; navigation de l'utilisateur (none) et
+		// même origine passent
+		switch r.Header.Get("Sec-Fetch-Site") {
+		case "cross-site":
+			refuse(rw, "origin", "origine refusée")
+			return
+		case "same-site":
+			if w.access == core.AccessNone {
+				refuse(rw, "origin", "origine refusée")
+				return
+			}
+		}
 		if w.access != core.AccessNone && !strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/__claude-launcher__") && !w.authorized(r, false) {
 			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
 			return
