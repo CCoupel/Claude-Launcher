@@ -211,9 +211,29 @@ func (m *StateMgr) Stop() {
 			delete(m.timers, p)
 		}
 		m.mu.Unlock()
-		_ = m.w.Close()
+		m.closeWatcher()
 		m.wg.Wait()
 	})
+}
+
+// closeWatcher : ferme le surveillant fsnotify EN VIDANT ses canaux. events() est sortie à la fermeture de quit : sous
+// Windows, Close attend la fin de la goroutine de lecture du surveillant, qui reste bloquée sur l'envoi d'un évènement
+// (canal sans lecteur) — interblocage à l'arrêt (CI Windows : Stop figé 9 minutes). Tant que Close n'a pas rendu la main,
+// évènements et erreurs sont lus et jetés.
+func (m *StateMgr) closeWatcher() {
+	done := make(chan struct{})
+	go func() {
+		_ = m.w.Close()
+		close(done)
+	}()
+	for {
+		select {
+		case <-m.w.Events:
+		case <-m.w.Errors:
+		case <-done:
+			return
+		}
+	}
 }
 
 func (m *StateMgr) stopped() bool {
