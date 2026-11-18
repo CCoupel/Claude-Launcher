@@ -94,6 +94,17 @@ func mustOK194(t *testing.T, a *App, method string, args any) (map[string]any, s
 	return res, raw
 }
 
+// wantMotif194 : le refus porte le motif attendu (insensible à la casse) ; un refus pour une autre raison échoue.
+func wantMotif194(t *testing.T, raw string, motifs ...string) {
+	t.Helper()
+	l := strings.ToLower(raw)
+	for _, m := range motifs {
+		if !strings.Contains(l, strings.ToLower(m)) {
+			t.Errorf("le refus ne porte pas le motif %q : %s", m, raw)
+		}
+	}
+}
+
 func noFiles194(t *testing.T, dir, backend string) {
 	t.Helper()
 	for _, f := range []string{"id", "id.pub", "known_hosts"} {
@@ -151,9 +162,11 @@ func TestSecretGetJamaisLaClePrivee194(t *testing.T) {
 func TestSecretPaireIncoherenteRefusee194(t *testing.T) {
 	a, dir := vault194(t)
 	p1, p2 := newPair194(t), newPair194(t)
-	if _, raw, failed := call194(t, a, "backendSecretSet", map[string]any{"backend": "srv1", "privateKey": p1.priv, "publicKey": p2.pub}); !failed {
+	_, raw, failed := call194(t, a, "backendSecretSet", map[string]any{"backend": "srv1", "privateKey": p1.priv, "publicKey": p2.pub})
+	if !failed {
 		t.Errorf("clé publique d'une autre paire acceptée : %s", raw)
 	}
+	wantMotif194(t, raw, "ne correspond pas") // le motif : l'incohérence de la paire, pas une autre erreur
 	noFiles194(t, dir, "srv1")
 }
 
@@ -179,8 +192,13 @@ func TestSecretPhraseDePasseRefusee194(t *testing.T) {
 func TestSecretClePriveeIllisibleRefusee194(t *testing.T) {
 	a, dir := vault194(t)
 	p := newPair194(t)
-	if _, raw, failed := call194(t, a, "backendSecretSet", map[string]any{"backend": "srv1", "privateKey": "pas une clé", "publicKey": p.pub}); !failed {
+	_, raw, failed := call194(t, a, "backendSecretSet", map[string]any{"backend": "srv1", "privateKey": "pas une clé", "publicKey": p.pub})
+	if !failed {
 		t.Errorf("texte quelconque accepté comme clé privée : %s", raw)
+	}
+	wantMotif194(t, raw, "illisible") // le motif : clé privée illisible (ni phrase de passe, ni paire incohérente)
+	if strings.Contains(strings.ToLower(raw), "phrase") || strings.Contains(raw, "ne correspond pas") {
+		t.Errorf("mauvais motif pour une clé illisible : %s", raw)
 	}
 	noFiles194(t, dir, "srv1")
 }
@@ -306,21 +324,22 @@ func unixOnly194(t *testing.T) {
 func TestCoffreEmplacementsRefuses194(t *testing.T) {
 	p := newPair194(t)
 	for _, c := range []struct {
-		name string
-		prep func(t *testing.T, root string) string // renvoie CL_SECRETS_DIR
+		name  string
+		motif string                                 // fragment du message de refus
+		prep  func(t *testing.T, root string) string // renvoie CL_SECRETS_DIR
 	}{
-		{"sous la racine partagée CL_ROOT_BASE", func(t *testing.T, root string) string {
+		{"sous la racine partagée CL_ROOT_BASE", "zone partagée", func(t *testing.T, root string) string {
 			d := filepath.Join(root, "partage", "coffre")
 			_ = os.MkdirAll(d, 0o700)
 			return d
 		}},
-		{"sous un volume de CL_K8S_VOLUMES", func(t *testing.T, root string) string {
+		{"sous un volume de CL_K8S_VOLUMES", "zone partagée", func(t *testing.T, root string) string {
 			v := filepath.Join(root, "vol")
 			_ = os.MkdirAll(filepath.Join(v, "coffre"), 0o700)
 			t.Setenv("CL_K8S_VOLUMES", v+"=claude-projets")
 			return filepath.Join(v, "coffre")
 		}},
-		{"droits ≠ 0700", func(t *testing.T, root string) string {
+		{"droits ≠ 0700", "droits", func(t *testing.T, root string) string {
 			if runtime.GOOS == "windows" {
 				t.Skip("droits POSIX")
 			}
@@ -339,6 +358,7 @@ func TestCoffreEmplacementsRefuses194(t *testing.T) {
 			if !failed {
 				t.Errorf("écriture acceptée dans un coffre interdit (%s) : %s", c.name, raw)
 			}
+			wantMotif194(t, raw, "coffre", c.motif)
 			noFiles194(t, d, "srv1")
 		})
 	}
