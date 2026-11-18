@@ -3,6 +3,8 @@ package desktop
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log"
+	"strings"
 	"time"
 
 	"claude-launcher-ng2/core"
@@ -31,14 +33,24 @@ var serverBoot = func() string {
 func serverInfo() ServerInfo { return ServerInfo{Version: core.Version(), Boot: serverBoot} }
 
 // projectRootByName : racine (chemin vu des sessions) du projet connu de ce launcher dont le nom est name — le nom du
-// projet dans le launcher, <catégorie>-<projet> (core.CtrName) ; ce que /files/<projet>/… résout (#174).
+// projet dans le launcher, <catégorie>-<projet> (core.CtrName) ; ce que /files/<projet>/… résout (#174). Un nom porté par
+// PLUSIEURS projets (même catégorie et même nom sous des racines différentes, ou collision après troncature du nom)
+// est ambigu : rien n'est servi (404), l'ambiguïté est journalisée côté serveur — jamais de chemin dans la réponse.
 func (a *App) projectRootByName(name string) (string, bool) {
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	var found []string
 	for _, n := range a.nodes {
 		if n.Project && core.CtrName(n.Path) == name {
-			return core.RemotePath(n.Path), true
+			found = append(found, n.Path)
 		}
 	}
+	a.mu.Unlock()
+	switch len(found) {
+	case 0:
+		return "", false
+	case 1:
+		return core.RemotePath(found[0]), true
+	}
+	log.Printf("/files : le nom de projet %q désigne %d projets (%s) : refusé (404) tant qu'il est ambigu", name, len(found), strings.Join(found, ", "))
 	return "", false
 }
