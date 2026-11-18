@@ -64,6 +64,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail (printf "volume.mountPath (%s) chevauche le montage réservé %s" $mount $p) -}}
 {{- end -}}
 {{- end -}}
+{{- /* backends.kubeconfigs : un nom par entrée (volume kube-<name> et dossier de montage) */ -}}
+{{- $seen := dict -}}
+{{- range .Values.backends.kubeconfigs -}}
+{{- if hasKey $seen .name -}}
+{{- fail (printf "backends.kubeconfigs : le nom %q est donné deux fois (un volume et un dossier de montage par nom)" .name) -}}
+{{- end -}}
+{{- $_ := set $seen .name true -}}
+{{- end -}}
 {{- /* variables posées par le chart : extraEnv ne peut pas les remplacer (le dernier doublon l'emporterait) */ -}}
 {{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_SECRETS_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
 {{- range .Values.extraEnv -}}
