@@ -108,7 +108,7 @@ ni aux fichiers de `rootBase`.
 
 | Valeur | Type | Défaut | Obligatoire | Rôle |
 |--------|------|--------|-------------|------|
-| `networkPolicy.enabled` | booléen | **`true`** | — | entrée du pod seulement depuis `networkPolicy.ingressNamespaces`, port `service.port` ; sondes du kubelet admises ; sortie non restreinte (backends distants, GitHub) |
+| `networkPolicy.enabled` | booléen | **`true`** | — | entrée du pod seulement depuis `networkPolicy.ingressNamespaces`, sur le **port nommé `http` du conteneur** (8080 ; pas `service.port`) ; sondes du kubelet admises ; sortie non restreinte (backends distants, GitHub) |
 | `networkPolicy.ingressPodSelector` | table de labels | `{app.kubernetes.io/name: traefik}` | — | labels des pods du contrôleur dans le namespace (ET avec `ingressNamespaces`) : un autre pod du namespace `traefik` n'est pas admis ; relevé en lecture seule sur le Traefik RKE2 du cluster (`app.kubernetes.io/name=traefik`) ; une clé à `null` la retire |
 | `networkPolicy.ingressCIDRs` | liste de CIDR | `[]` | — | sources `ipBlock` en plus (Traefik en réseau d'hôte : adresses des nœuds) ; sans namespace ni CIDR, le rendu est refusé |
 | `networkPolicy.ingressNamespaces` | liste | `[traefik]` | — | namespace du contrôleur d'Ingress (cluster du projet : `traefik`, DaemonSet hors réseau d'hôte) |

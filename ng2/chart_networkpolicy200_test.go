@@ -63,15 +63,16 @@ func TestChartNetworkPolicyParDefaut200(t *testing.T) {
 	}
 }
 
-func TestChartNetworkPolicyPortDuService200(t *testing.T) {
+func TestChartNetworkPolicyPortIndependantDuService200(t *testing.T) {
 	needHelm(t)
 	v := clone(baseValues())
 	sub(v, "service")["port"] = 9443
 	np := netpol(t, must(t, v))
 	for _, r := range get(np, "spec", "ingress").([]any) {
 		for _, p := range get(r, "ports").([]any) {
-			if get(p, "port") != 9443 && get(p, "port") != float64(9443) {
-				t.Errorf("port %v, attendu service.port (9443)", get(p, "port"))
+			// le port du POD (nommé http, 8080), jamais service.port
+			if get(p, "port") != "http" && get(p, "port") != 8080 && get(p, "port") != float64(8080) {
+				t.Errorf("port %v avec service.port=9443, attendu le port du conteneur (http / 8080)", get(p, "port"))
 			}
 		}
 	}
@@ -195,5 +196,21 @@ func TestChartNetworkPolicyPodSelector200(t *testing.T) {
 	from, _ = get(get(o["NetworkPolicy"][0], "spec", "ingress").([]any)[0], "from").([]any)
 	if get(from[0], "podSelector", "matchLabels", "app.kubernetes.io/name") != "ingress-nginx" {
 		t.Errorf("podSelector réglé non repris : %v", from[0])
+	}
+}
+
+// une NetworkPolicy vise le port du POD : service.port=80 ne doit pas la déplacer (le conteneur écoute sur 8080)
+func TestChartNetworkPolicyPortDuPod200(t *testing.T) {
+	needHelm(t)
+	v := clone(baseValues())
+	sub(v, "service")["port"] = 80
+	o := must(t, v)
+	ports, _ := get(get(o["NetworkPolicy"][0], "spec", "ingress").([]any)[0], "ports").([]any)
+	p := get(ports[0], "port")
+	if p != "http" && p != 8080 && p != float64(8080) {
+		t.Errorf("port de la policy = %v avec service.port=80, attendu http ou 8080", p)
+	}
+	if c := launcherContainer(t, o); get(c["ports"].([]any)[0], "name") != "http" || get(c["ports"].([]any)[0], "containerPort") != 8080 && get(c["ports"].([]any)[0], "containerPort") != float64(8080) {
+		t.Errorf("port du conteneur : %v", c["ports"])
 	}
 }

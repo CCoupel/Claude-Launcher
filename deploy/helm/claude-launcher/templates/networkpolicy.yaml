@@ -1,6 +1,6 @@
 {{- if .Values.networkPolicy.enabled }}
 # Entrée du pod du launcher seulement depuis les pods du contrôleur d'Ingress (networkPolicy.ingressPodSelector) du namespace
-# réglable, sur le port du Service.
+# réglable, sur le port du conteneur.
 # Les sondes du kubelet viennent de l'hôte du nœud : admises par le CNI (Cilium : allow-localhost) ; avec un contrôleur en
 # réseau d'hôte, donner les adresses des nœuds dans networkPolicy.ingressCIDRs. Sortie NON restreinte (backends distants,
 # GitHub, ACME). Les NetworkPolicy du namespace s'additionnent (OU) : celles qui existent déjà ne sont pas modifiées.
@@ -33,5 +33,5 @@ spec:
         {{- end }}
       ports:
         - protocol: TCP
-          port: {{ .Values.service.port }}
+          port: http   # port NOMMÉ du conteneur (8080), pas service.port : une NetworkPolicy vise le port du pod
 {{- end }}
