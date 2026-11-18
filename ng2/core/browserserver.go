@@ -243,11 +243,28 @@ func underLocal(p, r string) bool {
 // sensitiveNames : segments qui ne sont jamais servis (secrets, accès, dépôts, notes de travail du launcher).
 var sensitiveNames = map[string]bool{
 	"private": true, ".git": true, ".claude": true, ".ssh": true, ".aws": true, ".kube": true, ".gnupg": true, ".netrc": true,
+	".docker": true, ".azure": true, // dossiers d'identifiants des outils
+	".git-credentials": true, ".gitconfig": true, ".npmrc": true, ".pypirc": true, ".pgpass": true, ".htpasswd": true,
+	".terraformrc": true, ".dockercfg": true, ".s3cfg": true, ".boto": true, ".my.cnf": true, ".vault-token": true,
+	"terraform.tfvars": true, "credentials": true, "credentials.json": true,
+}
+
+// sensitiveSuffixes : extensions de fichiers de clés, certificats privés et magasins de clés.
+var sensitiveSuffixes = []string{".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".pkcs12", ".ppk", ".kdbx", ".tfstate", ".tfvars"}
+
+func hasAnySuffix(l string, sufs []string) bool {
+	for _, x := range sufs {
+		if strings.HasSuffix(l, x) {
+			return true
+		}
+	}
+	return false
 }
 
 // sensitiveRel : le chemin relatif à une racine (segments séparés par « / ») contient-il un élément jamais servi ?
-// Un segment PRIVATE, .git, .claude, .ssh, .aws, .kube, .gnupg ou .netrc ; un nom commençant par .env, id_ ou kubeconfig ;
-// un nom en .pem ou .key ; tout _work SAUF _work/mockup (les maquettes y vivent ; rapports d'audit, handoff, tâches, tmp… ne sont jamais servis). Casse
+// Un segment PRIVATE, .git, .claude, .ssh, .aws, .kube, .gnupg, .docker, .azure ou un fichier d'identifiants d'outil
+// (.netrc, .git-credentials, .gitconfig, .npmrc, .pypirc, .pgpass, .htpasswd, .terraformrc…) ; un nom commençant par .env,
+// id_ ou kubeconfig ; un nom en .pem, .key, .p12, .pfx, .jks, .keystore, .pkcs12, .ppk, .kdbx, .tfstate ou .tfvars ; tout _work SAUF _work/mockup (les maquettes y vivent ; rapports d'audit, handoff, tâches, tmp… ne sont jamais servis). Casse
 // ignorée (systèmes de fichiers insensibles à la casse).
 func sensitiveRel(rel string) bool {
 	segs := strings.Split(rel, "/")
@@ -256,7 +273,7 @@ func sensitiveRel(rel string) bool {
 		switch {
 		case l == "":
 		case sensitiveNames[l], strings.HasPrefix(l, ".env"), strings.HasPrefix(l, "id_"), strings.HasPrefix(l, "kubeconfig"),
-			strings.HasSuffix(l, ".pem"), strings.HasSuffix(l, ".key"):
+			hasAnySuffix(l, sensitiveSuffixes):
 			return true
 		case l == "_work" && i+1 < len(segs) && segs[i+1] != "" && !strings.EqualFold(segs[i+1], "mockup"):
 			return true // de _work, seul _work/mockup (les maquettes) est servi : rapports, handoff, tâches, tmp… jamais

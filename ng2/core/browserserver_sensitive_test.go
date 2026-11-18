@@ -20,6 +20,20 @@ func sensitiveTree(t *testing.T) (srv *httptest.Server, root string) {
 	proj := filepath.Join(root, "PROJETS", "p")
 	files := map[string]string{
 		"ok.html":                   "ok",
+		".git-credentials":          "x",
+		".gitconfig":                "x",
+		".npmrc":                    "x",
+		".pypirc":                   "x",
+		".docker/config.json":       "x",
+		"cert.p12":                  "x",
+		"cert.pfx":                  "x",
+		"store.jks":                 "x",
+		"app.keystore":              "x",
+		".pgpass":                   "x",
+		".htpasswd":                 "x",
+		".terraformrc":              "x",
+		"terraform.tfvars":          "x",
+		"prod.tfstate":              "x",
 		".env":                      "SECRET=1",
 		".env.local":                "SECRET=2",
 		".git/config":               "[core]",
@@ -52,7 +66,7 @@ func sensitiveTree(t *testing.T) (srv *httptest.Server, root string) {
 		}
 	}
 	// liens vers des éléments sensibles, depuis un chemin d'apparence anodine
-	for name, target := range map[string]string{"lien-git.txt": ".git/config", "lien-prive": "PRIVATE", "lien-env.txt": ".env", "lien-tmp": "_work/tmp"} {
+	for name, target := range map[string]string{"lien-git.txt": ".git/config", "lien-docker": ".docker", "lien-npmrc.txt": ".npmrc", "lien-p12.txt": "cert.p12", "lien-prive": "PRIVATE", "lien-env.txt": ".env", "lien-tmp": "_work/tmp"} {
 		if err := os.Symlink(filepath.Join(proj, target), filepath.Join(proj, name)); err != nil {
 			t.Skip("liens symboliques indisponibles : ", err)
 		}
@@ -80,7 +94,7 @@ func TestSensibleJamaisServi(t *testing.T) {
 		".env", ".env.local", ".git/config", ".claude/settings.json", "PRIVATE/GLOBAL/ACCES.md", "PRIVATE/QUALIF/kubeconfig",
 		"srv.pem", "a.key", "id_ed25519", "id_rsa.pub", "kubeconfig", "kubeconfig-extra", "sub/.env", "_work/tmp/secret.txt",
 		"_work/reports/r.md", "_work/handoff/h.md", "_work/tasks/t.md", "_work/ledger.json",
-		"lien-git.txt", "lien-prive/GLOBAL/ACCES.md", "lien-env.txt", "lien-tmp/secret.txt", ".ENV", ".Git/config", "PRIVATE/",
+		".git-credentials", ".gitconfig", ".npmrc", ".pypirc", ".docker/config.json", "cert.p12", "cert.pfx", "store.jks", "app.keystore", ".pgpass", ".htpasswd", ".terraformrc", "terraform.tfvars", "prod.tfstate", ".GIT-CREDENTIALS", ".Npmrc", "CERT.P12", ".DOCKER/config.json", "lien-git.txt", "lien-prive/GLOBAL/ACCES.md", "lien-env.txt", "lien-tmp/secret.txt", ".ENV", ".Git/config", "PRIVATE/",
 	} {
 		if code, body := fetch(t, srv, filepath.Join(proj, rel)); code != http.StatusNotFound {
 			t.Errorf("%s servi : %d %.40q (404 attendu)", rel, code, body)
@@ -103,7 +117,7 @@ func TestSensibleMasqueDansLesListes(t *testing.T) {
 	if code != 200 || !strings.Contains(body, "ok.html") || !strings.Contains(body, "_work") {
 		t.Fatalf("liste du projet : %d %.200q", code, body)
 	}
-	for _, hidden := range []string{".env", ".git", ".claude", "PRIVATE", "srv.pem", "a.key", "id_ed25519", "id_rsa.pub", "kubeconfig", "lien-git.txt", "lien-prive", "lien-env.txt", "lien-tmp"} {
+	for _, hidden := range []string{".env", ".git", ".claude", "PRIVATE", "srv.pem", "a.key", "id_ed25519", "id_rsa.pub", "kubeconfig", "lien-git.txt", "lien-prive", "lien-env.txt", "lien-tmp", "lien-docker", "lien-npmrc.txt", "lien-p12.txt", ".git-credentials", ".gitconfig", ".npmrc", ".pypirc", ".docker", "cert.p12", "cert.pfx", "store.jks", "app.keystore", ".pgpass", ".htpasswd", ".terraformrc", "terraform.tfvars", "prod.tfstate"} {
 		if strings.Contains(body, ">"+hidden+"<") || strings.Contains(body, ">"+hidden+"/<") {
 			t.Errorf("%s listé", hidden)
 		}
@@ -121,7 +135,9 @@ func TestSensibleRel(t *testing.T) {
 	for rel, want := range map[string]bool{
 		"": false, "a/b.html": false, "_work/mockup/m.html": false, "_work": false, "_work/mockup": false, "_work/reports/r.md": true, "_work/ledger.json": true, "x/_Work/Mockup/a": false, "_work/tmp": true, "x/_WORK/TMP/y": true, "docs/private-notes.md": false,
 		"PRIVATE/x": true, "a/.git/HEAD": true, ".gitignore": false, ".envrc": true, "envoi.txt": false, "sec.pem": true, "a/B.KEY": true,
-		"id_rsa": true, "idea.txt": false, "kubeconfig": true, "x/kubeconfig-extra": true, "mykubeconfig": false, ".github/x": false,
+		"id_rsa": true, "idea.txt": false, ".git-credentials": true, ".GITCONFIG": true, "a/.npmrc": true, "x/.PYPIRC": true, ".docker/config.json": true,
+		"c.p12": true, "c.PFX": true, "s.jks": true, "s.keystore": true, ".pgpass": true, ".htpasswd": true, ".terraformrc": true, "t.tfvars": true, "terraform.tfstate": true,
+		"docker-compose.yml": false, "keystore.md": false, "npmrc.md": false, "pfx-notes.txt": false, "kubeconfig": true, "x/kubeconfig-extra": true, "mykubeconfig": false, ".github/x": false,
 	} {
 		if got := sensitiveRel(rel); got != want {
 			t.Errorf("sensitiveRel(%q) = %v, attendu %v", rel, got, want)

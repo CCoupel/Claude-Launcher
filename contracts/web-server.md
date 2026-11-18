@@ -24,8 +24,11 @@
   en sort. En-têtes `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` (origine opaque : les scripts d'une maquette s'exécutent mais ne peuvent ni appeler `/api` ni lire un cookie de l'interface ; jamais `allow-same-origin`), `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`.
 - **Jamais servi ni listé** (route `/files` ET serveur de maquettes local 8765, qui partagent `fileServer.allowed`), au
   chemin demandé comme après résolution des liens symboliques (un lien vers un élément exclu ne le contourne pas), 404 :
-  tout segment `PRIVATE`, `.git`, `.claude`, `.ssh`, `.aws`, `.kube`, `.gnupg`, `.netrc` ; tout nom commençant par `.env`,
-  `id_` ou `kubeconfig` ; tout nom en `.pem` ou `.key` ; **tout `_work` SAUF `_work/mockup`** (les maquettes y vivent ;
+  tout segment `PRIVATE`, `.git`, `.claude`, `.ssh`, `.aws`, `.kube`, `.gnupg`, `.docker`, `.azure` ; les fichiers
+  d'identifiants d'outils (`.netrc`, `.git-credentials`, `.gitconfig`, `.npmrc`, `.pypirc`, `.pgpass`, `.htpasswd`,
+  `.terraformrc`, `.dockercfg`, `.s3cfg`, `.boto`, `.my.cnf`, `.vault-token`, `terraform.tfvars`, `credentials`,
+  `credentials.json`) ; tout nom commençant par `.env`, `id_` ou `kubeconfig` ; tout nom en `.pem`, `.key`, `.p12`, `.pfx`,
+  `.jks`, `.keystore`, `.pkcs12`, `.ppk`, `.kdbx`, `.tfstate` ou `.tfvars` ; **tout `_work` SAUF `_work/mockup`** (les maquettes y vivent ;
   rapports d'audit, handoff, tâches, tmp, journal : jamais servis) ; et tout ce qui tombe sous un **dossier d'état du
   launcher** — cache (`CL_CACHE_DIR` : jetons, `update-check.json`, journal des secrets, `projects.json`…), coffre
   (`CL_SECRETS_DIR`), configuration (`config.conf`, `backends.yaml`), configuration de claude (`CLAUDE_CONFIG_DIR`) —
