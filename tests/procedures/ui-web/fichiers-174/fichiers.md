@@ -1,4 +1,4 @@
-# Procedure de Test — Fichiers des projets par l'interface, /files (#174)
+# Procedure de Test — Fichiers des projets par l'interface, /files/<projet>/… (#174)
 
 **Version** : 6.4.0
 **Testeur** : QA
@@ -7,7 +7,7 @@
 
 ## Prerequis
 
-- [ ] Image QUALIF 6.4.0.x déployée, un projet de QUALIF avec une maquette HTML dans `docs/mockup/`
+- [ ] Image QUALIF 6.4.0.x déployée, le projet factice `qualif-factice-1` (nom du launcher `<catégorie>-<projet>`) avec la maquette `_work/mockup/essai-174/index.html`
 - [ ] `CL_WEB_URL` de l'ingress interne connu (ex. `https://launcher-qualif.local`)
 
 ## Scenarios
@@ -18,7 +18,7 @@
 
 | Etape | Action | Resultat attendu |
 |-------|--------|------------------|
-| 1 | `go test ./ui/desktop ./core -run 174` dans `ng2` | PASS : racines, `..`, liens, CSP sandbox, liste de dossier, Host / Sec-Fetch-Site, mode none sans session, appariement ; correspondance des sessions en cluster / hub inchangé |
+| 1 | `go test ./ui/desktop ./core -run 174` dans `ng2` | PASS : forme projet, projet inconnu / ancienne forme / racine en 404, noms `__` réservés, sortie de la racine du projet (`..`, liens), CSP sandbox, liste de dossier, Host / Sec-Fetch, exclusions, modes token et none, appariement ; correspondance par session en cluster, hub inchangé |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -28,25 +28,30 @@
 
 | Etape | Action | Resultat attendu |
 |-------|--------|------------------|
-| 1 | Dans une session claude du pod : `echo $CL_BROWSER_PATH_MAP; echo $CL_BROWSER_HINT` | `[{"container":"/","host":"<CL_WEB_URL>/files","os":"url"}]` ; consigne visant `<CL_WEB_URL>/files` |
-| 2 | Chrome, nouvel onglet : `<CL_WEB_URL>/files/<chemin interne du projet>/docs/mockup/<maquette>.html` | maquette affichée, scripts de la page bloqués (CSP sandbox) |
-| 3 | Ouvrir un dossier (`…/docs/mockup/`) | liste des fichiers |
-| 4 | Demander à la session d'ouvrir la maquette dans Chrome | la session ouvre l'adresse `/files/…` (jamais `file://`) |
-| 5 | Appariement : `…/files/__claude-launcher__/pair?device=<id>&token=<jeton>` | page « ✓ navigateur du hub » avec le bon jeton ; refus avec un mauvais jeton |
+| 1 | Dans une session claude du projet `qualif-factice-1` : `echo $CL_BROWSER_PATH_MAP; echo $CL_BROWSER_HINT` | `[{"container":"<racine du projet vue par la session>","host":"<CL_WEB_URL>/files/qualif-factice-1","os":"url"}]` ; consigne visant `<CL_WEB_URL>/files/qualif-factice-1/<chemin relatif>` |
+| 2 | Chrome, nouvel onglet : `<CL_WEB_URL>/files/qualif-factice-1/_work/mockup/essai-174/index.html` | maquette affichée (ses scripts s'exécutent en origine opaque, sans accès à l'interface) |
+| 3 | Ouvrir un dossier : `<CL_WEB_URL>/files/qualif-factice-1/_work/mockup/essai-174/` | liste des fichiers **sans chemin interne** (ni dans la page, ni dans l'adresse) |
+| 4 | Demander à la session d'ouvrir la maquette dans Chrome | la session ouvre `/files/qualif-factice-1/…` (jamais `file://`, jamais un chemin interne) |
+| 5 | Dans une session d'un AUTRE projet : un fichier de `qualif-factice-1` | aucune URL proposée (la correspondance est celle du projet de la session) |
+| 6 | Appariement : `…/files/__claude-launcher__/pair?device=<id>&token=<jeton>` | page « ✓ navigateur du hub » avec le bon jeton ; refus avec un mauvais jeton |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
-### Scenario 3 — Rien hors des racines
+### Scenario 3 — Ce qui n'est jamais servi
 
 **Validation** : HUMAIN | **Issues** : #174
 
 | Etape | Action | Resultat attendu |
 |-------|--------|------------------|
-| 1 | `curl -k -i '<CL_WEB_URL>/files/etc/passwd'` | 404, jamais le contenu |
-| 2 | `curl -k -i --path-as-is '<CL_WEB_URL>/files<racine>/../../etc/passwd'` | 404 |
-| 3 | Dans le pod, créer un lien symbolique du projet vers `/etc` ; `curl …/files<projet>/lien/passwd` | 404 |
-| 4 | `curl -k -i -X POST …/files<projet>/docs/mockup/<maquette>.html` | refusé (405), fichier intact |
-| 5 | Dossier du coffre `/var/lib/claude-launcher/secrets` via `/files` | 404 |
+| 1 | `curl -k -i '<CL_WEB_URL>/files/'` et `…/files` | **404**, sans liste ni nom de projet |
+| 2 | `curl -k -i '<CL_WEB_URL>/files/projet-inconnu/x'` | 404 |
+| 3 | Ancienne forme : `curl -k -i '<CL_WEB_URL>/files/share/MFS/ROOT/CLAUDE-QUALIF/PROJETS/QUALIF/factice-1/_work/mockup/essai-174/index.html'` | **404** |
+| 4 | `curl -k -i --path-as-is '<CL_WEB_URL>/files/qualif-factice-1/../qualif-factice-2/…'` et `…/qualif-factice-1/../../etc/passwd` | 404 |
+| 5 | Dans le pod, lien symbolique du projet vers `/etc` puis vers un AUTRE projet ; `curl …/files/qualif-factice-1/lien/passwd` | 404 dans les deux cas |
+| 6 | `curl -k -i -X POST …/files/qualif-factice-1/_work/mockup/essai-174/index.html` | refusé (405), fichier intact |
+| 7 | `.env`, `.git/config`, `PRIVATE/`, `_work/rapports…` (hors `_work/mockup`) du projet | 404 |
+| 8 | Dossier du coffre / cache du launcher via `/files/qualif-factice-1/…` (même sous une racine partagée) | 404 |
+| 9 | `curl -k -i '<CL_WEB_URL>/files/__claude-launcher__/x'` | 404 (nom réservé) |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -63,9 +68,9 @@
 
 ## Criteres de Validation
 
-- [ ] Une maquette du projet s'ouvre dans Chrome par l'adresse interne via `/files`
+- [ ] Une maquette du projet s'ouvre dans Chrome par `/files/<projet>/<chemin relatif>` ; aucun chemin interne dans une URL ni une liste
 - [ ] Aucun fichier hors racine servi ; CSP sandbox présente
 
 ## Notes QA
 
-Risque connu : `/files` est de même origine que l'interface ; la CSP `sandbox` empêche une maquette d'appeler l'API (relecture security prévue).
+Forme unique `/files/<projet>/…` (décision utilisateur 2026-11-18) ; la CSP `sandbox` (origine opaque) empêche une maquette d'appeler l'API ou de lire un cookie de l'interface. Risque accepté : une maquette peut envoyer ce qu'elle lit vers Internet (pas de `connect-src`).

@@ -22,7 +22,7 @@ func TestFilesSousRessourcesDeMaquette(t *testing.T) {
 		_ = os.MkdirAll(filepath.Join(ps[0], "_work", "mockup"), 0o755)
 		_ = os.WriteFile(filepath.Join(ps[0], "_work", "mockup", "m.css"), []byte("a{}"), 0o644)
 		_ = os.WriteFile(filepath.Join(ps[0], ".env"), []byte("SECRET=1"), 0o644)
-		u := core.FilesPrefix + ps[0]
+		u := "/files/" + core.CtrName(ps[0]) // forme unique /files/<projet>/<chemin relatif> (contrat 8b8e0cb)
 		var cookie *http.Cookie
 		if mode == core.AccessToken {
 			cookie = scBootstrap(t, srv.URL, "tok174tok174tok174")
