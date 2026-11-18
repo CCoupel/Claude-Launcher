@@ -18,6 +18,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Interface web : bandeau « Serveur mis à jour (vX) — Recharger » quand la version du serveur change ; après un simple redémarrage du serveur, les terminaux se rattachent automatiquement à leurs sessions tmux (appel `reattach {path}` en repli à 5 s, abandon à 20 s avec « N terminaux non rattachés — recharger ») (#198)
 - Interface web : bandeau « connexion au serveur perdue » pendant une coupure ; l'état est redemandé à chaque reconnexion du flux, et l'évènement `hello` est traité à l'ouverture (#198)
 - Interface web : « session introuvable — rouvrir le projet » quand la session d'un terminal n'existe plus ; le bandeau se ferme avec OK et disparaît à la réouverture du projet (#198)
+- Onglets de l'interface native : ordre réglable par glisser-déposer, gardé par poste dans `cl.tabOrder` ; `Ctrl+Tab` suit l'ordre affiché (#191)
 - Backends ssh : clés ssh par backend saisies dans les Réglages (ou générées par le launcher, ed25519), rangées dans un coffre hors partage (`CL_SECRETS_DIR`, `0700`/`0600`) ; clé privée jamais relue ni affichée, phrase de passe refusée, empreinte de l'hôte relevée puis confirmée explicitement, journal des écritures sans contenu (`<CacheDir>/secrets-journal.jsonl`) (#194)
 - Image du cluster : clients `ssh`, `docker` et `podman` distant (`openssh-client`, client docker statique, `podman-remote`) ; aucun démon ni `sshd` (#194)
 - Backends k8s : kubeconfig par backend, déposé dans le coffre depuis les Réglages ou donné par un chemin ; contextes listés, contenu jamais affiché ; `--kubeconfig` prioritaire sur le ServiceAccount du pod (#193)
@@ -31,6 +32,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - En cluster, l'annonce de release du launcher n'est plus cliquable : elle indique « mise à jour par helm upgrade » (#198)
 - Durcissement de l'ouverture et de l'arrêt : l'installation du pod d'un projet (bootstrap du conteneur) est détachée du launcher ; à l'arrêt, le launcher attend les ouvertures en cours 20 s au plus ; un pod resté à moitié installé est réparé à l'ouverture suivante (#198)
 - Chart : `terminationGracePeriodSeconds` vaut 30 s au minimum (schéma), pour laisser au launcher ses 20 s d'attente (#198)
+- Onglets de l'interface native : les onglets non sélectionnés ont un liseré à la couleur de leur projet ; titre et largeur restent stables à la sélection, et « agent au travail » s'affiche dans un emplacement ⚙ fixe et dans l'infobulle (#189, #190)
 - Un kubeconfig illisible met le backend en erreur, sans repli sur le ServiceAccount du pod (#193)
 
 ### Fixed
