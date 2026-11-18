@@ -18,6 +18,11 @@ func TestSecretBoxesRefresh(t *testing.T) {
 	if !strings.Contains(asset(t, "style.css"), "overflow-y: scroll") {
 		t.Error("barre de défilement de la fiche non forcée (.stpg)")
 	}
+	for _, k := range []string{"finally { priv.value = ''", "finally { ta.value = ''; file.value = ''"} {
+		if !strings.Contains(st, k) {
+			t.Errorf("champ secret non vidé dans un finally : %q absent", k)
+		}
+	}
 	node, err := exec.LookPath("node")
 	if err != nil {
 		t.Skip("node absent : simulation du rafraîchissement ignorée")
