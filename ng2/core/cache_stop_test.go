@@ -121,3 +121,36 @@ func TestWatchTreeUntilArretSousEvenements(t *testing.T) {
 	close(stopWrites)
 	<-finished
 }
+
+// Un sous-dossier créé dans un projet surveillé est surveillé à son tour (par adder, pas par la goroutine d'évènements),
+// et les évènements de son contenu déclenchent un recalcul.
+func TestStateMgrSurveilleLesNouveauxSousDossiers(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	t.Setenv(CacheDirVar, t.TempDir())
+	proj := filepath.Join(t.TempDir(), "p")
+	_ = os.MkdirAll(proj, 0o755)
+	if out, err := exec.Command("git", "-C", proj, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init : %v %s", err, out)
+	}
+	m, err := NewStateMgr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	m.SetProjects([]string{proj})
+	sub := filepath.Join(proj, "nouveau")
+	_ = os.MkdirAll(sub, 0o755)
+	watched := func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		_, ok := m.dirOwner[sub]
+		return ok
+	}
+	for end := time.Now().Add(5 * time.Second); !watched() && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+	}
+	if !watched() {
+		t.Fatal("sous-dossier créé non surveillé")
+	}
+}

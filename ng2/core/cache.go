@@ -170,6 +170,10 @@ type StateMgr struct {
 
 	hi, lo chan string
 	Done   chan ProjState // projets recalculés, pour mettre à jour le navigateur
+	// addq : nouveaux sous-dossiers à surveiller, posés par events() et traités par adder() : w.Add peut attendre la
+	// goroutine de lecture du surveillant (Windows), qui elle attend qu'events() lise Events — events() ne doit donc
+	// JAMAIS appeler w.Add elle-même (interblocage : plus aucun évènement, Stop figé derrière wg.Wait)
+	addq chan [2]string
 
 	quit     chan struct{} // fermé par Stop
 	stopOnce sync.Once
@@ -185,15 +189,16 @@ func NewStateMgr() (*StateMgr, error) {
 		w: w, open: map[string]bool{}, pending: map[string]bool{}, updated: map[string]time.Time{}, dur: map[string]time.Duration{},
 		dirOwner: map[string]string{}, timers: map[string]*time.Timer{}, poll: map[string]bool{}, sigs: map[string]string{},
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
-		quit: make(chan struct{}),
+		quit: make(chan struct{}), addq: make(chan [2]string, 1024),
 	}
-	m.wg.Add(stateWorkers + 3)
+	m.wg.Add(stateWorkers + 4)
 	for i := 0; i < stateWorkers; i++ {
 		go func() { defer m.wg.Done(); m.worker() }()
 	}
 	go func() { defer m.wg.Done(); m.events() }()
 	go func() { defer m.wg.Done(); m.periodic() }()
 	go func() { defer m.wg.Done(); m.poller() }()
+	go func() { defer m.wg.Done(); m.adder() }()
 	return m, nil
 }
 
@@ -490,6 +495,20 @@ func (m *StateMgr) addDir(project, dir string) {
 	}
 }
 
+// adder : surveille les sous-dossiers créés (voir addq) ; peut rester un moment dans w.Add sans gêner la lecture des évènements.
+func (m *StateMgr) adder() {
+	for {
+		select {
+		case a := <-m.addq:
+			if !m.stopped() {
+				m.addDir(a[0], a[1])
+			}
+		case <-m.quit:
+			return
+		}
+	}
+}
+
 func (m *StateMgr) events() {
 	for {
 		select {
@@ -533,7 +552,10 @@ func (m *StateMgr) onEvent(ev fsnotify.Event) {
 		// nouveau sous-dossier : à surveiller aussi
 		if ev.Op&fsnotify.Create != 0 {
 			if st, err := os.Stat(ev.Name); err == nil && st.IsDir() && !skipDirs[base] {
-				m.addDir(project, ev.Name)
+				select { // jamais de w.Add ici (goroutine d'events) : confié à adder ; file pleine : rattrapé au prochain recalcul
+				case m.addq <- [2]string{project, ev.Name}:
+				default:
+				}
 			}
 		}
 	}
