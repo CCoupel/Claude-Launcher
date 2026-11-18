@@ -70,5 +70,22 @@ const tick = async () => { const [f] = timers.shift(); await f(); };
   c2.onEvent('hello', { server: { version: 'v6.5.0', boot: 'b' } });
   if (banners.length !== 2 || banners[1] !== banners[0]) fail('hello répété : même bandeau attendu, pas de double');
   c2.onEvent('hello', undefined);                        // hello sans server : sans effet
+  // init OK puis /api/events en échec répétés (503) : backoff croissant, pas de boucle à 1,5 s
+  const t2 = [], s2 = []; let race2 = [];
+  class ES2 { constructor() { s2.push(this); } close() {} }
+  ctx.startFlow({ watch: () => ({}), unwatch() {}, newES: () => new ES2(), race: (p, ms) => { race2.push(ms); return p; }, cb() {}, lost: () => false,
+    setTimeout: (f, ms) => { t2.push([f, ms]); }, init: async () => ({ ok: 1 }), applyInit() {}, banner() {} });
+  s2[0].onerror();                                       // coupure
+  for (let i = 0; i < 3; i++) { await t2.shift()[0](); s2[s2.length - 1].onerror(); }   // init OK, flux 503 aussitôt
+  const delays = t2.map((x) => x[1]);
+  if (delays.join() !== '12000') fail('backoff attendu 1,5 → 3 → 6 → 12 s (dernier en attente 12000) : ' + delays);
+  // init lent : délai d'abandon croissant 8, 16 puis 30 s
+  const r3 = [], t3 = [], s3 = []; let slow = 3;
+  ctx.startFlow({ watch: () => ({}), unwatch() {}, newES: () => { const e = { close() {} }; s3.push(e); return e; },
+    race: (p, ms) => { r3.push(ms); return slow-- > 0 ? Promise.reject(new Error('délai')) : p; }, cb() {}, lost: () => false,
+    setTimeout: (f, ms) => { t3.push([f, ms]); }, init: async () => ({}), applyInit() {}, banner() {} });
+  s3[0].onerror();
+  for (let i = 0; i < 4; i++) await t3.shift()[0]();
+  if (r3.slice(0, 4).join() !== '8000,16000,30000,30000' && r3.slice(0, 3).join() !== '8000,16000,30000') fail('délais d\'init : ' + r3);
   console.log('OK'); process.exit(0);
 })();

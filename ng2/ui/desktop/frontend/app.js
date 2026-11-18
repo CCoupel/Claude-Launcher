@@ -25,10 +25,12 @@ try { const u = new URL(location.href); if (u.searchParams.has('t')) { u.searchP
 // (pod qui démarre : 502/503 de l'ingress), le flux n'est pas rouvert et l'essai est répété (1,5 s doublé jusqu'à
 // 15 s). Bandeau « connexion perdue » pendant la coupure. 401/403 (session perdue) : on arrête (#171).
 function startFlow(env) {
-  let delay = 1500, down = false;
+  let delay = 1500, down = false, initMs = 8000; // délai d'init : 8, 16 puis 30 s au plus
   const lose = () => { if (!down) { down = true; env.banner(true); } };
   // preuve que le serveur répond (init réussi, flux ouvert, message reçu) : bandeau retiré, quel que soit le chemin
-  const alive = () => { delay = 1500; if (down) { down = false; env.banner(false); } };
+  const shown = () => { if (down) { down = false; env.banner(false); } };
+  // flux réellement établi (onopen, message) : seul signe qui remet le délai de reprise à 1,5 s (sinon 503 répétés = boucle)
+  const alive = () => { delay = 1500; shown(); };
   const retry = () => { if (env.lost()) return; lose(); const w = delay; delay = Math.min(delay * 2, 15000); env.setTimeout(reconnect, w); };
   // veille : le serveur envoie un évènement « ping » toutes les 15 s ; rien pendant 40 s (flux à moitié ouvert, sans
   // onerror) : flux déclaré mort, fermé, bandeau et reprise par init.
@@ -43,8 +45,8 @@ function startFlow(env) {
   };
   const reconnect = async () => {
     let r;
-    try { r = await env.race(env.init(), 8000); } catch (err) { if (env.lost()) return; console.warn('[flux] init échoué, nouvel essai :', err && err.message); retry(); return; }
-    alive();
+    try { r = await env.race(env.init(), initMs); } catch (err) { if (env.lost()) return; initMs = Math.min(initMs * 2, 30000); console.warn('[flux] init échoué, nouvel essai :', err && err.message); retry(); return; }
+    initMs = 8000; shown();
     try { env.applyInit(r); } catch (err) { console.error('[flux] erreur d\'applyInit :', err); }
     open();
   };
