@@ -1690,7 +1690,10 @@ versions natives : le hub Linux et l'exe Windows peuvent tourner **en même temp
   ```
   **Le dossier doit exister avant `helm install`** (créé avec des droits sur la racine MooseFS, par exemple depuis un poste
   qui la monte). Sans lui, le pod reste en `Init:0/1` et l'événement affiche `bad mount point … No such file or directory`.
-  Le guide ne crée aucun dossier à votre place.
+  Le guide ne crée aucun dossier à votre place. Si aucun poste ne monte la racine MooseFS, c'est l'administrateur du
+  stockage qui crée (ou supprime) ce dossier : un PV temporaire `mfsSubDir: /` monté dans un pod d'administration, puis
+  `mkdir` (ou `rm -rf`) d'un **seul** nom de dossier, puis suppression du PV temporaire. Ne montez jamais la racine entière
+  dans un pod de l'application.
 - Un nom d'accès en `.local` (mDNS), par exemple `launcher.local`. Les pods ne résolvent pas les noms `.local`.
 - Une CA interne pour cert-manager, avec des contraintes de noms (`nameConstraints`) sur `launcher.local`. Le certificat
   **public** de cette CA s'installe une fois sur chaque poste qui y accède. La clé ne sort jamais du cluster. Un nom d'essai
@@ -1766,8 +1769,10 @@ ClusterRole. Le launcher n'a aucun droit sur les Secrets Kubernetes : son coffre
 Installez l'image **par son empreinte** : le chart la référence `dépôt:tag@sha256:…`, telle qu'elle a été publiée.
 
 > **Pré-version (QUALIF, essai)** : le chart OCI publié et le fichier `.digest` de release n'existent qu'après une release.
-> Pour une pré-version, installez le chart local de la branche, avec l'empreinte relevée sur le déploiement QUALIF :
-> `helm upgrade --install claude-launcher ./deploy/helm/claude-launcher -n <ns> -f values.yaml --set image.tag=<tag> --set image.digest=sha256:<empreinte>`.
+> Pour une pré-version, installez le chart local de la branche, avec l'image **de qualif** et l'empreinte relevée sur le
+> déploiement QUALIF : `--set image.repository=ghcr.io/ccoupel/claude-launcher-qualif`. Sans cette valeur, le chart tire
+> l'image de production (`ghcr.io/ccoupel/claude-launcher`) :
+> `helm upgrade --install claude-launcher ./deploy/helm/claude-launcher -n <ns> -f values.yaml --set image.repository=ghcr.io/ccoupel/claude-launcher-qualif --set image.tag=<tag> --set image.digest=sha256:<empreinte>`.
 
 ```bash
 VERSION=X.Y.Z                                  # version du chart et du launcher
@@ -1797,8 +1802,9 @@ Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont cr
   par un canal sûr. Ne l'écrivez pas sur un partage.
 - **Fichiers des projets** : `https://launcher.local/files/<projet>/<chemin relatif>`. `<projet>` n'est pas le nom court :
   c'est le nom du projet dans le launcher, `<catégorie>-<projet>` (ex. `guide-p1` pour le projet `p1` de la catégorie `guide`).
-  `/files/p1/…` et `/files/GUIDE/p1/…` donnent `404`. Le projet doit figurer dans l'arbre des projets du launcher ; si deux
-  projets portent le même nom, rien n'est servi (`404`, journalisé côté serveur). Les sessions du cluster utilisent
+  `/files/p1/…` et `/files/GUIDE/p1/…` donnent `404`. Le projet doit figurer dans l'arbre des projets du launcher : par
+  exemple un dossier `<rootBase>/PROJETS/<catégorie>/<projet>` (un dépôt `git init` suffit pour un essai), que le launcher
+  voit et nomme `<catégorie>-<projet>`. Si deux projets portent le même nom, rien n'est servi (`404`, journalisé côté serveur). Les sessions du cluster utilisent
   `CL_WEB_URL/files` ; le chemin interne du pod n'apparaît jamais. Les fichiers sont servis avec une CSP `sandbox` (origine
   opaque) et les fichiers sensibles sont exclus (voir §9).
 - La CA doit être installée sur le poste, sinon le navigateur refuse le certificat.
@@ -1810,6 +1816,9 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
 1. Traefik doit garder l'adresse du client : `kubectl get svc -A -o custom-columns=NS:.metadata.namespace,NOM:.metadata.name,POLITIQUE:.spec.externalTrafficPolicy | grep -i traefik`
    → `Local`. Sur RKE2, Traefik est dans le namespace `traefik`. Avec `Cluster`, Traefik voit l'adresse d'un nœud, la liste ne sert à rien : ne pas valider.
 2. Depuis une adresse de la liste : `curl -sk -o /dev/null -w '%{http_code}' https://launcher.local/healthz` → `200`.
+   Si le LB Traefik n'est pas joignable depuis le poste d'essai, testez le NodePort de Traefik (`kubectl -n traefik get svc`) :
+   `curl -sk --resolve "launcher.local:<port>:<IP d'un nœud>" -o /dev/null -w '%{http_code}' https://launcher.local:<port>/healthz`.
+   Depuis un pod, la même commande que §5.4 (`--resolve`) sert de variante.
 3. Depuis une adresse hors liste (autre réseau, VPN) : même commande → `403`.
 4. Depuis un pod du cluster qui passe par l'Ingress. **Ce contrôle ne prouve la liste que si les nœuds du cluster n'en font
    pas partie.** Traefik voit l'adresse source : pour un pod, c'est l'adresse du nœud où il tourne. Si cette adresse est dans
@@ -1846,7 +1855,9 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
 - **Purge d'un essai** : `helm uninstall` garde les volumes. Supprimez le PVC des projets et le PVC du coffre
   (`kubectl -n <ns> delete pvc <existingClaim> <release>-secrets`), puis les PV restés `Released` (`kubectl get pv` : celui du
   chart, et celui du coffre, dynamique, classe `retain`, retrouvé par `kubectl -n <ns> get pvc <release>-secrets -o jsonpath='{.spec.volumeName}'`).
-  Enfin, supprimez le dossier MooseFS de la racine d'essai. Ne purgez jamais la racine de production.
+  Le dossier du PV du coffre se trouve sur MooseFS sous `/pv_data/volumes/<nom du PV>` (provisionneur de la classe `retain` ;
+  le nom du PV est celui donné par le `jsonpath` ci-dessus). Supprimez-le avec le dossier de la racine d'essai, dans le même
+  cadre de droits que §1. Ne purgez jamais la racine de production.
 
 #### 7. Cohabitation : cluster, hub Linux et exe Windows sur la même racine
 
