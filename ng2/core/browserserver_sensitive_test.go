@@ -38,6 +38,9 @@ func sensitiveTree(t *testing.T) (srv *httptest.Server, root string) {
 		"_work/mockup/m.html":       "<h1>maquette</h1>",
 		"_work/mockup/ui/a.html":    "ui",
 		"_work/reports/r.md":        "rapport",
+		"_work/handoff/h.md":        "handoff",
+		"_work/tasks/t.md":          "tâche",
+		"_work/ledger.json":         "{}",
 	}
 	for rel, c := range files {
 		p := filepath.Join(proj, rel)
@@ -76,6 +79,7 @@ func TestSensibleJamaisServi(t *testing.T) {
 	for _, rel := range []string{
 		".env", ".env.local", ".git/config", ".claude/settings.json", "PRIVATE/GLOBAL/ACCES.md", "PRIVATE/QUALIF/kubeconfig",
 		"srv.pem", "a.key", "id_ed25519", "id_rsa.pub", "kubeconfig", "kubeconfig-extra", "sub/.env", "_work/tmp/secret.txt",
+		"_work/reports/r.md", "_work/handoff/h.md", "_work/tasks/t.md", "_work/ledger.json",
 		"lien-git.txt", "lien-prive/GLOBAL/ACCES.md", "lien-env.txt", "lien-tmp/secret.txt", ".ENV", ".Git/config", "PRIVATE/",
 	} {
 		if code, body := fetch(t, srv, filepath.Join(proj, rel)); code != http.StatusNotFound {
@@ -86,7 +90,7 @@ func TestSensibleJamaisServi(t *testing.T) {
 
 func TestMaquettesEtFichiersOrdinairesServis(t *testing.T) {
 	srv, proj := sensitiveTree(t)
-	for rel, want := range map[string]string{"ok.html": "ok", "sub/ok.txt": "ok", "_work/mockup/m.html": "maquette", "_work/mockup/ui/a.html": "ui", "_work/reports/r.md": "rapport"} {
+	for rel, want := range map[string]string{"ok.html": "ok", "sub/ok.txt": "ok", "_work/mockup/m.html": "maquette", "_work/mockup/ui/a.html": "ui"} {
 		if code, body := fetch(t, srv, filepath.Join(proj, rel)); code != 200 || !strings.Contains(body, want) {
 			t.Errorf("%s : %d %.40q (servi attendu)", rel, code, body)
 		}
@@ -104,8 +108,8 @@ func TestSensibleMasqueDansLesListes(t *testing.T) {
 			t.Errorf("%s listé", hidden)
 		}
 	}
-	// _work : mockup et reports listés, tmp masqué ; sub : .env masqué
-	if _, b := fetch(t, srv, proj+"/_work/"); !strings.Contains(b, "mockup") || !strings.Contains(b, "reports") || strings.Contains(b, ">tmp/<") {
+	// _work : seul mockup est listé (reports, handoff, tasks, tmp, fichiers : masqués) ; sub : .env masqué
+	if _, b := fetch(t, srv, proj+"/_work/"); !strings.Contains(b, "mockup") || strings.Contains(b, "reports") || strings.Contains(b, "handoff") || strings.Contains(b, "tasks") || strings.Contains(b, ">tmp/<") || strings.Contains(b, "ledger") {
 		t.Errorf("liste de _work : %.200q", b)
 	}
 	if _, b := fetch(t, srv, proj+"/sub/"); !strings.Contains(b, "ok.txt") || strings.Contains(b, ".env") {
@@ -115,7 +119,7 @@ func TestSensibleMasqueDansLesListes(t *testing.T) {
 
 func TestSensibleRel(t *testing.T) {
 	for rel, want := range map[string]bool{
-		"": false, "a/b.html": false, "_work/mockup/m.html": false, "_work/tmp": true, "x/_WORK/TMP/y": true, "docs/private-notes.md": false,
+		"": false, "a/b.html": false, "_work/mockup/m.html": false, "_work": false, "_work/mockup": false, "_work/reports/r.md": true, "_work/ledger.json": true, "x/_Work/Mockup/a": false, "_work/tmp": true, "x/_WORK/TMP/y": true, "docs/private-notes.md": false,
 		"PRIVATE/x": true, "a/.git/HEAD": true, ".gitignore": false, ".envrc": true, "envoi.txt": false, "sec.pem": true, "a/B.KEY": true,
 		"id_rsa": true, "idea.txt": false, "kubeconfig": true, "x/kubeconfig-extra": true, "mykubeconfig": false, ".github/x": false,
 	} {

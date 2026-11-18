@@ -25,16 +25,22 @@
 - **Jamais servi ni listé** (route `/files` ET serveur de maquettes local 8765, qui partagent `fileServer.allowed`), au
   chemin demandé comme après résolution des liens symboliques (un lien vers un élément exclu ne le contourne pas), 404 :
   tout segment `PRIVATE`, `.git`, `.claude`, `.ssh`, `.aws`, `.kube`, `.gnupg`, `.netrc` ; tout nom commençant par `.env`,
-  `id_` ou `kubeconfig` ; tout nom en `.pem` ou `.key` ; `_work/tmp`. Casse ignorée. Le reste de `_work` (`mockup`, mais
-  aussi `reports`, `handoff`, `tasks`) reste servi : les maquettes vivent dans `_work/mockup`. **Ces exclusions sont
-  nouvelles pour le serveur 8765 du hub et de l'exe** (comportement d'avant : tout sous les racines).
+  `id_` ou `kubeconfig` ; tout nom en `.pem` ou `.key` ; **tout `_work` SAUF `_work/mockup`** (les maquettes y vivent ;
+  rapports d'audit, handoff, tâches, tmp, journal : jamais servis) ; et tout ce qui tombe sous un **dossier d'état du
+  launcher** — cache (`CL_CACHE_DIR` : jetons, `update-check.json`, journal des secrets, `projects.json`…), coffre
+  (`CL_SECRETS_DIR`), configuration (`config.conf`, `backends.yaml`), configuration de claude (`CLAUDE_CONFIG_DIR`) —
+  même sous une racine partagée (cas du cluster). Casse ignorée. **Ces exclusions sont nouvelles pour le serveur 8765 du
+  hub et de l'exe** (comportement d'avant : tout sous les racines).
 - Contrôles : `Host` comme une page. `Sec-Fetch-Site` : `cross-site` refusé (`same-site` aussi en mode `none`, aucun jeton
   ne le distingue) **sauf pour les sous-ressources d'une maquette** (`Sec-Fetch-Dest` = `style`, `script`, `image`, `font`,
   `audio`, `video`, `track`) : une maquette est servie en origine opaque (CSP `sandbox`), ses ressources relatives partent
   donc « cross-site ». Un document, un cadre (`document`, `iframe`, `frame`, `embed`, `object`), un appel `fetch`/XHR
-  (`empty`) ou une requête sans `Sec-Fetch-Dest` d'un autre site : 403. Sans danger pour les fichiers : `nosniff` (un script
-  ou une feuille de style ne se charge qu'avec un type MIME qui convient), aucun `Access-Control-*` (rien n'est lisible
-  d'un autre site) et les éléments sensibles ne sont jamais servis.
+  (`empty`) ou une requête sans `Sec-Fetch-Dest` d'un autre site : 403. Les éléments sensibles ne sont jamais servis ; `nosniff` (un script ou une feuille de style ne se charge qu'avec un type
+  MIME qui convient) et l'absence d'`Access-Control-*` (rien n'est lisible directement d'un autre site). **Risque résiduel
+  (avis security, FAIBLE)** : un `<script src>` d'un site tiers sur un VRAI fichier `.js` d'un projet est exécuté **et
+  lisible par effet** — les globales qu'il définit (`window.DATA = …`, JSON enrobé) sont accessibles à la page tierce ;
+  image / style / police ne fuient que par canal auxiliaire (dimensions, durée). Un site tiers sans `Sec-Fetch-Dest`
+  (navigateur ancien) reste refusé.
 - **Risque accepté** : la CSP des fichiers ne pose pas `connect-src` (les maquettes chargent des CDN et des API publiques) ;
   une maquette peut donc envoyer ce qu'elle lit vers Internet. Elle ne peut ni lire un cookie de l'interface ni appeler
   `/api` (origine opaque).

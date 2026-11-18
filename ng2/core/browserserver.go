@@ -247,7 +247,7 @@ var sensitiveNames = map[string]bool{
 
 // sensitiveRel : le chemin relatif à une racine (segments séparés par « / ») contient-il un élément jamais servi ?
 // Un segment PRIVATE, .git, .claude, .ssh, .aws, .kube, .gnupg ou .netrc ; un nom commençant par .env, id_ ou kubeconfig ;
-// un nom en .pem ou .key ; _work/tmp (mais PAS le reste de _work : les maquettes sont dans _work/mockup). Casse
+// un nom en .pem ou .key ; tout _work SAUF _work/mockup (les maquettes y vivent ; rapports d'audit, handoff, tâches, tmp… ne sont jamais servis). Casse
 // ignorée (systèmes de fichiers insensibles à la casse).
 func sensitiveRel(rel string) bool {
 	segs := strings.Split(rel, "/")
@@ -258,8 +258,8 @@ func sensitiveRel(rel string) bool {
 		case sensitiveNames[l], strings.HasPrefix(l, ".env"), strings.HasPrefix(l, "id_"), strings.HasPrefix(l, "kubeconfig"),
 			strings.HasSuffix(l, ".pem"), strings.HasSuffix(l, ".key"):
 			return true
-		case l == "_work" && i+1 < len(segs) && strings.EqualFold(segs[i+1], "tmp"):
-			return true
+		case l == "_work" && i+1 < len(segs) && segs[i+1] != "" && !strings.EqualFold(segs[i+1], "mockup"):
+			return true // de _work, seul _work/mockup (les maquettes) est servi : rapports, handoff, tâches, tmp… jamais
 		}
 	}
 	return false
@@ -299,10 +299,49 @@ func (s fileServer) allowed(p string) (string, bool) {
 			}
 		}
 	}
-	if !ok {
+	if !ok || launcherStateContains(real) {
 		return "", false
 	}
 	return real, true
+}
+
+// launcherStateDirs : dossiers d'état du launcher, jamais servis même sous une racine (en cluster, CL_CACHE_DIR est
+// sous la racine partagée) : cache (jetons, update-check.json, présence, projects.json…), coffre des secrets,
+// configuration (config.conf : jeton GitHub ; backends.yaml), configuration de claude (identifiants).
+func launcherStateDirs() []string {
+	dirs := []string{CacheDir(), secretsDirRaw(), Ng2ConfigDir(), ClaudeDir()}
+	if h := HubCacheDir(); h != "" && filepath.IsAbs(h) {
+		dirs = append(dirs, h)
+	}
+	return dirs
+}
+
+var stateDirsCache = struct {
+	sync.Mutex
+	key string
+	res []string
+}{}
+
+// launcherStateContains : p (chemin réel) est-il sous un dossier d'état du launcher (liens symboliques résolus) ?
+func launcherStateContains(p string) bool {
+	raw := launcherStateDirs()
+	key := strings.Join(raw, "\x00")
+	stateDirsCache.Lock()
+	if stateDirsCache.key != key || stateDirsCache.res == nil {
+		res := make([]string, 0, 2*len(raw))
+		for _, d := range raw {
+			res = append(res, d, realPath(d))
+		}
+		stateDirsCache.key, stateDirsCache.res = key, res
+	}
+	dirs := stateDirsCache.res
+	stateDirsCache.Unlock()
+	for _, d := range dirs {
+		if d != "" && underLocal(p, d) {
+			return true
+		}
+	}
+	return false
 }
 
 // evalOr : chemin aux liens symboliques résolus, lui-même s'il ne l'est pas.
@@ -341,7 +380,7 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if p == browserHealthPath {
 		w.Header().Set(browserOSHeader, runtime.GOOS)
-		_, _ = io.WriteString(w, NgName+" "+NgVersion+"\n")
+		_, _ = io.WriteString(w, NgName+" "+Version()+"\n")
 		return
 	}
 	real, ok := s.allowed(p)
