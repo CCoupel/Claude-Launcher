@@ -73,6 +73,8 @@ secrets:
 networkPolicy:
   enabled: true
   ingressNamespaces: [traefik]
+  ingressPodSelector:     # labels des pods du contrôleur (Traefik RKE2 du cluster) ; ET avec le namespace ; retirer une clé : la mettre à null
+    app.kubernetes.io/name: traefik
   ingressCIDRs: []
 
 # Ingress externe PRÉPARÉ, REFUSÉ au rendu tant que l'authentification n'existe pas (v7.0.0, #172)

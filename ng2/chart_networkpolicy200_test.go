@@ -180,3 +180,20 @@ func TestChartDelaiDArretAuMoins30s200(t *testing.T) {
 		t.Errorf("terminationGracePeriodSeconds = %v, attendu ≥ 30 (arrêt propre des terminaux avant SIGKILL)", g)
 	}
 }
+
+// l'entrée est limitée aux pods du contrôleur (ET namespace + pod), pas à tout le namespace
+func TestChartNetworkPolicyPodSelector200(t *testing.T) {
+	needHelm(t)
+	o := must(t, baseValues())
+	from, _ := get(get(o["NetworkPolicy"][0], "spec", "ingress").([]any)[0], "from").([]any)
+	if get(from[0], "podSelector", "matchLabels", "app.kubernetes.io/name") != "traefik" {
+		t.Errorf("podSelector du contrôleur absent par défaut : %v", from[0])
+	}
+	v := clone(baseValues())
+	v["networkPolicy"] = m{"ingressPodSelector": m{"app.kubernetes.io/name": "ingress-nginx"}}
+	o = must(t, v)
+	from, _ = get(get(o["NetworkPolicy"][0], "spec", "ingress").([]any)[0], "from").([]any)
+	if get(from[0], "podSelector", "matchLabels", "app.kubernetes.io/name") != "ingress-nginx" {
+		t.Errorf("podSelector réglé non repris : %v", from[0])
+	}
+}

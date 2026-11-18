@@ -1,5 +1,6 @@
 {{- if .Values.networkPolicy.enabled }}
-# Entrée du pod du launcher seulement depuis le namespace du contrôleur d'Ingress (réglable), sur le port du Service.
+# Entrée du pod du launcher seulement depuis les pods du contrôleur d'Ingress (networkPolicy.ingressPodSelector) du namespace
+# réglable, sur le port du Service.
 # Les sondes du kubelet viennent de l'hôte du nœud : admises par le CNI (Cilium : allow-localhost) ; avec un contrôleur en
 # réseau d'hôte, donner les adresses des nœuds dans networkPolicy.ingressCIDRs. Sortie NON restreinte (backends distants,
 # GitHub, ACME). Les NetworkPolicy du namespace s'additionnent (OU) : celles qui existent déjà ne sont pas modifiées.
@@ -20,6 +21,11 @@ spec:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: {{ . | quote }}
+          {{- with $.Values.networkPolicy.ingressPodSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
         {{- end }}
         {{- range .Values.networkPolicy.ingressCIDRs }}
         - ipBlock:
