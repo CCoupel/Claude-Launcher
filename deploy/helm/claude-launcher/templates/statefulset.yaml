@@ -118,6 +118,11 @@ spec:
               mountPath: /tmp
             - name: secrets
               mountPath: /var/lib/claude-launcher/secrets
+            {{- range .Values.backends.kubeconfigs }}
+            - name: kube-{{ .name }}
+              mountPath: /var/run/claude-launcher/kube/{{ .name }}
+              readOnly: true
+            {{- end }}
             {{- if .Values.backends.docker.secretName }}
             - name: docker-tls
               mountPath: /var/run/claude-launcher/docker
@@ -159,4 +164,13 @@ spec:
           secret:
             secretName: {{ .Values.backends.docker.secretName }}
             defaultMode: 0444
+        {{- end }}
+        {{- range .Values.backends.kubeconfigs }}
+        - name: kube-{{ .name }}
+          secret:
+            secretName: {{ .secretName }}
+            defaultMode: 0444
+            items:
+              - key: {{ .key }}
+                path: config
         {{- end }}

@@ -68,7 +68,11 @@ secrets:
     size: 10Mi
     storageClassName: ""  # "" = classe par défaut du cluster (RWO) ; jamais la racine partagée
 
+rbac:
+  extraNamespaces: []     # #193 : même Role + RoleBinding (ServiceAccount du pod) dans chaque namespace listé ; aucun ClusterRole
+
 backends:
+  kubeconfigs: []         # #193 : [{name, secretName, key}] → /var/run/claude-launcher/kube/<name>/config (lecture seule, 0444)
   docker:
     secretName: ""        # Secret TLS docker/podman facultatif (ca.pem, cert.pem, key.pem), monté en lecture seule
                           # dans /var/run/claude-launcher/docker (docker :2375 sans TLS accepté en v6.4.0)

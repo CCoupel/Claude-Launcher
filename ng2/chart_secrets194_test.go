@@ -207,3 +207,52 @@ func TestDockerfileClientsDistants194(t *testing.T) {
 		t.Error("podman-remote doit être appelable sous le nom « podman » (lien ou adaptation)")
 	}
 }
+
+// #193 : rbac.extraNamespaces → Role + RoleBinding dans chaque namespace, aucun ClusterRole
+func TestChartExtraNamespaces193(t *testing.T) {
+	needHelm(t)
+	o := must(t, baseValues())
+	if len(o["Role"]) != 1 || len(o["RoleBinding"]) != 1 {
+		t.Errorf("par défaut : %d Role, %d RoleBinding, attendu 1/1", len(o["Role"]), len(o["RoleBinding"]))
+	}
+	v := clone(baseValues())
+	v["rbac"] = m{"extraNamespaces": []any{"ns-extra"}}
+	o = must(t, v)
+	if len(o["Role"]) != 2 || len(o["RoleBinding"]) != 2 {
+		t.Fatalf("%d Role, %d RoleBinding, attendu 2/2", len(o["Role"]), len(o["RoleBinding"]))
+	}
+	found := false
+	for _, r := range o["RoleBinding"] {
+		if get(r, "metadata", "namespace") == "ns-extra" {
+			found = true
+		}
+	}
+	if !found || len(o["ClusterRole"]) != 0 {
+		t.Errorf("RoleBinding ns-extra absent ou ClusterRole présent")
+	}
+}
+
+// #193 : backends.kubeconfigs → Secret monté en lecture seule, 0444, clé exposée sous « config »
+func TestChartKubeconfigsMontes193(t *testing.T) {
+	needHelm(t)
+	v := clone(baseValues())
+	v["backends"] = m{"kubeconfigs": []any{m{"name": "autre", "secretName": "kc", "key": "kubeconfig"}}}
+	o := must(t, v)
+	mm := mountOf(launcherContainer(t, o), "/var/run/claude-launcher/kube/autre")
+	if mm == nil || mm["readOnly"] != true {
+		t.Errorf("kubeconfig non monté en lecture seule : %v", mm)
+	}
+	vols, _ := pod(t, o)["volumes"].([]any)
+	ok := false
+	for _, x := range vols {
+		if get(x, "secret", "secretName") == "kc" {
+			ok = true
+			if dm := get(x, "secret", "defaultMode"); dm != 292 && dm != 444 && dm != float64(292) && dm != float64(444) {
+				t.Errorf("defaultMode = %v, attendu 0444", dm)
+			}
+		}
+	}
+	if !ok {
+		t.Error("volume Secret kc absent")
+	}
+}
