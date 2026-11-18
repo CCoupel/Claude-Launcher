@@ -349,11 +349,20 @@ func ReadTemplate(proj, latest string) TemplateState {
 		return TplNone
 	}
 	var s struct {
+		Tag    string `json:"tag"`
 		Commit string `json:"commit"`
 	}
 	b, err := os.ReadFile(src)
 	if err != nil || json.Unmarshal(b, &s) != nil || s.Commit == "" {
 		return TplNone
+	}
+	// comparaison ordonnée (#199) : en retard seulement si la version adoptée est strictement plus récente ;
+	// un projet plus récent que la version adoptée est à jour. Tag manquant d'un côté : égalité des commits.
+	if adopted := ReadTrim(TplVersionPath()); s.Tag != "" && adopted != "" {
+		if VersionNewer(s.Tag, adopted) {
+			return TplOutdated
+		}
+		return TplOK
 	}
 	if latest != "" && s.Commit == latest {
 		return TplOK

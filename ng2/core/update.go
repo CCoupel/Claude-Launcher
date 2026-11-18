@@ -104,9 +104,10 @@ func VersionNewer(a, b string) bool {
 	return false
 }
 
-func verParts(v string) [3]int {
-	var out [3]int
-	for i, p := range strings.SplitN(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".", 3) {
+// verParts : au plus 4 champs X.Y.Z.a ; seuls les trois premiers comptent dans VersionNewer (« 5.11.1.3 » → [5 11 1 3]).
+func verParts(v string) [4]int {
+	var out [4]int
+	for i, p := range strings.SplitN(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".", 4) {
 		n, _ := strconv.Atoi(strings.TrimFunc(p, func(r rune) bool { return r < '0' || r > '9' }))
 		out[i] = n
 	}
@@ -200,10 +201,13 @@ func CheckUpdatesNow(manual bool) UpdMsg {
 		}
 		if tag, sha, err := tplTag(); err == nil {
 			out.Ok = true
-			switch cached := ReadTrim(TplCommitPath()); {
+			cached, adopted := ReadTrim(TplCommitPath()), ReadTrim(TplVersionPath())
+			switch {
 			case sha == "" || sha == cached:
 			case cached == "":
 				adoptTemplate(tag, sha)
+			case adopted != "" && !VersionNewer(adopted, tag):
+				// jamais d'annonce d'une cible égale ou plus ancienne que la version adoptée (#199)
 			default:
 				out.TplTag, out.TplSha = tag, sha
 				out.TplReady = tplReleased(tag)
