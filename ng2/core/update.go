@@ -67,6 +67,12 @@ func cacheBase() string { return filepath.Dir(scriptPath()) }
 func TplCommitPath() string  { return filepath.Join(cacheBase(), ".template-commit") }
 func TplVersionPath() string { return filepath.Join(cacheBase(), ".template-version") }
 
+// LatestTemplateKnown : dernière version publiée du template connue du poste (résultat de la vérification
+// partagé, à défaut la version adoptée) ; "" si inconnue.
+func LatestTemplateKnown() string {
+	return ReadTrim(TplVersionPath())
+}
+
 func ReadTrim(path string) string {
 	b, err := os.ReadFile(path)
 	if err != nil {

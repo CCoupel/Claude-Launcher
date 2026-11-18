@@ -271,6 +271,23 @@ func TemplateTag(proj string) string {
 	return ""
 }
 
+// ProjectTemplateTag : version du template du projet (#199) — .template-source.json, à défaut template_version.tag
+// de .claude/project-config.json ; "" si inconnue.
+func ProjectTemplateTag(proj string) string {
+	if t := TemplateTag(proj); t != "" {
+		return t
+	}
+	var pc struct {
+		TV struct {
+			Tag string `json:"tag"`
+		} `json:"template_version"`
+	}
+	if b, err := os.ReadFile(filepath.Join(proj, ".claude", "project-config.json")); err == nil && json.Unmarshal(b, &pc) == nil {
+		return pc.TV.Tag
+	}
+	return ""
+}
+
 // Template : état de TEMPLATE_claude vs dernier commit connu du template.
 type TemplateState int
 

@@ -23,6 +23,7 @@ func TestTplInfoApply(t *testing.T) {
 	write(filepath.Join(proj, ".claude", "agents", "generic.redacteur.md"), "spec")
 	write(filepath.Join(proj, ".claude", "agents", "qa.md"), "") // vide : pas de compagnon
 	write(TplVersionPath(), "v5.9.2\n")
+	write(filepath.Join(proj, ".claude", ".template-source.json"), `{"tag":"v5.9.2","commit":"c"}`)
 
 	lines := []TeamLine{{Name: "leader", Tag: "v5.9.2"}, {Name: "dev-backend", Tag: "v5.9.2"}, {Name: "qa", Tag: "v5.8.0"},
 		{Name: "redacteur", Tag: "v5.9.2"}, {Name: "inconnu"}}
@@ -37,7 +38,8 @@ func TestTplInfoApply(t *testing.T) {
 	}
 
 	// cible inconnue (launcher hors ligne) : neutre, sans cible
-	_ = os.Remove(TplVersionPath())
+	_ = os.Remove(filepath.Join(proj, ".claude", ".template-source.json"))
+	ForgetTplInfo(proj)
 	for _, l := range ReadTplInfo(proj).Apply([]TeamLine{{Name: "qa", Tag: "v5.8.0"}}) {
 		if l.TplState != TplLineNone || l.TplTarget != "" {
 			t.Errorf("cible inconnue : %+v", l)
@@ -69,6 +71,7 @@ func TestTeamLinesRegistryNames(t *testing.T) {
 		}
 	}
 	write(TplVersionPath(), "v5.9.2")
+	write(filepath.Join(proj, ".claude", ".template-source.json"), `{"tag":"v5.9.2","commit":"c"}`)
 	write(filepath.Join(proj, ".claude", "project-config.json"), `{"agents":{"registry":[
 		{"name":"teamleader","tag":"v5.9.2"},{"name":"deploy","tag":"v5.8.0"},
 		{"name":"implementation-planner","tag":"v5.9.2"},{"name":"marketing-release","tag":"v5.9.2"},{"name":"qa","tag":"v5.9.2"}]}}`)

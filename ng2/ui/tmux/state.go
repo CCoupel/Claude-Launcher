@@ -466,6 +466,9 @@ func (m stateModel) teamTitle() string {
 	_, head := core.ApplyTeamHead(append([]core.TeamLine(nil), m.panes.lines...), m.panes.tpl)
 	if head.Tpl != "" {
 		t += " · TPL " + head.Tpl
+		if head.TplNewer != "" { // ⚠ : une version plus récente du template est publiée (#199)
+			t += " ⚠"
+		}
 	}
 	if head.Claude != "" {
 		t += " · CLAUDE " + head.Claude

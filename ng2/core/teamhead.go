@@ -8,9 +8,11 @@ import "cmp"
 
 // TeamHead : ce que montre le titre de la carte TEAM.
 type TeamHead struct {
-	Tpl    string `json:"tpl"`    // version cible du template du projet ; "" si inconnue
-	Claude string `json:"claude"` // version de claude du leader ; "" si le projet est fermé
-	Odd    int    `json:"odd"`    // nombre de teammates non conformes
+	Tpl string `json:"tpl"` // version du template du projet (#199) ; "" si inconnue
+	// TplNewer : dernière version publiée connue, si strictement plus récente que Tpl ; "" sinon (⚠ après « tpl vX »)
+	TplNewer string `json:"tplNewer"`
+	Claude   string `json:"claude"` // version de claude du leader ; "" si le projet est fermé
+	Odd      int    `json:"odd"`    // nombre de teammates non conformes
 	// HideIdle : état du masquage des teammates inactifs (#188) : commutateur effectif et délai conservé ; renseigné par
 	// l'appelant (la configuration n'est pas connue d'ApplyTeamHead)
 	HideIdle HideIdleInfo `json:"hideIdle"`
@@ -32,6 +34,9 @@ func ApplyTeamHead(lines []TeamLine, tplTarget string) ([]TeamLine, TeamHead) {
 		if l.Name == "leader" && l.Started && h.Claude == "" {
 			h.Claude = l.Claude
 		}
+	}
+	if latest := LatestTemplateKnown(); h.Tpl != "" && latest != "" && VersionNewer(h.Tpl, latest) {
+		h.TplNewer = latest
 	}
 	for i := range lines {
 		l := &lines[i]
