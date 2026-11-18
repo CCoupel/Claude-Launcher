@@ -449,7 +449,9 @@ function renderCards() {
     const k = el('div', 'card' + (closed ? ' closed' : ''));
     const h = el('div', 'ch');
     h.append(el('span', 'fold' + (closed ? '' : ' open'), '›'), el('span', '', title));
-    if (sub) h.append(el('span', 'dim', ' · ' + sub));
+    if (Array.isArray(sub)) { // parties { t, warn } : ⚠ orange après la partie, détail en infobulle (#199)
+      sub.forEach((p) => { h.append(el('span', 'dim', ' · ' + p.t)); if (p.warn) { const w = el('span', 't-orange', ' ⚠'); w.title = p.warn; h.append(w); } });
+    } else if (sub) h.append(el('span', 'dim', ' · ' + sub));
     if (chip) { const p = el('span', 'hidechip', chip); p.title = 'les teammates inactifs sont cachés après ce délai (Réglages › Launcher › teams)'; h.append(p); }
     h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
     k.append(h);
@@ -549,7 +551,9 @@ function renderCards() {
   // titre « Team · N · tpl vX · claude Y » (#151) : versions de l'en-tête (teamHead), omises si inconnues
   const th = c.teamHead || {};
   const vt = (s) => (/^v/.test(s) ? s : 'v' + s);
-  const sub = c.team && c.team.length ? [String(c.team.length)].concat(th.tpl ? ['tpl ' + vt(th.tpl)] : [], th.claude ? ['claude ' + th.claude] : []).join(' · ') : '';
+  const sub = c.team && c.team.length ? [{ t: String(c.team.length) }].concat(
+    th.tpl ? [{ t: 'tpl ' + vt(th.tpl), warn: th.tplNewer ? 'template du projet ' + vt(th.tpl) + ' — ' + vt(th.tplNewer) + ' disponible (/init-project au lancement)' : '' }] : [],
+    th.claude ? [{ t: 'claude ' + th.claude }] : []) : '';
   // puce « masquage N s » (#188) : seulement quand le masquage automatique est actif (activé et délai > 0) ; aucune puce sinon
   const hi = th.hideIdle;
   card('Team', sub, tb, hi && hi.enabled && hi.delay > 0 ? 'masquage ' + hi.delay + ' s' : '');
