@@ -454,6 +454,13 @@ func (w *webBridge) handler() http.Handler {
 		if !send(": ok\n\n") {
 			return
 		}
+		// évènement d'accueil (#198) : version et démarrage du serveur dès l'ouverture du flux, pour que le client
+		// détecte une mise à jour ou un redémarrage même si son `init` a échoué pendant que le serveur démarrait
+		if hello, err := json.Marshal(map[string]any{"name": "hello", "data": map[string]any{"server": serverInfo()}}); err == nil {
+			if !send("data: %s\n\n", hello) {
+				return
+			}
+		}
 		ping := time.NewTicker(20 * time.Second)
 		defer ping.Stop()
 		check := time.NewTicker(checkEvery())

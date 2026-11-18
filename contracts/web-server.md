@@ -34,6 +34,11 @@
 ## Version du serveur **[NEW]** (#198)
 
 - `init` et l'instantané portent `server = { "version": "v6.4.0", "boot": "<aléatoire par démarrage>" }`.
+- **Évènement d'accueil du flux SSE** : dès l'ouverture de `/api/events` (après `: ok`), avant tout autre évènement, le
+  serveur envoie `data: {"name":"hello","data":{"server":{"version":"…","boot":"…"}}}`. Le client le traite comme un
+  `server` reçu : si son `init` a échoué pendant le redémarrage (502/503 de l'ingress), il compare quand même version et
+  boot au premier `init` de la page (bandeau « Serveur mis à jour » ou « Serveur redémarré ») et rejoue `init`. Un
+  client qui ne connaît pas `hello` l'ignore.
 - Client web : il garde le `server` du premier `init` de la page. Après une reconnexion du flux :
   - `version` différente → bandeau « Serveur mis à jour (vX) — Recharger » (rechargement de la page) ;
   - même `version`, `boot` différent → bandeau « Serveur redémarré — reconnexion des terminaux… », terminaux
