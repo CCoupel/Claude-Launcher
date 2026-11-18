@@ -1661,47 +1661,11 @@ Le schéma ci-dessous montre les zones de confiance : le poste et le LAN, le clu
 Les flèches qui franchissent une frontière portent ce qui les protège. Le launcher du cluster ne remplace pas les
 versions natives : le hub Linux et l'exe Windows peuvent tourner **en même temps** sur la même racine partagée.
 
-<!-- Schéma : maquette B (zones de confiance), SVG inline, texte sélectionnable -->
-<div>
+<p align="center">
+  <img src="docs/k8s-zones.svg" width="100%" alt="Zones de confiance : poste et LAN, cluster RKE2, hors cluster. Le hub Linux et l'exe Windows fonctionnent en même temps que le launcher du cluster, sur la même racine partagée.">
+</p>
 
-<svg viewBox="0 0 1160 560" width="1160" height="560" role="img" aria-label="Zones de confiance : poste et LAN, cluster, hors cluster" font-family="sans-serif">
-  <defs><marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#1B1F27"/></marker></defs>
-    <rect fill="#FFFFFF" stroke="#C9CED6" stroke-width="1.2" x="10" y="10" width="230" height="540" rx="10"/><text fill="#1B1F27" font-size="12" font-weight="600" x="24" y="34">Poste et LAN</text><text fill="#5B6372" font-size="10.5" x="24" y="50">192.168.1.0/24</text>
-    <rect fill="#FFFFFF" stroke="#C9CED6" stroke-width="1.2" x="24" y="64" width="202" height="112" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="86">Navigateur</text><text fill="#5B6372" font-size="10.5" x="36" y="104">interface web du cluster</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="122">https://launcher.local</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="140">/files/&lt;projet&gt;/…</text><text fill="#5B6372" font-size="10.5" x="36" y="160">extension claude : maquettes</text>
-    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="24" y="190" width="202" height="122" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="212">Hub Linux</text><text fill="#5B6372" font-size="10.5" x="36" y="230">coque tmux (terminal)</text><text fill="#5B6372" font-size="10.5" x="36" y="246">interface web : mode jeton (option)</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="264">maquettes 127.0.0.1:8765 (défaut Linux)</text><text fill="#1E8E4E" font-size="10.5" font-weight="600" x="36" y="284">même racine partagée</text><text fill="#5B6372" font-size="10.5" x="36" y="300">backends : podman, ssh, k8s…</text>
-    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="24" y="326" width="202" height="122" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="348">Exe Windows</text><text fill="#5B6372" font-size="10.5" x="36" y="366">fenêtre native (Wails)</text><text fill="#5B6372" font-size="10.5" x="36" y="382">interface web : mode jeton (option)</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="36" y="400">maquettes 127.0.0.1:8766</text><text fill="#5B6372" font-size="10.5" x="36" y="414">(défaut Windows, réglable)</text><text fill="#1E8E4E" font-size="10.5" font-weight="600" x="36" y="434">même racine partagée</text>
-    <rect fill="#E9F7EF" stroke="#1E8E4E" stroke-width="1.4" x="24" y="462" width="202" height="76" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="36" y="482">En même temps</text><text fill="#5B6372" font-size="10.5" x="36" y="500">un seul launcher pilote un</text><text fill="#5B6372" font-size="10.5" x="36" y="514">projet à la fois (témoin de</text><text fill="#5B6372" font-size="10.5" x="36" y="528">présence) ; prise de main</text>
-    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="270" y="10" width="610" height="540" rx="10"/><text fill="#1B1F27" font-size="12" font-weight="600" x="284" y="34">Cluster RKE2</text>
-    <rect fill="#F3F6FC" stroke="#1F4FD1" stroke-width="1" stroke-dasharray="5 3" x="284" y="56" width="170" height="200" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="296" y="78">ns traefik</text><text fill="#5B6372" font-size="10.5" x="296" y="98">Traefik (DaemonSet)</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="296" y="116">LB 192.168.1.150</text><text fill="#5B6372" font-size="10.5" x="296" y="138">Ingress interne :</text><text fill="#5B6372" font-size="10.5" x="296" y="154">ipAllowList LAN</text><text fill="#5B6372" font-size="10.5" x="296" y="170">TLS CA interne</text><text fill="#5B6372" font-size="10.5" x="296" y="186">(cert-manager)</text>
-    <rect fill="none" stroke="#9AA1AC" stroke-width="1.4" stroke-dasharray="6 4" x="296" y="200" width="146" height="46" rx="6"/><text fill="#7A818C" font-size="11" font-style="italic" x="304" y="218">Ingress externe</text><text fill="#7A818C" font-size="11" font-style="italic" x="304" y="236">v7.0.0 · refusé</text>
-    <rect fill="#F3F6FC" stroke="#1F4FD1" stroke-width="1" stroke-dasharray="5 3" x="480" y="56" width="386" height="330" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="492" y="78">ns du launcher (claude-ng2 / claude-qualif)</text>
-    <rect fill="#E9F7EF" stroke="#1E8E4E" stroke-width="1.4" x="492" y="92" width="110" height="64" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="502" y="114">NetworkPolicy</text><text fill="#5B6372" font-size="10.5" x="502" y="132">pods Traefik seuls</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="502" y="148">port http</text>
-    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="620" y="92" width="234" height="150" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="632" y="114">Pod launcher</text><text fill="#5B6372" font-size="10.5" x="632" y="132">StatefulSet · 1 réplique</text><text fill="#5B6372" font-size="10.5" x="632" y="150">interface web (access: none)</text><text fill="#5B6372" font-size="10.5" x="632" y="168">ServiceAccount + Role</text><text fill="#1E8E4E" font-size="10.5" font-weight="600" x="632" y="192">arrêt ≤ 25 s (grâce 30 s)</text><text fill="#5B6372" font-size="10.5" x="632" y="210">clients ssh · docker · podman</text><text fill="#5B6372" font-size="10.5" x="632" y="228">kubectl</text>
-    <rect fill="#FFFFFF" stroke="#C9CED6" stroke-width="1.2" x="492" y="260" width="170" height="54" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="502" y="282">Racine partagée</text><text fill="#5B6372" font-size="10.5" x="502" y="300">PVC RWX · CL_ROOT_BASE</text>
-    <rect fill="#E9F7EF" stroke="#1E8E4E" stroke-width="1.4" x="676" y="260" width="178" height="54" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="686" y="282">Coffre (PVC RWO)</text><text fill="#5B6372" font-size="10.5" x="686" y="300">un dossier par backend</text>
-    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="492" y="326" width="362" height="50" rx="7"/><text fill="#1B1F27" font-size="12" font-weight="600" x="502" y="348">Pods des projets</text><text fill="#5B6372" font-size="10.5" x="630" y="348">un StatefulSet par projet · même racine</text>
-    <rect fill="#F3F6FC" stroke="#1F4FD1" stroke-width="1" stroke-dasharray="5 3" x="480" y="402" width="386" height="96" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="492" y="424">ns supplémentaires (rbac.extraNamespaces)</text><text fill="#5B6372" font-size="10.5" x="492" y="444">même Role, RoleBinding vers le ServiceAccount du launcher</text>
-    <rect fill="#EAF1FF" stroke="#1F4FD1" stroke-width="1.4" x="492" y="454" width="362" height="34" rx="6"/><text fill="#5B6372" font-size="10.5" x="502" y="476">pods des projets d'un autre namespace</text>
-    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="910" y="10" width="240" height="540" rx="10"/><text fill="#1B1F27" font-size="12" font-weight="600" x="924" y="34">Hors cluster</text>
-    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="924" y="56" width="212" height="90" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="936" y="78">Backends distants</text><text fill="#5B6372" font-size="10.5" x="936" y="96">ssh · podman · docker</text><text fill="#5B6372" font-size="10.5" font-family="monospace" x="936" y="114">192.168.1.211 :22 / :2375</text><text fill="#5B6372" font-size="10.5" x="936" y="132">clé + empreinte : coffre</text>
-    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="924" y="166" width="212" height="70" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="936" y="188">Autre cluster</text><text fill="#5B6372" font-size="10.5" x="936" y="206">kubeconfig du backend</text><text fill="#5B6372" font-size="10.5" x="936" y="222">(coffre ou Secret monté)</text>
-    <rect fill="#F4F1EA" stroke="#9A6B1F" stroke-width="1.2" x="924" y="256" width="212" height="56" rx="8"/><text fill="#1B1F27" font-size="12" font-weight="600" x="936" y="278">GitHub</text><text fill="#5B6372" font-size="10.5" x="936" y="296">vérification de version</text>
-    <rect fill="none" stroke="#9AA1AC" stroke-width="1.4" stroke-dasharray="6 4" x="924" y="332" width="212" height="70" rx="8"/><text fill="#7A818C" font-size="11" font-style="italic" x="936" y="354">Internet</text><text fill="#7A818C" font-size="11" font-style="italic" x="936" y="372">aucun accès en v6.4.0</text><text fill="#7A818C" font-size="11" font-style="italic" x="936" y="390">(externe : v7.0.0)</text>
-    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M226 120 H280" marker-end="url(#ar)"/><text fill="#5B6372" font-size="10.5" x="232" y="112">https</text>
-    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M454 124 H488" marker-end="url(#ar)"/><path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M602 124 H616" marker-end="url(#ar)"/>
-    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M780 242 V256" marker-end="url(#ar)"/><path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M640 242 V256" marker-end="url(#ar)"/>
-    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 212 H864 V351 H858" marker-end="url(#ar)"/><path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 230 H874 V471 H858" marker-end="url(#ar)"/>
-    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 110 H920" marker-end="url(#ar)"/><text fill="#5B6372" font-size="10.5" x="862" y="104">ssh / tcp</text>
-    <path fill="none" stroke="#1B1F27" stroke-width="1.3" d="M854 150 C890 150 890 200 920 200" marker-end="url(#ar)"/>
-    <path fill="none" stroke="#5B6372" stroke-width="1.2" stroke-dasharray="4 3" d="M854 225 C895 225 895 284 920 284" marker-end="url(#ar)"/>
-    <path fill="none"  stroke-width="1.3" d="M226 284 H466 V280 H488" marker-end="url(#ar)" stroke="#1E8E4E"/>
-    <path fill="none"  stroke-width="1.3" d="M226 420 H470 V300 H488" marker-end="url(#ar)" stroke="#1E8E4E"/>
-    <text fill="#1E8E4E" font-size="10.5" font-weight="600" x="300" y="278">même racine partagée (RWX)</text>
-    <text fill="#5B6372" font-size="10.5" x="290" y="446">prise de main : le témoin</text>
-    <text fill="#5B6372" font-size="10.5" x="290" y="460">de présence dit qui pilote</text>
-    </svg>
-
-</div>
+*Légende : bleu, launchers, cluster et pods ; vert, protection et arbitrage (NetworkPolicy, coffre, témoin de présence) ; ocre, hors cluster ; pointillé gris, v7.0.0 (préparé, refusé).*
 
 #### 1. Prérequis
 
@@ -1731,7 +1695,7 @@ ingress:
   controller: traefik                          # ou nginx
   className: traefik
   host: launcher.local
-  allowedSourceRanges: ["192.168.1.0/24"]      # seules adresses admises, non vide ; minimum /8 (IPv4), /16 (IPv6)
+  allowedSourceRanges: ["192.0.2.0/24"]      # seules adresses admises, non vide ; minimum /8 (IPv4), /16 (IPv6)
   tls:
     clusterIssuer: claude-launcher-ca          # ou secretName, un des deux
 web:
@@ -1795,7 +1759,7 @@ Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont cr
   par un canal sûr. Ne l'écrivez pas sur un partage.
 - **Fichiers des projets** : `https://launcher.local/files/<projet>/<chemin relatif>`. Les sessions du cluster utilisent
   `CL_WEB_URL/files` ; le chemin interne du pod n'apparaît jamais. Les fichiers sont servis avec une CSP `sandbox` (origine
-  opaque) et les fichiers sensibles sont exclus (voir §8).
+  opaque) et les fichiers sensibles sont exclus (voir §9).
 - La CA doit être installée sur le poste, sinon le navigateur refuse le certificat.
 
 #### 5. Vérifications obligatoires
@@ -1816,9 +1780,9 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
 5. Un en-tête `X-Forwarded-For` ne change rien : le contrôle porte sur l'adresse de la connexion. Depuis une adresse
    hors liste, contrôlez-le ainsi :
    ```bash
-   curl -sk -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 192.168.1.10' https://launcher.local/healthz   # → 403
+   curl -sk -o /dev/null -w '%{http_code}\n' -H 'X-Forwarded-For: 192.0.2.10' https://launcher.local/healthz   # → 403
    ```
-6. **NetworkPolicy** : un pod d'un autre namespace ne joint pas le launcher directement. Depuis un pod qui n'est pas Traefik :
+6. **NetworkPolicy** : un pod qui n'est pas Traefik ne joint pas le launcher, même dans le namespace du launcher. Depuis un pod de test :
    `kubectl -n claude-ng2 run np-test --rm -it --restart=Never --image=curlimages/curl -- curl -s -m 5 http://claude-launcher.claude-ng2.svc:8080/healthz`
    → échec (délai). Une entrée par l'Ingress reste admise.
 
@@ -1882,7 +1846,7 @@ Ces risques sont acceptés pour v6.4.0 et levés par la règle R1 de **v7.0.0** 
 - **`/files` lisible depuis le LAN** : les fichiers des projets sont servis, sauf les éléments sensibles (`PRIVATE`, `.git`,
   `.claude`, `.env*`, clés, identifiants d'outils comme `.git-credentials`, `.npmrc`, `.docker`, `*.p12`, `*.pfx`, `*.jks`),
   les dossiers d'état du launcher et `_work/tmp`. Dans `_work`, seul `_work/mockup` est servi. Les requêtes cross-site sont
-  refusées, sauf les sous-ressources de maquette.
+  refusées, sauf les sous-ressources de maquette et la navigation de premier niveau (ouverture d'une maquette par l'extension ou un lien), acceptée de toute provenance.
 - **Script cross-site d'une maquette** : une page tierce peut exécuter un fichier `.js` d'un projet servi sous `/files` et lire
   ses variables globales. Les scripts de maquette ne sont pas restreints en `connect-src` (CDN et API publiques).
 - **`web.access: token`** : le jeton reste dans `<cache>/desktop-web-token`, sur le volume partagé de la racine : tout pod qui
