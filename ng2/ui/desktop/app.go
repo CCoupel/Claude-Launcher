@@ -684,7 +684,8 @@ type Snapshot struct {
 	Tabs     []TabInfo  `json:"tabs"`
 	Roots    []string   `json:"roots"`
 	OS       string     `json:"os"`
-	WebUI    WebUIState `json:"webUI"` // interface web servie par la fenêtre (#163) ; jamais le jeton
+	WebUI    WebUIState `json:"webUI"`  // interface web servie par la fenêtre (#163) ; jamais le jeton
+	Server   ServerInfo `json:"server"` // version et démarrage du serveur (#198)
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -720,7 +721,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.NgVersion, Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI()}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -810,7 +811,11 @@ func (a *App) alerts() []Alert {
 		tag := u.newLauncher
 		switch {
 		case core.UpdateNotifyOnly():
-			al.Text, al.Notify = "↑ NG "+tag+" disponible · mise à jour par l'image", true
+			how := "mise à jour par l'image"
+			if core.InCluster() {
+				how = "mise à jour par helm upgrade"
+			}
+			al.Text, al.Notify = "↑ NG "+tag+" disponible · "+how, true
 		case u.updating:
 			al.Text, al.Color = "↑ NG "+tag+" : installation…", "green"
 		case u.launcherOK:
@@ -1152,7 +1157,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		a.mu.Lock()
 		sel := a.sel
 		a.mu.Unlock()
-		return map[string]any{"state": a.Snapshot(), "cards": a.selectCards(sel), "help": helpData(), "prefs": loadPrefs()}, nil
+		return map[string]any{"state": a.Snapshot(), "cards": a.selectCards(sel), "help": helpData(), "prefs": loadPrefs(), "server": serverInfo()}, nil
 	case "setPrefs": // préférences d'affichage (#123, #124) : objet fusionné
 		var patch map[string]any
 		if err := json.Unmarshal(raw, &patch); err != nil {
