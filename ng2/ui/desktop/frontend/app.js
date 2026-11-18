@@ -222,7 +222,8 @@ function renderHead() {
     const t = el('span', 'txt', a.text); t.title = a.text;
     if (a.click) t.onclick = () => (a.kind === 'hubcfg' ? diagBox() : call('alert', { kind: a.kind }));
     const x = el('span', 'x', '✕'); x.title = 'masquer (Ctrl+U)'; x.onclick = () => call('dismiss', { kind: a.kind });
-    d.append(t, x); al.appendChild(d);
+    if (a.kind === 'github') d.append(t); else d.append(t, x); // alerte GitHub (quota / injoignable) : non masquable (#199)
+    al.appendChild(d);
   }
   const u = $('usage'); u.textContent = '';
   if (!s.usage || !s.usage.length) {
