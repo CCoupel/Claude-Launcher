@@ -455,7 +455,7 @@ function stSshFill(b, box) {
     try { S2.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { /* conservé */ }
     if (ST.ssh === S2) redo();
   };
-  const when = (t) => (t ? ' · modifié le ' + new Date(t).toLocaleString('fr-FR') : '');
+  const when = (t) => (t ? ' · modifié le ' + new Date(t).toLocaleString('fr-FR') + ' (source non vérifiée : adresse transmise par l\'ingress, X-Forwarded-For)' : '');
   if (S2.loading) bb.appendChild(el('div', 'dim', 'lecture du coffre…'));
   else if (i.hasKey && !S2.edit) {
     const l = el('div'); l.append(el('span', 't-green', 'enregistrée'), el('span', 'm', '  ' + (i.fingerprint || '')), el('span', 'dim', '  (clé privée jamais affichée)' + when(i.keyModified)));
@@ -492,7 +492,7 @@ function stSshFill(b, box) {
   const kh = i.knownHosts || [];
   const hl = el('div');
   hl.append(el('span', '', 'Hôte ' + (host ? host.replace(/^.*@/, '') : '(aucun)') + ' : '));
-  if (kh.length) { hl.append(el('span', 't-green', 'empreinte connue')); for (const k of kh) hl.append(el('div', 'm', k.type + ' ' + k.fingerprint)); if (i.knownHostsModified) hl.append(el('div', 'dim', 'modifié le ' + new Date(i.knownHostsModified).toLocaleString('fr-FR'))); }
+  if (kh.length) { hl.append(el('span', 't-green', 'empreinte connue')); for (const k of kh) hl.append(el('div', 'm', k.type + ' ' + k.fingerprint)); if (i.knownHostsModified) hl.append(el('div', 'dim', 'modifié le ' + new Date(i.knownHostsModified).toLocaleString('fr-FR') + ' (source non vérifiée)')); }
   else hl.append(el('span', 't-orange', 'empreinte inconnue'));
   bb.appendChild(hl);
   const bar2 = el('div', 'stbar');
