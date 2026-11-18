@@ -371,7 +371,7 @@ ouvrir un par erreur.
 
 Un launcher de cluster (chart `claude-launcher`, interface web derrière l'Ingress interne) ne remplace pas le hub
 Linux ni l'exe Windows : il s'ajoute à la **même racine partagée**. Rien n'est perdu : les projets, leurs sessions tmux et
-leurs pods restent là où ils sont. Le guide d'installation est dans [`README.md`](README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
+leurs pods restent là où ils sont. Le guide d'installation est dans [`docs/kubernetes.md`](docs/kubernetes.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
 
 ### Ce qui reste, ce qui ne voyage pas
 

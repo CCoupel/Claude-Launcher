@@ -96,7 +96,7 @@ Un navigateur de projets à gauche, tmux à droite :
 | `F1` | aide : commandes et raccourcis |
 | `Esc` | effacer le filtre ; sinon quitter : `l` launcher seul (projets conservés), `t` puis `o` tout fermer |
 
-Détails, architecture et dépannage : [`ng2/README.md`](ng2/README.md).
+Guides détaillés (installation, configuration, Windows, cluster, interface, dépannage) : [`ng2/README.md`](ng2/README.md).
 
 ---
 
@@ -145,7 +145,7 @@ code (`core`).
 Docker Desktop, socket locale : refusés avec un message) ; pas de tmux sur le poste, le tmux de
 chaque projet tourne dans son conteneur ; les commandes utiles du préfixe `Ctrl+B` ont un
 équivalent ; détacher / rattacher la coque d'un autre terminal n'a pas d'objet. Tableau complet des
-raccourcis et fonctionnement : [`ng2/README.md` — Interface native](ng2/README.md#interface-native-desktop).
+raccourcis et fonctionnement : [`ng2/docs/windows.md` — Interface native](ng2/docs/windows.md#interface-native-desktop).
 
 Sous Linux, `claude-launcher-ng2 desktop` sert la même interface dans le navigateur ; la coque tmux
 reste le défaut.
@@ -185,7 +185,7 @@ l'Ingress hors du réseau interne.
 
 Le guide complet (schéma des zones de confiance, valeurs, vérifications de la liste d'adresses, mise à jour, retour arrière,
 cohabitation avec le hub et l'exe Windows, backends distants) est dans
-[`ng2/README.md`](ng2/README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne). Pour passer d'un hub à un
+[`ng2/docs/kubernetes.md`](ng2/docs/kubernetes.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne). Pour passer d'un hub à un
 launcher de cluster sans perte : [`ng2/MIGRATION.md`](ng2/MIGRATION.md#14-passer-dun-hub-à-un-launcher-de-cluster-ou-en-ajouter-un-à-côté).
 
 ---
@@ -303,7 +303,7 @@ hubs:
 - **Racine de base** (v6.3.0) : les chemins `…/CLAUDE_PROJETS` ci-dessus sont des exemples. Pour placer la
   configuration, la config de claude et les projets sous un autre dossier, lancer le launcher avec
   `--root-base <dossier>` (ou `CL_ROOT_BASE=<dossier>`). Le détail de la priorité et de ce qui est créé est dans
-  `ng2/README.md`, section « Config portable ».
+  `ng2/docs/installation.md`, section « Config portable ».
 
 **Avertissements**
 
@@ -322,7 +322,7 @@ hubs:
 correspondance des chemins, serveur web, réglages ignorés. L'exe se met à jour comme le hub Linux :
 l'annonce orange → jaune → verte prépare la nouvelle version, un clic l'installe (l'ancien exe est
 renommé en `.old`, supprimé au lancement suivant). Détails :
-[`ng2/README.md` — Windows](ng2/README.md#windows-v6).
+[`ng2/docs/windows.md` — Windows](ng2/docs/windows.md#windows-v6).
 
 ### Kubernetes (Helm)
 
@@ -424,12 +424,12 @@ defaults: { backend: podman, image: docker.io/library/debian:12 }
   lecture seule ou en prendre la main (l'ancien propriétaire passe alors en lecture seule, et reprend
   la main par Entrée sur le projet).
 
-Détails : [`ng2/README.md` — Projets en conteneur](ng2/README.md#projets-en-conteneur-v5).
+Détails : [`ng2/docs/configuration.md` — Projets en conteneur](ng2/docs/configuration.md#projets-en-conteneur-v5).
 
 ---
 
 Installation dans Kubernetes par Helm (accès interne, valeurs et vérifications) : voir le guide
-[Installer le launcher dans Kubernetes par Helm (accès interne)](ng2/README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
+[Installer le launcher dans Kubernetes par Helm (accès interne)](ng2/docs/kubernetes.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
 
 ## Mise en page des teams
 
@@ -544,7 +544,7 @@ vers `main`), `ci-branch.yml` (pré-validation des branches `milestone/*`, sans 
 `release.yml` (avant de construire les binaires d'un tag).
 
 La CI tient en moins de 60 s hors étape image (environ 56 s mesurées sur trois passes). Le détail par étape et la
-procédure de mesure sont dans `ng2/README.md`, section « Tests ».
+procédure de mesure sont dans `ng2/docs/tests.md`.
 
 Sous Linux, `scripts/ci.sh` contrôle aussi le chart Helm (`helm` requis) et construit l'image du launcher
 (`deploy/image/build.sh ci`, buildah requis, root ou `sudo` sans mot de passe pour la couche d'outils). Sur un poste de
