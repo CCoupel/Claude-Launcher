@@ -84,6 +84,18 @@ Wails ; il n'y a jamais d'erreur (`error` absent) : tout échec est `ok: false`,
     rouvre par `open` (qui, lui, crée ce qu'il faut).
 - Maquette : `_work/mockup/6.4.0/ui/web_client__maj_serveur.html` (versée dans `docs/mockup/` par le CDP) (bandeaux seuls).
 
+## Arrêt du launcher et ouverture d'un projet **[NEW]** (#198)
+
+- À l'arrêt (SIGTERM, pod supprimé ou `helm upgrade`), le launcher **attend la fin des ouvertures de projet en cours**
+  (bootstrap du conteneur, création de la session) au plus 20 s (`terminationGracePeriodSeconds` du pod : 30 s), puis
+  détache les terminaux. Les sessions tmux continuent dans leurs conteneurs.
+- Le **bootstrap d'un conteneur est détaché du launcher** : un seul `exec` écrit le script dans `/var/lib/cl/run.sh`, le
+  lance sous `setsid nohup` (journal `boot.log`, pid `boot.pid`, code `boot.rc`) et ne fait que suivre le journal. Il va
+  au bout même si le launcher meurt ; un bootstrap déjà en cours est suivi, jamais relancé.
+- Un conteneur **resté à moitié installé** (pas de marqueur `/var/lib/cl/bootstrap`, aucun bootstrap en cours) est réparé
+  au démarrage du launcher (rattachement, sans ouvrir de session) ou à la prochaine ouverture (bootstrap idempotent).
+- Aucun changement d'API.
+
 ## Piste v7.0.0 — authentification de l'ingress externe (#172, hors v6.4.0)
 
 Étudiée au GATE 2 rev1 (plan `_work/reports/plan-20261117-163459.md`, « Comparaison des options »), **option A

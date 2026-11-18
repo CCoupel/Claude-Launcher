@@ -44,13 +44,74 @@ func bootstrapVars(proj string, env EnvSpec) string {
 	return b.String()
 }
 
-// Bootstrap : script exécuté en root dans le conteneur (idempotent, cf. bootstrap.sh).
+// bootDir : dossier de l'état du bootstrap dans le conteneur (script, journal, pid, code de sortie, marqueur) ;
+// remplacé dans les tests.
+var bootDir = "/var/lib/cl"
+
+// bootstrapStarter : commande sh -c exécutée en root, UN seul exec (le script de bootstrap arrive par stdin).
+// Le bootstrap lui-même tourne DÉTACHÉ du launcher (setsid + nohup, sortie dans boot.log, code dans boot.rc) : il va
+// jusqu'au bout même si le launcher meurt (SIGTERM, coupure du kubectl exec) — sinon une installation interrompue
+// laissait un pod sans utilisateur ni tmux (#198). Le launcher ne fait que suivre le journal. Un bootstrap déjà en cours
+// (lancé par un launcher disparu, ou par un autre appel) n'est pas relancé : on le suit.
+func bootstrapStarter(dir string) string {
+	d := Shq(dir)
+	return `umask 077; d=` + d + `
+mkdir -p "$d" || exit 1
+if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ] && kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null; then
+  cat >/dev/null
+  echo "  bootstrap déjà en cours dans le conteneur : suivi"
+else
+  cat > "$d/run.sh.new" && mv "$d/run.sh.new" "$d/run.sh" || exit 1
+  rm -f "$d/boot.rc" "$d/boot.pid"; : > "$d/boot.log"
+  S=''; command -v setsid >/dev/null 2>&1 && S=setsid
+  $S nohup sh -c 'echo $$ > "$1/boot.pid"; sh "$1/run.sh" > "$1/boot.log" 2>&1; echo $? > "$1/boot.rc.new"; mv "$1/boot.rc.new" "$1/boot.rc"' sh "$d" >/dev/null 2>&1 </dev/null &
+fi
+tail -n +1 -f "$d/boot.log" 2>/dev/null &
+T=$!
+n=0
+while [ ! -f "$d/boot.rc" ]; do
+  if [ -f "$d/boot.pid" ] && ! kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && [ ! -f "$d/boot.rc" ]; then
+    sleep 0.3 2>/dev/null || sleep 1
+    [ -f "$d/boot.rc" ] && break
+    kill $T 2>/dev/null; echo "bootstrap interrompu dans le conteneur (reprise à la prochaine ouverture)" >&2; exit 1
+  fi
+  n=$((n+1)); [ $n -gt 20 ] && [ ! -f "$d/boot.pid" ] && { kill $T 2>/dev/null; echo "bootstrap non démarré" >&2; exit 1; }
+  sleep 0.2 2>/dev/null || sleep 1
+done
+sleep 0.3 2>/dev/null || sleep 1
+kill $T 2>/dev/null
+exit "$(cat "$d/boot.rc")"
+`
+}
+
+// Bootstrap : script exécuté en root dans le conteneur (idempotent, cf. bootstrap.sh), détaché du launcher.
 func (e Engine) Bootstrap(name, proj string, env EnvSpec, log io.Writer) error {
 	script := bootstrapVars(proj, env) + bootstrapScript
-	if err := e.Exec(name, true, strings.NewReader(script), log, "sh", "-s"); err != nil {
+	if err := e.Exec(name, true, strings.NewReader(script), log, "sh", "-c", bootstrapStarter(bootDir)); err != nil {
 		return fmt.Errorf("bootstrap : %w", err)
 	}
 	return nil
+}
+
+// BootstrapIncomplete : le conteneur tourne mais son installation n'a jamais abouti (pas de marqueur de bootstrap :
+// pod sans utilisateur ni tmux après un launcher coupé en pleine ouverture), et aucun bootstrap n'est en cours. Faux en
+// cas de doute (conteneur injoignable).
+func (e Engine) BootstrapIncomplete(name string) bool {
+	d := Shq(bootDir)
+	probe := `d=` + d + `; [ -s "$d/bootstrap" ] && exit 1
+if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ] && kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null; then exit 1; fi
+exit 0`
+	return e.Exec(name, true, nil, io.Discard, "sh", "-c", probe) == nil
+}
+
+// RepairBootstrap : termine l'installation d'un conteneur resté à moitié installé (reprise au démarrage du launcher
+// ou à l'ouverture suivante) ; sans ouvrir de session.
+func (e Engine) RepairBootstrap(name, proj string) error {
+	env, err := LoadEnvFull(proj)
+	if err != nil {
+		return err
+	}
+	return e.Bootstrap(name, proj, env, io.Discard)
 }
 
 // OnStart : étapes on_start de env.yaml, en utilisateur dans le projet, à chaque

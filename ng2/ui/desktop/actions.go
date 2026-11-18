@@ -140,7 +140,15 @@ func (a *App) reattach() {
 		}
 		for _, f := range fs {
 			n, ok := byPath[f.Project]
-			if !ok || !f.Running || a.term(n.Path) != nil || core.ProjectBackend(f.Project).Name != b.Name || !e.Of(f).HasSession(f.Name) {
+			if !ok || !f.Running || a.term(n.Path) != nil || core.ProjectBackend(f.Project).Name != b.Name {
+				continue
+			}
+			if !e.Of(f).HasSession(f.Name) {
+				// conteneur en marche mais installé à moitié (launcher coupé pendant l'ouverture, #198) : l'installation est
+				// terminée en tâche de fond, sans ouvrir de session (la prochaine ouverture ira vite)
+				if ef := e.Of(f); ef.BootstrapIncomplete(f.Name) {
+					go func(ef core.Engine, name, proj string) { _ = ef.RepairBootstrap(name, proj) }(ef, f.Name, f.Project)
+				}
 				continue
 			}
 			// seulement les sessions de ce launcher (#48) : pas celles d'une autre machine

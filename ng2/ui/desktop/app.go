@@ -29,9 +29,10 @@ type Emitter func(name string, data any)
 
 // App : état du launcher vu par l'interface.
 type App struct {
-	cfg    core.Config
-	confMu sync.RWMutex // cfg relue à chaud (config.go)
-	confAt time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
+	opening sync.WaitGroup // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
+	cfg     core.Config
+	confMu  sync.RWMutex // cfg relue à chaud (config.go)
+	confAt  time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
 	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
@@ -284,6 +285,7 @@ func (a *App) Stop() {
 		close(a.quit)
 	}
 	a.stopWebUI()
+	a.waitOpenings(shutdownOpenWait) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
 	for _, t := range a.terms {
@@ -300,6 +302,24 @@ func (a *App) Stop() {
 		// gestionnaire d'état : son watcher fsnotify (instance inotify du quota de l'utilisateur) est fermé tout de suite ;
 		// l'attente d'un calcul en cours se fait à côté, sans retarder l'arrêt de l'interface
 		go a.mgr.Stop()
+	}
+}
+
+// shutdownOpenWait : au plus combien de temps l'arrêt attend les ouvertures de projet en cours (le délai de grâce
+// du pod est de 30 s par défaut : de la marge pour détacher les terminaux et quitter). Remplacé dans les tests.
+var shutdownOpenWait = 20 * time.Second
+
+// waitOpenings : attend la fin des ouvertures de projet en cours (bootstrap, création de la session), au plus max.
+// Passé le délai, l'arrêt continue : les terminaux sont détachés, et le bootstrap — détaché du launcher dans le
+// conteneur — se termine sans lui ; la prochaine ouverture ou le rattachement répare ce qui manque.
+func (a *App) waitOpenings(max time.Duration) bool {
+	done := make(chan struct{})
+	go func() { a.opening.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(max):
+		return false
 	}
 }
 
