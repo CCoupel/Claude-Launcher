@@ -466,7 +466,7 @@ function stKubeFill(b, box) {
   const bb = el('div', 'bb');
   const redo = () => stKubeFill(b, box);
   const act = async (fn) => {
-    if (K.busy) return; K.busy = true; K.err = ''; K.msg = ''; redo();
+    if (K.busy) return; K.busy = true; K.err = ''; K.msg = ''; K.warns = []; redo();
     try { await fn(); } catch (e) { K.err = e.message; }
     K.busy = false;
     try { K.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { /* conservé */ }
@@ -499,13 +499,14 @@ function stKubeFill(b, box) {
       bar.append(stBtn('Enregistrer', () => act(async () => {
         const r = await call('backendSecretSet', { backend: b.name, kubeconfig: ta.value });
         ta.value = ''; file.value = '';
-        if (r.ok) { K.edit = false; b.kubeconfig = true; K.msg = 'kubeconfig enregistré ' + (r.fingerprint || '') + ' — enregistrer la fiche pour l\'activer'; } else K.err = r.msg || 'dépôt refusé';
+        if (r.ok) { K.warns = r.warnings || []; K.edit = false; b.kubeconfig = true; K.msg = 'kubeconfig enregistré ' + (r.fingerprint || '') + ' — enregistrer la fiche pour l\'activer'; } else K.err = r.msg || 'dépôt refusé';
       }), 'pri'), stBtn('Annuler', () => { K.edit = false; redo(); }));
       bb.appendChild(bar);
     }
   }
   if (K.busy) bb.appendChild(el('div', 'dim', 'en cours…'));
   if (K.msg) bb.appendChild(el('div', 't-green', K.msg));
+  for (const w of K.warns || []) bb.appendChild(el('div', 't-orange', '⚠ ' + w));
   if (K.err) bb.appendChild(el('div', 't-red', '⚠ ' + K.err));
   box.append(h, bb);
 }
