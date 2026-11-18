@@ -228,6 +228,10 @@ func TestChartObjectsAndNoClusterWideRights(t *testing.T) {
 			t.Errorf("objet %s créé (refusé par le contrat)", k)
 		}
 	}
+	// NetworkPolicy activée par défaut (#200) : une seule, celle du pod (contrôle détaillé : chart_networkpolicy200_test.go)
+	if n := len(o["NetworkPolicy"]); n != 1 {
+		t.Errorf("%d NetworkPolicy rendues, attendu 1 (activée par défaut, #200)", n)
+	}
 	// aucun PVC pour les projets sans volume.create ; seul le coffre des secrets (#194) est créé
 	if n := len(projectPVCs(o)); n != 0 {
 		t.Errorf("%d PVC de projets créé(s) sans volume.create (refusé par le contrat)", n)

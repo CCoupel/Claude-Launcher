@@ -47,3 +47,8 @@
 | ng2/ui/desktop/server198_test.go | unitaire | ui-desktop | server{version,boot} dans init et instantane, boot stable/different, logique client node (#198) | feature | |
 | tests/procedures/ui-web/onglets-189-191/ | procedure | ui-web | Onglets : couleur hors selection, titre et largeur stables, ordre par glisser-deposer (#189, #190, #191) | feature | |
 | ng2/ui/desktop/tabs189_test.go | unitaire | ui-desktop | Simulation node des onglets : tabView, tabOrder, tabMove, cl.tabOrder, Ctrl+Tab, machine du glisser (#189-#191) | feature | |
+| tests/procedures/ui-web/fichiers-174/ | procedure | ui-web | /files : maquette dans Chrome par l adresse interne, rien hors racine, hub inchange (#174) | feature | |
+| tests/procedures/ci/networkpolicy-200/ | procedure | chart | NetworkPolicy par defaut, pod tiers refuse, Internet 403, ingress externe refuse (#200) | feature | slow |
+| ng2/ui/desktop/files174_test.go | integration | ui-desktop | Route /files : racines, .., liens, CSP sandbox, Host/Sec-Fetch-Site, modes token et none, appariement (#174) | feature | |
+| ng2/core/browserfiles174_test.go | unitaire | core | CL_BROWSER_PATH_MAP/HINT en cluster vers CL_WEB_URL/files, hub inchange (#174) | feature | |
+| ng2/chart_networkpolicy200_test.go | integration | chart | NetworkPolicy par defaut/desactivable/namespaces, ingress externe refuse, delai d arret (#200) | feature | |
