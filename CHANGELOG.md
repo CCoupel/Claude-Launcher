@@ -9,6 +9,22 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.4.0] — en cours
+
+### Added
+- Carte TEAM : le titre affiche la version du template du projet (« tpl vX ») et un `⚠` orange si une version publiée plus récente existe ; l'infobulle indique la version disponible et `/init-project` au lancement (#199)
+- Vérification GitHub de la version du template : appels authentifiés quand un jeton est disponible (`GH_TOKEN`, `GITHUB_TOKEN`, ou `config.conf`), jamais journalisé ; requêtes conditionnelles par ETag (`304` réutilise la réponse mémorisée) ; résultat partagé par poste dans `update-check.json` (écriture atomique, réutilisé pendant 10 min) (#199)
+- Alerte GitHub visible en continu, orange et non masquable : « vérification GitHub impossible (quota, reprise HH:MM) » sur quota dépassé (`403`/`429`), « GitHub injoignable » sur un autre échec, y compris en coque tmux (#199)
+
+### Changed
+- La version du template est comparée dans l'ordre (`VersionNewer`) ; l'état « à mettre à jour » ne vaut que si la version adoptée est strictement plus récente que celle du projet (#199)
+- La question au lancement ne propose plus de retour en arrière : une cible égale ou plus ancienne que la version du projet n'est jamais proposée (#199)
+- La carte TEAM affiche la version du projet (et non plus la version adoptée) ; la version adoptée ne change qu'au clic sur l'annonce (#199)
+
+### Fixed
+- Comparaisons de versions du template corrigées : seuls les 3 premiers champs `X.Y.Z` sont comparés (`5.11.1.3` → `5.11.1`) (#199)
+- Les tests n'écrivent plus dans le vrai `~` : `CL_SCRIPT` pointe vers un dossier temporaire, et une garde fait échouer les tests si `~/.template-*` est touché (#199)
+
 ## [6.3.0] — 2026-11-17
 
 ### Added
