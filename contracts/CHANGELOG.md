@@ -2,6 +2,10 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261118] — v6.4.0 : appel `reattach` (#198)
+
+- **[NEW]** `reattach {path}` → `{ok, tab}` : rattache l'onglet à une session tmux survivante après un redémarrage du serveur, sans rien créer ; `ok: false` sans erreur quand la session manque, appartient à un autre launcher, ou que l'onglet est en lecture seule ou en erreur — `contracts/web-server.md` « Appel reattach » (commit 3c0b868)
+
 ## [20261117] — v6.4.0 (plan, rev2 GATE 2) : fichiers et version du serveur, backends distants, coffre, NetworkPolicy, version du template
 
 - **Retiré (rev2)** : toute authentification de v6.4.0 (#172 déplacée en v7.0.0) : oauth2-proxy, `forwardAuth`, `CL_WEB_AUTH_*`, identité transmise, adresses publiques multiples. `contracts/web-auth.md` renommé `contracts/web-server.md` ; la piste v7.0.0 y est notée.
