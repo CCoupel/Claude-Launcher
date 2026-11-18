@@ -200,6 +200,17 @@ func TestTeamHeadTplNewer199(t *testing.T) {
 	}
 }
 
+// La dernière publiée connue vient du résultat partagé (update-check.json), pas seulement de la version adoptée.
+func TestTeamHeadTplNewerPartage199(t *testing.T) {
+	isolate199(t)
+	adopte199(t, "v5.11.0", "aaa")
+	w199(t, filepath.Join(CacheDir(), "update-check.json"), `{"template":{"tag":"v5.11.1","sha":"bbb","released":true}}`)
+	_, h := ApplyTeamHead([]TeamLine{{Name: "leader", Tag: "v5.11.0"}}, "v5.11.0")
+	if h.TplNewer != "v5.11.1" {
+		t.Errorf("projet 5.11.0, adoptée 5.11.0, partagé 5.11.1 : tplNewer = %q", h.TplNewer)
+	}
+}
+
 func TestTeamHeadTplNewerChamp199(t *testing.T) {
 	f, ok := reflect.TypeOf(TeamHead{}).FieldByName("TplNewer")
 	if !ok {

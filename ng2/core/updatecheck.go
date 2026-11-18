@@ -54,11 +54,13 @@ func writeUpdateCheck(c updCheck) {
 	if err != nil {
 		return
 	}
-	tmp := updateCheckPath() + "." + strconv.Itoa(os.Getpid()) + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) != nil {
+	f, err := os.CreateTemp(filepath.Dir(updateCheckPath()), "update-check-*.tmp") // unique : instances concurrentes
+	if err != nil {
 		return
 	}
-	if os.Rename(tmp, updateCheckPath()) != nil {
+	tmp := f.Name()
+	_, werr := f.Write(b)
+	if cerr := f.Close(); werr != nil || cerr != nil || os.Chmod(tmp, 0o644) != nil || os.Rename(tmp, updateCheckPath()) != nil {
 		_ = os.Remove(tmp)
 	}
 }

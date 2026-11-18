@@ -72,6 +72,12 @@ func TplVersionPath() string { return filepath.Join(cacheBase(), ".template-vers
 // LatestTemplateKnown : dernière version publiée du template connue du poste (résultat de la vérification
 // partagé, à défaut la version adoptée) ; "" si inconnue.
 func LatestTemplateKnown() string {
+	if t := readUpdateCheck().Template.Tag; t != "" {
+		if adopted := ReadTrim(TplVersionPath()); adopted != "" && VersionNewer(t, adopted) {
+			return adopted
+		}
+		return t
+	}
 	return ReadTrim(TplVersionPath())
 }
 

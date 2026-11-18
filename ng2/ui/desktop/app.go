@@ -1200,6 +1200,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 			a.upd.hideLauncher = true
 		case "hubcfg":
 			a.upd.hideHub = true
+		case "github": // alerte permanente : non masquable (#199)
 		default:
 			a.upd.hideTpl, a.upd.hideLauncher = true, true
 		}
