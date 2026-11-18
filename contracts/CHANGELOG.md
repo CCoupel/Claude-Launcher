@@ -2,6 +2,11 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261118] — v6.4.0, LOT-4 : `/files/<projet>/<chemin relatif>` (#174, décision utilisateur au GATE LOT-4)
+
+- **[BREAKING]** (interne au milestone, aucune version publiée) : `/files/<chemin interne complet>` **supprimé** ; forme unique `/files/<projet>/<chemin relatif>`, `<projet>` = nom du projet dans le launcher, projets connus seulement (inconnu → `404`) ; `/files/` sans liste (`404`) ; premiers segments en `__` réservés (appariement `/files/__claude-launcher__/pair`) — `contracts/web-server.md` « Fichiers des projets par l'interface »
+- **[CHANGED]** `CL_BROWSER_PATH_MAP` / `CL_BROWSER_HINT` : une correspondance par session, racine du projet → `<CL_WEB_URL>/files/<projet>` ; serveur local 8765 du hub et de l'exe inchangé
+
 ## [20261118] — v6.4.0, LOT-4 : CSP de `/files`, sources de la NetworkPolicy (#174, #200)
 
 - **[CHANGED]** `/files` : `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` au lieu de `sandbox` seul (scripts des maquettes exécutés dans une origine opaque, jamais `allow-same-origin`) — `contracts/web-server.md` (commit ffcfc72, dev-backend ; avis security en cours)

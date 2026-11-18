@@ -19,9 +19,21 @@
 
 ## Fichiers des projets par l'interface **[NEW]** (#174)
 
-- Route `GET /files/<chemin interne>` (segments encodés) du serveur web : mêmes règles que le serveur de maquettes
-  (`browser_server`) — lecture seule, racines servies, liste de dossier, rien hors racine, pas de lien symbolique qui
-  en sort. En-têtes `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` (origine opaque : les scripts d'une maquette s'exécutent mais ne peuvent ni appeler `/api` ni lire un cookie de l'interface ; jamais `allow-same-origin`), `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`.
+- **Forme unique** (décision utilisateur, GATE LOT-4, 2026-11-18) : `GET /files/<projet>/<chemin relatif>`, segments
+  encodés.
+  - `<projet>` = **nom du projet dans le launcher**, unique (forme `<catégorie>-<projet>`, ex. `qualif-factice-1`, le
+    même que celui des StatefulSet et de l'interface).
+  - `<chemin relatif>` est relatif à la **racine de ce projet** ; `/files/<projet>/` liste la racine du projet.
+  - Seuls les projets **connus de ce launcher** (arbre / `projects.json`) sont servis. `<projet>` inconnu → `404`.
+- **Supprimé** : l'ancienne forme `/files/<chemin interne complet>` (ex. `/files/share/MFS/ROOT/…`) → `404`, comme un
+  projet inconnu. Le chemin interne n'apparaît jamais dans une URL ni dans une liste.
+- **Aucune liste à la racine** : `GET /files/` (et `/files`) → `404`, sans contenu, sans nom de projet.
+- **Noms réservés** : tout premier segment qui commence par `__` est réservé au launcher (`__claude-launcher__` :
+  appariement). Il n'est jamais résolu comme un projet, même si un projet portait ce nom (un tel projet n'est pas
+  servi par `/files` : `404`).
+- Règles inchangées : lecture seule, liste de dossier **à l'intérieur du projet**, rien hors de la racine du projet
+  (`..` refusé), pas de lien symbolique qui en sort (vérifié après résolution, par rapport à la racine **du projet**,
+  et non plus à une racine servie). En-têtes `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` (origine opaque : les scripts d'une maquette s'exécutent mais ne peuvent ni appeler `/api` ni lire un cookie de l'interface ; jamais `allow-same-origin`), `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`.
 - **Jamais servi ni listé** (route `/files` ET serveur de maquettes local 8765, qui partagent `fileServer.allowed`), au
   chemin demandé comme après résolution des liens symboliques (un lien vers un élément exclu ne le contourne pas), 404 :
   tout segment `PRIVATE`, `.git`, `.claude`, `.ssh`, `.aws`, `.kube`, `.gnupg`, `.docker`, `.azure` ; les fichiers
@@ -52,11 +64,17 @@
   `/api` (origine opaque).
 - En mode `token` (hub, exe), session exigée ; en `none`, pas de session (la protection est l'ingress interne : liste
   d'adresses).
-- En mode serveur dans un cluster, les sessions claude reçoivent
-  `CL_BROWSER_PATH_MAP=[{"container":"/","host":"<CL_WEB_URL>/files","os":"url"}]` et la consigne `CL_BROWSER_HINT`
-  correspondante.
-- Appariement : `GET /files/__claude-launcher__/pair?device=<id>&token=<jeton d'appariement>` (jeton d'appariement
-  inchangé, v5.10.0).
+- **Correspondance par session** : en mode serveur dans un cluster, chaque session claude reçoit la correspondance de
+  **son** projet seulement :
+  `CL_BROWSER_PATH_MAP=[{"container":"<racine du projet vue par la session>","host":"<CL_WEB_URL>/files/<projet>","os":"url"}]`,
+  et la consigne `CL_BROWSER_HINT` correspondante (exemple avec `<CL_WEB_URL>/files/<projet>/<chemin relatif>`).
+  Un fichier hors du projet de la session n'a pas d'URL.
+- **Appariement** : `GET /files/__claude-launcher__/pair?device=<id>&token=<jeton d'appariement>` (jeton d'appariement
+  inchangé, v5.10.0). Ce chemin est réservé (règle des noms en `__`) : il ne peut pas désigner un projet.
+  `CL_BROWSER_HINT` donne cette URL.
+- Hub et exe : le serveur de maquettes local (`127.0.0.1:8765`) garde le chemin interne (v5.10.0, exclusions
+  ci-dessus comprises). La route `/files` de l'interface web, elle, n'a que la forme `/files/<projet>/…` dans tous les
+  modes.
 - Le serveur de maquettes en boucle locale (`127.0.0.1:8765`) reste celui du hub et de l'exe ; en cluster, il n'est plus
   annoncé aux sessions (démarrage conservé ou retiré au choix du backend, à noter dans le CHANGELOG).
 
