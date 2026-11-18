@@ -366,6 +366,16 @@ func (w *webBridge) handler() http.Handler {
 		rw.Header().Set("Cache-Control", "no-store")
 		files.ServeHTTP(rw, r)
 	})
+	// fichiers des projets (#174) : même serveur que celui des maquettes, sous /files ; sans session en mode « none » (la
+	// protection est l'ingress interne), session exigée en mode jeton ; l'appariement du navigateur a son propre jeton
+	filesH := core.NewFilesHandler()
+	mux.HandleFunc(core.FilesPrefix+"/", func(rw http.ResponseWriter, r *http.Request) {
+		if w.access != core.AccessNone && !strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/__claude-launcher__") && !w.authorized(r, false) {
+			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
+			return
+		}
+		filesH.ServeHTTP(rw, r)
+	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method != http.MethodPost:

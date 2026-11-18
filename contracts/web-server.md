@@ -20,7 +20,7 @@
 
 - Route `GET /files/<chemin interne>` (segments encodés) du serveur web : mêmes règles que le serveur de maquettes
   (`browser_server`) — lecture seule, racines servies, liste de dossier, rien hors racine, pas de lien symbolique qui
-  en sort. En-têtes `Content-Security-Policy: sandbox`, `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`.
+  en sort. En-têtes `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` (origine opaque : les scripts d'une maquette s'exécutent mais ne peuvent ni appeler `/api` ni lire un cookie de l'interface ; jamais `allow-same-origin`), `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`.
 - Contrôles : `Host` et `Sec-Fetch-Site` comme une page. En mode `token` (hub, exe), session exigée ; en `none`, pas
   de session (la protection est l'ingress interne : liste d'adresses).
 - En mode serveur dans un cluster, les sessions claude reçoivent

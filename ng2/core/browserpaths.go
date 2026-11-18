@@ -227,6 +227,10 @@ func resolveBrowserPathsFor(f backendsFile, host string, roots []string, wsl boo
 		decl, source = f.Defaults.BrowserPaths, "defaults.browser_paths"
 	}
 	if decl == nil {
+		// mode serveur dans un cluster (#174) : les fichiers sont servis par l'interface web, sous <CL_WEB_URL>/files
+		if base := ServerFilesBase(); base != "" {
+			return []BrowserPath{{Container: "/", Host: base, OS: "url"}}, "interface web du launcher (" + base + ")", nil
+		}
 		// serveur web du launcher (#106) : le chemin de l'URL est le chemin interne
 		if c, err := resolveBrowserServerFor(f, host, goos); err == nil && !c.Off {
 			return []BrowserPath{{Container: "/", Host: c.Base, OS: "url"}}, "serveur web du launcher (" + c.Listen + ")", nil

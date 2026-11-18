@@ -210,6 +210,11 @@ type fileServer struct {
 	// chemin de l'URL (vu des sessions, Linux) → chemin local (#110, pathmap.go) ;
 	// nil : le même
 	local func(string) string
+	// #174 : route /files du serveur web (mode serveur) : prefix (« /files »), retiré de l'URL par l'appelant, remis
+	// dans les redirections ; csp : en-tête Content-Security-Policy des fichiers servis ; hosts nil : l'hôte est
+	// contrôlé par le serveur web lui-même
+	prefix string
+	csp    string
 }
 
 func (s fileServer) toLocal(p string) string {
@@ -271,11 +276,14 @@ var textTypes = map[string]bool{".md": true, ".markdown": true, ".yaml": true, "
 func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if s.csp != "" {
+		w.Header().Set("Content-Security-Policy", s.csp)
+	}
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	if !s.hosts[strings.ToLower(strings.Trim(host, "[]"))] {
+	if s.hosts != nil && !s.hosts[strings.ToLower(strings.Trim(host, "[]"))] {
 		http.Error(w, "hôte refusé", http.StatusForbidden)
 		return
 	}
@@ -306,7 +314,7 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if st.IsDir() {
 		if !strings.HasSuffix(r.URL.Path, "/") {
-			http.Redirect(w, r, escapePath(p)+"/", http.StatusMovedPermanently)
+			http.Redirect(w, r, s.prefix+escapePath(p)+"/", http.StatusMovedPermanently)
 			return
 		}
 		if idx := filepath.Join(real, "index.html"); fileExists(idx) {
@@ -575,4 +583,40 @@ func PrintBrowserServer() {
 	for _, r := range rs {
 		fmt.Println("  sert " + r)
 	}
+}
+
+// ── Route /files du serveur web (#174) ────────────────────────────────────
+
+// FilesPrefix : préfixe de la route des fichiers des projets du serveur web (mode serveur).
+const FilesPrefix = "/files"
+
+// filesCSP : fichiers servis sous /files : origine opaque (« sandbox » sans allow-same-origin) — un script d'une
+// maquette s'exécute (allow-scripts) mais ne peut appeler ni /api ni lire de cookie de l'interface —, et jamais
+// encadré.
+const filesCSP = "sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'"
+
+// NewFilesHandler : les fichiers des projets sous FilesPrefix, avec les règles du serveur de maquettes (lecture seule,
+// racines connues, rien hors racine, liens symboliques résolus, liste d'un dossier, appariement du navigateur sous
+// /files/__claude-launcher__/pair). L'hôte est contrôlé par le serveur web ; session, origine : voir ui/desktop.
+func NewFilesHandler() http.Handler {
+	allow := func() []string {
+		c, _ := browserServer()
+		return c.Allow
+	}
+	fs := fileServer{roots: cachedRoots(allow), token: browserToken, local: LocalPath, prefix: FilesPrefix, csp: filesCSP}
+	return http.StripPrefix(FilesPrefix, fs)
+}
+
+// ServerFilesBase : base d'URL des fichiers pour les sessions en mode serveur dans un cluster
+// (<CL_WEB_URL>/files) ; "" hors cluster ou sans adresse publique. Les sessions reçoivent alors
+// CL_BROWSER_PATH_MAP=[{"container":"/","host":"<base>","os":"url"}] et l'appariement sous <base>/__claude-launcher__/pair.
+func ServerFilesBase() string {
+	if !InCluster() {
+		return ""
+	}
+	u := strings.TrimRight(strings.TrimSpace(os.Getenv("CL_WEB_URL")), "/")
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		return ""
+	}
+	return u + FilesPrefix
 }

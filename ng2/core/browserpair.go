@@ -60,6 +60,10 @@ func browserToken() string {
 	return t
 }
 
+// BrowserPairToken : jeton d'appariement du launcher (celui des consignes données aux sessions, valable sous
+// /files/__claude-launcher__/pair du serveur web et sur le serveur de maquettes).
+func BrowserPairToken() string { return browserToken() }
+
 // browserDevice : deviceId du navigateur du hub et sa source ; hubs.<machine>
 // .browser_device l'emporte sur l'appariement enregistré.
 func browserDevice(f backendsFile, host string) (id, source string) {
@@ -148,6 +152,9 @@ func BrowserEnvVars() []envVar {
 	c, err := resolveBrowserServerFor(f, machine, pathsGOOS)
 	if err != nil {
 		c.Off = true
+	}
+	if base := ServerFilesBase(); base != "" { // cluster (#174) : l'interface web sert les fichiers et l'appariement sous /files
+		c.Off, c.Base = false, base
 	}
 	tok := ""
 	if !c.Off {
