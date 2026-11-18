@@ -36,3 +36,6 @@
 | tests/procedures/ui-desktop/masquage-inactifs-188/ | procedure | ui-desktop | Commutateur du masquage des teammates inactifs : defaut v6.2.0, desactive (tout reapparait, delai conserve, double-clic refuse), puce de la carte TEAM, coque tmux (#188) | feature | |
 | tests/procedures/ui-desktop/version-template-199/ | procedure | ui-desktop | Version du template juste, ⚠ carte TEAM, alerte quota GitHub (#199) | feature | |
 | ng2/core/tplversion199_test.go | unitaire | core | Comparaisons de versions, carte TEAM, verification GitHub : jeton, ETag, quota, resultat partage (#199) | feature | |
+| tests/procedures/ui-web/cles-ssh-backends-194/ | procedure | ui-web | Cles ssh des backends distants depuis le pod : generer/coller, empreinte confirmee, Tester ssh/podman/docker (#194) | feature | |
+| ng2/ui/desktop/secrets194_test.go | unitaire | ui-desktop | Coffre des secrets, paire ssh, phrase de passe refusee, known_hosts confirme, journal sans contenu, ssh avec la cle du coffre (#194) | feature | |
+| ng2/chart_secrets194_test.go | integration | chart | PVC du coffre, CL_SECRETS_DIR, aucun droit secrets, Secret TLS docker facultatif, clients dans l image (#194) | feature | |
