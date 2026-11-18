@@ -1184,6 +1184,11 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		return a.prefetchCards(arg.Path), nil
 	case "open":
 		return a.open(arg.Path, core.LaunchNormal)
+	case "reattach": // #198 : rattache l'onglet à une session vivante, sans rien créer
+		if a.reattachPath(arg.Path) {
+			return map[string]any{"ok": true, "tab": arg.Path}, nil
+		}
+		return map[string]any{"ok": false}, nil
 	case "refreshProject": // #158
 		return a.refreshProject(arg.Path)
 	case "forceClose":
