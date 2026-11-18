@@ -158,7 +158,7 @@ func (e BackendEntry) Conf(pools []PoolEntry) (BackendConf, error) {
 		name = "essai"
 	}
 	f.Backends = map[string]BackendConf{name: {Type: e.Type, Context: e.Context, Host: e.Host, Hosts: e.Hosts, Pool: e.Pool,
-		Engine: e.Engine, EngHost: e.EngineHost, Shared: e.Shared, Namespace: e.Namespace, Volumes: e.Volumes, Spread: e.Spread, Pod: e.Pod}}
+		Engine: e.Engine, EngHost: e.EngineHost, Shared: e.Shared, Namespace: e.Namespace, Volumes: e.Volumes, Spread: e.Spread, Pod: e.Pod, Kubeconfig: kubeconfigFromAny(e.Kubeconfig)}}
 	bs, err := backendsOf(f)
 	if err != nil {
 		return BackendConf{}, err

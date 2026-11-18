@@ -36,6 +36,7 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 	var in struct {
 		Backend    string          `json:"backend"`
 		PrivateKey string          `json:"privateKey"`
+		Kubeconfig string          `json:"kubeconfig"`
 		PublicKey  string          `json:"publicKey"`
 		Generate   bool            `json:"generate"`
 		Lines      json.RawMessage `json:"lines"`
@@ -46,7 +47,7 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 	}
 	w := core.SecretWrite{Source: src}
 	if method == "backendSecretSet" || method == "backendKnownHostsSet" || method == "backendHostScan" { // écriture et relevé : seulement pour un backend ssh déclaré
-		if err := sshBackendDeclared(in.Backend); err != nil {
+		if err := declaredFor(in.Backend, in.Kubeconfig != ""); err != nil {
 			return map[string]any{"ok": false, "msg": err.Error()}, nil
 		}
 	}
@@ -58,6 +59,13 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 		}
 		return info, err
 	case "backendSecretSet":
+		if in.Kubeconfig != "" { // kubeconfig d'un backend k8s (#193) : contextes rendus, jamais le contenu
+			ctxs, fp, err := core.SecretSetKubeconfig(in.Backend, in.Kubeconfig, w)
+			if err != nil {
+				return map[string]any{"ok": false, "msg": err.Error()}, nil
+			}
+			return map[string]any{"ok": true, "fingerprint": fp, "contexts": ctxs, "msg": "kubeconfig enregistré"}, nil
+		}
 		fp, pub, err := core.SecretSetKey(in.Backend, in.PrivateKey, in.PublicKey, in.Generate, w)
 		if err != nil {
 			return map[string]any{"ok": false, "msg": err.Error()}, nil
@@ -109,16 +117,28 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 	return nil, fmt.Errorf("%s : inconnu", method)
 }
 
-// sshBackendDeclared : le backend existe dans backends.yaml et est de type ssh (enregistrer le backend d'abord).
+// declaredFor : le backend est déclaré, de type k8s pour un kubeconfig, sinon ssh.
+func declaredFor(name string, kube bool) error {
+	if kube {
+		return backendDeclared(name, "k8s", "le kubeconfig ne concerne que les backends k8s")
+	}
+	return sshBackendDeclared(name)
+}
+
 func sshBackendDeclared(name string) error {
+	return backendDeclared(name, "ssh", "les clés ssh ne concernent que les backends ssh")
+}
+
+// backendDeclared : le backend existe dans backends.yaml avec ce type (enregistrer le backend d'abord).
+func backendDeclared(name, typ, why string) error {
 	bs, err := core.LoadBackends()
 	if err != nil {
 		return err
 	}
 	for _, b := range bs {
 		if b.Name == name {
-			if b.Type != "ssh" {
-				return fmt.Errorf("backend %q : les clés ssh ne concernent que les backends ssh", name)
+			if b.Type != typ {
+				return fmt.Errorf("backend %q : %s", name, why)
 			}
 			return nil
 		}

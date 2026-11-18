@@ -23,6 +23,7 @@ type BackendEntry struct {
 	Name       string            `json:"name"`
 	Type       string            `json:"type"`
 	Context    string            `json:"context,omitempty"`
+	Kubeconfig any               `json:"kubeconfig,omitempty"` // k8s : true (coffre) ou chemin (#193)
 	Host       string            `json:"host,omitempty"`
 	Hosts      []string          `json:"hosts,omitempty"`
 	Pool       string            `json:"pool,omitempty"`
@@ -91,7 +92,7 @@ func ReadBackendsModel(content []byte) (BackendsModel, error) {
 		c := f.Backends[n]
 		m.Backends = append(m.Backends, BackendEntry{Name: n, Type: c.Type, Context: c.Context, Host: c.Host, Hosts: c.Hosts,
 			Pool: c.Pool, Engine: c.Engine, EngineHost: c.EngHost, Shared: c.Shared, Namespace: c.Namespace,
-			Volumes: c.Volumes, Spread: c.Spread, Pod: c.Pod})
+			Volumes: c.Volumes, Spread: c.Spread, Pod: c.Pod, Kubeconfig: c.Kubeconfig.asAny()})
 	}
 	if _, declared := f.Backends["host"]; !declared && runtime.GOOS == "windows" {
 		m.Backends = append([]BackendEntry{{Name: "host", Type: "host", Implicit: true}}, m.Backends...)
@@ -125,7 +126,7 @@ type ConfigChange struct {
 }
 
 // backendKeyOrder : ordre d'écriture des clés d'un backend ajouté.
-var backendKeyOrder = []string{"type", "context", "host", "hosts", "pool", "engine", "engine_host", "shared",
+var backendKeyOrder = []string{"type", "context", "kubeconfig", "host", "hosts", "pool", "engine", "engine_host", "shared",
 	"namespace", "volumes", "spread", "pod"}
 
 // ApplyConfigChanges applique les changements au texte de backends.yaml :

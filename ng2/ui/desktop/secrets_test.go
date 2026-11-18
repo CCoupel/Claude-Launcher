@@ -94,3 +94,39 @@ func TestBackendSecretDirEtScanDeclare(t *testing.T) {
 		t.Errorf("relevé pour un backend non déclaré : %v", res)
 	}
 }
+
+// kubeconfig d'un backend k8s (#193) : contextes rendus, contenu jamais renvoyé, backend k8s déclaré exigé.
+func TestBackendSecretKubeconfig(t *testing.T) {
+	d := filepath.Join(t.TempDir(), "secrets")
+	t.Setenv("CL_SECRETS_DIR", d)
+	t.Setenv("CL_ROOT_BASE", "")
+	t.Setenv(core.CacheDirVar, filepath.Join(t.TempDir(), "cache"))
+	cfg := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", cfg)
+	_ = os.WriteFile(filepath.Join(cfg, "backends.yaml"), []byte("backends:\n  autre: { type: k8s, kubeconfig: true }\n  srv: { type: ssh, host: h }\n"), 0o644)
+	var r recorder
+	a := newApp(t, r.emit)
+	kc := "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster: {server: 'https://x'}\ncontexts:\n- name: prod\n  context: {cluster: c, user: u}\nusers:\n- name: u\n  user: {token: TOK-193}\n"
+	call := func(m string, args map[string]any) string {
+		raw, _ := json.Marshal(args)
+		res, err := a.DispatchFromAddr(originWeb, "10.0.0.2", m, raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(res)
+		return string(b)
+	}
+	out := call("backendSecretSet", map[string]any{"backend": "autre", "kubeconfig": kc})
+	if !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"prod"`) || strings.Contains(out, "TOK-193") {
+		t.Errorf("dépôt : %s", out)
+	}
+	if g := call("backendSecretGet", map[string]any{"backend": "autre"}); !strings.Contains(g, `"hasKubeconfig":true`) || strings.Contains(g, "TOK-193") {
+		t.Errorf("get : %s", g)
+	}
+	if bad := call("backendSecretSet", map[string]any{"backend": "srv", "kubeconfig": kc}); !strings.Contains(bad, `"ok":false`) {
+		t.Errorf("kubeconfig sur un backend ssh : %s", bad)
+	}
+	if j, _ := os.ReadFile(filepath.Join(core.CacheDir(), "secrets-journal.jsonl")); strings.Contains(string(j), "TOK-193") {
+		t.Error("contenu dans le journal")
+	}
+}

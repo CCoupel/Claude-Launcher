@@ -291,7 +291,7 @@ func backendKey(b BackendConf) string {
 	for i, m := range b.Mates {
 		mates[i] = m.Name
 	}
-	return fmt.Sprintf("%s|%s|%s|%s|%v|%s|%s|%s|%v|%s|%v|%s|%v|%v|%s|%v|%v|%v",
+	return fmt.Sprintf("%s|%s|%s|%s|%v|%s|%s|%s|%v|%s|%v|%s|%v|%v|%s|%v|%v|%v|%v",
 		b.Name, b.Type, b.Context, b.Host, b.Hosts, b.Pool, b.Engine, b.EngHost, b.Shared, b.Namespace, b.Volumes,
-		spread, b.Pod, b.Machines, b.Server, b.Drain, mates, b.implicit)
+		spread, b.Pod, b.Machines, b.Server, b.Drain, mates, b.implicit, b.Kubeconfig)
 }

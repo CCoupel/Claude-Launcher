@@ -1,0 +1,134 @@
+package core
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"gopkg.in/yaml.v3"
+)
+
+const kubeOK = `apiVersion: v1
+kind: Config
+current-context: prod
+clusters:
+- name: c1
+  cluster: {server: "https://10.0.0.1:6443", certificate-authority-data: QUJD}
+contexts:
+- name: prod
+  context: {cluster: c1, user: u1}
+- name: test
+  context: {cluster: c1, user: u1}
+users:
+- name: u1
+  user: {token: SECRET-TOKEN-193}
+`
+
+func TestKubeconfigYAML(t *testing.T) {
+	var f backendsFile
+	src := "backends:\n  a: {type: k8s, kubeconfig: true}\n  b: {type: k8s, kubeconfig: /etc/kc/config}\n  c: {type: k8s}\n"
+	if err := yaml.Unmarshal([]byte(src), &f); err != nil {
+		t.Fatal(err)
+	}
+	if !f.Backends["a"].Kubeconfig.Vault || f.Backends["b"].Kubeconfig.Path != "/etc/kc/config" || f.Backends["c"].Kubeconfig.set() {
+		t.Errorf("décodage : %+v", f.Backends)
+	}
+	// non k8s : refusé ; chemin relatif refusé
+	for _, bad := range []string{"backends:\n  x: {type: ssh, host: h, kubeconfig: true}\n", "backends:\n  x: {type: k8s, kubeconfig: rel/path}\n"} {
+		var g backendsFile
+		_ = yaml.Unmarshal([]byte(bad), &g)
+		if _, err := backendsOf(g); err == nil {
+			t.Errorf("accepté : %s", bad)
+		}
+	}
+	// modèle de l'éditeur : true / chemin
+	m, err := ReadBackendsModel([]byte(src))
+	if err != nil || m.Backends[0].Kubeconfig != true || m.Backends[1].Kubeconfig != "/etc/kc/config" {
+		t.Errorf("modèle : %+v %v", m.Backends, err)
+	}
+}
+
+func TestKubectlAvecKubeconfig(t *testing.T) {
+	d := secretsEnv(t)
+	t.Setenv("CL_IN_CLUSTER", "1")
+	t.Setenv("KUBECONFIG", "/env/kubeconfig")
+	// sans kubeconfig du backend : ServiceAccount, contexte ignoré, KUBECONFIG retiré
+	b := BackendConf{Name: "k", Type: "k8s", Context: "prod", Namespace: "ns"}
+	if a := strings.Join(Engine{b}.kubectl("get", "pods"), " "); strings.Contains(a, "--kubeconfig") || strings.Contains(a, "--context") || !strings.HasPrefix(a, "env -u KUBECONFIG") {
+		t.Errorf("ServiceAccount : %s", a)
+	}
+	// coffre : --kubeconfig et contexte honoré même en cluster
+	b.Kubeconfig = KubeconfigRef{Vault: true}
+	a := strings.Join(Engine{b}.kubectl("get", "pods"), " ")
+	if !strings.Contains(a, "--kubeconfig "+filepath.Join(d, "k", "kubeconfig")) || !strings.Contains(a, "--context prod") {
+		t.Errorf("kubeconfig du coffre : %s", a)
+	}
+	// chemin
+	b.Kubeconfig = KubeconfigRef{Path: "/etc/kc/config"}
+	if a := strings.Join(Engine{b}.kubectl("get"), " "); !strings.Contains(a, "--kubeconfig /etc/kc/config") {
+		t.Errorf("kubeconfig chemin : %s", a)
+	}
+	// chemin sous une zone partagée : refusé, mais --kubeconfig reste (aucun repli)
+	t.Setenv("CL_ROOT_BASE", "/share/x")
+	b.Kubeconfig = KubeconfigRef{Path: "/share/x/kc"}
+	if a := strings.Join(Engine{b}.kubectl("get"), " "); !strings.Contains(a, "--kubeconfig") || strings.Contains(a, "/share/x/kc") {
+		t.Errorf("chemin partagé : %s", a)
+	}
+}
+
+func TestKubeconfigDepotEtRefus(t *testing.T) {
+	d := secretsEnv(t)
+	ctxs, fp, err := SecretSetKubeconfig("k8", kubeOK, SecretWrite{Source: "t"})
+	if err != nil || len(ctxs) != 2 || ctxs[0] != "prod" || !strings.HasPrefix(fp, "sha256:") {
+		t.Fatalf("dépôt : %v %v %q", ctxs, err, fp)
+	}
+	info, _ := SecretGet("k8")
+	b, _ := json.Marshal(info)
+	if !info.HasKubeconfig || len(info.KubeContexts) != 2 || strings.Contains(string(b), "SECRET-TOKEN-193") {
+		t.Errorf("Get : %s", b)
+	}
+	if st, err := os.Stat(filepath.Join(d, "k8", "kubeconfig")); err != nil || (st.Mode().Perm() != 0o600 && os.PathSeparator == '/') {
+		t.Errorf("fichier : %v %v", st, err)
+	}
+	j, _ := os.ReadFile(filepath.Join(CacheDir(), secretJournal))
+	if strings.Contains(string(j), "SECRET-TOKEN-193") || !strings.Contains(string(j), "kubeconfig") {
+		t.Errorf("journal : %s", j)
+	}
+	for name, bad := range map[string]string{
+		"exec":      strings.Replace(kubeOK, "{token: SECRET-TOKEN-193}", "{exec: {command: /bin/evil}}", 1),
+		"provider":  strings.Replace(kubeOK, "{token: SECRET-TOKEN-193}", "{auth-provider: {name: gcp}}", 1),
+		"tokenFile": strings.Replace(kubeOK, "{token: SECRET-TOKEN-193}", "{tokenFile: /var/run/secrets/token}", 1),
+		"ca":        strings.Replace(kubeOK, "certificate-authority-data: QUJD", "certificate-authority: /etc/ca", 1),
+		"vide":      "n'importe quoi",
+	} {
+		if _, _, err := SecretSetKubeconfig("k8", bad, SecretWrite{}); err == nil {
+			t.Errorf("%s : kubeconfig accepté", name)
+		}
+	}
+	if err := SecretDelete("k8", "kubeconfig", SecretWrite{}); err != nil {
+		t.Fatal(err)
+	}
+	if info, _ := SecretGet("k8"); info.HasKubeconfig {
+		t.Error("kubeconfig encore présent")
+	}
+}
+
+func TestKubeconfigEtapesTest(t *testing.T) {
+	d := secretsEnv(t)
+	b := BackendConf{Name: "k8", Type: "k8s", Kubeconfig: KubeconfigRef{Vault: true}}
+	// absent : illisible, sans repli
+	if st, ok := kubeconfigSteps(b); ok || st[0].OK || !strings.Contains(st[0].Detail, "illisible") {
+		t.Errorf("absent : %+v", st)
+	}
+	_ = os.MkdirAll(filepath.Join(d, "k8"), 0o700)
+	_ = os.WriteFile(filepath.Join(d, "k8", "kubeconfig"), []byte(kubeOK), 0o600)
+	if st, ok := kubeconfigSteps(b); !ok || !st[0].OK || st[0].Label != "kubeconfig lisible" {
+		t.Errorf("lisible : %+v", st)
+	}
+	b.Context = "inconnu"
+	if st, ok := kubeconfigSteps(b); ok || !strings.Contains(st[0].Detail, "absent du kubeconfig") {
+		t.Errorf("contexte absent : %+v", st)
+	}
+}

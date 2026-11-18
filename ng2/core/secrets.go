@@ -264,6 +264,10 @@ type SecretKeyInfo struct {
 	KeyModified        string           `json:"keyModified,omitempty"`        // « modifié le … » (RFC 3339)
 	KnownHostsModified string           `json:"knownHostsModified,omitempty"` // idem
 	Dir                string           `json:"dir"`
+	// kubeconfig (#193) : présence, contextes listés (jamais le contenu), « modifié le … »
+	HasKubeconfig      bool     `json:"hasKubeconfig"`
+	KubeContexts       []string `json:"kubeContexts,omitempty"`
+	KubeconfigModified string   `json:"kubeconfigModified,omitempty"`
 }
 
 // KnownHostEntry : une empreinte d'hôte.
@@ -316,6 +320,13 @@ func SecretGet(backend string) (SecretKeyInfo, error) {
 			if pk, _, _, _, err := ssh.ParseAuthorizedKey(pub); err == nil {
 				info.Fingerprint = ssh.FingerprintSHA256(pk)
 			}
+		}
+	}
+	if b, err := os.ReadFile(filepath.Join(d, secretKubeFile)); err == nil {
+		info.HasKubeconfig = true
+		info.KubeconfigModified = modTime(filepath.Join(d, secretKubeFile))
+		if ctxs, _, err := parseKubeconfig(b); err == nil {
+			info.KubeContexts = ctxs
 		}
 	}
 	if b, err := os.ReadFile(filepath.Join(d, secretKnownFile)); err == nil {
@@ -405,10 +416,12 @@ func SecretDelete(backend, what string, w SecretWrite) error {
 		names = []string{secretKeyFile, secretPubFile}
 	case "known_hosts":
 		names = []string{secretKnownFile}
+	case "kubeconfig":
+		names = []string{secretKubeFile}
 	case "all":
-		names = []string{secretKeyFile, secretPubFile, secretKnownFile}
+		names = []string{secretKeyFile, secretPubFile, secretKnownFile, secretKubeFile}
 	default:
-		return fmt.Errorf("suppression : « %s » inconnu (key, known_hosts, all)", what)
+		return fmt.Errorf("suppression : « %s » inconnu (key, known_hosts, kubeconfig, all)", what)
 	}
 	if err := journalSecret(backend, what, "delete", "", w.Source); err != nil {
 		return err
