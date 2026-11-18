@@ -4,7 +4,7 @@
 
 ## [20261118] — v6.4.0 : appel `reattach` (#198)
 
-- **[NEW]** `reattach {path}` → `{ok, tab}` : rattache l'onglet à une session tmux survivante après un redémarrage du serveur, sans rien créer ; `ok: false` sans erreur quand la session manque, appartient à un autre launcher, ou que l'onglet est en lecture seule ou en erreur — `contracts/web-server.md` « Appel reattach » (commit 3c0b868)
+- **[NEW]** `reattach {path}` → `{ok, tab}` : rattache l'onglet à une session tmux survivante après un redémarrage du serveur, sans rien créer ; appelé par le client en repli au bout d'environ 5 s (abandon à 20 s) ; `ok: false` sans erreur quand la session manque, appartient à un autre launcher, ou que l'onglet est en lecture seule ou en erreur — `contracts/web-server.md` « Appel reattach » (commit 3c0b868)
 
 ## [20261117] — v6.4.0 (plan, rev2 GATE 2) : fichiers et version du serveur, backends distants, coffre, NetworkPolicy, version du template
 

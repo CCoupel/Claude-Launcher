@@ -68,12 +68,15 @@ Wails ; il n'y a jamais d'erreur (`error` absent) : tout échec est `ok: false`,
 | session vivante, ouverture réussie | `ok: true`, `tab` = chemin |
 | session vivante, mais `open` échoue ou ne rend pas d'onglet | `ok: false` |
 
-- **Côté client** (attente de `app.js`, `REATTACH_MS` = 20 s) : les vues ouvertes restent en attente pendant 20 s.
-  Une vue dont l'onglet revient est resynchronisée (`termSync`). Avec `ok: false`, ou sans retour avant le délai, la
-  vue est retirée et le bandeau affiche « N terminaux non rattachés — recharger ». Il n'y a pas de nouvelle tentative
-  automatique ; le projet reste dans l'arbre et se rouvre par `open` (qui, lui, crée ce qu'il faut). Le serveur se
-  rattache aussi de lui-même, au démarrage, aux sessions vivantes (`App.reattach`) : `reattach {path}` sert au client
-  pour ne pas attendre ce passage.
+- **Côté client** (`app.js`, sur « restart ») :
+  - les vues ouvertes sont mises en attente ; une vue dont l'onglet revient de lui-même (le serveur se rattache seul
+    au démarrage, `App.reattach`) est resynchronisée par `termSync` ;
+  - **repli au bout d'environ 5 s** : pour chaque vue encore en attente, le client appelle `reattach {path}` ; si la
+    réponse est `ok: true`, il appelle `termSync` ;
+  - **abandon à 20 s** (`REATTACH_MS`) : une vue encore en attente (`ok: false`, ou pas de retour) est retirée, et le
+    bandeau affiche « N terminaux non rattachés — recharger » ;
+  - un seul appel `reattach` par vue et par redémarrage, sans autre tentative ; le projet reste dans l'arbre et se
+    rouvre par `open` (qui, lui, crée ce qu'il faut).
 - Maquette : `_work/mockup/6.4.0/ui/web_client__maj_serveur.html` (versée dans `docs/mockup/` par le CDP) (bandeaux seuls).
 
 ## Piste v7.0.0 — authentification de l'ingress externe (#172, hors v6.4.0)
