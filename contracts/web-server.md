@@ -37,8 +37,11 @@
 - Contrôles : `Host` comme une page. `Sec-Fetch-Site` : `cross-site` refusé (`same-site` aussi en mode `none`, aucun jeton
   ne le distingue) **sauf pour les sous-ressources d'une maquette** (`Sec-Fetch-Dest` = `style`, `script`, `image`, `font`,
   `audio`, `video`, `track`) : une maquette est servie en origine opaque (CSP `sandbox`), ses ressources relatives partent
-  donc « cross-site ». Un document, un cadre (`document`, `iframe`, `frame`, `embed`, `object`), un appel `fetch`/XHR
-  (`empty`) ou une requête sans `Sec-Fetch-Dest` d'un autre site : 403. Les éléments sensibles ne sont jamais servis ; `nosniff` (un script ou une feuille de style ne se charge qu'avec un type
+  donc « cross-site ». **Une navigation de premier niveau** (`Sec-Fetch-Mode: navigate` avec `Sec-Fetch-Dest: document`) est acceptée
+  quelle que soit sa provenance (`cross-site` compris) : l'utilisateur — ou l'extension de navigateur de claude, qui ouvre
+  les maquettes dans un onglet — ouvre un lien, comme une URL tapée ; le contenu ne s'exécute qu'en origine opaque. Un
+  cadre (`iframe`, `frame`), un objet (`embed`, `object`), un appel `fetch`/XHR (`empty`), un `document` hors navigation ou
+  une requête sans en-têtes `Sec-Fetch-*` d'un autre site : 403. Les éléments sensibles ne sont jamais servis ; `nosniff` (un script ou une feuille de style ne se charge qu'avec un type
   MIME qui convient) et l'absence d'`Access-Control-*` (rien n'est lisible directement d'un autre site). **Risque résiduel
   (avis security, FAIBLE)** : un `<script src>` d'un site tiers sur un VRAI fichier `.js` d'un projet est exécuté **et
   lisible par effet** — les globales qu'il définit (`window.DATA = …`, JSON enrobé) sont accessibles à la page tierce ;

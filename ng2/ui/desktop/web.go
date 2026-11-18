@@ -378,7 +378,8 @@ func (w *webBridge) handler() http.Handler {
 		// ressources relatives partent donc « cross-site ». Sans danger : nosniff (un script ou une feuille de style ne
 		// se charge qu'avec un type MIME qui convient), aucune lecture possible sans CORS (jamais d'en-tête
 		// Access-Control-*), et les éléments sensibles ne sont jamais servis.
-		if site := r.Header.Get("Sec-Fetch-Site"); (site == "cross-site" || site == "same-site" && w.access == core.AccessNone) && !filesSubresource(r.Header.Get("Sec-Fetch-Dest")) {
+		if site := r.Header.Get("Sec-Fetch-Site"); (site == "cross-site" || site == "same-site" && w.access == core.AccessNone) &&
+			!filesSubresource(r.Header.Get("Sec-Fetch-Dest")) && !filesNavigation(r.Header.Get("Sec-Fetch-Dest"), r.Header.Get("Sec-Fetch-Mode")) {
 			refuse(rw, "origin", "origine refusée")
 			return
 		}
@@ -732,6 +733,13 @@ func requestSource(r *http.Request) string {
 	}
 	return s
 }
+
+// filesNavigation : navigation de premier niveau (Sec-Fetch-Mode=navigate, Sec-Fetch-Dest=document) : l'utilisateur — ou
+// l'extension de navigateur de claude — ouvre un lien, comme une URL tapée ; acceptée quelle que soit sa provenance
+// (Sec-Fetch-Site cross-site : lien d'un autre site, onglet ouvert par l'extension). Un cadre (iframe, frame), un objet
+// (embed, object) ou un appel fetch/XHR d'un autre site restent refusés. Le contenu ne s'exécute qu'en origine opaque
+// (CSP sandbox) : la page ouverte ne lit ni cookie ni /api de l'interface.
+func filesNavigation(dest, mode string) bool { return dest == "document" && mode == "navigate" }
 
 // filesSubresource : destination d'une sous-ressource de maquette (Sec-Fetch-Dest) ; un document, un cadre, un objet,
 // un appel fetch/XHR (« empty ») ou l'absence de l'en-tête ne comptent pas.

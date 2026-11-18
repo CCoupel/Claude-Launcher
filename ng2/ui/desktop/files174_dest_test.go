@@ -48,14 +48,33 @@ func TestFilesSousRessourcesDeMaquette(t *testing.T) {
 				t.Errorf("%s : sous-ressource %s cross-site : %d, attendu 200", mode, dest, c)
 			}
 		}
-		for _, dest := range []string{"document", "iframe", "frame", "embed", "object", "empty", ""} {
-			if c := get(css, map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Dest": dest}); c != http.StatusForbidden {
-				t.Errorf("%s : destination %q cross-site : %d, attendu 403", mode, dest, c)
+		// navigation de premier niveau (extension de navigateur, lien d'un autre site) : acceptée, même cross-site / same-site
+		for _, site := range []string{"cross-site", "same-site", "none", "same-origin"} {
+			if c := get(css, map[string]string{"Sec-Fetch-Site": site, "Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate"}); c != 200 {
+				t.Errorf("%s : navigation %s : %d, attendu 200", mode, site, c)
 			}
 		}
-		// un élément sensible reste refusé, quelle que soit la destination
-		if c := get(u+"/.env", map[string]string{"Sec-Fetch-Site": "cross-site", "Sec-Fetch-Dest": "style"}); c != http.StatusNotFound && c != http.StatusForbidden {
-			t.Errorf("%s : .env : %d, attendu 404", mode, c)
+		// cadres, objets, fetch/XHR, document hors navigation, en-têtes absents : refusés d'un autre site
+		for _, h := range []map[string]string{
+			{"Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "navigate"}, {"Sec-Fetch-Dest": "frame", "Sec-Fetch-Mode": "navigate"},
+			{"Sec-Fetch-Dest": "embed", "Sec-Fetch-Mode": "navigate"}, {"Sec-Fetch-Dest": "object", "Sec-Fetch-Mode": "navigate"},
+			{"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "cors"}, {"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "no-cors"},
+			{"Sec-Fetch-Dest": "document"}, {"Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "cors"}, {"Sec-Fetch-Mode": "navigate"}, {},
+			{"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "websocket"}, {"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "nested-navigate"},
+			{"Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "nested-navigate"}, {"Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "cors"},
+			{"Sec-Fetch-Dest": "iframe", "Sec-Fetch-Mode": "websocket"}, {"Sec-Fetch-Dest": "empty", "Sec-Fetch-Mode": "navigate"},
+		} {
+			h["Sec-Fetch-Site"] = "cross-site"
+			if c := get(css, h); c != http.StatusForbidden {
+				t.Errorf("%s : cross-site %v : %d, attendu 403", mode, h, c)
+			}
+		}
+		// un élément sensible reste refusé, quelle que soit la destination ou la navigation
+		for _, h := range []map[string]string{{"Sec-Fetch-Dest": "style"}, {"Sec-Fetch-Dest": "document", "Sec-Fetch-Mode": "navigate"}} {
+			h["Sec-Fetch-Site"] = "cross-site"
+			if c := get(u+"/.env", h); c != http.StatusNotFound && c != http.StatusForbidden {
+				t.Errorf("%s : .env %v : %d, attendu 404", mode, h, c)
+			}
 		}
 		if c := get(u+"/.env", nil); c != http.StatusNotFound {
 			t.Errorf("%s : .env même origine : %d, attendu 404", mode, c)
