@@ -917,10 +917,12 @@ function renderTabs() {
   bar.append(lt, el('div', 'tsep'), scroll, layoutButton());
   for (const t of (S.snap && S.snap.tabs) || []) {
     const d = el('div', 'tab'); d.dataset.path = t.path;
-    const on = S.view === t.path;
-    if (on) { d.classList.add('on'); d.style.background = t.color || '#1F4FD1'; }
-    else if (t.busy) { d.classList.add('busy'); d.style.background = lighten(t.color || '#C99A4B'); }
-    d.append(el('span', '', t.name + (t.busy && !on ? ' · agent au travail' : '')));
+    // #189 : couleur du projet en variable CSS (liseré bas hors sélection, fond plein sélectionné) ;
+    // #190 : titre = nom seul, emplacement d'état réservé (largeur fixe) — rien ne change à la sélection
+    d.style.setProperty('--c', t.color || '#1F4FD1');
+    if (S.view === t.path) d.classList.add('on');
+    if (t.busy) { d.classList.add('busy'); d.title = 'agent au travail'; }
+    d.append(el('span', '', t.name), el('span', 'slot'));
     if (t.state === 'opening') d.append(el('span', 'st', '⏳'));
     if (t.state === 'error') d.append(el('span', 'st t-red', '⚠'));
     if (t.readOnly) d.append(el('span', 'st', '👁'));
@@ -1013,10 +1015,6 @@ if (typeof ResizeObserver === 'function') {
     tabsW = w;
     fitLeadersTab();
   }).observe($('tabs'));
-}
-function lighten(hex) {
-  const n = parseInt(hex.slice(1), 16); const f = (v) => Math.min(255, Math.round(v + (255 - v) * 0.45));
-  return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
 }
 function cycleTab(d) {
   const ids = ['leaders'].concat(((S.snap && S.snap.tabs) || []).map((t) => t.path));

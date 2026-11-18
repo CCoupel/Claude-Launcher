@@ -225,8 +225,15 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 .tsep { flex: none; width: 1px; background: var(--muted); margin: 3px 10px; opacity: .7; }
 .tab { padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
 .tab:hover { color: var(--text); }
-.tab.on { color: #fff; font-weight: 700; }
-.tab.busy { color: #0B0D11; font-weight: 700; }
+.tab { position: relative; padding: 0 10px 0 12px; gap: 6px; color: var(--text2); font-weight: 600; } /* même graisse sélectionné ou non : largeur stable (#190) */
+/* #189 : hors sélection, liseré bas 3 px + contour discret à la couleur du projet ; sélectionné : fond plein */
+.tab:not(.on)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--c); }
+.tab:not(.on) { box-shadow: inset 1px 0 0 0 color-mix(in srgb, var(--c) 55%, transparent), inset -1px 0 0 0 color-mix(in srgb, var(--c) 55%, transparent), inset 0 1px 0 0 color-mix(in srgb, var(--c) 55%, transparent); }
+.tab.on { color: #fff; background: var(--c); }
+/* #190 : emplacement d'état réservé, largeur fixe, vide au repos ; ⚙ quand un agent travaille */
+.tab .slot { display: inline-flex; width: 14px; justify-content: center; font-size: 11px; }
+.tab.busy .slot::before { content: "⚙"; color: var(--orange); }
+.tab.on.busy .slot::before { color: #fff; }
 .tab .st { font-size: 10px; }
 .tab .x { color: var(--muted); font-weight: 400; margin-left: 2px; }
 .tab .x:hover { color: var(--red); }
