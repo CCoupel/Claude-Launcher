@@ -48,7 +48,7 @@
 | `ingress.annotations` | table | `{}` | — | annotations ajoutées |
 | `resources` | table | demandes `100m` / `128Mi`, limite mémoire `512Mi` | — | — |
 | `extraEnv` | liste | `[]` | — | variables ajoutées au conteneur |
-| `terminationGracePeriodSeconds` | entier | `30` | — | — |
+| `terminationGracePeriodSeconds` | entier | `30` | — | minimum `30` : l'arrêt attend jusqu'à 20 s les ouvertures de projet en cours |
 
 Il n'y a **pas** de valeur pour le nombre de répliques : le StatefulSet en a toujours une.
 

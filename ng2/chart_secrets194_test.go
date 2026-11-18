@@ -256,3 +256,18 @@ func TestChartKubeconfigsMontes193(t *testing.T) {
 		t.Error("volume Secret kc absent")
 	}
 }
+
+// l'arrêt du launcher attend jusqu'à 20 s les ouvertures en cours : délai de grâce < 30 refusé
+func TestChartTerminationGraceMinimum30(t *testing.T) {
+	needHelm(t)
+	for _, n := range []int{0, 10} {
+		v := clone(baseValues())
+		v["terminationGracePeriodSeconds"] = n
+		if _, out, err := render(t, v); err == nil {
+			t.Errorf("terminationGracePeriodSeconds=%d accepté\n%.200s", n, out)
+		}
+	}
+	v := clone(baseValues())
+	v["terminationGracePeriodSeconds"] = 30
+	must(t, v)
+}
