@@ -94,7 +94,8 @@ func AcquirePresence() (release func(), err error) {
 			}
 		case successor && age >= presenceSuccessorStale: // prédécesseur de même pid, sans battement depuis assez longtemps
 			reclaims++
-			_, _ = reclaimStaleIf(p, presenceStale, string(b))
+			// revérifié sous le verrou de reprise : un battement arrivé depuis le constat de silence n'est pas écrasé
+			_, _ = reclaimStaleIfMin(p, presenceStale, string(b), presenceSuccessorStale)
 		case successor && time.Now().Before(waitUntil):
 			// peut-être un prédécesseur qui vient d'être arrêté : attendre ICI le silence de son battement (jamais de
 			// sortie en code 1 : le pod ne redémarre pas pour rien), puis le reprendre

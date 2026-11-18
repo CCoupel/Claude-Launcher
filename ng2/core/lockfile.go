@@ -53,6 +53,13 @@ func reclaimStale(path string, stale time.Duration) (bool, error) {
 // reclaimStaleIf : reclaimStale ; expect non vide : le fichier n'est retiré que s'il porte encore CE contenu (le
 // constat de péremption — âge, ou rédacteur disparu — porte sur lui : un témoin recréé entre-temps n'est pas retiré).
 func reclaimStaleIf(path string, stale time.Duration, expect string) (bool, error) {
+	return reclaimStaleIfMin(path, stale, expect, 0)
+}
+
+// reclaimStaleIfMin : reclaimStaleIf qui revérifie, sous le verrou de reprise, que le fichier est TOUJOURS silencieux
+// depuis au moins minAge (0 : pas de contrôle). Un battement (date du fichier rafraîchie, contenu inchangé) arrivé entre
+// le constat et la reprise n'est ainsi jamais écrasé (témoin d'un prédécesseur vivant).
+func reclaimStaleIfMin(path string, stale time.Duration, expect string, minAge time.Duration) (bool, error) {
 	guard := path + ".reclaim"
 	token := newLockToken()
 	created, err := createExclusive(guard, []byte(token+"\n"), 0o644)
@@ -73,6 +80,9 @@ func reclaimStaleIf(path string, stale time.Duration, expect string) (bool, erro
 	st, err := os.Stat(path)
 	if err != nil {
 		return true, nil // déjà parti
+	}
+	if minAge > 0 && time.Since(st.ModTime()) < minAge {
+		return false, nil // battement reçu depuis le constat : vivant
 	}
 	if expect != "" {
 		if b, rerr := os.ReadFile(path); rerr != nil || string(b) != expect {
