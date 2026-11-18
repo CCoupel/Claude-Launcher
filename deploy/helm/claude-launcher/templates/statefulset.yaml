@@ -100,6 +100,12 @@ spec:
             {{- end }}
             - name: CL_SECRETS_DIR
               value: /var/lib/claude-launcher/secrets
+            {{- if .Values.backends.docker.secretName }}
+            - name: DOCKER_CERT_PATH
+              value: /var/run/claude-launcher/docker
+            - name: DOCKER_TLS_VERIFY
+              value: "1"
+            {{- end }}
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
