@@ -14,7 +14,7 @@ même cœur.
 |---|---|---|
 | **Linux, macOS** | la **coque tmux** : navigateur de projets à gauche, tmux à droite ([ci-dessous](#linux-et-macos--la-coque-tmux)) | sur l'hôte, ou dans un conteneur local ou distant |
 | **Windows** (v6) | une **application native** (`claude-launcher-ng2.exe`) : arbre des projets, cartes, un terminal par agent ([ci-dessous](#windows--lapplication-native)) | dans un conteneur **distant** (docker/podman en `tcp://` ou `ssh://`, `ssh`, Kubernetes) |
-| **Kubernetes** (Helm, v6.3) | l'**interface web** servie par un pod du cluster, derrière un Ingress interne ([ci-dessous](#kubernetes-helm--le-launcher-dans-le-cluster)) | dans des pods du même namespace (backend `k8s`) |
+| **Kubernetes** (Helm, v6.4) | l'**interface web** servie par un pod du cluster, derrière un Ingress interne ([ci-dessous](#kubernetes-helm--le-launcher-dans-le-cluster)) | dans des pods du même namespace, et sur d'autres namespaces ou clusters (backends `k8s`, ssh, docker, podman) |
 
 Depuis la v5, un projet peut **s'exécuter dans un conteneur** (podman, docker, podman ou docker par
 ssh, Kubernetes) : il n'installe plus rien sur votre OS, choisit sa distribution (Debian, Ubuntu,
@@ -26,6 +26,21 @@ launcher **Windows natif** ; sous Linux, la coque tmux ne change pas.
 > (voir [Revenir à la v4](#revenir-à-la-v4)) mais ne reçoit plus d'évolutions.
 > **Passer de la v4 à la v5/v6 (ou revenir) uniquement avec tous les projets fermés.**
 > Le passage de la v5 à la v6 se fait tout seul : voir [Passage à la v6](#passage-à-la-v6).
+
+**Ce qui est livré en v6.4** (détail dans [CHANGELOG.md](CHANGELOG.md)) :
+
+- **Template** : la carte TEAM affiche la version du template du projet, avec un `⚠` quand une version publiée
+  plus récente existe. La comparaison suit l'ordre des versions, sans proposer de retour en arrière.
+- **Onglets** de l'interface native : liseré à la couleur du projet, titre et largeur stables, ordre réglable par
+  glisser-déposer (gardé par poste, `Ctrl+Tab` suit cet ordre).
+- **Backends distants** : clés ssh par backend, saisies dans les Réglages et rangées dans un coffre hors partage ; kubeconfig
+  par backend `k8s` (dépôt dans le coffre ou chemin), avec refus des kubeconfigs qui exécutent une commande.
+- **Interface web** : bandeau quand le serveur change de version ; les terminaux se rattachent seuls après un
+  redémarrage du serveur.
+- **Launcher de cluster** : fichiers des projets sous `/files`, NetworkPolicy active par défaut, arrêt borné à 25 s.
+- **Sécurité** : le serveur de maquettes du hub et de l'exe ne sert plus `PRIVATE`, `.git`, `.claude`, les identifiants
+  ni `_work` hors `_work/mockup`. Le launcher de cluster n'a **pas d'authentification** en v6.4 (elle arrive en v7.0.0) :
+  ne l'exposez que sur le réseau interne.
 
 ---
 
@@ -149,7 +164,7 @@ des projets (PVC existant, ou créé par le chart) ; un nom `.local` (mDNS) pour
 une CA interne cert-manager dont le certificat public est installé sur les postes.
 
 ```bash
-VERSION=6.3.0
+VERSION=6.4.0
 TAG=v$VERSION
 DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
 CHART=oci://ghcr.io/ccoupel/charts/claude-launcher
@@ -163,13 +178,15 @@ Valeurs clés (`values.yaml`) : `rootBase` (racine des projets, dans le pod), `h
 d'adresses admises, non vide, jamais `/0`), `ingress.tls.clusterIssuer` ou `secretName`. Le défaut `web.access: none`
 s'ouvre **sans jeton** : `https://launcher.local/` depuis une adresse de la liste.
 
-**Limites de v6.3** (risques acceptés) : pas de NetworkPolicy ; la liste d'adresses de l'Ingress est la seule barrière
-tant que l'authentification n'est pas livrée (v6.4.0, #172) ; le contexte d'un backend `k8s` est ignoré en cluster ; les
-backends distants (ssh, podman, docker) ne fonctionnent pas depuis le pod ; ne jamais exposer l'Ingress hors du réseau
-interne.
+**Limites de v6.4** (risques acceptés) : **aucune authentification** avant v7.0.0 (#172) : la liste d'adresses de
+l'Ingress interne est la seule barrière. Les secrets (clés ssh, kubeconfig) peuvent être écrits depuis le LAN, et `/files`
+est lisible depuis le LAN, avec exclusions. L'ingress externe est préparé mais refusé au rendu. Ne jamais exposer
+l'Ingress hors du réseau interne.
 
-Le guide complet (valeurs, vérifications de la liste d'adresses, mise à jour, retour arrière, cohabitation avec
-l'exe Windows) est dans [`ng2/README.md`](ng2/README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
+Le guide complet (schéma des zones de confiance, valeurs, vérifications de la liste d'adresses, mise à jour, retour arrière,
+cohabitation avec le hub et l'exe Windows, backends distants) est dans
+[`ng2/README.md`](ng2/README.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne). Pour passer d'un hub à un
+launcher de cluster sans perte : [`ng2/MIGRATION.md`](ng2/MIGRATION.md#14-passer-dun-hub-à-un-launcher-de-cluster-ou-en-ajouter-un-à-côté).
 
 ---
 
