@@ -417,6 +417,8 @@ function stBackendForm(b) {
   }
   rows.push(['', stCheck(d.defaults.backend === b.name && !!b.name, 'backend par défaut', (v) => { if (v) d.defaults.backend = b.name; else if (d.defaults.backend === b.name) d.defaults.backend = ''; stRenderFoot(); })]);
   body.appendChild(stForm(rows));
+  // identifiants (#194, #193) : juste sous les champs de connexion ; le coffre exige un backend déjà déclaré
+  if (t === 'ssh' || t === 'k8s') body.appendChild(b.name && b._orig ? (t === 'ssh' ? stSshBox(b) : stKubeBox(b)) : stSecretWait(b, t));
   // test par étapes (jusqu'à 45 s : état « en cours »)
   const test = el('button', 'btn sm pri', ST.test && ST.test.running && ST.test.name === b.name ? 'Test en cours…' : 'Tester');
   test.disabled = !!(ST.test && ST.test.running);
@@ -424,47 +426,59 @@ function stBackendForm(b) {
   const out = el('div', 'sttests'); out.id = 'sttests';
   stFillTests(out, b);
   body.appendChild(out);
-  if (t === 'ssh' && b.name) body.appendChild(stSshBox(b));
-  if (t === 'k8s' && b.name) body.appendChild(stKubeBox(b));
   return stBox(b.name || '(sans nom)', body, test);
+}
+
+function stSecretWait(b, t) {
+  const box = el('div', 'stbox stssh'); const h = el('div', 'bh');
+  h.append(el('span', '', t === 'ssh' ? '🔑 Identifiants ssh' : '🔑 Kubeconfig'));
+  const bb = el('div', 'bb', b.name ? 'Enregistrez d\'abord le backend (bouton Enregistrer en bas de la fenêtre) : le coffre n\'accepte que les backends déclarés.' : 'Nommez puis enregistrez d\'abord le backend : le coffre n\'accepte que les backends déclarés.');
+  box.append(h, bb); return box;
+}
+// L'encadré est reconstruit par stRenderPage (stPoll, saisies) : les appels asynchrones ne gardent jamais une
+// boîte en main, ils retrouvent la boîte courante (id) et le backend sélectionné.
+function stSecretRefresh(kind) {
+  const box = $('st' + kind + 'box'), b = ST.draft && ST.draft.backends[ST.sel.backend];
+  if (!box || !b || !ST[kind] || ST[kind].name !== b.name) return;
+  (kind === 'ssh' ? stSshFill : stKubeFill)(b, box);
 }
 
 // ── Identifiants ssh d'un backend (#194) : clé et empreinte de l'hôte, coffre du launcher ──
 // État propre à l'encadré (ST.ssh), reconstruit seul : une saisie en cours n'est jamais écrasée.
 // La clé privée n'est jamais affichée ni relue ; son champ est vidé après l'enregistrement.
 function stSshBox(b) {
-  const box = el('div', 'stbox stssh');
-  if (!ST.ssh || ST.ssh.name !== b.name) { ST.ssh = { name: b.name, info: null, edit: false, scan: null, msg: '', err: '', busy: false, loading: true }; stSshLoad(b, box); }
+  const box = el('div', 'stbox stssh'); box.id = 'stsshbox';
+  if (!ST.ssh || ST.ssh.name !== b.name) { ST.ssh = { name: b.name, info: null, edit: false, scan: null, msg: '', err: '', busy: false, loading: true }; stSshLoad(b); }
   stSshFill(b, box);
   return box;
 }
-async function stSshLoad(b, box) {
+async function stSshLoad(b) {
   const S2 = ST.ssh;
   try { S2.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { S2.err = e.message; }
   S2.loading = false;
-  if (ST.ssh === S2) stSshFill(b, box);
+  if (ST.ssh === S2) stSecretRefresh('ssh');
 }
 // ── Kubeconfig d'un backend k8s (#193) : même principe que l'encadré ssh ──
 // Contenu jamais affiché ni relu ; champ vidé après l'envoi. Le choix « kubeconfig: true » et du contexte
 // passe par le brouillon (enregistré avec le reste de la fiche).
 function stKubeBox(b) {
-  const box = el('div', 'stbox stssh');
-  if (!ST.kube || ST.kube.name !== b.name) { ST.kube = { name: b.name, info: null, edit: false, msg: '', err: '', busy: false, loading: true }; stKubeLoad(b, box); }
+  const box = el('div', 'stbox stssh'); box.id = 'stkubebox';
+  if (!ST.kube || ST.kube.name !== b.name) { ST.kube = { name: b.name, info: null, edit: false, msg: '', err: '', busy: false, loading: true }; stKubeLoad(b); }
   stKubeFill(b, box);
   return box;
 }
-async function stKubeLoad(b, box) {
+async function stKubeLoad(b) {
   const K = ST.kube;
   try { K.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { K.err = e.message; }
   K.loading = false;
-  if (ST.kube === K) stKubeFill(b, box);
+  if (ST.kube === K) stSecretRefresh('kube');
 }
 function stKubeFill(b, box) {
   const K = ST.kube, i = K.info || {};
   box.textContent = '';
   const h = el('div', 'bh'); h.append(el('span', '', '🔑 Kubeconfig'), el('span', 'dim', ' — coffre du launcher, hors partage'));
   const bb = el('div', 'bb');
-  const redo = () => stKubeFill(b, box);
+  const redo = () => stSecretRefresh('kube');
   const act = async (fn) => {
     if (K.busy) return; K.busy = true; K.err = ''; K.msg = ''; K.warns = []; redo();
     try { await fn(); } catch (e) { K.err = e.message; }
@@ -515,7 +529,7 @@ function stSshFill(b, box) {
   box.textContent = '';
   const h = el('div', 'bh'); h.append(el('span', '', '🔑 Identifiants ssh'), el('span', 'dim', ' — coffre du launcher, hors partage'));
   const bb = el('div', 'bb');
-  const redo = () => stSshFill(b, box);
+  const redo = () => stSecretRefresh('ssh');
   const act = async (fn) => {
     if (S2.busy) return; S2.busy = true; S2.err = ''; S2.msg = ''; redo();
     try { await fn(); } catch (e) { S2.err = e.message; }
