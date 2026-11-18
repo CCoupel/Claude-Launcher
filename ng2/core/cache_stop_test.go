@@ -155,15 +155,21 @@ func TestStateMgrSurveilleLesNouveauxSousDossiers(t *testing.T) {
 	}
 }
 
-// Rafale de dizaines de sous-dossiers avec une file minuscule (npm install, git clone) : la file déborde, le projet est
-// reparcouru, et TOUS les dossiers finissent surveillés.
+// Rafale de sous-dossiers avec une file minuscule (npm install, git clone) : adder est retenu pour que la file déborde à
+// coup sûr, le projet est reparcouru (compteur de reparcours > 0), et TOUS les dossiers finissent surveillés.
 func TestStateMgrRafaleDeDossiersFileDebordee(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git absent")
 	}
-	old := addQueueSize
+	oldQ := addQueueSize
 	addQueueSize = 1
-	defer func() { addQueueSize = old }()
+	defer func() { addQueueSize = oldQ }()
+	defer rescanGap.Set(rescanGap.Set(50 * time.Millisecond))
+	gate := make(chan struct{})
+	var once sync.Once
+	open := func() { once.Do(func() { close(gate) }) }
+	defer open()
+	defer adderHook.Set(adderHook.Set(func() { <-gate })) // adder retenu : la file (1) ne se vide pas
 	t.Setenv(CacheDirVar, t.TempDir())
 	proj := filepath.Join(t.TempDir(), "p")
 	_ = os.MkdirAll(proj, 0o755)
@@ -183,6 +189,24 @@ func TestStateMgrRafaleDeDossiersFileDebordee(t *testing.T) {
 		_ = os.MkdirAll(d, 0o755)
 		dirs = append(dirs, d)
 	}
+	// le débordement est marqué pendant qu'adder est retenu
+	end := time.Now().Add(10 * time.Second)
+	for time.Now().Before(end) {
+		m.mu.Lock()
+		marked := m.rescan[proj]
+		m.mu.Unlock()
+		if marked {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	m.mu.Lock()
+	marked := m.rescan[proj]
+	m.mu.Unlock()
+	if !marked {
+		t.Fatal("la file n'a pas débordé : le projet n'est pas marqué à reparcourir")
+	}
+	open() // adder libéré : file vidée puis reparcours
 	missing := func() int {
 		m.mu.Lock()
 		defer m.mu.Unlock()
@@ -194,11 +218,67 @@ func TestStateMgrRafaleDeDossiersFileDebordee(t *testing.T) {
 		}
 		return k
 	}
-	end := time.Now().Add(30 * time.Second)
-	for missing() > 0 && time.Now().Before(end) {
+	end = time.Now().Add(30 * time.Second)
+	for (missing() > 0 || m.Rescans() == 0) && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)
 	}
 	if k := missing(); k > 0 {
 		t.Errorf("%d dossiers sur %d jamais surveillés après la rafale", k, n)
+	}
+	if m.Rescans() == 0 {
+		t.Error("aucun reparcours : le chemin de débordement n'a pas été pris")
+	}
+}
+
+// Débordements répétés : l'intervalle minimal entre deux reparcours d'un même projet est respecté.
+func TestStateMgrReparcoursEspaces(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	defer rescanGap.Set(rescanGap.Set(700 * time.Millisecond))
+	t.Setenv(CacheDirVar, t.TempDir())
+	proj := filepath.Join(t.TempDir(), "p")
+	_ = os.MkdirAll(proj, 0o755)
+	if out, err := exec.Command("git", "-C", proj, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init : %v %s", err, out)
+	}
+	m, err := NewStateMgr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	for i := 0; i < 5; i++ { // cinq débordements à la suite
+		m.mu.Lock()
+		m.rescan[proj] = true
+		m.mu.Unlock()
+		m.rescanCh <- struct{}{}
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if n := m.Rescans(); n != 1 {
+		t.Errorf("%d reparcours en moins d'une seconde, attendu 1 (intervalle minimal)", n)
+	}
+	for end := time.Now().Add(5 * time.Second); m.Rescans() < 2 && time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+	}
+	if n := m.Rescans(); n != 2 {
+		t.Errorf("après l'intervalle : %d reparcours, attendu 2 (le débordement noté est repris une fois)", n)
+	}
+}
+
+// L'arrêt interrompt un parcours : walkAdd lancé après Stop ne visite rien.
+func TestStateMgrWalkAddInterrompuParLArret(t *testing.T) {
+	t.Setenv(CacheDirVar, t.TempDir())
+	proj := t.TempDir()
+	for i := 0; i < 300; i++ {
+		_ = os.MkdirAll(filepath.Join(proj, "d"+strconv.Itoa(i), "s"), 0o755)
+	}
+	m, err := NewStateMgr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.Stop()
+	m.walkAdd(proj, proj)
+	if n := m.walked.Load(); n != 0 {
+		t.Errorf("%d dossiers visités après l'arrêt, attendu 0", n)
 	}
 }

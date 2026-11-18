@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
@@ -9,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -178,6 +180,9 @@ type StateMgr struct {
 	// (garde mu) et adder le reparcourt en entier (watchProject : les dossiers déjà surveillés sont ignorés)
 	rescan   map[string]bool
 	rescanCh chan struct{}
+	lastScan map[string]time.Time // dernier reparcours par projet (garde mu) : intervalle minimal rescanGap
+	rescans  atomic.Int64         // reparcours effectués (tests : le chemin de débordement a été pris)
+	walked   atomic.Int64         // dossiers visités par walkAdd (tests : l'arrêt interrompt un parcours)
 
 	quit     chan struct{} // fermé par Stop
 	stopOnce sync.Once
@@ -193,7 +198,7 @@ func NewStateMgr() (*StateMgr, error) {
 		w: w, open: map[string]bool{}, pending: map[string]bool{}, updated: map[string]time.Time{}, dur: map[string]time.Duration{},
 		dirOwner: map[string]string{}, timers: map[string]*time.Timer{}, poll: map[string]bool{}, sigs: map[string]string{},
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
-		quit: make(chan struct{}), addq: make(chan [2]string, addQueueSize), rescan: map[string]bool{}, rescanCh: make(chan struct{}, 1),
+		quit: make(chan struct{}), addq: make(chan [2]string, addQueueSize), rescan: map[string]bool{}, rescanCh: make(chan struct{}, 1), lastScan: map[string]time.Time{},
 	}
 	m.wg.Add(stateWorkers + 4)
 	for i := 0; i < stateWorkers; i++ {
@@ -461,6 +466,9 @@ func (m *StateMgr) poller() {
 func (m *StateMgr) walkAdd(p, root string) {
 	n := 0
 	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if m.stopped() { // l'arrêt n'attend pas la fin d'un gros parcours
+			return filepath.SkipAll
+		}
 		if err != nil || !d.IsDir() {
 			return nil
 		}
@@ -470,6 +478,7 @@ func (m *StateMgr) walkAdd(p, root string) {
 		if n >= maxDirsPerProject {
 			return filepath.SkipAll
 		}
+		m.walked.Add(1)
 		m.addDir(p, path)
 		n++
 		return nil
@@ -509,27 +518,58 @@ func (m *StateMgr) addDir(project, dir string) {
 // addQueueSize : capacité de la file des nouveaux dossiers à surveiller (remplacée dans les tests, avant NewStateMgr).
 var addQueueSize = 1024
 
+// rescanGap : intervalle minimal entre deux reparcours complets d'un même projet (rafale continue : les reparcours ne
+// s'enchaînent pas) ; adderHook : tests, appelé par adder avant chaque dossier de la file (permet de la remplir).
+var (
+	rescanGap = tun.Of(5 * time.Second)
+	adderHook = tun.Of[func()](nil)
+)
+
+// Rescans : nombre de reparcours de projets faits après un débordement de la file (tests).
+func (m *StateMgr) Rescans() int64 { return m.rescans.Load() }
+
 // adder : surveille les sous-dossiers créés (voir addq) ; peut rester un moment dans w.Add sans gêner la lecture des
 // évènements. File débordée : reparcourt les projets concernés pour surveiller les dossiers manquants.
 func (m *StateMgr) adder() {
 	for {
 		select {
 		case a := <-m.addq:
+			if h := adderHook.Get(); h != nil {
+				h()
+			}
 			if !m.stopped() {
 				m.walkAdd(a[0], a[1])
 			}
 		case <-m.rescanCh:
+			gap := rescanGap.Get()
 			m.mu.Lock()
 			var projects []string
+			var wait time.Duration
 			for p := range m.rescan {
+				if d := gap - time.Since(m.lastScan[p]); d > 0 { // trop tôt : reste noté, réveil à l'échéance
+					if d > wait {
+						wait = d
+					}
+					continue
+				}
 				projects = append(projects, p)
 				delete(m.rescan, p)
+				m.lastScan[p] = time.Now()
 			}
 			m.mu.Unlock()
+			if wait > 0 {
+				time.AfterFunc(wait, func() {
+					select {
+					case m.rescanCh <- struct{}{}:
+					default:
+					}
+				})
+			}
 			for _, p := range projects {
 				if m.stopped() {
 					return
 				}
+				m.rescans.Add(1)
 				m.watchProject(p)
 			}
 		case <-m.quit:
