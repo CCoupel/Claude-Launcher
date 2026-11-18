@@ -1,6 +1,8 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
+	"errors"
 	"log"
 	"time"
 
@@ -44,3 +46,28 @@ func drainClose(closeFn func() error, events <-chan fsnotify.Event, errs <-chan 
 		}
 	}
 }
+
+// fsCallGrace : délai laissé à un appel au surveillant (Add, Remove) déjà en cours quand l'arrêt est demandé.
+var fsCallGrace = tun.Of(500 * time.Millisecond)
+
+// fsCall : f (w.Add, w.Remove) dans une goroutine, abandonnable à l'arrêt (quit fermé). Sous Windows, fsnotify répond à Add
+// et Remove par la goroutine de lecture : si Close passe avant qu'elle ne traite la demande, l'appel attend une réponse qui
+// ne vient JAMAIS (Add / Close en course, vu en CI : adder figé 9 minutes sur backend_windows.go « <-in.reply », Stop derrière
+// wg.Wait). Après quit, l'appel a fsCallGrace pour finir, puis il est abandonné (sa goroutine reste, sans conséquence).
+func fsCall(f func() error, quit <-chan struct{}) error {
+	res := make(chan error, 1)
+	go func() { res <- f() }()
+	select {
+	case err := <-res:
+		return err
+	case <-quit:
+	}
+	select {
+	case err := <-res:
+		return err
+	case <-time.After(fsCallGrace.Get()):
+		return errFsAbandoned
+	}
+}
+
+var errFsAbandoned = errors.New("appel au surveillant abandonné à l'arrêt")

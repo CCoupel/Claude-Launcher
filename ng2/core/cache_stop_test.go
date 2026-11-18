@@ -282,3 +282,55 @@ func TestStateMgrWalkAddInterrompuParLArret(t *testing.T) {
 		t.Errorf("%d dossiers visités après l'arrêt, attendu 0", n)
 	}
 }
+
+// Un Add du surveillant qui ne répond jamais (fsnotify sous Windows quand Close passe avant la goroutine de lecture :
+// dump CI, adder figé sur backend_windows.go « <-in.reply ») ne fige pas Stop.
+func TestStateMgrStopAvecUnAddQuiNeRepondJamais(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	defer fsCallGrace.Set(fsCallGrace.Set(100 * time.Millisecond))
+	block := make(chan struct{})
+	defer close(block)
+	defer fsAdd.Set(fsAdd.Set(func(w *fsnotify.Watcher, dir string) error {
+		if filepath.Base(dir) == "nouveau" { // seul ce Add ne répond jamais ; les autres sont de vrais Add
+			<-block
+			return nil
+		}
+		return w.Add(dir)
+	}))
+	t.Setenv(CacheDirVar, t.TempDir())
+	proj := filepath.Join(t.TempDir(), "p")
+	_ = os.MkdirAll(proj, 0o755)
+	if out, err := exec.Command("git", "-C", proj, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init : %v %s", err, out)
+	}
+	m, err := NewStateMgr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.SetProjects([]string{proj})
+	_ = os.MkdirAll(filepath.Join(proj, "nouveau"), 0o755) // évènement → adder → Add qui ne répond jamais
+	time.Sleep(500 * time.Millisecond)
+	done := make(chan struct{})
+	go func() { m.Stop(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Stop figé par un Add qui ne répond jamais")
+	}
+}
+
+// waitGroupTimeout : borné, et rend la main avec la pile des goroutines quand une tâche ne finit jamais.
+func TestWaitGroupTimeout(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	start := time.Now()
+	if waitGroupTimeout(&wg, 150*time.Millisecond, "test") || time.Since(start) > 3*time.Second {
+		t.Errorf("attente non bornée (%v)", time.Since(start))
+	}
+	wg.Done()
+	if !waitGroupTimeout(&wg, time.Second, "test") {
+		t.Error("groupe fini : attendu vrai")
+	}
+}

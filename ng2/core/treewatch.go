@@ -118,7 +118,7 @@ func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 				continue
 			}
 			keep[d] = true
-			if !watched[d] && w.Add(d) == nil {
+			if !watched[d] && fsCall(func() error { return w.Add(d) }, done) == nil {
 				watched[d] = true
 			}
 		}
@@ -126,7 +126,7 @@ func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 			// un dossier surveillé qui a disparu perd sa veille inotify : on
 			// l'oublie, pour la reposer s'il revient
 			if !keep[d] || !dirReachable(d) {
-				_ = w.Remove(d)
+				_ = fsCall(func() error { return w.Remove(d) }, done)
 				delete(watched, d)
 			}
 		}

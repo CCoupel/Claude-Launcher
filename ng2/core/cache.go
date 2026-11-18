@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -226,8 +228,26 @@ func (m *StateMgr) Stop() {
 		}
 		m.mu.Unlock()
 		closeFsWatcher(m.w, "état des projets")
-		m.wg.Wait()
+		waitGroupTimeout(&m.wg, stateStopLimit.Get(), "état des projets")
 	})
+}
+
+// stateStopLimit : au plus combien de temps Stop attend les tâches de fond ; passé ce délai il rend la main, journalise
+// et affiche la pile de toutes les goroutines (un arrêt figé ne bloque ni l'arrêt du launcher ni une CI pendant 10 minutes).
+var stateStopLimit = tun.Of(20 * time.Second)
+
+// waitGroupTimeout : wg.Wait borné ; rend faux (avec journal et pile des goroutines) au-delà de limit.
+func waitGroupTimeout(wg *sync.WaitGroup, limit time.Duration, what string) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(limit):
+		log.Printf("%s : tâches de fond toujours actives après %s, arrêt sans les attendre — pile des goroutines :", what, limit)
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+		return false
+	}
 }
 
 func (m *StateMgr) stopped() bool {
@@ -508,12 +528,15 @@ func (m *StateMgr) addDir(project, dir string) {
 	}
 	m.dirOwner[dir] = project
 	m.mu.Unlock()
-	if err := m.w.Add(dir); err != nil {
+	if err := fsCall(func() error { return fsAdd.Get()(m.w, dir) }, m.quit); err != nil {
 		m.mu.Lock()
 		delete(m.dirOwner, dir)
 		m.mu.Unlock()
 	}
 }
+
+// fsAdd : w.Add (remplacé dans les tests : un Add qui ne répond jamais, comme fsnotify sous Windows quand Close passe avant).
+var fsAdd = tun.Of(func(w *fsnotify.Watcher, dir string) error { return w.Add(dir) })
 
 // addQueueSize : capacité de la file des nouveaux dossiers à surveiller (remplacée dans les tests, avant NewStateMgr).
 var addQueueSize = 1024
