@@ -9,7 +9,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
-## [6.4.0] — en cours
+## [6.4.0] — 2026-11-18
 
 ### Added
 - Carte TEAM : le titre affiche la version du template du projet (« tpl vX ») et un `⚠` orange si une version publiée plus récente existe ; l'infobulle indique la version disponible et `/init-project` au lancement (#199)
@@ -27,6 +27,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Chart Helm : `rbac.extraNamespaces` (Role et RoleBinding dans d'autres namespaces du même cluster), `backends.kubeconfigs`, PVC du coffre `<release>-secrets` (`keep`), `backends.docker.secretName` pour un Secret TLS docker/podman (#193, #194)
 
 ### Changed
+- **Changement hub et exe** : le serveur de maquettes local (hub `8765`, exe `8766`) ne sert plus `PRIVATE`, `.git`, `.claude`, les fichiers d'identifiants, ni `_work` hors `_work/mockup` ; `/files` refuse les requêtes cross-site (sauf sous-ressources de maquette) (#174)
 - La version du template est comparée dans l'ordre (`VersionNewer`) ; l'état « à mettre à jour » ne vaut que si la version adoptée est strictement plus récente que celle du projet (#199)
 - La question au lancement ne propose plus de retour en arrière : une cible égale ou plus ancienne que la version du projet n'est jamais proposée (#199)
 - La carte TEAM affiche la version du projet (et non plus la version adoptée) ; la version adoptée ne change qu'au clic sur l'annonce (#199)
@@ -35,10 +36,12 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Durcissement de l'ouverture et de l'arrêt : l'installation du pod d'un projet (bootstrap du conteneur) est détachée du launcher ; à l'arrêt, le launcher attend les ouvertures en cours 20 s au plus ; un pod resté à moitié installé est réparé à l'ouverture suivante (#198)
 - Chart : `terminationGracePeriodSeconds` vaut 30 s au minimum (schéma), pour laisser au launcher ses 20 s d'attente (#198)
 - Onglets de l'interface native : les onglets non sélectionnés ont un liseré à la couleur de leur projet ; titre et largeur restent stables à la sélection, et « agent au travail » s'affiche dans un emplacement ⚙ fixe et dans l'infobulle (#189, #190)
-- Maquettes du hub et de l'exe : le serveur de maquettes local (`8765`) ne sert plus `PRIVATE`, `.git`, `.claude`, les fichiers d'identifiants, ni `_work` hors `_work/mockup` ; `/files` refuse les requêtes cross-site (sauf sous-ressources de maquette) (#174)
 - Un kubeconfig illisible met le backend en erreur, sans repli sur le ServiceAccount du pod (#193)
 
 ### Fixed
+- Windows : interblocage du surveillant de fichiers corrigé (présent en v6.3.0) : la mise à jour d'état et de l'arbre, et l'arrêt, se figeaient lors de créations de dossiers en rafale
+- Windows : nom de projet (`CtrName`) sans correspondance corrigé ; `/files` servi sous Windows
+- Arrêt borné à 25 s au pire : 20 s d'attente des ouvertures en cours, puis détachement des terminaux, sous le délai de grâce de 30 s du pod (#198)
 - Courses de données sous `-race` corrigées : variables globales de réglage (délais, crochets, URL de l'API, présence, verrous), `NgVersion` et `InitSynced` lues et écrites sous verrou (#174)
 - Comparaisons de versions du template corrigées : seuls les 3 premiers champs `X.Y.Z` sont comparés (`5.11.1.3` → `5.11.1`) (#199)
 - Les tests n'écrivent plus dans le vrai `~` : `CL_SCRIPT` pointe vers un dossier temporaire, et une garde fait échouer les tests si `~/.template-*` est touché (#199)
