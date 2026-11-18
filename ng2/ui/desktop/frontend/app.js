@@ -1680,14 +1680,15 @@ function applyState(s) {
   if (!S.cursor || (S.cursor !== 'new' && !s.rows.find((r) => r.path === S.cursor))) S.cursor = s.selected || (projectRows()[0] || {}).path || 'new';
   // onglets disparus (session terminée, détachée)
   const open = new Set((s.tabs || []).map((t) => t.path));
-  for (const p of Object.keys(S.views)) if (!open.has(p)) { dropView(p); if (S.view === p) S.view = 'leaders'; }
+  for (const p of Object.keys(S.views)) if (!open.has(p) && !(S.grace && S.grace.pending.has(p))) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of open) if (!S.views[p]) ensureView(p);
-  if (S.view !== 'leaders' && !open.has(S.view)) S.view = 'leaders';
+  if (S.view !== 'leaders' && !open.has(S.view) && !(S.grace && S.grace.pending.has(S.view))) S.view = 'leaders';
   renderHead(); renderTree(); renderTabs(); lanBanner();
   if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
   if (S.view === 'leaders') leaders.layout();
+  graceStep();
 }
 
 // Bannière tant que l'interface web écoute hors boucle locale (webUI.lan) : fenêtre native seulement (#163)
@@ -1717,18 +1718,45 @@ function srvBanner(kind, text, withBtn) {
   b.className = 'lanbanner srv ' + kind; b.textContent = text;
   if (withBtn) { b.append(el('span', 'sp')); const r = el('button', 'btn sm', 'Recharger'); r.onclick = () => location.reload(); b.appendChild(r); }
 }
+// Redémarrage du serveur : il se rattache lui-même, de façon asynchrone, aux sessions tmux vivantes (a.reattach) ;
+// le client ne recrée rien. Les vues ouvertes sont gardées (S.grace) le temps que les onglets reviennent dans
+// l'état poussé ; chacune est resynchronisée dès que son onglet réapparaît. Fonction pure, testée par node.
+const REATTACH_MS = 20000;
+function reattachPlan(pending, openPaths) {
+  const open = new Set(openPaths);
+  const ready = [], left = [];
+  for (const p of pending) (open.has(p) ? ready : left).push(p);
+  return { ready, left };
+}
+function graceStep() {
+  const g = S.grace; if (!g) return;
+  const plan = reattachPlan(g.pending, ((S.snap && S.snap.tabs) || []).map((t) => t.path));
+  for (const p of plan.ready) { g.pending.delete(p); transport.call('termSync', { path: p }).catch(() => {}); }
+  if (!g.pending.size) graceEnd(false);
+}
+function graceEnd(timeout) {
+  const g = S.grace; if (!g) return;
+  S.grace = null; clearTimeout(g.timer);
+  const left = [...g.pending];
+  if (timeout) for (const p of left) { dropView(p); if (S.view === p) S.view = 'leaders'; }
+  for (const p of Object.keys(leaders.tiles || {})) transport.call('termSync', { path: p }).catch(() => {});
+  if (S.srvGen !== g.gen) return; // un autre bandeau (mise à jour) a pris la place : ne pas l'effacer
+  if (left.length && timeout) srvBanner('orange', left.length + ' terminal' + (left.length > 1 ? 'aux' : '') + ' non rattaché' + (left.length > 1 ? 's' : '') + ' — recharger', true);
+  else srvBanner('', '');
+}
 function onServerInfo(next) {
   if (!next) return;
   const act = serverVersionAction(S.server, next);
   if (!S.server) { S.server = next; return; }
   if (act === 'update') {
+    S.srvGen = (S.srvGen || 0) + 1;
     srvBanner('blue', '↻ Serveur mis à jour (' + verTxt(next.version) + ') — la page affichée date de ' + verTxt(S.server.version), true);
   } else if (act === 'restart') {
     S.server = next;
+    const gen = S.srvGen = (S.srvGen || 0) + 1;
+    if (S.grace) clearTimeout(S.grace.timer);
+    S.grace = { pending: new Set(Object.keys(S.views)), gen, timer: setTimeout(() => graceEnd(true), REATTACH_MS) };
     srvBanner('orange', '⟳ Serveur redémarré — reconnexion des terminaux…');
-    // terminaux rattachés seuls : contenu actuel de chaque vue et de chaque tuile de l'onglet Teamleaders
-    const paths = new Set([...Object.keys(S.views), ...Object.keys(leaders.tiles || {})]);
-    Promise.allSettled([...paths].map((path) => transport.call('termSync', { path }))).then(() => { if (S.server === next) srvBanner('', ''); });
   }
 }
 
