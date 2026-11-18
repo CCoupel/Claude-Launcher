@@ -438,3 +438,8 @@ body.cardsfolded #hsplit { display: none; }
 .stssh .bb textarea { width: 100%; font: 12px var(--mono); }
 .stssh .sthr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
 .stssh .stscan, .stssh .stpaste { margin-top: 8px; }
+
+/* bandeaux du serveur (#198) : mise à jour (bleu) et redémarrage (orange) */
+.lanbanner.srv { display: flex; align-items: center; gap: 8px; }
+.lanbanner.srv .sp { flex: 1; }
+.lanbanner.srv.blue { background: var(--alert-blue, var(--card-head)); color: var(--blue); }

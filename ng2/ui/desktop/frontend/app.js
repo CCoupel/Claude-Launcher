@@ -1700,8 +1700,41 @@ function lanBanner() {
   b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || (w.access === 'none' ? 'sans jeton : toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS')) + ' (Réglages › Interface web)';
 }
 
+// Version du serveur (#198) : `server{version,boot}` de l'init, gardé à la première réception (celui de la page).
+// Fonction pure : 'update' (version différente : page périmée), 'restart' (même version, autre démarrage : le
+// serveur a redémarré), 'none' (identique, ou l'un des deux inconnu : serveur ancien).
+function serverVersionAction(prev, next) {
+  if (!prev || !next) return 'none';
+  if (prev.version !== next.version) return 'update';
+  if (prev.boot !== next.boot) return 'restart';
+  return 'none';
+}
+const verTxt = (v) => (/^v/.test(String(v || '')) ? v : 'v' + v);
+function srvBanner(kind, text, withBtn) {
+  let b = $('srvbanner');
+  if (!text) { if (b) b.remove(); return; }
+  if (!b) { b = el('div', 'lanbanner'); b.id = 'srvbanner'; $('main').insertBefore(b, $('tabs')); }
+  b.className = 'lanbanner srv ' + kind; b.textContent = text;
+  if (withBtn) { b.append(el('span', 'sp')); const r = el('button', 'btn sm', 'Recharger'); r.onclick = () => location.reload(); b.appendChild(r); }
+}
+function onServerInfo(next) {
+  if (!next) return;
+  const act = serverVersionAction(S.server, next);
+  if (!S.server) { S.server = next; return; }
+  if (act === 'update') {
+    srvBanner('blue', '↻ Serveur mis à jour (' + verTxt(next.version) + ') — la page affichée date de ' + verTxt(S.server.version), true);
+  } else if (act === 'restart') {
+    S.server = next;
+    srvBanner('orange', '⟳ Serveur redémarré — reconnexion des terminaux…');
+    // terminaux rattachés seuls : contenu actuel de chaque vue et de chaque tuile de l'onglet Teamleaders
+    const paths = new Set([...Object.keys(S.views), ...Object.keys(leaders.tiles || {})]);
+    Promise.allSettled([...paths].map((path) => transport.call('termSync', { path }))).then(() => { if (S.server === next) srvBanner('', ''); });
+  }
+}
+
 function applyInit(r) {
   S.help = r.help; S.tools = r.tools;
+  onServerInfo(r.server);
   prefs.v = r.prefs || {};
   applyLayoutPrefs();
   applyState(r.state);
