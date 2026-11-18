@@ -1338,7 +1338,7 @@ function openModal(build) {
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
-function closeModal() { if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
+function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
 $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {

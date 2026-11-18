@@ -180,7 +180,7 @@ function stRenderRail() {
     r.appendChild(el('div', 'rg', g));
     for (const [k, t] of items) {
       const it = el('div', 'ri' + (k === ST.page ? ' on' : ''), t);
-      it.onclick = () => { ST.page = k; ST.test = null; stRender(); };
+      it.onclick = () => { stKeepClear(); ST.page = k; ST.test = null; stRender(); };
       r.appendChild(it);
     }
   }
@@ -345,7 +345,7 @@ function stPageBackends(p) {
     if (d.defaults.backend && d.defaults.backend === b.name) n.appendChild(el('span', 'pill', 'défaut'));
     r.append(n, el('td', '', b.type), (() => { const c = el('td', 'm sta', stAddr(b)); c.title = stAddr(b); return c; })(), el('td', 'm', b.pool || ''), el('td'));
     r.lastChild.className = 'stst'; r.lastChild.appendChild(b._orig ? stStateCell(b._orig) : el('span', 'dim', 'nouveau'));
-    r.onclick = () => { ST.sel.backend = i; ST.test = null; stRenderPage(); };
+    r.onclick = () => { stKeepClear(); ST.sel.backend = i; ST.test = null; stRenderPage(); };
     t.appendChild(r);
   });
   left.appendChild(t);
