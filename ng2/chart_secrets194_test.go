@@ -157,6 +157,10 @@ func TestChartDockerTLSFacultatif194(t *testing.T) {
 	for _, x := range vols {
 		if get(x, "secret", "secretName") == "docker-certs" {
 			ok = true
+			// uid 1000 sans fsGroup : 0400 (root) serait illisible ; tmpfs du pod, lecture seule → 0444 (292)
+			if dm := get(x, "secret", "defaultMode"); dm != 292 && dm != 444 && dm != float64(292) && dm != float64(444) {
+				t.Errorf("defaultMode du Secret docker = %v (%T), attendu 0444 (lisible par l'uid 1000 sans fsGroup)", dm, dm)
+			}
 		}
 	}
 	if !ok {

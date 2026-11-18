@@ -158,5 +158,5 @@ spec:
         - name: docker-tls
           secret:
             secretName: {{ .Values.backends.docker.secretName }}
-            defaultMode: 0400
+            defaultMode: 0444
         {{- end }}

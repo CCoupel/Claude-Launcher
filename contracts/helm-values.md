@@ -113,7 +113,7 @@ ni aux fichiers de `rootBase`.
 | `secrets.persistence.size` | quantité | `10Mi` | — | PVC `ReadWriteOnce` `<release>-secrets` (coffre, `helm.sh/resource-policy: keep`), monté en `/var/lib/claude-launcher/secrets`, `CL_SECRETS_DIR` |
 | `secrets.persistence.storageClassName` | chaîne | `""` (classe par défaut) | — | classe RWO, **jamais** la racine partagée |
 | `rbac.extraNamespaces` | liste | `[]` | — | Role + RoleBinding identiques dans chaque namespace listé (#193) |
-| `backends.docker.secretName` | chaîne | `""` | — | Secret TLS docker/podman (`ca.pem`, `cert.pem`, `key.pem`), monté en `/var/run/claude-launcher/docker` (#194) |
+| `backends.docker.secretName` | chaîne | `""` | — | Secret TLS docker/podman (`ca.pem`, `cert.pem`, `key.pem`), monté en `/var/run/claude-launcher/docker` (#194), `defaultMode: 0444` (pas de `fsGroup` : `0400` serait illisible par l'uid 1000 ; tmpfs du pod, lecture seule) ; pose `DOCKER_CERT_PATH` et `DOCKER_TLS_VERIFY=1` |
 | `backends.kubeconfigs` | liste `{name, secretName, key}` | `[]` | — | kubeconfigs montés en `/var/run/claude-launcher/kube/<name>/config` (#193), alternative au coffre |
 | `externalIngress.enabled` | booléen | `false` | — | **préparé, refusé** : `true` fait échouer le rendu (« ingress externe refusé : aucune authentification avant v7.0.0 (#172) ») |
 | `externalIngress.className`, `.host`, `.tls.clusterIssuer` (`letsencrypt-prod`) \| `.tls.secretName`, `.annotations` | — | — | — | déclarés dans `values.yaml` et le schéma, inutilisés en v6.4.0 ; le template `ingress-external.yaml` existe mais n'est rendu qu'après le contrôle ci-dessus (donc jamais en v6.4.0) |
