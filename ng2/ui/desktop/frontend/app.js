@@ -910,7 +910,7 @@ function applyLayoutPrefs() {
 // Onglets de projets (#189, #190, #191) — fonctions pures (testées par node : testdata/tabs_bar.js).
 // tabView : titre = nom seul, toujours ; couleur du projet même hors sélection ; « agent au travail » en infobulle.
 function tabView(t, on) {
-  return { title: t.name, tip: t.busy ? 'agent au travail' : '', color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy ? ['busy'] : []) };
+  return { title: t.name, tip: t.busy ? 'agent au travail' : '', gear: !!t.busy, color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy ? ['busy'] : []) };
 }
 // tabOrder : ordre enregistré d'abord ; les chemins nouveaux à la fin (ordre d'origine) ; les disparus ignorés.
 function tabOrder(paths, saved) {
