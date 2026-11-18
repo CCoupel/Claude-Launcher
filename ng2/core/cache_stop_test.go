@@ -1,6 +1,7 @@
 package core
 
 import (
+	"github.com/fsnotify/fsnotify"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -62,4 +63,61 @@ func TestStateMgrStopPendantUneRafale(t *testing.T) {
 	close(stopWrites)
 	wg.Wait()
 	m.Stop() // et encore après coup
+}
+
+// drainClose : un Close qui ne rend la main que si Events est lu (surveillant Windows) finit ; un Close qui ne rend jamais
+// la main n'empêche pas l'arrêt au-delà du délai.
+func TestDrainClose(t *testing.T) {
+	// Close bloqué tant que l'évènement en vol n'est pas lu
+	events := make(chan fsnotify.Event)
+	errs := make(chan error)
+	closeFn := func() error { events <- fsnotify.Event{Name: "x"}; return nil } // l'envoi attend un lecteur
+	start := time.Now()
+	if !drainClose(closeFn, events, errs, 5*time.Second, "test") || time.Since(start) > 2*time.Second {
+		t.Errorf("Close bloqué sur un envoi : non fini (%v)", time.Since(start))
+	}
+	// Close qui ne rend jamais la main : borné
+	block := make(chan struct{})
+	defer close(block)
+	start = time.Now()
+	if drainClose(func() error { <-block; return nil }, events, errs, 150*time.Millisecond, "test") || time.Since(start) > 3*time.Second {
+		t.Errorf("Close sans réponse : non borné (%v)", time.Since(start))
+	}
+	// vrai surveillant : fermeture immédiate, deux fois sans effet
+	w, err := fsnotify.NewWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !closeFsWatcher(w, "test") || !closeFsWatcher(nil, "test") {
+		t.Error("fermeture d'un vrai surveillant")
+	}
+}
+
+// WatchTreeUntil : l'arrêt (done fermé) ferme le surveillant sans se figer, même pendant des évènements.
+func TestWatchTreeUntilArretSousEvenements(t *testing.T) {
+	root := t.TempDir()
+	done := make(chan struct{})
+	c := WatchTreeUntil([]string{root}, done)
+	stopWrites := make(chan struct{})
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		for i := 0; ; i++ {
+			select {
+			case <-stopWrites:
+				return
+			default:
+			}
+			_ = os.MkdirAll(filepath.Join(root, "g"+strconv.Itoa(i%20)), 0o755)
+			_ = os.Remove(filepath.Join(root, "g"+strconv.Itoa((i+7)%20)))
+		}
+	}()
+	select {
+	case <-c:
+	case <-time.After(3 * time.Second):
+	}
+	close(done)
+	time.Sleep(300 * time.Millisecond)
+	close(stopWrites)
+	<-finished
 }

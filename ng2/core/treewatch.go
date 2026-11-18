@@ -95,7 +95,7 @@ func WatchTreeUntil(roots []string, done <-chan struct{}) <-chan struct{} {
 func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 	w, _ := fsnotify.NewWatcher()
 	if w != nil {
-		defer w.Close()
+		defer closeFsWatcher(w, "arborescence des projets") // Close vide les canaux et ne bloque pas l'arrêt (Windows)
 	}
 	var events <-chan fsnotify.Event
 	var errs <-chan error
