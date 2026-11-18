@@ -43,3 +43,5 @@
 | ng2/core/kubeconfig193_test.go | unitaire | core | Priorite kubeconfig > ServiceAccount > KUBECONFIG, --kubeconfig/--context, illisible sans repli, Tester (#193) | feature | |
 | ng2/ui/desktop/kubeconfig193_test.go | unitaire | ui-desktop | Depot du kubeconfig dans le coffre : contextes listes, jamais relu ni journalise, refus motives (#193) | feature | |
 | ng2/chart_kubeconfig193_test.go | integration | chart | rbac.extraNamespaces et backends.kubeconfigs en lecture seule 0444 (#193) | feature | |
+| tests/procedures/ui-web/version-serveur-198/ | procedure | ui-web | Version du serveur : bandeau Recharger sans F5, redemarrage simple, annonce non cliquable en cluster (#198) | feature | |
+| ng2/ui/desktop/server198_test.go | unitaire | ui-desktop | server{version,boot} dans init et instantane, boot stable/different, logique client node (#198) | feature | |
