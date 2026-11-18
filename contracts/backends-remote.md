@@ -73,6 +73,14 @@ Qui peut **écrire** un secret (clé ssh, `known_hosts`, kubeconfig) en v6.4.0 :
   et l'empreinte d'un backend, et donc envoyer les projets vers une machine qu'elle contrôle sans laisser de trace dans
   un terminal. Elle pouvait déjà piloter les terminaux. Chaque écriture est journalisée (backend, type de secret,
   empreinte, adresse source vue par le serveur, sans contenu) et affichée dans les Réglages (« modifié le … »).
+- **Chaîne d'attaque acceptée jusqu'à v7.0.0** (audit security LOT-2, M2) : une écriture non authentifiée depuis le LAN
+  (ingress interne, `none`) peut **redéclarer** un backend ssh (`backends.yaml`, Réglages), y déposer une clé et un
+  `known_hosts` de son choix, puis lancer un projet : le launcher exécute alors des commandes sur l'hôte choisi par
+  l'attaquant (exécution à distance sur une machine qu'il contrôle, ou sur un hôte qui autorise cette clé). Mêmes
+  moyens que « piloter les terminaux », mais sans trace dans un terminal. Atténuations v6.4.0 : liste d'adresses de
+  l'ingress, NetworkPolicy, journal des écritures (`<CacheDir>/secrets-journal.jsonl`), relevé d'empreinte limité
+  aux backends déclarés (ni loopback, ni link-local, ni adresse du pod, adresse résolue une seule fois). Levée :
+  règle R1 de v7.0.0 (session authentifiée exigée pour toute écriture).
 - Le kubeconfig de #193 suit la même règle provisoire. Sa clé de backend (`kubeconfig`) reste hors de l'empreinte
   d'exposition `WebExposureChanged` en v6.4.0, par cohérence ; elle y entrera avec R1 en v7.0.0.
 
@@ -96,6 +104,7 @@ backends:
 - **Priorité** : `kubeconfig` du backend > ServiceAccount du pod (en cluster) > `KUBECONFIG` / `~/.kube/config`.
   Avec `kubeconfig`, `context` est honoré même en cluster ; kubectl reçoit `--kubeconfig` (jamais de `KUBECONFIG`
   hérité).
+- Contrôle **à chaque appel de kubectl** (dépôt, chemin, coffre) : un kubeconfig qui exécute une commande (`exec`, `auth-provider`) ou lit un fichier du poste (`client-certificate`, `client-key`, `tokenFile`, `certificate-authority`), quelle que soit la casse des clés, est refusé — kubectl n'est pas lancé (erreur claire). `backendSecretSet {kubeconfig}` renvoie `{ ok, fingerprint, contexts, warnings }` ; `warnings` liste `insecure-skip-tls-verify` et `proxy-url` (accepté, signalé).
 - Fichier illisible : backend en erreur « kubeconfig illisible sur ce poste », **sans repli** sur le ServiceAccount.
 - Diagnostic / « Tester » : « kubeconfig lisible », puis `auth can-i` de v6.3.0 avec ce kubeconfig.
 

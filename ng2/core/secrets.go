@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -484,10 +485,11 @@ func HostScan(dest string) ([]KnownHostEntry, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := hostScanRefused(host); err != nil {
+	ip, err := resolveScanTarget(host)
+	if err != nil {
 		return nil, err
 	}
-	out, err := keyscan(host, port)
+	out, err := keyscan(ip.String(), port) // l'adresse vérifiée, jamais le nom (pas de seconde résolution)
 	if err != nil && len(out) == 0 {
 		var ee *exec.Error
 		if errors.As(err, &ee) {
@@ -498,6 +500,16 @@ func HostScan(dest string) ([]KnownHostEntry, error) {
 	es, perr := parseKnownHosts(string(out))
 	if perr != nil || len(es) == 0 {
 		return nil, fmt.Errorf("aucune clé d'hôte reçue de %s", host)
+	}
+	// les lignes portent l'hôte demandé (celui que ssh cherchera dans known_hosts), pas l'adresse sondée
+	token := host
+	if port != "" && port != "22" {
+		token = "[" + host + "]:" + port
+	}
+	for i := range es {
+		if _, _, pk, _, _, err := ssh.ParseKnownHosts([]byte(es[i].Line)); err == nil {
+			es[i].Line = token + " " + pk.Type() + " " + base64.StdEncoding.EncodeToString(pk.Marshal())
+		}
 	}
 	return es, nil
 }
@@ -569,17 +581,26 @@ var secretsCheck = struct {
 	m map[string]secretsCheckEntry
 }{m: map[string]secretsCheckEntry{}}
 
-// hostScanRefused : le relevé d'empreinte ne vise ni la boucle locale, ni une adresse du pod / de la machine du
-// launcher (ssh-keyscan servirait de sonde du réseau interne du pod).
-func hostScanRefused(host string) error {
+// resolveScanTarget : résout l'hôte UNE fois, vérifie chaque adresse et rend celle qu'on sondera (pas de seconde
+// résolution : pas de rebinding). Refus : boucle locale, adresse non spécifiée, link-local (169.254.0.0/16 dont les
+// métadonnées cloud, fe80::/10), multicast, adresses du pod / de la machine du launcher.
+func resolveScanTarget(host string) (net.IP, error) {
 	if strings.EqualFold(host, "localhost") {
-		return fmt.Errorf("relevé refusé : %s est la machine du launcher", host)
+		return nil, fmt.Errorf("relevé refusé : %s est la machine du launcher", host)
 	}
-	ips := []net.IP{}
+	var ips []net.IP
 	if ip := net.ParseIP(host); ip != nil {
-		ips = append(ips, ip)
-	} else if r, err := net.LookupIP(host); err == nil {
-		ips = r
+		ips = []net.IP{ip}
+	} else {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		addrs, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+		if err != nil || len(addrs) == 0 {
+			return nil, fmt.Errorf("relevé impossible : %s ne se résout pas", host)
+		}
+		for _, a := range addrs {
+			ips = append(ips, a.IP)
+		}
 	}
 	local := map[string]bool{}
 	if as, err := net.InterfaceAddrs(); err == nil {
@@ -590,9 +611,12 @@ func hostScanRefused(host string) error {
 		}
 	}
 	for _, ip := range ips {
-		if ip.IsLoopback() || ip.IsUnspecified() || local[ip.String()] {
-			return fmt.Errorf("relevé refusé : %s désigne la machine du launcher (%s)", host, ip)
+		switch {
+		case ip.IsLoopback() || ip.IsUnspecified() || local[ip.String()]:
+			return nil, fmt.Errorf("relevé refusé : %s désigne la machine du launcher (%s)", host, ip)
+		case ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsMulticast():
+			return nil, fmt.Errorf("relevé refusé : %s désigne une adresse locale au lien ou de métadonnées (%s)", host, ip)
 		}
 	}
-	return nil
+	return ips[0], nil
 }

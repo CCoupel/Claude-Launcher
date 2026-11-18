@@ -136,9 +136,12 @@ func TestSecretsKnownHostsEtScan(t *testing.T) {
 	old := keyscan
 	defer func() { keyscan = old }()
 	var gh, gp string
-	keyscan = func(h, p string) ([]byte, error) { gh, gp = h, p; return []byte(line + "\n"), nil }
+	keyscan = func(h, p string) ([]byte, error) {
+		gh, gp = h, p
+		return []byte("192.168.1.210 " + strings.SplitN(line, " ", 2)[1] + "\n"), nil
+	}
 	es, err := HostScan("user@192.168.1.210:2222")
-	if err != nil || len(es) != 1 || gh != "192.168.1.210" || gp != "2222" {
+	if err != nil || len(es) != 1 || gh != "192.168.1.210" || gp != "2222" || !strings.HasPrefix(es[0].Line, "[192.168.1.210]:2222 ssh-ed25519 ") {
 		t.Errorf("HostScan : %v %v %q %q", es, err, gh, gp)
 	}
 	if _, err := HostScan("-oProxyCommand=x"); err == nil {
@@ -168,7 +171,7 @@ func TestHostScanRefuseLoopbackEtPod(t *testing.T) {
 	defer func() { keyscan = old }()
 	called := false
 	keyscan = func(h, p string) ([]byte, error) { called = true; return nil, nil }
-	for _, h := range []string{"127.0.0.1", "user@localhost", "::1", "[::1]:22", "0.0.0.0"} {
+	for _, h := range []string{"127.0.0.1", "user@localhost", "::1", "[::1]:22", "0.0.0.0", "169.254.169.254", "fe80::1", "[fe80::1]:22", "224.0.0.1"} {
 		if _, err := HostScan(h); err == nil || !strings.Contains(err.Error(), "refusé") {
 			t.Errorf("%s : relevé accepté (%v)", h, err)
 		}

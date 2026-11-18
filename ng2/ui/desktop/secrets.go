@@ -60,11 +60,14 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 		return info, err
 	case "backendSecretSet":
 		if in.Kubeconfig != "" { // kubeconfig d'un backend k8s (#193) : contextes rendus, jamais le contenu
-			ctxs, fp, err := core.SecretSetKubeconfig(in.Backend, in.Kubeconfig, w)
+			ctxs, fp, warns, err := core.SecretSetKubeconfig(in.Backend, in.Kubeconfig, w)
+			if warns == nil {
+				warns = []string{}
+			}
 			if err != nil {
 				return map[string]any{"ok": false, "msg": err.Error()}, nil
 			}
-			return map[string]any{"ok": true, "fingerprint": fp, "contexts": ctxs, "msg": "kubeconfig enregistré"}, nil
+			return map[string]any{"ok": true, "fingerprint": fp, "contexts": ctxs, "warnings": warns, "msg": "kubeconfig enregistré"}, nil
 		}
 		fp, pub, err := core.SecretSetKey(in.Backend, in.PrivateKey, in.PublicKey, in.Generate, w)
 		if err != nil {

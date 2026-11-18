@@ -34,7 +34,11 @@ func (e Engine) kubectl(args ...string) []string {
 		out = []string{"env", "-u", "KUBECONFIG", "kubectl"} // ServiceAccount du pod ou kubeconfig du backend : jamais le kubeconfig de l'environnement
 	}
 	if e.B.hasKubeconfig() { // kubeconfig du backend (#193) : prioritaire, jamais de repli sur le ServiceAccount
-		out = append(out, e.B.kubeconfigArgs()...)
+		ka, err := e.B.kubeconfigArgs()
+		if err != nil {
+			return kubectlRefused(err) // refusé : kubectl n'est pas lancé
+		}
+		out = append(out, ka...)
 	}
 	if e.B.Context != "" && !k8sViaServiceAccount(e.B) { // en cluster sans kubeconfig : contexte ignoré (ServiceAccount du pod)
 		out = append(out, "--context", e.B.Context)

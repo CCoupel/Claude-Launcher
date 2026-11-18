@@ -120,6 +120,13 @@ func TestBackendSecretKubeconfig(t *testing.T) {
 	if !strings.Contains(out, `"ok":true`) || !strings.Contains(out, `"prod"`) || strings.Contains(out, "TOK-193") {
 		t.Errorf("dépôt : %s", out)
 	}
+	if !strings.Contains(out, `"warnings":[]`) {
+		t.Errorf("champ warnings absent : %s", out)
+	}
+	tls := strings.Replace(kc, "cluster: {server: 'https://x'}", "cluster: {server: 'https://x', insecure-skip-tls-verify: true}", 1)
+	if o := call("backendSecretSet", map[string]any{"backend": "autre", "kubeconfig": tls}); !strings.Contains(o, "insecure-skip-tls-verify") || !strings.Contains(o, `"ok":true`) {
+		t.Errorf("avertissement TLS : %s", o)
+	}
 	if g := call("backendSecretGet", map[string]any{"backend": "autre"}); !strings.Contains(g, `"hasKubeconfig":true`) || strings.Contains(g, "TOK-193") {
 		t.Errorf("get : %s", g)
 	}

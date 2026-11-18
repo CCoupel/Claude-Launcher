@@ -73,14 +73,14 @@ func TestKubectlAvecKubeconfig(t *testing.T) {
 	// chemin sous une zone partagée : refusé, mais --kubeconfig reste (aucun repli)
 	t.Setenv("CL_ROOT_BASE", "/share/x")
 	b.Kubeconfig = KubeconfigRef{Path: "/share/x/kc"}
-	if a := strings.Join(Engine{b}.kubectl("get"), " "); !strings.Contains(a, "--kubeconfig") || strings.Contains(a, "/share/x/kc") {
-		t.Errorf("chemin partagé : %s", a)
+	if a := (Engine{b}).kubectl("get"); len(a) != 1 || !strings.HasPrefix(a[0], "kubeconfig-refuse") || !strings.Contains(a[0], "zone partagée") {
+		t.Errorf("chemin partagé : kubectl ne doit pas être lancé : %v", a)
 	}
 }
 
 func TestKubeconfigDepotEtRefus(t *testing.T) {
 	d := secretsEnv(t)
-	ctxs, fp, err := SecretSetKubeconfig("k8", kubeOK, SecretWrite{Source: "t"})
+	ctxs, fp, _, err := SecretSetKubeconfig("k8", kubeOK, SecretWrite{Source: "t"})
 	if err != nil || len(ctxs) != 2 || ctxs[0] != "prod" || !strings.HasPrefix(fp, "sha256:") {
 		t.Fatalf("dépôt : %v %v %q", ctxs, err, fp)
 	}
@@ -101,9 +101,11 @@ func TestKubeconfigDepotEtRefus(t *testing.T) {
 		"provider":  strings.Replace(kubeOK, "{token: SECRET-TOKEN-193}", "{auth-provider: {name: gcp}}", 1),
 		"tokenFile": strings.Replace(kubeOK, "{token: SECRET-TOKEN-193}", "{tokenFile: /var/run/secrets/token}", 1),
 		"ca":        strings.Replace(kubeOK, "certificate-authority-data: QUJD", "certificate-authority: /etc/ca", 1),
+		"casse":     strings.Replace(kubeOK, "{token: SECRET-TOKEN-193}", "{Exec: {command: /bin/evil}}", 1),
+		"casse2":    strings.Replace(strings.Replace(kubeOK, "users:", "Users:", 1), "{token: SECRET-TOKEN-193}", "{ExEc: {command: x}}", 1),
 		"vide":      "n'importe quoi",
 	} {
-		if _, _, err := SecretSetKubeconfig("k8", bad, SecretWrite{}); err == nil {
+		if _, _, _, err := SecretSetKubeconfig("k8", bad, SecretWrite{}); err == nil {
 			t.Errorf("%s : kubeconfig accepté", name)
 		}
 	}
@@ -130,5 +132,37 @@ func TestKubeconfigEtapesTest(t *testing.T) {
 	b.Context = "inconnu"
 	if st, ok := kubeconfigSteps(b); ok || !strings.Contains(st[0].Detail, "absent du kubeconfig") {
 		t.Errorf("contexte absent : %+v", st)
+	}
+}
+
+func TestKubeconfigAvertissements(t *testing.T) {
+	secretsEnv(t)
+	kc := strings.Replace(kubeOK, "certificate-authority-data: QUJD", "insecure-skip-tls-verify: true, proxy-url: 'http://px:3128'", 1)
+	_, _, w, err := SecretSetKubeconfig("k8", kc, SecretWrite{})
+	if err != nil || len(w) != 2 || !strings.Contains(strings.Join(w, "|"), "insecure-skip-tls-verify") || !strings.Contains(strings.Join(w, "|"), "proxy-url") {
+		t.Errorf("avertissements : %v %v", w, err)
+	}
+	if _, _, w, _ := SecretSetKubeconfig("k8", kubeOK, SecretWrite{}); len(w) != 0 {
+		t.Errorf("kubeconfig sain : avertissements %v", w)
+	}
+}
+
+// Un fichier posé hors du launcher (chemin) est contrôlé à chaque appel de kubectl, pas seulement au dépôt.
+func TestKubectlRefuseKubeconfigCheminDangereux(t *testing.T) {
+	secretsEnv(t)
+	f := filepath.Join(t.TempDir(), "kc")
+	_ = os.WriteFile(f, []byte(strings.Replace(kubeOK, "{token: SECRET-TOKEN-193}", "{exec: {command: /bin/evil}}", 1)), 0o600)
+	b := BackendConf{Name: "k", Type: "k8s", Kubeconfig: KubeconfigRef{Path: f}}
+	a := (Engine{b}).kubectl("get", "pods")
+	if len(a) != 1 || !strings.HasPrefix(a[0], "kubeconfig-refuse") || !strings.Contains(a[0], "exec") {
+		t.Fatalf("kubectl lancé avec un kubeconfig dangereux : %v", a)
+	}
+	// la commande de remplacement échoue avec la raison, sans rien exécuter
+	if err := (Engine{b}).kcmd("get").Run(); err == nil || !strings.Contains(err.Error(), "kubeconfig-refuse") {
+		t.Errorf("erreur d'exécution : %v", err)
+	}
+	// et le test du backend le dit
+	if st, ok := kubeconfigSteps(b); ok || !strings.Contains(st[0].Detail, "exec") {
+		t.Errorf("étape : %+v", st)
 	}
 }
