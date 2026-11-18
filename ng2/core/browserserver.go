@@ -52,6 +52,10 @@ type serverConf struct {
 	Base   string // http://hôte:port, sans / final
 	Allow  []string
 	Source string
+	// #174, mode serveur dans un cluster : le projet de la session — racine dans l'espace des sessions, et base d'appariement
+	// (<CL_WEB_URL>/files) distincte de Base (<CL_WEB_URL>/files/<projet>)
+	ProjectRoot string
+	PairBase    string
 	// d'où vient l'adresse d'écoute (diag) : hubs.<machine>[.<système>]
 	// .browser_server.listen, defaults.browser_server.listen, défaut…
 	ListenSrc string
@@ -215,6 +219,21 @@ type fileServer struct {
 	// contrôlé par le serveur web lui-même
 	prefix string
 	csp    string
+	// root : mode projet (/files/<projet>/…) — racine du projet dans l'espace des URL internes ; les URL rendues (redirections,
+	// titres des listes, lien « ../ ») sont alors relatives à cette racine : le chemin interne n'apparaît jamais
+	root string
+}
+
+// display : chemin montré à l'utilisateur pour le chemin interne p (relatif à la racine du projet en mode projet).
+func (s fileServer) display(p string) string {
+	if s.root == "" {
+		return p
+	}
+	rel := strings.TrimPrefix(p, strings.TrimRight(s.root, "/"))
+	if rel == "" {
+		return "/"
+	}
+	return rel
 }
 
 func (s fileServer) toLocal(p string) string {
@@ -412,7 +431,7 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if st.IsDir() {
 		if !strings.HasSuffix(r.URL.Path, "/") {
-			http.Redirect(w, r, s.prefix+escapePath(p)+"/", http.StatusMovedPermanently)
+			http.Redirect(w, r, s.prefix+escapePath(s.display(p))+"/", http.StatusMovedPermanently)
 			return
 		}
 		if idx := filepath.Join(real, "index.html"); fileExists(idx) {
@@ -475,9 +494,10 @@ func (s fileServer) listDir(w http.ResponseWriter, p, real string) {
 		return ents[i].Name() < ents[j].Name()
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	t := html.EscapeString(p)
+	shown := s.display(p)
+	t := html.EscapeString(shown)
 	fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><title>%s</title><style>body{font:14px system-ui,sans-serif;margin:16px}a{text-decoration:none}li{margin:2px 0}</style><h1>%s</h1><ul>", t, t)
-	if p != "/" {
+	if shown != "/" {
 		fmt.Fprint(w, `<li><a href="../">../</a></li>`)
 	}
 	for _, e := range ents {
@@ -703,16 +723,55 @@ const FilesPrefix = "/files"
 // encadré.
 const filesCSP = "sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'"
 
-// NewFilesHandler : les fichiers des projets sous FilesPrefix, avec les règles du serveur de maquettes (lecture seule,
-// racines connues, rien hors racine, liens symboliques résolus, liste d'un dossier, appariement du navigateur sous
-// /files/__claude-launcher__/pair). L'hôte est contrôlé par le serveur web ; session, origine : voir ui/desktop.
-func NewFilesHandler() http.Handler {
-	allow := func() []string {
-		c, _ := browserServer()
-		return c.Allow
-	}
-	fs := fileServer{roots: cachedRoots(allow), token: browserToken, local: LocalPath, prefix: FilesPrefix, csp: filesCSP}
-	return http.StripPrefix(FilesPrefix, fs)
+// FilesPairName : premier segment réservé de l'appariement du navigateur (/files/__claude-launcher__/pair).
+const FilesPairName = "__claude-launcher__"
+
+// NewFilesHandler : les fichiers des projets sous FilesPrefix, forme unique /files/<projet>/<chemin relatif à la racine du
+// projet> (#174). <projet> = nom du projet dans le launcher (CtrName), résolu en racine par resolve parmi les projets
+// connus ; inconnu, racine /files/, ancienne forme (chemin interne) : 404 ; premier segment en « __ » réservé au launcher
+// (seul /files/__claude-launcher__/pair existe). Règles du serveur de maquettes : lecture seule, rien hors de la
+// racine du projet (liens symboliques compris), éléments sensibles jamais servis ni listés. L'hôte est contrôlé par
+// le serveur web ; session, origine : voir ui/desktop.
+func NewFilesHandler(resolve func(name string) (root string, ok bool)) http.Handler {
+	pair := fileServer{token: browserToken, csp: filesCSP}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, FilesPrefix), "/")
+		name, sub, hasSlash := strings.Cut(rest, "/")
+		switch {
+		case name == "":
+			http.NotFound(w, r) // aucune liste à la racine : ni contenu ni nom de projet
+			return
+		case strings.HasPrefix(name, "__"): // réservé : jamais résolu comme un projet
+			if name == FilesPairName && sub == "pair" {
+				r2 := r.Clone(r.Context())
+				r2.URL.Path = browserPairPath
+				pair.ServeHTTP(w, r2)
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+		root, ok := resolve(name)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		if !hasSlash { // /files/<projet> : la forme avec « / » liste la racine du projet
+			w.Header().Set("Cache-Control", "no-store")
+			http.Redirect(w, r, FilesPrefix+"/"+url.PathEscape(name)+"/", http.StatusMovedPermanently)
+			return
+		}
+		// chemin interne = racine + chemin relatif nettoyé (« .. » ne remonte jamais au-dessus de la racine)
+		inner := path.Join(root, path.Clean("/"+sub))
+		if strings.HasSuffix(sub, "/") || sub == "" {
+			inner += "/"
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL.Path, r2.URL.RawPath = inner, ""
+		fs := fileServer{roots: func() []string { return []string{root} }, local: LocalPath, root: root,
+			prefix: FilesPrefix + "/" + url.PathEscape(name), csp: filesCSP}
+		fs.ServeHTTP(w, r2)
+	})
 }
 
 // ServerFilesBase : base d'URL des fichiers pour les sessions en mode serveur dans un cluster

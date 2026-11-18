@@ -29,3 +29,16 @@ var serverBoot = func() string {
 }()
 
 func serverInfo() ServerInfo { return ServerInfo{Version: core.Version(), Boot: serverBoot} }
+
+// projectRootByName : racine (chemin vu des sessions) du projet connu de ce launcher dont le nom est name — le nom du
+// projet dans le launcher, <catégorie>-<projet> (core.CtrName) ; ce que /files/<projet>/… résout (#174).
+func (a *App) projectRootByName(name string) (string, bool) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	for _, n := range a.nodes {
+		if n.Project && core.CtrName(n.Path) == name {
+			return core.RemotePath(n.Path), true
+		}
+	}
+	return "", false
+}

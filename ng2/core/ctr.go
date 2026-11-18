@@ -162,7 +162,7 @@ func (e Engine) NewCtrSession(name, proj string, w, h int) error {
 func (e Engine) NewCtrSessionTo(name, proj string, w, h int, out io.Writer) error {
 	ns := []string{"new-session", "-d", "-s", CtrSession, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", RemotePath(proj)}
 	withEnv := []string{"new-session", "-d"}
-	for _, v := range BrowserEnvVars() {
+	for _, v := range BrowserEnvVarsFor(proj) {
 		withEnv = append(withEnv, "-e", v.K+"="+v.V)
 	}
 	withEnv = append(withEnv, ns[2:]...)
@@ -178,8 +178,11 @@ func (e Engine) NewCtrSessionTo(name, proj string, w, h int, out io.Writer) erro
 // SetCtrBrowserPaths : à chaque ouverture ou rattachement, correspondance à
 // jour dans l'environnement de la session : les panes créés ensuite
 // (teammates) la prennent, sans recréer le conteneur ni le pod (#104).
-func (e Engine) SetCtrBrowserPaths(name string) {
-	for _, v := range BrowserEnvVars() {
+func (e Engine) SetCtrBrowserPaths(name string) { e.SetCtrBrowserPathsFor(name, "") }
+
+// SetCtrBrowserPathsFor : SetCtrBrowserPaths avec la correspondance du projet proj (mode serveur, #174).
+func (e Engine) SetCtrBrowserPathsFor(name, proj string) {
+	for _, v := range BrowserEnvVarsFor(proj) {
 		_ = e.Exec(name, false, nil, io.Discard, TmuxIn("set-environment", "-t", "="+CtrSession, v.K, v.V)...)
 	}
 }

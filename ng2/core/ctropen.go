@@ -112,7 +112,7 @@ func OpenCtr(proj string, t CtrOpenIO) (CtrOpen, error) {
 	if t.Done != nil {
 		t.Done()
 	}
-	e.SetCtrBrowserPaths(name)
+	e.SetCtrBrowserPathsFor(name, proj)
 	// propriétaire (#48) : un seul launcher pilote la session
 	res := CtrOpen{E: e, Name: name}
 	if o := e.Owner(name); o.Alive() && o.Id != LauncherID() {

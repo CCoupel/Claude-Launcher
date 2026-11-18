@@ -369,8 +369,8 @@ func (w *webBridge) handler() http.Handler {
 	})
 	// fichiers des projets (#174) : même serveur que celui des maquettes, sous /files ; sans session en mode « none » (la
 	// protection est l'ingress interne), session exigée en mode jeton ; l'appariement du navigateur a son propre jeton
-	filesH := core.NewFilesHandler()
-	mux.HandleFunc(core.FilesPrefix+"/", func(rw http.ResponseWriter, r *http.Request) {
+	filesH := core.NewFilesHandler(w.app.projectRootByName)
+	filesRoute := func(rw http.ResponseWriter, r *http.Request) {
 		// Sec-Fetch-Site comme pour l'interface (contrat « Contrôles ») : une page ou un document venu d'un autre site
 		// est refusé (même site : refusé aussi en mode « none », aucun jeton ne le distingue) ; navigation de
 		// l'utilisateur (none) et même origine passent. Exception : les SOUS-RESSOURCES d'une maquette (feuille de
@@ -388,7 +388,7 @@ func (w *webBridge) handler() http.Handler {
 			return
 		}
 		filesH.ServeHTTP(rw, r)
-	})
+	}
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method != http.MethodPost:
@@ -511,7 +511,15 @@ func (w *webBridge) handler() http.Handler {
 			}
 		}
 	})
-	return w.secured(mux)
+	// /files, /files/, /files//… : traités ICI, avant le routeur (qui redirigerait « /files » et nettoierait « // » en 307) :
+	// racine et formes inconnues répondent 404 sans rien dire (#174)
+	return w.secured(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == core.FilesPrefix || strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/") {
+			filesRoute(rw, r)
+			return
+		}
+		mux.ServeHTTP(rw, r)
+	}))
 }
 
 // ssePingEvery : cadence du ping du flux d'évènements (#198) ; remplacée dans les tests.
