@@ -62,19 +62,31 @@ func secretsDirRaw() string {
 	return filepath.Join(home, ".config", "claude-launcher", "secrets")
 }
 
-// pathWithin : p est r ou dans r (chemins nettoyés, liens symboliques résolus quand ils existent).
+// realPath : chemin nettoyé, liens symboliques (et, sous Windows, noms courts 8.3 : C:\Users\RUNNER~1) résolus pour sa
+// partie existante ; la fin qui n'existe pas encore est reposée telle quelle. Sans cela, comparer un chemin à créer à une
+// racine existante mêlerait deux formes du même dossier (court / long) et le refus ne se déclencherait pas.
+func realPath(s string) string {
+	s = filepath.Clean(s)
+	rest := ""
+	for cur := s; ; {
+		if e, err := filepath.EvalSymlinks(cur); err == nil {
+			return filepath.Join(e, rest)
+		}
+		parent := filepath.Dir(cur)
+		if parent == cur {
+			return s
+		}
+		rest = filepath.Join(filepath.Base(cur), rest)
+		cur = parent
+	}
+}
+
+// pathWithin : p est r ou dans r (formes réelles des deux chemins ; filepath.Rel ignore la casse sous Windows).
 func pathWithin(p, r string) bool {
 	if r == "" {
 		return false
 	}
-	real := func(s string) string {
-		s = filepath.Clean(s)
-		if e, err := filepath.EvalSymlinks(s); err == nil {
-			return e
-		}
-		return s
-	}
-	rel, err := filepath.Rel(real(r), real(p))
+	rel, err := filepath.Rel(realPath(r), realPath(p))
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 

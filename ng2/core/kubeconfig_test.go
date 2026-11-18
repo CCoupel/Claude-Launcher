@@ -45,8 +45,15 @@ func TestKubeconfigYAML(t *testing.T) {
 	}
 	// modèle de l'éditeur : true / chemin
 	m, err := ReadBackendsModel([]byte(src))
-	if err != nil || m.Backends[0].Kubeconfig != true || m.Backends[1].Kubeconfig != "/etc/kc/config" {
-		t.Errorf("modèle : %+v %v", m.Backends, err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byName := map[string]BackendEntry{} // sous Windows, un backend « host » implicite est ajouté en tête
+	for _, b := range m.Backends {
+		byName[b.Name] = b
+	}
+	if byName["a"].Kubeconfig != true || byName["b"].Kubeconfig != "/etc/kc/config" || byName["c"].Kubeconfig != nil {
+		t.Errorf("modèle : %+v", m.Backends)
 	}
 }
 
@@ -65,14 +72,16 @@ func TestKubectlAvecKubeconfig(t *testing.T) {
 	if !strings.Contains(a, "--kubeconfig "+filepath.Join(d, "k", "kubeconfig")) || !strings.Contains(a, "--context prod") {
 		t.Errorf("kubeconfig du coffre : %s", a)
 	}
-	// chemin
-	b.Kubeconfig = KubeconfigRef{Path: "/etc/kc/config"}
-	if a := strings.Join(Engine{b}.kubectl("get"), " "); !strings.Contains(a, "--kubeconfig /etc/kc/config") {
+	// chemin (absolu sous le système courant : /… n'est pas absolu sous Windows)
+	kc := filepath.Join(t.TempDir(), "kc", "config")
+	b.Kubeconfig = KubeconfigRef{Path: kc}
+	if a := strings.Join(Engine{b}.kubectl("get"), " "); !strings.Contains(a, "--kubeconfig "+kc) {
 		t.Errorf("kubeconfig chemin : %s", a)
 	}
 	// chemin sous une zone partagée : refusé, mais --kubeconfig reste (aucun repli)
-	t.Setenv("CL_ROOT_BASE", "/share/x")
-	b.Kubeconfig = KubeconfigRef{Path: "/share/x/kc"}
+	shared := t.TempDir()
+	t.Setenv("CL_ROOT_BASE", shared)
+	b.Kubeconfig = KubeconfigRef{Path: filepath.Join(shared, "kc")}
 	if a := (Engine{b}).kubectl("get"); len(a) != 1 || !strings.HasPrefix(a[0], "kubeconfig-refuse") || !strings.Contains(a[0], "zone partagée") {
 		t.Errorf("chemin partagé : kubectl ne doit pas être lancé : %v", a)
 	}
@@ -164,5 +173,27 @@ func TestKubectlRefuseKubeconfigCheminDangereux(t *testing.T) {
 	// et le test du backend le dit
 	if st, ok := kubeconfigSteps(b); ok || !strings.Contains(st[0].Detail, "exec") {
 		t.Errorf("étape : %+v", st)
+	}
+}
+
+// pathWithin compare les formes réelles : un chemin à créer sous une racine existante reste « dedans » même si l'un des
+// deux passe par un lien (sous Windows : nom court 8.3 contre nom long), et le refus d'un coffre sous une zone partagée en dépend.
+func TestPathWithinFormesReelles(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "lien")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip("liens symboliques indisponibles : ", err)
+	}
+	if !pathWithin(filepath.Join(link, "coffre", "sous"), real) {
+		t.Error("chemin à créer sous un lien vers la racine : doit être dedans")
+	}
+	if !pathWithin(filepath.Join(real, "coffre"), link) {
+		t.Error("racine donnée par un lien : doit contenir le chemin réel")
+	}
+	if pathWithin(filepath.Join(t.TempDir(), "coffre"), real) {
+		t.Error("chemin hors racine jugé dedans")
+	}
+	if pathWithin(filepath.Join(filepath.Dir(real), "voisin"), real) {
+		t.Error("dossier voisin jugé dedans")
 	}
 }
