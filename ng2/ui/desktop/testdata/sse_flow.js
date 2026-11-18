@@ -15,7 +15,7 @@ class ES { constructor(u) { this.u = u; sources.push(this); log.push('open'); } 
 const timers = [];
 let initFails = 2, lost = false, throwApply = true;
 const env = {
-  EventSource: ES, cb() {}, lost: () => lost,
+  newES: (u) => new ES(u), race: (p) => p, cb() {}, lost: () => lost,
   setTimeout: (f, ms) => { timers.push([f, ms]); },
   init: async () => { log.push('init'); if (initFails-- > 0) throw new Error('502'); return { ok: 1 }; },
   applyInit: () => { log.push('apply'); if (throwApply) { throwApply = false; throw new Error('boom'); } },
@@ -35,9 +35,14 @@ const tick = async () => { const [f] = timers.shift(); await f(); };
   await tick();                                          // init réussi (applyInit lève : tracé, flux rouvert quand même)
   if (log.filter((x) => x === 'open').length !== 2) fail('flux non rouvert après init réussi');
   if (log.lastIndexOf('init') > log.lastIndexOf('open')) fail('init doit précéder la réouverture');
-  if (log.includes('banner-')) fail('bandeau retiré avant l\'ouverture du flux');
+  if (!log.includes('banner-')) fail('bandeau non retiré dès qu\'init réussit');
+  // reconnexion native (même EventSource, sans nouvel open) : onopen / message retirent le bandeau même si init n'a pas été rejoué
+  const pre = sources.length; env.banner = (on) => log.push(on ? 'banner+' : 'banner-');
+  sources[1].onerror(); if (log[log.length - 1] !== 'banner+') fail('bandeau attendu après la 2e coupure');
   sources[1].onopen();
-  if (log[log.length - 1] !== 'banner-') fail('bandeau non retiré à la réouverture');
+  if (log[log.length - 1] !== 'banner-' || sources.length !== pre) fail('bandeau non retiré par onopen sans nouvel EventSource');
+  sources[1].onerror(); sources[1].onmessage({ data: '{"name":"hello","data":{}}' });
+  if (log[log.length - 1] !== 'banner-') fail('bandeau non retiré par un message du flux');
   lost = true; const n = timers.length; sources[1].onerror();   // session perdue : on arrête
   if (timers.length !== n) fail('nouvel essai malgré session perdue');
   // évènement « hello » : même décision de version qu'init, un seul bandeau
