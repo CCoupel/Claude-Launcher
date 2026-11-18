@@ -15,6 +15,7 @@ import (
 	"claude-launcher-ng2/internal/tun"
 	"encoding/json"
 	"fmt"
+	"log"
 	"reflect"
 	"runtime"
 	"strings"
@@ -172,6 +173,14 @@ func NewApp(emit Emitter) *App {
 	return a
 }
 
+// projectCount : nombre de projets connus, a.mu pris (rescan remplace a.nodes depuis d'autres goroutines : arborescence
+// surveillée, Ctrl+R).
+func (a *App) projectCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.projectPaths())
+}
+
 func (a *App) projectPaths() []string {
 	var out []string
 	for _, n := range a.nodes {
@@ -245,7 +254,7 @@ func (a *App) Start() {
 		}
 		a.ready.Store(true) // l'arbre des projets est à jour : l'application répond (/readyz)
 		a.perf.time("git", a.gitAll)
-		a.perf.write(len(a.projectPaths()))
+		a.perf.write(a.projectCount())
 		a.changed()
 	}()
 	// sessions en suspens : lues dans ~/.claude, toutes les 10 s (30 s sur un disque réseau)
@@ -298,11 +307,32 @@ func (a *App) Stop() {
 		wg.Add(1)
 		go func(t *projTerm) { defer wg.Done(); t.detach() }(t)
 	}
-	wg.Wait()
+	// budget d'arrêt : ouvertures (20 s) + détachements (≤ 5 s) = 25 s au pire, sous le délai de grâce du pod (30 s) ; un
+	// detach bloqué (client tmux qui ne se ferme pas) ne retient pas l'arrêt, les sessions continuent dans leurs conteneurs
+	if !waitDone(&wg, detachWait.Get()) {
+		log.Printf("arrêt : détachement des terminaux toujours en cours après %s, arrêt sans l'attendre", detachWait.Get())
+	}
 	if a.mgr != nil {
 		// gestionnaire d'état : son watcher fsnotify (instance inotify du quota de l'utilisateur) est fermé tout de suite ;
 		// l'attente d'un calcul en cours se fait à côté, sans retarder l'arrêt de l'interface
 		go a.mgr.Stop()
+	}
+}
+
+// detachWait : au plus combien de temps l'arrêt attend le détachement des terminaux. Remplacé dans les tests.
+var detachWait = tun.Of(5 * time.Second)
+
+// waitDone : wg.Wait borné ; faux si le groupe n'a pas fini dans max.
+func waitDone(wg *sync.WaitGroup, max time.Duration) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	t := time.NewTimer(max)
+	defer t.Stop()
+	select {
+	case <-done:
+		return true
+	case <-t.C:
+		return false
 	}
 }
 

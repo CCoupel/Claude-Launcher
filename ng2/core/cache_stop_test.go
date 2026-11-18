@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -332,5 +333,85 @@ func TestWaitGroupTimeout(t *testing.T) {
 	wg.Done()
 	if !waitGroupTimeout(&wg, time.Second, "test") {
 		t.Error("groupe fini : attendu vrai")
+	}
+}
+
+// Calcul en cours à l'arrêt : rien n'est écrit dans le cache (le CacheDir peut être celui d'un autre test, #141).
+func TestStateMgrNEcritPlusApresStop(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	t.Setenv(CacheDirVar, t.TempDir())
+	proj := filepath.Join(t.TempDir(), "p")
+	_ = os.MkdirAll(proj, 0o755)
+	if out, err := exec.Command("git", "-C", proj, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init : %v %s", err, out)
+	}
+	inCompute := make(chan struct{}, 4)
+	gate := make(chan struct{})
+	var once sync.Once
+	release := func() { once.Do(func() { close(gate) }) }
+	defer release()
+	defer computeHook.Set(computeHook.Set(func(string) {
+		select {
+		case inCompute <- struct{}{}:
+		default:
+		}
+		<-gate
+	}))
+	m, err := NewStateMgr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.enqueue(proj, true)
+	select {
+	case <-inCompute:
+	case <-time.After(10 * time.Second):
+		t.Fatal("le calcul n'a pas démarré")
+	}
+	stopped := make(chan struct{})
+	go func() { m.Stop(); close(stopped) }()
+	time.Sleep(200 * time.Millisecond) // Stop attend le calcul en cours
+	release()
+	select {
+	case <-stopped:
+	case <-time.After(10 * time.Second):
+		t.Fatal("Stop figé")
+	}
+	if _, _, ok := ReadState(proj); ok {
+		t.Error("état écrit par un calcul terminé après l'arrêt")
+	}
+	ents, _ := os.ReadDir(filepath.Join(CacheDir(), "state"))
+	for _, e := range ents {
+		t.Errorf("fichier laissé dans le cache après l'arrêt : %s", e.Name())
+	}
+}
+
+// Écritures simultanées du même état : fichiers temporaires uniques, jamais de JSON mêlé ni de .tmp oublié.
+func TestWriteStateConcurrent(t *testing.T) {
+	t.Setenv(CacheDirVar, t.TempDir())
+	proj := "/proj/x"
+	var wg sync.WaitGroup
+	for i := 0; i < 16; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			for j := 0; j < 30; j++ {
+				writeState(ProjState{Path: proj, TplTag: "v" + strconv.Itoa(i), UpdatedAt: time.Now()})
+			}
+		}(i)
+	}
+	wg.Wait()
+	ps, _, ok := ReadState(proj)
+	if !ok || !strings.HasPrefix(ps.TplTag, "v") {
+		t.Errorf("état final illisible : %+v %v", ps, ok)
+	}
+	ents, _ := os.ReadDir(filepath.Join(CacheDir(), "state"))
+	if len(ents) != 1 {
+		var names []string
+		for _, e := range ents {
+			names = append(names, e.Name())
+		}
+		t.Errorf("fichiers dans le cache : %v (un seul attendu, pas de .tmp)", names)
 	}
 }

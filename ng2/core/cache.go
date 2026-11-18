@@ -67,9 +67,17 @@ func writeState(ps ProjState) {
 		return
 	}
 	p := StatePath(ps.Path)
-	tmp := p + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
-		_ = os.Rename(tmp, p)
+	// fichier temporaire UNIQUE (dans le même dossier, pour un Rename atomique) : deux launchers — ou deux calculs — qui
+	// écrivent le même état en même temps ne se partagent plus un « <hash>.json.tmp » fixe
+	f, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".*.tmp")
+	if err != nil {
+		return
+	}
+	tmp := f.Name()
+	_, werr := f.Write(b)
+	cerr := f.Close()
+	if werr != nil || cerr != nil || os.Chmod(tmp, 0o644) != nil || os.Rename(tmp, p) != nil {
+		_ = os.Remove(tmp)
 	}
 }
 
@@ -300,6 +308,12 @@ func (m *StateMgr) worker() {
 		m.mu.Unlock()
 		start := time.Now()
 		ps := computeState(p)
+		if h := computeHook.Get(); h != nil {
+			h(p)
+		}
+		if m.stopped() { // calcul en cours à l'arrêt : rien n'est écrit (le CacheDir peut déjà être celui d'un autre test, #141)
+			return
+		}
 		writeState(ps)
 		m.mu.Lock()
 		m.dur[p] = time.Since(start)
@@ -547,6 +561,9 @@ var (
 	rescanGap = tun.Of(5 * time.Second)
 	adderHook = tun.Of[func()](nil)
 )
+
+// computeHook : tests, appelé par le worker entre le calcul d'un état et son écriture (simule un calcul lent).
+var computeHook = tun.Of[func(string)](nil)
 
 // Rescans : nombre de reparcours de projets faits après un débordement de la file (tests).
 func (m *StateMgr) Rescans() int64 { return m.rescans.Load() }

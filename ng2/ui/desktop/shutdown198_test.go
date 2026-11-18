@@ -1,6 +1,11 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/core"
+	"os"
+	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -73,5 +78,66 @@ func TestOpenGateConcurrent(t *testing.T) {
 	}
 	if !g.wait(time.Second) {
 		t.Error("compteur non retombé à zéro")
+	}
+}
+
+// Un détachement bloqué (client tmux qui ne se ferme pas) ne retient pas l'arrêt au-delà de la borne : budget
+// d'arrêt = ouvertures (20 s) + détachements (≤ 5 s), sous le délai de grâce du pod (30 s).
+func TestArretNAttendPasUnDetachBloque(t *testing.T) {
+	defer detachWait.Set(detachWait.Set(200 * time.Millisecond))
+	var r recorder
+	a := newApp(t, r.emit)
+	n := core.Node{Name: "alpha", Path: t.TempDir(), Project: true, Key: "alpha"}
+	term := newProjTerm(a, n, core.LaunchNormal)
+	a.mu.Lock()
+	a.terms[n.Path] = term
+	a.mu.Unlock()
+	term.mu.Lock() // detach() attend ce verrou : bloqué tant que le test ne le rend pas
+	defer func() { term.mu.Unlock() }()
+	start := time.Now()
+	a.Stop()
+	if d := time.Since(start); d > 3*time.Second {
+		t.Errorf("Stop retenu par un détachement bloqué : %v (borne 200 ms)", d)
+	}
+}
+
+func TestWaitDone(t *testing.T) {
+	var wg sync.WaitGroup
+	wg.Add(1)
+	if waitDone(&wg, 100*time.Millisecond) {
+		t.Error("groupe non fini : faux attendu")
+	}
+	wg.Done()
+	if !waitDone(&wg, time.Second) {
+		t.Error("groupe fini : vrai attendu")
+	}
+}
+
+// projectCount (Start) et rescan (arborescence surveillée, Ctrl+R) tournent dans des goroutines différentes : pas de course
+// sur la liste des projets (go test -race ; CI ubuntu : App.rescan écrivait pendant qu'App.Start lisait).
+func TestProjectCountEtRescanConcurrents(t *testing.T) {
+	ps := sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	root := filepath.Dir(ps[0])
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 30; i++ {
+			d := filepath.Join(root, "nouveau"+strconv.Itoa(i))
+			_ = os.MkdirAll(filepath.Join(d, ".git"), 0o755)
+			a.rescan()
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 300; i++ {
+			_ = a.projectCount()
+		}
+	}()
+	wg.Wait()
+	if n := a.projectCount(); n < 2 {
+		t.Errorf("projets connus : %d", n)
 	}
 }
