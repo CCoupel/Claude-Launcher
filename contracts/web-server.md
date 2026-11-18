@@ -22,8 +22,24 @@
 - Route `GET /files/<chemin interne>` (segments encodés) du serveur web : mêmes règles que le serveur de maquettes
   (`browser_server`) — lecture seule, racines servies, liste de dossier, rien hors racine, pas de lien symbolique qui
   en sort. En-têtes `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` (origine opaque : les scripts d'une maquette s'exécutent mais ne peuvent ni appeler `/api` ni lire un cookie de l'interface ; jamais `allow-same-origin`), `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`.
-- Contrôles : `Host` et `Sec-Fetch-Site` comme une page. En mode `token` (hub, exe), session exigée ; en `none`, pas
-  de session (la protection est l'ingress interne : liste d'adresses).
+- **Jamais servi ni listé** (route `/files` ET serveur de maquettes local 8765, qui partagent `fileServer.allowed`), au
+  chemin demandé comme après résolution des liens symboliques (un lien vers un élément exclu ne le contourne pas), 404 :
+  tout segment `PRIVATE`, `.git`, `.claude`, `.ssh`, `.aws`, `.kube`, `.gnupg`, `.netrc` ; tout nom commençant par `.env`,
+  `id_` ou `kubeconfig` ; tout nom en `.pem` ou `.key` ; `_work/tmp`. Casse ignorée. Le reste de `_work` (`mockup`, mais
+  aussi `reports`, `handoff`, `tasks`) reste servi : les maquettes vivent dans `_work/mockup`. **Ces exclusions sont
+  nouvelles pour le serveur 8765 du hub et de l'exe** (comportement d'avant : tout sous les racines).
+- Contrôles : `Host` comme une page. `Sec-Fetch-Site` : `cross-site` refusé (`same-site` aussi en mode `none`, aucun jeton
+  ne le distingue) **sauf pour les sous-ressources d'une maquette** (`Sec-Fetch-Dest` = `style`, `script`, `image`, `font`,
+  `audio`, `video`, `track`) : une maquette est servie en origine opaque (CSP `sandbox`), ses ressources relatives partent
+  donc « cross-site ». Un document, un cadre (`document`, `iframe`, `frame`, `embed`, `object`), un appel `fetch`/XHR
+  (`empty`) ou une requête sans `Sec-Fetch-Dest` d'un autre site : 403. Sans danger pour les fichiers : `nosniff` (un script
+  ou une feuille de style ne se charge qu'avec un type MIME qui convient), aucun `Access-Control-*` (rien n'est lisible
+  d'un autre site) et les éléments sensibles ne sont jamais servis.
+- **Risque accepté** : la CSP des fichiers ne pose pas `connect-src` (les maquettes chargent des CDN et des API publiques) ;
+  une maquette peut donc envoyer ce qu'elle lit vers Internet. Elle ne peut ni lire un cookie de l'interface ni appeler
+  `/api` (origine opaque).
+- En mode `token` (hub, exe), session exigée ; en `none`, pas de session (la protection est l'ingress interne : liste
+  d'adresses).
 - En mode serveur dans un cluster, les sessions claude reçoivent
   `CL_BROWSER_PATH_MAP=[{"container":"/","host":"<CL_WEB_URL>/files","os":"url"}]` et la consigne `CL_BROWSER_HINT`
   correspondante.

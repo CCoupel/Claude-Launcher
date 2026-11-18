@@ -370,18 +370,16 @@ func (w *webBridge) handler() http.Handler {
 	// protection est l'ingress interne), session exigée en mode jeton ; l'appariement du navigateur a son propre jeton
 	filesH := core.NewFilesHandler()
 	mux.HandleFunc(core.FilesPrefix+"/", func(rw http.ResponseWriter, r *http.Request) {
-		// Sec-Fetch-Site comme pour l'interface (contrat « Contrôles ») : ce qui vient d'un autre site est refusé (même
-		// site : refusé aussi en mode « none », aucun jeton ne le distingue) ; navigation de l'utilisateur (none) et
-		// même origine passent
-		switch r.Header.Get("Sec-Fetch-Site") {
-		case "cross-site":
+		// Sec-Fetch-Site comme pour l'interface (contrat « Contrôles ») : une page ou un document venu d'un autre site
+		// est refusé (même site : refusé aussi en mode « none », aucun jeton ne le distingue) ; navigation de
+		// l'utilisateur (none) et même origine passent. Exception : les SOUS-RESSOURCES d'une maquette (feuille de
+		// style, script, image, police, média) — une maquette est servie en origine opaque (CSP sandbox), ses
+		// ressources relatives partent donc « cross-site ». Sans danger : nosniff (un script ou une feuille de style ne
+		// se charge qu'avec un type MIME qui convient), aucune lecture possible sans CORS (jamais d'en-tête
+		// Access-Control-*), et les éléments sensibles ne sont jamais servis.
+		if site := r.Header.Get("Sec-Fetch-Site"); (site == "cross-site" || site == "same-site" && w.access == core.AccessNone) && !filesSubresource(r.Header.Get("Sec-Fetch-Dest")) {
 			refuse(rw, "origin", "origine refusée")
 			return
-		case "same-site":
-			if w.access == core.AccessNone {
-				refuse(rw, "origin", "origine refusée")
-				return
-			}
 		}
 		if w.access != core.AccessNone && !strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/__claude-launcher__") && !w.authorized(r, false) {
 			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
@@ -732,4 +730,14 @@ func requestSource(r *http.Request) string {
 		s += " (X-Forwarded-For: " + strings.NewReplacer("\n", " ", "\r", " ").Replace(x) + ")"
 	}
 	return s
+}
+
+// filesSubresource : destination d'une sous-ressource de maquette (Sec-Fetch-Dest) ; un document, un cadre, un objet,
+// un appel fetch/XHR (« empty ») ou l'absence de l'en-tête ne comptent pas.
+func filesSubresource(dest string) bool {
+	switch dest {
+	case "style", "script", "image", "font", "audio", "video", "track":
+		return true
+	}
+	return false
 }
