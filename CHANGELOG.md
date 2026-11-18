@@ -19,6 +19,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Interface web : bandeau « connexion au serveur perdue » pendant une coupure ; l'état est redemandé à chaque reconnexion du flux, et l'évènement `hello` est traité à l'ouverture (#198)
 - Interface web : « session introuvable — rouvrir le projet » quand la session d'un terminal n'existe plus ; le bandeau se ferme avec OK et disparaît à la réouverture du projet (#198)
 - Onglets de l'interface native : ordre réglable par glisser-déposer, gardé par poste dans `cl.tabOrder` ; `Ctrl+Tab` suit l'ordre affiché (#191)
+- Interface web en cluster : les fichiers des projets sont servis sous `/files` (CSP `sandbox`, origine opaque) ; les sessions utilisent `CL_WEB_URL/files` ; fichiers sensibles (`PRIVATE`, `.git`, `.claude`, `.env*`, clés, identifiants d'outils comme `.git-credentials`, `.npmrc`, `.docker`, `*.p12`, `*.pfx`, `*.jks`), dossiers d'état du launcher et `_work/tmp` jamais servis ni listés ; dans `_work`, seul `_work/mockup` est servi (#174)
+- Chart Helm : NetworkPolicy activée par défaut, entrée limitée aux pods du contrôleur Traefik (`networkPolicy.ingressNamespaces`, `ingressPodSelector`, `ingressCIDRs`), sur le port nommé du conteneur ; l'ingress externe est préparé mais refusé au rendu tant qu'il n'y a pas d'authentification (v7.0.0) (#200)
 - Backends ssh : clés ssh par backend saisies dans les Réglages (ou générées par le launcher, ed25519), rangées dans un coffre hors partage (`CL_SECRETS_DIR`, `0700`/`0600`) ; clé privée jamais relue ni affichée, phrase de passe refusée, empreinte de l'hôte relevée puis confirmée explicitement, journal des écritures sans contenu (`<CacheDir>/secrets-journal.jsonl`) (#194)
 - Image du cluster : clients `ssh`, `docker` et `podman` distant (`openssh-client`, client docker statique, `podman-remote`) ; aucun démon ni `sshd` (#194)
 - Backends k8s : kubeconfig par backend, déposé dans le coffre depuis les Réglages ou donné par un chemin ; contextes listés, contenu jamais affiché ; `--kubeconfig` prioritaire sur le ServiceAccount du pod (#193)
@@ -33,13 +35,16 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Durcissement de l'ouverture et de l'arrêt : l'installation du pod d'un projet (bootstrap du conteneur) est détachée du launcher ; à l'arrêt, le launcher attend les ouvertures en cours 20 s au plus ; un pod resté à moitié installé est réparé à l'ouverture suivante (#198)
 - Chart : `terminationGracePeriodSeconds` vaut 30 s au minimum (schéma), pour laisser au launcher ses 20 s d'attente (#198)
 - Onglets de l'interface native : les onglets non sélectionnés ont un liseré à la couleur de leur projet ; titre et largeur restent stables à la sélection, et « agent au travail » s'affiche dans un emplacement ⚙ fixe et dans l'infobulle (#189, #190)
+- Maquettes du hub et de l'exe : le serveur de maquettes local (`8765`) ne sert plus `PRIVATE`, `.git`, `.claude`, les fichiers d'identifiants, ni `_work` hors `_work/mockup` ; `/files` refuse les requêtes cross-site (sauf sous-ressources de maquette) (#174)
 - Un kubeconfig illisible met le backend en erreur, sans repli sur le ServiceAccount du pod (#193)
 
 ### Fixed
+- Courses de données sous `-race` corrigées : variables globales de réglage (délais, crochets, URL de l'API, présence, verrous), `NgVersion` et `InitSynced` lues et écrites sous verrou (#174)
 - Comparaisons de versions du template corrigées : seuls les 3 premiers champs `X.Y.Z` sont comparés (`5.11.1.3` → `5.11.1`) (#199)
 - Les tests n'écrivent plus dans le vrai `~` : `CL_SCRIPT` pointe vers un dossier temporaire, et une garde fait échouer les tests si `~/.template-*` est touché (#199)
 
 ### Security
+- Risques acceptés (v6.4.0) : une page tierce peut exécuter un fichier `.js` d'un projet servi sous `/files` et lire ses variables globales ; les scripts de maquette ne sont pas restreints en `connect-src` (CDN et API publiques) (#174)
 - Risque accepté jusqu'à v7.0.0 : l'écriture des secrets (clés ssh, `known_hosts`, kubeconfig) est permise depuis le LAN par l'ingress interne sans authentification (`web.access: none`). Une machine admise peut redéclarer un backend ssh, y déposer sa clé et son empreinte, puis faire exécuter des commandes à un hôte qu'elle contrôle. Atténuations : liste d'adresses de l'ingress, NetworkPolicy, journal des écritures, relevé d'empreinte limité aux backends déclarés. Levée par la règle R1 de v7.0.0 (session authentifiée exigée) (#194, #193)
 
 ## [6.3.0] — 2026-11-17
