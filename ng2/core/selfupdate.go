@@ -113,7 +113,7 @@ func UpdateTargets(tag string) (exe, bin, script string) {
 	if err != nil {
 		return "", "", ""
 	}
-	if ReleaseVerRe.MatchString(NgVersion) && VersionNewer(NgVersion, tag) {
+	if ReleaseVerRe.MatchString(Version()) && VersionNewer(Version(), tag) {
 		bin = exe
 	}
 	// v5 ne livre plus claude-launcher.sh (redirection v3 → v4) : seul le binaire est mis à jour.

@@ -44,9 +44,8 @@ func initOf198(t *testing.T, a *App) map[string]any {
 
 func TestInitPorteLeServeur198(t *testing.T) {
 	sandbox(t, "", "alpha")
-	old := core.NgVersion
-	core.NgVersion = "v6.4.0"
-	defer func() { core.NgVersion = old }()
+	old := core.SetNgVersion("v6.4.0")
+	defer core.SetNgVersion(old)
 	a := newApp(t, (&recorder{}).emit)
 	m := initOf198(t, a)
 	s := serverOf198(t, m)

@@ -41,6 +41,26 @@ const NgName = "Claude-Launcher-NG2"
 // Sans -X (build à la main), « dev » : pas de mise à jour automatique.
 var NgVersion = "dev"
 
+// ngVersionMu : NgVersion est lue par des goroutines (vérifications de mise à jour, serveurs de fichiers, instantanés)
+// pendant que des tests la remplacent : tout accès passe par Version / SetNgVersion (course de données sous -race).
+// Seul le -X du lien (avant main) l'écrit sans verrou.
+var ngVersionMu sync.RWMutex
+
+// Version : version du launcher NG (NgVersion), lecture sûre.
+func Version() string {
+	ngVersionMu.RLock()
+	defer ngVersionMu.RUnlock()
+	return NgVersion
+}
+
+// SetNgVersion : remplace la version (tests) ; rend l'ancienne.
+func SetNgVersion(v string) (old string) {
+	ngVersionMu.Lock()
+	defer ngVersionMu.Unlock()
+	old, NgVersion = NgVersion, v
+	return old
+}
+
 type (
 	UpdTickMsg struct{}
 	UpdMsg     struct {
@@ -150,7 +170,7 @@ type tagRef struct {
 // tplChoose : choisit le dernier tag du template dont la version majeure ne dépasse pas
 // celle du launcher (template et launcher partagent leur majeure depuis la v5 :
 // un template d'une majeure supérieure suppose un launcher plus récent).
-func tplChoose(tags []tagRef) int { return bestTagUpTo(tags, verParts(NgVersion)[0]) }
+func tplChoose(tags []tagRef) int { return bestTagUpTo(tags, verParts(Version())[0]) }
 
 // bestTagUpTo : index du tag vX.Y.Z le plus élevé avec X ≤ major (-1 : aucun).
 // major 0 (version « dev », compilée sans -ldflags) : pas de plafond.
@@ -248,7 +268,7 @@ func CheckUpdatesNow(manual bool) UpdMsg {
 	} else if !notMod {
 		cur.Launcher = updRepo{Tag: tag, Sha: sha, Etag: et}
 	}
-	if failed == nil && VersionNewer(NgVersion, cur.Launcher.Tag) && (!cur.Launcher.Released || cur.Launcher.Tag != prev.Launcher.Tag) {
+	if failed == nil && VersionNewer(Version(), cur.Launcher.Tag) && (!cur.Launcher.Released || cur.Launcher.Tag != prev.Launcher.Tag) {
 		cur.Launcher.Released = ReleasePublished(cur.Launcher.Tag)
 	}
 
@@ -295,7 +315,7 @@ func CheckUpdatesNow(manual bool) UpdMsg {
 func fillUpd(out *UpdMsg, c updCheck) {
 	out.Ok = true
 	out.LauncherTag = c.Launcher.Tag
-	if VersionNewer(NgVersion, c.Launcher.Tag) {
+	if VersionNewer(Version(), c.Launcher.Tag) {
 		out.LauncherReady = c.Launcher.Released
 	}
 	tag, sha := c.Template.Tag, c.Template.Sha

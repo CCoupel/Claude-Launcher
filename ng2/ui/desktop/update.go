@@ -46,7 +46,7 @@ func (a *App) applyUpd(msg core.UpdMsg) {
 	u.errKind, u.errRetry = msg.Err, msg.RetryAt
 	if msg.Ok {
 		tag := ""
-		if core.VersionNewer(core.NgVersion, msg.LauncherTag) {
+		if core.VersionNewer(core.Version(), msg.LauncherTag) {
 			tag = msg.LauncherTag
 		}
 		if tag != u.newLauncher || msg.LauncherReady != u.launcherPub {

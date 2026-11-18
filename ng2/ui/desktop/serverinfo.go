@@ -15,7 +15,7 @@ import (
 
 // ServerInfo : serveur qui répond.
 type ServerInfo struct {
-	Version string `json:"version"` // core.NgVersion (« v6.4.0 »)
+	Version string `json:"version"` // core.Version() (« v6.4.0 »)
 	Boot    string `json:"boot"`    // aléatoire, différent à chaque démarrage du processus
 }
 
@@ -28,4 +28,4 @@ var serverBoot = func() string {
 	return hex.EncodeToString(b)
 }()
 
-func serverInfo() ServerInfo { return ServerInfo{Version: core.NgVersion, Boot: serverBoot} }
+func serverInfo() ServerInfo { return ServerInfo{Version: core.Version(), Boot: serverBoot} }

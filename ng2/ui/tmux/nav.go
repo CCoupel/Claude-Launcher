@@ -418,7 +418,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.errKind, m.errRetry = msg.Err, msg.RetryAt
 		if msg.Ok {
 			tag := ""
-			if core.VersionNewer(core.NgVersion, msg.LauncherTag) {
+			if core.VersionNewer(core.Version(), msg.LauncherTag) {
 				tag = msg.LauncherTag
 			}
 			// annonce masquée : réaffichée pour un nouveau tag ou quand sa release sort
@@ -1299,9 +1299,9 @@ func bareVer(v string) string { return strings.TrimPrefix(core.OrQ(v), "v") }
 // versionLines : versions du launcher et du template, et alertes de mise à jour.
 func (m model) versionLines() string {
 	// 40 colonnes par défaut : libellés courts, complets si la place le permet.
-	line := "NG " + core.NgVersion + " · tpl " + bareVer(m.tplVer)
+	line := "NG " + core.Version() + " · tpl " + bareVer(m.tplVer)
 	if m.w >= 70 {
-		line = core.NgName + " " + core.NgVersion + " · dernier template " + core.OrQ(m.tplVer)
+		line = core.NgName + " " + core.Version() + " · dernier template " + core.OrQ(m.tplVer)
 	}
 	s := "\n" + core.Dim.Render("  "+line)
 	for _, a := range m.alerts() {

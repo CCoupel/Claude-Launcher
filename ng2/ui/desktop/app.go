@@ -779,7 +779,7 @@ func (a *App) projInfo(n core.Node) core.ProjInfo {
 func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	s := Snapshot{Version: core.NgName + " " + core.NgVersion, Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
+	s := Snapshot{Version: core.NgName + " " + core.Version(), Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
 		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)

@@ -270,7 +270,7 @@ func shellWithoutNav() bool {
 func navErrFile() string { return filepath.Join(core.CacheDir(), "nav.err") }
 
 func RecordNavError(err error) {
-	line := time.Now().Format("2006-01-02 15:04:05") + " " + core.NgVersion + " : " + strings.TrimSpace(err.Error())
+	line := time.Now().Format("2006-01-02 15:04:05") + " " + core.Version() + " : " + strings.TrimSpace(err.Error())
 	_ = os.WriteFile(navErrFile(), []byte(line+"\n"), 0o644)
 }
 

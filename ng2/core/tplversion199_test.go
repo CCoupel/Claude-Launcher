@@ -30,9 +30,8 @@ func isolate199(t *testing.T) (dir string) {
 	for _, k := range []string{"CL_FAKE_LATEST_TPL", "CL_FAKE_LATEST_LAUNCHER", "CL_FAKE_TPL_RELEASED", "GH_TOKEN", "GITHUB_TOKEN"} {
 		t.Setenv(k, "")
 	}
-	old := NgVersion
-	NgVersion = "v6.4.0"
-	t.Cleanup(func() { NgVersion = old })
+	old := SetNgVersion("v6.4.0")
+	t.Cleanup(func() { SetNgVersion(old) })
 	return dir
 }
 

@@ -13,9 +13,8 @@ import (
 func TestInitPorteLeServeur(t *testing.T) {
 	var r recorder
 	a := newApp(t, r.emit)
-	old := core.NgVersion
-	core.NgVersion = "v6.4.0"
-	defer func() { core.NgVersion = old }()
+	old := core.SetNgVersion("v6.4.0")
+	defer core.SetNgVersion(old)
 	res, err := a.Dispatch("init", nil)
 	if err != nil {
 		t.Fatal(err)

@@ -38,10 +38,12 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 	}))
 	defer srv.Close()
 	oldRaw := core.SetRawBase(srv.URL)
-	oldAPI, oldRel, oldVer, oldSynced := core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced
-	core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced = srv.URL, srv.URL+"/rel", "v5.0.0", false
+	oldAPI, oldRel, oldSynced := core.ApiBase, core.ReleaseBase, core.InitSynced
+	oldVer := core.SetNgVersion("v5.0.0")
+	core.ApiBase, core.ReleaseBase, core.InitSynced = srv.URL, srv.URL+"/rel", false
 	defer func() {
-		core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced = oldAPI, oldRel, oldVer, oldSynced
+		core.ApiBase, core.ReleaseBase, core.InitSynced = oldAPI, oldRel, oldSynced
+		core.SetNgVersion(oldVer)
 		core.SetRawBase(oldRaw)
 	}()
 
