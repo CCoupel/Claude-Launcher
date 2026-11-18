@@ -289,6 +289,40 @@
           "description": "CL_WEB_ACCESS : none (sans jeton, défaut du chart) ou token"
         }
       }
+    },
+    "secrets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "persistence": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "size": {
+              "type": "string",
+              "pattern": "^[0-9]+(Ki|Mi|Gi|Ti)$"
+            },
+            "storageClassName": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "backends": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "docker": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "secretName": {
+              "type": "string"
+            }
+          }
+        }
+      }
     }
   }
 }

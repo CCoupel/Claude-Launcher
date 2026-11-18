@@ -43,6 +43,23 @@ spec:
         seccompProfile:
           type: RuntimeDefault
         # fsGroup jamais posé : pas de changement de propriétaire récursif du partage
+      # coffre : volume neuf appartenant à root → propriétaire 1000, 0700 (seul ce dossier, jamais la racine partagée)
+      initContainers:
+        - name: secrets-perms
+          image: {{ include "cl.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: [sh, -c, 'chown {{ .Values.runAsUser }}:{{ .Values.runAsGroup }} /var/lib/claude-launcher/secrets && chmod 0700 /var/lib/claude-launcher/secrets']
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+              add: [CHOWN, FOWNER]
+          volumeMounts:
+            - name: secrets
+              mountPath: /var/lib/claude-launcher/secrets
       containers:
         - name: launcher
           image: {{ include "cl.image" . | quote }}
@@ -81,6 +98,8 @@ spec:
             - name: CL_ALLOW_HOST_BACKEND
               value: "1"
             {{- end }}
+            - name: CL_SECRETS_DIR
+              value: /var/lib/claude-launcher/secrets
             {{- with .Values.extraEnv }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -91,6 +110,13 @@ spec:
               mountPath: /home/launcher
             - name: tmp
               mountPath: /tmp
+            - name: secrets
+              mountPath: /var/lib/claude-launcher/secrets
+            {{- if .Values.backends.docker.secretName }}
+            - name: docker-tls
+              mountPath: /var/run/claude-launcher/docker
+              readOnly: true
+            {{- end }}
           # démarrage (lecture de la racine sur MooseFS) : jusqu'à 2 min avant que la sonde de vie prenne le relais
           startupProbe:
             httpGet: {path: /healthz, port: http}
@@ -119,3 +145,12 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
+        - name: secrets
+          persistentVolumeClaim:
+            claimName: {{ include "cl.fullname" . }}-secrets
+        {{- if .Values.backends.docker.secretName }}
+        - name: docker-tls
+          secret:
+            secretName: {{ .Values.backends.docker.secretName }}
+            defaultMode: 0400
+        {{- end }}

@@ -58,8 +58,14 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not (or (eq $root $mount) (hasPrefix (printf "%s/" $mount) $root)) -}}
 {{- fail (printf "rootBase (%s) doit être volume.mountPath (%s) ou un de ses sous-dossiers" $root $mount) -}}
 {{- end -}}
+{{- /* montages du chart : la racine partagée ne chevauche ni le coffre ni le Secret docker */ -}}
+{{- range $p := list "/var/lib/claude-launcher/secrets" "/var/run/claude-launcher/docker" -}}
+{{- if or (eq $mount $p) (hasPrefix (printf "%s/" $mount) $p) (hasPrefix (printf "%s/" $p) $mount) -}}
+{{- fail (printf "volume.mountPath (%s) chevauche le montage réservé %s" $mount $p) -}}
+{{- end -}}
+{{- end -}}
 {{- /* variables posées par le chart : extraEnv ne peut pas les remplacer (le dernier doublon l'emporterait) */ -}}
-{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" -}}
+{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_SECRETS_DIR" -}}
 {{- range .Values.extraEnv -}}
 {{- if has .name $reservedEnv -}}
 {{- fail (printf "extraEnv : %s est posée par le chart (valeur dédiée : rootBase, hubName, allowHostBackend, web.access, ingress.host…), refusée" .name) -}}
