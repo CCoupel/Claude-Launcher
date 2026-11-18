@@ -154,3 +154,51 @@ func TestStateMgrSurveilleLesNouveauxSousDossiers(t *testing.T) {
 		t.Fatal("sous-dossier créé non surveillé")
 	}
 }
+
+// Rafale de dizaines de sous-dossiers avec une file minuscule (npm install, git clone) : la file déborde, le projet est
+// reparcouru, et TOUS les dossiers finissent surveillés.
+func TestStateMgrRafaleDeDossiersFileDebordee(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	old := addQueueSize
+	addQueueSize = 1
+	defer func() { addQueueSize = old }()
+	t.Setenv(CacheDirVar, t.TempDir())
+	proj := filepath.Join(t.TempDir(), "p")
+	_ = os.MkdirAll(proj, 0o755)
+	if out, err := exec.Command("git", "-C", proj, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init : %v %s", err, out)
+	}
+	m, err := NewStateMgr()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer m.Stop()
+	m.SetProjects([]string{proj})
+	const n = 1100 // plus que la file d'origine (1024)
+	dirs := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		d := filepath.Join(proj, "g"+strconv.Itoa(i/100), "d"+strconv.Itoa(i))
+		_ = os.MkdirAll(d, 0o755)
+		dirs = append(dirs, d)
+	}
+	missing := func() int {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		k := 0
+		for _, d := range dirs {
+			if _, ok := m.dirOwner[d]; !ok {
+				k++
+			}
+		}
+		return k
+	}
+	end := time.Now().Add(30 * time.Second)
+	for missing() > 0 && time.Now().Before(end) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if k := missing(); k > 0 {
+		t.Errorf("%d dossiers sur %d jamais surveillés après la rafale", k, n)
+	}
+}

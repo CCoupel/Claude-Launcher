@@ -174,6 +174,10 @@ type StateMgr struct {
 	// goroutine de lecture du surveillant (Windows), qui elle attend qu'events() lise Events — events() ne doit donc
 	// JAMAIS appeler w.Add elle-même (interblocage : plus aucun évènement, Stop figé derrière wg.Wait)
 	addq chan [2]string
+	// file addq pleine (npm install, git clone : des milliers de dossiers d'un coup) : le projet est noté dans rescan
+	// (garde mu) et adder le reparcourt en entier (watchProject : les dossiers déjà surveillés sont ignorés)
+	rescan   map[string]bool
+	rescanCh chan struct{}
 
 	quit     chan struct{} // fermé par Stop
 	stopOnce sync.Once
@@ -189,7 +193,7 @@ func NewStateMgr() (*StateMgr, error) {
 		w: w, open: map[string]bool{}, pending: map[string]bool{}, updated: map[string]time.Time{}, dur: map[string]time.Duration{},
 		dirOwner: map[string]string{}, timers: map[string]*time.Timer{}, poll: map[string]bool{}, sigs: map[string]string{},
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
-		quit: make(chan struct{}), addq: make(chan [2]string, 1024),
+		quit: make(chan struct{}), addq: make(chan [2]string, addQueueSize), rescan: map[string]bool{}, rescanCh: make(chan struct{}, 1),
 	}
 	m.wg.Add(stateWorkers + 4)
 	for i := 0; i < stateWorkers; i++ {
@@ -451,13 +455,16 @@ func (m *StateMgr) poller() {
 
 // ── inotify ───────────────────────────────────────────────────────────────
 
-func (m *StateMgr) watchProject(p string) {
+// walkAdd : surveille root et ses sous-dossiers (hors skipDirs), au plus maxDirsPerProject ; les dossiers déjà surveillés
+// sont ignorés par addDir. Un dossier créé avec son contenu (mkdir -p, git clone) a ses sous-dossiers déjà là quand on
+// l'ajoute : ils ne donneraient jamais d'évènement de création.
+func (m *StateMgr) walkAdd(p, root string) {
 	n := 0
-	_ = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return nil
 		}
-		if path != p && skipDirs[d.Name()] {
+		if path != root && skipDirs[d.Name()] {
 			return filepath.SkipDir
 		}
 		if n >= maxDirsPerProject {
@@ -467,6 +474,10 @@ func (m *StateMgr) watchProject(p string) {
 		n++
 		return nil
 	})
+}
+
+func (m *StateMgr) watchProject(p string) {
+	m.walkAdd(p, p)
 	// .git : HEAD, index, refs (commit, changement de branche, fetch)
 	gitDir := filepath.Join(p, ".git")
 	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
@@ -495,17 +506,52 @@ func (m *StateMgr) addDir(project, dir string) {
 	}
 }
 
-// adder : surveille les sous-dossiers créés (voir addq) ; peut rester un moment dans w.Add sans gêner la lecture des évènements.
+// addQueueSize : capacité de la file des nouveaux dossiers à surveiller (remplacée dans les tests, avant NewStateMgr).
+var addQueueSize = 1024
+
+// adder : surveille les sous-dossiers créés (voir addq) ; peut rester un moment dans w.Add sans gêner la lecture des
+// évènements. File débordée : reparcourt les projets concernés pour surveiller les dossiers manquants.
 func (m *StateMgr) adder() {
 	for {
 		select {
 		case a := <-m.addq:
 			if !m.stopped() {
-				m.addDir(a[0], a[1])
+				m.walkAdd(a[0], a[1])
+			}
+		case <-m.rescanCh:
+			m.mu.Lock()
+			var projects []string
+			for p := range m.rescan {
+				projects = append(projects, p)
+				delete(m.rescan, p)
+			}
+			m.mu.Unlock()
+			for _, p := range projects {
+				if m.stopped() {
+					return
+				}
+				m.watchProject(p)
 			}
 		case <-m.quit:
 			return
 		}
+	}
+}
+
+// queueAdd : confie à adder un dossier à surveiller, sans jamais bloquer (appelé par events()). File pleine : le projet est
+// marqué « à reparcourir » — jamais de dossier oublié.
+func (m *StateMgr) queueAdd(project, dir string) {
+	select {
+	case m.addq <- [2]string{project, dir}:
+		return
+	default:
+	}
+	m.mu.Lock()
+	m.rescan[project] = true
+	m.mu.Unlock()
+	select {
+	case m.rescanCh <- struct{}{}:
+	default: // un réveil est déjà en attente
 	}
 }
 
@@ -552,10 +598,7 @@ func (m *StateMgr) onEvent(ev fsnotify.Event) {
 		// nouveau sous-dossier : à surveiller aussi
 		if ev.Op&fsnotify.Create != 0 {
 			if st, err := os.Stat(ev.Name); err == nil && st.IsDir() && !skipDirs[base] {
-				select { // jamais de w.Add ici (goroutine d'events) : confié à adder ; file pleine : rattrapé au prochain recalcul
-				case m.addq <- [2]string{project, ev.Name}:
-				default:
-				}
+				m.queueAdd(project, ev.Name) // jamais de w.Add ici (goroutine d'events) : confié à adder (file pleine : reparcours du projet)
 			}
 		}
 	}
