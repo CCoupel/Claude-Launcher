@@ -931,11 +931,18 @@ func dnsSlug(s string, max int, def string) string {
 // ouvert de Windows porte le même nom que depuis un hub Linux.
 
 // ctrSlug : nom du projet en label DNS.
-func ctrSlug(proj string) string { return dnsSlug(path.Base(RemotePath(proj)), 30, "projet") }
+func ctrSlug(proj string) string {
+	return dnsSlug(path.Base(slashPath(RemotePath(proj))), 30, "projet")
+}
+
+// slashPath : séparateurs « / » : un projet Windows sans correspondance de chemins (paths) garde son chemin local
+// (C:\Users\…\TEST\alpha), que path.Base / path.Dir ne savent pas découper — le nom du projet (et donc l'URL
+// /files/<projet>) deviendrait le chemin entier tronqué, identique pour tous les projets (#174).
+func slashPath(p string) string { return strings.ReplaceAll(p, `\`, "/") }
 
 // catSlug : catégorie du projet (dossier parent) en label DNS.
 func catSlug(proj string) string {
-	return dnsSlug(path.Base(path.Dir(RemotePath(proj))), 20, "projets")
+	return dnsSlug(path.Base(path.Dir(slashPath(RemotePath(proj)))), 20, "projets")
 }
 
 // CtrName : nom du conteneur (et du StatefulSet k8s) d'un projet :
