@@ -240,16 +240,44 @@ func underLocal(p, r string) bool {
 	return ok
 }
 
+// sensitiveNames : segments qui ne sont jamais servis (secrets, accès, dépôts, notes de travail du launcher).
+var sensitiveNames = map[string]bool{
+	"private": true, ".git": true, ".claude": true, ".ssh": true, ".aws": true, ".kube": true, ".gnupg": true, ".netrc": true,
+}
+
+// sensitiveRel : le chemin relatif à une racine (segments séparés par « / ») contient-il un élément jamais servi ?
+// Un segment PRIVATE, .git, .claude, .ssh, .aws, .kube, .gnupg ou .netrc ; un nom commençant par .env, id_ ou kubeconfig ;
+// un nom en .pem ou .key ; _work/tmp (mais PAS le reste de _work : les maquettes sont dans _work/mockup). Casse
+// ignorée (systèmes de fichiers insensibles à la casse).
+func sensitiveRel(rel string) bool {
+	segs := strings.Split(rel, "/")
+	for i, seg := range segs {
+		l := strings.ToLower(seg)
+		switch {
+		case l == "":
+		case sensitiveNames[l], strings.HasPrefix(l, ".env"), strings.HasPrefix(l, "id_"), strings.HasPrefix(l, "kubeconfig"),
+			strings.HasSuffix(l, ".pem"), strings.HasSuffix(l, ".key"):
+			return true
+		case l == "_work" && i+1 < len(segs) && strings.EqualFold(segs[i+1], "tmp"):
+			return true
+		}
+	}
+	return false
+}
+
 // allowed : p (chemin propre de l'URL) est sous une racine, liens symboliques
 // résolus compris : un lien qui sort des racines est refusé. Rend le chemin
-// local du fichier.
+// local du fichier. Les éléments sensibles (sensitiveRel) sont refusés, au chemin demandé comme au chemin réel (un
+// lien vers .git ou PRIVATE ne les contourne pas).
 func (s fileServer) allowed(p string) (string, bool) {
 	roots := s.roots()
 	in := false
 	for _, r := range roots {
 		if under(p, r) {
 			in = true
-			break
+			if sensitiveRel(strings.Trim(strings.TrimPrefix(p, strings.TrimRight(r, "/")), "/")) {
+				return "", false
+			}
 		}
 	}
 	if !in {
@@ -259,16 +287,30 @@ func (s fileServer) allowed(p string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	ok := false
 	for _, r := range roots {
 		lr := s.toLocal(r)
-		if underLocal(real, lr) {
-			return real, true
-		}
-		if rr, err := filepath.EvalSymlinks(lr); err == nil && underLocal(real, rr) {
-			return real, true
+		for _, base := range []string{lr, evalOr(lr)} {
+			if rest, in := cutLocal(real, base); in && underLocal(real, base) {
+				if sensitiveRel(rest) {
+					return "", false
+				}
+				ok = true
+			}
 		}
 	}
-	return "", false
+	if !ok {
+		return "", false
+	}
+	return real, true
+}
+
+// evalOr : chemin aux liens symboliques résolus, lui-même s'il ne l'est pas.
+func evalOr(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 var textTypes = map[string]bool{".md": true, ".markdown": true, ".yaml": true, ".yml": true, ".log": true, ".txt": true, ".go": true, ".sh": true, ".py": true, ".toml": true, ".ini": true, ".conf": true}
@@ -360,6 +402,16 @@ func (s fileServer) listDir(w http.ResponseWriter, p, real string) {
 		http.Error(w, "dossier illisible", http.StatusNotFound)
 		return
 	}
+	// éléments sensibles masqués (jamais listés) ; un lien est jugé sur sa cible
+	kept := ents[:0]
+	for _, e := range ents {
+		child := path.Join(p, e.Name())
+		if _, ok := s.allowed(child); !ok {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	ents = kept
 	sort.Slice(ents, func(i, j int) bool {
 		if ents[i].IsDir() != ents[j].IsDir() {
 			return ents[i].IsDir()
