@@ -30,11 +30,16 @@ function startFlow(env) {
   // preuve que le serveur répond (init réussi, flux ouvert, message reçu) : bandeau retiré, quel que soit le chemin
   const alive = () => { delay = 1500; if (down) { down = false; env.banner(false); } };
   const retry = () => { if (env.lost()) return; lose(); const w = delay; delay = Math.min(delay * 2, 15000); env.setTimeout(reconnect, w); };
+  // veille : le serveur envoie un évènement « ping » toutes les 15 s ; rien pendant 40 s (flux à moitié ouvert, sans
+  // onerror) : flux déclaré mort, fermé, bandeau et reprise par init.
   const open = () => {
     const es = env.newES('/api/events');
-    es.onopen = alive;
-    es.onmessage = (m) => { alive(); try { const e = JSON.parse(m.data); env.cb(e.name, e.data); } catch (err) { console.error(err); } };
-    es.onerror = () => { es.close(); retry(); };
+    let wd = null, dead = false;
+    const arm = () => { env.unwatch(wd); if (!dead) wd = env.watch(() => { if (dead) return; dead = true; es.close(); console.warn('[flux] aucun évènement depuis 40 s : flux fermé'); retry(); }, 40000); };
+    arm();
+    es.onopen = () => { alive(); arm(); };
+    es.onmessage = (m) => { alive(); arm(); try { const e = JSON.parse(m.data); env.cb(e.name, e.data); } catch (err) { console.error(err); } };
+    es.onerror = () => { dead = true; env.unwatch(wd); es.close(); retry(); };
   };
   const reconnect = async () => {
     let r;
@@ -76,7 +81,7 @@ const transport = (() => {
         window.runtime.EventsOn('ev', (e) => cb(e.name, e.data));
         return;
       }
-      startFlow({ newES: (u) => new EventSource(u), race: (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('délai dépassé')), ms))]), init: () => transport.call('init'), applyInit, cb, setTimeout, banner: connBanner, lost: () => sessionIsLost });
+      startFlow({ watch: (f, ms) => setTimeout(f, ms), unwatch: (h) => clearTimeout(h), newES: (u) => new EventSource(u), race: (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('délai dépassé')), ms))]), init: () => transport.call('init'), applyInit, cb, setTimeout, banner: connBanner, lost: () => sessionIsLost });
     },
   };
 })();
