@@ -10,17 +10,17 @@ function grab(name) {
   for (let k = src.indexOf('{', at); k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && --d === 0) { end = k + 1; break; } }
   return src.slice(at, end);
 }
-const code = ['serverVersionAction', 'reattachPlan', 'graceStep', 'graceEnd', 'graceFallback', 'graceRefuse', 'onServerInfo'].map(grab).join('\n');
+const code = ['serverVersionAction', 'reattachPlan', 'graceStep', 'graceEnd', 'graceFallback', 'graceRefuse', 'refusedSync', 'onServerInfo'].map(grab).join('\n');
 const log = { sync: [], drop: [], banner: [] };
 const ctx = {
   S: { views: { '/a': {}, '/b': {} }, view: '/b', snap: { tabs: [] }, server: { version: 'v6.4.0', boot: 'x' } },
   REATTACH_MS: 80, REATTACH_FALLBACK_MS: 20, leaders: { tiles: {} }, verTxt: (v) => v,
   transport: { call: (m, a) => { log.sync.push(m + ':' + a.path); return Promise.resolve({ ok: true }); } },
   dropView: (p) => { log.drop.push(p); delete ctx.S.views[p]; },
-  srvBanner: (k, t) => log.banner.push(k + '|' + t), setTimeout, clearTimeout,
+  srvBanner: (k, t, b, o) => { log.banner.push(k + '|' + t); log.ok = o; }, setTimeout, clearTimeout,
 };
 vm.createContext(ctx);
-vm.runInContext(code + '\nglobalThis.api = { onServerInfo, graceStep, graceEnd, graceFallback };', ctx);
+vm.runInContext(code + '\nglobalThis.api = { refusedSync, onServerInfo, graceStep, graceEnd, graceFallback };', ctx);
 const fail = (m) => { console.log('KO ' + m); process.exit(1); };
 (async () => {
   ctx.api.onServerInfo({ version: 'v6.4.0', boot: 'y' });                // redémarrage
@@ -55,5 +55,11 @@ const fail = (m) => { console.log('KO ' + m); process.exit(1); };
   await new Promise((r) => setTimeout(r, 10));
   if (log.drop.join() !== '/p/projet-x') fail('vue refusée non retirée : ' + log.drop);
   if (!/session introuvable — rouvrir le projet : projet-x/.test(log.banner[log.banner.length - 1] || '')) fail('message « session introuvable » absent : ' + log.banner);
+  if (log.ok !== true) fail('bouton OK attendu sur le bandeau « session introuvable »');
+  // le projet est rouvert : bandeau retiré ; un autre bandeau du serveur n'est pas effacé
+  const nb = log.banner.length; ctx.api.refusedSync([{ path: '/autre' }]);
+  if (log.banner.length !== nb) fail('bandeau retiré pour un autre projet');
+  ctx.api.refusedSync([{ path: '/p/projet-x' }]);
+  if (log.banner[log.banner.length - 1] !== '|') fail('bandeau non retiré à la réouverture : ' + log.banner);
   console.log('OK'); process.exit(0);
 })();

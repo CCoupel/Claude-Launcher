@@ -1701,6 +1701,7 @@ function applyState(s) {
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
   if (S.view === 'leaders') leaders.layout();
   graceStep();
+  refusedSync(s.tabs);
 }
 
 // Bannière tant que l'interface web écoute hors boucle locale (webUI.lan) : fenêtre native seulement (#163)
@@ -1723,12 +1724,14 @@ function serverVersionAction(prev, next) {
   return 'none';
 }
 const verTxt = (v) => (/^v/.test(String(v || '')) ? v : 'v' + v);
-function srvBanner(kind, text, withBtn) {
+function srvBanner(kind, text, withBtn, withOk) {
   let b = $('srvbanner');
   if (!text) { if (b) b.remove(); return; }
   if (!b) { b = el('div', 'lanbanner'); b.id = 'srvbanner'; $('main').insertBefore(b, $('tabs')); }
   b.className = 'lanbanner srv ' + kind; b.textContent = text;
-  if (withBtn) { b.append(el('span', 'sp')); const r = el('button', 'btn sm', 'Recharger'); r.onclick = () => location.reload(); b.appendChild(r); }
+  if (withBtn || withOk) b.append(el('span', 'sp'));
+  if (withBtn) { const r = el('button', 'btn sm', 'Recharger'); r.onclick = () => location.reload(); b.appendChild(r); }
+  if (withOk) { const k = el('button', 'btn sm', 'OK'); k.onclick = () => { S.refused = null; b.remove(); }; b.appendChild(k); }
 }
 // Redémarrage du serveur : il se rattache lui-même, de façon asynchrone, aux sessions tmux vivantes (a.reattach) ;
 // le client ne recrée rien. Les vues ouvertes sont gardées (S.grace) le temps que les onglets reviennent dans
@@ -1756,8 +1759,18 @@ function graceEnd(timeout) {
   const parts = [];
   if (g.refused.length) parts.push('session introuvable — rouvrir le projet : ' + g.refused.map((p) => String(p).split('/').filter(Boolean).pop() || p).join(', '));
   if (left.length && timeout) parts.push(left.length + (left.length > 1 ? ' terminaux non rattachés' : ' terminal non rattaché') + ' — recharger');
-  if (parts.length) srvBanner('orange', parts.join(' · '), left.length > 0 && timeout);
+  S.refused = g.refused.length ? { paths: new Set(g.refused), gen: g.gen } : null;
+  if (parts.length) srvBanner('orange', parts.join(' · '), left.length > 0 && timeout, g.refused.length > 0);
   else srvBanner('', '');
+}
+// Bandeau « session introuvable » : retiré dès que le projet concerné est rouvert (onglet présent), si aucun autre
+// bandeau du serveur ne l'a remplacé entre-temps.
+function refusedSync(tabs) {
+  const r = S.refused; if (!r) return;
+  for (const t of tabs || []) r.paths.delete(t.path);
+  if (r.paths.size) return;
+  S.refused = null;
+  if (S.srvGen === r.gen) srvBanner('', '');
 }
 // Rattachement refusé par le serveur ({ok:false} : session absente, onglet en erreur) : message clair pour ce projet.
 function graceRefuse(p) {
