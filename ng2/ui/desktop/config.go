@@ -591,7 +591,7 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	if !a.knownProject(path) {
 		return nil, fmt.Errorf("projet inconnu : %s", path)
 	}
-	if in.Layout != nil && in.Backend == nil && in.Image == nil && in.Color == nil && in.Env == nil {
+	if in.Layout != nil && in.Backend == nil && in.Image == nil && in.Color == nil && in.Env == nil && in.HideIdle == nil {
 		return a.applyLayoutFirst(path, *in.Layout) // bouton de bascule : mise en page avant persistance
 	}
 	open := a.projectOpen(path)
@@ -611,6 +611,9 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {
 		a.configReload(core.ConfConf)
+		if in.HideIdle != nil {
+			a.cardsChanged() // la carte TEAM reflète tout de suite le nouveau masquage (#209)
+		}
 	}
 	if r.OK && (in.Backend != nil || in.Image != nil) {
 		go a.readCtr()

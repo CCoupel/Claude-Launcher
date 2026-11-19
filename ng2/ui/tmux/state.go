@@ -33,9 +33,10 @@ type (
 	paneData struct {
 		path  string
 		open  bool
-		lines []core.TeamLine // carte Team : une ligne par instance (#136)
-		tpl   string          // version cible du template du projet (titre de la carte, #151)
-		sess  core.Resumable  // session en suspens (badge ↺)
+		lines []core.TeamLine   // carte Team : une ligne par instance (#136)
+		tpl   string            // version cible du template du projet (titre de la carte, #151)
+		hide  core.HideIdleInfo // masquage effectif du projet (titre de la carte, #209) ; zéro = non renseigné
+		sess  core.Resumable    // session en suspens (badge ↺)
 		hasS  bool
 	}
 	// toggleMsg : issue d'un double-clic sur un teammate de la carte Team.
@@ -160,8 +161,9 @@ func loadPanesCmd(s Selection, cfg core.Config) tea.Cmd {
 		}
 		ti := core.ReadTplInfo(s.Path)
 		pd.tpl = ti.Target
+		pd.hide = cfg.HideIdleOf(s.Path)
 		pd.lines, _ = core.ApplyTeamHead(ti.Apply(
-			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.HideIdleArg(), time.Now().Unix())), ti.Target)
+			core.TeamLinesFor(reg, core.LiveMembers(tc, panes), panes, choices, cfg.HideIdleArgOf(s.Path), time.Now().Unix())), ti.Target)
 		return pd
 	}
 }
@@ -236,8 +238,8 @@ func toggleCmd(s Selection, cfg core.Config, pane string) tea.Cmd {
 		if ro, _ := tout(hub, "display-message", "-p", "-t", pw.hubWin, "#{@cl_readonly}"); ro == "1" {
 			return toggleMsg{path: s.Path, msg: "lecture seule : un autre launcher a la main sur ce projet"}
 		}
-		if cfg.TeamHideIdleDisabled { // masquage désactivé : aucune bascule ne cacherait quoi que ce soit (#188)
-			return toggleMsg{path: s.Path, msg: core.HideIdleDisabledMsg}
+		if msg := cfg.HideIdleRefusal(s.Path); msg != "" { // masquage désactivé (global #188, ou « no hide » du projet #209)
+			return toggleMsg{path: s.Path, msg: msg}
 		}
 		teamPath := findTeamConfig(s.Path)
 		var tc *core.TeamConfig
@@ -254,7 +256,7 @@ func toggleCmd(s Selection, cfg core.Config, pane string) tea.Cmd {
 			return toggleMsg{path: s.Path, msg: res.Msg}
 		}
 		if ws, err := readWin(pw); err == nil && teamPath != "" {
-			applyVis(cfg, pw, ws.leader(), teamPath, time.Now())
+			applyVisFor(cfg, pw, s.Path, ws.leader(), teamPath, time.Now())
 		}
 		return toggleMsg{path: s.Path}
 	}
@@ -470,10 +472,25 @@ func (m stateModel) teamTitle() string {
 			t += " ⚠"
 		}
 	}
+	if h := hideTitle(m.panes.hide); h != "" {
+		t += " · " + h
+	}
 	if head.Claude != "" {
 		t += " · CLAUDE " + head.Claude
 	}
 	return t
+}
+
+// hideTitle : état effectif du masquage pour le titre de la carte (#209) — « masquage 30 s » ou « no hide » ; "" si non
+// renseigné. Délai 0 : jamais masqué, donc « no hide » aussi.
+func hideTitle(h core.HideIdleInfo) string {
+	switch {
+	case h.Mode == "":
+		return ""
+	case !h.Enabled || h.Delay <= 0:
+		return "no hide"
+	}
+	return fmt.Sprintf("masquage %d s", h.Delay)
 }
 
 // shortEffort : effort abrégé pour le pane étroit.

@@ -1063,7 +1063,7 @@ func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bo
 	}
 	moved := false
 	if own && tc != nil {
-		if res, err := core.ApplyPaneVisOn(f, t.win, home, panes, choices, tc, cfg.HideIdleArg(), time.Now().Unix()); err == nil && res.Changed() {
+		if res, err := core.ApplyPaneVisOn(f, t.win, home, panes, choices, tc, cfg.HideIdleArgOf(t.path), time.Now().Unix()); err == nil && res.Changed() {
 			moved = true
 			if p2, c2, err := core.ProjectPanes(f, t.win, home, inCtr); err == nil {
 				panes, choices = p2, c2
@@ -1120,8 +1120,8 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	if t.cl() == nil {
 		return false, "projet fermé"
 	}
-	if t.a.conf().TeamHideIdleDisabled { // masquage désactivé : aucune bascule ne cacherait quoi que ce soit (#188)
-		return false, core.HideIdleDisabledMsg
+	if msg := t.a.conf().HideIdleRefusal(t.path); msg != "" { // masquage désactivé (global #188, ou « no hide » du projet #209)
+		return false, msg
 	}
 	t.mu.Lock()
 	tc := t.team // team du dernier tour : pas de relecture des fichiers (parfois lents)
@@ -1343,7 +1343,7 @@ func (t *projTerm) teamRows() []core.TeamLine {
 	t.mu.Lock()
 	tc := t.team
 	t.mu.Unlock()
-	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.a.conf().HideIdleArg(), time.Now().Unix())
+	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.a.conf().HideIdleArgOf(t.path), time.Now().Unix())
 }
 
 // findTeam : config.json de la team du projet (compté pour les tests : une

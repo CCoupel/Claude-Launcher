@@ -49,7 +49,7 @@ func TestProjectApplyHideIdleEcritureRelecture209(t *testing.T) {
 		}
 	}
 	// absent : inchangé
-	h188Call(t, a, "projectApply", map[string]any{"path": path, "color": 1})
+	h188Call(t, a, "projectApply", map[string]any{"path": path, "color": "1"})
 	if got := hi209Settings(t, a, path); got != "none" {
 		t.Errorf("hideIdle absent de projectApply : valeur changée (%q)", got)
 	}

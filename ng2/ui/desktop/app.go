@@ -1207,12 +1207,13 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		return a.projectSettings(in.Path, in.Changes)
 	case "projectApply":
 		var in struct {
-			Path    string
-			Backend *string
-			Image   *string
-			Color   *string
-			Layout  *string
-			Env     *struct {
+			Path     string
+			Backend  *string
+			Image    *string
+			Color    *string
+			Layout   *string
+			HideIdle *string
+			Env      *struct {
 				MTime   string
 				Changes []core.ConfigChange
 			}
@@ -1220,7 +1221,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 		}
-		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout}
+		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout, HideIdle: in.HideIdle}
 		if in.Env != nil {
 			ch.Env = &core.EnvChange{MTime: in.Env.MTime, Changes: in.Env.Changes}
 		}

@@ -220,6 +220,11 @@ func (p projWin) isCtr() bool { return !p.direct() }
 // (le watcher s'efface sinon ; la bascule refuse en lecture seule). Rend vrai si
 // la fenêtre a changé.
 func applyVis(cfg core.Config, pw projWin, leader, teamPath string, now time.Time) bool {
+	return applyVisFor(cfg, pw, "", leader, teamPath, now)
+}
+
+// applyVisFor : applyVis avec le projet (dossier) dont le masquage (PROJECT_HIDE_IDLE, #209) fait foi ; "" : réglage global.
+func applyVisFor(cfg core.Config, pw projWin, project, leader, teamPath string, now time.Time) bool {
 	tc, err := readTeam(teamPath)
 	if err != nil {
 		return false
@@ -230,7 +235,7 @@ func applyVis(cfg core.Config, pw projWin, leader, teamPath string, now time.Tim
 	if home == "" {
 		return false
 	}
-	res, err := core.ApplyPaneVis(t, pw.win, home, &tc, cfg.HideIdleArg(), now.Unix(), pw.isCtr())
+	res, err := core.ApplyPaneVis(t, pw.win, home, &tc, cfg.HideIdleArgOf(project), now.Unix(), pw.isCtr())
 	if err != nil || !res.Changed() {
 		return false
 	}
@@ -327,7 +332,7 @@ func RunLayoutWatch(win, leader, projectDir string) {
 		if path := findTeamConfig(projectDir); path != "" {
 			// panes cachés (#136) : règle rejouée à chaque tour ; un pane qui bouge
 			// remet les visibles en page et ne compte pas comme un pane ouvert
-			if applyVis(cfg, pw, leader, path, time.Now()) {
+			if applyVisFor(cfg, pw, projectDir, leader, path, time.Now()) {
 				if ws, err = readWin(pw); err != nil {
 					return
 				}
