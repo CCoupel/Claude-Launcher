@@ -631,6 +631,7 @@ function showCardsOf(path, name) {
 }
 function takeCards(c) {
   if (!c || !c.path) return;
+  hideOverlay(c);
   cardsCache[c.path] = c;
   if (c.path === S.cursor) { S.cards = c; renderCards(); }
 }
@@ -764,7 +765,18 @@ async function setHideIdle(path, mode, eyeEl) {
   delete hideBusy[path];
   if (!r || r.ok === false) { flash('⚠ ' + ((r && r.msg) || 'réglage du masquage non enregistré')); renderCards(); return; }
   flashBrief('Teammates inactifs : ' + hideEyeView(mode, { enabled: true, delay: 0 }).name, 3000);
-  call('cardsFor', { path }).then((c) => takeCards(c)).catch(() => {}); // rafraîchissement immédiat de la carte
+  // affichage immédiat : le cœur relit la carte avec un léger retard, une carte encore ancienne ne doit pas faire revenir l'œil
+  hideOver[path] = { mode, until: Date.now() + 20000 };
+  if (cardsCache[path]) { cardsCache[path] = hideOverlay(Object.assign({}, cardsCache[path])); if (path === S.cursor) { S.cards = cardsCache[path]; renderCards(); } }
+  call('cardsFor', { path }).then((c) => takeCards(c)).catch(() => {});
+}
+const hideOver = {}; // chemin -> { mode, until } : choix à afficher tant que la carte reçue ne le porte pas encore
+function hideOverlay(c) {
+  const o = hideOver[c.path], hi = c.teamHead && c.teamHead.hideIdle;
+  if (!o || !hi) return c;
+  if (hi.mode === o.mode || Date.now() > o.until) { delete hideOver[c.path]; return c; }
+  c.teamHead = Object.assign({}, c.teamHead, { hideIdle: Object.assign({}, hi, { mode: o.mode, enabled: (o.mode === 'auto' || (o.mode === 'default' && hi.global)) && hi.delay > 0 }) });
+  return c;
 }
 function showHideMenu(path, hi, x, y) {
   closeCtx();
