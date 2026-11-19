@@ -28,6 +28,7 @@ Vue d'ensemble, site et installation rapide : [README du repo](../README.md).
 | configurer : `config.conf`, `backends.yaml`, projets en conteneur, backends distants, kubeconfig, navigateur | [configuration.md](docs/configuration.md) |
 | utiliser l'application Windows (fenêtre native, correspondance des chemins, proxy) | [windows.md](docs/windows.md) |
 | déployer le launcher dans un cluster (prérequis, valeurs, sécurité, mise à jour, purge, schéma) | [kubernetes.md](docs/kubernetes.md) |
+| comprendre le coffre des secrets (emplacement partagé, `PRIVATE/` des projets, migration, risque du stockage en clair) | [secrets.md](docs/secrets.md) |
 | utiliser l'interface (onglets, cartes, raccourcis, interface web) | [interface.md](docs/interface.md) |
 | comprendre les versions, les mises à jour et le template | [versions.md](docs/versions.md) |
 | comprendre le code (structure, détection des changements) | [architecture.md](docs/architecture.md) |
