@@ -22,6 +22,7 @@ bench() {   # bench <version> <appVersion> : banc avec un Chart.yaml donné
   cp "$root/scripts/ci.sh" "$work/b/scripts/ci.sh"
   printf 'apiVersion: v2\nname: claude-launcher\nversion: %s\nappVersion: "%s"\n' "$1" "$2" > "$work/b/deploy/helm/claude-launcher/Chart.yaml"
   git -C "$work/b" init -q 2>/dev/null; git -C "$work/b" checkout -q -b "${3:-main}" 2>/dev/null
+  git -C "$work/b" -c user.name=t -c user.email=t@t -c commit.gpgsign=false commit -q --allow-empty -m init 2>/dev/null   # sans commit, rev-parse --abbrev-ref renvoie HEAD
 }
 run() {     # run <ref|-> : joue ci.sh du banc ; $out = sortie, $rc = code
   if [ "$1" = - ]; then out=$(cd "$work/b" && env -u GITHUB_REF_NAME bash scripts/ci.sh 2>&1); else out=$(cd "$work/b" && GITHUB_REF_NAME="$1" bash scripts/ci.sh 2>&1); fi
