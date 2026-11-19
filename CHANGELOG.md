@@ -13,6 +13,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ### Added
 - CI : `scripts/ci.sh` contrôle, sur une branche `milestone/vX.Y.Z`, que `Chart.yaml` porte déjà la version du milestone (même contrôle que « Version du chart = tag » de `release.yml`) ; le désaccord est détecté à la CI de branche, plus au tag (#204)
+- Carte TEAM : œil à 3 états dans le titre (ouvert = no hide, fermé = auto hide, grisé = default, suit le réglage global #188) ; clic = défilement default → auto hide → no hide, clic droit = menu des 3 états, infobulle avec la valeur globale ; écriture par `projectApply {hideIdle}` (`PROJECT_HIDE_IDLE`) et carte rafraîchie aussitôt (#209)
 
 ### Changed
 - **[BREAKING]** Chart : `CL_SECRETS_DIR` n'est plus posé, le PVC `<release>-secrets` n'est plus créé et l'init `secrets-perms` est supprimé (coffre commun sous `<rootBase>/.config/claude-launcher-ng2/secrets`) ; `secrets.legacy.enabled` (défaut `true`) monte l'ancien PVC en lecture seule s'il existe (`lookup`) et pose `CL_SECRETS_LEGACY_DIR` pour la migration ; PVC conservé (`keep`) ; `secrets.persistence.*` obsolète, ignoré (#201)
