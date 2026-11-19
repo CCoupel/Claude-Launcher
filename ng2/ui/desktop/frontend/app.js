@@ -765,10 +765,11 @@ async function setHideIdle(path, mode, eyeEl) {
   delete hideBusy[path];
   if (!r || r.ok === false) { flash('⚠ ' + ((r && r.msg) || 'réglage du masquage non enregistré')); renderCards(); return; }
   flashBrief('Teammates inactifs : ' + hideEyeView(mode, { enabled: true, delay: 0 }).name, 3000);
-  // affichage immédiat : le cœur relit la carte avec un léger retard, une carte encore ancienne ne doit pas faire revenir l'œil
-  hideOver[path] = { mode, until: Date.now() + 20000 };
+  // affichage immédiat, maintenu seulement jusqu'à la relecture qui suit l'appel (le cœur applique la visibilité au retour)
+  hideOver[path] = { mode, until: Date.now() + 5000 }; // garde de secours ; levée dès la relecture ci-dessous
   if (cardsCache[path]) { cardsCache[path] = hideOverlay(Object.assign({}, cardsCache[path])); if (path === S.cursor) { S.cards = cardsCache[path]; renderCards(); } }
-  call('cardsFor', { path }).then((c) => takeCards(c)).catch(() => {});
+  const done = () => { delete hideOver[path]; };
+  call('cardsFor', { path }).then((c) => { takeCards(c); done(); }).catch(done);
 }
 const hideOver = {}; // chemin -> { mode, until } : choix à afficher tant que la carte reçue ne le porte pas encore
 function hideOverlay(c) {
