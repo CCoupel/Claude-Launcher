@@ -107,3 +107,25 @@ func TestDev201KubeconfigPathAllowedInVaultOrPrivate(t *testing.T) {
 		}
 	}
 }
+
+func TestDev201ConflitRemonteParLaValidation(t *testing.T) {
+	root := dev201Env(t)
+	legacy := filepath.Join(t.TempDir(), "old")
+	t.Setenv(SecretsLegacyDirVar, legacy)
+	_ = os.MkdirAll(filepath.Join(legacy, "cvalid"), 0o700)
+	_ = os.WriteFile(filepath.Join(legacy, "cvalid", "id"), []byte("A"), 0o600)
+	vault := filepath.Join(root, ".config", "claude-launcher-ng2", "secrets", "cvalid")
+	_ = os.MkdirAll(vault, 0o700)
+	_ = os.WriteFile(filepath.Join(vault, "id"), []byte("B"), 0o600)
+	if _, err := MigrateLegacySecrets(); err != nil {
+		t.Fatal(err)
+	}
+	ps := validateBackends([]byte("backends:\n  cvalid:\n    type: ssh\n    host: h1\n    shared: [/x]\n"), "linux", "hub")
+	found := false
+	for _, p := range ps {
+		found = found || (p.Severity == SevWarning && strings.Contains(p.Message, "cvalid") && strings.Contains(p.Message, "ancien coffre"))
+	}
+	if !found {
+		t.Errorf("écart de migration absent des problèmes de validation : %+v", ps)
+	}
+}

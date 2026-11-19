@@ -16,8 +16,14 @@ import (
 func sharedEnv201(t *testing.T) (root string) {
 	t.Helper()
 	root = t.TempDir()
+	home := t.TempDir() // ancien coffre local (v6.4.0) : jamais le vrai ~/.config/claude-launcher/secrets
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("APPDATA", filepath.Join(home, "AppData"))
+	t.Setenv("LOCALAPPDATA", filepath.Join(home, "AppLocal"))
 	t.Setenv("CL_ROOT_BASE", root)
 	t.Setenv(SecretsDirVar, "")
+	t.Setenv("CL_SECRETS_LEGACY_DIR", filepath.Join(home, "aucun-ancien-coffre"))
 	t.Setenv(CacheDirVar, filepath.Join(t.TempDir(), "cache"))
 	t.Setenv("CL_K8S_VOLUMES", "")
 	return root
