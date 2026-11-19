@@ -179,3 +179,24 @@ func TestProjectApplyHideIdleImmediat209(t *testing.T) {
 		t.Errorf("carte TEAM en cache périmée : mode %q", e.head.HideIdle.Mode)
 	}
 }
+
+// #209 (QA LOT-4) : une transition qui ne change pas l'état EFFECTIF (default ↔ auto avec global activé) émet quand même une
+// carte TEAM à jour (mode, global) en moins de 2 s, SANS select manuel.
+func TestProjectApplyHideIdleCarteSansSelect209(t *testing.T) {
+	a, r, path, _, _ := h188Project(t, "TEAM_HIDE_IDLE=30\n") // global activé (défaut)
+	h188Call(t, a, "select", map[string]any{"path": path})   // projet sélectionné une fois pour toutes
+	h188WaitCond(t, "carte initiale", func() bool { h := h188HideIdle(r); return h != nil && h["mode"] == "default" })
+	for _, step := range []struct{ apply, mode string }{{"auto", "auto"}, {"default", "default"}, {"auto", "auto"}, {"none", "none"}, {"default", "default"}} {
+		hi209Apply(t, a, path, step.apply)
+		deadline := time.Now().Add(2 * time.Second)
+		for {
+			if h := h188HideIdle(r); h != nil && h["mode"] == step.mode && h["global"] == true {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("→ %s : carte TEAM non mise à jour en 2 s (dernier hideIdle %v)", step.apply, h188HideIdle(r))
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+}

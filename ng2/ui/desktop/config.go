@@ -620,6 +620,9 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 			if t := a.term(path); t != nil {
 				t.applyNow()
 			}
+			// carte TEAM renvoyée à coup sûr, même quand l'état effectif ne change pas (default ↔ auto, global activé) : mode et
+			// global changent seuls ; ne dépend ni d'un select ni de la relecture périodique (relecture unique, signal perdable)
+			a.pushTeam(path)
 			a.cardsChanged()
 		}
 	}
