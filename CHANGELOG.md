@@ -9,7 +9,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
-## [6.4.0] — 2026-11-18
+## [6.4.0] — 2026-11-19
 
 ### Added
 - Carte TEAM : le titre affiche la version du template du projet (« tpl vX ») et un `⚠` orange si une version publiée plus récente existe ; l'infobulle indique la version disponible et `/init-project` au lancement (#199)
