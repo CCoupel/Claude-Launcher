@@ -56,3 +56,4 @@
 | tests/integration/ci/chart-version-204/ | integration | main | Controle Chart.yaml = branche milestone dans scripts/ci.sh : juste OK, faux KO, hors milestone ignore (#204) | feature | |
 | tests/procedures/ui-desktop/coffre-partage-201/ | procedure | ui-desktop | Coffre partage : cle saisie sous Windows utilisee par hub et pod, droits 9P, migration PVC claude-qualif (#201) | feature | slow |
 | tests/procedures/ui-desktop/arret-propre-205-206/ | procedure | ui-desktop | Arret propre : vidage des canaux apres echeance, .tmp orphelins balayes, exe Windows sur wsl.localhost sans handle residuel (#205, #206) | feature | slow |
+| tests/procedures/ui-desktop/masquage-projet-209/ | procedure | ui-desktop | Masquage des teammates inactifs par projet : oeil 3 etats, PROJECT_HIDE_IDLE, teamToggle refuse (#209) | feature | |
