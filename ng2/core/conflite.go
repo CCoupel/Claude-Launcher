@@ -182,7 +182,7 @@ func confLiteWith(src, home, fbRoot string) string {
 	}
 	claudeDirSet := false
 	arrays := map[string][]string{"GITHUB_DIRS": nil, "EXTRA_ENVS": nil, "COLOR_PALETTE": strings.Fields("17 52 22 53 58 23 54 238 18 59")}
-	colors, layouts := map[string]string{}, map[string]string{}
+	colors, layouts, hides := map[string]string{}, map[string]string{}, map[string]string{}
 	get := func(n string) string {
 		if v, ok := vars[n]; ok {
 			return v
@@ -229,10 +229,13 @@ func confLiteWith(src, home, fbRoot string) string {
 						items = append(items, toks[k].s)
 					}
 				}
-				if name == "PROJECT_COLORS" || name == "PROJECT_LAYOUTS" {
+				if name == "PROJECT_COLORS" || name == "PROJECT_LAYOUTS" || name == "PROJECT_HIDE_IDLE" {
 					dst := colors
-					if name == "PROJECT_LAYOUTS" {
+					switch name {
+					case "PROJECT_LAYOUTS":
 						dst = layouts
+					case "PROJECT_HIDE_IDLE":
+						dst = hides
 					}
 					for _, it := range items {
 						if kv, v, ok := strings.Cut(it, "]="); ok && strings.HasPrefix(kv, "[") {
@@ -288,6 +291,14 @@ func confLiteWith(src, home, fbRoot string) string {
 	sort.Strings(lkeys)
 	for _, k := range lkeys {
 		fmt.Fprintf(&b, "playout\t%s\t%s\n", k, layouts[k])
+	}
+	hkeys := make([]string, 0, len(hides))
+	for k := range hides {
+		hkeys = append(hkeys, k)
+	}
+	sort.Strings(hkeys)
+	for _, k := range hkeys {
+		fmt.Fprintf(&b, "phide\t%s\t%s\n", k, hides[k])
 	}
 	if dirs := arrays["GITHUB_DIRS"]; len(dirs) > 0 {
 		for _, d := range dirs {

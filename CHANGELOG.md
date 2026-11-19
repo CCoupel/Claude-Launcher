@@ -12,6 +12,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [6.5.0] — en cours
 
 ### Added
+- Masquage des teammates inactifs **par projet** : clé `PROJECT_HIDE_IDLE` de `config.conf` (`["projet"]="auto|none"`, absente = suit `TEAM_HIDE_IDLE_ENABLED`), fonction unique `HideIdleOf` pour la règle de visibilité, la carte TEAM (`teamHead.hideIdle.mode` / `.global`, `enabled` = valeur effective du projet), `projectApply.hideIdle` et `projectSettings.hideIdle` ; `teamToggle` refusé en « no hide » ; titre de la carte TEAM de la coque Linux : « masquage 30 s » ou « no hide » (#209)
 - CI : `scripts/ci.sh` contrôle, sur une branche `milestone/vX.Y.Z`, que `Chart.yaml` porte déjà la version du milestone (même contrôle que « Version du chart = tag » de `release.yml`) ; le désaccord est détecté à la CI de branche, plus au tag (#204)
 - Carte TEAM : œil à 3 états dans le titre (ouvert = no hide, fermé = auto hide, grisé = default, suit le réglage global #188) ; clic = défilement default → auto hide → no hide, clic droit = menu des 3 états, infobulle avec la valeur globale ; écriture par `projectApply {hideIdle}` (`PROJECT_HIDE_IDLE`) et carte rafraîchie aussitôt (#209)
 

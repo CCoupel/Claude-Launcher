@@ -466,6 +466,8 @@ func validateConf(content []byte) []ConfigProblem {
 			key = "LAYOUT_LEFT_LEADER_PCT"
 		case strings.HasPrefix(w, "PROJECT_LAYOUTS"):
 			key = "PROJECT_LAYOUTS"
+		case strings.HasPrefix(w, "PROJECT_HIDE_IDLE"):
+			key = "PROJECT_HIDE_IDLE"
 		}
 		ps = append(ps, ConfigProblem{Line: lineOf(content, key), Severity: SevWarning, Message: w})
 	}
