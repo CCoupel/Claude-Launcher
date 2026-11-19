@@ -1,8 +1,6 @@
-//go:build statetmp
-
 package core
 
-// #205 : balayage au démarrage des « *.json.*.tmp » orphelins de stateDir(). Build tag `statetmp` : le point d'entrée n'existait pas
+// #205 : balayage au démarrage des « *.json.*.tmp » orphelins de stateDir(). (tag `statetmp` retiré : API posée ;
 // à l'écriture (dev-backend codait en parallèle). Retirer le tag une fois posé ; noms ATTENDUS (à ajuster au code final) :
 //
 //	func sweepStateTmp()                       // appelé une fois au démarrage du suivi d'état, erreurs ignorées
