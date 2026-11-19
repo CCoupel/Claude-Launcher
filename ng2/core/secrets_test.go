@@ -91,11 +91,12 @@ func TestSecretsRefus(t *testing.T) {
 
 func TestSecretsDossierRefuse(t *testing.T) {
 	root := t.TempDir()
-	if err := checkSecretsDir(filepath.Join(root, "sec"), []string{root}); err == nil {
-		t.Error("coffre sous la racine partagée accepté")
+	// v6.5.0 : la racine partagée n'est plus refusée ; un dossier de projet l'est
+	if err := checkSecretsDir(filepath.Join(root, "sec"), nil); err != nil {
+		t.Errorf("coffre sous la racine partagée refusé : %v", err)
 	}
-	if err := checkSecretsDir(filepath.Join(t.TempDir(), "sec"), []string{root}); err != nil {
-		t.Errorf("coffre hors zone partagée refusé : %v", err)
+	if err := checkSecretsDir(filepath.Join(root, "proj", "sec"), []string{root}); err == nil {
+		t.Error("coffre sous un dossier de projet accepté")
 	}
 	if runtime.GOOS != "windows" {
 		d := filepath.Join(t.TempDir(), "large")
@@ -106,12 +107,8 @@ func TestSecretsDossierRefuse(t *testing.T) {
 		}
 	}
 	t.Setenv("CL_ROOT_BASE", root)
-	t.Setenv(SecretsDirVar, filepath.Join(root, "sec"))
-	if _, err := SecretsDir(); err == nil {
-		t.Error("SecretsDir sous CL_ROOT_BASE accepté")
-	}
-	if _, err := os.Stat(filepath.Join(root, "sec")); err == nil {
-		t.Error("rien ne doit être créé en cas de refus")
+	if d, err := SecretsDir(); err != nil || d != filepath.Join(root, ".config", "claude-launcher-ng2", "secrets") {
+		t.Errorf("coffre commun sous CL_ROOT_BASE : %q %v", d, err)
 	}
 }
 
