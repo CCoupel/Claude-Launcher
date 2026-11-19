@@ -52,3 +52,5 @@
 | ng2/ui/desktop/files174_test.go | integration | ui-desktop | Route /files : racines, .., liens, CSP sandbox, Host/Sec-Fetch-Site, modes token et none, appariement (#174) | feature | |
 | ng2/core/browserfiles174_test.go | unitaire | core | CL_BROWSER_PATH_MAP/HINT en cluster vers CL_WEB_URL/files, hub inchange (#174) | feature | |
 | ng2/chart_networkpolicy200_test.go | integration | chart | NetworkPolicy par defaut/desactivable/namespaces, ingress externe refuse, delai d arret (#200) | feature | |
+| tests/procedures/ci/fiabilisation-lot1-203-204-207-208/ | procedure | main | Fiabilite LOT-1 : SSE gelee -count=50 (#203), jeton obsolete -count=20 -p 8 (#208), sse_flow init lent (#207), chart = branche (#204) | feature | slow |
+| tests/integration/ci/chart-version-204/ | integration | main | Controle Chart.yaml = branche milestone dans scripts/ci.sh : juste OK, faux KO, hors milestone ignore (#204) | feature | |
