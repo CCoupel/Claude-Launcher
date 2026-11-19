@@ -28,10 +28,10 @@ func touchAge205(t *testing.T, name string, age time.Duration) string {
 
 func TestBalayageTmpVieuxSupprimeRecentGarde205(t *testing.T) {
 	t.Setenv(CacheDirVar, t.TempDir())
-	vieux := touchAge205(t, "abc123.json.111.tmp", 25*time.Hour)
-	limite := touchAge205(t, "abc123.json.222.tmp", 23*time.Hour) // écriture concurrente d'un autre launcher : gardé
-	recent := touchAge205(t, "abc123.json.333.tmp", time.Minute)
-	etat := touchAge205(t, "abc123.json", 48*time.Hour) // état réel, même vieux : jamais touché
+	vieux := touchAge205(t, "abc1230000000123.json.111.tmp", 25*time.Hour)
+	limite := touchAge205(t, "abc1230000000123.json.222.tmp", 23*time.Hour) // écriture concurrente d'un autre launcher : gardé
+	recent := touchAge205(t, "abc1230000000123.json.333.tmp", time.Minute)
+	etat := touchAge205(t, "abc1230000000123.json", 48*time.Hour) // état réel, même vieux : jamais touché
 	autre := touchAge205(t, "notes.tmp", 48*time.Hour)  // pas un « .json.*.tmp » : jamais touché
 	sweepStateTmp()
 	for p, want := range map[string]bool{vieux: false, limite: true, recent: true, etat: true, autre: true} {
@@ -45,7 +45,7 @@ func TestBalayageTmpAgeReglableEtErreursIgnorees205(t *testing.T) {
 	t.Setenv(CacheDirVar, t.TempDir())
 	old := stateTmpMaxAge.Set(time.Hour)
 	defer stateTmpMaxAge.Set(old)
-	p := touchAge205(t, "x.json.1.tmp", 2*time.Hour)
+	p := touchAge205(t, "00000000000000aa.json.1.tmp", 2*time.Hour)
 	sweepStateTmp()
 	if _, err := os.Stat(p); err == nil {
 		t.Error("âge réglé à 1 h : fichier de 2 h conservé")

@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -60,6 +61,10 @@ func stateDir() string {
 // plantage) et est supprimé au démarrage. Les plus récents sont gardés : un autre launcher peut être en train d'écrire. #205
 var stateTmpMaxAge = tun.Of(24 * time.Hour)
 
+// stateTmpRe : exactement la forme créée par writeState (os.CreateTemp « <hash>.json.*.tmp ») : hash = 16 hex
+// (sha1 tronqué à 8 octets), puis « .json. », un nombre décimal, « .tmp ». Rien d'autre n'est jamais supprimé.
+var stateTmpRe = regexp.MustCompile(`^[0-9a-f]{16}\.json\.[0-9]+\.tmp$`)
+
 // sweepStateTmp : supprime les fichiers temporaires d'état de plus de stateTmpMaxAge ; rend le nombre supprimé.
 // Erreurs ignorées (dossier absent, fichier déjà retiré par un autre launcher).
 func sweepStateTmp() int {
@@ -71,7 +76,7 @@ func sweepStateTmp() int {
 	n, limit := 0, time.Now().Add(-stateTmpMaxAge.Get())
 	for _, e := range ents {
 		name := e.Name()
-		if e.IsDir() || !strings.Contains(name, ".json.") || !strings.HasSuffix(name, ".tmp") {
+		if e.IsDir() || !stateTmpRe.MatchString(name) {
 			continue
 		}
 		if info, err := e.Info(); err == nil && info.Mode().IsRegular() && info.ModTime().Before(limit) {

@@ -45,9 +45,9 @@ func TestDev206DrainContinuesAfterTimeout(t *testing.T) {
 func TestDev205SweepStateTmp(t *testing.T) {
 	t.Setenv(CacheDirVar, t.TempDir())
 	d := stateDir()
-	old := filepath.Join(d, "abc.json.123.tmp")
-	fresh := filepath.Join(d, "abc.json.456.tmp")
-	keep := filepath.Join(d, "abc.json")
+	old := filepath.Join(d, "0123456789abcdef.json.123.tmp")
+	fresh := filepath.Join(d, "0123456789abcdef.json.456.tmp")
+	keep := filepath.Join(d, "0123456789abcdef.json")
 	for _, p := range []string{old, fresh, keep} {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -62,6 +62,31 @@ func TestDev205SweepStateTmp(t *testing.T) {
 	for p, want := range map[string]bool{old: false, fresh: true, keep: true} {
 		if _, err := os.Stat(p); (err == nil) != want {
 			t.Errorf("%s présent=%v, attendu %v", filepath.Base(p), err == nil, want)
+		}
+	}
+}
+
+func TestDev205SweepKeepsNearMisses(t *testing.T) {
+	t.Setenv(CacheDirVar, t.TempDir())
+	d := stateDir()
+	past := time.Now().Add(-30 * time.Hour)
+	var near []string
+	for _, n := range []string{"0123456789abcdef.json.tmp", "0123456789abcdef.json.12a.tmp", "0123456789abcdef.json..tmp",
+		"0123456789abcde.json.1.tmp", "0123456789ABCDEF.json.1.tmp", "x0123456789abcdef.json.1.tmp",
+		"0123456789abcdef.json.1.tmp.bak", "notes.json.1.tmp", "projects.json.tmp", "0123456789abcdef.json.1.tmp2"} {
+		p := filepath.Join(d, n)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_ = os.Chtimes(p, past, past)
+		near = append(near, p)
+	}
+	if n := sweepStateTmp(); n != 0 {
+		t.Errorf("fichiers hors motif supprimés : %d", n)
+	}
+	for _, p := range near {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("%s supprimé alors qu'il est hors motif", filepath.Base(p))
 		}
 	}
 }
