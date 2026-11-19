@@ -22,6 +22,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Guide `ng2/docs/secrets.md` (emplacement, portée projet, migration, risque du stockage en clair) (#201)
 
 ### Fixed
+- Arrêt de l'exe Windows : après l'échéance de fermeture d'un surveillant de fichiers, une goroutine de fond continue de vider ses évènements jusqu'au retour de `Close` (plus de lecteur bloqué ni de handles gardés) ; l'arrêt reste borné par `fsCloseLimit` (#206)
+- Cache d'état : les `<hash>.json.<n>.tmp` de plus de 24 h (écritures interrompues) sont supprimés au démarrage du suivi d'état ; les plus récents sont gardés (#205)
 - Tests : `TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap` attend l'inscription des deux gestionnaires de flux (condition bornée) au lieu d'une pause fixe de 200 ms ; échéance d'écriture portée à 5 s pour que les gestionnaires bloqués ne sortent pas avant la vérification du 503 sous `-race` (#203)
 - Tests : simulation du flux SSE — le délai d'abandon d'init doit suivre 8000, 16000 puis 30000 répété (suite non décroissante, plafond 30 s) ; une suite non croissante ou un plafond dépassé échoue toujours (#207)
 - Tests : `stopNative` attend la fin des tâches de fond de l'App (suivies par `App.bg`, `waitBackground`) au lieu d'une pause fixe de 300 ms ; suite `web184` nettement plus rapide et sans attente passive (#208)

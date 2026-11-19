@@ -56,6 +56,33 @@ func stateDir() string {
 	return d
 }
 
+// stateTmpMaxAge : âge au-delà duquel un « <hash>.json.<n>.tmp » du dossier d'état est un reste d'écriture interrompue (arrêt,
+// plantage) et est supprimé au démarrage. Les plus récents sont gardés : un autre launcher peut être en train d'écrire. #205
+var stateTmpMaxAge = tun.Of(24 * time.Hour)
+
+// sweepStateTmp : supprime les fichiers temporaires d'état de plus de stateTmpMaxAge ; rend le nombre supprimé.
+// Erreurs ignorées (dossier absent, fichier déjà retiré par un autre launcher).
+func sweepStateTmp() int {
+	d := filepath.Join(CacheDir(), "state")
+	ents, err := os.ReadDir(d)
+	if err != nil {
+		return 0
+	}
+	n, limit := 0, time.Now().Add(-stateTmpMaxAge.Get())
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !strings.Contains(name, ".json.") || !strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() && info.ModTime().Before(limit) {
+			if os.Remove(filepath.Join(d, name)) == nil {
+				n++
+			}
+		}
+	}
+	return n
+}
+
 func StatePath(project string) string {
 	h := sha1.Sum([]byte(project))
 	return filepath.Join(stateDir(), hex.EncodeToString(h[:8])+".json")
@@ -210,6 +237,7 @@ func NewStateMgr() (*StateMgr, error) {
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
 		quit: make(chan struct{}), addq: make(chan [2]string, addQueueSize), rescan: map[string]bool{}, rescanCh: make(chan struct{}, 1), lastScan: map[string]time.Time{},
 	}
+	sweepStateTmp() // restes d'écritures interrompues (#205)
 	m.wg.Add(stateWorkers + 4)
 	for i := 0; i < stateWorkers; i++ {
 		go func() { defer m.wg.Done(); m.worker() }()
