@@ -115,7 +115,18 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 		req := "GET /api/events HTTP/1.1\r\nHost: " + strings.TrimPrefix(srv.URL, "http://") + "\r\nCookie: " + c.Name + "=" + c.Value + "\r\n\r\n"
 		_, _ = cn.Write([]byte(req))
 	}
-	time.Sleep(200 * time.Millisecond)
+	// attendre que les deux gestionnaires soient entrés (plafond atteint) et leurs abonnés inscrits : condition, pas durée
+	for end := time.Now().Add(15 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		w.subMu.Lock()
+		n := len(w.subs)
+		w.subMu.Unlock()
+		if w.active.Load() == 2 && n == 2 {
+			break
+		}
+		if time.Now().After(end) {
+			t.Fatalf("gestionnaires de flux non inscrits en 15 s : active=%d abonnés=%d", w.active.Load(), n)
+		}
+	}
 	// inonder : gros évènements (remplissent les tampons réseau) puis petits (remplissent le canal) → abonnés retirés
 	big := bytes.Repeat([]byte("x"), 256<<10)
 	for i := 0; i < 80; i++ {

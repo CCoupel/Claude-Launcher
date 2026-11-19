@@ -9,6 +9,11 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.5.0] — en cours
+
+### Fixed
+- Tests : `TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap` attend l'inscription des deux gestionnaires de flux (condition bornée) au lieu d'une pause fixe de 200 ms (#203)
+
 ## [6.4.0] — 2026-11-19
 
 ### Added
