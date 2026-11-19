@@ -612,7 +612,15 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	if r.Color {
 		a.configReload(core.ConfConf)
 		if in.HideIdle != nil {
-			a.cardsChanged() // la carte TEAM reflète tout de suite le nouveau masquage (#209)
+			// appliqué sans relance, tout de suite (#209) : carte TEAM en cache invalidée, règle de visibilité rejouée
+			// sur le projet ouvert (config relue par configReload ci-dessus), sans attendre le tour du watcher
+			teamCache.Lock()
+			delete(teamCache.m, path)
+			teamCache.Unlock()
+			if t := a.term(path); t != nil {
+				t.applyNow()
+			}
+			a.cardsChanged()
 		}
 	}
 	if r.OK && (in.Backend != nil || in.Image != nil) {

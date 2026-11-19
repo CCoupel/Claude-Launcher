@@ -138,3 +138,44 @@ func TestTeamToggleRefuseEnNoHide209(t *testing.T) {
 		t.Errorf("auto hide : bascule attendue même global désactivé, obtenu %v", res)
 	}
 }
+
+// #209 (revue LOT-4) : projectApply {hideIdle} s'applique TOUT DE SUITE sur un projet ouvert — carte TEAM en cache invalidée
+// et règle de visibilité rejouée, sans attendre le tour du watcher.
+func TestProjectApplyHideIdleImmediat209(t *testing.T) {
+	a, _, path, _, _ := h188Project(t, "TEAM_HIDE_IDLE=2\n")
+	pt := a.term(path)
+	h188Call(t, a, "select", map[string]any{"path": path})
+	hidden := func() int {
+		pt.mu.Lock()
+		defer pt.mu.Unlock()
+		n := 0
+		for _, p := range pt.vis {
+			if p.Hidden {
+				n++
+			}
+		}
+		return n
+	}
+	h188WaitCond(t, "teammate inactif caché automatiquement", func() bool { return hidden() > 0 })
+	// carte TEAM en cache : l'état d'avant
+	a.readTeam(path)
+	teamCache.Lock()
+	_, cached := teamCache.m[path]
+	teamCache.Unlock()
+	if !cached {
+		t.Fatal("carte TEAM non mise en cache avant l'essai")
+	}
+	if res := hi209Apply(t, a, path, "none"); res["ok"] != true {
+		t.Fatalf("projectApply none : %v", res)
+	}
+	// AUCUNE attente : à son retour, la règle est déjà appliquée
+	if n := hidden(); n != 0 {
+		t.Errorf("%d teammate(s) encore cachés juste après « no hide » (règle non rejouée tout de suite)", n)
+	}
+	teamCache.Lock()
+	e, stale := teamCache.m[path]
+	teamCache.Unlock()
+	if stale && e.head.HideIdle.Mode != "none" {
+		t.Errorf("carte TEAM en cache périmée : mode %q", e.head.HideIdle.Mode)
+	}
+}
