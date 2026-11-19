@@ -127,3 +127,13 @@ Variable ajoutée dans le pod : `CL_SECRETS_DIR`.
 
 `NOTES.txt` : rappelle que l'interface n'a pas d'authentification (liste d'adresses de l'ingress interne seule) et
 que l'ingress externe attend v7.0.0.
+
+## v6.5.0 — coffre des secrets partagé **[BREAKING]** (#201)
+
+| Clé | Type | Défaut | Contrôle | Effet |
+|-----|------|--------|----------|-------|
+| `secrets.persistence.*` | — | — | — | **[BREAKING]** le PVC `<release>-secrets` n'est plus le coffre : `CL_SECRETS_DIR` n'est plus posé, le coffre est `<rootBase>/.config/claude-launcher-ng2/secrets` (`contracts/backends-remote.md`) |
+| `secrets.legacy.enabled` | booléen | `true` | — | **[NEW]** monte l'ancien PVC `<release>-secrets` (s'il existe) en lecture seule sur `/var/lib/claude-launcher/secrets-legacy` et pose `CL_SECRETS_LEGACY_DIR` (migration) ; PVC toujours `keep`, plus jamais créé par une nouvelle installation |
+
+- Conteneur d'initialisation `secrets-perms` : supprimé (droits posés par le launcher sur le partage, uid `runAsUser`).
+- `runAsUser` doit être le propriétaire du partage (déjà requis) : sinon le coffre `0700` est illisible (refus clair).

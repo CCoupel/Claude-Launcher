@@ -2,6 +2,13 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261119] — v6.5.0 (plan rev2) : coffre partagé (#201), masquage par projet (#209)
+
+- **[BREAKING]** coffre des secrets **commun** au hub, à l'exe Windows et au pod, en clair (`0700`/`0600`) sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/secrets/` ; refus « sous la racine partagée » **supprimé** ; secrets de projet = `<projet>/PRIVATE/` (jamais écrits par le launcher) ; migration automatique des coffres v6.4.0, ancien conservé — `contracts/backends-remote.md` « Coffre des secrets »
+- **[BREAKING]** chart : `CL_SECRETS_DIR` n'est plus posé ; PVC `<release>-secrets` monté seulement pour la migration (`secrets.legacy.enabled`, `CL_SECRETS_LEGACY_DIR`) ; init `secrets-perms` supprimé — `contracts/helm-values.md` « v6.5.0 »
+- **[CHANGED]** `kubeconfig.path` admis dans le coffre global ou un `PRIVATE/` de projet
+- **[NEW]** `PROJECT_HIDE_IDLE` (`config.conf`), `projectApply.hideIdle` / `projectSettings.hideIdle` (`auto|default|none`), `teamHead.hideIdle.mode` et `.global` — **[CHANGED]** `teamHead.hideIdle.enabled` = valeur effective du projet (identique pour `default`) — `contracts/desktop-dispatch.md` « v6.5.0 »
+
 ## [20261118] — v6.4.0, LOT-5 : budget d'arrêt (#198)
 
 - **[CHANGED]** arrêt du launcher borné à **25 s au pire** (ouvertures 20 s + détachements des terminaux 5 s) ; schéma du chart : `terminationGracePeriodSeconds` `minimum: 30` — l'écart signalé le 2026-11-18 est résolu — `contracts/web-server.md` « Cohérence avec le délai de grâce du pod »

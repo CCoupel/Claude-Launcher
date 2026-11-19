@@ -12,21 +12,47 @@ download.docker.com, sha256 figée : `docker-cli` n'existe pas dans ubuntu:26.04
 et le client podman distant (paquet `podman-remote`, appelé comme `podman` : lien ou adaptation de
 `core/backend.go`, à noter dans le CHANGELOG). Ni démon docker, ni service podman, ni `sshd`.
 
-## Coffre des secrets du launcher **[NEW]**
+## Coffre des secrets du launcher **[BREAKING v6.5.0]** (#201 : partagé entre les instances)
 
-Dossier `CL_SECRETS_DIR`, `0700`, un sous-dossier par backend (`<dossier>/<backend>/`), fichiers en `0600`.
+> v6.4.0 : coffre local à chaque instance, refusé sous la racine partagée. v6.5.0 : **un coffre commun** au hub Linux,
+> à l'exe Windows et au pod, **en clair** sur la racine partagée, protégé par les droits (risque accepté par l'utilisateur,
+> GATE 2 du 2026-11-19 : instantanés et administrateurs du stockage partagé peuvent lire les secrets).
 
-| Launcher | Emplacement par défaut |
-|----------|------------------------|
-| pod (chart) | volume dédié **non partagé** (PVC `ReadWriteOnce` `<release>-secrets`, 10 Mi, `keep`) monté en `/var/lib/claude-launcher/secrets` |
-| hub Linux | `~/.config/claude-launcher/secrets` (jamais le dossier de config s'il est sous la racine partagée) |
-| exe Windows | `%APPDATA%\claude-launcher\secrets` (ACL : utilisateur seul) |
+### Deux portées
 
-- Refus (erreur claire, rien n'est écrit) si le dossier est sous `CL_ROOT_BASE`, sous un volume de `CL_K8S_VOLUMES`,
-  sous une racine `shared` d'un backend, ou s'il n'est pas `0700` (Linux).
-- Aucun Secret Kubernetes n'est écrit par le launcher (aucun droit RBAC `secrets` ajouté).
+| Portée | Contenu | Emplacement | Écrit par |
+|--------|---------|-------------|-----------|
+| **Globale** (backends, launcher) | par backend : `id`, `id.pub`, `known_hosts`, `kubeconfig` | `<CL_ROOT_BASE>/.config/claude-launcher-ng2/secrets/<backend>/` (`0700` / `0600`) | le launcher (interface : `backendSecretSet`…) |
+| **Projet** | accès propres à un projet : environnements (kubeconfig, clés de déploiement, comptes), `.env` désignant des fichiers d'accès | `<projet>/PRIVATE/GLOBAL/` ou `<projet>/PRIVATE/<ENV>/` (convention `PRIVATE/` du template) | l'utilisateur / l'agent `infra` du projet — **jamais le launcher** |
+
+- Le launcher ne range **aucun** secret de projet dans le coffre global, et n'écrit pas dans `PRIVATE/`.
+- `CL_SECRETS_DIR` reste une surcharge (chemin absolu). Sans `CL_ROOT_BASE` et sans `CL_SECRETS_DIR` : emplacement local
+  v6.4.0 (`~/.config/claude-launcher/secrets`, `%APPDATA%\claude-launcher\secrets`).
+- Exe Windows : la racine est atteinte en UNC (`\\wsl.localhost\…`, 9P) ; pas d'ACL Windows sur ce chemin (droits
+  POSIX de l'uid WSL) ; les jonctions Windows ne sont pas concernées.
+- Pod : même uid que le propriétaire du partage (`runAsUser`) ; le PVC `<release>-secrets` n'est plus le coffre.
+
+### Contrôles
+
+- Refus (erreur claire, rien n'est écrit) : chemin non absolu ; dossier existant non `0700` (Linux, et partage vu depuis
+  Linux) ; chemin résolu (liens symboliques, **liens pendants compris**) hors de l'emplacement attendu ; coffre sous un
+  dossier de projet (`<racine>/<projet>/…`).
+- **Supprimé [BREAKING]** : le refus « sous `CL_ROOT_BASE` / `CL_K8S_VOLUMES` / `shared` d'un backend ».
+- `kubeconfig.path` d'un backend : admis dans le coffre global ou dans un `PRIVATE/` de projet ; refusé ailleurs sous la
+  racine partagée.
+- Écritures concurrentes (plusieurs instances) : verrou fichier (`core/lockfile.go`) + écriture atomique ; la dernière
+  écriture l'emporte ; chaque écriture est journalisée (`<CacheDir>/secrets-journal.jsonl`, avec l'instance).
+- `/files` ne sert jamais le coffre ni `PRIVATE/` (déjà dans `sensitiveNames` / dossiers exclus) — test obligatoire.
 - Le contenu n'est jamais journalisé, jamais rendu par une API (sauf la clé publique), jamais copié dans
-  `backends.yaml` ni dans le cache.
+  `backends.yaml` ni dans le cache. Aucun Secret Kubernetes n'est écrit par le launcher.
+
+### Migration depuis v6.4.0
+
+Au démarrage de chaque instance : pour chaque `<backend>/` de l'ancien coffre local (emplacement v6.4.0, ou
+`CL_SECRETS_LEGACY_DIR` posé par le chart sur l'ancien PVC) absent du coffre global, copie des fichiers (`0600`) sous
+verrou, journalisée (`action: migrate`). Ancien coffre **conservé** (secours, suppression manuelle). Backend présent
+des deux côtés avec un contenu différent : coffre global conservé, écart journalisé et signalé une fois dans l'interface.
+Tout l'ancien contenu est de portée globale (sous-dossiers = backends) : rien n'est migré vers `PRIVATE/`.
 
 ## Clés ssh d'un backend ssh **[NEW]** (#194)
 
@@ -67,7 +93,7 @@ Qui peut **écrire** un secret (clé ssh, `known_hosts`, kubeconfig) en v6.4.0 :
 | client web de l'ingress interne (cluster, `none`, LAN) | **oui** | non : session authentifiée exigée |
 
 - Le journal des écritures est `<CacheDir>/secrets-journal.jsonl` (hors du coffre) ; il est écrit **avant** le secret : un journal inaccessible, comme une ACL Windows impossible à poser, refuse l'écriture. Écriture et relevé d'empreinte (`backendHostScan`, adresse du backend déclaré, jamais loopback ni adresse du pod) exigent un backend ssh déclaré ; le dossier du coffre n'est montré qu'à la fenêtre native.
-- Ce qui reste exigé dans tous les cas : clé privée jamais relue ni affichée, coffre hors partage, empreinte de
+- Ce qui reste exigé dans tous les cas : clé privée jamais relue ni affichée, coffre aux droits restreints (v6.5.0 : sur la racine partagée, voir « Coffre des secrets »), empreinte de
   l'hôte confirmée explicitement, aucune trace des contenus dans les journaux.
 - **Risque accepté (v6.4.0)** : toute machine du LAN admise par la liste d'adresses peut déposer ou remplacer la clé
   et l'empreinte d'un backend, et donc envoyer les projets vers une machine qu'elle contrôle sans laisser de trace dans
@@ -91,7 +117,7 @@ backends:
   autre-cluster:
     type: k8s
     kubeconfig: true            # NEW — fichier du coffre : <CL_SECRETS_DIR>/autre-cluster/kubeconfig
-    # kubeconfig: /chemin/abs   # ou chemin d'un fichier existant (Secret monté), hors partage
+    # kubeconfig: /chemin/abs   # ou chemin d'un fichier existant (Secret monté), hors partage, ou dans le coffre global ou un PRIVATE/ de projet (v6.5.0)
     context: prod               # facultatif : contexte de CE fichier
     namespace: claude-projets
     volumes: { /share/MFS/ROOT/CLAUDE_PROJETS: claude-projets }
