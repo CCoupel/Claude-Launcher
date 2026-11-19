@@ -83,15 +83,17 @@
             "credentials_file": "PRIVATE/QUALIF/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-17T10:13:51Z",
+              "at": "2026-11-19T15:09:12Z",
               "checks": [
                 "kubeconfig-admin",
                 "ns-claude-qualif",
                 "psa-baseline",
                 "can-i-chart-objects",
-                "pv-claude-qualif-pv-available",
+                "pv-claude-qualif-pv-bound",
                 "clusterissuer-claude-launcher-ca-ready",
-                "ghcr-login-write-packages"
+                "ghcr-write-packages",
+                "helm-lint-qualif",
+                "buildah-netavark"
               ],
               "note": "compte administrateur (risque accepté) ; registre local abandonné (2026-11-17) : image de QUALIF sur ghcr (claude-launcher-qualif)"
             }
