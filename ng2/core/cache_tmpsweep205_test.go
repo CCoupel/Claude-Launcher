@@ -32,7 +32,7 @@ func TestBalayageTmpVieuxSupprimeRecentGarde205(t *testing.T) {
 	limite := touchAge205(t, "abc1230000000123.json.222.tmp", 23*time.Hour) // écriture concurrente d'un autre launcher : gardé
 	recent := touchAge205(t, "abc1230000000123.json.333.tmp", time.Minute)
 	etat := touchAge205(t, "abc1230000000123.json", 48*time.Hour) // état réel, même vieux : jamais touché
-	autre := touchAge205(t, "notes.tmp", 48*time.Hour)  // pas un « .json.*.tmp » : jamais touché
+	autre := touchAge205(t, "notes.tmp", 48*time.Hour)            // pas un « .json.*.tmp » : jamais touché
 	sweepStateTmp()
 	for p, want := range map[string]bool{vieux: false, limite: true, recent: true, etat: true, autre: true} {
 		if _, err := os.Stat(p); (err == nil) != want {
