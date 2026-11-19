@@ -57,17 +57,18 @@ func secretsLegacyDirs(dest string) []string {
 	return out
 }
 
-// MigrateSecrets : copie les backends des anciens coffres absents du coffre commun. Rend le nombre de backends copiés.
+// MigrateLegacySecrets : copie les backends des anciens coffres absents du coffre commun. Rend les backends dont l'écart de
+// contenu est signalé PAR CET APPEL (une seule fois par processus et par backend ; coffre commun conservé).
 // Sans effet quand il n'y a aucun ancien coffre, ou quand le coffre est refusé (erreur rendue, rien n'est écrit).
-func MigrateSecrets() (int, error) {
+func MigrateLegacySecrets() (conflicts []string, err error) {
 	dest := secretsDirRaw()
 	legacy := secretsLegacyDirs(dest)
 	if len(legacy) == 0 {
-		return 0, nil
+		return nil, nil
 	}
 	root, err := SecretsDir()
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
 	n := 0
 	err = WithFileLock(filepath.Join(root, vaultLockName), func() error {
@@ -82,7 +83,7 @@ func MigrateSecrets() (int, error) {
 				if !e.IsDir() || checkBackendName(name) != nil {
 					continue
 				}
-				ok, cerr := migrateBackend(root, filepath.Join(src, name), name)
+				ok, conflict, cerr := migrateBackend(root, filepath.Join(src, name), name)
 				if cerr != nil {
 					log.Printf("migration du coffre : backend %s : %v", name, cerr)
 					continue
@@ -90,18 +91,26 @@ func MigrateSecrets() (int, error) {
 				if ok {
 					n++
 				}
+				if conflict {
+					conflicts = append(conflicts, name)
+				}
 			}
 		}
 		return nil
 	})
-	return n, err
+	if n > 0 {
+		log.Printf("coffre des secrets : %d backend(s) migré(s) depuis l'ancien coffre (conservé)", n)
+	}
+	sort.Strings(conflicts)
+	return conflicts, err
 }
 
 // migrateBackend : copie src → <root>/<name> si le backend est absent (ou vide) du coffre commun ; sinon compare.
-func migrateBackend(root, src, name string) (copied bool, err error) {
+// conflict : écart signalé par cet appel (première fois).
+func migrateBackend(root, src, name string) (copied, conflict bool, err error) {
 	dst := filepath.Join(root, name)
 	if err := checkSecretsSubdir(root, dst); err != nil {
-		return false, err
+		return false, false, err
 	}
 	present := false
 	for _, f := range secretFileNames {
@@ -125,21 +134,22 @@ func migrateBackend(root, src, name string) (copied bool, err error) {
 			secretsMigration.conflicts[name] = true
 			secretsMigration.Unlock()
 			if first {
+				conflict = true
 				_ = journalSecret(name, "all", "migrate-conflict", "", "migration")
 				log.Printf("migration du coffre : backend %s présent dans l'ancien coffre et dans le coffre commun avec un contenu différent : coffre commun conservé", name)
 			}
 		}
-		return false, nil
+		return false, conflict, nil
 	}
 	if err := os.MkdirAll(dst, 0o700); err != nil {
-		return false, err
+		return false, false, err
 	}
 	_ = os.Chmod(dst, 0o700)
 	if err := restrictSecret(dst, true); err != nil {
-		return false, err
+		return false, false, err
 	}
 	if err := journalSecret(name, "all", "migrate", "", "migration"); err != nil {
-		return false, err
+		return false, false, err
 	}
 	for _, f := range secretFileNames {
 		b, e := readRegular(filepath.Join(src, f))
@@ -147,10 +157,10 @@ func migrateBackend(root, src, name string) (copied bool, err error) {
 			continue
 		}
 		if err := writeSecretFile(filepath.Join(dst, f), b); err != nil {
-			return false, err
+			return false, false, err
 		}
 	}
-	return true, nil
+	return true, false, nil
 }
 
 // readRegular : contenu d'un fichier ordinaire (jamais un lien : un lien dans un ancien coffre n'est pas suivi).

@@ -50,10 +50,8 @@ func main() {
 		}
 	}
 	if cmd == "shell" || cmd == "desktop" { // instances longues (hub, exe, pod) : coffre commun, migration du coffre v6.4.0 (#201)
-		if n, err := core.MigrateSecrets(); err != nil {
+		if _, err := core.MigrateLegacySecrets(); err != nil {
 			log.Printf("migration du coffre des secrets : %v", err)
-		} else if n > 0 {
-			log.Printf("coffre des secrets : %d backend(s) migré(s) depuis l'ancien coffre (conservé)", n)
 		}
 	}
 	platform.CleanupOldExe() // Windows : .old laissé par une mise à jour (ailleurs : rien)

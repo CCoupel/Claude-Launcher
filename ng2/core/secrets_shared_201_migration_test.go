@@ -1,4 +1,4 @@
-//go:build !windows && secretsmigration
+//go:build !windows
 
 package core
 

@@ -66,9 +66,9 @@ func TestDev201MigrationKeepsLegacyAndReportsConflict(t *testing.T) {
 	// srv2 existe déjà avec un autre contenu : coffre commun conservé
 	_ = os.MkdirAll(filepath.Join(vault, "srv2"), 0o700)
 	_ = os.WriteFile(filepath.Join(vault, "srv2", "id"), []byte("COMMUN"), 0o600)
-	n, err := MigrateSecrets()
-	if err != nil || n != 1 {
-		t.Fatalf("migration : %d %v", n, err)
+	c0, err := MigrateLegacySecrets()
+	if err != nil || len(c0) != 1 || c0[0] != "srv2" {
+		t.Fatalf("migration : %v %v", c0, err)
 	}
 	if b, _ := os.ReadFile(filepath.Join(vault, "srv1", "id")); string(b) != "A" {
 		t.Errorf("srv1 non migré : %q", b)
@@ -85,8 +85,8 @@ func TestDev201MigrationKeepsLegacyAndReportsConflict(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(legacy, "srv1", "id")); err != nil {
 		t.Error("ancien coffre non conservé")
 	}
-	if n, _ := MigrateSecrets(); n != 0 {
-		t.Errorf("migration rejouée : %d", n)
+	if c, _ := MigrateLegacySecrets(); len(c) != 0 {
+		t.Errorf("écart signalé deux fois : %v", c)
 	}
 	j, _ := os.ReadFile(filepath.Join(CacheDir(), secretJournal))
 	if !strings.Contains(string(j), `"action":"migrate"`) || !strings.Contains(string(j), `"instance"`) || strings.Contains(string(j), "COMMUN") {
