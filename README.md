@@ -33,7 +33,7 @@ launcher **Windows natif** ; sous Linux, la coque tmux ne change pas.
   plus récente existe. La comparaison suit l'ordre des versions, sans proposer de retour en arrière.
 - **Onglets** de l'interface native : liseré à la couleur du projet, titre et largeur stables, ordre réglable par
   glisser-déposer (gardé par poste, `Ctrl+Tab` suit cet ordre).
-- **Backends distants** : clés ssh par backend, saisies dans les Réglages et rangées dans un coffre hors partage ; kubeconfig
+- **Backends distants** : clés ssh par backend, saisies dans les Réglages et rangées dans un coffre commun au hub, à l'exe et au pod, en clair sous la racine de base (voir [`ng2/docs/secrets.md`](ng2/docs/secrets.md)) ; kubeconfig
   par backend `k8s` (dépôt dans le coffre ou chemin), avec refus des kubeconfigs qui exécutent une commande.
 - **Interface web** : bandeau quand le serveur change de version ; les terminaux se rattachent seuls après un
   redémarrage du serveur.
