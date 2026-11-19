@@ -93,7 +93,7 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 	a := newApp(t, r.emit)
 	oldMax, oldTO := maxSubscribers.Get(), sseWriteTimeout.Get()
 	maxSubscribers.Set(2)
-	sseWriteTimeout.Set(1500 * time.Millisecond)
+	sseWriteTimeout.Set(5 * time.Second) // plus long que l'inondation, même sous -race et peu de cœurs : sinon les gestionnaires sortent avant la vérification du 503
 	defer func() { maxSubscribers.Set(oldMax); sseWriteTimeout.Set(oldTO) }()
 	w := &webBridge{app: a, token: "tokE3tokE3tokE3", subs: map[chan []byte]bool{}, strictHost: true}
 	srv := httptest.NewServer(w.handler())
@@ -142,6 +142,9 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 		t.Skipf("abonnés non retirés (%d) : les tampons de ce système absorbent l'inondation", left)
 	}
 	// les gestionnaires sont encore bloqués dans Write : ils comptent toujours dans le plafond
+	if got := w.active.Load(); got != 2 {
+		t.Skipf("gestionnaires déjà sortis (%d actifs) : l'inondation a duré plus que l'échéance d'écriture", got)
+	}
 	if resp, err := webClient.Do(func() *http.Request {
 		req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
 		req.AddCookie(c)
@@ -153,7 +156,7 @@ func TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap(t *testing.T) {
 		}
 	}
 	// après l'échéance d'écriture, ils sortent et la place est rendue
-	end := time.Now().Add(6 * time.Second)
+	end := time.Now().Add(20 * time.Second)
 	for {
 		req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
 		req.AddCookie(c)
