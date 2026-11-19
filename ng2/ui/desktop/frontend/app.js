@@ -722,23 +722,33 @@ $('tree').addEventListener('click', (e) => {
 // Clic : default → auto → none → default ; clic droit : menu des 3 états ; écriture par projectApply {hideIdle}.
 const EYE_OPEN = '<svg viewBox="0 0 24 16" width="18" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 8s4-7 11-7 11 7 11 7-4 7-11 7S1 8 1 8z"/><circle cx="12" cy="8" r="3"/></svg>';
 const EYE_SHUT = '<svg viewBox="0 0 24 16" width="18" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 6s4 6 11 6 11-6 11-6"/><path d="M5 10l-2 3M12 12v3M19 10l2 3"/></svg>';
-const HIDE_NAME = { default: 'default', auto: 'auto hide', none: 'no hide' };
-const HIDE_NEXT = { default: 'auto', auto: 'none', none: 'default' };
-const hideBusy = {}; // chemin -> true pendant l'écriture (pas de second clic)
-function hideGlobalTxt(hi) { return hi.global ? 'masqués après ' + hi.delay + ' s' : 'désactivé'; }
-function hideEyeIcon(mode, hi) { return mode === 'none' ? EYE_OPEN : mode === 'auto' ? EYE_SHUT : (hi.global ? EYE_SHUT : EYE_OPEN); }
-function hideEyeTip(hi) {
-  const m = hi.mode;
-  return 'Ce projet : ' + HIDE_NAME[m] + ' — clic : ' + HIDE_NAME[HIDE_NEXT[m]] + ' · réglage global : ' + hideGlobalTxt(hi);
+// Fonctions pures (autonomes : extraites telles quelles par testdata/hide_eye.js) — g = { enabled, delay } = réglage global
+function hideEyeNext(mode) { return mode === 'default' ? 'auto' : mode === 'auto' ? 'none' : 'default'; }
+function hideEyeView(mode, g) {
+  const name = mode === 'auto' ? 'auto hide' : mode === 'none' ? 'no hide' : 'default';
+  const nx = hideEyeNext(mode), nxName = nx === 'auto' ? 'auto hide' : nx === 'none' ? 'no hide' : 'default';
+  const open = mode === 'none' || (mode !== 'auto' && !g.enabled);
+  return { mode, open, dim: mode === 'default', name,
+    tip: 'Ce projet : ' + name + ' — clic : ' + nxName + ' · réglage global : ' + (g.enabled ? 'masqués après ' + g.delay + ' s' : 'désactivé') };
 }
+function hideEyeMenu(mode, g) {
+  return [{ mode: 'auto', label: 'auto hide — masquer après ' + g.delay + ' s' },
+    { mode: 'default', label: 'default — réglage global (' + (g.enabled ? 'masqués après ' + g.delay + ' s' : 'désactivé') + ')' },
+    { mode: 'none', label: 'no hide — toujours visibles' }].map((e) => ({ mode: e.mode, label: e.label, current: e.mode === mode }));
+}
+function hideEyeApply(mode) { return { hideIdle: mode }; }
+const hideBusy = {}; // chemin -> true pendant l'écriture (pas de second clic)
+const hideG = (hi) => ({ enabled: !!hi.global, delay: hi.delay });
+const hideIcon = (v) => (v.open ? EYE_OPEN : EYE_SHUT);
 function hideEye(path, hi) {
+  const v = hideEyeView(hi.mode, hideG(hi));
   const e = el('span', 'eye st-' + hi.mode);
-  e.innerHTML = hideEyeIcon(hi.mode, hi);
-  e.title = hideEyeTip(hi); e.tabIndex = 0; e.setAttribute('role', 'button');
+  e.innerHTML = hideIcon(v);
+  e.title = v.tip; e.tabIndex = 0; e.setAttribute('role', 'button');
   e.setAttribute('aria-label', e.title);
-  e.onclick = (ev) => { ev.stopPropagation(); setHideIdle(path, HIDE_NEXT[hi.mode], e); };
+  e.onclick = (ev) => { ev.stopPropagation(); setHideIdle(path, hideEyeNext(hi.mode), e); };
   e.onkeydown = (ev) => {
-    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); setHideIdle(path, HIDE_NEXT[hi.mode], e); }
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); setHideIdle(path, hideEyeNext(hi.mode), e); }
     else if (ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10')) { ev.preventDefault(); ev.stopPropagation(); const r = e.getBoundingClientRect(); showHideMenu(path, hi, r.left, r.bottom); }
   };
   e.addEventListener('contextmenu', (ev) => { ev.preventDefault(); ev.stopPropagation(); showHideMenu(path, hi, ev.clientX, ev.clientY); });
@@ -750,24 +760,22 @@ async function setHideIdle(path, mode, eyeEl) {
   if (hideBusy[path]) return;
   hideBusy[path] = true; if (eyeEl) eyeEl.classList.add('busy');
   let r;
-  try { r = await call('projectApply', { path, hideIdle: mode }); } catch (e) { r = null; }
+  try { r = await call('projectApply', Object.assign({ path }, hideEyeApply(mode))); } catch (e) { r = null; }
   delete hideBusy[path];
   if (!r || r.ok === false) { flash('⚠ ' + ((r && r.msg) || 'réglage du masquage non enregistré')); renderCards(); return; }
-  flashBrief('Teammates inactifs : ' + HIDE_NAME[mode], 3000);
+  flashBrief('Teammates inactifs : ' + hideEyeView(mode, { enabled: true, delay: 0 }).name, 3000);
   call('cardsFor', { path }).then((c) => takeCards(c)).catch(() => {}); // rafraîchissement immédiat de la carte
 }
 function showHideMenu(path, hi, x, y) {
   closeCtx();
   const m = el('div', 'ctxmenu'); m.id = 'ctxmenu';
   m.appendChild(el('div', 'dis hd', 'Teammates inactifs — ce projet'));
-  const opts = [['auto', EYE_SHUT, 'auto hide — masquer après ' + hi.delay + ' s'],
-    ['default', hideEyeIcon('default', hi), 'default — réglage global (' + hideGlobalTxt(hi) + ')'],
-    ['none', EYE_OPEN, 'no hide — toujours visibles']];
-  for (const [mode, ic, label] of opts) {
-    const d = el('div', mode === hi.mode ? 'sel' : '');
-    const i = el('span', 'mi' + (mode === 'default' ? ' st-default' : '')); i.innerHTML = ic;
-    d.append(i, el('span', '', label));
-    d.onclick = (ev) => { ev.stopPropagation(); closeCtx(); if (mode !== hi.mode) setHideIdle(path, mode, null); };
+  const g = hideG(hi);
+  for (const o of hideEyeMenu(hi.mode, g)) {
+    const d = el('div', o.current ? 'sel' : '');
+    const i = el('span', 'mi' + (o.mode === 'default' ? ' st-default' : '')); i.innerHTML = hideIcon(hideEyeView(o.mode, g));
+    d.append(i, el('span', '', o.label));
+    d.onclick = (ev) => { ev.stopPropagation(); closeCtx(); if (!o.current) setHideIdle(path, o.mode, null); };
     m.appendChild(d);
   }
   document.body.appendChild(m);
