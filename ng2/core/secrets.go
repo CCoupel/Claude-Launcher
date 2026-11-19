@@ -193,11 +193,23 @@ func checkSecretsDir(dir string, projectRoots []string) error {
 	if err != nil {
 		return fmt.Errorf("coffre des secrets refusé : %w", err)
 	}
-	parent, err := realPathChecked(filepath.Dir(dir))
-	if err != nil {
-		return fmt.Errorf("coffre des secrets refusé : %w", err)
+	// emplacement attendu : sous la racine de base (résolue), le chemin exact <racine>/.config/claude-launcher-ng2/secrets
+	// (un lien posé sur .config ou claude-launcher-ng2 le ferait sortir) ; sinon les parents résolus + le nom du dossier
+	var want string
+	if rb, _ := RootBase(); rb != "" && samePath(dir, filepath.Join(filepath.Clean(rb), ".config", "claude-launcher-ng2", "secrets")) {
+		rr, err := realPathChecked(rb)
+		if err != nil {
+			return fmt.Errorf("coffre des secrets refusé : %w", err)
+		}
+		want = filepath.Join(rr, ".config", "claude-launcher-ng2", "secrets")
+	} else {
+		parent, err := realPathChecked(filepath.Dir(dir))
+		if err != nil {
+			return fmt.Errorf("coffre des secrets refusé : %w", err)
+		}
+		want = filepath.Join(parent, filepath.Base(dir))
 	}
-	if want := filepath.Join(parent, filepath.Base(dir)); !samePath(res, want) {
+	if !samePath(res, want) {
 		return fmt.Errorf("coffre des secrets refusé : %s se résout en %s (lien symbolique), %s attendu", dir, res, want)
 	}
 	if st, err := os.Stat(dir); err == nil {

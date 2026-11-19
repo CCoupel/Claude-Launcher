@@ -218,7 +218,7 @@ func TestSecretEcritureRefuseSiJournalInaccessible(t *testing.T) {
 	}
 }
 
-func TestSshArgsCoffreRefuseALUsage(t *testing.T) {
+func TestSshArgsCoffreSousRacinePartageeUtilise(t *testing.T) {
 	d := secretsEnv(t)
 	priv, pub, _ := generateKeyPair("a")
 	if _, _, err := SecretSetKey("srv", string(priv), string(pub), false, SecretWrite{}); err != nil {
@@ -235,7 +235,8 @@ func TestSshArgsCoffreRefuseALUsage(t *testing.T) {
 	secretsCheck.Lock()
 	secretsCheck.m = map[string]secretsCheckEntry{}
 	secretsCheck.Unlock()
-	if a := sshSecretArgs("srv"); len(a) != 0 {
-		t.Errorf("clé d'un coffre sous la zone partagée utilisée : %v", a)
+	// v6.5.0 : la racine partagée n'interdit plus le coffre (coffre commun) ; seul un dossier de projet le refuse
+	if a := sshSecretArgs("srv"); len(a) == 0 {
+		t.Errorf("coffre sous la racine partagée : options attendues (v6.5.0)")
 	}
 }
