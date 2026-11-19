@@ -1,0 +1,160 @@
+<!--
+mockup:
+  composant: team_card
+  feature: masquage_par_projet
+  version: 6.5.0
+  type: ui
+  issue: "#209"
+  validee_le: 2026-11-19
+  proposition_retenue: "C — Horizontal · Icône œil (ajustée : œil à 3 états ouvert / fermé / grisé)"
+  complete: ["docs/mockup/v6.2.0/ui/team_card__versions_entete.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #209 — carte TEAM : masquage par projet (v6.5.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--orange);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.cols{display:flex;gap:28px;flex-wrap:wrap;align-items:flex-start}
+.col h3{font:600 12px var(--ui);color:var(--muted);margin:0 0 6px;max-width:330px}
+.card{border:1px solid var(--line2);border-radius:6px;background:var(--bg);width:330px;max-width:100%;position:relative}
+.ch{padding:5px 10px;background:var(--head);font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:6px;border-radius:6px 6px 0 0}
+.ch .d{font-weight:400;color:var(--muted)}
+.ch .ver{font-weight:400;color:var(--cyan);font-family:var(--mono);font-size:12px}
+.ch .sp{flex:1}
+.pill{font:400 11px var(--ui);border-radius:10px;padding:1px 7px;background:#2A2F38;color:var(--text2);white-space:nowrap}
+.eye{display:inline-flex;align-items:center;justify-content:center;width:22px;height:18px;border-radius:4px;cursor:pointer}
+.eye:hover{background:#2A2F38}
+.eye.focus{outline:2px solid var(--accent);outline-offset:1px}
+.eye svg{width:18px;height:14px}
+.eye.st-none{color:var(--text)}
+.eye.st-auto{color:var(--text)}
+.eye.st-default{color:var(--dim)}
+.menu{position:absolute;right:6px;top:30px;z-index:3;background:var(--menu);border:1px solid var(--line2);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.5);padding:4px 0;font:12px var(--ui);min-width:270px}
+.menu div{padding:4px 12px;color:var(--text2);white-space:nowrap;display:flex;gap:8px;align-items:center}
+.menu div.t{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.menu div.sel{background:var(--hl);color:var(--text)}
+.menu svg{width:16px;height:12px}
+.cb{padding:7px 6px}
+.team{font:12px var(--mono)}
+.tr{display:grid;grid-template-columns:12px 132px 110px 12px;gap:0 8px;padding:1px 4px;border-radius:3px;white-space:nowrap}
+.tr.vis{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent)}
+.tr .m{color:var(--muted)}
+.g{color:var(--green)}.mu{color:var(--muted)}.dm{color:var(--dim)}
+.tip{display:inline-block;margin-top:8px;background:#2A2F38;border:1px solid var(--line2);border-radius:4px;padding:5px 8px;font:12px var(--ui);color:var(--text2);line-height:1.45;max-width:330px}
+.tui{background:#000;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;font:12.5px/1.35 var(--mono);white-space:pre;overflow:auto;color:#d0d0d0;width:max-content;max-width:100%}
+.tui .bar{background:#1F4FD1;color:#fff;font-weight:700}
+.tui .hl{background:#12384a;color:#fff}
+.cycle{display:flex;gap:10px;align-items:center;flex-wrap:wrap;color:var(--text2)}
+.cycle .st{display:inline-flex;gap:6px;align-items:center;background:var(--panel);border:1px solid var(--line2);border-radius:6px;padding:5px 9px}
+.cycle .st svg{width:18px;height:14px}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+@media (max-width:700px){.rules{columns:1}}
+</style>
+</head>
+<body>
+<h1>Carte TEAM — masquage des inactifs par projet <span style="color:var(--muted);font-weight:400">· #209 · v6.5.0 · maquette retenue (C — Icône œil, ajustée)</span></h1>
+<p class="sub">Composant : carte <b>Team</b> du volet d'état (interface native Windows ; coque Linux en affichage seul). Une icône <b>œil</b> au bout du titre porte le réglage du projet, en trois états : <b>ouvert = no hide</b> (les teammates restent toujours visibles dans ce projet), <b>fermé = auto hide</b> (les inactifs sont masqués dans ce projet), <b>grisé = default</b> (le projet suit le réglage global #188). Le réglage est persistant (<code>PROJECT_HIDE_IDLE</code>) et appliqué sans relance. Le reste de la carte est inchangé (maquette v6.2.0 complétée). Exemple : global activé, délai de 30 s.</p>
+
+<div class="parti"><b>Parti pris retenu :</b> la solution la plus compacte (≈ 22 px dans le titre). Le dessin de l'œil donne l'état du projet, et le grisé signale qu'il suit le global. <b>Interaction :</b> un <b>clic</b> fait défiler les trois états, dans l'ordre <b>default → auto hide → no hide → default</b>. L'infobulle annonce l'état courant, le suivant et la valeur globale. Un <b>clic droit</b> ouvre un menu pour choisir directement un état, sans tout faire défiler. Clavier : l'icône prend le focus, Entrée ou Espace font comme le clic, et la touche Menu fait comme le clic droit.</div>
+
+<h2>Les trois états et le défilement au clic</h2>
+<div class="cycle" id="cycle"></div>
+
+<h2>Interface native Windows</h2>
+<div class="cols" id="win"></div>
+
+<h2>Coque Linux — carte du pane ◈ État (affichage seul, pas de nouvelle touche)</h2>
+<div class="cols" id="tui"></div>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li><b>Œil ouvert</b> (couleur du texte) = <b>no hide</b> : rien n'est masqué automatiquement dans ce projet ; <code>PROJECT_HIDE_IDLE[projet]=none</code>.</li>
+  <li><b>Œil fermé</b> (couleur du texte) = <b>auto hide</b> : inactifs masqués après le délai global (<code>TEAM_HIDE_IDLE</code>) ; <code>=auto</code>.</li>
+  <li><b>Œil grisé</b> = <b>default</b> : aucune entrée, le projet suit <code>TEAM_HIDE_IDLE_ENABLED</code>. Son dessin montre l'effet du global : grisé fermé si le global masque, grisé ouvert sinon.</li>
+  <li>Clic : default → auto hide → no hide → default. L'écriture se fait au clic (<code>projectApply {hideIdle}</code>) et la carte se met à jour aussitôt. Pendant l'écriture, l'icône est en attente (pas de second clic) ; en cas d'échec, l'état précédent revient et un message court s'affiche.</li>
+  <li>Clic droit : menu « Teammates inactifs » à trois choix ; le choix courant est en surbrillance, et le choix default donne la valeur globale.</li>
+  <li>Infobulle : « Ce projet : &lt;état&gt; — clic : &lt;suivant&gt; · réglage global : masqués après 30 s » (ou « réglage global : désactivé »).</li>
+  <li>Puce « masquage 30 s » : présente quand le masquage s'applique effectivement au projet (auto hide, ou default avec le global activé), absente sinon. Elle est placée avant l'œil.</li>
+  <li>Changer le global ne touche que les projets en default ; les choix auto hide / no hide sont conservés.</li>
+  <li>En no hide : aucun teammate n'est masqué. Le double-clic sur une ligne pour cacher un teammate est refusé, avec le message « masquage désactivé pour ce projet : choisir « auto hide » dans le titre de la carte TEAM ».</li>
+  <li>Coque Linux : le titre affiche l'état effectif (« masquage 30 s » ou « no hide »), suivi de « · projet » si le projet a son propre choix.</li>
+  <li>Inchangé : versions dans le titre, ⚠ orange en bout de ligne, « modèle · effort » sur chaque ligne, surbrillance du pane visible.</li>
+</ul>
+
+<script>
+(function(){
+const OPEN='<svg viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8s4-7 11-7 11 7 11 7-4 7-11 7S1 8 1 8z"/><circle cx="12" cy="8" r="3"/></svg>';
+const SHUT='<svg viewBox="0 0 24 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 6s4 6 11 6 11-6 11-6"/><path d="M5 10l-2 3M12 12v3M19 10l2 3"/></svg>';
+const GLOBAL_ON=true, DELAY=30;
+const T=[
+ {n:'team-lead',vis:1,m:'opus · medium'},
+ {n:'planner',vis:1,m:'opus · high'},
+ {n:'dev-backend',vis:0,m:'sonnet · medium',idle:1},
+ {n:'test-writer',vis:1,m:'sonnet · medium'},
+ {n:'code-reviewer',vis:0,m:'sonnet · medium',idle:1},
+ {n:'qa',vis:1,m:'sonnet · medium'}];
+const NAME={default:'default',auto:'auto hide',none:'no hide'};
+const NEXT={default:'auto',auto:'none',none:'default'};
+function hides(st){return st==='auto'||(st==='default'&&GLOBAL_ON);}
+function icon(st){return st==='none'?OPEN:st==='auto'?SHUT:(GLOBAL_ON?SHUT:OPEN);}
+function glob(){return GLOBAL_ON?'masqués après '+DELAY+' s':'désactivé';}
+function head(st,focus){
+  return '<div class="ch">▾ Team <span class="d">· 6 ·</span> <span class="ver">tpl v5.11.1 · claude 2.1.87</span><span class="sp"></span>'+
+    (hides(st)?'<span class="pill">masquage '+DELAY+' s</span>':'')+
+    '<span class="eye st-'+st+(focus?' focus':'')+'" title="Ce projet : '+NAME[st]+' — clic : '+NAME[NEXT[st]]+' · réglage global : '+glob()+'">'+icon(st)+'</span></div>';
+}
+function rows(st){
+  const h0=hides(st);let h='<div class="cb"><div class="team">';
+  T.forEach(function(t){ if(h0&&t.idle) return;
+    h+='<div class="tr'+(t.vis?' vis':'')+'"><span class="g">●</span><span'+(t.idle?' class="mu"':'')+'>'+t.n+'</span><span class="m">'+t.m+'</span><span></span></div>';});
+  if(h0) h+='<div class="tr"><span></span><span class="dm">2 inactifs masqués</span><span></span><span></span></div>';
+  return h+'</div></div>';
+}
+function menu(st){
+  let h='<div class="menu"><div class="t">Teammates inactifs — ce projet</div>';
+  [['auto',SHUT,'auto hide — masquer après '+DELAY+' s'],['default',icon('default'),'default — réglage global ('+glob()+')'],['none',OPEN,'no hide — toujours visibles']].forEach(function(o){
+    h+='<div'+(o[0]===st?' class="sel"':'')+'><span style="color:'+(o[0]==='default'?'var(--dim)':'var(--text)')+'">'+o[1]+'</span>'+o[2]+'</div>';});
+  return h+'</div>';
+}
+function card(st,opts){opts=opts||{};return '<div class="card">'+head(st,opts.focus)+rows(st)+(opts.menu?menu(st):'')+'</div>';}
+function tip(st){return '<div class="tip">Infobulle : <b>Ce projet : '+NAME[st]+'</b> — clic : '+NAME[NEXT[st]]+' · réglage global : '+glob()+'</div>';}
+// défilement
+let c='';['default','auto','none'].forEach(function(st,i){
+  c+='<span class="st"><span style="color:'+(st==='default'?'var(--dim)':'var(--text)')+'">'+icon(st)+'</span><b>'+NAME[st]+'</b><span class="mu">'+(st==='default'?'grisé · suit le global':st==='auto'?'fermé':'ouvert')+'</span></span>'+(i<2?'<span class="mu">→ clic →</span>':'<span class="mu">→ clic → default</span>');});
+document.getElementById('cycle').innerHTML=c;
+// cartes
+let w='';
+w+='<div class="col"><h3>default (œil grisé) — suit le global, qui masque</h3>'+card('default')+tip('default')+'</div>';
+w+='<div class="col"><h3>auto hide (œil fermé) — masquage propre au projet</h3>'+card('auto')+tip('auto')+'</div>';
+w+='<div class="col"><h3>no hide (œil ouvert) — tous visibles dans ce projet</h3>'+card('none',{focus:1})+tip('none')+'</div>';
+w+='<div class="col"><h3>Clic droit sur l\'œil : choix direct</h3>'+card('none',{menu:1})+'<div style="height:70px"></div></div>';
+document.getElementById('win').innerHTML=w;
+// coque
+function pad(x,n){x=String(x);while(x.length<n)x+=' ';return x;}
+function tui(st){
+  const h0=hides(st);
+  let h='<span class="bar">'+pad(' TEAM · 6 · '+(h0?'MASQUAGE '+DELAY+' S':'NO HIDE')+(st==='default'?'':' · PROJET'),40)+'</span>\n';
+  T.forEach(function(t){ if(h0&&t.idle) return;
+    const l=' <span class="g">●</span> '+pad(t.n,16)+'<span class="mu">'+pad(t.m,16)+'</span>'+(t.n==='team-lead'?'':t.vis?'<span class="g">actif</span>':'<span class="mu">inactif</span>');
+    h+=(t.vis?'<span class="hl">'+l+' </span>':l)+'\n';});
+  return '<div class="col"><h3>'+NAME[st]+'</h3><div class="tui">'+h+'</div></div>';
+}
+document.getElementById('tui').innerHTML=tui('default')+tui('auto')+tui('none');
+})();
+</script>
+</body>
+</html>

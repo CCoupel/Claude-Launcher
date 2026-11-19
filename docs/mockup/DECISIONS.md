@@ -7,6 +7,8 @@
 - Les versions (template, claude) ne s'affichent qu'une fois, dans le titre de la carte ; jamais sur chaque ligne. _(v6.2.0, versions_entete)_
 - « modèle · effort » reste affiché sur chaque ligne : ne pas le reléguer à l'infobulle. _(v6.2.0, versions_entete — « noms seuls » écartée)_
 - Un écart de version se signale par un ⚠ orange en bout de ligne, sans écrire la version sur la ligne. _(v6.2.0, versions_entete — « écart affiché sur la ligne » écartée)_
+- Le masquage des inactifs par projet se règle par une icône œil à trois états au bout du titre : ouvert = no hide, fermé = auto hide, grisé = default (suit le réglage global). Pas de bandeau ni de ligne supplémentaire sous le titre, pas d'interrupteur, pas de puce cliquable. _(v6.5.0, masquage_par_projet — A, B, D, E, F écartées)_
+- Vocabulaire des trois états : « auto hide », « default », « no hide ». _(v6.5.0, masquage_par_projet)_
 
 ## pane_header
 - L'état actif / inactif colore tout le bandeau (vert / gris sombre), pas seulement une pastille ou un liseré. _(v6.2.0, etat_activite)_
