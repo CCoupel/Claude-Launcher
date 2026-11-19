@@ -16,8 +16,6 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ### Changed
 - **[BREAKING]** Chart : `CL_SECRETS_DIR` n'est plus posé, le PVC `<release>-secrets` n'est plus créé et l'init `secrets-perms` est supprimé (coffre commun sous `<rootBase>/.config/claude-launcher-ng2/secrets`) ; `secrets.legacy.enabled` (défaut `true`) monte l'ancien PVC en lecture seule s'il existe (`lookup`) et pose `CL_SECRETS_LEGACY_DIR` pour la migration ; PVC conservé (`keep`) ; `secrets.persistence.*` obsolète, ignoré (#201)
-
-### Changed
 - **Coffre des secrets commun** au hub, à l'exe Windows et au pod : en clair, `0700`/`0600`, sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/secrets/` ; le refus « sous la racine partagée » est supprimé ; refus d'un coffre sous un dossier de projet ou dont le chemin résolu (liens symboliques, liens pendants compris) sort de l'emplacement attendu ; écritures sous verrou fichier, journal avec l'instance (`hub`, `pod`, `windows`) ; sans ACL Windows sur un chemin UNC (#201)
 - Migration au démarrage des coffres v6.4.0 (emplacement local et `CL_SECRETS_LEGACY_DIR`) vers le coffre commun ; ancien coffre conservé, écart de contenu journalisé et gardé côté coffre commun (#201)
 - Secrets de projet : `<projet>/PRIVATE/`, jamais écrits par le launcher ; `kubeconfig:` par chemin admis dans le coffre ou dans un `PRIVATE/` ; `/files` ne sert pas `.config/claude-launcher*` (#201)
