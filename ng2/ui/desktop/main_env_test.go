@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/testguard"
 	"os"
 	"testing"
 )
@@ -16,7 +17,11 @@ func TestMain(m *testing.M) {
 			os.Setenv("TMUX_TMPDIR", d)
 			defer os.RemoveAll(d)
 		}
+		guard := testguard.Start()
 		code = m.Run()
+		if !guard() && code == 0 {
+			code = 1
+		}
 	}()
 	os.Exit(code)
 }

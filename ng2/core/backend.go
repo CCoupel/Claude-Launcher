@@ -356,24 +356,25 @@ func (e EnvSpec) hash() string {
 // ── Config des backends ───────────────────────────────────────────────────
 
 type BackendConf struct {
-	Name      string            `yaml:"-"`
-	Type      string            `yaml:"type"`        // host | podman | docker | ssh
-	Context   string            `yaml:"context"`     // docker : --context
-	Host      string            `yaml:"host"`        // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
-	Hosts     []string          `yaml:"hosts"`       // groupe de serveurs (#61, pool.go) : à la place de host
-	Pool      string            `yaml:"pool"`        // pool de machines nommé (#64) : host sert alors de modèle ({} = machine)
-	Machines  map[string]string `yaml:"-"`           // pool : adresse du serveur → machine
-	Drain     map[string]bool   `yaml:"-"`           // pool : serveurs (adresses) sans nouveaux projets
-	Mates     []BackendConf     `yaml:"-"`           // pool : autres backends du même pool (charge commune)
-	Server    string            `yaml:"-"`           // membre d'un groupe : son serveur (at)
-	Engine    string            `yaml:"engine"`      // ssh : moteur sur la machine distante, podman (défaut) ou docker
-	EngHost   string            `yaml:"engine_host"` // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
-	Shared    []string          `yaml:"shared"`      // distant : racines du stockage partagé (mêmes chemins des deux côtés)
-	Namespace string            `yaml:"namespace"`   // k8s
-	Volumes   map[string]string `yaml:"volumes"`     // k8s : racine partagée → PVC ReadWriteMany monté à ce chemin
-	Spread    *bool             `yaml:"spread"`      // k8s : répartir les pods NG2 sur les nodes (défaut : oui, #60)
-	Pod       map[string]any    `yaml:"pod"`         // k8s : ajouté au spec du pod (nodeSelector, affinity, tolerations, resources…)
-	implicit  bool              // host ajouté sans déclaration sous Windows (addImplicitHost)
+	Name       string            `yaml:"-"`
+	Type       string            `yaml:"type"`                 // host | podman | docker | ssh
+	Context    string            `yaml:"context"`              // docker : --context ; k8s : contexte
+	Kubeconfig KubeconfigRef     `yaml:"kubeconfig,omitempty"` // k8s : true (fichier du coffre) ou chemin d'un kubeconfig (#193)
+	Host       string            `yaml:"host"`                 // docker / podman : adresse du démon ou du service (tcp://…) ; ssh : destination ssh
+	Hosts      []string          `yaml:"hosts"`                // groupe de serveurs (#61, pool.go) : à la place de host
+	Pool       string            `yaml:"pool"`                 // pool de machines nommé (#64) : host sert alors de modèle ({} = machine)
+	Machines   map[string]string `yaml:"-"`                    // pool : adresse du serveur → machine
+	Drain      map[string]bool   `yaml:"-"`                    // pool : serveurs (adresses) sans nouveaux projets
+	Mates      []BackendConf     `yaml:"-"`                    // pool : autres backends du même pool (charge commune)
+	Server     string            `yaml:"-"`                    // membre d'un groupe : son serveur (at)
+	Engine     string            `yaml:"engine"`               // ssh : moteur sur la machine distante, podman (défaut) ou docker
+	EngHost    string            `yaml:"engine_host"`          // ssh : adresse du démon côté machine distante (docker rootless, service podman…)
+	Shared     []string          `yaml:"shared"`               // distant : racines du stockage partagé (mêmes chemins des deux côtés)
+	Namespace  string            `yaml:"namespace"`            // k8s
+	Volumes    map[string]string `yaml:"volumes"`              // k8s : racine partagée → PVC ReadWriteMany monté à ce chemin
+	Spread     *bool             `yaml:"spread"`               // k8s : répartir les pods NG2 sur les nodes (défaut : oui, #60)
+	Pod        map[string]any    `yaml:"pod"`                  // k8s : ajouté au spec du pod (nodeSelector, affinity, tolerations, resources…)
+	implicit   bool              // host ajouté sans déclaration sous Windows (addImplicitHost)
 }
 
 // engine : moteur réellement piloté (podman ou docker).
@@ -490,9 +491,17 @@ func backendsOf(f backendsFile) ([]BackendConf, error) {
 		if err := noOptionLike(n, c); err != nil { // après la résolution du pool : ses adresses aussi
 			return nil, err
 		}
+		if c.Kubeconfig.set() && c.Type != "k8s" {
+			return nil, fmt.Errorf("backends.yaml : backend %q : « kubeconfig » est réservé aux backends k8s", n)
+		}
 		switch c.Type {
 		case "host", "podman", "docker":
 		case "k8s":
+			if p := c.Kubeconfig.Path; p != "" && !filepath.IsAbs(p) && !strings.HasPrefix(p, "-") {
+				return nil, fmt.Errorf("backends.yaml : backend %q : « kubeconfig » : chemin absolu attendu (%q)", n, p)
+			} else if strings.HasPrefix(p, "-") {
+				return nil, fmt.Errorf("backends.yaml : backend %q : « kubeconfig » ne peut pas commencer par « - » (%q)", n, p)
+			}
 			c.Shared = nil // les racines partagées sont celles des volumes
 			for r := range c.Volumes {
 				c.Shared = append(c.Shared, r)
@@ -863,7 +872,7 @@ func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
 func (e Engine) cliT(tty bool, args ...string) []string {
 	switch e.B.Type {
 	case "ssh":
-		out := append([]string{"ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...)
+		out := append(append([]string{"ssh"}, sshBaseArgs(e.B.Name, "10")...), sshMux()...)
 		if tty {
 			out = append(out, "-t")
 		}
@@ -922,11 +931,18 @@ func dnsSlug(s string, max int, def string) string {
 // ouvert de Windows porte le même nom que depuis un hub Linux.
 
 // ctrSlug : nom du projet en label DNS.
-func ctrSlug(proj string) string { return dnsSlug(path.Base(RemotePath(proj)), 30, "projet") }
+func ctrSlug(proj string) string {
+	return dnsSlug(path.Base(slashPath(RemotePath(proj))), 30, "projet")
+}
+
+// slashPath : séparateurs « / » : un projet Windows sans correspondance de chemins (paths) garde son chemin local
+// (C:\Users\…\TEST\alpha), que path.Base / path.Dir ne savent pas découper — le nom du projet (et donc l'URL
+// /files/<projet>) deviendrait le chemin entier tronqué, identique pour tous les projets (#174).
+func slashPath(p string) string { return strings.ReplaceAll(p, `\`, "/") }
 
 // catSlug : catégorie du projet (dossier parent) en label DNS.
 func catSlug(proj string) string {
-	return dnsSlug(path.Base(path.Dir(RemotePath(proj))), 20, "projets")
+	return dnsSlug(path.Base(path.Dir(slashPath(RemotePath(proj)))), 20, "projets")
 }
 
 // CtrName : nom du conteneur (et du StatefulSet k8s) d'un projet :

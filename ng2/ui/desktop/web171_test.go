@@ -509,8 +509,13 @@ func TestReverseProxyHTTPSEndToEnd(t *testing.T) {
 // Priorité de l'adresse publique en mode serveur : --url > CL_WEB_URL > desktop_web.url (contrat). Run(args)
 // réel (« --web » sur un port libre, sans navigateur), arrêt par « quit » ; l'hôte admis dit quelle source gagne.
 func TestRunWebURLPrecedenceFlagEnvConfig(t *testing.T) {
-	oldQuit, oldRestart, oldEnv, oldFlag := quitHook, restartApp, restartEnv, webURLFlag
-	defer func() { quitHook, restartApp, restartEnv, webURLFlag = oldQuit, oldRestart, oldEnv, oldFlag }()
+	oldQuit, oldRestart, oldEnv, oldFlag := quitHook.Get(), restartApp.Get(), restartEnv.Get(), webURLFlag.Get()
+	defer func() {
+		quitHook.Set(oldQuit)
+		restartApp.Set(oldRestart)
+		restartEnv.Set(oldEnv)
+		webURLFlag.Set(oldFlag)
+	}()
 	for _, tc := range []struct {
 		name         string
 		flag, envURL string
@@ -528,7 +533,7 @@ func TestRunWebURLPrecedenceFlagEnvConfig(t *testing.T) {
 			l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: false, listen: off, url: \"%s\" }\n", tc.cfg))
 			t.Setenv("CL_DESKTOP_TOKEN", "tokURLPrecedence1234567")
 			t.Setenv("CL_WEB_URL", tc.envURL)
-			webURLFlag = ""
+			webURLFlag.Set("")
 			args := []string{"--web", "--no-open", "--addr", "127.0.0.1:" + strconv.Itoa(p)}
 			if tc.flag != "" {
 				args = append(args, "--url", tc.flag)

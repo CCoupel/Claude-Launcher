@@ -1,0 +1,37 @@
+{{- if .Values.networkPolicy.enabled }}
+# Entrée du pod du launcher seulement depuis les pods du contrôleur d'Ingress (networkPolicy.ingressPodSelector) du namespace
+# réglable, sur le port du conteneur.
+# Les sondes du kubelet viennent de l'hôte du nœud : admises par le CNI (Cilium : allow-localhost) ; avec un contrôleur en
+# réseau d'hôte, donner les adresses des nœuds dans networkPolicy.ingressCIDRs. Sortie NON restreinte (backends distants,
+# GitHub, ACME). Les NetworkPolicy du namespace s'additionnent (OU) : celles qui existent déjà ne sont pas modifiées.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "cl.fullname" . }}
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "cl.selector" . | nindent 6 }}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        {{- range .Values.networkPolicy.ingressNamespaces }}
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: {{ . | quote }}
+          {{- with $.Values.networkPolicy.ingressPodSelector }}
+          podSelector:
+            matchLabels:
+              {{- toYaml . | nindent 14 }}
+          {{- end }}
+        {{- end }}
+        {{- range .Values.networkPolicy.ingressCIDRs }}
+        - ipBlock:
+            cidr: {{ . | quote }}
+        {{- end }}
+      ports:
+        - protocol: TCP
+          port: http   # port NOMMÉ du conteneur (8080), pas service.port : une NetworkPolicy vise le port du pod
+{{- end }}

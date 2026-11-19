@@ -34,3 +34,21 @@
 | tests/integration/ci/ci-image-chart-177/ | integration | main | Garde de scripts/ci.sh : outil manquant = echec explicite, etapes chart et image mesurees, budgets D1, une seule image ci gardee (#177) | feature | slow |
 | tests/procedures/ci/install-guide-185/ | procedure | main | Installation par Helm en suivant le guide seul, sur une autre racine : prerequis, installation, acces sans jeton, mise a jour/retour arriere, limites dites, desinstallation, releve des ecarts (#185) | feature | slow |
 | tests/procedures/ui-desktop/masquage-inactifs-188/ | procedure | ui-desktop | Commutateur du masquage des teammates inactifs : defaut v6.2.0, desactive (tout reapparait, delai conserve, double-clic refuse), puce de la carte TEAM, coque tmux (#188) | feature | |
+| tests/procedures/ui-desktop/version-template-199/ | procedure | ui-desktop | Version du template juste, ⚠ carte TEAM, alerte quota GitHub (#199) | feature | |
+| ng2/core/tplversion199_test.go | unitaire | core | Comparaisons de versions, carte TEAM, verification GitHub : jeton, ETag, quota, resultat partage (#199) | feature | |
+| tests/procedures/ui-web/cles-ssh-backends-194/ | procedure | ui-web | Cles ssh des backends distants depuis le pod : generer/coller, empreinte confirmee, Tester ssh/podman/docker (#194) | feature | |
+| ng2/ui/desktop/secrets194_test.go | unitaire | ui-desktop | Coffre des secrets, paire ssh, phrase de passe refusee, known_hosts confirme, journal sans contenu, ssh avec la cle du coffre (#194) | feature | |
+| ng2/chart_secrets194_test.go | integration | chart | PVC du coffre, CL_SECRETS_DIR, aucun droit secrets, Secret TLS docker facultatif, clients dans l image (#194) | feature | |
+| tests/procedures/ui-web/kubeconfig-backend-193/ | procedure | ui-web | Kubeconfig par backend k8s depuis le pod, namespace jetable, fichier illisible sans repli (#193) | feature | |
+| ng2/core/kubeconfig193_test.go | unitaire | core | Priorite kubeconfig > ServiceAccount > KUBECONFIG, --kubeconfig/--context, illisible sans repli, Tester (#193) | feature | |
+| ng2/ui/desktop/kubeconfig193_test.go | unitaire | ui-desktop | Depot du kubeconfig dans le coffre : contextes listes, jamais relu ni journalise, refus motives (#193) | feature | |
+| ng2/chart_kubeconfig193_test.go | integration | chart | rbac.extraNamespaces et backends.kubeconfigs en lecture seule 0444 (#193) | feature | |
+| tests/procedures/ui-web/version-serveur-198/ | procedure | ui-web | Version du serveur : bandeau Recharger sans F5, redemarrage simple, annonce non cliquable en cluster (#198) | feature | |
+| ng2/ui/desktop/server198_test.go | unitaire | ui-desktop | server{version,boot} dans init et instantane, boot stable/different, logique client node (#198) | feature | |
+| tests/procedures/ui-web/onglets-189-191/ | procedure | ui-web | Onglets : couleur hors selection, titre et largeur stables, ordre par glisser-deposer (#189, #190, #191) | feature | |
+| ng2/ui/desktop/tabs189_test.go | unitaire | ui-desktop | Simulation node des onglets : tabView, tabOrder, tabMove, cl.tabOrder, Ctrl+Tab, machine du glisser (#189-#191) | feature | |
+| tests/procedures/ui-web/fichiers-174/ | procedure | ui-web | /files : maquette dans Chrome par l adresse interne, rien hors racine, hub inchange (#174) | feature | |
+| tests/procedures/ci/networkpolicy-200/ | procedure | chart | NetworkPolicy par defaut, pod tiers refuse, Internet 403, ingress externe refuse (#200) | feature | slow |
+| ng2/ui/desktop/files174_test.go | integration | ui-desktop | Route /files : racines, .., liens, CSP sandbox, Host/Sec-Fetch-Site, modes token et none, appariement (#174) | feature | |
+| ng2/core/browserfiles174_test.go | unitaire | core | CL_BROWSER_PATH_MAP/HINT en cluster vers CL_WEB_URL/files, hub inchange (#174) | feature | |
+| ng2/chart_networkpolicy200_test.go | integration | chart | NetworkPolicy par defaut/desactivable/namespaces, ingress externe refuse, delai d arret (#200) | feature | |

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"strings"
 	"sync"
 	"time"
@@ -9,7 +10,7 @@ import (
 )
 
 func leaderAliveIn(pid int, space string) platform.LeaderState {
-	return platform.LeaderAliveInHosts(pid, space, LocalCtrHosts)
+	return platform.LeaderAliveInHosts(pid, space, LocalCtrHosts.Get())
 }
 
 var localHosts struct {
@@ -20,7 +21,7 @@ var localHosts struct {
 
 // LocalCtrHosts : hostnames (noms de projet) des conteneurs NG2 des moteurs
 // locaux, arrêtés compris ; relu au plus toutes les 30 s.
-var LocalCtrHosts = func() map[string]bool {
+var LocalCtrHosts = tun.Of(func() map[string]bool {
 	localHosts.Lock()
 	defer localHosts.Unlock()
 	if localHosts.set != nil && time.Since(localHosts.at) < 30*time.Second {
@@ -47,4 +48,4 @@ var LocalCtrHosts = func() map[string]bool {
 	}
 	localHosts.at, localHosts.set = time.Now(), set
 	return set
-}
+})

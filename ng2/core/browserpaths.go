@@ -2,6 +2,7 @@ package core
 
 import (
 	"bytes"
+	"claude-launcher-ng2/internal/tun"
 	"claude-launcher-ng2/platform"
 	"encoding/json"
 	"fmt"
@@ -158,10 +159,10 @@ func onWSL() bool {
 }
 
 // wslWinPath : wslpath -w (variable pour les tests).
-var wslWinPath = func(p string) (string, error) {
+var wslWinPath = tun.Of(func(p string) (string, error) {
 	out, err := exec.Command("wslpath", "-w", p).Output()
 	return strings.TrimSpace(string(out)), err
-}
+})
 
 // defaultBrowserPaths : sans browser_paths, même chemin des deux côtés pour
 // chaque racine connue (racines de projets, shared/volumes des backends) ;
@@ -178,7 +179,7 @@ func defaultBrowserPaths(roots []string, wsl bool) []BrowserPath {
 		seen[r] = true
 		p := BrowserPath{Container: r, Host: r, OS: "linux"}
 		if wsl {
-			if w, err := wslWinPath(r); err == nil && w != "" {
+			if w, err := wslWinPath.Get()(r); err == nil && w != "" {
 				p.Host, p.OS = strings.TrimRight(w, `\`), "windows"
 			}
 		}
@@ -227,6 +228,10 @@ func resolveBrowserPathsFor(f backendsFile, host string, roots []string, wsl boo
 		decl, source = f.Defaults.BrowserPaths, "defaults.browser_paths"
 	}
 	if decl == nil {
+		// mode serveur dans un cluster (#174) : les fichiers sont servis par l'interface web, sous <CL_WEB_URL>/files
+		if base := ServerFilesBase(); base != "" {
+			return []BrowserPath{}, "interface web du launcher : correspondance par projet (" + base + "/<projet>)", nil
+		}
 		// serveur web du launcher (#106) : le chemin de l'URL est le chemin interne
 		if c, err := resolveBrowserServerFor(f, host, goos); err == nil && !c.Off {
 			return []BrowserPath{{Container: "/", Host: c.Base, OS: "url"}}, "serveur web du launcher (" + c.Listen + ")", nil
@@ -277,7 +282,7 @@ func readBackendsFile() backendsFile {
 
 // browserPaths : correspondance effective de ce launcher.
 func browserPaths() (ps []BrowserPath, source string, warns []string) {
-	return resolveBrowserPathsFor(readBackendsFile(), hubName(), knownRoots(), onWSL(), pathsGOOS)
+	return resolveBrowserPathsFor(readBackendsFile(), hubName(), knownRoots(), onWSL(), pathsGOOS.Get())
 }
 
 // browserPathJSON : valeur de CL_BROWSER_PATH_MAP (JSON compact, jamais null).

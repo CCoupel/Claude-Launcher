@@ -89,7 +89,7 @@ func helpText(width int) string {
 	title := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("39"))
 	key := lipgloss.NewStyle().Foreground(lipgloss.Color("214"))
 	var b strings.Builder
-	b.WriteString(core.Bold.Render(core.NgName+" "+core.NgVersion) + core.Dim.Render("  ·  aide") + "\n")
+	b.WriteString(core.Bold.Render(core.NgName+" "+core.Version()) + core.Dim.Render("  ·  aide") + "\n")
 	for _, s := range helpSections {
 		b.WriteString("\n" + title.Render(s.title) + "\n")
 		for _, r := range s.rows {

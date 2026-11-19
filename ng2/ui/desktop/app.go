@@ -12,8 +12,10 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"encoding/json"
 	"fmt"
+	"log"
 	"reflect"
 	"runtime"
 	"strings"
@@ -29,9 +31,10 @@ type Emitter func(name string, data any)
 
 // App : état du launcher vu par l'interface.
 type App struct {
-	cfg    core.Config
-	confMu sync.RWMutex // cfg relue à chaud (config.go)
-	confAt time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
+	openGate openGate // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
+	cfg      core.Config
+	confMu   sync.RWMutex // cfg relue à chaud (config.go)
+	confAt   time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
 	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
@@ -93,6 +96,8 @@ type updState struct {
 	prefTag, prefStep, prefErr, prefFile, prefSum string
 	prefBusy, updating, checking                  bool
 	hideLauncher, hideTpl, hideHub                bool
+	errKind                                       string    // "" | "quota" | "network" : vérification GitHub en échec (#199)
+	errRetry                                      time.Time // reprise annoncée (quota)
 }
 
 // NewApp : état initial (arborescence, caches) ; Start lance les relectures.
@@ -168,6 +173,14 @@ func NewApp(emit Emitter) *App {
 	return a
 }
 
+// projectCount : nombre de projets connus, a.mu pris (rescan remplace a.nodes depuis d'autres goroutines : arborescence
+// surveillée, Ctrl+R).
+func (a *App) projectCount() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return len(a.projectPaths())
+}
+
 func (a *App) projectPaths() []string {
 	var out []string
 	for _, n := range a.nodes {
@@ -241,7 +254,7 @@ func (a *App) Start() {
 		}
 		a.ready.Store(true) // l'arbre des projets est à jour : l'application répond (/readyz)
 		a.perf.time("git", a.gitAll)
-		a.perf.write(len(a.projectPaths()))
+		a.perf.write(a.projectCount())
 		a.changed()
 	}()
 	// sessions en suspens : lues dans ~/.claude, toutes les 10 s (30 s sur un disque réseau)
@@ -282,6 +295,7 @@ func (a *App) Stop() {
 		close(a.quit)
 	}
 	a.stopWebUI()
+	a.waitOpenings(shutdownOpenWait.Get()) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
 	for _, t := range a.terms {
@@ -293,11 +307,89 @@ func (a *App) Stop() {
 		wg.Add(1)
 		go func(t *projTerm) { defer wg.Done(); t.detach() }(t)
 	}
-	wg.Wait()
+	// budget d'arrêt : ouvertures (20 s) + détachements (≤ 5 s) = 25 s au pire, sous le délai de grâce du pod (30 s) ; un
+	// detach bloqué (client tmux qui ne se ferme pas) ne retient pas l'arrêt, les sessions continuent dans leurs conteneurs
+	if !waitDone(&wg, detachWait.Get()) {
+		log.Printf("arrêt : détachement des terminaux toujours en cours après %s, arrêt sans l'attendre", detachWait.Get())
+	}
 	if a.mgr != nil {
 		// gestionnaire d'état : son watcher fsnotify (instance inotify du quota de l'utilisateur) est fermé tout de suite ;
 		// l'attente d'un calcul en cours se fait à côté, sans retarder l'arrêt de l'interface
 		go a.mgr.Stop()
+	}
+}
+
+// detachWait : au plus combien de temps l'arrêt attend le détachement des terminaux. Remplacé dans les tests.
+var detachWait = tun.Of(5 * time.Second)
+
+// waitDone : wg.Wait borné ; faux si le groupe n'a pas fini dans max.
+func waitDone(wg *sync.WaitGroup, max time.Duration) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	t := time.NewTimer(max)
+	defer t.Stop()
+	select {
+	case <-done:
+		return true
+	case <-t.C:
+		return false
+	}
+}
+
+// shutdownOpenWait : au plus combien de temps l'arrêt attend les ouvertures de projet en cours (le délai de grâce
+// du pod est de 30 s par défaut : de la marge pour détacher les terminaux et quitter). Remplacé dans les tests.
+var shutdownOpenWait = tun.Of(20 * time.Second)
+
+// waitOpenings : attend la fin des ouvertures de projet en cours (bootstrap, création de la session), au plus max.
+// Passé le délai, l'arrêt continue : les terminaux sont détachés, et le bootstrap — détaché du launcher dans le
+// conteneur — se termine sans lui ; la prochaine ouverture ou le rattachement répare ce qui manque.
+func (a *App) waitOpenings(max time.Duration) bool { return a.openGate.wait(max) }
+
+// openGate : compteur des ouvertures en cours. Pas de sync.WaitGroup : son Add concurrent d'un Wait (compteur à zéro)
+// est une course de données ; ici begin / end / wait sont sous le même verrou.
+type openGate struct {
+	mu sync.Mutex
+	n  int
+	ch chan struct{} // fermé quand le compteur retombe à zéro
+}
+
+func (g *openGate) begin() {
+	g.mu.Lock()
+	g.n++
+	g.mu.Unlock()
+}
+
+func (g *openGate) end() {
+	g.mu.Lock()
+	if g.n--; g.n <= 0 {
+		g.n = 0
+		if g.ch != nil {
+			close(g.ch)
+			g.ch = nil
+		}
+	}
+	g.mu.Unlock()
+}
+
+// wait : vrai quand plus aucune ouverture n'est en cours, faux si elles durent plus que max.
+func (g *openGate) wait(max time.Duration) bool {
+	g.mu.Lock()
+	if g.n == 0 {
+		g.mu.Unlock()
+		return true
+	}
+	if g.ch == nil {
+		g.ch = make(chan struct{})
+	}
+	ch := g.ch
+	g.mu.Unlock()
+	t := time.NewTimer(max)
+	defer t.Stop()
+	select {
+	case <-ch:
+		return true
+	case <-t.C:
+		return false
 	}
 }
 
@@ -647,7 +739,7 @@ type Row struct {
 
 // Alert : annonce de mise à jour.
 type Alert struct {
-	Kind  string `json:"kind"`  // launcher, template
+	Kind  string `json:"kind"`  // launcher, template, github (#199)
 	Text  string `json:"text"`  // sans le ✕
 	Color string `json:"color"` // green, yellow, orange
 	Click bool   `json:"click"` // un clic agit (installer, adopter, réessayer)
@@ -682,7 +774,8 @@ type Snapshot struct {
 	Tabs     []TabInfo  `json:"tabs"`
 	Roots    []string   `json:"roots"`
 	OS       string     `json:"os"`
-	WebUI    WebUIState `json:"webUI"` // interface web servie par la fenêtre (#163) ; jamais le jeton
+	WebUI    WebUIState `json:"webUI"`  // interface web servie par la fenêtre (#163) ; jamais le jeton
+	Server   ServerInfo `json:"server"` // version et démarrage du serveur (#198)
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -717,8 +810,8 @@ func (a *App) projInfo(n core.Node) core.ProjInfo {
 func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	s := Snapshot{Version: core.NgName + " " + core.NgVersion, Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI()}
+	s := Snapshot{Version: core.NgName + " " + core.Version(), Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -808,7 +901,11 @@ func (a *App) alerts() []Alert {
 		tag := u.newLauncher
 		switch {
 		case core.UpdateNotifyOnly():
-			al.Text, al.Notify = "↑ NG "+tag+" disponible · mise à jour par l'image", true
+			how := "mise à jour par l'image"
+			if core.InCluster() {
+				how = "mise à jour par helm upgrade"
+			}
+			al.Text, al.Notify = "↑ NG "+tag+" disponible · "+how, true
 		case u.updating:
 			al.Text, al.Color = "↑ NG "+tag+" : installation…", "green"
 		case u.launcherOK:
@@ -838,6 +935,13 @@ func (a *App) alerts() []Alert {
 			al.Text, al.Color, al.Click = "↑ tpl "+u.newTpl+" · cliquer pour installer", "green", true
 		}
 		out = append(out, al)
+	}
+	// vérification GitHub impossible : visible en continu, orange, non cliquable (#199)
+	switch u.errKind {
+	case core.UpdErrQuota:
+		out = append(out, Alert{Kind: "github", Color: "orange", Text: "⚠ vérification GitHub impossible (quota, reprise " + u.errRetry.Format("15:04") + ")"})
+	case core.UpdErrNetwork:
+		out = append(out, Alert{Kind: "github", Color: "orange", Text: "⚠ GitHub injoignable"})
 	}
 	return out
 }
@@ -1068,6 +1172,13 @@ func (a *App) DispatchFrom(from origin, method string, raw json.RawMessage) (any
 func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error) {
 	// méthodes aux arguments structurés (le décodage générique ci-dessous
 	// attend des chaînes : « backend » y est un nom, ici un objet)
+	if secretMethods[method] { // appel direct sans adresse source (tests, liaison)
+		src := "fenêtre native"
+		if web {
+			src = "navigateur"
+		}
+		return a.secretCall(src, method, raw)
+	}
 	switch method {
 	case "projectSettings":
 		var in struct {
@@ -1136,7 +1247,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		a.mu.Lock()
 		sel := a.sel
 		a.mu.Unlock()
-		return map[string]any{"state": a.Snapshot(), "cards": a.selectCards(sel), "help": helpData(), "prefs": loadPrefs()}, nil
+		return map[string]any{"state": a.Snapshot(), "cards": a.selectCards(sel), "help": helpData(), "prefs": loadPrefs(), "server": serverInfo()}, nil
 	case "setPrefs": // préférences d'affichage (#123, #124) : objet fusionné
 		var patch map[string]any
 		if err := json.Unmarshal(raw, &patch); err != nil {
@@ -1155,14 +1266,19 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		// cartes en cache tout de suite, complétées en tâche de fond (#130)
 		return a.selectCards(arg.Path), nil
 	case "setTheme": // thème Auto / Jour / Nuit (#133) : barre de titre de la fenêtre
-		if themeHook != nil {
-			themeHook(arg.Mode)
+		if h := themeHook.Get(); h != nil {
+			h(arg.Mode)
 		}
 		return nil, nil
 	case "cardsFor": // projet survolé ou voisin : préparé à l'avance (#130)
 		return a.prefetchCards(arg.Path), nil
 	case "open":
 		return a.open(arg.Path, core.LaunchNormal)
+	case "reattach": // #198 : rattache l'onglet à une session vivante, sans rien créer
+		if a.reattachPath(arg.Path) {
+			return map[string]any{"ok": true, "tab": arg.Path}, nil
+		}
+		return map[string]any{"ok": false}, nil
 	case "refreshProject": // #158
 		return a.refreshProject(arg.Path)
 	case "forceClose":
@@ -1191,6 +1307,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 			a.upd.hideLauncher = true
 		case "hubcfg":
 			a.upd.hideHub = true
+		case "github": // alerte permanente : non masquable (#199)
 		default:
 			a.upd.hideTpl, a.upd.hideLauncher = true, true
 		}

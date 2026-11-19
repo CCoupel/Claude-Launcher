@@ -38,10 +38,16 @@ func fakePrefRelease(t *testing.T, bin []byte) (directDown, apiUp *bool) {
 		}
 	}))
 	t.Cleanup(srv.Close)
-	oldAPI, oldRel, oldWait, oldVer := core.ApiBase, core.ReleaseBase, core.ReleaseRetryWait, core.NgVersion
-	core.ApiBase, core.ReleaseBase, core.ReleaseRetryWait, core.NgVersion = srv.URL, srv.URL+"/rel", time.Millisecond, "v5.0.0"
+	oldAPI, oldRel, oldWait := core.ApiBase.Get(), core.ReleaseBase.Get(), core.ReleaseRetryWait.Get()
+	oldVer := core.SetNgVersion("v5.0.0")
+	core.ApiBase.Set(srv.URL)
+	core.ReleaseBase.Set(srv.URL + "/rel")
+	core.ReleaseRetryWait.Set(time.Millisecond)
 	t.Cleanup(func() {
-		core.ApiBase, core.ReleaseBase, core.ReleaseRetryWait, core.NgVersion = oldAPI, oldRel, oldWait, oldVer
+		core.ApiBase.Set(oldAPI)
+		core.ReleaseBase.Set(oldRel)
+		core.ReleaseRetryWait.Set(oldWait)
+		core.SetNgVersion(oldVer)
 	})
 	t.Setenv("TMPDIR", t.TempDir())
 	return &d, &a

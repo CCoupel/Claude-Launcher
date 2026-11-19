@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	_ "embed"
 	"encoding/base64"
 	"fmt"
@@ -44,13 +45,85 @@ func bootstrapVars(proj string, env EnvSpec) string {
 	return b.String()
 }
 
-// Bootstrap : script exécuté en root dans le conteneur (idempotent, cf. bootstrap.sh).
+// bootDir : dossier de l'état du bootstrap dans le conteneur (script, journal, pid, code de sortie, marqueur) ;
+// remplacé dans les tests.
+var bootDir = tun.Of("/var/lib/cl")
+
+// bootstrapStarter : commande sh -c exécutée en root, UN seul exec (le script de bootstrap arrive par stdin).
+// Le bootstrap lui-même tourne DÉTACHÉ du launcher (setsid + nohup, sortie dans boot.log, code dans boot.rc) : il va
+// jusqu'au bout même si le launcher meurt (SIGTERM, coupure du kubectl exec) — sinon une installation interrompue
+// laissait un pod sans utilisateur ni tmux (#198). Le launcher ne fait que suivre le journal. Un bootstrap déjà en cours
+// (lancé par un launcher disparu, ou par un autre appel) n'est pas relancé : on le suit.
+func bootstrapStarter(dir string) string {
+	d := Shq(dir)
+	return `umask 077; d=` + d + `
+mkdir -p "$d" || exit 1
+alive() { [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ] && kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null; }
+# en cours ? un pid mort sans code de sortie est confirmé 1 s plus tard (le lanceur peut être mort juste avant que
+# le bootstrap n'écrive son propre pid)
+running() { alive && return 0; if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ]; then sleep 1; alive && return 0; fi; return 1; }
+if running; then
+  cat >/dev/null
+  echo "  bootstrap déjà en cours dans le conteneur : suivi"
+else
+  cat > "$d/run.sh.new" && mv "$d/run.sh.new" "$d/run.sh" || exit 1
+  rm -f "$d/boot.rc"; : > "$d/boot.log"
+  echo $$ > "$d/boot.pid" # pid provisoire (ce shell reste vivant pendant le suivi) : jamais de fenêtre sans pid
+  S=''; command -v setsid >/dev/null 2>&1 && S=setsid
+  # les fichiers d'état restent en 0600 (umask 077) ; le bootstrap lui-même tourne en umask 022 (ses fichiers, ex.
+  # /etc/cl-tmux.conf, doivent rester lisibles) ; run.sh (il peut contenir le setup d'env.yaml) est supprimé à la fin
+  $S nohup sh -c 'echo $$ > "$1/boot.pid"; (umask 022; sh "$1/run.sh") > "$1/boot.log" 2>&1; rc=$?; rm -f "$1/run.sh"; echo $rc > "$1/boot.rc.new"; mv "$1/boot.rc.new" "$1/boot.rc"' sh "$d" >/dev/null 2>&1 </dev/null &
+fi
+tail -n +1 -f "$d/boot.log" 2>/dev/null &
+T=$!
+n=0
+while [ ! -f "$d/boot.rc" ]; do
+  if [ -f "$d/boot.pid" ] && ! kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && [ ! -f "$d/boot.rc" ]; then
+    sleep 1
+    [ -f "$d/boot.rc" ] && break
+    kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && continue
+    kill $T 2>/dev/null; echo "bootstrap interrompu dans le conteneur (reprise à la prochaine ouverture)" >&2; exit 1
+  fi
+  n=$((n+1)); [ $n -gt 20 ] && [ ! -f "$d/boot.pid" ] && { kill $T 2>/dev/null; echo "bootstrap non démarré" >&2; exit 1; }
+  sleep 0.2 2>/dev/null || sleep 1
+done
+sleep 0.3 2>/dev/null || sleep 1
+kill $T 2>/dev/null
+exit "$(cat "$d/boot.rc")"
+`
+}
+
+// Bootstrap : script exécuté en root dans le conteneur (idempotent, cf. bootstrap.sh), détaché du launcher.
 func (e Engine) Bootstrap(name, proj string, env EnvSpec, log io.Writer) error {
 	script := bootstrapVars(proj, env) + bootstrapScript
-	if err := e.Exec(name, true, strings.NewReader(script), log, "sh", "-s"); err != nil {
+	if err := e.Exec(name, true, strings.NewReader(script), log, "sh", "-c", bootstrapStarter(bootDir.Get())); err != nil {
 		return fmt.Errorf("bootstrap : %w", err)
 	}
 	return nil
+}
+
+// BootstrapIncomplete : le conteneur tourne mais son installation n'a jamais abouti (pas de marqueur de bootstrap :
+// pod sans utilisateur ni tmux après un launcher coupé en pleine ouverture), et aucun bootstrap n'est en cours. Faux en
+// cas de doute (conteneur injoignable).
+func (e Engine) BootstrapIncomplete(name string) bool {
+	d := Shq(bootDir.Get())
+	probe := `d=` + d + `; [ -s "$d/bootstrap" ] && exit 1
+if [ -f "$d/boot.pid" ] && [ ! -f "$d/boot.rc" ]; then
+  kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && exit 1
+  sleep 1; kill -0 "$(cat "$d/boot.pid" 2>/dev/null)" 2>/dev/null && exit 1
+fi
+exit 0`
+	return e.Exec(name, true, nil, io.Discard, "sh", "-c", probe) == nil
+}
+
+// RepairBootstrap : termine l'installation d'un conteneur resté à moitié installé (reprise au démarrage du launcher
+// ou à l'ouverture suivante) ; sans ouvrir de session.
+func (e Engine) RepairBootstrap(name, proj string) error {
+	env, err := LoadEnvFull(proj)
+	if err != nil {
+		return err
+	}
+	return e.Bootstrap(name, proj, env, io.Discard)
 }
 
 // OnStart : étapes on_start de env.yaml, en utilisateur dans le projet, à chaque
@@ -89,7 +162,7 @@ func (e Engine) NewCtrSession(name, proj string, w, h int) error {
 func (e Engine) NewCtrSessionTo(name, proj string, w, h int, out io.Writer) error {
 	ns := []string{"new-session", "-d", "-s", CtrSession, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", RemotePath(proj)}
 	withEnv := []string{"new-session", "-d"}
-	for _, v := range BrowserEnvVars() {
+	for _, v := range BrowserEnvVarsFor(proj) {
 		withEnv = append(withEnv, "-e", v.K+"="+v.V)
 	}
 	withEnv = append(withEnv, ns[2:]...)
@@ -105,8 +178,11 @@ func (e Engine) NewCtrSessionTo(name, proj string, w, h int, out io.Writer) erro
 // SetCtrBrowserPaths : à chaque ouverture ou rattachement, correspondance à
 // jour dans l'environnement de la session : les panes créés ensuite
 // (teammates) la prennent, sans recréer le conteneur ni le pod (#104).
-func (e Engine) SetCtrBrowserPaths(name string) {
-	for _, v := range BrowserEnvVars() {
+func (e Engine) SetCtrBrowserPaths(name string) { e.SetCtrBrowserPathsFor(name, "") }
+
+// SetCtrBrowserPathsFor : SetCtrBrowserPaths avec la correspondance du projet proj (mode serveur, #174).
+func (e Engine) SetCtrBrowserPathsFor(name, proj string) {
+	for _, v := range BrowserEnvVarsFor(proj) {
 		_ = e.Exec(name, false, nil, io.Discard, TmuxIn("set-environment", "-t", "="+CtrSession, v.K, v.V)...)
 	}
 }

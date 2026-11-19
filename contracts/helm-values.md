@@ -48,7 +48,7 @@
 | `ingress.annotations` | table | `{}` | — | annotations ajoutées |
 | `resources` | table | demandes `100m` / `128Mi`, limite mémoire `512Mi` | — | — |
 | `extraEnv` | liste | `[]` | — | variables ajoutées au conteneur |
-| `terminationGracePeriodSeconds` | entier | `30` | — | — |
+| `terminationGracePeriodSeconds` | entier | `30` | — | minimum `30` : l'arrêt attend jusqu'à 20 s les ouvertures de projet en cours |
 
 Il n'y a **pas** de valeur pour le nombre de répliques : le StatefulSet en a toujours une.
 
@@ -99,3 +99,31 @@ ni aux fichiers de `rootBase`.
 
 `deploy/helm/values-qualif.yaml` et `deploy/helm/values-prod.yaml` : valeurs non secrètes de chaque environnement
 (nom d'hôte, classe, CIDR, `rootBase`, `web.access: none` écrit explicitement). Aucun secret : un certificat fourni reste dans `PRIVATE/<ENV>/`.
+
+## v6.4.0 — NetworkPolicy, coffre, identifiants, ingress externe préparé **[CHANGED]** (#174, #193, #194, #200)
+
+> Révision GATE 2 n°2 (rev2) : **aucune authentification** en v6.4.0 (#172 en v7.0.0). Détail :
+> `contracts/web-server.md`, `contracts/backends-remote.md`. **Aucun BREAKING** : `web.access` garde son défaut
+> `none`, et `ingress.*` de v6.3.0 est inchangé.
+
+| Valeur | Type | Défaut | Obligatoire | Rôle |
+|--------|------|--------|-------------|------|
+| `networkPolicy.enabled` | booléen | **`true`** | — | entrée du pod seulement depuis `networkPolicy.ingressNamespaces`, sur le **port nommé `http` du conteneur** (8080 ; pas `service.port`) ; sondes du kubelet admises ; sortie non restreinte (backends distants, GitHub) |
+| `networkPolicy.ingressPodSelector` | table de labels | `{app.kubernetes.io/name: traefik}` | — | labels des pods du contrôleur dans le namespace (ET avec `ingressNamespaces`) : un autre pod du namespace `traefik` n'est pas admis ; relevé en lecture seule sur le Traefik RKE2 du cluster (`app.kubernetes.io/name=traefik`) ; une clé à `null` la retire |
+| `networkPolicy.ingressCIDRs` | liste de CIDR | `[]` | — | sources `ipBlock` en plus (Traefik en réseau d'hôte : adresses des nœuds) ; sans namespace ni CIDR, le rendu est refusé |
+| `networkPolicy.ingressNamespaces` | liste | `[traefik]` | — | namespace du contrôleur d'Ingress (cluster du projet : `traefik`, DaemonSet hors réseau d'hôte) |
+| `secrets.persistence.size` | quantité | `10Mi` | — | PVC `ReadWriteOnce` `<release>-secrets` (coffre, `helm.sh/resource-policy: keep`), monté en `/var/lib/claude-launcher/secrets`, `CL_SECRETS_DIR` |
+| `secrets.persistence.storageClassName` | chaîne | `""` (classe par défaut) | — | classe RWO, **jamais** la racine partagée |
+| `rbac.extraNamespaces` | liste | `[]` | — | Role + RoleBinding identiques dans chaque namespace listé (#193) |
+| `backends.docker.secretName` | chaîne | `""` | — | Secret TLS docker/podman (`ca.pem`, `cert.pem`, `key.pem`), monté en `/var/run/claude-launcher/docker` (#194), `defaultMode: 0444` (pas de `fsGroup` : `0400` serait illisible par l'uid 1000 ; tmpfs du pod, lecture seule) ; pose `DOCKER_CERT_PATH` et `DOCKER_TLS_VERIFY=1` |
+| `backends.kubeconfigs` | liste `{name, secretName, key}` | `[]` | — | kubeconfigs montés en `/var/run/claude-launcher/kube/<name>/config` (#193, lecture seule, `defaultMode: 0444`), alternative au coffre |
+| `externalIngress.enabled` | booléen | `false` | — | **préparé, refusé** : `true` fait échouer le rendu (« ingress externe refusé : aucune authentification avant v7.0.0 (#172) ») |
+| `externalIngress.className`, `.host`, `.tls.clusterIssuer` (`letsencrypt-prod`) \| `.tls.secretName`, `.annotations` | — | — | — | déclarés dans `values.yaml` et le schéma, inutilisés en v6.4.0 ; le template `ingress-external.yaml` existe mais n'est rendu qu'après le contrôle ci-dessus (donc jamais en v6.4.0) |
+
+Objets ajoutés : NetworkPolicy ; PVC `<release>-secrets` ; Role/RoleBinding par namespace supplémentaire. Montages de
+Secret : en lecture seule, hors de `volume.mountPath` (le schéma refuse un chevauchement).
+
+Variable ajoutée dans le pod : `CL_SECRETS_DIR`.
+
+`NOTES.txt` : rappelle que l'interface n'a pas d'authentification (liste d'adresses de l'ingress interne seule) et
+que l'ingress externe attend v7.0.0.

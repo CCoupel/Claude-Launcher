@@ -86,9 +86,9 @@ func TestWebSessionsAreBoundedAndExpire(t *testing.T) {
 		t.Errorf("la dernière session : %d", st)
 	}
 	// expiration après inactivité
-	old := sessionIdle
-	sessionIdle = 150 * time.Millisecond
-	defer func() { sessionIdle = old }()
+	old := sessionIdle.Get()
+	sessionIdle.Set(150 * time.Millisecond)
+	defer func() { sessionIdle.Set(old) }()
 	c := scBootstrap(t, srv.URL, "tokS1tokS1tokS1")
 	time.Sleep(300 * time.Millisecond)
 	if st := scCall(t, srv.URL, c, call); st != 403 {

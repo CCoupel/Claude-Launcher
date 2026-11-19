@@ -9,8 +9,13 @@ Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ 
 
 {{- if eq (.Values.web.access | default "none") "none" }}
 Accès SANS jeton (web.access: none) : ouvrir https://{{ .Values.ingress.host | default "<hôte>" }}/ depuis une adresse admise.
-Limite (risque accepté jusqu'à l'authentification de v6.4.0, #172) : tout poste de la liste d'adresses pilote les projets,
-et tout pod du cluster atteint le Service sans passer par l'Ingress (pas de NetworkPolicy).
+AUCUNE authentification en v6.4.0 (#172 : v7.0.0) : tout poste de la liste d'adresses de l'Ingress interne pilote les projets.
+{{- if .Values.networkPolicy.enabled }}
+NetworkPolicy active : entrée du pod seulement depuis {{ join ", " .Values.networkPolicy.ingressNamespaces }}{{ if .Values.networkPolicy.ingressCIDRs }} et {{ join ", " .Values.networkPolicy.ingressCIDRs }}{{ end }}.
+{{- else }}
+NetworkPolicy DÉSACTIVÉE : tout pod du cluster atteint le Service sans passer par l'Ingress.
+{{- end }}
+Ingress externe : non disponible (refusé au rendu avant l'authentification de v7.0.0).
 {{- else }}
 URL d'amorçage (web.access: token) : https://{{ .Values.ingress.host | default "<hôte>" }}/?t=<jeton> — le jeton n'est pas écrit dans le journal ;
 il est dans le dossier d'état du launcher (voir deploy.qualif.md / deploy.prod.md : lu sans être affiché).
@@ -19,4 +24,4 @@ il est dans le dossier d'état du launcher (voir deploy.qualif.md / deploy.prod.
 État : kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "cl.fullname" . }}
 Mise à jour : changer image.tag (l'ancien pod s'arrête avant le démarrage du nouveau).
 Désinstallation : helm uninstall {{ .Release.Name }} — ne touche ni au PVC, ni aux pods de projets, ni aux fichiers de la racine.
-Non créés (risques acceptés v6.3.0) : NetworkPolicy, Secret du jeton (le jeton reste dans le cache sur le volume partagé).
+Non créé : Secret du jeton (avec web.access: token, le jeton reste dans le cache sur le volume partagé).

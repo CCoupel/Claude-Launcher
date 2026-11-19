@@ -155,3 +155,13 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
    `helm.sh/resource-policy: keep`), fermer les factices
    (`kubectl -n claude-qualif delete sts -l cl.launcher=ng2,cl.backend=k8s`). La racine de QUALIF et son `backends.yaml` sont
    **gardés** pour la QUALIF suivante ; seul le dossier d'état `…/.cache/claude-launcher-ng2/cluster-qualif` (jeton) est supprimé.
+
+## `helm upgrade` — jamais `--reuse-values` (constaté en 6.4.0.12)
+
+`--reuse-values` réutilise **uniquement** les valeurs enregistrées à l'installation précédente, sans les défauts du chart de
+cette version : une clé **nouvelle** du chart (ex. `externalIngress.enabled`, v6.4.0) est alors absente et le rendu échoue
+(`cl.validate` : « nil pointer evaluating interface {}.enabled », aucun changement appliqué).
+Pour un upgrade qui garde les valeurs courantes (changement d'image seul, valeur ajoutée ou retirée à la main) :
+`helm upgrade … --reset-then-reuse-values --set image.tag=… --set image.digest=…` (défauts du nouveau chart + valeurs
+utilisateur précédentes). Retirer une valeur : `--set <clé>=null`. La procédure ci-dessus (`-f values-qualif.yaml -f $QUALIF_VALUES_LOCAL`)
+n'est pas concernée ; contrôler avant (`helm upgrade … --dry-run=client`).

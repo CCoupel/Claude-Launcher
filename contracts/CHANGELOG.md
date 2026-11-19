@@ -2,6 +2,37 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261118] — v6.4.0, LOT-5 : budget d'arrêt (#198)
+
+- **[CHANGED]** arrêt du launcher borné à **25 s au pire** (ouvertures 20 s + détachements des terminaux 5 s) ; schéma du chart : `terminationGracePeriodSeconds` `minimum: 30` — l'écart signalé le 2026-11-18 est résolu — `contracts/web-server.md` « Cohérence avec le délai de grâce du pod »
+
+## [20261118] — v6.4.0, LOT-4 : `/files/<projet>/<chemin relatif>` (#174, décision utilisateur au GATE LOT-4)
+
+- **[BREAKING]** (interne au milestone, aucune version publiée) : `/files/<chemin interne complet>` **supprimé** ; forme unique `/files/<projet>/<chemin relatif>`, `<projet>` = nom du projet dans le launcher, projets connus seulement (inconnu → `404`) ; `/files/` sans liste (`404`) ; premiers segments en `__` réservés (appariement `/files/__claude-launcher__/pair`) — `contracts/web-server.md` « Fichiers des projets par l'interface »
+- **[CHANGED]** `CL_BROWSER_PATH_MAP` / `CL_BROWSER_HINT` : une correspondance par session, racine du projet → `<CL_WEB_URL>/files/<projet>` ; serveur local 8765 du hub et de l'exe inchangé
+
+## [20261118] — v6.4.0, LOT-4 : CSP de `/files`, sources de la NetworkPolicy (#174, #200)
+
+- **[CHANGED]** `/files` : `Content-Security-Policy: sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'` au lieu de `sandbox` seul (scripts des maquettes exécutés dans une origine opaque, jamais `allow-same-origin`) — `contracts/web-server.md` (commit ffcfc72, dev-backend ; avis security en cours)
+- **[NEW]** chart : `networkPolicy.ingressCIDRs` (sources `ipBlock` en plus des namespaces ; rendu refusé sans namespace ni CIDR) — `contracts/helm-values.md` « v6.4.0 » (commit 441f093, infra)
+
+## [20261118] — v6.4.0 : appel `reattach` (#198)
+
+- **[NEW]** `reattach {path}` → `{ok, tab}` : rattache l'onglet à une session tmux survivante après un redémarrage du serveur, sans rien créer ; appelé par le client en repli au bout d'environ 5 s (abandon à 20 s) ; `ok: false` sans erreur quand la session manque, appartient à un autre launcher, ou que l'onglet est en lecture seule ou en erreur — `contracts/web-server.md` « Appel reattach » (commit 3c0b868)
+- **[CHANGED]** arrêt du launcher et ouverture d'un projet (aucun changement d'API, commit cb07c97) : bootstrap du conteneur détaché du launcher (`setsid nohup`, `/var/lib/cl/boot.{log,pid,rc}`, un seul exec, jamais relancé s'il tourne), arrêt qui attend les ouvertures en cours 20 s au plus, conteneur à moitié installé réparé au démarrage (sans session) ou à l'ouverture — `contracts/web-server.md` « Arrêt du launcher et ouverture d'un projet » ; écart signalé : `terminationGracePeriodSeconds` du schéma sans minimum face à l'attente fixe de 20 s
+
+## [20261117] — v6.4.0 (plan, rev2 GATE 2) : fichiers et version du serveur, backends distants, coffre, NetworkPolicy, version du template
+
+- **Retiré (rev2)** : toute authentification de v6.4.0 (#172 déplacée en v7.0.0) : oauth2-proxy, `forwardAuth`, `CL_WEB_AUTH_*`, identité transmise, adresses publiques multiples. `contracts/web-auth.md` renommé `contracts/web-server.md` ; la piste v7.0.0 y est notée.
+- **[NEW]** route `/files/<chemin>`, `CL_BROWSER_PATH_MAP` des sessions vers l'adresse de l'ingress interne, appariement par `/files/__claude-launcher__/pair` (#174) — `contracts/web-server.md`
+- **[NEW]** `server = {version, boot}` dans `init` et l'instantané ; bandeaux « Serveur mis à jour » / reconnexion (#198)
+- **[NEW]** chart : `networkPolicy` **activée par défaut**, coffre `secrets.persistence`, `rbac.extraNamespaces`, `backends.{docker,kubeconfigs}` ; `externalIngress.*` **préparé mais refusé au rendu** — `contracts/helm-values.md` « v6.4.0 »
+- **[NEW]** coffre des secrets `CL_SECRETS_DIR` ; clés ssh et `known_hosts` par backend saisies dans l'interface ; appels `backendSecretGet/Set/Delete`, `backendHostScan`, `backendKnownHostsSet` ; **règle d'écriture provisoire** (ingress interne et fenêtre native) jusqu'à v7.0.0 — `contracts/backends-remote.md` (#194)
+- **[NEW]** `kubeconfig` d'un backend k8s : coffre (`kubeconfig: true`) ou chemin ; priorité sur le ServiceAccount (#193). **[CHANGED]** par rapport au texte de #193 : le champ est modifiable depuis l'interface (règle provisoire), hors de l'empreinte d'exposition en v6.4.0
+- **[CHANGED]** image : clients ssh, docker (binaire statique), podman (`podman-remote`) (#194)
+- **[CHANGED]** version du template : comparaisons ordonnées, titre de la carte TEAM = version du projet, `teamHead.tplNewer`, vérification GitHub authentifiée, conditionnelle, partagée par poste, quota visible — `contracts/template-version.md` (#199)
+- **Aucun BREAKING.**
+
 ## [20261117] — v6.3.0, LOT-5 : commutateur du masquage des teammates inactifs (#188)
 
 - **[NEW]** clé `TEAM_HIDE_IDLE_ENABLED` de `config.conf` (`1` par défaut) : désactive le masquage sans perdre le délai `TEAM_HIDE_IDLE` — `contracts/desktop-dispatch.md`

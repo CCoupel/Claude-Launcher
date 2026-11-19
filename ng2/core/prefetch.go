@@ -20,7 +20,7 @@ func PrefPath(tag string) string {
 // Prefetch : télécharge le binaire de tag (sauf s'il est déjà là), puis
 // SHA256SUMS, puis contrôle la somme ; renvoie le fichier prêt et sa somme.
 func Prefetch(tag string, step func(string)) (path, sum string, err error) {
-	base := ReleaseBase + "/" + tag
+	base := ReleaseBase.Get() + "/" + tag
 	path = PrefPath(tag)
 	body, rerr := os.ReadFile(path)
 	if rerr != nil {
@@ -84,8 +84,8 @@ func InstallPrepared(path, sum, dst string) error {
 
 // InstallPreparedNow : clic sur l'annonce verte (sans bubbletea).
 func InstallPreparedNow(tag, path, sum string) UpdDoneMsg {
-	if !ReleaseVerRe.MatchString(NgVersion) {
-		return UpdDoneMsg{Tag: tag, Err: fmt.Errorf("binaire de dev (%s) : non remplacé", NgVersion)}
+	if !ReleaseVerRe.MatchString(Version()) {
+		return UpdDoneMsg{Tag: tag, Err: fmt.Errorf("binaire de dev (%s) : non remplacé", Version())}
 	}
 	_, bin, _ := UpdateTargets(tag)
 	if bin == "" {

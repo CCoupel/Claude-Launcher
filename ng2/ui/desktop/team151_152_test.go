@@ -41,6 +41,10 @@ func tplProject(t *testing.T, proj string, tags map[string]string) {
 	if err := os.WriteFile(filepath.Join(dir, "project-config.json"), cfg, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	// version du template du projet (#199) : la cible de la carte
+	if err := os.WriteFile(filepath.Join(dir, ".template-source.json"), []byte(`{"tag":"v5.9.4","commit":"c"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func cardsJSON(t *testing.T, a *App, proj string) map[string]any {
@@ -125,8 +129,8 @@ func TestCardsTeamHeadAndOdd(t *testing.T) {
 	}
 
 	// version cible inconnue : pas de version de template dans l'en-tête, aucun écart de template
-	_ = os.Remove(core.TplVersionPath())
 	tplProject(t, ps[2], map[string]string{"dev-a": "v5.9.4", "dev-b": "v5.8.0", "dev-c": "v5.9.4"})
+	_ = os.Remove(filepath.Join(ps[2], ".claude", ".template-source.json"))
 	c = cardsJSON(t, a, ps[2])
 	head, _ = c["teamHead"].(map[string]any)
 	if head == nil || head["tpl"] != "" && head["tpl"] != nil || head["odd"] != 0.0 {

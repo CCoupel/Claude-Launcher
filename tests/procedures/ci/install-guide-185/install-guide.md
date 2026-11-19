@@ -4,7 +4,7 @@
 **Date** : 2026-11-17
 **Testeur** : une personne qui **ne connait pas** le projet (ou QA qui s'interdit tout autre document) — validation humaine
 
-**Objet** : verifier que le guide « Installer le launcher dans Kubernetes par Helm (acces interne) » (`ng2/README.md`, lien depuis `README.md`) suffit, **a lui seul**, pour installer, utiliser, mettre a jour et desinstaller le launcher dans le cluster — sur une **autre racine** et un **autre namespace** que la QUALIF et la PROD (rien de reel n'est touche). Le but est de trouver les **ecarts du guide** (etape manquante, commande fausse, valeur non expliquee, limite non dite), pas de valider le launcher (deja fait par `qualif-cluster-177`).
+**Objet** : verifier que le guide « Installer le launcher dans Kubernetes par Helm (acces interne) » (`ng2/docs/kubernetes.md`, lien depuis `README.md`) suffit, **a lui seul**, pour installer, utiliser, mettre a jour et desinstaller le launcher dans le cluster — sur une **autre racine** et un **autre namespace** que la QUALIF et la PROD (rien de reel n'est touche). Le but est de trouver les **ecarts du guide** (etape manquante, commande fausse, valeur non expliquee, limite non dite), pas de valider le launcher (deja fait par `qualif-cluster-177`).
 
 ## Regles du test (a respecter strictement)
 
@@ -27,7 +27,7 @@
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Depuis `README.md` (racine), trouver le lien vers le guide | Un lien visible (section Documentation / Kubernetes) menant a la section du guide dans `ng2/README.md` | | |
+| 1 | Depuis `README.md` (racine), trouver le lien vers le guide | Un lien visible (section Documentation / Kubernetes) menant a la section du guide dans `ng2/docs/kubernetes.md` | | |
 | 2 | Lire le guide en entier **sans rien executer** ; lister les prerequis qu'il annonce | Le guide annonce : compte de deploiement, namespace et Pod Security, volume partage (RWX) et PV de l'administrateur, controleur d'Ingress (Traefik) et liste d'adresses, nom d'hote interne en `.local` (mDNS, non resolu par les pods), CA interne et son certificat a installer sur les postes, image du paquet ghcr (empreinte), outils (`helm`, `kubectl`, `buildah`/`gh` si construction) | | |
 | 3 | Chercher dans le guide chaque **valeur du chart** utilisee plus loin (`rootBase`, `volume.*`, `hubName`, `ingress.*`, `web.access`, `image.tag` / `image.digest`) | Chacune est expliquee (role, obligatoire ou non, defaut) ; aucune valeur utilisee sans explication | | |
 | 4 | Chercher la section **« Limites de v6.3.0 »** | Presente, avec les risques acceptes listes en 5 (scenario 5) | | |

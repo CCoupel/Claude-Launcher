@@ -276,7 +276,7 @@ PY
 
 ```yaml
 backends:
-  srv1-docker: { type: docker, host: tcp://192.168.1.211:2375, shared: [/share/MFS/ROOT] }
+  srv1-docker: { type: docker, host: tcp://192.0.2.21:2375, shared: [/share/MFS/ROOT] }
   srv1:        { type: ssh, host: srv1, engine: podman,          shared: [/share/MFS/ROOT] }
   lab:         { type: k8s, context: k8s, namespace: claude-ng2,
                  volumes: { /share/MFS/ROOT: claude-shared } }   # PVC ReadWriteMany sur ce partage
@@ -366,3 +366,43 @@ Une fois tout vérifié (plusieurs jours d'usage), les originaux peuvent être a
 (`$OLD`, `~/.claude`, `~/.claude.json`) — ou gardés comme sauvegarde. Les projets d'origine n'étant
 plus utilisés, mieux vaut les retirer des racines de tout launcher encore installé, pour ne pas en
 ouvrir un par erreur.
+
+## 14. Passer d'un hub à un launcher de cluster, ou en ajouter un à côté
+
+Un launcher de cluster (chart `claude-launcher`, interface web derrière l'Ingress interne) ne remplace pas le hub
+Linux ni l'exe Windows : il s'ajoute à la **même racine partagée**. Rien n'est perdu : les projets, leurs sessions tmux et
+leurs pods restent là où ils sont. Le guide d'installation est dans [`docs/kubernetes.md`](docs/kubernetes.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne).
+
+### Ce qui reste, ce qui ne voyage pas
+
+| Élément | Où il vit | Passe au cluster ? |
+|---------|-----------|--------------------|
+| Projets, historique, `projects.json` | racine partagée (`CL_ROOT_BASE`) | oui, par le volume RWX, sous verrou |
+| `config.conf` existant (racine de PROD) | racine partagée | oui, les chemins ne sont pas réécrits |
+| Sessions tmux du hub | conteneurs et hub | non : elles continuent sur le hub |
+| Clés ssh, empreintes `known_hosts`, kubeconfig | coffre **de chaque launcher** (`CL_SECRETS_DIR`) | **non** : à ressaisir dans les Réglages du launcher de cluster |
+| Cache (jeton web, résultats de vérification) | `<CacheDir>` propre à chaque launcher | non, ni nécessaire |
+
+### Étapes
+
+1. **Fermer les projets sur le hub** avant de les ouvrir ailleurs : un projet n'est piloté que par un launcher à la fois
+   (témoin de présence). Sinon, le cluster propose la prise de main. Rien n'est écrasé dans les deux cas.
+2. **Vérifier la racine** : le `rootBase` du chart est le chemin de la racine **dans le pod** ; la racine doit être la même
+   que celle du hub (même volume RWX). Un `config.conf` créé par v6.3.0 ou plus récent développe `${CL_ROOT_BASE}` ; un
+   launcher antérieur à v6.3.0 ne le sait pas.
+3. **Installer le chart** avec un `hubName` distinct de celui du hub (guide §2 et §3). Le nom est unique parmi les
+   launchers de la racine ; un doublon est refusé.
+4. **Ressaisir les accès distants** du launcher de cluster : clés ssh et empreintes dans les Réglages du backend,
+   kubeconfig d'un autre cluster (guide §8). Les clés du hub ne sont pas recopiées.
+5. **Vérifier** : `helm template`, puis les contrôles du guide §5 (liste d'adresses, NetworkPolicy). Ouvrez un projet
+   sans terminal, puis fermez-le.
+6. **Retour arrière** : `helm uninstall` retire le launcher de cluster et garde son PVC du coffre et le PV du chart
+   (`keep`). Le hub n'est pas touché : ses projets, ses sessions et ses réglages restent en place.
+
+### À éviter
+
+- **Ne pas recopier** le coffre ou le cache d'un launcher vers un autre : un coffre copié multiplie les secrets, et une
+  empreinte de hub ne vaut pas pour le pod.
+- **Ne pas réutiliser `--reuse-values`** lors d'une mise à jour du chart : il n'applique pas les défauts de la nouvelle version
+  (voir guide §6).
+- **Ne pas exposer l'Ingress hors du réseau interne** : en v6.4.0, il n'y a pas d'authentification (#172, v7.0.0).

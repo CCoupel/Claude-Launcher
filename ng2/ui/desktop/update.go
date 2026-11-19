@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"os"
 	"os/exec"
 	"time"
@@ -25,7 +26,8 @@ func (a *App) updateLoop() {
 			return
 		case <-time.After(d):
 		}
-		a.applyUpd(core.CheckUpdatesNow(false))
+		msg := core.CheckUpdatesNow(false)
+		a.applyUpd(msg)
 		a.mu.Lock()
 		u := a.upd
 		a.mu.Unlock()
@@ -33,6 +35,7 @@ func (a *App) updateLoop() {
 		if (u.newLauncher != "" && !u.launcherOK) || (u.newTpl != "" && !u.tplOK) {
 			d = 2 * time.Minute
 		}
+		d = core.NextUpdateDelay(msg, d) // quota épuisé : pas d'appel avant la reprise (#199)
 	}
 }
 
@@ -41,9 +44,10 @@ func (a *App) applyUpd(msg core.UpdMsg) {
 	a.mu.Lock()
 	u := &a.upd
 	prep := ""
+	u.errKind, u.errRetry = msg.Err, msg.RetryAt
 	if msg.Ok {
 		tag := ""
-		if core.VersionNewer(core.NgVersion, msg.LauncherTag) {
+		if core.VersionNewer(core.Version(), msg.LauncherTag) {
 			tag = msg.LauncherTag
 		}
 		if tag != u.newLauncher || msg.LauncherReady != u.launcherPub {
@@ -65,6 +69,8 @@ func (a *App) applyUpd(msg core.UpdMsg) {
 	if msg.Manual {
 		u.checking = false
 		switch {
+		case msg.Err == core.UpdErrQuota:
+			a.msg = "⚠ vérification GitHub impossible (quota, reprise " + msg.RetryAt.Format("15:04") + ")"
 		case !msg.Ok:
 			a.msg = "⚠ GitHub injoignable"
 		case u.newLauncher != "":
@@ -193,21 +199,21 @@ func (a *App) install(tag, path, sum string) {
 	a.mu.Unlock()
 	a.changed()
 	if r.BinDone {
-		restartApp()
+		restartApp.Get()()
 	}
 }
 
 // restartApp : relance le binaire installé (nouvelle fenêtre) et quitte ; le
 // mode web la remplace (même adresse, port libéré d'abord, web.go).
-var restartApp = func() {
+var restartApp = tun.Of(func() {
 	if relaunch(os.Args[1:]...) == nil {
 		time.Sleep(300 * time.Millisecond)
-		quitHook()
+		quitHook.Get()()
 	}
-}
+})
 
 // restartEnv : variables ajoutées pour le binaire relancé.
-var restartEnv []string
+var restartEnv = tun.Of([]string(nil))
 
 // relaunch : lance le binaire installé avec args, sans mise à jour au démarrage.
 func relaunch(args ...string) error {
@@ -216,14 +222,14 @@ func relaunch(args ...string) error {
 		return err
 	}
 	c := exec.Command(exe, args...)
-	c.Env = append(append(os.Environ(), "CL_NO_UPDATE=1"), restartEnv...)
+	c.Env = append(append(os.Environ(), "CL_NO_UPDATE=1"), restartEnv.Get()...)
 	core.ReleasePresence() // la place est rendue : le binaire relancé ne doit pas être refusé par son prédécesseur (#176)
 	return c.Start()
 }
 
 // themeHook : thème de la fenêtre native (« light », « dark », « auto ») ; nil
 // en mode web (le navigateur suit la page).
-var themeHook func(mode string)
+var themeHook = tun.Of[func(mode string)](nil)
 
 // quitHook : fermeture de l'interface (Wails : runtime.Quit ; web : sortie).
-var quitHook = func() { os.Exit(0) }
+var quitHook = tun.Of(func() { os.Exit(0) })

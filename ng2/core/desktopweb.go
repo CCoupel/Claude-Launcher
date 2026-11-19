@@ -171,7 +171,7 @@ func sameListen(a, b string) bool {
 
 // DesktopWebAllowsLAN : allow_lan est posé pour ce launcher (quel que soit listen).
 func DesktopWebAllowsLAN() bool {
-	f, host, goos := readBackendsFile(), hubName(), pathsGOOS
+	f, host, goos := readBackendsFile(), hubName(), pathsGOOS.Get()
 	allow := false
 	merge := func(d *DesktopWeb) {
 		if d != nil && d.AllowLAN != nil {
@@ -191,7 +191,7 @@ func DesktopWebAllowsLAN() bool {
 
 // DesktopWebSetting : réglage effectif de ce launcher (machine et système courants).
 func DesktopWebSetting() (DesktopWebConf, error) {
-	return resolveDesktopWebFor(readBackendsFile(), hubName(), pathsGOOS)
+	return resolveDesktopWebFor(readBackendsFile(), hubName(), pathsGOOS.Get())
 }
 
 // AllowedHosts : valeurs acceptées pour l'en-tête Host de l'interface web (anti

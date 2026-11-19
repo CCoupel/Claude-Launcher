@@ -1,5 +1,7 @@
 # Contrat — variables d'environnement et options du launcher (v6.3.0)
 
+> v6.4.0 : `CL_SECRETS_DIR` (coffre des secrets) — voir `contracts/backends-remote.md` ; route `/files` et version du serveur — voir `contracts/web-server.md` (aucune nouvelle variable d'authentification).
+
 > Interface entre le launcher (`ng2`), l'image de conteneur (`deploy/image/`), le chart Helm (`deploy/helm/`) et les
 > procédures de déploiement. Ce fichier ne décrit que ce qui est ajouté ou modifié à partir de v6.3.0.
 > Le backend peut ajuster un détail pour une contrainte technique, en le notant dans `contracts/CHANGELOG.md`.

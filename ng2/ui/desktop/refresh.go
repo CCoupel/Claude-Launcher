@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"maps"
 	"os/exec"
@@ -17,7 +18,7 @@ import (
 
 // refreshTimeout : délai global d'un rafraîchissement ; au-delà, le dernier
 // évènement est émis avec ce qui n'a pas fini en erreur.
-var refreshTimeout = 30 * time.Second
+var refreshTimeout = tun.Of(30 * time.Second)
 
 // Étapes, dans l'ordre de l'évènement `refresh`.
 var refreshSteps = []struct{ id, label string }{
@@ -175,7 +176,7 @@ func (a *App) runRefresh(path string) {
 
 	select {
 	case <-finished:
-	case <-time.After(refreshTimeout):
+	case <-time.After(refreshTimeout.Get()):
 		timedOut = true
 		r.mu.Lock()
 		for i := range r.st {

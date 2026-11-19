@@ -2,6 +2,7 @@ package core
 
 import (
 	"bufio"
+	"claude-launcher-ng2/internal/tun"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,6 +42,26 @@ const NgName = "Claude-Launcher-NG2"
 // Sans -X (build à la main), « dev » : pas de mise à jour automatique.
 var NgVersion = "dev"
 
+// ngVersionMu : NgVersion est lue par des goroutines (vérifications de mise à jour, serveurs de fichiers, instantanés)
+// pendant que des tests la remplacent : tout accès passe par Version / SetNgVersion (course de données sous -race).
+// Seul le -X du lien (avant main) l'écrit sans verrou.
+var ngVersionMu sync.RWMutex
+
+// Version : version du launcher NG (NgVersion), lecture sûre.
+func Version() string {
+	ngVersionMu.RLock()
+	defer ngVersionMu.RUnlock()
+	return NgVersion
+}
+
+// SetNgVersion : remplace la version (tests) ; rend l'ancienne.
+func SetNgVersion(v string) (old string) {
+	ngVersionMu.Lock()
+	defer ngVersionMu.Unlock()
+	old, NgVersion = NgVersion, v
+	return old
+}
+
 type (
 	UpdTickMsg struct{}
 	UpdMsg     struct {
@@ -49,8 +70,10 @@ type (
 		LauncherReady bool   // release publiée (SHA256SUMS et binaire listés par l'API)
 		TplTag        string // tag du template plus récent que le cache, pas encore adopté
 		TplSha        string
-		TplReady      bool // release du template publiée : adoptable d'un clic
-		Manual        bool // demandée par F5 : hors du cycle de 10 min
+		TplReady      bool      // release du template publiée : adoptable d'un clic
+		Manual        bool      // demandée par F5 : hors du cycle de 10 min
+		Err           string    // "" | "quota" | "network" (#199) : alerte visible en continu
+		RetryAt       time.Time // reprise annoncée quand Err == "quota" (X-RateLimit-Reset)
 	}
 	TplAdoptedMsg struct {
 		Tag    string
@@ -66,6 +89,18 @@ func cacheBase() string { return filepath.Dir(scriptPath()) }
 
 func TplCommitPath() string  { return filepath.Join(cacheBase(), ".template-commit") }
 func TplVersionPath() string { return filepath.Join(cacheBase(), ".template-version") }
+
+// LatestTemplateKnown : dernière version publiée du template connue du poste (résultat de la vérification
+// partagé, à défaut la version adoptée) ; "" si inconnue.
+func LatestTemplateKnown() string {
+	if t := readUpdateCheck().Template.Tag; t != "" {
+		if adopted := ReadTrim(TplVersionPath()); adopted != "" && VersionNewer(t, adopted) {
+			return adopted
+		}
+		return t
+	}
+	return ReadTrim(TplVersionPath())
+}
 
 func ReadTrim(path string) string {
 	b, err := os.ReadFile(path)
@@ -104,9 +139,10 @@ func VersionNewer(a, b string) bool {
 	return false
 }
 
-func verParts(v string) [3]int {
-	var out [3]int
-	for i, p := range strings.SplitN(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".", 3) {
+// verParts : au plus 4 champs X.Y.Z.a ; seuls les trois premiers comptent dans VersionNewer (« 5.11.1.3 » → [5 11 1 3]).
+func verParts(v string) [4]int {
+	var out [4]int
+	for i, p := range strings.SplitN(strings.TrimPrefix(strings.TrimSpace(v), "v"), ".", 4) {
 		n, _ := strconv.Atoi(strings.TrimFunc(p, func(r rune) bool { return r < '0' || r > '9' }))
 		out[i] = n
 	}
@@ -114,12 +150,12 @@ func verParts(v string) [3]int {
 }
 
 // ApiBase : API GitHub (CL_API_BASE la remplace, pour les tests).
-var ApiBase = func() string {
+var ApiBase = tun.Of(func() string {
 	if b := os.Getenv("CL_API_BASE"); b != "" {
 		return strings.TrimRight(b, "/")
 	}
 	return "https://api.github.com"
-}()
+}())
 
 func firstTag(repo string) (name, sha string, err error) {
 	return pickTag(repo, func([]tagRef) int { return 0 })
@@ -132,16 +168,10 @@ type tagRef struct {
 	} `json:"commit"`
 }
 
-// tplTag : dernier tag du template dont la version majeure ne dépasse pas
+// tplChoose : choisit le dernier tag du template dont la version majeure ne dépasse pas
 // celle du launcher (template et launcher partagent leur majeure depuis la v5 :
 // un template d'une majeure supérieure suppose un launcher plus récent).
-// CL_FAKE_LATEST_TPL le remplace, pour les tests.
-func tplTag() (name, sha string, err error) {
-	if v := os.Getenv("CL_FAKE_LATEST_TPL"); v != "" {
-		return v, "fake-" + v, nil
-	}
-	return pickTag(TemplateRepo, func(tags []tagRef) int { return bestTagUpTo(tags, verParts(NgVersion)[0]) })
-}
+func tplChoose(tags []tagRef) int { return bestTagUpTo(tags, verParts(Version())[0]) }
 
 // bestTagUpTo : index du tag vX.Y.Z le plus élevé avec X ≤ major (-1 : aucun).
 // major 0 (version « dev », compilée sans -ldflags) : pas de plafond.
@@ -159,26 +189,41 @@ func bestTagUpTo(tags []tagRef, major int) int {
 }
 
 func pickTag(repo string, choose func([]tagRef) int) (name, sha string, err error) {
-	req, _ := http.NewRequest("GET", ApiBase+"/repos/"+repo+"/tags?per_page=100", nil)
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "Claude-Launcher-NG")
+	name, sha, _, _, err = pickTagCond(repo, "", choose)
+	return name, sha, err
+}
+
+// pickTagCond : liste des tags avec requête conditionnelle (etag mémorisé). notMod : 304, rien n'est lu (le
+// résultat mémorisé reste valable). Les échecs sont des *ghError (quota, réseau).
+func pickTagCond(repo, etag string, choose func([]tagRef) int) (name, sha, newEtag string, notMod bool, err error) {
+	req, _ := http.NewRequest("GET", ApiBase.Get()+"/repos/"+repo+"/tags?per_page=100", nil)
+	ghHeaders(req)
+	if etag != "" {
+		req.Header.Set("If-None-Match", etag)
+	}
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
-		return "", "", err
+		return "", "", "", false, &ghError{Kind: UpdErrNetwork, Msg: err.Error()}
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotModified && etag != "" {
+		return "", "", etag, true, nil
+	}
+	if qe := quotaError(resp); qe != nil {
+		return "", "", "", false, qe
+	}
 	if resp.StatusCode != 200 {
-		return "", "", fmt.Errorf("HTTP %d", resp.StatusCode)
+		return "", "", "", false, &ghError{Kind: UpdErrNetwork, Msg: fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
 	var tags []tagRef
 	if err := json.NewDecoder(resp.Body).Decode(&tags); err != nil || len(tags) == 0 {
-		return "", "", fmt.Errorf("pas de tag")
+		return "", "", "", false, &ghError{Kind: UpdErrNetwork, Msg: "pas de tag"}
 	}
 	i := choose(tags)
 	if i < 0 {
-		return "", "", fmt.Errorf("pas de tag compatible")
+		return "", "", "", false, &ghError{Kind: UpdErrNetwork, Msg: "pas de tag compatible"}
 	}
-	return tags[i].Name, tags[i].Commit.Sha, nil
+	return tags[i].Name, tags[i].Commit.Sha, resp.Header.Get("ETag"), false, nil
 }
 
 // CheckUpdates interroge GitHub. Un nouveau tag du template n'est pas adopté
@@ -188,31 +233,106 @@ func CheckUpdates(manual bool) tea.Cmd {
 	return func() tea.Msg { return CheckUpdatesNow(manual) }
 }
 
-// CheckUpdatesNow : la recherche elle-même, sans bubbletea (interface native).
+// CheckUpdatesNow : la recherche elle-même, sans bubbletea (interface native). Résultat partagé par poste
+// (update-check.json, 10 min), requêtes conditionnelles, pause jusqu'à la reprise quand le quota est épuisé (#199).
 func CheckUpdatesNow(manual bool) UpdMsg {
-	{
-		out := UpdMsg{Manual: manual}
-		if tag, _, err := latestTag(LauncherRepo, "CL_FAKE_LATEST_LAUNCHER"); err == nil {
-			out.LauncherTag, out.Ok = tag, true
-			if VersionNewer(NgVersion, tag) {
-				out.LauncherReady = ReleasePublished(tag)
-			}
+	out := UpdMsg{Manual: manual}
+	fake := os.Getenv("CL_FAKE_LATEST_TPL") != "" || os.Getenv("CL_FAKE_LATEST_LAUNCHER") != ""
+	prev := readUpdateCheck()
+	if !fake {
+		if until := prev.retryAt(); prev.Error == UpdErrQuota && time.Now().Before(until) {
+			out.Err, out.RetryAt = UpdErrQuota, until // aucun appel avant la reprise, F5 compris
+			ensureInitSynced()
+			return out
 		}
-		if tag, sha, err := tplTag(); err == nil {
-			out.Ok = true
-			switch cached := ReadTrim(TplCommitPath()); {
-			case sha == "" || sha == cached:
-			case cached == "":
-				adoptTemplate(tag, sha)
-			default:
-				out.TplTag, out.TplSha = tag, sha
-				out.TplReady = tplReleased(tag)
-			}
+		if at, err := time.Parse(time.RFC3339, prev.CheckedAt); !manual && err == nil && prev.Error == "" &&
+			time.Since(at) < updateCheckTTL && prev.Launcher.Tag != "" {
+			fillUpd(&out, prev) // un autre processus vient de vérifier
+			ensureInitSynced()
+			return out
 		}
-		// init-project.md : à chaque démarrage (comme le sync_init_project du bash),
-		// au commit adopté
+	}
+	cur := prev
+	cur.Error, cur.RetryAfter = "", ""
+	var failed *ghError
+	fail := func(err error) {
+		if ge, ok := err.(*ghError); ok && failed == nil {
+			failed = ge
+		}
+	}
+
+	// launcher
+	if v := os.Getenv("CL_FAKE_LATEST_LAUNCHER"); v != "" {
+		cur.Launcher = updRepo{Tag: v, Sha: "fake-" + v, Released: cur.Launcher.Released}
+	} else if tag, sha, et, notMod, err := pickTagCond(LauncherRepo, prev.Launcher.Etag, func([]tagRef) int { return 0 }); err != nil {
+		fail(err)
+	} else if !notMod {
+		cur.Launcher = updRepo{Tag: tag, Sha: sha, Etag: et}
+	}
+	if failed == nil && VersionNewer(Version(), cur.Launcher.Tag) && (!cur.Launcher.Released || cur.Launcher.Tag != prev.Launcher.Tag) {
+		cur.Launcher.Released = ReleasePublished(cur.Launcher.Tag)
+	}
+
+	// template
+	if failed == nil {
+		if v := os.Getenv("CL_FAKE_LATEST_TPL"); v != "" {
+			cur.Template = updRepo{Tag: v, Sha: "fake-" + v}
+		} else if tag, sha, et, notMod, err := pickTagCond(TemplateRepo, prev.Template.Etag, tplChoose); err != nil {
+			fail(err)
+		} else if !notMod {
+			cur.Template = updRepo{Tag: tag, Sha: sha, Etag: et}
+		}
+		if failed == nil && cur.Template.Tag != "" && (!prev.Template.Released || cur.Template.Tag != prev.Template.Tag) {
+			cur.Template.Released = tplReleased(cur.Template.Tag)
+		} else if cur.Template.Tag == prev.Template.Tag {
+			cur.Template.Released = prev.Template.Released
+		}
+	}
+
+	if failed != nil {
+		cur.Error = failed.Kind
+		out.Err = failed.Kind
+		if failed.Kind == UpdErrQuota {
+			cur.RetryAfter = failed.Retry.UTC().Format(time.RFC3339)
+			out.RetryAt = failed.Retry
+		}
+		if !fake {
+			writeUpdateCheck(cur)
+		}
 		ensureInitSynced()
 		return out
+	}
+	cur.CheckedAt = time.Now().UTC().Format(time.RFC3339)
+	if !fake {
+		writeUpdateCheck(cur)
+	}
+	fillUpd(&out, cur)
+	ensureInitSynced()
+	return out
+}
+
+// fillUpd : annonces déduites d'un résultat de vérification (frais ou partagé). Le template n'est annoncé que si
+// sa version est strictement plus récente que la version adoptée ; sans cache, première installation : adoption.
+func fillUpd(out *UpdMsg, c updCheck) {
+	out.Ok = true
+	out.LauncherTag = c.Launcher.Tag
+	if VersionNewer(Version(), c.Launcher.Tag) {
+		out.LauncherReady = c.Launcher.Released
+	}
+	tag, sha := c.Template.Tag, c.Template.Sha
+	if tag == "" {
+		return
+	}
+	cached, adopted := ReadTrim(TplCommitPath()), ReadTrim(TplVersionPath())
+	switch {
+	case sha == "" || sha == cached:
+	case cached == "":
+		adoptTemplate(tag, sha)
+	case adopted != "" && !VersionNewer(adopted, tag):
+		// jamais d'annonce d'une cible égale ou plus ancienne que la version adoptée (#199)
+	default:
+		out.TplTag, out.TplSha = tag, sha
+		out.TplReady = c.Template.Released
 	}
 }
 
@@ -245,12 +365,11 @@ func tplReleased(tag string) bool {
 	if v := os.Getenv("CL_FAKE_TPL_RELEASED"); v != "" {
 		return v == tag
 	}
-	req, err := http.NewRequest("GET", ApiBase+"/repos/"+TemplateRepo+"/releases/tags/"+tag, nil)
+	req, err := http.NewRequest("GET", ApiBase.Get()+"/repos/"+TemplateRepo+"/releases/tags/"+tag, nil)
 	if err != nil {
 		return false
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "Claude-Launcher-NG")
+	ghHeaders(req)
 	resp, err := (&http.Client{Timeout: 5 * time.Second}).Do(req)
 	if err != nil {
 		return false
@@ -260,19 +379,26 @@ func tplReleased(tag string) bool {
 }
 
 // RawBase : serveur des fichiers bruts GitHub (CL_RAW_BASE le remplace, pour les tests).
-var RawBase = func() string {
+var RawBase = tun.Of(func() string {
 	if b := os.Getenv("CL_RAW_BASE"); b != "" {
 		return strings.TrimRight(b, "/")
 	}
 	return "https://raw.githubusercontent.com"
-}()
+}())
 
 // SetRawBase : remplace RawBase sous initMu (tests) — une vérification de mise à jour encore en cours ne lit jamais
 // RawBase pendant qu'il change (course de données, #187) ; rend l'ancienne valeur.
 func SetRawBase(v string) (old string) {
 	initMu.Lock()
 	defer initMu.Unlock()
-	old, RawBase = RawBase, v
+	return RawBase.Set(v)
+}
+
+// SetInitSynced : remplace InitSynced sous initMu (tests) ; rend l'ancienne valeur.
+func SetInitSynced(v bool) (old bool) {
+	initMu.Lock()
+	defer initMu.Unlock()
+	old, InitSynced = InitSynced, v
 	return old
 }
 
@@ -314,7 +440,7 @@ func InitProjectPath() string { return filepath.Join(cacheBase(), "init-project.
 func syncInitProject(ref string) bool {
 	initMu.Lock() // un seul téléchargement à la fois : le fichier temporaire est commun
 	defer initMu.Unlock()
-	url := RawBase + "/" + TemplateRepo + "/" + ref + "/init-project.md"
+	url := RawBase.Get() + "/" + TemplateRepo + "/" + ref + "/init-project.md"
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil { // adresse invalide : pas de synchronisation (jamais de panique sur req nil, #187)
 		return false

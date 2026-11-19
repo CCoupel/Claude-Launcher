@@ -95,8 +95,8 @@ func TestRunWebServerModeStartsAndQuits(t *testing.T) {
 	sandbox(t, "", "alpha")
 	l4WriteBackends(t, "  desktop_web: { enabled: false, listen: off }\n")
 	t.Setenv("CL_DESKTOP_TOKEN", "tokRunWebServerMode123456")
-	oldQuit, oldRestart, oldEnv := quitHook, restartApp, restartEnv
-	defer func() { quitHook, restartApp, restartEnv = oldQuit, oldRestart, oldEnv }()
+	oldQuit, oldRestart, oldEnv := quitHook.Get(), restartApp.Get(), restartEnv.Get()
+	defer func() { quitHook.Set(oldQuit); restartApp.Set(oldRestart); restartEnv.Set(oldEnv) }()
 
 	// la sortie standard de RunWeb porte l'adresse d'amorçage
 	pr, pw, _ := os.Pipe()

@@ -18,9 +18,9 @@ func TestCardsFromCacheFirst(t *testing.T) {
 	writeStateForTest(t, core.ComputeState(ps[0])) // état préparé (gestionnaire, hub)
 	var r recorder
 	a := newApp(t, r.emit)
-	old := cardsSlow
-	cardsSlow = time.Second // partie lente simulée
-	t.Cleanup(func() { cardsSlow = old })
+	old := cardsSlow.Get()
+	cardsSlow.Set(time.Second) // partie lente simulée
+	t.Cleanup(func() { cardsSlow.Set(old) })
 
 	t0 := time.Now()
 	res, err := a.Dispatch("select", json.RawMessage(`{"path":`+strconv.Quote(ps[0])+`}`))

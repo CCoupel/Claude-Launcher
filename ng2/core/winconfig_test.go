@@ -17,7 +17,7 @@ import (
 // sous Linux : toutes les entrées de hubs.<machine>.paths y sont retenues,
 // quelle que soit leur forme. Le filtre par système (pathsForOS) est testé
 // explicitement ci-dessous.
-func init() { pathsGOOS = "" }
+func init() { pathsGOOS.Set("") }
 
 // configuration portable partagée par le hub Linux (WSL) et l'exe Windows du
 // même poste, sous le même nom de machine (#110)
@@ -68,12 +68,12 @@ func TestPathsForOSSharedConfig(t *testing.T) {
 // hubSettings applique le filtre du système (pathsGOOS)
 func TestHubSettingsFiltersByOS(t *testing.T) {
 	withHubPaths(t, "")
-	defer func() { pathsGOOS = "" }()
-	pathsGOOS = "linux"
+	defer func() { pathsGOOS.Set("") }()
+	pathsGOOS.Set("linux")
 	if m, src, _ := HubPaths(); !m.Empty() || src != "" || LocalPath("/share/MFS/x") != "/share/MFS/x" {
 		t.Errorf("linux : %+v %q", m.Entries(), src)
 	}
-	pathsGOOS = "windows"
+	pathsGOOS.Set("windows")
 	if l := LocalPath("/share/MFS/x"); l != wslMFS+`\x` {
 		t.Errorf("windows : %q", l)
 	}
@@ -255,8 +255,8 @@ func TestWindowsSharedConfigLoad(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		t.Skip("Windows seulement (simulé ailleurs par TestSharedConfigOnWindows)")
 	}
-	defer func() { pathsGOOS = "" }()
-	pathsGOOS = "windows"
+	defer func() { pathsGOOS.Set("") }()
+	pathsGOOS.Set("windows")
 	h := withHome(t)
 	dir := filepath.Join(h, "cfg")
 	_ = os.MkdirAll(dir, 0o755)

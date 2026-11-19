@@ -16,9 +16,10 @@ func TestPresenceSuccessionSamePid(t *testing.T) {
 	withHome(t)
 	t.Setenv("CL_CACHE_DIR", t.TempDir())
 	t.Setenv("CL_HUB_NAME", "hub-succession")
-	oldW, oldS := presenceWait, presenceSuccessorStale
-	presenceWait, presenceSuccessorStale = 700*time.Millisecond, 400*time.Millisecond
-	defer func() { presenceWait, presenceSuccessorStale = oldW, oldS }()
+	oldW, oldS := presenceWait.Get(), presenceSuccessorStale.Get()
+	presenceWait.Set(700 * time.Millisecond)
+	presenceSuccessorStale.Set(400 * time.Millisecond)
+	defer func() { presenceWait.Set(oldW); presenceSuccessorStale.Set(oldS) }()
 	host, pid := platform.RealHostName(), os.Getpid()
 	now := time.Now().Format(time.RFC3339)
 	write := func(content string, age time.Duration) {
@@ -44,13 +45,17 @@ func TestPresenceSuccessionSamePid(t *testing.T) {
 	}
 	// prédécesseur de même pid au battement FRAIS (nœud isolé, pod forcé) : jamais écrasé — le démarrage attend dans le
 	// processus puis refuse en nommant le prédécesseur ; ici le battement continue
+	// marges larges (battement 50 ms contre 1 s de silence exigé) : un runner lent (Windows en CI) peut retarder un
+	// battement de plusieurs centaines de ms sans que le prédécesseur ne paraisse silencieux
+	presenceWait.Set(1500 * time.Millisecond)
+	presenceSuccessorStale.Set(time.Second)
 	stop := make(chan struct{})
 	go func() {
 		for {
 			select {
 			case <-stop:
 				return
-			case <-time.After(100 * time.Millisecond):
+			case <-time.After(50 * time.Millisecond):
 				now := time.Now()
 				_ = os.Chtimes(presencePath(), now, now)
 			}
@@ -59,7 +64,9 @@ func TestPresenceSuccessionSamePid(t *testing.T) {
 	write(fmt.Sprintf("%s %d %s tok vivant", host, pid, now), 0)
 	d, err := acquire()
 	close(stop)
-	if err == nil || !strings.Contains(err.Error(), "vivant") || d < 500*time.Millisecond {
+	presenceWait.Set(700 * time.Millisecond)
+	presenceSuccessorStale.Set(400 * time.Millisecond) // marges d'origine pour la suite
+	if err == nil || !strings.Contains(err.Error(), "vivant") || d < time.Second {
 		t.Errorf("prédécesseur au battement frais : erreur %v après %v (attente puis refus nommant le prédécesseur attendus)", err, d)
 	}
 	// prédécesseur fraîchement arrêté : le démarrage ATTEND le silence de son battement puis le reprend (pas de sortie)
@@ -114,5 +121,28 @@ func TestPresenceReleaseRemovesOwnWitnessOnly(t *testing.T) {
 	rel2()
 	if _, err := os.Stat(presencePath()); err != nil {
 		t.Error("la libération a retiré le témoin d'un autre launcher")
+	}
+}
+
+// reclaimStaleIfMin : un battement arrivé entre le constat de silence et la reprise (date rafraîchie, contenu inchangé)
+// n'est jamais écrasé ; un fichier resté silencieux est repris.
+func TestReclaimStaleIfMinRevoitLeBattement(t *testing.T) {
+	p := t.TempDir() + "/temoin"
+	if err := os.WriteFile(p, []byte("x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := reclaimStaleIfMin(p, time.Hour, "x\n", 400*time.Millisecond); ok || err != nil {
+		t.Errorf("témoin battu à l'instant repris : %v %v", ok, err)
+	}
+	if _, err := os.Stat(p); err != nil {
+		t.Fatal("témoin frais supprimé")
+	}
+	old := time.Now().Add(-2 * time.Second)
+	_ = os.Chtimes(p, old, old)
+	if ok, err := reclaimStaleIfMin(p, time.Hour, "x\n", 400*time.Millisecond); !ok || err != nil {
+		t.Errorf("témoin silencieux non repris : %v %v", ok, err)
+	}
+	if _, err := os.Stat(p); err == nil {
+		t.Error("témoin silencieux encore là")
 	}
 }

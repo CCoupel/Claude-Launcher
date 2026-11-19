@@ -479,14 +479,19 @@ func TestDesktopWebOriginPerCall(t *testing.T) {
 
 	var clip atomic.Value
 	clip.Store("secret du poste")
-	oldSet, oldGet := clipboardSetHook, clipboardGetHook
-	clipboardSetHook = func(s string) error { clip.Store(s); return nil }
-	clipboardGetHook = func() (string, error) { return clip.Load().(string), nil }
+	oldSet, oldGet := clipboardSetHook.Get(), clipboardGetHook.Get()
+	clipboardSetHook.Set(func(s string) error { clip.Store(s); return nil })
+	clipboardGetHook.Set(func() (string, error) { return clip.Load().(string), nil })
 	var quits, themes atomic.Int32
-	oldQuit, oldTheme := quitHook, themeHook
-	quitHook = func() { quits.Add(1) }
-	themeHook = func(string) { themes.Add(1) }
-	t.Cleanup(func() { clipboardSetHook, clipboardGetHook, quitHook, themeHook = oldSet, oldGet, oldQuit, oldTheme })
+	oldQuit, oldTheme := quitHook.Get(), themeHook.Get()
+	quitHook.Set(func() { quits.Add(1) })
+	themeHook.Set(func(string) { themes.Add(1) })
+	t.Cleanup(func() {
+		clipboardSetHook.Set(oldSet)
+		clipboardGetHook.Set(oldGet)
+		quitHook.Set(oldQuit)
+		themeHook.Set(oldTheme)
+	})
 
 	a := l4StartNative(t)
 	l4WaitWebUI(t, a, "on", 8*time.Second)

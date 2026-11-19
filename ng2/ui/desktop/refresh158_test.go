@@ -149,8 +149,8 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if testing.Short() {
 		t.Skip("≈ 5 à 30 s")
 	}
-	oldTimeout := refreshTimeout
-	refreshTimeout = 300 * time.Millisecond // le délai global (30 s en production) ne se subit pas en entier
+	oldTimeout := refreshTimeout.Get()
+	refreshTimeout.Set(300 * time.Millisecond) // le délai global (30 s en production) ne se subit pas en entier
 	var app *App
 	t.Cleanup(func() { // rétabli quand plus aucun rafraîchissement ne lit le délai (go test -race)
 		end := time.Now().Add(15 * time.Second)
@@ -164,7 +164,7 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		refreshTimeout = oldTimeout
+		refreshTimeout.Set(oldTimeout)
 	})
 	ps := sandbox(t, "", "alpha")
 	bin := t.TempDir()
@@ -187,9 +187,9 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if m := second.(map[string]any); m["ok"] != false || m["msg"] == "" || m["msg"] == nil {
 		t.Errorf("second refreshProject pendant l'opération : %v, attendu {ok:false, msg}", second)
 	}
-	last := waitRefreshDone(t, &r, ps[0], refreshTimeout+10*time.Second)
-	if d := time.Since(t0); d > refreshTimeout+5*time.Second {
-		t.Errorf("done après %v : le délai global est de %v", d.Round(time.Second), refreshTimeout)
+	last := waitRefreshDone(t, &r, ps[0], refreshTimeout.Get()+10*time.Second)
+	if d := time.Since(t0); d > refreshTimeout.Get()+5*time.Second {
+		t.Errorf("done après %v : le délai global est de %v", d.Round(time.Second), refreshTimeout.Get())
 	}
 	for id, st := range stepStates(t, last) {
 		if st == "wait" || st == "run" {
@@ -209,7 +209,7 @@ func TestRefreshProjectSlowGitStillDoneAndSingleFlight(t *testing.T) {
 	if res, _ := a.Dispatch("refreshProject", rawPath(ps[0])); res.(map[string]any)["ok"] != true {
 		t.Errorf("refreshProject refusé après la fin du précédent : %v", res)
 	}
-	r.wait(t, refreshTimeout+10*time.Second, "done du second rafraîchissement", func(e map[string]any) bool {
+	r.wait(t, refreshTimeout.Get()+10*time.Second, "done du second rafraîchissement", func(e map[string]any) bool {
 		return e["_name"] == "refresh" && e["path"] == ps[0] && e["done"] == true && dones() > before
 	})
 }

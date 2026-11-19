@@ -52,6 +52,10 @@ type serverConf struct {
 	Base   string // http://hôte:port, sans / final
 	Allow  []string
 	Source string
+	// #174, mode serveur dans un cluster : le projet de la session — racine dans l'espace des sessions, et base d'appariement
+	// (<CL_WEB_URL>/files) distincte de Base (<CL_WEB_URL>/files/<projet>)
+	ProjectRoot string
+	PairBase    string
 	// d'où vient l'adresse d'écoute (diag) : hubs.<machine>[.<système>]
 	// .browser_server.listen, defaults.browser_server.listen, défaut…
 	ListenSrc string
@@ -198,7 +202,7 @@ func (c serverConf) allowedHosts(machine string) map[string]bool {
 // browserServer : réglage effectif de ce launcher, sur son système (surcharge
 // hubs.<machine>.<système> comprise).
 func browserServer() (serverConf, error) {
-	return resolveBrowserServerFor(readBackendsFile(), hubName(), pathsGOOS)
+	return resolveBrowserServerFor(readBackendsFile(), hubName(), pathsGOOS.Get())
 }
 
 // ── Gestionnaire HTTP ─────────────────────────────────────────────────────
@@ -210,6 +214,26 @@ type fileServer struct {
 	// chemin de l'URL (vu des sessions, Linux) → chemin local (#110, pathmap.go) ;
 	// nil : le même
 	local func(string) string
+	// #174 : route /files du serveur web (mode serveur) : prefix (« /files »), retiré de l'URL par l'appelant, remis
+	// dans les redirections ; csp : en-tête Content-Security-Policy des fichiers servis ; hosts nil : l'hôte est
+	// contrôlé par le serveur web lui-même
+	prefix string
+	csp    string
+	// root : mode projet (/files/<projet>/…) — racine du projet dans l'espace des URL internes ; les URL rendues (redirections,
+	// titres des listes, lien « ../ ») sont alors relatives à cette racine : le chemin interne n'apparaît jamais
+	root string
+}
+
+// display : chemin montré à l'utilisateur pour le chemin interne p (relatif à la racine du projet en mode projet).
+func (s fileServer) display(p string) string {
+	if s.root == "" {
+		return p
+	}
+	rel := strings.TrimPrefix(p, strings.TrimRight(s.root, "/"))
+	if rel == "" {
+		return "/"
+	}
+	return rel
 }
 
 func (s fileServer) toLocal(p string) string {
@@ -235,16 +259,61 @@ func underLocal(p, r string) bool {
 	return ok
 }
 
+// sensitiveNames : segments qui ne sont jamais servis (secrets, accès, dépôts, notes de travail du launcher).
+var sensitiveNames = map[string]bool{
+	"private": true, ".git": true, ".claude": true, ".ssh": true, ".aws": true, ".kube": true, ".gnupg": true, ".netrc": true,
+	".docker": true, ".azure": true, // dossiers d'identifiants des outils
+	".git-credentials": true, ".gitconfig": true, ".npmrc": true, ".pypirc": true, ".pgpass": true, ".htpasswd": true,
+	".terraformrc": true, ".dockercfg": true, ".s3cfg": true, ".boto": true, ".my.cnf": true, ".vault-token": true,
+	"terraform.tfvars": true, "credentials": true, "credentials.json": true,
+}
+
+// sensitiveSuffixes : extensions de fichiers de clés, certificats privés et magasins de clés.
+var sensitiveSuffixes = []string{".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".pkcs12", ".ppk", ".kdbx", ".tfstate", ".tfvars"}
+
+func hasAnySuffix(l string, sufs []string) bool {
+	for _, x := range sufs {
+		if strings.HasSuffix(l, x) {
+			return true
+		}
+	}
+	return false
+}
+
+// sensitiveRel : le chemin relatif à une racine (segments séparés par « / ») contient-il un élément jamais servi ?
+// Un segment PRIVATE, .git, .claude, .ssh, .aws, .kube, .gnupg, .docker, .azure ou un fichier d'identifiants d'outil
+// (.netrc, .git-credentials, .gitconfig, .npmrc, .pypirc, .pgpass, .htpasswd, .terraformrc…) ; un nom commençant par .env,
+// id_ ou kubeconfig ; un nom en .pem, .key, .p12, .pfx, .jks, .keystore, .pkcs12, .ppk, .kdbx, .tfstate ou .tfvars ; tout _work SAUF _work/mockup (les maquettes y vivent ; rapports d'audit, handoff, tâches, tmp… ne sont jamais servis). Casse
+// ignorée (systèmes de fichiers insensibles à la casse).
+func sensitiveRel(rel string) bool {
+	segs := strings.Split(rel, "/")
+	for i, seg := range segs {
+		l := strings.ToLower(seg)
+		switch {
+		case l == "":
+		case sensitiveNames[l], strings.HasPrefix(l, ".env"), strings.HasPrefix(l, "id_"), strings.HasPrefix(l, "kubeconfig"),
+			hasAnySuffix(l, sensitiveSuffixes):
+			return true
+		case l == "_work" && i+1 < len(segs) && segs[i+1] != "" && !strings.EqualFold(segs[i+1], "mockup"):
+			return true // de _work, seul _work/mockup (les maquettes) est servi : rapports, handoff, tâches, tmp… jamais
+		}
+	}
+	return false
+}
+
 // allowed : p (chemin propre de l'URL) est sous une racine, liens symboliques
 // résolus compris : un lien qui sort des racines est refusé. Rend le chemin
-// local du fichier.
+// local du fichier. Les éléments sensibles (sensitiveRel) sont refusés, au chemin demandé comme au chemin réel (un
+// lien vers .git ou PRIVATE ne les contourne pas).
 func (s fileServer) allowed(p string) (string, bool) {
 	roots := s.roots()
 	in := false
 	for _, r := range roots {
 		if under(p, r) {
 			in = true
-			break
+			if sensitiveRel(strings.Trim(strings.TrimPrefix(p, strings.TrimRight(r, "/")), "/")) {
+				return "", false
+			}
 		}
 	}
 	if !in {
@@ -254,16 +323,69 @@ func (s fileServer) allowed(p string) (string, bool) {
 	if err != nil {
 		return "", false
 	}
+	ok := false
 	for _, r := range roots {
 		lr := s.toLocal(r)
-		if underLocal(real, lr) {
-			return real, true
-		}
-		if rr, err := filepath.EvalSymlinks(lr); err == nil && underLocal(real, rr) {
-			return real, true
+		for _, base := range []string{lr, evalOr(lr)} {
+			if rest, in := cutLocal(real, base); in && underLocal(real, base) {
+				if sensitiveRel(rest) {
+					return "", false
+				}
+				ok = true
+			}
 		}
 	}
-	return "", false
+	if !ok || launcherStateContains(real) {
+		return "", false
+	}
+	return real, true
+}
+
+// launcherStateDirs : dossiers d'état du launcher, jamais servis même sous une racine (en cluster, CL_CACHE_DIR est
+// sous la racine partagée) : cache (jetons, update-check.json, présence, projects.json…), coffre des secrets,
+// configuration (config.conf : jeton GitHub ; backends.yaml), configuration de claude (identifiants).
+func launcherStateDirs() []string {
+	dirs := []string{CacheDir(), secretsDirRaw(), Ng2ConfigDir(), ClaudeDir()}
+	if h := HubCacheDir(); h != "" && filepath.IsAbs(h) {
+		dirs = append(dirs, h)
+	}
+	return dirs
+}
+
+var stateDirsCache = struct {
+	sync.Mutex
+	key string
+	res []string
+}{}
+
+// launcherStateContains : p (chemin réel) est-il sous un dossier d'état du launcher (liens symboliques résolus) ?
+func launcherStateContains(p string) bool {
+	raw := launcherStateDirs()
+	key := strings.Join(raw, "\x00")
+	stateDirsCache.Lock()
+	if stateDirsCache.key != key || stateDirsCache.res == nil {
+		res := make([]string, 0, 2*len(raw))
+		for _, d := range raw {
+			res = append(res, d, realPath(d))
+		}
+		stateDirsCache.key, stateDirsCache.res = key, res
+	}
+	dirs := stateDirsCache.res
+	stateDirsCache.Unlock()
+	for _, d := range dirs {
+		if d != "" && underLocal(p, d) {
+			return true
+		}
+	}
+	return false
+}
+
+// evalOr : chemin aux liens symboliques résolus, lui-même s'il ne l'est pas.
+func evalOr(p string) string {
+	if r, err := filepath.EvalSymlinks(p); err == nil {
+		return r
+	}
+	return p
 }
 
 var textTypes = map[string]bool{".md": true, ".markdown": true, ".yaml": true, ".yml": true, ".log": true, ".txt": true, ".go": true, ".sh": true, ".py": true, ".toml": true, ".ini": true, ".conf": true}
@@ -271,11 +393,14 @@ var textTypes = map[string]bool{".md": true, ".markdown": true, ".yaml": true, "
 func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
+	if s.csp != "" {
+		w.Header().Set("Content-Security-Policy", s.csp)
+	}
 	host := r.Host
 	if h, _, err := net.SplitHostPort(host); err == nil {
 		host = h
 	}
-	if !s.hosts[strings.ToLower(strings.Trim(host, "[]"))] {
+	if s.hosts != nil && !s.hosts[strings.ToLower(strings.Trim(host, "[]"))] {
 		http.Error(w, "hôte refusé", http.StatusForbidden)
 		return
 	}
@@ -285,13 +410,18 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := path.Clean("/" + r.URL.Path)
+	if s.root != "" {
+		// mode projet : le chemin est DÉJÀ le chemin interne (racine + relatif) ; la racine d'un projet Windows sans
+		// correspondance de chemins (C:\Users\…) ne commence pas par « / » : l'ajouter casserait la comparaison à la racine
+		p = path.Clean(r.URL.Path)
+	}
 	if p == browserPairPath && s.token != nil {
 		s.servePair(w, r)
 		return
 	}
 	if p == browserHealthPath {
 		w.Header().Set(browserOSHeader, runtime.GOOS)
-		_, _ = io.WriteString(w, NgName+" "+NgVersion+"\n")
+		_, _ = io.WriteString(w, NgName+" "+Version()+"\n")
 		return
 	}
 	real, ok := s.allowed(p)
@@ -306,7 +436,7 @@ func (s fileServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	if st.IsDir() {
 		if !strings.HasSuffix(r.URL.Path, "/") {
-			http.Redirect(w, r, escapePath(p)+"/", http.StatusMovedPermanently)
+			http.Redirect(w, r, s.prefix+escapePath(s.display(p))+"/", http.StatusMovedPermanently)
 			return
 		}
 		if idx := filepath.Join(real, "index.html"); fileExists(idx) {
@@ -352,6 +482,16 @@ func (s fileServer) listDir(w http.ResponseWriter, p, real string) {
 		http.Error(w, "dossier illisible", http.StatusNotFound)
 		return
 	}
+	// éléments sensibles masqués (jamais listés) ; un lien est jugé sur sa cible
+	kept := ents[:0]
+	for _, e := range ents {
+		child := path.Join(p, e.Name())
+		if _, ok := s.allowed(child); !ok {
+			continue
+		}
+		kept = append(kept, e)
+	}
+	ents = kept
 	sort.Slice(ents, func(i, j int) bool {
 		if ents[i].IsDir() != ents[j].IsDir() {
 			return ents[i].IsDir()
@@ -359,9 +499,10 @@ func (s fileServer) listDir(w http.ResponseWriter, p, real string) {
 		return ents[i].Name() < ents[j].Name()
 	})
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	t := html.EscapeString(p)
+	shown := s.display(p)
+	t := html.EscapeString(shown)
 	fmt.Fprintf(w, "<!doctype html><meta charset=utf-8><title>%s</title><style>body{font:14px system-ui,sans-serif;margin:16px}a{text-decoration:none}li{margin:2px 0}</style><h1>%s</h1><ul>", t, t)
-	if p != "/" {
+	if shown != "/" {
 		fmt.Fprint(w, `<li><a href="../">../</a></li>`)
 	}
 	for _, e := range ents {
@@ -533,7 +674,7 @@ func ownPortHint(machine, goos string) string {
 		port = "8765"
 	}
 	return "Pour un serveur propre à ce launcher : un autre port pour ce système, hubs." + machine + "." + sys +
-		".browser_server.listen (ex. 127.0.0.1:" + port + ") ; hubs." + machine + ".browser_server vaut pour les deux systèmes du même nom de machine, voir le README (section Windows)."
+		".browser_server.listen (ex. 127.0.0.1:" + port + ") ; hubs." + machine + ".browser_server vaut pour les deux systèmes du même nom de machine, voir ng2/docs/windows.md (section Windows)."
 }
 
 // PrintBrowserServer : section de « claude-launcher-ng2 backends ».
@@ -575,4 +716,84 @@ func PrintBrowserServer() {
 	for _, r := range rs {
 		fmt.Println("  sert " + r)
 	}
+}
+
+// ── Route /files du serveur web (#174) ────────────────────────────────────
+
+// FilesPrefix : préfixe de la route des fichiers des projets du serveur web (mode serveur).
+const FilesPrefix = "/files"
+
+// filesCSP : fichiers servis sous /files : origine opaque (« sandbox » sans allow-same-origin) — un script d'une
+// maquette s'exécute (allow-scripts) mais ne peut appeler ni /api ni lire de cookie de l'interface —, et jamais
+// encadré.
+const filesCSP = "sandbox allow-scripts allow-forms allow-modals allow-popups; frame-ancestors 'none'"
+
+// FilesPairName : premier segment réservé de l'appariement du navigateur (/files/__claude-launcher__/pair).
+const FilesPairName = "__claude-launcher__"
+
+// NewFilesHandler : les fichiers des projets sous FilesPrefix, forme unique /files/<projet>/<chemin relatif à la racine du
+// projet> (#174). <projet> = nom du projet dans le launcher (CtrName), résolu en racine par resolve parmi les projets
+// connus ; inconnu, racine /files/, ancienne forme (chemin interne) : 404 ; premier segment en « __ » réservé au launcher
+// (seul /files/__claude-launcher__/pair existe). Règles du serveur de maquettes : lecture seule, rien hors de la
+// racine du projet (liens symboliques compris), éléments sensibles jamais servis ni listés. L'hôte est contrôlé par
+// le serveur web ; session, origine : voir ui/desktop.
+func NewFilesHandler(resolve func(name string) (root string, ok bool)) http.Handler {
+	pair := fileServer{token: browserToken, csp: filesCSP}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, FilesPrefix), "/")
+		name, sub, hasSlash := strings.Cut(rest, "/")
+		switch {
+		case name == "":
+			http.NotFound(w, r) // aucune liste à la racine : ni contenu ni nom de projet
+			return
+		case strings.HasPrefix(name, "__"): // réservé : jamais résolu comme un projet
+			if name == FilesPairName && sub == "pair" {
+				r2 := r.Clone(r.Context())
+				r2.URL.Path = browserPairPath
+				pair.ServeHTTP(w, r2)
+				return
+			}
+			http.NotFound(w, r)
+			return
+		}
+		root, ok := resolve(name)
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		if !hasSlash { // /files/<projet> : la forme avec « / » liste la racine du projet
+			w.Header().Set("Cache-Control", "no-store")
+			http.Redirect(w, r, FilesPrefix+"/"+url.PathEscape(name)+"/", http.StatusMovedPermanently)
+			return
+		}
+		// chemin interne = racine + chemin relatif nettoyé (« .. » ne remonte jamais au-dessus de la racine)
+		inner := path.Join(root, path.Clean("/"+sub))
+		if strings.HasSuffix(sub, "/") || sub == "" {
+			inner += "/"
+		}
+		r2 := r.Clone(r.Context())
+		r2.URL.Path, r2.URL.RawPath = inner, ""
+		projectFileServer(name, root, LocalPath).ServeHTTP(w, r2)
+	})
+}
+
+// projectFileServer : le serveur de fichiers d'UN projet (racine root dans l'espace des URL internes ; local : chemin
+// interne → chemin local).
+func projectFileServer(name, root string, local func(string) string) fileServer {
+	return fileServer{roots: func() []string { return []string{root} }, local: local, root: root,
+		prefix: FilesPrefix + "/" + url.PathEscape(name), csp: filesCSP}
+}
+
+// ServerFilesBase : base d'URL des fichiers pour les sessions en mode serveur dans un cluster
+// (<CL_WEB_URL>/files) ; "" hors cluster ou sans adresse publique. Les sessions reçoivent alors
+// CL_BROWSER_PATH_MAP=[{"container":"/","host":"<base>","os":"url"}] et l'appariement sous <base>/__claude-launcher__/pair.
+func ServerFilesBase() string {
+	if !InCluster() {
+		return ""
+	}
+	u := strings.TrimRight(strings.TrimSpace(os.Getenv("CL_WEB_URL")), "/")
+	if !strings.HasPrefix(u, "http://") && !strings.HasPrefix(u, "https://") {
+		return ""
+	}
+	return u + FilesPrefix
 }

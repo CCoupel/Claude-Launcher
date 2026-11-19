@@ -84,6 +84,8 @@ type model struct {
 	prefSum      string
 	prefCh       chan tea.Msg
 	newTpl       string
+	errKind      string    // vérification GitHub en échec : "" | "quota" | "network" (#199)
+	errRetry     time.Time // reprise annoncée (quota)
 	tplSha       string
 	tplOK        bool // release du template publiée : adoptable
 	mgr          *core.StateMgr
@@ -413,9 +415,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, core.CheckUpdates(false)
 	case core.UpdMsg:
 		var prepCmd tea.Cmd
+		m.errKind, m.errRetry = msg.Err, msg.RetryAt
 		if msg.Ok {
 			tag := ""
-			if core.VersionNewer(core.NgVersion, msg.LauncherTag) {
+			if core.VersionNewer(core.Version(), msg.LauncherTag) {
 				tag = msg.LauncherTag
 			}
 			// annonce masquée : réaffichée pour un nouveau tag ou quand sa release sort
@@ -440,6 +443,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			// le cycle de 10 min continue de son côté : pas de second minuteur
 			m.checking = false
 			switch {
+			case msg.Err == core.UpdErrQuota:
+				m.msg = "⚠ vérification GitHub impossible (quota, reprise " + msg.RetryAt.Format("15:04") + ")"
 			case !msg.Ok:
 				m.msg = "⚠ GitHub injoignable"
 			case m.newLauncher != "":
@@ -452,9 +457,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// release attendue : revérifie plus souvent pour passer au vert
 		if (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK) {
-			return m, tea.Batch(prepCmd, core.UpdTickCmd(2*time.Minute))
+			return m, tea.Batch(prepCmd, core.UpdTickCmd(core.NextUpdateDelay(msg, 2*time.Minute)))
 		}
-		return m, tea.Batch(prepCmd, core.UpdTickCmd(10*time.Minute))
+		return m, tea.Batch(prepCmd, core.UpdTickCmd(core.NextUpdateDelay(msg, 10*time.Minute)))
 	case prefStepMsg:
 		if msg.tag == m.prefTag {
 			m.prefStep = msg.step
@@ -692,6 +697,7 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			// annonce verte : le texte installe / adopte ; orange : sans effet ; ✕ masque
 			a := m.alerts()[k]
 			switch {
+			case a == "github": // permanente, non cliquable
 			case e.X >= lipgloss.Width(m.alertText(a)):
 				m.dismissAlert(a)
 			case a == "launcher" && m.launcherOK && !m.updating:
@@ -1293,9 +1299,9 @@ func bareVer(v string) string { return strings.TrimPrefix(core.OrQ(v), "v") }
 // versionLines : versions du launcher et du template, et alertes de mise à jour.
 func (m model) versionLines() string {
 	// 40 colonnes par défaut : libellés courts, complets si la place le permet.
-	line := "NG " + core.NgVersion + " · tpl " + bareVer(m.tplVer)
+	line := "NG " + core.Version() + " · tpl " + bareVer(m.tplVer)
 	if m.w >= 70 {
-		line = core.NgName + " " + core.NgVersion + " · dernier template " + core.OrQ(m.tplVer)
+		line = core.NgName + " " + core.Version() + " · dernier template " + core.OrQ(m.tplVer)
 	}
 	s := "\n" + core.Dim.Render("  "+line)
 	for _, a := range m.alerts() {
@@ -1306,6 +1312,8 @@ func (m model) versionLines() string {
 			s += "\n" + core.Green.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		case a == "launcher" && m.launcherPub:
 			s += "\n" + core.Yellow.Render(m.alertText(a)) + core.Dim.Render(" ✕")
+		case a == "github": // permanente : pas de ✕
+			s += "\n" + core.Orange.Render(m.alertText(a))
 		default:
 			s += "\n" + core.Orange.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		}
@@ -1321,6 +1329,10 @@ func (m model) alertText(a string) string {
 	}
 	wide := m.w >= 70
 	switch {
+	case a == "github" && m.errKind == core.UpdErrQuota:
+		return "  ⚠ vérification GitHub impossible (quota, reprise " + m.errRetry.Format("15:04") + ")"
+	case a == "github":
+		return "  ⚠ GitHub injoignable"
 	case a == "launcher" && m.updating:
 		return "  ↑ NG " + tag + " : installation…"
 	case ok:
@@ -1358,6 +1370,9 @@ func (m model) alerts() []string {
 	}
 	if m.newTpl != "" && !m.hideTpl {
 		a = append(a, "template")
+	}
+	if m.errKind != "" { // visible en continu, pas seulement après F5 (#199)
+		a = append(a, "github")
 	}
 	return a
 }

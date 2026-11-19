@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"strings"
 	"sync"
@@ -25,7 +26,7 @@ var teamTTL = 10 * time.Second
 
 // cardsSlow : délai ajouté à la partie lente (tests de #131 : réponse lente
 // simulée).
-var cardsSlow time.Duration
+var cardsSlow = tun.Of(time.Duration(0))
 
 type teamEntry struct {
 	at   time.Time
@@ -78,8 +79,8 @@ func (a *App) cardsFast(path string) Cards {
 
 // cardsFull : cartes complètes (état calculé s'il manque, team relue).
 func (a *App) cardsFull(path string) Cards {
-	if cardsSlow > 0 {
-		time.Sleep(cardsSlow)
+	if cardsSlow.Get() > 0 {
+		time.Sleep(cardsSlow.Get())
 	}
 	c := a.cardsFast(path)
 	if c.Name == "" {

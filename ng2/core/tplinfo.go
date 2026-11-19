@@ -11,7 +11,7 @@ import (
 
 // État du template par teammate (carte TEAM, #136) : version enregistrée de
 // l'agent (agents.registry[].tag de .claude/project-config.json) comparée à la
-// version cible (tag du template adopté par le launcher, .template-version),
+// version du template du projet (#199),
 // et compagnon projet. Même règle pour la coque Linux et l'interface native.
 
 // Tpl* : TeamLine.TplState.
@@ -24,13 +24,14 @@ const (
 // TplInfo : ce que la carte sait du template du projet.
 type TplInfo struct {
 	Managed bool              // le projet porte un registre d'agents (agents.registry)
-	Target  string            // version cible ; "" si inconnue
+	Target  string            // version du template du projet (#199) ; "" si inconnue
 	Files   map[string]string // nom d'agent → fichier compagnon existant (.claude/agents/…)
 }
 
 type tplEntry struct {
 	at      time.Time
 	managed bool
+	target  string
 	files   map[string]string
 }
 
@@ -75,11 +76,12 @@ func ReadTplInfo(proj string) TplInfo {
 				e.files[r.Name] = f
 			}
 		}
+		e.target = ProjectTemplateTag(proj)
 		tplCache.Lock()
 		tplCache.m[proj] = e
 		tplCache.Unlock()
 	}
-	return TplInfo{Managed: e.managed, Target: ReadTrim(TplVersionPath()), Files: e.files}
+	return TplInfo{Managed: e.managed, Target: e.target, Files: e.files}
 }
 
 // Apply complète les lignes de la carte : état du template, version cible et
@@ -96,8 +98,10 @@ func (ti TplInfo) Apply(lines []TeamLine) []TeamLine {
 			l.TplState = TplLineNone
 		case l.Tag == ti.Target:
 			l.TplState = TplLineOK
-		default:
+		case VersionNewer(l.Tag, ti.Target): // agent plus ancien que le projet
 			l.TplState = TplLineLate
+		default: // agent plus récent que le projet : neutre
+			l.TplState = TplLineNone
 		}
 	}
 	return lines

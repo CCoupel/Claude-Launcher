@@ -16,14 +16,15 @@ import (
 func TestUpdatesTagThenRelease(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CL_SCRIPT", filepath.Join(dir, "claude-launcher.sh"))
-	tplSha, ngPublished, tplPublished := "t1", false, false
+	t.Setenv(core.CacheDirVar, filepath.Join(dir, "cache")) // résultat partagé update-check.json : jamais le vrai cache
+	tplSha, tplName, ngPublished, tplPublished := "t1", "v5.0.0", false, false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch p := r.URL.Path; {
 		case p == "/repos/"+core.LauncherRepo+"/tags":
 			fmt.Fprint(w, `[{"name":"v9.9.9","commit":{"sha":"n1"}}]`)
 		case p == "/repos/"+core.TemplateRepo+"/tags":
-			fmt.Fprintf(w, `[{"name":"v5.0.0","commit":{"sha":%q}}]`, tplSha)
-		case p == "/repos/"+core.TemplateRepo+"/releases/tags/v5.0.0" && tplPublished:
+			fmt.Fprintf(w, `[{"name":%q,"commit":{"sha":%q}}]`, tplName, tplSha)
+		case p == "/repos/"+core.TemplateRepo+"/releases/tags/"+tplName && tplPublished:
 			fmt.Fprint(w, `{}`)
 		case p == "/repos/"+core.LauncherRepo+"/releases/tags/v9.9.9" && ngPublished:
 			fmt.Fprintf(w, `{"assets":[{"id":1,"name":"SHA256SUMS","state":"uploaded"},{"id":2,"name":%q,"state":"uploaded"}]}`, core.NgAsset())
@@ -37,16 +38,22 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 	}))
 	defer srv.Close()
 	oldRaw := core.SetRawBase(srv.URL)
-	oldAPI, oldRel, oldVer, oldSynced := core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced
-	core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced = srv.URL, srv.URL+"/rel", "v5.0.0", false
+	oldAPI, oldRel := core.ApiBase.Get(), core.ReleaseBase.Get()
+	oldVer := core.SetNgVersion("v5.0.0")
+	core.ApiBase.Set(srv.URL)
+	core.ReleaseBase.Set(srv.URL + "/rel")
+	oldSynced := core.SetInitSynced(false)
 	defer func() {
-		core.ApiBase, core.ReleaseBase, core.NgVersion, core.InitSynced = oldAPI, oldRel, oldVer, oldSynced
+		core.ApiBase.Set(oldAPI)
+		core.ReleaseBase.Set(oldRel)
+		core.SetInitSynced(oldSynced)
+		core.SetNgVersion(oldVer)
 		core.SetRawBase(oldRaw)
 	}()
 
 	check := func() core.UpdMsg {
 		t.Helper()
-		msg, ok := core.CheckUpdates(false)().(core.UpdMsg)
+		msg, ok := core.CheckUpdates(true)().(core.UpdMsg)
 		if !ok || !msg.Ok {
 			t.Fatalf("vérification en échec : %+v", msg)
 		}
@@ -57,9 +64,9 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 		t.Fatalf("première installation : %+v, cache %q", msg, core.ReadTrim(core.TplCommitPath()))
 	}
 	// tags poussés, releases pas encore publiées : annoncés, rien d'adopté
-	tplSha = "t2"
+	tplSha, tplName = "t2", "v5.0.1"
 	msg := check()
-	if msg.LauncherTag != "v9.9.9" || msg.LauncherReady || msg.TplTag != "v5.0.0" || msg.TplReady {
+	if msg.LauncherTag != "v9.9.9" || msg.LauncherReady || msg.TplTag != "v5.0.1" || msg.TplReady {
 		t.Fatalf("tags sans release : %+v", msg)
 	}
 	if core.ReadTrim(core.TplCommitPath()) != "t1" {
@@ -82,7 +89,7 @@ func TestUpdatesTagThenRelease(t *testing.T) {
 	if done := core.AdoptTplCmd(msg.TplTag, msg.TplSha)().(core.TplAdoptedMsg); !done.Synced {
 		t.Fatal("init-project.md non téléchargé")
 	}
-	if core.ReadTrim(core.TplCommitPath()) != "t2" || core.ReadTrim(core.TplVersionPath()) != "v5.0.0" {
+	if core.ReadTrim(core.TplCommitPath()) != "t2" || core.ReadTrim(core.TplVersionPath()) != "v5.0.1" {
 		t.Fatal("cache non mis à jour après adoption")
 	}
 	if msg = check(); msg.TplTag != "" {

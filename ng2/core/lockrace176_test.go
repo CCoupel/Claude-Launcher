@@ -24,9 +24,9 @@ func twAge(t *testing.T, p string, d time.Duration) {
 // M1 : plusieurs lanceurs constatent le MÊME verrou périmé en même temps : un seul entre à la fois (jamais deux
 // détenteurs), tous finissent par passer.
 func TestStaleLockTakeoverNeverGivesTwoHolders(t *testing.T) {
-	old := fileLockStale
-	fileLockStale = 150 * time.Millisecond
-	defer func() { fileLockStale = old }()
+	old := fileLockStale.Get()
+	fileLockStale.Set(150 * time.Millisecond)
+	defer func() { fileLockStale.Set(old) }()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "shared.json")
 	for round := 0; round < 6; round++ {
@@ -74,9 +74,9 @@ func TestSlowHolderDoesNotReleaseAnotherLock(t *testing.T) {
 	// légitimement pendant sa section) ; A finit à 800 : s'il supprimait le verrou de B, C (arrivé à 900) entrerait
 	// pendant la section de B. Le drapeau de B est posé ET retiré DANS sa section : aucune dépendance à un minuteur
 	// externe (sur un runner lent, un drapeau retiré par minuteur pouvait être encore levé après la fin de B).
-	old := fileLockStale
-	fileLockStale = 600 * time.Millisecond
-	defer func() { fileLockStale = old }()
+	old := fileLockStale.Get()
+	fileLockStale.Set(600 * time.Millisecond)
+	defer func() { fileLockStale.Set(old) }()
 	target := filepath.Join(t.TempDir(), "shared.json")
 	var bInside atomic.Bool
 	var cEnteredDuringB atomic.Bool
@@ -109,9 +109,9 @@ func TestSlowHolderDoesNotReleaseAnotherLock(t *testing.T) {
 // Présence : deux lanceurs de même nom constatent ensemble un témoin périmé → un seul démarre.
 func TestPresenceStaleTakeoverStartsOnlyOne(t *testing.T) {
 	withHome(t)
-	oldStale := presenceStale
-	presenceStale = 150 * time.Millisecond
-	defer func() { presenceStale = oldStale }()
+	oldStale := presenceStale.Get()
+	presenceStale.Set(150 * time.Millisecond)
+	defer func() { presenceStale.Set(oldStale) }()
 	t.Setenv("CL_CACHE_DIR", t.TempDir())
 	t.Setenv("CL_HUB_NAME", "hub-presence")
 	for round := 0; round < 6; round++ {

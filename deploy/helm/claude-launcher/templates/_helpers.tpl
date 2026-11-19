@@ -58,8 +58,28 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not (or (eq $root $mount) (hasPrefix (printf "%s/" $mount) $root)) -}}
 {{- fail (printf "rootBase (%s) doit être volume.mountPath (%s) ou un de ses sous-dossiers" $root $mount) -}}
 {{- end -}}
+{{- if .Values.externalIngress.enabled -}}
+{{- fail "ingress externe refusé : aucune authentification avant v7.0.0 (#172) — l'interface web ne doit pas être exposée hors du LAN (externalIngress.enabled: false)" -}}
+{{- end -}}
+{{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.ingressNamespaces) (not .Values.networkPolicy.ingressCIDRs) -}}
+{{- fail "networkPolicy.enabled sans ingressNamespaces ni ingressCIDRs : plus aucune entrée admise (même l'Ingress) — donner le namespace du contrôleur, ou networkPolicy.enabled: false" -}}
+{{- end -}}
+{{- /* montages du chart : la racine partagée ne chevauche ni le coffre ni le Secret docker */ -}}
+{{- range $p := list "/var/lib/claude-launcher/secrets" "/var/run/claude-launcher/docker" -}}
+{{- if or (eq $mount $p) (hasPrefix (printf "%s/" $mount) $p) (hasPrefix (printf "%s/" $p) $mount) -}}
+{{- fail (printf "volume.mountPath (%s) chevauche le montage réservé %s" $mount $p) -}}
+{{- end -}}
+{{- end -}}
+{{- /* backends.kubeconfigs : un nom par entrée (volume kube-<name> et dossier de montage) */ -}}
+{{- $seen := dict -}}
+{{- range .Values.backends.kubeconfigs -}}
+{{- if hasKey $seen .name -}}
+{{- fail (printf "backends.kubeconfigs : le nom %q est donné deux fois (un volume et un dossier de montage par nom)" .name) -}}
+{{- end -}}
+{{- $_ := set $seen .name true -}}
+{{- end -}}
 {{- /* variables posées par le chart : extraEnv ne peut pas les remplacer (le dernier doublon l'emporterait) */ -}}
-{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" -}}
+{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_SECRETS_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
 {{- range .Values.extraEnv -}}
 {{- if has .name $reservedEnv -}}
 {{- fail (printf "extraEnv : %s est posée par le chart (valeur dédiée : rootBase, hubName, allowHostBackend, web.access, ingress.host…), refusée" .name) -}}

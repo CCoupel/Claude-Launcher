@@ -88,3 +88,12 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
 4. Contrôles à la première installation : test négatif de la liste d'adresses (comme en QUALIF, avec `launcher.local`) ;
    prise de main hub ↔ cluster sur un projet réel, faite par l'utilisateur.
 5. Mise à jour : rejouer l'étape 2 avec le nouveau `vX.Y.Z` (nouvelle empreinte) — l'ancien pod s'arrête avant le démarrage du nouveau.
+
+## `helm upgrade` — jamais `--reuse-values` (constaté en QUALIF 6.4.0.12, vital pour la PROD v6.4.0)
+
+`--reuse-values` n'applique pas les défauts du chart de la nouvelle version : une clé **nouvelle** (ex. `externalIngress.enabled`,
+`networkPolicy.*`, `secrets.persistence.*` en v6.4.0) est absente et le rendu échoue (« nil pointer evaluating interface {}.enabled »,
+rien n'est appliqué). Le passage en PROD change le chart : utiliser la procédure ci-dessus (`-f values-prod.yaml -f $PROD_VALUES_LOCAL`,
+sans `--reuse-values`), ou pour un upgrade qui garde les valeurs courantes `--reset-then-reuse-values` (retrait d'une valeur :
+`--set <clé>=null`). Contrôler d'abord : `helm upgrade … --dry-run=client`. Pour la v6.4.0 en PROD, noter aussi : NetworkPolicy active par
+défaut (admet `traefik`), PVC du coffre `<release>-secrets` créé, ingress externe refusé au rendu.

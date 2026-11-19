@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"errors"
 	"fmt"
 	"os"
@@ -22,14 +23,13 @@ import (
 // Sans CL_HUB_NAME, rien n'est contrôlé (comportement de la v6.2.0).
 
 var (
-	presenceBeat  = 3 * time.Second
-	presenceStale = 10 * time.Second
-	// presenceSuccessorStale : un témoin de même machine et de même pid mais d'un autre processus (pod recréé sous le même
+	presenceBeat  = tun.Of(3 * time.Second)
+	presenceStale = tun.Of(10 * time.Second) // presenceSuccessorStale : un témoin de même machine et de même pid mais d'un autre processus (pod recréé sous le même
 	// nom) n'est repris qu'après ce silence de battement ; un prédécesseur encore vivant (nœud isolé, pod forcé) bat
 	// toutes les presenceBeat et n'est donc jamais écrasé. presenceWait : durée pendant laquelle le démarrage attend,
 	// dans le processus, que ce silence soit établi avant de refuser.
-	presenceSuccessorStale = 6 * time.Second
-	presenceWait           = 15 * time.Second
+	presenceSuccessorStale = tun.Of(6 * time.Second)
+	presenceWait           = tun.Of(15 * time.Second)
 )
 
 func presencePath() string { return filepath.Join(CacheDir(), "hub-"+HubNameSafe()+".presence") }
@@ -59,7 +59,7 @@ func AcquirePresence() (release func(), err error) {
 	token := newLockToken()
 	// contenu : <nom réel de la machine> <pid> <date> <identifiant de cette prise> <identifiant du processus>
 	me := fmt.Sprintf("%s %d %s %s %s", platform.RealHostName(), os.Getpid(), time.Now().Format(time.RFC3339), token, processNonce)
-	waitUntil := time.Now().Add(presenceWait)
+	waitUntil := time.Now().Add(presenceWait.Get())
 	for try, reclaims := 0, 0; ; try++ {
 		if try > 400 { // 100 s d'attente au plus, jamais de boucle sans fin
 			return nil, errors.New("témoin de présence inaccessible : " + p)
@@ -85,16 +85,17 @@ func AcquirePresence() (release func(), err error) {
 		switch {
 		case serr != nil: // disparu entre-temps : nouvelle tentative de création
 			continue
-		case dead || age >= presenceStale: // rédacteur disparu (pid mort) ou périmé : repris
+		case dead || age >= presenceStale.Get(): // rédacteur disparu (pid mort) ou périmé : repris
 			reclaims++
 			if dead {
-				_, _ = reclaimStaleIf(p, presenceStale, string(b))
+				_, _ = reclaimStaleIf(p, presenceStale.Get(), string(b))
 			} else {
-				_, _ = reclaimStale(p, presenceStale)
+				_, _ = reclaimStale(p, presenceStale.Get())
 			}
-		case successor && age >= presenceSuccessorStale: // prédécesseur de même pid, sans battement depuis assez longtemps
+		case successor && age >= presenceSuccessorStale.Get(): // prédécesseur de même pid, sans battement depuis assez longtemps
 			reclaims++
-			_, _ = reclaimStaleIf(p, presenceStale, string(b))
+			// revérifié sous le verrou de reprise : un battement arrivé depuis le constat de silence n'est pas écrasé
+			_, _ = reclaimStaleIfMin(p, presenceStale.Get(), string(b), presenceSuccessorStale.Get())
 		case successor && time.Now().Before(waitUntil):
 			// peut-être un prédécesseur qui vient d'être arrêté : attendre ICI le silence de son battement (jamais de
 			// sortie en code 1 : le pod ne redémarre pas pour rien), puis le reprendre
@@ -109,7 +110,7 @@ func AcquirePresence() (release func(), err error) {
 		}
 	}
 	stop := make(chan struct{})
-	beat := presenceBeat // lu ici : le goroutine ne touche jamais la variable du paquet (tests qui la changent)
+	beat := presenceBeat.Get() // lu ici : le goroutine ne touche jamais la variable du paquet (tests qui la changent)
 	go func() {
 		t := time.NewTicker(beat)
 		defer t.Stop()

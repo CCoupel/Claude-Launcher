@@ -92,8 +92,8 @@ func TestThemeSwitch(t *testing.T) {
 	var r recorder
 	a := newApp(t, r.emit)
 	var got []string
-	themeHook = func(m string) { got = append(got, m) }
-	t.Cleanup(func() { themeHook = nil })
+	themeHook.Set(func(m string) { got = append(got, m) })
+	t.Cleanup(func() { themeHook.Set(nil) })
 	for _, m := range []string{"light", "dark", "auto"} {
 		if _, err := a.Dispatch("setTheme", json.RawMessage(`{"mode":"`+m+`"}`)); err != nil {
 			t.Fatal(err)

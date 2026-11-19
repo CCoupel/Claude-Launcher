@@ -85,6 +85,7 @@ function stBackendValue(b) {
   if (b.hosts && b.hosts.length) v.hosts = b.hosts;
   if (b.shared && b.shared.length) v.shared = b.shared;
   if (b.volumes && Object.keys(b.volumes).length) v.volumes = b.volumes;
+  if (b.kubeconfig) v.kubeconfig = b.kubeconfig; // true (coffre) ou chemin (#193)
   if (b.spread != null) v.spread = !!b.spread;
   if (b.pod && Object.keys(b.pod).length) v.pod = b.pod;
   return v;
@@ -179,7 +180,7 @@ function stRenderRail() {
     r.appendChild(el('div', 'rg', g));
     for (const [k, t] of items) {
       const it = el('div', 'ri' + (k === ST.page ? ' on' : ''), t);
-      it.onclick = () => { ST.page = k; ST.test = null; stRender(); };
+      it.onclick = () => { stKeepClear(); ST.page = k; ST.test = null; stRender(); };
       r.appendChild(it);
     }
   }
@@ -248,7 +249,17 @@ async function stText(kind) {
   CE.fromPage = from; // retour « ← Réglages » sur la rubrique d'où l'on vient
 }
 
+// Saisies en cours des encadrés ssh / kubeconfig : mémoire de la page seulement (ni ST, ni prefs, ni journal), le
+// temps que la fiche soit reconstruite (stPoll) ; effacées à l'envoi (finally), à Annuler et à la fermeture.
+const STKEEP = new Map();
+function stKeep(key, ta) {
+  if (STKEEP.has(key)) ta.value = STKEEP.get(key);
+  ta.addEventListener('input', () => { if (ta.value) STKEEP.set(key, ta.value); else STKEEP.delete(key); });
+  return ta;
+}
+function stKeepClear(prefix) { for (const k of [...STKEEP.keys()]) if (!prefix || k.startsWith(prefix)) STKEEP.delete(k); }
 function stClose(force) {
+  stKeepClear();
   if (!force && stDirty() && !confirm('Fermer sans enregistrer ? Les modifications seront perdues.')) return;
   ST.on = false; clearTimeout(ST.timer);
   $('modalbox').classList.remove('wide');
@@ -334,7 +345,7 @@ function stPageBackends(p) {
     if (d.defaults.backend && d.defaults.backend === b.name) n.appendChild(el('span', 'pill', 'défaut'));
     r.append(n, el('td', '', b.type), (() => { const c = el('td', 'm sta', stAddr(b)); c.title = stAddr(b); return c; })(), el('td', 'm', b.pool || ''), el('td'));
     r.lastChild.className = 'stst'; r.lastChild.appendChild(b._orig ? stStateCell(b._orig) : el('span', 'dim', 'nouveau'));
-    r.onclick = () => { ST.sel.backend = i; ST.test = null; stRenderPage(); };
+    r.onclick = () => { stKeepClear(); ST.sel.backend = i; ST.test = null; stRenderPage(); };
     t.appendChild(r);
   });
   left.appendChild(t);
@@ -416,6 +427,8 @@ function stBackendForm(b) {
   }
   rows.push(['', stCheck(d.defaults.backend === b.name && !!b.name, 'backend par défaut', (v) => { if (v) d.defaults.backend = b.name; else if (d.defaults.backend === b.name) d.defaults.backend = ''; stRenderFoot(); })]);
   body.appendChild(stForm(rows));
+  // identifiants (#194, #193) : juste sous les champs de connexion ; le coffre exige un backend déjà déclaré
+  if (t === 'ssh' || t === 'k8s') body.appendChild(b.name && b._orig ? (t === 'ssh' ? stSshBox(b) : stKubeBox(b)) : stSecretWait(b, t));
   // test par étapes (jusqu'à 45 s : état « en cours »)
   const test = el('button', 'btn sm pri', ST.test && ST.test.running && ST.test.name === b.name ? 'Test en cours…' : 'Tester');
   test.disabled = !!(ST.test && ST.test.running);
@@ -424,6 +437,189 @@ function stBackendForm(b) {
   stFillTests(out, b);
   body.appendChild(out);
   return stBox(b.name || '(sans nom)', body, test);
+}
+
+function stSecretWait(b, t) {
+  const box = el('div', 'stbox stssh'); const h = el('div', 'bh');
+  h.append(el('span', '', t === 'ssh' ? '🔑 Identifiants ssh' : '🔑 Kubeconfig'));
+  const bb = el('div', 'bb', b.name ? 'Enregistrez d\'abord le backend (bouton Enregistrer en bas de la fenêtre) : le coffre n\'accepte que les backends déclarés.' : 'Nommez puis enregistrez d\'abord le backend : le coffre n\'accepte que les backends déclarés.');
+  box.append(h, bb); return box;
+}
+// L'encadré est reconstruit par stRenderPage (stPoll, saisies) : les appels asynchrones ne gardent jamais une
+// boîte en main, ils retrouvent la boîte courante (id) et le backend sélectionné.
+function stSecretRefresh(kind) {
+  const box = $('st' + kind + 'box'), b = ST.draft && ST.draft.backends[ST.sel.backend];
+  if (!box || !b || !ST[kind] || ST[kind].name !== b.name) return;
+  (kind === 'ssh' ? stSshFill : stKubeFill)(b, box);
+}
+
+// ── Identifiants ssh d'un backend (#194) : clé et empreinte de l'hôte, coffre du launcher ──
+// État propre à l'encadré (ST.ssh), reconstruit seul : une saisie en cours n'est jamais écrasée.
+// La clé privée n'est jamais affichée ni relue ; son champ est vidé après l'enregistrement.
+function stSshBox(b) {
+  const box = el('div', 'stbox stssh'); box.id = 'stsshbox';
+  if (!ST.ssh || ST.ssh.name !== b.name) { ST.ssh = { name: b.name, info: null, edit: false, scan: null, msg: '', err: '', busy: false, loading: true }; stSshLoad(b); }
+  stSshFill(b, box);
+  return box;
+}
+async function stSshLoad(b) {
+  const S2 = ST.ssh;
+  try { S2.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { S2.err = e.message; }
+  S2.loading = false;
+  if (ST.ssh === S2) stSecretRefresh('ssh');
+}
+// ── Kubeconfig d'un backend k8s (#193) : même principe que l'encadré ssh ──
+// Contenu jamais affiché ni relu ; champ vidé après l'envoi. Le choix « kubeconfig: true » et du contexte
+// passe par le brouillon (enregistré avec le reste de la fiche).
+function stKubeBox(b) {
+  const box = el('div', 'stbox stssh'); box.id = 'stkubebox';
+  if (!ST.kube || ST.kube.name !== b.name) { ST.kube = { name: b.name, info: null, edit: false, msg: '', err: '', busy: false, loading: true }; stKubeLoad(b); }
+  stKubeFill(b, box);
+  return box;
+}
+async function stKubeLoad(b) {
+  const K = ST.kube;
+  try { K.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { K.err = e.message; }
+  K.loading = false;
+  if (ST.kube === K) stSecretRefresh('kube');
+}
+function stKubeFill(b, box) {
+  const K = ST.kube, i = K.info || {};
+  box.textContent = '';
+  const h = el('div', 'bh'); h.append(el('span', '', '🔑 Kubeconfig'), el('span', 'dim', ' — coffre du launcher, hors partage'));
+  const bb = el('div', 'bb');
+  const redo = () => stSecretRefresh('kube');
+  const act = async (fn) => {
+    if (K.busy) return; K.busy = true; K.err = ''; K.msg = ''; K.warns = []; redo();
+    try { await fn(); } catch (e) { K.err = e.message; }
+    K.busy = false;
+    try { K.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { /* conservé */ }
+    if (ST.kube === K) { redo(); stRenderFoot(); }
+  };
+  const isPath = typeof b.kubeconfig === 'string';
+  const when = (t) => (t ? ' · modifié le ' + new Date(t).toLocaleString('fr-FR') + ' (source non vérifiée : adresse transmise par l\'ingress, X-Forwarded-For)' : '');
+  if (K.loading) bb.appendChild(el('div', 'dim', 'lecture du coffre…'));
+  else {
+    const st = el('div');
+    if (isPath) st.append(el('span', 'm', 'chemin : ' + b.kubeconfig), el('span', 'dim', '  (fichier du poste, jamais relu ici)'));
+    else if (i.hasKubeconfig) st.append(el('span', 't-green', 'déposé'), el('span', 'dim', ' (contenu jamais affiché)' + when(i.kubeconfigModified)), b.kubeconfig ? el('span') : el('span', 't-orange', ' · non activé : enregistrer la fiche'));
+    else st.append(el('span', 'dim', 'aucun : kubectl utilise le contexte du poste ou le ServiceAccount du pod'));
+    bb.appendChild(st);
+    const ctxs = i.kubeContexts || [];
+    if (ctxs.length && i.hasKubeconfig && !isPath) {
+      bb.appendChild(stForm([['Contexte', stSelect(b.context || '', [['', '(contexte courant du fichier)']].concat(ctxs.map((c) => [c, c])), (v) => { b.context = v; }), 'contextes du kubeconfig déposé']]));
+    }
+    if (!K.edit) {
+      const bar = el('div', 'stbar');
+      bar.append(stBtn(i.hasKubeconfig || isPath ? 'Remplacer' : 'Déposer un kubeconfig', () => { K.edit = true; K.msg = ''; redo(); }));
+      if (i.hasKubeconfig) bar.append(stBtn('Supprimer', () => { if (!confirm('Supprimer le kubeconfig du backend « ' + b.name + ' » ?')) return; act(async () => { await call('backendSecretDelete', { backend: b.name, what: 'kubeconfig' }); if (b.kubeconfig === true) { delete b.kubeconfig; b.context = ''; } K.msg = 'kubeconfig supprimé : enregistrer la fiche'; }); }, 'dg'));
+      bb.appendChild(bar);
+    } else {
+      const ta = el('textarea', 'stin stta'); ta.rows = 6; ta.spellcheck = false; ta.autocomplete = 'off'; ta.placeholder = 'apiVersion: v1\nkind: Config\n…'; stKeep('kube:' + b.name, ta);
+      const file = el('input'); file.type = 'file';
+      file.onchange = () => { const f = file.files[0]; if (f) f.text().then((t) => { ta.value = t; }); };
+      bb.appendChild(stForm([['Fichier', file, 'ou coller le contenu ci-dessous'], ['Contenu', ta, 'formes *-data seulement (pas d\'exec, de chemins de fichiers ni de auth-provider) ; jamais relu après l\'envoi']]));
+      const bar = el('div', 'stbar');
+      bar.append(stBtn('Enregistrer', () => act(async () => {
+        let r;
+        try { r = await call('backendSecretSet', { backend: b.name, kubeconfig: ta.value }); }
+        finally { ta.value = ''; file.value = ''; stKeepClear('kube:' + b.name); }
+        if (r.ok) { K.warns = r.warnings || []; K.edit = false; b.kubeconfig = true; K.msg = 'kubeconfig enregistré ' + (r.fingerprint || '') + ' — enregistrer la fiche pour l\'activer'; } else K.err = r.msg || 'dépôt refusé';
+      }), 'pri'), stBtn('Annuler', () => { stKeepClear('kube:' + b.name); K.edit = false; redo(); }));
+      bb.appendChild(bar);
+    }
+  }
+  if (K.busy) bb.appendChild(el('div', 'dim', 'en cours…'));
+  if (K.msg) bb.appendChild(el('div', 't-green', K.msg));
+  for (const w of K.warns || []) bb.appendChild(el('div', 't-orange', '⚠ ' + w));
+  if (K.err) bb.appendChild(el('div', 't-red', '⚠ ' + K.err));
+  box.append(h, bb);
+}
+function stSshFill(b, box) {
+  const S2 = ST.ssh, i = S2.info || {};
+  box.textContent = '';
+  const h = el('div', 'bh'); h.append(el('span', '', '🔑 Identifiants ssh'), el('span', 'dim', ' — coffre du launcher, hors partage'));
+  const bb = el('div', 'bb');
+  const redo = () => stSecretRefresh('ssh');
+  const act = async (fn) => {
+    if (S2.busy) return; S2.busy = true; S2.err = ''; S2.msg = ''; redo();
+    try { await fn(); } catch (e) { S2.err = e.message; }
+    S2.busy = false;
+    try { S2.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { /* conservé */ }
+    if (ST.ssh === S2) redo();
+  };
+  const when = (t) => (t ? ' · modifié le ' + new Date(t).toLocaleString('fr-FR') + ' (source non vérifiée : adresse transmise par l\'ingress, X-Forwarded-For)' : '');
+  if (S2.loading) bb.appendChild(el('div', 'dim', 'lecture du coffre…'));
+  else if (i.hasKey && !S2.edit) {
+    const l = el('div'); l.append(el('span', 't-green', 'enregistrée'), el('span', 'm', '  ' + (i.fingerprint || '')), el('span', 'dim', '  (clé privée jamais affichée)' + when(i.keyModified)));
+    bb.append(el('div', '', 'Clé privée : '), l);
+    bb.append(el('div', 'dim', 'Clé publique (à mettre dans ~/.ssh/authorized_keys de l\'hôte) :'));
+    const pk = el('textarea', 'stin stta'); pk.rows = 2; pk.readOnly = true; pk.value = i.publicKey || ''; bb.appendChild(pk);
+    const bar = el('div', 'stbar');
+    bar.append(stBtn('Copier', async () => { const r = await clipWrite(i.publicKey || ''); S2.msg = r.ok ? 'clé publique copiée' : (r.msg || 'copie impossible'); redo(); }),
+      stBtn('Remplacer la paire', () => { S2.edit = true; S2.msg = ''; redo(); }),
+      stBtn('Supprimer', () => { if (!confirm('Supprimer la clé ssh du backend « ' + b.name + ' » ?')) return; act(async () => { await call('backendSecretDelete', { backend: b.name, what: 'key' }); }); }, 'dg'));
+    bb.appendChild(bar);
+  } else {
+    bb.appendChild(el('div', 'dim', i.hasKey ? 'Remplacement de la paire :' : 'Aucune clé enregistrée : ssh utilisera l\'agent ssh du poste. Collez une paire, ou faites-en générer une.'));
+    const priv = el('textarea', 'stin stta'); priv.rows = 4; priv.spellcheck = false; priv.autocomplete = 'off'; priv.placeholder = '-----BEGIN OPENSSH PRIVATE KEY-----'; stKeep('ssh:priv:' + b.name, priv);
+    const pub = el('textarea', 'stin stta'); pub.rows = 2; pub.spellcheck = false; pub.placeholder = 'ssh-ed25519 AAAA…'; stKeep('ssh:pub:' + b.name, pub);
+    bb.appendChild(stForm([['Clé privée', priv, 'jamais relue ni affichée après l\'enregistrement ; sans phrase de passe'], ['Clé publique', pub]]));
+    const bar = el('div', 'stbar');
+    const save = stBtn('Enregistrer', () => act(async () => {
+      let r;
+      try { r = await call('backendSecretSet', { backend: b.name, privateKey: priv.value, publicKey: pub.value }); }
+      finally { priv.value = ''; pub.value = ''; stKeepClear('ssh:priv:' + b.name); stKeepClear('ssh:pub:' + b.name); }
+      if (r.ok) { S2.edit = false; S2.msg = 'clé enregistrée ' + (r.fingerprint || ''); } else S2.err = r.msg || 'enregistrement refusé';
+    }), 'pri');
+    const gen = stBtn('Générer une paire à la place', () => act(async () => {
+      let r;
+      try { r = await call('backendSecretSet', { backend: b.name, generate: true }); } finally { stKeepClear('ssh:priv:'); stKeepClear('ssh:pub:'); }
+      if (r.ok) { S2.edit = false; S2.msg = 'paire générée ' + (r.fingerprint || '') + ' — copier la clé publique vers l\'hôte'; } else S2.err = r.msg || 'génération refusée';
+    }));
+    bar.append(save, gen);
+    if (i.hasKey) bar.append(stBtn('Annuler', () => { stKeepClear('ssh:priv:'); stKeepClear('ssh:pub:'); S2.edit = false; redo(); }));
+    bb.appendChild(bar);
+  }
+  // empreinte de l'hôte
+  const host = b.host || (b.hosts && b.hosts[0]) || '';
+  bb.appendChild(el('hr', 'sthr'));
+  const kh = i.knownHosts || [];
+  const hl = el('div');
+  hl.append(el('span', '', 'Hôte ' + (host ? host.replace(/^.*@/, '') : '(aucun)') + ' : '));
+  if (kh.length) { hl.append(el('span', 't-green', 'empreinte connue')); for (const k of kh) hl.append(el('div', 'm', k.type + ' ' + k.fingerprint)); if (i.knownHostsModified) hl.append(el('div', 'dim', 'modifié le ' + new Date(i.knownHostsModified).toLocaleString('fr-FR') + ' (source non vérifiée)')); }
+  else hl.append(el('span', 't-orange', 'empreinte inconnue'));
+  bb.appendChild(hl);
+  const bar2 = el('div', 'stbar');
+  bar2.append(stBtn(kh.length ? 'Relever de nouveau' : 'Relever l\'empreinte', () => act(async () => {
+    const r = await call('backendHostScan', { backend: b.name, host });
+    if (r.ok) S2.scan = r.keys || []; else { S2.scan = null; S2.err = r.msg || 'relevé impossible'; }
+  })));
+  if (kh.length) bar2.append(stBtn('Supprimer l\'empreinte', () => act(async () => { await call('backendSecretDelete', { backend: b.name, what: 'known_hosts' }); }), 'dg'));
+  bb.appendChild(bar2);
+  if (S2.scan) {
+    const sc = el('div', 'stscan');
+    for (const k of S2.scan) sc.appendChild(el('div', 'm', k.type + ' ' + k.fingerprint));
+    sc.appendChild(el('div', 'dim', 'Comparer avec l\'empreinte de l\'hôte avant de confirmer.'));
+    const b3 = el('div', 'stbar');
+    b3.append(stBtn('Je confirme que c\'est bien l\'hôte', () => act(async () => {
+      const r = await call('backendKnownHostsSet', { backend: b.name, lines: S2.scan.map((k) => k.line) });
+      if (r.ok) { S2.scan = null; S2.msg = 'empreinte enregistrée'; } else S2.err = r.msg || 'enregistrement refusé';
+    }), 'pri'), stBtn('Annuler', () => { S2.scan = null; redo(); }));
+    sc.appendChild(b3); bb.appendChild(sc);
+  }
+  const paste = el('details', 'stpaste'); paste.append(el('summary', 'dim', 'ou coller des lignes known_hosts'));
+  const ta = el('textarea', 'stin stta'); ta.rows = 2; ta.spellcheck = false; ta.placeholder = 'hôte ssh-ed25519 AAAA…'; stKeep('ssh:kh:' + b.name, ta);
+  paste.append(ta, stBtn('Enregistrer les lignes', () => act(async () => {
+    let r;
+    try { r = await call('backendKnownHostsSet', { backend: b.name, lines: ta.value }); } finally { ta.value = ''; stKeepClear('ssh:kh:' + b.name); }
+    if (r.ok) S2.msg = 'lignes known_hosts enregistrées'; else S2.err = r.msg || 'lignes refusées';
+  })));
+  bb.appendChild(paste);
+  if (S2.busy) bb.appendChild(el('div', 'dim', 'en cours…'));
+  if (S2.msg) bb.appendChild(el('div', 't-green', S2.msg));
+  if (S2.err) bb.appendChild(el('div', 't-red', '⚠ ' + S2.err));
+  box.append(h, bb);
 }
 
 function stFillTests(out, b) {

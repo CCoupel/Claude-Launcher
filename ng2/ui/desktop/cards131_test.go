@@ -13,9 +13,9 @@ func TestCardsOfPreviousProjectDropped(t *testing.T) {
 	ps := sandbox(t, "", "alpha", "beta")
 	var r recorder
 	a := newApp(t, r.emit)
-	old := cardsSlow
-	cardsSlow = 500 * time.Millisecond
-	t.Cleanup(func() { cardsSlow = old })
+	old := cardsSlow.Get()
+	cardsSlow.Set(500 * time.Millisecond)
+	t.Cleanup(func() { cardsSlow.Set(old) })
 	for i := 0; i < 3; i++ { // clics alternés rapides
 		for _, p := range ps {
 			if _, err := a.Dispatch("select", json.RawMessage(`{"path":`+strconv.Quote(p)+`}`)); err != nil {

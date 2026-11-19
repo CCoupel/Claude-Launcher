@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"bufio"
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"io"
 	"os"
@@ -251,7 +252,10 @@ func newProjTerm(a *App, n core.Node, mode core.LaunchMode) *projTerm {
 // run : ouverture complète, puis attente de la fin du client.
 func (t *projTerm) run() {
 	go t.flusher()
-	if err := t.prepare(); err != nil {
+	t.a.openGate.begin() // ouverture en cours : l'arrêt du launcher l'attend (Stop, #198)
+	err := t.prepare()
+	t.a.openGate.end()
+	if err != nil {
 		fmt.Fprintf(t, "\r\n\033[1;31m⚠ %v\033[0m\r\n", strings.ReplaceAll(err.Error(), "\n", "\r\n"))
 		t.setState("error", err.Error())
 		return
@@ -857,7 +861,7 @@ var (
 	// lastRelayoutRounds : allers-retours tmux de la dernière remise en page immédiate (tests : borne de coût)
 	lastRelayoutRounds atomic.Int64
 	// relayoutMid : tests, appelé entre le calcul de la signature et celui du plan
-	relayoutMid func()
+	relayoutMid = tun.Of[func()](nil)
 )
 
 // tickSlow : délai ajouté au tour lent du surveillant (tests : un projet sur un partage réseau, où la lecture
@@ -1203,8 +1207,8 @@ func (t *projTerm) relayoutNow() {
 	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
 		return
 	}
-	if relayoutMid != nil {
-		relayoutMid()
+	if h := relayoutMid.Get(); h != nil {
+		h()
 	}
 	c := t.cl()
 	if c == nil {

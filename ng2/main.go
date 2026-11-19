@@ -136,7 +136,7 @@ func main() {
 	case "help", "--help", "-h":
 		err = tmux.RunHelp(len(os.Args) > 2 && os.Args[2] == "--wait")
 	case "version", "--version", "-v":
-		fmt.Println(core.NgName, core.NgVersion)
+		fmt.Println(core.NgName, core.Version())
 	default:
 		err = fmt.Errorf("usage : claude-launcher-ng2 [shell|desktop|configure|relayout WIN_ID|help|version]")
 	}

@@ -271,6 +271,23 @@ func TemplateTag(proj string) string {
 	return ""
 }
 
+// ProjectTemplateTag : version du template du projet (#199) — .template-source.json, à défaut template_version.tag
+// de .claude/project-config.json ; "" si inconnue.
+func ProjectTemplateTag(proj string) string {
+	if t := TemplateTag(proj); t != "" {
+		return t
+	}
+	var pc struct {
+		TV struct {
+			Tag string `json:"tag"`
+		} `json:"template_version"`
+	}
+	if b, err := os.ReadFile(filepath.Join(proj, ".claude", "project-config.json")); err == nil && json.Unmarshal(b, &pc) == nil {
+		return pc.TV.Tag
+	}
+	return ""
+}
+
 // Template : état de TEMPLATE_claude vs dernier commit connu du template.
 type TemplateState int
 
@@ -349,11 +366,20 @@ func ReadTemplate(proj, latest string) TemplateState {
 		return TplNone
 	}
 	var s struct {
+		Tag    string `json:"tag"`
 		Commit string `json:"commit"`
 	}
 	b, err := os.ReadFile(src)
 	if err != nil || json.Unmarshal(b, &s) != nil || s.Commit == "" {
 		return TplNone
+	}
+	// comparaison ordonnée (#199) : en retard seulement si la version adoptée est strictement plus récente ;
+	// un projet plus récent que la version adoptée est à jour. Tag manquant d'un côté : égalité des commits.
+	if adopted := ReadTrim(TplVersionPath()); s.Tag != "" && adopted != "" {
+		if VersionNewer(s.Tag, adopted) {
+			return TplOutdated
+		}
+		return TplOK
 	}
 	if latest != "" && s.Commit == latest {
 		return TplOK

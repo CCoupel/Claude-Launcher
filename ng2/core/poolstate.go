@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"sync"
 	"time"
 )
@@ -31,7 +32,7 @@ func peekDiagnose(b BackendConf) ([]Problem, bool) {
 
 // diagnoseBg : diagnostic lancé en tâche de fond (remplacé dans les tests : aucun
 // accès au réseau ni aux moteurs).
-var diagnoseBg = func(b BackendConf) { DiagnoseCached(b) }
+var diagnoseBg = tun.Of(func(b BackendConf) { DiagnoseCached(b) })
 
 var diagInflight = struct {
 	sync.Mutex
@@ -64,7 +65,7 @@ func BackendStates(bs []BackendConf) map[string]BackendState {
 		diagInflight.Unlock()
 		if !busy {
 			go func(b BackendConf, key string) {
-				diagnoseBg(b)
+				diagnoseBg.Get()(b)
 				diagInflight.Lock()
 				delete(diagInflight.m, key)
 				diagInflight.Unlock()

@@ -1,14 +1,18 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime/pprof"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
@@ -63,9 +67,17 @@ func writeState(ps ProjState) {
 		return
 	}
 	p := StatePath(ps.Path)
-	tmp := p + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
-		_ = os.Rename(tmp, p)
+	// fichier temporaire UNIQUE (dans le même dossier, pour un Rename atomique) : deux launchers — ou deux calculs — qui
+	// écrivent le même état en même temps ne se partagent plus un « <hash>.json.tmp » fixe
+	f, err := os.CreateTemp(filepath.Dir(p), filepath.Base(p)+".*.tmp")
+	if err != nil {
+		return
+	}
+	tmp := f.Name()
+	_, werr := f.Write(b)
+	cerr := f.Close()
+	if werr != nil || cerr != nil || os.Chmod(tmp, 0o644) != nil || os.Rename(tmp, p) != nil {
+		_ = os.Remove(tmp)
 	}
 }
 
@@ -170,6 +182,17 @@ type StateMgr struct {
 
 	hi, lo chan string
 	Done   chan ProjState // projets recalculés, pour mettre à jour le navigateur
+	// addq : nouveaux sous-dossiers à surveiller, posés par events() et traités par adder() : w.Add peut attendre la
+	// goroutine de lecture du surveillant (Windows), qui elle attend qu'events() lise Events — events() ne doit donc
+	// JAMAIS appeler w.Add elle-même (interblocage : plus aucun évènement, Stop figé derrière wg.Wait)
+	addq chan [2]string
+	// file addq pleine (npm install, git clone : des milliers de dossiers d'un coup) : le projet est noté dans rescan
+	// (garde mu) et adder le reparcourt en entier (watchProject : les dossiers déjà surveillés sont ignorés)
+	rescan   map[string]bool
+	rescanCh chan struct{}
+	lastScan map[string]time.Time // dernier reparcours par projet (garde mu) : intervalle minimal rescanGap
+	rescans  atomic.Int64         // reparcours effectués (tests : le chemin de débordement a été pris)
+	walked   atomic.Int64         // dossiers visités par walkAdd (tests : l'arrêt interrompt un parcours)
 
 	quit     chan struct{} // fermé par Stop
 	stopOnce sync.Once
@@ -185,15 +208,16 @@ func NewStateMgr() (*StateMgr, error) {
 		w: w, open: map[string]bool{}, pending: map[string]bool{}, updated: map[string]time.Time{}, dur: map[string]time.Duration{},
 		dirOwner: map[string]string{}, timers: map[string]*time.Timer{}, poll: map[string]bool{}, sigs: map[string]string{},
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
-		quit: make(chan struct{}),
+		quit: make(chan struct{}), addq: make(chan [2]string, addQueueSize), rescan: map[string]bool{}, rescanCh: make(chan struct{}, 1), lastScan: map[string]time.Time{},
 	}
-	m.wg.Add(stateWorkers + 3)
+	m.wg.Add(stateWorkers + 4)
 	for i := 0; i < stateWorkers; i++ {
 		go func() { defer m.wg.Done(); m.worker() }()
 	}
 	go func() { defer m.wg.Done(); m.events() }()
 	go func() { defer m.wg.Done(); m.periodic() }()
 	go func() { defer m.wg.Done(); m.poller() }()
+	go func() { defer m.wg.Done(); m.adder() }()
 	return m, nil
 }
 
@@ -211,9 +235,27 @@ func (m *StateMgr) Stop() {
 			delete(m.timers, p)
 		}
 		m.mu.Unlock()
-		_ = m.w.Close()
-		m.wg.Wait()
+		closeFsWatcher(m.w, "état des projets")
+		waitGroupTimeout(&m.wg, stateStopLimit.Get(), "état des projets")
 	})
+}
+
+// stateStopLimit : au plus combien de temps Stop attend les tâches de fond ; passé ce délai il rend la main, journalise
+// et affiche la pile de toutes les goroutines (un arrêt figé ne bloque ni l'arrêt du launcher ni une CI pendant 10 minutes).
+var stateStopLimit = tun.Of(20 * time.Second)
+
+// waitGroupTimeout : wg.Wait borné ; rend faux (avec journal et pile des goroutines) au-delà de limit.
+func waitGroupTimeout(wg *sync.WaitGroup, limit time.Duration, what string) bool {
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(limit):
+		log.Printf("%s : tâches de fond toujours actives après %s, arrêt sans les attendre — pile des goroutines :", what, limit)
+		_ = pprof.Lookup("goroutine").WriteTo(os.Stderr, 1)
+		return false
+	}
 }
 
 func (m *StateMgr) stopped() bool {
@@ -266,6 +308,12 @@ func (m *StateMgr) worker() {
 		m.mu.Unlock()
 		start := time.Now()
 		ps := computeState(p)
+		if h := computeHook.Get(); h != nil {
+			h(p)
+		}
+		if m.stopped() { // calcul en cours à l'arrêt : rien n'est écrit (le CacheDir peut déjà être celui d'un autre test, #141)
+			return
+		}
 		writeState(ps)
 		m.mu.Lock()
 		m.dur[p] = time.Since(start)
@@ -446,22 +494,33 @@ func (m *StateMgr) poller() {
 
 // ── inotify ───────────────────────────────────────────────────────────────
 
-func (m *StateMgr) watchProject(p string) {
+// walkAdd : surveille root et ses sous-dossiers (hors skipDirs), au plus maxDirsPerProject ; les dossiers déjà surveillés
+// sont ignorés par addDir. Un dossier créé avec son contenu (mkdir -p, git clone) a ses sous-dossiers déjà là quand on
+// l'ajoute : ils ne donneraient jamais d'évènement de création.
+func (m *StateMgr) walkAdd(p, root string) {
 	n := 0
-	_ = filepath.WalkDir(p, func(path string, d fs.DirEntry, err error) error {
+	_ = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if m.stopped() { // l'arrêt n'attend pas la fin d'un gros parcours
+			return filepath.SkipAll
+		}
 		if err != nil || !d.IsDir() {
 			return nil
 		}
-		if path != p && skipDirs[d.Name()] {
+		if path != root && skipDirs[d.Name()] {
 			return filepath.SkipDir
 		}
 		if n >= maxDirsPerProject {
 			return filepath.SkipAll
 		}
+		m.walked.Add(1)
 		m.addDir(p, path)
 		n++
 		return nil
 	})
+}
+
+func (m *StateMgr) watchProject(p string) {
+	m.walkAdd(p, p)
 	// .git : HEAD, index, refs (commit, changement de branche, fetch)
 	gitDir := filepath.Join(p, ".git")
 	if st, err := os.Stat(gitDir); err == nil && st.IsDir() {
@@ -483,10 +542,96 @@ func (m *StateMgr) addDir(project, dir string) {
 	}
 	m.dirOwner[dir] = project
 	m.mu.Unlock()
-	if err := m.w.Add(dir); err != nil {
+	if err := fsCall(func() error { return fsAdd.Get()(m.w, dir) }, m.quit); err != nil {
 		m.mu.Lock()
 		delete(m.dirOwner, dir)
 		m.mu.Unlock()
+	}
+}
+
+// fsAdd : w.Add (remplacé dans les tests : un Add qui ne répond jamais, comme fsnotify sous Windows quand Close passe avant).
+var fsAdd = tun.Of(func(w *fsnotify.Watcher, dir string) error { return w.Add(dir) })
+
+// addQueueSize : capacité de la file des nouveaux dossiers à surveiller (remplacée dans les tests, avant NewStateMgr).
+var addQueueSize = 1024
+
+// rescanGap : intervalle minimal entre deux reparcours complets d'un même projet (rafale continue : les reparcours ne
+// s'enchaînent pas) ; adderHook : tests, appelé par adder avant chaque dossier de la file (permet de la remplir).
+var (
+	rescanGap = tun.Of(5 * time.Second)
+	adderHook = tun.Of[func()](nil)
+)
+
+// computeHook : tests, appelé par le worker entre le calcul d'un état et son écriture (simule un calcul lent).
+var computeHook = tun.Of[func(string)](nil)
+
+// Rescans : nombre de reparcours de projets faits après un débordement de la file (tests).
+func (m *StateMgr) Rescans() int64 { return m.rescans.Load() }
+
+// adder : surveille les sous-dossiers créés (voir addq) ; peut rester un moment dans w.Add sans gêner la lecture des
+// évènements. File débordée : reparcourt les projets concernés pour surveiller les dossiers manquants.
+func (m *StateMgr) adder() {
+	for {
+		select {
+		case a := <-m.addq:
+			if h := adderHook.Get(); h != nil {
+				h()
+			}
+			if !m.stopped() {
+				m.walkAdd(a[0], a[1])
+			}
+		case <-m.rescanCh:
+			gap := rescanGap.Get()
+			m.mu.Lock()
+			var projects []string
+			var wait time.Duration
+			for p := range m.rescan {
+				if d := gap - time.Since(m.lastScan[p]); d > 0 { // trop tôt : reste noté, réveil à l'échéance
+					if d > wait {
+						wait = d
+					}
+					continue
+				}
+				projects = append(projects, p)
+				delete(m.rescan, p)
+				m.lastScan[p] = time.Now()
+			}
+			m.mu.Unlock()
+			if wait > 0 {
+				time.AfterFunc(wait, func() {
+					select {
+					case m.rescanCh <- struct{}{}:
+					default:
+					}
+				})
+			}
+			for _, p := range projects {
+				if m.stopped() {
+					return
+				}
+				m.rescans.Add(1)
+				m.watchProject(p)
+			}
+		case <-m.quit:
+			return
+		}
+	}
+}
+
+// queueAdd : confie à adder un dossier à surveiller, sans jamais bloquer (appelé par events()). File pleine : le projet est
+// marqué « à reparcourir » — jamais de dossier oublié.
+func (m *StateMgr) queueAdd(project, dir string) {
+	select {
+	case m.addq <- [2]string{project, dir}:
+		return
+	default:
+	}
+	m.mu.Lock()
+	m.rescan[project] = true
+	m.mu.Unlock()
+	select {
+	case m.rescanCh <- struct{}{}:
+	default: // un réveil est déjà en attente
 	}
 }
 
@@ -533,7 +678,7 @@ func (m *StateMgr) onEvent(ev fsnotify.Event) {
 		// nouveau sous-dossier : à surveiller aussi
 		if ev.Op&fsnotify.Create != 0 {
 			if st, err := os.Stat(ev.Name); err == nil && st.IsDir() && !skipDirs[base] {
-				m.addDir(project, ev.Name)
+				m.queueAdd(project, ev.Name) // jamais de w.Add ici (goroutine d'events) : confié à adder (file pleine : reparcours du projet)
 			}
 		}
 	}

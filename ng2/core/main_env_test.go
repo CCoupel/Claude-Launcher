@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/testguard"
 	"os"
 	"testing"
 )
@@ -16,8 +17,12 @@ func TestMain(m *testing.M) {
 	os.Setenv("CLAUDE_CONFIG_DIR", d)
 	os.Setenv("CL_IN_CLUSTER", "0") // le conteneur de développement est lui-même un pod : jamais de refus du backend host (#169)
 	// pas d'interrogation des vrais moteurs locaux depuis leaderAliveIn
-	LocalCtrHosts = func() map[string]bool { return nil }
+	LocalCtrHosts.Set(func() map[string]bool { return nil })
+	guard := testguard.Start()
 	code := m.Run()
+	if !guard() && code == 0 {
+		code = 1
+	}
 	os.RemoveAll(d)
 	os.Exit(code)
 }

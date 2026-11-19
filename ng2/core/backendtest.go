@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"os/exec"
 	"runtime"
@@ -28,7 +29,7 @@ type TestStep struct {
 }
 
 // TestBackendTimeout borne le test entier (un ssh ou un cluster lent).
-var TestBackendTimeout = 45 * time.Second
+var TestBackendTimeout = tun.Of(45 * time.Second)
 
 // TestBackend : étapes du test de b (pool : chaque serveur à son tour,
 // étapes préfixées par le serveur). Au-delà du délai, une dernière étape
@@ -52,7 +53,7 @@ func testBackend(b BackendConf, goos string, ev engineEnv, look func(string) (st
 			mu.Unlock()
 		})
 	}()
-	timer := time.NewTimer(TestBackendTimeout)
+	timer := time.NewTimer(TestBackendTimeout.Get())
 	defer timer.Stop()
 	select {
 	case <-done:
@@ -62,7 +63,7 @@ func testBackend(b BackendConf, goos string, ev engineEnv, look func(string) (st
 	case <-timer.C:
 		mu.Lock()
 		defer mu.Unlock()
-		return append(append([]TestStep(nil), steps...), TestStep{Label: "délai", Detail: fmt.Sprintf("test interrompu après %d s", int(TestBackendTimeout.Seconds())),
+		return append(append([]TestStep(nil), steps...), TestStep{Label: "délai", Detail: fmt.Sprintf("test interrompu après %d s", int(TestBackendTimeout.Get().Seconds())),
 			Fix: "le backend répond trop lentement : vérifier le réseau, le démon ou le cluster"})
 	}
 }
@@ -104,6 +105,11 @@ func testStepsTo(b BackendConf, goos string, ev engineEnv, look func(string) (st
 	}
 	if missing {
 		return // sans l'outil, le reste ne peut pas être contrôlé
+	}
+	if b.Type == "ssh" {
+		for _, st := range sshSecretSteps(b.Name) {
+			emit(st)
+		}
 	}
 	if b.Type == "k8s" {
 		// k8sSteps rejoue le contrôle de kubectl : déjà fait ci-dessus
@@ -153,7 +159,7 @@ func (e BackendEntry) Conf(pools []PoolEntry) (BackendConf, error) {
 		name = "essai"
 	}
 	f.Backends = map[string]BackendConf{name: {Type: e.Type, Context: e.Context, Host: e.Host, Hosts: e.Hosts, Pool: e.Pool,
-		Engine: e.Engine, EngHost: e.EngineHost, Shared: e.Shared, Namespace: e.Namespace, Volumes: e.Volumes, Spread: e.Spread, Pod: e.Pod}}
+		Engine: e.Engine, EngHost: e.EngineHost, Shared: e.Shared, Namespace: e.Namespace, Volumes: e.Volumes, Spread: e.Spread, Pod: e.Pod, Kubeconfig: kubeconfigFromAny(e.Kubeconfig)}}
 	bs, err := backendsOf(f)
 	if err != nil {
 		return BackendConf{}, err
@@ -164,4 +170,27 @@ func (e BackendEntry) Conf(pools []PoolEntry) (BackendConf, error) {
 		}
 	}
 	return BackendConf{}, fmt.Errorf("backend %q introuvable", name)
+}
+
+// sshSecretSteps (#194) : « clé ssh enregistrée » et « empreinte de l'hôte connue ». Sans clé enregistrée, ssh utilise
+// l'agent et ~/.ssh du poste (v6.3.0) : ce n'est pas un échec.
+func sshSecretSteps(name string) []TestStep {
+	info, err := SecretGet(name)
+	if err != nil {
+		return []TestStep{{Label: "clé ssh enregistrée", OK: true, Detail: "backend non enregistré : agent ssh et ~/.ssh du poste"}}
+	}
+	if !info.HasKey {
+		return []TestStep{{Label: "clé ssh enregistrée", OK: true, Detail: "aucune : agent ssh et ~/.ssh du poste"}}
+	}
+	out := []TestStep{{Label: "clé ssh enregistrée", OK: info.PublicKey != "", Detail: info.Fingerprint,
+		Fix: "enregistrer à nouveau la paire (clé publique manquante)"}}
+	if len(info.KnownHosts) == 0 {
+		return append(out, TestStep{Label: "empreinte de l'hôte connue", Detail: "aucune empreinte enregistrée (StrictHostKeyChecking=yes)",
+			Fix: "relever l'empreinte de l'hôte et la confirmer dans les réglages du backend"})
+	}
+	fps := make([]string, 0, len(info.KnownHosts))
+	for _, k := range info.KnownHosts {
+		fps = append(fps, k.Type+" "+k.Fingerprint)
+	}
+	return append(out, TestStep{Label: "empreinte de l'hôte connue", OK: true, Detail: strings.Join(fps, ", ")})
 }

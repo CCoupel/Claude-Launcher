@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -67,13 +68,13 @@ const (
 )
 
 // sessionIdle : durée d'inactivité au-delà de laquelle une session expire (variable : tests).
-var sessionIdle = 8 * time.Hour
+var sessionIdle = tun.Of(8 * time.Hour)
 
 // maxSubscribers : plafond de flux d'évènements ouverts (un navigateur en ouvre un) ; variable : tests.
-var maxSubscribers = 32
+var maxSubscribers = tun.Of(32)
 
 // sseWriteTimeout : échéance de chaque envoi d'évènement ; au-delà (connexion figée) le flux est fermé.
-var sseWriteTimeout = 10 * time.Second
+var sseWriteTimeout = tun.Of(10 * time.Second)
 
 // setToken : nouveau jeton ; sessions et flux ouverts révoqués.
 func (w *webBridge) setToken(t string) {
@@ -127,7 +128,7 @@ func (w *webBridge) newSession() string {
 		w.sessions = map[string]time.Time{}
 	}
 	for k, at := range w.sessions { // expirées d'abord
-		if now.Sub(at) > sessionIdle {
+		if now.Sub(at) > sessionIdle.Get() {
 			delete(w.sessions, k)
 			gone = append(gone, k)
 		}
@@ -153,7 +154,7 @@ func (w *webBridge) sessionAlive(id string) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	at, ok := w.sessions[id]
-	return ok && time.Since(at) <= sessionIdle
+	return ok && time.Since(at) <= sessionIdle.Get()
 }
 
 // dropSubs : ferme les flux rattachés aux sessions ids.
@@ -178,7 +179,7 @@ func (w *webBridge) dropSubs(ids ...string) {
 
 // checkEvery : période de contrôle de la session d'un flux ouvert (courte si l'inactivité tolérée l'est).
 func checkEvery() time.Duration {
-	d := sessionIdle / 4
+	d := sessionIdle.Get() / 4
 	if d > 5*time.Second {
 		d = 5 * time.Second
 	}
@@ -197,7 +198,7 @@ func (w *webBridge) validSession(id string) bool {
 	if !ok {
 		return false
 	}
-	if now.Sub(at) > sessionIdle {
+	if now.Sub(at) > sessionIdle.Get() {
 		delete(w.sessions, id)
 		return false
 	}
@@ -366,6 +367,28 @@ func (w *webBridge) handler() http.Handler {
 		rw.Header().Set("Cache-Control", "no-store")
 		files.ServeHTTP(rw, r)
 	})
+	// fichiers des projets (#174) : même serveur que celui des maquettes, sous /files ; sans session en mode « none » (la
+	// protection est l'ingress interne), session exigée en mode jeton ; l'appariement du navigateur a son propre jeton
+	filesH := core.NewFilesHandler(w.app.projectRootByName)
+	filesRoute := func(rw http.ResponseWriter, r *http.Request) {
+		// Sec-Fetch-Site comme pour l'interface (contrat « Contrôles ») : une page ou un document venu d'un autre site
+		// est refusé (même site : refusé aussi en mode « none », aucun jeton ne le distingue) ; navigation de
+		// l'utilisateur (none) et même origine passent. Exception : les SOUS-RESSOURCES d'une maquette (feuille de
+		// style, script, image, police, média) — une maquette est servie en origine opaque (CSP sandbox), ses
+		// ressources relatives partent donc « cross-site ». Sans danger : nosniff (un script ou une feuille de style ne
+		// se charge qu'avec un type MIME qui convient), aucune lecture possible sans CORS (jamais d'en-tête
+		// Access-Control-*), et les éléments sensibles ne sont jamais servis.
+		if site := r.Header.Get("Sec-Fetch-Site"); (site == "cross-site" || site == "same-site" && w.access == core.AccessNone) &&
+			!filesSubresource(r.Header.Get("Sec-Fetch-Dest")) && !filesNavigation(r.Header.Get("Sec-Fetch-Dest"), r.Header.Get("Sec-Fetch-Mode")) {
+			refuse(rw, "origin", "origine refusée")
+			return
+		}
+		if w.access != core.AccessNone && !strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/__claude-launcher__") && !w.authorized(r, false) {
+			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
+			return
+		}
+		filesH.ServeHTTP(rw, r)
+	}
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method != http.MethodPost:
@@ -391,7 +414,7 @@ func (w *webBridge) handler() http.Handler {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		res, err := w.app.DispatchFrom(originWeb, req.Method, req.Args)
+		res, err := w.app.DispatchFromAddr(originWeb, requestSource(r), req.Method, req.Args)
 		out := map[string]any{"result": res}
 		if err != nil {
 			out["error"] = err.Error()
@@ -414,7 +437,7 @@ func (w *webBridge) handler() http.Handler {
 			return
 		}
 		// plafond : un gestionnaire compte jusqu'à sa vraie sortie, même si emit l'a retiré des abonnés
-		if int(w.active.Add(1)) > maxSubscribers {
+		if int(w.active.Add(1)) > maxSubscribers.Get() {
 			w.active.Add(-1)
 			http.Error(rw, "trop de flux d'évènements ouverts", http.StatusServiceUnavailable)
 			return
@@ -445,7 +468,7 @@ func (w *webBridge) handler() http.Handler {
 		}()
 		// chaque envoi a son échéance : une connexion figée fait échouer l'écriture au lieu de bloquer le gestionnaire
 		send := func(format string, args ...any) bool {
-			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout))
+			_ = rc.SetWriteDeadline(time.Now().Add(sseWriteTimeout.Get()))
 			if _, err := fmt.Fprintf(rw, format, args...); err != nil {
 				return false
 			}
@@ -454,7 +477,14 @@ func (w *webBridge) handler() http.Handler {
 		if !send(": ok\n\n") {
 			return
 		}
-		ping := time.NewTicker(20 * time.Second)
+		// évènement d'accueil (#198) : version et démarrage du serveur dès l'ouverture du flux, pour que le client
+		// détecte une mise à jour ou un redémarrage même si son `init` a échoué pendant que le serveur démarrait
+		if hello, err := json.Marshal(map[string]any{"name": "hello", "data": map[string]any{"server": serverInfo()}}); err == nil {
+			if !send("data: %s\n\n", hello) {
+				return
+			}
+		}
+		ping := time.NewTicker(ssePingEvery.Get())
 		defer ping.Stop()
 		check := time.NewTicker(checkEvery())
 		defer check.Stop()
@@ -467,7 +497,8 @@ func (w *webBridge) handler() http.Handler {
 					return
 				}
 			case <-ping.C:
-				if !send(": ping\n\n") {
+				// commentaire (proxys, tampons) + vrai évènement : le client le voit en JS et détecte un flux à moitié ouvert
+				if !send(": ping\n\ndata: {\"name\":\"ping\"}\n\n") {
 					return
 				}
 			case b, ok := <-ch:
@@ -480,8 +511,19 @@ func (w *webBridge) handler() http.Handler {
 			}
 		}
 	})
-	return w.secured(mux)
+	// /files, /files/, /files//… : traités ICI, avant le routeur (qui redirigerait « /files » et nettoierait « // » en 307) :
+	// racine et formes inconnues répondent 404 sans rien dire (#174)
+	return w.secured(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == core.FilesPrefix || strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/") {
+			filesRoute(rw, r)
+			return
+		}
+		mux.ServeHTTP(rw, r)
+	}))
 }
+
+// ssePingEvery : cadence du ping du flux d'évènements (#198) ; remplacée dans les tests.
+var ssePingEvery = tun.Of(15 * time.Second)
 
 // configureListener : port, contrôle de Host selon l'écoute. Boucle locale : 127.0.0.1, localhost,
 // [::1] ; toute autre écoute : les noms de desktop_web (hôte d'écoute, nom de la machine, localhost)
@@ -601,12 +643,12 @@ func RunWeb(addr string, open bool) error {
 	}
 	srv := newHTTPServer(w.handler())
 	done := make(chan struct{})
-	quitHook = func() {
+	quitHook.Set(func() {
 		go func() {
 			time.Sleep(200 * time.Millisecond)
 			_ = srv.Close()
 		}()
-	}
+	})
 	go func() {
 		_ = srv.Serve(ln)
 		close(done)
@@ -617,7 +659,7 @@ func RunWeb(addr string, open bool) error {
 	// mise à jour installée : même adresse et même jeton pour le nouveau
 	// binaire, port libéré avant de le lancer ; l'onglet ouvert se reconnecte
 	// (flux d'événements) au lieu d'en ouvrir un second
-	restartApp = func() {
+	restartApp.Set(func() {
 		bound := ln.Addr().String()
 		_ = srv.Close()
 		a.Stop()
@@ -625,9 +667,9 @@ func RunWeb(addr string, open bool) error {
 			fmt.Fprintln(os.Stderr, "relance impossible :", err)
 		}
 		os.Exit(0)
-	}
+	})
 	if access != core.AccessNone {
-		restartEnv = []string{"CL_DESKTOP_TOKEN=" + w.token}
+		restartEnv.Set([]string{"CL_DESKTOP_TOKEN=" + w.token})
 	}
 	a.Start()
 	if open {
@@ -682,4 +724,37 @@ func listenRetry(addr string, d time.Duration) (net.Listener, error) {
 		}
 		time.Sleep(200 * time.Millisecond)
 	}
+}
+
+// requestSource : adresse source d'un appel web, pour le journal des écritures de secrets : l'adresse de la
+// connexion et, derrière un ingress, X-Forwarded-For (indication, non fiable).
+func requestSource(r *http.Request) string {
+	s := r.RemoteAddr
+	if h, _, err := net.SplitHostPort(s); err == nil {
+		s = h
+	}
+	if x := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); x != "" {
+		if len(x) > 100 {
+			x = x[:100]
+		}
+		s += " (X-Forwarded-For: " + strings.NewReplacer("\n", " ", "\r", " ").Replace(x) + ")"
+	}
+	return s
+}
+
+// filesNavigation : navigation de premier niveau (Sec-Fetch-Mode=navigate, Sec-Fetch-Dest=document) : l'utilisateur — ou
+// l'extension de navigateur de claude — ouvre un lien, comme une URL tapée ; acceptée quelle que soit sa provenance
+// (Sec-Fetch-Site cross-site : lien d'un autre site, onglet ouvert par l'extension). Un cadre (iframe, frame), un objet
+// (embed, object) ou un appel fetch/XHR d'un autre site restent refusés. Le contenu ne s'exécute qu'en origine opaque
+// (CSP sandbox) : la page ouverte ne lit ni cookie ni /api de l'interface.
+func filesNavigation(dest, mode string) bool { return dest == "document" && mode == "navigate" }
+
+// filesSubresource : destination d'une sous-ressource de maquette (Sec-Fetch-Dest) ; un document, un cadre, un objet,
+// un appel fetch/XHR (« empty ») ou l'absence de l'en-tête ne comptent pas.
+func filesSubresource(dest string) bool {
+	switch dest {
+	case "style", "script", "image", "font", "audio", "video", "track":
+		return true
+	}
+	return false
 }

@@ -25,7 +25,7 @@ func twFakeKubectl(t *testing.T) (dir, log string) {
 D="` + dir + `"
 echo "KUBECONFIG=[$KUBECONFIG] $*" >> "$D/calls.log"
 if [ -e "$D/down" ]; then echo "Unable to connect to the server: dial tcp 10.0.0.1:443: i/o timeout" >&2; exit 1; fi
-while [ "$1" = "-n" ] || [ "$1" = "--context" ]; do shift 2; done
+while [ "$1" = "-n" ] || [ "$1" = "--context" ] || [ "$1" = "--kubeconfig" ]; do shift 2; done
 case "$1 $2" in
   "auth can-i")
     K="$3 $4"
@@ -49,9 +49,9 @@ func twClusterEnv(t *testing.T) {
 	withHome(t)
 	ns := filepath.Join(t.TempDir(), "namespace")
 	_ = os.WriteFile(ns, []byte("claude-ng2\n"), 0o644)
-	old := saNamespacePath
-	saNamespacePath = ns
-	t.Cleanup(func() { saNamespacePath = old })
+	old := saNamespacePath.Get()
+	saNamespacePath.Set(ns)
+	t.Cleanup(func() { saNamespacePath.Set(old) })
 	t.Setenv(InClusterVar, "1")
 	t.Setenv("KUBECONFIG", "/ne/doit/jamais/servir")
 }

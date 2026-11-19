@@ -140,7 +140,16 @@ func (a *App) reattach() {
 		}
 		for _, f := range fs {
 			n, ok := byPath[f.Project]
-			if !ok || !f.Running || a.term(n.Path) != nil || core.ProjectBackend(f.Project).Name != b.Name || !e.Of(f).HasSession(f.Name) {
+			if !ok || !f.Running || a.term(n.Path) != nil || core.ProjectBackend(f.Project).Name != b.Name {
+				continue
+			}
+			if !e.Of(f).HasSession(f.Name) {
+				// conteneur en marche mais installé à moitié (launcher coupé pendant l'ouverture, #198) : l'installation est
+				// terminée en tâche de fond, sans ouvrir de session (la prochaine ouverture ira vite)
+				// jamais sur un projet piloté par un autre launcher (propriétaire vivant) : ForeignOwner d'abord
+				if ef := e.Of(f); core.ForeignOwner(f.Project) == "" && ef.BootstrapIncomplete(f.Name) {
+					go func(ef core.Engine, name, proj string) { _ = ef.RepairBootstrap(name, proj) }(ef, f.Name, f.Project)
+				}
 				continue
 			}
 			// seulement les sessions de ce launcher (#48) : pas celles d'une autre machine
@@ -155,6 +164,58 @@ func (a *App) reattach() {
 	if len(back) > 0 {
 		a.setMsg("⬢ sessions retrouvées : " + strings.Join(back, ", "))
 	}
+}
+
+// reattachPath : rattache l'onglet d'UN projet à sa session vivante (client web qui retrouve un serveur redémarré,
+// #198), sans jamais rien créer : même contrôle que reattach() (session tmux de l'hôte, ou conteneur de ce launcher
+// dont la session tourne). Faux : aucune session, ou elle appartient à un autre launcher.
+func (a *App) reattachPath(path string) bool {
+	a.mu.Lock()
+	n, ok := a.node(path)
+	t := a.terms[path]
+	a.mu.Unlock()
+	if !ok || !n.Project {
+		return false
+	}
+	if t != nil && !t.isReadOnly() && t.info().State != "error" {
+		return true // déjà rattaché
+	}
+	if t != nil {
+		return false // lecture seule / en erreur : ni détaché ni rouvert ici (question rejoindre : open)
+	}
+	alive := false
+	be := core.ProjectBackend(path)
+	if be.Name == "host" {
+		if hostRefused() {
+			return false
+		}
+		c := platform.NoWindow(exec.Command("tmux", "-L", deskSocket(), "has-session", "-t", "="+hostSession(path)))
+		c.Env = core.EnvWithout("TMUX", "TMUX_PANE")
+		alive = c.Run() == nil
+	} else if b, found := core.FindBackend(be.Name); found && len(core.DiagnoseCached(b)) == 0 {
+		if e, ok := core.EngineOf(b); ok {
+			if fs, err := e.List(); err == nil {
+				for _, f := range fs {
+					if f.Project != path || !f.Running || !e.Of(f).HasSession(f.Name) {
+						continue
+					}
+					if o := e.Of(f).Owner(f.Name); o.Id != "" && o.Id != core.LauncherID() {
+						continue // session d'un autre launcher
+					}
+					alive = true
+					break
+				}
+			}
+		}
+	}
+	if !alive {
+		return false
+	}
+	res, err := a.open(path, core.LaunchNormal)
+	if m, ok := res.(map[string]any); err != nil || !ok || m["tab"] == nil {
+		return false
+	}
+	return true
 }
 
 // ── Fermeture (#50) : même plan que la coque ──────────────────────────────
@@ -586,7 +647,7 @@ func (a *App) quitApp(mode string) error {
 	}
 	go func() {
 		a.Stop()
-		quitHook()
+		quitHook.Get()()
 	}()
 	return nil
 }

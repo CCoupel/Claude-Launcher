@@ -95,7 +95,7 @@ func WatchTreeUntil(roots []string, done <-chan struct{}) <-chan struct{} {
 func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 	w, _ := fsnotify.NewWatcher()
 	if w != nil {
-		defer w.Close()
+		defer closeFsWatcher(w, "arborescence des projets") // Close vide les canaux et ne bloque pas l'arrêt (Windows)
 	}
 	var events <-chan fsnotify.Event
 	var errs <-chan error
@@ -118,7 +118,7 @@ func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 				continue
 			}
 			keep[d] = true
-			if !watched[d] && w.Add(d) == nil {
+			if !watched[d] && fsCall(func() error { return w.Add(d) }, done) == nil {
 				watched[d] = true
 			}
 		}
@@ -126,13 +126,38 @@ func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 			// un dossier surveillé qui a disparu perd sa veille inotify : on
 			// l'oublie, pour la reposer s'il revient
 			if !keep[d] || !dirReachable(d) {
-				_ = w.Remove(d)
+				_ = fsCall(func() error { return w.Remove(d) }, done)
 				delete(watched, d)
 			}
 		}
 		sig = dirsSig(polled)
 	}
-	setup()
+	// setup appelle w.Add / w.Remove, qui peuvent attendre la goroutine de lecture du surveillant (Windows) ; celle-ci peut
+	// attendre qu'on lise Events : pendant setup, évènements et erreurs sont donc lus par une goroutine à côté (interblocage
+	// sinon). Rend vrai si un évènement utile est arrivé pendant ce temps (nouveau tour à planifier).
+	setupDraining := func() (saw bool) {
+		stop := make(chan struct{})
+		res := make(chan bool, 1)
+		go func() {
+			got := false
+			for {
+				select {
+				case ev := <-events:
+					if ev.Op != fsnotify.Chmod && ev.Op != fsnotify.Write {
+						got = true
+					}
+				case <-errs:
+				case <-stop:
+					res <- got
+					return
+				}
+			}
+		}()
+		setup()
+		close(stop)
+		return <-res
+	}
+	setupDraining()
 	tick := time.NewTicker(treePollEvery)
 	defer tick.Stop()
 	var debounce <-chan time.Time
@@ -151,7 +176,9 @@ func runTreeWatch(roots []string, c chan<- struct{}, done <-chan struct{}) {
 			}
 		case <-debounce:
 			debounce = nil
-			setup()
+			if setupDraining() {
+				debounce = time.After(treeDebounce) // changement arrivé pendant setup : un tour de plus
+			}
 			select {
 			case c <- struct{}{}:
 			default:

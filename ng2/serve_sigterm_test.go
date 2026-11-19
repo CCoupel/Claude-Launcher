@@ -32,13 +32,15 @@ func TestDesktopWebStopsOnSIGTERMAndKeepsTokenInCluster(t *testing.T) {
 		}
 		c := exec.Command(bin, "desktop", "--web", "--no-open", "--addr", "127.0.0.1:"+port)
 		c.Env = append(env, "HOME="+home, "CL_CONFIG_DIR="+filepath.Join(tmp, "cfg"), "CL_CACHE_DIR="+cache, "CL_NO_UPDATE=1",
-			"CL_IN_CLUSTER="+inCluster, "TMUX_TMPDIR="+t.TempDir())
+			"CL_IN_CLUSTER="+inCluster, "TMUX_TMPDIR="+t.TempDir(),
+			"XDG_DATA_HOME="+rbDataHome()) // données de podman hors du TempDir : sinon son stockage, créé sous HOME, entre en course avec l'effacement du dossier de test
+		rbOwnGroup(c)
 		out := &lockedBuf{}
 		c.Stdout, c.Stderr = out, out
 		if err := c.Start(); err != nil {
 			t.Fatal(err)
 		}
-		defer func() { _ = c.Process.Kill() }()
+		defer func() { _ = c.Process.Kill(); rbKillGroup(c) }() // les processus fils (podman…) aussi : rien ne tourne encore à l'effacement du TempDir
 		up := false
 		for end := time.Now().Add(15 * time.Second); time.Now().Before(end); time.Sleep(100 * time.Millisecond) {
 			if r, err := (&http.Client{Timeout: time.Second}).Get("http://127.0.0.1:" + port + "/healthz"); err == nil {

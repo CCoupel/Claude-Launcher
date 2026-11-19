@@ -60,6 +60,10 @@ func browserToken() string {
 	return t
 }
 
+// BrowserPairToken : jeton d'appariement du launcher (celui des consignes données aux sessions, valable sous
+// /files/__claude-launcher__/pair du serveur web et sur le serveur de maquettes).
+func BrowserPairToken() string { return browserToken() }
+
 // browserDevice : deviceId du navigateur du hub et sa source ; hubs.<machine>
 // .browser_device l'emporte sur l'appariement enregistré.
 func browserDevice(f backendsFile, host string) (id, source string) {
@@ -106,6 +110,14 @@ func (s fileServer) servePair(w http.ResponseWriter, r *http.Request) {
 	page(http.StatusOK, "✓ navigateur du hub "+hubName(), "deviceId "+dev+" enregistré : les prochaines sessions claude le sélectionneront directement.")
 }
 
+// pairBase : base de l'URL d'appariement (<CL_WEB_URL>/files en mode serveur, hors du nom de projet), sinon Base.
+func pairBase(c serverConf) string {
+	if c.PairBase != "" {
+		return c.PairBase
+	}
+	return c.Base
+}
+
 // browserHint : consigne donnée à chaque session claude (CL_BROWSER_HINT), en
 // une ligne (environnement tmux).
 func browserHint(c serverConf, device, devSource, token, machine string, ps []BrowserPath) string {
@@ -114,8 +126,14 @@ func browserHint(c serverConf, device, devSource, token, machine string, ps []Br
 	if c.Off || c.Base == "" {
 		b.WriteString("Fichiers du projet dans Chrome : traduire leur chemin avec la correspondance CL_BROWSER_PATH_MAP=" + browserPathJSON(ps) + ". ")
 	} else {
-		b.WriteString("Fichiers du projet dans Chrome : toujours par l'URL " + c.Base + "<chemin absolu du fichier> (segments encodés, ex. " +
-			c.Base + "/<chemin interne>/maquette.html), jamais en file:// (refusé par l'extension) ; le serveur web du launcher les sert, un dossier en / affiche sa liste. ")
+		if c.ProjectRoot != "" { // mode serveur (#174) : URL relative à la racine du projet, jamais le chemin interne
+			b.WriteString("Fichiers du projet dans Chrome : toujours par l'URL " + c.Base + "/<chemin du fichier relatif à la racine du projet " + c.ProjectRoot +
+				"> (segments encodés, ex. " + c.Base + "/_work/mockup/maquette.html pour " + c.ProjectRoot + "/_work/mockup/maquette.html), jamais en file:// (refusé par l'extension) ; " +
+				"seuls les fichiers du projet ont une URL ; le serveur web du launcher les sert, un dossier en / affiche sa liste. ")
+		} else {
+			b.WriteString("Fichiers du projet dans Chrome : toujours par l'URL " + c.Base + "<chemin absolu du fichier> (segments encodés, ex. " +
+				c.Base + "/<chemin interne>/maquette.html), jamais en file:// (refusé par l'extension) ; le serveur web du launcher les sert, un dossier en / affiche sa liste. ")
+		}
 	}
 	switch {
 	case device != "":
@@ -123,12 +141,12 @@ func browserHint(c serverConf, device, devSource, token, machine string, ps []Br
 			"Avant la première action Chrome de la session, appeler select_browser avec ce deviceId. " +
 			"S'il est absent de list_connected_browsers, ne pas en prendre un autre : signaler à l'utilisateur que le Chrome de " + machine + " est fermé ou déconnecté")
 		if !c.Off && c.Base != "" && token != "" {
-			b.WriteString(" (extension réinstallée : refaire l'appariement, " + c.Base + browserPairPath + "?device=<deviceId>&token=" + token + ")")
+			b.WriteString(" (extension réinstallée : refaire l'appariement, " + pairBase(c) + browserPairPath + "?device=<deviceId>&token=" + token + ")")
 		}
 		b.WriteString(".")
 	case !c.Off && c.Base != "" && token != "":
 		b.WriteString("Navigateur du hub " + machine + " pas encore identifié. Avant la première action Chrome, appariement : pour chaque navigateur de list_connected_browsers, " +
-			"select_browser(deviceId) puis ouvrir dans un nouvel onglet " + c.Base + browserPairPath + "?device=<son deviceId>&token=" + token + ". " +
+			"select_browser(deviceId) puis ouvrir dans un nouvel onglet " + pairBase(c) + browserPairPath + "?device=<son deviceId>&token=" + token + ". " +
 			"La page « ✓ navigateur du hub » désigne le bon (deviceId enregistré pour les sessions suivantes) : le garder sélectionné et l'indiquer à l'utilisateur. " +
 			"Plusieurs ✓ (plusieurs profils Chrome) : demander lequel à l'utilisateur (AskUserQuestion), puis rouvrir la page d'appariement dans celui choisi. Aucun ✓ : demander à l'utilisateur.")
 	default:
@@ -139,21 +157,36 @@ func browserHint(c serverConf, device, devSource, token, machine string, ps []Br
 
 // BrowserEnvVars : variables du navigateur pour les sessions (tmux du hub et
 // des conteneurs).
-func BrowserEnvVars() []envVar {
+func BrowserEnvVars() []envVar { return BrowserEnvVarsFor("") }
+
+// BrowserEnvVarsFor : variables du navigateur pour la session du projet proj. En mode serveur dans un cluster (#174), la
+// correspondance est celle de CE projet seulement : sa racine (vue par la session) → <CL_WEB_URL>/files/<projet> ; un fichier
+// hors du projet n'a pas d'URL. proj "" : variables communes (hub, exe, coque tmux).
+func BrowserEnvVarsFor(proj string) []envVar {
 	f := readBackendsFile()
 	machine := hubName()
 	// réglages du système de ce launcher : l'exe Windows et le hub Linux du
 	// même poste ont chacun leur serveur, donc leur port et leur jeton
-	ps, _, _ := resolveBrowserPathsFor(f, machine, knownRoots(), onWSL(), pathsGOOS)
-	c, err := resolveBrowserServerFor(f, machine, pathsGOOS)
+	ps, _, _ := resolveBrowserPathsFor(f, machine, knownRoots(), onWSL(), pathsGOOS.Get())
+	c, err := resolveBrowserServerFor(f, machine, pathsGOOS.Get())
 	if err != nil {
 		c.Off = true
+	}
+	if base := ServerFilesBase(); base != "" { // cluster (#174) : l'interface web sert les fichiers et l'appariement sous /files
+		c.Off, c.PairBase = false, base
+		c.Base = base
+		ps = []BrowserPath{}
+		if proj != "" {
+			c.ProjectRoot = RemotePath(proj)
+			c.Base = base + "/" + CtrName(proj)
+			ps = []BrowserPath{{Container: c.ProjectRoot, Host: c.Base, OS: "url"}}
+		}
 	}
 	tok := ""
 	if !c.Off {
 		tok = browserToken()
 	}
-	dev, src := browserDeviceFor(f, machine, pathsGOOS)
+	dev, src := browserDeviceFor(f, machine, pathsGOOS.Get())
 	return []envVar{
 		{browserPathVar, browserPathJSON(ps)},
 		{browserHintVar, browserHint(c, dev, src, tok, machine, ps)},
@@ -260,7 +293,7 @@ func syncBrowserHook(dir string) error {
 
 // PrintBrowserDevice : section de « claude-launcher-ng2 backends ».
 func PrintBrowserDevice() {
-	dev, src := browserDeviceFor(readBackendsFile(), hubName(), pathsGOOS)
+	dev, src := browserDeviceFor(readBackendsFile(), hubName(), pathsGOOS.Get())
 	fmt.Printf("\nNavigateur du hub (machine %s) :\n", hubName())
 	if dev == "" {
 		fmt.Println("  pas encore identifié : la première session claude qui utilise Chrome fait l'appariement")

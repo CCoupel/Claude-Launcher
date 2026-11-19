@@ -100,14 +100,14 @@ func TestBrowserPathsDefault(t *testing.T) {
 		t.Fatalf("défaut : %s", got)
 	}
 
-	old := wslWinPath
-	t.Cleanup(func() { wslWinPath = old })
-	wslWinPath = func(p string) (string, error) {
+	old := wslWinPath.Get()
+	t.Cleanup(func() { wslWinPath.Set(old) })
+	wslWinPath.Set(func(p string) (string, error) {
 		if p == "/home/u/PROJETS" {
 			return "", fmt.Errorf("hors WSL")
 		}
 		return `\\wsl.localhost\Ubuntu` + strings.ReplaceAll(p, "/", `\`), nil
-	}
+	})
 	ps, src, _ = resolveBrowserPaths(off, "pc", roots, true)
 	// même longueur : ordre alphabétique (/home avant /share)
 	if !strings.Contains(src, "WSL") || ps[1].Host != `\\wsl.localhost\Ubuntu\share\MFS\ROOT` || ps[1].OS != "windows" ||

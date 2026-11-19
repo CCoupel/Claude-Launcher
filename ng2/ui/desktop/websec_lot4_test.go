@@ -319,7 +319,7 @@ func TestWebSubscribersAreCapped(t *testing.T) {
 		}
 	}()
 	last := 200
-	for i := 0; i <= maxSubscribers; i++ {
+	for i := 0; i <= maxSubscribers.Get(); i++ {
 		req, _ := http.NewRequest("GET", srv.URL+"/api/events", nil)
 		req.AddCookie(c)
 		resp, err := webClient.Do(req)
@@ -334,7 +334,7 @@ func TestWebSubscribersAreCapped(t *testing.T) {
 		}
 	}
 	if last != http.StatusServiceUnavailable {
-		t.Errorf("flux n° %d : %d, attendu 503 au-delà du plafond", maxSubscribers+1, last)
+		t.Errorf("flux n° %d : %d, attendu 503 au-delà du plafond", maxSubscribers.Get()+1, last)
 	}
 }
 

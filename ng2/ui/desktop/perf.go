@@ -70,7 +70,7 @@ func (p *perfLog) summary() string {
 // write : une ligne datée dans desktop-perf.log (gardé à 200 lignes).
 func (p *perfLog) write(nProjects int) {
 	path := filepath.Join(core.CacheDir(), "desktop-perf.log")
-	line := fmt.Sprintf("%s %s %s/%s %d projets : %s", time.Now().Format("2006-01-02 15:04:05"), core.NgVersion, runtime.GOOS, runtime.GOARCH, nProjects, p.summary())
+	line := fmt.Sprintf("%s %s %s/%s %d projets : %s", time.Now().Format("2006-01-02 15:04:05"), core.Version(), runtime.GOOS, runtime.GOARCH, nProjects, p.summary())
 	var lines []string
 	if b, err := os.ReadFile(path); err == nil {
 		lines = strings.Split(strings.TrimRight(string(b), "\n"), "\n")

@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"os"
 	"os/user"
@@ -189,18 +190,18 @@ var hubCache struct {
 	checked time.Time
 }
 
-var hubRecheck = time.Second
+var hubRecheck = tun.Of(time.Second)
 
 // pathsGOOS : système pour lequel les entrées de hubs.<machine>.paths sont
 // retenues (pathsForOS) ; "" : toutes (tests qui simulent Windows sous Linux).
-var pathsGOOS = runtime.GOOS
+var pathsGOOS = tun.Of(runtime.GOOS)
 
 // hubLoads : lectures de backends.yaml par hubSettings (tests).
 var hubLoads int
 
 // hubCheapKey : ce qui désigne, sans accès disque, le backends.yaml lu.
 func hubCheapKey() string {
-	k := hubName() + "|" + pathsGOOS
+	k := hubName() + "|" + pathsGOOS.Get()
 	for _, v := range []string{"CL_CONFIG_DIR", RootBaseVar, "HOME", "USERPROFILE", "APPDATA"} {
 		k += "|" + os.Getenv(v)
 	}
@@ -214,7 +215,7 @@ func hubSettings() hubCacheEntry {
 	cheap := hubCheapKey()
 	hubCache.Lock()
 	defer hubCache.Unlock()
-	if hubCache.e.loaded && hubCache.cheap == cheap && time.Since(hubCache.checked) < hubRecheck {
+	if hubCache.e.loaded && hubCache.cheap == cheap && time.Since(hubCache.checked) < hubRecheck.Get() {
 		return hubCache.e
 	}
 	path, host := BackendsPath(), hubName()
@@ -224,7 +225,7 @@ func hubSettings() hubCacheEntry {
 		return hubCache.e
 	}
 	hubLoads++
-	e := resolveHubSettingsFor(readBackendsFile(), host, pathsGOOS)
+	e := resolveHubSettingsFor(readBackendsFile(), host, pathsGOOS.Get())
 	e.key, e.loaded = key, true
 	hubCache.e = e
 	return e
@@ -232,7 +233,7 @@ func hubSettings() hubCacheEntry {
 
 // hubFileKey : identité de la source (chemin, machine, date, taille).
 func hubFileKey(path, host string) string {
-	key := path + "|" + host + "|" + pathsGOOS
+	key := path + "|" + host + "|" + pathsGOOS.Get()
 	if st, err := os.Stat(path); err == nil {
 		key += fmt.Sprintf("|%d|%d", st.ModTime().UnixNano(), st.Size())
 	}

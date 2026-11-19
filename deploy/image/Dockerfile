@@ -15,12 +15,19 @@ ARG KUBECTL_VERSION=v1.36.5
 # changer KUBECTL_VERSION impose de les relever (curl …/kubectl.sha256, pour chaque architecture)
 ARG KUBECTL_SHA256_amd64=33bc88a24c3b09cf55bfd59e6ca977881b61fc3f25ab65bc80c65b430248648e
 ARG KUBECTL_SHA256_arm64=88fc1aca8fd0c1b44fe379f67c39bd6858bdfc50241dc55775f84d0f5b31da3a
+# client docker (#194) : binaire statique extrait de l'archive officielle (docker-cli n'existe pas dans ubuntu:26.04,
+# docker.io embarque le démon). Sommes de l'ARCHIVE, relevées sur download.docker.com le 2026-11-18 :
+# changer DOCKER_VERSION impose de les relever (sha256sum de docker-<arch>.tgz, pour chaque architecture)
+ARG DOCKER_VERSION=29.10.0
+ARG DOCKER_SHA256_amd64=7c1ebadc65c716cdc6d35fc78759ed0e4317debf43c21dd12f066f2006999def
+ARG DOCKER_SHA256_arm64=6e5159e8b5615e0c0c2954a2a1a2a12bc65f5d9b603595dba24a10cb367408cd
 
-# outils requis (contrat) : bash, git, gh, kubectl, certificats racine — ni claude, ni tmux.
+# outils requis (contrat) : bash, git, gh, kubectl, certificats racine, + clients des backends distants (#194) :
+# openssh-client, docker (statique), podman-remote — ni claude, ni tmux, ni démon, ni sshd.
 # kubectl à la version du cluster, somme sha256 vérifiée ; couche stable (change rarement) avant le binaire.
 RUN set -eux; \
     apt-get update; \
-    apt-get install -y --no-install-recommends bash ca-certificates curl git gh; \
+    apt-get install -y --no-install-recommends bash ca-certificates curl git gh openssh-client podman-remote; \
     curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${TARGETARCH}/kubectl"; \
     case "${TARGETARCH}" in \
       amd64) sum="${KUBECTL_SHA256_amd64}" ;; \
@@ -29,6 +36,16 @@ RUN set -eux; \
     esac; \
     echo "${sum}  /usr/local/bin/kubectl" | sha256sum -c -; \
     chmod 755 /usr/local/bin/kubectl; \
+    case "${TARGETARCH}" in \
+      amd64) darch=x86_64; dsum="${DOCKER_SHA256_amd64}" ;; \
+      arm64) darch=aarch64; dsum="${DOCKER_SHA256_arm64}" ;; \
+      *) echo "architecture ${TARGETARCH} : somme sha256 de docker non figée" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSLo /tmp/docker.tgz "https://download.docker.com/linux/static/stable/${darch}/docker-${DOCKER_VERSION}.tgz"; \
+    echo "${dsum}  /tmp/docker.tgz" | sha256sum -c -; \
+    tar -xzf /tmp/docker.tgz -C /usr/local/bin --strip-components=1 docker/docker; \
+    rm -f /tmp/docker.tgz; chmod 755 /usr/local/bin/docker; \
+    ln -s /usr/bin/podman-remote /usr/local/bin/podman; \
     apt-get purge -y curl; apt-get autoremove -y; rm -rf /var/lib/apt/lists/*; \
     mkdir -p /home/launcher; chown 1000:1000 /home/launcher; chmod 1777 /home/launcher
 

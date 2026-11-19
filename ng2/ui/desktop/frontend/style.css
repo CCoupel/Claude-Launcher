@@ -225,9 +225,16 @@ body.kbd #nav:focus .row.cur { outline: 1px solid var(--accent); outline-offset:
 .tsep { flex: none; width: 1px; background: var(--muted); margin: 3px 10px; opacity: .7; }
 .tab { padding: 0 14px; display: flex; align-items: center; gap: 8px; color: var(--muted); border-right: 1px solid var(--line); cursor: pointer; white-space: nowrap; user-select: none; }
 .tab:hover { color: var(--text); }
-.tab.on { color: #fff; font-weight: 700; }
-.tab.busy { color: #0B0D11; font-weight: 700; }
-.tab .st { font-size: 10px; }
+.tab { position: relative; padding: 0 10px 0 12px; gap: 6px; color: var(--text2); font-weight: 600; } /* même graisse sélectionné ou non : largeur stable (#190) */
+/* #189 : hors sélection, liseré bas 3 px + contour discret à la couleur du projet ; sélectionné : fond plein */
+.tab:not(.on)::after { content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: var(--c); }
+.tab:not(.on) { box-shadow: inset 1px 0 0 0 color-mix(in srgb, var(--c) 55%, transparent), inset -1px 0 0 0 color-mix(in srgb, var(--c) 55%, transparent), inset 0 1px 0 0 color-mix(in srgb, var(--c) 55%, transparent); }
+.tab.on { color: #fff; background: var(--c); }
+/* #190 : emplacement d'état réservé, largeur fixe, vide au repos ; ⚙ quand un agent travaille */
+.tab .slot { display: inline-flex; width: 14px; justify-content: center; font-size: 11px; }
+.tab.busy .slot::before { content: "⚙"; color: var(--orange); }
+.tab.on.busy .slot::before { color: #fff; }
+.tab .st { display: inline-flex; width: 14px; justify-content: center; font-size: 11px; } /* emplacement d'état de largeur fixe (#190) */
 .tab .x { color: var(--muted); font-weight: 400; margin-left: 2px; }
 .tab .x:hover { color: var(--red); }
 #views { flex: 1; min-height: 0; position: relative; background: var(--bg-deep); }
@@ -342,7 +349,7 @@ body.cardsfolded #hsplit { display: none; }
 .strail .ri { padding: 5px 8px 5px 18px; border-radius: 5px; cursor: pointer; color: var(--text2); }
 .strail .ri:hover { background: rgba(127,127,127,.12); }
 .strail .ri.on { background: color-mix(in srgb, var(--accent) 16%, transparent); box-shadow: inset 3px 0 0 var(--accent); font-weight: 600; color: var(--text); }
-.stpg { flex: 1; min-width: 0; overflow: auto; padding: 14px 18px; }
+.stpg { flex: 1; min-width: 0; overflow-y: scroll; overflow-x: auto; padding: 14px 18px; }
 .stpg h4 { margin: 0 0 4px; font-size: 14px; }
 .stpg .ex { color: var(--muted); margin: 0 0 12px; line-height: 1.45; max-width: 820px; }
 .stpg .note { color: var(--muted); font-size: 12px; line-height: 1.5; }
@@ -432,3 +439,19 @@ body.cardsfolded #hsplit { display: none; }
 .stsw input:focus-visible + .knob { outline: 2px solid var(--accent); outline-offset: 2px; }
 .lanbanner.sessionlost { background: var(--alert-red, var(--alert-orange)); color: var(--red, var(--orange)); }
 .hidechip { font: 11px var(--mono); padding: 1px 7px; border-radius: 9px; border: 1px solid var(--accent); color: var(--accent); margin-left: 6px; font-weight: 400; white-space: nowrap; }
+
+/* encadré Identifiants ssh (#194) */
+.stssh { margin-top: 12px; }
+.stssh .bb textarea { width: 100%; font: 12px var(--mono); }
+.stssh .sthr { border: 0; border-top: 1px solid var(--line); margin: 10px 0; }
+.stssh .stscan, .stssh .stpaste { margin-top: 8px; }
+
+/* bandeaux du serveur (#198) : mise à jour (bleu) et redémarrage (orange) */
+.lanbanner.srv { display: flex; align-items: center; gap: 8px; }
+.lanbanner.srv .sp { flex: 1; }
+.lanbanner.srv.blue { background: var(--alert-blue, var(--card-head)); color: var(--blue); }
+
+/* ordre des onglets par glisser-déposer (#191) */
+.tscroll { position: relative; }
+.tab.ghost { opacity: .45; }
+.tdrop { position: absolute; top: 4px; bottom: 4px; width: 3px; background: var(--accent, #60CDFF); border-radius: 2px; box-shadow: 0 0 6px var(--accent, #60CDFF); pointer-events: none; z-index: 2; }

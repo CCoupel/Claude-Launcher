@@ -30,10 +30,17 @@ func (b BackendConf) K8s() bool { return b.Type == "k8s" }
 
 func (e Engine) kubectl(args ...string) []string {
 	out := []string{"kubectl"}
-	if k8sViaServiceAccount(e.B) && os.Getenv("KUBECONFIG") != "" {
-		out = []string{"env", "-u", "KUBECONFIG", "kubectl"} // ServiceAccount du pod : jamais le kubeconfig de l'environnement
+	if (k8sViaServiceAccount(e.B) || e.B.hasKubeconfig()) && os.Getenv("KUBECONFIG") != "" {
+		out = []string{"env", "-u", "KUBECONFIG", "kubectl"} // ServiceAccount du pod ou kubeconfig du backend : jamais le kubeconfig de l'environnement
 	}
-	if e.B.Context != "" && !k8sViaServiceAccount(e.B) { // en cluster : contexte ignoré (ServiceAccount du pod)
+	if e.B.hasKubeconfig() { // kubeconfig du backend (#193) : prioritaire, jamais de repli sur le ServiceAccount
+		ka, err := e.B.kubeconfigArgs()
+		if err != nil {
+			return kubectlRefused(err) // refusé : kubectl n'est pas lancé
+		}
+		out = append(out, ka...)
+	}
+	if e.B.Context != "" && !k8sViaServiceAccount(e.B) { // en cluster sans kubeconfig : contexte ignoré (ServiceAccount du pod)
 		out = append(out, "--context", e.B.Context)
 	}
 	return append(append(out, "-n", k8sNamespace(e.B)), args...)
@@ -583,6 +590,12 @@ func k8sSteps(b BackendConf) []TestStep {
 			Fix: "l'installer (https://kubernetes.io/docs/tasks/tools/) et configurer ~/.kube/config"}}
 	}
 	steps := []TestStep{{Label: "outil requis : kubectl", OK: true}}
+	if b.hasKubeconfig() {
+		ks, ok := kubeconfigSteps(b)
+		if steps = append(steps, ks...); !ok {
+			return steps
+		}
+	}
 	e := Engine{b}
 	ns := k8sNamespace(b)
 	if k8sViaServiceAccount(b) {
@@ -639,6 +652,14 @@ func k8sVolumeSteps(b BackendConf, e Engine, ns string, steps []TestStep) []Test
 }
 
 func ctxArg(b BackendConf) string {
+	if b.hasKubeconfig() {
+		f, _ := b.kubeconfigFile()
+		a := " --kubeconfig " + f
+		if b.Context != "" {
+			a += " --context " + b.Context
+		}
+		return a
+	}
 	if b.Context != "" && !k8sViaServiceAccount(b) {
 		return " --context " + b.Context
 	}

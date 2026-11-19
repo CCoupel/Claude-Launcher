@@ -109,7 +109,7 @@ func (e Engine) checkShared(proj string) error {
 	if e.B.Type == "ssh" && len(ps) == 0 {
 		// les mêmes chemins doivent exister de l'autre côté
 		for _, p := range []string{RemotePath(ClaudeDir()), RemotePath(proj)} {
-			if platform.NoWindow(exec.Command("ssh", append(append([]string{"-o", "BatchMode=yes", "-o", "ConnectTimeout=10"}, sshMux()...), "--", e.B.Host, "test -d "+Shq(p))...)).Run() != nil {
+			if platform.NoWindow(exec.Command("ssh", append(append(sshBaseArgs(e.B.Name, "10"), sshMux()...), "--", e.B.Host, "test -d "+Shq(p))...)).Run() != nil {
 				ps = append(ps, Problem{p + " absent sur " + e.B.Host,
 					"monter le stockage partagé sur " + e.B.Host + " au même chemin qu'ici"})
 			}
@@ -193,12 +193,12 @@ func engineProblems(b BackendConf) []Problem {
 			return []Problem{p}
 		}
 	case "ssh":
-		if out, err := runQuiet(12*time.Second, "ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "--", b.Host, "true"); err != nil {
+		if out, err := runQuiet(12*time.Second, append(append([]string{"ssh"}, sshBaseArgs(b.Name, "8")...), "--", b.Host, "true")...); err != nil {
 			return []Problem{{"accès ssh à " + b.Host + " impossible : " + firstLine(out, err),
 				"configurer un accès par clé sans mot de passe : ssh-copy-id " + b.Host + " (et l'hôte dans ~/.ssh/config)"}}
 		}
 		eng := b.engine()
-		if _, err := runQuiet(12*time.Second, "ssh", "-o", "BatchMode=yes", "--", b.Host, "command -v "+eng); err != nil {
+		if _, err := runQuiet(12*time.Second, append(append([]string{"ssh"}, sshBaseArgs(b.Name, "10")...), "--", b.Host, "command -v "+eng)...); err != nil {
 			return []Problem{{eng + " absent de " + b.Host + " (ou hors du PATH d'une commande ssh)",
 				"l'installer : ssh " + b.Host + " sudo apt install -y " + map[string]string{"podman": "podman", "docker": "docker.io"}[eng] + " — ou choisir l'autre moteur (engine: podman|docker)"}}
 		}
@@ -291,7 +291,7 @@ func backendKey(b BackendConf) string {
 	for i, m := range b.Mates {
 		mates[i] = m.Name
 	}
-	return fmt.Sprintf("%s|%s|%s|%s|%v|%s|%s|%s|%v|%s|%v|%s|%v|%v|%s|%v|%v|%v",
+	return fmt.Sprintf("%s|%s|%s|%s|%v|%s|%s|%s|%v|%s|%v|%s|%v|%v|%s|%v|%v|%v|%v",
 		b.Name, b.Type, b.Context, b.Host, b.Hosts, b.Pool, b.Engine, b.EngHost, b.Shared, b.Namespace, b.Volumes,
-		spread, b.Pod, b.Machines, b.Server, b.Drain, mates, b.implicit)
+		spread, b.Pod, b.Machines, b.Server, b.Drain, mates, b.implicit, b.Kubeconfig)
 }

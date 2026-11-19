@@ -9,11 +9,52 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.4.0] — 2026-11-19
+
+### Added
+- Carte TEAM : le titre affiche la version du template du projet (« tpl vX ») et un `⚠` orange si une version publiée plus récente existe ; l'infobulle indique la version disponible et `/init-project` au lancement (#199)
+- Vérification GitHub de la version du template : appels authentifiés quand un jeton est disponible (`GH_TOKEN`, `GITHUB_TOKEN`, ou `config.conf`), jamais journalisé ; requêtes conditionnelles par ETag (`304` réutilise la réponse mémorisée) ; résultat partagé par poste dans `update-check.json` (écriture atomique, réutilisé pendant 10 min) (#199)
+- Alerte GitHub visible en continu, orange et non masquable : « vérification GitHub impossible (quota, reprise HH:MM) » sur quota dépassé (`403`/`429`), « GitHub injoignable » sur un autre échec, y compris en coque tmux (#199)
+- Interface web : bandeau « Serveur mis à jour (vX) — Recharger » quand la version du serveur change ; après un simple redémarrage du serveur, les terminaux se rattachent automatiquement à leurs sessions tmux (appel `reattach {path}` en repli à 5 s, abandon à 20 s avec « N terminaux non rattachés — recharger ») (#198)
+- Interface web : bandeau « connexion au serveur perdue » pendant une coupure ; l'état est redemandé à chaque reconnexion du flux, et l'évènement `hello` est traité à l'ouverture (#198)
+- Interface web : « session introuvable — rouvrir le projet » quand la session d'un terminal n'existe plus ; le bandeau se ferme avec OK et disparaît à la réouverture du projet (#198)
+- Onglets de l'interface native : ordre réglable par glisser-déposer, gardé par poste dans `cl.tabOrder` ; `Ctrl+Tab` suit l'ordre affiché (#191)
+- Interface web en cluster : les fichiers des projets sont servis sous `/files` (CSP `sandbox`, origine opaque) ; les sessions utilisent `CL_WEB_URL/files` ; fichiers sensibles (`PRIVATE`, `.git`, `.claude`, `.env*`, clés, identifiants d'outils comme `.git-credentials`, `.npmrc`, `.docker`, `*.p12`, `*.pfx`, `*.jks`), dossiers d'état du launcher et `_work/tmp` jamais servis ni listés ; dans `_work`, seul `_work/mockup` est servi (#174)
+- Chart Helm : NetworkPolicy activée par défaut, entrée limitée aux pods du contrôleur Traefik (`networkPolicy.ingressNamespaces`, `ingressPodSelector`, `ingressCIDRs`), sur le port nommé du conteneur ; l'ingress externe est préparé mais refusé au rendu tant qu'il n'y a pas d'authentification (v7.0.0) (#200)
+- Backends ssh : clés ssh par backend saisies dans les Réglages (ou générées par le launcher, ed25519), rangées dans un coffre hors partage (`CL_SECRETS_DIR`, `0700`/`0600`) ; clé privée jamais relue ni affichée, phrase de passe refusée, empreinte de l'hôte relevée puis confirmée explicitement, journal des écritures sans contenu (`<CacheDir>/secrets-journal.jsonl`) (#194)
+- Image du cluster : clients `ssh`, `docker` et `podman` distant (`openssh-client`, client docker statique, `podman-remote`) ; aucun démon ni `sshd` (#194)
+- Backends k8s : kubeconfig par backend, déposé dans le coffre depuis les Réglages ou donné par un chemin ; contextes listés, contenu jamais affiché ; `--kubeconfig` prioritaire sur le ServiceAccount du pod (#193)
+- Chart Helm : `rbac.extraNamespaces` (Role et RoleBinding dans d'autres namespaces du même cluster), `backends.kubeconfigs`, PVC du coffre `<release>-secrets` (`keep`), `backends.docker.secretName` pour un Secret TLS docker/podman (#193, #194)
+
+### Changed
+- **Changement hub et exe** : le serveur de maquettes local (hub `8765`, exe `8766`) ne sert plus `PRIVATE`, `.git`, `.claude`, les fichiers d'identifiants, ni `_work` hors `_work/mockup` ; `/files` refuse les requêtes cross-site, sauf les sous-ressources de maquette et la navigation de premier niveau (ouverture d'une maquette par l'extension ou un lien), acceptée de toute provenance (#174)
+- La version du template est comparée dans l'ordre (`VersionNewer`) ; l'état « à mettre à jour » ne vaut que si la version adoptée est strictement plus récente que celle du projet (#199)
+- La question au lancement ne propose plus de retour en arrière : une cible égale ou plus ancienne que la version du projet n'est jamais proposée (#199)
+- La carte TEAM affiche la version du projet (et non plus la version adoptée) ; la version adoptée ne change qu'au clic sur l'annonce (#199)
+- Kubeconfig contrôlé à chaque appel de kubectl : `exec` et `auth-provider` refusés (kubectl non lancé), fichiers lus sur le poste (`client-certificate`, `client-key`, `tokenFile`, `certificate-authority`) refusés, quelle que soit la casse des clés ; avertissements `insecure-skip-tls-verify` et `proxy-url` affichés en orange (#193)
+- En cluster, l'annonce de release du launcher n'est plus cliquable : elle indique « mise à jour par helm upgrade » (#198)
+- Durcissement de l'ouverture et de l'arrêt : l'installation du pod d'un projet (bootstrap du conteneur) est détachée du launcher ; à l'arrêt, le launcher attend les ouvertures en cours 20 s au plus ; un pod resté à moitié installé est réparé à l'ouverture suivante (#198)
+- Chart : `terminationGracePeriodSeconds` vaut 30 s au minimum (schéma), pour laisser au launcher ses 20 s d'attente (#198)
+- Onglets de l'interface native : les onglets non sélectionnés ont un liseré à la couleur de leur projet ; titre et largeur restent stables à la sélection, et « agent au travail » s'affiche dans un emplacement ⚙ fixe et dans l'infobulle (#189, #190)
+- Un kubeconfig illisible met le backend en erreur, sans repli sur le ServiceAccount du pod (#193)
+
+### Fixed
+- Windows : interblocage du surveillant de fichiers corrigé (probablement présent en v6.3.0, non reproduit sur un exe publié) : la mise à jour d'état et de l'arbre, et l'arrêt, se figeaient lors de créations de dossiers en rafale
+- Windows : nom de projet (`CtrName`) sans correspondance corrigé ; `/files` servi sous Windows
+- Arrêt borné à 25 s au pire : 20 s d'attente des ouvertures en cours, puis détachement des terminaux, sous le délai de grâce de 30 s du pod (#198)
+- Courses de données sous `-race` corrigées : variables globales de réglage (délais, crochets, URL de l'API, présence, verrous), `NgVersion` et `InitSynced` lues et écrites sous verrou (#174)
+- Comparaisons de versions du template corrigées : seuls les 3 premiers champs `X.Y.Z` sont comparés (`5.11.1.3` → `5.11.1`) (#199)
+- Les tests n'écrivent plus dans le vrai `~` : `CL_SCRIPT` pointe vers un dossier temporaire, et une garde fait échouer les tests si `~/.template-*` est touché (#199)
+
+### Security
+- Risques acceptés (v6.4.0) : une page tierce peut exécuter un fichier `.js` d'un projet servi sous `/files` et lire ses variables globales ; les scripts de maquette ne sont pas restreints en `connect-src` (CDN et API publiques) (#174)
+- Risque accepté jusqu'à v7.0.0 : l'écriture des secrets (clés ssh, `known_hosts`, kubeconfig) est permise depuis le LAN par l'ingress interne sans authentification (`web.access: none`). Une machine admise peut redéclarer un backend ssh, y déposer sa clé et son empreinte, puis faire exécuter des commandes à un hôte qu'elle contrôle. Atténuations : liste d'adresses de l'ingress, NetworkPolicy, journal des écritures, relevé d'empreinte limité aux backends déclarés. Levée par la règle R1 de v7.0.0 (session authentifiée exigée) (#194, #193)
+
 ## [6.3.0] — 2026-11-17
 
 ### Added
 - Commutateur « Cacher les teammates inactifs » (Réglages › Launcher, groupe « teams ») : clé `TEAM_HIDE_IDLE_ENABLED`, activée par défaut ; désactivée, tout teammate reste visible et le délai `TEAM_HIDE_IDLE` (en secondes) est conservé (#188)
-- Guide « Installer le launcher dans Kubernetes par Helm (accès interne) » dans `ng2/README.md` : prérequis, valeurs, installation par empreinte, accès sans jeton, vérifications de la liste d'adresses, mise à jour et retour arrière, limites de v6.3.0 (#185)
+- Guide « Installer le launcher dans Kubernetes par Helm (accès interne) » dans `ng2/docs/kubernetes.md` : prérequis, valeurs, installation par empreinte, accès sans jeton, vérifications de la liste d'adresses, mise à jour et retour arrière, limites de v6.3.0 (#185)
 - Mode d'accès de l'interface web : `desktop_web.access` / `CL_WEB_ACCESS` (`token` par défaut, `none` sans jeton, réservé à la boucle locale ou à une adresse publique en https) ; chart `web.access: none` par défaut (#192)
 - Release : l'image du launcher est publiée multi-architecture (`linux/amd64`, `linux/arm64`) sur ghcr, avec son empreinte jointe à la release, et le chart Helm est publié en OCI sur ghcr avec son archive. La release en brouillon n'est publiée qu'une fois l'image et le chart en place. La version candidate de QUALIF est poussée dans le registre interne (#177)
 - `scripts/ci.sh` contrôle le chart Helm et construit l'image du launcher sous Linux ; `CL_CI_IMAGE=0` saute l'étape image (#177)

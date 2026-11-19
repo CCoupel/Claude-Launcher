@@ -20,6 +20,55 @@ const sessionLost = () => stopBanner(SESSION_MSG);
 const accessDenied = () => stopBanner(DENIED_MSG);
 // défense en profondeur : retirer le jeton d'amorçage (?t=) de la barre d'adresse et de l'historique
 try { const u = new URL(location.href); if (u.searchParams.has('t')) { u.searchParams.delete('t'); history.replaceState(null, '', u.pathname + (u.search || '') + u.hash); } } catch (e) { /* sans effet */ }
+// Flux d'évènements (SSE) et reconnexion (#171, #198). Le flux n'envoie aucun état à l'ouverture : à chaque
+// (ré)ouverture après coupure, `init` est rejoué D'ABORD (état, version et démarrage du serveur) ; tant qu'il échoue
+// (pod qui démarre : 502/503 de l'ingress), le flux n'est pas rouvert et l'essai est répété (1,5 s doublé jusqu'à
+// 15 s). Bandeau « connexion perdue » pendant la coupure. 401/403 (session perdue) : on arrête (#171).
+// Environnement réel de startFlow : chaque natif est appelé nu (jamais comme méthode d'env : « Illegal invocation »).
+function flowEnv(cb) {
+  return {
+    watch: (f, ms) => setTimeout(f, ms), unwatch: (h) => clearTimeout(h), setTimeout: (f, ms) => setTimeout(f, ms),
+    newES: (u) => new EventSource(u),
+    race: (p, ms) => Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('délai dépassé')), ms))]),
+    init: () => transport.call('init'), applyInit, cb, banner: connBanner, lost: () => sessionIsLost,
+  };
+}
+function startFlow(env) {
+  let delay = 1500, down = false, initMs = 8000; // délai d'init : 8, 16 puis 30 s au plus
+  const lose = () => { if (!down) { down = true; env.banner(true); } };
+  // preuve que le serveur répond (init réussi, flux ouvert, message reçu) : bandeau retiré, quel que soit le chemin
+  const shown = () => { if (down) { down = false; env.banner(false); } };
+  // flux réellement établi (onopen, message) : seul signe qui remet le délai de reprise à 1,5 s (sinon 503 répétés = boucle)
+  const alive = () => { delay = 1500; shown(); };
+  const retry = () => { if (env.lost()) return; lose(); const w = delay; delay = Math.min(delay * 2, 15000); env.setTimeout(reconnect, w); };
+  // veille : le serveur envoie un évènement « ping » toutes les 15 s ; rien pendant 40 s (flux à moitié ouvert, sans
+  // onerror) : flux déclaré mort, fermé, bandeau et reprise par init.
+  const open = () => {
+    const es = env.newES('/api/events');
+    let wd = null, dead = false;
+    const arm = () => { env.unwatch(wd); if (!dead) wd = env.watch(() => { if (dead) return; dead = true; es.close(); console.warn('[flux] aucun évènement depuis 40 s : flux fermé'); retry(); }, 40000); };
+    arm();
+    es.onopen = () => { alive(); arm(); };
+    es.onmessage = (m) => { alive(); arm(); try { const e = JSON.parse(m.data); env.cb(e.name, e.data); } catch (err) { console.error(err); } };
+    es.onerror = () => { dead = true; env.unwatch(wd); es.close(); retry(); };
+  };
+  const reconnect = async () => {
+    let r;
+    try { r = await env.race(env.init(), initMs); } catch (err) { if (env.lost()) return; initMs = Math.min(initMs * 2, 30000); console.warn('[flux] init échoué, nouvel essai :', err && err.message); retry(); return; }
+    initMs = 8000; shown();
+    try { env.applyInit(r); } catch (err) { console.error('[flux] erreur d\'applyInit :', err); }
+    open();
+  };
+  open();
+}
+function connBanner(on) {
+  let b = document.getElementById('connbanner');
+  if (!on) { if (b) b.remove(); return; }
+  if (b) return;
+  b = document.createElement('div'); b.id = 'connbanner'; b.className = 'lanbanner'; b.textContent = '⚠ connexion au serveur perdue — nouvel essai…';
+  const main = document.getElementById('main'), tabs = document.getElementById('tabs');
+  if (main && tabs && tabs.parentNode === main) main.insertBefore(b, tabs); else document.body.insertBefore(b, document.body.firstChild);
+}
 const transport = (() => {
   const wails = () => window.go && window.go.desktop && window.go.desktop.Bridge;
   return {
@@ -43,25 +92,7 @@ const transport = (() => {
         window.runtime.EventsOn('ev', (e) => cb(e.name, e.data));
         return;
       }
-      // Coupure du flux : nouvelle tentative après 1,5 s, délai doublé à chaque échec jusqu'à 15 s, remis à 1,5 s dès
-      // qu'une connexion aboutit. 401/403 (session perdue) : on arrête de réessayer (#171). Le test de session passe
-      // par `init` (EventSource ne donne pas le code HTTP) ; après reconnexion : init puis remise à jour de l'affichage.
-      let delay = 1500;
-      const connect = () => {
-        const es = new EventSource('/api/events');
-        es.onopen = () => { delay = 1500; };
-        es.onmessage = (m) => { try { const e = JSON.parse(m.data); cb(e.name, e.data); } catch (err) { console.error(err); } };
-        es.onerror = () => {
-          es.close();
-          if (sessionIsLost) return;
-          const wait = delay; delay = Math.min(delay * 2, 15000);
-          setTimeout(async () => {
-            try { applyInit(await transport.call('init')); } catch (err) { if (sessionIsLost) return; }
-            if (!sessionIsLost) connect();
-          }, wait);
-        };
-      };
-      connect();
+      startFlow(flowEnv(cb));
     },
   };
 })();
@@ -222,7 +253,8 @@ function renderHead() {
     const t = el('span', 'txt', a.text); t.title = a.text;
     if (a.click) t.onclick = () => (a.kind === 'hubcfg' ? diagBox() : call('alert', { kind: a.kind }));
     const x = el('span', 'x', '✕'); x.title = 'masquer (Ctrl+U)'; x.onclick = () => call('dismiss', { kind: a.kind });
-    d.append(t, x); al.appendChild(d);
+    if (a.kind === 'github') d.append(t); else d.append(t, x); // alerte GitHub (quota / injoignable) : non masquable (#199)
+    al.appendChild(d);
   }
   const u = $('usage'); u.textContent = '';
   if (!s.usage || !s.usage.length) {
@@ -449,7 +481,9 @@ function renderCards() {
     const k = el('div', 'card' + (closed ? ' closed' : ''));
     const h = el('div', 'ch');
     h.append(el('span', 'fold' + (closed ? '' : ' open'), '›'), el('span', '', title));
-    if (sub) h.append(el('span', 'dim', ' · ' + sub));
+    if (Array.isArray(sub)) { // parties { t, warn } : ⚠ orange après la partie, détail en infobulle (#199)
+      sub.forEach((p) => { h.append(el('span', 'dim', ' · ' + p.t)); if (p.warn) { const w = el('span', 't-orange', ' ⚠'); w.title = p.warn; h.append(w); } });
+    } else if (sub) h.append(el('span', 'dim', ' · ' + sub));
     if (chip) { const p = el('span', 'hidechip', chip); p.title = 'les teammates inactifs sont cachés après ce délai (Réglages › Launcher › teams)'; h.append(p); }
     h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
     k.append(h);
@@ -549,7 +583,9 @@ function renderCards() {
   // titre « Team · N · tpl vX · claude Y » (#151) : versions de l'en-tête (teamHead), omises si inconnues
   const th = c.teamHead || {};
   const vt = (s) => (/^v/.test(s) ? s : 'v' + s);
-  const sub = c.team && c.team.length ? [String(c.team.length)].concat(th.tpl ? ['tpl ' + vt(th.tpl)] : [], th.claude ? ['claude ' + th.claude] : []).join(' · ') : '';
+  const sub = c.team && c.team.length ? [{ t: String(c.team.length) }].concat(
+    th.tpl ? [{ t: 'tpl ' + vt(th.tpl), warn: th.tplNewer ? 'template du projet ' + vt(th.tpl) + ' — ' + vt(th.tplNewer) + ' disponible (/init-project au lancement)' : '' }] : [],
+    th.claude ? [{ t: 'claude ' + th.claude }] : []) : '';
   // puce « masquage N s » (#188) : seulement quand le masquage automatique est actif (activé et délai > 0) ; aucune puce sinon
   const hi = th.hideIdle;
   card('Team', sub, tb, hi && hi.enabled && hi.delay > 0 ? 'masquage ' + hi.delay + ' s' : '');
@@ -871,7 +907,109 @@ function applyLayoutPrefs() {
 }
 
 // ── Onglets ────────────────────────────────────────────────────────────────
+// Onglets de projets (#189, #190, #191) — fonctions pures (testées par node : testdata/tabs_bar.js).
+// tabView : titre = nom seul, toujours ; couleur du projet même hors sélection ; « agent au travail » en infobulle.
+function tabView(t, on) {
+  return { title: t.name, tip: t.busy ? 'agent au travail' : '', gear: !!t.busy, color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy ? ['busy'] : []) };
+}
+// tabOrder : ordre enregistré d'abord ; les chemins nouveaux à la fin (ordre d'origine) ; les disparus ignorés.
+function tabOrder(paths, saved) {
+  const known = (saved || []).filter((p) => paths.includes(p));
+  return known.concat(paths.filter((p) => !known.includes(p)));
+}
+// tabMove : `path` à l'indice final `index` (borné) ; Teamleaders jamais déplaçable ; chemin inconnu ignoré.
+function tabMove(order, path, index) {
+  const from = order.indexOf(path);
+  if (from < 0 || path === 'leaders') return order.slice();
+  const out = order.filter((p) => p !== path);
+  out.splice(Math.max(0, Math.min(out.length, index)), 0, path);
+  return out;
+}
+function tabOrderLoad(store) {
+  try { const v = JSON.parse(store.getItem('cl.tabOrder')); return Array.isArray(v) ? v.filter((p) => typeof p === 'string') : []; } catch (e) { return []; }
+}
+function tabOrderSave(store, order) { try { if (!store) return; store.setItem('cl.tabOrder', JSON.stringify(order)); } catch (e) { /* stockage indisponible : ordre non conservé */ } }
+function tabCycleTarget(ids, cur, d) { return ids[(Math.max(0, ids.indexOf(cur)) + d + ids.length) % ids.length]; }
+// dropIndex : point d'insertion (0..n) d'après l'abscisse x et les milieux des onglets, dans l'ordre affiché.
+function dropIndex(mids, x) { let i = 0; while (i < mids.length && x > mids[i]) i++; return i; }
+// tabDragStep : machine du glisser. ev : down{path,x,onClose} | move{x} | up | key{key} ; action : start | drop | cancel | click.
+function tabDragStep(state, ev) {
+  const st = state || { phase: 'idle' };
+  switch (ev.type) {
+    case 'down':
+      if (ev.onClose) return { state: { phase: 'close' }, action: null };            // × ne lance jamais de glisser
+      if (ev.path === 'leaders') return { state: { phase: 'fixed' }, action: null };  // Teamleaders reste fixe
+      return { state: { phase: 'down', x: ev.x }, action: null };
+    case 'move':
+      if (st.phase === 'down' && Math.abs(ev.x - st.x) >= 5) return { state: { phase: 'drag' }, action: 'start' };
+      return { state: st, action: null };
+    case 'up':
+      if (st.phase === 'drag') return { state: { phase: 'idle' }, action: 'drop' };
+      if (st.phase === 'down' || st.phase === 'fixed') return { state: { phase: 'idle' }, action: 'click' };
+      return { state: { phase: 'idle' }, action: null };
+    case 'key':
+      if (ev.key === 'Escape' && st.phase === 'drag') return { state: { phase: 'cancelled' }, action: 'cancel' };
+      return { state: st, action: null };
+  }
+  return { state: st, action: null };
+}
+function savedTabOrder() { try { return tabOrderLoad(localStorage); } catch (e) { return []; } }
+// Onglets dans l'ordre affiché (ordre enregistré par poste, nouveaux à la fin).
+function displayedTabs() {
+  const tabs = (S.snap && S.snap.tabs) || [];
+  const by = new Map(tabs.map((t) => [t.path, t]));
+  return tabOrder(tabs.map((t) => t.path), savedTabOrder()).map((p) => by.get(p));
+}
+// Glisser-déposer : après 5 px, trait bleu au point de dépôt, Échap annule, × ne lance jamais de glisser ; pointercancel et
+// perte du focus de la fenêtre annulent proprement ; la barre défile seule près de ses bords si elle déborde.
+function startTabDrag(ev, path) {
+  if (ev.button !== 0) return;
+  let ds = tabDragStep({ phase: 'idle' }, { type: 'down', path, x: ev.clientX, onClose: !!ev.target.closest('.x') }).state;
+  let at = 0, ind = null, lastX = ev.clientX, speed = 0, iv = null; const tabEl = ev.currentTarget, bar = $('tabs').querySelector('.tscroll');
+  const tabsEls = () => [...bar.querySelectorAll('.tab')];
+  const place = () => {
+    const els = tabsEls(), box = bar.getBoundingClientRect();
+    at = dropIndex(els.map((t) => t.offsetLeft + t.offsetWidth / 2 - bar.scrollLeft + box.left), lastX);
+    const ref = els[Math.min(at, els.length - 1)];
+    ind.style.left = (at >= els.length ? ref.offsetLeft + ref.offsetWidth : ref.offsetLeft) - 2 + 'px';
+  };
+  const finish = (r) => {
+    document.removeEventListener('pointermove', move, true); document.removeEventListener('pointerup', up, true); document.removeEventListener('keydown', key, true);
+    document.removeEventListener('pointercancel', abort, true); window.removeEventListener('blur', abort);
+    clearInterval(iv);
+    if (ind) ind.remove();
+    if (r === 'drop' || r === 'cancel') {
+      tabEl.classList.remove('ghost');
+      if (r === 'drop') {
+        const cur = displayedTabs().map((t) => t.path), from = cur.indexOf(path);
+        tabOrderSave(localStorageOrNull(), tabMove(cur, path, at > from ? at - 1 : at));
+      }
+      S.noClick = true; setTimeout(() => { S.noClick = false; }, 0); // le clic qui suit le dépôt ne sélectionne pas
+      S.drag = null; renderTabs();
+    }
+  };
+  const step = (e) => { const r = tabDragStep(ds, e); ds = r.state; return r.action; };
+  const move = (e) => {
+    lastX = e.clientX;
+    const a = step({ type: 'move', x: e.clientX });
+    if (a === 'start') {
+      S.drag = { path }; tabEl.classList.add('ghost'); ind = el('div', 'tdrop'); bar.appendChild(ind);
+      iv = setInterval(() => { if (speed) { bar.scrollLeft += speed; place(); } }, 16); // défilement près des bords
+    }
+    if (!S.drag) return;
+    const box = bar.getBoundingClientRect(), edge = 36;
+    speed = bar.scrollWidth <= bar.clientWidth ? 0 : e.clientX < box.left + edge ? -Math.ceil((box.left + edge - e.clientX) / 4) : e.clientX > box.right - edge ? Math.ceil((e.clientX - (box.right - edge)) / 4) : 0;
+    place();
+  };
+  const up = () => { const a = step({ type: 'up' }); finish(a === 'drop' ? 'drop' : 'end'); };
+  const key = (e) => { if (e.key === 'Escape' && step({ type: 'key', key: 'Escape' }) === 'cancel') { e.preventDefault(); e.stopPropagation(); finish('cancel'); } };
+  const abort = () => { finish(S.drag ? 'cancel' : 'end'); }; // pointercancel, fenêtre qui perd le focus
+  document.addEventListener('pointermove', move, true); document.addEventListener('pointerup', up, true); document.addEventListener('keydown', key, true);
+  document.addEventListener('pointercancel', abort, true); window.addEventListener('blur', abort);
+}
+function localStorageOrNull() { try { return localStorage; } catch (e) { return null; } }
 function renderTabs() {
+  if (S.drag) return; // glisser en cours : l'affichage est rafraîchi à la fin du geste
   const bar = $('tabs'); bar.textContent = '';
   // Teamleaders (#162) : pastille à contour épinglée à gauche, hors de la zone qui défile, suivie d'un filet, sans ×
   const lt = el('div', 'tl' + (S.view === 'leaders' ? ' on' : ''));
@@ -879,19 +1017,23 @@ function renderTabs() {
   lt.onclick = () => showView('leaders');
   const scroll = el('div', 'tscroll');
   bar.append(lt, el('div', 'tsep'), scroll, layoutButton());
-  for (const t of (S.snap && S.snap.tabs) || []) {
+  for (const t of displayedTabs()) {
     const d = el('div', 'tab'); d.dataset.path = t.path;
-    const on = S.view === t.path;
-    if (on) { d.classList.add('on'); d.style.background = t.color || '#1F4FD1'; }
-    else if (t.busy) { d.classList.add('busy'); d.style.background = lighten(t.color || '#C99A4B'); }
-    d.append(el('span', '', t.name + (t.busy && !on ? ' · agent au travail' : '')));
+    // #189 : couleur du projet en variable CSS (liseré bas hors sélection, fond plein sélectionné) ;
+    // #190 : titre = nom seul, emplacement d'état réservé (largeur fixe) — rien ne change à la sélection
+    const tv = tabView(t, S.view === t.path);
+    d.style.setProperty('--c', tv.color);
+    for (const c of tv.cls) d.classList.add(c);
+    if (tv.tip) d.title = tv.tip;
+    d.append(el('span', '', tv.title), el('span', 'slot'));
     if (t.state === 'opening') d.append(el('span', 'st', '⏳'));
     if (t.state === 'error') d.append(el('span', 'st t-red', '⚠'));
     if (t.readOnly) d.append(el('span', 'st', '👁'));
     const x = el('span', 'x', '×'); x.title = 'détacher (la session continue dans tmux)';
     x.onclick = (e) => { e.stopPropagation(); detachTab(t.path); };
     d.appendChild(x);
-    d.onclick = () => showView(t.path, true);
+    d.onclick = () => { if (S.noClick) return; showView(t.path, true); };
+    d.addEventListener('pointerdown', (e) => startTabDrag(e, t.path));
     scroll.appendChild(d);
   }
   fitLeadersTab();
@@ -978,14 +1120,10 @@ if (typeof ResizeObserver === 'function') {
     fitLeadersTab();
   }).observe($('tabs'));
 }
-function lighten(hex) {
-  const n = parseInt(hex.slice(1), 16); const f = (v) => Math.min(255, Math.round(v + (255 - v) * 0.45));
-  return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
-}
 function cycleTab(d) {
-  const ids = ['leaders'].concat(((S.snap && S.snap.tabs) || []).map((t) => t.path));
-  const i = ids.indexOf(S.view);
-  showView(ids[(i + d + ids.length) % ids.length], true);
+  const tabs = displayedTabs(); // ordre affiché (#191)
+  const ids = ['leaders'].concat(tabs.map((t) => t.path));
+  showView(tabCycleTarget(ids, S.view, d), true); // (i + d + ids.length) % ids.length : circulaire
 }
 function detachTab(path) {
   call('detach', { path });
@@ -1333,7 +1471,7 @@ function openModal(build) {
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
-function closeModal() { if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
+function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
 $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {
@@ -1675,14 +1813,16 @@ function applyState(s) {
   if (!S.cursor || (S.cursor !== 'new' && !s.rows.find((r) => r.path === S.cursor))) S.cursor = s.selected || (projectRows()[0] || {}).path || 'new';
   // onglets disparus (session terminée, détachée)
   const open = new Set((s.tabs || []).map((t) => t.path));
-  for (const p of Object.keys(S.views)) if (!open.has(p)) { dropView(p); if (S.view === p) S.view = 'leaders'; }
+  for (const p of Object.keys(S.views)) if (!open.has(p) && !(S.grace && S.grace.pending.has(p))) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of open) if (!S.views[p]) ensureView(p);
-  if (S.view !== 'leaders' && !open.has(S.view)) S.view = 'leaders';
+  if (S.view !== 'leaders' && !open.has(S.view) && !(S.grace && S.grace.pending.has(S.view))) S.view = 'leaders';
   renderHead(); renderTree(); renderTabs(); lanBanner();
   if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
   if (S.view === 'leaders') leaders.layout();
+  graceStep();
+  refusedSync(s.tabs);
 }
 
 // Bannière tant que l'interface web écoute hors boucle locale (webUI.lan) : fenêtre native seulement (#163)
@@ -1695,8 +1835,96 @@ function lanBanner() {
   b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || (w.access === 'none' ? 'sans jeton : toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS')) + ' (Réglages › Interface web)';
 }
 
+// Version du serveur (#198) : `server{version,boot}` de l'init, gardé à la première réception (celui de la page).
+// Fonction pure : 'update' (version différente : page périmée), 'restart' (même version, autre démarrage : le
+// serveur a redémarré), 'none' (identique, ou l'un des deux inconnu : serveur ancien).
+function serverVersionAction(prev, next) {
+  if (!prev || !next) return 'none';
+  if (prev.version !== next.version) return 'update';
+  if (prev.boot !== next.boot) return 'restart';
+  return 'none';
+}
+const verTxt = (v) => (/^v/.test(String(v || '')) ? v : 'v' + v);
+function srvBanner(kind, text, withBtn, withOk) {
+  let b = $('srvbanner');
+  if (!text) { if (b) b.remove(); return; }
+  if (!b) { b = el('div', 'lanbanner'); b.id = 'srvbanner'; $('main').insertBefore(b, $('tabs')); }
+  b.className = 'lanbanner srv ' + kind; b.textContent = text;
+  if (withBtn || withOk) b.append(el('span', 'sp'));
+  if (withBtn) { const r = el('button', 'btn sm', 'Recharger'); r.onclick = () => location.reload(); b.appendChild(r); }
+  if (withOk) { const k = el('button', 'btn sm', 'OK'); k.onclick = () => { S.refused = null; b.remove(); }; b.appendChild(k); }
+}
+// Redémarrage du serveur : il se rattache lui-même, de façon asynchrone, aux sessions tmux vivantes (a.reattach) ;
+// le client ne recrée rien. Les vues ouvertes sont gardées (S.grace) le temps que les onglets reviennent dans
+// l'état poussé ; chacune est resynchronisée dès que son onglet réapparaît. Fonction pure, testée par node.
+const REATTACH_MS = 20000, REATTACH_FALLBACK_MS = 5000;
+function reattachPlan(pending, tabs) {
+  const open = new Set((tabs || []).filter((t) => !t.state || t.state === 'ready').map((t) => t.path)); // « opening » : termSync serait ignoré
+  const ready = [], left = [];
+  for (const p of pending) (open.has(p) ? ready : left).push(p);
+  return { ready, left };
+}
+function graceStep() {
+  const g = S.grace; if (!g) return;
+  const plan = reattachPlan(g.pending, (S.snap && S.snap.tabs) || []);
+  for (const p of plan.ready) { g.pending.delete(p); transport.call('termSync', { path: p }).catch(() => {}); }
+  if (!g.pending.size) graceEnd(false);
+}
+function graceEnd(timeout) {
+  const g = S.grace; if (!g) return;
+  S.grace = null; clearTimeout(g.timer); clearTimeout(g.fb);
+  const left = [...g.pending];
+  if (timeout) for (const p of left) { dropView(p); if (S.view === p) S.view = 'leaders'; }
+  for (const p of Object.keys(leaders.tiles || {})) transport.call('termSync', { path: p }).catch(() => {});
+  if (S.srvGen !== g.gen) return; // un autre bandeau (mise à jour) a pris la place : ne pas l'effacer
+  const parts = [];
+  if (g.refused.length) parts.push('session introuvable — rouvrir le projet : ' + g.refused.map((p) => String(p).split('/').filter(Boolean).pop() || p).join(', '));
+  if (left.length && timeout) parts.push(left.length + (left.length > 1 ? ' terminaux non rattachés' : ' terminal non rattaché') + ' — recharger');
+  S.refused = g.refused.length ? { paths: new Set(g.refused), gen: g.gen } : null;
+  if (parts.length) srvBanner('orange', parts.join(' · '), left.length > 0 && timeout, g.refused.length > 0);
+  else srvBanner('', '');
+}
+// Bandeau « session introuvable » : retiré dès que le projet concerné est rouvert (onglet présent), si aucun autre
+// bandeau du serveur ne l'a remplacé entre-temps.
+function refusedSync(tabs) {
+  const r = S.refused; if (!r) return;
+  for (const t of tabs || []) r.paths.delete(t.path);
+  if (r.paths.size) return;
+  S.refused = null;
+  if (S.srvGen === r.gen) srvBanner('', '');
+}
+// Rattachement refusé par le serveur ({ok:false} : session absente, onglet en erreur) : message clair pour ce projet.
+function graceRefuse(p) {
+  const g = S.grace; if (!g || !g.pending.has(p)) return;
+  g.pending.delete(p); g.refused.push(p);
+  dropView(p); if (S.view === p) S.view = 'leaders';
+  if (!g.pending.size) graceEnd(false);
+}
+// Repli à 5 s : une vue qui attend encore son onglet demande un rattachement (une fois) ; jamais de création côté serveur.
+function graceFallback() {
+  const g = S.grace; if (!g) return;
+  for (const p of [...g.pending]) transport.call('reattach', { path: p }).then((r) => { if (r && r.ok === false) graceRefuse(p); else graceStep(); }, () => {});
+}
+function onServerInfo(next) {
+  if (!next) return;
+  const act = serverVersionAction(S.server, next);
+  console.info('[serveur] avant', S.server, 'après', next, '→', act);
+  if (!S.server) { S.server = next; return; }
+  if (act === 'update') {
+    S.srvGen = (S.srvGen || 0) + 1;
+    srvBanner('blue', '↻ Serveur mis à jour (' + verTxt(next.version) + ') — la page affichée date de ' + verTxt(S.server.version), true);
+  } else if (act === 'restart') {
+    S.server = next;
+    const gen = S.srvGen = (S.srvGen || 0) + 1;
+    if (S.grace) { clearTimeout(S.grace.timer); clearTimeout(S.grace.fb); }
+    S.grace = { pending: new Set(Object.keys(S.views)), refused: [], gen, timer: setTimeout(() => graceEnd(true), REATTACH_MS), fb: setTimeout(graceFallback, REATTACH_FALLBACK_MS) };
+    srvBanner('orange', '⟳ Serveur redémarré — reconnexion des terminaux…');
+  }
+}
+
 function applyInit(r) {
   S.help = r.help; S.tools = r.tools;
+  onServerInfo(r.server);
   prefs.v = r.prefs || {};
   applyLayoutPrefs();
   applyState(r.state);
@@ -1707,6 +1935,7 @@ function onEvent(name, data) {
   switch (name) {
     case 'state': applyState(data); break;
     case 'cards': takeCards(data); break;
+    case 'hello': onServerInfo(data && data.server); break; // version et démarrage du serveur à l'ouverture du flux (#198)
     case 'refresh': onRefresh(data); break;
     case 'term': {
       const v = ensureView(data.path);
