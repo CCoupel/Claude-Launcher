@@ -516,10 +516,6 @@ func editorArgv(goos, editor, path string) []string {
 	return []string{"sh", "-c", editor + ` "$1"`, "_", path}
 }
 
-// HideIdleDisabledMsg : refus de la bascule manuelle (double-clic de masquage) quand le masquage est désactivé (#188) —
-// même message dans la fenêtre native et dans la coque tmux.
-const HideIdleDisabledMsg = "masquage désactivé : l'activer dans les Réglages"
-
 // HideIdleProjectDisabledMsg : même refus quand le projet est en « no hide » (PROJECT_HIDE_IDLE=none, #209).
 const HideIdleProjectDisabledMsg = "masquage désactivé pour ce projet : choisir « auto hide » dans le titre de la carte TEAM"
 
@@ -587,17 +583,4 @@ func (c Config) HideIdleRefusal(project string) string {
 		return ""
 	}
 	return HideIdleProjectDisabledMsg
-}
-
-// HideIdleArg : comme HideIdleArgOf, au niveau global (sans projet : TEAM_HIDE_IDLE_ENABLED seul).
-func (c Config) HideIdleArg() int {
-	if c.TeamHideIdleDisabled {
-		return -1
-	}
-	return c.TeamHideIdle
-}
-
-// HideIdleState : l'état global du masquage (sans projet) ; la carte d'un projet utilise HideIdleOf.
-func (c Config) HideIdleState() HideIdleInfo {
-	return HideIdleInfo{Enabled: !c.TeamHideIdleDisabled, Delay: c.TeamHideIdle}
 }

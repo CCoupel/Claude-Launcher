@@ -612,7 +612,7 @@ Nouveau cas de refus : la bascule qui cacherait un teammate alors que le masquag
 - Lue par bash (`loadConfigScript`) et par `confLite` ; en commentaire dans `defaultConfig`.
 - Masquage effectif d'un projet (une seule fonction de `core`, coque Linux et interface native) :
   `auto` → activé ; `none` → désactivé ; absent (`default`) → `TEAM_HIDE_IDLE_ENABLED` (#188). Le délai est toujours
-  `TEAM_HIDE_IDLE` ; un délai `0` désactive dans tous les cas.
+  `TEAM_HIDE_IDLE`. **Délai `0`** : le masquage **automatique** est désactivé dans tous les cas (`teamHead.hideIdle.enabled` vaut faux), mais le masquage **manuel** reste permis — un projet `auto` ou `default` activé avec un délai `0` n'est jamais masqué tout seul, et `teamToggle` n'est pas refusé (comme #188) ; seul le mode `none` (ou `default` avec le global désactivé) refuse la bascule.
 - Changer `TEAM_HIDE_IDLE_ENABLED` ne modifie pas `PROJECT_HIDE_IDLE` : seuls les projets en `default` suivent.
 - Prise en compte sans relance, au tour suivant du surveillant du projet.
 
