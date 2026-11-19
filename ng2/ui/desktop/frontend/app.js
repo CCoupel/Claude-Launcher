@@ -476,7 +476,7 @@ function renderCards() {
   const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
-  const card = (title, sub, body, chip) => {
+  const card = (title, sub, body, chip, eye) => {
     const closed = !!prefs.get('cardsClosed', {})[title];
     const k = el('div', 'card' + (closed ? ' closed' : ''));
     const h = el('div', 'ch');
@@ -485,6 +485,7 @@ function renderCards() {
       sub.forEach((p) => { h.append(el('span', 'dim', ' · ' + p.t)); if (p.warn) { const w = el('span', 't-orange', ' ⚠'); w.title = p.warn; h.append(w); } });
     } else if (sub) h.append(el('span', 'dim', ' · ' + sub));
     if (chip) { const p = el('span', 'hidechip', chip); p.title = 'les teammates inactifs sont cachés après ce délai (Réglages › Launcher › teams)'; h.append(p); }
+    if (eye) h.append(el('span', 'sp'), eye);
     h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
     k.append(h);
     if (!closed) k.append(body);
@@ -588,7 +589,7 @@ function renderCards() {
     th.claude ? [{ t: 'claude ' + th.claude }] : []) : '';
   // puce « masquage N s » (#188) : seulement quand le masquage automatique est actif (activé et délai > 0) ; aucune puce sinon
   const hi = th.hideIdle;
-  card('Team', sub, tb, hi && hi.enabled && hi.delay > 0 ? 'masquage ' + hi.delay + ' s' : '');
+  card('Team', sub, tb, hi && hi.enabled && hi.delay > 0 ? 'masquage ' + hi.delay + ' s' : '', hi && hi.mode ? hideEye(c.path, hi) : null);
   // Fichiers
   if (c.loaded) {
     const fb = el('div', 'cb'); const g = el('div', 'files');
@@ -716,6 +717,65 @@ $('tree').addEventListener('click', (e) => {
   const r = S.snap.rows.find((x) => x.path === path);
   if (dbl || (r && r.open)) { S.lastClick.key = null; openProject(path); }
 });
+// ── Œil 3 états du titre de la carte TEAM (#209) : masquage des inactifs propre au projet ─────────────────────
+// ouvert = no hide, fermé = auto hide, grisé = default (suit le global #188, dessin = effet du global).
+// Clic : default → auto → none → default ; clic droit : menu des 3 états ; écriture par projectApply {hideIdle}.
+const EYE_OPEN = '<svg viewBox="0 0 24 16" width="18" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 8s4-7 11-7 11 7 11 7-4 7-11 7S1 8 1 8z"/><circle cx="12" cy="8" r="3"/></svg>';
+const EYE_SHUT = '<svg viewBox="0 0 24 16" width="18" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 6s4 6 11 6 11-6 11-6"/><path d="M5 10l-2 3M12 12v3M19 10l2 3"/></svg>';
+const HIDE_NAME = { default: 'default', auto: 'auto hide', none: 'no hide' };
+const HIDE_NEXT = { default: 'auto', auto: 'none', none: 'default' };
+const hideBusy = {}; // chemin -> true pendant l'écriture (pas de second clic)
+function hideGlobalTxt(hi) { return hi.global ? 'masqués après ' + hi.delay + ' s' : 'désactivé'; }
+function hideEyeIcon(mode, hi) { return mode === 'none' ? EYE_OPEN : mode === 'auto' ? EYE_SHUT : (hi.global ? EYE_SHUT : EYE_OPEN); }
+function hideEyeTip(hi) {
+  const m = hi.mode;
+  return 'Ce projet : ' + HIDE_NAME[m] + ' — clic : ' + HIDE_NAME[HIDE_NEXT[m]] + ' · réglage global : ' + hideGlobalTxt(hi);
+}
+function hideEye(path, hi) {
+  const e = el('span', 'eye st-' + hi.mode);
+  e.innerHTML = hideEyeIcon(hi.mode, hi);
+  e.title = hideEyeTip(hi); e.tabIndex = 0; e.setAttribute('role', 'button');
+  e.setAttribute('aria-label', e.title);
+  e.onclick = (ev) => { ev.stopPropagation(); setHideIdle(path, HIDE_NEXT[hi.mode], e); };
+  e.onkeydown = (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); setHideIdle(path, HIDE_NEXT[hi.mode], e); }
+    else if (ev.key === 'ContextMenu' || (ev.shiftKey && ev.key === 'F10')) { ev.preventDefault(); ev.stopPropagation(); const r = e.getBoundingClientRect(); showHideMenu(path, hi, r.left, r.bottom); }
+  };
+  e.addEventListener('contextmenu', (ev) => { ev.preventDefault(); ev.stopPropagation(); showHideMenu(path, hi, ev.clientX, ev.clientY); });
+  e.addEventListener('mousedown', (ev) => ev.stopPropagation());
+  if (hideBusy[path]) e.classList.add('busy');
+  return e;
+}
+async function setHideIdle(path, mode, eyeEl) {
+  if (hideBusy[path]) return;
+  hideBusy[path] = true; if (eyeEl) eyeEl.classList.add('busy');
+  let r;
+  try { r = await call('projectApply', { path, hideIdle: mode }); } catch (e) { r = null; }
+  delete hideBusy[path];
+  if (!r || r.ok === false) { flash('⚠ ' + ((r && r.msg) || 'réglage du masquage non enregistré')); renderCards(); return; }
+  flashBrief('Teammates inactifs : ' + HIDE_NAME[mode], 3000);
+  call('cardsFor', { path }).then((c) => takeCards(c)).catch(() => {}); // rafraîchissement immédiat de la carte
+}
+function showHideMenu(path, hi, x, y) {
+  closeCtx();
+  const m = el('div', 'ctxmenu'); m.id = 'ctxmenu';
+  m.appendChild(el('div', 'dis hd', 'Teammates inactifs — ce projet'));
+  const opts = [['auto', EYE_SHUT, 'auto hide — masquer après ' + hi.delay + ' s'],
+    ['default', hideEyeIcon('default', hi), 'default — réglage global (' + hideGlobalTxt(hi) + ')'],
+    ['none', EYE_OPEN, 'no hide — toujours visibles']];
+  for (const [mode, ic, label] of opts) {
+    const d = el('div', mode === hi.mode ? 'sel' : '');
+    const i = el('span', 'mi' + (mode === 'default' ? ' st-default' : '')); i.innerHTML = ic;
+    d.append(i, el('span', '', label));
+    d.onclick = (ev) => { ev.stopPropagation(); closeCtx(); if (mode !== hi.mode) setHideIdle(path, mode, null); };
+    m.appendChild(d);
+  }
+  document.body.appendChild(m);
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(0, Math.min(x, window.innerWidth - w - 4)) + 'px';
+  m.style.top = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + 'px';
+}
+
 // ── Menu contextuel d'un projet (#148, LOT-3.2) ────────────────────────────
 function closeCtx() { const m = $('ctxmenu'); if (m) m.remove(); }
 function showProjectMenu(path, x, y) {

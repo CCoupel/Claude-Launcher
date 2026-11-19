@@ -455,3 +455,13 @@ body.cardsfolded #hsplit { display: none; }
 .tscroll { position: relative; }
 .tab.ghost { opacity: .45; }
 .tdrop { position: absolute; top: 4px; bottom: 4px; width: 3px; background: var(--accent, #60CDFF); border-radius: 2px; box-shadow: 0 0 6px var(--accent, #60CDFF); pointer-events: none; z-index: 2; }
+
+/* œil 3 états du masquage par projet (#209) */
+.eye { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 18px; border-radius: 4px; cursor: pointer; margin-left: 6px; color: var(--text); font-weight: 400; }
+.eye:hover { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+.eye:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.eye.st-default, .ctxmenu .mi.st-default { color: var(--dim, var(--muted)); }
+.eye.busy { opacity: .5; cursor: progress; pointer-events: none; }
+.ctxmenu div.hd { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; }
+.ctxmenu div.sel { background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.ctxmenu .mi { display: inline-flex; width: 18px; }
