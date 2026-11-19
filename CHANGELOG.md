@@ -13,6 +13,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ### Fixed
 - Tests : `TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap` attend l'inscription des deux gestionnaires de flux (condition bornée) au lieu d'une pause fixe de 200 ms (#203)
+- Tests : simulation du flux SSE — le délai d'abandon d'init doit suivre 8000, 16000 puis 30000 répété (suite non décroissante, plafond 30 s) ; une suite non croissante ou un plafond dépassé échoue toujours (#207)
 
 ## [6.4.0] — 2026-11-19
 
