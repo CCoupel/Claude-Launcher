@@ -294,8 +294,19 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "legacy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "monte l'ancien PVC <release>-secrets (v6.4.0) en lecture seule s'il existe, pour la migration"
+            }
+          }
+        },
         "persistence": {
           "type": "object",
+          "description": "obsolète depuis 6.5.0 (ignoré) : accepté pour les fichiers de valeurs existants",
           "additionalProperties": false,
           "properties": {
             "size": {
