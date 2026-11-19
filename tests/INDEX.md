@@ -54,3 +54,4 @@
 | ng2/chart_networkpolicy200_test.go | integration | chart | NetworkPolicy par defaut/desactivable/namespaces, ingress externe refuse, delai d arret (#200) | feature | |
 | tests/procedures/ci/fiabilisation-lot1-203-204-207-208/ | procedure | main | Fiabilite LOT-1 : SSE gelee -count=50 (#203), jeton obsolete -count=20 -p 8 (#208), sse_flow init lent (#207), chart = branche (#204) | feature | slow |
 | tests/integration/ci/chart-version-204/ | integration | main | Controle Chart.yaml = branche milestone dans scripts/ci.sh : juste OK, faux KO, hors milestone ignore (#204) | feature | |
+| tests/procedures/ui-desktop/coffre-partage-201/ | procedure | ui-desktop | Coffre partage : cle saisie sous Windows utilisee par hub et pod, droits 9P, migration PVC claude-qualif (#201) | feature | slow |
