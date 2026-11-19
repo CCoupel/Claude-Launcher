@@ -67,9 +67,10 @@ type App struct {
 	mgr        *core.StateMgr
 	upd        updState
 	perf       perfLog
-	treeCached bool     // arbre repris du lancement précédent (relu en tâche de fond)
-	hubCache   string   // cache d'état du hub Linux (hubs.<machine>.hub_cache)
-	hubWarns   []string // clés inconnues de hubs: dans backends.yaml (#127), ignorées
+	bgWG       sync.WaitGroup // tâches de fond du démarrage (bg), attendues par waitBackground
+	treeCached bool           // arbre repris du lancement précédent (relu en tâche de fond)
+	hubCache   string         // cache d'état du hub Linux (hubs.<machine>.hub_cache)
+	hubWarns   []string       // clés inconnues de hubs: dans backends.yaml (#127), ignorées
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
@@ -224,15 +225,15 @@ func (a *App) setMsg(m string) {
 
 // Start : relectures en tâche de fond (même rythme que la coque).
 func (a *App) Start() {
-	go a.applyWebUI() // interface web de la fenêtre (desktop_web, #163)
+	a.bg(a.applyWebUI) // interface web de la fenêtre (desktop_web, #163)
 	// liens et réglages dans CLAUDE_CONFIG_DIR (souvent sur le stockage
 	// partagé, par 9P sous Windows) : en tâche de fond, jamais avant la fenêtre
-	go func() {
+	a.bg(func() {
 		a.perf.timed("démarrage : liens conso", core.ClaudeDir(), core.LinkUsageCache)
 		a.perf.timed("démarrage : settings.json", core.ClaudeDir(), func() { _ = core.SyncLauncherEnv(a.conf()) })
-	}()
+	})
 	go a.hubCacheLoop()
-	go func() {
+	a.bg(func() {
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()
 		for {
@@ -244,11 +245,11 @@ func (a *App) Start() {
 				a.perf.flushTrace()
 			}
 		}
-	}()
+	})
 	go core.RunBrowserServer() // fichiers pour le navigateur (#106)
 	go a.emitter()
 	go a.treeLoop()
-	go func() {
+	a.bg(func() {
 		if a.treeCached {
 			a.perf.time("parcours", a.rescan)
 		}
@@ -256,7 +257,7 @@ func (a *App) Start() {
 		a.perf.time("git", a.gitAll)
 		a.perf.write(a.projectCount())
 		a.changed()
-	}()
+	})
 	// sessions en suspens : lues dans ~/.claude, toutes les 10 s (30 s sur un disque réseau)
 	sessEvery := 10 * time.Second
 	if gitWorkers(a.conf().Roots) < 8 {
@@ -284,6 +285,21 @@ func (a *App) Start() {
 		a.mgr.Select(a.sel)
 	}
 	go a.reattach()
+}
+
+// bg : tâche de fond d'écriture au démarrage, suivie pour qu'on puisse attendre sa fin (waitBackground).
+func (a *App) bg(f func()) {
+	a.bgWG.Add(1)
+	go func() { defer a.bgWG.Done(); f() }()
+}
+
+// waitBackground : attend (au plus max) la fin des tâches suivies par bg, et du gestionnaire d'état ; faux si le délai
+// est dépassé. Sert aux tests : l'évènement d'arrêt remplace une pause fixe avant l'effacement des dossiers temporaires.
+func (a *App) waitBackground(max time.Duration) bool {
+	if a.mgr != nil {
+		a.mgr.Stop() // idempotent ; rend la main quand ses tâches de fond sont finies
+	}
+	return waitDone(&a.bgWG, max)
 }
 
 // Stop : l'interface se ferme ; les sessions des projets continuent dans tmux.

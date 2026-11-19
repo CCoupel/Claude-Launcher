@@ -117,7 +117,9 @@ func l4StartNative(t *testing.T) *App {
 // sortie, serveur web) finir avant l'effacement des dossiers temporaires du test (comme stopBg, #141).
 func stopNative(a *App) {
 	a.Stop()
-	time.Sleep(300 * time.Millisecond)
+	if !a.waitBackground(15 * time.Second) {
+		fmt.Fprintln(os.Stderr, "stopNative : tâches de fond toujours en cours après 15 s")
+	}
 }
 
 func l4TokenFile() string { return filepath.Join(core.CacheDir(), "desktop-web-token") }
