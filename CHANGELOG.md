@@ -24,6 +24,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Guide `ng2/docs/secrets.md` (emplacement, portée projet, migration, risque du stockage en clair) (#201)
 
 ### Fixed
+- Interface native : un rafraîchissement des cartes demandé pendant une relecture lente n'est plus perdu ; il est rejoué une fois à la fin (N demandes = une reprise), avec le projet sélectionné à ce moment, au lieu de laisser la carte ancienne jusqu'au signal suivant ; jamais deux relectures en même temps, arbre jamais retardé (#210)
 - Arrêt de l'exe Windows : après l'échéance de fermeture d'un surveillant de fichiers, une goroutine de fond continue de vider ses évènements jusqu'au retour de `Close` (plus de lecteur bloqué ni de handles gardés) ; l'arrêt reste borné par `fsCloseLimit` (#206)
 - Cache d'état : les `<hash>.json.<n>.tmp` de plus de 24 h (écritures interrompues) sont supprimés au démarrage du suivi d'état ; les plus récents sont gardés (#205)
 - Tests : `TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap` attend l'inscription des deux gestionnaires de flux (condition bornée) au lieu d'une pause fixe de 200 ms ; échéance d'écriture portée à 5 s pour que les gestionnaires bloqués ne sortent pas avant la vérification du 503 sous `-race` (#203)

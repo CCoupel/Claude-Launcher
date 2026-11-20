@@ -87,7 +87,11 @@ type App struct {
 
 	dirty     chan struct{}
 	cardDirty chan struct{}
-	quit      chan struct{}
+	// relecture des cartes (#210) : une seule à la fois par App ; un signal reçu pendant qu'elle tourne pose cardsAgain
+	// (relecture rejouée une fois à la fin, sélection relue), au lieu d'être perdu
+	cardsSt              sync.Mutex
+	cardsRun, cardsAgain bool
+	quit                 chan struct{}
 }
 
 // updState : annonces de mise à jour (même logique que le navigateur de la coque).
@@ -445,21 +449,58 @@ func (a *App) emitter() {
 			a.emit("state", a.Snapshot())
 			time.Sleep(80 * time.Millisecond)
 		case <-a.cardDirty:
-			// hors de cette goroutine : une carte lente (projet par 9P) ne doit
-			// pas retarder l'arbre (#130) ; une seule relecture à la fois
-			if cardsMu.TryLock() {
-				go func() {
-					defer cardsMu.Unlock()
-					a.mu.Lock()
-					sel := a.sel
-					a.mu.Unlock()
-					c := a.cardsFull(sel)
-					if a.selected(sel) {
-						a.emit("cards", c)
-					}
-				}()
-			}
+			a.requestCards()
 		}
+	}
+}
+
+// cardsRead : relecture complète des cartes d'un projet ; remplaçable dans les tests (relecture lente simulée, comptée).
+var cardsRead = tun.Of(func(a *App, path string) Cards { return a.cardsFull(path) })
+
+// requestCards : demande une relecture des cartes du projet sélectionné, HORS de la goroutine de l'emitter (une carte lente,
+// projet par 9P, ne doit pas retarder l'arbre, #130). Une seule relecture tourne à la fois ; un signal reçu pendant qu'elle
+// tourne n'est pas perdu (#210) : il pose cardsAgain, et la relecture est rejouée UNE fois à la fin (N signaux = une reprise),
+// avec la sélection d'alors.
+func (a *App) requestCards() {
+	a.cardsSt.Lock()
+	if a.cardsRun {
+		a.cardsAgain = true
+		a.cardsSt.Unlock()
+		return
+	}
+	a.cardsRun = true
+	a.cardsSt.Unlock()
+	go a.cardsLoop()
+}
+
+// cardsLoop : relit tant qu'un signal est arrivé pendant la relecture ; sort sur quit (aucune relecture après).
+func (a *App) cardsLoop() {
+	for {
+		select {
+		case <-a.quit:
+			a.cardsSt.Lock()
+			a.cardsRun, a.cardsAgain = false, false
+			a.cardsSt.Unlock()
+			return
+		default:
+		}
+		a.cardsSt.Lock()
+		a.cardsAgain = false // les signaux reçus PENDANT la lecture ci-dessous la rejoueront
+		a.cardsSt.Unlock()
+		a.mu.Lock()
+		sel := a.sel
+		a.mu.Unlock()
+		c := cardsRead.Get()(a, sel)
+		if a.selected(sel) {
+			a.emit("cards", c)
+		}
+		a.cardsSt.Lock()
+		if !a.cardsAgain {
+			a.cardsRun = false
+			a.cardsSt.Unlock()
+			return
+		}
+		a.cardsSt.Unlock()
 	}
 }
 

@@ -199,8 +199,6 @@ func (a *App) selected(path string) bool {
 // cardsBg : complétions et préchargements en cours (attendus par les tests).
 var cardsBg sync.WaitGroup
 
-var cardsMu sync.Mutex // relecture périodique : une seule à la fois
-
 // selectCards : sélection d'un projet ; rend tout de suite les cartes en cache
 // et complète en tâche de fond (envoyées seulement s'il est toujours choisi).
 func (a *App) selectCards(path string) Cards {
