@@ -159,9 +159,13 @@ func installedVersion() string {
 }
 
 // LauncherState : état complet (exécute `<exe> version` : à n'appeler que sur demande, pas à chaque instantané).
-func LauncherState() LauncherInfo {
-	li := LauncherInfo{Running: Version(), Installed: installedVersion(), BinChanged: binChanged(), Mode: launcherMode(), Stale: []StaleProc{}}
-	if launcherMode() == "shell" {
+func LauncherState() LauncherInfo { return LauncherStateFor(launcherMode()) }
+
+// LauncherStateFor : comme LauncherState pour un mode donné (shell, desktop, web, pod) ; /proc n'est parcouru que
+// pour la coque tmux.
+func LauncherStateFor(mode string) LauncherInfo {
+	li := LauncherInfo{Running: Version(), Installed: installedVersion(), BinChanged: binChanged(), Mode: mode, Stale: []StaleProc{}}
+	if mode == "shell" {
 		if exe, err := launcherExe(); err == nil {
 			li.Stale = FindStaleProcs(procRoot, exe, InnerSocket())
 		}

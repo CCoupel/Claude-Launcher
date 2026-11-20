@@ -965,11 +965,6 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		m.hideLauncher, m.hideTpl, m.hideRelaunch = true, true, true
 		return m, nil
-	case "ctrl+l": // relancer la coque sur le binaire installé (#219)
-		if m.shell && m.relaunchWanted() {
-			m.relaunchAsk = true
-		}
-		return m, nil
 	case "f1":
 		if !m.shell {
 			m.msg = "aide : claude-launcher-ng2 help"
@@ -1020,6 +1015,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgdown":
 		m.move(10)
 	case "ctrl+r":
+		if m.shell && m.relaunchWanted() && !m.hideRelaunch { // annonce affichée : ctrl+r relance (#219) ; sinon rescan
+			m.relaunchAsk = true
+			return m, nil
+		}
 		m.nodes = withSpecial(core.ScanTree(m.cfg.Roots))
 		if m.mgr != nil {
 			m.mgr.SetProjects(m.projectPaths())
@@ -1364,9 +1363,9 @@ func (m model) alertText(a string) string {
 	case a == "relaunch" && m.relaunchAsk:
 		return fmt.Sprintf("  Relancer ? interface + %d processus anciens ; sessions gardées (o/n)", m.launcher.StaleCount())
 	case a == "relaunch" && m.launcher.BinChanged:
-		return "  ✓ " + core.OrQ(m.launcher.Installed) + " installée · ctrl+l : relancer · clic"
+		return "  ✓ " + core.OrQ(m.launcher.Installed) + " installée · ctrl+r : relancer · clic"
 	case a == "relaunch":
-		return fmt.Sprintf("  ⚠ %d processus de l'ancien binaire · ctrl+l : les relancer", m.launcher.StaleCount())
+		return fmt.Sprintf("  ⚠ %d processus de l'ancien binaire · ctrl+r : les relancer", m.launcher.StaleCount())
 	case a == "github" && m.errKind == core.UpdErrQuota:
 		return "  ⚠ vérification GitHub impossible (quota, reprise " + m.errRetry.Format("15:04") + ")"
 	case a == "github":

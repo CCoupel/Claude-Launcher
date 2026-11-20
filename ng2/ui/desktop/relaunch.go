@@ -39,12 +39,7 @@ func (a *App) launcherSnap() LauncherSnap {
 
 // launcherInfo : état complet (exécute `<exe> version`, 3 s) ; la coque tmux ne passe pas par ici.
 func (a *App) launcherInfo() core.LauncherInfo {
-	li := core.LauncherState()
-	li.Mode = a.launcherMode()
-	if li.Mode != "shell" {
-		li.Stale = []core.StaleProc{}
-	}
-	return li
+	return core.LauncherStateFor(a.launcherMode()) // hors coque : pas de parcours de /proc
 }
 
 // exitProcess : sortie du processus (pod : code 0, le conteneur est redémarré par Kubernetes).
