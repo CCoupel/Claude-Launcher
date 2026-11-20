@@ -50,7 +50,7 @@ func TestStaleProcsMemeServeurSeulement(t *testing.T) {
 	fakeProc(t, procRoot, 104, old, []string{bin, "nav", "--launch"}, []string{"CL_INNER_SOCKET=sock-a"})   // pas auxiliaire
 	fakeProc(t, procRoot, 105, old, []string{"autre", "mirror", "x"}, []string{"CL_INNER_SOCKET=sock-a"})   // autre programme
 	got := StaleProcs()
-	if len(got) != 2 || got[0] != (StaleProc{"mirror", 100}) || got[1] != (StaleProc{"layout-watch", 101}) {
+	if len(got) != 2 || got[0] != (StaleProc{Role: "mirror", PID: 100}) || got[1] != (StaleProc{Role: "layout-watch", PID: 101}) {
 		t.Fatalf("StaleProcs = %v", got)
 	}
 }
@@ -62,10 +62,10 @@ func TestInstalledVersionEtBinChanged(t *testing.T) {
 	oldExe, oldCmd := launcherExe, installedVersionCmd
 	launcherExe = func() (string, error) { return exe, nil }
 	installedVersionCmd = func(_ context.Context, _ string) ([]byte, error) { return []byte("claude-launcher-ng2 v9.9.9\n"), nil }
-	startStampOnce, startStamp = sync.Once{}, nil
+	startStampOnce, startStampOK = sync.Once{}, false
 	defer func() {
 		launcherExe, installedVersionCmd = oldExe, oldCmd
-		startStampOnce, startStamp = sync.Once{}, nil
+		startStampOnce, startStampOK = sync.Once{}, false
 	}()
 	MarkLauncherStart()
 	if binChanged() {

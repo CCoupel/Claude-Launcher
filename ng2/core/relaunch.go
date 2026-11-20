@@ -23,7 +23,7 @@ var LauncherMode string
 // StaleProc : processus auxiliaire d'un ancien binaire.
 type StaleProc struct {
 	Role string `json:"role"` // mirror, layout-watch
-	Pid  int    `json:"pid"`
+	PID  int    `json:"pid"`
 }
 
 // LauncherBackup : sauvegarde du binaire précédent (renseignée par #218 via LauncherBackupHook).
@@ -43,6 +43,9 @@ type LauncherInfo struct {
 	Backup     *LauncherBackup `json:"backup,omitempty"`
 }
 
+// procRoot : racine de procfs (tests : arborescence factice).
+var procRoot = "/proc"
+
 // Points d'injection (tests).
 var (
 	// LauncherBackupHook : sauvegarde disponible (nil : aucune). Posé par la sauvegarde du binaire (#218).
@@ -58,34 +61,51 @@ var (
 
 var (
 	startStampOnce sync.Once
-	startStamp     os.FileInfo
+	startStamp     FileSig
+	startStampOK   bool
 )
 
 // MarkLauncherStart : mémorise l'identité du binaire au démarrage (appelé tôt dans main ; sinon au premier usage).
 func MarkLauncherStart() {
 	startStampOnce.Do(func() {
 		if exe, err := launcherExe(); err == nil {
-			startStamp, _ = os.Stat(exe)
+			var serr error
+			startStamp, serr = StatSig(exe)
+			startStampOK = serr == nil
 		}
 	})
 }
 
-// binChanged : le fichier du binaire n'est plus celui du démarrage (remplacé : autre inode, date ou taille ;
-// supprimé : introuvable).
+// FileSig : identité d'un fichier (inode/périphérique, taille, date).
+type FileSig struct {
+	Dev, Ino uint64
+	Size     int64
+	MTime    int64 // ns
+}
+
+// StatSig : identité du fichier path.
+func StatSig(path string) (FileSig, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return FileSig{}, err
+	}
+	return sigOf(fi), nil
+}
+
+// BinChanged : le fichier path n'est plus celui de start (remplacé : inode, date ou taille ; disparu).
+func BinChanged(start FileSig, path string) bool {
+	cur, err := StatSig(path)
+	return err != nil || cur != start
+}
+
+// binChanged : le binaire courant n'est plus celui du démarrage.
 func binChanged() bool {
 	MarkLauncherStart()
-	if startStamp == nil {
+	if !startStampOK {
 		return false
 	}
 	exe, err := launcherExe()
-	if err != nil {
-		return true
-	}
-	cur, err := os.Stat(exe)
-	if err != nil {
-		return true
-	}
-	return !os.SameFile(startStamp, cur) || cur.ModTime() != startStamp.ModTime() || cur.Size() != startStamp.Size()
+	return err != nil || BinChanged(startStamp, exe)
 }
 
 var (
@@ -114,13 +134,10 @@ func launcherMode() string {
 	return "shell"
 }
 
-// installedVersion : « <exe> version » (« claude-launcher-ng2 v6.6.0 »), 3 s ; vide si illisible.
-func installedVersion() string {
-	exe, err := launcherExe()
-	if err != nil {
-		return ""
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), installedVersionTimeout)
+// InstalledVersion : dernier mot de « <exe> version » (« claude-launcher-ng2 v6.6.0 ») ; "" si illisible ou si le
+// délai est dépassé.
+func InstalledVersion(exe string, timeout time.Duration) string {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	out, err := installedVersionCmd(ctx, exe)
 	if err != nil {
@@ -133,11 +150,21 @@ func installedVersion() string {
 	return f[len(f)-1]
 }
 
+func installedVersion() string {
+	exe, err := launcherExe()
+	if err != nil {
+		return ""
+	}
+	return InstalledVersion(exe, installedVersionTimeout)
+}
+
 // LauncherState : état complet (exécute `<exe> version` : à n'appeler que sur demande, pas à chaque instantané).
 func LauncherState() LauncherInfo {
 	li := LauncherInfo{Running: Version(), Installed: installedVersion(), BinChanged: binChanged(), Mode: launcherMode(), Stale: []StaleProc{}}
 	if launcherMode() == "shell" {
-		li.Stale = StaleProcs()
+		if exe, err := launcherExe(); err == nil {
+			li.Stale = FindStaleProcs(procRoot, exe, InnerSocket())
+		}
 	}
 	if LauncherBackupHook != nil {
 		li.Backup = LauncherBackupHook()

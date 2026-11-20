@@ -39,6 +39,11 @@ func selfCommand(args ...string) string {
 	if err != nil {
 		exe = "claude-launcher-ng2"
 	}
+	return selfCommandExe(exe, args...)
+}
+
+// selfCommandExe : comme selfCommand, avec un binaire donné (relance, #219).
+func selfCommandExe(exe string, args ...string) string {
 	c := rootBasePrefix() + "CL_HUB=" + core.Shq(hubSession) + " CL_INNER_SOCKET=" + core.Shq(core.InnerSocket()) +
 		" " + core.Shq(exe)
 	for _, a := range args {

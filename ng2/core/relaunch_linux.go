@@ -9,45 +9,47 @@ import (
 	"sort"
 	"strconv"
 	"syscall"
+	"time"
 )
-
-// procRoot : racine de procfs (tests : arborescence factice).
-var procRoot = "/proc"
 
 // auxRoles : sous-commandes du launcher qui tournent en processus auxiliaires d'un serveur tmux.
 var auxRoles = map[string]bool{"mirror": true, "layout-watch": true}
 
-// StaleProcs : processus mirror / layout-watch du MÊME serveur tmux (CL_INNER_SOCKET de leur environnement égal à
-// celui de ce launcher) dont l'exécutable n'est pas le binaire courant. Jamais un processus d'un autre serveur.
-func StaleProcs() []StaleProc {
-	exe, err := launcherExe()
+// FindStaleProcs : processus mirror / layout-watch du MÊME serveur tmux (CL_INNER_SOCKET de leur environnement égal à
+// innerSocket) dont l'exécutable n'est pas curExe (binaire remplacé ou supprimé compris). Jamais un autre serveur.
+func FindStaleProcs(root, curExe, innerSocket string) []StaleProc {
+	cur, err := os.Stat(curExe)
 	if err != nil {
 		return nil
 	}
-	cur, err := os.Stat(exe)
-	if err != nil {
-		return nil
-	}
-	sock := InnerSocket()
-	ents, _ := os.ReadDir(procRoot)
+	ents, _ := os.ReadDir(root)
 	out := []StaleProc{}
 	for _, e := range ents {
 		pid, err := strconv.Atoi(e.Name())
 		if err != nil || pid == os.Getpid() {
 			continue
 		}
-		role, ok := auxRole(filepath.Join(procRoot, e.Name()))
-		if !ok || procEnv(filepath.Join(procRoot, e.Name()), "CL_INNER_SOCKET", "claude-ng2") != sock {
+		dir := filepath.Join(root, e.Name())
+		role, ok := auxRole(dir, curExe)
+		if !ok || procEnv(dir, "CL_INNER_SOCKET", "claude-ng2") != innerSocket {
 			continue
 		}
-		pe, err := os.Stat(filepath.Join(procRoot, e.Name(), "exe"))
-		if err == nil && os.SameFile(pe, cur) {
+		if pe, err := os.Stat(filepath.Join(dir, "exe")); err == nil && os.SameFile(pe, cur) {
 			continue // déjà le binaire courant
 		}
-		out = append(out, StaleProc{Role: role, Pid: pid})
+		out = append(out, StaleProc{Role: role, PID: pid})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Pid < out[j].Pid })
+	sort.Slice(out, func(i, j int) bool { return out[i].PID < out[j].PID })
 	return out
+}
+
+// StaleProcs : FindStaleProcs pour ce launcher.
+func StaleProcs() []StaleProc {
+	exe, err := launcherExe()
+	if err != nil {
+		return nil
+	}
+	return FindStaleProcs(procRoot, exe, InnerSocket())
 }
 
 // ProcArgs : arguments (argv) d'un processus, lus de cmdline.
@@ -72,7 +74,7 @@ func splitNul(b []byte) []string {
 }
 
 // auxRole : rôle auxiliaire d'un processus (argv[1] = mirror / layout-watch, argv[0] se terminant comme le binaire).
-func auxRole(dir string) (string, bool) {
+func auxRole(dir, curExe string) (string, bool) {
 	b, err := os.ReadFile(filepath.Join(dir, "cmdline"))
 	if err != nil {
 		return "", false
@@ -81,8 +83,7 @@ func auxRole(dir string) (string, bool) {
 	if len(a) < 2 || !auxRoles[a[1]] {
 		return "", false
 	}
-	exe, err := launcherExe()
-	if err != nil || filepath.Base(a[0]) != filepath.Base(exe) {
+	if filepath.Base(a[0]) != filepath.Base(curExe) {
 		return "", false
 	}
 	return a[1], true
@@ -103,21 +104,47 @@ func procEnv(dir, key, def string) string {
 	return def
 }
 
-// TerminateStale : SIGTERM puis SIGKILL après grace aux processus donnés ; rend leurs arguments d'origine (relancer
-// un layout-watch avec les mêmes arguments).
-func TerminateStale(procs []StaleProc, grace func()) map[int][]string {
-	args := map[int][]string{}
-	for _, p := range procs {
-		args[p.Pid] = ProcArgs(p.Pid)
-		signalPid(p.Pid, false)
+// StopProcs : SIGTERM, puis SIGKILL des survivants après grace ; rend la main quand tous sont partis (ou, au pire,
+// 2 s après le SIGKILL).
+func StopProcs(procs []StaleProc, grace time.Duration) {
+	TermProcs(procs)
+	if !waitGone(procs, grace) {
+		KillSurvivors(procs)
 	}
-	grace()
+}
+
+// TermProcs : SIGTERM à chacun.
+func TermProcs(procs []StaleProc) {
 	for _, p := range procs {
-		if pidAlive(p.Pid) {
-			signalPid(p.Pid, true)
+		signalPid(p.PID, false)
+	}
+}
+
+// KillSurvivors : SIGKILL de ceux qui vivent encore, puis attente de leur départ.
+func KillSurvivors(procs []StaleProc) {
+	for _, p := range procs {
+		if pidAlive(p.PID) {
+			signalPid(p.PID, true)
 		}
 	}
-	return args
+	waitGone(procs, 2*time.Second)
+}
+
+func waitGone(procs []StaleProc, d time.Duration) bool {
+	for end := time.Now().Add(d); ; time.Sleep(20 * time.Millisecond) {
+		alive := false
+		for _, p := range procs {
+			if pidAlive(p.PID) {
+				alive = true
+			}
+		}
+		if !alive {
+			return true
+		}
+		if time.Now().After(end) {
+			return false
+		}
+	}
 }
 
 func signalPid(pid int, kill bool) {
@@ -132,7 +159,13 @@ func signalPid(pid int, kill bool) {
 	_ = p.Signal(syscall.SIGTERM)
 }
 
+// pidAlive : vivant (un zombie, en attente d'être récolté, est compté parti).
 func pidAlive(pid int) bool {
+	if b, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "stat")); err == nil {
+		if i := bytes.LastIndexByte(b, ')'); i >= 0 && i+2 < len(b) && b[i+2] == 'Z' {
+			return false
+		}
+	}
 	p, err := os.FindProcess(pid)
 	return err == nil && p.Signal(syscall.Signal(0)) == nil
 }

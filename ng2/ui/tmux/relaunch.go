@@ -17,11 +17,7 @@ import (
 // (CL_INNER_SOCKET) sont touchés (core.StaleProcs).
 
 // Points d'injection (tests).
-var (
-	relaunchProcs     = core.StaleProcs
-	relaunchTerminate = core.TerminateStale
-	relaunchGrace     = func() { time.Sleep(2 * time.Second) }
-)
+var relaunchGrace = func() { time.Sleep(2 * time.Second) } // attente entre SIGTERM et SIGKILL
 
 // RelaunchResult : ce qui a été relancé.
 type RelaunchResult struct {
@@ -35,12 +31,22 @@ func (r RelaunchResult) String() string {
 // RelaunchShell relance la coque sur le binaire installé. Le navigateur (qui peut être l'appelant) est relancé EN
 // DERNIER : son respawn termine le processus appelant.
 func RelaunchShell() (RelaunchResult, error) {
-	var res RelaunchResult
 	exe, err := platform.SelfExe()
 	if err != nil {
-		return res, err
+		return RelaunchResult{}, err
 	}
-	stale := relaunchProcs()
+	return relaunchShell(exe)
+}
+
+// relaunchShellWith : relance sur le binaire exe (tests : faux binaires).
+func relaunchShellWith(exe string) error {
+	_, err := relaunchShell(exe)
+	return err
+}
+
+func relaunchShell(exe string) (RelaunchResult, error) {
+	var res RelaunchResult
+	stale := core.FindStaleProcs("/proc", exe, core.InnerSocket())
 
 	// vignettes : respawn de leur pane (arguments relus de l'ancien processus : fenêtre et nom)
 	paneOf := map[string]string{} // fenêtre vignetée -> pane
@@ -53,10 +59,10 @@ func RelaunchShell() (RelaunchResult, error) {
 	}
 	var kill []core.StaleProc
 	for _, p := range stale {
-		args := core.ProcArgs(p.Pid)
+		args := core.ProcArgs(p.PID)
 		switch {
 		case p.Role == "mirror" && len(args) >= 4 && paneOf[args[2]] != "":
-			if dtmux("respawn-pane", "-k", "-t", paneOf[args[2]], selfCommand("mirror", args[2], args[3])).Run() == nil {
+			if dtmux("respawn-pane", "-k", "-t", paneOf[args[2]], selfCommandExe(exe, "mirror", args[2], args[3])).Run() == nil {
 				res.Mirrors++
 				continue
 			}
@@ -68,11 +74,17 @@ func RelaunchShell() (RelaunchResult, error) {
 
 	// layout-watch (et vignettes sans pane) : arrêt propre puis arrêt forcé, relance pour leur fenêtre
 	if len(kill) > 0 {
-		args := relaunchTerminate(kill, relaunchGrace)
+		argv := map[int][]string{}
 		for _, p := range kill {
-			a := args[p.Pid]
+			argv[p.PID] = core.ProcArgs(p.PID) // relus avant l'arrêt
+		}
+		core.TermProcs(kill)
+		relaunchGrace()
+		core.KillSurvivors(kill)
+		for _, p := range kill {
+			a := argv[p.PID]
 			if p.Role == "layout-watch" && len(a) >= 3 {
-				if dtmux("run-shell", "-b", selfCommand(a[1:]...)).Run() == nil {
+				if dtmux("run-shell", "-b", selfCommandExe(exe, a[1:]...)).Run() == nil {
 					res.Watchers++
 				}
 			}
