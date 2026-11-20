@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -503,6 +504,10 @@ func (m model) createProject() (tea.Model, tea.Cmd) {
 		job := &cloneJob{step: "préparation", cancel: cancel, undo: undo, dir: dir}
 		m.job = job
 		m.form.mode, m.form.err = formCloning, ""
+		if err := core.RegisterClone(dir, f.url, m.formImage()); err != nil { // posée AVANT le clonage (fermé si le registre est illisible)
+			cancel()
+			return fail("registre d'approbation : " + err.Error())
+		}
 		auth := core.CloneAuth{Token: m.cfg.GithubToken, Backend: f.ctrBe}
 		url := f.url
 		run := func() tea.Msg {
@@ -829,37 +834,79 @@ func (m model) onTrustKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// wrapText : s coupé en lignes d'au plus w colonnes (jamais tronqué : une commande exécutée se lit en entier).
+func wrapText(s string, w int) []string {
+	if w < 8 {
+		w = 8
+	}
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		r := []rune(line)
+		if len(r) == 0 {
+			out = append(out, "")
+		}
+		for len(r) > 0 {
+			n := min(len(r), w)
+			out = append(out, string(r[:n]))
+			r = r[n:]
+		}
+	}
+	return out
+}
+
 // renderTrust : la question — ce que le dépôt demande, le risque, les fichiers bruts (v). Tout texte du dépôt passe
-// par core.SafeTerminalText : jamais de séquence de terminal.
+// par core.SafeTerminalText (jamais de séquence de terminal) puis est RETOURNÉ à la ligne, jamais tronqué.
 func (m model) renderTrust(w int) string {
 	f := m.form
 	t := f.trust
 	var sb strings.Builder
-	sb.WriteString(" " + core.Orange.Render("⚠ Environnement d'un dépôt cloné : "+core.SafeTerminalText(f.name)) + "\n")
-	sb.WriteString(" " + core.Dim.Render("source : ") + shorten(core.SafeTerminalText(t.Source), w-12) + "\n\n")
+	put := func(indent, text string) {
+		for _, l := range wrapText(core.SafeTerminalText(text), w-len([]rune(indent))-1) {
+			sb.WriteString(indent + l + "\n")
+		}
+	}
+	title := "⚠ Environnement d'un dépôt cloné : " + core.SafeTerminalText(f.name)
+	sb.WriteString(" " + core.Orange.Render(title) + "\n")
+	if t.Changed {
+		sb.WriteString(" " + core.Red.Render("l'environnement du dépôt a changé depuis l'approbation") + "\n")
+	}
+	sb.WriteString(" " + core.Dim.Render("source :") + "\n")
+	put("  ", t.Source)
+	sb.WriteString("\n")
 	if f.trustRaw {
 		for _, name := range []string{"env.yaml", "env-template.yaml"} {
 			if txt := t.Files[name]; txt != "" {
 				sb.WriteString(" " + core.Cyan.Render(name) + "\n")
-				for _, l := range strings.Split(core.SafeTerminalText(txt), "\n") {
-					sb.WriteString("  " + shorten(l, w-4) + "\n")
-				}
+				put("  ", txt)
 			}
 		}
 	} else {
 		sp := t.Spec
-		line := func(label string, items []string) {
+		list := func(label string, items []string) {
 			if len(items) > 0 {
 				sb.WriteString(" " + core.Dim.Render(label) + "\n")
 				for _, it := range items {
-					sb.WriteString("   " + shorten(core.SafeTerminalText(it), w-5) + "\n")
+					put("   ", it)
 				}
 			}
 		}
-		sb.WriteString(" " + core.Dim.Render("image : ") + core.SafeTerminalText(sp.Image) + core.Dim.Render("   (choisie à la création : "+core.OrQ(core.SafeTerminalText(t.ChosenImage))+")") + "\n")
-		line("paquets :", sp.Packages)
-		line("setup (exécuté) :", sp.Setup)
-		line("on_start (exécuté à chaque démarrage) :", sp.OnStart)
+		sb.WriteString(" " + core.Dim.Render("image :") + "\n")
+		put("   ", sp.Image+"   (choisie à la création : "+core.OrQ(t.ChosenImage)+")")
+		list("paquets :", sp.Packages)
+		var byMgr []string
+		for mgr, l := range sp.PackagesByManager {
+			byMgr = append(byMgr, mgr+" : "+strings.Join(l, " "))
+		}
+		sort.Strings(byMgr)
+		list("paquets par gestionnaire :", byMgr)
+		list("setup (exécuté une fois) :", sp.Setup)
+		list("on_start (exécuté à chaque démarrage) :", sp.OnStart)
+		list("watch (setup rejoué si ces fichiers changent) :", sp.Watch)
+		list("local (dossiers privés au conteneur) :", sp.Local)
+		if sp.Prefer != "" {
+			sb.WriteString(" " + core.Dim.Render("prefer :") + "\n")
+			put("   ", sp.Prefer)
+		}
 		var mts []string
 		for _, mt := range sp.Mounts {
 			mode := "lecture seule"
@@ -868,12 +915,17 @@ func (m model) renderTrust(w int) string {
 			}
 			mts = append(mts, mt.Path+"  ("+mode+")")
 		}
-		line("montages :", mts)
-		sb.WriteString("\n " + core.Red.Render(fmt.Sprintf("%d commande(s) exécutée(s), %d montage(s) hors du projet", t.Risk.Exec, t.Risk.HostMounts)) + "\n")
+		list("montages :", mts)
+		r := t.Risk
+		sb.WriteString("\n")
+		for _, l := range wrapText(fmt.Sprintf("risque : %d commande(s) exécutée(s), %d montage(s) hors du projet, %d paquet(s), %d watch, %d local",
+			r.Exec, r.HostMounts, r.Packages, r.Watch, r.Local), w-2) {
+			sb.WriteString(" " + core.Red.Render(l) + "\n")
+		}
 	}
 	if f.err != "" {
 		sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")
 	}
-	sb.WriteString("\n " + core.Dim.Render("a accepter (définitif) · s ouvrir sans · v fichiers bruts · Échap annuler"))
+	sb.WriteString("\n " + core.Dim.Render("a accepter · s ouvrir sans · v fichiers bruts · Échap annuler"))
 	return truncLines(sb.String(), w)
 }

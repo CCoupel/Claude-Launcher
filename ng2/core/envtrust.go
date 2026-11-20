@@ -5,8 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -16,8 +18,9 @@ import (
 // Un dépôt cloné n'est pas de confiance : son .claude-launcher/env.yaml et env-template.yaml (image, paquets, setup,
 // on_start, mounts…) ne sont jamais appliqués sans accord. Le registre trust.json vit dans le dossier de config du
 // launcher — JAMAIS dans le projet, qu'un dépôt pourrait fournir : un marqueur posé par le dépôt est sans effet.
-// Choix définitif : accepted / ignored ne sont plus remis en question par une modification ultérieure des fichiers ;
-// seule l'action « Revoir » remet l'entrée à pending.
+// L'empreinte (sha) approuvée est comparée à chaque ouverture : si env.yaml / env-template.yaml a changé depuis
+// l'approbation (accepted, ignored ou none), la question revient (état pending), sans afficher de différences. Les
+// écritures du launcher lui-même (F2, réglages) mettent l'empreinte à jour. Un registre illisible échoue FERMÉ.
 
 // TrustState : état d'approbation. TrustTrusted = pas d'entrée (projets existants, vide, template).
 type TrustState string
@@ -27,10 +30,18 @@ const (
 	TrustPending  TrustState = "pending"
 	TrustAccepted TrustState = "accepted"
 	TrustIgnored  TrustState = "ignored"
+	TrustNone     TrustState = "none" // projet cloné sans fichier d'environnement : un env.yaml qui apparaît ensuite → pending
 )
 
-// ErrEnvNotApproved : l'environnement du dépôt cloné n'est pas encore approuvé.
+// ErrEnvNotApproved : l'environnement du dépôt cloné n'est pas approuvé (jamais approuvé, changé depuis, ou registre
+// illisible).
 var ErrEnvNotApproved = errors.New("environnement du dépôt cloné non approuvé : ouvrir le projet pour l'examiner")
+
+// ErrEnvChanged : l'environnement a changé depuis l'approbation (errors.Is ErrEnvNotApproved).
+var ErrEnvChanged = fmt.Errorf("%w — l'environnement du dépôt a changé depuis l'approbation", ErrEnvNotApproved)
+
+// ErrTrustBroken : trust.json présent mais illisible — jamais réécrit, tout projet portant un environnement est refusé.
+var ErrTrustBroken = fmt.Errorf("%w — trust.json illisible (le restaurer depuis trust.json.bak ou le supprimer)", ErrEnvNotApproved)
 
 // TrustEntry : une ligne du registre.
 type TrustEntry struct {
@@ -46,56 +57,103 @@ func trustPath() string { return filepath.Join(Ng2ConfigDir(), "trust.json") }
 var (
 	trustMu    sync.Mutex
 	trustCache struct {
-		path  string
-		mtime time.Time
-		size  int64
-		m     map[string]TrustEntry
+		path    string
+		mtime   time.Time
+		size    int64
+		m       map[string]TrustEntry
+		corrupt bool
+		valid   bool
 	}
 )
 
-// readTrust : registre complet (mémorisé tant que le fichier ne change pas : LoadEnv est appelé souvent).
-func readTrust() map[string]TrustEntry {
+// readTrust : registre complet et drapeau « illisible » (fichier présent mais vide ou non analysable). Mémorisé tant
+// que le fichier ne change pas : LoadEnv est appelé souvent.
+func readTrust() (map[string]TrustEntry, bool) {
 	trustMu.Lock()
 	defer trustMu.Unlock()
 	p := trustPath()
 	st, err := os.Stat(p)
 	if err != nil {
-		trustCache.path, trustCache.m = p, nil
-		return nil
+		trustCache.path, trustCache.valid = p, false
+		return nil, false
 	}
-	if trustCache.path == p && trustCache.m != nil && st.ModTime().Equal(trustCache.mtime) && st.Size() == trustCache.size {
-		return trustCache.m
+	if trustCache.valid && trustCache.path == p && st.ModTime().Equal(trustCache.mtime) && st.Size() == trustCache.size {
+		return trustCache.m, trustCache.corrupt
 	}
 	m := map[string]TrustEntry{}
-	if b, err := os.ReadFile(p); err == nil {
-		_ = json.Unmarshal(b, &m)
+	corrupt := false
+	if b, err := os.ReadFile(p); err != nil || len(strings.TrimSpace(string(b))) == 0 || json.Unmarshal(b, &m) != nil {
+		m, corrupt = nil, true
 	}
-	trustCache.path, trustCache.mtime, trustCache.size, trustCache.m = p, st.ModTime(), st.Size(), m
-	return m
+	trustCache.path, trustCache.mtime, trustCache.size = p, st.ModTime(), st.Size()
+	trustCache.m, trustCache.corrupt, trustCache.valid = m, corrupt, true
+	return m, corrupt
+}
+
+// rawEntry : entrée du registre pour proj ; registre illisible + projet portant un environnement → entrée pending
+// synthétique (échec fermé) ; broken le dit.
+func rawEntry(proj string) (e TrustEntry, ok, broken bool) {
+	m, corrupt := readTrust()
+	if corrupt {
+		if HasEnv(proj) {
+			return TrustEntry{State: TrustPending}, true, true
+		}
+		return TrustEntry{}, false, true
+	}
+	e, ok = m[RemotePath(proj)]
+	return e, ok, false
+}
+
+// effectiveTrust : entrée et état EFFECTIF — pending aussi quand l'empreinte approuvée ne correspond plus aux
+// fichiers (changed) ou que le registre est illisible (broken).
+func effectiveTrust(proj string) (e TrustEntry, st TrustState, changed, broken bool) {
+	e, ok, broken := rawEntry(proj)
+	if !ok {
+		return e, TrustTrusted, false, broken
+	}
+	switch e.State {
+	case TrustAccepted, TrustIgnored, TrustNone:
+		if e.SHA != EnvFilesSHA(proj) {
+			return e, TrustPending, true, false
+		}
+		return e, e.State, false, false
+	}
+	return e, TrustPending, false, broken
 }
 
 func envTrustEntry(proj string) (TrustEntry, bool) {
-	e, ok := readTrust()[RemotePath(proj)]
+	e, ok, _ := rawEntry(proj)
 	return e, ok
 }
 
 // EnvTrustEntry : entrée du registre pour le projet (absent : de confiance).
 func EnvTrustEntry(proj string) (TrustEntry, bool) { return envTrustEntry(proj) }
 
-// EnvTrust : état d'approbation du projet (TrustTrusted : pas d'entrée).
+// EnvTrust : état d'approbation EFFECTIF du projet (TrustTrusted : pas d'entrée ; pending aussi si les fichiers ont
+// changé depuis l'approbation, ou si le registre est illisible).
 func EnvTrust(proj string) TrustState {
-	if e, ok := envTrustEntry(proj); ok && e.State != "" {
-		return e.State
-	}
-	return TrustTrusted
+	_, st, _, _ := effectiveTrust(proj)
+	return st
 }
 
-// setTrust : lire-modifier-écrire du registre sous verrou, écriture atomique ; e nil : entrée retirée.
+// EnvTrustChanged : la question revient parce que les fichiers ont changé depuis l'approbation.
+func EnvTrustChanged(proj string) bool {
+	_, _, ch, _ := effectiveTrust(proj)
+	return ch
+}
+
+// setTrust : lire-modifier-écrire du registre sous verrou, écriture atomique, copie .bak avant chaque écriture ; un
+// registre illisible n'est JAMAIS réécrit (ErrTrustBroken). e nil : entrée retirée.
 func setTrust(proj string, e *TrustEntry) error {
 	return WithFileLock(trustPath(), func() error {
 		m := map[string]TrustEntry{}
-		if b, err := os.ReadFile(trustPath()); err == nil {
-			_ = json.Unmarshal(b, &m)
+		if raw, err := os.ReadFile(trustPath()); err == nil {
+			if len(strings.TrimSpace(string(raw))) == 0 || json.Unmarshal(raw, &m) != nil {
+				return ErrTrustBroken
+			}
+			if err := WriteFileAtomic(trustPath()+".bak", raw, 0o600); err != nil {
+				return err
+			}
 		}
 		if e == nil {
 			delete(m, RemotePath(proj))
@@ -105,10 +163,33 @@ func setTrust(proj string, e *TrustEntry) error {
 		b, _ := json.MarshalIndent(m, "", "  ")
 		err := WriteFileAtomic(trustPath(), b, 0o600)
 		trustMu.Lock()
-		trustCache.m = nil // relu au prochain accès (la date et la taille peuvent ne pas changer)
+		trustCache.valid = false // relu au prochain accès (la date et la taille peuvent ne pas changer)
 		trustMu.Unlock()
 		return err
 	})
+}
+
+// withTrustRefresh : exécute write (écriture de env.yaml PAR LE LAUNCHER : F2, réglages) ; si l'empreinte approuvée
+// correspondait avant l'écriture, elle suit l'écriture (pas de re-demande) — jamais si les fichiers avaient déjà été
+// changés par le dépôt. Pour un projet ignoré, le socle gardé suit aussi.
+func withTrustRefresh(proj string, write func() error) error {
+	ent, st, _, broken := effectiveTrust(proj)
+	track := !broken && (st == TrustAccepted || st == TrustIgnored || st == TrustNone)
+	if !track {
+		return write()
+	}
+	err := write()
+	if err != nil {
+		return err
+	}
+	ent.SHA = EnvFilesSHA(proj)
+	if ent.State == TrustIgnored {
+		if e, lerr := loadEnvRaw(proj); lerr == nil && e.Image != "" {
+			ent.Image = e.Image
+		}
+	}
+	_ = setTrust(proj, &ent)
+	return nil
 }
 
 // EnvFilesSHA : SHA-256 du contenu de env-template.yaml puis env.yaml (absent = vide).
@@ -123,19 +204,30 @@ func EnvFilesSHA(proj string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// MarkEnvPending : fin d'un clonage réussi — si le dépôt cloné porte env.yaml ou env-template.yaml, l'entrée
-// « pending » est écrite (source = URL, image = socle choisi). Rend vrai si une entrée a été écrite.
-func MarkEnvPending(proj, source, image string) (bool, error) {
-	if !HasEnv(proj) {
-		return false, nil
-	}
-	return true, setTrust(proj, &TrustEntry{State: TrustPending, SHA: EnvFilesSHA(proj), Source: source, Image: image,
+// RegisterClone : AVANT le clonage — l'entrée pending du projet (un clone interrompu ne devient jamais de confiance).
+// Retirée par l'undo de la création si elle échoue (CreateProjectDir).
+func RegisterClone(proj, source, image string) error {
+	return setTrust(proj, &TrustEntry{State: TrustPending, SHA: EnvFilesSHA(proj), Source: source, Image: image,
 		At: time.Now().UTC().Format(time.RFC3339)})
+}
+
+// MarkEnvPending : fin d'un clonage réussi — l'entrée du projet cloné est écrite : « pending » si le dépôt porte
+// env.yaml ou env-template.yaml (rend vrai), sinon « none » (aucun environnement ; un env.yaml qui apparaît ensuite
+// → pending). source = URL, image = socle choisi.
+func MarkEnvPending(proj, source, image string) (bool, error) {
+	e := TrustEntry{State: TrustNone, SHA: EnvFilesSHA(proj), Source: source, Image: image, At: time.Now().UTC().Format(time.RFC3339)}
+	if HasEnv(proj) {
+		e.State = TrustPending
+	}
+	return e.State == TrustPending, setTrust(proj, &e)
 }
 
 // ReviewEnvTrust : « Revoir » — remet à pending l'entrée d'un projet cloné (la question revient à la prochaine ouverture).
 func ReviewEnvTrust(proj string) error {
-	e, ok := envTrustEntry(proj)
+	e, ok, broken := rawEntry(proj)
+	if broken {
+		return ErrTrustBroken
+	}
 	if !ok {
 		return errors.New("projet de confiance : rien à revoir")
 	}
@@ -168,6 +260,9 @@ type EnvTrustSpec struct {
 type EnvTrustRisk struct {
 	Exec       int `json:"exec"`
 	HostMounts int `json:"hostMounts"`
+	Packages   int `json:"packages"` // paquets installés (packages + packages_by_manager)
+	Watch      int `json:"watch"`
+	Local      int `json:"local"`
 }
 
 // EnvTrustInfo : charge utile d'envTrustInfo et de l'évènement envTrust. Les textes sont rendus TELS QUELS : l'interface
@@ -175,6 +270,7 @@ type EnvTrustRisk struct {
 type EnvTrustInfo struct {
 	Path        string            `json:"path"`
 	State       TrustState        `json:"state"`
+	Changed     bool              `json:"changed"` // la question revient : les fichiers ont changé depuis l'approbation (aucune différence affichée)
 	Source      string            `json:"source"`
 	SHA         string            `json:"sha"`
 	ChosenImage string            `json:"chosenImage"`
@@ -198,11 +294,11 @@ func readLimited(p string) string {
 
 // EnvTrustInfoFor : la question pour proj (entrée du registre, fichiers bruts, spécification, risque).
 func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
-	ent, ok := envTrustEntry(proj)
-	if !ok {
+	ent, st, changed, _ := effectiveTrust(proj)
+	if st != TrustPending {
 		return EnvTrustInfo{}, errors.New("aucune approbation en attente")
 	}
-	info := EnvTrustInfo{Path: proj, State: ent.State, Source: ent.Source, SHA: EnvFilesSHA(proj), ChosenImage: ent.Image,
+	info := EnvTrustInfo{Path: proj, State: TrustPending, Changed: changed, Source: ent.Source, SHA: EnvFilesSHA(proj), ChosenImage: ent.Image,
 		Files: map[string]string{
 			"env.yaml":          readLimited(EnvPath(proj)),
 			"env-template.yaml": readLimited(envTemplatePath(proj)),
@@ -230,6 +326,11 @@ func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
 			}
 		}
 		info.Risk.Exec = len(e.Setup) + len(e.OnStart)
+		info.Risk.Packages = len(e.Packages)
+		for _, l := range e.PackagesByManager {
+			info.Risk.Packages += len(l)
+		}
+		info.Risk.Watch, info.Risk.Local = len(e.Watch), len(e.Local)
 	}
 	return info, nil
 }
@@ -237,8 +338,11 @@ func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
 // AnswerEnvTrust : réponse à la question. choice : accept (accepted, définitif), ignore (ignored : socle choisi seul),
 // cancel (rien n'est écrit). sha : celui d'EnvTrustInfoFor ; fichier modifié pendant la question → retry.
 func AnswerEnvTrust(proj, choice, sha string) (retry bool, err error) {
-	ent, ok := envTrustEntry(proj)
-	if !ok || ent.State != TrustPending {
+	ent, st, _, broken := effectiveTrust(proj)
+	if broken {
+		return false, ErrTrustBroken
+	}
+	if st != TrustPending {
 		return false, errors.New("aucune approbation en attente")
 	}
 	switch choice {
@@ -259,6 +363,16 @@ func AnswerEnvTrust(proj, choice, sha string) (retry bool, err error) {
 	return false, setTrust(proj, &ent)
 }
 
+// invisibleRune : caractères invisibles ou de réorganisation bidirectionnelle (« Trojan Source ») : zéro largeur,
+// marques et surcharges directionnelles, isolats, marque de lettre arabe, BOM.
+func invisibleRune(r rune) bool {
+	switch {
+	case r >= 0x200B && r <= 0x200F, r >= 0x202A && r <= 0x202E, r >= 0x2066 && r <= 0x2069:
+		return true
+	}
+	return r == 0x061C || r == 0xFEFF
+}
+
 // SafeTerminalText : texte du dépôt rendu sans séquence de terminal ni caractère de contrôle (ESC, C0, C1, DEL) : les
 // retours à la ligne et tabulations sont gardés, le reste devient « · ». À utiliser avant tout affichage en terminal.
 func SafeTerminalText(s string) string {
@@ -269,7 +383,7 @@ func SafeTerminalText(s string) string {
 			b = append(b, r)
 		case r == '\r':
 			b = append(b, '\n')
-		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f):
+		case r < 0x20 || r == 0x7f || (r >= 0x80 && r <= 0x9f) || invisibleRune(r):
 			b = append(b, '·')
 		default:
 			b = append(b, r)

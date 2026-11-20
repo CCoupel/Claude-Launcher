@@ -871,24 +871,32 @@ Un dépôt cloné n'est pas de confiance : son `.claude-launcher/env.yaml` et so
 
 **Registre `trust.json`** (dossier de config du launcher, à côté de `projects.json` ; **jamais dans le projet**, qu'un
 dépôt pourrait fournir) — clés = chemin du projet vu des backends (`RemotePath`, comme `projects.json`), écriture
-atomique sous `WithFileLock` :
+atomique sous `WithFileLock`, **copie `trust.json.bak` avant chaque écriture** :
 ```json
-{ "/share/…/INFRA/supervision-k8s": { "state": "pending" | "accepted" | "ignored", "sha": "<sha256>",
+{ "/share/…/INFRA/supervision-k8s": { "state": "pending" | "accepted" | "ignored" | "none", "sha": "<sha256>",
   "source": "https://github.com/CCoupel/supervision-k8s.git", "image": "debian:12", "at": "2026-11-20T10:00:00Z" } }
 ```
-- `sha` : SHA-256 du contenu de `env-template.yaml` puis `env.yaml` (absent = vide) au moment de la question — sert
-  seulement au contrôle de `envTrustAnswer` (fichier modifié pendant la question) ; `image` : socle choisi à la
-  création (gardé par « Ouvrir sans »).
-- **Choix définitif (H4, décision utilisateur)** : une fois `accepted` ou `ignored`, l'entrée n'est plus remise en
-  question par une modification ultérieure des fichiers (`git pull`, édition) ; seule l'action « Revoir » des réglages
-  la remet à `pending`.
-- Écrit à la fin d'un `create` `source: git` **réussi** si le clone contient l'un des deux fichiers (`state: pending`). Pas d'entrée = projet de confiance (projets
-  existants, `empty`, `template`) — aucun changement pour eux.
+- `sha` : SHA-256 du contenu de `env-template.yaml` puis `env.yaml` (absent = vide). **Comparé à chaque ouverture.**
+- `image` : socle choisi à la création (gardé par « Ouvrir sans »).
+- **TOUT projet cloné est enregistré** : l'entrée `pending` est posée **avant** le clonage (un clone interrompu ne devient
+  jamais de confiance ; retirée par l'annulation de la création si le clonage échoue), puis, à la fin d'un clonage
+  réussi, elle reste `pending` si le dépôt porte `env.yaml` / `env-template.yaml`, ou devient **`none`** (aucun
+  environnement ; `sha` des fichiers absents). Pas d'entrée = projet de confiance (projets existants, `empty`, `template`).
+- **Re-demande sur changement d'empreinte (décision utilisateur, remplace « choix définitif »)** : état effectif =
+  `pending` dès que `sha` ≠ empreinte actuelle des fichiers, pour `accepted`, `ignored` **et `none`** (un `env.yaml`
+  qui apparaît après un `git pull` est redemandé). **Aucune différence n'est affichée** : la question présente
+  l'environnement courant (`changed: true` dit seulement « a changé depuis l'approbation »). Les écritures de
+  `env.yaml` **faites par le launcher lui-même** (F2, réglages du projet) mettent `sha` à jour — sauf si les fichiers
+  avaient déjà été modifiés par le dépôt avant l'écriture (jamais béni). « Revoir » remet l'entrée à `pending`.
+- **Échec fermé** : `trust.json` présent mais vide ou illisible → tout projet portant un environnement est `pending`
+  (`ErrTrustBroken`, qui est aussi `ErrEnvNotApproved`), le fichier n'est **jamais réécrit** (toute écriture est
+  refusée) ; restaurer `trust.json.bak` ou supprimer le fichier. Un projet sans environnement n'est pas concerné.
 
-**`core.EnvTrust(path)`** → `trusted` (pas d'entrée) | `pending` | `accepted` | `ignored` (pas d'état `changed`).
-**`LoadEnv`** : `ignored` → `EnvSpec{Image: entrée.image}` seul (rien d'autre du dépôt) ; `pending` → refus
-(`ErrEnvNotApproved`) pour toute préparation de conteneur. Projet affecté à l'**hôte** : aucune question (env.yaml
-inutilisé) ; elle vient au premier passage en conteneur (F2) ou à l'ouverture en conteneur.
+**`core.EnvTrust(path)`** → état effectif : `trusted` (pas d'entrée) | `pending` | `accepted` | `ignored` | `none`.
+**`LoadEnv`** : `pending` → refus (`ErrEnvNotApproved` ; `ErrEnvChanged` quand l'empreinte a changé) pour toute
+préparation de conteneur ; `ignored` (empreinte à jour) → `EnvSpec{Image: entrée.image}` seul (rien d'autre du dépôt).
+Projet affecté à l'**hôte** : aucune question (env.yaml inutilisé) ; elle vient au premier passage en conteneur (F2) ou
+à l'ouverture en conteneur.
 
 ### `open` **[CHANGED]** — garde d'approbation
 
@@ -904,17 +912,23 @@ Projet en conteneur et `EnvTrust` = `pending` : rien n'est démarré, résultat
   "spec": { "image": "…", "packages": [], "packagesByManager": {}, "setup": [], "onStart": [], "watch": [],
             "mounts": [ { "path": "/var/run/docker.sock", "ro": false } ], "local": [], "prefer": "" },
   "files": { "env.yaml": "<texte>", "env-template.yaml": "" },
-  "risk": { "exec": 3, "hostMounts": 1 } }
+  "changed": false,
+  "risk": { "exec": 3, "hostMounts": 1, "packages": 4, "watch": 1, "local": 1 } }
 ```
-`risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet.
-Textes affichés tels quels, échappés (jamais interprétés en HTML ni en séquences de terminal).
+`risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet, `risk.packages` =
+paquets installés (`packages` + `packages_by_manager`), `risk.watch` / `risk.local` = entrées `watch` / `local`.
+`changed` : la question revient parce que les fichiers ont changé depuis l'approbation (message « l'environnement du
+dépôt a changé depuis l'approbation », sans différences). Textes affichés tels quels, échappés (jamais interprétés en
+HTML ; en terminal : ESC, C0, C1, DEL **et caractères invisibles ou bidirectionnels** U+200B–200F, U+202A–202E,
+U+2066–2069, U+061C, U+FEFF remplacés par `·`, texte retourné à la ligne, jamais tronqué : une commande exécutée se lit
+en entier).
 
 ### `envTrustAnswer` **[NEW]**
 
 Arguments : `{ "path", "choice": "accept" | "ignore" | "cancel", "sha": "<sha de envTrustInfo>" }`.
 - `sha` différent du contenu actuel (fichier modifié pendant la question) : `{ "ok": false, "msg": "l'environnement a
   encore changé", "retry": true }` — l'interface recharge `envTrustInfo`.
-- `accept` → `state: accepted` (définitif), puis ouverture ; `ignore` → `state: ignored`, ouverture avec le seul
+- `accept` → `state: accepted` (empreinte courante), puis ouverture ; `ignore` → `state: ignored`, ouverture avec le seul
   socle `image` ; `cancel` → rien n'est écrit, rien n'est ouvert.
 - Résultat : comme `open` (`{ "tab" }`) ou `{ "ok": true }` pour `cancel`.
 

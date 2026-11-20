@@ -353,6 +353,9 @@ func CreateProjectDir(roots []string, base, category string, newCategory bool, n
 		if Assigned(dir) {    // affectation écrite par ApplyExec : aucune entrée ne reste dans projects.json (#215)
 			_ = WriteAssignment(dir, "")
 		}
+		if _, ok := envTrustEntry(dir); ok { // entrée d'approbation posée avant le clonage : retirée avec le projet
+			_ = setTrust(dir, nil)
+		}
 		return full()
 	}
 	if realBase, e1 := filepath.EvalSymlinks(b); e1 != nil {

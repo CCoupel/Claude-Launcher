@@ -116,16 +116,22 @@ func parseEnvFile(b []byte, name string) (EnvSpec, error) {
 // Aucun des deux : erreur « fichier absent » (os.IsNotExist). Projet cloné (registre trust.json, envtrust.go) :
 // « pending » → ErrEnvNotApproved, « ignored » → le seul socle choisi à la création, rien d'autre du dépôt.
 func LoadEnv(proj string) (EnvSpec, error) {
-	if ent, ok := envTrustEntry(proj); ok {
-		switch ent.State {
-		case TrustPending:
-			return EnvSpec{}, ErrEnvNotApproved
-		case TrustIgnored:
-			if ent.Image == "" {
-				return EnvSpec{}, fmt.Errorf("« image » manquante (environnement du dépôt ignoré, aucun socle choisi)")
-			}
-			return EnvSpec{Image: ent.Image}, nil
+	ent, st, changed, broken := effectiveTrust(proj)
+	switch {
+	case broken:
+		if st == TrustPending {
+			return EnvSpec{}, ErrTrustBroken
 		}
+	case st == TrustPending:
+		if changed {
+			return EnvSpec{}, ErrEnvChanged
+		}
+		return EnvSpec{}, ErrEnvNotApproved
+	case st == TrustIgnored:
+		if ent.Image == "" {
+			return EnvSpec{}, fmt.Errorf("« image » manquante (environnement du dépôt ignoré, aucun socle choisi)")
+		}
+		return EnvSpec{Image: ent.Image}, nil
 	}
 	return loadEnvRaw(proj)
 }
@@ -758,7 +764,9 @@ func Assigned(proj string) bool {
 // setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
 // env.yaml absent (template seul, ou rien) : créé avec ce socle.
 func setEnvImage(proj, img string) error {
-	return WithFileLock(EnvPath(proj), func() error { return setEnvImageLocked(proj, img) })
+	return withTrustRefresh(proj, func() error {
+		return WithFileLock(EnvPath(proj), func() error { return setEnvImageLocked(proj, img) })
+	})
 }
 
 func setEnvImageLocked(proj, img string) error {

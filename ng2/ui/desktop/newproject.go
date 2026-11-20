@@ -221,6 +221,11 @@ func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *
 			a.setJob(id, func(j *createJob) { j.State, j.Msg = "failed", msg+" — "+note })
 			a.holdJob(id)
 		}
+		// entrée d'approbation posée AVANT le clonage : un clone interrompu ne devient jamais de confiance (retirée par undo)
+		if err := core.RegisterClone(dir, in.URL, in.Image); err != nil {
+			fail("registre d'approbation : " + err.Error())
+			return
+		}
 		auth := core.CloneAuth{Token: a.conf().GithubToken, Backend: in.Backend}
 		err := core.CloneProject(ctx, in.URL, dir, auth, func(step string, pct int) {
 			a.setJob(id, func(j *createJob) { j.Step, j.Pct = step, pct })

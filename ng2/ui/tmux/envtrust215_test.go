@@ -93,3 +93,49 @@ func TestApprobationEchappeLesSequences215(t *testing.T) {
 		}
 	}
 }
+
+// t3 : une commande exécutée longue est retournée à la ligne, jamais tronquée ; t4 : packages_by_manager, watch,
+// local, prefer et le risque sont affichés ; changement depuis l'approbation signalé sans différences.
+func TestRenduApprobationCommandeEntiereEtChamps215(t *testing.T) {
+	long := "curl -fsSL https://exemple.invalid/installer.sh | sh -s -- --token=" + strings.Repeat("abcdef0123", 12) + " --fin-de-commande"
+	m, d := trustModel(t, "image: debian:12\nsetup:\n  - \""+long+"\"\npackages_by_manager:\n  apt: [libx, liby]\nwatch: [go.mod]\nlocal: [node_modules]\nprefer: srv1-docker\n")
+	out := m.renderTrust(60)
+	flat := strings.ReplaceAll(out, "\n", "")
+	for _, l := range strings.Split(out, "\n") {
+		if n := len([]rune(l)); n > 60 {
+			t.Errorf("ligne de %d colonnes > 60 : %q", n, l)
+		}
+	}
+	if !strings.Contains(strings.ReplaceAll(flat, " ", ""), strings.ReplaceAll(long, " ", "")) {
+		t.Errorf("commande tronquée dans le rendu :\n%s", out)
+	}
+	for _, want := range []string{"apt : libx liby", "watch", "go.mod", "local", "node_modules", "prefer", "srv1-docker", "risque : 1 commande"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("rendu sans %q", want)
+		}
+	}
+	// vue fichiers bruts : aussi retournée à la ligne
+	m.form.trustRaw = true
+	raw := strings.ReplaceAll(strings.ReplaceAll(m.renderTrust(60), "\n", ""), " ", "")
+	if !strings.Contains(raw, strings.ReplaceAll(long, " ", "")) {
+		t.Error("commande tronquée dans la vue fichiers bruts")
+	}
+	// changement depuis l'approbation : message, pas de différence
+	m.form.trustRaw = false
+	info, _ := core.EnvTrustInfoFor(d)
+	_, _ = core.AnswerEnvTrust(d, "accept", info.SHA)
+	_ = os.WriteFile(core.EnvPath(d), []byte("image: debian:12\nsetup:\n  - evil\n"), 0o644)
+	m2 := model{}.startTrust(core.Node{Name: "proj", Path: d, Project: true}, launchNormal)
+	if m2.form.trust == nil || !m2.form.trust.Changed || !strings.Contains(m2.renderTrust(80), "a changé depuis l'approbation") {
+		t.Error("changement depuis l'approbation non signalé")
+	}
+}
+
+func TestCaracteresBidiAbsentsDuRendu215(t *testing.T) {
+	m, _ := trustModel(t, "image: debian:12\n")
+	m.form.trust.Spec.Setup = []string{"echo a‮b​c"}
+	out := m.renderTrust(80)
+	if strings.ContainsRune(out, '‮') || strings.ContainsRune(out, '​') {
+		t.Errorf("caractère bidi/invisible dans le rendu : %q", out)
+	}
+}
