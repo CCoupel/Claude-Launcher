@@ -1555,7 +1555,7 @@ function openModal(build) {
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
-function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
+function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); S.newDlg = null; $('nav').focus(); }
 $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {
@@ -1653,7 +1653,55 @@ const NEWCAT = '\u0000new';
 // « nouvelle catégorie » choisie sans nom : refus (sinon le projet serait créé à la racine de la base).
 const categoryError = (isNew, value) => (isNew && !String(value || '').trim() ? 'nom de catégorie requis' : '');
 
-// création d'un projet : base, catégorie, nom, source (vide ; Git et Template : LOT-2.2), exécution
+// Dépôt Git (#215). Fonctions pures testées par node (testdata/new_git.js).
+// 'https' | 'ssh' | 'bad' (file://, chemin local, option -…, schéma inconnu) | '' (vide).
+function gitUrlKind(u) {
+  u = String(u || '').trim(); if (!u) return '';
+  if (/^-/.test(u) || /\s/.test(u)) return 'bad';
+  if (/^https:\/\/[^/\s]+\/\S+/i.test(u)) return 'https';
+  if (/^ssh:\/\/[^/\s]+\/\S+/i.test(u) || /^[\w.-]+@[\w.-]+:\S+/.test(u)) return 'ssh';
+  return 'bad';
+}
+// nom du dossier proposé : dernier segment de l'URL sans « .git »
+function nameFromUrl(u) {
+  const m = String(u || '').trim().replace(/\/+$/, '').match(/([^/:]+?)(?:\.git)?$/);
+  return m ? m[1] : '';
+}
+// ligne d'authentification (présence seulement, jamais de valeur) : { ok, text }
+function authLine(auth, url, backend) {
+  const k = gitUrlKind(url), a = auth || {};
+  if (k === 'https') return a.token ? { ok: true, text: '🔑 jeton GitHub (config.conf) ✓' } : { ok: false, text: '⚠ dépôt public seulement — ajouter un jeton (⚙ config.conf)' };
+  if (k === 'ssh') {
+    const ks = a.sshKey || {};
+    return ks[backend] || ks.host ? { ok: true, text: '🔑 clé ssh du ' + (ks[backend] ? 'backend' : 'poste') + ' ✓' } : { ok: false, text: '⚠ pas de clé ssh — ajouter une clé (⚙ ce poste)' };
+  }
+  return { ok: true, text: k === 'bad' ? 'URL non acceptée (https://… ou git@hôte:chemin)' : '' };
+}
+// avancement du job (`newJob` de l'instantané) : { state, pct (0-100), label, msg }
+function jobView(j) {
+  if (!j) return null;
+  const steps = { clone: 'clonage', checkout: 'extraction', init: 'initialisation' };
+  const pct = Math.max(0, Math.min(100, Math.round(Number(j.pct) || 0)));
+  return { state: j.state || 'running', pct, label: (steps[j.step] || j.step || '…') + ' — ' + pct + ' %', msg: j.msg || '' };
+}
+// Proposition /init-project (évènement `initProposal`) : un bandeau par projet.
+function initProposalBar(path) {
+  if (!path) return;
+  const id = 'initprop-' + encodeURIComponent(path);
+  if ($(id)) return;
+  const name = String(path).split(/[\\/]/).filter(Boolean).pop() || path;
+  const b = el('div', 'lanbanner srv lbar g'); b.id = id;
+  b.textContent = '◆ ' + name + ' créé depuis le template — lancer /init-project ?';
+  b.append(el('span', 'sp'));
+  const answer = (run) => { b.remove(); call('initProposalAnswer', { path, run }).catch(() => {}); };
+  const yes = el('button', 'btn sm pri', 'Lancer /init-project'); yes.onclick = () => answer(true);
+  const no = el('button', 'btn sm', 'Plus tard'); no.onclick = () => answer(false);
+  b.append(yes, no); $('main').insertBefore(b, $('tabs'));
+}
+// Job de création en cours : l'instantané le pousse au dialogue ouvert (S.newDlg).
+function newJobSync(j) { S.newJob = j || null; if (S.newDlg) S.newDlg(S.newJob); }
+
+// création d'un projet : base, catégorie, nom, source (vide, dépôt Git, template), exécution
 // `pre` : dossier de l'arbre (base ou catégorie) à pré-sélectionner, '' sinon.
 async function newProject(pre) {
   const info = await call('newInfo', {});
@@ -1662,13 +1710,21 @@ async function newProject(pre) {
   openModal((b) => {
     b.append(el('h2', '', 'Nouveau projet'));
     const f = el('div', 'form');
-    // 1 · source : cartes (seule « Vide » active dans ce lot ; Git / Template au LOT-2.2)
+    // 1 · source : cartes Vide / Git / Template
     b.append(el('div', 'cap', '1 · Créer à partir de'));
     const cards = el('div', 'srccards');
-    for (const [t, d, on] of [['▢ Projet vide', 'Dossier, git init et remote facultatif (ou brut : CLAUDE.md minimal).', true], ['⎇ Dépôt Git', 'Clonage d\'une URL — bientôt.', false], ['◆ Template projet', 'Template du projet — bientôt.', false]]) {
-      const c = el('div', 'card' + (on ? ' on' : ' off')); c.append(el('h4', '', t), el('p', '', d)); cards.appendChild(c);
+    let src = 'empty';
+    const cardEls = {};
+    for (const [v, t, d] of [['empty', '▢ Projet vide', 'Dossier, git init et remote facultatif (ou brut : CLAUDE.md minimal).'], ['git', '⎇ Dépôt Git', 'Clonage d\'une URL. HTTPS : jeton de config.conf · ssh : clé du backend.'], ['template', '◆ Template projet', '/init-project proposé à la 1re ouverture.']]) {
+      const c = el('div', 'card'); c.append(el('h4', '', t), el('p', '', d)); c.onclick = () => setSrc(v); cards.appendChild(c); cardEls[v] = c;
     }
     b.appendChild(cards);
+    const urlBox = el('div', 'urlbox');
+    const url = el('input'); url.placeholder = 'https://github.com/moi/projet.git ou git@github.com:moi/projet.git';
+    const urlErr = el('div', 'fe err'); const auth = el('div', 'authline');
+    urlBox.append(el('label', 'l', 'URL du dépôt'), url, urlErr, auth);
+    const tplBox = el('div', 'urlbox dim'); tplBox.textContent = 'Template adopté : ' + (info.template || 'version inconnue') + ' — projet géré (git init), /init-project proposé à la première ouverture.';
+    b.append(urlBox, tplBox);
     b.append(el('div', 'cap', '2 · Emplacement'));
     const field = (label, ctl) => { f.append(el('label', '', label), ctl); const w = el('div', 'fe err'); f.append(el('span', ''), w); return w; };
     const base = el('select');
@@ -1704,10 +1760,29 @@ async function newProject(pre) {
     const kind = el('select');
     for (const [v, t] of [['g', 'géré : git init, /init-project au démarrage'], ['b', 'brut : dossier et CLAUDE.md minimal']]) { const o = el('option', '', t); o.value = v; kind.appendChild(o); }
     const remote = el('input'); remote.placeholder = 'git@github.com:moi/projet.git (facultatif)';
-    f.append(el('label', '', 'Type'), kind, el('label', '', 'Remote git'), remote);
+    const kindL = el('label', '', 'Type'), remoteL = el('label', '', 'Remote git');
+    f.append(kindL, kind, remoteL, remote);
     const ex = execFields(info, f);
+    let nameTouched = false;
+    const updAuth = () => { const a = authLine(info.auth, url.value, ex().backend || ''); auth.textContent = a.text; auth.className = 'authline ' + (a.ok ? 'ok' : 'warn'); };
+    const setSrc = (v) => {
+      src = v;
+      for (const k of Object.keys(cardEls)) cardEls[k].classList.toggle('on', k === v);
+      urlBox.classList.toggle('hidden', v !== 'git'); tplBox.classList.toggle('hidden', v !== 'template');
+      for (const x of [kindL, kind]) x.classList.toggle('hidden', v !== 'empty');
+      for (const x of [remoteL, remote]) x.classList.toggle('hidden', v === 'git');
+      if (v === 'git') { updAuth(); setTimeout(() => url.focus(), 0); }
+    };
+    url.oninput = () => {
+      urlErr.textContent = ''; updAuth();
+      if (!nameTouched) { name.value = nameFromUrl(url.value); nameErr.textContent = ''; upd(); }
+    };
+    f.addEventListener('change', updAuth);
+    name.addEventListener('input', () => { nameTouched = true; });
+    setSrc('empty');
     kind.onchange = () => { remote.disabled = kind.value === 'b'; };
     b.appendChild(f);
+    const prog = el('div', 'newprog hidden'); b.appendChild(prog);
     const err = el('div', 'err'); b.appendChild(err);
     const btns = el('div', 'btns');
     const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
@@ -1721,12 +1796,43 @@ async function newProject(pre) {
       err.textContent = ''; baseErr.textContent = catErr.textContent = nameErr.textContent = '';
       const ce = categoryError(cat.value === NEWCAT, catNew.value);
       if (ce) { catErr.textContent = ce; catNew.focus(); return; }
+      if (src === 'git') {
+        const k = gitUrlKind(url.value);
+        if (k === '' || k === 'bad') { urlErr.textContent = k ? 'URL non acceptée (https://… ou git@hôte:chemin)' : 'URL du dépôt requise'; url.focus(); return; }
+      }
+      const args = { base: base.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value, source: src };
+      if (src === 'git') args.url = url.value.trim(); else { args.raw = src === 'empty' && kind.value === 'b'; args.remote = remote.value; }
       try {
-        const r = await transport.call('create', Object.assign({ base: base.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value, source: 'empty', raw: kind.value === 'b', remote: remote.value }, ex()));
+        const r = await transport.call('create', Object.assign(args, ex()));
         if (r && r.ok === false) { showFail(r); return; }
+        if (r && r.job) { watchJob(r.job); return; }
         closeModal();
         if (r && r.tab) showView(r.tab, true);
       } catch (e) { showFail({ msg: e.message }); }
+    };
+    // clonage : le dialogue montre l'avancement (instantané `newJob`), Annuler tue le clone ; échec : retour au formulaire
+    const watchJob = (id) => {
+      f.classList.add('hidden'); b.querySelectorAll('.cap, .srccards, .urlbox').forEach((x) => x.classList.add('hidden'));
+      btns.classList.add('hidden'); prog.classList.remove('hidden');
+      const render = (j) => {
+        if (!j || j.id !== id) return;
+        const v = jobView(j);
+        prog.textContent = '';
+        if (v.state === 'done') { S.newDlg = null; closeModal(); return; }
+        if (v.state === 'failed') {
+          S.newDlg = null;
+          const e = el('div', 'err', v.msg || 'création échouée'); const back = el('button', 'btn pri', 'Revenir au formulaire');
+          back.onclick = () => { prog.classList.add('hidden'); f.classList.remove('hidden'); btns.classList.remove('hidden'); b.querySelectorAll('.cap, .srccards').forEach((x) => x.classList.remove('hidden')); setSrc(src); };
+          const close = el('button', 'btn', 'Fermer'); close.onclick = closeModal;
+          prog.append(el('h3', '', '⎇ Création de ' + (j.name || '') + ' échouée'), e, el('div', 'btns', ''));
+          prog.lastChild.append(close, back); return;
+        }
+        const bar = el('div', 'pbar'); const fill = el('span', ''); fill.style.width = v.pct + '%'; bar.appendChild(fill);
+        const cn = el('button', 'btn', 'Annuler le clonage'); cn.onclick = () => { cn.disabled = true; call('createCancel', { job: id }).catch(() => {}); };
+        prog.append(el('h3', '', '⎇ Clonage de ' + (j.name || name.value) + '…'), el('div', 'dim', v.label), bar, el('div', 'btns', ''));
+        prog.lastChild.appendChild(cn);
+      };
+      S.newDlg = render; render(S.newJob);
     };
     btns.append(cancel, ok); b.appendChild(btns);
     b.onkeydown = (e) => { if (e.key === 'Enter' && e.target.tagName !== 'SELECT') { e.preventDefault(); ok.click(); } };
@@ -1974,7 +2080,7 @@ function applyState(s) {
   for (const p of Object.keys(S.views)) if (!open.has(p) && !(S.grace && S.grace.pending.has(p))) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of open) if (!S.views[p]) ensureView(p);
   if (S.view !== 'leaders' && !open.has(S.view) && !(S.grace && S.grace.pending.has(S.view))) S.view = 'leaders';
-  renderHead(); renderTree(); renderTabs(); lanBanner(); launcherBar();
+  renderHead(); renderTree(); renderTabs(); lanBanner(); launcherBar(); newJobSync(s.newJob);
   if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
@@ -2140,6 +2246,7 @@ function onEvent(name, data) {
     case 'cards': takeCards(data); break;
     case 'hello': onServerInfo(data && data.server); break; // version et démarrage du serveur à l'ouverture du flux (#198)
     case 'refresh': onRefresh(data); break;
+    case 'initProposal': initProposalBar(data && data.path); break; // #215 : proposition /init-project (projet Template)
     case 'term': {
       const v = ensureView(data.path);
       switch (data.kind) {

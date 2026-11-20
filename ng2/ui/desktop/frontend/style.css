@@ -485,3 +485,10 @@ body.cardsfolded #hsplit { display: none; }
 .form .fe { grid-column: 2; margin: -4px 0 0; min-height: 0; font-size: 12px; }
 .form .fe:empty { display: none; }
 .modal .cap, #modalbox .cap { color: var(--dim); font-size: 11px; text-transform: uppercase; letter-spacing: .05em; margin: 8px 0 2px; }
+.urlbox { margin: 4px 0 10px; }
+.urlbox input { width: 100%; background: var(--input); color: var(--text); border: 1px solid var(--line2); border-radius: 5px; padding: 6px 8px; font: inherit; box-sizing: border-box; }
+.urlbox .fe { color: var(--red); font-size: 12px; } .urlbox .fe:empty { display: none; }
+.authline { margin-top: 4px; font-size: 12px; min-height: 1em; } .authline.ok { color: var(--green); } .authline.warn { color: var(--orange); }
+.srccards .card { cursor: pointer; }
+.newprog .pbar { height: 8px; border-radius: 4px; background: var(--line2); overflow: hidden; margin: 8px 0; }
+.newprog .pbar span { display: block; height: 100%; background: var(--accent, var(--orange)); transition: width .3s; }
