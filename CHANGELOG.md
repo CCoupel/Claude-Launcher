@@ -9,6 +9,9 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+### Fixed
+- Écriture de `config.conf` atomique : écriture dans un `.config.conf.tmp-*` du même dossier, `0600`, `fsync`, `rename`, puis `fsync` du dossier (Unix) ; copie `.bak` écrite par le même chemin. Sous Windows, le `rename` est retenté (5 essais, attentes 50/100/200/400 ms) sur verrou (`ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`), puis erreur explicite ; les `.config.conf(.bak).tmp-*` de plus de 10 min sont supprimés (#217)
+
 ## [6.5.0] — 2026-11-20
 
 ### Added
