@@ -289,9 +289,13 @@ func (a *App) initProposalAnswer(path string, run bool) (any, error) {
 	if t == nil {
 		return map[string]any{"ok": false, "msg": "projet non ouvert"}, nil
 	}
-	t.mu.Lock()
-	leader := t.leader
-	t.mu.Unlock()
+	leader := ""
+	if l := t.lastLayout(); l != nil {
+		leader = l.Leader // le leader est celui de la dernière mise en page publiée
+	}
+	if leader == "" {
+		return map[string]any{"ok": false, "msg": "le leader n'est pas encore prêt : réessayer dans un instant"}, nil // marqueur gardé
+	}
 	if why := t.input(leader, "/init-project\r"); why != "" {
 		return map[string]any{"ok": false, "msg": "saisie refusée : " + why}, nil
 	}
