@@ -892,7 +892,9 @@ atomique sous `WithFileLock`, **copie `trust.json.bak` avant chaque écriture** 
   avaient déjà été modifiés par le dépôt avant l'écriture (jamais béni). « Revoir » remet l'entrée à `pending`.
 - **Migration** : au démarrage (`shell`, `desktop`), un `trust.json` resté dans le dossier de config LOCAL du poste (et
   absent du registre partagé) est **fusionné** dans le registre partagé : jamais de perte — une entrée absente est
-  ajoutée, en cas de désaccord l'entrée partagée l'emporte (écart journalisé), `trust.json.bak` avant l'écriture,
+  ajoutée ; en cas de désaccord, l'état le plus **RESTRICTIF** l'emporte (`pending` > `ignored` > `accepted` = `none` ;
+  même sévérité mais empreintes différentes, ou `accepted` face à `none` → `pending`) — le registre partagé peut donc
+  être resserré par un registre local plus strict, jamais assoupli. Écart journalisé, `trust.json.bak` avant l'écriture,
   l'ancien fichier est conservé. Registre partagé illisible : rien n'est réécrit (échec fermé ci-dessous).
 - **Échec fermé** : `trust.json` présent mais vide ou illisible → tout projet portant un environnement est `pending`
   (`ErrTrustBroken`, qui est aussi `ErrEnvNotApproved`), le fichier n'est **jamais réécrit** (toute écriture est

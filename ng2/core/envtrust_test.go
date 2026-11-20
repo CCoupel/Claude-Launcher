@@ -392,8 +392,8 @@ func TestMigrationDuRegistreLocal(t *testing.T) {
 	write(shared, map[string]TrustEntry{"/p/commun": {State: TrustAccepted, SHA: "a"}, "/p/conflit": {State: TrustAccepted, SHA: "partage"}})
 	write(legacy, map[string]TrustEntry{"/p/local": {State: TrustIgnored, SHA: "b", Image: "x"}, "/p/conflit": {State: TrustPending, SHA: "local"}, "/p/commun": {State: TrustAccepted, SHA: "a"}})
 	n, err := MigrateLegacyTrust()
-	if err != nil || n != 1 {
-		t.Fatalf("fusion : %d %v, 1 entrée ajoutée attendue", n, err)
+	if err != nil || n != 2 {
+		t.Fatalf("fusion : %d %v, 2 entrées (1 ajoutée + 1 resserrée) attendues", n, err)
 	}
 	var got map[string]TrustEntry
 	b, _ := os.ReadFile(filepath.Join(shared, "trust.json"))
@@ -401,8 +401,9 @@ func TestMigrationDuRegistreLocal(t *testing.T) {
 	if got["/p/local"].State != TrustIgnored || got["/p/local"].Image != "x" {
 		t.Errorf("entrée locale perdue : %+v", got)
 	}
-	if got["/p/conflit"].SHA != "partage" || got["/p/commun"].SHA != "a" {
-		t.Errorf("le registre partagé doit l'emporter : %+v", got)
+	// désaccord : le plus restrictif gagne (local pending > partagé accepted)
+	if got["/p/conflit"].State != TrustPending || got["/p/commun"].SHA != "a" {
+		t.Errorf("le plus restrictif doit l'emporter : %+v", got)
 	}
 	if _, err := os.Stat(filepath.Join(shared, "trust.json.bak")); err != nil {
 		t.Error(".bak absent avant la fusion")
@@ -508,5 +509,63 @@ func TestAucunScellementSiLeDepotAChangeAvantLEcriture(t *testing.T) {
 	}
 	if EnvTrust(d) != TrustPending {
 		t.Errorf("état = %s, pending attendu", EnvTrust(d))
+	}
+}
+
+func TestMergeRestrictifOrdre(t *testing.T) {
+	e := func(st TrustState, sha string) TrustEntry {
+		return TrustEntry{State: st, SHA: sha, Source: "s", Image: "i", At: "t"}
+	}
+	cases := []struct {
+		name     string
+		cur, loc TrustEntry
+		want     TrustState
+		keepCur  bool
+	}{
+		{"pending local > accepted partagé", e(TrustAccepted, "a"), e(TrustPending, "a"), TrustPending, false},
+		{"pending partagé > accepted local", e(TrustPending, "a"), e(TrustAccepted, "a"), TrustPending, true},
+		{"ignored local > accepted partagé", e(TrustAccepted, "a"), e(TrustIgnored, "b"), TrustIgnored, false},
+		{"ignored partagé > accepted local", e(TrustIgnored, "b"), e(TrustAccepted, "a"), TrustIgnored, true},
+		{"pending > ignored", e(TrustIgnored, "a"), e(TrustPending, "a"), TrustPending, false},
+		{"ignored > none", e(TrustNone, "a"), e(TrustIgnored, "a"), TrustIgnored, false},
+		{"pending > none", e(TrustPending, "a"), e(TrustNone, "a"), TrustPending, true},
+		{"accepted/none, empreintes différentes → pending", e(TrustAccepted, "a"), e(TrustAccepted, "b"), TrustPending, false},
+		{"accepted vs none → pending", e(TrustAccepted, "a"), e(TrustNone, "a"), TrustPending, false},
+		{"ignored/ignored, empreintes différentes → pending", e(TrustIgnored, "a"), e(TrustIgnored, "b"), TrustPending, false},
+		{"même état et même empreinte → partagé gardé (source/image ignorés)", e(TrustAccepted, "a"), TrustEntry{State: TrustAccepted, SHA: "a", Source: "autre"}, TrustAccepted, true},
+	}
+	for _, c := range cases {
+		got := mergeRestrictive(c.cur, c.loc)
+		if got.State != c.want {
+			t.Errorf("%s : %s, attendu %s", c.name, got.State, c.want)
+		}
+		if c.keepCur && got != c.cur {
+			t.Errorf("%s : l'entrée partagée devait être gardée telle quelle : %+v", c.name, got)
+		}
+	}
+}
+
+// Migration : un local PLUS restrictif resserre le partagé (.bak avant), un partagé plus restrictif reste.
+func TestMigrationLocalPlusRestrictifResserre(t *testing.T) {
+	shared, legacy := t.TempDir(), t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", shared)
+	t.Setenv(TrustLegacyDirVar, legacy)
+	wr := func(dir string, m map[string]TrustEntry) {
+		b, _ := json.Marshal(m)
+		_ = os.WriteFile(filepath.Join(dir, "trust.json"), b, 0o600)
+	}
+	wr(shared, map[string]TrustEntry{"/p/a": {State: TrustAccepted, SHA: "x"}, "/p/b": {State: TrustPending, SHA: "x"}})
+	wr(legacy, map[string]TrustEntry{"/p/a": {State: TrustPending, SHA: "x"}, "/p/b": {State: TrustAccepted, SHA: "x"}})
+	if n, err := MigrateLegacyTrust(); err != nil || n != 1 {
+		t.Fatalf("%d %v", n, err)
+	}
+	var got map[string]TrustEntry
+	b, _ := os.ReadFile(filepath.Join(shared, "trust.json"))
+	_ = json.Unmarshal(b, &got)
+	if got["/p/a"].State != TrustPending || got["/p/b"].State != TrustPending {
+		t.Errorf("registre = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(shared, "trust.json.bak")); err != nil {
+		t.Error(".bak absent")
 	}
 }

@@ -108,9 +108,46 @@ func trustLegacyPaths(dest string) []string {
 	return out
 }
 
+// trustRank : sévérité d'un état — pending > ignored > accepted = none.
+func trustRank(st TrustState) int {
+	switch st {
+	case TrustPending:
+		return 3
+	case TrustIgnored:
+		return 2
+	}
+	return 1
+}
+
+// mergeRestrictive : entrée retenue quand le registre partagé (cur) et un registre local (loc) divergent pour un projet.
+// États de sévérité différente : le plus restrictif gagne tel quel (pending > ignored > accepted/none). Même sévérité :
+// même état et même empreinte → l'entrée partagée est gardée ; empreintes (ou accepted/none) différentes → pending
+// (le contenu approuvé n'est pas le même des deux côtés). Une entrée retenue plus stricte que la partagée la remplace.
+func mergeRestrictive(cur, loc TrustEntry) TrustEntry {
+	rc, rl := trustRank(cur.State), trustRank(loc.State)
+	switch {
+	case rl > rc:
+		return loc
+	case rl < rc:
+		return cur
+	case cur.State == loc.State && cur.SHA == loc.SHA:
+		return cur
+	}
+	out := cur
+	out.State, out.At = TrustPending, time.Now().UTC().Format(time.RFC3339)
+	if out.Source == "" {
+		out.Source = loc.Source
+	}
+	if out.Image == "" {
+		out.Image = loc.Image
+	}
+	return out
+}
+
 // MigrateLegacyTrust : fusionne dans le registre partagé les entrées d'un trust.json local resté sur le poste (jamais de
-// perte : une entrée absente du registre partagé est ajoutée ; en cas de désaccord le registre partagé l'emporte et
-// l'écart est journalisé ; l'ancien fichier est conservé). Rend le nombre d'entrées ajoutées. Un registre partagé
+// perte : une entrée absente du registre partagé est ajoutée ; en cas de désaccord l'état le plus RESTRICTIF l'emporte
+// (mergeRestrictive), écart journalisé, .bak avant l'écriture ; l'ancien fichier est conservé). Rend le nombre
+// d'entrées ajoutées ou resserrées. Un registre partagé
 // illisible n'est pas réécrit (erreur) ; un ancien fichier illisible est ignoré (journalisé).
 func MigrateLegacyTrust() (added int, err error) {
 	dest := trustPath()
@@ -141,7 +178,11 @@ func MigrateLegacyTrust() (added int, err error) {
 					m[k] = e
 					added++
 				case cur != e:
-					log.Printf("registre d'approbation : %s : entrée locale différente de l'entrée partagée, entrée partagée conservée", k)
+					if merged := mergeRestrictive(cur, e); merged != cur { // le plus RESTRICTIF gagne : le partagé peut se resserrer
+						m[k] = merged
+						added++
+						log.Printf("registre d'approbation : %s : entrées local/partagé différentes, état le plus restrictif retenu (%s)", k, merged.State)
+					}
 				}
 			}
 		}
