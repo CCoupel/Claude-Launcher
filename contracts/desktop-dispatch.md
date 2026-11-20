@@ -636,3 +636,193 @@ absent : inchangé. Permis sur un projet ouvert. Même passe d'écriture que `co
 
 Refus quand le masquage effectif du projet est désactivé : message
 `masquage désactivé pour ce projet : choisir « auto hide » dans le titre de la carte TEAM`.
+
+## v6.6.0 — Gestion des projets (#214 à #219)
+
+> Mêmes méthodes pour la fenêtre native (Wails) et l'interface web (`POST /api/call`). La coque tmux appelle les
+> mêmes fonctions de `core` (pas de Dispatch). **Toute** méthode qui reçoit une base, une catégorie ou un nom les
+> repasse par `core.ResolveProjectPath` (ci-dessous) : aucun chemin produit hors des bases configurées, même par un
+> appel forgé.
+
+### Règle commune — `core.ResolveProjectPath(base, category, name)` **[NEW]**
+
+- `base` : doit être **égale** (après `filepath.Clean`) à l'une des racines `LoadConfig().Roots` ; sinon
+  `base inconnue`. Une racine absente du disque (montage perdu) : `base inaccessible`.
+- `category` : chemin **relatif** à la base, segments séparés par `/` (catégories imbriquées admises, profondeur
+  `maxScanDepth`), vide = directement sous la base. Chaque segment : non vide après `TrimSpace`, ni `.` ni `..`, ni
+  `\`, ni caractère de contrôle, ne commence pas par `.`. Chemin absolu refusé.
+- `name` : `ValidProjectName` (inchangé) + pas de `..`.
+- Résultat `<base>/<category>/<name>` ; contrôle final après `filepath.EvalSymlinks` du **parent existant le plus
+  profond** : il doit rester sous `EvalSymlinks(base)` (un lien symbolique de catégorie qui sort de la base est
+  refusé : `chemin hors des bases`).
+- Erreur → `{ "ok": false, "field": "base"|"category"|"name", "msg": "<raison affichée sous le champ>" }`, jamais
+  d'écriture disque.
+
+### `projectBases` **[NEW]**
+
+Arguments : `{}`. Résultat :
+```json
+{ "bases": [ { "path": "/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS", "missing": false } ], "default": "/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS" }
+```
+`bases` = racines configurées, dans l'ordre de `config.conf`. `default` = la seule base s'il n'y en a qu'une
+accessible, sinon la base du projet sélectionné dans l'arbre, sinon `""`.
+
+### `projectCategories` **[NEW]**
+
+Arguments : `{ "base": "<base>" }`. Résultat :
+```json
+{ "categories": [ { "path": "INFRA", "projects": 4 }, { "path": "PRO/CLIENT_A", "projects": 0 } ] }
+```
+Sous-dossiers réels de la base **qui ne sont pas des projets** (`isProjectDir` faux), récursivement jusqu'à
+`maxScanDepth`, dossiers cachés (`.`) exclus, triés. Une catégorie vide (0 projet) est listée. Base invalide :
+erreur de la règle commune.
+
+### `categoryCreate` **[NEW]**
+
+Arguments : `{ "base", "category" }`. Effet : `MkdirAll(<base>/<category>, 0755)` après la règle commune.
+Résultat : `{ "ok": true, "path": "INFRA", "existed": false }` — une catégorie existante (même nom, casse comprise)
+n'est pas une erreur : `existed: true` (fusion). Un fichier de ce nom : `{ "ok": false, "field": "category", … }`.
+L'interface ne l'appelle **qu'à la validation** du dialogue (pas à la frappe) : `create` accepte aussi une catégorie
+nouvelle et la crée lui-même (champ `newCategory`).
+
+### `newInfo` **[CHANGED]**
+
+Ajoute : `"bases"` et `"default"` (comme `projectBases`), `"auth": { "token": true, "sshKey": { "<backend>": true } }`
+(présence seulement — jamais la valeur du jeton ni la clé), `"template": "v5.11.1"` (tag du template adopté, vide
+si inconnu). `roots` reste (alias de `bases[].path`, retiré en v7).
+
+### `create` **[CHANGED]**
+
+Arguments :
+```json
+{ "base": "<base>", "category": "INFRA", "newCategory": false, "name": "supervision-k8s",
+  "source": "empty" | "git" | "template",
+  "raw": false, "remote": "git@github.com:moi/projet.git",
+  "url": "https://github.com/CCoupel/supervision-k8s.git",
+  "image": "…", "backend": "…" }
+```
+- `base` + `category` + `name` passent par la règle commune ; `base` **n'est plus** un dossier quelconque (avant :
+  catégorie ou racine passée telle quelle) — un ancien appel `{base: "<racine>/INFRA"}` est refusé (`base inconnue`) :
+  l'interface et le backend sont livrés ensemble.
+- `source` (défaut `empty`) :
+  - `empty` : dossier, puis `raw` vrai → CLAUDE.md minimal ; faux → `git init` + `remote` facultatif (comportement
+    v6.5.0). Pas de `/init-project` automatique.
+  - `template` : comme `empty` géré (`git init`, `remote`) ; à la **première ouverture**, `/init-project` est
+    **proposé** (évènement `initProposal`), jamais lancé d'office.
+  - `git` : `url` requise (`https://…` ou `git@…:…` / `ssh://…` ; `file://`, chemin local et options `-…` refusés) ;
+    `git clone --` dans le dossier final. Authentification : HTTPS → jeton `GITHUB_TOKEN` de `config.conf` passé par
+    `GIT_ASKPASS` (jamais dans l'URL, ni dans `.git/config`, ni dans un journal) ; ssh → clé et `known_hosts` du
+    coffre pour `backend` (ou `host`), `GIT_SSH_COMMAND` avec `IdentitiesOnly=yes`, `StrictHostKeyChecking=yes`.
+    Exécuté par le processus qui sert l'interface (hub, exe, pod). `remote` ignoré (l'origine est `url`).
+- **Asynchrone** pour `git` : résultat immédiat `{ "job": "<id>" }` ; avancement par l'instantané (`newJob`,
+  ci-dessous) ; à la fin : projet ouvert comme pour les autres sources. `empty`/`template` : résultat `{ "tab" }`
+  comme avant.
+- **Échec** (toute source, toute étape) : suppression du dossier du projet **créé par cet appel**, et de la
+  catégorie si `newCategory` l'a créée et qu'elle est vide ; rien n'est écrit dans `projects.json`. Le message
+  dit ce qui a été nettoyé.
+
+### Instantané — champ `newJob` **[NEW]**
+
+```json
+"newJob": { "id": "…", "name": "supervision-k8s", "step": "clone", "pct": 43, "state": "running"|"done"|"failed",
+            "msg": "authentification refusée (HTTPS, jeton) — dossier supprimé" }
+```
+Absent sans création en cours. Une création à la fois par launcher (deuxième `create` git : refus `création en
+cours`).
+
+### `createCancel` **[NEW]**
+
+Arguments : `{ "job": "<id>" }`. Arrête le clonage (processus tué) puis nettoie comme un échec.
+
+### Évènement `initProposal` **[NEW]** et `initProposalAnswer` **[NEW]**
+
+À la première ouverture d'un projet créé en `template` : `{ "path" }`. Réponse `initProposalAnswer
+{ "path", "run": true|false }` : `true` tape `/init-project` dans le leader ; `false` (« Plus tard ») retire la
+proposition (marqueur `.claude-launcher/init-proposed` dans le projet, supprimé quand `/init-project` a tourné).
+
+### `projectMoveInfo` **[NEW]**
+
+Arguments : `{ "path" }`. Résultat :
+```json
+{ "base": "…", "category": "INFRA", "name": "supervision-k8s", "key": "infra-supervision-k8s",
+  "open": false, "blockers": [ "projet ouvert dans ce launcher" ] }
+```
+`blockers` : projet ouvert ici (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou
+pod **en cours d'exécution**, déplacement inachevé en attente (journal). Vide = déplaçable.
+
+### `projectMove` **[NEW]**
+
+Arguments : `{ "path", "base", "category", "newCategory": false, "name" }`.
+- Refus si `blockers` non vide (`{ "ok": false, "msg" }`), destination identique, destination existante, ou règle
+  commune KO. Pas de fermeture implicite : l'interface propose « Fermer le projet » (`close` existant) avant.
+- Étapes, dans l'ordre, consignées dans le journal `moves.json` (dossier de config, sous verrou `WithFileLock`) :
+  1. `dir` : `os.Rename` ; si `EXDEV` (autre système de fichiers) → copie complète vers `<dest>.moving-<id>`,
+     contrôle (nombre et taille des fichiers), rename en `<dest>`, puis suppression de la source ;
+  2. `assign` : clé de `projects.json` (chemin) reportée ;
+  3. `conf` : entrées de `config.conf` du projet (`PROJECT_COLORS`, organisation, `PROJECT_HIDE_IDLE`) reportées
+     si la clé change (une seule écriture, `SaveConfig`) ;
+  4. `history` : dossier `projects/<chemin encodé>` de la config de claude (`ProjectDirName`) renommé ;
+  5. `ctr` : ancien conteneur / StatefulSet + pod `<ancienne clé>` (arrêtés) supprimés — recréés au nouveau nom à
+     la prochaine ouverture.
+  Nom tmux, URL `/files/<clé>/…` et `CL_BROWSER_PATH_MAP` dérivent du chemin : rien à écrire.
+- Échec à l'étape N : étapes N-1…1 annulées dans l'ordre inverse (l'étape `ctr`, non réversible, est la dernière).
+  Résultat `{ "ok": false, "step": "ctr", "msg", "rolledBack": true }`. Retour arrière lui-même en échec :
+  `{ "ok": false, "rolledBack": false, "state": "partial", "done": ["dir","assign"], "msg" }` ; l'entrée du journal
+  reste, le projet porte le blocker « déplacement inachevé » et l'action propose « Reprendre » (rejoue depuis
+  l'étape en échec) ou « Annuler » (retour arrière).
+- Succès : `{ "ok": true, "path": "<nouveau chemin>", "key": "<nouvelle clé>" }`, arbre relu, sélection suivie.
+
+### `launcherInfo` **[NEW]** (#218, #219)
+
+Arguments : `{}`. Résultat :
+```json
+{ "running": "v6.5.0", "installed": "v6.6.0", "binChanged": true,
+  "mode": "shell" | "desktop" | "web" | "pod",
+  "stale": [ { "role": "mirror", "pid": 4242 }, { "role": "layout-watch", "pid": 4250 } ],
+  "backup": { "version": "v6.5.0", "path": "…/claude-launcher-ng2.exe.bak-v6.5.0", "date": "2026-11-19T21:04:00Z" } }
+```
+- `binChanged` : le fichier de `SelfExe()` n'est plus celui du démarrage (inode/date/taille, ou `(deleted)`).
+- `installed` : version du binaire sur disque (`<exe> version`, délai 3 s ; vide si illisible).
+- `stale` (coque Linux seulement) : processus `mirror` / `layout-watch` du **même serveur tmux** (`CL_HUB` / socket
+  dans l'environnement du processus) dont `/proc/<pid>/exe` n'est pas le binaire courant.
+- `backup` : absent s'il n'y a pas de sauvegarde. Instantané : `launcher` reprend `binChanged`, `stale` (nombre) et
+  `backup.version` pour le bandeau.
+
+### `relaunch` **[NEW]** (#219)
+
+Arguments : `{ "confirm": true }` (sans `confirm` : refus — la confirmation est faite par l'interface).
+Effet selon `mode` :
+- `desktop` / `web` : `restartApp` (binaire installé relancé, `CL_NO_UPDATE=1`, port libéré, ancien processus
+  quitté).
+- `shell` : panes de la coque (`@cl` nav, cartes, état) relancés par `respawn-pane -k` avec le binaire installé ;
+  vignettes `mirror` relancées par `respawn-pane -k` ; `layout-watch` anciens arrêtés (`SIGTERM`, puis `SIGKILL`
+  après 2 s) et relancés par `run-shell -b` pour leur fenêtre. **Jamais** de `kill-session` ni de `kill-server` de
+  `claude-hub` : sessions et panes des projets intacts.
+- `pod` : sortie du processus (code 0) — le conteneur du launcher est redémarré par Kubernetes ; les pods des
+  projets ne sont pas touchés.
+Résultat : `{ "ok": true }` avant la relance (l'interface se reconnecte), ou `{ "ok": false, "msg" }`.
+
+### `rollback` **[NEW]** (#218)
+
+Arguments : `{ "confirm": true }`. Effet : l'exe courant est mis de côté (`.old`, supprimé au démarrage suivant),
+la sauvegarde `.bak-<version>` reprend sa place, la version courante est **écartée** de la mise à jour
+automatique (`update-skip` dans le cache : bandeau « v6.6.0 écartée — réinstaller ») jusqu'à une version plus
+récente, puis `relaunch`. Sans sauvegarde : `{ "ok": false, "msg": "aucune sauvegarde" }`.
+
+### Sauvegarde avant mise à jour (#218) **[CHANGED]**
+
+`InstallBinary` / `ReplaceExecutable` : avant remplacement, le binaire courant devient
+`<exe>.bak-v<version courante>` (Windows : renommage de l'exe en cours d'exécution ; Linux : copie atomique, le
+renommage par-dessus restant le mécanisme de remplacement). **Une seule** sauvegarde gardée : les autres
+`<exe>.bak-v*` sont supprimées après une installation réussie (une sauvegarde verrouillée est retentée au démarrage).
+Même convention que la sauvegarde du hub par `deployer` (`claude-launcher-ng2.bak-v<précédente>`). Échec de
+l'écriture du nouveau binaire : l'exe d'origine est remis en place (comportement `swapRunningExe` conservé).
+
+### Écriture de `config.conf` (#217) **[CHANGED]**
+
+`SaveConfig` (et donc `ApplyProjectConf*`, `configApply`, `projectApply`), `EnsureConfig` : temporaire
+`.config.conf.tmp-*` du même dossier, `0600`, `fsync`, `rename`, puis `fsync` du dossier (Unix). Windows : rename
+retenté (5 essais, 50→800 ms) sur `ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`, puis erreur explicite
+(`config.conf verrouillé par un autre programme`) ; l'ancien fichier reste intact. La copie `.bak` est écrite de
+la même façon. `EnsureConfig` : création exclusive par temporaire + lien/rename sans écrasement. Au démarrage, les
+`.config.conf.tmp-*` de plus de 10 min du dossier de config sont supprimés. Aucun changement d'API.

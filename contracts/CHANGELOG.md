@@ -2,6 +2,15 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261120] — v6.6.0 (plan) : gestion des projets (#214 à #219)
+
+- **[NEW]** `core.ResolveProjectPath` : base ∈ racines configurées, catégorie relative sans `..`, contrôle après liens symboliques — appliquée par `create`, `categoryCreate`, `projectMove` (et la coque tmux) — `contracts/desktop-dispatch.md` « v6.6.0 »
+- **[NEW]** `projectBases`, `projectCategories`, `categoryCreate`, `createCancel`, instantané `newJob`, évènement `initProposal` / `initProposalAnswer`
+- **[CHANGED]** `create` : `base` = racine configurée seulement (+ `category`, `newCategory`), `source` `empty|git|template`, `url`, asynchrone pour `git`, nettoyage complet sur échec — un appel v6.5.0 avec `base` = dossier de catégorie est refusé (interface et backend livrés ensemble, aucun client externe)
+- **[CHANGED]** `newInfo` : `bases`, `default`, `auth` (présence du jeton / des clés, jamais leur valeur), `template` ; `roots` gardé (retrait en v7)
+- **[NEW]** `projectMoveInfo`, `projectMove` (journal `moves.json`, retour arrière, état partiel repris)
+- **[NEW]** `launcherInfo`, `relaunch`, `rollback` ; **[CHANGED]** sauvegarde `<exe>.bak-v<version>` avant mise à jour (une seule gardée) ; écriture atomique de `config.conf` (retentée sous Windows), balayage des `.config.conf.tmp-*`
+
 ## [20261119] — v6.5.0 (plan rev2) : coffre partagé (#201), masquage par projet (#209)
 
 - **[BREAKING]** coffre des secrets **commun** au hub, à l'exe Windows et au pod, en clair (`0700`/`0600`) sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/secrets/` ; refus « sous la racine partagée » **supprimé** ; secrets de projet = `<projet>/PRIVATE/` (jamais écrits par le launcher) ; migration automatique des coffres v6.4.0, ancien conservé — `contracts/backends-remote.md` « Coffre des secrets »
