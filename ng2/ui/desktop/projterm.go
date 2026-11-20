@@ -160,6 +160,9 @@ func (t *projTerm) setState(state, msg string) {
 	t.mu.Unlock()
 	t.emit("status", map[string]any{"state": state, "msg": msg, "readOnly": ro})
 	t.a.changed()
+	if state == "ready" && !ro {
+		t.a.proposeInit(t.path) // #215 : projet créé depuis le template : /init-project proposé à la 1re ouverture
+	}
 }
 
 // ── Terminal d'ouverture ──────────────────────────────────────────────────

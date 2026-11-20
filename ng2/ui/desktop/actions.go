@@ -434,6 +434,20 @@ func (a *App) newInfo(path string) map[string]any {
 	out := map[string]any{"roots": a.conf().Roots}
 	bases, def := a.projectBases()
 	out["bases"], out["default"] = bases, def
+	// présence seulement des identifiants de clonage (#215) : jamais le jeton ni la clé
+	keys := map[string]bool{}
+	for _, c := range core.CtrBackends() {
+		if si, err := core.SecretGet(c.Name); err == nil {
+			keys[c.Name] = si.HasKey
+		}
+	}
+	if si, err := core.SecretGet("host"); err == nil {
+		keys["host"] = si.HasKey
+	}
+	out["auth"] = map[string]any{"token": a.conf().GithubToken != "", "sshKey": keys}
+	a.mu.Lock()
+	out["template"] = a.tplVer
+	a.mu.Unlock()
 	b, ok := core.DefaultCtrBackend()
 	if !ok {
 		return out

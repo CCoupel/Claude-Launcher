@@ -67,6 +67,10 @@ type App struct {
 	mgr        *core.StateMgr
 	upd        updState
 	perf       perfLog
+	jobMu      sync.Mutex // création asynchrone (source git, newproject.go)
+	job        *createJob
+	proposedMu sync.Mutex // projets dont la proposition /init-project a été faite (ou refusée) dans ce processus
+	proposed   map[string]bool
 	bgWG       sync.WaitGroup // tâches de fond du démarrage (bg), attendues par waitBackground
 	treeCached bool           // arbre repris du lancement précédent (relu en tâche de fond)
 	hubCache   string         // cache d'état du hub Linux (hubs.<machine>.hub_cache)
@@ -113,7 +117,7 @@ func NewApp(emit Emitter) *App {
 	a := &App{cfg: cfg,
 		git: map[string]core.GitInfo{}, tpl: map[string]core.TemplateState{}, detail: map[string]core.GitDetail{},
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
-		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{},
+		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{}, proposed: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
 	a.confAt = confMtime()
 	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
@@ -835,6 +839,8 @@ type Snapshot struct {
 	Server   ServerInfo `json:"server"` // version et démarrage du serveur (#198)
 	// #219 : binaire remplacé depuis le démarrage (bandeau « Relancer ») ; détail et processus anciens : launcherInfo
 	Launcher LauncherSnap `json:"launcher"`
+	// #215 : création asynchrone (clonage) en cours ou terminée depuis moins de 30 s ; absent sinon
+	NewJob *NewJob `json:"newJob,omitempty"`
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -870,7 +876,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.Version(), Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap()}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap(), NewJob: a.newJobSnapLocked()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -1294,7 +1300,8 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
 		Category, Source, URL                                            string
-		NewCategory                                                      bool
+		NewCategory, Run                                                 bool
+		Job                                                              string
 		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
 		Raw, OpenNext, Binary, Confirm                                   bool
@@ -1390,6 +1397,10 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "create":
 		return a.create(createArgs{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name,
 			Source: arg.Source, Raw: arg.Raw, Remote: arg.Remote, URL: arg.URL, Image: arg.Image, Backend: arg.Backend})
+	case "createCancel":
+		return a.createCancel(arg.Job)
+	case "initProposalAnswer":
+		return a.initProposalAnswer(arg.Path, arg.Run)
 	case "projectBases":
 		b, d := a.projectBases()
 		return map[string]any{"bases": b, "default": d}, nil
