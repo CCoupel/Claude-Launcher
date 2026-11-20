@@ -29,5 +29,9 @@ eq('même image', trustRows({ chosenImage: 'a', spec: { image: 'a' } })[0].items
 eq('échappement dans les lignes', trustRows({ spec: { setup: ['x\u001b[2Jy'] } })[0].items, ['x␛[2Jy']);
 eq('note', trustNote(info), '3 commandes exécutées dans le conteneur · 1 montage hors du projet');
 eq('note vide', trustNote({}), '');
+eq('note complète', trustNote({ risk: { exec: 1, hostMounts: 0, packages: 2, watch: 1, local: 3 } }), '1 commande exécutée dans le conteneur · 2 paquets · 1 surveillance · 3 entrées locales');
 if (/innerHTML/.test(src.slice(src.indexOf('async function envTrustBox'), src.indexOf('// Proposition /init-project (évènement')))) { ko++; console.log('KO innerHTML dans envTrustBox'); }
+const tb = src.slice(src.indexOf('async function envTrustBox'), src.indexOf('// Proposition /init-project (évènement'));
+if (!/info\.changed === true/.test(tb) || !/a changé depuis votre approbation/.test(tb)) { ko++; console.log('KO bandeau changed'); }
+if (!/safeText\(r\.msg/.test(tb)) { ko++; console.log('KO message refus non échappé'); }
 console.log(ko ? ko + ' KO' : 'OK'); process.exit(ko ? 1 : 0);

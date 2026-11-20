@@ -1345,10 +1345,10 @@ function stPageProjet(p) {
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
   if (r.envTrust) { // #215 : environnement d'un dépôt cloné — état et « Revoir »
     const et = r.envTrust, box = el('div');
-    const lbl = { pending: 'à approuver (la question vient à la prochaine ouverture en conteneur)', accepted: 'accepté', ignored: 'ignoré — seul le socle choisi à la création est utilisé' }[et.state] || et.state;
+    const lbl = { pending: 'à approuver (la question vient à la prochaine ouverture en conteneur)', none: 'aucun fichier d\'environnement dans ce dépôt', accepted: 'accepté', ignored: 'ignoré — seul le socle choisi à la création est utilisé' }[et.state] || et.state;
     box.append(el('div', '', 'Environnement du dépôt : ' + lbl));
     if (et.source) box.append(el('div', 'dim', 'Cloné depuis ' + et.source + (et.at ? ' · ' + et.at.slice(0, 10) : '')));
-    if (et.state !== 'pending') {
+    if (et.state !== 'pending' && et.state !== 'none') {
       const rv = el('button', 'btn sm', 'Revoir'); rv.id = 'pjf-trustreview'; rv.disabled = open;
       rv.title = open ? 'projet ouvert : le fermer avant' : 'remet la question à la prochaine ouverture';
       rv.onclick = async () => {

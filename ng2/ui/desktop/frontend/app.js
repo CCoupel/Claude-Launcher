@@ -1716,6 +1716,9 @@ const trustNote = (info) => {
   const r = (info && info.risk) || {}, n = [];
   if (r.exec) n.push(r.exec + ' commande' + (r.exec > 1 ? 's' : '') + ' exécutée' + (r.exec > 1 ? 's' : '') + ' dans le conteneur');
   if (r.hostMounts) n.push(r.hostMounts + ' montage' + (r.hostMounts > 1 ? 's' : '') + ' hors du projet');
+  if (r.packages) n.push(r.packages + ' paquet' + (r.packages > 1 ? 's' : ''));
+  if (r.watch) n.push(r.watch + ' surveillance' + (r.watch > 1 ? 's' : ''));
+  if (r.local) n.push(r.local + ' entrée' + (r.local > 1 ? 's' : '') + ' locale' + (r.local > 1 ? 's' : ''));
   return n.join(' · ');
 };
 async function envTrustBox(src) {
@@ -1726,6 +1729,7 @@ async function envTrustBox(src) {
   const draw = (info, note) => openModal((b) => {
     b.append(el('h2', '', '⚠ Environnement fourni par le dépôt — ' + safeText(name)));
     b.append(el('div', 'dim', 'Cloné depuis ' + safeText(info.source || 'un dépôt externe') + '. Rien n\'est appliqué sans ton accord.'));
+    if (info.changed === true) b.append(el('div', 'err', 'L\'environnement du dépôt a changé depuis votre approbation.'));
     if (note) b.append(el('div', 'err', note));
     const cols = el('div', 'trustcols');
     const left = el('div'); left.append(el('div', 'cap', 'Ce que le dépôt demande'));
