@@ -35,9 +35,9 @@ func TestLauncherInfoForme219(t *testing.T) {
 	if m, _ := v["mode"].(string); m != "desktop" && m != "web" {
 		t.Errorf("mode = %v, attendu desktop ou web hors coque et pod", v["mode"])
 	}
-	if _, has := v["stale"]; has && v["stale"] != nil {
-		if _, ok := v["stale"].([]any); !ok {
-			t.Errorf("stale doit être une liste : %v", v["stale"])
+	for _, k := range []string{"stale", "backup"} { // propres à la coque / sans retour arrière dans l'interface (contrat ed8b845)
+		if _, has := v[k]; has {
+			t.Errorf("launcherInfo ne doit pas porter %q : %v", k, v)
 		}
 	}
 }

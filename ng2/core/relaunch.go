@@ -178,3 +178,42 @@ func LauncherStateFor(mode string) LauncherInfo {
 
 // StaleCount : nombre de processus anciens.
 func (li LauncherInfo) StaleCount() int { return len(li.Stale) }
+
+var (
+	instMu   sync.Mutex
+	instSig  FileSig
+	instVer  string
+	instBusy bool
+)
+
+// LauncherInstalledCached : version installée pour l'instantané — jamais bloquant (`<exe> version` peut durer 3 s) :
+// "" tant que la lecture du binaire actuel n'est pas revenue ; relue quand le fichier change. Binaire inchangé :
+// la version en cours.
+func LauncherInstalledCached() string {
+	if !LauncherBinChanged() {
+		return Version()
+	}
+	exe, err := launcherExe()
+	if err != nil {
+		return ""
+	}
+	sig, err := StatSig(exe)
+	if err != nil {
+		return ""
+	}
+	instMu.Lock()
+	defer instMu.Unlock()
+	if sig == instSig && instVer != "" {
+		return instVer
+	}
+	if !instBusy {
+		instBusy = true
+		go func() {
+			v := InstalledVersion(exe, installedVersionTimeout)
+			instMu.Lock()
+			instSig, instVer, instBusy = sig, v, false
+			instMu.Unlock()
+		}()
+	}
+	return ""
+}

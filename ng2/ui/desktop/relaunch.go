@@ -10,10 +10,19 @@ import (
 
 // ── Relance du launcher (#219, contracts/desktop-dispatch.md « launcherInfo » / « relaunch ») ──
 
-// LauncherSnap : champ `launcher` de l'instantané (bon marché : stat du binaire, mémorisée).
+// LauncherSnap : champ `launcher` de l'instantané (bon marché : stat du binaire mémorisée, version lue en tâche de fond).
 type LauncherSnap struct {
+	Running    string `json:"running"`
+	Installed  string `json:"installed"`
 	BinChanged bool   `json:"binChanged"`
-	Backup     string `json:"backup,omitempty"`
+}
+
+// LauncherInfoOut : résultat de `launcherInfo` (contrat : sans processus anciens ni sauvegarde, propres à la coque).
+type LauncherInfoOut struct {
+	Running    string `json:"running"`
+	Installed  string `json:"installed"`
+	BinChanged bool   `json:"binChanged"`
+	Mode       string `json:"mode"`
 }
 
 func (a *App) launcherMode() string {
@@ -27,18 +36,13 @@ func (a *App) launcherMode() string {
 }
 
 func (a *App) launcherSnap() LauncherSnap {
-	s := LauncherSnap{BinChanged: core.LauncherBinChanged()}
-	if core.LauncherBackupHook != nil {
-		if b := core.LauncherBackupHook(); b != nil {
-			s.Backup = b.Version
-		}
-	}
-	return s
+	return LauncherSnap{Running: core.Version(), Installed: core.LauncherInstalledCached(), BinChanged: core.LauncherBinChanged()}
 }
 
-// launcherInfo : état complet (exécute `<exe> version`, 3 s) ; la coque tmux ne passe pas par ici.
-func (a *App) launcherInfo() core.LauncherInfo {
-	return core.LauncherStateFor(a.launcherMode()) // hors coque : pas de parcours de /proc
+// launcherInfo : état (exécute `<exe> version`, 3 s) ; la coque tmux lit ses processus anciens directement dans core.
+func (a *App) launcherInfo() LauncherInfoOut {
+	li := core.LauncherStateFor(a.launcherMode())
+	return LauncherInfoOut{Running: li.Running, Installed: li.Installed, BinChanged: li.BinChanged, Mode: a.launcherMode()}
 }
 
 // exitProcess : sortie du processus (pod : code 0, le conteneur est redémarré par Kubernetes).
