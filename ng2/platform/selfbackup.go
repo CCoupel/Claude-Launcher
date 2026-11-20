@@ -86,21 +86,32 @@ func PurgeBackups(exe, keepPath string) (left []string) {
 	return left
 }
 
-// CleanupBackups : au démarrage, ne garde que la sauvegarde de la version la plus récente ; une sauvegarde verrouillée est
-// retentée en tâche de fond pendant une dizaine de secondes.
+// CleanupBackups : au démarrage, ne garde que la sauvegarde de la version la plus récente ; une sauvegarde
+// verrouillée est retentée en tâche de fond pendant une dizaine de secondes.
 func CleanupBackups() {
 	exe, err := SelfExe()
 	if err != nil || len(backups(exe)) < 2 {
 		return
 	}
-	go func() {
-		for i := 0; i < 20; i++ {
-			if len(PurgeBackups(exe, newestBackup(exe))) == 0 {
-				return
-			}
-			time.Sleep(500 * time.Millisecond)
+	go cleanupBackupsFor(exe, 20, 500*time.Millisecond)
+}
+
+// cleanupBackupsFor : partie synchrone — garde la sauvegarde de la plus haute version, retente tries fois (pause
+// entre deux) ; rend les sauvegardes verrouillées restantes. 0 ou 1 sauvegarde : intact.
+func cleanupBackupsFor(exe string, tries int, pause time.Duration) []string {
+	if len(backups(exe)) < 2 {
+		return nil
+	}
+	var left []string
+	for i := 0; i < tries || i == 0; i++ {
+		if left = PurgeBackups(exe, newestBackup(exe)); len(left) == 0 {
+			return nil
 		}
-	}()
+		if i < tries-1 {
+			time.Sleep(pause)
+		}
+	}
+	return left
 }
 
 // newestBackup : sauvegarde de la version la plus récente (comparaison numérique par segments, pas par date).
