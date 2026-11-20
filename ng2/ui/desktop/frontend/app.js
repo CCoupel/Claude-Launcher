@@ -1900,7 +1900,7 @@ function applyState(s) {
   for (const p of Object.keys(S.views)) if (!open.has(p) && !(S.grace && S.grace.pending.has(p))) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of open) if (!S.views[p]) ensureView(p);
   if (S.view !== 'leaders' && !open.has(S.view) && !(S.grace && S.grace.pending.has(S.view))) S.view = 'leaders';
-  renderHead(); renderTree(); renderTabs(); lanBanner();
+  renderHead(); renderTree(); renderTabs(); lanBanner(); launcherBar();
   if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
@@ -1917,6 +1917,59 @@ function lanBanner() {
   if (!show) { if (b) b.remove(); return; }
   if (!b) { b = el('div', 'lanbanner'); b.id = 'lanbanner'; $('main').insertBefore(b, $('tabs')); }
   b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || (w.access === 'none' ? 'sans jeton : toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS')) + ' (Réglages › Interface web)';
+}
+
+// Binaire du launcher changé / processus anciens (#219) : `launcher{binChanged,stale,backup}` de l'instantané.
+// Fonction pure : null (rien à dire), ou { kind: 'g'|'y', text } — vert : binaire remplacé, jaune : seulement
+// des processus (vignettes, layout-watch) de l'ancien binaire.
+function launcherBarState(l) {
+  if (!l) return null;
+  const n = Number(l.stale) || 0;
+  if (l.binChanged) return { kind: 'g', text: '✓ nouvelle version installée — l\'interface tourne encore avec l\'ancienne' + (n ? ' · ' + n + ' processus ancien' + (n > 1 ? 's' : '') : '') };
+  if (n) return { kind: 'y', text: '⚠ ' + n + ' processus de l\'ancien binaire' };
+  return null;
+}
+function launcherBar() {
+  const st = launcherBarState(S.snap && S.snap.launcher);
+  let b = $('launchbar');
+  const key = st ? st.kind + st.text : '';
+  if (!st || S.launchDismiss === key) { if (b) b.remove(); return; }
+  if (b && b.dataset.key === key) return;
+  if (!b) { b = el('div', 'lanbanner'); b.id = 'launchbar'; $('main').insertBefore(b, $('tabs')); }
+  b.className = 'lanbanner srv lbar ' + st.kind; b.dataset.key = key; b.textContent = st.text;
+  b.append(el('span', 'sp'));
+  const r = el('button', 'btn sm pri', '↻ Relancer'); r.onclick = relaunchBox; b.appendChild(r);
+  const x = el('button', 'btn sm', '✕'); x.title = 'Masquer'; x.onclick = () => { S.launchDismiss = key; b.remove(); }; b.appendChild(x);
+}
+async function relaunchBox() {
+  let i = {};
+  try { i = (await transport.call('launcherInfo')) || {}; } catch (e) { /* dialogue sans détail */ }
+  const stale = i.stale || [];
+  const nm = stale.filter((p) => p.role === 'mirror').length, nl = stale.filter((p) => p.role === 'layout-watch').length;
+  openModal((b) => {
+    b.append(el('h2', '', '↻ Relancer le launcher'));
+    b.append(el('h3', '', 'Relancé'));
+    const ul = el('div', '');
+    const ver = i.running && i.installed ? ' (' + verTxt(i.running) + ' → ' + verTxt(i.installed) + ')' : '';
+    ul.append(el('div', '', '• interface' + (i.mode === 'pod' ? ' (redémarrage du pod du launcher, elle revient seule)' : '') + ver));
+    if (nm) ul.append(el('div', '', '• ' + nm + ' vignette' + (nm > 1 ? 's' : '') + ' Teamleaders (mirror, ancien binaire)'));
+    if (nl) ul.append(el('div', '', '• ' + nl + ' layout-watch (ancien binaire)'));
+    b.append(ul, el('h3', '', 'Gardé'), el('div', 't-green', '• sessions des projets (tmux), conteneurs et pods'));
+    const msg = el('div', 't-red'); b.append(msg);
+    const btns = el('div', 'btns');
+    const no = el('button', 'btn', 'Annuler (N)'); no.onclick = closeModal;
+    const yes = el('button', 'btn pri', 'Relancer (O)');
+    yes.onclick = async () => {
+      yes.disabled = true; msg.textContent = '';
+      try {
+        const r = await transport.call('relaunch', { confirm: true });
+        if (r && r.ok === false) { msg.textContent = r.msg || 'relance refusée'; yes.disabled = false; return; }
+        closeModal(); // l'interface se reconnecte seule (flux, bandeau « connexion perdue »)
+      } catch (e) { closeModal(); } // coupure attendue : le serveur quitte
+    };
+    btns.append(no, yes); b.appendChild(btns);
+    b.onkeydown = (e) => { const k = e.key.toLowerCase(); if (k === 'o' || k === 'y') { e.preventDefault(); yes.click(); } else if (k === 'n') { e.preventDefault(); closeModal(); } };
+  });
 }
 
 // Version du serveur (#198) : `server{version,boot}` de l'init, gardé à la première réception (celui de la page).
