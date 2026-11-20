@@ -113,8 +113,25 @@ func parseEnvFile(b []byte, name string) (EnvSpec, error) {
 }
 
 // LoadEnv : environnement du projet, env-template.yaml et env.yaml fusionnés.
-// Aucun des deux : erreur « fichier absent » (os.IsNotExist).
+// Aucun des deux : erreur « fichier absent » (os.IsNotExist). Projet cloné (registre trust.json, envtrust.go) :
+// « pending » → ErrEnvNotApproved, « ignored » → le seul socle choisi à la création, rien d'autre du dépôt.
 func LoadEnv(proj string) (EnvSpec, error) {
+	if ent, ok := envTrustEntry(proj); ok {
+		switch ent.State {
+		case TrustPending:
+			return EnvSpec{}, ErrEnvNotApproved
+		case TrustIgnored:
+			if ent.Image == "" {
+				return EnvSpec{}, fmt.Errorf("« image » manquante (environnement du dépôt ignoré, aucun socle choisi)")
+			}
+			return EnvSpec{Image: ent.Image}, nil
+		}
+	}
+	return loadEnvRaw(proj)
+}
+
+// loadEnvRaw : LoadEnv sans le registre d'approbation (lecture brute des fichiers du projet).
+func loadEnvRaw(proj string) (EnvSpec, error) {
 	var e EnvSpec
 	pb, perr := os.ReadFile(EnvPath(proj))
 	tb, terr := os.ReadFile(envTemplatePath(proj))

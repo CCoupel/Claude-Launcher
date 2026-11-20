@@ -88,6 +88,13 @@ func (a *App) open(path string, mode core.LaunchMode) (any, error) {
 			return map[string]any{"execChoice": info}, nil
 		}
 	}
+	if core.EnvTrust(path) == core.TrustPending && core.EnvContainerProject(path) {
+		// dépôt cloné : son environnement n'est appliqué qu'avec l'accord de l'utilisateur (#215) ; rien n'est démarré
+		if info, err := core.EnvTrustInfoFor(path); err == nil {
+			a.emit("envTrust", info)
+		}
+		return map[string]any{"needTrust": true, "path": path}, nil
+	}
 	t = newProjTerm(a, n, mode)
 	if !a.addTab(t) {
 		return map[string]any{"tab": path}, nil // ouvert entre-temps par un autre appel

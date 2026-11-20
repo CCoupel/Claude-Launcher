@@ -579,6 +579,9 @@ func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[str
 	var out map[string]any
 	_ = json.Unmarshal(b, &out)
 	out["open"] = a.projectOpen(path)
+	if e, ok := core.EnvTrustEntry(path); ok { // absent : projet de confiance
+		out["envTrust"] = map[string]any{"state": e.State, "source": e.Source, "at": e.At}
+	}
 	return out, nil
 }
 

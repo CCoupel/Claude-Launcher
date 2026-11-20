@@ -1262,6 +1262,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 			Color    *string
 			Layout   *string
 			HideIdle *string
+			EnvTrust *string
 			Env      *struct {
 				MTime   string
 				Changes []core.ConfigChange
@@ -1269,6 +1270,17 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		}
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		if in.EnvTrust != nil { // « Revoir » : l'entrée du registre repasse à pending (projet fermé)
+			if *in.EnvTrust != "review" {
+				return nil, fmt.Errorf("projectApply : envTrust « %s » inconnu", *in.EnvTrust)
+			}
+			if r := a.envTrustReview(in.Path); r["ok"] != true {
+				return r, nil
+			}
+			if in.Backend == nil && in.Image == nil && in.Color == nil && in.Layout == nil && in.HideIdle == nil && in.Env == nil {
+				return map[string]any{"ok": true}, nil
+			}
 		}
 		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout, HideIdle: in.HideIdle}
 		if in.Env != nil {
@@ -1301,7 +1313,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
 		Category, Source, URL                                            string
 		NewCategory, Run                                                 bool
-		Job                                                              string
+		Job, Choice, SHA                                                 string
 		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
 		Raw, OpenNext, Binary, Confirm                                   bool
@@ -1397,6 +1409,10 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "create":
 		return a.create(createArgs{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name,
 			Source: arg.Source, Raw: arg.Raw, Remote: arg.Remote, URL: arg.URL, Image: arg.Image, Backend: arg.Backend})
+	case "envTrustInfo":
+		return a.envTrustInfo(arg.Path)
+	case "envTrustAnswer":
+		return a.envTrustAnswer(arg.Path, arg.Choice, arg.SHA)
 	case "createCancel":
 		return a.createCancel(arg.Job)
 	case "initProposalAnswer":

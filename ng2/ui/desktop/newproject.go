@@ -235,6 +235,11 @@ func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *
 				fail("env.yaml : " + err.Error())
 				return
 			}
+			// l'environnement du dépôt cloné n'est appliqué qu'avec l'accord de l'utilisateur (#215)
+			if _, err := core.MarkEnvPending(dir, in.URL, in.Image); err != nil {
+				fail("registre d'approbation : " + err.Error())
+				return
+			}
 			// « terminé » seulement si le projet s'ouvre ; sinon échec visible (le dépôt cloné reste en place)
 			if _, err := a.finishCreate(dir, core.LaunchNormal); err != nil {
 				a.setJob(id, func(j *createJob) { j.State, j.Msg = "failed", "cloné, mais ouverture impossible : "+err.Error() })
@@ -324,4 +329,44 @@ func (a *App) proposeInit(path string) {
 	if !done {
 		a.emit("initProposal", map[string]any{"path": path})
 	}
+}
+
+// envTrustInfo : la question d'approbation de l'environnement d'un projet cloné.
+func (a *App) envTrustInfo(path string) (any, error) {
+	if !a.knownProject(path) {
+		return nil, fmt.Errorf("projet inconnu : %s", path)
+	}
+	info, err := core.EnvTrustInfoFor(path)
+	if err != nil {
+		return map[string]any{"ok": false, "msg": err.Error()}, nil
+	}
+	return info, nil
+}
+
+// envTrustAnswer : accept (définitif) puis ouverture ; ignore (socle choisi seul) puis ouverture ; cancel (rien).
+func (a *App) envTrustAnswer(path, choice, sha string) (any, error) {
+	if !a.knownProject(path) {
+		return nil, fmt.Errorf("projet inconnu : %s", path)
+	}
+	retry, err := core.AnswerEnvTrust(path, choice, sha)
+	switch {
+	case retry:
+		return map[string]any{"ok": false, "msg": err.Error(), "retry": true}, nil
+	case err != nil:
+		return map[string]any{"ok": false, "msg": err.Error()}, nil
+	case choice == "cancel":
+		return map[string]any{"ok": true}, nil
+	}
+	return a.open(path, core.LaunchNormal)
+}
+
+// envTrustReview : « Revoir » des réglages — l'entrée repasse à pending (projet fermé seulement).
+func (a *App) envTrustReview(path string) map[string]any {
+	if a.projectOpen(path) {
+		return map[string]any{"ok": false, "msg": "projet ouvert : le fermer avant de revoir son environnement"}
+	}
+	if err := core.ReviewEnvTrust(path); err != nil {
+		return map[string]any{"ok": false, "msg": err.Error()}
+	}
+	return map[string]any{"ok": true}
 }
