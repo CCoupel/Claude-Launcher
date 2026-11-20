@@ -8,9 +8,13 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 func base214(t *testing.T) string {
@@ -244,5 +248,92 @@ func TestNewInfoBasesEtRoots214(t *testing.T) {
 	b, _ := json.Marshal(v)
 	if strings.Contains(string(b), "GITHUB_TOKEN") {
 		t.Error("newInfo expose un jeton")
+	}
+}
+
+// ── succès de create : chemin final, rien d'autre créé ───────────────────────
+
+// fakeClaudeSession214 : faux claude + tmux dédié isolé (comme les tests de collage), pour que l'ouverture du projet créé
+// par create ne lance rien de réel.
+func fakeClaudeSession214(t *testing.T) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		t.Skip("pas de tmux sous Windows")
+	}
+	if _, err := exec.LookPath("tmux"); err != nil {
+		t.Skip("tmux absent")
+	}
+	sock := "cl-desk-create214-" + strconv.Itoa(os.Getpid())
+	t.Setenv("CL_DESK_SOCKET", sock)
+	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() })
+	fake := filepath.Join(t.TempDir(), "claude")
+	_ = os.WriteFile(fake, []byte("#!/bin/sh\necho faux claude prêt\nexec sleep 300\n"), 0o755)
+	t.Setenv("CL_CLAUDE_BIN", fake)
+}
+
+func TestCreateSuccesChemins214(t *testing.T) {
+	base := base214(t)
+	fakeClaudeSession214(t)
+	var r recorder
+	a := newApp(t, r.emit)
+	for _, c := range []struct {
+		name string
+		args map[string]any
+		rel  string   // chemin attendu sous la base
+		made []string // dossiers créés en plus du projet (catégories)
+	}{
+		{"catégorie existante", map[string]any{"base": base, "category": "TEST", "name": "n1", "raw": true}, "TEST/n1", nil},
+		{"nouvelle catégorie", map[string]any{"base": base, "category": "NEW/SUB", "newCategory": true, "name": "n2", "raw": true}, "NEW/SUB/n2", []string{"NEW", "NEW/SUB"}},
+		{"racine de la base", map[string]any{"base": base, "name": "n3", "raw": true}, "n3", nil},
+		{"blancs de bord", map[string]any{"base": base, "category": "TEST", "name": "  n4  ", "raw": true}, "TEST/n4", nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			avant := map[string]bool{}
+			for _, p := range snapDir214(t, base) {
+				avant[p] = true
+			}
+			parent, _ := os.ReadDir(filepath.Dir(base))
+			v := dispatchJSON(t, a, "create", c.args)
+			if v["ok"] == false || v["tab"] == nil {
+				t.Fatalf("create = %v, attendu un succès (tab)", v)
+			}
+			dir := filepath.Join(base, filepath.FromSlash(c.rel))
+			if v["tab"] != dir {
+				t.Errorf("tab = %v, attendu %s", v["tab"], dir)
+			}
+			if st, err := os.Stat(dir); err != nil || !st.IsDir() {
+				t.Fatalf("dossier %s non créé : %v", dir, err)
+			}
+			if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err != nil {
+				t.Errorf("CLAUDE.md du projet brut absent : %v", err)
+			}
+			allowed := map[string]bool{dir: true}
+			for _, m := range c.made {
+				allowed[filepath.Join(base, filepath.FromSlash(m))] = true
+			}
+			if now, _ := os.ReadDir(filepath.Dir(base)); len(now) != len(parent) {
+				t.Errorf("entrées ajoutées à côté de la base : %d → %d", len(parent), len(now))
+			}
+			for _, p := range snapDir214(t, base) {
+				if avant[p] || allowed[p] {
+					continue
+				}
+				if !strings.HasPrefix(p, dir+string(filepath.Separator)) {
+					t.Errorf("créé en dehors du projet attendu : %s", p)
+				}
+			}
+			// l'ouverture (faux claude) se termine avant la fin du test : plus d'écriture dans le bac à sable
+			r.wait(t, 20*time.Second, "ready", isTerm(dir, "status", func(e map[string]any) bool { return e["state"] == "ready" }))
+			// le projet apparaît dans l'arbre, sous la bonne base
+			found := false
+			for _, p := range a.projectPaths() {
+				if p == dir {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("projet absent de l'arbre : %v", a.projectPaths())
+			}
+		})
 	}
 }
