@@ -92,11 +92,13 @@ func checkBase(roots []string, base string) error {
 	return nil
 }
 
-var windowsReserved = map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL": true}
+var windowsReserved = map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL": true, "CONIN$": true, "CONOUT$": true}
 
 // badPortableName : raison si le segment n'est pas utilisable sur tous les systèmes (les bases en partage 9P / SMB
-// sont lues par Windows) — caractères réservés « : * ? " < > | », noms réservés (CON, PRN, AUX, NUL, COM1-9,
-// LPT1-9, avec ou sans extension, insensible à la casse), point ou espace final ; "" sinon.
+// sont lues par Windows) — caractères réservés « : * ? " < > | », noms réservés (CON, PRN, AUX, NUL, CONIN$, CONOUT$,
+// COM0-9, LPT0-9 et leurs variantes en exposant COM¹²³ / LPT¹²³, avec ou sans extension, insensible à la casse), point
+// ou espace final ; "" sinon. Appliqué seulement aux segments CRÉÉS par l'appel (nouvelle catégorie, nom du projet) :
+// une catégorie existante reste utilisable si elle passe les contrôles de sécurité.
 func badPortableName(seg string) string {
 	if strings.ContainsAny(seg, `:*?"<>|`) {
 		return `caractère réservé (: * ? " < > |)`
@@ -109,8 +111,10 @@ func badPortableName(seg string) string {
 		stem = stem[:i]
 	}
 	stem = strings.TrimRight(stem, " ")
-	if windowsReserved[stem] ||
-		len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9' {
+	if windowsReserved[stem] {
+		return "nom réservé par Windows"
+	}
+	if r := []rune(stem); len(r) == 4 && (string(r[:3]) == "COM" || string(r[:3]) == "LPT") && strings.ContainsRune("0123456789¹²³", r[3]) {
 		return "nom réservé par Windows"
 	}
 	return ""
@@ -142,9 +146,6 @@ func checkCategory(category string) ([]string, error) {
 		case strings.IndexFunc(t, unicode.IsControl) >= 0:
 			return nil, pathErr("category", "catégorie invalide (caractère de contrôle)")
 		}
-		if why := badPortableName(t); why != "" {
-			return nil, pathErr("category", "catégorie invalide ("+why+")")
-		}
 		out = append(out, t)
 	}
 	return out, nil
@@ -160,6 +161,14 @@ func resolveIn(roots []string, base, category, name string) (string, error) {
 	}
 	b := filepath.Clean(base)
 	p := filepath.Join(append([]string{b}, segs...)...)
+	// portabilité : seulement les segments de catégorie qui N'EXISTENT PAS encore (créés par cet appel)
+	for i, seg := range segs {
+		if _, serr := os.Lstat(filepath.Join(append([]string{b}, segs[:i+1]...)...)); serr != nil {
+			if why := badPortableName(seg); why != "" {
+				return "", pathErr("category", "catégorie invalide ("+why+")")
+			}
+		}
+	}
 	if name != "" {
 		p = filepath.Join(p, name)
 	}

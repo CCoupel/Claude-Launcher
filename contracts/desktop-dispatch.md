@@ -652,6 +652,12 @@ Refus quand le masquage effectif du projet est désactivé : message
   `maxScanDepth`), vide = directement sous la base. Chaque segment : non vide après `TrimSpace`, ni `.` ni `..`, ni
   `\`, ni caractère de contrôle, ne commence pas par `.`. Chemin absolu refusé.
 - `name` : `ValidProjectName` (inchangé) + pas de `..`.
+- **Portabilité** (les bases en partage 9P / SMB sont lues par Windows) : sont refusés, sur toutes les plateformes, les
+  caractères `: * ? " < > |`, un point ou un espace final, et les noms réservés de Windows — `CON`, `PRN`, `AUX`, `NUL`,
+  `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9` et leurs variantes en exposant (`COM¹ ²  ³`, `LPT¹ ²  ³`), avec ou sans
+  extension, insensible à la casse. Cette règle ne vaut que pour les segments **créés par l'appel** (le nom du
+  projet, une nouvelle catégorie) : une catégorie **existante** aux caractères non portables reste listée
+  (`projectCategories`) et utilisable si elle passe les contrôles de sécurité (traversée, liens, dossier caché).
 - Résultat `<base>/<category>/<name>` ; contrôle final après `filepath.EvalSymlinks` du **parent existant le plus
   profond** : il doit rester sous `EvalSymlinks(base)` (un lien symbolique de catégorie qui sort de la base est
   refusé : `chemin hors des bases`).

@@ -91,22 +91,62 @@ func TestListEtCreateCategory(t *testing.T) {
 func TestNomsPortablesRefuses(t *testing.T) {
 	base := t.TempDir()
 	roots := []string{base}
-	for _, n := range []string{"a:b", "a*", `a"b`, "a<b", "a|b", "a?", "CON", "con", "Nul.txt", "COM1", "lpt9.log", "fin.", "AUX "} {
+	for _, n := range []string{"a:b", "a*", `a"b`, "a<b", "a|b", "a?", "CON", "con", "Nul.txt", "COM1", "COM0", "lpt9.log", "LPT0",
+		"CONIN$", "conout$", "COM¹", "LPT²", "com³.txt", "fin.", "AUX "} {
 		if _, err := ResolveProjectPathIn(roots, base, "", n); err == nil {
 			t.Errorf("nom %q accepté", n)
 		} else if pe, _ := AsPathError(err); pe == nil || pe.Field != "name" {
 			t.Errorf("nom %q : champ %v", n, err)
 		}
-		if _, err := ResolveProjectPathIn(roots, base, n, "p"); err == nil {
-			t.Errorf("catégorie %q acceptée", n)
+		if n == "AUX " { // espace final : retiré par le nettoyage des segments de catégorie
+			continue
+		}
+		if _, err := ResolveProjectPathIn(roots, base, n, "p"); err == nil { // catégorie NOUVELLE
+			t.Errorf("catégorie nouvelle %q acceptée", n)
 		} else if pe, _ := AsPathError(err); pe == nil || pe.Field != "category" {
 			t.Errorf("catégorie %q : champ %v", n, err)
 		}
 	}
-	for _, n := range []string{"COM10", "console", "ok-1", "a.b", "CON2"} {
+	for _, n := range []string{"COM10", "console", "ok-1", "a.b", "CON2", "COM", "COM¹²"} {
 		if _, err := ResolveProjectPathIn(roots, base, "", n); err != nil {
 			t.Errorf("nom %q refusé : %v", n, err)
 		}
+	}
+}
+
+// Une catégorie EXISTANTE aux caractères non portables reste utilisable (listée ET acceptée) ; une nouvelle est refusée.
+func TestCategorieExistanteNonPortableAcceptee(t *testing.T) {
+	base := t.TempDir()
+	roots := []string{base}
+	for _, n := range []string{"a:b", "CON", "fin."} {
+		if err := os.MkdirAll(filepath.Join(base, n, "sous"), 0o755); err != nil {
+			t.Skip("système de fichiers : ", err)
+		}
+		if _, err := ResolveProjectPathIn(roots, base, n, "p"); err != nil {
+			t.Errorf("catégorie existante %q refusée : %v", n, err)
+		}
+		if _, err := ResolveProjectPathIn(roots, base, n+"/sous", "p"); err != nil {
+			t.Errorf("sous-catégorie de %q refusée : %v", n, err)
+		}
+		if _, err := ResolveProjectPathIn(roots, base, n+"/neuve:x", "p"); err == nil {
+			t.Errorf("segment nouveau non portable sous %q accepté", n)
+		}
+		if ex, err := CreateCategoryIn(roots, base, n); err != nil || !ex {
+			t.Errorf("CreateCategory(%q) : existed=%v err=%v", n, ex, err)
+		}
+		cats, _ := ListCategoriesIn(roots, base)
+		found := false
+		for _, c := range cats {
+			found = found || c.Path == n
+		}
+		if !found {
+			t.Errorf("catégorie existante %q non listée : %v", n, cats)
+		}
+	}
+	// les contrôles de sécurité restent : lien sortant et caché refusés même existants
+	_ = os.MkdirAll(filepath.Join(base, ".cache"), 0o755)
+	if _, err := ResolveProjectPathIn(roots, base, ".cache", "p"); err == nil {
+		t.Error("catégorie cachée acceptée")
 	}
 }
 
@@ -180,9 +220,8 @@ func TestCreateProjectDirConcurrent(t *testing.T) {
 	if _, err := os.Stat(win.dir); err == nil {
 		t.Error("dossier du gagnant non supprimé par undo")
 	}
-	if _, err := os.Stat(filepath.Join(base, "NEUVE")); err == nil {
-		t.Error("catégorie créée (vide) non retirée")
-	}
+	// la catégorie peut rester (créée par un perdant dont le dossier du gagnant l'empêchait de la retirer) : le retrait
+	// des catégories créées par l'appel est vérifié en séquentiel (TestCreateProjectDirUndoGardeLesCategoriesPreexistantes)
 }
 
 func TestCreateProjectDirUndoGardeLesCategoriesPreexistantes(t *testing.T) {
