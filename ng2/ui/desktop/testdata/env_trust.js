@@ -16,6 +16,7 @@ eq('contrôles', safeText('x\u0007y\u0085z'), 'x·y·z');
 eq('texte gardé', safeText('curl -fsSL https://x | bash\n\tok <b>'), 'curl -fsSL https://x | bash\n\tok <b>');
 eq('bidi', safeText('a‮b'), 'a·b');
 eq('null', safeText(null), '');
+for (const c of ['\u200e', '\u200f', '\u061c', '\u200b', '\u200c', '\u200d', '\ufeff']) eq('invisible ' + c.charCodeAt(0).toString(16), safeText('a' + c + 'b'), 'a\u00b7b');
 eq('vide', trustRows({ spec: {} }), []);
 eq('vide 2', trustRows(null), []);
 const info = { chosenImage: 'debian:12', spec: { image: 'ghcr.io/x:1', packages: ['kubectl', 'jq'], packagesByManager: { apt: ['git'] }, setup: ['curl x | bash', 'pip i'], onStart: ['./up.sh'], mounts: [{ path: '/var/run/docker.sock', ro: false }, { path: '/a', ro: true }] }, risk: { exec: 3, hostMounts: 1 } };

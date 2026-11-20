@@ -1697,7 +1697,7 @@ function jobGone(seen, firstMissAt, now, graceMs) {
 // Fonctions pures (testdata/env_trust.js). TOUT texte venant du dépôt passe par safeText puis textContent
 // (jamais innerHTML) : aucun HTML interprété ; caractères de contrôle (séquences de terminal) rendus visibles.
 function safeText(v) {
-  return String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+  return String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g,
     (c) => (c === '\u001b' ? '\u241b' : '\u00b7'));
 }
 // Lignes du résumé : [{ label, items:[texte], tone:'' | 'warn' | 'err' }] — vide = rien demandé par le dépôt.
