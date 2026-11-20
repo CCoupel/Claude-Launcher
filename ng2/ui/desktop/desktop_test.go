@@ -215,12 +215,16 @@ func TestDispatch(t *testing.T) {
 	// #214 (contrat CHANGED) : create = base (racine configurée) + catégorie + nom ; un refus est { ok:false, field, msg }
 	cat := filepath.Dir(a.projectPaths()[0]) // <racine>/TEST
 	root, category := filepath.Dir(cat), filepath.Base(cat)
-	if res, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(root)+`,"category":`+strconv.Quote(category)+`,"name":"../x"}`)); err != nil || !strings.Contains(fmt.Sprint(res), "ok:false") {
-		t.Errorf("nom invalide accepté : %v %v", res, err)
+	refuse := func(name, field, motif string) {
+		t.Helper()
+		res, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(root)+`,"category":`+strconv.Quote(category)+`,"name":`+strconv.Quote(name)+`}`))
+		m, _ := res.(map[string]any)
+		if err != nil || m == nil || m["ok"] != false || m["field"] != field || !strings.Contains(fmt.Sprint(m["msg"]), motif) {
+			t.Errorf("create %q = %v, %v ; attendu {ok:false, field:%q, msg ~ %q}", name, res, err, field, motif)
+		}
 	}
-	if res, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(root)+`,"category":`+strconv.Quote(category)+`,"name":"alpha"}`)); err != nil || !strings.Contains(fmt.Sprint(res), "existe déjà") {
-		t.Errorf("dossier existant accepté : %v %v", res, err)
-	}
+	refuse("../x", "name", "nom invalide")
+	refuse("alpha", "name", "existe déjà")
 }
 
 func TestReleaseSpansAndMsCard(t *testing.T) {
