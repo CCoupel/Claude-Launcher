@@ -1940,16 +1940,12 @@ function launcherBar() {
 async function relaunchBox() {
   let i = {};
   try { i = (await transport.call('launcherInfo')) || {}; } catch (e) { /* dialogue sans détail */ }
-  const stale = i.stale || [];
-  const nm = stale.filter((p) => p.role === 'mirror').length, nl = stale.filter((p) => p.role === 'layout-watch').length;
   openModal((b) => {
     b.append(el('h2', '', '↻ Relancer le launcher'));
     b.append(el('h3', '', 'Relancé'));
     const ul = el('div', '');
     const ver = i.running && i.installed ? ' (' + verTxt(i.running) + ' → ' + verTxt(i.installed) + ')' : '';
     ul.append(el('div', '', '• interface' + (i.mode === 'pod' ? ' (redémarrage du pod du launcher, elle revient seule)' : '') + ver));
-    if (nm) ul.append(el('div', '', '• ' + nm + ' vignette' + (nm > 1 ? 's' : '') + ' Teamleaders (mirror, ancien binaire)'));
-    if (nl) ul.append(el('div', '', '• ' + nl + ' layout-watch (ancien binaire)'));
     b.append(ul, el('h3', '', 'Gardé'), el('div', 't-green', '• sessions des projets (tmux), conteneurs et pods'));
     const msg = el('div', 't-red'); b.append(msg);
     const btns = el('div', 'btns');
