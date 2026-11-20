@@ -1701,7 +1701,13 @@ function initProposalBar(path) {
   const b = el('div', 'lanbanner srv lbar g'); b.id = id;
   b.textContent = '◆ ' + name + ' créé depuis le template — lancer /init-project ?';
   b.append(el('span', 'sp'));
-  const answer = (run) => { b.remove(); call('initProposalAnswer', { path, run }).catch(() => {}); };
+  // refus du serveur (leader pas prêt…) : le bandeau reste, le message est affiché ; la proposition est gardée côté projet
+  const answer = (run) => {
+    b.classList.add('busy');
+    call('initProposalAnswer', { path, run }).then((r) => {
+      if (r && r.ok === false) { b.classList.remove('busy'); flash('⚠ ' + (r.msg || 'proposition refusée')); } else b.remove();
+    }, () => b.classList.remove('busy'));
+  };
   const yes = el('button', 'btn sm pri', 'Lancer /init-project'); yes.onclick = () => answer(true);
   const no = el('button', 'btn sm', 'Plus tard'); no.onclick = () => answer(false);
   b.append(yes, no); $('main').insertBefore(b, $('tabs'));
