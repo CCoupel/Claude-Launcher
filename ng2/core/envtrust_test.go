@@ -294,3 +294,42 @@ func TestIgnoreSansSocleEtF2ConteneurPrendLeSocleCourant(t *testing.T) {
 		t.Errorf("état = %s, ignored attendu (écriture du launcher : pas de re-demande)", EnvTrust(d))
 	}
 }
+
+// Le refus d'un registre illisible dit comment s'en sortir (chemin, restaurer .bak ou supprimer), partout.
+func TestRegistreIllisibleMessageDeReprise(t *testing.T) {
+	d := trustProject(t, evilEnv)
+	_ = os.WriteFile(trustPath(), []byte("{casse"), 0o600)
+	want := []string{"registre d'approbation illisible", trustPath(), "restaurez trust.json.bak", "supprimez trust.json pour repartir de zéro"}
+	check := func(what string, err error) {
+		if err == nil {
+			t.Errorf("%s : erreur attendue", what)
+			return
+		}
+		for _, w := range want {
+			if !strings.Contains(err.Error(), w) {
+				t.Errorf("%s : message sans %q : %v", what, w, err)
+			}
+		}
+	}
+	_, err := LoadEnv(d)
+	check("LoadEnv", err)
+	_, err = AnswerEnvTrust(d, "accept", "x")
+	check("AnswerEnvTrust", err)
+	check("ReviewEnvTrust", ReviewEnvTrust(d))
+	check("RegisterClone", RegisterClone(d, "u", "i"))
+	info, err := EnvTrustInfoFor(d)
+	if err != nil || info.State != TrustPending {
+		t.Fatalf("info = %+v %v", info, err)
+	}
+	for _, w := range want {
+		if !strings.Contains(info.Broken, w) {
+			t.Errorf("info.Broken sans %q : %q", w, info.Broken)
+		}
+	}
+	// registre sain : pas de message
+	_ = os.Remove(trustPath())
+	_, _ = MarkEnvPending(d, "u", "i")
+	if i2, _ := EnvTrustInfoFor(d); i2.Broken != "" {
+		t.Errorf("Broken renseigné pour un registre sain : %q", i2.Broken)
+	}
+}

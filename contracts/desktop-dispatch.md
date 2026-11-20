@@ -891,6 +891,11 @@ atomique sous `WithFileLock`, **copie `trust.json.bak` avant chaque écriture** 
 - **Échec fermé** : `trust.json` présent mais vide ou illisible → tout projet portant un environnement est `pending`
   (`ErrTrustBroken`, qui est aussi `ErrEnvNotApproved`), le fichier n'est **jamais réécrit** (toute écriture est
   refusée) ; restaurer `trust.json.bak` ou supprimer le fichier. Un projet sans environnement n'est pas concerné.
+  **Message de reprise** (fenêtre native, web et coque — erreur de `LoadEnv`, réponse de `envTrustAnswer`, champ
+  `broken` d'`envTrustInfo` / de l'évènement `envTrust`, ligne rouge de l'écran de la coque) : « registre d'approbation
+  illisible (<chemin de trust.json>) : restaurez trust.json.bak ou supprimez trust.json pour repartir de zéro ».
+  Supprimer `trust.json` repart de zéro : les projets déjà clonés n'ont plus d'entrée (de confiance) ; restaurer
+  `trust.json.bak` rend l'état précédent la dernière écriture.
 
 **`core.EnvTrust(path)`** → état effectif : `trusted` (pas d'entrée) | `pending` | `accepted` | `ignored` | `none`.
 **`LoadEnv`** : `pending` → refus (`ErrEnvNotApproved` ; `ErrEnvChanged` quand l'empreinte a changé) pour toute
@@ -912,12 +917,12 @@ Projet en conteneur et `EnvTrust` = `pending` : rien n'est démarré, résultat
   "spec": { "image": "…", "packages": [], "packagesByManager": {}, "setup": [], "onStart": [], "watch": [],
             "mounts": [ { "path": "/var/run/docker.sock", "ro": false } ], "local": [], "prefer": "" },
   "files": { "env.yaml": "<texte>", "env-template.yaml": "" },
-  "changed": false,
+  "changed": false, "broken": "",
   "risk": { "exec": 3, "hostMounts": 1, "packages": 4, "watch": 1, "local": 1 } }
 ```
 `risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet, `risk.packages` =
 paquets installés (`packages` + `packages_by_manager`), `risk.watch` / `risk.local` = entrées `watch` / `local`.
-`changed` : la question revient parce que les fichiers ont changé depuis l'approbation (message « l'environnement du
+`broken` : message de reprise quand le registre est illisible (vide sinon). `changed` : la question revient parce que les fichiers ont changé depuis l'approbation (message « l'environnement du
 dépôt a changé depuis l'approbation », sans différences). Textes affichés tels quels, échappés (jamais interprétés en
 HTML ; en terminal : ESC, C0, C1, DEL **et caractères invisibles ou bidirectionnels** U+200B–200F, U+202A–202E,
 U+2066–2069, U+061C, U+FEFF remplacés par `·`, texte retourné à la ligne, jamais tronqué : une commande exécutée se lit

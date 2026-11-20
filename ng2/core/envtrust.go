@@ -41,7 +41,16 @@ var ErrEnvNotApproved = errors.New("environnement du dépôt cloné non approuv�
 var ErrEnvChanged = fmt.Errorf("%w — l'environnement du dépôt a changé depuis l'approbation", ErrEnvNotApproved)
 
 // ErrTrustBroken : trust.json présent mais illisible — jamais réécrit, tout projet portant un environnement est refusé.
-var ErrTrustBroken = fmt.Errorf("%w — trust.json illisible (le restaurer depuis trust.json.bak ou le supprimer)", ErrEnvNotApproved)
+// Le message dit comment s'en sortir (trustBrokenError) ; errors.Is(err, ErrTrustBroken) et ErrEnvNotApproved.
+var ErrTrustBroken = errors.New("registre d'approbation illisible")
+
+type trustBrokenError struct{}
+
+func (trustBrokenError) Error() string {
+	return fmt.Sprintf("registre d'approbation illisible (%s) : restaurez trust.json.bak ou supprimez trust.json pour repartir de zéro", trustPath())
+}
+
+func (trustBrokenError) Is(t error) bool { return t == ErrTrustBroken || t == ErrEnvNotApproved }
 
 // TrustEntry : une ligne du registre.
 type TrustEntry struct {
@@ -149,7 +158,7 @@ func setTrust(proj string, e *TrustEntry) error {
 		m := map[string]TrustEntry{}
 		if raw, err := os.ReadFile(trustPath()); err == nil {
 			if len(strings.TrimSpace(string(raw))) == 0 || json.Unmarshal(raw, &m) != nil {
-				return ErrTrustBroken
+				return trustBrokenError{}
 			}
 			if err := WriteFileAtomic(trustPath()+".bak", raw, 0o600); err != nil {
 				return err
@@ -226,7 +235,7 @@ func MarkEnvPending(proj, source, image string) (bool, error) {
 func ReviewEnvTrust(proj string) error {
 	e, ok, broken := rawEntry(proj)
 	if broken {
-		return ErrTrustBroken
+		return trustBrokenError{}
 	}
 	if !ok {
 		return errors.New("projet de confiance : rien à revoir")
@@ -270,7 +279,8 @@ type EnvTrustRisk struct {
 type EnvTrustInfo struct {
 	Path        string            `json:"path"`
 	State       TrustState        `json:"state"`
-	Changed     bool              `json:"changed"` // la question revient : les fichiers ont changé depuis l'approbation (aucune différence affichée)
+	Broken      string            `json:"broken,omitempty"` // registre illisible : message de reprise (restaurer .bak ou supprimer)
+	Changed     bool              `json:"changed"`          // la question revient : les fichiers ont changé depuis l'approbation (aucune différence affichée)
 	Source      string            `json:"source"`
 	SHA         string            `json:"sha"`
 	ChosenImage string            `json:"chosenImage"`
@@ -294,7 +304,7 @@ func readLimited(p string) string {
 
 // EnvTrustInfoFor : la question pour proj (entrée du registre, fichiers bruts, spécification, risque).
 func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
-	ent, st, changed, _ := effectiveTrust(proj)
+	ent, st, changed, broken := effectiveTrust(proj)
 	if st != TrustPending {
 		return EnvTrustInfo{}, errors.New("aucune approbation en attente")
 	}
@@ -303,6 +313,9 @@ func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
 			"env.yaml":          readLimited(EnvPath(proj)),
 			"env-template.yaml": readLimited(envTemplatePath(proj)),
 		}}
+	if broken {
+		info.Broken = trustBrokenError{}.Error()
+	}
 	info.Spec = EnvTrustSpec{Packages: []string{}, PackagesByManager: map[string][]string{}, Setup: []string{}, OnStart: []string{},
 		Watch: []string{}, Mounts: []EnvTrustMount{}, Local: []string{}}
 	if e, err := loadEnvRaw(proj); err == nil || e.Image != "" || len(e.Setup) > 0 || len(e.Mounts) > 0 {
@@ -340,7 +353,7 @@ func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
 func AnswerEnvTrust(proj, choice, sha string) (retry bool, err error) {
 	ent, st, _, broken := effectiveTrust(proj)
 	if broken {
-		return false, ErrTrustBroken
+		return false, trustBrokenError{}
 	}
 	if st != TrustPending {
 		return false, errors.New("aucune approbation en attente")

@@ -870,6 +870,11 @@ func (m model) renderTrust(w int) string {
 	if t.Changed {
 		sb.WriteString(" " + core.Red.Render("l'environnement du dépôt a changé depuis l'approbation") + "\n")
 	}
+	if t.Broken != "" {
+		for _, l := range wrapText(t.Broken, w-2) {
+			sb.WriteString(" " + core.Red.Render(l) + "\n")
+		}
+	}
 	sb.WriteString(" " + core.Dim.Render("source :") + "\n")
 	put("  ", t.Source)
 	sb.WriteString("\n")
