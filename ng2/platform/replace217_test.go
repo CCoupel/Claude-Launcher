@@ -1,7 +1,7 @@
 package platform
 
 // #217 : remplacement de fichier avec retry Windows, en logique pure (erreurs injectées, valable sur tous les
-// systèmes). Tag `atomic217` : API posée à l'écriture ; noms ATTENDUS :
+// systèmes). API :
 //
 //	func IsReplaceRetryable(err error) bool                                    // errno 5 (ACCESS_DENIED) ou 32 (SHARING_VIOLATION), même enveloppé
 //	func ReplaceWithRetry(src, dst string, rename func(a, b string) error, sleep func(time.Duration)) error
