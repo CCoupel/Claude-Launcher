@@ -139,3 +139,17 @@ func TestCaracteresBidiAbsentsDuRendu215(t *testing.T) {
 		t.Errorf("caractère bidi/invisible dans le rendu : %q", out)
 	}
 }
+
+func TestEcranSignaleLesScriptsDuDepot215(t *testing.T) {
+	m, _ := trustModel(t, "image: debian:12\nsetup:\n  - ./scripts/install.sh\n")
+	out := m.renderTrust(80)
+	for _, want := range []string{"scripts du dépôt appelés", "./scripts/install.sh", "n'est pas couvert par l'approbation", "version courante sera exécutée"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("écran sans %q :\n%s", want, out)
+		}
+	}
+	m2, _ := trustModel(t, "image: debian:12\nsetup:\n  - apt-get update\n")
+	if strings.Contains(m2.renderTrust(80), "scripts du dépôt") {
+		t.Error("signalement sans script")
+	}
+}

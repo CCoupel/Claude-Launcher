@@ -869,7 +869,9 @@ la même façon. `EnsureConfig` : création exclusive par temporaire + lien/rena
 Un dépôt cloné n'est pas de confiance : son `.claude-launcher/env.yaml` et son `env-template.yaml` (image, paquets,
 `setup`, `on_start`, `watch`, `mounts`, `local`, `prefer`) ne sont **jamais appliqués sans accord**.
 
-**Registre `trust.json`** (dossier de config du launcher, à côté de `projects.json` ; **jamais dans le projet**, qu'un
+**Registre `trust.json`** (dossier de config **partagé** `<CL_ROOT_BASE>/.config/claude-launcher-ng2/`, à côté de
+`projects.json`, comme le coffre des secrets #201 : l'exe Windows, le hub et le pod partagent les approbations ;
+`CL_CONFIG_DIR` l'emporte, sans racine de base : dossier de config du launcher ; **jamais dans le projet**, qu'un
 dépôt pourrait fournir) — clés = chemin du projet vu des backends (`RemotePath`, comme `projects.json`), écriture
 atomique sous `WithFileLock`, **copie `trust.json.bak` avant chaque écriture** :
 ```json
@@ -888,6 +890,10 @@ atomique sous `WithFileLock`, **copie `trust.json.bak` avant chaque écriture** 
   l'environnement courant (`changed: true` dit seulement « a changé depuis l'approbation »). Les écritures de
   `env.yaml` **faites par le launcher lui-même** (F2, réglages du projet) mettent `sha` à jour — sauf si les fichiers
   avaient déjà été modifiés par le dépôt avant l'écriture (jamais béni). « Revoir » remet l'entrée à `pending`.
+- **Migration** : au démarrage (`shell`, `desktop`), un `trust.json` resté dans le dossier de config LOCAL du poste (et
+  absent du registre partagé) est **fusionné** dans le registre partagé : jamais de perte — une entrée absente est
+  ajoutée, en cas de désaccord l'entrée partagée l'emporte (écart journalisé), `trust.json.bak` avant l'écriture,
+  l'ancien fichier est conservé. Registre partagé illisible : rien n'est réécrit (échec fermé ci-dessous).
 - **Échec fermé** : `trust.json` présent mais vide ou illisible → tout projet portant un environnement est `pending`
   (`ErrTrustBroken`, qui est aussi `ErrEnvNotApproved`), le fichier n'est **jamais réécrit** (toute écriture est
   refusée) ; restaurer `trust.json.bak` ou supprimer le fichier. Un projet sans environnement n'est pas concerné.
@@ -918,10 +924,15 @@ Projet en conteneur et `EnvTrust` = `pending` : rien n'est démarré, résultat
             "mounts": [ { "path": "/var/run/docker.sock", "ro": false } ], "local": [], "prefer": "" },
   "files": { "env.yaml": "<texte>", "env-template.yaml": "" },
   "changed": false, "broken": "",
-  "risk": { "exec": 3, "hostMounts": 1, "packages": 4, "watch": 1, "local": 1 } }
+  "risk": { "exec": 3, "hostMounts": 1, "packages": 4, "watch": 1, "local": 1, "scripts": ["./scripts/install.sh"] },
+  "scriptNote": "ce script n'est pas couvert par l'approbation : sa version courante sera exécutée" }
 ```
 `risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet, `risk.packages` =
-paquets installés (`packages` + `packages_by_manager`), `risk.watch` / `risk.local` = entrées `watch` / `local`.
+paquets installés (`packages` + `packages_by_manager`), `risk.watch` / `risk.local` = entrées `watch` / `local`. `risk.scripts` = scripts **du dépôt** que `setup` / `on_start`
+appellent (jetons de chemin relatif — `./x`, `../x`, `dir/x` — ou d'extension de script `.sh` `.py` `.ps1`…, hors URL,
+option, chemin absolu ; heuristique qui signale) ; `scriptNote` (non vide s'ils existent) : « ce script n'est pas couvert
+par l'approbation : sa version courante sera exécutée » — seuls `env.yaml` / `env-template.yaml` sont couverts par
+l'empreinte, jamais les scripts qu'ils appellent.
 `broken` : message de reprise quand le registre est illisible (vide sinon). `changed` : la question revient parce que les fichiers ont changé depuis l'approbation (message « l'environnement du
 dépôt a changé depuis l'approbation », sans différences). Textes affichés tels quels, échappés (jamais interprétés en
 HTML ; en terminal : ESC, C0, C1, DEL **et caractères invisibles ou bidirectionnels** U+200B–200F, U+202A–202E,

@@ -928,6 +928,15 @@ func (m model) renderTrust(w int) string {
 			r.Exec, r.HostMounts, r.Packages, r.Watch, r.Local), w-2) {
 			sb.WriteString(" " + core.Red.Render(l) + "\n")
 		}
+		if len(r.Scripts) > 0 { // r2 : scripts du dépôt appelés par setup / on_start, hors de l'approbation
+			sb.WriteString(" " + core.Dim.Render("scripts du dépôt appelés :") + "\n")
+			for _, sc := range r.Scripts {
+				put("   ", sc)
+			}
+			for _, l := range wrapText(t.ScriptNote, w-2) {
+				sb.WriteString(" " + core.Red.Render(l) + "\n")
+			}
+		}
 	}
 	if f.err != "" {
 		sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")

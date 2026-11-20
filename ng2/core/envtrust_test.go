@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -360,5 +361,103 @@ func TestCloneSansEnvAvecSocleResteNone(t *testing.T) {
 	_ = os.WriteFile(EnvPath(d), []byte("image: fedora:40\nsetup:\n  - evil\n"), 0o644)
 	if EnvTrust(d) != TrustPending {
 		t.Error("changement du dépôt après coup non détecté")
+	}
+}
+
+// r1 : le registre vit sous la racine de base (dossier partagé) ; un trust.json local est fusionné sans perte.
+func TestRegistreSousLaRacineDeBase(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", "")
+	t.Setenv(RootBaseVar, root)
+	if want := filepath.Join(root, ".config", "claude-launcher-ng2", "trust.json"); trustPath() != want {
+		t.Errorf("trustPath = %q, attendu %q", trustPath(), want)
+	}
+	t.Setenv("CL_CONFIG_DIR", t.TempDir()) // surcharge explicite
+	if trustPath() != filepath.Join(os.Getenv("CL_CONFIG_DIR"), "trust.json") {
+		t.Error("CL_CONFIG_DIR n'emporte pas")
+	}
+}
+
+func TestMigrationDuRegistreLocal(t *testing.T) {
+	shared := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", shared)
+	legacy := t.TempDir()
+	t.Setenv(TrustLegacyDirVar, legacy)
+	write := func(dir string, m map[string]TrustEntry) {
+		b, _ := json.Marshal(m)
+		if err := os.WriteFile(filepath.Join(dir, "trust.json"), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(shared, map[string]TrustEntry{"/p/commun": {State: TrustAccepted, SHA: "a"}, "/p/conflit": {State: TrustAccepted, SHA: "partage"}})
+	write(legacy, map[string]TrustEntry{"/p/local": {State: TrustIgnored, SHA: "b", Image: "x"}, "/p/conflit": {State: TrustPending, SHA: "local"}, "/p/commun": {State: TrustAccepted, SHA: "a"}})
+	n, err := MigrateLegacyTrust()
+	if err != nil || n != 1 {
+		t.Fatalf("fusion : %d %v, 1 entrée ajoutée attendue", n, err)
+	}
+	var got map[string]TrustEntry
+	b, _ := os.ReadFile(filepath.Join(shared, "trust.json"))
+	_ = json.Unmarshal(b, &got)
+	if got["/p/local"].State != TrustIgnored || got["/p/local"].Image != "x" {
+		t.Errorf("entrée locale perdue : %+v", got)
+	}
+	if got["/p/conflit"].SHA != "partage" || got["/p/commun"].SHA != "a" {
+		t.Errorf("le registre partagé doit l'emporter : %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(shared, "trust.json.bak")); err != nil {
+		t.Error(".bak absent avant la fusion")
+	}
+	if _, err := os.Stat(filepath.Join(legacy, "trust.json")); err != nil {
+		t.Error("ancien fichier supprimé (doit être conservé)")
+	}
+	if n, err := MigrateLegacyTrust(); err != nil || n != 0 { // idempotent
+		t.Errorf("seconde fusion : %d %v", n, err)
+	}
+}
+
+func TestMigrationRegistrePartageIllisibleNonReecrit(t *testing.T) {
+	shared := t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", shared)
+	legacy := t.TempDir()
+	t.Setenv(TrustLegacyDirVar, legacy)
+	_ = os.WriteFile(filepath.Join(legacy, "trust.json"), []byte(`{"/p/x":{"state":"accepted"}}`), 0o600)
+	_ = os.WriteFile(filepath.Join(shared, "trust.json"), []byte("{casse"), 0o600)
+	if _, err := MigrateLegacyTrust(); !errors.Is(err, ErrTrustBroken) {
+		t.Errorf("erreur = %v", err)
+	}
+	if b, _ := os.ReadFile(filepath.Join(shared, "trust.json")); string(b) != "{casse" {
+		t.Errorf("registre illisible réécrit : %q", b)
+	}
+	// sans ancien fichier : rien à faire, pas d'erreur
+	_ = os.Remove(filepath.Join(legacy, "trust.json"))
+	if n, err := MigrateLegacyTrust(); n != 0 || err != nil {
+		t.Errorf("sans ancien fichier : %d %v", n, err)
+	}
+}
+
+// r2 : setup / on_start qui appellent un script du dépôt sont signalés.
+func TestScriptsDuDepotSignales(t *testing.T) {
+	d := trustProject(t, "image: debian:12\nsetup:\n  - ./scripts/install.sh --fast\n  - \"bash tools/setup.sh && make\"\n  - apt-get install -y curl\n  - curl -fsSL https://x.invalid/a.sh | sh\non_start:\n  - python3 bin/boot.py\n  - /usr/local/bin/ok\n  - echo $HOME\n")
+	_, _ = MarkEnvPending(d, "u", "debian:12")
+	info, _ := EnvTrustInfoFor(d)
+	got := strings.Join(info.Risk.Scripts, " ")
+	for _, want := range []string{"./scripts/install.sh", "tools/setup.sh", "bin/boot.py"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("script %q non signalé : %v", want, info.Risk.Scripts)
+		}
+	}
+	for _, no := range []string{"curl", "apt-get", "/usr/local/bin/ok", "https://", "$HOME", "make"} {
+		if strings.Contains(got, no) {
+			t.Errorf("%q signalé à tort : %v", no, info.Risk.Scripts)
+		}
+	}
+	if info.ScriptNote != ScriptNote || !strings.Contains(info.ScriptNote, "n'est pas couvert par l'approbation") {
+		t.Errorf("ScriptNote = %q", info.ScriptNote)
+	}
+	// aucune référence : pas de message
+	d2 := trustProject(t, "image: debian:12\nsetup:\n  - apt-get update\n")
+	_, _ = MarkEnvPending(d2, "u", "debian:12")
+	if i2, _ := EnvTrustInfoFor(d2); len(i2.Risk.Scripts) != 0 || i2.ScriptNote != "" {
+		t.Errorf("signalement sans script : %+v", i2.Risk)
 	}
 }

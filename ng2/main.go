@@ -51,6 +51,11 @@ func main() {
 		}
 	}
 	if cmd == "shell" || cmd == "desktop" { // instances longues (hub, exe, pod) : coffre commun, migration du coffre v6.4.0 (#201)
+		if n, err := core.MigrateLegacyTrust(); err != nil { // registre d'approbation : fusion de l'éventuel trust.json local (#215)
+			log.Printf("migration du registre d'approbation : %v", err)
+		} else if n > 0 {
+			log.Printf("registre d'approbation : %d entrée(s) reprise(s) de l'ancien emplacement", n)
+		}
 		if _, err := core.MigrateLegacySecrets(); err != nil {
 			log.Printf("migration du coffre des secrets : %v", err)
 		}

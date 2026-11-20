@@ -6,11 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // ── Approbation de l'environnement d'un projet cloné (#215, contracts/desktop-dispatch.md) ──
@@ -61,7 +65,109 @@ type TrustEntry struct {
 	At     string     `json:"at,omitempty"`
 }
 
-func trustPath() string { return filepath.Join(Ng2ConfigDir(), "trust.json") }
+// trustPath : le registre vit dans le dossier PARTAGÉ — <CL_ROOT_BASE>/.config/claude-launcher-ng2/ (comme le coffre des
+// secrets #201), pour que l'exe Windows, le hub et le pod partagent les approbations. CL_CONFIG_DIR (tests, installation
+// explicite) l'emporte ; sans racine de base : dossier de config du launcher (Ng2ConfigDir).
+func trustPath() string {
+	if os.Getenv("CL_CONFIG_DIR") == "" {
+		if d := RootBaseConfigDir(); d != "" {
+			return filepath.Join(d, "trust.json")
+		}
+	}
+	return filepath.Join(Ng2ConfigDir(), "trust.json")
+}
+
+// TrustLegacyDirVar : ancien dossier contenant un trust.json local à fusionner (tests ; sinon le dossier de config local
+// du poste quand une racine de base est posée).
+const TrustLegacyDirVar = "CL_TRUST_LEGACY_DIR"
+
+func trustLegacyPaths(dest string) []string {
+	var dirs []string
+	if d := strings.TrimSpace(os.Getenv(TrustLegacyDirVar)); d != "" {
+		dirs = append(dirs, d)
+	} else if os.Getenv("CL_CONFIG_DIR") == "" && RootBaseConfigDir() != "" {
+		home, _ := os.UserHomeDir()
+		ucd := ""
+		if runtime.GOOS == "windows" {
+			ucd, _ = os.UserConfigDir()
+		}
+		dirs = append(dirs, defaultConfigDir(runtime.GOOS, home, ucd))
+		if d := portableConfigDir(); d != "" {
+			dirs = append(dirs, d)
+		}
+	}
+	var out []string
+	for _, d := range dirs {
+		p := filepath.Join(d, "trust.json")
+		if filepath.Clean(p) != filepath.Clean(dest) {
+			if _, err := os.Stat(p); err == nil {
+				out = append(out, p)
+			}
+		}
+	}
+	return out
+}
+
+// MigrateLegacyTrust : fusionne dans le registre partagé les entrées d'un trust.json local resté sur le poste (jamais de
+// perte : une entrée absente du registre partagé est ajoutée ; en cas de désaccord le registre partagé l'emporte et
+// l'écart est journalisé ; l'ancien fichier est conservé). Rend le nombre d'entrées ajoutées. Un registre partagé
+// illisible n'est pas réécrit (erreur) ; un ancien fichier illisible est ignoré (journalisé).
+func MigrateLegacyTrust() (added int, err error) {
+	dest := trustPath()
+	legacy := trustLegacyPaths(dest)
+	if len(legacy) == 0 {
+		return 0, nil
+	}
+	err = WithFileLock(dest, func() error {
+		m := map[string]TrustEntry{}
+		var rawDest []byte
+		if raw, rerr := os.ReadFile(dest); rerr == nil {
+			if len(strings.TrimSpace(string(raw))) == 0 || json.Unmarshal(raw, &m) != nil {
+				return trustBrokenError{}
+			}
+			rawDest = raw
+		}
+		for _, lp := range legacy {
+			raw, rerr := os.ReadFile(lp)
+			l := map[string]TrustEntry{}
+			if rerr != nil || json.Unmarshal(raw, &l) != nil {
+				log.Printf("registre d'approbation : %s illisible, ignoré", lp)
+				continue
+			}
+			for k, e := range l {
+				cur, ok := m[k]
+				switch {
+				case !ok:
+					m[k] = e
+					added++
+				case cur != e:
+					log.Printf("registre d'approbation : %s : entrée locale différente de l'entrée partagée, entrée partagée conservée", k)
+				}
+			}
+		}
+		if added == 0 {
+			return nil
+		}
+		if rawDest != nil {
+			if werr := WriteFileAtomic(dest+".bak", rawDest, 0o600); werr != nil {
+				return werr
+			}
+		}
+		if merr := os.MkdirAll(filepath.Dir(dest), 0o755); merr != nil {
+			return merr
+		}
+		b, _ := json.MarshalIndent(m, "", "  ")
+		werr := WriteFileAtomic(dest, b, 0o600)
+		trustMu.Lock()
+		trustCache.valid = false
+		trustMu.Unlock()
+		return werr
+	})
+	if added > 0 && err == nil {
+		log.Printf("registre d'approbation : %d entrée(s) fusionnée(s) depuis l'ancien emplacement local (conservé)", added)
+	}
+	return added, err
+}
 
 var (
 	trustMu    sync.Mutex
@@ -272,6 +378,9 @@ type EnvTrustRisk struct {
 	Packages   int `json:"packages"` // paquets installés (packages + packages_by_manager)
 	Watch      int `json:"watch"`
 	Local      int `json:"local"`
+	// Scripts : scripts DU DÉPÔT que setup / on_start appellent (chemins relatifs, ./x, *.sh…) — leur version courante est
+	// exécutée, elle n'est pas couverte par l'approbation (seuls env.yaml / env-template.yaml le sont)
+	Scripts []string `json:"scripts"`
 }
 
 // EnvTrustInfo : charge utile d'envTrustInfo et de l'évènement envTrust. Les textes sont rendus TELS QUELS : l'interface
@@ -279,8 +388,9 @@ type EnvTrustRisk struct {
 type EnvTrustInfo struct {
 	Path        string            `json:"path"`
 	State       TrustState        `json:"state"`
-	Broken      string            `json:"broken,omitempty"` // registre illisible : message de reprise (restaurer .bak ou supprimer)
-	Changed     bool              `json:"changed"`          // la question revient : les fichiers ont changé depuis l'approbation (aucune différence affichée)
+	ScriptNote  string            `json:"scriptNote,omitempty"` // message si Risk.Scripts n'est pas vide
+	Broken      string            `json:"broken,omitempty"`     // registre illisible : message de reprise (restaurer .bak ou supprimer)
+	Changed     bool              `json:"changed"`              // la question revient : les fichiers ont changé depuis l'approbation (aucune différence affichée)
 	Source      string            `json:"source"`
 	SHA         string            `json:"sha"`
 	ChosenImage string            `json:"chosenImage"`
@@ -344,6 +454,10 @@ func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
 			info.Risk.Packages += len(l)
 		}
 		info.Risk.Watch, info.Risk.Local = len(e.Watch), len(e.Local)
+		info.Risk.Scripts = repoScripts(append(append([]string(nil), e.Setup...), e.OnStart...))
+		if len(info.Risk.Scripts) > 0 {
+			info.ScriptNote = ScriptNote
+		}
 	}
 	return info, nil
 }
@@ -412,4 +526,46 @@ func EnvContainerProject(proj string) bool {
 	}
 	_, ok := EngineOf(ProjectBackend(proj))
 	return ok
+}
+
+// ScriptNote : avertissement affiché quand setup / on_start appellent un script du dépôt.
+const ScriptNote = "ce script n'est pas couvert par l'approbation : sa version courante sera exécutée"
+
+var scriptExts = []string{".sh", ".bash", ".zsh", ".py", ".rb", ".pl", ".js", ".mjs", ".ps1", ".bat", ".cmd", ".mk"}
+
+// repoScripts : références à des scripts du dépôt dans des commandes (setup / on_start) — jetons de chemin relatif
+// (« ./x », « ../x », « scripts/x ») ou d'extension de script (.sh, .py…) ; ni URL, ni option, ni chemin absolu ou « ~ » ;
+// sans doublon, triés. Heuristique : elle signale, elle ne prouve rien.
+func repoScripts(cmds []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range cmds {
+		for _, tok := range strings.FieldsFunc(c, func(r rune) bool {
+			return unicode.IsSpace(r) || strings.ContainsRune(";&|()<>`'\"=,", r)
+		}) {
+			if isScriptToken(tok) && !seen[tok] {
+				seen[tok] = true
+				out = append(out, tok)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func isScriptToken(t string) bool {
+	switch {
+	case t == "" || strings.HasPrefix(t, "-") || strings.Contains(t, "://") || strings.HasPrefix(t, "/") ||
+		strings.HasPrefix(t, "~") || strings.HasPrefix(t, "$"):
+		return false
+	case strings.HasPrefix(t, "./") || strings.HasPrefix(t, "../"):
+		return true
+	}
+	low := strings.ToLower(t)
+	for _, e := range scriptExts {
+		if strings.HasSuffix(low, e) {
+			return true
+		}
+	}
+	return strings.Contains(t, "/")
 }
