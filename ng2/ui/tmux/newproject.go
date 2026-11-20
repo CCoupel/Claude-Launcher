@@ -561,14 +561,15 @@ func (m model) cloneDone(msg cloneDoneMsg) model {
 	m.job = nil
 	switch {
 	case msg.err == nil:
-		if err := applyExec(j.dir, m.form); err != nil { // après le clonage réussi : jamais d'affectation sans projet cloné
-			m.form.err = "env.yaml : " + err.Error() + " — " + j.undo()
+		// l'état (none / pending) est décidé sur le contenu du DÉPÔT seul, AVANT applyExec : l'env.yaml écrit ensuite est
+		// celui du launcher (empreinte re-scellée), jamais un « pending » sur son propre fichier
+		if _, err := core.MarkEnvPending(j.dir, m.form.url, m.formImage()); err != nil {
+			m.form.err = "registre d'approbation : " + err.Error() + " — " + j.undo()
 			m.form.mode = formURL
 			return m
 		}
-		// l'environnement du dépôt cloné n'est appliqué qu'avec l'accord de l'utilisateur : demandé à l'ouverture
-		if _, err := core.MarkEnvPending(j.dir, m.form.url, m.formImage()); err != nil {
-			m.form.err = "registre d'approbation : " + err.Error() + " — " + j.undo()
+		if err := applyExec(j.dir, m.form); err != nil { // après le clonage réussi : jamais d'affectation sans projet cloné
+			m.form.err = "env.yaml : " + err.Error() + " — " + j.undo()
 			m.form.mode = formURL
 			return m
 		}

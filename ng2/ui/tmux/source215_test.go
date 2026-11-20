@@ -130,3 +130,29 @@ func TestModeEffectifPropose215(t *testing.T) {
 		t.Error("proposition répétée après retrait du marqueur")
 	}
 }
+
+// Coque : clone sans env.yaml + socle → none (décidé sur le dépôt avant applyExec), ouverture sans question.
+func TestCloneSansEnvAvecSocleResteNone215(t *testing.T) {
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	m, root := srcModel(t)
+	dir, undo, err := core.CreateProjectDir(m.cfg.Roots, root, "", false, "q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m.form = newForm{mode: formCloning, base: root, name: "q", source: "git", url: "https://github.com/a/b", images: []string{"fedora:40"}, exec: 1, ctrBe: "srv1"}
+	if err := core.RegisterClone(dir, m.form.url, "fedora:40"); err != nil {
+		t.Fatal(err)
+	}
+	job := &cloneJob{undo: undo, dir: dir}
+	m.job = job
+	_ = m.cloneDone(cloneDoneMsg{job: job})
+	if !core.HasEnv(dir) {
+		t.Fatal("applyExec n'a pas écrit env.yaml")
+	}
+	if core.EnvTrust(dir) != core.TrustNone {
+		t.Errorf("état = %s, none attendu", core.EnvTrust(dir))
+	}
+	if e, err := core.LoadEnv(dir); err != nil || e.Image != "fedora:40" {
+		t.Errorf("LoadEnv = %+v %v", e, err)
+	}
+}

@@ -333,3 +333,32 @@ func TestRegistreIllisibleMessageDeReprise(t *testing.T) {
 		t.Errorf("Broken renseigné pour un registre sain : %q", i2.Broken)
 	}
 }
+
+// Clone SANS env.yaml + socle conteneur : l'état (none) est décidé sur le dépôt AVANT ApplyExec ; l'env.yaml écrit
+// ensuite par le launcher re-scelle l'empreinte — aucune question à l'ouverture.
+func TestCloneSansEnvAvecSocleResteNone(t *testing.T) {
+	d := trustProject(t, "")
+	if err := RegisterClone(d, "https://github.com/a/b.git", "fedora:40"); err != nil { // avant le clone
+		t.Fatal(err)
+	}
+	if pending, err := MarkEnvPending(d, "https://github.com/a/b.git", "fedora:40"); pending || err != nil { // juste après, dépôt seul
+		t.Fatal(pending, err)
+	}
+	if err := ApplyExec(d, "fedora:40", "srv1"); err != nil { // le launcher écrit env.yaml
+		t.Fatal(err)
+	}
+	if !HasEnv(d) {
+		t.Fatal("env.yaml non écrit par ApplyExec")
+	}
+	if EnvTrust(d) != TrustNone {
+		t.Fatalf("état = %s, none attendu (env.yaml du launcher, pas du dépôt)", EnvTrust(d))
+	}
+	if e, err := LoadEnv(d); err != nil || e.Image != "fedora:40" {
+		t.Errorf("ouverture sans question : %+v %v", e, err)
+	}
+	// puis un pull du dépôt qui change ce fichier : la question revient
+	_ = os.WriteFile(EnvPath(d), []byte("image: fedora:40\nsetup:\n  - evil\n"), 0o644)
+	if EnvTrust(d) != TrustPending {
+		t.Error("changement du dépôt après coup non détecté")
+	}
+}

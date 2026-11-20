@@ -236,13 +236,14 @@ func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *
 		case err != nil:
 			fail(err.Error())
 		default:
-			if err := core.ApplyExec(dir, in.Image, in.Backend); err != nil {
-				fail("env.yaml : " + err.Error())
-				return
-			}
-			// l'environnement du dépôt cloné n'est appliqué qu'avec l'accord de l'utilisateur (#215)
+			// l'état (none / pending) est décidé sur le contenu du DÉPÔT seul, AVANT ApplyExec : l'env.yaml qu'ApplyExec écrit
+			// ensuite est celui du launcher (empreinte re-scellée), jamais un « pending » sur son propre fichier (#215)
 			if _, err := core.MarkEnvPending(dir, in.URL, in.Image); err != nil {
 				fail("registre d'approbation : " + err.Error())
+				return
+			}
+			if err := core.ApplyExec(dir, in.Image, in.Backend); err != nil {
+				fail("env.yaml : " + err.Error())
 				return
 			}
 			// « terminé » seulement si le projet s'ouvre ; sinon échec visible (le dépôt cloné reste en place)
