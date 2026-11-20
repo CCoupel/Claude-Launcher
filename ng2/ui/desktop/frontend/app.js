@@ -1677,12 +1677,20 @@ function authLine(auth, url, backend) {
   }
   return { ok: true, text: k === 'bad' ? 'URL non acceptée (https://… ou git@hôte:chemin)' : '' };
 }
-// avancement du job (`newJob` de l'instantané) : { state, pct (0-100), label, msg }
+// avancement du job (`newJob` de l'instantané) : { state, pct (0-100), label, msg }.
+// `step` est déjà un libellé français émis par le serveur (préparation, réception, résolution des deltas,
+// extraction, terminé) : affiché tel quel.
 function jobView(j) {
   if (!j) return null;
-  const steps = { clone: 'clonage', checkout: 'extraction', init: 'initialisation' };
   const pct = Math.max(0, Math.min(100, Math.round(Number(j.pct) || 0)));
-  return { state: j.state || 'running', pct, label: (steps[j.step] || j.step || '…') + ' — ' + pct + ' %', msg: j.msg || '' };
+  return { state: j.state || 'running', pct, label: (j.step || 'clonage') + ' — ' + pct + ' %', msg: j.msg || '' };
+}
+// Job disparu de l'instantané (retiré après la durée de garde, ou reconnexion tardive) : vrai quand le panneau doit
+// cesser d'attendre — dès qu'il l'a vu une fois, sinon après `graceMs` sans le voir (le premier instantané peut
+// précéder l'enregistrement du job).
+function jobGone(seen, firstMissAt, now, graceMs) {
+  if (firstMissAt == null) return false;
+  return !!seen || now - firstMissAt >= graceMs;
 }
 // Proposition /init-project (évènement `initProposal`) : un bandeau par projet.
 function initProposalBar(path) {
@@ -1814,8 +1822,19 @@ async function newProject(pre) {
     const watchJob = (id) => {
       f.classList.add('hidden'); b.querySelectorAll('.cap, .srccards, .urlbox').forEach((x) => x.classList.add('hidden'));
       btns.classList.add('hidden'); prog.classList.remove('hidden');
+      let seen = false, missAt = null, tm = null;
       const render = (j) => {
-        if (!j || j.id !== id) return;
+        clearTimeout(tm);
+        if (!j || j.id !== id) {
+          if (missAt == null) missAt = Date.now();
+          if (!jobGone(seen, missAt, Date.now(), 3000)) { tm = setTimeout(() => S.newDlg && S.newDlg(S.newJob), 3100); return; }
+          // job retiré sans état final vu : le panneau ne reste pas figé
+          S.newDlg = null; prog.textContent = '';
+          const close = el('button', 'btn pri', 'Fermer'); close.onclick = closeModal;
+          prog.append(el('h3', '', '⎇ Création : état inconnu'), el('div', 'dim', 'Le serveur ne signale plus ce clonage (connexion coupée ou relance). En cas d\'échec le dossier est supprimé : vérifier l\'arbre des projets.'), el('div', 'btns', ''));
+          prog.lastChild.appendChild(close); return;
+        }
+        seen = true; missAt = null;
         const v = jobView(j);
         prog.textContent = '';
         if (v.state === 'done') { S.newDlg = null; closeModal(); return; }
