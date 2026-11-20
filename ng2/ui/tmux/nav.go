@@ -99,9 +99,10 @@ type model struct {
 	updating     bool              // mise à jour lancée d'un clic, en cours
 	launcher     core.LauncherInfo // binaire remplacé / processus anciens (#219), relu toutes les 10 s
 	hideRelaunch bool
-	relaunchAsk  bool    // confirmation de la relance en cours
-	checking     bool    // recherche de mises à jour demandée par F5, en cours
-	pendingCmd   tea.Cmd // commande produite par onMouse (qui ne renvoie que le modèle)
+	job          *cloneJob // clonage de « Nouveau projet » en cours (#215)
+	relaunchAsk  bool      // confirmation de la relance en cours
+	checking     bool      // recherche de mises à jour demandée par F5, en cours
+	pendingCmd   tea.Cmd   // commande produite par onMouse (qui ne renvoie que le modèle)
 	hideTpl      bool
 	lastClickIdx int
 	lastClickAt  time.Time
@@ -555,6 +556,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.usage = core.Usage(msg)
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), windowsCmd(m.session))
+	case cloneTickMsg:
+		if m.job != nil {
+			return m, cloneTickCmd() // le rendu relit la progression
+		}
+		return m, nil
+	case cloneDoneMsg:
+		return m.cloneDone(msg), nil
 	case launcherStateMsg:
 		if core.LauncherInfo(msg).BinChanged && !m.launcher.BinChanged {
 			m.hideRelaunch = false // nouveau remplacement : l'annonce revient

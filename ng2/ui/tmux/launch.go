@@ -75,6 +75,7 @@ const (
 	launchNormal     = core.LaunchNormal
 	launchNewManaged = core.LaunchNewManaged
 	launchNewRaw     = core.LaunchNewRaw
+	launchProposed   = core.LaunchNewProposed
 )
 
 func launchProject(cfg core.Config, session string, n core.Node, latest string, mode launchMode) error {

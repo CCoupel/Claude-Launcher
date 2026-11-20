@@ -1,10 +1,14 @@
 package tmux
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -31,6 +35,9 @@ const (
 	formCategory // catégorie : liste des dossiers de la base, « racine » ou « ＋ nouvelle » (#214)
 	formNewCat   // saisie d'une nouvelle catégorie
 	formName
+	formSource  // source : vide, template ou dépôt git (#215)
+	formURL     // URL du dépôt à cloner
+	formCloning // clonage en cours (progression)
 	formKind
 	formRemote
 	formExec // socle d'exécution : hôte ou conteneur (image)
@@ -46,10 +53,14 @@ type newForm struct {
 	cats     []core.Category
 	catIdx   int // 0 : racine ; 1..len(cats) : cats[i-1] ; len(cats)+1 : « ＋ nouvelle »
 	catInput string
-	name     string
-	raw      bool // projet brut (sinon géré)
-	remote   string
-	err      string
+	// source (#215) : "" ou "empty" (vide), "template", "git"
+	source string
+	srcIdx int // 0 vide, 1 template, 2 git
+	url    string
+	name   string
+	raw    bool // projet brut (sinon géré)
+	remote string
+	err    string
 	// exécution (formExec) : 0 = hôte, i = images[i-1] dans le backend ctrBe
 	exec     int
 	images   []string
@@ -215,6 +226,12 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := &m.form
 	switch k.String() {
 	case "esc", "ctrl+c":
+		if f.mode == formCloning {
+			if m.job != nil {
+				m.job.cancelNow() // l'arrêt se termine par cloneDoneMsg (nettoyage)
+			}
+			return m, nil
+		}
 		m.form = newForm{}
 	case "up":
 		switch f.mode {
@@ -222,6 +239,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.root = max(0, f.root-1)
 		case formCategory:
 			f.catIdx = max(0, f.catIdx-1)
+		case formSource:
+			f.srcIdx = max(0, f.srcIdx-1)
 		case formKind:
 			f.raw = false
 		case formExec:
@@ -233,6 +252,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.root = min(len(m.cfg.Roots)-1, f.root+1)
 		case formCategory:
 			f.catIdx = min(len(f.cats)+1, f.catIdx+1)
+		case formSource:
+			f.srcIdx = min(2, f.srcIdx+1)
 		case formKind:
 			f.raw = true
 		case formExec:
@@ -280,26 +301,36 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else if _, err := os.Stat(p); err == nil {
 				f.err = "ce dossier existe déjà"
 			} else {
-				f.mode = formKind
+				f.mode = formSource
+			}
+		case formSource:
+			return m.chooseSource(f.srcIdx)
+		case formURL:
+			if _, err := core.ValidateCloneURL(f.url); err != nil {
+				f.err = err.Error()
+			} else if mm, ok := m.execStep(); ok {
+				return mm, nil
+			} else {
+				return m.createProject()
 			}
 		case formKind:
 			if f.raw {
 				if mm, ok := m.execStep(); ok {
 					return mm, nil
 				}
-				return m.createProject(), nil
+				return m.createProject()
 			}
 			f.mode = formRemote
 		case formRemote:
 			if mm, ok := m.execStep(); ok {
 				return mm, nil
 			}
-			return m.createProject(), nil
+			return m.createProject()
 		case formExec:
 			if f.existing != "" {
 				return m.applyExecExisting(), ctrNowCmd(m.projectPaths(), 0)
 			}
-			return m.createProject(), nil
+			return m.createProject()
 		}
 	case "backspace":
 		switch f.mode {
@@ -307,6 +338,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.name = dropLast(f.name)
 		case formNewCat:
 			f.catInput = dropLast(f.catInput)
+		case formURL:
+			f.url = dropLast(f.url)
 		case formRemote:
 			f.remote = dropLast(f.remote)
 		}
@@ -324,6 +357,17 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.name += s
 		case formNewCat:
 			f.catInput += s
+		case formURL:
+			f.url += s
+		case formSource: // v / t / g choisissent et valident
+			switch strings.ToLower(s) {
+			case "v":
+				return m.chooseSource(0)
+			case "t":
+				return m.chooseSource(1)
+			case "g":
+				return m.chooseSource(2)
+			}
 		case formKind: // g / b choisissent et valident
 			switch strings.ToLower(s) {
 			case "g":
@@ -334,7 +378,7 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				if mm, ok := m.execStep(); ok {
 					return mm, nil
 				}
-				return m.createProject(), nil
+				return m.createProject()
 			}
 		case formExec: // un chiffre choisit (0 : hôte)
 			if len(s) == 1 && s[0] >= '0' && int(s[0]-'0') <= len(f.images) {
@@ -366,28 +410,106 @@ func (m model) where() string {
 	return root
 }
 
-func (m model) createProject() model {
+// chooseSource : source choisie (0 vide, 1 template, 2 dépôt git) et étape suivante.
+func (m model) chooseSource(i int) (tea.Model, tea.Cmd) {
+	f := &m.form
+	f.srcIdx = i
+	f.err = ""
+	switch i {
+	case 1:
+		f.source, f.raw, f.mode = "template", false, formRemote
+	case 2:
+		f.source, f.mode = "git", formURL
+	default:
+		f.source, f.mode = "empty", formKind
+	}
+	return m, nil
+}
+
+// cloneJob : clonage de la coque en cours (progression lue par le rendu).
+type cloneJob struct {
+	mu     sync.Mutex
+	step   string
+	pct    int
+	cancel context.CancelFunc
+	undo   func() string
+	dir    string
+}
+
+func (j *cloneJob) set(step string, pct int) {
+	j.mu.Lock()
+	j.step, j.pct = step, pct
+	j.mu.Unlock()
+}
+
+func (j *cloneJob) get() (string, int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.step, j.pct
+}
+
+func (j *cloneJob) cancelNow() {
+	if j.cancel != nil {
+		j.cancel()
+	}
+}
+
+type cloneTickMsg struct{}
+
+// cloneDoneMsg : fin du clonage (err nil : réussi ; context.Canceled : annulé).
+type cloneDoneMsg struct {
+	job *cloneJob
+	err error
+}
+
+func cloneTickCmd() tea.Cmd {
+	return tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return cloneTickMsg{} })
+}
+
+// createProject : crée le projet (vide, template) ou lance le clonage (git, asynchrone : cloneDoneMsg).
+func (m model) createProject() (tea.Model, tea.Cmd) {
 	f := m.form
 	// règle commune appliquée au moment de créer
 	dir, undo, err := core.CreateProjectDir(m.cfg.Roots, f.base, f.category, f.newCat, f.name)
 	if err != nil {
 		m.form.err = err.Error()
-		return m
+		return m, nil
 	}
-	fail := func(msg string) model { // ce que cet appel a créé (projet, catégories vides) : supprimé
+	fail := func(msg string) (tea.Model, tea.Cmd) { // ce que cet appel a créé (projet, catégories vides) : supprimé
 		m.form.err = msg + " — " + undo()
-		return m
+		return m, nil
 	}
 	if err := applyExec(dir, m.form); err != nil {
 		return fail("env.yaml : " + err.Error())
 	}
-	mode := launchNewManaged
-	if m.form.raw {
+	if f.source == "git" {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		job := &cloneJob{step: "préparation", cancel: cancel, undo: undo, dir: dir}
+		m.job = job
+		m.form.mode, m.form.err = formCloning, ""
+		auth := core.CloneAuth{Token: m.cfg.GithubToken, Backend: f.ctrBe}
+		url := f.url
+		run := func() tea.Msg {
+			defer cancel()
+			return cloneDoneMsg{job: job, err: core.CloneProject(ctx, url, dir, auth, job.set)}
+		}
+		return m, tea.Batch(run, cloneTickCmd())
+	}
+	mode := launchNormal // ni /init-project d'office ni question ; brut seulement pour le projet sans git
+	switch {
+	case f.source == "template":
+		mode = launchProposed
+	case f.raw:
 		mode = launchNewRaw
 	}
-	if err := core.InitProject(dir, m.form.raw, m.form.remote); err != nil {
+	if err := core.InitProject(dir, f.raw && f.source != "template", f.remote); err != nil {
 		return fail(err.Error())
 	}
+	return m.finishCreated(dir, mode), nil
+}
+
+// finishCreated : formulaire fermé, arbre relu, projet sélectionné et ouvert.
+func (m model) finishCreated(dir string, mode launchMode) model {
 	m.form = newForm{}
 	m.filter = ""
 	m.nodes = withSpecial(core.ScanTree(m.cfg.Roots))
@@ -404,6 +526,22 @@ func (m model) createProject() model {
 	if m.msg == "" {
 		m.msg = "✓ projet créé"
 	}
+	return m
+}
+
+// cloneDone : fin du clonage — projet ouvert, ou échec avec nettoyage de ce que cet appel a créé.
+func (m model) cloneDone(msg cloneDoneMsg) model {
+	j := msg.job
+	m.job = nil
+	switch {
+	case msg.err == nil:
+		return m.finishCreated(j.dir, launchNormal)
+	case errors.Is(msg.err, context.Canceled):
+		m.form.err = "annulé — " + j.undo()
+	default:
+		m.form.err = msg.err.Error() + " — " + j.undo()
+	}
+	m.form.mode = formURL // l'URL reste modifiable pour une nouvelle tentative
 	return m
 }
 
@@ -524,7 +662,32 @@ func (m model) renderForm(w int) string {
 		}
 		sb.WriteString(" " + core.Dim.Render("Nom :") + " " + f.name + c + "\n")
 	}
-	if f.mode >= formKind {
+	if f.mode >= formSource {
+		sb.WriteString("\n " + core.Dim.Render("Source :") + "\n")
+		for i, o := range []struct{ key, label, desc string }{
+			{"v", "vide", "dossier (git ou brut)"}, {"t", "template", "géré, /init-project proposé"}, {"g", "dépôt git", "cloner une URL"},
+		} {
+			mark, style := "  ", core.Dim
+			if i == f.srcIdx {
+				mark, style = core.Green.Render("▶ "), core.Bold
+			}
+			if f.mode == formSource || i == f.srcIdx {
+				sb.WriteString("  " + mark + style.Render(o.key+" "+o.label) + core.Dim.Render("  "+o.desc) + "\n")
+			}
+		}
+	}
+	if f.mode == formURL || f.mode == formCloning || f.mode >= formKind && f.source == "git" {
+		sb.WriteString(" " + core.Dim.Render("URL du dépôt :") + " " + shorten(f.url, w-18))
+		if f.mode == formURL {
+			sb.WriteString(cur)
+		}
+		sb.WriteString("\n")
+	}
+	if f.mode == formCloning && m.job != nil {
+		step, pct := m.job.get()
+		sb.WriteString(" " + core.Cyan.Render(fmt.Sprintf("clonage : %s %d %%", step, pct)) + "\n")
+	}
+	if f.mode >= formKind && f.source != "git" && f.source != "template" {
 		sb.WriteString("\n " + core.Dim.Render("Type de projet :") + "\n")
 		for _, k := range []struct {
 			raw        bool
@@ -543,7 +706,7 @@ func (m model) renderForm(w int) string {
 			}
 		}
 	}
-	if f.mode >= formRemote && !f.raw {
+	if f.mode >= formRemote && !f.raw && f.source != "git" {
 		sb.WriteString(" " + core.Dim.Render("Remote git (facultatif) :") + "\n")
 		c := ""
 		if f.mode == formRemote {
@@ -565,6 +728,12 @@ func (m model) renderForm(w int) string {
 		hint = "↑↓ · ↵ choisir · esc annuler"
 	case formKind:
 		hint = "↑↓ ou g/b · ↵ valider · esc annuler"
+	case formSource:
+		hint = "↑↓ ou v/t/g · ↵ choisir · esc annuler"
+	case formURL:
+		hint = "https://… ou git@hôte:dépôt · ↵ · esc annuler"
+	case formCloning:
+		hint = "esc : annuler le clonage"
 	case formExec:
 		hint = "↑↓ 0-9 socle · ←→ backend · ↵ · esc"
 	}
