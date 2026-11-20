@@ -28,9 +28,12 @@ import (
 
 // ── Coffre des secrets du launcher (#194, contracts/backends-remote.md) ───
 //
-// Dossier CL_SECRETS_DIR, 0700, un sous-dossier par backend (<dossier>/<backend>/), fichiers en 0600 : « id »
-// (clé privée ssh, jamais relue), « id.pub », « known_hosts ». Refusé sous la racine partagée, sous un volume ou une
-// racine partagée d'un backend. Les contenus ne sont jamais journalisés ni rendus (sauf la clé publique).
+// Coffre COMMUN au hub, à l'exe Windows et au pod (v6.5.0, #201) : <CL_ROOT_BASE>/.config/claude-launcher-ng2/secrets/, en clair,
+// 0700, un sous-dossier par backend (<coffre>/<backend>/), fichiers en 0600 : « id » (clé privée ssh, jamais relue),
+// « id.pub », « known_hosts », « kubeconfig ». CL_SECRETS_DIR le remplace ; sans racine de base ni CL_SECRETS_DIR,
+// emplacement local de la v6.4.0. Refusé sous un dossier de projet ou si son chemin résolu (liens symboliques, liens
+// pendants compris) sort de l'emplacement attendu. Les secrets de projet sont dans <projet>/PRIVATE/ : le launcher n'y
+// écrit jamais. Les contenus ne sont jamais journalisés ni rendus (sauf la clé publique).
 
 // SecretsDirVar : dossier du coffre (fourni par le chart dans un pod).
 const SecretsDirVar = "CL_SECRETS_DIR"
@@ -49,11 +52,27 @@ var restrictACL = tun.Of(platform.RestrictToUser)
 
 var backendNameRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
 
+// SecretsLegacyDirVar : ancien coffre à migrer (posé par le chart sur l'ancien PVC) ; en plus de l'emplacement local v6.4.0.
+const SecretsLegacyDirVar = "CL_SECRETS_LEGACY_DIR"
+
+// secretsDefaultDir : emplacement sans surcharge : le coffre commun sous la racine de base, sinon l'emplacement local.
+func secretsDefaultDir() string {
+	if d := RootBaseConfigDir(); d != "" {
+		return filepath.Join(d, "secrets")
+	}
+	return secretsLocalDir()
+}
+
 // secretsDirRaw : emplacement du coffre, sans contrôle ni création.
 func secretsDirRaw() string {
 	if d := strings.TrimSpace(os.Getenv(SecretsDirVar)); d != "" {
 		return filepath.Clean(d)
 	}
+	return secretsDefaultDir()
+}
+
+// secretsLocalDir : emplacement local de la v6.4.0 (propre à chaque poste) ; source de la migration.
+func secretsLocalDir() string {
 	if runtime.GOOS == "windows" {
 		if d := os.Getenv("APPDATA"); d != "" {
 			return filepath.Join(d, "claude-launcher", "secrets")
@@ -63,19 +82,50 @@ func secretsDirRaw() string {
 	return filepath.Join(home, ".config", "claude-launcher", "secrets")
 }
 
-// realPath : chemin nettoyé, liens symboliques (et, sous Windows, noms courts 8.3 : C:\Users\RUNNER~1) résolus pour sa
-// partie existante ; la fin qui n'existe pas encore est reposée telle quelle. Sans cela, comparer un chemin à créer à une
-// racine existante mêlerait deux formes du même dossier (court / long) et le refus ne se déclencherait pas.
+// realPath : chemin nettoyé, liens symboliques (liens pendants compris) et, sous Windows, noms courts 8.3
+// (C:\Users\RUNNER~1) résolus pour sa partie existante ; la fin qui n'existe pas encore est reposée telle quelle. Sans
+// cela, comparer un chemin à créer à une racine existante mêlerait deux formes du même dossier et le refus ne se
+// déclencherait pas. Une boucle de liens rend le chemin nettoyé (realPathChecked la signale).
 func realPath(s string) string {
-	s = filepath.Clean(s)
+	r, err := realPathChecked(s)
+	if err != nil {
+		return filepath.Clean(s)
+	}
+	return r
+}
+
+// maxSymlinkDepth : liens suivis au plus (au-delà : boucle, refus).
+const maxSymlinkDepth = 32
+
+// realPathChecked : comme realPath, avec une erreur sur une boucle de liens. Un lien pendant (cible absente) est suivi :
+// Lstat + Readlink, cible relative jointe au dossier du lien, chemin résolu = la cible à créer (jamais le lien lui-même).
+func realPathChecked(s string) (string, error) {
+	return realPathDepth(filepath.Clean(s), 0)
+}
+
+func realPathDepth(s string, depth int) (string, error) {
+	if depth > maxSymlinkDepth {
+		return "", fmt.Errorf("trop de liens symboliques (boucle ?) : %s", s)
+	}
 	rest := ""
 	for cur := s; ; {
 		if e, err := filepath.EvalSymlinks(cur); err == nil {
-			return filepath.Join(e, rest)
+			return filepath.Join(e, rest), nil
+		}
+		if st, err := os.Lstat(cur); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			// lien dont la résolution échoue : pendant (cible absente) ou boucle
+			tgt, err := os.Readlink(cur)
+			if err != nil {
+				return "", err
+			}
+			if !filepath.IsAbs(tgt) {
+				tgt = filepath.Join(filepath.Dir(cur), tgt)
+			}
+			return realPathDepth(filepath.Join(filepath.Clean(tgt), rest), depth+1)
 		}
 		parent := filepath.Dir(cur)
 		if parent == cur {
-			return s
+			return s, nil
 		}
 		rest = filepath.Join(filepath.Base(cur), rest)
 		cur = parent
@@ -91,8 +141,9 @@ func pathWithin(p, r string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-// secretsForbiddenRoots : racines partagées sous lesquelles le coffre est refusé.
-func secretsForbiddenRoots() []string {
+// sharedZones : racines partagées (racine de base, volumes k8s, volumes et dossiers partagés des backends). Le coffre
+// n'en est plus refusé (v6.5.0) ; un kubeconfig désigné par chemin n'y est admis que dans le coffre ou un PRIVATE/.
+func sharedZones() []string {
 	var roots []string
 	if d, _ := RootBase(); d != "" {
 		roots = append(roots, d)
@@ -111,16 +162,55 @@ func secretsForbiddenRoots() []string {
 	return roots
 }
 
-// checkSecretsDir : le dossier peut-il servir de coffre ? Refus (rien n'est écrit) sous une racine partagée, ou s'il
-// existe avec des droits plus larges que 0700 (Unix).
-func checkSecretsDir(dir string, roots []string) error {
+// secretsProjectRoots : racines des projets du launcher (un coffre ne peut pas être sous un dossier de projet).
+func secretsProjectRoots() []string { return LoadConfig().Roots }
+
+// samePath : égalité de deux chemins déjà résolus (insensible à la casse sous Windows).
+func samePath(a, b string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(a, b)
+	}
+	return a == b
+}
+
+// checkSecretsDir : le dossier peut-il servir de coffre ? Refus (rien n'est écrit) : chemin non absolu ; sous un dossier de
+// projet (projectRoots) ; chemin résolu (liens symboliques, liens pendants compris) autre que l'emplacement attendu
+// (parents résolus + nom du dossier) ; dossier existant avec des droits plus larges que 0700 (Unix, y compris un
+// partage vu depuis Linux). L'emplacement par défaut n'est jamais refusé comme « sous un projet ».
+func checkSecretsDir(dir string, projectRoots []string) error {
 	if !filepath.IsAbs(dir) {
 		return fmt.Errorf("coffre des secrets : un chemin absolu est attendu (%s=%q)", SecretsDirVar, dir)
 	}
-	for _, r := range roots {
-		if pathWithin(dir, r) {
-			return fmt.Errorf("coffre des secrets refusé : %s est sous la zone partagée %s ; choisir un dossier non partagé (%s)", dir, r, SecretsDirVar)
+	dir = filepath.Clean(dir)
+	if def := secretsDefaultDir(); !samePath(realPath(dir), realPath(def)) {
+		for _, r := range projectRoots {
+			if pathWithin(dir, r) {
+				return fmt.Errorf("coffre des secrets refusé : %s est sous un dossier de projet (%s) ; les secrets d'un projet vont dans <projet>/PRIVATE/", dir, r)
+			}
 		}
+	}
+	res, err := realPathChecked(dir)
+	if err != nil {
+		return fmt.Errorf("coffre des secrets refusé : %w", err)
+	}
+	// emplacement attendu : sous la racine de base (résolue), le chemin exact <racine>/.config/claude-launcher-ng2/secrets
+	// (un lien posé sur .config ou claude-launcher-ng2 le ferait sortir) ; sinon les parents résolus + le nom du dossier
+	var want string
+	if rb, _ := RootBase(); rb != "" && samePath(dir, filepath.Join(filepath.Clean(rb), ".config", "claude-launcher-ng2", "secrets")) {
+		rr, err := realPathChecked(rb)
+		if err != nil {
+			return fmt.Errorf("coffre des secrets refusé : %w", err)
+		}
+		want = filepath.Join(rr, ".config", "claude-launcher-ng2", "secrets")
+	} else {
+		parent, err := realPathChecked(filepath.Dir(dir))
+		if err != nil {
+			return fmt.Errorf("coffre des secrets refusé : %w", err)
+		}
+		want = filepath.Join(parent, filepath.Base(dir))
+	}
+	if !samePath(res, want) {
+		return fmt.Errorf("coffre des secrets refusé : %s se résout en %s (lien symbolique), %s attendu", dir, res, want)
 	}
 	if st, err := os.Stat(dir); err == nil {
 		if !st.IsDir() {
@@ -133,10 +223,19 @@ func checkSecretsDir(dir string, roots []string) error {
 	return nil
 }
 
+// restrictSecret : droits réservés à l'utilisateur (ACL sous Windows). Sur un chemin UNC (\\wsl.localhost\…, 9P) il n'y a pas
+// d'ACL Windows : les droits sont ceux, POSIX, de l'uid WSL (0700/0600 posés par Chmod) ; on n'applique rien au lieu de refuser.
+func restrictSecret(path string, dir bool) error {
+	if runtime.GOOS == "windows" && platform.IsUNCPath(path) {
+		return nil
+	}
+	return restrictACL.Get()(path, dir)
+}
+
 // SecretsDir : le coffre, contrôlé et créé en 0700 s'il manque.
 func SecretsDir() (string, error) {
 	dir := secretsDirRaw()
-	if err := checkSecretsDir(dir, secretsForbiddenRoots()); err != nil {
+	if err := checkSecretsDir(dir, secretsProjectRoots()); err != nil {
 		return "", err
 	}
 	if _, err := os.Stat(dir); os.IsNotExist(err) {
@@ -144,7 +243,7 @@ func SecretsDir() (string, error) {
 			return "", fmt.Errorf("coffre des secrets : %w", err)
 		}
 		_ = os.Chmod(dir, 0o700)
-		if err := restrictACL.Get()(dir, true); err != nil {
+		if err := restrictSecret(dir, true); err != nil {
 			return "", fmt.Errorf("coffre des secrets : droits du dossier impossibles à restreindre : %w", err)
 		}
 	}
@@ -171,14 +270,54 @@ func secretBackendDir(name string, create bool) (string, error) {
 		return "", err
 	}
 	d := filepath.Join(root, name)
+	if err := checkSecretsSubdir(root, d); err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(d, 0o700); err != nil {
 		return "", fmt.Errorf("coffre des secrets : %w", err)
 	}
 	_ = os.Chmod(d, 0o700)
-	if err := restrictACL.Get()(d, true); err != nil {
+	if err := restrictSecret(d, true); err != nil {
 		return "", fmt.Errorf("coffre des secrets : droits du dossier impossibles à restreindre : %w", err)
 	}
 	return d, nil
+}
+
+// checkSecretsSubdir : le dossier d'un backend ne sort pas du coffre par un lien symbolique (ni pendant).
+func checkSecretsSubdir(root, d string) error {
+	res, err := realPathChecked(d)
+	if err != nil {
+		return fmt.Errorf("coffre des secrets refusé : %w", err)
+	}
+	rr, err := realPathChecked(root)
+	if err != nil {
+		return fmt.Errorf("coffre des secrets refusé : %w", err)
+	}
+	if want := filepath.Join(rr, filepath.Base(d)); !samePath(res, want) {
+		return fmt.Errorf("coffre des secrets refusé : %s se résout en %s (lien symbolique), %s attendu", d, res, want)
+	}
+	return nil
+}
+
+// vaultLockName : verrou du coffre (<coffre>/.vault.lock) pris par toutes les instances qui l'écrivent.
+const vaultLockName = ".vault"
+
+// inVault : fn sous le verrou fichier du coffre (plusieurs instances : hub, exe, pod) ; d = dossier du backend, créé.
+// La dernière écriture l'emporte ; chaque écriture est atomique et journalisée.
+func inVault(backend string, fn func(d string) error) error {
+	d, err := secretBackendDir(backend, true)
+	if err != nil {
+		return err
+	}
+	return WithFileLock(filepath.Join(filepath.Dir(d), vaultLockName), func() error { return fn(d) })
+}
+
+// withVaultLockAt : fn sous le verrou du coffre root ; sans coffre (rien à supprimer), fn seul.
+func withVaultLockAt(root string, fn func() error) error {
+	if st, err := os.Stat(root); err != nil || !st.IsDir() {
+		return fn()
+	}
+	return WithFileLock(filepath.Join(root, vaultLockName), fn)
 }
 
 // writeSecretFile : écriture atomique (fichier temporaire du même dossier, 0600, puis renommage).
@@ -202,7 +341,7 @@ func writeSecretFile(path string, data []byte) error {
 		_ = os.Remove(tmp)
 		return err
 	}
-	if err := restrictACL.Get()(tmp, false); err != nil {
+	if err := restrictSecret(tmp, false); err != nil {
 		_ = os.Remove(tmp)
 		return fmt.Errorf("droits du fichier impossibles à restreindre : %w", err)
 	}
@@ -369,23 +508,25 @@ func SecretSetKey(backend, privateKey, publicKey string, generate bool, w Secret
 	if fingerprint, err = checkKeyPair(privB, pubB); err != nil {
 		return "", "", err
 	}
-	d, err := secretBackendDir(backend, true)
-	if err != nil {
-		return "", "", err
-	}
 	what := "set"
 	if generate {
 		what = "generate"
 	}
-	if err := journalSecret(backend, "ssh-key", what, fingerprint, w.Source); err != nil {
+	err = inVault(backend, func(d string) error {
+		if err := journalSecret(backend, "ssh-key", what, fingerprint, w.Source); err != nil {
+			return err
+		}
+		// la clé publique d'abord : un échec n'écrase jamais une clé privée par une moitié de paire
+		if err := writeSecretFile(filepath.Join(d, secretPubFile), pubB); err != nil {
+			return fmt.Errorf("écriture de la clé publique : %w", err)
+		}
+		if err := writeSecretFile(filepath.Join(d, secretKeyFile), privB); err != nil {
+			return fmt.Errorf("écriture de la clé privée : %w", err)
+		}
+		return nil
+	})
+	if err != nil {
 		return "", "", err
-	}
-	// la clé publique d'abord : un échec n'écrase jamais une clé privée par une moitié de paire
-	if err := writeSecretFile(filepath.Join(d, secretPubFile), pubB); err != nil {
-		return "", "", fmt.Errorf("écriture de la clé publique : %w", err)
-	}
-	if err := writeSecretFile(filepath.Join(d, secretKeyFile), privB); err != nil {
-		return "", "", fmt.Errorf("écriture de la clé privée : %w", err)
 	}
 	return fingerprint, strings.TrimSpace(string(pubB)), nil
 }
@@ -399,20 +540,19 @@ func SecretSetKnownHosts(backend, lines string, w SecretWrite) (int, error) {
 	if len(es) == 0 {
 		return 0, errors.New("aucune ligne known_hosts")
 	}
-	d, err := secretBackendDir(backend, true)
-	if err != nil {
-		return 0, err
-	}
 	var sb strings.Builder
 	fps := make([]string, 0, len(es))
 	for _, e := range es {
 		sb.WriteString(e.Line + "\n")
 		fps = append(fps, e.Fingerprint)
 	}
-	if err := journalSecret(backend, "known_hosts", "set", strings.Join(fps, ","), w.Source); err != nil {
-		return 0, err
-	}
-	if err := writeSecretFile(filepath.Join(d, secretKnownFile), []byte(sb.String())); err != nil {
+	err = inVault(backend, func(d string) error {
+		if err := journalSecret(backend, "known_hosts", "set", strings.Join(fps, ","), w.Source); err != nil {
+			return err
+		}
+		return writeSecretFile(filepath.Join(d, secretKnownFile), []byte(sb.String()))
+	})
+	if err != nil {
 		return 0, err
 	}
 	return len(es), nil
@@ -437,18 +577,20 @@ func SecretDelete(backend, what string, w SecretWrite) error {
 	default:
 		return fmt.Errorf("suppression : « %s » inconnu (key, known_hosts, kubeconfig, all)", what)
 	}
-	if err := journalSecret(backend, what, "delete", "", w.Source); err != nil {
-		return err
-	}
-	for _, n := range names {
-		if err := os.Remove(filepath.Join(d, n)); err != nil && !os.IsNotExist(err) {
+	return withVaultLockAt(filepath.Dir(d), func() error {
+		if err := journalSecret(backend, what, "delete", "", w.Source); err != nil {
 			return err
 		}
-	}
-	if what == "all" {
-		_ = os.Remove(d) // le dossier, s'il est vide
-	}
-	return nil
+		for _, n := range names {
+			if err := os.Remove(filepath.Join(d, n)); err != nil && !os.IsNotExist(err) {
+				return err
+			}
+		}
+		if what == "all" {
+			_ = os.Remove(d) // le dossier, s'il est vide
+		}
+		return nil
+	})
 }
 
 // ── Relevé de l'empreinte d'un hôte ───────────────────────────────────────
@@ -558,7 +700,7 @@ func sshBaseArgs(backend string, connectTimeout string) []string {
 // un journal inaccessible refuse l'écriture ; (backend, type, action, empreinte, source) — jamais de contenu.
 func journalSecret(backend, secret, action, fingerprint, source string) error {
 	b, _ := json.Marshal(map[string]string{"at": time.Now().UTC().Format(time.RFC3339), "backend": backend, "secret": secret,
-		"action": action, "fingerprint": fingerprint, "source": source})
+		"action": action, "fingerprint": fingerprint, "source": source, "instance": secretsInstance(), "launcher": LauncherID()})
 	f, err := os.OpenFile(filepath.Join(CacheDir(), secretJournal), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("journal des écritures inaccessible (%s) : écriture refusée", err)
@@ -570,6 +712,17 @@ func journalSecret(backend, secret, action, fingerprint, source string) error {
 	return nil
 }
 
+// secretsInstance : « windows » (exe), « pod » (en cluster) ou « hub » (coque Linux), pour le journal.
+func secretsInstance() string {
+	switch {
+	case runtime.GOOS == "windows":
+		return "windows"
+	case os.Getenv("KUBERNETES_SERVICE_HOST") != "":
+		return "pod"
+	}
+	return "hub"
+}
+
 // secretsDirUnsafe : le coffre est-il refusé à l'usage ? Contrôle (racines partagées : lecture de backends.yaml)
 // mémorisé 30 s par emplacement : ssh est appelé très souvent.
 func secretsDirUnsafe() bool {
@@ -579,7 +732,7 @@ func secretsDirUnsafe() bool {
 	if e, ok := secretsCheck.m[dir]; ok && time.Since(e.at) < 30*time.Second {
 		return e.bad
 	}
-	bad := checkSecretsDir(dir, secretsForbiddenRoots()) != nil
+	bad := checkSecretsDir(dir, secretsProjectRoots()) != nil
 	secretsCheck.m[dir] = secretsCheckEntry{at: time.Now(), bad: bad}
 	return bad
 }

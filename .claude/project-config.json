@@ -19,7 +19,7 @@
     "file": "env-template.yaml",
     "updated": "2026-11-13"
   },
-  "version": "6.4.0.14",
+  "version": "6.5.0.5",
   "initialized_at": "2026-11-13T17:40:00Z",
   "initialized_from": "analysis",
   "template_version": {
@@ -83,15 +83,17 @@
             "credentials_file": "PRIVATE/QUALIF/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-17T10:13:51Z",
+              "at": "2026-11-19T16:13:39Z",
               "checks": [
                 "kubeconfig-admin",
                 "ns-claude-qualif",
                 "psa-baseline",
                 "can-i-chart-objects",
-                "pv-claude-qualif-pv-available",
+                "pv-claude-qualif-pv-bound",
                 "clusterissuer-claude-launcher-ca-ready",
-                "ghcr-login-write-packages"
+                "ghcr-write-packages",
+                "helm-lint-qualif",
+                "buildah-netavark"
               ],
               "note": "compte administrateur (risque accepté) ; registre local abandonné (2026-11-17) : image de QUALIF sur ghcr (claude-launcher-qualif)"
             }
@@ -160,11 +162,16 @@
             "credentials_file": "PRIVATE/PROD/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-17T10:13:51Z",
+              "at": "2026-11-20T08:26:52Z",
               "checks": [
                 "kubeconfig-admin",
-                "can-i-create-ingresses-claude-ng2",
-                "clusterissuer-claude-launcher-ca-ready"
+                "ns-claude-ng2",
+                "helm-release-6.4.0-deployed",
+                "pvc-secrets-bound-keep",
+                "pod-uid-owns-root",
+                "clusterissuer-claude-launcher-ca-ready",
+                "helm-dry-run-server-6.5.0",
+                "ghcr-pull-public"
               ],
               "note": "compte administrateur (risque accepté) ; PSA claude-ng2 laissé en privileged (décision utilisateur)"
             }

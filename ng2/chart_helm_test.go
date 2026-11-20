@@ -160,7 +160,7 @@ func env(t *testing.T, o map[string][]m) map[string]string {
 	return out
 }
 
-// projectPVCs : les PVC rendus hors coffre des secrets (<release>-secrets, #194, toujours présent) — ce sont les
+// projectPVCs : les PVC rendus hors ancien coffre <release>-secrets (plus rendu depuis #201) — ce sont les
 // PVC du volume des projets, seuls visés par volume.create.
 func projectPVCs(o map[string][]m) []m {
 	var out []m
@@ -232,12 +232,12 @@ func TestChartObjectsAndNoClusterWideRights(t *testing.T) {
 	if n := len(o["NetworkPolicy"]); n != 1 {
 		t.Errorf("%d NetworkPolicy rendues, attendu 1 (activée par défaut, #200)", n)
 	}
-	// aucun PVC pour les projets sans volume.create ; seul le coffre des secrets (#194) est créé
+	// aucun PVC pour les projets sans volume.create ; le coffre n'a plus de PVC (#201)
 	if n := len(projectPVCs(o)); n != 0 {
 		t.Errorf("%d PVC de projets créé(s) sans volume.create (refusé par le contrat)", n)
 	}
-	if n := len(o["PersistentVolumeClaim"]); n != 1 {
-		t.Errorf("%d PVC rendus, attendu 1 (coffre <release>-secrets)", n)
+	if n := len(o["PersistentVolumeClaim"]); n != 0 {
+		t.Errorf("%d PVC rendus, attendu 0 (plus de PVC <release>-secrets, #201)", n)
 	}
 	// Secret du jeton de l'interface : non créé (risque accepté)
 	for _, s := range o["Secret"] {
@@ -1409,5 +1409,45 @@ func TestChartNotesNoTokenInNoneBranch(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(none), "sans jeton") {
 		t.Errorf("NOTES.txt, mode none : le rappel « sans jeton » manque")
+	}
+}
+
+// ── coffre partagé (#201) : plus de CL_SECRETS_DIR, de PVC ni d'init ; ancien PVC seulement via lookup ──────────
+
+func TestChartNoSecretsVolumeV650(t *testing.T) {
+	needHelm(t)
+	o := must(t, baseValues())
+	ss := o["StatefulSet"][0]
+	pod := sub(sub(sub(ss, "spec"), "template"), "spec")
+	if ic, ok := pod["initContainers"]; ok {
+		t.Errorf("initContainers présent : %v (secrets-perms supprimé)", ic)
+	}
+	c := pod["containers"].([]any)[0].(m)
+	for _, e := range c["env"].([]any) {
+		n := e.(m)["name"].(string)
+		if n == "CL_SECRETS_DIR" || n == "CL_SECRETS_LEGACY_DIR" {
+			t.Errorf("%s posée sans ancien PVC (lookup vide hors cluster)", n)
+		}
+	}
+	for _, vol := range pod["volumes"].([]any) {
+		if strings.HasPrefix(vol.(m)["name"].(string), "secrets") {
+			t.Errorf("volume %v monté sans ancien PVC", vol.(m)["name"])
+		}
+	}
+	// extraEnv ne peut pas poser les variables du coffre
+	for _, n := range []string{"CL_SECRETS_DIR", "CL_SECRETS_LEGACY_DIR"} {
+		v := clone(baseValues())
+		v["extraEnv"] = []any{m{"name": n, "value": "/x"}}
+		if _, _, err := render(t, v); err == nil {
+			t.Errorf("extraEnv %s accepté", n)
+		}
+	}
+	// secrets.legacy.enabled: false accepté ; clé inconnue refusée
+	v := clone(baseValues())
+	v["secrets"] = m{"legacy": m{"enabled": false}}
+	must(t, v)
+	v["secrets"] = m{"legacy": m{"bogus": 1}}
+	if _, _, err := render(t, v); err == nil {
+		t.Errorf("secrets.legacy.bogus accepté (schéma)")
 	}
 }

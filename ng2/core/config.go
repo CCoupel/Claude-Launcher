@@ -29,7 +29,8 @@ type Config struct {
 	LayoutMode          string
 	LayoutLeftLeaderPct int
 	ProjectLayouts      map[string]string
-	layoutWarns         []string // valeurs d'organisation inconnues, ignorées (validation de config.conf)
+	ProjectHideIdle     map[string]string // PROJECT_HIDE_IDLE : auto | none par projet (#209) ; absent = default
+	layoutWarns         []string          // valeurs d'organisation inconnues, ignorées (validation de config.conf)
 
 	// reprise de la dernière conversation au lancement (cf. resume.go)
 	ResumeMode    string // ask | always | never
@@ -67,7 +68,7 @@ type Config struct {
 const loadConfigScript = `
 GITHUB_DIR="${CL_ROOT_BASE:+$CL_ROOT_BASE/PROJETS}"; GITHUB_DIR="${GITHUB_DIR:-$HOME/GITHUB}"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
-COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=(); declare -A PROJECT_LAYOUTS=()
+COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=(); declare -A PROJECT_LAYOUTS=(); declare -A PROJECT_HIDE_IDLE=()
 LAYOUT_MODE=top; LAYOUT_LEFT_LEADER_PCT=46
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
 PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; TEAM_HIDE_IDLE=30; TEAM_HIDE_IDLE_ENABLED=1
@@ -89,6 +90,7 @@ printf 'palette\t%s\n' "${COLOR_PALETTE[*]}"
 for e in "${EXTRA_ENVS[@]}"; do printf 'env\t%s\n' "$e"; done
 for k in "${!PROJECT_COLORS[@]}"; do printf 'color\t%s\t%s\n' "$k" "${PROJECT_COLORS[$k]}"; done
 for k in "${!PROJECT_LAYOUTS[@]}"; do printf 'playout\t%s\t%s\n' "$k" "${PROJECT_LAYOUTS[$k]}"; done
+for k in "${!PROJECT_HIDE_IDLE[@]}"; do printf 'phide\t%s\t%s\n' "$k" "${PROJECT_HIDE_IDLE[$k]}"; done
 if (( ${#GITHUB_DIRS[@]} )); then for d in "${GITHUB_DIRS[@]}"; do printf 'root\t%s\n' "$d"; done
 else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 
@@ -101,7 +103,7 @@ func LoadConfig() Config { return loadConfigAt(ConfigPath()) }
 // configuration, configedit.go : même lecture que le chargement réel).
 func loadConfigAt(path string) Config {
 	home, _ := os.UserHomeDir()
-	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
+	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, ProjectHideIdle: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
 		BrightenStep: 1, DarkenStep: 1, TeamHideIdle: 30, ResumeMode: "ask", ResumeMaxAgeH: 24}
 
@@ -184,6 +186,12 @@ func loadConfigAt(path string) Config {
 					cfg.ProjectLayouts[f[1]] = f[2]
 				} else if len(f) == 3 {
 					cfg.layoutWarns = append(cfg.layoutWarns, fmt.Sprintf("PROJECT_LAYOUTS[%s] « %s » inconnu : top ou left attendu (réglage global retenu)", f[1], f[2]))
+				}
+			case "phide":
+				if len(f) == 3 && ValidHideIdle(f[2]) {
+					cfg.ProjectHideIdle[f[1]] = f[2]
+				} else if len(f) == 3 {
+					cfg.layoutWarns = append(cfg.layoutWarns, fmt.Sprintf("PROJECT_HIDE_IDLE[%s] « %s » inconnu : auto ou none attendu (réglage global retenu)", f[1], f[2]))
 				}
 			case "steps":
 				if v := atois(f[1]); len(v) == 2 {
@@ -434,6 +442,11 @@ EXTRA_ENVS=()
 # Masquage automatique activé (1, défaut) ou désactivé (0) : désactivé, aucun teammate n'est caché, le délai ci-dessus
 # est conservé pour le rallumage et le masquage à la main (double-clic) est refusé.
 # TEAM_HIDE_IDLE_ENABLED=1
+# Exceptions par projet (optionnel) : auto (masque, quel que soit le réglage ci-dessus) ou none (ne masque jamais) ;
+# absent = suit TEAM_HIDE_IDLE_ENABLED. Le délai reste TEAM_HIDE_IDLE (0 = jamais).
+# declare -A PROJECT_HIDE_IDLE=(
+#   ["mon-projet"]="none"
+# )
 # Mise en page des teams : part du leader sur 2 lignes (≤ 5 teammates), en %,
 # et fractions leader / ligne du milieu sur 3 lignes (la dernière a le reste).
 # LAYOUT_2ROW_LEADER_PCT=50
@@ -503,28 +516,71 @@ func editorArgv(goos, editor, path string) []string {
 	return []string{"sh", "-c", editor + ` "$1"`, "_", path}
 }
 
-// HideIdleDisabledMsg : refus de la bascule manuelle (double-clic de masquage) quand le masquage est désactivé (#188) —
-// même message dans la fenêtre native et dans la coque tmux.
-const HideIdleDisabledMsg = "masquage désactivé : l'activer dans les Réglages"
+// HideIdleProjectDisabledMsg : même refus quand le projet est en « no hide » (PROJECT_HIDE_IDLE=none, #209).
+const HideIdleProjectDisabledMsg = "masquage désactivé pour ce projet : choisir « auto hide » dans le titre de la carte TEAM"
 
-// HideIdleArg : valeur transmise à la règle de visibilité (DecidePaneVis, TeamLinesFor) — le délai en secondes quand le
-// masquage est activé, -1 quand il est désactivé (#188 : rien n'est caché, les choix « caché à la main » sont ignorés
-// et effacés). Les appelants existants ne passent que cette valeur.
-func (c Config) HideIdleArg() int {
-	if c.TeamHideIdleDisabled {
+// Choix de masquage d'un projet (PROJECT_HIDE_IDLE) : auto = masque, none = ne masque jamais, default = suit le global.
+const (
+	HideIdleAuto    = "auto"
+	HideIdleNone    = "none"
+	HideIdleDefault = "default"
+)
+
+// ValidHideIdle : valeur reconnue de PROJECT_HIDE_IDLE (« default » = entrée absente, jamais écrite).
+func ValidHideIdle(v string) bool { return v == HideIdleAuto || v == HideIdleNone }
+
+// HideIdleInfo : état du masquage pour la carte TEAM (champ teamHead.hideIdle) — Enabled : valeur effective (pour le
+// projet via HideIdleOf), Delay : TEAM_HIDE_IDLE conservé même éteint, Mode : choix du projet (auto | default | none),
+// Global : TEAM_HIDE_IDLE_ENABLED (infobulle). Masquage effectif : Enabled et Delay > 0.
+type HideIdleInfo struct {
+	Enabled bool   `json:"enabled"`
+	Delay   int    `json:"delay"`
+	Mode    string `json:"mode,omitempty"`
+	Global  bool   `json:"global"`
+}
+
+// HideIdleModeOf : choix du projet (clé = nom du dossier, comme PROJECT_COLORS) : auto, none ou default.
+func (c Config) HideIdleModeOf(project string) string {
+	if m, ok := c.ProjectHideIdle[filepath.Base(project)]; ok && ValidHideIdle(m) {
+		return m
+	}
+	return HideIdleDefault
+}
+
+// hideIdleOn : le masquage est-il activé pour ce projet ? auto → oui ; none → non ; default → TEAM_HIDE_IDLE_ENABLED (#188).
+// Le délai n'intervient pas ici : un délai 0 (jamais) laisse le masquage à la main permis (#188).
+func (c Config) hideIdleOn(project string) bool {
+	switch c.HideIdleModeOf(project) {
+	case HideIdleAuto:
+		return true
+	case HideIdleNone:
+		return false
+	}
+	return !c.TeamHideIdleDisabled
+}
+
+// HideIdleOf : LA fonction du masquage d'un projet (règle de visibilité, carte TEAM de l'interface native et de la coque
+// Linux, refus de teamToggle). Enabled = masquage EFFECTIF : activé pour le projet (auto → oui, none → non, default →
+// TEAM_HIDE_IDLE_ENABLED) ET délai TEAM_HIDE_IDLE > 0 (un délai 0 désactive dans tous les cas).
+func (c Config) HideIdleOf(project string) HideIdleInfo {
+	return HideIdleInfo{Enabled: c.hideIdleOn(project) && c.TeamHideIdle > 0, Delay: c.TeamHideIdle,
+		Mode: c.HideIdleModeOf(project), Global: !c.TeamHideIdleDisabled}
+}
+
+// HideIdleArgOf : valeur transmise à la règle de visibilité (DecidePaneVis, TeamLinesFor) pour ce projet — le délai en
+// secondes quand le masquage est activé pour lui, -1 quand il est désactivé (rien n'est caché, les choix « caché à la
+// main » sont ignorés et effacés).
+func (c Config) HideIdleArgOf(project string) int {
+	if !c.hideIdleOn(project) {
 		return -1
 	}
 	return c.TeamHideIdle
 }
 
-// HideIdleInfo : état du masquage pour la carte TEAM (champ teamHead.hideIdle) — Enabled : valeur effective du
-// commutateur, Delay : TEAM_HIDE_IDLE conservé même éteint. Masquage effectif : Enabled et Delay > 0.
-type HideIdleInfo struct {
-	Enabled bool `json:"enabled"`
-	Delay   int  `json:"delay"`
-}
-
-// HideIdleState : l'état du masquage de cette configuration.
-func (c Config) HideIdleState() HideIdleInfo {
-	return HideIdleInfo{Enabled: !c.TeamHideIdleDisabled, Delay: c.TeamHideIdle}
+// HideIdleRefusal : message de refus de la bascule manuelle d'un teammate pour ce projet, "" si le masquage est activé.
+func (c Config) HideIdleRefusal(project string) string {
+	if c.hideIdleOn(project) {
+		return ""
+	}
+	return HideIdleProjectDisabledMsg
 }

@@ -65,7 +65,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- fail "networkPolicy.enabled sans ingressNamespaces ni ingressCIDRs : plus aucune entrée admise (même l'Ingress) — donner le namespace du contrôleur, ou networkPolicy.enabled: false" -}}
 {{- end -}}
 {{- /* montages du chart : la racine partagée ne chevauche ni le coffre ni le Secret docker */ -}}
-{{- range $p := list "/var/lib/claude-launcher/secrets" "/var/run/claude-launcher/docker" -}}
+{{- range $p := list "/var/lib/claude-launcher/secrets-legacy" "/var/run/claude-launcher/docker" -}}
 {{- if or (eq $mount $p) (hasPrefix (printf "%s/" $mount) $p) (hasPrefix (printf "%s/" $p) $mount) -}}
 {{- fail (printf "volume.mountPath (%s) chevauche le montage réservé %s" $mount $p) -}}
 {{- end -}}
@@ -79,7 +79,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $_ := set $seen .name true -}}
 {{- end -}}
 {{- /* variables posées par le chart : extraEnv ne peut pas les remplacer (le dernier doublon l'emporterait) */ -}}
-{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_SECRETS_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
+{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_SECRETS_DIR" "CL_SECRETS_LEGACY_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
 {{- range .Values.extraEnv -}}
 {{- if has .name $reservedEnv -}}
 {{- fail (printf "extraEnv : %s est posée par le chart (valeur dédiée : rootBase, hubName, allowHostBackend, web.access, ingress.host…), refusée" .name) -}}
@@ -166,4 +166,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{- define "cl.tlsSecret" -}}
 {{- if .Values.ingress.tls.secretName -}}{{ .Values.ingress.tls.secretName }}{{- else -}}{{ .Release.Name }}-tls{{- end -}}
+{{- end -}}
+
+{{/* ancien coffre v6.4.0 : monté (lecture seule) seulement si l'ancien PVC <release>-secrets existe (migration, #201) ; rendu vide hors cluster (helm template) */}}
+{{- define "cl.legacySecrets" -}}
+{{- if .Values.secrets.legacy.enabled -}}
+{{- if lookup "v1" "PersistentVolumeClaim" .Release.Namespace (printf "%s-secrets" (include "cl.fullname" .)) -}}true{{- end -}}
+{{- end -}}
 {{- end -}}

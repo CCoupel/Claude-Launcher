@@ -210,9 +210,11 @@ type ProjectSettings struct {
 	ColorAuto bool     `json:"colorAuto"`
 	Palette   []string `json:"palette"`
 	// organisation de la fenêtre du projet (#153) : effective, vraie tant que le projet suit LAYOUT_MODE
-	Layout       string          `json:"layout"`
-	LayoutAuto   bool            `json:"layoutAuto"`
-	Layouts      []LayoutChoice  `json:"layouts"`
+	Layout     string         `json:"layout"`
+	LayoutAuto bool           `json:"layoutAuto"`
+	Layouts    []LayoutChoice `json:"layouts"`
+	// masquage des teammates inactifs du projet (#209) : choix du projet — auto | default | none
+	HideIdle     string          `json:"hideIdle"`
 	Env          EnvModel        `json:"env"`
 	EnvPath      string          `json:"envPath"`
 	EnvMtime     string          `json:"envMtime"`
@@ -266,6 +268,7 @@ func ReadProjectSettings(proj string, cfg Config, changes []ConfigChange) Projec
 	s.Color, s.ColorAuto = cfg.ProjectColor(base), !explicit
 	_, explicitLayout := cfg.ProjectLayouts[base]
 	s.Layout, s.LayoutAuto, s.Layouts = cfg.LayoutOf(base), !explicitLayout, LayoutChoices()
+	s.HideIdle = cfg.HideIdleModeOf(base)
 	s.Palette = cfg.Palette
 	if s.Palette == nil {
 		s.Palette = []string{}
@@ -331,6 +334,18 @@ func SetProjectLayout(src, name, layout string) (string, error) {
 		return "", fmt.Errorf("organisation « %s » : top ou left attendu", layout)
 	}
 	return setProjectArray(src, "PROJECT_LAYOUTS", name, layout)
+}
+
+// SetProjectHideIdle : config.conf (src) avec le masquage de name dans PROJECT_HIDE_IDLE (auto | none) ; mode vide ou
+// « default » : l'entrée est retirée (le projet suit TEAM_HIDE_IDLE_ENABLED). Mêmes garanties que SetProjectLayout. #209
+func SetProjectHideIdle(src, name, mode string) (string, error) {
+	if mode == HideIdleDefault {
+		mode = ""
+	}
+	if mode != "" && !ValidHideIdle(mode) {
+		return "", fmt.Errorf("masquage « %s » : auto, none ou default attendu", mode)
+	}
+	return setProjectArray(src, "PROJECT_HIDE_IDLE", name, mode)
 }
 
 // setProjectArray : config.conf (src) avec la valeur de name dans le tableau associatif array
@@ -519,6 +534,11 @@ func ApplyProjectColor(name, color string) ([]ConfigProblem, error) {
 // ApplyProjectConf : couleur et/ou organisation (nil : inchangé ; vide : entrée retirée) du projet
 // name, dans UN SEUL enregistrement de config.conf (validation, conflit, copie .bak).
 func ApplyProjectConf(name string, color, layout *string) ([]ConfigProblem, error) {
+	return ApplyProjectConfAll(name, color, layout, nil)
+}
+
+// ApplyProjectConfAll : ApplyProjectConf avec le masquage des teammates inactifs (hide : auto | none | default ; nil : inchangé).
+func ApplyProjectConfAll(name string, color, layout, hide *string) ([]ConfigProblem, error) {
 	path := ConfigPath()
 	src, expected := defaultConfig, time.Time{}
 	if b, err := os.ReadFile(path); err == nil {
@@ -540,6 +560,11 @@ func ApplyProjectConf(name string, color, layout *string) ([]ConfigProblem, erro
 			return nil, err
 		}
 	}
+	if hide != nil {
+		if out, err = SetProjectHideIdle(out, name, *hide); err != nil {
+			return nil, err
+		}
+	}
 	if out == src && !expected.IsZero() {
 		return nil, nil
 	}
@@ -554,7 +579,9 @@ type ProjectChange struct {
 	Image   *string
 	Color   *string // vide : couleur automatique
 	Layout  *string // top | left ; vide : retire l'entrée (le projet suit LAYOUT_MODE) ; nil : inchangé
-	Env     *EnvChange
+	// HideIdle : auto | none écrit l'entrée de PROJECT_HIDE_IDLE ; default (ou vide) la retire ; nil : inchangé (#209)
+	HideIdle *string
+	Env      *EnvChange
 }
 
 // EnvChange : changements de l'env.yaml du projet, avec la date d'ouverture.
@@ -632,6 +659,11 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 			return fail("%v", err)
 		}
 	}
+	if in.HideIdle != nil {
+		if _, err := SetProjectHideIdle("", filepath.Base(proj), *in.HideIdle); err != nil {
+			return fail("%v", err)
+		}
+	}
 	res := ProjectResult{OK: true}
 	// 2. env.yaml du projet — l'image demandée y entre par les mêmes changements :
 	//    une seule écriture du fichier
@@ -675,8 +707,8 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		res.Env, res.Note = er, ConfigReloadNote(ConfProjectEnv)
 	}
 	// 3. couleur et organisation : un seul enregistrement de config.conf
-	if in.Color != nil || in.Layout != nil {
-		if _, err := ApplyProjectConf(filepath.Base(proj), in.Color, in.Layout); err != nil {
+	if in.Color != nil || in.Layout != nil || in.HideIdle != nil {
+		if _, err := ApplyProjectConfAll(filepath.Base(proj), in.Color, in.Layout, in.HideIdle); err != nil {
 			// partiel : l'env.yaml est déjà écrit, l'interface doit en connaître le résultat
 			res.OK, res.Msg = false, "config.conf : "+err.Error()
 			if err == ErrConfigInvalid || err == ErrConfigConflict {

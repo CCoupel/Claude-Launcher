@@ -14,15 +14,15 @@ func TestHideIdleEnabledDefaultAndParsing(t *testing.T) {
 		_ = os.WriteFile(p, []byte(content), 0o600)
 		return loadConfigAt(p)
 	}
-	if c := read("TEAM_HIDE_IDLE=45\n"); c.TeamHideIdleDisabled || c.HideIdleArg() != 45 || !c.HideIdleState().Enabled {
-		t.Errorf("absent : activé (v6.2.0) attendu : %+v / %d", c.HideIdleState(), c.HideIdleArg())
+	if c := read("TEAM_HIDE_IDLE=45\n"); c.TeamHideIdleDisabled || c.HideIdleArgOf("") != 45 || !c.HideIdleOf("").Enabled {
+		t.Errorf("absent : activé (v6.2.0) attendu : %+v / %d", c.HideIdleOf(""), c.HideIdleArgOf(""))
 	}
 	c := read("TEAM_HIDE_IDLE=45\nTEAM_HIDE_IDLE_ENABLED=0\n")
-	if !c.TeamHideIdleDisabled || c.HideIdleArg() != -1 || c.TeamHideIdle != 45 || c.HideIdleState() != (HideIdleInfo{Enabled: false, Delay: 45}) {
-		t.Errorf("désactivé : délai conservé, argument -1 attendus : %+v / %d", c.HideIdleState(), c.HideIdleArg())
+	if !c.TeamHideIdleDisabled || c.HideIdleArgOf("") != -1 || c.TeamHideIdle != 45 || c.HideIdleOf("") != (HideIdleInfo{Enabled: false, Delay: 45, Mode: HideIdleDefault}) {
+		t.Errorf("désactivé : délai conservé, argument -1 attendus : %+v / %d", c.HideIdleOf(""), c.HideIdleArgOf(""))
 	}
-	if c := read("TEAM_HIDE_IDLE_ENABLED=1\nTEAM_HIDE_IDLE=0\n"); c.TeamHideIdleDisabled || c.HideIdleArg() != 0 {
-		t.Errorf("activé, délai 0 (jamais) : %d", c.HideIdleArg())
+	if c := read("TEAM_HIDE_IDLE_ENABLED=1\nTEAM_HIDE_IDLE=0\n"); c.TeamHideIdleDisabled || c.HideIdleArgOf("") != 0 {
+		t.Errorf("activé, délai 0 (jamais) : %d", c.HideIdleArgOf(""))
 	}
 	// lecteur sans bash (Windows)
 	if out := confLite("TEAM_HIDE_IDLE_ENABLED=0\n", "/h"); !containsLine(out, "hideidleon\t0") {

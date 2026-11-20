@@ -591,7 +591,7 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	if !a.knownProject(path) {
 		return nil, fmt.Errorf("projet inconnu : %s", path)
 	}
-	if in.Layout != nil && in.Backend == nil && in.Image == nil && in.Color == nil && in.Env == nil {
+	if in.Layout != nil && in.Backend == nil && in.Image == nil && in.Color == nil && in.Env == nil && in.HideIdle == nil {
 		return a.applyLayoutFirst(path, *in.Layout) // bouton de bascule : mise en page avant persistance
 	}
 	open := a.projectOpen(path)
@@ -611,6 +611,20 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {
 		a.configReload(core.ConfConf)
+		if in.HideIdle != nil {
+			// appliqué sans relance, tout de suite (#209) : carte TEAM en cache invalidée, règle de visibilité rejouée
+			// sur le projet ouvert (config relue par configReload ci-dessus), sans attendre le tour du watcher
+			teamCache.Lock()
+			delete(teamCache.m, path)
+			teamCache.Unlock()
+			if t := a.term(path); t != nil {
+				t.applyNow()
+			}
+			// carte TEAM renvoyée à coup sûr, même quand l'état effectif ne change pas (default ↔ auto, global activé) : mode et
+			// global changent seuls ; ne dépend ni d'un select ni de la relecture périodique (relecture unique, signal perdable)
+			a.pushTeam(path)
+			a.cardsChanged()
+		}
 	}
 	if r.OK && (in.Backend != nil || in.Image != nil) {
 		go a.readCtr()

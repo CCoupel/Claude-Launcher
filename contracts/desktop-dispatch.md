@@ -602,3 +602,37 @@ affiche la disposition reçue. Aucune option tmux nouvelle.
 
 Nouveau cas de refus : la bascule qui cacherait un teammate alors que le masquage est désactivé rend
 `{ "ok": false, "msg": "masquage désactivé : l'activer dans les Réglages" }`. Les autres cas sont inchangés.
+
+## v6.5.0 — masquage des teammates inactifs par projet (#209)
+
+### Clé `PROJECT_HIDE_IDLE` de `config.conf` **[NEW]**
+
+- Tableau associatif `["<nom du projet>"]="auto|none"`, mêmes formes d'écriture et mêmes règles que `PROJECT_LAYOUTS`
+  (seule cette clé est écrite, commentaires conservés, forme non reconnue refusée). Absente pour un projet = `default`.
+- Lue par bash (`loadConfigScript`) et par `confLite` ; en commentaire dans `defaultConfig`.
+- Masquage effectif d'un projet (une seule fonction de `core`, coque Linux et interface native) :
+  `auto` → activé ; `none` → désactivé ; absent (`default`) → `TEAM_HIDE_IDLE_ENABLED` (#188). Le délai est toujours
+  `TEAM_HIDE_IDLE`. **Délai `0`** : le masquage **automatique** est désactivé dans tous les cas (`teamHead.hideIdle.enabled` vaut faux), mais le masquage **manuel** reste permis — un projet `auto` ou `default` activé avec un délai `0` n'est jamais masqué tout seul, et `teamToggle` n'est pas refusé (comme #188) ; seul le mode `none` (ou `default` avec le global désactivé) refuse la bascule.
+- Changer `TEAM_HIDE_IDLE_ENABLED` ne modifie pas `PROJECT_HIDE_IDLE` : seuls les projets en `default` suivent.
+- Prise en compte sans relance, au tour suivant du surveillant du projet.
+
+### `cards` — champ `teamHead.hideIdle.mode` **[NEW]**
+
+```json
+"hideIdle": { "enabled": false, "delay": 30, "mode": "none", "global": true }
+```
+
+- `mode` : `auto` | `default` | `none` (choix du projet). `enabled` devient la valeur **effective pour le projet**
+  (**[CHANGED]**, rétrocompatible : identique à v6.3.0 pour un projet en `default`). `global` : valeur de
+  `TEAM_HIDE_IDLE_ENABLED` (infobulle).
+
+### `projectApply` — argument `hideIdle` **[NEW]**
+
+`"hideIdle": "auto" | "none"` : écrit l'entrée de `PROJECT_HIDE_IDLE` ; `"hideIdle": "default"` : retire l'entrée ;
+absent : inchangé. Permis sur un projet ouvert. Même passe d'écriture que `color` / `layout`. Valeur inconnue :
+`{ "ok": false, "msg": "…" }` avant toute écriture. `projectSettings` gagne `"hideIdle": "auto|default|none"`.
+
+### `teamToggle` **[CHANGED]**
+
+Refus quand le masquage effectif du projet est désactivé : message
+`masquage désactivé pour ce projet : choisir « auto hide » dans le titre de la carte TEAM`.

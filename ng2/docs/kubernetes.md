@@ -196,8 +196,8 @@ networkPolicy:
   ingressPodSelector: {app.kubernetes.io/name: traefik}
   ingressCIDRs: []                             # Traefik en réseau d'hôte : adresses des nœuds
 secrets:
-  persistence:
-    size: 10Mi                                 # PVC RWO <release>-secrets (coffre des clés ssh et kubeconfig)
+  legacy:
+    enabled: true                              # v6.5 : ancien coffre v6.4 (PVC <release>-secrets, s'il existe) monté en lecture seule pour la migration
 rbac:
   extraNamespaces: []                          # autres namespaces du même cluster (Role + RoleBinding, pas de ClusterRole)
 backends:
@@ -215,7 +215,7 @@ Valeurs obligatoires : `rootBase`, `volume.existingClaim`, `ingress.controller`,
 `terminationGracePeriodSeconds` en dessous de 30 est refusé par le schéma. `externalIngress.enabled: true` fait échouer le rendu.
 
 **Droits** : un Role et un RoleBinding limités au namespace (et à chaque namespace de `rbac.extraNamespaces`), jamais de
-ClusterRole. Le launcher n'a aucun droit sur les Secrets Kubernetes : son coffre est un PVC.
+ClusterRole. Le launcher n'a aucun droit sur les Secrets Kubernetes : son coffre est un dossier de la racine partagée (`<rootBase>/.config/claude-launcher-ng2/secrets/`, en clair, voir [secrets.md](secrets.md)).
 
 #### 3. Installation
 
@@ -301,11 +301,11 @@ Avant de déclarer l'accès « réservé au réseau interne », vérifiez la lis
   à l'installation, ou `--reset-then-reuse-values` (même règle que `deploy.*.md`).
 - **Retour arrière** : `helm rollback claude-launcher <révision> -n claude-ng2`. Les projets restent dans leurs pods.
 - **Désinstallation** : `helm uninstall` retire les objets du chart. Il ne touche ni au PVC ni au PV créés par le chart
-  (`keep`, purge : voir l'essai ci-dessus), ni au PVC du coffre (`<release>-secrets`, `keep`), ni aux StatefulSets des projets, ni aux fichiers de la racine.
+  (`keep`, purge : voir l'essai ci-dessus), ni à l'ancien PVC du coffre de la v6.4 (`<release>-secrets`, `keep`, conservé), ni au coffre commun de la racine, ni aux StatefulSets des projets, ni aux fichiers de la racine.
 - **Essai sur une autre racine** : testez d'abord sur une racine dédiée (un autre `rootBase` et `volume`, un `hubName` et un
   namespace de test, par exemple `claude-guide-test`). N'ouvrez jamais un essai sur la racine de production. Créez le dossier
   de la racine d'essai sur MooseFS **avant** `helm install` (§1).
-- **Purge d'un essai** : `helm uninstall` garde les volumes. Supprimez le PVC des projets et le PVC du coffre
+- **Purge d'un essai** : `helm uninstall` garde les volumes. Supprimez le PVC des projets et, s'il existe (installation venue de la v6.4), l'ancien PVC du coffre
   (`kubectl -n <ns> delete pvc <existingClaim> <release>-secrets`), puis les PV restés `Released` (`kubectl get pv` : celui du
   chart, et celui du coffre, dynamique, classe `retain`, retrouvé par `kubectl -n <ns> get pvc <release>-secrets -o jsonpath='{.spec.volumeName}'`).
   Le dossier du PV du coffre se trouve sur MooseFS sous `/pv_data/volumes/<nom du PV>` (provisionneur de la classe `retain` ;

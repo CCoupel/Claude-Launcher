@@ -328,17 +328,6 @@ func TestCoffreEmplacementsRefuses194(t *testing.T) {
 		motif string                                 // fragment du message de refus
 		prep  func(t *testing.T, root string) string // renvoie CL_SECRETS_DIR
 	}{
-		{"sous la racine partagée CL_ROOT_BASE", "zone partagée", func(t *testing.T, root string) string {
-			d := filepath.Join(root, "partage", "coffre")
-			_ = os.MkdirAll(d, 0o700)
-			return d
-		}},
-		{"sous un volume de CL_K8S_VOLUMES", "zone partagée", func(t *testing.T, root string) string {
-			v := filepath.Join(root, "vol")
-			_ = os.MkdirAll(filepath.Join(v, "coffre"), 0o700)
-			t.Setenv("CL_K8S_VOLUMES", v+"=claude-projets")
-			return filepath.Join(v, "coffre")
-		}},
 		{"droits ≠ 0700", "droits", func(t *testing.T, root string) string {
 			if runtime.GOOS == "windows" {
 				t.Skip("droits POSIX")
@@ -360,6 +349,27 @@ func TestCoffreEmplacementsRefuses194(t *testing.T) {
 			}
 			wantMotif194(t, raw, "coffre", c.motif)
 			noFiles194(t, d, "srv1")
+		})
+	}
+}
+
+// v6.5.0 (#201, BREAKING) : le coffre sous la racine partagée ou sous un volume k8s n'est plus refusé (coffre commun).
+func TestCoffreSousZonePartageeAdmis201(t *testing.T) {
+	p := newPair194(t)
+	for _, name := range []string{"racine", "volume"} {
+		t.Run(name, func(t *testing.T) {
+			a, _ := vault194(t)
+			root := filepath.Dir(os.Getenv("CL_SECRETS_DIR"))
+			d := filepath.Join(root, "partage", "coffre")
+			if name == "volume" {
+				v := filepath.Join(root, "vol")
+				d = filepath.Join(v, "coffre")
+				t.Setenv("CL_K8S_VOLUMES", v+"=claude-projets")
+			}
+			t.Setenv("CL_SECRETS_DIR", d)
+			if _, raw, failed := call194(t, a, "backendSecretSet", map[string]any{"backend": "srv1", "privateKey": p.priv, "publicKey": p.pub}); failed {
+				t.Errorf("écriture refusée dans un coffre sous une zone partagée : %s", raw)
+			}
 		})
 	}
 }

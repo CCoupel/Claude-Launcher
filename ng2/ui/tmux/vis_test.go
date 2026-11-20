@@ -315,8 +315,8 @@ func TestToggleCmdRefusedWhenHidingDisabled(t *testing.T) {
 	cfg.TeamHideIdleDisabled = true
 	sel := Selection{Name: key, Key: key, Path: proj}
 	m := toggleCmd(sel, cfg, mates[1])().(toggleMsg)
-	if m.msg != core.HideIdleDisabledMsg {
-		t.Fatalf("message du refus : %q, attendu %q", m.msg, core.HideIdleDisabledMsg)
+	if m.msg != core.HideIdleProjectDisabledMsg {
+		t.Fatalf("message du refus : %q, attendu %q", m.msg, core.HideIdleProjectDisabledMsg)
 	}
 	if !strings.Contains(visible(t, win), mates[1]) {
 		t.Error("un pane a été caché malgré le refus")

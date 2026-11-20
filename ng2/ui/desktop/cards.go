@@ -126,11 +126,11 @@ func (a *App) readTeamHead(path string) ([]TeamRow, *core.TeamHead) {
 	if t := a.term(path); t != nil {
 		lines = t.teamRows() // projet ouvert : depuis la mémoire du watcher
 	} else {
-		lines = core.TeamLines(core.ReadTeammates(path), path, nil, nil, a.conf().HideIdleArg(), time.Now().Unix())
+		lines = core.TeamLines(core.ReadTeammates(path), path, nil, nil, a.conf().HideIdleArgOf(path), time.Now().Unix())
 	}
 	ti := core.ReadTplInfo(path)
 	lines, head := core.ApplyTeamHead(ti.Apply(lines), ti.Target)
-	head.HideIdle = a.conf().HideIdleState() // état du masquage : puce de la carte TEAM (#188)
+	head.HideIdle = a.conf().HideIdleOf(path) // état du masquage du projet : carte TEAM (#188, #209)
 	rows := teamRows(lines)
 	teamCache.Lock()
 	teamCache.m[path] = teamEntry{time.Now(), rows, head}
@@ -198,8 +198,6 @@ func (a *App) selected(path string) bool {
 
 // cardsBg : complétions et préchargements en cours (attendus par les tests).
 var cardsBg sync.WaitGroup
-
-var cardsMu sync.Mutex // relecture périodique : une seule à la fois
 
 // selectCards : sélection d'un projet ; rend tout de suite les cartes en cache
 // et complète en tâche de fond (envoyées seulement s'il est toujours choisi).

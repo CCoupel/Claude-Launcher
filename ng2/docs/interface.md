@@ -83,8 +83,15 @@
   **Commutateur** (v6.3.0, #188) : Réglages › Launcher, groupe « teams », « Cacher les teammates inactifs »
   (`TEAM_HIDE_IDLE_ENABLED` dans `config.conf`, **activé par défaut**). Le délai `TEAM_HIDE_IDLE` est en **secondes** et
   n'est pas modifié quand le commutateur est éteint. Éteint, tout teammate reste visible, les marques « caché à la main »
-  sont effacées, et le double-clic est refusé avec un message. La carte TEAM affiche une puce quand le masquage est
-  effectif. Le rallumage reprend la règle avec le délai conservé.
+  sont effacées, et le double-clic est refusé avec un message. L'état du masquage est porté par l'œil du titre de la carte TEAM (voir « Réglage par projet »). Le rallumage reprend la règle avec le délai conservé.
+
+  **Réglage par projet** (v6.5.0, #209) : un **œil** à droite du titre de la carte TEAM porte le choix du projet.
+  Œil **ouvert** = *no hide* (aucun teammate masqué dans ce projet) ; œil **fermé** = *auto hide* (inactifs masqués
+  après le délai `TEAM_HIDE_IDLE`) ; œil **grisé** = *default* (le projet suit le commutateur global ; le dessin montre
+  son effet). Quand le projet a son propre choix (*auto hide* ou *no hide*), l'œil est en **bouton enfoncé** (fond plein de la couleur d'accent) ; en *default* il reste gris, sans fond. L'œil est le dernier élément du titre, aligné à droite : les versions sont tronquées avant lui. Un **clic** fait défiler default → auto hide → no hide → default ; un **clic droit** (ou la touche Menu)
+  ouvre un menu pour choisir directement. L'infobulle donne l'état, le suivant et la valeur globale. Le choix est
+  enregistré dans `PROJECT_HIDE_IDLE` de `config.conf` et pris en compte sans relance ; changer le réglage global ne
+  touche que les projets en *default*. En *no hide*, le double-clic pour cacher un teammate est refusé.
   **État du template** (par ligne, #136) : `●` vert = la copie de l'agent est à jour ; `⚠` orange = écart de version
   (template en retard sur la version cible, le launcher ayant adopté une version plus récente, ou claude différent de
   celui du leader) ; `○` = non démarré. Les versions sont dans le titre de la carte (#151). `+` devant le nom

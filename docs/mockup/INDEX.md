@@ -5,6 +5,7 @@
 ## Actives
 | Composant | Feature | Fichier | Version | Relation |
 |-----------|---------|---------|---------|----------|
+| team_card | #209 v2 œil à droite, bouton enfoncé (validée 2026-11-20) | v6.5.0/ui/team_card__masquage_par_projet_v2.html | 6.5.0 | complète `v6.2.0/ui/team_card__versions_entete.html`, remplace `v6.5.0/ui/team_card__masquage_par_projet.html` |
 | team_card | #151 versions en entête (validée 2026-11-15) | v6.2.0/ui/team_card__versions_entete.html | 6.2.0 | complète `v6.1.0/ui/team_card__panes_caches.html` |
 | pane_header | #152 état d'activité (validée 2026-11-15) | v6.2.0/ui/pane_header__etat_activite.html | 6.2.0 | — |
 | tab_bar | #162 Teamleaders séparé (validée 2026-11-15) | v6.2.0/ui/tab_bar__teamleaders_separe.html | 6.2.0 | — |
@@ -16,3 +17,4 @@
 ## Obsolètes
 | Fichier | Remplacée par | Version |
 |---------|---------------|---------|
+| v6.5.0/ui/team_card__masquage_par_projet.html | v6.5.0/ui/team_card__masquage_par_projet_v2.html | 6.5.0 |

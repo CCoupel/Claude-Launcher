@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime/pprof"
 	"strings"
 	"sync"
@@ -54,6 +55,37 @@ func stateDir() string {
 	d := filepath.Join(CacheDir(), "state")
 	_ = os.MkdirAll(d, 0o755)
 	return d
+}
+
+// stateTmpMaxAge : âge au-delà duquel un « <hash>.json.<n>.tmp » du dossier d'état est un reste d'écriture interrompue (arrêt,
+// plantage) et est supprimé au démarrage. Les plus récents sont gardés : un autre launcher peut être en train d'écrire. #205
+var stateTmpMaxAge = tun.Of(24 * time.Hour)
+
+// stateTmpRe : exactement la forme créée par writeState (os.CreateTemp « <hash>.json.*.tmp ») : hash = 16 hex
+// (sha1 tronqué à 8 octets), puis « .json. », un nombre décimal, « .tmp ». Rien d'autre n'est jamais supprimé.
+var stateTmpRe = regexp.MustCompile(`^[0-9a-f]{16}\.json\.[0-9]+\.tmp$`)
+
+// sweepStateTmp : supprime les fichiers temporaires d'état de plus de stateTmpMaxAge ; rend le nombre supprimé.
+// Erreurs ignorées (dossier absent, fichier déjà retiré par un autre launcher).
+func sweepStateTmp() int {
+	d := filepath.Join(CacheDir(), "state")
+	ents, err := os.ReadDir(d)
+	if err != nil {
+		return 0
+	}
+	n, limit := 0, time.Now().Add(-stateTmpMaxAge.Get())
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !stateTmpRe.MatchString(name) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() && info.ModTime().Before(limit) {
+			if os.Remove(filepath.Join(d, name)) == nil {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 func StatePath(project string) string {
@@ -210,6 +242,7 @@ func NewStateMgr() (*StateMgr, error) {
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
 		quit: make(chan struct{}), addq: make(chan [2]string, addQueueSize), rescan: map[string]bool{}, rescanCh: make(chan struct{}, 1), lastScan: map[string]time.Time{},
 	}
+	sweepStateTmp() // restes d'écritures interrompues (#205)
 	m.wg.Add(stateWorkers + 4)
 	for i := 0; i < stateWorkers; i++ {
 		go func() { defer m.wg.Done(); m.worker() }()

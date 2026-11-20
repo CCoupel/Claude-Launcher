@@ -27,7 +27,21 @@ launcher **Windows natif** ; sous Linux, la coque tmux ne change pas.
 > **Passer de la v4 à la v5/v6 (ou revenir) uniquement avec tous les projets fermés.**
 > Le passage de la v5 à la v6 se fait tout seul : voir [Passage à la v6](#passage-à-la-v6).
 
-**Ce qui est livré en v6.4** (détail dans [CHANGELOG.md](CHANGELOG.md)) :
+**Ce qui est livré en v6.5** (détail dans [CHANGELOG.md](CHANGELOG.md)) :
+
+- **Coffre des secrets partagé** : les clés ssh, `known_hosts` et kubeconfig des backends sont rangés dans **un seul coffre**,
+  commun au hub Linux, à l'exe Windows et au pod : `<racine>/.config/claude-launcher-ng2/secrets/`, **en clair** (droits `0700`/`0600`,
+  risque accepté : le stockage partagé et ses instantanés peuvent les lire). Les secrets d'un projet restent dans son dossier
+  `PRIVATE/`, que le launcher n'écrit jamais. Les coffres de la v6.4 sont migrés automatiquement au démarrage (l'ancien coffre est
+  conservé). Guide : [`ng2/docs/secrets.md`](ng2/docs/secrets.md). **Changement incompatible côté chart** : `CL_SECRETS_DIR` n'est plus
+  posé et le PVC `<release>-secrets` n'est plus créé (monté en lecture seule pour la migration s'il existe).
+- **Masquage des teammates inactifs par projet** : un œil à trois états dans le titre de la carte TEAM (fermé = *auto hide*, ouvert =
+  *no hide*, grisé = *default*, qui suit le réglage global) ; clic pour changer, clic droit pour choisir. Réglage `PROJECT_HIDE_IDLE`
+  de `config.conf`, appliqué sans relance.
+- **Fiabilité** : arrêt de l'exe Windows sans surveillant de fichiers bloqué, nettoyage des fichiers temporaires d'état, tests
+  stabilisés ; la CI vérifie que `Chart.yaml` porte déjà la version du milestone.
+
+**Ce qui est livré en v6.4**
 
 - **Template** : la carte TEAM affiche la version du template du projet, avec un `⚠` quand une version publiée
   plus récente existe. La comparaison suit l'ordre des versions, sans proposer de retour en arrière.
@@ -164,7 +178,7 @@ des projets (PVC existant, ou créé par le chart) ; un nom `.local` (mDNS) pour
 une CA interne cert-manager dont le certificat public est installé sur les postes.
 
 ```bash
-VERSION=6.4.0
+VERSION=6.5.0
 TAG=v$VERSION
 DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
 CHART=oci://ghcr.io/ccoupel/charts/claude-launcher
@@ -179,7 +193,7 @@ d'adresses admises, non vide, jamais `/0`), `ingress.tls.clusterIssuer` ou `secr
 s'ouvre **sans jeton** : `https://launcher.local/` depuis une adresse de la liste.
 
 **Limites de v6.4** (risques acceptés) : **aucune authentification** avant v7.0.0 (#172) : la liste d'adresses de
-l'Ingress interne est la seule barrière. Les secrets (clés ssh, kubeconfig) peuvent être écrits depuis le LAN, et `/files`
+l'Ingress interne est la seule barrière. Les secrets (clés ssh, kubeconfig ; coffre commun en clair, [`ng2/docs/secrets.md`](ng2/docs/secrets.md)) peuvent être écrits depuis le LAN, et `/files`
 est lisible depuis le LAN, avec exclusions. L'ingress externe est préparé mais refusé au rendu. Ne jamais exposer
 l'Ingress hors du réseau interne.
 

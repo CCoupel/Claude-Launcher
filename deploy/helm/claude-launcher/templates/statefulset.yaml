@@ -1,3 +1,4 @@
+{{- $legacy := include "cl.legacySecrets" . -}}
 {{- $root := .Values.rootBase -}}
 {{- $hub := include "cl.hubName" . -}}
 {{- $mount := include "cl.mountPath" . -}}
@@ -43,23 +44,6 @@ spec:
         seccompProfile:
           type: RuntimeDefault
         # fsGroup jamais posé : pas de changement de propriétaire récursif du partage
-      # coffre : volume neuf appartenant à root → propriétaire 1000, 0700 (seul ce dossier, jamais la racine partagée)
-      initContainers:
-        - name: secrets-perms
-          image: {{ include "cl.image" . | quote }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          command: [sh, -c, 'chown {{ .Values.runAsUser }}:{{ .Values.runAsGroup }} /var/lib/claude-launcher/secrets && chmod 0700 /var/lib/claude-launcher/secrets']
-          securityContext:
-            runAsNonRoot: false
-            runAsUser: 0
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            capabilities:
-              drop: [ALL]
-              add: [CHOWN, FOWNER]
-          volumeMounts:
-            - name: secrets
-              mountPath: /var/lib/claude-launcher/secrets
       containers:
         - name: launcher
           image: {{ include "cl.image" . | quote }}
@@ -98,8 +82,10 @@ spec:
             - name: CL_ALLOW_HOST_BACKEND
               value: "1"
             {{- end }}
-            - name: CL_SECRETS_DIR
-              value: /var/lib/claude-launcher/secrets
+            {{- if $legacy }}
+            - name: CL_SECRETS_LEGACY_DIR
+              value: /var/lib/claude-launcher/secrets-legacy
+            {{- end }}
             {{- if .Values.backends.docker.secretName }}
             - name: DOCKER_CERT_PATH
               value: /var/run/claude-launcher/docker
@@ -116,8 +102,11 @@ spec:
               mountPath: /home/launcher
             - name: tmp
               mountPath: /tmp
-            - name: secrets
-              mountPath: /var/lib/claude-launcher/secrets
+            {{- if $legacy }}
+            - name: secrets-legacy
+              mountPath: /var/lib/claude-launcher/secrets-legacy
+              readOnly: true
+            {{- end }}
             {{- range .Values.backends.kubeconfigs }}
             - name: kube-{{ .name }}
               mountPath: /var/run/claude-launcher/kube/{{ .name }}
@@ -156,9 +145,12 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        - name: secrets
+        {{- if $legacy }}
+        - name: secrets-legacy
           persistentVolumeClaim:
             claimName: {{ include "cl.fullname" . }}-secrets
+            readOnly: true
+        {{- end }}
         {{- if .Values.backends.docker.secretName }}
         - name: docker-tls
           secret:

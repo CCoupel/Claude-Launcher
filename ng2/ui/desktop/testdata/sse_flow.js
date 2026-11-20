@@ -89,7 +89,10 @@ const tick = async () => { const [f] = timers.shift(); await f(); };
     setTimeout: (f, ms) => { t3.push([f, ms]); }, init: async () => ({}), applyInit() {}, banner() {} });
   s3[0].onerror();
   for (let i = 0; i < 4; i++) await t3.shift()[0]();
-  if (r3.slice(0, 4).join() !== '8000,16000,30000,30000' && r3.slice(0, 3).join() !== '8000,16000,30000') fail('délais d\'init : ' + r3);
+  // suite non décroissante 8000, 16000, puis 30000 répété ; plafond 30 s ; jamais moins de 3 mesures
+  const okSeq = r3.length >= 3 && r3[0] === 8000 && r3[1] === 16000 && r3.slice(2).every((x) => x === 30000);
+  const okMono = r3.every((x, i) => x <= 30000 && (i === 0 || x >= r3[i - 1]));
+  if (!okSeq || !okMono) fail('délais d\'init (8000, 16000, puis 30000 répété, plafond 30 s) : ' + r3);
   // environnement réel (flowEnv) avec des natifs stricts : aucun ne doit être appelé comme méthode d'env
   const c4 = { setTimeout: nat((f, ms) => setTimeout(f, ms)), clearTimeout: nat((h) => clearTimeout(h)), EventSource: ES, sessionIsLost: false,
     transport: { call: async () => ({ ok: 1 }) }, applyInit() {}, connBanner() {}, console };

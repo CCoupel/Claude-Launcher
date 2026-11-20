@@ -67,9 +67,10 @@ type App struct {
 	mgr        *core.StateMgr
 	upd        updState
 	perf       perfLog
-	treeCached bool     // arbre repris du lancement précédent (relu en tâche de fond)
-	hubCache   string   // cache d'état du hub Linux (hubs.<machine>.hub_cache)
-	hubWarns   []string // clés inconnues de hubs: dans backends.yaml (#127), ignorées
+	bgWG       sync.WaitGroup // tâches de fond du démarrage (bg), attendues par waitBackground
+	treeCached bool           // arbre repris du lancement précédent (relu en tâche de fond)
+	hubCache   string         // cache d'état du hub Linux (hubs.<machine>.hub_cache)
+	hubWarns   []string       // clés inconnues de hubs: dans backends.yaml (#127), ignorées
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
@@ -86,7 +87,11 @@ type App struct {
 
 	dirty     chan struct{}
 	cardDirty chan struct{}
-	quit      chan struct{}
+	// relecture des cartes (#210) : une seule à la fois par App ; un signal reçu pendant qu'elle tourne pose cardsAgain
+	// (relecture rejouée une fois à la fin, sélection relue), au lieu d'être perdu
+	cardsSt              sync.Mutex
+	cardsRun, cardsAgain bool
+	quit                 chan struct{}
 }
 
 // updState : annonces de mise à jour (même logique que le navigateur de la coque).
@@ -224,15 +229,15 @@ func (a *App) setMsg(m string) {
 
 // Start : relectures en tâche de fond (même rythme que la coque).
 func (a *App) Start() {
-	go a.applyWebUI() // interface web de la fenêtre (desktop_web, #163)
+	a.bg(a.applyWebUI) // interface web de la fenêtre (desktop_web, #163)
 	// liens et réglages dans CLAUDE_CONFIG_DIR (souvent sur le stockage
 	// partagé, par 9P sous Windows) : en tâche de fond, jamais avant la fenêtre
-	go func() {
+	a.bg(func() {
 		a.perf.timed("démarrage : liens conso", core.ClaudeDir(), core.LinkUsageCache)
 		a.perf.timed("démarrage : settings.json", core.ClaudeDir(), func() { _ = core.SyncLauncherEnv(a.conf()) })
-	}()
+	})
 	go a.hubCacheLoop()
-	go func() {
+	a.bg(func() {
 		t := time.NewTicker(2 * time.Second)
 		defer t.Stop()
 		for {
@@ -244,11 +249,11 @@ func (a *App) Start() {
 				a.perf.flushTrace()
 			}
 		}
-	}()
+	})
 	go core.RunBrowserServer() // fichiers pour le navigateur (#106)
 	go a.emitter()
 	go a.treeLoop()
-	go func() {
+	a.bg(func() {
 		if a.treeCached {
 			a.perf.time("parcours", a.rescan)
 		}
@@ -256,7 +261,7 @@ func (a *App) Start() {
 		a.perf.time("git", a.gitAll)
 		a.perf.write(a.projectCount())
 		a.changed()
-	}()
+	})
 	// sessions en suspens : lues dans ~/.claude, toutes les 10 s (30 s sur un disque réseau)
 	sessEvery := 10 * time.Second
 	if gitWorkers(a.conf().Roots) < 8 {
@@ -284,6 +289,21 @@ func (a *App) Start() {
 		a.mgr.Select(a.sel)
 	}
 	go a.reattach()
+}
+
+// bg : tâche de fond d'écriture au démarrage, suivie pour qu'on puisse attendre sa fin (waitBackground).
+func (a *App) bg(f func()) {
+	a.bgWG.Add(1)
+	go func() { defer a.bgWG.Done(); f() }()
+}
+
+// waitBackground : attend (au plus max) la fin des tâches suivies par bg, et du gestionnaire d'état ; faux si le délai
+// est dépassé. Sert aux tests : l'évènement d'arrêt remplace une pause fixe avant l'effacement des dossiers temporaires.
+func (a *App) waitBackground(max time.Duration) bool {
+	if a.mgr != nil {
+		a.mgr.Stop() // idempotent ; rend la main quand ses tâches de fond sont finies
+	}
+	return waitDone(&a.bgWG, max)
 }
 
 // Stop : l'interface se ferme ; les sessions des projets continuent dans tmux.
@@ -429,21 +449,58 @@ func (a *App) emitter() {
 			a.emit("state", a.Snapshot())
 			time.Sleep(80 * time.Millisecond)
 		case <-a.cardDirty:
-			// hors de cette goroutine : une carte lente (projet par 9P) ne doit
-			// pas retarder l'arbre (#130) ; une seule relecture à la fois
-			if cardsMu.TryLock() {
-				go func() {
-					defer cardsMu.Unlock()
-					a.mu.Lock()
-					sel := a.sel
-					a.mu.Unlock()
-					c := a.cardsFull(sel)
-					if a.selected(sel) {
-						a.emit("cards", c)
-					}
-				}()
-			}
+			a.requestCards()
 		}
+	}
+}
+
+// cardsRead : relecture complète des cartes d'un projet ; remplaçable dans les tests (relecture lente simulée, comptée).
+var cardsRead = tun.Of(func(a *App, path string) Cards { return a.cardsFull(path) })
+
+// requestCards : demande une relecture des cartes du projet sélectionné, HORS de la goroutine de l'emitter (une carte lente,
+// projet par 9P, ne doit pas retarder l'arbre, #130). Une seule relecture tourne à la fois ; un signal reçu pendant qu'elle
+// tourne n'est pas perdu (#210) : il pose cardsAgain, et la relecture est rejouée UNE fois à la fin (N signaux = une reprise),
+// avec la sélection d'alors.
+func (a *App) requestCards() {
+	a.cardsSt.Lock()
+	if a.cardsRun {
+		a.cardsAgain = true
+		a.cardsSt.Unlock()
+		return
+	}
+	a.cardsRun = true
+	a.cardsSt.Unlock()
+	go a.cardsLoop()
+}
+
+// cardsLoop : relit tant qu'un signal est arrivé pendant la relecture ; sort sur quit (aucune relecture après).
+func (a *App) cardsLoop() {
+	for {
+		select {
+		case <-a.quit:
+			a.cardsSt.Lock()
+			a.cardsRun, a.cardsAgain = false, false
+			a.cardsSt.Unlock()
+			return
+		default:
+		}
+		a.cardsSt.Lock()
+		a.cardsAgain = false // les signaux reçus PENDANT la lecture ci-dessous la rejoueront
+		a.cardsSt.Unlock()
+		a.mu.Lock()
+		sel := a.sel
+		a.mu.Unlock()
+		c := cardsRead.Get()(a, sel)
+		if a.selected(sel) {
+			a.emit("cards", c)
+		}
+		a.cardsSt.Lock()
+		if !a.cardsAgain {
+			a.cardsRun = false
+			a.cardsSt.Unlock()
+			return
+		}
+		a.cardsSt.Unlock()
 	}
 }
 
@@ -1191,12 +1248,13 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		return a.projectSettings(in.Path, in.Changes)
 	case "projectApply":
 		var in struct {
-			Path    string
-			Backend *string
-			Image   *string
-			Color   *string
-			Layout  *string
-			Env     *struct {
+			Path     string
+			Backend  *string
+			Image    *string
+			Color    *string
+			Layout   *string
+			HideIdle *string
+			Env      *struct {
 				MTime   string
 				Changes []core.ConfigChange
 			}
@@ -1204,7 +1262,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 		}
-		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout}
+		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout, HideIdle: in.HideIdle}
 		if in.Env != nil {
 			ch.Env = &core.EnvChange{MTime: in.Env.MTime, Changes: in.Env.Changes}
 		}

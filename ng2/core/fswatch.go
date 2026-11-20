@@ -25,7 +25,10 @@ func closeFsWatcher(w *fsnotify.Watcher, what string) bool {
 	return drainClose(w.Close, w.Events, w.Errors, fsCloseLimit, what)
 }
 
-// drainClose : closeFn dans une goroutine, events et errs vidés jusqu'à son retour, au plus limit.
+// drainClose : closeFn dans une goroutine, events et errs vidés jusqu'à son retour, au plus limit. Au délai dépassé,
+// l'attente de l'appelant s'arrête (rend faux : l'arrêt reste borné) MAIS une goroutine de fond continue de vider les
+// canaux jusqu'au retour de closeFn : sous Windows, la goroutine de lecture du surveillant reste sinon bloquée sur l'envoi
+// d'un évènement sans lecteur et Close ne rend jamais la main (handles gardés, #206). Une seule goroutine par surveillant.
 func drainClose(closeFn func() error, events <-chan fsnotify.Event, errs <-chan error, limit time.Duration, what string) bool {
 	done := make(chan struct{})
 	go func() {
@@ -36,12 +39,34 @@ func drainClose(closeFn func() error, events <-chan fsnotify.Event, errs <-chan 
 	defer timer.Stop()
 	for {
 		select {
-		case <-events:
-		case <-errs:
+		case _, ok := <-events:
+			if !ok {
+				events = nil // canal fermé : plus de lecture (sinon boucle active)
+			}
+		case _, ok := <-errs:
+			if !ok {
+				errs = nil
+			}
 		case <-done:
 			return true
 		case <-timer.C:
-			log.Printf("surveillant de fichiers (%s) : fermeture sans réponse après %s, abandonnée (l'arrêt continue)", what, limit)
+			log.Printf("surveillant de fichiers (%s) : fermeture sans réponse après %s, abandonnée (l'arrêt continue ; vidage des canaux poursuivi en fond)", what, limit)
+			go func() {
+				for {
+					select {
+					case _, ok := <-events:
+						if !ok {
+							events = nil
+						}
+					case _, ok := <-errs:
+						if !ok {
+							errs = nil
+						}
+					case <-done:
+						return
+					}
+				}
+			}()
 			return false
 		}
 	}

@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"runtime"
 	"slices"
@@ -46,6 +47,11 @@ func main() {
 		switch os.Args[1] {
 		case "--version", "-v", "--help", "-h":
 			cmd = os.Args[1]
+		}
+	}
+	if cmd == "shell" || cmd == "desktop" { // instances longues (hub, exe, pod) : coffre commun, migration du coffre v6.4.0 (#201)
+		if _, err := core.MigrateLegacySecrets(); err != nil {
+			log.Printf("migration du coffre des secrets : %v", err)
 		}
 	}
 	platform.CleanupOldExe() // Windows : .old laissé par une mise à jour (ailleurs : rien)

@@ -108,14 +108,39 @@ func (b BackendConf) kubeconfigFile() (string, error) {
 		if !filepath.IsAbs(p) {
 			return "", fmt.Errorf("kubeconfig : un chemin absolu est attendu (%q)", p)
 		}
-		for _, r := range secretsForbiddenRoots() {
+		if kubeconfigPathAllowed(p) {
+			return p, nil
+		}
+		for _, r := range sharedZones() {
 			if pathWithin(p, r) {
-				return "", fmt.Errorf("kubeconfig refusé : %s est sous la zone partagée %s", p, r)
+				return "", fmt.Errorf("kubeconfig refusé : %s est sous la zone partagée %s (admis : le coffre des secrets ou un dossier PRIVATE/ de projet)", p, r)
 			}
 		}
 		return p, nil
 	}
 	return "", nil
+}
+
+// kubeconfigPathAllowed : le chemin est dans le coffre commun, ou dans un dossier PRIVATE/ d'une zone partagée
+// (<zone>/…/PRIVATE/…, forme résolue : un lien ne fait pas sortir de PRIVATE/). Admis même sous la racine partagée.
+func kubeconfigPathAllowed(p string) bool {
+	if pathWithin(p, secretsDirRaw()) {
+		return true
+	}
+	rp := realPath(p)
+	for _, z := range sharedZones() {
+		rel, err := filepath.Rel(realPath(z), rp)
+		if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			continue
+		}
+		segs := strings.Split(rel, string(filepath.Separator))
+		for i := 0; i < len(segs)-1; i++ { // PRIVATE dans la zone, et le fichier DANS PRIVATE
+			if segs[i] == "PRIVATE" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // kubeconfigArgs : « --kubeconfig <fichier> », après contrôle du fichier À CHAQUE appel (refus des commandes à

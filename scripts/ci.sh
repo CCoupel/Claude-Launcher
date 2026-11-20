@@ -9,6 +9,27 @@
 set -euo pipefail
 cd "$(dirname "$0")/../ng2"
 
+# #204 : sur une branche milestone/vX.Y.Z, Chart.yaml doit déjà porter la version du milestone (sinon la release
+# échoue tard, au tag : « Version du chart = tag » de release.yml). Même contrôle et même message que release.yml ;
+# hors branche milestone (main, tag, PR, HEAD détaché) : ignoré.
+check_chart_version() {
+  local ref=${GITHUB_REF_NAME:-}
+  [ -n "$ref" ] || ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+  if [[ ! "$ref" =~ ^milestone/v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+    echo "chart : contrôle de version ignoré (« ${ref:-?} » n'est pas une branche milestone/vX.Y.Z)"
+    return 0
+  fi
+  local v=${BASH_REMATCH[1]} chart=${CHART_YAML:-../deploy/helm/claude-launcher/Chart.yaml} cv av
+  cv=$(sed -nE 's/^version: *"?([^"]+)"?/\1/p' "$chart")
+  av=$(sed -nE 's/^appVersion: *"?([^"]+)"?/\1/p' "$chart")
+  if [ "$cv" != "$v" ] || [ "$av" != "v$v" ]; then
+    echo "ECHEC : Chart.yaml : version=$cv appVersion=$av, attendu $v et v$v (branche $ref)" >&2
+    return 1
+  fi
+  echo "chart : version $v conforme à la branche $ref"
+}
+check_chart_version
+
 # durée de chaque étape et total, affichés en fin d'exécution (#179 : budget « hors image ≤ 60 s »,
 # relevé étape par étape). Horloge : $EPOCHREALTIME (bash ≥ 5, Git Bash compris), en microsecondes.
 now_us() { local t=${EPOCHREALTIME/[.,]/}; echo "${t#0}"; }

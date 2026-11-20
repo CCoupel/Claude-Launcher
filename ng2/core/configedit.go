@@ -384,6 +384,17 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 			ps = append(ps, ConfigProblem{Line: keyLine(content, b.Name), Severity: SevWarning, Message: "backend " + b.Name + " : " + pr.What})
 		}
 	}
+	// migration du coffre (#201) : un backend dont l'ancien coffre diffère du coffre commun (le coffre commun est gardé)
+	conflicts := map[string]bool{}
+	for _, c := range SecretsMigrationConflicts() {
+		conflicts[c] = true
+	}
+	for _, b := range bs {
+		if conflicts[b.Name] {
+			ps = append(ps, ConfigProblem{Line: keyLine(content, b.Name), Severity: SevWarning,
+				Message: "backend " + b.Name + " : l'ancien coffre des secrets diffère du coffre commun (coffre commun conservé, ancien coffre intact) ; vérifier les secrets de ce backend dans les Réglages"})
+		}
+	}
 	for _, w := range resolveHubSettingsFor(f, host, goos).warns {
 		ps = append(ps, ConfigProblem{Line: lineOf(content, "paths"), Severity: SevWarning, Message: "hubs." + host + " : " + w})
 	}
@@ -455,6 +466,8 @@ func validateConf(content []byte) []ConfigProblem {
 			key = "LAYOUT_LEFT_LEADER_PCT"
 		case strings.HasPrefix(w, "PROJECT_LAYOUTS"):
 			key = "PROJECT_LAYOUTS"
+		case strings.HasPrefix(w, "PROJECT_HIDE_IDLE"):
+			key = "PROJECT_HIDE_IDLE"
 		}
 		ps = append(ps, ConfigProblem{Line: lineOf(content, key), Severity: SevWarning, Message: w})
 	}

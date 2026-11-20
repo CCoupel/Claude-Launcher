@@ -9,6 +9,28 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.5.0] — 2026-11-20
+
+### Added
+- Masquage des teammates inactifs **par projet** : clé `PROJECT_HIDE_IDLE` de `config.conf` (`["projet"]="auto|none"`, absente = suit `TEAM_HIDE_IDLE_ENABLED`), fonction unique `HideIdleOf` pour la règle de visibilité, la carte TEAM (`teamHead.hideIdle.mode` / `.global`, `enabled` = valeur effective du projet), `projectApply.hideIdle` et `projectSettings.hideIdle` ; `teamToggle` refusé en « no hide » ; titre de la carte TEAM de la coque Linux : « default (masqués 30 s) » ou « default (désactivé) » quand le projet suit le global, « auto hide ◆ » / « no hide ◆ » pour un choix propre au projet (#209)
+- CI : `scripts/ci.sh` contrôle, sur une branche `milestone/vX.Y.Z`, que `Chart.yaml` porte déjà la version du milestone (même contrôle que « Version du chart = tag » de `release.yml`) ; le désaccord est détecté à la CI de branche, plus au tag (#204)
+- Carte TEAM : œil à 3 états dans le titre (ouvert = no hide, fermé = auto hide, grisé = default, suit le réglage global #188) ; clic = défilement default → auto hide → no hide, clic droit = menu des 3 états, infobulle avec la valeur globale ; écriture par `projectApply {hideIdle}` (`PROJECT_HIDE_IDLE`) et carte rafraîchie aussitôt (#209)
+
+### Changed
+- **[BREAKING]** Chart : `CL_SECRETS_DIR` n'est plus posé, le PVC `<release>-secrets` n'est plus créé et l'init `secrets-perms` est supprimé (coffre commun sous `<rootBase>/.config/claude-launcher-ng2/secrets`) ; `secrets.legacy.enabled` (défaut `true`) monte l'ancien PVC en lecture seule s'il existe (`lookup`) et pose `CL_SECRETS_LEGACY_DIR` pour la migration ; PVC conservé (`keep`) ; `secrets.persistence.*` obsolète, ignoré (#201)
+- **Coffre des secrets commun** au hub, à l'exe Windows et au pod : en clair, `0700`/`0600`, sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/secrets/` ; le refus « sous la racine partagée » est supprimé ; refus d'un coffre sous un dossier de projet ou dont le chemin résolu (liens symboliques, liens pendants compris) sort de l'emplacement attendu ; écritures sous verrou fichier, journal avec l'instance (`hub`, `pod`, `windows`) ; sans ACL Windows sur un chemin UNC (#201)
+- Migration au démarrage des coffres v6.4.0 (emplacement local et `CL_SECRETS_LEGACY_DIR`) vers le coffre commun ; ancien coffre conservé, écart de contenu journalisé et gardé côté coffre commun (#201)
+- Secrets de projet : `<projet>/PRIVATE/`, jamais écrits par le launcher ; `kubeconfig:` par chemin admis dans le coffre ou dans un `PRIVATE/` ; `/files` ne sert pas `.config/claude-launcher*` (#201)
+- Guide `ng2/docs/secrets.md` (emplacement, portée projet, migration, risque du stockage en clair) (#201)
+
+### Fixed
+- Interface native : un rafraîchissement des cartes demandé pendant une relecture lente n'est plus perdu ; il est rejoué une fois à la fin (N demandes = une reprise), avec le projet sélectionné à ce moment, au lieu de laisser la carte ancienne jusqu'au signal suivant ; jamais deux relectures en même temps, arbre jamais retardé (#210)
+- Arrêt de l'exe Windows : après l'échéance de fermeture d'un surveillant de fichiers, une goroutine de fond continue de vider ses évènements jusqu'au retour de `Close` (plus de lecteur bloqué ni de handles gardés) ; l'arrêt reste borné par `fsCloseLimit` (#206)
+- Cache d'état : les `<hash>.json.<n>.tmp` de plus de 24 h (écritures interrompues) sont supprimés au démarrage du suivi d'état ; les plus récents sont gardés (#205)
+- Tests : `TestSSEFrozenConnectionHasWriteDeadlineAndCountsInCap` attend l'inscription des deux gestionnaires de flux (condition bornée) au lieu d'une pause fixe de 200 ms ; échéance d'écriture portée à 5 s pour que les gestionnaires bloqués ne sortent pas avant la vérification du 503 sous `-race` (#203)
+- Tests : simulation du flux SSE — le délai d'abandon d'init doit suivre 8000, 16000 puis 30000 répété (suite non décroissante, plafond 30 s) ; une suite non croissante ou un plafond dépassé échoue toujours (#207)
+- Tests : `stopNative` attend la fin des tâches de fond de l'App (suivies par `App.bg`, `waitBackground`) au lieu d'une pause fixe de 300 ms ; suite `web184` nettement plus rapide et sans attente passive (#208)
+
 ## [6.4.0] — 2026-11-19
 
 ### Added
