@@ -58,3 +58,5 @@
 | tests/procedures/ui-desktop/arret-propre-205-206/ | procedure | ui-desktop | Arret propre : vidage des canaux apres echeance, .tmp orphelins balayes, exe Windows sur wsl.localhost sans handle residuel (#205, #206) | feature | slow |
 | tests/procedures/ui-desktop/masquage-projet-209/ | procedure | ui-desktop | Masquage des teammates inactifs par projet : oeil 3 etats, PROJECT_HIDE_IDLE, teamToggle refuse (#209) | feature | |
 | tests/procedures/ui-desktop/cartes-rafraichies-210/ | procedure | ui-desktop | Cartes : signal pendant une relecture lente jamais perdu, fusion, pas de chevauchement, arret, #130 (#210) | feature | slow |
+| tests/procedures/config/ecriture-atomique-217/ | procedure | ui-desktop | config.conf atomique : editeur ouvert sous Windows, balayage des temporaires (#217) | feature | |
+| tests/integration/config/ecriture-atomique-217/ | integration | core | Ecriture atomique de config.conf : crash simule, retry Windows, balayage, 0600 — ng2/core/atomic217_test.go, ng2/platform/replace217_test.go, tag atomic217 (#217) | feature | |
