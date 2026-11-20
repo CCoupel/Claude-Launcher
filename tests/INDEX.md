@@ -60,3 +60,6 @@
 | tests/procedures/ui-desktop/cartes-rafraichies-210/ | procedure | ui-desktop | Cartes : signal pendant une relecture lente jamais perdu, fusion, pas de chevauchement, arret, #130 (#210) | feature | slow |
 | tests/procedures/config/ecriture-atomique-217/ | procedure | ui-desktop | config.conf atomique : editeur ouvert sous Windows, balayage des temporaires (#217) | feature | |
 | tests/integration/config/ecriture-atomique-217/ | integration | core | Ecriture atomique de config.conf : crash simule, retry Windows, balayage, 0600 — ng2/core/atomic217_test.go, ng2/platform/replace217_test.go, tag atomic217 (#217) | feature | |
+| tests/procedures/ui-desktop/relancer-launcher-219/ | procedure | ui-desktop | Relancer le launcher : exe Windows, hub reel (vignettes, layout-watch), pod QUALIF (#219) | feature | critical |
+| tests/integration/ui-tmux/relancer-launcher-219/ | integration | ui-tmux | Relance de la coque sans perte de session, processus anciens arretes, autre serveur intact — ng2/ui/tmux/relaunch219_test.go (#219) | feature | critical |
+| tests/integration/core/relancer-launcher-219/ | integration | core | Processus anciens, binaire change, version installee, relance Dispatch — ng2/core/relaunch219_test.go, ng2/ui/desktop/relaunch219_test.go (#219) | feature | |
