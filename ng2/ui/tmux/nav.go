@@ -96,7 +96,10 @@ type model struct {
 	wantTeam     bool // clic hors projet : bascule sur « ⌗ Teamleaders »
 	lastShow     time.Time
 	hideLauncher bool
-	updating     bool    // mise à jour lancée d'un clic, en cours
+	updating     bool              // mise à jour lancée d'un clic, en cours
+	launcher     core.LauncherInfo // binaire remplacé / processus anciens (#219), relu toutes les 10 s
+	hideRelaunch bool
+	relaunchAsk  bool    // confirmation de la relance en cours
 	checking     bool    // recherche de mises à jour demandée par F5, en cours
 	pendingCmd   tea.Cmd // commande produite par onMouse (qui ne renvoie que le modèle)
 	hideTpl      bool
@@ -189,6 +192,7 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, waitState(m.mgr.Done))
 	}
 	if m.shell {
+		cmds = append(cmds, launcherStateCmd())
 		// onglet « ⌗ Teamleaders » : une vignette par projet ouvert
 		cfg := m.cfg
 		cmds = append(cmds, func() tea.Msg { runMirrorManager(cfg); return nil })
@@ -548,6 +552,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.usage = core.Usage(msg)
 	case tickMsg:
 		return m, tea.Batch(tickCmd(), windowsCmd(m.session))
+	case launcherStateMsg:
+		if core.LauncherInfo(msg).BinChanged && !m.launcher.BinChanged {
+			m.hideRelaunch = false // nouveau remplacement : l'annonce revient
+		}
+		m.launcher = core.LauncherInfo(msg)
+		return m, launcherTickCmd()
+	case relaunchDoneMsg:
+		m.msg = msg.text
 	case usageTick:
 		return m, tea.Batch(usageTickCmd(), usageFetchCmd(m.cfg.UsageRefreshSec))
 	case tea.MouseMsg:
@@ -698,6 +710,10 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			a := m.alerts()[k]
 			switch {
 			case a == "github": // permanente, non cliquable
+			case a == "relaunch" && e.X < lipgloss.Width(m.alertText(a)):
+				if m.shell {
+					m.relaunchAsk = true
+				}
 			case e.X >= lipgloss.Width(m.alertText(a)):
 				m.dismissAlert(a)
 			case a == "launcher" && m.launcherOK && !m.updating:
@@ -906,6 +922,15 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.relaunchAsk {
+		m.relaunchAsk = false // toute autre touche que o/y annule : par défaut on garde
+		if key := strings.ToLower(k.String()); key == "o" || key == "y" {
+			m.msg = "↻ relance…"
+			return m, relaunchCmd()
+		}
+		m.msg = "relance annulée"
+		return m, nil
+	}
 	if m.form.mode != formNone {
 		return m.onFormKey(k)
 	}
@@ -938,7 +963,12 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitStep = quitAsk
 		return m, nil
 	case "ctrl+u":
-		m.hideLauncher, m.hideTpl = true, true
+		m.hideLauncher, m.hideTpl, m.hideRelaunch = true, true, true
+		return m, nil
+	case "ctrl+l": // relancer la coque sur le binaire installé (#219)
+		if m.shell && m.relaunchWanted() {
+			m.relaunchAsk = true
+		}
 		return m, nil
 	case "f1":
 		if !m.shell {
@@ -1314,6 +1344,8 @@ func (m model) versionLines() string {
 			s += "\n" + core.Yellow.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		case a == "github": // permanente : pas de ✕
 			s += "\n" + core.Orange.Render(m.alertText(a))
+		case a == "relaunch":
+			s += "\n" + core.Green.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		default:
 			s += "\n" + core.Orange.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		}
@@ -1329,6 +1361,12 @@ func (m model) alertText(a string) string {
 	}
 	wide := m.w >= 70
 	switch {
+	case a == "relaunch" && m.relaunchAsk:
+		return fmt.Sprintf("  Relancer ? interface + %d processus anciens ; sessions gardées (o/n)", m.launcher.StaleCount())
+	case a == "relaunch" && m.launcher.BinChanged:
+		return "  ✓ " + core.OrQ(m.launcher.Installed) + " installée · ctrl+l : relancer · clic"
+	case a == "relaunch":
+		return fmt.Sprintf("  ⚠ %d processus de l'ancien binaire · ctrl+l : les relancer", m.launcher.StaleCount())
 	case a == "github" && m.errKind == core.UpdErrQuota:
 		return "  ⚠ vérification GitHub impossible (quota, reprise " + m.errRetry.Format("15:04") + ")"
 	case a == "github":
@@ -1371,6 +1409,9 @@ func (m model) alerts() []string {
 	if m.newTpl != "" && !m.hideTpl {
 		a = append(a, "template")
 	}
+	if m.relaunchWanted() && !m.hideRelaunch {
+		a = append(a, "relaunch")
+	}
 	if m.errKind != "" { // visible en continu, pas seulement après F5 (#199)
 		a = append(a, "github")
 	}
@@ -1383,6 +1424,8 @@ func (m *model) dismissAlert(kind string) {
 		m.hideLauncher = true
 	case "template":
 		m.hideTpl = true
+	case "relaunch":
+		m.hideRelaunch = true
 	}
 }
 

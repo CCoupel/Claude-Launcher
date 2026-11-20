@@ -833,6 +833,8 @@ type Snapshot struct {
 	OS       string     `json:"os"`
 	WebUI    WebUIState `json:"webUI"`  // interface web servie par la fenêtre (#163) ; jamais le jeton
 	Server   ServerInfo `json:"server"` // version et démarrage du serveur (#198)
+	// #219 : binaire remplacé depuis le démarrage (bandeau « Relancer ») ; détail et processus anciens : launcherInfo
+	Launcher LauncherSnap `json:"launcher"`
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -868,7 +870,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.Version(), Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo()}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -1293,7 +1295,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
 		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
-		Raw, OpenNext, Binary                                            bool
+		Raw, OpenNext, Binary, Confirm                                   bool
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &arg); err != nil {
@@ -1473,6 +1475,10 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		return a.backendStates(), nil
 	case "quit":
 		return nil, a.quitApp(arg.Mode)
+	case "launcherInfo": // #219 : binaire remplacé, version installée, processus anciens
+		return a.launcherInfo(), nil
+	case "relaunch": // #219 : relance sur le binaire installé ; la confirmation est faite par l'interface
+		return a.relaunchLauncher(arg.Confirm)
 	case "webUIOpen": // #163 : interface web de la fenêtre dans le navigateur du poste
 		return a.webUIOpen(), nil
 	case "webUIRegen": // jeton régénéré : sessions et flux des navigateurs révoqués

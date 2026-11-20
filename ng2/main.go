@@ -37,6 +37,7 @@ func main() {
 		os.Exit(1)
 	}
 	core.ApplyClaudeConfigDir()
+	core.MarkLauncherStart() // identité du binaire au démarrage : « binaire remplacé » (#219)
 	cmd := "shell"
 	if len(os.Args) > 1 && !strings.HasPrefix(os.Args[1], "--") {
 		cmd = os.Args[1]
