@@ -6,6 +6,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"claude-launcher-ng2/platform"
@@ -35,8 +36,10 @@ func TestInstallBinaryGardeLAncienBinaireEnBak218(t *testing.T) {
 	if b, err := os.ReadFile(bak); err != nil || string(b) != "ANCIEN" {
 		t.Errorf("sauvegarde %s = %q, %v", filepath.Base(bak), b, err)
 	}
-	if st, _ := os.Stat(dst); st.Mode().Perm() != 0o755 {
-		t.Errorf("droits = %v", st.Mode().Perm())
+	if runtime.GOOS != "windows" { // bits d'exécution : notion Unix
+		if st, _ := os.Stat(dst); st.Mode().Perm() != 0o755 {
+			t.Errorf("droits = %v", st.Mode().Perm())
+		}
 	}
 	// mise à jour suivante (la version courante est maintenant 6.6.0) : une seule sauvegarde, la dernière
 	SetNgVersion("v6.6.0")
@@ -63,22 +66,17 @@ func TestInstallBinaryPremiereInstallationSansBak218(t *testing.T) {
 	}
 }
 
-func TestInstallBinaryEchecLaisseLOriginal218(t *testing.T) {
+// Échec portable : dossier de destination absent (CreateTemp échoue sous tous les systèmes) — erreur, aucune
+// sauvegarde ni dossier créés. L'échec d'écriture avec restauration de l'original est couvert en logique pure
+// (injection de write) par platform/selfreplace218_test.go.
+func TestInstallBinaryDossierAbsentEchoueProprement218(t *testing.T) {
 	withVersion218(t, "v6.5.0")
 	d := t.TempDir()
-	dst := filepath.Join(d, "claude-launcher-ng2")
-	_ = os.WriteFile(dst, []byte("ORIGINAL"), 0o755)
-	if err := os.Chmod(d, 0o555); err != nil { // dossier non inscriptible : le nouveau binaire ne peut pas être posé
-		t.Fatal(err)
-	}
-	defer os.Chmod(d, 0o755)
-	if os.Geteuid() == 0 {
-		t.Skip("root : les droits du dossier ne bloquent pas l'écriture")
-	}
+	dst := filepath.Join(d, "absent", "claude-launcher-ng2")
 	if err := InstallBinary(dst, []byte("NOUVEAU")); err == nil {
 		t.Fatal("erreur attendue")
 	}
-	if b, _ := os.ReadFile(dst); string(b) != "ORIGINAL" {
-		t.Errorf("binaire = %q, l'original doit rester", b)
+	if ents, _ := os.ReadDir(d); len(ents) != 0 {
+		t.Errorf("fichiers ou dossiers créés malgré l'échec : %v", ents)
 	}
 }

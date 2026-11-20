@@ -7,6 +7,7 @@ package platform
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -95,7 +96,7 @@ func TestSwapWithBackupCreeLaSauvegardeDeLaVersionCourante218(t *testing.T) {
 		if got := read218(t, bak); got != "V1" {
 			t.Errorf("sauvegarde = %q, attendu l'ancien binaire V1", got)
 		}
-		if st, _ := os.Stat(bak); st.Mode().Perm() != 0o755 {
+		if st, _ := os.Stat(bak); runtime.GOOS != "windows" && st.Mode().Perm() != 0o755 { // bits Unix
 			t.Errorf("droits de la sauvegarde %v, attendu 0755 (exécutable)", st.Mode().Perm())
 		}
 		if m := baks218(t, exe); len(m) != 1 {
@@ -149,7 +150,7 @@ func TestSwapWithBackupEchecEcritureRestaureLOriginal218(t *testing.T) {
 		if got := read218(t, exe); got != "ORIGINAL" {
 			t.Errorf("exe = %q, l'original doit être remis en place", got)
 		}
-		if st, _ := os.Stat(exe); st.Mode().Perm() != 0o755 {
+		if st, _ := os.Stat(exe); runtime.GOOS != "windows" && st.Mode().Perm() != 0o755 { // bits Unix
 			t.Errorf("droits de l'exe restauré : %v", st.Mode().Perm())
 		}
 		if got := read218(t, ancienne); got != "VIEUX" {
