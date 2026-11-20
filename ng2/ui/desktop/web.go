@@ -54,8 +54,9 @@ type webBridge struct {
 	// access : « none » — aucun jeton, aucune session, aucun cookie (LOT-4.4) ; "" ou « token » : jeton, session, cookie
 	access string
 
-	mu       sync.Mutex           // jeton et sessions (authentification, appels)
-	sessions map[string]time.Time // identifiants de session en mémoire → dernier usage (le cookie porte l'un d'eux, jamais le jeton)
+	mu        sync.Mutex           // jeton et sessions (authentification, appels)
+	lastStamp time.Time            // dernière date attribuée à une session (strictement croissante : voir stamp)
+	sessions  map[string]time.Time // identifiants de session en mémoire → dernier usage (le cookie porte l'un d'eux, jamais le jeton)
 
 	subMu   sync.Mutex // abonnés SSE : jamais tenu en même temps que mu, jamais pendant une attente
 	subs    map[chan []byte]bool
@@ -143,10 +144,22 @@ func (w *webBridge) newSession() string {
 		delete(w.sessions, oldest)
 		gone = append(gone, oldest)
 	}
-	w.sessions[id] = now
+	w.sessions[id] = w.stamp(now)
 	w.mu.Unlock()
 	w.dropSubs(gone...) // les flux des sessions perdues sont fermés (verrous pris l'un après l'autre)
 	return id
+}
+
+// stamp : date d'usage d'une session, STRICTEMENT croissante (w.mu tenu). L'horloge de Windows a une résolution de
+// l'ordre de la milliseconde (et plus) : des sessions amorcées dans le même pas portaient la même date, et l'éviction
+// de « la plus ancienne » choisissait au hasard parmi elles — une session récente partait, l'ancienne restait, son
+// flux d'évènements restait ouvert (#224).
+func (w *webBridge) stamp(now time.Time) time.Time {
+	if !now.After(w.lastStamp) {
+		now = w.lastStamp.Add(time.Nanosecond)
+	}
+	w.lastStamp = now
+	return now
 }
 
 // sessionAlive : la session existe et n'a pas expiré — sans la prolonger (un flux ouvert n'est pas une activité).
@@ -202,7 +215,7 @@ func (w *webBridge) validSession(id string) bool {
 		delete(w.sessions, id)
 		return false
 	}
-	w.sessions[id] = now
+	w.sessions[id] = w.stamp(now)
 	return true
 }
 
