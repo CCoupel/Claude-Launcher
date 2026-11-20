@@ -449,7 +449,6 @@ body.cardsfolded #hsplit { display: none; }
 .lanbanner.srv { display: flex; align-items: center; gap: 8px; }
 .lanbanner.srv .sp { flex: 1; }
 .lanbanner.lbar.g { background: var(--alert-green); color: var(--green); }
-.lanbanner.lbar.y { background: var(--alert-yellow); color: var(--yellow); }
 .lanbanner.srv.blue { background: var(--alert-blue, var(--card-head)); color: var(--blue); }
 
 /* ordre des onglets par glisser-déposer (#191) */

@@ -1919,15 +1919,11 @@ function lanBanner() {
   b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || (w.access === 'none' ? 'sans jeton : toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS')) + ' (Réglages › Interface web)';
 }
 
-// Binaire du launcher changé / processus anciens (#219) : `launcher{binChanged,stale,backup}` de l'instantané.
-// Fonction pure : null (rien à dire), ou { kind: 'g'|'y', text } — vert : binaire remplacé, jaune : seulement
-// des processus (vignettes, layout-watch) de l'ancien binaire.
+// Binaire du launcher changé (#219) : `launcher{binChanged}` de l'instantané.
+// Fonction pure : null (rien à dire), ou { kind: 'g', text } — bandeau vert : binaire remplacé.
 function launcherBarState(l) {
-  if (!l) return null;
-  const n = Number(l.stale) || 0;
-  if (l.binChanged) return { kind: 'g', text: '✓ nouvelle version installée — l\'interface tourne encore avec l\'ancienne' + (n ? ' · ' + n + ' processus ancien' + (n > 1 ? 's' : '') : '') };
-  if (n) return { kind: 'y', text: '⚠ ' + n + ' processus de l\'ancien binaire' };
-  return null;
+  if (!l || !l.binChanged) return null;
+  return { kind: 'g', text: '✓ nouvelle version installée — l\'interface tourne encore avec l\'ancienne' };
 }
 function launcherBar() {
   const st = launcherBarState(S.snap && S.snap.launcher);

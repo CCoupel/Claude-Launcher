@@ -13,7 +13,6 @@ import (
 // LauncherSnap : champ `launcher` de l'instantané (bon marché : stat du binaire, mémorisée).
 type LauncherSnap struct {
 	BinChanged bool   `json:"binChanged"`
-	Stale      int    `json:"stale"`
 	Backup     string `json:"backup,omitempty"`
 }
 
