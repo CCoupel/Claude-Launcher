@@ -15,6 +15,10 @@ import (
 // dans Write sur une connexion figée compte dans le plafond jusqu'à sa vraie sortie.
 
 // readUntilClosed : le corps du flux se termine (EOF) dans le délai.
+// readUntilClosed : attend que le serveur ferme le flux ; rend dès la fermeture (attente active), faux seulement à
+// l'échéance d — large : sous charge (runner Windows) la fermeture peut tarder, sans que le test ne ralentisse (#224).
+const sseCloseWithin = 20 * time.Second
+
 func readUntilClosed(resp *http.Response, d time.Duration) bool {
 	done := make(chan struct{})
 	go func() { _, _ = io.Copy(io.Discard, resp.Body); close(done) }()
@@ -53,7 +57,7 @@ func TestSSEClosedWhenSessionExpires(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Fatalf("flux : %d", resp.StatusCode)
 	}
-	if !readUntilClosed(resp, 3*time.Second) {
+	if !readUntilClosed(resp, sseCloseWithin) {
 		t.Fatal("le flux reste ouvert après l'expiration de sa session")
 	}
 }
@@ -69,7 +73,7 @@ func TestSSEClosedWhenSessionEvictedOrRevoked(t *testing.T) {
 	resp := openSSE(t, srv.URL, c)
 	defer resp.Body.Close()
 	w.setToken("autreTokenE2autreTokenE2") // révocation
-	if !readUntilClosed(resp, 2*time.Second) {
+	if !readUntilClosed(resp, sseCloseWithin) {
 		t.Fatal("le flux reste ouvert après la révocation de sa session")
 	}
 	// évincée : plus de maxSessions amorçages derrière elle
@@ -79,7 +83,7 @@ func TestSSEClosedWhenSessionEvictedOrRevoked(t *testing.T) {
 	for i := 0; i < maxSessions; i++ {
 		scBootstrap(t, srv.URL, "autreTokenE2autreTokenE2")
 	}
-	if !readUntilClosed(resp2, 2*time.Second) {
+	if !readUntilClosed(resp2, sseCloseWithin) {
 		t.Fatal("le flux reste ouvert après l'éviction de sa session")
 	}
 }

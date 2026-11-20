@@ -117,6 +117,15 @@ func stopBg(a *App) {
 	}
 }
 
+// drainTree : os.RemoveAll de dir, retenté jusqu'à l'échéance tant que des écritures tardives le font échouer.
+func drainTree(dir string, within time.Duration) {
+	for end := time.Now().Add(within); ; time.Sleep(25 * time.Millisecond) {
+		if err := os.RemoveAll(dir); err == nil || time.Now().After(end) {
+			return
+		}
+	}
+}
+
 // sandbox : HOME, config, CLAUDE_CONFIG_DIR et racine de projets isolés ; un
 // projet git par nom.
 func sandbox(t *testing.T, root string, names ...string) (projects []string) {
@@ -134,6 +143,10 @@ func sandbox(t *testing.T, root string, names ...string) (projects []string) {
 		t.Setenv("USERPROFILE", filepath.Join(root, "home"))
 	}
 	t.Setenv("CL_ROOTS", filepath.Join(root, "PROJETS"))
+	// dernier nettoyage (s'exécute APRÈS l'arrêt de l'App et l'attente des cartes) : une écriture de cache d'une tâche de
+	// fond qui finit juste après la fin du test ferait échouer le RemoveAll de t.TempDir (« directory not empty », #224) —
+	// on vide l'arborescence avec reprises jusqu'à une échéance, avant que t.TempDir ne s'en charge
+	t.Cleanup(func() { drainTree(root, 5*time.Second) })
 	t.Cleanup(cardsBg.Wait) // cartes complétées en tâche de fond : finies avant le nettoyage
 	t.Setenv("CL_NO_UPDATE", "1")
 	oldOwner := foreignOwner.Get() // jamais d'interrogation des moteurs (ni du réseau) dans les tests
