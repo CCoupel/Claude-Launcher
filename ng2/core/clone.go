@@ -92,30 +92,68 @@ func ValidateCloneURL(raw string) (CloneURLInfo, error) {
 	return CloneURLInfo{}, errors.New("URL refusée : https://… ou ssh (git@hôte:dépôt, ssh://…) seulement (ni file://, ni chemin local)")
 }
 
-// askpassScript : lu par git ; le jeton vient de CL_GIT_TOKEN (environnement du seul processus git).
+// askpassScript : lu par git ; le jeton vient de CL_GIT_TOKEN (environnement du seul processus git). Il ne répond qu'aux
+// invites qui nomment EXACTEMENT github.com (« …'https://github.com': », « …'https://x-access-token@github.com': ») :
+// toute autre invite (hôte redirigé ou réécrit) est refusée, sans rien écrire.
 const askpassScript = `#!/bin/sh
+case "$1" in
+*"//github.com'"*|*"@github.com'"*) ;;
+*) exit 1 ;;
+esac
 case "$1" in
 *sername*) printf '%s\n' "x-access-token" ;;
 *) printf '%s\n' "$CL_GIT_TOKEN" ;;
 esac
 `
 
-// cloneEnv : environnement du processus git (jamais interactif, protocoles limités).
-func cloneEnv(info CloneURLInfo, dir string, auth CloneAuth, askpass string) []string {
-	env := EnvWithout("GIT_ASKPASS", "SSH_ASKPASS", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_CONFIG_COUNT", "CL_GIT_TOKEN")
-	env = WithSafeDirectory(env, dir)
-	env = append(env, "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never", "GIT_ALLOW_PROTOCOL=https:ssh", "LC_ALL=C", "LANGUAGE=C")
+var askpassPlain = regexp.MustCompile(`^[A-Za-z0-9/._:+-]+$`)
+
+// askpassValue : valeur de GIT_ASKPASS — git passe par un shell dès que la commande contient un espace ou un
+// caractère spécial (chemin d'un profil « Prénom Nom ») : guillemetée alors.
+func askpassValue(path string) string {
+	p := filepath.ToSlash(path)
+	if askpassPlain.MatchString(p) {
+		return p
+	}
+	return Shq(p)
+}
+
+// envWithoutGitConfig : environnement hérité sans configuration git injectée (GIT_CONFIG_PARAMETERS, COUNT/KEY_n/VALUE_n),
+// ni GIT_EXEC_PATH ni GIT_PROXY_COMMAND : rien ne peut réécrire l'URL (url.insteadOf) après sa validation.
+func envWithoutGitConfig() []string {
+	var out []string
+	for _, e := range os.Environ() {
+		k, _, _ := strings.Cut(e, "=")
+		if strings.HasPrefix(k, "GIT_CONFIG_KEY_") || strings.HasPrefix(k, "GIT_CONFIG_VALUE_") {
+			continue
+		}
+		switch k {
+		case "GIT_ASKPASS", "SSH_ASKPASS", "GIT_SSH", "GIT_SSH_COMMAND", "GIT_CONFIG_COUNT", "GIT_CONFIG_PARAMETERS",
+			"GIT_CONFIG_GLOBAL", "GIT_CONFIG_SYSTEM", "GIT_CONFIG_NOSYSTEM", "GIT_EXEC_PATH", "GIT_PROXY_COMMAND", "CL_GIT_TOKEN":
+			continue
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// cloneEnv : environnement du processus git (jamais interactif, protocoles limités, configuration utilisateur
+// neutralisée : GIT_CONFIG_GLOBAL/SYSTEM = emptyCfg, un fichier vide).
+func cloneEnv(info CloneURLInfo, dir string, auth CloneAuth, askpass, emptyCfg string) []string {
+	env := WithSafeDirectory(envWithoutGitConfig(), dir)
+	env = append(env, "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never", "GIT_ALLOW_PROTOCOL=https:ssh", "LC_ALL=C", "LANGUAGE=C",
+		"GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+emptyCfg, "GIT_CONFIG_SYSTEM="+emptyCfg)
 	switch info.Scheme {
 	case "https":
 		if auth.Token != "" && info.Host == "github.com" && askpass != "" {
-			env = append(env, "GIT_ASKPASS="+filepath.ToSlash(askpass), "CL_GIT_TOKEN="+auth.Token)
+			env = append(env, "GIT_ASKPASS="+askpassValue(askpass), "CL_GIT_TOKEN="+auth.Token)
 		}
 	case "ssh":
 		be := auth.Backend
 		if be == "" {
 			be = "host"
 		}
-		args := append([]string{"ssh", "-o", "BatchMode=yes"}, sshSecretArgs(be)...)
+		args := append([]string{"ssh", "-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes"}, sshSecretArgs(be)...)
 		var b strings.Builder
 		for i, a := range args {
 			if i > 0 {
@@ -208,22 +246,27 @@ func CloneProject(ctx context.Context, rawURL, dir string, auth CloneAuth, onPro
 		return err
 	}
 	u := strings.TrimSpace(rawURL)
+	tmp, err := os.MkdirTemp("", "cl-clone-")
+	if err != nil {
+		return fmt.Errorf("dossier temporaire impossible : %w", err)
+	}
+	defer os.RemoveAll(tmp)
+	emptyCfg := filepath.Join(tmp, "gitconfig")
+	if err := os.WriteFile(emptyCfg, nil, 0o600); err != nil {
+		return fmt.Errorf("configuration git neutre impossible : %w", err)
+	}
 	askpass := ""
 	if info.Scheme == "https" && auth.Token != "" && info.Host == "github.com" {
-		d, err := os.MkdirTemp("", "cl-askpass-")
-		if err != nil {
-			return fmt.Errorf("jeton : dossier temporaire impossible : %w", err)
-		}
-		defer os.RemoveAll(d)
-		askpass = filepath.Join(d, "askpass.sh")
+		askpass = filepath.Join(tmp, "askpass.sh")
 		if err := os.WriteFile(askpass, []byte(askpassScript), 0o700); err != nil {
 			return fmt.Errorf("jeton : script impossible : %w", err)
 		}
 	}
 	cmd := platform.NoWindow(exec.CommandContext(ctx, "git",
 		"-c", "credential.helper=", "-c", "core.askPass=", "-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never",
+		"-c", "http.followRedirects=false",
 		"clone", "--progress", "--", u, dir))
-	cmd.Env = cloneEnv(info, dir, auth, askpass)
+	cmd.Env = cloneEnv(info, dir, auth, askpass, emptyCfg)
 	platform.SetProcessGroup(cmd)
 	cmd.Cancel = func() error { return platform.KillTree(cmd) } // git ET ses enfants (remote-https, ssh) : sinon stderr reste ouvert
 	cmd.WaitDelay = 3 * time.Second

@@ -101,6 +101,7 @@ var newJobHold = tun.Of(30 * time.Second)
 type createJob struct {
 	NewJob
 	cancel context.CancelFunc
+	ctx    context.Context
 }
 
 // newJobSnapLocked : copie de l'état de la création (verrou propre, indépendant de a.mu).
@@ -137,23 +138,41 @@ func (a *App) create(in createArgs) (any, error) {
 		return nil, fmt.Errorf("source inconnue : %q", in.Source)
 	}
 	roots := a.conf().Roots
+	var job *createJob // source git : place réservée AVANT toute écriture, test et pose sous un seul verrou (jamais deux clones)
 	if source == "git" {
 		if _, err := core.ValidateCloneURL(in.URL); err != nil {
 			return map[string]any{"ok": false, "field": "url", "msg": err.Error()}, nil
 		}
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		job = &createJob{NewJob: NewJob{ID: newToken(), Name: strings.TrimSpace(in.Name), Step: "préparation", State: "running"}, cancel: cancel, ctx: ctx}
 		a.jobMu.Lock()
-		busy := a.job != nil && a.job.State == "running"
-		a.jobMu.Unlock()
-		if busy {
+		if a.job != nil && a.job.State == "running" {
+			a.jobMu.Unlock()
+			cancel()
 			return map[string]any{"ok": false, "msg": "création en cours"}, nil
+		}
+		a.job = job
+		a.jobMu.Unlock()
+		a.changed()
+	}
+	releaseJob := func() { // refus avant le clonage : la réservation est rendue
+		if job != nil {
+			job.cancel()
+			a.jobMu.Lock()
+			if a.job == job {
+				a.job = nil
+			}
+			a.jobMu.Unlock()
+			a.changed()
 		}
 	}
 	dir, undo, err := core.CreateProjectDir(roots, in.Base, in.Category, in.NewCategory, in.Name)
 	if err != nil {
+		releaseJob()
 		return pathFail(err)
 	}
 	if source == "git" {
-		return a.startCloneJob(in, dir, undo)
+		return a.startCloneJob(in, dir, undo, job)
 	}
 	if err := core.ApplyExec(dir, in.Image, in.Backend); err != nil {
 		return nil, fmt.Errorf("env.yaml : %v — %s", err, undo())
@@ -187,14 +206,11 @@ func (a *App) finishCreate(dir string, mode core.LaunchMode) (any, error) {
 	return r, err
 }
 
-// startCloneJob : clonage en tâche de fond ; progression dans l'instantané (newJob), annulable (createCancel).
-func (a *App) startCloneJob(in createArgs, dir string, undo func() string) (any, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
-	id := newToken()
-	a.jobMu.Lock()
-	a.job = &createJob{NewJob: NewJob{ID: id, Name: filepath.Base(dir), Step: "préparation", State: "running"}, cancel: cancel}
-	a.jobMu.Unlock()
-	a.changed()
+// startCloneJob : clonage en tâche de fond de la place réservée par create ; progression dans l'instantané (newJob),
+// annulable (createCancel).
+func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *createJob) (any, error) {
+	id, ctx, cancel := job.ID, job.ctx, job.cancel
+	a.setJob(func(j *createJob) { j.Name = filepath.Base(dir) })
 	a.bgWG.Add(1)
 	go func() {
 		defer a.bgWG.Done()

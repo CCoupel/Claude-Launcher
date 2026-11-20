@@ -5,7 +5,9 @@ package core
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -130,4 +132,95 @@ func TestCloneSSHUtiliseLeCoffreDuBackend(t *testing.T) {
 	if !strings.Contains(string(b), "GIT_SSH_COMMAND='ssh' '-o' 'BatchMode=yes'") {
 		t.Errorf("GIT_SSH_COMMAND absent : %s", b)
 	}
+}
+
+// M1 : le script askpass ne répond qu'aux invites qui nomment exactement github.com.
+func TestAskpassSeulementPourGithub(t *testing.T) {
+	d := t.TempDir()
+	sh := filepath.Join(d, "askpass.sh")
+	if err := os.WriteFile(sh, []byte(askpassScript), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	run := func(prompt string) (string, error) {
+		c := exec.Command(sh, prompt)
+		c.Env = append(os.Environ(), "CL_GIT_TOKEN=ghp_SECRET")
+		out, err := c.Output()
+		return strings.TrimSpace(string(out)), err
+	}
+	for prompt, want := range map[string]string{
+		"Username for 'https://github.com': ":                "x-access-token",
+		"Password for 'https://x-access-token@github.com': ": "ghp_SECRET",
+		"Password for 'https://github.com': ":                "ghp_SECRET",
+	} {
+		if out, err := run(prompt); err != nil || out != want {
+			t.Errorf("%q → %q %v, attendu %q", prompt, out, err, want)
+		}
+	}
+	for _, prompt := range []string{
+		"Password for 'https://evil.example/': ", "Password for 'https://github.com.evil.org': ", "Password for 'https://x-access-token@evil.com': ",
+		"Password for 'https://github.com:8443': ", "Password: ", "Password for 'https://evilgithub.com': ",
+	} {
+		if out, err := run(prompt); err == nil || out != "" {
+			t.Errorf("invite %q répondue : %q %v", prompt, out, err)
+		}
+	}
+}
+
+// m1 : configuration git injectée ou de l'utilisateur neutralisée ; m3 : StrictHostKeyChecking=yes toujours ; m4 : chemin à espace.
+func TestEnvironnementGitNeutralise(t *testing.T) {
+	t.Setenv("GIT_CONFIG_PARAMETERS", "'url.https://evil/.insteadof=https://github.com/'")
+	t.Setenv("GIT_CONFIG_COUNT", "1")
+	t.Setenv("GIT_CONFIG_KEY_0", "url.https://evil/.insteadOf")
+	t.Setenv("GIT_CONFIG_VALUE_0", "https://github.com/")
+	t.Setenv("GIT_EXEC_PATH", "/evil")
+	t.Setenv("GIT_PROXY_COMMAND", "/evil")
+	empty := filepath.Join(t.TempDir(), "gitconfig")
+	_ = os.WriteFile(empty, nil, 0o600)
+	env := strings.Join(cloneEnv(CloneURLInfo{Scheme: "https", Host: "github.com"}, t.TempDir(), CloneAuth{Token: "ghp_X"}, "/tmp/Prénom Nom/askpass.sh", empty), "\n")
+	for _, bad := range []string{"GIT_CONFIG_PARAMETERS", "evil", "url.https"} {
+		if strings.Contains(env, bad) {
+			t.Errorf("environnement git garde %q", bad)
+		}
+	}
+	for _, need := range []string{"GIT_CONFIG_GLOBAL=" + empty, "GIT_CONFIG_SYSTEM=" + empty, "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_KEY_0=safe.directory", "GIT_ASKPASS='/tmp/Prénom Nom/askpass.sh'"} {
+		if !strings.Contains(env, need) {
+			t.Errorf("environnement sans %q", need)
+		}
+	}
+	ssh := strings.Join(cloneEnv(CloneURLInfo{Scheme: "ssh", Host: "github.com"}, t.TempDir(), CloneAuth{Backend: "inconnu"}, "", empty), "\n")
+	if !strings.Contains(ssh, "'-o' 'StrictHostKeyChecking=yes'") {
+		t.Errorf("StrictHostKeyChecking=yes absent sans clé au coffre : %s", ssh)
+	}
+}
+
+func TestAskpassValueGuillemeteSiBesoin(t *testing.T) {
+	for in, want := range map[string]string{"/tmp/cl-clone-1/askpass.sh": "/tmp/cl-clone-1/askpass.sh", "/tmp/a b/askpass.sh": "'/tmp/a b/askpass.sh'",
+		`C:\Users\Prénom Nom\x.sh`: "'C:/Users/Prénom Nom/x.sh'"} {
+		if runtime.GOOS == "windows" || !strings.Contains(in, `\`) {
+			if got := askpassValue(in); got != want && !strings.Contains(in, `\`) {
+				t.Errorf("askpassValue(%q) = %q, attendu %q", in, got, want)
+			}
+		}
+	}
+}
+
+// Environnement du faux git : configuration globale vide, followRedirects désactivé.
+func TestCloneLanceGitAvecConfigNeutre(t *testing.T) {
+	rec := fakeGit(t, "exit 0\n")
+	if err := CloneProject(context.Background(), "https://github.com/a/b", t.TempDir(), CloneAuth{Token: "ghp_X"}, nil); err != nil {
+		t.Fatal(err)
+	}
+	b, _ := os.ReadFile(rec)
+	if !strings.Contains(string(b), "http.followRedirects=false") {
+		t.Error("followRedirects non désactivé")
+	}
+	for _, l := range strings.Split(string(b), "\n") {
+		if p, ok := strings.CutPrefix(l, "GIT_CONFIG_GLOBAL="); ok {
+			if _, err := os.Stat(p); err == nil {
+				t.Error("fichier de configuration neutre encore là après le clonage (non supprimé)")
+			}
+			return
+		}
+	}
+	t.Error("GIT_CONFIG_GLOBAL absent")
 }
