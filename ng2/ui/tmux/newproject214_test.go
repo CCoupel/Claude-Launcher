@@ -105,7 +105,7 @@ func TestCoqueCreationCategorieExistante214(t *testing.T) {
 	if m.form.mode != formName || m.form.category != "INFRA" || m.form.newCat {
 		t.Fatalf("après choix : mode=%v category=%q newCat=%v", m.form.mode, m.form.category, m.form.newCat)
 	}
-	m = press214(m, "n", "1", "enter", "b") // nom n1, projet brut
+	m = press214(m, "n", "1", "enter", "v", "b") // nom n1, source « vide », projet brut
 	dir := filepath.Join(base, "INFRA", "n1")
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		t.Fatalf("projet non créé en %s : %v (msg %q, err %q)", dir, err, m.msg, m.form.err)
@@ -140,7 +140,7 @@ func TestCoqueCreationNouvelleCategorie214(t *testing.T) {
 	if got := newPaths214(t, filepath.Dir(base), avant); len(got) != 0 {
 		t.Errorf("catégorie créée avant la validation du projet : %v", got)
 	}
-	m = press214(m, "n", "2", "enter", "b")
+	m = press214(m, "n", "2", "enter", "v", "b")
 	dir := filepath.Join(base, "NEW", "SUB", "n2")
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		t.Fatalf("projet non créé en %s : %v (err %q)", dir, err, m.form.err)
@@ -160,7 +160,7 @@ func TestCoqueCreationALaRacineDeLaBase214(t *testing.T) {
 	if m.form.mode != formName || m.form.category != "" || m.form.newCat {
 		t.Fatalf("mode=%v category=%q", m.form.mode, m.form.category)
 	}
-	m = press214(m, "r", "1", "enter", "b")
+	m = press214(m, "r", "1", "enter", "v", "b")
 	dir := filepath.Join(base, "r1")
 	if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 		t.Fatalf("projet non créé en %s : %v (err %q)", dir, err, m.form.err)
