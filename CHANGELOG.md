@@ -9,6 +9,10 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+### Added
+- Relance du launcher depuis l'interface après une mise à jour du binaire : bandeau « binaire changé → Relancer » avec confirmation ; coque tmux : `ctrl+r` quand l'annonce est affichée (sinon rescan), anciens `mirror` / `layout-watch` du même serveur tmux arrêtés puis relancés, sessions des projets conservées ; en cluster, le pod redémarre (#219)
+- Sauvegarde avant mise à jour : le binaire remplacé est gardé en `<exe>.bak-v<version précédente>` (une seule sauvegarde). Retour arrière manuel documenté dans `ng2/docs/versions.md` (#218)
+
 ### Fixed
 - Écriture de `config.conf` atomique : écriture dans un `.config.conf.tmp-*` du même dossier, `0600`, `fsync`, `rename`, puis `fsync` du dossier (Unix) ; copie `.bak` écrite par le même chemin. Sous Windows, le `rename` est retenté (5 essais, attentes 50/100/200/400 ms) sur verrou (`ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`), puis erreur explicite ; les `.config.conf(.bak).tmp-*` de plus de 10 min sont supprimés (#217)
 

@@ -59,3 +59,19 @@ Chaque fichier reste vérifié contre `SHA256SUMS`.
 - **`init-project.md`** : resynchronisé au démarrage (au commit adopté) puis à chaque adoption
   (`~/init-project.md`, copié dans `.claude/commands/` à l'ouverture d'un projet).
   Hors ligne, l'ancienne version est conservée.
+
+### Retour arrière manuel (Windows et hub)
+
+Il n'existe pas de bouton de retour arrière : le retour à la version précédente se fait à la main.
+Avant chaque mise à jour du NG, le binaire remplacé est gardé à côté de l'exe sous le nom
+`<exe>.bak-v<version précédente>` (une seule sauvegarde). La première sauvegarde n'existe qu'à partir
+de la mise à jour qui suit la v6.6.0 : une installation antérieure n'a rien à restaurer.
+
+1. Quitter le launcher (fenêtre Windows, ou `claude-launcher-ng2` arrêté sur le hub).
+2. Empêcher la réinstallation automatique le temps du retour arrière : `CL_UPDATE_MODE=notify`
+   (l'annonce reste visible, rien n'est téléchargé ni remplacé).
+3. Mettre le binaire courant de côté (renommer `<exe>` en `<exe>.ecarte`, par exemple, pour pouvoir revenir en avant),
+   puis renommer `<exe>.bak-v<précédente>` en `<exe>`.
+4. Relancer le launcher.
+
+Exemple (Windows, après une mise à jour 6.6.0 → 6.7.0, dans le dossier de l'exe) : `ren claude-launcher-ng2.exe claude-launcher-ng2.exe.ecarte` puis `ren claude-launcher-ng2.exe.bak-v6.6.0 claude-launcher-ng2.exe`. Sur le hub, la même opération s'applique à `claude-launcher-ng2` et `claude-launcher-ng2.bak-v<précédente>`.
