@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -53,7 +54,7 @@ func TestSauvegardeUneSeule218(t *testing.T) {
 			if m, _ := filepath.Glob(exe + ".bak-v*"); len(m) != 1 {
 				t.Errorf("sauvegardes = %v, attendu une seule", m)
 			}
-			if st, _ := os.Stat(exe + ".bak-v1.0.0"); st.Mode().Perm() != 0o755 {
+			if st, _ := os.Stat(exe + ".bak-v1.0.0"); runtime.GOOS != "windows" && st.Mode().Perm() != 0o755 { // bits Unix sans sens sous Windows
 				t.Errorf("droits de la sauvegarde %v", st.Mode().Perm())
 			}
 		})
