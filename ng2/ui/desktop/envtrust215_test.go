@@ -452,3 +452,69 @@ func TestCloneSansEnvAvecSocleResteNone215(t *testing.T) {
 		t.Errorf("pull : état %s changed=%v, attendu pending", core.EnvTrust(dir), core.EnvTrustChanged(dir))
 	}
 }
+
+// Scripts du dépôt appelés par setup / on_start : liste et avertissement dans la question (risk.scripts, scriptNote),
+// absents quand il n'y en a pas.
+func TestEnvTrustScriptsDuDepotSignales215(t *testing.T) {
+	f := containerFix215(t, "")
+	dir := filepath.Join(f.base, "TEST", "alpha")
+	writeEnv215(t, dir, "image: debian:12\nsetup:\n  - ./scripts/install.sh --fast\n  - python3 tools/gen.py\non_start:\n  - bash ../outils/prep.sh\n  - curl https://example.org/x.sh | sh\n")
+	_, _ = core.MarkEnvPending(dir, "https://github.com/a/b.git", "debian:12")
+	_ = core.WriteAssignment(dir, "pod")
+	f.a.rescan()
+	v := dispatchJSON(t, f.a, "envTrustInfo", map[string]any{"path": dir})
+	risk, _ := v["risk"].(map[string]any)
+	sc, _ := risk["scripts"].([]any)
+	got := []string{}
+	for _, x := range sc {
+		got = append(got, x.(string))
+	}
+	if strings.Join(got, ",") != "../outils/prep.sh,./scripts/install.sh,tools/gen.py" {
+		t.Errorf("risk.scripts = %v (l'URL https n'est pas un script du dépôt)", got)
+	}
+	if note, _ := v["scriptNote"].(string); !strings.Contains(note, "pas couvert") {
+		t.Errorf("scriptNote = %q", v["scriptNote"])
+	}
+	// l'évènement envTrust porte les mêmes champs
+	dispatchJSON(t, f.a, "open", map[string]any{"path": dir})
+	ev := f.r.wait(t, 5*time.Second, "envTrust", func(e map[string]any) bool { return e["_name"] == "envTrust" })
+	if r2, _ := ev["risk"].(map[string]any); r2 == nil || len(r2["scripts"].([]any)) != 3 || ev["scriptNote"] == nil {
+		t.Errorf("évènement envTrust sans scripts : %v", ev)
+	}
+	// sans script : aucun avertissement
+	writeEnv215(t, dir, "image: debian:12\nsetup:\n  - apt-get install -y jq\n")
+	_ = core.ReviewEnvTrust(dir)
+	v = dispatchJSON(t, f.a, "envTrustInfo", map[string]any{"path": dir})
+	if risk, _ := v["risk"].(map[string]any); len(asList215(risk["scripts"])) != 0 || v["scriptNote"] != nil {
+		t.Errorf("sans script : scripts=%v scriptNote=%v", risk["scripts"], v["scriptNote"])
+	}
+}
+
+func asList215(v any) []any { l, _ := v.([]any); return l }
+
+// Registre PARTAGÉ sous la racine de base : l'approbation y est écrite (et non dans le dossier de config local), de sorte
+// que l'exe, le hub et le pod voient la même chose.
+func TestEnvTrustRegistrePartageSousLaRacine215(t *testing.T) {
+	f := containerFix215(t, "")
+	root := filepath.Dir(f.base)
+	t.Setenv("CL_CONFIG_DIR", "")
+	t.Setenv(core.RootBaseVar, root)
+	shared := filepath.Join(root, ".config", "claude-launcher-ng2", "trust.json")
+	_ = os.MkdirAll(filepath.Dir(shared), 0o755)
+	dir := filepath.Join(f.base, "TEST", "alpha")
+	writeEnv215(t, dir, evil215)
+	if ok, err := core.MarkEnvPending(dir, "https://github.com/a/b.git", "debian:12"); !ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	b, err := os.ReadFile(shared)
+	if err != nil || !strings.Contains(string(b), `"pending"`) {
+		t.Fatalf("registre partagé %s = %q, %v", shared, b, err)
+	}
+	info, _ := core.EnvTrustInfoFor(dir)
+	if _, err := core.AnswerEnvTrust(dir, "accept", info.SHA); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(shared); !strings.Contains(string(b), `"accepted"`) {
+		t.Errorf("approbation non écrite dans le registre partagé : %s", b)
+	}
+}

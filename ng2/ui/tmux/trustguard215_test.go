@@ -275,3 +275,51 @@ func TestRegistreIllisibleCoque215(t *testing.T) {
 		t.Error("LoadEnv rend l'environnement malgré le registre illisible")
 	}
 }
+
+// Scripts du dépôt appelés par setup / on_start : liste + avertissement « non couvert par l'approbation » dans la coque,
+// à toutes les largeurs, sans séquence de terminal ; rien quand il n'y en a pas.
+func TestRenduScriptsDuDepot215(t *testing.T) {
+	m, d := guardModel215(t, "pod")
+	_ = os.WriteFile(core.EnvPath(d), []byte("image: debian:12\nsetup:\n  - ./scripts/install.sh\non_start:\n  - \"python3 tools/\\e[2Jgen.py\"\n  - curl https://example.org/x.sh | sh\n"), 0o644)
+	_ = core.ReviewEnvTrust(d)
+	m = m.openSelected()
+	if m.form.mode != formTrust || m.form.trust == nil {
+		t.Fatalf("mode=%v", m.form.mode)
+	}
+	if len(m.form.trust.Risk.Scripts) != 2 || m.form.trust.ScriptNote == "" {
+		t.Fatalf("question sans scripts : %+v %q", m.form.trust.Risk.Scripts, m.form.trust.ScriptNote)
+	}
+	flat := func(s string) string {
+		return strings.Join(strings.Fields(strings.ReplaceAll(stripStyle215(s), "\n", " ")), " ")
+	}
+	for _, w := range []int{40, 80, 120} {
+		out := m.renderTrust(w)
+		fl := flat(out)
+		for _, want := range []string{"scripts du dépôt appelés", "./scripts/install.sh", "pas couvert par l'approbation", "sera exécutée"} {
+			if !strings.Contains(fl, want) {
+				t.Errorf("largeur %d : %q absent du rendu :\n%s", w, want, out)
+			}
+		}
+		// le script au nom piégé est neutralisé (jamais de séquence de terminal du dépôt)
+		if strings.Contains(out, "\x1b[2J") {
+			t.Errorf("largeur %d : séquence du dépôt dans le rendu", w)
+		}
+		if strings.Contains(fl, "example.org") && strings.Contains(strings.SplitN(fl, "scripts du dépôt appelés", 2)[len(strings.SplitN(fl, "scripts du dépôt appelés", 2))-1], "x.sh") {
+			t.Errorf("largeur %d : une URL listée comme script du dépôt", w)
+		}
+		for _, line := range strings.Split(out, "\n") {
+			if n := len([]rune(stripStyle215(line))); n > w {
+				t.Errorf("largeur %d : ligne de %d caractères (débordement)", w, n)
+				break
+			}
+		}
+	}
+	// sans script : ni liste ni avertissement
+	_ = os.WriteFile(core.EnvPath(d), []byte("image: debian:12\nsetup:\n  - apt-get install -y jq\n"), 0o644)
+	_ = core.ReviewEnvTrust(d)
+	m.form = newForm{}
+	m = m.openSelected()
+	if out := flat(m.renderTrust(100)); strings.Contains(out, "scripts du dépôt appelés") || strings.Contains(out, "pas couvert") {
+		t.Errorf("avertissement affiché sans script : %s", out)
+	}
+}
