@@ -39,9 +39,19 @@ func backups(exe string) []string {
 	return m
 }
 
-// PurgeBackups : supprime les .bak-v* de exe sauf keep (une seule sauvegarde gardée) ; rend celles qui restent
-// (verrouillées : retentées au démarrage).
-func PurgeBackups(exe, keep string) (left []string) {
+// BackupExe : nom de la sauvegarde de exe pour la version donnée (alias de BackupPath).
+func BackupExe(exe, version string) string { return BackupPath(exe, version) }
+
+// PurgeBackups : supprime les .bak-v* de exe sauf celle à garder (une seule sauvegarde gardée), désignée par sa
+// version (« v6.5.0 ») ou par son chemin ; rend celles qui restent (verrouillées : retentées au démarrage).
+func PurgeBackups(exe, keep string) []string {
+	if !strings.HasPrefix(keep, exe+".bak-v") {
+		keep = BackupPath(exe, keep)
+	}
+	return purgeKeepPath(exe, keep)
+}
+
+func purgeKeepPath(exe, keep string) (left []string) {
 	for _, f := range backups(exe) {
 		if f == keep {
 			continue
@@ -62,7 +72,7 @@ func CleanupBackups() {
 	}
 	go func() {
 		for i := 0; i < 20; i++ {
-			if len(PurgeBackups(exe, newestBackup(exe))) == 0 {
+			if len(purgeKeepPath(exe, newestBackup(exe))) == 0 {
 				return
 			}
 			time.Sleep(500 * time.Millisecond)
@@ -142,7 +152,7 @@ func replaceWithCopyBackup(dst, version string, write func(string) error) error 
 		return err
 	}
 	if bak != "" {
-		PurgeBackups(dst, bak)
+		purgeKeepPath(dst, bak)
 	}
 	return nil
 }
@@ -172,7 +182,7 @@ func swapRunningExeBackup(dst, version string, write func(string) error) error {
 		}
 		return err
 	}
-	PurgeBackups(dst, bak)
+	purgeKeepPath(dst, bak)
 	return nil
 }
 
