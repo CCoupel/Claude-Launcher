@@ -282,8 +282,12 @@ func fakeClaudeSession214(t *testing.T) {
 	if _, err := exec.LookPath("tmux"); err != nil {
 		t.Skip("tmux absent")
 	}
+	// cwd = dossier du test : un serveur tmux qui plante ne dépose jamais de core dans le dépôt
+	t.Chdir(t.TempDir())
 	sock := "cl-desk-create214-" + strconv.Itoa(os.Getpid())
 	t.Setenv("CL_DESK_SOCKET", sock)
+	// dernier enregistré, premier exécuté : l'App est arrêtée (clients tmux détachés, ouvertures terminées) AVANT
+	// kill-server — un kill-server pendant un new-session / attach -C en cours faisait planter tmux 3.6 (SIGSEGV)
 	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() })
 	fake := filepath.Join(t.TempDir(), "claude")
 	_ = os.WriteFile(fake, []byte("#!/bin/sh\necho faux claude prêt\nexec sleep 300\n"), 0o755)
@@ -295,6 +299,7 @@ func TestCreateSuccesChemins214(t *testing.T) {
 	fakeClaudeSession214(t)
 	var r recorder
 	a := newApp(t, r.emit)
+	t.Cleanup(a.Stop)
 	for _, c := range []struct {
 		name string
 		args map[string]any
