@@ -65,3 +65,6 @@
 | tests/integration/core/relancer-launcher-219/ | integration | core | Processus anciens, binaire change, version installee, relance Dispatch — ng2/core/relaunch219_test.go, ng2/ui/desktop/relaunch219_test.go (#219) | feature | |
 | tests/procedures/ui-desktop/sauvegarde-exe-218/ | procedure | ui-desktop | Sauvegarde de l'exe avant mise a jour, retour arriere manuel, sauvegarde verrouillee (#218) | feature | |
 | tests/integration/platform/sauvegarde-exe-218/ | integration | platform | Sauvegarde .bak-v<version>, une seule gardee, echec restaure l'original — ng2/platform/selfreplace218_test.go, ng2/core/backup218_test.go, tag backup218 (#218) | feature | |
+| tests/procedures/ui-desktop/nouveau-projet-base-categorie-214/ | procedure | ui-desktop | Nouveau projet : base et categorie en listes, base 9P, coque tmux (#214) | feature | |
+| tests/integration/core/chemins-projet-214/ | integration | core | ResolveProjectPath (traversee, lien sortant, base inconnue), categories, fusion — ng2/core/newproject214_test.go (#214) | feature | critical |
+| tests/integration/ui-desktop/creation-contrainte-214/ | integration | ui-desktop | Dispatch/--web : projectBases, projectCategories, categoryCreate, create force refuse — ng2/ui/desktop/create214_test.go (#214) | feature | critical |

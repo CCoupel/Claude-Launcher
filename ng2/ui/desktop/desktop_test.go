@@ -212,11 +212,14 @@ func TestDispatch(t *testing.T) {
 	if err != nil || !strings.Contains(fmt.Sprint(res), "rien ne tourne") {
 		t.Errorf("close : %v %v", res, err)
 	}
-	if _, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(filepath.Dir(a.projectPaths()[0]))+`,"name":"../x"}`)); err == nil {
-		t.Error("nom invalide accepté")
+	// #214 (contrat CHANGED) : create = base (racine configurée) + catégorie + nom ; un refus est { ok:false, field, msg }
+	cat := filepath.Dir(a.projectPaths()[0]) // <racine>/TEST
+	root, category := filepath.Dir(cat), filepath.Base(cat)
+	if res, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(root)+`,"category":`+strconv.Quote(category)+`,"name":"../x"}`)); err != nil || !strings.Contains(fmt.Sprint(res), "ok:false") {
+		t.Errorf("nom invalide accepté : %v %v", res, err)
 	}
-	if _, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(filepath.Dir(a.projectPaths()[0]))+`,"name":"alpha"}`)); err == nil || !strings.Contains(err.Error(), "existe déjà") {
-		t.Errorf("dossier existant accepté : %v", err)
+	if res, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(root)+`,"category":`+strconv.Quote(category)+`,"name":"alpha"}`)); err != nil || !strings.Contains(fmt.Sprint(res), "existe déjà") {
+		t.Errorf("dossier existant accepté : %v %v", res, err)
 	}
 }
 
