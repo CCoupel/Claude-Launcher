@@ -483,8 +483,9 @@ function renderCards() {
     h.append(el('span', 'fold' + (closed ? '' : ' open'), '›'), el('span', '', title));
     if (Array.isArray(sub)) { // parties { t, warn } : ⚠ orange après la partie, détail en infobulle (#199)
       const sw = el('span', 'subs'); // tronqué (…) avant l'œil, qui reste à droite (#209)
-      sub.forEach((p) => { sw.append(el('span', 'dim', ' · ' + p.t)); if (p.warn) { const w = el('span', 't-orange', ' ⚠'); w.title = p.warn; sw.append(w); } });
-      h.append(sw);
+      const ws = []; // ⚠ « template plus récent » (#199) : hors de la zone tronquée, toujours visible, juste avant l'œil
+      sub.forEach((p) => { sw.append(el('span', 'dim', ' · ' + p.t)); if (p.warn) { const w = el('span', 't-orange warn', '⚠'); w.title = p.warn; ws.push(w); } });
+      h.append(sw, ...ws);
     } else if (sub) h.append(el('span', 'dim', ' · ' + sub));
     if (eye) h.append(eye);
     h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
