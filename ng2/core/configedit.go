@@ -694,7 +694,7 @@ func createExclusiveAtomic(path string, data []byte, perm os.FileMode) (bool, er
 // configTmpMaxAge : âge au-delà duquel un « .config.conf.tmp-* » est un reste d'écriture interrompue. #217
 var configTmpMaxAge = tun.Of(10 * time.Minute)
 
-var configTmpRe = regexp.MustCompile(`^\.config\.conf\.tmp-[A-Za-z0-9]+$`)
+var configTmpRe = regexp.MustCompile(`^\.config\.conf(\.bak)?\.tmp-[A-Za-z0-9]+$`)
 
 // sweepConfigTmp : supprime les « .config.conf.tmp-<n> » de plus de configTmpMaxAge du dossier de config ;
 // rend le nombre supprimé. Erreurs ignorées.

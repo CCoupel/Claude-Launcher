@@ -315,3 +315,19 @@ func TestCreateExclusiveAtomicJamaisEcraseNiTemporaire217(t *testing.T) {
 		t.Errorf("temporaires laissés : %v", l)
 	}
 }
+
+// Le temporaire du .bak (WriteFileAtomic(path+".bak")) est balayé comme celui de config.conf ; un état #205 intact.
+func TestBalayageTmpDuBak217(t *testing.T) {
+	d := dir217(t)
+	bakTmp := touch217(t, d, ".config.conf.bak.tmp-4242", time.Hour)
+	autre := touch217(t, d, ".config.conf.baks.tmp-1", time.Hour)
+	if n := sweepConfigTmp(); n != 1 {
+		t.Errorf("sweepConfigTmp = %d, attendu 1", n)
+	}
+	if _, err := os.Stat(bakTmp); err == nil {
+		t.Error("temporaire du .bak conservé")
+	}
+	if _, err := os.Stat(autre); err != nil {
+		t.Error("motif voisin supprimé")
+	}
+}
