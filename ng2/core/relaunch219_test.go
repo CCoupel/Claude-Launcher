@@ -1,9 +1,9 @@
-//go:build relaunch219 && linux
+//go:build linux
 
 package core
 
 // #219 : état du launcher et processus anciens (contracts/desktop-dispatch.md « launcherInfo », « relaunch »).
-// Tag provisoire `relaunch219` (API posée à l'écriture, dev-backend en parallèle) ; à retirer. Noms ATTENDUS :
+// API :
 //
 //	type StaleProc struct{ Role string; PID int }                          // Role : "mirror" | "layout-watch"
 //	func FindStaleProcs(procRoot, curExe, innerSocket string) []StaleProc  // procRoot = "/proc" ; même socket (CL_INNER_SOCKET de l'environnement) ET /proc/<pid>/exe != curExe (« (deleted) » compris)
@@ -100,9 +100,8 @@ func gone219(pid int) bool {
 }
 
 func TestFindStaleProcsMemeServeurSeulementEtRolesExacts219(t *testing.T) {
-	d := t.TempDir()
-	v1 := buildFake219(t, d, "ng-v1", "v1.0.0")
-	v2 := buildFake219(t, d, "ng-v2", "v2.0.0")
+	v1 := buildFake219(t, t.TempDir(), "claude-launcher-ng2", "v1.0.0")
+	v2 := buildFake219(t, t.TempDir(), "claude-launcher-ng2", "v2.0.0")
 	a := spawn219(t, v1, "sockA219", nil, "mirror", "@1", "alpha")
 	b := spawn219(t, v1, "sockA219", nil, "layout-watch", "@1", "%1", "/p")
 	autreSrv := spawn219(t, v1, "sockB219", nil, "mirror", "@9", "zeta") // autre serveur tmux : jamais touché
@@ -144,8 +143,7 @@ func TestFindStaleProcsBinaireRemplaceSurPlace219(t *testing.T) {
 }
 
 func TestStopProcsTermPuisKillApresDelai219(t *testing.T) {
-	d := t.TempDir()
-	v1 := buildFake219(t, d, "ng-v1", "v1.0.0")
+	v1 := buildFake219(t, t.TempDir(), "claude-launcher-ng2", "v1.0.0")
 	poli := spawn219(t, v1, "sockS219", nil, "mirror", "@1", "a")
 	tetu := spawn219(t, v1, "sockS219", []string{"FAKE_IGNORE_TERM=1"}, "layout-watch", "@1", "%1", "/p")
 	temoin := spawn219(t, v1, "sockT219", nil, "mirror", "@5", "z") // pas dans la liste : doit survivre
@@ -221,7 +219,7 @@ func TestBinChangedDetecteRemplacementDateEtDisparition219(t *testing.T) {
 
 func TestInstalledVersionLitLaSortieEtBorneLeDelai219(t *testing.T) {
 	d := t.TempDir()
-	v2 := buildFake219(t, d, "ng-v2", "v6.6.0")
+	v2 := buildFake219(t, t.TempDir(), "claude-launcher-ng2", "v6.6.0")
 	if got := InstalledVersion(v2, 3*time.Second); got != "v6.6.0" {
 		t.Errorf("version = %q, attendu v6.6.0", got)
 	}

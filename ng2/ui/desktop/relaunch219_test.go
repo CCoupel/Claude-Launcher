@@ -1,8 +1,6 @@
-//go:build relaunch219
-
 package desktop
 
-// #219 : Dispatch « launcherInfo » et « relaunch » (fenêtre native et --web). Tag provisoire `relaunch219`, à retirer.
+// #219 : Dispatch « launcherInfo » et « relaunch » (fenêtre native et --web).
 // Réutilise le crochet existant restartApp (jamais de vraie relance dans un test).
 
 import (

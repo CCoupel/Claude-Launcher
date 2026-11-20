@@ -1,9 +1,9 @@
-//go:build relaunch219 && linux
+//go:build linux
 
 package tmux
 
 // #219 (critical) : relance de la coque sans perte de session. tmux isolé (isoInner), « binaires » v1/v2 = vrais
-// exécutables Go compilés par le test. Tag provisoire `relaunch219`, à retirer. Nom ATTENDU :
+// exécutables Go compilés par le test.  Nom ATTENDU :
 //
 //	func relaunchShellWith(exe string) error   // relaunchShell() = relaunchShellWith(platform.SelfExe())
 //
@@ -94,9 +94,8 @@ func TestRelaunchShellSansPerteDeSession219(t *testing.T) {
 	marker := isoInner(t)
 	_, win, _, proj, leader, mates := visProject(t, marker)
 	sock := core.InnerSocket()
-	d := t.TempDir()
-	v1 := buildFake219(t, d, "ng-v1", "v1.0.0")
-	v2 := buildFake219(t, d, "ng-v2", "v2.0.0")
+	v1 := buildFake219(t, t.TempDir(), "claude-launcher-ng2", "v1.0.0")
+	v2 := buildFake219(t, t.TempDir(), "claude-launcher-ng2", "v2.0.0")
 	env := "CL_HUB=" + core.Shq(hubSession) + " CL_INNER_SOCKET=" + core.Shq(sock) + " "
 
 	// fenêtre des vignettes : une vignette v1 « mirror » (@mirror_win = fenêtre du projet)
