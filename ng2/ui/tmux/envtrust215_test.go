@@ -143,8 +143,9 @@ func TestCaracteresBidiAbsentsDuRendu215(t *testing.T) {
 func TestEcranSignaleLesScriptsDuDepot215(t *testing.T) {
 	m, _ := trustModel(t, "image: debian:12\nsetup:\n  - ./scripts/install.sh\n")
 	out := m.renderTrust(80)
-	for _, want := range []string{"scripts du dépôt appelés", "./scripts/install.sh", "n'est pas couvert par l'approbation", "version courante sera exécutée"} {
-		if !strings.Contains(out, want) {
+	flat := strings.Join(strings.Fields(out), " ") // la prose est retournée à la ligne entre les mots
+	for _, want := range []string{"scripts du dépôt appelés", "./scripts/install.sh", "n'est pas couvert par l'approbation", "sa version courante sera exécutée"} {
+		if !strings.Contains(flat, want) {
 			t.Errorf("écran sans %q :\n%s", want, out)
 		}
 	}

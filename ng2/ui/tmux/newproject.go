@@ -872,7 +872,7 @@ func (m model) renderTrust(w int) string {
 		sb.WriteString(" " + core.Red.Render("l'environnement du dépôt a changé depuis l'approbation") + "\n")
 	}
 	if t.Broken != "" {
-		for _, l := range wrapText(t.Broken, w-2) {
+		for _, l := range wrapWords(t.Broken, w-2) {
 			sb.WriteString(" " + core.Red.Render(l) + "\n")
 		}
 	}
@@ -924,7 +924,7 @@ func (m model) renderTrust(w int) string {
 		list("montages :", mts)
 		r := t.Risk
 		sb.WriteString("\n")
-		for _, l := range wrapText(fmt.Sprintf("risque : %d commande(s) exécutée(s), %d montage(s) hors du projet, %d paquet(s), %d watch, %d local",
+		for _, l := range wrapWords(fmt.Sprintf("risque : %d commande(s) exécutée(s), %d montage(s) hors du projet, %d paquet(s), %d watch, %d local",
 			r.Exec, r.HostMounts, r.Packages, r.Watch, r.Local), w-2) {
 			sb.WriteString(" " + core.Red.Render(l) + "\n")
 		}
@@ -933,7 +933,7 @@ func (m model) renderTrust(w int) string {
 			for _, sc := range r.Scripts {
 				put("   ", sc)
 			}
-			for _, l := range wrapText(t.ScriptNote, w-2) {
+			for _, l := range wrapWords(t.ScriptNote, w-2) {
 				sb.WriteString(" " + core.Red.Render(l) + "\n")
 			}
 		}
