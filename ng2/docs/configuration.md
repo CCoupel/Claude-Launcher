@@ -167,6 +167,27 @@ interpréteurs) :
 Les étapes `setup` et `on_start` tournent en utilisateur, dans le projet, avec
 `bash -e` : une erreur arrête l'ouverture (et `setup` sera retenté à la suivante).
 
+### Approbation d'un dépôt cloné (v6.6.0, #215)
+
+Un dépôt cloné n'est pas de confiance. S'il apporte `.claude-launcher/env.yaml` ou `env-template.yaml`
+(image, paquets, `setup`, `on_start`, `watch`, `mounts`, `local`), ce fichier n'est **jamais appliqué sans accord** :
+à la première ouverture du projet en conteneur, le launcher demande **Accepter**, **Ouvrir sans** (le projet
+s'ouvre avec la seule image choisie, rien d'autre du dépôt) ou **Annuler**.
+
+- **Quand c'est redemandé** : dès que `env.yaml` ou `env-template.yaml` change (par exemple après un `git pull`),
+  même si l'approbation précédente était « Accepter ». La question présente l'environnement courant ; elle n'affiche
+  pas de différence.
+- **Revoir** : dans les réglages du projet, « Revoir » remet l'approbation en attente ; la question revient à la
+  prochaine ouverture.
+- **Limite** : les scripts appelés par `setup` / `on_start` ne sont pas couverts par l'approbation. Accepter un
+  environnement, c'est accepter que ces scripts s'exécutent dans le conteneur.
+- **Registre `trust.json`** : il est partagé sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/` (exe Windows, hub et pod
+  s'accordent), jamais dans le projet. Une copie `trust.json.bak` est faite avant chaque écriture.
+- **Registre illisible** : le launcher refuse les projets concernés et ne réécrit rien. Message affiché :
+  « registre d'approbation illisible (<chemin>) : restaurez trust.json.bak ou supprimez trust.json pour repartir de zéro ».
+  Pour récupérer, restaurez `trust.json.bak`. Ou supprimez `trust.json` : **supprimer `trust.json` lève toutes les
+  approbations** ; les projets clonés devront être approuvés à nouveau.
+
 ### Configurer l'exécution d'un projet
 
 Le formulaire **Exécution** propose `0 hôte` puis les socles (`↑↓` ou un
