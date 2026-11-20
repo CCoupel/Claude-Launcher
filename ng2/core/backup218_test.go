@@ -1,9 +1,7 @@
-//go:build backup218
-
 package core
 
 // #218 : InstallBinary sauvegarde le binaire courant en <exe>.bak-v<version courante> (contrat « Sauvegarde avant mise à
-// jour »). Tag provisoire `backup218`, à retirer. Réutilise platform.BackupExe / PurgeBackups.
+// jour »). Réutilise platform.BackupPath / PurgeBackups.
 
 import (
 	"os"
@@ -33,7 +31,7 @@ func TestInstallBinaryGardeLAncienBinaireEnBak218(t *testing.T) {
 	if b, _ := os.ReadFile(dst); string(b) != "NOUVEAU" {
 		t.Errorf("binaire = %q", b)
 	}
-	bak := platform.BackupExe(dst, "v6.5.0")
+	bak := platform.BackupPath(dst, "v6.5.0")
 	if b, err := os.ReadFile(bak); err != nil || string(b) != "ANCIEN" {
 		t.Errorf("sauvegarde %s = %q, %v", filepath.Base(bak), b, err)
 	}
@@ -46,7 +44,7 @@ func TestInstallBinaryGardeLAncienBinaireEnBak218(t *testing.T) {
 		t.Fatal(err)
 	}
 	m, _ := filepath.Glob(dst + ".bak-v*")
-	if len(m) != 1 || m[0] != platform.BackupExe(dst, "v6.6.0") {
+	if len(m) != 1 || m[0] != platform.BackupPath(dst, "v6.6.0") {
 		t.Fatalf("sauvegardes = %v, attendu seulement .bak-v6.6.0", m)
 	}
 	if b, _ := os.ReadFile(m[0]); string(b) != "NOUVEAU" {
