@@ -1293,6 +1293,8 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	}
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
+		Category, Source, URL                                            string
+		NewCategory                                                      bool
 		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
 		Raw, OpenNext, Binary, Confirm                                   bool
@@ -1386,7 +1388,15 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "newInfo":
 		return a.newInfo(arg.Path), nil
 	case "create":
-		return a.create(arg.Base, arg.Name, arg.Raw, arg.Remote, arg.Image, arg.Backend)
+		return a.create(createArgs{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name,
+			Source: arg.Source, Raw: arg.Raw, Remote: arg.Remote, URL: arg.URL, Image: arg.Image, Backend: arg.Backend})
+	case "projectBases":
+		b, d := a.projectBases()
+		return map[string]any{"bases": b, "default": d}, nil
+	case "projectCategories":
+		return a.projectCategories(arg.Base)
+	case "categoryCreate":
+		return a.categoryCreate(arg.Base, arg.Category)
 	case "execApply":
 		return a.execApply(arg.Path, arg.Image, arg.Backend, arg.OpenNext)
 	case "termInput":

@@ -161,3 +161,15 @@ func TestClientBandeauLauncher219(t *testing.T) {
 		t.Fatalf("simulation : %v\n%s", err, out)
 	}
 }
+
+func TestClientNouveauProjet214(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node absent : simulation ignorée")
+	}
+	wd, _ := os.Getwd()
+	out, err := exec.Command(node, filepath.Join(wd, "testdata", "new_project.js"), filepath.Join(wd, "frontend", "app.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("simulation : %v\n%s", err, out)
+	}
+}

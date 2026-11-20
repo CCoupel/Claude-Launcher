@@ -1620,25 +1620,89 @@ function toolsBox(t, force) {
   });
 }
 
-// création d'un projet : nom, type, remote, puis exécution (hôte ou conteneur)
-async function newProject(base) {
+// ── Nouveau projet (#214) : base, catégorie, nom, chemin final ───────────────
+// Fonctions pures (testées par node, testdata/new_project.js).
+// Pré-sélection depuis un dossier de l'arbre : la base la plus longue qui le contient, le reste = catégorie.
+function splitPreselect(bases, path) {
+  const norm = (x) => String(x || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const p = norm(path); let best = null;
+  for (const b of bases || []) {
+    const bp = norm(b);
+    if ((p === bp || p.startsWith(bp + '/')) && (!best || bp.length > norm(best).length)) best = b;
+  }
+  if (!best) return { base: '', category: '' };
+  return { base: best, category: p.slice(norm(best).length).replace(/^\//, '') };
+}
+const joinNewPath = (base, category, name) => {
+  const sep = String(base).includes('\\') && !String(base).includes('/') ? '\\' : '/';
+  return [String(base).replace(/[\\/]+$/, ''), category, name].filter((x) => x).join(sep);
+};
+// Chargeur de catégories « le dernier appel gagne » : un retard de réponse d'une ancienne base est ignoré.
+function makeCatLoader(fetchCats, apply) {
+  let seq = 0;
+  return async (base) => {
+    const my = ++seq;
+    let r = null;
+    try { r = await fetchCats(base); } catch (e) { r = null; }
+    if (my !== seq) return false;
+    apply(base, (r && r.categories) || []);
+    return true;
+  };
+}
+const NEWCAT = '\u0000new';
+
+// création d'un projet : base, catégorie, nom, source (vide ; Git et Template : LOT-2.2), exécution
+// `pre` : dossier de l'arbre (base ou catégorie) à pré-sélectionner, '' sinon.
+async function newProject(pre) {
   const info = await call('newInfo', {});
+  const bases = (info.bases || (info.roots || []).map((r) => ({ path: r }))).filter((x) => x && !x.missing).map((x) => x.path);
+  const sp = splitPreselect(bases, pre);
   openModal((b) => {
     b.append(el('h2', '', 'Nouveau projet'));
     const f = el('div', 'form');
-    let root = null;
-    if (!base) {
-      root = el('select');
-      for (const r of info.roots || []) { const o = el('option', '', r); o.value = r; root.appendChild(o); }
-      f.append(el('label', '', 'Racine'), root);
-    } else {
-      f.append(el('label', '', 'Dans'), el('span', 'dim', base));
+    // 1 · source : cartes (seule « Vide » active dans ce lot ; Git / Template au LOT-2.2)
+    b.append(el('div', 'cap', '1 · Créer à partir de'));
+    const cards = el('div', 'srccards');
+    for (const [t, d, on] of [['▢ Projet vide', 'Dossier, git init et remote facultatif (ou brut : CLAUDE.md minimal).', true], ['⎇ Dépôt Git', 'Clonage d\'une URL — bientôt.', false], ['◆ Template projet', 'Template du projet — bientôt.', false]]) {
+      const c = el('div', 'card' + (on ? ' on' : ' off')); c.append(el('h4', '', t), el('p', '', d)); cards.appendChild(c);
     }
+    b.appendChild(cards);
+    b.append(el('div', 'cap', '2 · Emplacement'));
+    const field = (label, ctl) => { f.append(el('label', '', label), ctl); const w = el('div', 'fe err'); f.append(el('span', ''), w); return w; };
+    const base = el('select');
+    for (const x of bases) { const o = el('option', '', x); o.value = x; base.appendChild(o); }
+    base.value = sp.base || info.default || bases[0] || '';
+    const baseErr = field('Base', base);
+    const cat = el('select');
+    const catNew = el('input'); catNew.placeholder = 'nouvelle catégorie (a/b : imbriquée)'; catNew.classList.add('hidden');
+    const catWrap = el('div', 'catwrap'); catWrap.append(cat, catNew);
+    const catErr = field('Catégorie', catWrap);
     const name = el('input'); name.placeholder = 'nom du dossier';
+    const nameErr = field('Nom', name);
+    const final = el('div', 'ro');
+    f.append(el('label', '', 'Chemin'), final);
+    const curCat = () => (cat.value === NEWCAT ? catNew.value.trim() : cat.value);
+    const upd = () => { final.textContent = base.value ? joinNewPath(base.value, curCat(), name.value.trim() || '<nom>') : '—'; };
+    let want = sp.category; // catégorie à sélectionner au prochain rechargement (pré-sélection)
+    const loadCats = makeCatLoader((bs) => transport.call('projectCategories', { base: bs }), (bs, cats) => {
+      if (bs !== base.value) return;
+      cat.textContent = '';
+      const o0 = el('option', '', '(directement sous la base)'); o0.value = ''; cat.appendChild(o0);
+      const known = cats.map((c) => c.path);
+      for (const c of cats) { const o = el('option', '', c.path + ' (' + c.projects + ')'); o.value = c.path; cat.appendChild(o); }
+      const o1 = el('option', '', '＋ nouvelle catégorie…'); o1.value = NEWCAT; cat.appendChild(o1);
+      cat.value = want && known.includes(want) ? want : ''; want = '';
+      catNew.classList.toggle('hidden', cat.value !== NEWCAT); upd();
+    });
+    if (base.value) loadCats(base.value);
+    base.onchange = () => { want = ''; baseErr.textContent = ''; catErr.textContent = ''; cat.textContent = ''; loadCats(base.value); upd(); };
+    cat.onchange = () => { catErr.textContent = ''; catNew.classList.toggle('hidden', cat.value !== NEWCAT); if (cat.value === NEWCAT) catNew.focus(); upd(); };
+    catNew.oninput = upd; name.oninput = () => { nameErr.textContent = ''; upd(); };
+    upd();
     const kind = el('select');
     for (const [v, t] of [['g', 'géré : git init, /init-project au démarrage'], ['b', 'brut : dossier et CLAUDE.md minimal']]) { const o = el('option', '', t); o.value = v; kind.appendChild(o); }
     const remote = el('input'); remote.placeholder = 'git@github.com:moi/projet.git (facultatif)';
-    f.append(el('label', '', 'Nom'), name, el('label', '', 'Type'), kind, el('label', '', 'Remote git'), remote);
+    f.append(el('label', '', 'Type'), kind, el('label', '', 'Remote git'), remote);
     const ex = execFields(info, f);
     kind.onchange = () => { remote.disabled = kind.value === 'b'; };
     b.appendChild(f);
@@ -1646,16 +1710,22 @@ async function newProject(base) {
     const btns = el('div', 'btns');
     const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
     const ok = el('button', 'btn pri', 'Créer et ouvrir');
+    const showFail = (r) => {
+      const m = (r && r.msg) || 'création refusée';
+      const t = { base: baseErr, category: catErr, name: nameErr }[r && r.field];
+      if (t) t.textContent = m; else err.textContent = m;
+    };
     ok.onclick = async () => {
-      err.textContent = '';
+      err.textContent = ''; baseErr.textContent = catErr.textContent = nameErr.textContent = '';
       try {
-        const r = await transport.call('create', Object.assign({ base: base || (root && root.value) || '', name: name.value, raw: kind.value === 'b', remote: remote.value }, ex()));
+        const r = await transport.call('create', Object.assign({ base: base.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value, source: 'empty', raw: kind.value === 'b', remote: remote.value }, ex()));
+        if (r && r.ok === false) { showFail(r); return; }
         closeModal();
         if (r && r.tab) showView(r.tab, true);
-      } catch (e) { err.textContent = e.message; }
+      } catch (e) { showFail({ msg: e.message }); }
     };
     btns.append(cancel, ok); b.appendChild(btns);
-    b.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ok.click(); } };
+    b.onkeydown = (e) => { if (e.key === 'Enter' && e.target.tagName !== 'SELECT') { e.preventDefault(); ok.click(); } };
   });
   setTimeout(() => { const i = $('modalbox').querySelector('input'); if (i) i.focus(); }, 0);
 }

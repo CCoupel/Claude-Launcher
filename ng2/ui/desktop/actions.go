@@ -432,6 +432,8 @@ func (t *projTerm) lastLayout() *LayoutMsg {
 // le choix de l'exécution d'un projet existant (path) prérempli avec son état.
 func (a *App) newInfo(path string) map[string]any {
 	out := map[string]any{"roots": a.conf().Roots}
+	bases, def := a.projectBases()
+	out["bases"], out["default"] = bases, def
 	b, ok := core.DefaultCtrBackend()
 	if !ok {
 		return out
@@ -510,46 +512,6 @@ func (a *App) execApply(path, image, backend string, openNext bool) (any, error)
 		return a.open(path, core.LaunchNormal)
 	}
 	return nil, nil
-}
-
-// create : nouveau projet dans base (catégorie, racine), puis ouvert.
-func (a *App) create(base, name string, raw bool, remote, image, backend string) (any, error) {
-	if base == "" {
-		if len(a.conf().Roots) != 1 {
-			return nil, fmt.Errorf("racine à choisir")
-		}
-		base = filepath.Clean(a.conf().Roots[0])
-	}
-	if why := core.ValidProjectName(name); why != "" {
-		return nil, fmt.Errorf("%s", why)
-	}
-	dir := filepath.Join(base, strings.TrimSpace(name))
-	if _, err := os.Stat(dir); err == nil {
-		return nil, fmt.Errorf("ce dossier existe déjà")
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	if err := core.ApplyExec(dir, image, backend); err != nil {
-		return nil, fmt.Errorf("env.yaml : %v", err)
-	}
-	mode := core.LaunchNewManaged
-	if raw {
-		mode = core.LaunchNewRaw
-	}
-	if err := core.InitProject(dir, raw, remote); err != nil {
-		return nil, err
-	}
-	a.rescan()
-	a.mu.Lock()
-	a.sel = dir
-	a.mu.Unlock()
-	go a.gitOne(dir, latestTemplate())
-	r, err := a.open(dir, mode) // comme le bash : le projet créé est lancé aussitôt
-	if err == nil {
-		a.setMsg("✓ projet créé")
-	}
-	return r, err
 }
 
 // ── Connexion claude.ai, diagnostic, outils, sortie ───────────────────────
