@@ -2,12 +2,14 @@ package platform
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"syscall"
 	"time"
 )
 
-// ReplaceRetries / ReplaceFirstDelay : rename retenté sur Windows quand le fichier cible est tenu par un autre
-// programme (antivirus, éditeur, indexeur) : 5 essais, délai doublé de 50 ms à 800 ms. #217
+// ReplaceRetries / ReplaceFirstDelay : rename retenté quand la cible est tenue par un autre programme
+// (antivirus, éditeur, indexeur) : 5 essais, délai doublé de 50 ms à 800 ms. #217
 const (
 	ReplaceRetries    = 5
 	ReplaceFirstDelay = 50 * time.Millisecond
@@ -16,13 +18,20 @@ const (
 // ErrReplaceBusy : la cible reste verrouillée après tous les essais.
 var ErrReplaceBusy = errors.New("fichier verrouillé par un autre programme")
 
-// ReplaceWithRetry : logique pure du remplacement (injectable en test) — rename(), retenté tant que busy(err) et
-// qu'il reste des essais ; sleep(d) attend entre deux essais. Dernière erreur occupée : jointe à ErrReplaceBusy.
-func ReplaceWithRetry(rename func() error, busy func(error) bool, sleep func(time.Duration)) error {
+// IsReplaceRetryable : ERROR_ACCESS_DENIED (5) ou ERROR_SHARING_VIOLATION (32), même enveloppés (*os.LinkError).
+// Logique pure, sans tag d'OS : testable partout.
+func IsReplaceRetryable(err error) bool {
+	var en syscall.Errno
+	return errors.As(err, &en) && (en == 5 || en == 32)
+}
+
+// ReplaceWithRetry : rename(src, dst), retenté tant que IsReplaceRetryable ; sleep(d) attend entre deux essais.
+// Échec final : ErrReplaceBusy jointe à la dernière cause.
+func ReplaceWithRetry(src, dst string, rename func(a, b string) error, sleep func(time.Duration)) error {
 	delay := ReplaceFirstDelay
 	var err error
 	for i := 0; i < ReplaceRetries; i++ {
-		if err = rename(); err == nil || !busy(err) {
+		if err = rename(src, dst); err == nil || !IsReplaceRetryable(err) {
 			return err
 		}
 		if i < ReplaceRetries-1 {
@@ -30,11 +39,14 @@ func ReplaceWithRetry(rename func() error, busy func(error) bool, sleep func(tim
 			delay *= 2
 		}
 	}
-	return errors.Join(ErrReplaceBusy, err)
+	return fmt.Errorf("%w : %w", ErrReplaceBusy, err)
 }
 
-// ReplaceFile : renomme src sur dst (écrase dst, atomique) ; Windows : retry borné sur ACCESS_DENIED /
-// SHARING_VIOLATION. dst reste intact en cas d'échec.
+// ReplaceFile : renomme src sur dst (écrase dst, atomique). Retry borné seulement sous Windows (errno 5/32 ont un
+// autre sens ailleurs) ; dst reste intact en cas d'échec.
 func ReplaceFile(src, dst string) error {
-	return ReplaceWithRetry(func() error { return os.Rename(src, dst) }, replaceBusy, time.Sleep)
+	if !replaceRetries {
+		return os.Rename(src, dst)
+	}
+	return ReplaceWithRetry(src, dst, os.Rename, time.Sleep)
 }

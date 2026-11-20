@@ -1,4 +1,3 @@
-//go:build atomic217
 
 package platform
 

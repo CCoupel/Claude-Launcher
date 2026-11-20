@@ -4,7 +4,7 @@ package platform
 
 import "os"
 
-func replaceBusy(error) bool { return false }
+const replaceRetries = false
 
 // SyncDir : fsync du dossier (rend le rename durable).
 func SyncDir(dir string) error {
