@@ -492,3 +492,12 @@ body.cardsfolded #hsplit { display: none; }
 .srccards .card { cursor: pointer; }
 .newprog .pbar { height: 8px; border-radius: 4px; background: var(--line2); overflow: hidden; margin: 8px 0; }
 .newprog .pbar span { display: block; height: 100%; background: var(--accent, var(--orange)); transition: width .3s; }
+.trustcols { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin: 10px 0; min-width: min(820px, 90vw); }
+.trow { display: flex; gap: 10px; padding: 3px 0; border-top: 1px solid var(--line); }
+.trow .tl { color: var(--dim); min-width: 110px; flex: none; }
+.trow .tv { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.trow .tv code { font-family: var(--mono); font-size: 12px; word-break: break-all; }
+.trow .tv.warn code { color: var(--orange); } .trow .tv.err code { color: var(--red); }
+.trustraw { background: var(--input); border: 1px solid var(--line2); border-radius: 5px; padding: 8px; max-height: 320px; overflow: auto; font: 12px var(--mono); white-space: pre-wrap; word-break: break-all; margin: 0 0 6px; }
+.note.warn { color: var(--orange); margin-top: 8px; }
+@media (max-width: 800px) { .trustcols { grid-template-columns: 1fr; } }

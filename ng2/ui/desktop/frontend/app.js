@@ -666,6 +666,7 @@ async function openProject(path, mode) {
   const r = await call('open', { path });
   if (!r) return;
   if (r.execChoice) return execChoice(r.execChoice, true);
+  if (r.needTrust) return envTrustBox(r.path || path); // #215 : environnement d'un dépôt cloné, à approuver
   if (r.tab) showView(r.tab, true);
 }
 
@@ -1692,6 +1693,77 @@ function jobGone(seen, firstMissAt, now, graceMs) {
   if (firstMissAt == null) return false;
   return !!seen || now - firstMissAt >= graceMs;
 }
+// ── Approbation de l'environnement d'un dépôt cloné (#215) ───────────────────
+// Fonctions pures (testdata/env_trust.js). TOUT texte venant du dépôt passe par safeText puis textContent
+// (jamais innerHTML) : aucun HTML interprété ; caractères de contrôle (séquences de terminal) rendus visibles.
+function safeText(v) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g,
+    (c) => (c === '\u001b' ? '\u241b' : '\u00b7'));
+}
+// Lignes du résumé : [{ label, items:[texte], tone:'' | 'warn' | 'err' }] — vide = rien demandé par le dépôt.
+function trustRows(info) {
+  const sp = (info && info.spec) || {}, rows = [];
+  const add = (label, items, tone) => { if (items && items.length) rows.push({ label, items: items.map(safeText), tone: tone || '' }); };
+  if (sp.image) add('Image', [sp.image + (info.chosenImage && info.chosenImage !== sp.image ? ' (au lieu de ' + info.chosenImage + ' choisie)' : '')]);
+  add('Paquets', sp.packages);
+  add('Paquets par gestionnaire', Object.keys(sp.packagesByManager || {}).sort().map((k) => k + ' : ' + [].concat(sp.packagesByManager[k] || []).join(', ')));
+  add('setup', sp.setup, 'warn'); add('on_start', sp.onStart, 'warn'); add('watch', sp.watch);
+  add('Montages', (sp.mounts || []).map((m) => (m.path || '') + (m.ro ? ' (lecture)' : ' (écriture)')), 'err');
+  add('local', sp.local); if (sp.prefer) add('Backend préféré', [sp.prefer]);
+  return rows;
+}
+const trustNote = (info) => {
+  const r = (info && info.risk) || {}, n = [];
+  if (r.exec) n.push(r.exec + ' commande' + (r.exec > 1 ? 's' : '') + ' exécutée' + (r.exec > 1 ? 's' : '') + ' dans le conteneur');
+  if (r.hostMounts) n.push(r.hostMounts + ' montage' + (r.hostMounts > 1 ? 's' : '') + ' hors du projet');
+  return n.join(' · ');
+};
+async function envTrustBox(src) {
+  const load = async (path) => call('envTrustInfo', { path });
+  const info = typeof src === 'string' ? await load(src) : src;
+  if (!info || !info.path) return;
+  const name = String(info.path).split(/[\\/]/).filter(Boolean).pop() || info.path;
+  const draw = (info, note) => openModal((b) => {
+    b.append(el('h2', '', '⚠ Environnement fourni par le dépôt — ' + safeText(name)));
+    b.append(el('div', 'dim', 'Cloné depuis ' + safeText(info.source || 'un dépôt externe') + '. Rien n\'est appliqué sans ton accord.'));
+    if (note) b.append(el('div', 'err', note));
+    const cols = el('div', 'trustcols');
+    const left = el('div'); left.append(el('div', 'cap', 'Ce que le dépôt demande'));
+    const rows = trustRows(info);
+    if (!rows.length) left.append(el('div', 'dim', 'rien de particulier'));
+    for (const r of rows) {
+      const line = el('div', 'trow'); line.append(el('span', 'tl', r.label));
+      const v = el('span', 'tv ' + r.tone); for (const it of r.items) v.append(el('code', '', it));
+      line.append(v); left.append(line);
+    }
+    const tn = trustNote(info); if (tn) left.append(el('div', 'note warn', '⚠ ' + tn + '.'));
+    const right = el('div');
+    for (const [fn, txt] of Object.entries(info.files || {})) {
+      right.append(el('div', 'cap', '.claude-launcher/' + fn));
+      right.append(txt ? el('pre', 'trustraw', safeText(txt)) : el('div', 'dim', 'absent'));
+    }
+    cols.append(left, right); b.appendChild(cols);
+    const msg = el('div', 'err'); b.appendChild(msg);
+    const btns = el('div', 'btns');
+    const answer = async (choice) => {
+      msg.textContent = ''; btns.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+      let r;
+      try { r = await transport.call('envTrustAnswer', { path: info.path, choice, sha: info.sha }); } catch (e) { msg.textContent = e.message; btns.querySelectorAll('button').forEach((x) => { x.disabled = false; }); return; }
+      if (r && r.ok === false) {
+        if (r.retry) { const ni = await load(info.path); if (ni) draw(ni, safeText(r.msg || 'l\'environnement a changé') + ' — relire avant de décider.'); return; }
+        msg.textContent = safeText(r.msg || 'refusé'); btns.querySelectorAll('button').forEach((x) => { x.disabled = false; }); return;
+      }
+      closeModal();
+      if (r && r.tab) showView(r.tab, true);
+    };
+    const no = el('button', 'btn', 'Annuler'); no.onclick = () => answer('cancel');
+    const ign = el('button', 'btn', 'Ouvrir sans'); ign.title = 'Socle choisi à la création, sans paquets, commandes ni montages du dépôt'; ign.onclick = () => answer('ignore');
+    const acc = el('button', 'btn pri', 'Accepter et ouvrir'); acc.onclick = () => answer('accept');
+    btns.append(no, ign, acc); b.appendChild(btns);
+    setTimeout(() => no.focus(), 0); // défaut sûr : Entrée n'accepte pas
+  });
+  draw(info, '');
+}
 // Proposition /init-project (évènement `initProposal`) : un bandeau par projet.
 function initProposalBar(path) {
   if (!path) return;
@@ -2271,6 +2343,7 @@ function onEvent(name, data) {
     case 'cards': takeCards(data); break;
     case 'hello': onServerInfo(data && data.server); break; // version et démarrage du serveur à l'ouverture du flux (#198)
     case 'refresh': onRefresh(data); break;
+    case 'envTrust': if (data && data.path) envTrustBox(data); break; // #215 : approbation de l'environnement du dépôt
     case 'initProposal': initProposalBar(data && data.path); break; // #215 : proposition /init-project (projet Template)
     case 'term': {
       const v = ensureView(data.path);

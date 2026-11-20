@@ -1343,6 +1343,22 @@ function stPageProjet(p) {
   const ex = stForm(rows); ex.appendChild(dl);
   p.appendChild(layBox);
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
+  if (r.envTrust) { // #215 : environnement d'un dépôt cloné — état et « Revoir »
+    const et = r.envTrust, box = el('div');
+    const lbl = { pending: 'à approuver (la question vient à la prochaine ouverture en conteneur)', accepted: 'accepté', ignored: 'ignoré — seul le socle choisi à la création est utilisé' }[et.state] || et.state;
+    box.append(el('div', '', 'Environnement du dépôt : ' + lbl));
+    if (et.source) box.append(el('div', 'dim', 'Cloné depuis ' + et.source + (et.at ? ' · ' + et.at.slice(0, 10) : '')));
+    if (et.state !== 'pending') {
+      const rv = el('button', 'btn sm', 'Revoir'); rv.id = 'pjf-trustreview'; rv.disabled = open;
+      rv.title = open ? 'projet ouvert : le fermer avant' : 'remet la question à la prochaine ouverture';
+      rv.onclick = async () => {
+        try { const rr = await call('projectApply', { path: pj.path, envTrust: 'review' }); if (rr && rr.ok === false) { flash('⚠ ' + (rr.msg || 'refusé')); return; } } catch (e) { return; }
+        await pjLoad(); stRender();
+      };
+      box.append(rv);
+    }
+    p.appendChild(stBox('Environnement du dépôt', box, el('span', 'dim', 'trust.json')));
+  }
   // Environnement
   const env = el('div');
   const f2 = [['Image', stInput(d.env.image, (v) => { d.env.image = v; pjPreview(); }, 'image du projet (surcharge le template)')]];
