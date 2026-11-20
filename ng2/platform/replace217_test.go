@@ -96,8 +96,8 @@ func TestReplaceWithRetryAbandonneEtMessageExplicite217(t *testing.T) {
 			t.Errorf("attentes décroissantes : %v", sleeps)
 		}
 	}
-	if sleeps[len(sleeps)-1] != 800*time.Millisecond {
-		t.Errorf("dernière attente = %v, attendu 800 ms", sleeps[len(sleeps)-1])
+	if n != 5 || len(sleeps) != 4 || sleeps[3] != 400*time.Millisecond {
+		t.Errorf("essais=%d attentes=%v, attendu 5 essais, 50/100/200/400 ms", n, sleeps)
 	}
 	if !strings.Contains(err.Error(), "verrouillé par un autre programme") {
 		t.Errorf("message non explicite : %v", err)
