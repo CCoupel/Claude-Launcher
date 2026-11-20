@@ -279,3 +279,29 @@ pre.term { margin: 0; border: 0; border-radius: 0; background: var(--bg); paddin
 @keyframes archflow { to { stroke-dashoffset: -22; } }
 @media (prefers-reduced-motion: reduce) { .archmap-svg .ro2 { animation: none; } }
 .archmap figcaption { margin-top: .6rem; font-size: .85rem; color: var(--muted); text-align: center; }
+
+/* chips plateformes */
+.chips{display:flex;flex-wrap:wrap;gap:.35rem;margin-top:.7rem}
+.chip{display:inline-flex;gap:.3rem;align-items:center;font-size:.72rem;font-weight:600;line-height:1;padding:.28rem .6rem;border-radius:999px;border:1px solid var(--border);background:var(--bg2);color:var(--text)}
+.chip-linux{border-color:#f59e0b}.chip-windows{border-color:#38bdf8}.chip-web{border-color:#10b981}.chip-k{border-color:#a78bfa}
+/* sous-onglets d'installation */
+.itabs{margin-top:2rem}
+.itab-list{display:flex;flex-wrap:wrap;gap:.4rem;border-bottom:1px solid var(--border);margin-bottom:1.5rem}
+.itab{font:inherit;font-weight:600;font-size:.95rem;color:var(--muted);background:none;border:1px solid transparent;border-bottom:none;border-radius:var(--radius) var(--radius) 0 0;padding:.6rem 1rem;cursor:pointer}
+.itab:hover{color:var(--text)}
+.itab[aria-selected="true"]{color:var(--text);background:var(--bg3);border-color:var(--border);box-shadow:inset 0 -2px 0 var(--accent2)}
+.itab:focus-visible,.itab-panel:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+.js .itab-panel[hidden]{display:none}
+.itab-panel{min-width:0}
+
+/* matrice des fonctionnalités */
+.fmatrix-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:var(--radius);background:var(--bg)}
+.fmatrix-wrap:focus-visible{outline:2px solid var(--accent2);outline-offset:2px}
+.fmatrix{border-collapse:separate;border-spacing:0;width:100%;min-width:520px;font-size:.9rem}
+.fmatrix th,.fmatrix td{padding:.45rem .8rem;border-bottom:1px solid var(--border);text-align:center}
+.fmatrix thead th{position:sticky;top:0;background:var(--bg3);z-index:2;font-weight:700}
+.fmatrix tbody th[scope="row"]{text-align:left;font-weight:500;position:sticky;left:0;background:var(--bg);z-index:1;min-width:14rem}
+.fmatrix thead th:first-child{text-align:left;position:sticky;left:0;z-index:3}
+.fmatrix .grp th{text-align:left;background:var(--bg3);color:var(--accent2);font-size:.8rem;letter-spacing:.04em;text-transform:uppercase;position:static}
+.fmatrix td.yes{color:var(--green);font-weight:700}
+.fmatrix td.no{color:var(--muted)}
