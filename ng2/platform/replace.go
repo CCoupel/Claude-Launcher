@@ -9,9 +9,9 @@ import (
 )
 
 // ReplaceRetries / ReplaceFirstDelay : rename retenté quand la cible est tenue par un autre programme
-// (antivirus, éditeur, indexeur) : 5 reprises, délai doublé de 50 ms à 800 ms. #217
+// (antivirus, éditeur, indexeur) : 5 essais, délai doublé de 50 ms à 800 ms. #217
 const (
-	ReplaceRetries    = 6 // 1 essai + 5 reprises : attentes 50, 100, 200, 400, 800 ms
+	ReplaceRetries    = 5 // 5 essais : attentes 50, 100, 200, 400 ms
 	ReplaceFirstDelay = 50 * time.Millisecond
 )
 
