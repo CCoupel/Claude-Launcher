@@ -10,8 +10,8 @@ function grab(sig) {
 const ctx = {}; vm.createContext(ctx);
 vm.runInContext(grab('function splitPreselect(') + '\n' + grab('function makeCatLoader(') +
   '\nconst joinNewPath = ' + src.slice(src.indexOf('const joinNewPath = ') + 20, src.indexOf('// Chargeur de catégories')) +
-  '\nglobalThis.t = { splitPreselect, makeCatLoader, joinNewPath };', ctx);
-const { splitPreselect, makeCatLoader, joinNewPath } = ctx.t;
+  '\nconst categoryError = ' + src.slice(src.indexOf('const categoryError = ') + 22, src.indexOf('\n', src.indexOf('const categoryError = ')))+ '\nglobalThis.t = { splitPreselect, makeCatLoader, joinNewPath, categoryError };', ctx);
+const { splitPreselect, makeCatLoader, joinNewPath, categoryError } = ctx.t;
 let ko = 0; const eq = (n, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) { ko++; console.log('KO', n, JSON.stringify(a), '!=', JSON.stringify(b)); } };
 const B = ['/srv/projets', '/srv/projets/sub', '/data/P'];
 eq('vide', splitPreselect(B, ''), { base: '', category: '' });
@@ -23,6 +23,9 @@ eq('slash final', splitPreselect(B, '/data/P/INFRA/'), { base: '/data/P', catego
 eq('chemin', joinNewPath('/data/P/', 'INFRA', 'x'), '/data/P/INFRA/x');
 eq('sans catégorie', joinNewPath('/data/P', '', 'x'), '/data/P/x');
 eq('windows', joinNewPath('D:\\P', 'A', 'x'), 'D:\\P\\A\\x');
+eq('nouvelle sans nom', !!categoryError(true, '  '), true);
+eq('nouvelle avec nom', categoryError(true, 'A'), '');
+eq('existante vide', categoryError(false, ''), '');
 (async () => {
   // le dernier appel gagne : la réponse lente de la base A arrive après celle de B et est ignorée
   const applied = []; let resA;

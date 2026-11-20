@@ -1650,6 +1650,8 @@ function makeCatLoader(fetchCats, apply) {
   };
 }
 const NEWCAT = '\u0000new';
+// « nouvelle catégorie » choisie sans nom : refus (sinon le projet serait créé à la racine de la base).
+const categoryError = (isNew, value) => (isNew && !String(value || '').trim() ? 'nom de catégorie requis' : '');
 
 // création d'un projet : base, catégorie, nom, source (vide ; Git et Template : LOT-2.2), exécution
 // `pre` : dossier de l'arbre (base ou catégorie) à pré-sélectionner, '' sinon.
@@ -1717,6 +1719,8 @@ async function newProject(pre) {
     };
     ok.onclick = async () => {
       err.textContent = ''; baseErr.textContent = catErr.textContent = nameErr.textContent = '';
+      const ce = categoryError(cat.value === NEWCAT, catNew.value);
+      if (ce) { catErr.textContent = ce; catNew.focus(); return; }
       try {
         const r = await transport.call('create', Object.assign({ base: base.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value, source: 'empty', raw: kind.value === 'b', remote: remote.value }, ex()));
         if (r && r.ok === false) { showFail(r); return; }
