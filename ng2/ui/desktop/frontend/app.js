@@ -1709,6 +1709,7 @@ function trustRows(info) {
   add('Paquets par gestionnaire', Object.keys(sp.packagesByManager || {}).sort().map((k) => k + ' : ' + [].concat(sp.packagesByManager[k] || []).join(', ')));
   add('setup', sp.setup, 'warn'); add('on_start', sp.onStart, 'warn'); add('watch', sp.watch);
   add('Montages', (sp.mounts || []).map((m) => (m.path || '') + (m.ro ? ' (lecture)' : ' (écriture)')), 'err');
+  add('Scripts du dépôt', (info && info.risk && info.risk.scripts) || [], 'err');
   add('local', sp.local); if (sp.prefer) add('Backend préféré', [sp.prefer]);
   return rows;
 }
@@ -1742,6 +1743,7 @@ async function envTrustBox(src) {
       line.append(v); left.append(line);
     }
     const tn = trustNote(info); if (tn) left.append(el('div', 'note warn', '⚠ ' + tn + '.'));
+    if (info.scriptNote) left.append(el('div', 'err', safeText(info.scriptNote))); // scripts du dépôt : non couverts par l'approbation
     const right = el('div');
     for (const [fn, txt] of Object.entries(info.files || {})) {
       right.append(el('div', 'cap', '.claude-launcher/' + fn));

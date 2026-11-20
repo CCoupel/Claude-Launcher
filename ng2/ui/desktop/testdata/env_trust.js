@@ -28,11 +28,14 @@ eq('pbm', by['Paquets par gestionnaire'].items, ['apt : git']);
 eq('même image', trustRows({ chosenImage: 'a', spec: { image: 'a' } })[0].items, ['a']);
 eq('échappement dans les lignes', trustRows({ spec: { setup: ['x\u001b[2Jy'] } })[0].items, ['x␛[2Jy']);
 eq('note', trustNote(info), '3 commandes exécutées dans le conteneur · 1 montage hors du projet');
+eq('scripts', trustRows({ spec: {}, risk: { scripts: ['scripts/up.sh', 'a\u001bb'] } }), [{ label: 'Scripts du dépôt', items: ['scripts/up.sh', 'a\u241bb'], tone: 'err' }]);
+eq('scripts []', trustRows({ spec: {}, risk: { scripts: [] } }), []);
 eq('note vide', trustNote({}), '');
 eq('note complète', trustNote({ risk: { exec: 1, hostMounts: 0, packages: 2, watch: 1, local: 3 } }), '1 commande exécutée dans le conteneur · 2 paquets · 1 surveillance · 3 entrées locales');
 if (/innerHTML/.test(src.slice(src.indexOf('async function envTrustBox'), src.indexOf('// Proposition /init-project (évènement')))) { ko++; console.log('KO innerHTML dans envTrustBox'); }
 const tb = src.slice(src.indexOf('async function envTrustBox'), src.indexOf('// Proposition /init-project (évènement'));
 if (!/info\.changed === true/.test(tb) || !/a changé depuis votre approbation/.test(tb)) { ko++; console.log('KO bandeau changed'); }
 if (!/safeText\(info\.broken\)/.test(tb)) { ko++; console.log('KO broken non échappé'); }
+if (!/safeText\(info\.scriptNote\)/.test(tb)) { ko++; console.log('KO scriptNote non échappé'); }
 if (!/safeText\(r\.msg/.test(tb)) { ko++; console.log('KO message refus non échappé'); }
 console.log(ko ? ko + ' KO' : 'OK'); process.exit(ko ? 1 : 0);
