@@ -476,16 +476,17 @@ function renderCards() {
   const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
-  const card = (title, sub, body, chip, eye) => {
+  const card = (title, sub, body, eye) => {
     const closed = !!prefs.get('cardsClosed', {})[title];
     const k = el('div', 'card' + (closed ? ' closed' : ''));
     const h = el('div', 'ch');
     h.append(el('span', 'fold' + (closed ? '' : ' open'), '›'), el('span', '', title));
     if (Array.isArray(sub)) { // parties { t, warn } : ⚠ orange après la partie, détail en infobulle (#199)
-      sub.forEach((p) => { h.append(el('span', 'dim', ' · ' + p.t)); if (p.warn) { const w = el('span', 't-orange', ' ⚠'); w.title = p.warn; h.append(w); } });
+      const sw = el('span', 'subs'); // tronqué (…) avant l'œil, qui reste à droite (#209)
+      sub.forEach((p) => { sw.append(el('span', 'dim', ' · ' + p.t)); if (p.warn) { const w = el('span', 't-orange', ' ⚠'); w.title = p.warn; sw.append(w); } });
+      h.append(sw);
     } else if (sub) h.append(el('span', 'dim', ' · ' + sub));
-    if (chip) { const p = el('span', 'hidechip', chip); p.title = 'les teammates inactifs sont cachés après ce délai (Réglages › Launcher › teams)'; h.append(p); }
-    if (eye) h.append(el('span', 'sp'), eye);
+    if (eye) h.append(eye);
     h.onclick = (e) => { e.stopPropagation(); const m = Object.assign({}, prefs.get('cardsClosed', {})); if (m[title]) delete m[title]; else m[title] = true; prefs.set('cardsClosed', m); renderCards(); };
     k.append(h);
     if (!closed) k.append(body);
@@ -587,9 +588,9 @@ function renderCards() {
   const sub = c.team && c.team.length ? [{ t: String(c.team.length) }].concat(
     th.tpl ? [{ t: 'tpl ' + vt(th.tpl), warn: th.tplNewer ? 'template du projet ' + vt(th.tpl) + ' — ' + vt(th.tplNewer) + ' disponible (/init-project au lancement)' : '' }] : [],
     th.claude ? [{ t: 'claude ' + th.claude }] : []) : '';
-  // puce « masquage N s » (#188) : seulement quand le masquage automatique est actif (activé et délai > 0) ; aucune puce sinon
+  // plus de puce « masquage N s » (#209 v2) : l'état est porté par l'œil, dernier élément du titre
   const hi = th.hideIdle;
-  card('Team', sub, tb, hi && hi.enabled && hi.delay > 0 ? 'masquage ' + hi.delay + ' s' : '', hi && hi.mode ? hideEye(c.path, hi) : null);
+  card('Team', sub, tb, hi && hi.mode ? hideEye(c.path, hi) : null);
   // Fichiers
   if (c.loaded) {
     const fb = el('div', 'cb'); const g = el('div', 'files');
@@ -729,7 +730,7 @@ function hideEyeView(mode, g) {
   const name = mode === 'auto' ? 'auto hide' : mode === 'none' ? 'no hide' : 'default';
   const nx = hideEyeNext(mode), nxName = nx === 'auto' ? 'auto hide' : nx === 'none' ? 'no hide' : 'default';
   const open = mode === 'none' || (mode !== 'auto' && !g.enabled);
-  return { mode, open, dim: mode === 'default', name,
+  return { mode, open, dim: mode === 'default', own: mode === 'auto' || mode === 'none', name,
     tip: 'Ce projet : ' + name + ' — clic : ' + nxName + ' · réglage global : ' + (g.enabled ? 'masqués après ' + g.delay + ' s' : 'désactivé') };
 }
 function hideEyeMenu(mode, g) {
@@ -743,7 +744,7 @@ const hideG = (hi) => ({ enabled: !!hi.global, delay: hi.delay });
 const hideIcon = (v) => (v.open ? EYE_OPEN : EYE_SHUT);
 function hideEye(path, hi) {
   const v = hideEyeView(hi.mode, hideG(hi));
-  const e = el('span', 'eye st-' + hi.mode);
+  const e = el('span', 'eye st-' + hi.mode + (v.own ? ' own' : ''));
   e.innerHTML = hideIcon(v);
   e.title = v.tip; e.tabIndex = 0; e.setAttribute('role', 'button');
   e.setAttribute('aria-label', e.title);
@@ -786,7 +787,8 @@ function showHideMenu(path, hi, x, y) {
   const g = hideG(hi);
   for (const o of hideEyeMenu(hi.mode, g)) {
     const d = el('div', o.current ? 'sel' : '');
-    const i = el('span', 'mi' + (o.mode === 'default' ? ' st-default' : '')); i.innerHTML = hideIcon(hideEyeView(o.mode, g));
+    const ov = hideEyeView(o.mode, g);
+    const i = el('span', 'mi' + (o.mode === 'default' ? ' st-default' : '') + (ov.own ? ' own' : '')); i.innerHTML = hideIcon(ov);
     d.append(i, el('span', '', o.label));
     d.onclick = (ev) => { ev.stopPropagation(); closeCtx(); if (!o.current) setHideIdle(path, o.mode, null); };
     m.appendChild(d);
