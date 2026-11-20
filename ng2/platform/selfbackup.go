@@ -134,6 +134,11 @@ func replaceWithCopyBackup(dst, version string, write func(string) error) error 
 		}
 	}
 	if err := write(dst); err != nil {
+		if bak != "" { // un write qui a laissé un fichier à moitié posé : l'original est remis depuis la sauvegarde
+			if !sameContent(dst, bak) {
+				_ = copyFileAtomic(bak, dst)
+			}
+		}
 		return err
 	}
 	if bak != "" {
@@ -169,4 +174,11 @@ func swapRunningExeBackup(dst, version string, write func(string) error) error {
 	}
 	PurgeBackups(dst, bak)
 	return nil
+}
+
+// sameContent : a et b ont le même contenu.
+func sameContent(a, b string) bool {
+	x, e1 := os.ReadFile(a)
+	y, e2 := os.ReadFile(b)
+	return e1 == nil && e2 == nil && string(x) == string(y)
 }
