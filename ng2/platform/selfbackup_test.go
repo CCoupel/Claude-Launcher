@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func writeExe(t *testing.T, p, c string) {
@@ -93,5 +94,62 @@ func TestVersionInutilisableSansSauvegarde218(t *testing.T) {
 	}
 	if m, _ := filepath.Glob(exe + ".bak-*"); len(m) != 0 {
 		t.Errorf("sauvegarde créée pour une version dev : %v", m)
+	}
+}
+
+// keepPath vide ou inconnu : aucune suppression (jamais de purge totale).
+func TestPurgeSansCleConnueNeSupprimeRien218(t *testing.T) {
+	d := t.TempDir()
+	exe := filepath.Join(d, "ng")
+	writeExe(t, exe+".bak-v1.0.0", "a")
+	writeExe(t, exe+".bak-v2.0.0", "b")
+	for _, keep := range []string{"", exe + ".bak-v9.9.9", "v2.0.0", filepath.Join(d, "autre.bak-v2.0.0")} {
+		if left := PurgeBackups(exe, keep); len(left) != 0 {
+			t.Errorf("keep=%q : restantes %v", keep, left)
+		}
+		if m, _ := filepath.Glob(exe + ".bak-v*"); len(m) != 2 {
+			t.Fatalf("keep=%q : sauvegardes = %v, attendu les 2", keep, m)
+		}
+	}
+}
+
+// La plus récente se juge à la VERSION (numérique par segments), pas à la date.
+func TestNewestBackupParVersion218(t *testing.T) {
+	d := t.TempDir()
+	exe := filepath.Join(d, "ng")
+	writeExe(t, exe+".bak-v6.9.0", "a")
+	writeExe(t, exe+".bak-v6.10.0", "b") // 10 > 9 (pas un ordre alphabétique)
+	writeExe(t, exe+".bak-v5.99.9", "c")
+	old := time.Now().Add(-48 * time.Hour)
+	_ = os.Chtimes(exe+".bak-v6.10.0", old, old) // la plus récente par version est la plus ancienne par date
+	if got := newestBackup(exe); got != exe+".bak-v6.10.0" {
+		t.Errorf("newestBackup = %s", got)
+	}
+	PurgeBackups(exe, newestBackup(exe))
+	if m, _ := filepath.Glob(exe + ".bak-v*"); len(m) != 1 || m[0] != exe+".bak-v6.10.0" {
+		t.Errorf("restantes = %v", m)
+	}
+}
+
+// Sauvegarde impossible : mise à jour faite, avertissement visible (TakeBackupWarning), vidé à la lecture.
+func TestAvertissementSansSauvegarde218(t *testing.T) {
+	d := t.TempDir()
+	exe := filepath.Join(d, "ng")
+	writeExe(t, exe, "v1")
+	if err := replaceWithCopyBackup(exe, "dev", func(p string) error { return os.WriteFile(p, []byte("v2"), 0o755) }); err != nil {
+		t.Fatal(err)
+	}
+	if w := TakeBackupWarning(); w == "" {
+		t.Error("avertissement attendu pour une version non sauvegardable")
+	}
+	if w := TakeBackupWarning(); w != "" {
+		t.Errorf("avertissement non vidé : %q", w)
+	}
+	writeExe(t, exe, "v2")
+	if err := replaceWithCopyBackup(exe, "v1.0.0", func(p string) error { return os.WriteFile(p, []byte("v3"), 0o755) }); err != nil {
+		t.Fatal(err)
+	}
+	if w := TakeBackupWarning(); w != "" {
+		t.Errorf("avertissement inattendu : %q", w)
 	}
 }

@@ -126,6 +126,8 @@ type UpdDoneMsg struct {
 	BinDone bool
 	Err     error
 	Stale   bool // binaire préparé disparu ou modifié : à repréparer
+	// Note : avertissement à montrer malgré le succès (#218 : mise à jour faite sans sauvegarde de l'ancien binaire)
+	Note string
 }
 
 // applyUpdate télécharge depuis base (…/releases/download/<tag>) le binaire de

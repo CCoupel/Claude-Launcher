@@ -224,3 +224,26 @@ func TestPurgeBackupsRetenteLesVerrouillees218(t *testing.T) {
 		t.Errorf("exe sans sauvegarde : %v", left)
 	}
 }
+
+// Sémantique tranchée (review) : keep vide (ou version inutilisable) = AUCUNE suppression.
+func TestPurgeBackupsKeepVideNeSupprimeRien218(t *testing.T) {
+	d := t.TempDir()
+	exe := filepath.Join(d, "ng")
+	put218(t, exe, "V", 0o755)
+	a, b := BackupPath(exe, "v6.3.0"), BackupPath(exe, "v6.4.0")
+	put218(t, a, "A", 0o755)
+	put218(t, b, "B", 0o755)
+	for _, keep := range []string{"", "dev", "v../x"} {
+		if left := PurgeBackups(exe, keep); len(left) != 0 {
+			t.Errorf("keep=%q : restantes %v", keep, left)
+		}
+		for _, p := range []string{a, b} {
+			if _, err := os.Stat(p); err != nil {
+				t.Fatalf("keep=%q : %s supprimée (purge totale)", keep, filepath.Base(p))
+			}
+		}
+	}
+	if left := PurgeBackups(filepath.Join(d, "absent"), ""); len(left) != 0 { // exe sans sauvegarde : sans effet
+		t.Errorf("exe absent : %v", left)
+	}
+}

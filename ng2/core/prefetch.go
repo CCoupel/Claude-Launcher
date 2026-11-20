@@ -1,6 +1,7 @@
 package core
 
 import (
+	"claude-launcher-ng2/platform"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -95,7 +96,7 @@ func InstallPreparedNow(tag, path, sum string) UpdDoneMsg {
 		return UpdDoneMsg{Tag: tag, Err: err, Stale: true}
 	}
 	_ = os.Remove(path)
-	return UpdDoneMsg{Tag: tag, BinDone: true}
+	return UpdDoneMsg{Tag: tag, BinDone: true, Note: platform.TakeBackupWarning()}
 }
 
 var httpCodeRe = regexp.MustCompile(`HTTP \d{3}`)

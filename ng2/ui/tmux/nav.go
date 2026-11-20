@@ -123,6 +123,9 @@ func NewModel(launch bool) model {
 	if m.shell {
 		_ = syncLauncherEnv(cfg) // variables du launcher pour toutes les sessions claude
 		exportBrowserPathsHub()  // chemins vus par le navigateur (#104), projets sur l'hôte
+		if note := core.TakeUpdateNote(); note != "" {
+			m.msg = "⚠ " + note
+		}
 		if why := takeNavCrash(); why != "" {
 			m.msg = "⚠ relancé après " + why // détail : nav.err.last (cache)
 		}
@@ -579,9 +582,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Err != nil:
 			m.msg = "⚠ mise à jour : " + msg.Err.Error()
 		case msg.BinDone && m.shell:
+			if msg.Note != "" {
+				core.SaveUpdateNote(msg.Note) // ce pane est relancé : l'avertissement est repris au démarrage suivant
+			}
 			restartOnNewBinary() // ne revient pas : ce pane est relancé
 		case msg.BinDone:
 			m.msg = "✓ " + msg.Tag + " installée — relancer le launcher"
+			if msg.Note != "" {
+				m.msg = "✓ " + msg.Tag + " installée (⚠ " + msg.Note + ") — relancer le launcher"
+			}
 		default:
 			m.msg = "✓ déjà à jour"
 			m.hideLauncher = true
