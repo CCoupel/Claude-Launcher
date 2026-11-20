@@ -12,9 +12,14 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ### Added
 - Relance du launcher depuis l'interface après une mise à jour du binaire : bandeau « binaire changé → Relancer » avec confirmation ; coque tmux : `ctrl+r` quand l'annonce est affichée (sinon rescan), anciens `mirror` / `layout-watch` du même serveur tmux arrêtés puis relancés, sessions des projets conservées ; en cluster, le pod redémarre (#219)
 - Sauvegarde avant mise à jour : le binaire remplacé est gardé en `<exe>.bak-v<version précédente>` (une seule sauvegarde). Retour arrière manuel documenté dans `ng2/docs/versions.md` (#218)
+- « Nouveau projet » : la base et la catégorie se choisissent dans des listes (une nouvelle catégorie peut être créée), le chemin final est affiché avant validation ; le serveur refuse tout chemin hors des bases configurées ; les noms de ce qui est créé doivent être portables sous Windows (les catégories existantes sont acceptées telles quelles) ; web, fenêtre Windows et coque tmux (#214)
+
+### Changed
+- `create` (« Nouveau projet ») : `base` doit être une racine configurée, `category` et `name` passent par la même règle serveur ; l'ancien appel `{base: "<racine>/INFRA"}` est refusé (`base inconnue`) : l'interface et le backend sont livrés ensemble (#214)
 
 ### Fixed
 - Écriture de `config.conf` atomique : écriture dans un `.config.conf.tmp-*` du même dossier, `0600`, `fsync`, `rename`, puis `fsync` du dossier (Unix) ; copie `.bak` écrite par le même chemin. Sous Windows, le `rename` est retenté (5 essais, attentes 50/100/200/400 ms) sur verrou (`ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`), puis erreur explicite ; les `.config.conf(.bak).tmp-*` de plus de 10 min sont supprimés (#217)
+- Tests instables sous Windows fiabilisés : attente active du flux SSE plus large, bac à sable vidé après l'arrêt de l'App (#224)
 
 ## [6.5.0] — 2026-11-20
 
