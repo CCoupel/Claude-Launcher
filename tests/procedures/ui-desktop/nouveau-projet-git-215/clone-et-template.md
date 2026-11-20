@@ -107,7 +107,11 @@ Prerequis du scenario : un **depot de test** contenant `.claude-launcher/env.yam
 | 10 | Corrompre `trust.json` (dossier de config du launcher : tronquer le fichier ou y ecrire `{`), rouvrir un projet clone en conteneur | Refus ferme : message clair, rien n'est demarre, le fichier n'est **pas reecrit** (le comparer a la copie faite avant) ; restaurer ensuite le fichier | | |
 | 11 | Reglages du projet > « Revoir » (projet ferme) puis rouvrir | La question revient ; « Accepter » : le projet demarre avec l'environnement du depot, la preuve apparait | | |
 | 12 | Projet affecte a l'hote : cloner le meme depot sur l'hote | Aucune question (env.yaml inutilise) ; elle apparait au premier passage en conteneur (F2) | | |
-| 13 | Meme parcours dans la **coque tmux** (hub) : touches `a` accepter, `s` ouvrir sans, `Echap` annuler, `v` fichiers bruts | Memes resultats (dont commande longue entiere, `packages_by_manager`, bidi neutralise) ; texte piege non interprete dans le terminal | | |
+| 13 | **Registre partage** (exe Windows et hub sur la **meme racine de base** `CL_ROOT_BASE`) : verifier que `<racine>\.config\claude-launcher-ng2\trust.json` existe et contient l'entree du projet clone (`pending`, `accepted` ou `ignored`) ; aucun `trust.json` dans le dossier de config local de l'un ou l'autre poste | Un seul registre, sous la racine de base | | |
+| 14 | Cloner depuis l'**exe Windows** un depot avec `env.yaml`, **Accepter**. Ouvrir le meme projet depuis le **hub** (coque tmux, backend conteneur) | **Aucune** nouvelle question : l'approbation donnee depuis l'exe est vue par le hub | | |
+| 15 | Cloner un autre depot avec `env.yaml` depuis l'exe, ouvrir depuis le **hub** et **Annuler** puis « Ouvrir sans » | Le hub memorise « ouvrir sans » ; depuis l'**exe**, l'ouverture suivante du meme projet ne demande rien et n'applique pas l'`env.yaml` du depot (socle seul) | | |
+| 16 | Poser un ancien `trust.json` **local** (dossier de config du poste, entree `accepted` pour un projet deja `pending` dans le registre partage) puis relancer le launcher | Migration au demarrage : le registre partage garde l'etat **le plus restrictif** (`pending`), `trust.json.bak` cree, l'ancien fichier local est conserve ; l'approbation locale ne vaut pas | | |
+| 17 | Meme parcours dans la **coque tmux** (hub) : touches `a` accepter, `s` ouvrir sans, `Echap` annuler, `v` fichiers bruts | Memes resultats (dont commande longue entiere, `packages_by_manager`, bidi neutralise) ; texte piege non interprete dans le terminal | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
