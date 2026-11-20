@@ -1721,7 +1721,7 @@ const trustNote = (info) => {
 async function envTrustBox(src) {
   const load = async (path) => call('envTrustInfo', { path });
   const info = typeof src === 'string' ? await load(src) : src;
-  if (!info || !info.path) return;
+  if (!info || !info.path) { if (info && info.ok === false) flash('⚠ ' + safeText(info.msg || 'environnement illisible')); return; }
   const name = String(info.path).split(/[\\/]/).filter(Boolean).pop() || info.path;
   const draw = (info, note) => openModal((b) => {
     b.append(el('h2', '', '⚠ Environnement fourni par le dépôt — ' + safeText(name)));
