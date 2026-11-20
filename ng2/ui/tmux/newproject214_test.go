@@ -18,7 +18,13 @@ import (
 func newModel214(t *testing.T) (model, string) {
 	t.Helper()
 	isoInner(t)
-	t.Setenv("CL_CONFIG_DIR", t.TempDir()) // aucun backend conteneur : pas d'étape « socle »
+	// aucun backend conteneur : pas d'étape « socle » (formExec). Sans backends.yaml, LoadBackends détecte podman/docker
+	// du PATH : un runner de CI qui en a un ajoutait l'étape et la création ne se faisait pas (cause du rouge CI).
+	cfgDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(cfgDir, "backends.yaml"), []byte("backends: {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CL_CONFIG_DIR", cfgDir)
 	base := filepath.Join(t.TempDir(), "PROJETS")
 	_ = os.MkdirAll(filepath.Join(base, "INFRA", "p1", ".git"), 0o755)
 	_ = os.MkdirAll(filepath.Join(base, "VIDE"), 0o755)
