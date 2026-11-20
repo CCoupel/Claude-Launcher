@@ -120,7 +120,7 @@ func LoadEnv(proj string) (EnvSpec, error) {
 	switch {
 	case broken:
 		if st == TrustPending {
-			return EnvSpec{}, ErrTrustBroken
+			return EnvSpec{}, trustBrokenError{}
 		}
 	case st == TrustPending:
 		if changed {
@@ -653,20 +653,24 @@ func DefaultCtrBackend() (BackendConf, bool) {
 }
 
 // writeEnv : env.yaml minimal et commenté pour le socle img (sans écraser un existant).
-func writeEnv(proj, img string) error {
+func writeEnv(proj, img string) ([]byte, error) {
 	p := EnvPath(proj)
 	if _, err := os.Stat(p); err == nil {
-		return nil
+		return nil, nil
 	}
 	// création exclusive : deux launchers qui initialisent le projet en même temps n'écrasent pas l'env.yaml de l'autre
-	_, err := createExclusive(p, []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n"+
-		"# Ajouts propres au projet ; env-template.yaml (s'il existe) vient du template : ne pas le modifier.\n"+
-		"image: "+img+"\n"+
-		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n"+
-		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n"+
-		"# setup: []                 # étapes exécutées une fois, en utilisateur, dans le projet\n"+
-		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n"), 0o644)
-	return err
+	content := []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n" +
+		"# Ajouts propres au projet ; env-template.yaml (s'il existe) vient du template : ne pas le modifier.\n" +
+		"image: " + img + "\n" +
+		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n" +
+		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n" +
+		"# setup: []                 # étapes exécutées une fois, en utilisateur, dans le projet\n" +
+		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n")
+	created, err := createExclusive(p, content, 0o644)
+	if !created {
+		return nil, err
+	}
+	return content, err
 }
 
 func FindBackend(name string) (BackendConf, bool) {
@@ -764,19 +768,25 @@ func Assigned(proj string) bool {
 // setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
 // env.yaml absent (template seul, ou rien) : créé avec ce socle.
 func setEnvImage(proj, img string) error {
-	return withTrustRefresh(proj, func() error {
-		return WithFileLock(EnvPath(proj), func() error { return setEnvImageLocked(proj, img) })
+	return withTrustRefresh(proj, func() ([]byte, error) {
+		var written []byte
+		err := WithFileLock(EnvPath(proj), func() error {
+			var e error
+			written, e = setEnvImageLocked(proj, img)
+			return e
+		})
+		return written, err
 	})
 }
 
-func setEnvImageLocked(proj, img string) error {
+func setEnvImageLocked(proj, img string) ([]byte, error) {
 	p := EnvPath(proj)
 	b, err := os.ReadFile(p)
 	if os.IsNotExist(err) {
 		return writeEnv(proj, img)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	lines := strings.Split(string(b), "\n")
 	done := false
@@ -789,7 +799,8 @@ func setEnvImageLocked(proj, img string) error {
 	if !done {
 		lines = append([]string{"image: " + img}, lines...)
 	}
-	return WriteFileAtomic(p, []byte(strings.Join(lines, "\n")), 0o644)
+	out := []byte(strings.Join(lines, "\n"))
+	return out, WriteFileAtomic(p, out, 0o644)
 }
 
 // projectBackend : backend affecté au projet ; host sans env.yaml ou sans

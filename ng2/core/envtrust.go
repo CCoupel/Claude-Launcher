@@ -257,66 +257,100 @@ func EnvTrustChanged(proj string) bool {
 	return ch
 }
 
+// readTrustLocked : registre lu pour modification (verrou du registre tenu) ; raw : contenu actuel (nil si absent).
+// Illisible : trustBrokenError (jamais réécrit).
+func readTrustLocked() (m map[string]TrustEntry, raw []byte, err error) {
+	m = map[string]TrustEntry{}
+	r, rerr := os.ReadFile(trustPath())
+	if rerr != nil {
+		return m, nil, nil
+	}
+	if len(strings.TrimSpace(string(r))) == 0 || json.Unmarshal(r, &m) != nil {
+		return nil, nil, trustBrokenError{}
+	}
+	return m, r, nil
+}
+
+// writeTrustLocked : écriture atomique du registre, copie .bak de l'état précédent d'abord.
+func writeTrustLocked(m map[string]TrustEntry, raw []byte) error {
+	if raw != nil {
+		if err := WriteFileAtomic(trustPath()+".bak", raw, 0o600); err != nil {
+			return err
+		}
+	}
+	b, _ := json.MarshalIndent(m, "", "  ")
+	err := WriteFileAtomic(trustPath(), b, 0o600)
+	trustMu.Lock()
+	trustCache.valid = false // relu au prochain accès (la date et la taille peuvent ne pas changer)
+	trustMu.Unlock()
+	return err
+}
+
 // setTrust : lire-modifier-écrire du registre sous verrou, écriture atomique, copie .bak avant chaque écriture ; un
 // registre illisible n'est JAMAIS réécrit (ErrTrustBroken). e nil : entrée retirée.
 func setTrust(proj string, e *TrustEntry) error {
 	return WithFileLock(trustPath(), func() error {
-		m := map[string]TrustEntry{}
-		if raw, err := os.ReadFile(trustPath()); err == nil {
-			if len(strings.TrimSpace(string(raw))) == 0 || json.Unmarshal(raw, &m) != nil {
-				return trustBrokenError{}
-			}
-			if err := WriteFileAtomic(trustPath()+".bak", raw, 0o600); err != nil {
-				return err
-			}
+		m, raw, err := readTrustLocked()
+		if err != nil {
+			return err
 		}
 		if e == nil {
 			delete(m, RemotePath(proj))
 		} else {
 			m[RemotePath(proj)] = *e
 		}
-		b, _ := json.MarshalIndent(m, "", "  ")
-		err := WriteFileAtomic(trustPath(), b, 0o600)
-		trustMu.Lock()
-		trustCache.valid = false // relu au prochain accès (la date et la taille peuvent ne pas changer)
-		trustMu.Unlock()
-		return err
+		return writeTrustLocked(m, raw)
 	})
 }
 
-// withTrustRefresh : exécute write (écriture de env.yaml PAR LE LAUNCHER : F2, réglages) ; si l'empreinte approuvée
-// correspondait avant l'écriture, elle suit l'écriture (pas de re-demande) — jamais si les fichiers avaient déjà été
-// changés par le dépôt. Pour un projet ignoré, le socle gardé suit aussi.
-func withTrustRefresh(proj string, write func() error) error {
-	ent, st, _, broken := effectiveTrust(proj)
-	track := !broken && (st == TrustAccepted || st == TrustIgnored || st == TrustNone)
-	if !track {
-		return write()
-	}
-	err := write()
-	if err != nil {
-		return err
-	}
-	ent.SHA = EnvFilesSHA(proj)
-	if ent.State == TrustIgnored {
-		if e, lerr := loadEnvRaw(proj); lerr == nil && e.Image != "" {
-			ent.Image = e.Image
+// withTrustRefresh : exécute write (écriture de env.yaml PAR LE LAUNCHER : F2, réglages), qui rend les OCTETS qu'il vient
+// d'écrire (nil : rien écrit). Sous le verrou du registre : l'empreinte des fichiers est recalculée JUSTE AVANT write et
+// ne suit l'écriture que si elle égale celle de l'entrée (sinon les fichiers avaient déjà été changés par le dépôt :
+// aucun scellement, le projet reste à redemander). L'empreinte scellée est celle des octets écrits (en mémoire, jamais
+// relue du disque : un remplacement entre l'écriture et la lecture ne peut pas être béni) ; pour un projet ignoré, le
+// socle gardé est l'image de ces octets.
+func withTrustRefresh(proj string, write func() ([]byte, error)) error {
+	return WithFileLock(trustPath(), func() error {
+		m, raw, rerr := readTrustLocked()
+		key := RemotePath(proj)
+		ent, ok := m[key]
+		track := rerr == nil && ok && (ent.State == TrustAccepted || ent.State == TrustIgnored || ent.State == TrustNone)
+		tpl, _ := os.ReadFile(envTemplatePath(proj))
+		if track {
+			cur, _ := os.ReadFile(EnvPath(proj))
+			track = ent.SHA == shaOfEnvFiles(tpl, cur) // juste avant l'écriture
 		}
-	}
-	_ = setTrust(proj, &ent)
-	return nil
+		written, err := write()
+		if err != nil || !track || written == nil {
+			return err
+		}
+		ent.SHA = shaOfEnvFiles(tpl, written)
+		if ent.State == TrustIgnored {
+			if e, perr := parseEnvFile(written, envFile); perr == nil && e.Image != "" {
+				ent.Image = e.Image
+			}
+		}
+		m[key] = ent
+		_ = writeTrustLocked(m, raw)
+		return nil
+	})
 }
 
-// EnvFilesSHA : SHA-256 du contenu de env-template.yaml puis env.yaml (absent = vide).
+// shaOfEnvFiles : SHA-256 du contenu de env-template.yaml puis env.yaml (absent = vide).
+func shaOfEnvFiles(tpl, env []byte) string {
+	h := sha256.New()
+	h.Write([]byte("env-template.yaml\n"))
+	h.Write(tpl)
+	h.Write([]byte("\nenv.yaml\n"))
+	h.Write(env)
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// EnvFilesSHA : empreinte des fichiers d'environnement actuels du projet.
 func EnvFilesSHA(proj string) string {
 	t, _ := os.ReadFile(envTemplatePath(proj))
 	p, _ := os.ReadFile(EnvPath(proj))
-	h := sha256.New()
-	h.Write([]byte("env-template.yaml\n"))
-	h.Write(t)
-	h.Write([]byte("\nenv.yaml\n"))
-	h.Write(p)
-	return hex.EncodeToString(h.Sum(nil))
+	return shaOfEnvFiles(t, p)
 }
 
 // RegisterClone : AVANT le clonage — l'entrée pending du projet (un clone interrompu ne devient jamais de confiance).

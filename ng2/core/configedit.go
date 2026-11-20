@@ -601,7 +601,7 @@ func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time
 		}
 	}
 	if kind == ConfProjectEnv { // écriture du launcher : l'empreinte approuvée d'un projet cloné suit (pas de re-demande)
-		return ps, withTrustRefresh(filepath.Dir(filepath.Dir(path)), func() error { return WriteFileAtomic(path, content, mode) })
+		return ps, withTrustRefresh(filepath.Dir(filepath.Dir(path)), func() ([]byte, error) { return content, WriteFileAtomic(path, content, mode) })
 	}
 	return ps, WriteFileAtomic(path, content, mode)
 }
