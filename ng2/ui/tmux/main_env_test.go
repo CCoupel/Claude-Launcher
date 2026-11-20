@@ -18,6 +18,7 @@ import (
 // stockage partagé) n'est jamais celle des tests — un test qui ne la redéfinit
 // pas écrirait dans le vrai cache de consommation commun (usage.go).
 func TestMain(m *testing.M) {
+	core.NoExecSelf = true // jamais « <binaire de test> version » (#219)
 	d, err := os.MkdirTemp("", "ng2-test-claude-")
 	if err != nil {
 		panic(err)

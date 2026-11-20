@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/core"
 	"claude-launcher-ng2/internal/testguard"
 	"os"
 	"testing"
@@ -9,6 +10,7 @@ import (
 // TestMain : tout tmux lancé par un test de la suite place son socket sous un
 // dossier temporaire dédié, supprimé à la fin — jamais dans /tmp/tmux-<uid> (#154).
 func TestMain(m *testing.M) {
+	core.NoExecSelf = true          // jamais « <binaire de test> version » (#219)
 	os.Setenv("CL_IN_CLUSTER", "0") // le conteneur de développement est lui-même un pod : jamais de refus du backend host (#169)
 	code := 1
 	func() {

@@ -5,6 +5,7 @@ import (
 	"os"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 // Garde : sous `go test`, le binaire de test n'est jamais relancé avec « version » (il rejouerait toute la suite).
@@ -12,6 +13,12 @@ func TestVersionInstalleeNeLancePasLeBinaireDeTest(t *testing.T) {
 	self, err := os.Executable()
 	if err != nil {
 		t.Skip(err)
+	}
+	if !NoExecSelf {
+		t.Fatal("TestMain doit poser NoExecSelf")
+	}
+	if v := InstalledVersion(self, time.Second); v != "" {
+		t.Errorf("InstalledVersion(binaire de test) = %q, attendu vide", v)
 	}
 	var n int32
 	old, oldExe := installedVersionCmd, launcherExe

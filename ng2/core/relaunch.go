@@ -6,7 +6,6 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
 	"claude-launcher-ng2/platform"
@@ -138,6 +137,9 @@ func launcherMode() string {
 // InstalledVersion : dernier mot de « <exe> version » (« claude-launcher-ng2 v6.6.0 ») ; "" si illisible ou si le
 // délai est dépassé.
 func InstalledVersion(exe string, timeout time.Duration) string {
+	if NoExecSelf && isSelf(exe) {
+		return ""
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	out, err := installedVersionCmd(ctx, exe)
@@ -151,12 +153,12 @@ func InstalledVersion(exe string, timeout time.Duration) string {
 	return f[len(f)-1]
 }
 
-// isTestBinary : exe est le binaire de test en cours. Le relancer avec « version » rejouerait toute la suite en
-// sous-processus (récursion, sockets tmux laissés) : jamais exécuté.
-func isTestBinary(exe string) bool {
-	if !testing.Testing() {
-		return false
-	}
+// NoExecSelf : interdit d'exécuter le binaire en cours (« <soi> version »). Posé par le TestMain des paquets de test :
+// le binaire de test relancé avec « version » rejouerait toute la suite en sous-processus (récursion, sockets tmux
+// laissés). Les autres binaires (faux binaires des tests) restent exécutables.
+var NoExecSelf bool
+
+func isSelf(exe string) bool {
 	self, err := os.Executable()
 	if err != nil {
 		return false
@@ -168,7 +170,7 @@ func isTestBinary(exe string) bool {
 
 func installedVersion() string {
 	exe, err := launcherExe()
-	if err != nil || isTestBinary(exe) {
+	if err != nil {
 		return ""
 	}
 	return InstalledVersion(exe, installedVersionTimeout)
@@ -215,9 +217,6 @@ func LauncherInstalledCached() string {
 	}
 	sig, err := StatSig(exe)
 	if err != nil {
-		return ""
-	}
-	if isTestBinary(exe) {
 		return ""
 	}
 	instMu.Lock()
