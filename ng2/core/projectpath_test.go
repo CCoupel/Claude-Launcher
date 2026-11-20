@@ -215,8 +215,39 @@ func TestCreateProjectDirConcurrent(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("%d créations réussies, attendu 1", n)
 	}
+	// borne : la base ne contient QUE la catégorie neuve, sa sous-catégorie et le projet du gagnant — aucun autre dossier
+	// (aucun reste d'un perdant)
+	listBase := func() map[string]bool {
+		got := map[string]bool{}
+		_ = filepath.Walk(base, func(p string, _ os.FileInfo, _ error) error {
+			if p != base {
+				rel, _ := filepath.Rel(base, p)
+				got[filepath.ToSlash(rel)] = true
+			}
+			return nil
+		})
+		return got
+	}
+	want := map[string]bool{"NEUVE": true, "NEUVE/SOUS": true, "NEUVE/SOUS/proj": true}
+	if got := listBase(); len(got) != len(want) {
+		t.Errorf("la base contient %v, attendu exactement %v", got, want)
+	} else {
+		for p := range got {
+			if !want[p] {
+				t.Errorf("entrée inattendue dans la base : %s (contenu %v)", p, got)
+			}
+		}
+	}
+	if win.dir != filepath.Join(base, "NEUVE", "SOUS", "proj") {
+		t.Errorf("dossier du gagnant = %s", win.dir)
+	}
 	_ = os.WriteFile(filepath.Join(win.dir, "f"), nil, 0o644)
 	win.undo()
+	for p := range listBase() { // après undo : au plus les catégories, jamais autre chose
+		if p != "NEUVE" && p != "NEUVE/SOUS" {
+			t.Errorf("reste après undo : %s", p)
+		}
+	}
 	if _, err := os.Stat(win.dir); err == nil {
 		t.Error("dossier du gagnant non supprimé par undo")
 	}
