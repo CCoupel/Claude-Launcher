@@ -15,3 +15,9 @@ func ReplaceExecutable(dst string, write func(string) error) error { return writ
 
 // CleanupOldExe : rien à nettoyer (pas de .old hors Windows).
 func CleanupOldExe() {}
+
+// ReplaceExecutableWithBackup : comme ReplaceExecutable, après avoir sauvegardé l'ancien binaire en
+// <dst>.bak-v<version> (copie atomique ; version : celle du binaire qui tourne) ; une seule sauvegarde gardée (#218).
+func ReplaceExecutableWithBackup(dst, version string, write func(string) error) error {
+	return replaceWithCopyBackup(dst, version, write)
+}

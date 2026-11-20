@@ -356,9 +356,9 @@ func fetchVerified(base, name string, sums map[string]string) ([]byte, error) {
 
 // InstallBinary : body à la place du binaire en cours d'exécution dst.
 // Linux/macOS : WriteAtomic (rename par-dessus). Windows : l'exe courant est
-// d'abord renommé en .old, supprimé au démarrage suivant (platform.ReplaceExecutable).
+// d'abord renommé en sauvegarde <exe>.bak-v<version> (#218, une seule gardée ; platform.ReplaceExecutable).
 func InstallBinary(dst string, body []byte) error {
-	return platform.ReplaceExecutable(dst, func(d string) error { return WriteAtomic(d, body) })
+	return platform.ReplaceExecutableWithBackup(dst, Version(), func(d string) error { return WriteAtomic(d, body) })
 }
 
 func SumOf(b []byte) string {

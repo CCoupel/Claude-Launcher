@@ -26,21 +26,13 @@ type StaleProc struct {
 	PID  int    `json:"pid"`
 }
 
-// LauncherBackup : sauvegarde du binaire précédent (renseignée par #218 via LauncherBackupHook).
-type LauncherBackup struct {
-	Version string `json:"version"`
-	Path    string `json:"path"`
-	Date    string `json:"date"`
-}
-
 // LauncherInfo : résultat de `launcherInfo`.
 type LauncherInfo struct {
-	Running    string          `json:"running"`
-	Installed  string          `json:"installed"`
-	BinChanged bool            `json:"binChanged"`
-	Mode       string          `json:"mode"`
-	Stale      []StaleProc     `json:"stale"`
-	Backup     *LauncherBackup `json:"backup,omitempty"`
+	Running    string      `json:"running"`
+	Installed  string      `json:"installed"`
+	BinChanged bool        `json:"binChanged"`
+	Mode       string      `json:"mode"`
+	Stale      []StaleProc `json:"stale"`
 }
 
 // procRoot : racine de procfs (tests : arborescence factice).
@@ -48,8 +40,6 @@ var procRoot = "/proc"
 
 // Points d'injection (tests).
 var (
-	// LauncherBackupHook : sauvegarde disponible (nil : aucune). Posé par la sauvegarde du binaire (#218).
-	LauncherBackupHook func() *LauncherBackup
 	// installedVersionCmd : commande rendant la version du binaire installé.
 	installedVersionCmd = func(ctx context.Context, exe string) ([]byte, error) {
 		return exec.CommandContext(ctx, exe, "version").Output()
@@ -187,9 +177,6 @@ func LauncherStateFor(mode string) LauncherInfo {
 		if exe, err := launcherExe(); err == nil {
 			li.Stale = FindStaleProcs(procRoot, exe, InnerSocket())
 		}
-	}
-	if LauncherBackupHook != nil {
-		li.Backup = LauncherBackupHook()
 	}
 	return li
 }

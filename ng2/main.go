@@ -55,7 +55,8 @@ func main() {
 			log.Printf("migration du coffre des secrets : %v", err)
 		}
 	}
-	platform.CleanupOldExe() // Windows : .old laissé par une mise à jour (ailleurs : rien)
+	platform.CleanupOldExe()  // Windows : .old laissé par une mise à jour (ailleurs : rien)
+	platform.CleanupBackups() // une seule sauvegarde .bak-v* gardée (#218)
 	if runtime.GOOS == "windows" && cmd == "shell" {
 		cmd = "desktop" // Windows : sans argument, l'interface native (#111)
 	}

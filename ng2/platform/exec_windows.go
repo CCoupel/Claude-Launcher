@@ -44,3 +44,9 @@ func CleanupOldExe() {
 		}
 	}()
 }
+
+// ReplaceExecutableWithBackup : l'exe en cours d'exécution est renommé en sauvegarde <dst>.bak-v<version> (ou .old si
+// la version est inutilisable), le nouveau est écrit à sa place ; une seule sauvegarde gardée (#218, selfbackup.go).
+func ReplaceExecutableWithBackup(dst, version string, write func(string) error) error {
+	return swapRunningExeBackup(dst, version, write)
+}
