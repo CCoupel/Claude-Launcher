@@ -63,3 +63,5 @@
 | tests/procedures/ui-desktop/relancer-launcher-219/ | procedure | ui-desktop | Relancer le launcher : exe Windows, hub reel (vignettes, layout-watch), pod QUALIF (#219) | feature | critical |
 | tests/integration/ui-tmux/relancer-launcher-219/ | integration | ui-tmux | Relance de la coque sans perte de session, processus anciens arretes, autre serveur intact — ng2/ui/tmux/relaunch219_test.go (#219) | feature | critical |
 | tests/integration/core/relancer-launcher-219/ | integration | core | Processus anciens, binaire change, version installee, relance Dispatch — ng2/core/relaunch219_test.go, ng2/ui/desktop/relaunch219_test.go (#219) | feature | |
+| tests/procedures/ui-desktop/sauvegarde-exe-218/ | procedure | ui-desktop | Sauvegarde de l'exe avant mise a jour, retour arriere manuel, sauvegarde verrouillee (#218) | feature | |
+| tests/integration/platform/sauvegarde-exe-218/ | integration | platform | Sauvegarde .bak-v<version>, une seule gardee, echec restaure l'original — ng2/platform/selfreplace218_test.go, ng2/core/backup218_test.go, tag backup218 (#218) | feature | |
