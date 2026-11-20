@@ -5,6 +5,7 @@
 ## Actives
 | Composant | Feature | Fichier | Version | Relation |
 |-----------|---------|---------|---------|----------|
+| clone_trust | #215 approbation de l'environnement d'un projet cloné — A résumé + fichiers bruts (validée 2026-11-20) | v6.6.0/ui/clone_trust__approbation_env.html | 6.6.0 | complète `v6.6.0/ui/new_project__base_categorie_source.html` |
 | new_project | #214/#215 base, catégorie, source — B source en cartes (validée 2026-11-20) | v6.6.0/ui/new_project__base_categorie_source.html | 6.6.0 | — |
 | project_move | #216 déplacer / renommer — B formulaire + ce qui change (validée 2026-11-20) | v6.6.0/ui/project_move__deplacer_renommer.html | 6.6.0 | — |
 | launcher_update | #219 relance, bandeau étendu sans retour arrière (validée 2026-11-20) | v6.6.0/ui/launcher_update__relance.html | 6.6.0 | — |

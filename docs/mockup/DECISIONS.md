@@ -32,3 +32,6 @@
 
 ## launcher_update
 - Pas de retour arrière dans l'interface : l'exe garde `.bak-<version>`, le retour arrière est manuel et documenté. _(choix utilisateur 2026-11-20, #218)_
+
+## clone_trust
+- Approbation définitive de l'`env.yaml` d'un dépôt cloné : pas de re-demande après un pull ; registre hors projet. _(choix utilisateur 2026-11-20, #215)_

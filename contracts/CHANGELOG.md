@@ -11,6 +11,7 @@
 - **[NEW]** `projectMoveInfo`, `projectMove` (journal `moves.json`, retour arrière, état partiel repris)
 - **[NEW]** `launcherInfo` (sans `stale` ni `backup`), `relaunch` ; coque : `ctrl+r` contextuel (relance si l'annonce est affichée, rescan sinon) ; `FindStaleProcs` filtré sur `argv[0]` = nom du binaire, `argv[1]` ∈ {mirror, layout-watch}, `CL_INNER_SOCKET` du launcher
 - **[CHANGED]** sauvegarde `<exe>.bak-v<version>` avant mise à jour (une seule gardée) ; écriture atomique de `config.conf` (retentée sous Windows), balayage des `.config.conf.tmp-*`
+- **[NEW]** (amendement #215, audit LOT-2.2) approbation de l'environnement d'un projet cloné : registre `trust.json` (dossier de config, jamais dans le projet), `core.EnvTrust`, `LoadEnv` refuse `pending` et réduit `ignored` au socle choisi, évènement `envTrust`, `envTrustInfo`, `envTrustAnswer` (sha contrôlé), `projectSettings.envTrust`, `projectApply.envTrust: "review"` — **[CHANGED]** `open` : `{needTrust}` pour un projet cloné non approuvé en conteneur ; choix **définitif** (pas de re-demande après un pull — H4), revu par « Revoir » des réglages
 - **[RETIRÉ]** (révision GATE 2, jamais publié) `rollback`, `update-skip`, champ `stale` de l'instantané : retour arrière = procédure manuelle documentée
 
 ## [20261119] — v6.5.0 (plan rev2) : coffre partagé (#201), masquage par projet (#209)

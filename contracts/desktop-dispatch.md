@@ -876,39 +876,37 @@ atomique sous `WithFileLock` :
 { "/share/…/INFRA/supervision-k8s": { "state": "pending" | "accepted" | "ignored", "sha": "<sha256>",
   "source": "https://github.com/CCoupel/supervision-k8s.git", "image": "debian:12", "at": "2026-11-20T10:00:00Z" } }
 ```
-- `sha` : SHA-256 du contenu de `env-template.yaml` puis `env.yaml` (absent = vide) **tels qu'approuvés** ; `image` :
-  socle choisi à la création (gardé par « Ouvrir sans »).
-- Écrit à la fin d'un `create` `source: git` **réussi** si le clone contient l'un des deux fichiers (`state: pending`,
-  `sha` du contenu cloné, avant que `ApplyExec` ne pose l'image choisie). Pas d'entrée = projet de confiance (projets
+- `sha` : SHA-256 du contenu de `env-template.yaml` puis `env.yaml` (absent = vide) au moment de la question — sert
+  seulement au contrôle de `envTrustAnswer` (fichier modifié pendant la question) ; `image` : socle choisi à la
+  création (gardé par « Ouvrir sans »).
+- **Choix définitif (H4, décision utilisateur)** : une fois `accepted` ou `ignored`, l'entrée n'est plus remise en
+  question par une modification ultérieure des fichiers (`git pull`, édition) ; seule l'action « Revoir » des réglages
+  la remet à `pending`.
+- Écrit à la fin d'un `create` `source: git` **réussi** si le clone contient l'un des deux fichiers (`state: pending`). Pas d'entrée = projet de confiance (projets
   existants, `empty`, `template`) — aucun changement pour eux.
-- Les écritures du launcher lui-même (`ApplyExec`, `setEnvImage`, `projectApply.env`) recalculent `sha` sans changer
-  `state` : elles ne redemandent pas.
 
-**`core.EnvTrust(path)`** → `trusted` (pas d'entrée) | `pending` | `accepted` | `ignored` | `changed` (entrée
-`accepted`/`ignored` dont le `sha` ne correspond plus aux fichiers : modifiés hors launcher, ex. `git pull`).
-**`LoadEnv`** : `ignored` → `EnvSpec{Image: entrée.image}` seul (rien d'autre du dépôt) ; `pending`/`changed` → refus
+**`core.EnvTrust(path)`** → `trusted` (pas d'entrée) | `pending` | `accepted` | `ignored` (pas d'état `changed`).
+**`LoadEnv`** : `ignored` → `EnvSpec{Image: entrée.image}` seul (rien d'autre du dépôt) ; `pending` → refus
 (`ErrEnvNotApproved`) pour toute préparation de conteneur. Projet affecté à l'**hôte** : aucune question (env.yaml
 inutilisé) ; elle vient au premier passage en conteneur (F2) ou à l'ouverture en conteneur.
 
 ### `open` **[CHANGED]** — garde d'approbation
 
-Projet en conteneur et `EnvTrust` ∈ {`pending`, `changed`} : rien n'est démarré, résultat
+Projet en conteneur et `EnvTrust` = `pending` : rien n'est démarré, résultat
 `{ "needTrust": true, "path" }` et évènement `envTrust` (ci-dessous). Les autres cas : inchangés.
 
 ### Évènement `envTrust` **[NEW]** et `envTrustInfo` **[NEW]**
 
 `envTrustInfo { "path" }` (et charge utile de l'évènement) :
 ```json
-{ "path": "…", "state": "pending" | "changed", "source": "https://github.com/…", "sha": "<sha courant>",
+{ "path": "…", "state": "pending", "source": "https://github.com/…", "sha": "<sha courant>",
   "chosenImage": "debian:12",
   "spec": { "image": "…", "packages": [], "packagesByManager": {}, "setup": [], "onStart": [], "watch": [],
             "mounts": [ { "path": "/var/run/docker.sock", "ro": false } ], "local": [], "prefer": "" },
   "files": { "env.yaml": "<texte>", "env-template.yaml": "" },
-  "diff": [ { "field": "onStart", "added": ["./scripts/dev-up.sh --watch"], "removed": ["./scripts/dev-up.sh"] } ],
   "risk": { "exec": 3, "hostMounts": 1 } }
 ```
-`diff` seulement pour `changed` (par rapport au contenu approuvé : copie gardée dans `trust/<sha>.yaml` du dossier de
-config) ; `risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet.
+`risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet.
 Textes affichés tels quels, échappés (jamais interprétés en HTML ni en séquences de terminal).
 
 ### `envTrustAnswer` **[NEW]**
@@ -916,7 +914,7 @@ Textes affichés tels quels, échappés (jamais interprétés en HTML ni en séq
 Arguments : `{ "path", "choice": "accept" | "ignore" | "cancel", "sha": "<sha de envTrustInfo>" }`.
 - `sha` différent du contenu actuel (fichier modifié pendant la question) : `{ "ok": false, "msg": "l'environnement a
   encore changé", "retry": true }` — l'interface recharge `envTrustInfo`.
-- `accept` → `state: accepted` (`sha` mémorisé), puis ouverture ; `ignore` → `state: ignored`, ouverture avec le seul
+- `accept` → `state: accepted` (définitif), puis ouverture ; `ignore` → `state: ignored`, ouverture avec le seul
   socle `image` ; `cancel` → rien n'est écrit, rien n'est ouvert.
 - Résultat : comme `open` (`{ "tab" }`) ou `{ "ok": true }` pour `cancel`.
 
@@ -928,5 +926,6 @@ ouverture). Permis projet fermé seulement.
 
 ### Coque tmux
 
-Même garde à l'ouverture : écran de la question (image, paquets, commandes, montages ; différences pour `changed`),
-touches `a` accepter, `s` ouvrir sans, `Échap` annuler (`v` : fichiers bruts selon la maquette retenue).
+Même garde à l'ouverture : écran de la question (image, paquets, commandes, montages),
+touches `a` accepter, `s` ouvrir sans, `Échap` annuler, `v` fichiers bruts (maquette retenue A,
+`docs/mockup/v6.6.0/ui/clone_trust__approbation_env.html`).
