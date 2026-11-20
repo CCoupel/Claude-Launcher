@@ -772,21 +772,33 @@ Arguments : `{ "path", "base", "category", "newCategory": false, "name" }`.
   l'étape en échec) ou « Annuler » (retour arrière).
 - Succès : `{ "ok": true, "path": "<nouveau chemin>", "key": "<nouvelle clé>" }`, arbre relu, sélection suivie.
 
-### `launcherInfo` **[NEW]** (#218, #219)
+### `launcherInfo` **[NEW]** (#219)
 
 Arguments : `{}`. Résultat :
 ```json
-{ "running": "v6.5.0", "installed": "v6.6.0", "binChanged": true,
-  "mode": "shell" | "desktop" | "web" | "pod",
-  "stale": [ { "role": "mirror", "pid": 4242 }, { "role": "layout-watch", "pid": 4250 } ],
-  "backup": { "version": "v6.5.0", "path": "…/claude-launcher-ng2.exe.bak-v6.5.0", "date": "2026-11-19T21:04:00Z" } }
+{ "running": "v6.5.0", "installed": "v6.6.0", "binChanged": true, "mode": "shell" | "desktop" | "web" | "pod" }
 ```
 - `binChanged` : le fichier de `SelfExe()` n'est plus celui du démarrage (inode/date/taille, ou `(deleted)`).
 - `installed` : version du binaire sur disque (`<exe> version`, délai 3 s ; vide si illisible).
-- `stale` (coque Linux seulement) : processus `mirror` / `layout-watch` du **même serveur tmux** (`CL_HUB` / socket
-  dans l'environnement du processus) dont `/proc/<pid>/exe` n'est pas le binaire courant.
-- `backup` : absent s'il n'y a pas de sauvegarde. Instantané : `launcher` reprend `binChanged`, `stale` (nombre) et
-  `backup.version` pour le bandeau.
+- Instantané : `launcher` reprend `running`, `installed`, `binChanged` pour le bandeau (une seule branche : « vX
+  installée — Relancer »). **[révision GATE 2]** pas de champ `stale` ni de branche « processus anciens » dans
+  l'interface web / native : les processus `mirror` / `layout-watch` n'existent que dans la coque, qui a sa propre
+  annonce (ci-dessous). Pas de champ `backup` (aucun retour arrière dans l'interface).
+
+### Processus anciens de la coque — `core.FindStaleProcs` (#219)
+
+Coque Linux seulement (hors Linux : liste vide, pas de parcours de `/proc`). Retient un processus de `/proc` si :
+- `argv[0]` a pour **nom de fichier le nom du binaire courant** (`claude-launcher-ng2`) et `argv[1]` ∈ {`mirror`,
+  `layout-watch`} — un processus d'un autre programme portant ces arguments n'est jamais retenu ;
+- son `CL_INNER_SOCKET` (environnement, défaut `claude-ng2`) est celui de ce launcher (pas d'action sur le serveur
+  tmux d'un autre launcher ou d'un test) ;
+- son `/proc/<pid>/exe` n'est **pas** le binaire courant (`os.SameFile`).
+
+### Coque — touche `ctrl+r` contextuelle **[CHANGED]** (#219)
+
+- Annonce affichée (binaire changé, ou processus anciens restants) : `ctrl+r` demande la confirmation (« Relancer ?
+  … sessions gardées (o/y) ») puis relance comme `relaunch` en mode `shell`. Un clic sur l'annonce fait de même.
+- Sans annonce : `ctrl+r` garde son rôle actuel (rescan).
 
 ### `relaunch` **[NEW]** (#219)
 
@@ -795,19 +807,18 @@ Effet selon `mode` :
 - `desktop` / `web` : `restartApp` (binaire installé relancé, `CL_NO_UPDATE=1`, port libéré, ancien processus
   quitté).
 - `shell` : panes de la coque (`@cl` nav, cartes, état) relancés par `respawn-pane -k` avec le binaire installé ;
-  vignettes `mirror` relancées par `respawn-pane -k` ; `layout-watch` anciens arrêtés (`SIGTERM`, puis `SIGKILL`
-  après 2 s) et relancés par `run-shell -b` pour leur fenêtre. **Jamais** de `kill-session` ni de `kill-server` de
-  `claude-hub` : sessions et panes des projets intacts.
+  vignettes `mirror` relancées par `respawn-pane -k` ; `layout-watch` anciens (`FindStaleProcs`) arrêtés (`SIGTERM`,
+  puis `SIGKILL` après 2 s) et relancés par `run-shell -b` pour leur fenêtre. **Jamais** de `kill-session` ni de
+  `kill-server` de `claude-hub` : sessions et panes des projets intacts.
 - `pod` : sortie du processus (code 0) — le conteneur du launcher est redémarré par Kubernetes ; les pods des
   projets ne sont pas touchés.
 Résultat : `{ "ok": true }` avant la relance (l'interface se reconnecte), ou `{ "ok": false, "msg" }`.
 
-### `rollback` **[NEW]** (#218)
+### ~~`rollback`~~ **[RETIRÉ]** (#218, révision GATE 2)
 
-Arguments : `{ "confirm": true }`. Effet : l'exe courant est mis de côté (`.old`, supprimé au démarrage suivant),
-la sauvegarde `.bak-<version>` reprend sa place, la version courante est **écartée** de la mise à jour
-automatique (`update-skip` dans le cache : bandeau « v6.6.0 écartée — réinstaller ») jusqu'à une version plus
-récente, puis `relaunch`. Sans sauvegarde : `{ "ok": false, "msg": "aucune sauvegarde" }`.
+Aucun retour arrière dans l'interface (ni Dispatch, ni bandeau, ni touche de coque). Le retour à la version
+précédente est une **procédure manuelle documentée** (guide `ng2/docs/`, section mise à jour) : quitter le
+launcher, renommer `<exe>.bak-v<précédente>` en `<exe>`, relancer ; l'exe sauvegardé (v6.6.0) peut être gardé à côté.
 
 ### Sauvegarde avant mise à jour (#218) **[CHANGED]**
 
@@ -816,7 +827,8 @@ récente, puis `relaunch`. Sans sauvegarde : `{ "ok": false, "msg": "aucune sauv
 renommage par-dessus restant le mécanisme de remplacement). **Une seule** sauvegarde gardée : les autres
 `<exe>.bak-v*` sont supprimées après une installation réussie (une sauvegarde verrouillée est retentée au démarrage).
 Même convention que la sauvegarde du hub par `deployer` (`claude-launcher-ng2.bak-v<précédente>`). Échec de
-l'écriture du nouveau binaire : l'exe d'origine est remis en place (comportement `swapRunningExe` conservé).
+l'écriture du nouveau binaire : l'exe d'origine est remis en place (comportement `swapRunningExe` conservé). Pas de
+version « écartée » (`update-skip` retiré avec le retour arrière).
 
 ### Écriture de `config.conf` (#217) **[CHANGED]**
 

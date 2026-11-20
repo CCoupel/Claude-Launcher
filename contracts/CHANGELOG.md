@@ -9,7 +9,9 @@
 - **[CHANGED]** `create` : `base` = racine configurée seulement (+ `category`, `newCategory`), `source` `empty|git|template`, `url`, asynchrone pour `git`, nettoyage complet sur échec — un appel v6.5.0 avec `base` = dossier de catégorie est refusé (interface et backend livrés ensemble, aucun client externe)
 - **[CHANGED]** `newInfo` : `bases`, `default`, `auth` (présence du jeton / des clés, jamais leur valeur), `template` ; `roots` gardé (retrait en v7)
 - **[NEW]** `projectMoveInfo`, `projectMove` (journal `moves.json`, retour arrière, état partiel repris)
-- **[NEW]** `launcherInfo`, `relaunch`, `rollback` ; **[CHANGED]** sauvegarde `<exe>.bak-v<version>` avant mise à jour (une seule gardée) ; écriture atomique de `config.conf` (retentée sous Windows), balayage des `.config.conf.tmp-*`
+- **[NEW]** `launcherInfo` (sans `stale` ni `backup`), `relaunch` ; coque : `ctrl+r` contextuel (relance si l'annonce est affichée, rescan sinon) ; `FindStaleProcs` filtré sur `argv[0]` = nom du binaire, `argv[1]` ∈ {mirror, layout-watch}, `CL_INNER_SOCKET` du launcher
+- **[CHANGED]** sauvegarde `<exe>.bak-v<version>` avant mise à jour (une seule gardée) ; écriture atomique de `config.conf` (retentée sous Windows), balayage des `.config.conf.tmp-*`
+- **[RETIRÉ]** (révision GATE 2, jamais publié) `rollback`, `update-skip`, champ `stale` de l'instantané : retour arrière = procédure manuelle documentée
 
 ## [20261119] — v6.5.0 (plan rev2) : coffre partagé (#201), masquage par projet (#209)
 

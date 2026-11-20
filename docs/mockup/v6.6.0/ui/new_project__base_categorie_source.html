@@ -6,7 +6,7 @@ mockup:
   type: ui
   issue: "#214, #215"
   validee_le: 2026-11-20
-  proposition_retenue: "C — Vertical · Formulaire empilé"
+  proposition_retenue: "B — Horizontal · Source en cartes"
   complete: []
   remplace: []
 -->
@@ -25,6 +25,7 @@ h1{font-size:17px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 14px;max-wid
 .tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.grp{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0 4px 0 10px}
 .tab{background:var(--panel);border:1px solid var(--line2);color:var(--text2);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
 .tab.on{background:var(--hl);border-color:var(--accent);color:var(--text)}
+
 .why{color:var(--muted);margin:6px 0 14px;font-size:12.5px;min-height:18px}
 
 .stage{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
@@ -56,34 +57,46 @@ table.imp{border-collapse:collapse;width:100%;font-size:12px}table.imp td{paddin
 <body>
 <h1>Maquette #214 / #215 — fenêtre « Nouveau projet » (v6.6.0)</h1>
 <p class="sub">Base et catégorie choisies dans des listes (plus de chemin absolu), « Nouvelle catégorie… », chemin final en lecture seule, et mode de création : <b>vide</b>, <b>dépôt Git</b> (clonage, jeton GitHub ou clé ssh du backend) ou <b>template</b> (<code>claude_project_template</code>, <code>/init-project</code> proposé à la 1<sup>re</sup> ouverture). Même dialogue pour l'interface web et la fenêtre native Windows (<code>app.js</code> commun) ; la coque tmux Linux est montrée dessous. Exemple : bases <code>/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS</code> et <code>/srv/projets</code>.</p>
-<p class="why">Proposition retenue : C — Vertical · Formulaire empilé</p>
+<p class="why">Proposition retenue : B — Horizontal · Source en cartes</p>
 
 <section><div class="stage">
-<div class="win" style="width:440px"><div class="wtitle">✦ Nouveau projet<span class="x">✕</span></div><div class="wbody">
-<label class="l">Base de projets</label><div class="sel">/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS</div>
-<label class="l">Catégorie</label><div class="sel">＋ Nouvelle catégorie…</div>
-<div class="in focus" style="margin-top:6px">MONITORING<span class="mut" style="margin-left:auto;font-size:11px">sera créée</span></div>
-<label class="l">Nom du projet</label><div class="in">supervision-k8s</div>
-<label class="l">Création</label><div class="seg"><span>Vide</span><span>Dépôt Git</span><span class="on">Template</span></div>
-<div class="mut" style="font-size:11.5px;margin-top:4px">◆ claude_project_template v5.11.1 — /init-project proposé à la première ouverture</div>
-<label class="l">Exécution</label><div class="sel">hôte (sans conteneur)</div>
-<label class="l">Chemin final</label><div class="ro">/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS/<b>MONITORING</b>/<b>supervision-k8s</b></div>
-<div class="btns"><span class="btn">Annuler</span><span class="btn pri">Créer et ouvrir</span></div>
+<div class="win" style="width:780px"><div class="wtitle">✦ Nouveau projet<span class="x">✕</span></div><div class="wbody">
+<div class="cap">1 · Créer à partir de</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
+<div class="card"><h4>▢ Projet vide</h4><p>Dossier, <code>git init</code> et remote facultatif (ou brut : CLAUDE.md minimal).</p></div>
+<div class="card on"><h4>⎇ Dépôt Git</h4><p>Clonage d'une URL GitHub. HTTPS : jeton de config.conf · ssh : clé du backend.</p></div>
+<div class="card"><h4>◆ Template projet</h4><p><code>claude_project_template</code> ; <code>/init-project</code> proposé à la 1<sup>re</sup> ouverture.</p></div>
+</div>
+<label class="l">URL du dépôt</label><div class="in">git@github.com:CCoupel/supervision-k8s.git <span class="ok" style="margin-left:auto;font-size:11.5px">🔑 clé ssh du backend ✓</span></div>
+<div class="cap" style="margin-top:14px">2 · Emplacement</div>
+<div style="display:grid;grid-template-columns:1.6fr 1fr 1.2fr;gap:10px">
+<div><label class="l">Base</label><div class="sel">…/CLAUDE_PROJETS/PROJETS</div></div>
+<div><label class="l">Catégorie</label><div class="sel">INFRA</div></div>
+<div><label class="l">Nom</label><div class="in focus">supervision-k8s</div></div>
+</div>
+<div class="ro" style="margin-top:8px">/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS/<b>INFRA</b>/<b>supervision-k8s</b></div>
+<div class="cap" style="margin-top:14px">3 · Exécution</div>
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div class="sel">⬡ debian-12 (claude)</div><div class="sel">srv1-docker</div></div>
+<div class="btns"><span class="btn">Annuler</span><span class="btn pri">Cloner et ouvrir</span></div>
 </div></div>
-<div style="width:360px"><div class="cap">États</div>
-<div class="note">Mode <b>Vide</b> : le choix actuel « géré / brut » et le remote facultatif réapparaissent sous le sélecteur.</div>
-<div class="note">Mode <b>Dépôt Git</b> : champ URL + ligne d'authentification (🔑 jeton ✓ / clé ✓).</div>
-<div class="note e">Nom de catégorie invalide : « ✕ nom invalide (ni / ni ..) », bouton désactivé.</div>
-<div class="note e">Chemin déjà existant : « ✕ ce dossier existe déjà » sous le nom.</div>
+<div style="width:330px"><div class="cap">États</div>
+<div class="note">Le nom est pré-rempli depuis l'URL (<code>supervision-k8s</code>), modifiable.</div>
+<div class="note">Catégorie : liste + « ＋ Nouvelle catégorie… » en dernière entrée ; la liste se recharge quand la base change.</div>
+<div class="note w">Pas de jeton ni de clé : « ⚠ dépôt public seulement — ajouter un jeton (⚙ config.conf) ou une clé ssh (⚙ ce poste) ».</div>
+<div class="note e">Échec : le bandeau du dialogue passe en rouge avec la sortie de git (3 lignes) ; dossier supprimé.</div>
 </div></div>
-<div class="cap" style="margin-top:18px">Coque tmux Linux</div>
-<div class="term"><span class="c"> ✦ Nouveau projet</span>
- Base        /share/MFS/ROOT/CLAUDE_PROJETS/PROJETS
- Catégorie   <span class="h"> ＋ nouvelle : MONITORING█ </span>
- Nom         supervision-k8s
- Création    <span class="d">vide · git ·</span> <span class="h"> template </span>
- Exécution   hôte
- → <span class="y">…/PROJETS/MONITORING/supervision-k8s</span>  <span class="d">(MONITORING sera créée)</span></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux (la source d'abord, comme les cartes)</div>
+<div class="term"><span class="c"> ✦ Nouveau projet — créer à partir de</span>
+
+   ▢ projet vide
+ <span class="h"> ⎇ dépôt Git                                    </span>
+   ◆ template projet (/init-project proposé à l'ouverture)
+
+ URL        git@github.com:CCoupel/supervision-k8s.git   <span class="g">🔑 clé ssh ✓</span>
+ Base       /share/MFS/ROOT/CLAUDE_PROJETS/PROJETS
+ Catégorie  INFRA            <span class="d">(↑↓, n : nouvelle)</span>
+ Nom        supervision-k8s
+ → <span class="y">…/PROJETS/INFRA/supervision-k8s</span></div>
 </section>
 </body>
 </html>

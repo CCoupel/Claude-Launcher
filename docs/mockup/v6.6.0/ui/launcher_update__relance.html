@@ -1,12 +1,12 @@
 <!--
 mockup:
   composant: launcher_update
-  feature: relance_retour_arriere
+  feature: relance
   version: 6.6.0
   type: ui
-  issue: "#218, #219"
+  issue: "#219"
   validee_le: 2026-11-20
-  proposition_retenue: "A — Bandeau de mise à jour étendu"
+  proposition_retenue: "A — Bandeau de mise à jour étendu (sans retour arrière)"
   complete: []
   remplace: []
 -->
@@ -15,7 +15,7 @@ mockup:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Maquette #218/#219 — Relance et retour arrière (v6.6.0)</title>
+<title>Maquette #219 — Relance du launcher (v6.6.0)</title>
 <style>
 :root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;
 --ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
@@ -25,6 +25,7 @@ h1{font-size:17px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 14px;max-wid
 .tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.grp{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0 4px 0 10px}
 .tab{background:var(--panel);border:1px solid var(--line2);color:var(--text2);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
 .tab.on{background:var(--hl);border-color:var(--accent);color:var(--text)}
+
 .why{color:var(--muted);margin:6px 0 14px;font-size:12.5px;min-height:18px}
 
 .stage{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
@@ -54,31 +55,28 @@ table.imp{border-collapse:collapse;width:100%;font-size:12px}table.imp td{paddin
 </style>
 </head>
 <body>
-<h1>Maquette #218 / #219 — relancer le launcher, revenir à la version précédente (v6.6.0)</h1>
-<p class="sub">Après une mise à jour du binaire, « Relancer » est proposé d'office (bandeau de mise à jour #198), avec confirmation : ce qui est relancé (processus du launcher, vignettes <code>mirror</code>, <code>layout-watch</code> de l'ancien binaire) et ce qui est gardé (sessions tmux, pods). Le retour à la version précédente (<code>.bak-v6.5.0</code>, une seule sauvegarde) est proposé au même endroit. Web, fenêtre native et coque tmux.</p>
-<p class="why">Proposition retenue : A — Bandeau de mise à jour étendu</p>
+<h1>Maquette #219 — relancer le launcher (v6.6.0)</h1>
+<p class="sub">Après une mise à jour du binaire, « Relancer » est proposé d'office (bandeau de mise à jour #198), avec confirmation : ce qui est relancé et ce qui est gardé (sessions tmux, pods). <b>Pas de retour arrière dans l'interface</b> (#218) : l'exe garde sa sauvegarde <code>.bak-&lt;version&gt;</code> avant remplacement, le retour à la version précédente est une procédure manuelle documentée. Les processus anciens (<code>mirror</code>, <code>layout-watch</code>) ne concernent que la coque, qui a sa propre annonce. Web, fenêtre native et coque tmux (<b>ctrl+r</b> contextuel).</p>
+<p class="why">Proposition retenue : A — Bandeau de mise à jour étendu (sans retour arrière)</p>
 
 <section><div class="stage" style="flex-direction:column">
 <div class="win" style="width:900px"><div class="wbody" style="padding:8px">
-<div class="bar g">✓ v6.6.0 installée — l'interface tourne encore en v6.5.0<span class="sp"></span><span class="btn pri">↻ Relancer</span><span class="link">revenir à v6.5.0</span><span class="mut">✕</span></div>
-<div class="bar y" style="margin-top:6px">⚠ 3 processus de l'ancien binaire (2 vignettes, 1 layout-watch)<span class="sp"></span><span class="link">les relancer</span></div>
+<div class="bar g">✓ v6.6.0 installée — l'interface tourne encore en v6.5.0<span class="sp"></span><span class="btn pri">↻ Relancer</span><span class="mut">✕</span></div>
 </div></div>
 <div style="display:flex;gap:22px;flex-wrap:wrap">
 <div class="win" style="width:440px"><div class="wtitle">↻ Relancer le launcher<span class="x">✕</span></div><div class="wbody">
 <div class="cap">Relancé</div>
-<div>• interface (hub, v6.5.0 → v6.6.0)</div><div>• 2 vignettes Teamleaders (mirror, ancien binaire)</div><div>• 1 layout-watch (ancien binaire)</div>
+<div>• interface (v6.5.0 → v6.6.0)</div><div class="mut">• coque Linux : panes du launcher, vignettes mirror et layout-watch de l'ancien binaire</div>
 <div class="cap" style="margin-top:10px">Gardé</div>
 <div class="ok">• sessions des projets (tmux claude-hub, 4 fenêtres) · pods</div>
 <div class="note">En cluster : redémarrage du pod du launcher (l'interface revient seule).</div>
 <div class="btns"><span class="btn">Annuler</span><span class="btn pri">Relancer</span></div></div></div>
-<div class="win" style="width:440px"><div class="wtitle">↶ Revenir à v6.5.0<span class="x">✕</span></div><div class="wbody">
-<div>Sauvegarde : <code>claude-launcher-ng2.exe.bak-v6.5.0</code> (19/11)</div>
-<div class="mut" style="margin-top:6px">v6.6.0 est mise de côté ; la mise à jour automatique est suspendue pour v6.6.0 (reproposée à la version suivante).</div>
-<div class="btns"><span class="btn">Annuler</span><span class="btn pri">Revenir et relancer</span></div></div></div>
 </div></div>
-<div class="cap" style="margin-top:18px">Coque tmux Linux (ligne d'alerte du navigateur)</div>
-<div class="term"><span class="g"> ✓ v6.6.0 installée — R : relancer · B : revenir à v6.5.0</span>
- <span class="y">Relancer ? interface + 3 processus anciens ; sessions gardées (o/n)</span></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux (ligne d'annonce du navigateur, ctrl+r contextuel)</div>
+<div class="term"><span class="g">  ✓ v6.6.0 installée · ctrl+r : relancer · clic</span>
+ <span class="o">  ⚠ 3 processus de l'ancien binaire · ctrl+r : les relancer</span>   <span class="d">(si seuls des processus anciens restent)</span>
+ <span class="y">  Relancer ? interface + 3 processus anciens ; sessions gardées (o/y)</span>
+ <span class="d">  sans annonce affichée : ctrl+r = rescan (inchangé)</span></div>
 </section>
 </body>
 </html>

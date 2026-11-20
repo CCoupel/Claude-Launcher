@@ -29,3 +29,6 @@
 - Deux organisations seulement : leader en haut (bandeau de teammates) et leader à gauche (teammates en une puis deux colonnes). _(v6.2.0, organisations)_
 - Le choix est un réglage global avec exception par projet ; pas de bascule à la volée par raccourci. _(v6.2.0, organisations)_
 - Pas de mise en page libre : un redimensionnement à la main n'est pas conservé. _(v6.2.0, organisations)_
+
+## launcher_update
+- Pas de retour arrière dans l'interface : l'exe garde `.bak-<version>`, le retour arrière est manuel et documenté. _(choix utilisateur 2026-11-20, #218)_
