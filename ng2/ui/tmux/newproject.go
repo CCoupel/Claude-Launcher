@@ -38,6 +38,7 @@ const (
 	formSource  // source : vide, template ou dépôt git (#215)
 	formURL     // URL du dépôt à cloner
 	formCloning // clonage en cours (progression)
+	formTrust   // approbation de l'environnement d'un projet cloné (#215)
 	formKind
 	formRemote
 	formExec // socle d'exécution : hôte ou conteneur (image)
@@ -57,10 +58,15 @@ type newForm struct {
 	source string
 	srcIdx int // 0 vide, 1 template, 2 git
 	url    string
-	name   string
-	raw    bool // projet brut (sinon géré)
-	remote string
-	err    string
+	// approbation (formTrust) : question, mode d'ouverture à reprendre, fichiers bruts affichés
+	trust     *core.EnvTrustInfo
+	trustPath string
+	trustMode launchMode
+	trustRaw  bool
+	name      string
+	raw       bool // projet brut (sinon géré)
+	remote    string
+	err       string
 	// exécution (formExec) : 0 = hôte, i = images[i-1] dans le backend ctrBe
 	exec     int
 	images   []string
@@ -224,6 +230,9 @@ func (m model) enterCategory() model {
 
 func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := &m.form
+	if f.mode == formTrust {
+		return m.onTrustKey(k)
+	}
 	switch k.String() {
 	case "esc", "ctrl+c":
 		if f.mode == formCloning {
@@ -380,7 +389,17 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				}
 				return m.createProject()
 			}
-		case formExec: // un chiffre choisit (0 : hôte)
+		case formExec: // un chiffre choisit (0 : hôte) ; r : revoir l'environnement d'un dépôt cloné (F2)
+			if strings.ToLower(s) == "r" && f.existing != "" {
+				if err := core.ReviewEnvTrust(f.existing); err != nil {
+					f.err = err.Error()
+				} else {
+					f.err = ""
+					m.msg = "↻ " + f.name + " : l'environnement du dépôt sera redemandé à la prochaine ouverture"
+					m.form = newForm{}
+				}
+				break
+			}
 			if len(s) == 1 && s[0] >= '0' && int(s[0]-'0') <= len(f.images) {
 				f.exec = int(s[0] - '0')
 			}
@@ -542,6 +561,12 @@ func (m model) cloneDone(msg cloneDoneMsg) model {
 			m.form.mode = formURL
 			return m
 		}
+		// l'environnement du dépôt cloné n'est appliqué qu'avec l'accord de l'utilisateur : demandé à l'ouverture
+		if _, err := core.MarkEnvPending(j.dir, m.form.url, m.formImage()); err != nil {
+			m.form.err = "registre d'approbation : " + err.Error() + " — " + j.undo()
+			m.form.mode = formURL
+			return m
+		}
 		return m.finishCreated(j.dir, launchNormal)
 	case errors.Is(msg.err, context.Canceled):
 		m.form.err = "annulé — " + j.undo()
@@ -607,6 +632,9 @@ func (m model) renderExec(w int) string {
 
 func (m model) renderForm(w int) string {
 	f := m.form
+	if f.mode == formTrust && f.trust != nil {
+		return m.renderTrust(w)
+	}
 	var sb strings.Builder
 	if f.existing != "" {
 		sb.WriteString(" " + core.Cyan.Render("⬢ Exécution de "+f.name) + "\n")
@@ -745,5 +773,107 @@ func (m model) renderForm(w int) string {
 		hint = "↑↓ 0-9 socle · ←→ backend · ↵ · esc"
 	}
 	sb.WriteString("\n " + core.Dim.Render(hint))
+	return truncLines(sb.String(), w)
+}
+
+// formImage : socle choisi dans le formulaire ("" : hôte).
+func (m model) formImage() string {
+	f := m.form
+	if f.exec > 0 && f.exec <= len(f.images) {
+		return f.images[f.exec-1]
+	}
+	return ""
+}
+
+// startTrust : écran d'approbation de l'environnement d'un projet cloné, avant toute ouverture en conteneur.
+func (m model) startTrust(n core.Node, mode launchMode) model {
+	info, err := core.EnvTrustInfoFor(n.Path)
+	if err != nil {
+		m.msg = "⚠ " + err.Error()
+		return m
+	}
+	m.form = newForm{mode: formTrust, trust: &info, trustPath: n.Path, trustMode: mode, name: n.Name}
+	return m
+}
+
+// onTrustKey : a accepter (définitif), s ouvrir sans (socle choisi seul), Échap annuler, v fichiers bruts.
+func (m model) onTrustKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	f := &m.form
+	answer := func(choice string) (tea.Model, tea.Cmd) {
+		retry, err := core.AnswerEnvTrust(f.trustPath, choice, f.trust.SHA)
+		if retry { // fichiers modifiés pendant la question : relue
+			if info, ierr := core.EnvTrustInfoFor(f.trustPath); ierr == nil {
+				f.trust = &info
+			}
+			f.err = "l'environnement a encore changé : relire puis choisir"
+			return m, nil
+		}
+		if err != nil {
+			f.err = err.Error()
+			return m, nil
+		}
+		mode := f.trustMode
+		m.form = newForm{}
+		return m.openSelectedAs(mode), nil
+	}
+	switch strings.ToLower(k.String()) {
+	case "a":
+		return answer("accept")
+	case "s":
+		return answer("ignore")
+	case "v":
+		f.trustRaw = !f.trustRaw
+	case "esc", "ctrl+c":
+		m.form = newForm{} // annuler : rien n'est écrit, rien n'est ouvert
+	}
+	return m, nil
+}
+
+// renderTrust : la question — ce que le dépôt demande, le risque, les fichiers bruts (v). Tout texte du dépôt passe
+// par core.SafeTerminalText : jamais de séquence de terminal.
+func (m model) renderTrust(w int) string {
+	f := m.form
+	t := f.trust
+	var sb strings.Builder
+	sb.WriteString(" " + core.Orange.Render("⚠ Environnement d'un dépôt cloné : "+core.SafeTerminalText(f.name)) + "\n")
+	sb.WriteString(" " + core.Dim.Render("source : ") + shorten(core.SafeTerminalText(t.Source), w-12) + "\n\n")
+	if f.trustRaw {
+		for _, name := range []string{"env.yaml", "env-template.yaml"} {
+			if txt := t.Files[name]; txt != "" {
+				sb.WriteString(" " + core.Cyan.Render(name) + "\n")
+				for _, l := range strings.Split(core.SafeTerminalText(txt), "\n") {
+					sb.WriteString("  " + shorten(l, w-4) + "\n")
+				}
+			}
+		}
+	} else {
+		sp := t.Spec
+		line := func(label string, items []string) {
+			if len(items) > 0 {
+				sb.WriteString(" " + core.Dim.Render(label) + "\n")
+				for _, it := range items {
+					sb.WriteString("   " + shorten(core.SafeTerminalText(it), w-5) + "\n")
+				}
+			}
+		}
+		sb.WriteString(" " + core.Dim.Render("image : ") + core.SafeTerminalText(sp.Image) + core.Dim.Render("   (choisie à la création : "+core.OrQ(core.SafeTerminalText(t.ChosenImage))+")") + "\n")
+		line("paquets :", sp.Packages)
+		line("setup (exécuté) :", sp.Setup)
+		line("on_start (exécuté à chaque démarrage) :", sp.OnStart)
+		var mts []string
+		for _, mt := range sp.Mounts {
+			mode := "lecture seule"
+			if !mt.RO {
+				mode = "ÉCRITURE"
+			}
+			mts = append(mts, mt.Path+"  ("+mode+")")
+		}
+		line("montages :", mts)
+		sb.WriteString("\n " + core.Red.Render(fmt.Sprintf("%d commande(s) exécutée(s), %d montage(s) hors du projet", t.Risk.Exec, t.Risk.HostMounts)) + "\n")
+	}
+	if f.err != "" {
+		sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")
+	}
+	sb.WriteString("\n " + core.Dim.Render("a accepter (définitif) · s ouvrir sans · v fichiers bruts · Échap annuler"))
 	return truncLines(sb.String(), w)
 }

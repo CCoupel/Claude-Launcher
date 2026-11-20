@@ -676,6 +676,10 @@ func (m model) openSelectedAs(mode launchMode) model {
 	if mode == launchNormal && m.launch && !m.windows[n.Key] && !core.Assigned(n.Path) && len(core.CtrBackends()) > 0 {
 		return m.startExecChoice(n, true)
 	}
+	// dépôt cloné : son environnement n'est appliqué qu'avec l'accord de l'utilisateur (#215) ; rien n'est démarré avant
+	if m.launch && !m.windows[n.Key] && core.EnvTrust(n.Path) == core.TrustPending && core.EnvContainerProject(n.Path) {
+		return m.startTrust(n, mode)
+	}
 	if m.shell && m.launch && dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		// claude-hub fermé entre-temps : la coque le recrée, zone tmux de droite comprise
 		if err := ensureInner(); err == nil {
