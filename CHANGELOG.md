@@ -18,7 +18,6 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ### Changed
 - `create` (« Nouveau projet ») : `base` doit être une racine configurée, `category` et `name` passent par la même règle serveur ; l'ancien appel `{base: "<racine>/INFRA"}` est refusé (`base inconnue`) : l'interface et le backend sont livrés ensemble (#214)
-
 - Les projets vides, template et git ne lancent plus `/init-project` d'office (#215)
 
 ### Fixed
