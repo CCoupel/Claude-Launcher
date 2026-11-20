@@ -99,6 +99,9 @@ func SelfUpdate() {
 		time.Sleep(2 * time.Second)
 	}
 	if binDone {
+		if w := platform.TakeBackupWarning(); w != "" { // #218 : mise à jour faite sans sauvegarde de l'ancien binaire
+			fmt.Printf("\033[1;33m  ⚠ %s\033[0m\n", w)
+		}
 		fmt.Println("  ✓ launcher mis à jour. Relancement…")
 		_ = os.Setenv("CL_NO_UPDATE", "1") // le nouveau binaire ne revérifie pas
 		err := platform.ExecBinary(exe, os.Args, os.Environ())

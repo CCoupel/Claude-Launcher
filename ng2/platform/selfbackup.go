@@ -33,7 +33,7 @@ func setBackupWarning(w string) {
 	warnMu.Unlock()
 }
 
-// TakeBackupWarning : avertissement de la dernière installation (« mise mise à jour faite sans sauvegarde : … »), vidé
+// TakeBackupWarning : avertissement de la dernière installation (« mise à jour faite sans sauvegarde : … »), vidé
 // à la lecture ; "" si la sauvegarde a été faite. Montré dans le résultat de la mise à jour (#218).
 func TakeBackupWarning() string {
 	warnMu.Lock()
