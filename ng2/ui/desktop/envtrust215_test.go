@@ -427,3 +427,28 @@ func TestEnvTrustTextesDuDepotNeSontJamaisDuHTML215(t *testing.T) {
 
 // closeProjectTab215 : retire l'onglet (la session reste, sans importance ici : la garde porte sur open).
 func closeProjectTab215(a *App, dir string) { a.detachTab(dir) }
+
+// Clone SANS env.yaml avec un socle conteneur choisi : le launcher écrit lui-même env.yaml après le clone, l'état reste
+// « none » (décidé sur le dépôt seul) — aucune question sur son propre fichier, mais un pull ultérieur redemande.
+func TestCloneSansEnvAvecSocleResteNone215(t *testing.T) {
+	f := containerFix215(t, "")
+	args := gitArgs215(f.base)
+	args["image"], args["backend"] = "docker.io/library/alpine:3.20", "pod"
+	f.create(t, args)
+	f.waitState(t, "done")
+	dir := filepath.Join(f.base, "CLONES", "repo")
+	if _, err := os.Stat(core.EnvPath(dir)); err != nil {
+		t.Fatalf("env.yaml du launcher absent : %v", err)
+	}
+	if e, ok := core.EnvTrustEntry(dir); !ok || e.State != core.TrustNone || core.EnvTrust(dir) != core.TrustNone || core.EnvTrustChanged(dir) {
+		t.Fatalf("entrée = %+v (présente=%v) état=%s changed=%v, attendu none sans question", e, ok, core.EnvTrust(dir), core.EnvTrustChanged(dir))
+	}
+	if v := dispatchJSON(t, f.a, "open", map[string]any{"path": dir}); v["needTrust"] != nil {
+		t.Errorf("question posée sur le propre env.yaml du launcher : %v", v)
+	}
+	// le dépôt modifie ensuite env.yaml (pull) : la question revient
+	writeEnv215(t, dir, evil215)
+	if core.EnvTrust(dir) != core.TrustPending || !core.EnvTrustChanged(dir) {
+		t.Errorf("pull : état %s changed=%v, attendu pending", core.EnvTrust(dir), core.EnvTrustChanged(dir))
+	}
+}
