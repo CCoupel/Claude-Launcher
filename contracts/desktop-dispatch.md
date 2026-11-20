@@ -822,7 +822,7 @@ l'écriture du nouveau binaire : l'exe d'origine est remis en place (comportemen
 
 `SaveConfig` (et donc `ApplyProjectConf*`, `configApply`, `projectApply`), `EnsureConfig` : temporaire
 `.config.conf.tmp-*` du même dossier, `0600`, `fsync`, `rename`, puis `fsync` du dossier (Unix). Windows : rename
-retenté (5 essais, 50→800 ms) sur `ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`, puis erreur explicite
+retenté (5 essais, attentes 50/100/200/400 ms) sur `ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`, puis erreur explicite
 (`config.conf verrouillé par un autre programme`) ; l'ancien fichier reste intact. La copie `.bak` est écrite de
 la même façon. `EnsureConfig` : création exclusive par temporaire + lien/rename sans écrasement. Au démarrage, les
 `.config.conf.tmp-*` de plus de 10 min du dossier de config sont supprimés. Aucun changement d'API.
