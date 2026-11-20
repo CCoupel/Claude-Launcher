@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"strings"
 	"sync"
+	"testing"
 	"time"
 
 	"claude-launcher-ng2/platform"
@@ -150,9 +151,24 @@ func InstalledVersion(exe string, timeout time.Duration) string {
 	return f[len(f)-1]
 }
 
+// isTestBinary : exe est le binaire de test en cours. Le relancer avec « version » rejouerait toute la suite en
+// sous-processus (récursion, sockets tmux laissés) : jamais exécuté.
+func isTestBinary(exe string) bool {
+	if !testing.Testing() {
+		return false
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	a, e1 := os.Stat(self)
+	b, e2 := os.Stat(exe)
+	return e1 == nil && e2 == nil && os.SameFile(a, b)
+}
+
 func installedVersion() string {
 	exe, err := launcherExe()
-	if err != nil {
+	if err != nil || isTestBinary(exe) {
 		return ""
 	}
 	return InstalledVersion(exe, installedVersionTimeout)
@@ -199,6 +215,9 @@ func LauncherInstalledCached() string {
 	}
 	sig, err := StatSig(exe)
 	if err != nil {
+		return ""
+	}
+	if isTestBinary(exe) {
 		return ""
 	}
 	instMu.Lock()
