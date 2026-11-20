@@ -130,8 +130,8 @@ func mergeRestrictive(cur, loc TrustEntry) TrustEntry {
 		return loc
 	case rl < rc:
 		return cur
-	case cur.State == loc.State && cur.SHA == loc.SHA:
-		return cur
+	case cur.State == loc.State && (cur.SHA == loc.SHA || cur.State == TrustPending):
+		return cur // pending des deux côtés : déjà le plus strict, l'empreinte ne compte pas (aucune réécriture à chaque démarrage)
 	}
 	out := cur
 	out.State, out.At = TrustPending, time.Now().UTC().Format(time.RFC3339)
@@ -501,6 +501,7 @@ func EnvTrustInfoFor(proj string) (EnvTrustInfo, error) {
 	if broken {
 		info.Broken = trustBrokenError{}.Error()
 	}
+	info.Risk.Scripts = []string{}
 	info.Spec = EnvTrustSpec{Packages: []string{}, PackagesByManager: map[string][]string{}, Setup: []string{}, OnStart: []string{},
 		Watch: []string{}, Mounts: []EnvTrustMount{}, Local: []string{}}
 	if e, err := loadEnvRaw(proj); err == nil || e.Image != "" || len(e.Setup) > 0 || len(e.Mounts) > 0 {
@@ -613,7 +614,7 @@ var scriptExts = []string{".sh", ".bash", ".zsh", ".py", ".rb", ".pl", ".js", ".
 // sans doublon, triés. Heuristique : elle signale, elle ne prouve rien.
 func repoScripts(cmds []string) []string {
 	seen := map[string]bool{}
-	var out []string
+	out := []string{} // jamais nil : « scripts »: [] et non null
 	for _, c := range cmds {
 		for _, tok := range strings.FieldsFunc(c, func(r rune) bool {
 			return unicode.IsSpace(r) || strings.ContainsRune(";&|()<>`'\"=,", r)

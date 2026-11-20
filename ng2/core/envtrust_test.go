@@ -532,6 +532,7 @@ func TestMergeRestrictifOrdre(t *testing.T) {
 		{"accepted/none, empreintes différentes → pending", e(TrustAccepted, "a"), e(TrustAccepted, "b"), TrustPending, false},
 		{"accepted vs none → pending", e(TrustAccepted, "a"), e(TrustNone, "a"), TrustPending, false},
 		{"ignored/ignored, empreintes différentes → pending", e(TrustIgnored, "a"), e(TrustIgnored, "b"), TrustPending, false},
+		{"pending/pending, empreintes différentes → partagé gardé (pas de réécriture)", e(TrustPending, "a"), e(TrustPending, "b"), TrustPending, true},
 		{"même état et même empreinte → partagé gardé (source/image ignorés)", e(TrustAccepted, "a"), TrustEntry{State: TrustAccepted, SHA: "a", Source: "autre"}, TrustAccepted, true},
 	}
 	for _, c := range cases {
@@ -567,5 +568,49 @@ func TestMigrationLocalPlusRestrictifResserre(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(shared, "trust.json.bak")); err != nil {
 		t.Error(".bak absent")
+	}
+}
+
+// Deux registres pending à empreintes différentes : la migration ne réécrit rien (ni à ce démarrage ni aux suivants).
+func TestMigrationPendingPendingNeReecritPas(t *testing.T) {
+	shared, legacy := t.TempDir(), t.TempDir()
+	t.Setenv("CL_CONFIG_DIR", shared)
+	t.Setenv(TrustLegacyDirVar, legacy)
+	wr := func(dir, sha string) {
+		b, _ := json.Marshal(map[string]TrustEntry{"/p/a": {State: TrustPending, SHA: sha}})
+		_ = os.WriteFile(filepath.Join(dir, "trust.json"), b, 0o600)
+	}
+	wr(shared, "a")
+	wr(legacy, "b")
+	before, _ := os.ReadFile(filepath.Join(shared, "trust.json"))
+	for i := 0; i < 2; i++ {
+		if n, err := MigrateLegacyTrust(); err != nil || n != 0 {
+			t.Fatalf("passage %d : %d %v", i, n, err)
+		}
+	}
+	if after, _ := os.ReadFile(filepath.Join(shared, "trust.json")); string(after) != string(before) {
+		t.Error("registre réécrit")
+	}
+	if _, err := os.Stat(filepath.Join(shared, "trust.json.bak")); err == nil {
+		t.Error(".bak créé sans écriture")
+	}
+}
+
+// risk.scripts n'est jamais null (tableau vide sans script, avec ou sans environnement lisible).
+func TestRisqueScriptsJamaisNull(t *testing.T) {
+	for _, env := range []string{"image: debian:12\nsetup:\n  - apt-get update\n", "image: debian:12\n", ": : pas du yaml ["} {
+		d := trustProject(t, env)
+		_, _ = MarkEnvPending(d, "u", "debian:12")
+		info, err := EnvTrustInfoFor(d)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(info)
+		if !strings.Contains(string(b), `"scripts":[]`) {
+			t.Errorf("env %q : scripts non vide ou null : %s", env, b)
+		}
+	}
+	if got := repoScripts(nil); got == nil || len(got) != 0 {
+		t.Errorf("repoScripts(nil) = %#v", got)
 	}
 }
