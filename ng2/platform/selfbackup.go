@@ -235,6 +235,9 @@ func replaceWithCopyBackup(dst, version string, write func(string) error) error 
 // sauvegarde de même nom déjà là (réinstallation) est remplacée ; verrouillée : nom .old unique (swapRunningExe).
 func swapRunningExeBackup(dst, version string, write func(string) error) error {
 	setBackupWarning("")
+	if st, err := os.Lstat(dst); err == nil && !st.Mode().IsRegular() {
+		return fmt.Errorf("%s n'est pas un fichier : binaire non remplacé", dst) // un dossier ne se met pas de côté
+	}
 	bak := BackupPath(dst, version)
 	if bak == "" {
 		setBackupWarning("mise à jour faite sans sauvegarde de l'ancien binaire : version " + version + " non sauvegardable")
