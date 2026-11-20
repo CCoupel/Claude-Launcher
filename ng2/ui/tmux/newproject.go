@@ -193,7 +193,7 @@ func splitUnderRoot(roots []string, dir string) (root, cat string, ok bool) {
 		if d == root {
 			return root, "", true
 		}
-		if rel, err := filepath.Rel(root, d); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		if rel, err := filepath.Rel(root, d); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return root, filepath.ToSlash(rel), true
 		}
 	}
@@ -275,9 +275,9 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_, serr := os.Stat(p)
 			f.category, f.newCat, f.mode = cat, serr != nil, formName
 		case formName:
-			if _, err := core.ResolveProjectPathIn(m.cfg.Roots, f.base, f.category, f.name); err != nil {
+			if p, err := core.ResolveProjectPathIn(m.cfg.Roots, f.base, f.category, f.name); err != nil {
 				f.err = err.Error()
-			} else if _, err := os.Stat(m.projectDir()); err == nil {
+			} else if _, err := os.Stat(p); err == nil {
 				f.err = "ce dossier existe déjà"
 			} else {
 				f.mode = formKind
@@ -357,15 +357,6 @@ func dropLast(s string) string {
 
 func validName(s string) string { return core.ValidProjectName(s) }
 
-// projectDir : dossier du projet d'après la base, la catégorie et le nom, par la règle commune (core).
-func (m model) projectDir() string {
-	f := m.form
-	if p, err := core.ResolveProjectPathIn(m.cfg.Roots, f.base, f.category, f.name); err == nil {
-		return p
-	}
-	return filepath.Join(f.base, f.category, strings.TrimSpace(f.name)) // refusé plus haut : ne sert qu'à l'affichage
-}
-
 // where : « dans EMBY » — la base et la catégorie, relatives à la racine.
 func (m model) where() string {
 	root := filepath.Base(m.form.base)
@@ -376,25 +367,16 @@ func (m model) where() string {
 }
 
 func (m model) createProject() model {
-	dir := m.projectDir()
-	var madeCats []string // catégories créées par cet appel : retirées (vides) en cas d'échec
-	if m.form.newCat {
-		for p := filepath.Dir(dir); p != filepath.Clean(m.form.base) && p != filepath.Dir(p); p = filepath.Dir(p) {
-			if _, err := os.Stat(p); err != nil {
-				madeCats = append(madeCats, p)
-			}
-		}
-	}
-	fail := func(msg string) model { // dossier créé par cet appel et catégories créées vides : supprimés
-		_ = os.RemoveAll(dir)
-		for _, c := range madeCats {
-			_ = os.Remove(c)
-		}
-		m.form.err = msg
+	f := m.form
+	// règle commune appliquée au moment de créer
+	dir, undo, err := core.CreateProjectDir(m.cfg.Roots, f.base, f.category, f.newCat, f.name)
+	if err != nil {
+		m.form.err = err.Error()
 		return m
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return fail(err.Error())
+	fail := func(msg string) model { // ce que cet appel a créé (projet, catégories vides) : supprimé
+		m.form.err = msg + " — " + undo()
+		return m
 	}
 	if err := applyExec(dir, m.form); err != nil {
 		return fail("env.yaml : " + err.Error())

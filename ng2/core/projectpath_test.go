@@ -87,3 +87,119 @@ func TestListEtCreateCategory(t *testing.T) {
 		t.Error("catégorie sur un fichier acceptée")
 	}
 }
+
+func TestNomsPortablesRefuses(t *testing.T) {
+	base := t.TempDir()
+	roots := []string{base}
+	for _, n := range []string{"a:b", "a*", `a"b`, "a<b", "a|b", "a?", "CON", "con", "Nul.txt", "COM1", "lpt9.log", "fin.", "AUX "} {
+		if _, err := ResolveProjectPathIn(roots, base, "", n); err == nil {
+			t.Errorf("nom %q accepté", n)
+		} else if pe, _ := AsPathError(err); pe == nil || pe.Field != "name" {
+			t.Errorf("nom %q : champ %v", n, err)
+		}
+		if _, err := ResolveProjectPathIn(roots, base, n, "p"); err == nil {
+			t.Errorf("catégorie %q acceptée", n)
+		} else if pe, _ := AsPathError(err); pe == nil || pe.Field != "category" {
+			t.Errorf("catégorie %q : champ %v", n, err)
+		}
+	}
+	for _, n := range []string{"COM10", "console", "ok-1", "a.b", "CON2"} {
+		if _, err := ResolveProjectPathIn(roots, base, "", n); err != nil {
+			t.Errorf("nom %q refusé : %v", n, err)
+		}
+	}
+}
+
+func TestLienSortantSurLeNomChampName(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("liens symboliques")
+	}
+	base, dehors := t.TempDir(), t.TempDir()
+	_ = os.MkdirAll(filepath.Join(base, "cat"), 0o755)
+	_ = os.Symlink(dehors, filepath.Join(base, "cat", "p"))
+	_, err := ResolveProjectPathIn([]string{base}, base, "cat", "p")
+	if pe, ok := AsPathError(err); !ok || pe.Field != "name" || pe.Msg != "chemin hors des bases" {
+		t.Errorf("err = %v", err)
+	}
+}
+
+// Dossier existant : refusé, jamais supprimé ni vidé (pas de nettoyage de ce qui n'est pas à nous).
+func TestCreateProjectDirExistantIntact(t *testing.T) {
+	base := t.TempDir()
+	roots := []string{base}
+	_ = os.MkdirAll(filepath.Join(base, "cat", "p"), 0o755)
+	marque := filepath.Join(base, "cat", "p", "travail.txt")
+	_ = os.WriteFile(marque, []byte("a moi"), 0o644)
+	_, undo, err := CreateProjectDir(roots, base, "cat", false, "p")
+	if pe, ok := AsPathError(err); !ok || pe.Field != "name" || undo != nil {
+		t.Fatalf("err = %v undo=%v", err, undo != nil)
+	}
+	if b, _ := os.ReadFile(marque); string(b) != "a moi" {
+		t.Error("contenu du projet existant touché")
+	}
+	// catégorie inexistante sans newCategory : refus, rien créé
+	if _, _, err := CreateProjectDir(roots, base, "nouvelle", false, "q"); err == nil {
+		t.Error("catégorie inexistante acceptée sans newCategory")
+	}
+	if _, serr := os.Stat(filepath.Join(base, "nouvelle")); serr == nil {
+		t.Error("catégorie créée malgré le refus")
+	}
+}
+
+// Deux créations simultanées du même projet : une seule réussit, l'autre est refusée sans rien supprimer ; l'undo du
+// gagnant ne retire que ce qu'il a créé.
+func TestCreateProjectDirConcurrent(t *testing.T) {
+	base := t.TempDir()
+	roots := []string{base}
+	type res struct {
+		dir  string
+		undo func() string
+		err  error
+	}
+	ch := make(chan res, 8)
+	for i := 0; i < 8; i++ {
+		go func() {
+			d, u, e := CreateProjectDir(roots, base, "NEUVE/SOUS", true, "proj")
+			ch <- res{d, u, e}
+		}()
+	}
+	var win res
+	n := 0
+	for i := 0; i < 8; i++ {
+		r := <-ch
+		if r.err == nil {
+			n++
+			win = r
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d créations réussies, attendu 1", n)
+	}
+	_ = os.WriteFile(filepath.Join(win.dir, "f"), nil, 0o644)
+	win.undo()
+	if _, err := os.Stat(win.dir); err == nil {
+		t.Error("dossier du gagnant non supprimé par undo")
+	}
+	if _, err := os.Stat(filepath.Join(base, "NEUVE")); err == nil {
+		t.Error("catégorie créée (vide) non retirée")
+	}
+}
+
+func TestCreateProjectDirUndoGardeLesCategoriesPreexistantes(t *testing.T) {
+	base := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(base, "A"), 0o755)
+	d, undo, err := CreateProjectDir([]string{base}, base, "A/B", true, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	undo()
+	if _, err := os.Stat(d); err == nil {
+		t.Error("projet non supprimé")
+	}
+	if _, err := os.Stat(filepath.Join(base, "A")); err != nil {
+		t.Error("catégorie préexistante supprimée")
+	}
+	if _, err := os.Stat(filepath.Join(base, "A", "B")); err == nil {
+		t.Error("catégorie créée par l'appel non retirée")
+	}
+}

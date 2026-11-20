@@ -50,6 +50,12 @@ func ResolveProjectPathIn(roots []string, base, category, name string) (string, 
 	if strings.Contains(name, "..") {
 		return "", pathErr("name", "nom invalide (..)")
 	}
+	if why := badPortableName(strings.TrimSpace(name)); why != "" {
+		if err := checkBase(roots, base); err != nil {
+			return "", err
+		}
+		return "", pathErr("name", "nom invalide ("+why+")")
+	}
 	return resolveIn(roots, base, category, strings.TrimSpace(name))
 }
 
@@ -86,6 +92,30 @@ func checkBase(roots []string, base string) error {
 	return nil
 }
 
+var windowsReserved = map[string]bool{"CON": true, "PRN": true, "AUX": true, "NUL": true}
+
+// badPortableName : raison si le segment n'est pas utilisable sur tous les systèmes (les bases en partage 9P / SMB
+// sont lues par Windows) — caractères réservés « : * ? " < > | », noms réservés (CON, PRN, AUX, NUL, COM1-9,
+// LPT1-9, avec ou sans extension, insensible à la casse), point ou espace final ; "" sinon.
+func badPortableName(seg string) string {
+	if strings.ContainsAny(seg, `:*?"<>|`) {
+		return `caractère réservé (: * ? " < > |)`
+	}
+	if strings.HasSuffix(seg, ".") || strings.HasSuffix(seg, " ") {
+		return "point ou espace final"
+	}
+	stem := strings.ToUpper(seg)
+	if i := strings.Index(stem, "."); i >= 0 {
+		stem = stem[:i]
+	}
+	stem = strings.TrimRight(stem, " ")
+	if windowsReserved[stem] ||
+		len(stem) == 4 && (strings.HasPrefix(stem, "COM") || strings.HasPrefix(stem, "LPT")) && stem[3] >= '1' && stem[3] <= '9' {
+		return "nom réservé par Windows"
+	}
+	return ""
+}
+
 // checkCategory : segments d'une catégorie relative (« A/B ») ; rend les segments nettoyés.
 func checkCategory(category string) ([]string, error) {
 	if category == "" {
@@ -111,6 +141,9 @@ func checkCategory(category string) ([]string, error) {
 			return nil, pathErr("category", "catégorie invalide (pas de . au début)")
 		case strings.IndexFunc(t, unicode.IsControl) >= 0:
 			return nil, pathErr("category", "catégorie invalide (caractère de contrôle)")
+		}
+		if why := badPortableName(t); why != "" {
+			return nil, pathErr("category", "catégorie invalide ("+why+")")
 		}
 		out = append(out, t)
 	}
@@ -146,12 +179,16 @@ func resolveIn(roots []string, base, category, name string) (string, error) {
 		}
 		deep = up
 	}
+	field := outField(category, name)
+	if name != "" && deep == p { // le nom lui-même existe (lien) : c'est lui le fautif
+		field = "name"
+	}
 	realDeep, err := filepath.EvalSymlinks(deep)
 	if err != nil {
-		return "", pathErr(outField(category, name), "chemin hors des bases")
+		return "", pathErr(field, "chemin hors des bases")
 	}
-	if rel, err := filepath.Rel(realBase, realDeep); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", pathErr(outField(category, name), "chemin hors des bases")
+	if !underDir(realBase, realDeep) {
+		return "", pathErr(field, "chemin hors des bases")
 	}
 	return p, nil
 }
@@ -244,4 +281,74 @@ func CreateCategoryIn(roots []string, base, category string) (existed bool, err 
 		return false, pathErr("category", err.Error())
 	}
 	return false, nil
+}
+
+// underDir : p est dir ou est dessous (chemins résolus).
+func underDir(dir, p string) bool {
+	rel, err := filepath.Rel(dir, p)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
+// CreateProjectDir : crée <base>/<catégorie>/<nom> après la règle commune. Les catégories absentes ne sont créées
+// qu'avec newCategory (sinon refus « catégorie inexistante ») ; chaque dossier est créé par os.Mkdir (un dossier
+// déjà là n'est jamais « à nous ») ; le dossier du projet existant est refusé (« ce dossier existe déjà ») SANS rien
+// supprimer. Une fois créés, les dossiers sont revérifiés (liens résolus sous la base) ; sinon tout ce qui vient
+// d'être créé est supprimé. undo supprime ce que CET appel a créé (dossier du projet, catégories restées vides) et
+// rend le message qui le dit.
+func CreateProjectDir(roots []string, base, category string, newCategory bool, name string) (dir string, undo func() string, err error) {
+	dir, err = ResolveProjectPathIn(roots, base, category, name)
+	if err != nil {
+		return "", nil, err
+	}
+	b := filepath.Clean(base)
+	catDir := filepath.Dir(dir)
+	var made []string // catégories créées par cet appel, du haut vers le bas
+	undo = func() string {
+		msg := "dossier du projet supprimé"
+		for i := len(made) - 1; i >= 0; i-- {
+			if os.Remove(made[i]) == nil && i == 0 {
+				msg += ", catégorie créée retirée"
+			}
+		}
+		return msg
+	}
+	if _, serr := os.Stat(catDir); serr != nil {
+		if !newCategory {
+			return "", nil, pathErr("category", "catégorie inexistante")
+		}
+		var chain []string
+		for p := catDir; p != b && p != filepath.Dir(p); p = filepath.Dir(p) {
+			chain = append([]string{p}, chain...)
+		}
+		for _, p := range chain {
+			switch merr := os.Mkdir(p, 0o755); {
+			case merr == nil:
+				made = append(made, p)
+			case errors.Is(merr, os.ErrExist): // créé entre-temps par un autre : pas à nous
+			default:
+				undo()
+				return "", nil, pathErr("category", merr.Error())
+			}
+		}
+	}
+	if merr := os.Mkdir(dir, 0o755); merr != nil {
+		undo()
+		if errors.Is(merr, os.ErrExist) {
+			return "", nil, pathErr("name", "ce dossier existe déjà") // existait : jamais supprimé
+		}
+		return "", nil, pathErr("name", merr.Error())
+	}
+	full := undo
+	undo = func() string {
+		_ = os.RemoveAll(dir) // créé par cet appel
+		return full()
+	}
+	if realBase, e1 := filepath.EvalSymlinks(b); e1 != nil {
+		undo()
+		return "", nil, pathErr("base", "base inaccessible")
+	} else if realDir, e2 := filepath.EvalSymlinks(dir); e2 != nil || !underDir(realBase, realDir) {
+		undo()
+		return "", nil, pathErr(outField(category, name), "chemin hors des bases")
+	}
+	return dir, undo, nil
 }

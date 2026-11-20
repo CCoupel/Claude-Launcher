@@ -89,50 +89,19 @@ func (a *App) create(in createArgs) (any, error) {
 		return nil, fmt.Errorf("source %q non disponible", in.Source)
 	}
 	roots := a.conf().Roots
-	dir, err := core.ResolveProjectPathIn(roots, in.Base, in.Category, in.Name)
+	dir, undo, err := core.CreateProjectDir(roots, in.Base, in.Category, in.NewCategory, in.Name)
 	if err != nil {
 		return pathFail(err)
 	}
-	if _, err := os.Stat(dir); err == nil {
-		return map[string]any{"ok": false, "field": "name", "msg": "ce dossier existe déjà"}, nil
-	}
-	// catégories absentes : créées seulement avec newCategory (sinon la catégorie doit exister)
-	var madeCats []string
-	if in.Category != "" {
-		cat, err := core.ResolveCategoryPathIn(roots, in.Base, in.Category)
-		if err != nil {
-			return pathFail(err)
-		}
-		if _, err := os.Stat(cat); err != nil {
-			if !in.NewCategory {
-				return map[string]any{"ok": false, "field": "category", "msg": "catégorie inexistante"}, nil
-			}
-			madeCats = missingDirs(filepath.Clean(in.Base), cat)
-		}
-	}
-	cleanup := func() string {
-		_ = os.RemoveAll(dir)
-		msg := "dossier du projet supprimé"
-		for i := len(madeCats) - 1; i >= 0; i-- { // catégories créées par cet appel : retirées si vides
-			if os.Remove(madeCats[i]) == nil && i == 0 {
-				msg += ", catégorie créée retirée"
-			}
-		}
-		return msg
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		cleanup()
-		return nil, err
-	}
 	if err := core.ApplyExec(dir, in.Image, in.Backend); err != nil {
-		return nil, fmt.Errorf("env.yaml : %v — %s", err, cleanup())
+		return nil, fmt.Errorf("env.yaml : %v — %s", err, undo())
 	}
 	mode := core.LaunchNewManaged
 	if in.Raw {
 		mode = core.LaunchNewRaw
 	}
 	if err := core.InitProject(dir, in.Raw, in.Remote); err != nil {
-		return nil, fmt.Errorf("%v — %s", err, cleanup())
+		return nil, fmt.Errorf("%v — %s", err, undo())
 	}
 	a.rescan()
 	a.mu.Lock()
@@ -144,15 +113,4 @@ func (a *App) create(in createArgs) (any, error) {
 		a.setMsg("✓ projet créé")
 	}
 	return r, err
-}
-
-// missingDirs : dossiers de la chaîne base → target qui n'existent pas encore, du plus haut au plus bas.
-func missingDirs(base, target string) []string {
-	var out []string
-	for p := target; p != base && p != filepath.Dir(p); p = filepath.Dir(p) {
-		if _, err := os.Stat(p); err != nil {
-			out = append([]string{p}, out...)
-		}
-	}
-	return out
 }
