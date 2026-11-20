@@ -33,5 +33,6 @@ eq('note complète', trustNote({ risk: { exec: 1, hostMounts: 0, packages: 2, wa
 if (/innerHTML/.test(src.slice(src.indexOf('async function envTrustBox'), src.indexOf('// Proposition /init-project (évènement')))) { ko++; console.log('KO innerHTML dans envTrustBox'); }
 const tb = src.slice(src.indexOf('async function envTrustBox'), src.indexOf('// Proposition /init-project (évènement'));
 if (!/info\.changed === true/.test(tb) || !/a changé depuis votre approbation/.test(tb)) { ko++; console.log('KO bandeau changed'); }
+if (!/safeText\(info\.broken\)/.test(tb)) { ko++; console.log('KO broken non échappé'); }
 if (!/safeText\(r\.msg/.test(tb)) { ko++; console.log('KO message refus non échappé'); }
 console.log(ko ? ko + ' KO' : 'OK'); process.exit(ko ? 1 : 0);

@@ -1729,6 +1729,7 @@ async function envTrustBox(src) {
   const draw = (info, note) => openModal((b) => {
     b.append(el('h2', '', '⚠ Environnement fourni par le dépôt — ' + safeText(name)));
     b.append(el('div', 'dim', 'Cloné depuis ' + safeText(info.source || 'un dépôt externe') + '. Rien n\'est appliqué sans ton accord.'));
+    if (info.broken) b.append(el('div', 'err', '⚠ ' + safeText(info.broken))); // registre illisible : texte du serveur, échappé
     if (info.changed === true) b.append(el('div', 'err', 'L\'environnement du dépôt a changé depuis votre approbation.'));
     if (note) b.append(el('div', 'err', note));
     const cols = el('div', 'trustcols');
