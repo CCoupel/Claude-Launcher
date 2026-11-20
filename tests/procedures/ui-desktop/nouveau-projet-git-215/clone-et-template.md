@@ -85,11 +85,34 @@ Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`create` source `git` / `
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+---
+
+### Scenario 6 — Depot clone avec un `env.yaml` : approbation avant tout demarrage (audit)
+
+**Validation** : HUMAIN — **Issues** : #215
+
+Prerequis du scenario : un **depot de test** contenant `.claude-launcher/env.yaml` avec une commande `setup` inoffensive qui laisse une preuve (ex. `touch /tmp/PREUVE-ENV-215`), un montage hors du projet (ex. `/tmp`) et du texte piege dans un champ (ex. `<b>gras</b>` et la sequence ESC `\x1b[31mROUGE`). Dans le cas du pod : memes contenus, preuve dans le pod.
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Cloner ce depot (source Git) sur un backend **conteneur**, socle au choix | Clonage termine ; **rien n'est demarre** : aucun conteneur, la preuve `/tmp/PREUVE-ENV-215` n'existe pas | | |
+| 2 | Ouvrir le projet | Dialogue d'approbation (maquette A) : resume (image, paquets, commandes, montages hors projet, risque) + fichiers bruts ; boutons Accepter / Ouvrir sans / Annuler | | |
+| 3 | Lire le texte piege | `<b>gras</b>` affiche tel quel (pas de gras) ; la sequence ESC n'est pas interpretee (pas de couleur, ni dans la fenetre ni dans la coque) | | |
+| 4 | « Annuler » | Rien n'est ecrit ni ouvert ; la question revient a la prochaine ouverture | | |
+| 5 | « Ouvrir sans » | Projet ouvert avec le seul socle choisi : la commande `setup`, le montage et la preuve sont absents | | |
+| 6 | Modifier `env.yaml` dans le depot (simuler un `git pull` : ajouter une commande `setup`), fermer, rouvrir | **Aucune** nouvelle question (choix definitif) ; le contenu modifie n'est toujours pas applique | | |
+| 7 | Reglages du projet > « Revoir » (projet ferme) puis rouvrir | La question revient ; « Accepter » : le projet demarre avec l'environnement du depot, la preuve apparait | | |
+| 8 | Projet affecte a l'hote : cloner le meme depot sur l'hote | Aucune question (env.yaml inutilise) ; elle apparait au premier passage en conteneur (F2) | | |
+| 9 | Meme parcours dans la **coque tmux** (hub) : touches `a` accepter, `s` ouvrir sans, `Echap` annuler, `v` fichiers bruts | Memes resultats ; texte piege non interprete dans le terminal | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] Le jeton n'apparait nulle part (argv, `.git/config`, messages, journaux)
 - [ ] Aucun dossier ni categorie residuels apres un echec ou une annulation
 - [ ] `/init-project` jamais lance sans reponse de l'utilisateur
+- [ ] L'environnement d'un depot clone n'est jamais applique sans accord explicite ; un choix reste definitif
 
 ## Notes QA
 
