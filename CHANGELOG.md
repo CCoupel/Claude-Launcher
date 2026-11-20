@@ -9,7 +9,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
-## [6.5.0] — date de release à renseigner
+## [6.5.0] — 2026-11-20
 
 ### Added
 - Masquage des teammates inactifs **par projet** : clé `PROJECT_HIDE_IDLE` de `config.conf` (`["projet"]="auto|none"`, absente = suit `TEAM_HIDE_IDLE_ENABLED`), fonction unique `HideIdleOf` pour la règle de visibilité, la carte TEAM (`teamHead.hideIdle.mode` / `.global`, `enabled` = valeur effective du projet), `projectApply.hideIdle` et `projectSettings.hideIdle` ; `teamToggle` refusé en « no hide » ; titre de la carte TEAM de la coque Linux : « default (masqués 30 s) » ou « default (désactivé) » quand le projet suit le global, « auto hide ◆ » / « no hide ◆ » pour un choix propre au projet (#209)
