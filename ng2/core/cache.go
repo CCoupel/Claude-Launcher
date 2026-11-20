@@ -242,7 +242,8 @@ func NewStateMgr() (*StateMgr, error) {
 		hi: make(chan string, 256), lo: make(chan string, 1024), Done: make(chan ProjState, 256),
 		quit: make(chan struct{}), addq: make(chan [2]string, addQueueSize), rescan: map[string]bool{}, rescanCh: make(chan struct{}, 1), lastScan: map[string]time.Time{},
 	}
-	sweepStateTmp() // restes d'écritures interrompues (#205)
+	sweepStateTmp()  // restes d'écritures interrompues (#205)
+	sweepConfigTmp() // idem pour config.conf (#217)
 	m.wg.Add(stateWorkers + 4)
 	for i := 0; i < stateWorkers; i++ {
 		go func() { defer m.wg.Done(); m.worker() }()

@@ -480,8 +480,9 @@ func EnsureConfig() (created bool, err error) {
 			content = b // passage v4 → v5 : on reprend les réglages existants
 		}
 	}
+	sweepConfigTmp() // restes d'écritures interrompues (#217)
 	// création exclusive : deux launchers qui démarrent ensemble sur une racine neuve n'écrasent pas la config de l'autre
-	created, err = createExclusive(path, content, 0o600)
+	created, err = createExclusiveAtomic(path, content, 0o600)
 	return created, err
 }
 

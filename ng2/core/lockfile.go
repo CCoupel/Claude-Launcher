@@ -182,34 +182,6 @@ func removeRetry(path string) error {
 	return err
 }
 
-// WriteFileAtomic : data dans path par fichier temporaire (nom unique) puis renommage — jamais de fichier à moitié écrit,
-// jamais de temporaire partagé entre deux écritures simultanées.
-func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	r := make([]byte, 4)
-	_, _ = rand.Read(r)
-	tmp := fmt.Sprintf("%s.%d.%s.tmp", path, os.Getpid(), hex.EncodeToString(r))
-	if err := os.WriteFile(tmp, data, perm); err != nil {
-		return err
-	}
-	_ = os.Chmod(tmp, perm)
-	// sous Windows, le renommage échoue brièvement (violation de partage) si un lecteur tient la cible : réessayé
-	var rerr error
-	for try := 0; try < 4; try++ {
-		if rerr = os.Rename(tmp, path); rerr == nil {
-			return nil
-		}
-		if runtime.GOOS != "windows" {
-			break
-		}
-		time.Sleep(time.Duration(10+try*15) * time.Millisecond)
-	}
-	_ = os.Remove(tmp)
-	return rerr
-}
-
 // createExclusive : crée path avec data s'il n'existe pas (atomique) ; created faux : il existait déjà.
 func createExclusive(path string, data []byte, perm os.FileMode) (created bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
