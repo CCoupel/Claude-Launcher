@@ -68,3 +68,6 @@
 | tests/procedures/ui-desktop/nouveau-projet-base-categorie-214/ | procedure | ui-desktop | Nouveau projet : base et categorie en listes, base 9P, coque tmux (#214) | feature | |
 | tests/integration/core/chemins-projet-214/ | integration | core | ResolveProjectPath (traversee, lien sortant, base inconnue), categories, fusion — ng2/core/newproject214_test.go (#214) | feature | critical |
 | tests/integration/ui-desktop/creation-contrainte-214/ | integration | ui-desktop | Dispatch/--web : projectBases, projectCategories, categoryCreate, create force refuse — ng2/ui/desktop/create214_test.go (#214) | feature | critical |
+| tests/procedures/ui-desktop/nouveau-projet-git-215/ | procedure | ui-desktop | Nouveau projet depuis un depot Git (HTTPS/ssh) ou le template : clone reel, echec, annulation, base 9P, pod QUALIF, proposition /init-project (#215) | feature | |
+| tests/integration/core/clone-projet-215/ | integration | core | CloneProject avec faux git : jeton sans trace, progression, annulation de l'arbre de processus, marqueur init-proposed — ng2/core/clone215_test.go (#215) | feature | critical |
+| tests/integration/ui-desktop/creation-git-215/ | integration | ui-desktop | Dispatch create git/template : job, newJob, createCancel, nettoyage, URL refusees, initProposal — ng2/ui/desktop/create215_test.go (#215) | feature | critical |
