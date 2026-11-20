@@ -1,10 +1,8 @@
-//go:build cleanup218
-
 package platform
 
 // #218 : nettoyage au démarrage (CleanupBackups) : ne garde que la sauvegarde de la plus haute VERSION (comparaison
-// numérique, pas la date ni l'ordre alphabétique). Tag provisoire `cleanup218`, à retirer. Nom ATTENDU (partie
-// synchrone de CleanupBackups, sans SelfExe) :
+// numérique, pas la date ni l'ordre alphabétique). Partie
+// synchrone de CleanupBackups, sans SelfExe :
 //
 //	func cleanupBackupsFor(exe string, tries int, pause time.Duration) []string  // rend les sauvegardes qui restent (verrouillées) après tries essais
 
