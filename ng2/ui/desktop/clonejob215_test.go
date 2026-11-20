@@ -78,3 +78,30 @@ func TestDeuxCreateGitConcurrentsUnSeulJob215(t *testing.T) {
 		}
 	}
 }
+
+// initProposalAnswer : seul un projet CONNU portant le marqueur est accepté.
+func TestInitProposalAnswerRefuseUnChemin215(t *testing.T) {
+	sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	ext := t.TempDir() // hors arbre, avec marqueur
+	if err := os.MkdirAll(filepath.Join(ext, ".claude-launcher"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(ext, ".claude-launcher", "init-proposed"), nil, 0o644)
+	for _, p := range []string{ext, "/etc", "", "../x"} {
+		v, err := a.initProposalAnswer(p, true)
+		m, _ := v.(map[string]any)
+		if err != nil || m["ok"] != false {
+			t.Errorf("chemin %q accepté : %v %v", p, v, err)
+		}
+	}
+	if !core215Pending(ext) {
+		t.Error("marqueur d'un chemin hors arbre retiré")
+	}
+}
+
+func core215Pending(dir string) bool {
+	_, err := os.Stat(filepath.Join(dir, ".claude-launcher", "init-proposed"))
+	return err == nil
+}

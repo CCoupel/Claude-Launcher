@@ -730,11 +730,27 @@ Arguments :
 ### Instantané — champ `newJob` **[NEW]**
 
 ```json
-"newJob": { "id": "…", "name": "supervision-k8s", "step": "clone", "pct": 43, "state": "running"|"done"|"failed",
+"newJob": { "id": "…", "name": "supervision-k8s", "step": "réception", "pct": 34, "state": "running"|"done"|"failed",
             "msg": "authentification refusée (HTTPS, jeton) — dossier supprimé" }
 ```
-Absent sans création en cours. Une création à la fois par launcher (deuxième `create` git : refus `création en
-cours`).
+Absent sans création en cours ; une création terminée (`done`/`failed`) reste dans l'instantané 30 s (ou jusqu'à
+`createCancel` sur son id, qui la retire). Une création à la fois par launcher (deuxième `create` git : refus
+`création en cours`, la place est réservée avant toute écriture).
+
+**`step`** — libellés EXACTS émis (texte affichable, minuscules, accentués) et `pct` global (0–100) :
+
+| `step` | `pct` | quand |
+|---|---|---|
+| `préparation` | 0 | démarrage, comptage / énumération / compression côté serveur |
+| `réception` | 0 → 80 | `Receiving objects` (téléchargement) |
+| `résolution des deltas` | 80 → 95 | `Resolving deltas` |
+| `extraction` | 95 → 100 | `Updating files` / `Checking out files` |
+| `terminé` | 100 | `state: "done"` (projet ouvert) |
+
+`state: "failed"` conserve le dernier `step` et porte `msg` (raison courte, jamais le jeton, + ce qui a été nettoyé).
+Un clonage réussi dont l'**ouverture** du projet échoue est `failed` (`msg` : « cloné, mais ouverture impossible : … »),
+le dépôt cloné restant en place. En cas d'échec ou d'annulation, **aucune** entrée n'est laissée dans `projects.json`
+(l'affectation du backend n'est écrite qu'après un clonage réussi).
 
 ### `createCancel` **[NEW]**
 
@@ -743,8 +759,11 @@ Arguments : `{ "job": "<id>" }`. Arrête le clonage (processus tué) puis nettoi
 ### Évènement `initProposal` **[NEW]** et `initProposalAnswer` **[NEW]**
 
 À la première ouverture d'un projet créé en `template` : `{ "path" }`. Réponse `initProposalAnswer
-{ "path", "run": true|false }` : `true` tape `/init-project` dans le leader ; `false` (« Plus tard ») retire la
-proposition (marqueur `.claude-launcher/init-proposed` dans le projet, supprimé quand `/init-project` a tourné).
+{ "path", "run": true|false }` : `true` tape `/init-project` dans le leader (refusé sans retirer le marqueur tant que le
+leader n'est pas prêt) ; `false` (« Plus tard ») ne le tape pas. Le marqueur `.claude-launcher/init-proposed` (exclu de
+git par `.git/info/exclude`, jamais commité) reste tant que `/init-project` n'a pas été lancé : « Plus tard » ⇒
+reproposé au lancement suivant du launcher (une fois par processus). Seul un projet connu portant le marqueur est
+accepté. Coque tmux : même marqueur, même règle (question `[o/N]` à l'ouverture, retiré sur `o`).
 
 ### `projectMoveInfo` **[NEW]**
 
@@ -844,3 +863,70 @@ retenté (5 essais, attentes 50/100/200/400 ms) sur `ERROR_ACCESS_DENIED` / `ERR
 (`config.conf verrouillé par un autre programme`) ; l'ancien fichier reste intact. La copie `.bak` est écrite de
 la même façon. `EnsureConfig` : création exclusive par temporaire + lien/rename sans écrasement. Au démarrage, les
 `.config.conf.tmp-*` de plus de 10 min du dossier de config sont supprimés. Aucun changement d'API.
+
+### Approbation de l'environnement d'un projet cloné (#215, amendement audit LOT-2.2) **[NEW]**
+
+Un dépôt cloné n'est pas de confiance : son `.claude-launcher/env.yaml` et son `env-template.yaml` (image, paquets,
+`setup`, `on_start`, `watch`, `mounts`, `local`, `prefer`) ne sont **jamais appliqués sans accord**.
+
+**Registre `trust.json`** (dossier de config du launcher, à côté de `projects.json` ; **jamais dans le projet**, qu'un
+dépôt pourrait fournir) — clés = chemin du projet vu des backends (`RemotePath`, comme `projects.json`), écriture
+atomique sous `WithFileLock` :
+```json
+{ "/share/…/INFRA/supervision-k8s": { "state": "pending" | "accepted" | "ignored", "sha": "<sha256>",
+  "source": "https://github.com/CCoupel/supervision-k8s.git", "image": "debian:12", "at": "2026-11-20T10:00:00Z" } }
+```
+- `sha` : SHA-256 du contenu de `env-template.yaml` puis `env.yaml` (absent = vide) **tels qu'approuvés** ; `image` :
+  socle choisi à la création (gardé par « Ouvrir sans »).
+- Écrit à la fin d'un `create` `source: git` **réussi** si le clone contient l'un des deux fichiers (`state: pending`,
+  `sha` du contenu cloné, avant que `ApplyExec` ne pose l'image choisie). Pas d'entrée = projet de confiance (projets
+  existants, `empty`, `template`) — aucun changement pour eux.
+- Les écritures du launcher lui-même (`ApplyExec`, `setEnvImage`, `projectApply.env`) recalculent `sha` sans changer
+  `state` : elles ne redemandent pas.
+
+**`core.EnvTrust(path)`** → `trusted` (pas d'entrée) | `pending` | `accepted` | `ignored` | `changed` (entrée
+`accepted`/`ignored` dont le `sha` ne correspond plus aux fichiers : modifiés hors launcher, ex. `git pull`).
+**`LoadEnv`** : `ignored` → `EnvSpec{Image: entrée.image}` seul (rien d'autre du dépôt) ; `pending`/`changed` → refus
+(`ErrEnvNotApproved`) pour toute préparation de conteneur. Projet affecté à l'**hôte** : aucune question (env.yaml
+inutilisé) ; elle vient au premier passage en conteneur (F2) ou à l'ouverture en conteneur.
+
+### `open` **[CHANGED]** — garde d'approbation
+
+Projet en conteneur et `EnvTrust` ∈ {`pending`, `changed`} : rien n'est démarré, résultat
+`{ "needTrust": true, "path" }` et évènement `envTrust` (ci-dessous). Les autres cas : inchangés.
+
+### Évènement `envTrust` **[NEW]** et `envTrustInfo` **[NEW]**
+
+`envTrustInfo { "path" }` (et charge utile de l'évènement) :
+```json
+{ "path": "…", "state": "pending" | "changed", "source": "https://github.com/…", "sha": "<sha courant>",
+  "chosenImage": "debian:12",
+  "spec": { "image": "…", "packages": [], "packagesByManager": {}, "setup": [], "onStart": [], "watch": [],
+            "mounts": [ { "path": "/var/run/docker.sock", "ro": false } ], "local": [], "prefer": "" },
+  "files": { "env.yaml": "<texte>", "env-template.yaml": "" },
+  "diff": [ { "field": "onStart", "added": ["./scripts/dev-up.sh --watch"], "removed": ["./scripts/dev-up.sh"] } ],
+  "risk": { "exec": 3, "hostMounts": 1 } }
+```
+`diff` seulement pour `changed` (par rapport au contenu approuvé : copie gardée dans `trust/<sha>.yaml` du dossier de
+config) ; `risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet.
+Textes affichés tels quels, échappés (jamais interprétés en HTML ni en séquences de terminal).
+
+### `envTrustAnswer` **[NEW]**
+
+Arguments : `{ "path", "choice": "accept" | "ignore" | "cancel", "sha": "<sha de envTrustInfo>" }`.
+- `sha` différent du contenu actuel (fichier modifié pendant la question) : `{ "ok": false, "msg": "l'environnement a
+  encore changé", "retry": true }` — l'interface recharge `envTrustInfo`.
+- `accept` → `state: accepted` (`sha` mémorisé), puis ouverture ; `ignore` → `state: ignored`, ouverture avec le seul
+  socle `image` ; `cancel` → rien n'est écrit, rien n'est ouvert.
+- Résultat : comme `open` (`{ "tab" }`) ou `{ "ok": true }` pour `cancel`.
+
+### `projectSettings` / `projectApply` — `envTrust` **[NEW]**
+
+`projectSettings` gagne `"envTrust": { "state", "source", "at" }` (absent pour un projet de confiance).
+`projectApply { "envTrust": "review" }` remet l'entrée à `pending` (« Revoir » : la question revient à la prochaine
+ouverture). Permis projet fermé seulement.
+
+### Coque tmux
+
+Même garde à l'ouverture : écran de la question (image, paquets, commandes, montages ; différences pour `changed`),
+touches `a` accepter, `s` ouvrir sans, `Échap` annuler (`v` : fichiers bruts selon la maquette retenue).

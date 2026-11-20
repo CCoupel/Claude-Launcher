@@ -115,9 +115,10 @@ func (a *App) newJobSnapLocked() *NewJob {
 	return &j
 }
 
-func (a *App) setJob(fn func(j *createJob)) {
+// setJob : modifie le job identifié par id (jamais un autre job qui l'aurait remplacé).
+func (a *App) setJob(id string, fn func(j *createJob)) {
 	a.jobMu.Lock()
-	if a.job != nil {
+	if a.job != nil && a.job.ID == id {
 		fn(a.job)
 	}
 	a.jobMu.Unlock()
@@ -210,19 +211,19 @@ func (a *App) finishCreate(dir string, mode core.LaunchMode) (any, error) {
 // annulable (createCancel).
 func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *createJob) (any, error) {
 	id, ctx, cancel := job.ID, job.ctx, job.cancel
-	a.setJob(func(j *createJob) { j.Name = filepath.Base(dir) })
+	a.setJob(id, func(j *createJob) { j.Name = filepath.Base(dir) })
 	a.bgWG.Add(1)
 	go func() {
 		defer a.bgWG.Done()
 		defer cancel()
 		fail := func(msg string) {
 			note := undo()
-			a.setJob(func(j *createJob) { j.State, j.Msg = "failed", msg+" — "+note })
+			a.setJob(id, func(j *createJob) { j.State, j.Msg = "failed", msg+" — "+note })
 			a.holdJob(id)
 		}
 		auth := core.CloneAuth{Token: a.conf().GithubToken, Backend: in.Backend}
 		err := core.CloneProject(ctx, in.URL, dir, auth, func(step string, pct int) {
-			a.setJob(func(j *createJob) { j.Step, j.Pct = step, pct })
+			a.setJob(id, func(j *createJob) { j.Step, j.Pct = step, pct })
 		})
 		switch {
 		case errors.Is(err, context.Canceled):
@@ -234,9 +235,13 @@ func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *
 				fail("env.yaml : " + err.Error())
 				return
 			}
-			a.setJob(func(j *createJob) { j.State, j.Step, j.Pct, j.Msg = "done", "terminé", 100, "" })
+			// « terminé » seulement si le projet s'ouvre ; sinon échec visible (le dépôt cloné reste en place)
+			if _, err := a.finishCreate(dir, core.LaunchNormal); err != nil {
+				a.setJob(id, func(j *createJob) { j.State, j.Msg = "failed", "cloné, mais ouverture impossible : "+err.Error() })
+			} else {
+				a.setJob(id, func(j *createJob) { j.State, j.Step, j.Pct, j.Msg = "done", "terminé", 100, "" })
+			}
 			a.holdJob(id)
-			_, _ = a.finishCreate(dir, core.LaunchNormal)
 		}
 	}()
 	return map[string]any{"job": id}, nil
@@ -276,7 +281,10 @@ func (a *App) createCancel(id string) (any, error) {
 // initProposalAnswer : réponse à la proposition /init-project d'un projet créé depuis le template. run : la commande
 // est tapée dans le leader et le marqueur retiré ; sinon la proposition n'est plus faite avant le prochain lancement.
 func (a *App) initProposalAnswer(path string, run bool) (any, error) {
-	if !core.InitProposalPending(path) {
+	a.mu.Lock()
+	n, known := a.node(path)
+	a.mu.Unlock()
+	if !known || !n.Project || !core.InitProposalPending(path) { // un projet connu, portant le marqueur : rien d'autre
 		return map[string]any{"ok": false, "msg": "aucune proposition en attente"}, nil
 	}
 	a.proposedMu.Lock()

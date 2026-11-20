@@ -47,8 +47,9 @@ func StartCommands(cfg Config, path, latest string, mode LaunchMode) (start, cop
 		initArg = " /init-project" // projet tout juste créé : pas de question
 	case mode == LaunchNewRaw: // ni question ni /init-project
 	case mode == LaunchNewProposed:
+		// « o » : /init-project lancé, marqueur retiré ; sinon (N, Plus tard) le marqueur reste : reproposé au lancement suivant
 		q := "projet créé depuis le template — lancer /init-project ? [o/N] "
-		initPre = `_ip_arg=''; read -rp ` + Shq(q) + ` _r; [[ "$_r" == [oOyY]* ]] && _ip_arg='/init-project'; `
+		initPre = `_ip_arg=''; read -rp ` + Shq(q) + ` _r; [[ "$_r" == [oOyY]* ]] && { _ip_arg='/init-project'; rm -f .claude-launcher/init-proposed; }; `
 		initArg = " $_ip_arg"
 	case tpl == TplOutdated:
 		q := "↑ template en retard : projet " + ProjectTemplateRef(path) + " → disponible " + TemplateRef(ReadTrim(TplVersionPath()), latest) +

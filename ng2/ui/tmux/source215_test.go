@@ -72,3 +72,61 @@ func TestEchecDuClonageNettoie215(t *testing.T) {
 		})
 	}
 }
+
+// Coque : l'affectation (applyExec) n'est écrite qu'APRÈS un clonage réussi ; un échec n'en laisse aucune trace.
+func TestAffectationApresClonageSeulement215(t *testing.T) {
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	m, root := srcModel(t)
+	m.form = newForm{mode: formExec, base: root, name: "p", source: "git", url: "https://github.com/a/b", exec: 0}
+	dir := filepath.Join(root, "p")
+	nm, cmd := m.createProject()
+	if cmd == nil || nm.(model).job == nil {
+		t.Fatal("clonage non lancé")
+	}
+	if core.Assigned(dir) {
+		t.Error("affectation écrite AVANT le clonage")
+	}
+	nm.(model).job.cancelNow()
+	got := nm.(model).cloneDone(cloneDoneMsg{job: nm.(model).job, err: context.Canceled})
+	if core.Assigned(dir) {
+		t.Error("affectation restée après annulation")
+	}
+	if _, err := os.Stat(dir); err == nil {
+		t.Error("dossier restant après annulation")
+	}
+	_ = got
+	// succès : l'affectation est écrite à ce moment
+	m2, root2 := srcModel(t)
+	d2, undo, err := core.CreateProjectDir(m2.cfg.Roots, root2, "", false, "q")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m2.form = newForm{mode: formCloning, base: root2, name: "q", source: "git", exec: 0}
+	job := &cloneJob{undo: undo, dir: d2}
+	m2.job = job
+	_ = m2.cloneDone(cloneDoneMsg{job: job})
+	if !core.Assigned(d2) {
+		t.Error("affectation absente après clonage réussi")
+	}
+}
+
+// Un projet qui attend sa proposition /init-project la reçoit à l'ouverture normale ; un projet brut jamais.
+func TestModeEffectifPropose215(t *testing.T) {
+	d := t.TempDir()
+	if effectiveMode(d, launchNormal) != launchNormal {
+		t.Error("mode changé sans marqueur")
+	}
+	if err := core.MarkInitProposed(d); err != nil {
+		t.Fatal(err)
+	}
+	if effectiveMode(d, launchNormal) != launchProposed {
+		t.Error("proposition non faite malgré le marqueur")
+	}
+	if effectiveMode(d, launchNewRaw) != launchNewRaw {
+		t.Error("projet brut proposé")
+	}
+	core.ClearInitProposal(d)
+	if effectiveMode(d, launchNormal) != launchNormal {
+		t.Error("proposition répétée après retrait du marqueur")
+	}
+}

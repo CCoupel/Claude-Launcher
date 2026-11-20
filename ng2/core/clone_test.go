@@ -224,3 +224,43 @@ func TestCloneLanceGitAvecConfigNeutre(t *testing.T) {
 	}
 	t.Error("GIT_CONFIG_GLOBAL absent")
 }
+
+// Le marqueur est exclu de git (jamais commité) et reste lisible.
+func TestMarqueurInitProposedExclusDeGit(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	dir := t.TempDir()
+	if out, err := exec.Command("git", "-C", dir, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init : %v %s", err, out)
+	}
+	for i := 0; i < 2; i++ { // idempotent : une seule ligne d'exclusion
+		if err := MarkInitProposed(dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !InitProposalPending(dir) {
+		t.Fatal("marqueur absent")
+	}
+	out, _ := exec.Command("git", "-C", dir, "status", "--porcelain", "-uall").CombinedOutput()
+	if strings.Contains(string(out), "init-proposed") || strings.Contains(string(out), ".claude-launcher") {
+		t.Errorf("marqueur visible pour git : %q", out)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, ".git", "info", "exclude"))
+	if strings.Count(string(b), "init-proposed") != 1 {
+		t.Errorf("exclude = %q", b)
+	}
+	ClearInitProposal(dir)
+	if InitProposalPending(dir) {
+		t.Error("marqueur non retiré")
+	}
+}
+
+func TestStartProposeEtRetireLeMarqueurSurO(t *testing.T) {
+	start, _ := StartCommands(Config{}, t.TempDir(), "v1", LaunchNewProposed)
+	for _, want := range []string{"read -rp", "/init-project", "[o/N]", "rm -f .claude-launcher/init-proposed"} {
+		if !strings.Contains(start, want) {
+			t.Errorf("démarrage sans %q : %s", want, start)
+		}
+	}
+}

@@ -479,10 +479,7 @@ func (m model) createProject() (tea.Model, tea.Cmd) {
 		m.form.err = msg + " — " + undo()
 		return m, nil
 	}
-	if err := applyExec(dir, m.form); err != nil {
-		return fail("env.yaml : " + err.Error())
-	}
-	if f.source == "git" {
+	if f.source == "git" { // l'affectation (applyExec) vient APRÈS un clonage réussi, dans cloneDone
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 		job := &cloneJob{step: "préparation", cancel: cancel, undo: undo, dir: dir}
 		m.job = job
@@ -495,15 +492,20 @@ func (m model) createProject() (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(run, cloneTickCmd())
 	}
+	if err := applyExec(dir, m.form); err != nil {
+		return fail("env.yaml : " + err.Error())
+	}
 	mode := launchNormal // ni /init-project d'office ni question ; brut seulement pour le projet sans git
-	switch {
-	case f.source == "template":
-		mode = launchProposed
-	case f.raw:
+	if f.raw && f.source != "template" {
 		mode = launchNewRaw
 	}
 	if err := core.InitProject(dir, f.raw && f.source != "template", f.remote); err != nil {
 		return fail(err.Error())
+	}
+	if f.source == "template" { // même marqueur que la fenêtre native : proposé à l'ouverture (launchProject), jamais d'office
+		if err := core.MarkInitProposed(dir); err != nil {
+			return fail("marqueur /init-project : " + err.Error())
+		}
 	}
 	return m.finishCreated(dir, mode), nil
 }
@@ -535,6 +537,11 @@ func (m model) cloneDone(msg cloneDoneMsg) model {
 	m.job = nil
 	switch {
 	case msg.err == nil:
+		if err := applyExec(j.dir, m.form); err != nil { // après le clonage réussi : jamais d'affectation sans projet cloné
+			m.form.err = "env.yaml : " + err.Error() + " — " + j.undo()
+			m.form.mode = formURL
+			return m
+		}
 		return m.finishCreated(j.dir, launchNormal)
 	case errors.Is(msg.err, context.Canceled):
 		m.form.err = "annulé — " + j.undo()

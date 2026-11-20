@@ -273,3 +273,23 @@ func TestCreateProjectDirUndoGardeLesCategoriesPreexistantes(t *testing.T) {
 		t.Error("catégorie créée par l'appel non retirée")
 	}
 }
+
+// #215 : l'undo d'une création retire l'affectation écrite par ApplyExec (aucune entrée ne reste dans projects.json).
+func TestUndoOublieLAffectation215(t *testing.T) {
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	base := t.TempDir()
+	dir, undo, err := CreateProjectDir([]string{base}, base, "", false, "p")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := ApplyExec(dir, "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if !Assigned(dir) {
+		t.Fatal("affectation non écrite")
+	}
+	undo()
+	if Assigned(dir) {
+		t.Error("entrée de projects.json restée après undo")
+	}
+}

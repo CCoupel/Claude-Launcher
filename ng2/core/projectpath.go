@@ -350,6 +350,9 @@ func CreateProjectDir(roots []string, base, category string, newCategory bool, n
 	full := undo
 	undo = func() string {
 		_ = os.RemoveAll(dir) // créé par cet appel
+		if Assigned(dir) {    // affectation écrite par ApplyExec : aucune entrée ne reste dans projects.json (#215)
+			_ = WriteAssignment(dir, "")
+		}
 		return full()
 	}
 	if realBase, e1 := filepath.EvalSymlinks(b); e1 != nil {

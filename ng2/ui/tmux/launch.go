@@ -78,7 +78,17 @@ const (
 	launchProposed   = core.LaunchNewProposed
 )
 
+// effectiveMode : un projet qui attend sa proposition /init-project (marqueur posé à la création depuis le template) la
+// reçoit à chaque ouverture normale, comme dans la fenêtre native : N ou « plus tard » ⇒ reproposé au lancement suivant.
+func effectiveMode(path string, mode launchMode) launchMode {
+	if mode == launchNormal && core.InitProposalPending(path) {
+		return launchProposed
+	}
+	return mode
+}
+
 func launchProject(cfg core.Config, session string, n core.Node, latest string, mode launchMode) error {
+	mode = effectiveMode(n.Path, mode)
 	sess := targetSession(session)
 	if tmuxWindows(sess)[n.Key] {
 		// fenêtre en lecture seule (un autre launcher a la main) : la rouvrir,
