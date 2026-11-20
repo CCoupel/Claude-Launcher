@@ -87,23 +87,27 @@ Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`create` source `git` / `
 
 ---
 
-### Scenario 6 — Depot clone avec un `env.yaml` : approbation avant tout demarrage (audit)
+### Scenario 6 — Depot clone avec un `env.yaml` : approbation avant tout demarrage, redemandee a chaque changement (audit)
 
 **Validation** : HUMAIN — **Issues** : #215
 
-Prerequis du scenario : un **depot de test** contenant `.claude-launcher/env.yaml` avec une commande `setup` inoffensive qui laisse une preuve (ex. `touch /tmp/PREUVE-ENV-215`), un montage hors du projet (ex. `/tmp`) et du texte piege dans un champ (ex. `<b>gras</b>` et la sequence ESC `\x1b[31mROUGE`). Dans le cas du pod : memes contenus, preuve dans le pod.
+Prerequis du scenario : un **depot de test** contenant `.claude-launcher/env.yaml` avec une commande `setup` inoffensive qui laisse une preuve (ex. `touch /tmp/PREUVE-ENV-215`), un montage hors du projet (ex. `/tmp`), une commande `on_start` **tres longue** (plus de 200 caracteres, avec la fin reperable : `…FIN-DE-COMMANDE`), des `packages_by_manager` (ex. `apt: [jq]`) et du texte piege dans un champ : `<b>gras</b>`, la sequence ESC `\x1b[31mROUGE`, et des caracteres invisibles / bidirectionnels (U+202E inversion de sens, U+200B espace nul, U+2066). Pour le pod : memes contenus, preuve dans le pod.
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | Cloner ce depot (source Git) sur un backend **conteneur**, socle au choix | Clonage termine ; **rien n'est demarre** : aucun conteneur, la preuve `/tmp/PREUVE-ENV-215` n'existe pas | | |
-| 2 | Ouvrir le projet | Dialogue d'approbation (maquette A) : resume (image, paquets, commandes, montages hors projet, risque) + fichiers bruts ; boutons Accepter / Ouvrir sans / Annuler | | |
-| 3 | Lire le texte piege | `<b>gras</b>` affiche tel quel (pas de gras) ; la sequence ESC n'est pas interpretee (pas de couleur, ni dans la fenetre ni dans la coque) | | |
+| 2 | Ouvrir le projet | Dialogue d'approbation (maquette A) : resume (image, paquets **y compris `packages_by_manager`**, commandes, montages hors projet, risque) + fichiers bruts ; boutons Accepter / Ouvrir sans / Annuler | | |
+| 3 | Lire le texte piege et la commande longue | `<b>gras</b>` affiche tel quel ; sequence ESC non interpretee (pas de couleur, ni fenetre ni coque) ; caracteres bidi / invisibles neutralises (visibles comme un signe, texte non retourne) ; la commande longue est affichee **en entier** (la fin `FIN-DE-COMMANDE` est lisible, defilement ou retour a la ligne) | | |
 | 4 | « Annuler » | Rien n'est ecrit ni ouvert ; la question revient a la prochaine ouverture | | |
 | 5 | « Ouvrir sans » | Projet ouvert avec le seul socle choisi : la commande `setup`, le montage et la preuve sont absents | | |
-| 6 | Modifier `env.yaml` dans le depot (simuler un `git pull` : ajouter une commande `setup`), fermer, rouvrir | **Aucune** nouvelle question (choix definitif) ; le contenu modifie n'est toujours pas applique | | |
-| 7 | Reglages du projet > « Revoir » (projet ferme) puis rouvrir | La question revient ; « Accepter » : le projet demarre avec l'environnement du depot, la preuve apparait | | |
-| 8 | Projet affecte a l'hote : cloner le meme depot sur l'hote | Aucune question (env.yaml inutilise) ; elle apparait au premier passage en conteneur (F2) | | |
-| 9 | Meme parcours dans la **coque tmux** (hub) : touches `a` accepter, `s` ouvrir sans, `Echap` annuler, `v` fichiers bruts | Memes resultats ; texte piege non interprete dans le terminal | | |
+| 6 | Fermer. Modifier `env.yaml` **dans le depot** (simuler un `git pull` : ajouter une commande `setup`), rouvrir | La question **revient** (approbation non definitive : toute modification, apres « Ouvrir sans » comme apres « Accepter ») ; le contenu modifie n'est pas applique avant reponse | | |
+| 7 | « Accepter » puis refaire l'etape 6 | La question revient encore une fois | | |
+| 8 | Dans le launcher : Reglages du projet > modifier l'environnement (image, paquets) puis enregistrer, rouvrir | **Aucune** nouvelle question : une modification faite par le launcher lui-meme n'est pas redemandee | | |
+| 9 | Cloner un depot **sans** `env.yaml`, l'ouvrir en conteneur (aucune question), puis ajouter `.claude-launcher/env.yaml` dans le depot (pull) et rouvrir | La question apparait (un environnement apparu apres coup n'est pas de confiance) | | |
+| 10 | Corrompre `trust.json` (dossier de config du launcher : tronquer le fichier ou y ecrire `{`), rouvrir un projet clone en conteneur | Refus ferme : message clair, rien n'est demarre, le fichier n'est **pas reecrit** (le comparer a la copie faite avant) ; restaurer ensuite le fichier | | |
+| 11 | Reglages du projet > « Revoir » (projet ferme) puis rouvrir | La question revient ; « Accepter » : le projet demarre avec l'environnement du depot, la preuve apparait | | |
+| 12 | Projet affecte a l'hote : cloner le meme depot sur l'hote | Aucune question (env.yaml inutilise) ; elle apparait au premier passage en conteneur (F2) | | |
+| 13 | Meme parcours dans la **coque tmux** (hub) : touches `a` accepter, `s` ouvrir sans, `Echap` annuler, `v` fichiers bruts | Memes resultats (dont commande longue entiere, `packages_by_manager`, bidi neutralise) ; texte piege non interprete dans le terminal | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -112,7 +116,8 @@ Prerequis du scenario : un **depot de test** contenant `.claude-launcher/env.yam
 - [ ] Le jeton n'apparait nulle part (argv, `.git/config`, messages, journaux)
 - [ ] Aucun dossier ni categorie residuels apres un echec ou une annulation
 - [ ] `/init-project` jamais lance sans reponse de l'utilisateur
-- [ ] L'environnement d'un depot clone n'est jamais applique sans accord explicite ; un choix reste definitif
+- [ ] L'environnement d'un depot clone n'est jamais applique sans accord explicite ; tout changement du depot (apres accepter comme apres ouvrir sans) est redemande, sauf s'il vient du launcher lui-meme
+- [ ] Un registre d'approbation illisible refuse l'ouverture (echec ferme) sans etre reecrit
 
 ## Notes QA
 

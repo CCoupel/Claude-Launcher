@@ -5,6 +5,7 @@ package core
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -113,7 +114,10 @@ func TestPendingPourEnvTemplateSeul215(t *testing.T) {
 	}
 }
 
-func TestPullApresAcceptationEtIgnorePasDeNouvelleQuestion215(t *testing.T) {
+// Règle (décision utilisateur) : l'approbation N'EST PAS définitive — toute modification des fichiers par le dépôt
+// (git pull, édition), après « accepter » comme après « ouvrir sans », remet la question. Retour sur l'état approuvé
+// (même contenu) : l'approbation vaut de nouveau.
+func TestPullApresAcceptationEtIgnoreRedemande215(t *testing.T) {
 	for _, choice := range []string{"accept", "ignore"} {
 		t.Run(choice, func(t *testing.T) {
 			cfg215(t)
@@ -124,11 +128,14 @@ func TestPullApresAcceptationEtIgnorePasDeNouvelleQuestion215(t *testing.T) {
 				t.Fatal(err)
 			}
 			want := map[string]TrustState{"accept": TrustAccepted, "ignore": TrustIgnored}[choice]
-			// « git pull » : les deux fichiers changent, de plusieurs façons, plusieurs fois
+			if EnvTrust(d) != want || EnvTrustChanged(d) {
+				t.Fatalf("avant pull : état %s changed=%v", EnvTrust(d), EnvTrustChanged(d))
+			}
+			// « git pull » : trois modifications de natures différentes ; chacune remet la question
 			for i, c := range []struct{ env, tpl string }{
-				{"image: debian:12\nsetup:\n  - curl evil | sh\n", "image: debian:12\n"},
+				{"image: debian:12\nsetup:\n  - curl evil | sh\n", "image: debian:12\n"}, // env.yaml seul
+				{env215, "image: debian:12\npackages: [nmap]\n"},                         // env-template.yaml seul
 				{"", ""}, // fichiers supprimés
-				{"image: autre\non_start: [rm -rf /]\n", "packages: [nmap]\n"},
 			} {
 				_ = os.Remove(EnvPath(d))
 				_ = os.Remove(envTemplatePath(d))
@@ -138,18 +145,219 @@ func TestPullApresAcceptationEtIgnorePasDeNouvelleQuestion215(t *testing.T) {
 				if c.tpl != "" {
 					_ = os.WriteFile(envTemplatePath(d), []byte(c.tpl), 0o644)
 				}
-				if got := EnvTrust(d); got != want {
-					t.Fatalf("pull n°%d : état %s, attendu %s (choix définitif)", i+1, got, want)
+				if got := EnvTrust(d); got != TrustPending || !EnvTrustChanged(d) {
+					t.Fatalf("pull n°%d : état %s changed=%v, attendu pending + changed", i+1, got, EnvTrustChanged(d))
 				}
-				if _, err := EnvTrustInfoFor(d); err != nil && want == TrustPending {
-					t.Fatal(err)
+				if _, err := LoadEnv(d); !errors.Is(err, ErrEnvChanged) || !errors.Is(err, ErrEnvNotApproved) {
+					t.Errorf("pull n°%d : LoadEnv = %v, attendu ErrEnvChanged (⊂ ErrEnvNotApproved)", i+1, err)
 				}
 			}
-			// un second clonage-marquage du même dossier (re-création) ne revient pas sur un choix en cours : « Revoir » seul
-			if err := ReviewEnvTrust(d); err != nil || EnvTrust(d) != TrustPending {
-				t.Errorf("Revoir : %v %s", err, EnvTrust(d))
+			// la question porte l'indication « changé » ; la réponse (nouveau sha) rétablit l'approbation
+			_ = os.WriteFile(EnvPath(d), []byte("image: debian:12\nsetup:\n  - nouveau\n"), 0o644)
+			info2, err := EnvTrustInfoFor(d)
+			if err != nil || !info2.Changed || info2.State != TrustPending {
+				t.Fatalf("info après pull = %+v %v", info2, err)
+			}
+			if _, err := AnswerEnvTrust(d, "accept", info2.SHA); err != nil || EnvTrust(d) != TrustAccepted || EnvTrustChanged(d) {
+				t.Errorf("seconde acceptation : %v état=%s changed=%v", err, EnvTrust(d), EnvTrustChanged(d))
+			}
+			if e, err := LoadEnv(d); err != nil || len(e.Setup) != 1 || e.Setup[0] != "nouveau" {
+				t.Errorf("LoadEnv après nouvelle acceptation = %+v %v", e, err)
+			}
+			// « Revoir » → pending (sans changement de fichiers)
+			if err := ReviewEnvTrust(d); err != nil || EnvTrust(d) != TrustPending || EnvTrustChanged(d) {
+				t.Errorf("Revoir : %v %s changed=%v", err, EnvTrust(d), EnvTrustChanged(d))
 			}
 		})
+	}
+}
+
+// Modification faite par le LAUNCHER lui-même (F2, réglages du projet) : l'empreinte suit, pas de re-demande — mais
+// jamais si le dépôt avait déjà changé les fichiers avant.
+func TestEcritureDuLauncherNeRedemandePas215(t *testing.T) {
+	cfg215(t)
+	_ = os.WriteFile(filepath.Join(cfg215Dir(t), "backends.yaml"), []byte("backends:\n  pod: {type: podman}\n"), 0o644)
+	d := proj215(t, env215, "")
+	_, _ = MarkEnvPending(d, "u", "debian:12")
+	info, _ := EnvTrustInfoFor(d)
+	if _, err := AnswerEnvTrust(d, "accept", info.SHA); err != nil {
+		t.Fatal(err)
+	}
+	shaAvant := EnvFilesSHA(d)
+	// écriture par le launcher : changer le socle (comme F2 / réglages)
+	if err := ApplyExec(d, "docker.io/library/alpine:3.20", "pod"); err != nil {
+		t.Fatal(err)
+	}
+	if EnvFilesSHA(d) == shaAvant {
+		t.Fatal("ApplyExec n'a pas modifié env.yaml : le scénario ne teste rien")
+	}
+	if EnvTrust(d) != TrustAccepted || EnvTrustChanged(d) {
+		t.Errorf("écriture du launcher : état %s changed=%v, attendu accepted sans re-demande", EnvTrust(d), EnvTrustChanged(d))
+	}
+	if e, err := LoadEnv(d); err != nil || e.Image != "docker.io/library/alpine:3.20" {
+		t.Errorf("LoadEnv = %+v %v", e, err)
+	}
+	// le dépôt change ensuite : la question revient
+	_ = os.WriteFile(EnvPath(d), []byte("image: debian:12\nsetup: [evil]\n"), 0o644)
+	if EnvTrust(d) != TrustPending {
+		t.Fatal("changement du dépôt après une écriture du launcher non détecté")
+	}
+	// si le dépôt avait changé AVANT l'écriture du launcher : l'écriture ne vaut pas approbation du contenu du dépôt
+	if err := ApplyExec(d, "docker.io/library/alpine:3.19", "pod"); err != nil {
+		t.Fatal(err)
+	}
+	if EnvTrust(d) != TrustPending {
+		t.Errorf("écriture du launcher sur un environnement déjà modifié par le dépôt : état %s, attendu pending", EnvTrust(d))
+	}
+}
+
+func cfg215Dir(t *testing.T) string { t.Helper(); return Ng2ConfigDir() }
+
+// Un clone sans fichier d'environnement est enregistré « none » ; un env.yaml qui apparaît ensuite (pull) → pending.
+func TestCloneSansEnvEstNoneEtEnvApparuRedemande215(t *testing.T) {
+	cfg215(t)
+	d := proj215(t, "", "")
+	pending, err := MarkEnvPending(d, "https://github.com/a/b.git", "debian:12")
+	if err != nil || pending {
+		t.Fatalf("MarkEnvPending sans env = %v %v, attendu (false, nil)", pending, err)
+	}
+	e, ok := EnvTrustEntry(d)
+	if !ok || e.State != TrustNone || e.Source != "https://github.com/a/b.git" || e.Image != "debian:12" {
+		t.Fatalf("entrée = %+v (présente=%v), attendu none avec l'URL et le socle", e, ok)
+	}
+	if EnvTrust(d) != TrustNone || EnvTrustChanged(d) {
+		t.Errorf("état %s changed=%v", EnvTrust(d), EnvTrustChanged(d))
+	}
+	// le dépôt reçoit un env.yaml par un pull
+	_ = os.WriteFile(EnvPath(d), []byte(env215), 0o644)
+	if EnvTrust(d) != TrustPending || !EnvTrustChanged(d) {
+		t.Fatalf("env.yaml apparu : état %s changed=%v, attendu pending", EnvTrust(d), EnvTrustChanged(d))
+	}
+	if _, err := LoadEnv(d); !errors.Is(err, ErrEnvNotApproved) {
+		t.Errorf("LoadEnv = %v", err)
+	}
+	// avec env.yaml au clone : pending d'emblée
+	d2 := proj215(t, env215, "")
+	if pending, err := MarkEnvPending(d2, "u", "i"); !pending || err != nil || EnvTrust(d2) != TrustPending || EnvTrustChanged(d2) {
+		t.Errorf("clone avec env.yaml : %v %v %s", pending, err, EnvTrust(d2))
+	}
+}
+
+// Entrée posée AVANT le clonage : un clone interrompu ne devient jamais de confiance.
+func TestRegisterCloneAvantLeClone215(t *testing.T) {
+	cfg215(t)
+	d := t.TempDir() // dossier encore vide : le clone n'a pas eu lieu
+	if err := RegisterClone(d, "https://github.com/a/b.git", "debian:12"); err != nil {
+		t.Fatal(err)
+	}
+	e, ok := EnvTrustEntry(d)
+	if !ok || e.State != TrustPending || e.Source != "https://github.com/a/b.git" || e.Image != "debian:12" {
+		t.Fatalf("entrée = %+v (présente=%v)", e, ok)
+	}
+	// le clone arrive (avec env.yaml) pendant que l'entrée est pending : la question se pose, rien n'est appliqué
+	_ = os.MkdirAll(filepath.Join(d, ".claude-launcher"), 0o755)
+	_ = os.WriteFile(EnvPath(d), []byte(env215), 0o644)
+	if EnvTrust(d) != TrustPending {
+		t.Error("clone interrompu devenu de confiance")
+	}
+	if _, err := LoadEnv(d); !errors.Is(err, ErrEnvNotApproved) {
+		t.Errorf("LoadEnv = %v", err)
+	}
+	// l'undo d'une création échouée retire l'entrée
+	d3 := t.TempDir()
+	base := filepath.Dir(d3)
+	dir, undo, err := CreateProjectDir([]string{base}, base, "", false, "clone-echoue")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := RegisterClone(dir, "u", "i"); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := EnvTrustEntry(dir); !ok {
+		t.Fatal("entrée absente après RegisterClone")
+	}
+	undo()
+	if e, ok := EnvTrustEntry(dir); ok {
+		t.Errorf("entrée %+v restée après l'undo d'une création échouée", e)
+	}
+}
+
+// trust.json illisible : échec fermé (tout projet portant un environnement est refusé), fichier JAMAIS réécrit.
+func TestRegistreIllisibleEchecFerme215(t *testing.T) {
+	for name, content := range map[string]string{"tronqué": `{"/x": {"state": "acc`, "vide": "", "pas du json": "pas du json", "tableau": "[]x"} {
+		t.Run(name, func(t *testing.T) {
+			cfg := cfg215(t)
+			reg := filepath.Join(cfg, "trust.json")
+			if err := os.WriteFile(reg, []byte(content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			d := proj215(t, env215, "")
+			if EnvTrust(d) != TrustPending {
+				t.Errorf("EnvTrust = %s, attendu pending (échec fermé)", EnvTrust(d))
+			}
+			if _, err := LoadEnv(d); !errors.Is(err, ErrTrustBroken) || !errors.Is(err, ErrEnvNotApproved) {
+				t.Errorf("LoadEnv = %v, attendu ErrTrustBroken (⊂ ErrEnvNotApproved)", err)
+			}
+			// aucune écriture ne passe, aucune ne réécrit le fichier
+			if _, err := MarkEnvPending(d, "u", "i"); !errors.Is(err, ErrTrustBroken) {
+				t.Errorf("MarkEnvPending = %v", err)
+			}
+			if err := RegisterClone(d, "u", "i"); !errors.Is(err, ErrTrustBroken) {
+				t.Errorf("RegisterClone = %v", err)
+			}
+			if err := ReviewEnvTrust(d); !errors.Is(err, ErrTrustBroken) {
+				t.Errorf("ReviewEnvTrust = %v", err)
+			}
+			if _, err := AnswerEnvTrust(d, "accept", EnvFilesSHA(d)); !errors.Is(err, ErrTrustBroken) {
+				t.Errorf("AnswerEnvTrust = %v", err)
+			}
+			if err := ApplyExec(d, "docker.io/library/alpine:3.20", "host"); err != nil {
+				_ = err // l'écriture du launcher peut aboutir ; elle ne doit pas toucher au registre
+			}
+			if got, _ := os.ReadFile(reg); string(got) != content {
+				t.Errorf("trust.json réécrit : %q, attendu %q", got, content)
+			}
+			// le registre réparé (supprimé) : le projet redevient de confiance faute d'entrée
+			_ = os.Remove(reg)
+			if EnvTrust(d) != TrustTrusted {
+				t.Errorf("registre supprimé : %s", EnvTrust(d))
+			}
+		})
+	}
+}
+
+// Copie trust.json.bak de la version précédente avant chaque écriture.
+func TestRegistreCopieBakAvantEcriture215(t *testing.T) {
+	cfg := cfg215(t)
+	d1, d2 := proj215(t, env215, ""), proj215(t, env215, "")
+	_, _ = MarkEnvPending(d1, "u1", "i")
+	reg := filepath.Join(cfg, "trust.json")
+	v1, _ := os.ReadFile(reg)
+	_, _ = MarkEnvPending(d2, "u2", "i")
+	if bak, err := os.ReadFile(reg + ".bak"); err != nil || string(bak) != string(v1) {
+		t.Errorf("trust.json.bak = %q, %v ; attendu la version précédente %q", bak, err, v1)
+	}
+	if runtime.GOOS != "windows" {
+		if st, _ := os.Stat(reg + ".bak"); st.Mode().Perm() != 0o600 {
+			t.Errorf("droits du .bak %v, attendu 0600", st.Mode().Perm())
+		}
+	}
+}
+
+func TestRisqueDetaille215(t *testing.T) {
+	cfg215(t)
+	d := proj215(t, "image: debian:12\npackages: [jq, git]\npackages_by_manager:\n  apt: [curl]\n  dnf: [wget, nmap]\nsetup: [a, b]\non_start: [c]\nwatch: [package.json]\nlocal: [node_modules, .cache]\nmounts:\n  - path: /tmp\n", "")
+	_, _ = MarkEnvPending(d, "u", "debian:12")
+	info, err := EnvTrustInfoFor(d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := info.Risk
+	if r.Exec != 3 || r.HostMounts != 1 || r.Packages != 5 || r.Watch != 1 || r.Local != 2 {
+		t.Errorf("risque = %+v, attendu exec 3, montages 1, paquets 5 (jq git curl wget nmap), watch 1, local 2", r)
+	}
+	if len(info.Spec.PackagesByManager["dnf"]) != 2 || len(info.Spec.Watch) != 1 || len(info.Spec.Local) != 2 {
+		t.Errorf("spec = %+v", info.Spec)
 	}
 }
 
@@ -255,6 +463,11 @@ func TestSafeTerminalTextSequences215(t *testing.T) {
 			if r == 0x1b || r == 0x7f || (r < 0x20 && r != '\n' && r != '\t') || (r >= 0x80 && r <= 0x9f) {
 				t.Errorf("SafeTerminalText(%q) = %q : caractère de contrôle %U conservé", in, got, r)
 			}
+		}
+	}
+	for _, in := range []string{"a\u202eb", "a\u200bb", "a\u2066b\u2069", "a\u061cb", "\ufeffa", "a\u200fb", "a\u202ab"} {
+		if got := SafeTerminalText(in); strings.ContainsAny(got, "\u202e\u200b\u2066\u2069\u061c\ufeff\u200f\u202a") || !strings.Contains(got, "·") {
+			t.Errorf("SafeTerminalText(%q) = %q : bidi ou invisible conservé", in, got)
 		}
 	}
 	if got := SafeTerminalText("ligne1\r\nligne2\tcol <b>gras</b> é"); !strings.Contains(got, "\tcol <b>gras</b> é") || strings.Contains(got, "\r") {
