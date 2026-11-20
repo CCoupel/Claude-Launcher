@@ -28,6 +28,8 @@ type formMode int
 const (
 	formNone formMode = iota
 	formRoot
+	formCategory // catégorie : liste des dossiers de la base, « racine » ou « ＋ nouvelle » (#214)
+	formNewCat   // saisie d'une nouvelle catégorie
 	formName
 	formKind
 	formRemote
@@ -35,13 +37,19 @@ const (
 )
 
 type newForm struct {
-	mode   formMode
-	root   int
-	base   string // dossier fixé (catégorie ou racine) ; vide tant que la racine n'est pas choisie
-	name   string
-	raw    bool // projet brut (sinon géré)
-	remote string
-	err    string
+	mode formMode
+	root int
+	base string // racine (base) ; vide tant qu'elle n'est pas choisie
+	// catégorie (#214) : chemin relatif à la base (« A/B », vide = racine) ; newCat : à créer avec le projet
+	category string
+	newCat   bool
+	cats     []core.Category
+	catIdx   int // 0 : racine ; 1..len(cats) : cats[i-1] ; len(cats)+1 : « ＋ nouvelle »
+	catInput string
+	name     string
+	raw      bool // projet brut (sinon géré)
+	remote   string
+	err      string
 	// exécution (formExec) : 0 = hôte, i = images[i-1] dans le backend ctrBe
 	exec     int
 	images   []string
@@ -156,16 +164,50 @@ func withSpecial(nodes []core.Node) []core.Node {
 }
 
 // startNewProject : base est le dossier choisi par double-clic sur une catégorie
-// ou une racine ; vide pour l'entrée « Nouveau projet ».
+// ou une racine (la racine et la catégorie en sont déduites) ; vide pour l'entrée « Nouveau projet ».
 func (m model) startNewProject(base string) model {
-	m.form = newForm{mode: formName, base: base}
-	if base == "" {
-		if len(m.cfg.Roots) > 1 {
-			m.form.mode = formRoot
-		} else {
-			m.form.base = filepath.Clean(m.cfg.Roots[0])
+	m.form = newForm{mode: formName}
+	if base != "" {
+		root, cat, ok := splitUnderRoot(m.cfg.Roots, base)
+		if !ok {
+			m.form = newForm{}
+			m.msg = "⚠ base inconnue : " + base
+			return m
+		}
+		m.form.base, m.form.category = root, cat
+		return m
+	}
+	if len(m.cfg.Roots) > 1 {
+		m.form.mode = formRoot
+		return m
+	}
+	m.form.base = filepath.Clean(m.cfg.Roots[0])
+	return m.enterCategory()
+}
+
+// splitUnderRoot : racine contenant dir, et chemin relatif (« / ») de dir sous cette racine.
+func splitUnderRoot(roots []string, dir string) (root, cat string, ok bool) {
+	d := filepath.Clean(dir)
+	for _, r := range roots {
+		root = filepath.Clean(r)
+		if d == root {
+			return root, "", true
+		}
+		if rel, err := filepath.Rel(root, d); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+			return root, filepath.ToSlash(rel), true
 		}
 	}
+	return "", "", false
+}
+
+// enterCategory : étape « catégorie » de la base choisie.
+func (m model) enterCategory() model {
+	cats, err := core.ListCategoriesIn(m.cfg.Roots, m.form.base)
+	if err != nil {
+		m.form.err = err.Error()
+		return m
+	}
+	m.form.cats, m.form.catIdx, m.form.mode = cats, 0, formCategory
 	return m
 }
 
@@ -178,6 +220,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch f.mode {
 		case formRoot:
 			f.root = max(0, f.root-1)
+		case formCategory:
+			f.catIdx = max(0, f.catIdx-1)
 		case formKind:
 			f.raw = false
 		case formExec:
@@ -187,6 +231,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch f.mode {
 		case formRoot:
 			f.root = min(len(m.cfg.Roots)-1, f.root+1)
+		case formCategory:
+			f.catIdx = min(len(f.cats)+1, f.catIdx+1)
 		case formKind:
 			f.raw = true
 		case formExec:
@@ -205,10 +251,32 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch f.mode {
 		case formRoot:
 			f.base = filepath.Clean(m.cfg.Roots[f.root])
-			f.mode = formName
+			return m.enterCategory(), nil
+		case formCategory:
+			switch {
+			case f.catIdx == 0:
+				f.category, f.newCat, f.mode = "", false, formName
+			case f.catIdx > len(f.cats):
+				f.catInput, f.mode = "", formNewCat
+			default:
+				f.category, f.newCat, f.mode = f.cats[f.catIdx-1].Path, false, formName
+			}
+		case formNewCat:
+			cat := strings.TrimSpace(f.catInput)
+			p, err := core.ResolveCategoryPathIn(m.cfg.Roots, f.base, cat)
+			if err != nil {
+				f.err = err.Error()
+				break
+			}
+			if st, serr := os.Stat(p); serr == nil && !st.IsDir() {
+				f.err = "un fichier porte déjà ce nom"
+				break
+			}
+			_, serr := os.Stat(p)
+			f.category, f.newCat, f.mode = cat, serr != nil, formName
 		case formName:
-			if err := validName(f.name); err != "" {
-				f.err = err
+			if _, err := core.ResolveProjectPathIn(m.cfg.Roots, f.base, f.category, f.name); err != nil {
+				f.err = err.Error()
 			} else if _, err := os.Stat(m.projectDir()); err == nil {
 				f.err = "ce dossier existe déjà"
 			} else {
@@ -237,6 +305,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch f.mode {
 		case formName:
 			f.name = dropLast(f.name)
+		case formNewCat:
+			f.catInput = dropLast(f.catInput)
 		case formRemote:
 			f.remote = dropLast(f.remote)
 		}
@@ -252,6 +322,8 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case formName:
 			f.name += s
+		case formNewCat:
+			f.catInput += s
 		case formKind: // g / b choisissent et valident
 			switch strings.ToLower(s) {
 			case "g":
@@ -285,42 +357,54 @@ func dropLast(s string) string {
 
 func validName(s string) string { return core.ValidProjectName(s) }
 
+// projectDir : dossier du projet d'après la base, la catégorie et le nom, par la règle commune (core).
 func (m model) projectDir() string {
-	return filepath.Join(m.form.base, strings.TrimSpace(m.form.name))
+	f := m.form
+	if p, err := core.ResolveProjectPathIn(m.cfg.Roots, f.base, f.category, f.name); err == nil {
+		return p
+	}
+	return filepath.Join(f.base, f.category, strings.TrimSpace(f.name)) // refusé plus haut : ne sert qu'à l'affichage
 }
 
-// where : « dans EMBY » — le dossier fixé, relatif à sa racine.
+// where : « dans EMBY » — la base et la catégorie, relatives à la racine.
 func (m model) where() string {
-	base := m.form.base
-	for _, r := range m.cfg.Roots {
-		root := filepath.Clean(r)
-		if rel, err := filepath.Rel(root, base); err == nil && !strings.HasPrefix(rel, "..") {
-			if rel == "." {
-				return filepath.Base(root)
-			}
-			return rel
-		}
+	root := filepath.Base(m.form.base)
+	if m.form.category != "" {
+		return root + "/" + m.form.category
 	}
-	return base
+	return root
 }
 
 func (m model) createProject() model {
 	dir := m.projectDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		m.form.err = err.Error()
+	var madeCats []string // catégories créées par cet appel : retirées (vides) en cas d'échec
+	if m.form.newCat {
+		for p := filepath.Dir(dir); p != filepath.Clean(m.form.base) && p != filepath.Dir(p); p = filepath.Dir(p) {
+			if _, err := os.Stat(p); err != nil {
+				madeCats = append(madeCats, p)
+			}
+		}
+	}
+	fail := func(msg string) model { // dossier créé par cet appel et catégories créées vides : supprimés
+		_ = os.RemoveAll(dir)
+		for _, c := range madeCats {
+			_ = os.Remove(c)
+		}
+		m.form.err = msg
 		return m
 	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fail(err.Error())
+	}
 	if err := applyExec(dir, m.form); err != nil {
-		m.form.err = "env.yaml : " + err.Error()
-		return m
+		return fail("env.yaml : " + err.Error())
 	}
 	mode := launchNewManaged
 	if m.form.raw {
 		mode = launchNewRaw
 	}
 	if err := core.InitProject(dir, m.form.raw, m.form.remote); err != nil {
-		m.form.err = err.Error()
-		return m
+		return fail(err.Error())
 	}
 	m.form = newForm{}
 	m.filter = ""
@@ -420,8 +504,35 @@ func (m model) renderForm(w int) string {
 			}
 			sb.WriteString("  " + mark + style.Render(fmt.Sprintf("%d %s", i+1, shorten(r, w-9))) + "\n")
 		}
+	} else if f.mode == formCategory || f.mode == formNewCat {
+		sb.WriteString(" " + core.Dim.Render("base ") + core.Cyan.Render(shorten(filepath.Base(f.base), w-9)) + "\n\n")
 	} else {
-		sb.WriteString(" " + core.Dim.Render("dans ") + core.Cyan.Render(shorten(m.where(), w-8)) + "\n\n")
+		in := m.where()
+		if f.newCat {
+			in += " (nouvelle)"
+		}
+		sb.WriteString(" " + core.Dim.Render("dans ") + core.Cyan.Render(shorten(in, w-8)) + "\n\n")
+	}
+	if f.mode == formCategory {
+		sb.WriteString(" " + core.Dim.Render("Catégorie :") + "\n")
+		items := append([]string{"(à la racine)"}, func() []string {
+			var l []string
+			for _, c := range f.cats {
+				l = append(l, fmt.Sprintf("%s  (%d)", c.Path, c.Projects))
+			}
+			return l
+		}()...)
+		items = append(items, "＋ nouvelle catégorie…")
+		for i, o := range items {
+			mark, style := "  ", core.Dim
+			if i == f.catIdx {
+				mark, style = core.Green.Render("▶ "), core.Bold
+			}
+			sb.WriteString("  " + mark + style.Render(shorten(o, w-6)) + "\n")
+		}
+	}
+	if f.mode == formNewCat {
+		sb.WriteString(" " + core.Dim.Render("Nouvelle catégorie (A ou A/B) :") + " " + f.catInput + core.Dim.Render("▏") + "\n")
 	}
 	cur := core.Dim.Render("▏")
 	if f.mode >= formName {
@@ -468,6 +579,8 @@ func (m model) renderForm(w int) string {
 	switch f.mode {
 	case formRoot:
 		hint = "↑↓ ou 1-9 · ↵ valider · esc annuler"
+	case formCategory:
+		hint = "↑↓ · ↵ choisir · esc annuler"
 	case formKind:
 		hint = "↑↓ ou g/b · ↵ valider · esc annuler"
 	case formExec:
