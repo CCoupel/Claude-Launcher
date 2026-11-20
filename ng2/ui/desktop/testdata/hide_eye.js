@@ -1,10 +1,11 @@
-// Simulation (node) de l'œil à 3 états du titre de la carte TEAM (#209, maquette team_card__masquage_par_projet.html, variante C).
+// Simulation (node) de l'œil à 3 états du titre de la carte TEAM (#209, maquette v2 team_card__masquage_par_projet_v2.html, proposition A « bouton enfoncé »).
 // Usage : node hide_eye.js app.js
 // Contrat des fonctions pures exposées par app.js (à confirmer par dev-frontend ; noms ATTENDUS) :
-//   hideEyeView(mode, g)       → { mode, open, dim, name, tip }
+//   hideEyeView(mode, g)       → { mode, open, dim, own, name, tip }
 //        mode : 'default' | 'auto' | 'none' ; g = { enabled, delay } (réglage global TEAM_HIDE_IDLE_ENABLED / TEAM_HIDE_IDLE)
 //        open : œil OUVERT ssi 'none' ; FERMÉ ssi 'auto' ; 'default' → suit le global (fermé si global activé, ouvert sinon)
 //        dim  : grisé ssi 'default' (et seulement lui)
+//        own  : choix PROPRE au projet (œil sur fond plein accent, « bouton enfoncé ») ssi 'auto' ou 'none', quel que soit le global ; jamais pour 'default'
 //        name : 'default' | 'auto hide' | 'no hide'
 //        tip  : « Ce projet : <name> — clic : <suivant> · réglage global : masqués après <delay> s | désactivé »
 //   hideEyeNext(mode)          → default → auto → no hide → default (rend 'default' | 'auto' | 'none')
@@ -55,6 +56,20 @@ eq('menu courant', m.map((e) => !!e.current), [false, false, true]);
 eq('menu libellés', m.map((e) => e.label.split(' — ')[0]), ['auto hide', 'default', 'no hide']);
 if (!/30 s/.test(m[0].label)) { console.log('KO menu : délai absent de « auto hide » : ' + m[0].label); ko++; } else console.log('OK menu délai');
 if (!/désactivé/.test(F.hideEyeMenu('auto', off)[1].label)) { console.log('KO menu : valeur globale absente de « default »'); ko++; } else console.log('OK menu global');
+
+// marque « own » (v2) : fond plein pour auto et none, jamais pour default, indépendante du réglage global
+for (const g of [on, off, { enabled: true, delay: 0 }]) {
+  eq('own auto', F.hideEyeView('auto', g).own, true);
+  eq('own none', F.hideEyeView('none', g).own, true);
+  eq('own default', F.hideEyeView('default', g).own, false);
+}
+eq('own XOR dim', ['default', 'auto', 'none'].map((m) => F.hideEyeView(m, on).own !== F.hideEyeView(m, on).dim), [true, true, true]);
+
+// v2 : plus de puce « masquage N s » dans le titre de la carte Team (le délai n'est plus que dans l'infobulle et le menu)
+const team = src.slice(src.indexOf("card('Team'"), src.indexOf("// Fichiers"));
+if (!team.includes("card('Team'")) { console.log("KO : appel card('Team' introuvable"); ko++; }
+else if (/masquage '|masquage \d|hidechip/.test(team)) { console.log("KO puce « masquage N s » encore passée à la carte Team"); ko++; } else console.log('OK pas de puce Team');
+if (/'hidechip'/.test(src)) { console.log('KO classe hidechip encore utilisée dans app.js'); ko++; } else console.log('OK hidechip retirée');
 
 // appel serveur
 eq('apply auto', F.hideEyeApply('auto'), { hideIdle: 'auto' });

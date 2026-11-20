@@ -1,10 +1,10 @@
 # Procedure de Test — Masquage des teammates inactifs par projet (#209)
 
 **Version** : 6.5.0
-**Date** : 2026-11-19
+**Date** : 2026-11-20
 **Testeur** : QA + utilisateur (scenarios HUMAIN)
 
-Reference : `contracts/desktop-dispatch.md` « v6.5.0 », maquette `docs/mockup/v6.5.0/ui/team_card__masquage_par_projet.html` (variante C : oeil 3 etats), `docs/mockup/DECISIONS.md` (team_card).
+Reference : `contracts/desktop-dispatch.md` « v6.5.0 », maquette v2 `docs/mockup/v6.5.0/ui/team_card__masquage_par_projet_v2.html` (proposition A « bouton enfoncé » : oeil 3 etats, a droite du titre, sans puce), `docs/mockup/DECISIONS.md` (team_card).
 
 ## Prerequis
 
@@ -19,7 +19,7 @@ Reference : `contracts/desktop-dispatch.md` « v6.5.0 », maquette `docs/mockup/
 **Validation** : AUTO — **Issues** : #209
 
 ```bash
-cd ng2 && go test -race -count=1 -run '209' ./core/ ./ui/desktop/ && echo OK
+cd ng2 && go test -race -count=1 -run '209' ./core/ ./ui/desktop/ ./ui/tmux/ && echo OK
 ```
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
@@ -36,16 +36,17 @@ cd ng2 && go test -race -count=1 -run '209' ./core/ ./ui/desktop/ && echo OK
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Ouvrir un projet, regarder le titre de la carte TEAM | oeil **grise** (`default`), conforme a la maquette | | |
-| 2 | Clic sur l'oeil | oeil **ferme**, nom « auto hide » ; teammate inactif masque apres le delai | | |
-| 3 | Nouveau clic | oeil **ouvert**, « no hide » ; tous les teammates visibles | | |
-| 4 | Nouveau clic | retour a **grise** (`default`) | | |
+| 1 | Ouvrir un projet, regarder le titre de la carte TEAM | oeil **gris nu** (`default`), **dernier element du titre, aligne a droite** ; **aucune puce « masquage N s »** ; versions tronquees (…) avant l'oeil si le titre est etroit, l'oeil reste visible | | |
+| 2 | Clic sur l'oeil | oeil **ferme sur fond plein accent** (« bouton enfonce » : choix du projet), nom « auto hide » ; teammate inactif masque apres le delai | | |
+| 3 | Nouveau clic | oeil **ouvert sur fond plein accent**, « no hide » ; tous les teammates visibles | | |
+| 4 | Nouveau clic | retour a **gris nu** (`default`), fond plein disparu | | |
 | 5 | Survoler l'oeil | infobulle « Ce projet : … — clic : … · reglage global : masques apres 30 s / desactive » | | |
 | 6 | Clic droit | menu des 3 etats, etat courant marque, delai et valeur globale lisibles | | |
 | 7 | Choisir « no hide » dans le menu, puis double-clic sur un teammate | refus avec le message « masquage desactive pour ce projet… » | | |
 | 8 | Changer le global (Reglages) | projet en `auto`/`none` inchange ; projet en `default` suit | | |
 | 9 | Relancer l'exe | etat de l'oeil conserve ; l'oeil change sans relance (refresh immediat) | | |
-| 10 | Variantes de theme / taille de police (#150) | oeil net, aligne avec le titre, non rogne | | |
+| 10 | Theme clair puis sombre ; taille de police (#150) ; survol (`:hover`) de l'oeil plein | fond plein et icone lisibles dans les deux themes, contraste suffisant, oeil net, aligne, non rogne | | |
+| 11 | Clic droit : le menu reprend le meme rendu (fond plein pour l'etat courant propre au projet) | coherent avec l'oeil | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -57,7 +58,7 @@ cd ng2 && go test -race -count=1 -run '209' ./core/ ./ui/desktop/ && echo OK
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Coque tmux : projet en `auto`, `none`, `default` | titre « masquage 30 s » / « no hide » selon l'etat effectif | | |
+| 1 | Coque tmux : projet en `default`, `auto`, `none` (global active puis desactive) | titre « default (masques 30 s) » / « default (desactive) » / « auto hide ◆ » / « no hide ◆ » ; la losange marque le choix propre au projet | | |
 | 2 | Modifier `PROJECT_HIDE_IDLE` dans `config.conf` a la main | pris en compte au tour suivant, sans relance | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -69,4 +70,4 @@ cd ng2 && go test -race -count=1 -run '209' ./core/ ./ui/desktop/ && echo OK
 
 ## Notes QA
 
-Scenarios 2 et 3 : validation humaine (rendu).
+Scenarios 2 et 3 : validation humaine (rendu). Automatise (scenario 1) : `hide_eye.js` (marque `own`, absence de puce), `TestHideEyeStyleV2209` (CSS), `TestHideTitle209` (libelles coque).
