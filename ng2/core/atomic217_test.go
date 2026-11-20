@@ -1,3 +1,4 @@
+//go:build !windows
 
 package core
 
@@ -284,6 +285,31 @@ func TestSaveConfigBakResserre0600EtCrashAncienIntact217(t *testing.T) {
 	}
 	if cst, _ := os.Stat(p); cst.Mode().Perm() != 0o600 {
 		t.Errorf("config.conf droits %v, attendu 0600", cst.Mode().Perm())
+	}
+	if l := lsTmp217(t, filepath.Dir(p)); len(l) != 0 {
+		t.Errorf("temporaires laissés : %v", l)
+	}
+}
+
+func TestCreateExclusiveAtomicJamaisEcraseNiTemporaire217(t *testing.T) {
+	d := dir217(t)
+	p := filepath.Join(d, "sous", "config.conf") // dossier absent : créé
+	ok, err := createExclusiveAtomic(p, []byte("COMPLET\n"), 0o600)
+	if err != nil || !ok {
+		t.Fatalf("1re création = %v, %v", ok, err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "COMPLET\n" {
+		t.Errorf("contenu = %q", b)
+	}
+	if st, _ := os.Stat(p); st.Mode().Perm() != 0o600 {
+		t.Errorf("droits %v, attendu 0600", st.Mode().Perm())
+	}
+	ok, err = createExclusiveAtomic(p, []byte("AUTRE\n"), 0o600) // existe : ni erreur, ni écrasement
+	if err != nil || ok {
+		t.Fatalf("2e création = %v, %v, attendu (false, nil)", ok, err)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "COMPLET\n" {
+		t.Errorf("fichier existant écrasé : %q", b)
 	}
 	if l := lsTmp217(t, filepath.Dir(p)); len(l) != 0 {
 		t.Errorf("temporaires laissés : %v", l)

@@ -1,4 +1,3 @@
-
 package platform
 
 // #217 : remplacement de fichier avec retry Windows, en logique pure (erreurs injectées, valable sur tous les
