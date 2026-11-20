@@ -481,22 +481,22 @@ func (m stateModel) teamTitle() string {
 	return t
 }
 
-// hideTitle : état effectif du masquage pour le titre de la carte (#209) — « masquage 30 s » ou « no hide », suivi de « · projet » quand le projet a son propre choix ; "" si non
-// renseigné. Délai 0 : jamais masqué, donc « no hide » aussi.
+// hideTitle : état du masquage pour le titre de la carte (#209, maquette v2 « bouton enfoncé ») — « default (masqués 30 s) » ou
+// « default (désactivé) » quand le projet suit le réglage global ; « auto hide ◆ » / « no hide ◆ » quand il a son propre
+// choix (◆ = choix du projet, comme l'œil plein de l'interface native). "" si non renseigné.
 func hideTitle(h core.HideIdleInfo) string {
-	var t string
-	switch {
-	case h.Mode == "":
+	switch h.Mode {
+	case "":
 		return ""
-	case !h.Enabled || h.Delay <= 0:
-		t = "no hide"
-	default:
-		t = fmt.Sprintf("masquage %d s", h.Delay)
+	case core.HideIdleAuto:
+		return "auto hide ◆"
+	case core.HideIdleNone:
+		return "no hide ◆"
 	}
-	if h.Mode != core.HideIdleDefault { // choix propre au projet (PROJECT_HIDE_IDLE) : écart avec le global signalé
-		t += " · projet"
+	if !h.Enabled || h.Delay <= 0 {
+		return "default (désactivé)"
 	}
-	return t
+	return fmt.Sprintf("default (masqués %d s)", h.Delay)
 }
 
 // shortEffort : effort abrégé pour le pane étroit.
