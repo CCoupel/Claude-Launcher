@@ -184,7 +184,7 @@ func TestProjectApplyHideIdleImmediat209(t *testing.T) {
 // carte TEAM à jour (mode, global) en moins de 2 s, SANS select manuel.
 func TestProjectApplyHideIdleCarteSansSelect209(t *testing.T) {
 	a, r, path, _, _ := h188Project(t, "TEAM_HIDE_IDLE=30\n") // global activé (défaut)
-	h188Call(t, a, "select", map[string]any{"path": path})   // projet sélectionné une fois pour toutes
+	h188Call(t, a, "select", map[string]any{"path": path})    // projet sélectionné une fois pour toutes
 	h188WaitCond(t, "carte initiale", func() bool { h := h188HideIdle(r); return h != nil && h["mode"] == "default" })
 	for _, step := range []struct{ apply, mode string }{{"auto", "auto"}, {"default", "default"}, {"auto", "auto"}, {"none", "none"}, {"default", "default"}} {
 		hi209Apply(t, a, path, step.apply)
