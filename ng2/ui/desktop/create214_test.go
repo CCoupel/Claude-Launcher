@@ -29,6 +29,22 @@ func snapDir214(t *testing.T, root string) []string {
 	return out
 }
 
+// voisins214 : entrées à côté de la base qui ne sont pas des dossiers du bac à sable (écrits en tâche de fond par
+// l'application : config, cache d'état… — jamais comptés). Tout le reste serait une écriture hors de la base.
+func voisins214(t *testing.T, base string) []string {
+	t.Helper()
+	app := map[string]bool{"home": true, "xdg_config_home": true, "xdg_cache_home": true, "cl_config_dir": true,
+		"claude_config_dir": true, "appdata": true, "localappdata": true, "userprofile": true, filepath.Base(base): true}
+	var out []string
+	ents, _ := os.ReadDir(filepath.Dir(base))
+	for _, e := range ents {
+		if !app[e.Name()] {
+			out = append(out, e.Name())
+		}
+	}
+	return out
+}
+
 func refus214(t *testing.T, v map[string]any, field string) {
 	t.Helper()
 	if v["ok"] != false {
@@ -140,10 +156,10 @@ func TestRefusDeChemin214(t *testing.T) {
 	base := base214(t)
 	var r recorder
 	a := newApp(t, r.emit)
-	avant := snapDir214(t, filepath.Dir(base))
+	avant := snapDir214(t, base)
 	dehors := t.TempDir()
 	_ = os.Symlink(dehors, filepath.Join(base, "SORTIE"))
-	avant = snapDir214(t, filepath.Dir(base))
+	avant = snapDir214(t, base)
 
 	for _, c := range []struct {
 		method string
@@ -174,11 +190,14 @@ func TestRefusDeChemin214(t *testing.T) {
 	} {
 		refus214(t, dispatchJSON(t, a, c.method, c.args), c.field)
 	}
-	if apres := snapDir214(t, filepath.Dir(base)); len(apres) != len(avant) {
+	if apres := snapDir214(t, base); len(apres) != len(avant) {
 		t.Errorf("écriture sur le disque malgré les refus :\navant=%v\napres=%v", avant, apres)
 	}
 	if es, _ := os.ReadDir(dehors); len(es) != 0 {
 		t.Errorf("écriture hors des bases : %v", es)
+	}
+	if extra := voisins214(t, base); len(extra) != 0 {
+		t.Errorf("entrées créées à côté de la base : %v", extra)
 	}
 }
 
@@ -190,7 +209,7 @@ func TestRefusDeCheminWeb214(t *testing.T) {
 	w := &webBridge{app: a, token: "tok214", subs: map[chan []byte]bool{}, strictHost: true}
 	srv := httptest.NewServer(w.handler())
 	defer srv.Close()
-	avant := snapDir214(t, filepath.Dir(base))
+	avant := snapDir214(t, base)
 	forges := []string{
 		`{"method":"create","args":{"base":"/tmp","name":"evil"}}`,
 		`{"method":"create","args":{"base":` + quote214(base) + `,"category":"../../..","name":"evil"}}`,
@@ -216,7 +235,7 @@ func TestRefusDeCheminWeb214(t *testing.T) {
 	if resp, _ := doWith(t, srv.URL, "POST", "/api/call", "", "", forges[0], "application/json", ""); resp.StatusCode == 200 {
 		t.Error("create accepté sans cookie")
 	}
-	if apres := snapDir214(t, filepath.Dir(base)); len(apres) != len(avant) {
+	if apres := snapDir214(t, base); len(apres) != len(avant) {
 		t.Errorf("écriture sur le disque malgré les refus : %v", apres)
 	}
 	// les nouvelles méthodes passent par /api/call avec session
@@ -292,7 +311,6 @@ func TestCreateSuccesChemins214(t *testing.T) {
 			for _, p := range snapDir214(t, base) {
 				avant[p] = true
 			}
-			parent, _ := os.ReadDir(filepath.Dir(base))
 			v := dispatchJSON(t, a, "create", c.args)
 			if v["ok"] == false || v["tab"] == nil {
 				t.Fatalf("create = %v, attendu un succès (tab)", v)
@@ -311,8 +329,8 @@ func TestCreateSuccesChemins214(t *testing.T) {
 			for _, m := range c.made {
 				allowed[filepath.Join(base, filepath.FromSlash(m))] = true
 			}
-			if now, _ := os.ReadDir(filepath.Dir(base)); len(now) != len(parent) {
-				t.Errorf("entrées ajoutées à côté de la base : %d → %d", len(parent), len(now))
+			if extra := voisins214(t, base); len(extra) != 0 {
+				t.Errorf("entrées créées à côté de la base : %v", extra)
 			}
 			for _, p := range snapDir214(t, base) {
 				if avant[p] || allowed[p] {
