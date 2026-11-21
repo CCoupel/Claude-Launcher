@@ -34,6 +34,11 @@ func (l *revealLimiter) allow(session string) bool {
 		l.at = map[string][]time.Time{}
 	}
 	now := time.Now()
+	for k, ts := range l.at { // purge : sessions sans révélation dans la dernière minute (pas de croissance par clé distincte)
+		if k != session && (len(ts) == 0 || now.Sub(ts[len(ts)-1]) >= time.Minute) {
+			delete(l.at, k)
+		}
+	}
 	keep := l.at[session][:0]
 	for _, t := range l.at[session] {
 		if now.Sub(t) < time.Minute {
@@ -82,7 +87,7 @@ func (a *App) secretReveal(iface string, remote bool, session string, raw json.R
 func (a *App) DispatchWeb(src string, remote bool, sid, method string, raw json.RawMessage) (any, error) {
 	switch method {
 	case "secretReveal":
-		return a.secretReveal("web", remote, "web:"+sid, raw)
+		return a.secretReveal("web local", remote, "web:"+sid, raw)
 	case "configModel":
 		var arg struct {
 			Kind string `json:"kind"`
@@ -126,8 +131,12 @@ func (w *webBridge) remoteAccess(r *http.Request) bool {
 	return false
 }
 
-// sessionID : identifiant de la session du navigateur (cookie) pour le plafond de débit ; à défaut, la source.
+// sessionID : identifiant de la session du navigateur (cookie) pour le plafond de débit ; à défaut, la source. En mode « none »
+// (aucune session : le cookie n'est pas validé, un client en changerait à chaque appel) : la SOURCE seule.
 func (w *webBridge) sessionID(r *http.Request) string {
+	if w.access == core.AccessNone {
+		return "src:" + requestSource(r)
+	}
 	if c, err := r.Cookie(w.cookieName(r)); err == nil && c.Value != "" {
 		return c.Value
 	}

@@ -4,11 +4,13 @@ package desktop
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"claude-launcher-ng2/core"
 )
@@ -153,5 +155,55 @@ func TestRemoteAccess227(t *testing.T) {
 	w.public = &pub
 	if !mk("launcher.example.org", "127.0.0.1:5555", nil) {
 		t.Error("adresse publique : distant attendu")
+	}
+}
+
+// Mode « none » : la clé du plafond est la SOURCE, jamais le cookie (non validé) ; mode jeton : le cookie.
+func TestSessionIDModeNone227(t *testing.T) {
+	none := &webBridge{access: core.AccessNone, port: "8765"}
+	tok := &webBridge{access: core.AccessToken, port: "8765"}
+	mk := func(w *webBridge, port, cookie string) *http.Request {
+		r := httptest.NewRequest("POST", "http://127.0.0.1:8765/api/call", nil)
+		r.RemoteAddr = "127.0.0.1:" + port
+		r.AddCookie(&http.Cookie{Name: w.cookieName(r), Value: cookie})
+		return r
+	}
+	if a, b := none.sessionID(mk(none, "4000", "a")), none.sessionID(mk(none, "4001", "b")); a != b {
+		t.Errorf("mode none : deux cookies = deux clés (%q / %q)", a, b)
+	}
+	if a, b := tok.sessionID(mk(tok, "4000", "a")), tok.sessionID(mk(tok, "4000", "b")); a == b {
+		t.Errorf("mode jeton : la session (cookie) doit distinguer les clients (%q)", a)
+	}
+}
+
+// Purge : les sessions sans révélation depuis une minute sont retirées de la table du plafond.
+func TestRevealLimiterPurge227(t *testing.T) {
+	var l revealLimiter
+	for i := 0; i < 50; i++ {
+		l.allow("s" + string(rune('A'+i)))
+	}
+	l.mu.Lock()
+	for k := range l.at {
+		l.at[k] = []time.Time{time.Now().Add(-2 * time.Minute)}
+	}
+	l.mu.Unlock()
+	l.allow("neuve")
+	l.mu.Lock()
+	n := len(l.at)
+	l.mu.Unlock()
+	if n != 1 {
+		t.Errorf("table = %d entrées après purge, attendu 1", n)
+	}
+}
+
+// Journal : l'interface est « web local » pour un accès web (contrat), « fenêtre native » pour la fenêtre.
+func TestJournalRevealInterface227(t *testing.T) {
+	a := revealFix227(t)
+	args, _ := json.Marshal(map[string]any{"kind": "config.conf", "key": "GITHUB_TOKEN"})
+	_, _ = a.DispatchWeb("127.0.0.1", false, "s", "secretReveal", args)
+	_, _ = a.Dispatch("secretReveal", args)
+	j, _ := os.ReadFile(filepath.Join(core.CacheDir(), "secrets-journal.jsonl"))
+	if !strings.Contains(string(j), `"source":"web local"`) || !strings.Contains(string(j), `"source":"fenêtre native"`) {
+		t.Errorf("journal : interfaces attendues « web local » et « fenêtre native » :\n%s", j)
 	}
 }
