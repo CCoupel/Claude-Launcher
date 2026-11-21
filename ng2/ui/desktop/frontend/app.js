@@ -510,7 +510,12 @@ function renderCards() {
     kv.lastChild.title = c.lastMsg || '';
     pb.appendChild(kv);
   }
-  card('Projet', '', pb);
+  const pk = card('Projet', '', pb);
+  if (pk && pk.firstChild && c.path) { // #216 : menu ⋯ de la carte (mêmes actions que le clic droit de l'arbre)
+    const mb = el('span', 'cardmenu', '⋯'); mb.title = 'Actions du projet';
+    mb.onclick = (e) => { e.stopPropagation(); const r = mb.getBoundingClientRect(); showProjectMenu(c.path, r.left, r.bottom); };
+    pk.firstChild.append(mb);
+  }
   // Milestone
   const m = c.milestone;
   if (m) {
@@ -819,6 +824,7 @@ function showProjectMenu(path, x, y) {
   it('⟳ Rafraîchir', 'F5', () => refreshProject(path), !!r.refreshing);
   it('Forcer la fermeture…', '', () => askForceClose(path), !r.canForce);
   m.appendChild(el('hr'));
+  it('⇄ Déplacer / renommer…', '', () => moveBox(path)); // #216
   it('⚙ Réglages du projet…', '', () => openSettings(path, 'projet'));
   it('Changer de backend…', 'F2', () => openSettings(path, 'projet', 'pjf-backend'));
   it('Environnement du conteneur…', '', () => openSettings(path, 'projet', 'pjf-env'));
@@ -1770,6 +1776,123 @@ async function envTrustBox(src) {
     setTimeout(() => no.focus(), 0); // défaut sûr : Entrée n'accepte pas
   });
   draw(info, '');
+}
+// ── Déplacer / renommer un projet (#216) ─────────────────────────────────────
+// Fonctions pures (testdata/project_move.js).
+const sameLocation = (info, base, category, name) => base === info.base && (category || '') === (info.category || '') && name === info.name;
+// « Ce qui change » : [{ label, old?, text, dim? }]
+function moveRows(info, base, category, name) {
+  const oldPath = joinNewPath(info.base, info.category, info.name), newPath = joinNewPath(base, category, name);
+  const keyChanges = (category || '') !== (info.category || '') || name !== info.name;
+  return [
+    { label: 'Dossier', old: oldPath, text: newPath },
+    { label: 'Nom', text: info.key || '', dim: keyChanges ? '(recalculé selon la catégorie et le nom)' : '(inchangé)' },
+    { label: 'Conteneur / pod', text: 'supprimé le cas échéant, recréé sur le nouveau chemin à la prochaine ouverture' },
+    { label: 'projects.json', text: 'affectation de backend reportée' },
+    { label: 'URL', text: '/files/<nom>/… ', dim: keyChanges ? '(suit le nouveau nom)' : '(inchangée)' },
+    { label: 'config.conf', text: 'couleur, organisation, masquage reportés' },
+    { label: 'Historique claude', text: 'conversations reprises (--resume) déplacées' },
+    { label: 'Approbation env.', text: 'conservée (pas de nouvelle question)' },
+  ];
+}
+// message d'échec : étape, retour arrière ou état partiel
+function moveFailText(r) {
+  if (!r) return 'déplacement refusé';
+  let m = r.msg || 'déplacement refusé';
+  if (r.step) m = 'étape « ' + r.step + ' » : ' + m;
+  if (r.state === 'partial') m += ' — retour arrière incomplet' + ((r.done || []).length ? ' (étapes faites : ' + r.done.join(', ') + ')' : '') + ' : l\'état du projet est inachevé.';
+  else if (r.rolledBack) m += ' — retour arrière effectué, projet inchangé.';
+  return m;
+}
+async function moveBox(path) {
+  const info = await call('projectMoveInfo', { path });
+  if (!info || info.ok === false) { if (info && info.msg) flash('⚠ ' + info.msg); return; }
+  const bl = await call('projectBases', {});
+  const bases = ((bl && bl.bases) || []).filter((x) => x && !x.missing).map((x) => x.path);
+  if (info.base && !bases.includes(info.base)) bases.unshift(info.base);
+  const blockers = info.blockers || [];
+  openModal((b) => {
+    b.append(el('h2', '', '⇄ Déplacer / renommer — ' + info.name));
+    if (blockers.length) {
+      const bx = el('div', 'note warn'); bx.append(el('div', '', 'Déplacement impossible pour l\'instant :'));
+      for (const x of blockers) bx.append(el('div', '', '• ' + x));
+      if (info.open) {
+        const fc = el('button', 'btn sm', 'Fermer le projet'); fc.onclick = () => { closeModal(); askClose(path); };
+        bx.append(fc);
+      }
+      b.append(bx);
+    }
+    const cols = el('div', 'trustcols');
+    const left = el('div', 'form');
+    const baseSel = el('select');
+    for (const x of bases) { const o = el('option', '', x); o.value = x; baseSel.appendChild(o); }
+    baseSel.value = info.base;
+    const cat = el('select'), catNew = el('input'); catNew.placeholder = 'nouvelle catégorie (a/b : imbriquée)'; catNew.classList.add('hidden');
+    const catWrap = el('div', 'catwrap'); catWrap.append(cat, catNew);
+    const name = el('input'); name.value = info.name;
+    const final = el('div', 'ro');
+    const mkErr = () => el('div', 'fe err');
+    const baseErr = mkErr(), catErr = mkErr(), nameErr = mkErr();
+    left.append(el('label', '', 'Base'), baseSel, el('span'), baseErr, el('label', '', 'Catégorie'), catWrap, el('span'), catErr, el('label', '', 'Nom'), name, el('span'), nameErr, el('label', '', 'Chemin final'), final);
+    const right = el('div'); right.append(el('div', 'cap', 'Ce qui change'));
+    const tbl = el('div'); right.append(tbl);
+    const warn = el('div', 'note warn hidden', '⚠ Changement de base : copie puis suppression (pas de simple renommage entre deux montages) — plus long.');
+    right.append(warn);
+    cols.append(left, right); b.appendChild(cols);
+    const curCat = () => (cat.value === NEWCAT ? catNew.value.trim() : cat.value);
+    const msg = el('div', 'err'); b.appendChild(msg);
+    const btns = el('div', 'btns');
+    const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
+    const go = el('button', 'btn pri', 'Déplacer');
+    btns.append(cancel, go); b.appendChild(btns);
+    const upd = () => {
+      final.textContent = joinNewPath(baseSel.value, curCat(), name.value.trim() || '<nom>');
+      tbl.textContent = '';
+      for (const r of moveRows(info, baseSel.value, curCat(), name.value.trim() || info.name)) {
+        const line = el('div', 'trow'); line.append(el('span', 'tl', r.label));
+        const v = el('span', 'tv');
+        if (r.old) v.append(el('code', 'old', r.old), el('span', 'dim', '→'));
+        v.append(el('code', '', r.text)); if (r.dim) v.append(el('span', 'dim', r.dim));
+        line.append(v); tbl.append(line);
+      }
+      warn.classList.toggle('hidden', baseSel.value === info.base);
+      go.disabled = blockers.length > 0 || sameLocation(info, baseSel.value, curCat(), name.value.trim());
+      go.title = blockers.length ? 'voir les blocages ci-dessus' : go.disabled ? 'même emplacement' : '';
+    };
+    let want = info.category;
+    const loadCats = makeCatLoader((bs) => transport.call('projectCategories', { base: bs }), (bs, cats) => {
+      if (bs !== baseSel.value) return;
+      cat.textContent = '';
+      const o0 = el('option', '', '(directement sous la base)'); o0.value = ''; cat.appendChild(o0);
+      const known = cats.map((c) => c.path);
+      for (const c of cats) { const o = el('option', '', c.path + ' (' + c.projects + ')'); o.value = c.path; cat.appendChild(o); }
+      const o1 = el('option', '', '＋ nouvelle catégorie…'); o1.value = NEWCAT; cat.appendChild(o1);
+      cat.value = want && known.includes(want) ? want : ''; want = '';
+      catNew.classList.toggle('hidden', cat.value !== NEWCAT); upd();
+    });
+    loadCats(baseSel.value);
+    baseSel.onchange = () => { want = ''; baseErr.textContent = catErr.textContent = ''; cat.textContent = ''; loadCats(baseSel.value); upd(); };
+    cat.onchange = () => { catErr.textContent = ''; catNew.classList.toggle('hidden', cat.value !== NEWCAT); if (cat.value === NEWCAT) catNew.focus(); upd(); };
+    catNew.oninput = upd; name.oninput = () => { nameErr.textContent = ''; upd(); };
+    upd();
+    go.onclick = async () => {
+      msg.textContent = ''; baseErr.textContent = catErr.textContent = nameErr.textContent = '';
+      const ce = categoryError(cat.value === NEWCAT, catNew.value);
+      if (ce) { catErr.textContent = ce; catNew.focus(); return; }
+      btns.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+      msg.className = 'dim'; msg.textContent = 'Déplacement en cours…' + (baseSel.value !== info.base ? ' (copie : peut durer)' : '');
+      let r;
+      try { r = await transport.call('projectMove', { path, base: baseSel.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value.trim() }); }
+      catch (e) { r = { ok: false, msg: e.message }; }
+      msg.className = 'err';
+      if (r && r.ok === true) { closeModal(); flash('✓ Projet déplacé : ' + (r.path || '')); return; }
+      msg.textContent = '';
+      const t = { base: baseErr, category: catErr, name: nameErr }[r && r.field];
+      if (t) t.textContent = (r && r.msg) || 'refusé'; else msg.textContent = moveFailText(r);
+      cancel.disabled = false; go.disabled = r && r.state === 'partial'; // état partiel : ne pas relancer à l'aveugle
+      if (go.disabled) go.title = 'déplacement inachevé : reprise non disponible ici';
+    };
+  });
 }
 // Proposition /init-project (évènement `initProposal`) : un bandeau par projet.
 function initProposalBar(path) {
