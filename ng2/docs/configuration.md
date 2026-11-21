@@ -225,6 +225,36 @@ il ne reste jamais plus ancien que `config.conf`.
   avec la raison. Si le backend ne répond pas, l'écriture reste permise avec un avertissement « état du conteneur
   inconnu » ; un changement de backend ou d'image reste refusé dans ce cas.
 
+### Effet d'une option et éléments cachés (v6.6.0, #226, #227)
+
+**Pastille d'effet.** Chaque option de la fenêtre `⚙ config` porte une pastille qui dit quand elle prend effet.
+Survolez-la, donnez-lui le focus au clavier ou cliquez dessus pour ouvrir la bulle (elle se ferme en quittant la
+pastille, par Échap ou par un second appui).
+
+- **immédiat** : appliqué dès l'enregistrement (ex. couleurs, masquage des teammates inactifs).
+- **prochaine ouverture** : pris en compte à l'ouverture suivante d'un projet (ex. options de lancement).
+- **relance des sessions claude** : les sessions claude déjà ouvertes gardent l'ancienne valeur ; les nouvelles
+  l'ont (ex. désactivation de la souris de claude). Dans la coque tmux, la bulle indique la marche à suivre.
+- **relance du launcher** : les racines et `CLAUDE_CONFIG_DIR`. Voir [Modifier la configuration à chaud](#modifier-la-configuration-à-chaud-v660-225).
+
+**Rappel après enregistrement.** Un bandeau ne liste que les options modifiées, avec leur effet. Il propose, sans rien
+faire seul, « Rafraîchir » les projets ouverts concernés, ou « Relancer le launcher ». Rien n'est relancé ni
+rafraîchi automatiquement.
+
+Pour `backends.yaml`, le hub et `env.yaml`, la note de relecture reste affichée après enregistrement, tant que ces
+types n'ont pas leur pastille.
+
+**Éléments cachés.** Un mot de passe ou un jeton (ex. `GITHUB_TOKEN`) est masqué. L'œil dans le champ affiche la valeur :
+
+- la valeur reste en mémoire le temps de l'affichage seulement : elle est re-masquée au clic, après 30 s, au
+  changement de rubrique et à la fermeture de la fenêtre ;
+- elle n'est jamais écrite dans un champ éditable ni dans le stockage du navigateur ;
+- au plus 10 révélations par minute et par session ; un refus n'en consomme pas ;
+- le journal des écritures de secrets consigne « révélé : clé, interface, heure », jamais la valeur ;
+- **accès local seulement** : la révélation est refusée depuis un accès distant (adresse publique du serveur web).
+  Le message est « indisponible à distance — afficher depuis la fenêtre native ou l'accès local ». Un
+  `kubectl port-forward` vers le pod est un accès local : l'œil y est actif (l'accès kube donne déjà accès au pod).
+
 ### Configurer l'exécution d'un projet
 
 Le formulaire **Exécution** propose `0 hôte` puis les socles (`↑↓` ou un
