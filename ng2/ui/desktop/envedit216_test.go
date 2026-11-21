@@ -4,6 +4,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"claude-launcher-ng2/core"
 )
@@ -192,5 +193,59 @@ func TestEnvYamlBackendInjoignableAutoriseAvecAvertissement216(t *testing.T) {
 	setOwner216(t, core.UnverifiablePrefix+" : propriétaire non vérifiable", "")
 	if r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "x")}); r["ok"] != false || r["field"] != "env" {
 		t.Errorf("ouvert ici : %v", r)
+	}
+}
+
+// Backend / image : moteur NON vérifiable (échec rapide OU délai) = REFUS fail-closed ; l'env.yaml seul reste écrit avec warn.
+func TestBackendImageNonVerifiableRefuse216(t *testing.T) {
+	unv := core.UnverifiablePrefix + " : non vérifiable"
+	for _, mode := range []string{"échec rapide", "délai"} {
+		for _, what := range []string{"backend", "image"} {
+			t.Run(mode+"/"+what, func(t *testing.T) {
+				f := newProjFix(t)
+				if mode == "échec rapide" {
+					setOwner216(t, "", unv) // le listing des conteneurs répond tout de suite « injoignable »
+				} else {
+					setOwner216(t, "", "")
+					oldR, oldT := runningOwner.Get(), foreignOwnerTimeout.Get()
+					release := make(chan struct{})
+					runningOwner.Set(func(string) string { <-release; return "" }) // le moteur ne répond pas
+					foreignOwnerTimeout.Set(150 * time.Millisecond)
+					t.Cleanup(func() { close(release); runningOwner.Set(oldR); foreignOwnerTimeout.Set(oldT) })
+				}
+				args := map[string]any{"path": f.proj}
+				if what == "backend" {
+					args["backend"], args["image"] = "srv1", "docker.io/library/debian:12"
+				} else {
+					if err := core.WriteAssignment(f.proj, "srv1"); err != nil { // image seule : le projet a déjà un backend
+						t.Fatal(err)
+					}
+					args["image"] = "docker.io/library/debian:13"
+				}
+				before, _ := os.ReadFile(core.EnvPath(f.proj))
+				t0 := time.Now()
+				r := f.call("projectApply", args)
+				bl, _ := r["blockers"].([]any)
+				if r["ok"] != false || r["field"] != "env" || len(bl) == 0 || !strings.Contains(r["msg"].(string), core.UnverifiablePrefix) {
+					t.Fatalf("refus fail-closed attendu : %v", r)
+				}
+				if d := time.Since(t0); d > 3*time.Second {
+					t.Errorf("garde non bornée : %v", d)
+				}
+				if after, _ := os.ReadFile(core.EnvPath(f.proj)); string(after) != string(before) {
+					t.Error("env.yaml modifié")
+				}
+				if what == "backend" && core.Assigned(f.proj) {
+					t.Error("affectation écrite malgré le refus")
+				}
+			})
+		}
+	}
+	// env.yaml seul : toujours écrit avec avertissement
+	f := newProjFix(t)
+	setOwner216(t, "", unv)
+	mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+	if r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "ripgrep", "fd")}); r["ok"] != true || r["warn"] != core.EnvWarnUnknown {
+		t.Fatalf("env seul : %v", r)
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Organisation (hors env) et couleur restent à chaud sur un projet ouvert ; blockers de l'env = ceux du déplacement, sauf
@@ -111,5 +112,25 @@ func TestBackendEnEchecRapideNonVerifiable216(t *testing.T) {
 	}
 	if b := MoveBlockers(env, proj); len(b) == 0 {
 		t.Error("déplacement : un backend en échec rapide doit refuser dès le départ")
+	}
+}
+
+func TestEnvExecBlockersNonVerifableEstUnRefus216(t *testing.T) {
+	env := MoveEnv{OpenHere: func(string) bool { return false }, Foreign: func(string) string { return "" },
+		Running: func(string) string { return UnverifiablePrefix + " : x" }}
+	if b := EnvEditBlockers(env, "/p"); len(b) != 0 {
+		t.Errorf("env.yaml : %v", b)
+	}
+	b := EnvExecBlockers(env, "/p")
+	if len(b) != 1 || b[0] != EnvBlockUnknown || !strings.HasPrefix(EnvExecRefusal(env, "/p"), UnverifiablePrefix) {
+		t.Errorf("backend/image : %v / %q", b, EnvExecRefusal(env, "/p"))
+	}
+	// listing et propriétaire en parallèle : durée du plus lent, pas la somme
+	slow := func(string) string { time.Sleep(300 * time.Millisecond); return "" }
+	env.Foreign, env.Running = slow, slow
+	t0 := time.Now()
+	EnvEditCheck(env, "/p")
+	if d := time.Since(t0); d > 500*time.Millisecond {
+		t.Errorf("garde séquentielle : %v", d)
 	}
 }

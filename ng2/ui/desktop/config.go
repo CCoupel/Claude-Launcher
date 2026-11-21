@@ -615,9 +615,9 @@ func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[str
 	return out, nil
 }
 
-// envEditRefusal : "" si l'environnement du projet peut être modifié ; sinon la raison (ouvert ici, par un autre launcher,
+// envEditRefusal : "" si le backend / l'image du projet (F2, execApply) peut être changé ; sinon la raison (ouvert ici, par un autre launcher,
 // conteneur / pod actif) avec la consigne « fermez le projet pour modifier son environnement ».
-func (a *App) envEditRefusal(path string) string { return core.EnvEditRefusal(a.moveEnv(), path) }
+func (a *App) envEditRefusal(path string) string { return core.EnvExecRefusal(a.moveEnv(), path) }
 
 // envEditBlockers : les raisons (ouvert ici, par un autre launcher, conteneur actif) ; vide : modifiable.
 func (a *App) envEditBlockers(path string) []string { return core.EnvEditBlockers(a.moveEnv(), path) }
@@ -688,6 +688,9 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	in.EnvGuard = func() []string { // contrôle complet (moteurs, propriétaire) : une seule fois, avant toute écriture
 		b, w := core.EnvEditCheck(a.moveEnv(), path)
 		envWarns = w
+		if (in.Backend != nil || in.Image != nil) && len(w) > 0 { // backend / image : état inconnu = refus (fail-closed)
+			b = append(b, core.EnvBlockUnknown)
+		}
 		return b
 	}
 	in.EnvRecheck = func() []string { return a.envFastBlockers(path) } // revérification rapide sous verrou // env.yaml / backend / image : ni ouvert ni conteneur actif

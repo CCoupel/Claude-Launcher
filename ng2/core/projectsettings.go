@@ -609,16 +609,22 @@ func EnvEditCheck(env MoveEnv, path string) (blockers, warns []string) {
 	if env.Foreign != nil {
 		foreign = env.Foreign
 	}
-	if who := foreign(path); strings.HasPrefix(who, UnverifiablePrefix) {
-		warns = append(warns, EnvWarnUnknown)
-	} else if who != "" {
-		blockers = append(blockers, "projet ouvert par un autre launcher ("+who+")")
-	}
 	run := runningCtr
 	if env.Running != nil {
 		run = env.Running
 	}
-	if what := run(path); strings.HasPrefix(what, UnverifiablePrefix) {
+	// propriétaire et conteneur interrogés EN PARALLÈLE : la durée est celle du plus lent (bornée par l'appelant), pas la somme
+	var who, what string
+	done := make(chan struct{})
+	go func() { what = run(path); close(done) }()
+	who = foreign(path)
+	<-done
+	if strings.HasPrefix(who, UnverifiablePrefix) {
+		warns = append(warns, EnvWarnUnknown)
+	} else if who != "" {
+		blockers = append(blockers, "projet ouvert par un autre launcher ("+who+")")
+	}
+	if strings.HasPrefix(what, UnverifiablePrefix) {
 		if len(warns) == 0 {
 			warns = append(warns, EnvWarnUnknown)
 		}
@@ -626,6 +632,26 @@ func EnvEditCheck(env MoveEnv, path string) (blockers, warns []string) {
 		blockers = append(blockers, "conteneur ou pod en cours d'exécution ("+what+")")
 	}
 	return blockers, warns
+}
+
+// EnvBlockUnknown : blocker d'un changement de BACKEND ou d'IMAGE quand l'état du conteneur n'a pu être vérifié (moteur
+// injoignable, échec rapide ou délai) : fail-closed — recréer un conteneur qu'on ne voit pas serait destructif. L'env.yaml
+// seul, lui, est écrit avec un avertissement (EnvWarnUnknown).
+const EnvBlockUnknown = UnverifiablePrefix + " : état du conteneur non vérifiable"
+
+// EnvExecBlockers : blockers d'un changement de backend / d'image (F2, projectApply backend|image) = ceux de l'env.yaml
+// PLUS « non vérifiable » (fail-closed).
+func EnvExecBlockers(env MoveEnv, path string) []string {
+	b, w := EnvEditCheck(env, path)
+	if len(w) > 0 {
+		b = append(b, EnvBlockUnknown)
+	}
+	return b
+}
+
+// EnvExecRefusal : "" si le backend / l'image du projet peut être changé, sinon la raison.
+func EnvExecRefusal(env MoveEnv, path string) string {
+	return EnvEditMessage(EnvExecBlockers(env, path))
 }
 
 // EnvEditBlockers : les blockers certains de EnvEditCheck.
@@ -647,6 +673,9 @@ func EnvEditRefusal(env MoveEnv, path string) string {
 func EnvEditMessage(blockers []string) string {
 	if len(blockers) == 0 {
 		return ""
+	}
+	if strings.HasPrefix(blockers[0], UnverifiablePrefix) { // pas un projet à fermer : un moteur à retrouver
+		return blockers[0] + " — réessayer quand le backend répond"
 	}
 	return blockers[0] + " — fermez le projet pour modifier son environnement"
 }

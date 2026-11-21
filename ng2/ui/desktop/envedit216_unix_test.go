@@ -3,6 +3,7 @@
 package desktop
 
 import (
+	"claude-launcher-ng2/core"
 	"strings"
 	"testing"
 )
@@ -20,5 +21,15 @@ func TestExecApplyEtApprobationNonBloquees216(t *testing.T) {
 	sha, _ := info["sha"].(string)
 	if v := dispatchJSON(t, f.a, "envTrustAnswer", map[string]any{"path": dir, "choice": "ignore", "sha": sha}); v["ok"] == false || v["tab"] != dir {
 		t.Fatalf("approbation bloquée par le refus de l'env : %v", v)
+	}
+}
+
+// F2 (execApply) : moteur non vérifiable = refus fail-closed.
+func TestExecApplyNonVerifableRefuse216(t *testing.T) {
+	f := containerFix215(t, "")
+	dir := pendingProject215(t, f, "host")
+	setOwner216(t, "", core.UnverifiablePrefix+" : non vérifiable")
+	if _, err := f.a.execApply(dir, "docker.io/library/debian:12", "srv1", false); err == nil || !strings.Contains(err.Error(), core.UnverifiablePrefix) {
+		t.Fatalf("execApply moteur non vérifiable : %v", err)
 	}
 }

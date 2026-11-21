@@ -594,7 +594,7 @@ func (m model) applyExecExisting() model {
 	f := m.form
 	// l'environnement (image dans env.yaml, backend) n'est pas modifié projet ouvert ni conteneur actif (ici ou ailleurs),
 	// revérifié à l'écriture ; ouverture d'un projet jamais configuré : rien ne tourne, le contrôle passe
-	if why := core.EnvEditRefusal(m.moveEnv(), f.existing); why != "" {
+	if why := core.EnvExecRefusal(m.moveEnv(), f.existing); why != "" {
 		m.form.err = why
 		return m
 	}
