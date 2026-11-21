@@ -817,6 +817,7 @@ function showProjectMenu(path, x, y) {
     if (key) d.appendChild(el('span', 'k', key));
     if (!dis) d.onclick = (e) => { e.stopPropagation(); closeCtx(); fn(); };
     m.appendChild(d);
+    return d;
   };
   it('Ouvrir', 'Entrée', () => openProject(path));
   // Fermer : selon l'état de la ligne (ouvert ou pastille autre que ○), plus selon la présence d'un onglet (#158)
@@ -824,7 +825,9 @@ function showProjectMenu(path, x, y) {
   it('⟳ Rafraîchir', 'F5', () => refreshProject(path), !!r.refreshing);
   it('Forcer la fermeture…', '', () => askForceClose(path), !r.canForce);
   m.appendChild(el('hr'));
-  it('⇄ Déplacer / renommer…', '', () => moveBox(path)); // #216
+  const mv = moveMenuState(r); // #216 : projet ouvert = grisé (les autres blocages restent dans le dialogue)
+  const mi = it('⇄ Déplacer / renommer…', '', () => moveBox(path), mv.disabled);
+  if (mv.why) mi.title = mv.why;
   it('⚙ Réglages du projet…', '', () => openSettings(path, 'projet'));
   it('Changer de backend…', 'F2', () => openSettings(path, 'projet', 'pjf-backend'));
   it('Environnement du conteneur…', '', () => openSettings(path, 'projet', 'pjf-env'));
@@ -1779,6 +1782,11 @@ async function envTrustBox(src) {
 }
 // ── Déplacer / renommer un projet (#216) ─────────────────────────────────────
 // Fonctions pures (testdata/project_move.js).
+// Entrée de menu (arbre et ⋯ de la carte) : grisée tant que le projet est ouvert.
+function moveMenuState(row) {
+  const open = !!(row && row.open);
+  return { disabled: open, why: open ? 'Fermez le projet pour le déplacer ou le renommer' : '' };
+}
 const sameLocation = (info, base, category, name) => base === info.base && (category || '') === (info.category || '') && name === info.name;
 // « Ce qui change » : [{ label, old?, text, dim? }] depuis `dest` de projectMoveInfo (serveur : seules les étapes qui changent).
 function moveRows(info, dest) {

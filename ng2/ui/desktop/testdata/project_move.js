@@ -9,8 +9,8 @@ function grab(sig) {
 const jn = src.slice(src.indexOf('const joinNewPath = '), src.indexOf('// Chargeur de catégories'));
 const sl = src.slice(src.indexOf('const sameLocation = '), src.indexOf('\n', src.indexOf('const sameLocation = ')));
 const ctx = {}; vm.createContext(ctx);
-vm.runInContext(jn + '\n' + sl + '\n' + grab('function moveRows(') + '\n' + grab('function moveFailText(') + '\nglobalThis.t = { sameLocation, moveRows, moveFailText };', ctx);
-const { sameLocation, moveRows, moveFailText } = ctx.t;
+vm.runInContext(jn + '\n' + sl + '\n' + grab('function moveRows(') + '\n' + grab('function moveFailText(') + '\n' + grab('function moveMenuState(') + '\nglobalThis.t = { sameLocation, moveRows, moveFailText, moveMenuState };', ctx);
+const { sameLocation, moveRows, moveFailText, moveMenuState } = ctx.t;
 let ko = 0; const eq = (n, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) { ko++; console.log('KO', n, JSON.stringify(a), '!=', JSON.stringify(b)); } };
 const info = { base: '/a', category: 'INFRA', name: 'x', key: 'infra-x' };
 eq('même', sameLocation(info, '/a', 'INFRA', 'x'), true);
@@ -31,4 +31,7 @@ eq('échec simple', moveFailText({ msg: 'destination existante' }), 'destination
 eq('échec étape annulé', moveFailText({ step: 'ctr', msg: 'boom', rolledBack: true }), 'étape « ctr » : boom — retour arrière effectué, projet inchangé.');
 eq('partiel', moveFailText({ state: 'partial', done: ['dir', 'assign'], msg: 'x' }), 'x — retour arrière incomplet (étapes faites : dir, assign) : l\'état du projet est inachevé.');
 eq('nul', moveFailText(null), 'déplacement refusé');
+eq('menu ouvert', moveMenuState({ open: true }), { disabled: true, why: 'Fermez le projet pour le déplacer ou le renommer' });
+eq('menu fermé', moveMenuState({ open: false }), { disabled: false, why: '' });
+eq('menu sans ligne', moveMenuState(undefined), { disabled: false, why: '' });
 console.log(ko ? ko + ' KO' : 'OK'); process.exit(ko ? 1 : 0);
