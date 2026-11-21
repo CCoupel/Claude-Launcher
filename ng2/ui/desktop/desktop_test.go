@@ -106,7 +106,15 @@ func newApp(t *testing.T, emit Emitter) *App {
 	t.Helper()
 	fastTicks(t) // tour lent du surveillant à 150 ms : aucune attente de secondes dans les tests
 	a := NewApp(emit)
-	t.Cleanup(func() { stopBg(a) })
+	// Stop (idempotent) puis attente des tâches suivies : relectures lancées par les réglages (applyWebUI, readCtr…), serveur
+	// web, terminaux ; un écrivain encore actif au moment de l'effacement du TempDir fait échouer RemoveAll sous Windows
+	// (« directory is not empty »). Le gestionnaire d'état, lui, est arrêté et attendu dans waitBackground.
+	t.Cleanup(func() {
+		a.Stop()
+		if !a.waitBackground(15 * time.Second) {
+			t.Errorf("tâches de fond de l'App encore actives 15 s après Stop : un écrivain tardif ferait échouer l'effacement du TempDir")
+		}
+	})
 	return a
 }
 
