@@ -13,6 +13,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -30,6 +31,19 @@ const (
 func containerFix215(t *testing.T, gitBody string) *fix215 {
 	t.Helper()
 	f := newFix215(t, gitBody)
+	// jamais de vrai moteur de conteneurs : un faux podman / docker qui échoue aussitôt, sans rien écrire (les créations
+	// avec un socle ouvrent le projet en conteneur ; sans ce garde-fou, le podman du poste ou de la CI aurait été lancé)
+	engines := t.TempDir()
+	for _, name := range []string{"podman", "docker"} {
+		stub := "#!/bin/sh\nexit 1\n"
+		if runtime.GOOS == "windows" {
+			continue
+		}
+		if err := os.WriteFile(filepath.Join(engines, name), []byte(stub), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", engines+string(os.PathListSeparator)+os.Getenv("PATH"))
 	cfgDir := os.Getenv("CL_CONFIG_DIR")
 	if err := os.WriteFile(filepath.Join(cfgDir, "backends.yaml"), []byte("backends:\n  pod: {type: podman}\n"), 0o644); err != nil {
 		t.Fatal(err)
