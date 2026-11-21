@@ -521,7 +521,7 @@ func (a *App) newInfo(path string) map[string]any {
 // execApply : fin du choix de l'exécution (F2, ou première ouverture : openNext).
 func (a *App) execApply(path, image, backend string, openNext bool) (any, error) {
 	if t := a.term(path); t != nil {
-		return nil, fmt.Errorf("projet ouvert — le fermer avant de changer de backend")
+		return nil, fmt.Errorf("%s", core.EnvEditMessage([]string{"projet ouvert dans ce launcher"})) // même consigne que les autres refus
 	}
 	if m := a.envEditRefusal(path); m != "" { // conteneur actif ou projet ouvert ailleurs : env.yaml (image) et backend intacts
 		return nil, fmt.Errorf("%s", m)

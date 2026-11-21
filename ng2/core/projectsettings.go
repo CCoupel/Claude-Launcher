@@ -645,7 +645,9 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	backend, image := "", ""
 	if in.Backend != nil || in.Image != nil {
 		if open {
-			return fail("projet ouvert — le fermer avant de changer de backend")
+			r := ProjectResult{Field: "env", Blockers: []string{"projet ouvert dans ce launcher"}} // même refus que l'env.yaml
+			r.Msg = EnvEditMessage(r.Blockers)
+			return r
 		}
 		if in.Backend == nil {
 			cur, ok := ReadAssignments()[proj]
