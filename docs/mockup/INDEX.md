@@ -5,6 +5,8 @@
 ## Actives
 | Composant | Feature | Fichier | Version | Relation |
 |-----------|---------|---------|---------|----------|
+| config_ui | #226 effet des options — A pastille + bulle explicative (validée 2026-11-21) | v6.6.0/ui/config_ui__effet_des_options.html | 6.6.0 | complète `v6.1.0/ui/config_ui__interface_structuree.html` |
+| config_ui | #227 élément caché — A œil dans le champ, modèle de tous les éléments cachés (validée 2026-11-21) | v6.6.0/ui/config_ui__element_cache.html | 6.6.0 | complète `v6.1.0/ui/config_ui__interface_structuree.html` |
 | clone_trust | #215 approbation de l'environnement d'un projet cloné — A résumé + fichiers bruts (validée 2026-11-20) | v6.6.0/ui/clone_trust__approbation_env.html | 6.6.0 | complète `v6.6.0/ui/new_project__base_categorie_source.html` |
 | new_project | #214/#215 base, catégorie, source — B source en cartes (validée 2026-11-20) | v6.6.0/ui/new_project__base_categorie_source.html | 6.6.0 | — |
 | project_move | #216 déplacer / renommer — B formulaire + ce qui change (validée 2026-11-20) | v6.6.0/ui/project_move__deplacer_renommer.html | 6.6.0 | — |
@@ -17,12 +19,6 @@
 | project_layout | #153 organisations (validée 2026-11-15) | v6.2.0/ui/project_layout__organisations.html | 6.2.0 | — |
 | team_card | panes cachés (#136) | v6.1.0/ui/team_card__panes_caches.html | 6.1.0 | — |
 | config_ui | interface structurée (#118) | v6.1.0/ui/config_ui__interface_structuree.html | 6.1.0 | — |
-
-## En attente de choix (brouillons à propositions)
-| Composant | Feature | Brouillon | Version |
-|-----------|---------|-----------|---------|
-| config_ui | #226 effet des options (A–D) | v6.6.0/ui/config_ui__effet_des_options.propositions.html | 6.6.0 |
-| config_ui | #227 élément caché, bouton œil (A–D) — vaut pour tous les éléments cachés | v6.6.0/ui/config_ui__element_cache.propositions.html | 6.6.0 |
 
 ## Obsolètes
 | Fichier | Remplacée par | Version |
