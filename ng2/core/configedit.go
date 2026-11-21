@@ -765,20 +765,6 @@ func sweepConfigTmp() int {
 	return n
 }
 
-// ConfigReloadNote : ce qu'un enregistrement change sans redémarrer, et ce
-// qui attend le prochain lancement.
-func ConfigReloadNote(kind ConfigKind) string {
-	switch kind {
-	case ConfConf:
-		return "relu : options de claude, couleurs, mise en page, consommation, reprise ; au prochain lancement : racines de projets (surveillance), CLAUDE_CONFIG_DIR"
-	case ConfBackends:
-		return "relu : backends, pools, correspondance de chemins, outils requis, serveur web du navigateur"
-	case ConfLauncherEnv, ConfProjectEnv:
-		return "pris en compte à la prochaine ouverture du projet (bootstrap du conteneur)"
-	}
-	return ""
-}
-
 // sortProblems : par ligne, erreurs d'abord.
 func sortProblems(ps []ConfigProblem) {
 	sort.SliceStable(ps, func(i, j int) bool {

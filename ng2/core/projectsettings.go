@@ -839,7 +839,7 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		if st, e := os.Stat(EnvPath(proj)); e == nil {
 			er.MTime = st.ModTime().Format(time.RFC3339Nano)
 		}
-		res.Env, res.Note = er, ConfigReloadNote(ConfProjectEnv)
+		res.Env, res.Note = er, "pris en compte à la prochaine ouverture du projet (bootstrap du conteneur)"
 	}
 	// 3. couleur et organisation : un seul enregistrement de config.conf
 	if in.Color != nil || in.Layout != nil || in.HideIdle != nil {

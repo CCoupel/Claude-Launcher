@@ -110,6 +110,11 @@ type ConfSettingView struct {
 	Min      *int     `json:"min,omitempty"`
 	Max      *int     `json:"max,omitempty"`
 	Options  []string `json:"options,omitempty"`
+	// effet de l'option (#226) : quand elle prend effet ; absent pour une clé inconnue (pas de pastille)
+	Effect    string     `json:"effect,omitempty"`
+	EffectHow *EffectHow `json:"effectHow,omitempty"`
+	// Reveal (#227) : une entrée secrète peut être révélée (œil) ; faux pour un accès distant (œil grisé)
+	Reveal bool `json:"reveal,omitempty"`
 }
 
 // ConfModel : config.conf lu en modèle.
@@ -848,4 +853,20 @@ func confHas(list []string, v string) bool {
 		}
 	}
 	return false
+}
+
+// WithEffects : renseigne l'effet et la bulle de chaque option pour l'interface iface (#226). reveal : l'œil des entrées
+// secrètes est actif (fenêtre native, accès web local) ; faux pour un accès distant.
+func (m ConfModel) WithEffects(iface string, reveal bool) ConfModel {
+	out := make([]ConfSettingView, len(m.Settings))
+	for i, s := range m.Settings {
+		if eff, how, ok := OptionEffect(s.Key, iface); ok {
+			h := how
+			s.Effect, s.EffectHow = eff, &h
+		}
+		s.Reveal = s.Type == "secret" && reveal
+		out[i] = s
+	}
+	m.Settings = out
+	return m
 }

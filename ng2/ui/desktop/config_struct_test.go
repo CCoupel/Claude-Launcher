@@ -47,7 +47,7 @@ func TestConfigStructuredCalls(t *testing.T) {
 		set([]string{"backends", "srv1"}, map[string]any{"type": "docker", "host": "tcp://10.0.0.1:2375", "shared": []any{"/share/MFS/ROOT"}}),
 		set([]string{"pools", "labo"}, map[string]any{"hosts": []any{"srv1", "srv2"}}),
 	}})
-	if s["saved"] != true || s["note"] == "" || s["mtime"] == "" {
+	if s["saved"] != true || s["apply"] == nil || s["mtime"] == "" {
 		t.Fatalf("création : %v", s)
 	}
 	m = call("configModel", map[string]any{"kind": "backends.yaml"})

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -137,11 +138,16 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 		}
 	}
 	cur := ""
+	before := ""
+	if b, rerr := os.ReadFile(f.Path); rerr == nil {
+		before = string(b) // pour `apply` : options dont la valeur effective change (#226)
+	}
+	if kind == core.ConfConf && before == "" && !f.Exists {
+		before = core.ConfigTemplate(core.ConfConf) // fichier absent : créé depuis le modèle, valeurs de départ = celles du modèle
+	}
 	if kind == core.ConfConf {
 		// l'éditeur de texte ne reçoit jamais le jeton : « __GARDER__ » le conserve
-		if b, rerr := os.ReadFile(f.Path); rerr == nil {
-			cur = string(b)
-		}
+		cur = before
 		var rerr error
 		if content, rerr = core.RestoreConfToken(content, cur); rerr != nil {
 			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: rerr.Error()}}}, nil
@@ -177,9 +183,9 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 	case err != nil:
 		return nil, err
 	}
-	note := a.configReload(kind)
+	a.configReload(kind)
 	st, _ := os.Stat(f.Path)
-	out := map[string]any{"saved": true, "problems": ps, "note": note}
+	out := map[string]any{"saved": true, "problems": ps, "apply": a.applyInfo(kind, before, content)}
 	if kind == core.ConfConf { // recopie dans settings.json avec la config relue : {ok} ou {ok:false, msg}
 		out["sync"] = a.syncSettings()
 	}
@@ -389,8 +395,45 @@ func (a *App) syncSettings() map[string]any {
 	return map[string]any{"ok": false, "msg": "recopie dans settings.json impossible (fichier illisible ou non inscriptible) : les valeurs secrètes seront tapées dans le shell à l'ouverture"}
 }
 
+// applyInfo : champ `apply` de configSave / configApply (#226) — options dont la valeur EFFECTIVE a changé avec leur effet,
+// relance du launcher nécessaire, projets OUVERTS concernés par une option claude / project. Aucune action automatique : des
+// actions sont seulement proposées par l'interface (Rafraîchir, Relancer le launcher).
+func (a *App) applyInfo(kind core.ConfigKind, oldSrc, newSrc string) map[string]any {
+	changed := []core.ChangedOption{}
+	if kind == core.ConfConf {
+		changed = append(changed, core.ChangedOptions(oldSrc, newSrc, core.IfaceDesktop)...)
+	}
+	projects := []map[string]any{}
+	forProj := map[string]bool{}
+	for _, c := range changed {
+		if c.Effect == core.EffectClaude || c.Effect == core.EffectProject {
+			forProj[c.Effect] = true
+		}
+	}
+	if len(forProj) > 0 {
+		var effs []string
+		for _, e := range []string{core.EffectClaude, core.EffectProject} {
+			if forProj[e] {
+				effs = append(effs, e)
+			}
+		}
+		var paths []string
+		a.openTabs.Range(func(k, _ any) bool {
+			if p, ok := k.(string); ok && a.knownProject(p) {
+				paths = append(paths, p)
+			}
+			return true
+		})
+		sort.Strings(paths)
+		for _, p := range paths {
+			projects = append(projects, map[string]any{"path": p, "name": filepath.Base(p), "for": effs})
+		}
+	}
+	return map[string]any{"changed": changed, "relaunch": core.NeedsRelaunch(changed), "projects": projects}
+}
+
 // configReload : ce qui est relu sans redémarrer.
-func (a *App) configReload(kind core.ConfigKind) string {
+func (a *App) configReload(kind core.ConfigKind) {
 	switch kind {
 	case core.ConfConf:
 		a.confRefresh(true) // UN seul chemin de relecture : validée, copie valide gardée, effets à chaud, recopie settings.json
@@ -405,7 +448,6 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		a.bg(a.readCtr)
 		a.changed()
 	}
-	return core.ConfigReloadNote(kind)
 }
 
 // ── Écriture structurée (#118, LOT-3.1 : contracts/desktop-dispatch.md) ───
@@ -414,6 +456,12 @@ func (a *App) configReload(kind core.ConfigKind) string {
 // fichier, défauts, images) avec les problèmes de validation et la date
 // d'ouverture, pour l'écran Réglages. Fichier absent : modèle vide.
 func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any, error) {
+	return a.configModelFor(true, kind, project)
+}
+
+// configModelFor : configModel ; reveal : l'œil des entrées secrètes est actif (fenêtre native, accès web local) — faux
+// pour un accès web distant (#227).
+func (a *App) configModelFor(reveal bool, kind core.ConfigKind, project string) (map[string]any, error) {
 	switch kind {
 	case core.ConfBackends, core.ConfConf, core.ConfLauncherEnv, kindHub:
 	default:
@@ -440,7 +488,7 @@ func (a *App) configModel(kind core.ConfigKind, project string) (map[string]any,
 	case core.ConfBackends:
 		model, merr = core.ReadBackendsModel([]byte(content))
 	case core.ConfConf:
-		model = core.ReadConfModel(content) // le jeton n'y figure jamais
+		model = core.ReadConfModel(content).WithEffects(core.IfaceDesktop, reveal) // le jeton n'y figure jamais
 		d.Problems = maskProblems(d.Problems, a.currentToken())
 	case core.ConfLauncherEnv:
 		model, merr = core.ReadLauncherEnvModel([]byte(content))
