@@ -300,7 +300,7 @@ func TestCreateSuccesChemins214(t *testing.T) {
 	fakeClaudeSession214(t)
 	var r recorder
 	a := newApp(t, r.emit)
-	t.Cleanup(a.Stop)
+	cleanupApp(t, a)
 	for _, c := range []struct {
 		name string
 		args map[string]any
@@ -378,7 +378,7 @@ func TestCreateProjetBrutAvecEtSansRemote214(t *testing.T) {
 	fakeClaudeSession214(t)
 	var r recorder
 	a := newApp(t, r.emit)
-	t.Cleanup(a.Stop)
+	cleanupApp(t, a)
 	dir := filepath.Join(base, "TEST", "brut-remote")
 	v := dispatchJSON(t, a, "create", map[string]any{"base": base, "category": "TEST", "name": "brut-remote", "source": "empty",
 		"remote": "git@github.com:moi/depot-test.git"})
@@ -409,7 +409,7 @@ func TestCreateProjetBrutRemoteEnOption214(t *testing.T) {
 	fakeClaudeSession214(t)
 	var r recorder
 	a := newApp(t, r.emit)
-	t.Cleanup(a.Stop)
+	cleanupApp(t, a)
 	for _, remote := range []string{"-u", "--upload-pack=touch /tmp/PREUVE-REMOTE-214"} {
 		avant := snapDir214(t, base)
 		b, _ := json.Marshal(map[string]any{"base": base, "category": "NEUVE", "newCategory": true, "name": "p", "source": "empty", "remote": remote})
@@ -448,4 +448,39 @@ func killDeskServer(sock string) {
 		}
 		time.Sleep(30 * time.Millisecond)
 	}
+}
+
+// cleanupApp : arrêt propre d'une App de test qui a pu OUVRIR des projets (tmux). Enregistré après les autres nettoyages,
+// donc exécuté avant eux : d'abord on attend la fin de toute ouverture, puis Stop.
+//
+// Pourquoi attendre ici et pas seulement dans Stop : a.open() lance l'ouverture dans une goroutine qui ne s'inscrit dans
+// openGate qu'en début d'exécution (projterm.go run) — juste après open(), le compteur peut encore être à 0 (mesuré : 2 cas sur
+// 300). Stop ne voit alors aucune ouverture en cours, le test finit, t.Setenv restaure l'environnement, et l'ouverture
+// retardataire lit CL_DESK_SOCKET du test SUIVANT : elle crée « p-<clé> » sur son socket, et l'ouverture de ce test échoue
+// « duplicate session » (CI : TestEnvTrustAnswerAcceptIgnoreCancel215, « ouverture après ignorer »).
+func cleanupApp(t *testing.T, a *App) {
+	t.Helper()
+	t.Cleanup(a.Stop)
+	t.Cleanup(func() {
+		end := time.Now().Add(20 * time.Second)
+		for time.Now().Before(end) {
+			busy := false
+			a.mu.Lock()
+			for _, tt := range a.terms {
+				if tt.info().State == "opening" {
+					busy = true
+				}
+			}
+			a.mu.Unlock()
+			a.openGate.mu.Lock()
+			if a.openGate.n > 0 {
+				busy = true
+			}
+			a.openGate.mu.Unlock()
+			if !busy {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 }

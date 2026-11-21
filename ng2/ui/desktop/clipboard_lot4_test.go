@@ -121,7 +121,7 @@ func newPasteFix(t *testing.T) pasteFix {
 	_ = core.WriteAssignment(ps[0], "host")
 	var r recorder
 	a := newApp(t, r.emit)
-	t.Cleanup(a.Stop) // clients tmux détachés et ouvertures terminées avant kill-server (SIGSEGV de tmux 3.6 sinon, #224)
+	cleanupApp(t, a) // clients tmux détachés et ouvertures terminées avant kill-server (SIGSEGV de tmux 3.6 sinon, #224)
 	if _, err := a.open(ps[0], core.LaunchNormal); err != nil {
 		t.Fatal(err)
 	}

@@ -57,7 +57,7 @@ func newFix215(t *testing.T, gitBody string) *fix215 {
 	t.Cleanup(func() { newJobHold.Set(old) })
 	f.r = &recorder{}
 	f.a = newApp(t, f.r.emit)
-	t.Cleanup(f.a.Stop) // avant kill-server (enregistré plus tôt, exécuté plus tard) : clients tmux détachés, ouvertures finies
+	cleanupApp(t, f.a) // avant kill-server (enregistré plus tôt, exécuté plus tard) : clients tmux détachés, ouvertures finies
 	return f
 }
 
