@@ -560,6 +560,29 @@ func confLiteCheck(src string) []ConfigProblem {
 // version précédente, écriture atomique (fichier temporaire puis rename).
 // Rend les problèmes (avertissements compris).
 func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time.Time) ([]ConfigProblem, error) {
+	return SaveConfigGuarded(kind, path, content, expectedMtime, nil)
+}
+
+// ErrEnvLocked : écriture de l'env.yaml refusée (projet ouvert, ouvert ailleurs, conteneur actif) ; voir EnvLockedError.
+var ErrEnvLocked = errors.New("environnement non modifiable")
+
+// EnvLockedError : le refus et ses blockers (errors.Is(err, ErrEnvLocked)).
+type EnvLockedError struct{ Blockers []string }
+
+func (e *EnvLockedError) Error() string   { return EnvEditMessage(e.Blockers) }
+func (e *EnvLockedError) Is(t error) bool { return t == ErrEnvLocked }
+
+// SaveConfigGuarded : SaveConfig ; guard (kind project-env seulement, nil : aucun) rend les blockers qui interdisent
+// d'écrire l'environnement — appelé AVANT toute écriture puis REVÉRIFIÉ juste avant l'écriture, sous le verrou d'env.yaml.
+func SaveConfigGuarded(kind ConfigKind, path string, content []byte, expectedMtime time.Time, guard func() []string) ([]ConfigProblem, error) {
+	if kind != ConfProjectEnv {
+		guard = nil
+	}
+	if guard != nil {
+		if b := guard(); len(b) > 0 {
+			return nil, &EnvLockedError{Blockers: b}
+		}
+	}
 	if !configPathOK(kind, path) {
 		return nil, fmt.Errorf("%s : pas un fichier de configuration %s", path, kind)
 	}
@@ -601,7 +624,20 @@ func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time
 		}
 	}
 	if kind == ConfProjectEnv { // écriture du launcher : l'empreinte approuvée d'un projet cloné suit (pas de re-demande)
-		return ps, withTrustRefresh(filepath.Dir(filepath.Dir(path)), func() ([]byte, error) { return content, WriteFileAtomic(path, content, mode) })
+		return ps, withTrustRefresh(filepath.Dir(filepath.Dir(path)), func() ([]byte, error) {
+			var werr error
+			if guard == nil {
+				werr = WriteFileAtomic(path, content, mode)
+			} else {
+				werr = WithFileLock(path, func() error { // même ordre de verrous que setEnvImage : approbation, puis env.yaml
+					if b := guard(); len(b) > 0 { // revérifié juste avant l'écriture
+						return &EnvLockedError{Blockers: b}
+					}
+					return WriteFileAtomic(path, content, mode)
+				})
+			}
+			return content, werr
+		})
 	}
 	return ps, WriteFileAtomic(path, content, mode)
 }

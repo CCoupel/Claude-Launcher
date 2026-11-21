@@ -185,12 +185,12 @@ func TestApplyProjectSettings(t *testing.T) {
 	}
 	// garde fournie (autre launcher / conteneur actif) : refus, revérifiée à l'écriture
 	calls := 0
-	g := func() string {
+	g := func() []string {
 		calls++
 		if calls >= 2 {
-			return "conteneur ou pod en cours d'exécution (x sur y)"
+			return []string{"conteneur ou pod en cours d'exécution (x sur y)"}
 		}
-		return ""
+		return nil
 	}
 	if r := ApplyProjectSettings(proj, false, ProjectChange{Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}, EnvGuard: g}); r.OK || r.Field != "env" || !strings.Contains(r.Msg, "conteneur ou pod") {
 		t.Fatalf("garde revérifiée à l'écriture : %+v (appels %d)", r, calls)

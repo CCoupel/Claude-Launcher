@@ -44,7 +44,8 @@ func TestEnvYamlRefuseProjetOuvertOuConteneurActif216(t *testing.T) {
 			mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
 			r := f.call("projectApply", map[string]any{"path": f.proj, "color": "52", "env": envChange216(mt, "ripgrep", "fd")})
 			msg, _ := r["msg"].(string)
-			if r["ok"] != false || r["field"] != "env" || !strings.Contains(msg, c.want) || !strings.Contains(msg, envEditMention216) {
+			bl, _ := r["blockers"].([]any)
+			if r["ok"] != false || r["field"] != "env" || !strings.Contains(msg, c.want) || !strings.Contains(msg, envEditMention216) || len(bl) == 0 || !strings.Contains(bl[0].(string), c.want) {
 				t.Fatalf("refus attendu (%s) : %v", c.want, r)
 			}
 			if after, _ := os.ReadFile(core.EnvPath(f.proj)); string(after) != string(before) {
@@ -102,5 +103,53 @@ func TestEnvYamlEditeurRefuseProjetOuvert216(t *testing.T) {
 	setOwner216(t, "pod-x", "c sur b")
 	if r := f.call("configSave", map[string]any{"kind": "config.conf", "content": "USAGE_REFRESH_SEC=300\n", "mtime": ""}); r["field"] == "env" {
 		t.Errorf("config.conf refusé par la garde de l'env : %v", r)
+	}
+}
+
+// Affichage : projectSettings.envLocked / envLockReason et configOpen.readOnly suivent « projet ouvert » (sans interroger les
+// moteurs) ; projet libre : déverrouillés.
+func TestEnvLockedAffichage216(t *testing.T) {
+	f := newProjFix(t)
+	setOwner216(t, "", "")
+	s := f.call("projectSettings", map[string]any{"path": f.proj})
+	if s["envLocked"] != false || s["envLockReason"] != "" {
+		t.Errorf("libre : %v %v", s["envLocked"], s["envLockReason"])
+	}
+	if d := f.call("configOpen", map[string]any{"kind": "project-env", "path": f.proj}); d["readOnly"] == true {
+		t.Errorf("configOpen libre en lecture seule : %v", d["readOnly"])
+	}
+	f.open()
+	s = f.call("projectSettings", map[string]any{"path": f.proj})
+	if s["envLocked"] != true || !strings.Contains(s["envLockReason"].(string), envEditMention216) {
+		t.Errorf("ouvert : %v %v", s["envLocked"], s["envLockReason"])
+	}
+	d := f.call("configOpen", map[string]any{"kind": "project-env", "path": f.proj})
+	if d["readOnly"] != true || !strings.Contains(d["readOnlyReason"].(string), envEditMention216) {
+		t.Errorf("configOpen ouvert : %v %v", d["readOnly"], d["readOnlyReason"])
+	}
+	if r := f.call("configValidate", map[string]any{"kind": "project-env", "path": f.proj, "content": "image: x\n"}); r == nil {
+		t.Error("configValidate doit rester permis")
+	}
+}
+
+// Affichage d'avance : conteneur actif vu par la dernière lecture, session vivante d'un autre launcher.
+func TestEnvLockedAffichageConteneurEtAutreLauncher216(t *testing.T) {
+	f := newProjFix(t)
+	setOwner216(t, "", "")
+	founds := []core.Found{{Name: "p-alpha", Project: f.proj, Running: true}}
+	f.a.ctrFounds.Store(&founds)
+	s := f.call("projectSettings", map[string]any{"path": f.proj})
+	if s["envLocked"] != true || !strings.Contains(s["envLockReason"].(string), "p-alpha") || !strings.Contains(s["envLockReason"].(string), envEditMention216) {
+		t.Errorf("conteneur actif : %v %v", s["envLocked"], s["envLockReason"])
+	}
+	none := []core.Found{}
+	f.a.ctrFounds.Store(&none)
+	live := map[string]bool{f.proj: true}
+	f.a.liveSnap.Store(&live)
+	if s := f.call("projectSettings", map[string]any{"path": f.proj}); s["envLocked"] != true {
+		t.Errorf("session vivante : %v", s["envLocked"])
+	}
+	if d := f.call("configOpen", map[string]any{"kind": "project-env", "path": f.proj}); d["readOnly"] != true {
+		t.Errorf("configOpen : %v", d["readOnly"])
 	}
 }

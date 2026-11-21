@@ -29,6 +29,9 @@ type ConfigDoc struct {
 	Merged   string               `json:"merged,omitempty"`   // projet : env fusionné (lecture seule)
 	TplText  string               `json:"tplText,omitempty"`  // projet : env-template.yaml (lecture seule)
 	FromTemp bool                 `json:"fromTemp,omitempty"` // contenu proposé (fichier absent)
+	// env.yaml d'un projet ouvert / à conteneur actif : éditeur en lecture seule (le refus d'écriture est côté core)
+	ReadOnly       bool   `json:"readOnly,omitempty"`
+	ReadOnlyReason string `json:"readOnlyReason,omitempty"`
 }
 
 func (a *App) configFile(kind core.ConfigKind, path, project string) (core.ConfigFile, error) {
@@ -63,6 +66,11 @@ func (a *App) configOpen(kind core.ConfigKind, project string) (ConfigDoc, error
 	}
 	if kind == core.ConfConf {
 		d.Content = core.MaskConfToken(d.Content) // le jeton ne quitte jamais le poste : marqueur « __GARDER__ »
+	}
+	if kind == core.ConfProjectEnv {
+		if why := a.envLockedCheap(project); why != "" {
+			d.ReadOnly, d.ReadOnlyReason = true, why
+		}
 	}
 	d.Problems, d.Merged = a.configCheck(kind, project, d.Content)
 	if f.Template != "" {
@@ -138,12 +146,15 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: rerr.Error()}}}, nil
 		}
 	}
-	if kind == core.ConfProjectEnv { // éditeur YAML de l'env.yaml : refusé projet ouvert / conteneur actif, revérifié à l'écriture
-		if m := a.envEditRefusal(project); m != "" {
-			return envRefused(m), nil
-		}
+	var guard func() []string // éditeur YAML de l'env.yaml : refusé projet ouvert / conteneur actif, revérifié sous verrou
+	if kind == core.ConfProjectEnv {
+		guard = func() []string { return a.envEditBlockers(project) }
 	}
-	ps, err := core.SaveConfig(kind, f.Path, []byte(content), expected)
+	ps, err := core.SaveConfigGuarded(kind, f.Path, []byte(content), expected, guard)
+	var locked *core.EnvLockedError
+	if errors.As(err, &locked) {
+		return envRefused(locked.Blockers), nil
+	}
 	if kind == core.ConfConf {
 		ps = maskProblems(ps, core.ConfTokenValue(content), core.ConfTokenValue(cur)) // le jeton n'apparaît dans aucun message
 	}
@@ -587,6 +598,8 @@ func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[str
 	var out map[string]any
 	_ = json.Unmarshal(b, &out)
 	out["open"] = a.projectOpen(path)
+	why := a.envLockedCheap(path)
+	out["envLocked"], out["envLockReason"] = why != "", why
 	if e, ok := core.EnvTrustEntry(path); ok { // absent : projet de confiance
 		out["envTrust"] = map[string]any{"state": e.State, "source": e.Source, "at": e.At}
 	}
@@ -597,9 +610,33 @@ func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[str
 // conteneur / pod actif) avec la consigne « fermez le projet pour modifier son environnement ».
 func (a *App) envEditRefusal(path string) string { return core.EnvEditRefusal(a.moveEnv(), path) }
 
-// envRefused : réponse d'un refus d'écriture de l'environnement — {ok:false, saved:false, field:"env", msg}.
-func envRefused(msg string) map[string]any {
-	return map[string]any{"ok": false, "saved": false, "field": "env", "msg": msg}
+// envEditBlockers : les raisons (ouvert ici, par un autre launcher, conteneur actif) ; vide : modifiable.
+func (a *App) envEditBlockers(path string) []string { return core.EnvEditBlockers(a.moveEnv(), path) }
+
+// envLockedCheap : état « verrouillé » pour l'affichage (projectSettings, configOpen), SANS interroger les moteurs : projet
+// ouvert ici, session vivante vue dans un conteneur (autre launcher compris) ou conteneur / pod actif (dernière lecture des
+// conteneurs, sans verrou). Le contrôle complet (propriétaire vivant, conteneur actif) reste celui de
+// l'écriture. Rend la raison, "" si libre.
+func (a *App) envLockedCheap(path string) string {
+	if _, open := a.openTabs.Load(path); open {
+		return core.EnvEditMessage([]string{"projet ouvert dans ce launcher"})
+	}
+	if p := a.liveSnap.Load(); p != nil && (*p)[path] { // session vivante dans un conteneur : ici ou chez un autre launcher
+		return core.EnvEditMessage([]string{"projet ouvert (session vivante dans son conteneur)"})
+	}
+	if p := a.ctrFounds.Load(); p != nil {
+		for _, f := range *p {
+			if f.Project == path && f.Running {
+				return core.EnvEditMessage([]string{"conteneur ou pod en cours d'exécution (" + f.Name + ")"})
+			}
+		}
+	}
+	return ""
+}
+
+// envRefused : réponse d'un refus d'écriture de l'environnement — {ok:false, saved:false, field:"env", msg, blockers}.
+func envRefused(blockers []string) map[string]any {
+	return map[string]any{"ok": false, "saved": false, "field": "env", "msg": core.EnvEditMessage(blockers), "blockers": blockers}
 }
 
 // projectApply : applique les parties demandées (core.ApplyProjectSettings) puis
@@ -628,7 +665,7 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 			return map[string]any{"ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)"}, nil
 		}
 	}
-	in.EnvGuard = func() string { return a.envEditRefusal(path) } // env.yaml / backend / image : ni ouvert ni conteneur actif
+	in.EnvGuard = func() []string { return a.envEditBlockers(path) } // env.yaml / backend / image : ni ouvert ni conteneur actif
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {
 		a.configReload(core.ConfConf)

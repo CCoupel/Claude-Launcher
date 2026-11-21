@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -584,7 +585,7 @@ type ProjectChange struct {
 	Env      *EnvChange
 	// EnvGuard : refus d'écrire l'environnement du projet (env.yaml, backend, image) — "" : permis. Appelé avant toute
 	// écriture ET revérifié juste avant chacune (le projet a pu s'ouvrir entre-temps). Nil : seul « ouvert ici » (open) compte.
-	EnvGuard func() string `json:"-"`
+	EnvGuard func() []string `json:"-"`
 }
 
 // EnvEditBlockers : ce qui interdit de modifier l'environnement (env.yaml) du projet — mêmes blockers que le déplacement
@@ -601,9 +602,12 @@ func EnvEditRefusal(env MoveEnv, path string) string {
 	return EnvEditMessage(b)
 }
 
-// EnvEditMessage : message de refus pour ces blockers.
+// EnvEditMessage : message de refus — la première raison, puis la consigne.
 func EnvEditMessage(blockers []string) string {
-	return "environnement non modifiable : " + strings.Join(blockers, " ; ") + " — fermez le projet pour modifier son environnement"
+	if len(blockers) == 0 {
+		return ""
+	}
+	return blockers[0] + " — fermez le projet pour modifier son environnement"
 }
 
 // EnvChange : changements de l'env.yaml du projet, avec la date d'ouverture.
@@ -623,12 +627,13 @@ type EnvResult struct {
 
 // ProjectResult : résultat de ApplyProjectSettings.
 type ProjectResult struct {
-	OK    bool       `json:"ok"`
-	Msg   string     `json:"msg,omitempty"`
-	Note  string     `json:"note,omitempty"`
-	Env   *EnvResult `json:"env,omitempty"`        // présent aussi sur un échec POSTÉRIEUR à son écriture (résultat partiel)
-	Color bool       `json:"colorSaved,omitempty"` // config.conf écrite (relue à chaud côté interface)
-	Field string     `json:"field,omitempty"`      // « env » : écriture de l'environnement refusée (projet ou conteneur actif)
+	OK       bool       `json:"ok"`
+	Msg      string     `json:"msg,omitempty"`
+	Note     string     `json:"note,omitempty"`
+	Env      *EnvResult `json:"env,omitempty"`        // présent aussi sur un échec POSTÉRIEUR à son écriture (résultat partiel)
+	Color    bool       `json:"colorSaved,omitempty"` // config.conf écrite (relue à chaud côté interface)
+	Field    string     `json:"field,omitempty"`      // « env » : écriture de l'environnement refusée (projet ou conteneur actif)
+	Blockers []string   `json:"blockers,omitempty"`   // avec Field « env » : les raisons du refus
 }
 
 // ApplyProjectSettings applique les parties demandées. open : le projet est
@@ -689,20 +694,23 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	}
 	// l'environnement (env.yaml, backend, image) n'est modifié ni projet ouvert ni conteneur actif (ici ou ailleurs)
 	envWrite := (in.Env != nil && len(in.Env.Changes) > 0) || in.Backend != nil || in.Image != nil
-	envRefusal := func() string {
+	envBlockers := func() []string {
 		if !envWrite {
-			return ""
+			return nil
 		}
 		if in.EnvGuard != nil {
 			return in.EnvGuard()
 		}
 		if open { // sans garde fournie : seul « ouvert ici » est connu (pas d'accès aux moteurs depuis cette fonction)
-			return EnvEditMessage([]string{"projet ouvert dans ce launcher"})
+			return []string{"projet ouvert dans ce launcher"}
 		}
-		return ""
+		return nil
 	}
-	if m := envRefusal(); m != "" {
-		return ProjectResult{Msg: m, Field: "env"}
+	envRefused := func(b []string) ProjectResult {
+		return ProjectResult{Msg: EnvEditMessage(b), Field: "env", Blockers: b}
+	}
+	if b := envBlockers(); len(b) > 0 {
+		return envRefused(b)
 	}
 	res := ProjectResult{OK: true}
 	// 2. env.yaml du projet — l'image demandée y entre par les mêmes changements :
@@ -723,15 +731,15 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		if b, err := os.ReadFile(EnvPath(proj)); err == nil {
 			content = b
 		}
-		if m := envRefusal(); m != "" { // revérifié à l'écriture
-			return ProjectResult{Msg: m, Field: "env"}
-		}
 		out, err := ApplyConfigChanges(ConfProjectEnv, content, in.Env.Changes)
 		if err != nil {
 			return ProjectResult{Env: &EnvResult{Invalid: true, Problems: []ConfigProblem{{Severity: SevError, Message: err.Error()}}}}
 		}
-		ps, err := SaveConfig(ConfProjectEnv, EnvPath(proj), out, expected)
+		ps, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), out, expected, envBlockers) // garde revérifiée sous verrou
+		var locked *EnvLockedError
 		switch {
+		case errors.As(err, &locked):
+			return envRefused(locked.Blockers)
 		case err == ErrConfigConflict:
 			cur := ""
 			if st, e := os.Stat(EnvPath(proj)); e == nil {
@@ -763,9 +771,10 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	}
 	// 4. backend et image
 	if in.Backend != nil || in.Image != nil {
-		if m := envRefusal(); m != "" { // revérifié à l'écriture
-			res.OK, res.Msg, res.Field = false, m, "env"
-			return res
+		if b := envBlockers(); len(b) > 0 { // revérifié à l'écriture
+			r := envRefused(b)
+			r.Env, r.Color = res.Env, res.Color
+			return r
 		}
 		var err error
 		if backend == "host" {
