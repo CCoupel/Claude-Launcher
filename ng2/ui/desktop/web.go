@@ -427,7 +427,8 @@ func (w *webBridge) handler() http.Handler {
 			http.Error(rw, err.Error(), http.StatusBadRequest)
 			return
 		}
-		res, err := w.app.DispatchFromAddr(originWeb, requestSource(r), req.Method, req.Args)
+		rw.Header().Set("Cache-Control", "no-store") // jamais mis en cache (secretReveal : valeur révélée)
+		res, err := w.app.DispatchWeb(requestSource(r), w.remoteAccess(r), w.sessionID(r), req.Method, req.Args)
 		out := map[string]any{"result": res}
 		if err != nil {
 			out["error"] = err.Error()

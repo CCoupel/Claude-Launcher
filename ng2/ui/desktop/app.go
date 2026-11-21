@@ -31,8 +31,9 @@ type Emitter func(name string, data any)
 
 // App : état du launcher vu par l'interface.
 type App struct {
-	usageGate openGate // relevés de consommation en cours (écrivent usage.json / .err) : attendus à l'arrêt, bornés
-	openGate  openGate // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
+	reveal    revealLimiter // plafond des révélations d'éléments cachés par session (#227)
+	usageGate openGate      // relevés de consommation en cours (écrivent usage.json / .err) : attendus à l'arrêt, bornés
+	openGate  openGate      // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
 	cfg       core.Config
 	confMu    sync.RWMutex // cfg relue à chaud (config.go)
 	confCheck atomic.Int64 // dernière comparaison de config.conf par conf() (ns) : au plus une par seconde (#225)
@@ -1548,8 +1549,14 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 			return nil, err
 		}
 		return a.configSaveAs(web, core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
-	case "configModel": // écran Réglages (#118) : fichier lu en modèle
-		return a.configModel(core.ConfigKind(arg.Kind), arg.Path)
+	case "configModel": // écran Réglages (#118) : fichier lu en modèle ; l'œil des secrets : fenêtre native seulement ici
+		return a.configModelFor(!web, core.ConfigKind(arg.Kind), arg.Path)
+	case "secretReveal": // #227 : élément caché, à la demande — web : refusé (l'accès local passe par DispatchWeb)
+		iface := "fenêtre native"
+		if web {
+			iface = "web"
+		}
+		return a.secretReveal(iface, web, "native", raw)
 	case "backendStates": // états et charge des pools, depuis le cache du diagnostic
 		return a.backendStates(), nil
 	case "quit":
