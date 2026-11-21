@@ -739,11 +739,7 @@ func saveAssignments(m map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(assignPath()), 0o755); err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", assignPath(), os.Getpid()) // plusieurs hubs, plusieurs machines
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, assignPath())
+	return WriteFileAtomic(assignPath(), b, 0o644) // plusieurs hubs, plusieurs machines : temporaire unique, fsync, rename
 }
 
 func WriteAssignment(proj, backend string) error {

@@ -645,3 +645,28 @@ func isScriptToken(t string) bool {
 	}
 	return strings.Contains(t, "/")
 }
+
+// MoveTrustEntry : la clé du projet dans trust.json passe de from à to (état et empreinte conservés : un projet cloné
+// approuvé déplacé ne repose pas la question), sous le verrou du registre, .bak avant l'écriture. Rend faux sans
+// entrée pour from. Une entrée déjà présente pour to est une erreur (rien n'est écrasé) ; registre illisible : refus.
+func MoveTrustEntry(from, to string) (moved bool, err error) {
+	err = WithFileLock(trustPath(), func() error {
+		m, raw, rerr := readTrustLocked()
+		if rerr != nil {
+			return rerr
+		}
+		kf, kt := RemotePath(from), RemotePath(to)
+		e, ok := m[kf]
+		if !ok || kf == kt {
+			return nil
+		}
+		if _, exists := m[kt]; exists {
+			return errors.New("une approbation existe déjà pour la destination")
+		}
+		delete(m, kf)
+		m[kt] = e
+		moved = true
+		return writeTrustLocked(m, raw)
+	})
+	return moved, err
+}

@@ -795,7 +795,9 @@ Arguments : `{ "path" }`, et facultativement la destination envisagée `{ "base"
 
 ### `projectMove` **[NEW]**
 
-Arguments : `{ "path", "base", "category", "newCategory": false, "name" }`.
+Arguments : `{ "path", "base", "category", "newCategory": false, "name" }` ; **reprise / annulation** d'un déplacement
+inachevé : `{ "path", "resume": true }` (rejoue les étapes non faites) ou `{ "path", "cancel": true }` (retour arrière des
+étapes faites) — `path` = la source ou la destination de l'entrée du journal ; même résultat que `projectMove`.
 - Refus si `blockers` non vide (`{ "ok": false, "msg" }`), destination identique, destination existante, ou règle
   commune KO. Pas de fermeture implicite : l'interface propose « Fermer le projet » (`close` existant) avant.
 - Étapes, dans l'ordre, consignées dans le journal `moves.json` (dossier de config, sous verrou `WithFileLock`) :
@@ -805,10 +807,12 @@ Arguments : `{ "path", "base", "category", "newCategory": false, "name" }`.
   3. `conf` : entrées de `config.conf` du projet (`PROJECT_COLORS`, organisation, `PROJECT_HIDE_IDLE`) reportées
      si la clé change (une seule écriture, `SaveConfig`) ;
   4. `history` : dossier `projects/<chemin encodé>` de la config de claude (`ProjectDirName`) renommé ;
-  5. `ctr` : ancien conteneur / StatefulSet + pod `<ancienne clé>` (arrêtés) supprimés — recréés au nouveau nom à
+  5. `trust` : la clé `RemotePath` du projet dans `trust.json` suit (état et empreinte conservés — un projet cloné
+     approuvé ne redemande rien ; sous verrou, `.bak` avant écriture ; registre illisible : l'étape échoue) ;
+  6. `ctr` : ancien conteneur / StatefulSet + pod `<ancienne clé>` (arrêtés) supprimés — recréés au nouveau nom à
      la prochaine ouverture.
   Nom tmux, URL `/files/<clé>/…` et `CL_BROWSER_PATH_MAP` dérivent du chemin : rien à écrire.
-- Échec à l'étape N : étapes N-1…1 annulées dans l'ordre inverse (l'étape `ctr`, non réversible, est la dernière).
+- Échec à l'étape N : étapes N-1…1 annulées dans l'ordre inverse (l'étape `ctr`, non réversible, est la dernière). Étapes : `dir`, `assign`, `conf`, `history`, `trust`, `ctr`.
   Résultat `{ "ok": false, "step": "ctr", "msg", "rolledBack": true }`. Retour arrière lui-même en échec :
   `{ "ok": false, "rolledBack": false, "state": "partial", "done": ["dir","assign"], "msg" }` ; l'entrée du journal
   reste, le projet porte le blocker « déplacement inachevé » et l'action propose « Reprendre » (rejoue depuis

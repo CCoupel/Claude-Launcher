@@ -1312,7 +1312,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
 		Category, Source, URL                                            string
-		NewCategory, Run                                                 bool
+		NewCategory, Run, Resume, Cancel                                 bool
 		Job, Choice, SHA                                                 string
 		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
@@ -1409,6 +1409,11 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "create":
 		return a.create(createArgs{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name,
 			Source: arg.Source, Raw: arg.Raw, Remote: arg.Remote, URL: arg.URL, Image: arg.Image, Backend: arg.Backend})
+	case "projectMoveInfo":
+		return a.projectMoveInfo(arg.Path)
+	case "projectMove":
+		return a.projectMove(moveArgs{Path: arg.Path, Base: arg.Base, Category: arg.Category, Name: arg.Name,
+			NewCategory: arg.NewCategory, Resume: arg.Resume, Cancel: arg.Cancel})
 	case "envTrustInfo":
 		return a.envTrustInfo(arg.Path)
 	case "envTrustAnswer":
