@@ -1046,13 +1046,25 @@ Chaque entrée de `settings[]` (kind `config.conf`, puis `backends.yaml`, `hub`,
 ```
 - `effect` ∈ `immediate` (appliqué dès l'enregistrement) | `project` (à la prochaine ouverture d'un projet) |
   `claude` (relance des sessions claude déjà ouvertes ; les nouvelles l'ont) | `launcher` (relance du launcher, #219).
-- Valeur **pour l'interface qui appelle** (fenêtre native / web : un tableau ; coque : un autre quand il diffère) —
+- Valeur **pour l'interface qui appelle** (H5, défaut retenu) (fenêtre native / web : un tableau ; coque : un autre quand il diffère) —
   table unique dans `core` (`OptionEffect(key, iface)`), tirée du diagnostic
   `_work/reports/dev-frontend-diag-config-a-chaud-20261121.md` corrigé par #225 (ex. `CLAUDE_DISABLE_MOUSE`,
   `CLAUDE_EXPERIMENTAL_TEAMS`, `EXTRA_ENVS`, `GITHUB_TOKEN` → `claude` ; `CLAUDE_OPTIONS`, `RESUME_*` → `project` ;
   `GITHUB_DIR(S)`, `CLAUDE_CONFIG_DIR` → `launcher` ; `TEAM_HIDE_IDLE*`, `LAYOUT_*`, `USAGE_REFRESH_SEC`,
   `COLOR_PALETTE` → `immediate`). Clé inconnue : `effect` absent (pas de pastille).
-- `effectHelp` : texte court de l'infobulle.
+- `effectHelp` : **[CHANGED — maquette retenue A révisée]** remplacé par `effectHow`, contenu de la **bulle** affichée au
+  survol, au focus clavier ou à l'appui de la pastille :
+  ```json
+  "effectHow": { "why": "recopiée dans settings.json dès l'enregistrement ; lue par claude à son démarrage",
+                 "do": "Rafraîchir chaque projet ouvert ; les nouvelles sessions l'ont déjà",
+                 "shell": "F5 sur le projet",
+                 "action": "refresh" | "relaunch" | "reopen" | "" }
+  ```
+  `why` : pourquoi cet effet ; `do` : quoi faire (fenêtre native / web) ; `shell` : procédure dans la coque Linux
+  (ex. `relaunch` → « ctrl+r quand l'annonce de relance est affichée, sinon Échap puis l puis relancer
+  claude-launcher-ng2 ») ; `action` : lien d'action de la bulle — `relaunch` → `relaunch` (#219), `refresh` →
+  `refreshProject` des projets ouverts concernés (#158), `reopen` → aucun appel (texte seul), `""` pour `immediate`.
+  Textes en français, produits par `core` (même table que `effect`).
 
 ### `configApply` / `configSave` — champ `apply` **[NEW]** (#226)
 
@@ -1065,7 +1077,8 @@ Après un enregistrement réussi :
 - `changed` : options dont la **valeur effective** a changé (pas les commentaires), avec leur effet.
 - `relaunch` : vrai si une option `launcher` a changé (l'interface propose « Relancer le launcher », `relaunch` #219).
 - `projects` : projets **ouverts** concernés par une option `claude` ou `project` (« Rafraîchir », `refreshProject`
-  #158). Aucune action automatique : l'interface affiche le rappel selon la maquette retenue.
+  #158). Aucune action automatique (H6, décision utilisateur) : bandeau de rappel limité aux options modifiées, actions
+  proposées seulement (maquette retenue `docs/mockup/v6.6.0/ui/config_ui__effet_des_options.html`).
 - `ConfigReloadNote` (texte global) est retiré au profit de `apply`.
 
 ### `secretReveal` **[NEW]** (#227)
@@ -1076,10 +1089,11 @@ Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : tout
 - La valeur n'est **jamais** dans `configModel`, un instantané, un évènement, un message d'erreur ni un journal ;
   le journal des écritures de secrets consigne seulement « révélé : clé, interface, heure » (jamais la valeur, ni
   longueur, ni empreinte).
-- **Accès web** : refusé (`msg: "indisponible depuis un accès distant"`) quand la requête vient de l'adresse
+- **Accès web** (H7, décision utilisateur) : refusé (`msg: "indisponible depuis un accès distant"`) quand la requête vient de l'adresse
   publique (`url` de `desktop_web`, #171) ou d'un hôte autre que la boucle locale ; admis depuis la fenêtre native
   et l'accès web local (`127.0.0.1` / `::1`, session valide, `Origin` contrôlée comme les autres appels).
   Réponse HTTP `Cache-Control: no-store`. Au plus 10 révélations par minute et par session.
-- Côté interface : valeur gardée en mémoire le temps de l'affichage seulement (re-masquage : clic, 30 s, changement
-  de rubrique, fermeture), jamais écrite dans le DOM d'un champ éditable ni dans le stockage du navigateur.
+- Côté interface (maquette retenue A, œil dans le champ, `docs/mockup/v6.6.0/ui/config_ui__element_cache.html` —
+  **même composant pour tous les éléments cachés**) : valeur gardée en mémoire le temps de l'affichage seulement
+  (re-masquage, H8 : clic, 30 s, changement de rubrique, fermeture), jamais écrite dans le DOM d'un champ éditable ni dans le stockage du navigateur.
 - `configModel` : entrée secrète gagne `"reveal": true|false` (faux pour un accès distant : l'œil est grisé).
