@@ -505,3 +505,21 @@ body.cardsfolded #hsplit { display: none; }
 .cardmenu:hover { background: var(--hl, var(--line)); color: var(--text); }
 .trow code.old { text-decoration: line-through; color: var(--dim); }
 .pre { white-space: pre-wrap; }
+
+/* Effet des options (#226) et œil des éléments cachés (#227) */
+.effcell { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.effcell > :first-child { flex: 1; min-width: 160px; }
+.effwrap { position: relative; display: inline-block; }
+.eff { border: 1px solid var(--line2); background: transparent; border-radius: 10px; padding: 1px 8px; font: inherit; font-size: 11.5px; cursor: pointer; white-space: nowrap; }
+.eff.i, .effh.i { color: var(--green); } .eff.p, .effh.p { color: var(--cyan); } .eff.c, .effh.c { color: var(--orange); } .eff.l, .effh.l { color: var(--yellow); }
+.eff:focus-visible { outline: 2px solid var(--accent, var(--orange)); }
+.effbub { position: absolute; right: 0; top: calc(100% + 4px); z-index: 30; width: 320px; max-width: 80vw; background: var(--menu, var(--card-head)); border: 1px solid var(--line2); border-radius: 6px; padding: 8px 10px; font-size: 12px; line-height: 1.5; box-shadow: 0 6px 20px rgba(0,0,0,.4); white-space: normal; }
+.effbub .effh { font-weight: 600; margin-bottom: 2px; }
+.effbub .link { background: none; border: 0; padding: 0; margin-top: 4px; color: var(--accent, var(--cyan)); text-decoration: underline; cursor: pointer; font: inherit; }
+.applybar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; padding: 6px 10px; border-radius: 6px; background: var(--alert-yellow); color: var(--yellow); }
+.applybar .at { flex: 1; min-width: 200px; }
+.secwrap { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.secdisp { display: inline-flex; align-items: center; gap: 8px; background: var(--input); border: 1px solid var(--line2); border-radius: 5px; padding: 4px 8px; font-family: var(--mono); max-width: 100%; }
+.secdisp .sectxt { word-break: break-all; user-select: all; } .secdisp.rev { border-color: var(--orange); }
+.secdisp .mut { font-family: var(--ui); font-size: 11.5px; color: var(--dim); }
+.eye { background: none; border: 0; cursor: pointer; font-size: 14px; padding: 0 2px; color: var(--text); } .eye:disabled { opacity: .35; cursor: not-allowed; }

@@ -1565,7 +1565,7 @@ function openModal(build) {
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
-function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); S.newDlg = null; $('nav').focus(); }
+function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); S.newDlg = null; if (typeof eyesHide === 'function') eyesHide(); $('nav').focus(); }
 $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {
@@ -1780,7 +1780,77 @@ async function envTrustBox(src) {
   });
   draw(info, '');
 }
-// ── Déplacer / renommer un projet (#216) ─────────────────────────────────────
+// ── Effet des options de config (#226) et élément caché (#227) ─────────────
+// Fonctions pures et composant commun (testdata/config_effect.js). Contrat : desktop-dispatch.md § LOT-4.
+const EFFECTS = {
+  immediate: { cls: 'i', label: '● immédiat' },
+  project: { cls: 'p', label: '⟳ réouverture du projet' },
+  claude: { cls: 'c', label: '✳ sessions claude' },
+  launcher: { cls: 'l', label: '↻ relance du launcher' },
+};
+const effectMeta = (e) => EFFECTS[e] || null; // effet inconnu ou absent : pas de pastille
+// contenu de la bulle : { meta, title, why, doText, shell, link: { kind: 'relaunch'|'refresh', text, paths } | null }
+function effectBubble(x, openProjects) {
+  const meta = effectMeta(x && x.effect); if (!meta) return null;
+  const how = (x && x.effectHow) || {};
+  const ops = openProjects || [];
+  let link = null;
+  if (how.action === 'relaunch') link = { kind: 'relaunch', text: '↻ Relancer le launcher', paths: [] };
+  else if (how.action === 'refresh' && ops.length) link = { kind: 'refresh', text: 'Rafraîchir ' + ops.map((o) => o.name).join(', '), paths: ops.map((o) => o.path) };
+  return { meta, title: x.label || x.key || '', why: how.why || (x.effect === 'immediate' ? 'appliqué dès l\'enregistrement' : ''), doText: how.do || '', shell: how.shell || '', link };
+}
+// rappel après enregistrement (`apply` de configApply/configSave) : { lines:[texte], actions:[{kind,text,paths}] } | null
+function applyReminder(apply, labelOf) {
+  const ch = ((apply && apply.changed) || []).filter((c) => c.effect && c.effect !== 'immediate');
+  if (!ch.length) return null;
+  const names = (e) => ch.filter((c) => c.effect === e).map((c) => (labelOf && labelOf(c.key)) || c.key);
+  const ps = (apply.projects || []);
+  const pn = ps.map((p) => p.name).join(', ');
+  const lines = [], actions = [];
+  if (names('claude').length) lines.push(names('claude').join(', ') + ' : relancer les sessions claude ouvertes' + (pn ? ' (' + pn + ')' : '') + ' pour l\'appliquer');
+  if (names('project').length) lines.push(names('project').join(', ') + ' : appliqué à la prochaine ouverture du projet' + (pn ? ' (ouverts : ' + pn + ')' : ''));
+  if (names('launcher').length) lines.push(names('launcher').join(', ') + ' : relancer le launcher');
+  if (ps.length && (names('claude').length || names('project').length)) actions.push({ kind: 'refresh', text: 'Rafraîchir ces projets', paths: ps.map((p) => p.path) });
+  if (apply.relaunch) actions.push({ kind: 'relaunch', text: '↻ Relancer le launcher', paths: [] });
+  return { lines, actions };
+}
+function runEffectLink(l) {
+  if (!l) return;
+  if (l.kind === 'relaunch') relaunchBox();
+  else if (l.kind === 'refresh') for (const p of l.paths) refreshProject(p);
+}
+// Œil commun à tous les éléments cachés : valeur demandée au serveur au clic seulement, gardée en mémoire le temps de
+// l'affichage, re-masquée au clic, après `ms` (30 s), à la fermeture ou au changement de rubrique (eyesHide). Jamais dans un
+// champ éditable ni dans le stockage du navigateur ; `onChange(state)` reçoit { shown, value, left, msg, busy }.
+const EYES = new Set();
+function createEye(fetchValue, onChange, opt) {
+  const o = Object.assign({ ms: 30000, setT: setTimeout, clearT: clearTimeout, setI: setInterval, clearI: clearInterval }, opt || {});
+  let value = null, left = 0, msg = '', busy = false, tm = null, iv = null, gen = 0;
+  const state = () => ({ shown: value !== null, value, left, msg, busy });
+  const emit = () => onChange(state());
+  const eye = {
+    state,
+    hide() { gen++; o.clearT(tm); o.clearI(iv); tm = iv = null; value = null; left = 0; busy = false; emit(); },
+    async toggle() {
+      if (value !== null) { eye.hide(); return; }
+      if (busy) return;
+      busy = true; msg = ''; const my = ++gen; emit();
+      let r = null;
+      try { r = await fetchValue(); } catch (e) { r = { ok: false, msg: e && e.message ? e.message : 'révélation impossible' }; }
+      if (my !== gen) return; // masqué ou fermé pendant l'appel : la valeur reçue est jetée
+      busy = false;
+      if (!r || r.ok === false || typeof r.value !== 'string') { msg = (r && r.msg) || 'révélation refusée'; value = null; emit(); return; }
+      value = r.value; left = Math.round(o.ms / 1000); emit();
+      tm = o.setT(() => eye.hide(), o.ms);
+      iv = o.setI(() => { left = Math.max(0, left - 1); emit(); }, 1000);
+    },
+  };
+  EYES.add(eye);
+  return eye;
+}
+const eyesShown = () => [...EYES].some((e) => e.state().shown); // une valeur est affichée : un rafraîchissement doux de la page ne doit pas la détruire
+function eyesHide() { for (const e of [...EYES]) e.hide(); EYES.clear(); }
+// Déplacer / renommer un projet (#216) ─────────────────────────────────────
 // Fonctions pures (testdata/project_move.js).
 // env.yaml d'un projet : lecture seule tant que le projet est ouvert (formulaire Réglages et éditeur YAML).
 const ENV_LOCK_MSG = 'Fermez le projet pour modifier son environnement';
@@ -2311,6 +2381,8 @@ async function ceSave(force) {
   CE.doc.mtime = r.mtime || ''; CE.doc.fromTemp = false; CE.dirty = false;
   ceProblems(r.problems || []);
   $('cestatus').textContent = '✓ Enregistré (version précédente gardée en .bak). ' + (r.note || '');
+  const rem = applyReminder(r.apply, null); // #226 : rappel des actions pour les options modifiées
+  if (rem) { $('cestatus').append(el('span', 't-yellow', ' ' + rem.lines.join(' · ') + ' ')); for (const a of rem.actions) { const bt = el('button', 'btn sm', a.text); bt.onclick = () => runEffectLink(a); $('cestatus').append(bt); } }
   if (r.warn) $('cestatus').append(el('span', 't-orange', ' ⚠ ' + r.warn)); // enregistré avec avertissement
   CE.files = await call('configFiles', { path: CE.project });
   ceRenderList();
