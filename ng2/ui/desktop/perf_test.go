@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -36,11 +37,47 @@ func TestStartupFromCaches(t *testing.T) {
 	if err != nil {
 		t.Skip("git absent")
 	}
+	// enveloppe PORTABLE : un petit programme Go (un script sh ne s'exécute pas sous Windows) nommé git[.exe]
 	bin, journal := t.TempDir(), filepath.Join(t.TempDir(), "git.log")
-	wrapper := "#!/bin/sh\necho x >> " + journal + "\nexec " + realGit + " \"$@\"\n"
-	if err := os.WriteFile(filepath.Join(bin, "git"), []byte(wrapper), 0o755); err != nil {
+	src := t.TempDir()
+	prog := `package main
+
+import (
+	"os"
+	"os/exec"
+)
+
+func main() {
+	if f, err := os.OpenFile(os.Getenv("CL_GITLOG"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		f.WriteString("x\n")
+		f.Close()
+	}
+	c := exec.Command(os.Getenv("CL_REALGIT"), os.Args[1:]...)
+	c.Stdin, c.Stdout, c.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if err := c.Run(); err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			os.Exit(ee.ExitCode())
+		}
+		os.Exit(127)
+	}
+}
+`
+	if err := os.WriteFile(filepath.Join(src, "main.go"), []byte(prog), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	_ = os.WriteFile(filepath.Join(src, "go.mod"), []byte("module gitwrap125\n\ngo 1.20\n"), 0o644)
+	exe := "git"
+	if runtime.GOOS == "windows" {
+		exe = "git.exe"
+	}
+	build := exec.Command("go", "build", "-o", filepath.Join(bin, exe), ".")
+	build.Dir = src
+	build.Env = append(os.Environ(), "CGO_ENABLED=0", "GOFLAGS=-mod=mod")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Skipf("go build indisponible : %v %s", err, out)
+	}
+	t.Setenv("CL_GITLOG", journal)
+	t.Setenv("CL_REALGIT", realGit)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	launches := func() int { b, _ := os.ReadFile(journal); return strings.Count(string(b), "x\n") }
 
