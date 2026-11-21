@@ -9,8 +9,8 @@ function grab(sig) {
 const jn = src.slice(src.indexOf('const joinNewPath = '), src.indexOf('// Chargeur de catégories'));
 const sl = src.slice(src.indexOf('const sameLocation = '), src.indexOf('\n', src.indexOf('const sameLocation = ')));
 const ctx = {}; vm.createContext(ctx);
-vm.runInContext(jn + '\n' + sl + '\n' + grab('function moveRows(') + '\n' + grab('function moveFailText(') + '\n' + grab('function moveMenuState(') + '\nconst ENV_LOCK_MSG = ' + src.slice(src.indexOf('const ENV_LOCK_MSG = ') + 20, src.indexOf('\n', src.indexOf('const ENV_LOCK_MSG = '))) + '\n' + grab('function envLock(') + '\nglobalThis.t = { sameLocation, moveRows, moveFailText, moveMenuState, envLock };', ctx);
-const { sameLocation, moveRows, moveFailText, moveMenuState, envLock } = ctx.t;
+vm.runInContext(jn + '\n' + sl + '\n' + grab('function moveRows(') + '\n' + grab('function moveFailText(') + '\n' + grab('function moveMenuState(') + '\nconst ENV_LOCK_MSG = ' + src.slice(src.indexOf('const ENV_LOCK_MSG = ') + 20, src.indexOf('\n', src.indexOf('const ENV_LOCK_MSG = '))) + '\n' + grab('function envLock(') + '\n' + src.slice(src.indexOf('const envRefusal = '), src.indexOf('\n', src.indexOf('const envRefusal = ')) + 1) + '\nglobalThis.t = { sameLocation, moveRows, moveFailText, moveMenuState, envLock, envRefusal };', ctx);
+const { sameLocation, moveRows, moveFailText, moveMenuState, envLock, envRefusal } = ctx.t;
 let ko = 0; const eq = (n, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) { ko++; console.log('KO', n, JSON.stringify(a), '!=', JSON.stringify(b)); } };
 const info = { base: '/a', category: 'INFRA', name: 'x', key: 'infra-x' };
 eq('même', sameLocation(info, '/a', 'INFRA', 'x'), true);
@@ -40,4 +40,12 @@ eq('autre fichier jamais verrouillé', envLock({ open: true }, 'config.conf').lo
 eq('env sans ligne', envLock(undefined, 'project-env').locked, false);
 const lockUi = src.slice(src.indexOf('async function ceOpen('), src.indexOf('function ceGutter('));
 if (!/ta\.readOnly/.test(lockUi) || !/cesave'\)\.disabled = true/.test(lockUi)) { ko++; console.log('KO éditeur YAML non verrouillé'); }
+eq('serveur envLocked', envLock({ open: false }, 'project-env', { envLocked: true, envLockReason: 'conteneur du projet en cours d\'exécution — fermez-le' }), { locked: true, why: 'conteneur du projet en cours d\'exécution — fermez-le' });
+eq('serveur readOnly', envLock(undefined, 'project-env', { readOnly: true, readOnlyReason: 'raison' }).why, 'raison');
+eq('serveur sans raison', envLock(undefined, 'project-env', { readOnly: true }).why, 'Fermez le projet pour modifier son environnement');
+eq('serveur false + ligne ouverte', envLock({ open: true }, 'project-env', { envLocked: false }).locked, true);
+eq('serveur lock mais autre fichier', envLock(undefined, 'config.conf', { readOnly: true }).locked, false);
+eq('refus', envRefusal({ ok: false, field: 'env', msg: 'projet ouvert par un autre launcher (h)', blockers: ['projet ouvert par un autre launcher (h)', 'conteneur actif'] }), 'projet ouvert par un autre launcher (h)\n• conteneur actif');
+eq('refus sans blockers', envRefusal({ msg: 'x' }), 'x');
+eq('refus nul', envRefusal(null), '');
 console.log(ko ? ko + ' KO' : 'OK'); process.exit(ko ? 1 : 0);

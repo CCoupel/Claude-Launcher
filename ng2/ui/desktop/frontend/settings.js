@@ -1321,7 +1321,7 @@ function stPageProjet(p) {
   const dl = el('datalist'); dl.id = 'pjimages'; for (const i of r.images || []) dl.appendChild(Object.assign(el('option'), { value: i }));
   im.setAttribute('list', 'pjimages');
   const rows = [['Backend', be, open ? 'projet ouvert : le fermer avant de changer de backend ou d\'image' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
-    ['Image de base', im, 'ignorée pour le backend host'], ['Backend préféré', (() => { const pf = stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'); if (open) { pf.disabled = true; pf.title = ENV_LOCK_MSG; } return pf; })(), open ? ENV_LOCK_MSG + ' (env.yaml)' : 'proposé aux autres postes (prefer, env.yaml)']];
+    ['Image de base', im, 'ignorée pour le backend host'], ['Backend préféré', (() => { const pf = stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'); const l2 = envLock({ open }, 'project-env', r); if (l2.locked) { pf.disabled = true; pf.title = l2.why; } return pf; })(), envLock({ open }, 'project-env', r).locked ? envLock({ open }, 'project-env', r).why + ' (env.yaml)' : 'proposé aux autres postes (prefer, env.yaml)']];
   const sw = el('span', 'pjcolors'); sw.id = 'pjf-color';
   const mk = (val, label, css) => {
     const c = el('span', 'pjsw' + (d.color === val ? ' on' : '')); c.title = label; if (css) c.style.background = css; else c.textContent = 'auto';
@@ -1366,9 +1366,10 @@ function stPageProjet(p) {
   f2.push(['Paquets par gestionnaire', stArea(d.env.txt.pbm, (v) => { d.env.txt.pbm = v; pjPreview(); }, 2), 'une ligne par gestionnaire : apt: git jq']);
   f2.push(['Montages', stArea(d.env.txt.mounts, (v) => { d.env.txt.mounts = v; pjPreview(); }, 3), 'un chemin par ligne, lecture seule ; « :rw » en fin de ligne pour écrire']);
   env.appendChild(stForm(f2)); env.id = 'pjf-env';
-  if (open) { // #216 : env.yaml en lecture seule tant que le projet est ouvert (le serveur refuse aussi)
-    env.prepend(el('p', 'note warn', '🔒 ' + ENV_LOCK_MSG + ' (lecture seule).'));
-    env.querySelectorAll('input, textarea, select, button').forEach((x) => { x.disabled = true; x.title = ENV_LOCK_MSG; });
+  const lk = envLock({ open }, 'project-env', r); // #216 : env.yaml en lecture seule (projet ouvert, autre launcher, conteneur actif : serveur)
+  if (lk.locked) {
+    env.prepend(el('p', 'note warn', '🔒 ' + lk.why + ' (lecture seule).'));
+    env.querySelectorAll('input, textarea, select, button').forEach((x) => { x.disabled = true; x.title = lk.why; });
   }
   p.appendChild(stBox('Environnement du conteneur', env, el('span', 'dim', r.envPath ? r.envPath.split(/[\\/]/).slice(-2).join('/') + (r.envExists ? '' : ' (absent : créé à l\'enregistrement)') : '')));
   // Aperçu fusionné
@@ -1429,7 +1430,7 @@ async function pjSave() {
     stRender(); return;
   }
   if (!r.ok) {
-    pj.res = r.env ? (r.env.conflict ? { conflict: true, mtime: r.env.mtime } : { problems: r.env.problems || [] }) : { msg: r.msg || 'refusé' };
+    pj.res = r.env ? (r.env.conflict ? { conflict: true, mtime: r.env.mtime } : { problems: r.env.problems || [] }) : { msg: (r.field === 'env' ? envRefusal(r) : r.msg) || 'refusé' }; // field env : refus serveur (blockers)
     stRenderFoot(); return;
   }
   const keep = pj.focus;

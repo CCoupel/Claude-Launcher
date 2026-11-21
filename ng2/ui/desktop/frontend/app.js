@@ -1784,10 +1784,15 @@ async function envTrustBox(src) {
 // Fonctions pures (testdata/project_move.js).
 // env.yaml d'un projet : lecture seule tant que le projet est ouvert (formulaire Réglages et éditeur YAML).
 const ENV_LOCK_MSG = 'Fermez le projet pour modifier son environnement';
-function envLock(row, kind) {
-  const locked = kind === 'project-env' && !!(row && row.open);
-  return { locked, why: locked ? ENV_LOCK_MSG : '' };
+// `src` : réponse serveur (projectSettings : envLocked/envLockReason ; configOpen : readOnly/readOnlyReason), prioritaire sur la ligne.
+function envLock(row, kind, src) {
+  const s = src || {};
+  const srv = s.envLocked === true || s.readOnly === true;
+  const locked = kind === 'project-env' && (srv || !!(row && row.open));
+  return { locked, why: !locked ? '' : (srv && (s.envLockReason || s.readOnlyReason)) || ENV_LOCK_MSG };
 }
+// refus serveur d'une écriture d'env.yaml : raison + blockers
+const envRefusal = (r) => [r && r.msg].concat(((r && r.blockers) || []).filter((b) => b && b !== (r && r.msg)).map((b) => '• ' + b)).filter(Boolean).join('\n');
 // Entrée de menu (arbre et ⋯ de la carte) : grisée tant que le projet est ouvert.
 function moveMenuState(row) {
   const open = !!(row && row.open);
@@ -2209,7 +2214,7 @@ function ceRenderList() {
 async function ceOpen(kind) {
   const d = await call('configOpen', { kind, path: CE.project });
   CE.doc = d; CE.dirty = false;
-  CE.lock = envLock((S.snap.rows || []).find((x) => x.path === CE.project), d.kind); // #216 : projet ouvert = lecture seule
+  CE.lock = envLock((S.snap.rows || []).find((x) => x.path === CE.project), d.kind, d); // #216 : projet ouvert = lecture seule
   ceRenderList();
   const ed = $('ceed'); ed.textContent = '';
   const bar = el('div', 'cebar');
@@ -2293,7 +2298,7 @@ async function ceSave(force) {
   const ta = $('cetext'); if (!ta || !CE.doc) return;
   if ($('cesave').disabled) return;
   const r = await call('configSave', { kind: CE.doc.kind, path: CE.project, content: ta.value, mtime: CE.doc.mtime });
-  if (r && r.ok === false) { $('cestatus').textContent = ''; $('cestatus').append(el('span', 't-red', '✗ ' + (r.msg || 'enregistrement refusé') + ' — rien n\'est enregistré.')); return; } // refus serveur : autre launcher, conteneur actif…
+  if (r && r.ok === false) { $('cestatus').textContent = ''; $('cestatus').append(el('span', 't-red pre', '✗ ' + (envRefusal(r) || 'enregistrement refusé') + '\nRien n\'est enregistré.')); return; } // refus serveur : autre launcher, conteneur actif…
   if (r.invalid) { ceProblems(r.problems || []); $('cestatus').textContent = 'Erreurs : rien n\'est enregistré.'; return; }
   if (r.conflict) {
     const st = $('cestatus'); st.textContent = '';

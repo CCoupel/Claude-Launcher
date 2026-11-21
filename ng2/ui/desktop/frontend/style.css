@@ -504,3 +504,4 @@ body.cardsfolded #hsplit { display: none; }
 .cardmenu { margin-left: 6px; cursor: pointer; color: var(--dim); padding: 0 4px; border-radius: 4px; }
 .cardmenu:hover { background: var(--hl, var(--line)); color: var(--text); }
 .trow code.old { text-decoration: line-through; color: var(--dim); }
+.pre { white-space: pre-wrap; }
