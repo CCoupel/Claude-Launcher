@@ -8,10 +8,20 @@ function grab(sig) {
 }
 const a = src.indexOf('const EFFECTS = '), b = src.indexOf('function effectBubble(');
 const line = (sig) => src.slice(src.indexOf(sig), src.indexOf('\n', src.indexOf(sig)));
-const code = src.slice(a, src.indexOf('const effectMeta')) + line('const effectMeta') + '\n' + grab('function effectBubble(') + '\n' + grab('function applyReminder(') + '\nconst EYES = new Set();\n' + grab('function createEye(') + '\n' + line('const eyesShown') + '\n' + grab('function eyesHide(') + '\nglobalThis.t = { effectMeta, effectBubble, applyReminder, createEye, eyesShown, eyesHide, EYES };';
+const code = src.slice(a, src.indexOf('const effectMeta')) + line('const effectMeta') + '\n' + grab('function effectBubble(') + '\n' + grab('function applyReminder(') + '\nconst EYES = new Set();\n' + grab('function createEye(') + '\n' + line('const eyesShown') + '\n' + line('const canReveal') + '\n' + line('const savedNote') + '\n' + grab('function eyesHide(') + '\nglobalThis.t = { effectMeta, effectBubble, applyReminder, createEye, eyesShown, eyesHide, EYES, canReveal, savedNote };';
 const ctx = { setTimeout, clearTimeout, setInterval, clearInterval, Promise }; vm.createContext(ctx); vm.runInContext(code, ctx);
-const { effectMeta, effectBubble, applyReminder, createEye, eyesShown, eyesHide } = ctx.t;
+const { effectMeta, effectBubble, applyReminder, createEye, eyesShown, eyesHide, canReveal, savedNote } = ctx.t;
 let ko = 0; const eq = (n, x, y) => { if (JSON.stringify(x) !== JSON.stringify(y)) { ko++; console.log('KO', n, JSON.stringify(x), '!=', JSON.stringify(y)); } };
+// reveal / note
+eq('reveal true', canReveal({ reveal: true }), true);
+eq('reveal false (distant)', canReveal({ reveal: false }), false);
+eq('reveal absent', canReveal({}), false);
+eq('reveal nul', canReveal(null), false);
+eq('note présente (backends/hub/env)', savedNote('relu : backends'), ' relu : backends');
+eq('note absente (config.conf)', savedNote(undefined), '');
+const secUi2 = fs.readFileSync(process.argv[2].replace('app.js', 'settings.js'), 'utf8');
+if (!/const off = !canReveal\(x\)/.test(secUi2)) { ko++; console.log('KO œil non grisé sur reveal !== true'); }
+if (/res\.note \|\| ''/.test(secUi2)) { ko++; console.log('KO ancienne référence res.note subsiste'); }
 // pastilles
 eq('meta claude', effectMeta('claude').label, '✳ sessions claude');
 eq('meta absent', effectMeta(undefined), null);

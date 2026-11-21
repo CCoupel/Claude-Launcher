@@ -206,7 +206,7 @@ function stRenderFoot() {
     for (const p of probs) left.appendChild(el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'),
       (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
   } else if (res && res.saved) {
-    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak).' + savedNote(res.note)));
     if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (ST.loading) {
     left.appendChild(el('span', 'dim', 'Chargement…'));
@@ -917,7 +917,7 @@ function docFoot(f, id) {
   } else if (probs.length) {
     for (const p of probs) left.appendChild(el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'), (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
   } else if (res && res.saved) {
-    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak).' + savedNote(res.note)));
     if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (D.loading) left.appendChild(el('span', 'dim', 'Chargement…'));
   else left.appendChild(el('span', 't-green', '✓ valide'));
@@ -954,7 +954,7 @@ function confField(D, x) {
     const disp = el('span', 'secdisp'); disp.setAttribute('aria-live', 'polite');
     const tx = el('span', 'sectxt'); const hint = el('span', 'mut');
     const eb = el('button', 'eye'); eb.type = 'button'; eb.textContent = '👁';
-    const off = x.reveal === false; // accès distant : révélation refusée par le serveur
+    const off = !canReveal(x); // accès distant (reveal:false) ou serveur sans révélation : œil grisé
     const eye = createEye(() => call('secretReveal', { kind: 'config.conf', key: x.key }), (st) => {
       tx.textContent = st.shown ? st.value : (x.set ? '••••••••••••••••' : '');
       hint.textContent = st.shown ? 'masqué dans ' + st.left + ' s' : st.busy ? '…' : (x.set ? '(défini)' : '(non défini)');
@@ -1458,7 +1458,7 @@ function pjFoot(f) {
   } else if (probs.length) {
     for (const x of probs) left.appendChild(el('div', 'ceprob ' + (x.severity === 'error' ? 't-red' : 't-yellow'), (x.severity === 'error' ? '✗ ' : '⚠ ') + (x.line ? 'ligne ' + x.line + ' : ' : '') + x.message));
   } else if (res && res.saved) {
-    left.appendChild(el('span', 't-green', '✓ Enregistré. ' + (res.note || '')));
+    left.appendChild(el('span', 't-green', '✓ Enregistré.' + savedNote(res.note)));
     if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (!pj || pj.loading) {
     left.appendChild(el('span', 'dim', 'Chargement…'));

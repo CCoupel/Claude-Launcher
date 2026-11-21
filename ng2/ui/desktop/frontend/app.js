@@ -1849,6 +1849,10 @@ function createEye(fetchValue, onChange, opt) {
   return eye;
 }
 const eyesShown = () => [...EYES].some((e) => e.state().shown); // une valeur est affichée : un rafraîchissement doux de la page ne doit pas la détruire
+// l'œil n'est actif que si le serveur annonce `reveal: true` (faux ou absent : accès distant ou serveur sans secretReveal)
+const canReveal = (x) => !!x && x.reveal === true;
+// texte d'état après enregistrement : `note` (backends.yaml, hub, env.yaml ; absent pour config.conf, remplacé par `apply`)
+const savedNote = (note) => (note ? ' ' + note : '');
 function eyesHide() { for (const e of [...EYES]) e.hide(); EYES.clear(); }
 // Déplacer / renommer un projet (#216) ─────────────────────────────────────
 // Fonctions pures (testdata/project_move.js).
@@ -2380,7 +2384,7 @@ async function ceSave(force) {
   }
   CE.doc.mtime = r.mtime || ''; CE.doc.fromTemp = false; CE.dirty = false;
   ceProblems(r.problems || []);
-  $('cestatus').textContent = '✓ Enregistré (version précédente gardée en .bak). ' + (r.note || '');
+  $('cestatus').textContent = '✓ Enregistré (version précédente gardée en .bak).' + savedNote(r.note);
   const rem = applyReminder(r.apply, null); // #226 : rappel des actions pour les options modifiées
   if (rem) { $('cestatus').append(el('span', 't-yellow', ' ' + rem.lines.join(' · ') + ' ')); for (const a of rem.actions) { const bt = el('button', 'btn sm', a.text); bt.onclick = () => runEffectLink(a); $('cestatus').append(bt); } }
   if (r.warn) $('cestatus').append(el('span', 't-orange', ' ⚠ ' + r.warn)); // enregistré avec avertissement
