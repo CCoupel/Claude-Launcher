@@ -2165,7 +2165,7 @@ function execChoice(info, openNext) {
 
 async function execF2(path) {
   const r = (S.snap.rows || []).find((x) => x.path === path);
-  if (r && r.open) { flash('F2 : projet ouvert — le fermer avant de changer de backend'); return; }
+  if (r && r.open) { flash('F2 : ' + ENV_LOCK_MSG); return; }
   const info = await call('newInfo', { path });
   if (info.exec == null) { flash('F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)'); return; }
   execChoice(info, false);
@@ -2311,6 +2311,7 @@ async function ceSave(force) {
   CE.doc.mtime = r.mtime || ''; CE.doc.fromTemp = false; CE.dirty = false;
   ceProblems(r.problems || []);
   $('cestatus').textContent = '✓ Enregistré (version précédente gardée en .bak). ' + (r.note || '');
+  if (r.warn) $('cestatus').append(el('span', 't-orange', ' ⚠ ' + r.warn)); // enregistré avec avertissement
   CE.files = await call('configFiles', { path: CE.project });
   ceRenderList();
 }

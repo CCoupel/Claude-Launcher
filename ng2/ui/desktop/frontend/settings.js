@@ -207,6 +207,7 @@ function stRenderFoot() {
       (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
   } else if (res && res.saved) {
     left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+    if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (ST.loading) {
     left.appendChild(el('span', 'dim', 'Chargement…'));
   } else {
@@ -236,7 +237,7 @@ async function stSave() {
   const keep = { page: ST.page };
   await stLoad();
   ST.page = keep.page;
-  ST.result = { saved: true, note: r.note || '', problems: (r.problems || []).filter((p) => p.severity !== 'error') };
+  ST.result = { saved: true, note: r.note || '', warn: r.warn || '', problems: (r.problems || []).filter((p) => p.severity !== 'error') };
   stRender();
   stPoll();
 }
@@ -896,7 +897,7 @@ async function docSave(id) {
   const warn = (r.problems || []).filter((p) => p.severity !== 'error');
   if (typeof layoutDrop === 'function') { layoutDrop(); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // LAYOUT_MODE global peut avoir changé
   await docLoad(id);
-  if (ST.docs[id]) ST.docs[id].res = { saved: true, note: r.note || '', problems: warn };
+  if (ST.docs[id]) ST.docs[id].res = { saved: true, note: r.note || '', warn: r.warn || '', problems: warn };
   stRender();
 }
 
@@ -915,6 +916,7 @@ function docFoot(f, id) {
     for (const p of probs) left.appendChild(el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'), (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
   } else if (res && res.saved) {
     left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+    if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (D.loading) left.appendChild(el('span', 'dim', 'Chargement…'));
   else left.appendChild(el('span', 't-green', '✓ valide'));
   const txt = el('button', 'btn', 'Éditer en YAML'); txt.onclick = () => stText(ST_KIND[ST.page]);
@@ -1320,7 +1322,7 @@ function stPageProjet(p) {
   const im = stInput(d.image, (v) => { d.image = v.trim(); }, 'image de base', 'w'); im.id = 'pjf-image'; im.disabled = open;
   const dl = el('datalist'); dl.id = 'pjimages'; for (const i of r.images || []) dl.appendChild(Object.assign(el('option'), { value: i }));
   im.setAttribute('list', 'pjimages');
-  const rows = [['Backend', be, open ? 'projet ouvert : le fermer avant de changer de backend ou d\'image' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
+  const rows = [['Backend', be, open ? ENV_LOCK_MSG + ' (backend et image)' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
     ['Image de base', im, 'ignorée pour le backend host'], ['Backend préféré', (() => { const pf = stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'); const l2 = envLock({ open }, 'project-env', r); if (l2.locked) { pf.disabled = true; pf.title = l2.why; } return pf; })(), envLock({ open }, 'project-env', r).locked ? envLock({ open }, 'project-env', r).why + ' (env.yaml)' : 'proposé aux autres postes (prefer, env.yaml)']];
   const sw = el('span', 'pjcolors'); sw.id = 'pjf-color';
   const mk = (val, label, css) => {
@@ -1350,7 +1352,7 @@ function stPageProjet(p) {
     if (et.source) box.append(el('div', 'dim', 'Cloné depuis ' + et.source + (et.at ? ' · ' + et.at.slice(0, 10) : '')));
     if (et.state !== 'pending' && et.state !== 'none') {
       const rv = el('button', 'btn sm', 'Revoir'); rv.id = 'pjf-trustreview'; rv.disabled = open;
-      rv.title = open ? 'projet ouvert : le fermer avant' : 'remet la question à la prochaine ouverture';
+      rv.title = open ? 'Fermez le projet pour revoir l\'approbation' : 'remet la question à la prochaine ouverture';
       rv.onclick = async () => {
         try { const rr = await call('projectApply', { path: pj.path, envTrust: 'review' }); if (rr && rr.ok === false) { flash('⚠ ' + (rr.msg || 'refusé')); return; } } catch (e) { return; }
         await pjLoad(); stRender();
@@ -1399,6 +1401,7 @@ function pjFoot(f) {
     for (const x of probs) left.appendChild(el('div', 'ceprob ' + (x.severity === 'error' ? 't-red' : 't-yellow'), (x.severity === 'error' ? '✗ ' : '⚠ ') + (x.line ? 'ligne ' + x.line + ' : ' : '') + x.message));
   } else if (res && res.saved) {
     left.appendChild(el('span', 't-green', '✓ Enregistré. ' + (res.note || '')));
+    if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (!pj || pj.loading) {
     left.appendChild(el('span', 'dim', 'Chargement…'));
   } else left.appendChild(el('span', 't-green', '✓ valide'));
@@ -1436,7 +1439,7 @@ async function pjSave() {
   const keep = pj.focus;
   if (typeof layoutDrop === 'function') { layoutDrop(pj.path); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // relecture après écriture
   await pjLoad();
-  if (ST.pj) ST.pj.res = { saved: true, note: r.note || '' };
+  if (ST.pj) ST.pj.res = { saved: true, note: r.note || '', warn: r.warn || '' };
   stRender();
 }
 
