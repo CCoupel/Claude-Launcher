@@ -4,8 +4,8 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 )
 
@@ -203,10 +203,10 @@ func anyContains(l []string, sub string) bool {
 // EXDEV simulé : copie complète + contrôle + suppression de la source ; retour arrière par copie inverse.
 func TestMoveExdev(t *testing.T) {
 	f := newMvFix(t)
-	_ = os.Symlink("a.txt", filepath.Join(f.proj, "lien"))
+	linked := os.Symlink("a.txt", filepath.Join(f.proj, "lien")) == nil // Windows : liens réservés aux comptes privilégiés
 	_ = os.MkdirAll(filepath.Join(f.proj, "sub", "deep"), 0o755)
 	_ = os.WriteFile(filepath.Join(f.proj, "sub", "deep", "b.bin"), []byte("0123456789"), 0o600)
-	exdev := &os.LinkError{Op: "rename", Err: syscall.EXDEV}
+	exdev := &os.LinkError{Op: "rename", Err: xdevErr()}
 	f.env.Rename = func(a, b string) error {
 		if a == f.proj { // seul le rename de la source échoue ; la bascule <dest>.moving → <dest> (même volume) réussit
 			return exdev
@@ -221,10 +221,12 @@ func TestMoveExdev(t *testing.T) {
 	if b, _ := os.ReadFile(filepath.Join(dst, "sub", "deep", "b.bin")); string(b) != "0123456789" {
 		t.Errorf("fichier copié = %q", b)
 	}
-	if l, err := os.Readlink(filepath.Join(dst, "lien")); err != nil || l != "a.txt" {
-		t.Errorf("lien symbolique = %q %v", l, err)
+	if linked {
+		if l, err := os.Readlink(filepath.Join(dst, "lien")); err != nil || l != "a.txt" {
+			t.Errorf("lien symbolique = %q %v", l, err)
+		}
 	}
-	if st, _ := os.Stat(filepath.Join(dst, "sub", "deep", "b.bin")); st.Mode().Perm() != 0o600 {
+	if st, _ := os.Stat(filepath.Join(dst, "sub", "deep", "b.bin")); runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Errorf("droits = %v", st.Mode().Perm())
 	}
 	if _, err := os.Stat(f.proj); err == nil {
@@ -239,7 +241,7 @@ func TestMoveExdevEchecApresLaCopieRestaure(t *testing.T) {
 	f := newMvFix(t)
 	f.env.Rename = func(a, b string) error {
 		if a == f.proj {
-			return &os.LinkError{Op: "rename", Err: syscall.EXDEV}
+			return &os.LinkError{Op: "rename", Err: xdevErr()}
 		}
 		return os.Rename(a, b)
 	}
@@ -477,5 +479,19 @@ func TestMoveDirIdempotent(t *testing.T) {
 	e := &MoveEntry{ID: "x", From: f.proj, To: dst, Detail: map[string]string{}}
 	if err := moveDir(f.env, e); err != nil {
 		t.Errorf("dir déjà à destination : %v", err)
+	}
+}
+
+// isCrossDevice reconnaît l'erreur de rename entre volumes DE LA PLATEFORME (Windows : ERROR_NOT_SAME_DEVICE).
+func TestIsCrossDevice(t *testing.T) {
+	for _, err := range []error{xdevErr(), &os.LinkError{Op: "rename", Old: "a", New: "b", Err: xdevErr()}} {
+		if !isCrossDevice(err) {
+			t.Errorf("%v non reconnue comme EXDEV de la plateforme", err)
+		}
+	}
+	for _, err := range []error{nil, os.ErrPermission, os.ErrNotExist, errors.New("autre")} {
+		if isCrossDevice(err) {
+			t.Errorf("%v reconnue à tort", err)
+		}
 	}
 }
