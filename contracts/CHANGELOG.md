@@ -2,6 +2,12 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261121] — v6.6.0 LOT-3 (complément #216) : env.yaml d'un projet refusé s'il tourne
+
+- **[CHANGED]** écriture de l'`env.yaml` d'un projet (`projectApply.env`, `configSave` / `configApply` sur `project-env`, F2 coque) refusée tant qu'un blocker #216 s'applique (ouvert ici, autre launcher, conteneur actif), revérifié à l'écriture : `{ "ok": false, "field": "env", "msg", "blockers" }` ; `configValidate` permis — `contracts/desktop-dispatch.md` « env.yaml d'un projet refusé… »
+- **[NEW]** `projectSettings.envLocked` / `envLockReason` ; `configOpen` / `configModel` (`project-env`) : `readOnly`, `readOnlyReason`
+- Exceptions : création (`create`), approbation (`envTrustAnswer`), étape `trust` de `projectMove` — jamais bloquées
+
 ## [20261121] — v6.6.0 LOT-4 (plan) : config à chaud, effet des options, éléments cachés (#225, #226, #227)
 
 - **[CHANGED]** `config.conf` relu par date avant toute recopie dans `settings.json` et toute action qui en dépend ; `configApply` / `configSave` / `configReload` appellent `SyncLauncherEnv` (champ `sync`) ; coque : relecture à chaud sans relancer le nav — `contracts/desktop-dispatch.md` « v6.6.0 — LOT-4 »

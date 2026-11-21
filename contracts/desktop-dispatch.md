@@ -1020,6 +1020,38 @@ Même garde à l'ouverture : écran de la question (image, paquets, commandes, m
 touches `a` accepter, `s` ouvrir sans, `Échap` annuler, `v` fichiers bruts (maquette retenue A,
 `docs/mockup/v6.6.0/ui/clone_trust__approbation_env.html`).
 
+### `env.yaml` d'un projet refusé tant que le projet ou son conteneur tourne (#216, complément LOT-3, décision 2026-11-21) **[CHANGED]**
+
+Comme déplacer / renommer et backend / image : toute **écriture de l'`env.yaml` d'un projet** (paquets, setup,
+on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un **blocker** de #216 s'applique.
+
+- **Blockers** : ceux de `projectMoveInfo` (`core.MoveBlockers`, hors « déplacement inachevé ») — projet ouvert dans
+  ce launcher (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou pod du projet **en
+  cours d'exécution** (ici ou ailleurs). Contrôle **côté core**, revérifié **juste avant l'écriture** (sous le verrou
+  d'`env.yaml`), pas seulement à l'ouverture de la page.
+- **Méthodes concernées** :
+  - `projectApply` avec `env` : refus **avant toute écriture** (même ordre que backend/image : contrôles sans écriture
+    d'abord) — `{ "ok": false, "field": "env", "msg": "<raison>", "blockers": ["…"] }` ; les autres parties de la même
+    demande ne sont pas écrites non plus (couleur, organisation, masquage envoyés **seuls** restent permis projet
+    ouvert : ils ne passent pas par cette garde).
+  - `configSave`, `configApply`, `configValidate` sur `kind: "project-env"` (éditeur YAML / formulaire de l'env du
+    projet, `path`) : `configSave` / `configApply` → même refus `{ "ok": false, "field": "env", "msg", "blockers" }` ;
+    `configValidate` reste permis (lecture) ; `configOpen` / `configModel` ajoutent `"readOnly": true` et
+    `"readOnlyReason"`.
+  - `ApplyExec` / `execApply` / `projectApply.image|backend` : refus inchangé (déjà en place), même message.
+- **`msg`** (une raison, la première blocker) : « projet ouvert — fermez le projet pour modifier son environnement »,
+  « projet ouvert par un autre launcher (<hôte>) — … », « conteneur du projet en cours d'exécution — … ».
+- **`projectSettings`** gagne `"envLocked": true|false` et `"envLockReason": "<msg>"` : l'interface grise les sections
+  `env.yaml` du formulaire et l'éditeur YAML (lecture seule) avec cette mention ; un refus serveur (autre launcher,
+  conteneur démarré entre-temps) affiche `msg`.
+- **Coque tmux** : F2 → entrées d'environnement grisées et mention « fermez le projet pour modifier son
+  environnement » ; écriture refusée par le même contrôle core.
+- **Exceptions (jamais bloquées)** : écritures du launcher lui-même liées à la création et à l'approbation — fin de
+  `create` (clone / `ApplyExec` de création, projet pas encore ouvert), `envTrustAnswer` (`accept` / `ignore`, appelé
+  **avant** le démarrage du conteneur, `open` étant suspendu par `needTrust`), étape `trust` de `projectMove`. Ces
+  chemins n'appellent pas la garde (testés).
+- Couleur, organisation, masquage des inactifs (`config.conf`) : inchangés, à chaud.
+
 ## v6.6.0 — LOT-4 : config à chaud, effet des options, éléments cachés (#225, #226, #227)
 
 ### Prise en compte à chaud de `config.conf` (#225) **[CHANGED]** (pas de nouvelle méthode)
