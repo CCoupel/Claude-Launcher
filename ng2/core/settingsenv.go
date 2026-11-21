@@ -3,11 +3,14 @@ package core
 import (
 	"bytes"
 	"claude-launcher-ng2/platform"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 // Variables d'environnement du launcher pour toutes les sessions claude :
@@ -95,6 +98,9 @@ func SyncSettingsEnv(dir string, vars []envVar) error {
 
 func syncSettingsEnv(dir string, vars []envVar) error {
 	path := filepath.Join(dir, "settings.json")
+	if err := guardWrite(path); err != nil { // sous test : jamais le settings.json réel
+		return err
+	}
 	doc := map[string]json.RawMessage{}
 	mode := os.FileMode(0o644)
 	if b, err := os.ReadFile(path); err == nil {
@@ -120,6 +126,10 @@ func syncSettingsEnv(dir string, vars []envVar) error {
 		_ = json.Unmarshal(b, &prev)
 	}
 
+	before := map[string]string{} // valeurs avant écriture (jamais journalisées : empreintes seulement)
+	for k, v := range env {
+		before[k] = v
+	}
 	changed := false
 	want := map[string]string{}
 	for _, v := range vars {
@@ -170,6 +180,7 @@ func syncSettingsEnv(dir string, vars []envVar) error {
 		if err := WriteFileAtomic(path, append(out, '\n'), mode); err != nil {
 			return err
 		}
+		journalSecretWrites(dir, env, before, want)
 	}
 	keys := make([]string, 0, len(want))
 	for k := range want {
@@ -198,4 +209,81 @@ func sameStrings(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// ── Journal des écritures de secrets de settings.json ─────────────────────
+//
+// Attribution a posteriori d'une écriture (enquête GH_TOKEN) : qui (binaire, version, sous-commande, launcher, machine, pid),
+// quand, quelle clé, longueur et empreinte sha256[:8] de la valeur écrite — JAMAIS la valeur. Un journal par dossier de
+// config claude (partagé par les launchers de la racine), en ajout, 0600, tronqué au-delà de 256 Ko.
+
+type secretWrite struct {
+	At      string `json:"at"`
+	Pid     int    `json:"pid"`
+	Bin     string `json:"bin"`
+	Version string `json:"version"`
+	Cmd     string `json:"cmd"`
+	Hub     string `json:"hub,omitempty"`
+	Host    string `json:"host"`
+	Key     string `json:"key"`
+	Len     int    `json:"len"`
+	Fp      string `json:"fp"`
+	Prev    string `json:"prev,omitempty"` // empreinte de la valeur remplacée
+}
+
+func secretFp(v string) string {
+	h := sha256.Sum256([]byte(v))
+	return hex.EncodeToString(h[:])[:8]
+}
+
+func settingsJournalPath(dir string) string {
+	return filepath.Join(dir, "claude-launcher", "settings-env-journal.jsonl")
+}
+
+const settingsJournalMax = 256 << 10
+
+// journalSecretWrites : une ligne par clé SECRÈTE dont la valeur vient de changer (erreurs ignorées : le journal ne doit
+// jamais empêcher la synchronisation).
+func journalSecretWrites(dir string, env, before, want map[string]string) {
+	var lines []secretWrite
+	cmd := "shell"
+	if len(os.Args) > 1 {
+		cmd = strings.TrimPrefix(os.Args[1], "--")
+	}
+	hub := ""
+	if os.Getenv(platform.HubNameVar) != "" {
+		hub = HubNameSafe()
+	}
+	for k := range want {
+		if !secretEnv(k) || before[k] == env[k] {
+			continue
+		}
+		w := secretWrite{At: time.Now().UTC().Format(time.RFC3339), Pid: os.Getpid(), Bin: filepath.Base(os.Args[0]), Version: Version(),
+			Cmd: cmd, Hub: hub, Host: platform.RealHostName(), Key: k, Len: len(env[k]), Fp: secretFp(env[k])}
+		if old, ok := before[k]; ok {
+			w.Prev = secretFp(old)
+		}
+		lines = append(lines, w)
+	}
+	if len(lines) == 0 {
+		return
+	}
+	sort.Slice(lines, func(i, j int) bool { return lines[i].Key < lines[j].Key })
+	p := settingsJournalPath(dir)
+	if guardWrite(p) != nil {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(p), 0o755)
+	if st, err := os.Stat(p); err == nil && st.Size() > settingsJournalMax {
+		_ = os.Rename(p, p+".1")
+	}
+	f, err := os.OpenFile(p, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	for _, w := range lines {
+		b, _ := json.Marshal(w)
+		_, _ = f.Write(append(b, '\n'))
+	}
 }
