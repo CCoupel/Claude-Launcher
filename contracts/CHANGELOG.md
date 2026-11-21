@@ -6,7 +6,7 @@
 
 - **[CHANGED]** écriture de l'`env.yaml` d'un projet (`projectApply.env`, `configSave` / `configApply` sur `project-env`, F2 coque) refusée tant qu'un blocker #216 s'applique (ouvert ici, autre launcher, conteneur actif), revérifié à l'écriture : `{ "ok": false, "field": "env", "msg", "blockers" }` ; `configValidate` permis — `contracts/desktop-dispatch.md` « env.yaml d'un projet refusé… »
 - **[NEW]** `projectSettings.envLocked` / `envLockReason` (indicatifs, sans interroger les moteurs) ; `configOpen` (`project-env`) : `readOnly`, `readOnlyReason` — pas `configModel` (sans modèle structuré pour `project-env`, écart accepté)
-- **[CHANGED]** (décision utilisateur) backend injoignable et projet non ouvert ici : écriture d'`env.yaml` **autorisée** avec `warn` (« état du conteneur inconnu… ») ; refus seulement sur blocker confirmé ; déplacement **et backend / image** restent fail-closed (refus) ; « non vérifiable » = délai dépassé **ou** échec rapide du backend
+- **[CHANGED]** (décision utilisateur) backend injoignable et projet non ouvert ici : écriture d'`env.yaml` **autorisée** avec `warn` (« état du conteneur inconnu… ») ; refus seulement sur blocker confirmé ; déplacement **et backend / image** restent fail-closed (refus) ; « non vérifiable » = délai dépassé **ou** échec rapide du backend (conteneur seulement : un projet sur l'hôte n'est jamais « non vérifiable ») ; contrôle complet hors verrou à l'écriture puis revérification rapide sous verrou sur l'état mémorisé (fenêtre courte non couverte, admise) — 60ae84f
 - Exceptions : création (`create`), approbation (`envTrustAnswer`), étape `trust` de `projectMove` — jamais bloquées
 
 ## [20261121] — v6.6.0 LOT-4 (plan) : config à chaud, effet des options, éléments cachés (#225, #226, #227)

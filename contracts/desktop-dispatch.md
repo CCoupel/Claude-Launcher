@@ -1027,8 +1027,15 @@ on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un 
 
 - **Blockers** : ceux de `projectMoveInfo` (`core.MoveBlockers`, hors « déplacement inachevé ») — projet ouvert dans
   ce launcher (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou pod du projet **en
-  cours d'exécution** (ici ou ailleurs). Contrôle **côté core**, revérifié **juste avant l'écriture** (sous le verrou
-  d'`env.yaml`), pas seulement à l'ouverture de la page.
+  cours d'exécution** (ici ou ailleurs). Contrôle **côté core**, en deux temps à chaque écriture (60ae84f) :
+  1. **contrôle complet**, hors verrous, au moment de l'enregistrement : interroge les moteurs (conteneur / pod listé,
+     présence des autres launchers) — c'est lui qui attrape un conteneur démarré **après l'ouverture de la page** ;
+  2. **revérification rapide sous le verrou d'`env.yaml`**, juste avant l'écriture : porte sur l'**état mémorisé**
+     (onglet ouvert, session tmux vivante, conteneur vu actif par le contrôle 1), **sans** re-lister les moteurs.
+  Limite admise : un conteneur démarré dans la fenêtre courte entre le contrôle 1 et l'écriture n'est pas vu ; le
+  changement d'`env.yaml` s'applique alors à sa prochaine ouverture (pas de recréation du conteneur en cours).
+- **Projet sans backend conteneur** (sur l'hôte) : jamais « non vérifiable » — seuls l'onglet / la session tmux
+  comptent ; un échec d'un moteur conteneur ne le concerne pas.
 - **Backend injoignable (décision utilisateur, 2026-11-21)** : si l'état du conteneur ou la présence d'un autre
   launcher **ne peuvent pas être vérifiés** (backend injoignable) et que le projet **n'est pas ouvert ici**, l'écriture
   est **autorisée** : `projectApply` → `{ "ok": true, "warn": "état du conteneur inconnu (backend injoignable) :
@@ -1060,7 +1067,7 @@ on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un 
   moteurs** (ouvert ici, session vivante vue, conteneur actif vu à la dernière lecture) — indicatif ; le contrôle
   complet est fait à l'écriture. L'interface grise les sections
   `env.yaml` du formulaire et l'éditeur YAML (lecture seule) avec cette mention ; un refus serveur (autre launcher,
-  conteneur démarré entre-temps) affiche `msg`.
+  conteneur démarré depuis l'ouverture de la page, vu par le contrôle complet à l'écriture) affiche `msg`.
 - **Coque tmux** : F2 → entrées d'environnement grisées et mention « fermez le projet pour modifier son
   environnement » ; écriture refusée par le même contrôle core.
 - **Exceptions (jamais bloquées)** : écritures du launcher lui-même liées à la création et à l'approbation — fin de
