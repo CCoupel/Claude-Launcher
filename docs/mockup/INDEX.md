@@ -18,6 +18,12 @@
 | team_card | panes cachés (#136) | v6.1.0/ui/team_card__panes_caches.html | 6.1.0 | — |
 | config_ui | interface structurée (#118) | v6.1.0/ui/config_ui__interface_structuree.html | 6.1.0 | — |
 
+## En attente de choix (brouillons à propositions)
+| Composant | Feature | Brouillon | Version |
+|-----------|---------|-----------|---------|
+| config_ui | #226 effet des options (A–D) | v6.6.0/ui/config_ui__effet_des_options.propositions.html | 6.6.0 |
+| config_ui | #227 élément caché, bouton œil (A–D) — vaut pour tous les éléments cachés | v6.6.0/ui/config_ui__element_cache.propositions.html | 6.6.0 |
+
 ## Obsolètes
 | Fichier | Remplacée par | Version |
 |---------|---------------|---------|
