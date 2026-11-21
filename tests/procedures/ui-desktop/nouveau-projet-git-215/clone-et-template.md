@@ -128,9 +128,9 @@ Les trois sources du dialogue sont **Projet brut** (▢), **Template projet** (�
 | 1 | Nouveau projet : lister les sources proposees | Exactement trois : Projet brut, Template projet, Depot Git ; aucune option « gere » ; textes d'aide : brut « dossier et git init… Pas de /init-project », template « …puis /init-project propose », git « clonage d'une URL » | | |
 | 2 | Source « Projet brut », nom `brut-sans-remote`, **champ remote vide**, valider | Projet cree et ouvert ; `git init` fait (`.git` present) ; `git remote -v` **vide** ; aucun `CLAUDE.md` minimal cree ; **aucun** `/init-project` lance ni propose (pas de bandeau) ; pas de marqueur `.claude-launcher/init-proposed` | | |
 | 3 | Source « Projet brut », nom `brut-avec-remote`, remote `git@github.com:moi/depot-test.git`, valider | Meme resultat, et `git remote -v` montre `origin` = cette URL ; toujours aucun `/init-project` | | |
-| 4 | Source « Projet brut », remote **invalide** (`file:///tmp/x`, ou `-u`) | Refus lisible sous le champ ; dossier non cree (ou supprime) ; rien dans l'arbre | | |
+| 4 | Source « Projet brut », remote en forme d'option de git : `-u` (puis `--upload-pack=touch /tmp/PREUVE-REMOTE-215`) | Echec lisible (« git remote : … »), dossier du projet **supprime** (et categorie neuve retiree), rien dans l'arbre ; la commande de l'option n'est **jamais** executee (aucun `/tmp/PREUVE-REMOTE-215`). Une URL de forme `file:///tmp/x` est stockee telle quelle comme origine (simple configuration, aucun clonage ni acces) | | |
 | 5 | Comparer avec « Template projet » (nom `tpl-comp`, meme remote) | `git init` + remote identiques a « brut » ; en plus : marqueur `init-proposed` et bandeau « Lancer /init-project ? » a la 1re ouverture (scenario 5) | | |
-| 6 | Meme parcours dans la **coque tmux** : touches `v` (brut), `t` (template), `g` (depot git) a l'etape source | Memes resultats (brut avec et sans remote : `git init`, remote seulement si fourni, pas de `/init-project`) | | |
+| 6 | Meme parcours dans la **coque tmux** : touches `b` (Projet brut), `t` (Template projet), `g` (Depot Git) a l'etape source | Memes resultats (brut avec et sans remote : `git init`, remote seulement si fourni, pas de `/init-project` ; apres la source brute vient directement l'etape remote : plus d'etape « gere / brut ») | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 

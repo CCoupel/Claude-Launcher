@@ -360,7 +360,7 @@ func TestInitProposalLancerTapeDansLeLeader215(t *testing.T) {
 func TestCreateEmptyNePoseAucunMarqueur215(t *testing.T) {
 	f := newFix215(t, "")
 	dir := filepath.Join(f.base, "TEST", "vide")
-	v := f.create(t, map[string]any{"base": f.base, "category": "TEST", "name": "vide", "raw": true})
+	v := f.create(t, map[string]any{"base": f.base, "category": "TEST", "name": "vide"})
 	if v["tab"] != dir {
 		t.Fatalf("create = %v", v)
 	}

@@ -327,8 +327,17 @@ func TestCreateSuccesChemins214(t *testing.T) {
 			if st, err := os.Stat(dir); err != nil || !st.IsDir() {
 				t.Fatalf("dossier %s non créé : %v", dir, err)
 			}
-			if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err != nil {
-				t.Errorf("CLAUDE.md du projet brut absent : %v", err)
+			// « Projet brut » : dossier + git init ; ni CLAUDE.md minimal, ni marqueur /init-project ; `raw` reçu est ignoré
+			if st, err := os.Stat(filepath.Join(dir, ".git")); err != nil || !st.IsDir() {
+				t.Errorf("git init absent : %v", err)
+			}
+			for _, absent := range []string{"CLAUDE.md", filepath.Join(".claude-launcher", "init-proposed")} {
+				if _, err := os.Stat(filepath.Join(dir, absent)); err == nil {
+					t.Errorf("%s créé pour un projet brut", absent)
+				}
+			}
+			if out, _ := exec.Command("git", "-C", dir, "remote").Output(); strings.TrimSpace(string(out)) != "" {
+				t.Errorf("remote %q créé sans URL fournie", out)
 			}
 			allowed := map[string]bool{dir: true}
 			for _, m := range c.made {
@@ -358,5 +367,65 @@ func TestCreateSuccesChemins214(t *testing.T) {
 				t.Errorf("projet absent de l'arbre : %v", a.projectPaths())
 			}
 		})
+	}
+}
+
+// « Projet brut » avec remote : git init + origin = l'URL, rien d'autre (jamais de /init-project, de CLAUDE.md, ni de
+// clonage) ; un remote invalide est refusé sans rien créer.
+func TestCreateProjetBrutAvecEtSansRemote214(t *testing.T) {
+	base := base214(t)
+	fakeClaudeSession214(t)
+	var r recorder
+	a := newApp(t, r.emit)
+	t.Cleanup(a.Stop)
+	dir := filepath.Join(base, "TEST", "brut-remote")
+	v := dispatchJSON(t, a, "create", map[string]any{"base": base, "category": "TEST", "name": "brut-remote", "source": "empty",
+		"remote": "git@github.com:moi/depot-test.git"})
+	if v["tab"] != dir {
+		t.Fatalf("create = %v", v)
+	}
+	out, err := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+	if err != nil || strings.TrimSpace(string(out)) != "git@github.com:moi/depot-test.git" {
+		t.Errorf("origin = %q, %v", out, err)
+	}
+	for _, absent := range []string{"CLAUDE.md", filepath.Join(".claude-launcher", "init-proposed")} {
+		if _, err := os.Stat(filepath.Join(dir, absent)); err == nil {
+			t.Errorf("%s créé pour un projet brut", absent)
+		}
+	}
+	r.wait(t, 20*time.Second, "ready", isTerm(dir, "status", func(e map[string]any) bool { return e["state"] == "ready" }))
+	for _, e := range r.all() {
+		if e["_name"] == "initProposal" {
+			t.Errorf("proposition /init-project pour un projet brut : %v", e)
+		}
+	}
+}
+
+// Remote d'un projet brut qui ressemble à une option de git (`-u`, `--upload-pack=x`) : jamais interprété comme option ;
+// l'échec est lisible et RIEN n'est laissé (dossier du projet, catégorie créée) ni écrit dans la config.
+func TestCreateProjetBrutRemoteEnOption214(t *testing.T) {
+	base := base214(t)
+	fakeClaudeSession214(t)
+	var r recorder
+	a := newApp(t, r.emit)
+	t.Cleanup(a.Stop)
+	for _, remote := range []string{"-u", "--upload-pack=touch /tmp/PREUVE-REMOTE-214"} {
+		avant := snapDir214(t, base)
+		b, _ := json.Marshal(map[string]any{"base": base, "category": "NEUVE", "newCategory": true, "name": "p", "source": "empty", "remote": remote})
+		res, err := a.Dispatch("create", b)
+		if err == nil {
+			if m, _ := res.(map[string]any); m["tab"] != nil {
+				t.Errorf("remote %q accepté : %v", remote, res)
+			}
+		} else if strings.TrimSpace(err.Error()) == "" {
+			t.Errorf("remote %q : erreur sans message", remote)
+		}
+		if apres := snapDir214(t, base); len(apres) != len(avant) {
+			t.Errorf("remote %q : reste sur le disque : %v", remote, apres)
+		}
+		if _, err := os.Stat("/tmp/PREUVE-REMOTE-214"); err == nil {
+			_ = os.Remove("/tmp/PREUVE-REMOTE-214")
+			t.Errorf("remote %q : commande exécutée", remote)
+		}
 	}
 }
