@@ -1790,6 +1790,7 @@ function moveRows(info, dest) {
     else if (i.what === 'assign') rows.push({ label: 'projects.json', text: 'affectation' + (i.value ? ' « ' + i.value + ' »' : '') + ' reportée' });
     else if (i.what === 'conf') rows.push({ label: 'config.conf', text: ((i.keys || []).join(', ') || 'entrées du projet') + ' reporté(es)' });
     else if (i.what === 'history') rows.push({ label: 'Historique claude', text: 'conversations reprises (--resume) déplacées' });
+    else if (i.what === 'trust') rows.push({ label: 'Approbation', text: i.label || 'approbation de l\'environnement conservée' }); // texte du serveur, tel quel
   }
   const at = rows.findIndex((r) => r.label === 'Dossier') + 1;
   rows.splice(at, 0, { label: 'Nom', text: dest.key || info.key || '', dim: dest.keyChanged ? '(recalculé : était ' + (info.key || '') + ')' : '(inchangé)' });

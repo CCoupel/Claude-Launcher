@@ -24,6 +24,7 @@ eq('dossier', [r[0].old, r[0].text], ['/a/INFRA/x', '/b/PRO/x']);
 eq('nom recalculé', [r[1].text, r[1].dim], ['pro-x', '(recalculé : était infra-x)']);
 eq('nom inchangé', moveRows(info, { ok: true, key: 'infra-x', keyChanged: false, impacts: [] })[0].dim, '(inchangé)');
 eq('conf absent = pas de ligne', moveRows(info, { ok: true, impacts: [{ what: 'dir', from: 'a', to: 'b' }] }).some((x) => x.label === 'config.conf'), false);
+eq('trust', moveRows(info, { ok: true, impacts: [{ what: 'trust', label: 'Approbation de l\'environnement : conservée' }] }).some((x) => x.label === 'Approbation' && x.text === 'Approbation de l\'environnement : conservée'), true);
 eq('dest refusée', moveRows(info, { ok: false, exists: true }), []);
 eq('sans dest', moveRows(info, null), []);
 eq('échec simple', moveFailText({ msg: 'destination existante' }), 'destination existante');
