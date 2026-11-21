@@ -188,6 +188,25 @@ s'ouvre avec la seule image choisie, rien d'autre du dépôt) ou **Annuler**.
   Pour récupérer, restaurez `trust.json.bak`. Ou supprimez `trust.json` : **supprimer `trust.json` lève toutes les
   approbations** ; les projets clonés devront être approuvés à nouveau.
 
+### Déplacer ou renommer un projet (v6.6.0, #216)
+
+Un projet se déplace vers une autre catégorie, une autre base, ou se renomme : clic droit sur le projet dans
+l'arbre ou sur sa carte, « Déplacer / renommer… ». Dans la coque tmux, la touche `m` dans F2.
+
+- **Avant de valider**, le dialogue montre ce qui change : nouveau chemin, nouvelle clé (nom de la fenêtre et du
+  conteneur), affectation de backend, réglages (couleur, organisation, masquage), historique de conversations,
+  conteneur, et l'approbation d'un dépôt cloné (« conservée »).
+- **Bloqueurs** : projet ouvert dans ce launcher (proposer « Fermer le projet »), ouvert par un autre launcher,
+  conteneur ou pod en cours d'exécution, déplacement inachevé. Destination identique, existante ou hors des bases
+  refusée. Rien n'est déplacé dans ces cas.
+- **Sur un autre système de fichiers** (ex. disque local vers base sur partage 9P), le dossier est copié, son contenu
+  est contrôlé fichier par fichier (SHA-256) puis la source est supprimée. Le déplacement peut être long.
+- **Ce qui suit le projet** : son historique de conversations, ses réglages et son approbation d'environnement.
+  Le conteneur ou le pod est **supprimé** et recréé au nouveau nom à la prochaine ouverture.
+- **Interruption** : si le launcher s'arrête en plein déplacement, il propose au relancement « Reprendre » ou
+  « Annuler ». Un projet à moitié copié n'apparaît jamais comme projet ; l'annulation remet `config.conf` à
+  l'équivalent de l'état d'origine (mêmes clés et valeurs, pas à l'octet près).
+
 ### Configurer l'exécution d'un projet
 
 Le formulaire **Exécution** propose `0 hôte` puis les socles (`↑↓` ou un
