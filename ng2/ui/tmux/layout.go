@@ -196,14 +196,6 @@ func layoutLocked(cfg core.Config, pw projWin, leader, teamPath string) {
 	}
 }
 
-// confMtime : date de config.conf (zéro s'il est absent) : le surveillant relit la configuration quand elle change.
-func confMtime() time.Time {
-	if st, err := os.Stat(core.ConfigPath()); err == nil {
-		return st.ModTime()
-	}
-	return time.Time{}
-}
-
 // tmuxFn : une cible tmux sous la forme attendue par core (panes cachés).
 func tmuxFn(t Target) core.SessionTmux {
 	return func(args ...string) (string, error) {
@@ -267,8 +259,7 @@ func RunLayoutWatch(win, leader, projectDir string) {
 }
 
 func runLayoutWatch(win, leader, projectDir string) {
-	confAt := confMtime() // avant la lecture : un enregistrement entre les deux est relu au premier tour
-	cfg := core.LoadConfig()
+	cfg := core.LoadConfig() // son Stamp (date, taille, condensé) sert à la relecture : un enregistrement entre-temps est relu au premier tour
 	pw := projectOf(win)
 	prevCount, prevSig, prevRelayout := 1, "", ""
 	beat := 0
@@ -301,9 +292,7 @@ func runLayoutWatch(win, leader, projectDir string) {
 			return // fenêtre fermée
 		}
 		// config.conf modifié : relu ; l'organisation effective du projet a changé : remise en page, sans relance
-		if at := confMtime(); !at.Equal(confAt) {
-			confAt, cfg = at, core.LoadConfig()
-		}
+		cfg, _ = core.FreshConfig(cfg) // validée, copie valide gardée si invalide ; racy-safe (#225)
 		modeChanged := prevMode != "" && cfg.LayoutOf(ws.name) != prevMode
 		prevMode = cfg.LayoutOf(ws.name)
 		// hub tué puis recréé : il redonne les mêmes @N à d'autres fenêtres (ou à

@@ -224,13 +224,13 @@ func (a *App) confRefresh(force bool) {
 	a.confMu.RLock()
 	cur := a.cfg
 	a.confMu.RUnlock()
-	if core.ConfigStamp().Same(cur.Stamp) {
+	if !core.ConfigChanged(cur.Stamp) {
 		return
 	}
 	fresh, warn := core.FreshConfig(cur)
 	if warn != "" {
 		a.confMu.Lock()
-		if a.cfg.Stamp.Same(cur.Stamp) {
+		if a.cfg.Stamp == cur.Stamp {
 			a.cfg.Stamp = fresh.Stamp // vue : pas de revalidation ni de nouveau message avant la prochaine modification
 		}
 		a.confMu.Unlock()
@@ -238,13 +238,13 @@ func (a *App) confRefresh(force bool) {
 		return
 	}
 	a.confMu.Lock()
-	if !a.cfg.Stamp.Same(cur.Stamp) { // relue entre-temps par un autre appelant (watcher, enregistrement) : rien à refaire
+	if a.cfg.Stamp != cur.Stamp { // relue entre-temps par un autre appelant (watcher, enregistrement) : rien à refaire
 		a.confMu.Unlock()
 		return
 	}
-	a.confAt = fresh.Stamp.MTime
 	a.cfg = fresh
 	a.confMu.Unlock()
+	a.bg(func() { core.SyncLauncherEnv(a.conf()) }) // recopie dans settings.json avec la config relue (#225)
 	a.bg(a.readUsage)
 	a.bg(a.relayoutOpen)
 	a.changed()
@@ -376,27 +376,6 @@ func (a *App) applyLayoutFirst(path, layout string) (map[string]any, error) {
 	return map[string]any{"ok": true, "colorSaved": true}, nil
 }
 
-// confMtime : date de config.conf (zéro s'il est absent).
-func confMtime() time.Time {
-	if st, err := os.Stat(core.ConfigPath()); err == nil {
-		return st.ModTime()
-	}
-	return time.Time{}
-}
-
-// confChangedOnDisk : config.conf a changé depuis la dernière lecture (modification extérieure à
-// l'interface) ; la date est retenue, un seul appelant le voit.
-func (a *App) confChangedOnDisk() bool {
-	at := confMtime()
-	a.confMu.Lock()
-	defer a.confMu.Unlock()
-	if at.Equal(a.confAt) {
-		return false
-	}
-	a.confAt = at
-	return true
-}
-
 // syncSettings : recopie des variables du launcher (jeton, souris, teams, EXTRA_ENVS) dans le settings.json utilisateur avec la
 // configuration relue (#225) — résultat pour l'interface : {ok:true} ou {ok:false, msg}. Garde « jamais plus ancien » : voir
 // core.SyncLauncherEnv.
@@ -411,18 +390,7 @@ func (a *App) syncSettings() map[string]any {
 func (a *App) configReload(kind core.ConfigKind) string {
 	switch kind {
 	case core.ConfConf:
-		at := confMtime()
-		cfg := core.LoadConfig()
-		a.confMu.Lock()
-		a.confAt = at
-		cfg.Roots = a.cfg.Roots // la surveillance de l'arborescence garde ses racines
-		a.cfg = cfg
-		a.confMu.Unlock()
-		a.bg(func() { core.SyncLauncherEnv(a.conf()) }) // recopie dans settings.json avec la config relue (#225)
-		a.bg(a.readUsage)
-		a.bg(a.relayoutOpen) // organisation des fenêtres de projet changée : remise en page tout de suite (#153)
-		a.changed()
-		a.cardsChanged()
+		a.confRefresh(true) // UN seul chemin de relecture : validée, copie valide gardée, effets à chaud, recopie settings.json
 	case core.ConfBackends:
 		// avertissements de hubs: relus : une faute corrigée (ou introduite) se voit
 		// tout de suite, pas seulement au prochain démarrage

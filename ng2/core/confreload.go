@@ -1,17 +1,31 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"time"
 )
 
 // ── config.conf relu à chaud, par date (#225) ─────────────────────────────
 
-// ConfStamp : date et taille de config.conf (zéro : absent). Pas de surveillance de fichier (9P, MooseFS) : on compare.
+// racyWindow : sur les systèmes à date grossière (9P, MooseFS, SMB, FAT : 1 à 2 s), une édition de même taille faite dans la
+// même seconde que la lecture précédente garde le même couple (date, taille) — technique « racy timestamp » de git : tant
+// que la date du fichier est à moins de racyWindow de l'instant de la lecture, on ne se fie pas au couple et on compare le
+// CONTENU (condensé).
+const racyWindow = 2 * time.Second
+
+// ConfStamp : empreinte de config.conf à la lecture de la copie en mémoire (zéro : absent / copie construite à la main).
+// Invariant : une Config construite à la main (Config{…}) n'a pas de Stamp ; FreshConfig la tient pour périmée si le fichier
+// existe. Comparable (==) : une copie inchangée garde un Stamp identique.
 type ConfStamp struct {
-	MTime time.Time
-	Size  int64
+	MTime  time.Time
+	Size   int64
+	ReadAt time.Time // instant de la lecture (fenêtre « racy »)
+	Sum    string    // condensé du contenu lu
 }
+
+func confSum(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 
 func confStampOf(path string) ConfStamp {
 	if st, err := os.Stat(path); err == nil {
@@ -20,28 +34,61 @@ func confStampOf(path string) ConfStamp {
 	return ConfStamp{}
 }
 
-// ConfigStamp : état actuel de config.conf.
+// ConfigStamp : date et taille actuelles de config.conf (sans lecture).
 func ConfigStamp() ConfStamp { return confStampOf(ConfigPath()) }
 
-// Same : mêmes date et taille.
-func (s ConfStamp) Same(o ConfStamp) bool { return s.MTime.Equal(o.MTime) && s.Size == o.Size }
+// ConfigChanged : config.conf a changé depuis la lecture décrite par cur. Date ou taille différentes ; ou, dans la fenêtre
+// « racy », contenu différent. Une erreur transitoire (Stat ou lecture impossible hors « absent ») n'est PAS un changement :
+// la copie en mémoire est gardée, le tour suivant réessaie.
+func ConfigChanged(cur ConfStamp) bool {
+	path := ConfigPath()
+	st, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return !cur.MTime.IsZero() // disparu depuis la lecture
+		}
+		return false
+	}
+	if !st.ModTime().Equal(cur.MTime) || st.Size() != cur.Size {
+		return true
+	}
+	if cur.ReadAt.IsZero() || cur.ReadAt.Sub(cur.MTime) < racyWindow { // date non fiable : le contenu tranche
+		b, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return false
+		}
+		return confSum(b) != cur.Sum
+	}
+	return false
+}
 
-// FreshConfig : la configuration à jour. cur inchangée si config.conf n'a pas changé depuis sa lecture (date, taille) ;
-// sinon relue. Un config.conf INVALIDE garde la dernière copie valide (cur, marquée vue : pas de revalidation à chaque appel)
-// et le dit dans warn (une seule fois par modification). Les racines (Roots), figées au démarrage par la surveillance de
-// l'arborescence, sont conservées. Garde « jamais plus ancien » avant toute recopie dans settings.json.
+// Same : conservé pour les appelants qui comparent deux empreintes (date, taille).
+func (s ConfStamp) Same(o ConfStamp) bool { return s == o }
+
+// FreshConfig : la configuration à jour. cur inchangée si config.conf n'a pas changé (ConfigChanged) ; sinon relue. Un
+// config.conf INVALIDE garde la dernière copie valide (cur, empreinte mise à jour : pas de revalidation ni de nouveau message
+// avant la prochaine modification) et le dit dans warn. Les racines (Roots), figées au démarrage par la surveillance de
+// l'arborescence, sont conservées. Un fichier illisible (erreur transitoire) garde cur. Le contenu VALIDÉ est celui qui est
+// chargé : un fichier modifié entre la validation et le chargement est revu au tour suivant. Garde « jamais plus ancien »
+// avant toute recopie dans settings.json.
 func FreshConfig(cur Config) (cfg Config, warn string) {
-	now := ConfigStamp()
-	if now.Same(cur.Stamp) {
+	if !ConfigChanged(cur.Stamp) {
 		return cur, ""
 	}
-	if b, err := os.ReadFile(ConfigPath()); err == nil {
+	b, err := os.ReadFile(ConfigPath())
+	if err != nil && !os.IsNotExist(err) {
+		return cur, "" // illisible maintenant : ne pas retomber sur les valeurs par défaut, réessayer
+	}
+	if err == nil {
 		if ps := ValidateConfig(ConfConf, b); HasErrors(ps) {
-			cur.Stamp = now
+			cur.Stamp = ConfStamp{MTime: confStampOf(ConfigPath()).MTime, Size: int64(len(b)), ReadAt: time.Now(), Sum: confSum(b)}
 			return cur, "config.conf invalide : dernière copie valide conservée — " + firstProblem(ps)
 		}
 	}
 	fresh := LoadConfig()
+	if err == nil && fresh.Stamp.Sum != confSum(b) { // modifié entre la validation et le chargement : non validé, au tour suivant
+		return cur, ""
+	}
 	fresh.Roots = cur.Roots
 	return fresh, ""
 }

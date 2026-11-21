@@ -70,3 +70,73 @@ func readFileBytes(t *testing.T, p string) []byte {
 	}
 	return b
 }
+
+// Édition de MÊME TAILLE dans la même seconde (date grossière : 9P, MooseFS) : la date et la taille ne changent pas, le contenu
+// si — vue dans la fenêtre « racy » (cas souris 0→1). Hors fenêtre (copie lue longtemps après la date du fichier), la date
+// fait foi et le fichier n'est pas relu.
+func TestConfigChangedMemeTailleMemeDate225(t *testing.T) {
+	conf, _ := confBench225(t)
+	editConf(t, conf, "CLAUDE_DISABLE_MOUSE=0\n", 0)
+	fixed := time.Now().Add(-time.Second) // date grossière : arrondie, identique avant et après l'édition
+	_ = os.Chtimes(conf, fixed, fixed)
+	cur := LoadConfig()
+	if cur.DisableMouse || ConfigChanged(cur.Stamp) {
+		t.Fatal("précondition")
+	}
+	if err := os.WriteFile(conf, []byte("CLAUDE_DISABLE_MOUSE=1\n"), 0o600); err != nil { // même taille
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(conf, fixed, fixed) // même date : date ET taille identiques
+	st := ConfigStamp()
+	if st.MTime != cur.Stamp.MTime && !st.MTime.Equal(cur.Stamp.MTime) || st.Size != cur.Stamp.Size {
+		t.Fatal("la précondition « même date, même taille » n'est pas réalisée")
+	}
+	if !ConfigChanged(cur.Stamp) {
+		t.Fatal("édition de même taille dans la fenêtre racy non vue")
+	}
+	if c, _ := FreshConfig(cur); !c.DisableMouse {
+		t.Error("FreshConfig n'a pas pris la nouvelle valeur (souris 0→1)")
+	}
+	// hors fenêtre : copie lue 10 s après la date du fichier → la date fait foi, aucune relecture du contenu
+	old := time.Now().Add(-time.Hour)
+	_ = os.Chtimes(conf, old, old)
+	cur = LoadConfig()
+	cur.Stamp.ReadAt = old.Add(10 * time.Second)
+	_ = os.WriteFile(conf+".x", nil, 0o600)
+	if ConfigChanged(cur.Stamp) {
+		t.Error("fichier inchangé hors fenêtre racy : aucun changement attendu")
+	}
+}
+
+// Erreur transitoire (config.conf illisible) : la copie en mémoire est gardée, PAS les valeurs par défaut ; disparu : défauts.
+func TestFreshConfigIllisibleGardeLaCopie225(t *testing.T) {
+	conf, _ := confBench225(t)
+	if os.Geteuid() == 0 {
+		t.Skip("root lit tout")
+	}
+	editConf(t, conf, "USAGE_REFRESH_SEC=333\nCLAUDE_DISABLE_MOUSE=1\n", 0)
+	cur := LoadConfig()
+	editConf(t, conf, "USAGE_REFRESH_SEC=444\nCLAUDE_DISABLE_MOUSE=1\n", 5*time.Second)
+	if err := os.Chmod(conf, 0); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chmod(conf, 0o600)
+	c, w := FreshConfig(cur)
+	if w != "" || c.UsageRefreshSec != 333 || !c.DisableMouse {
+		t.Fatalf("illisible : usage=%d souris=%v warn=%q (copie gardée attendue)", c.UsageRefreshSec, c.DisableMouse, w)
+	}
+	_ = os.Chmod(conf, 0o600)
+	if c, _ := FreshConfig(cur); c.UsageRefreshSec != 444 {
+		t.Errorf("lisible de nouveau : %d", c.UsageRefreshSec)
+	}
+}
+
+// Config construite à la main (sans Stamp) avec un config.conf existant : tenue pour périmée (invariant documenté).
+func TestFreshConfigSansStampEstPeriméee225(t *testing.T) {
+	conf, _ := confBench225(t)
+	editConf(t, conf, "USAGE_REFRESH_SEC=555\n", 0)
+	c, _ := FreshConfig(Config{UsageRefreshSec: 1})
+	if c.UsageRefreshSec != 555 {
+		t.Errorf("Config{} sans Stamp devait être relue : %d", c.UsageRefreshSec)
+	}
+}

@@ -36,7 +36,6 @@ type App struct {
 	cfg       core.Config
 	confMu    sync.RWMutex // cfg relue à chaud (config.go)
 	confCheck atomic.Int64 // dernière comparaison de config.conf par conf() (ns) : au plus une par seconde (#225)
-	confAt    time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
 	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
@@ -121,7 +120,6 @@ func NewApp(emit Emitter) *App {
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
 		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{}, proposed: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
-	a.confAt = confMtime()
 	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
 		emit(name, data)
 		if m := a.mirror.Load(); m != nil {

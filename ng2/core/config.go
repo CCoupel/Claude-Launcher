@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 
 	"claude-launcher-ng2/platform"
 )
@@ -113,6 +114,7 @@ func loadConfigAt(path string) Config {
 	var out []byte
 	var err error
 	src := readFileOr(path)
+	stamp.ReadAt, stamp.Sum = time.Now(), confSum([]byte(src)) // condensé du contenu RÉELLEMENT lu : voir ConfStamp.racy
 	// ${CL_ROOT_BASE} dans le fichier, variable absente : racine déduite de l'emplacement du fichier (sans exporter la
 	// variable ni changer RootBase()) ; sinon chemins écartés et signalés
 	fbRoot, rbUnresolved := rootBaseFallback(path, src)

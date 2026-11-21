@@ -907,8 +907,8 @@ func (t *projTerm) tick(fast bool) {
 		tickBegun.Add(1)
 		defer tickDone.Add(1)
 	}
-	if !fast && t.a.confChangedOnDisk() { // config.conf modifié ailleurs : relu à chaud (#153)
-		t.a.configReload(core.ConfConf)
+	if !fast { // config.conf modifié ailleurs : relu à chaud (#153), par le chemin unique (validation, copie valide gardée, #225)
+		t.a.confRefresh(true)
 	}
 	cfg := t.a.conf()
 	if d := time.Duration(tickSlow.Load()); !fast && d > 0 {
