@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -25,7 +26,7 @@ func TestChoixDeLaSource215(t *testing.T) {
 	for i, want := range map[int]struct {
 		src  string
 		mode formMode
-	}{0: {"empty", formKind}, 1: {"template", formRemote}, 2: {"git", formURL}} {
+	}{0: {"empty", formRemote}, 1: {"template", formRemote}, 2: {"git", formURL}} {
 		nm, _ := m.chooseSource(i)
 		f := nm.(model).form
 		if f.source != want.src || f.mode != want.mode {
@@ -154,5 +155,68 @@ func TestCloneSansEnvAvecSocleResteNone215(t *testing.T) {
 	}
 	if e, err := core.LoadEnv(dir); err != nil || e.Image != "fedora:40" {
 		t.Errorf("LoadEnv = %+v %v", e, err)
+	}
+}
+
+// Exactement 3 sources (Projet brut / Template projet / Dépôt Git) ; plus d'étape « géré / brut » ; raw jamais émis.
+func TestTroisSourcesExactementCoque215(t *testing.T) {
+	m, root := srcModel(t)
+	m.form = newForm{mode: formSource, base: root, name: "p"}
+	out := m.renderForm(100)
+	for _, want := range []string{"Projet brut", "Template projet", "Dépôt Git"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("écran des sources sans %q :\n%s", want, out)
+		}
+	}
+	for _, bad := range []string{"géré", "Projet vide", "vide", "CLAUDE.md", "Type de projet"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("libellé obsolète %q encore affiché", bad)
+		}
+	}
+	// touches b / t / g
+	for key, want := range map[string]string{"b": "empty", "t": "template", "g": "git"} {
+		nm, _ := m.onFormKey(key215(key))
+		if got := nm.(model).form.source; got != want {
+			t.Errorf("touche %s : source %q, attendu %q", key, got, want)
+		}
+	}
+	// Projet brut : directement l'étape remote (facultatif), sans choix géré/brut
+	nm, _ := m.chooseSource(0)
+	if f := nm.(model).form; f.mode != formRemote || f.source != "empty" {
+		t.Errorf("projet brut : mode=%v source=%q", f.mode, f.source)
+	}
+}
+
+func key215(s string) tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)} }
+
+// Projet brut : git init, remote seulement si fourni, ni marqueur ni /init-project ; Template : marqueur.
+func TestProjetBrutEtTemplateCoque215(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	for _, c := range []struct {
+		src, remote string
+		marker      bool
+	}{{"empty", "", false}, {"empty", "git@github.com:moi/p.git", false}, {"template", "", true}, {"template", "git@github.com:moi/p.git", true}} {
+		m, root := srcModel(t)
+		m.form = newForm{mode: formRemote, base: root, name: "p", source: c.src, remote: c.remote}
+		m.nodes = withSpecial(nil)
+		nm, _ := m.createProject()
+		_ = nm
+		dir := filepath.Join(root, "p")
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+			t.Fatalf("%s/%q : pas de git init", c.src, c.remote)
+		}
+		out, _ := exec.Command("git", "-C", dir, "remote", "get-url", "origin").Output()
+		if got := strings.TrimSpace(string(out)); got != c.remote {
+			t.Errorf("%s : remote = %q, attendu %q", c.src, got, c.remote)
+		}
+		if core.InitProposalPending(dir) != c.marker {
+			t.Errorf("%s : marqueur init-proposed = %v, attendu %v", c.src, core.InitProposalPending(dir), c.marker)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "CLAUDE.md")); err == nil {
+			t.Errorf("%s : CLAUDE.md minimal créé (projet « brut » supprimé)", c.src)
+		}
 	}
 }

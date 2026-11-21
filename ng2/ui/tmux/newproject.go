@@ -40,7 +40,6 @@ const (
 	formURL     // URL du dépôt à cloner
 	formCloning // clonage en cours (progression)
 	formTrust   // approbation de l'environnement d'un projet cloné (#215)
-	formKind
 	formRemote
 	formExec // socle d'exécution : hôte ou conteneur (image)
 )
@@ -55,9 +54,9 @@ type newForm struct {
 	cats     []core.Category
 	catIdx   int // 0 : racine ; 1..len(cats) : cats[i-1] ; len(cats)+1 : « ＋ nouvelle »
 	catInput string
-	// source (#215) : "" ou "empty" (vide), "template", "git"
+	// source (#215) : "" ou "empty" (Projet brut), "template" (Template projet), "git" (Dépôt Git)
 	source string
-	srcIdx int // 0 vide, 1 template, 2 git
+	srcIdx int // 0 Projet brut, 1 Template projet, 2 Dépôt Git
 	url    string
 	// approbation (formTrust) : question, mode d'ouverture à reprendre, fichiers bruts affichés
 	trust     *core.EnvTrustInfo
@@ -65,7 +64,6 @@ type newForm struct {
 	trustMode launchMode
 	trustRaw  bool
 	name      string
-	raw       bool // projet brut (sinon géré)
 	remote    string
 	err       string
 	// exécution (formExec) : 0 = hôte, i = images[i-1] dans le backend ctrBe
@@ -251,8 +249,6 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.catIdx = max(0, f.catIdx-1)
 		case formSource:
 			f.srcIdx = max(0, f.srcIdx-1)
-		case formKind:
-			f.raw = false
 		case formExec:
 			f.exec = max(0, f.exec-1)
 		}
@@ -264,8 +260,6 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.catIdx = min(len(f.cats)+1, f.catIdx+1)
 		case formSource:
 			f.srcIdx = min(2, f.srcIdx+1)
-		case formKind:
-			f.raw = true
 		case formExec:
 			f.exec = min(len(f.images), f.exec+1)
 		}
@@ -323,14 +317,6 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			} else {
 				return m.createProject()
 			}
-		case formKind:
-			if f.raw {
-				if mm, ok := m.execStep(); ok {
-					return mm, nil
-				}
-				return m.createProject()
-			}
-			f.mode = formRemote
 		case formRemote:
 			if mm, ok := m.execStep(); ok {
 				return mm, nil
@@ -371,24 +357,12 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			f.url += s
 		case formSource: // v / t / g choisissent et valident
 			switch strings.ToLower(s) {
-			case "v":
+			case "b":
 				return m.chooseSource(0)
 			case "t":
 				return m.chooseSource(1)
 			case "g":
 				return m.chooseSource(2)
-			}
-		case formKind: // g / b choisissent et valident
-			switch strings.ToLower(s) {
-			case "g":
-				f.raw = false
-				f.mode = formRemote
-			case "b":
-				f.raw = true
-				if mm, ok := m.execStep(); ok {
-					return mm, nil
-				}
-				return m.createProject()
 			}
 		case formExec: // un chiffre choisit (0 : hôte) ; r : revoir l'environnement d'un dépôt cloné (F2)
 			if strings.ToLower(s) == "r" && f.existing != "" {
@@ -437,11 +411,11 @@ func (m model) chooseSource(i int) (tea.Model, tea.Cmd) {
 	f.err = ""
 	switch i {
 	case 1:
-		f.source, f.raw, f.mode = "template", false, formRemote
+		f.source, f.mode = "template", formRemote
 	case 2:
 		f.source, f.mode = "git", formURL
 	default:
-		f.source, f.mode = "empty", formKind
+		f.source, f.mode = "empty", formRemote // Projet brut : dossier + git init, remote seulement si une URL est fournie
 	}
 	return m, nil
 }
@@ -519,11 +493,8 @@ func (m model) createProject() (tea.Model, tea.Cmd) {
 	if err := applyExec(dir, m.form); err != nil {
 		return fail("env.yaml : " + err.Error())
 	}
-	mode := launchNormal // ni /init-project d'office ni question ; brut seulement pour le projet sans git
-	if f.raw && f.source != "template" {
-		mode = launchNewRaw
-	}
-	if err := core.InitProject(dir, f.raw && f.source != "template", f.remote); err != nil {
+	mode := launchNormal // jamais de /init-project d'office : le template le propose à l'ouverture (marqueur)
+	if err := core.InitProject(dir, false, f.remote); err != nil {
 		return fail(err.Error())
 	}
 	if f.source == "template" { // même marqueur que la fenêtre native : proposé à l'ouverture (launchProject), jamais d'office
@@ -706,7 +677,7 @@ func (m model) renderForm(w int) string {
 	if f.mode >= formSource {
 		sb.WriteString("\n " + core.Dim.Render("Source :") + "\n")
 		for i, o := range []struct{ key, label, desc string }{
-			{"v", "vide", "dossier (git ou brut)"}, {"t", "template", "géré, /init-project proposé"}, {"g", "dépôt git", "cloner une URL"},
+			{"b", "Projet brut", "dossier et git init (remote si URL fournie), sans /init-project"}, {"t", "Template projet", "comme brut, /init-project proposé à l'ouverture"}, {"g", "Dépôt Git", "cloner une URL"},
 		} {
 			mark, style := "  ", core.Dim
 			if i == f.srcIdx {
@@ -717,7 +688,7 @@ func (m model) renderForm(w int) string {
 			}
 		}
 	}
-	if f.mode == formURL || f.mode == formCloning || f.mode >= formKind && f.source == "git" {
+	if f.mode == formURL || f.mode == formCloning || f.mode >= formRemote && f.source == "git" {
 		sb.WriteString(" " + core.Dim.Render("URL du dépôt :") + " " + shorten(f.url, w-18))
 		if f.mode == formURL {
 			sb.WriteString(cur)
@@ -728,26 +699,7 @@ func (m model) renderForm(w int) string {
 		step, pct := m.job.get()
 		sb.WriteString(" " + core.Cyan.Render(fmt.Sprintf("clonage : %s %d %%", step, pct)) + "\n")
 	}
-	if f.mode >= formKind && f.source != "git" && f.source != "template" {
-		sb.WriteString("\n " + core.Dim.Render("Type de projet :") + "\n")
-		for _, k := range []struct {
-			raw        bool
-			key, label string
-			desc       string
-		}{
-			{false, "g", "géré", "git + /init-project"},
-			{true, "b", "brut", "dossier + CLAUDE.md"},
-		} {
-			mark, style := "  ", core.Dim
-			if k.raw == f.raw {
-				mark, style = core.Green.Render("▶ "), core.Bold
-			}
-			if f.mode == formKind || k.raw == f.raw {
-				sb.WriteString("  " + mark + style.Render(k.key+" "+k.label) + core.Dim.Render("  "+k.desc) + "\n")
-			}
-		}
-	}
-	if f.mode >= formRemote && !f.raw && f.source != "git" {
+	if f.mode >= formRemote && f.source != "git" {
 		sb.WriteString(" " + core.Dim.Render("Remote git (facultatif) :") + "\n")
 		c := ""
 		if f.mode == formRemote {
@@ -767,10 +719,8 @@ func (m model) renderForm(w int) string {
 		hint = "↑↓ ou 1-9 · ↵ valider · esc annuler"
 	case formCategory:
 		hint = "↑↓ · ↵ choisir · esc annuler"
-	case formKind:
-		hint = "↑↓ ou g/b · ↵ valider · esc annuler"
 	case formSource:
-		hint = "↑↓ ou v/t/g · ↵ choisir · esc annuler"
+		hint = "↑↓ ou b/t/g · ↵ choisir · esc annuler"
 	case formURL:
 		hint = "https://… ou git@hôte:dépôt · ↵ · esc annuler"
 	case formCloning:
