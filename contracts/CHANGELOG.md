@@ -9,6 +9,11 @@
 - **[CHANGED]** (décision utilisateur) backend injoignable et projet non ouvert ici : écriture d'`env.yaml` **autorisée** avec `warn` (« état du conteneur inconnu… ») ; refus seulement sur blocker confirmé ; déplacement **et backend / image** restent fail-closed (refus) ; « non vérifiable » = délai dépassé **ou** échec rapide du backend (conteneur seulement : un projet sur l'hôte n'est jamais « non vérifiable ») ; contrôle complet hors verrou à l'écriture puis revérification rapide sous verrou sur l'état mémorisé (fenêtre courte non couverte, admise) — 60ae84f
 - Exceptions : création (`create`), approbation (`envTrustAnswer`), étape `trust` de `projectMove` — jamais bloquées
 
+## [20261121] — v6.6.0 LOT-4.2 : corrections de revue (#226, #227)
+
+- **[CHANGED]** `note` de `configSave` / `configApply` par type : retiré pour `config.conf` (remplacé par `effect` / `apply`), **conservé** pour `backends.yaml`, `hub`, `env.yaml` (launcher) et `project-env` tant que leurs pastilles n'existent pas — `contracts/desktop-dispatch.md` « v6.6.0 — LOT-4 »
+- **[CHANGED]** `configModel` : `reveal` toujours présent (`true|false`) pour une entrée secrète, `false` explicite en accès distant
+
 ## [20261121] — v6.6.0 LOT-4 (plan) : config à chaud, effet des options, éléments cachés (#225, #226, #227)
 
 - **[CHANGED]** `config.conf` relu par date avant toute recopie dans `settings.json` et toute action qui en dépend ; `configApply` / `configSave` / `configReload` appellent `SyncLauncherEnv` (champ `sync`) ; coque : relecture à chaud sans relancer le nav — `contracts/desktop-dispatch.md` « v6.6.0 — LOT-4 »

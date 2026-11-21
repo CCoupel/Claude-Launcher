@@ -1137,7 +1137,11 @@ Après un enregistrement réussi :
 - `projects` : projets **ouverts** concernés par une option `claude` ou `project` (« Rafraîchir », `refreshProject`
   #158). Aucune action automatique (H6, décision utilisateur) : bandeau de rappel limité aux options modifiées, actions
   proposées seulement (maquette retenue `docs/mockup/v6.6.0/ui/config_ui__effet_des_options.html`).
-- `ConfigReloadNote` (texte global) est retiré au profit de `apply`.
+- `note` (texte global produit par `core`, `ConfigReloadNote`) **par type** (correction revue LOT-4.2) :
+  - `config.conf` : **retiré** au profit de `effect` / `apply` (absent de la réponse) ;
+  - `backends.yaml`, `hub` (« Ce poste »), `env.yaml` du launcher et `project-env` : **conservé** (textes actuels :
+    « relu : backends, pools… », « pris en compte à la prochaine ouverture du projet… ») tant que ces types n'ont pas
+    leurs pastilles d'effet — l'interface l'affiche après l'enregistrement. Pastilles de ces types : hors LOT-4.2.
 
 ### `secretReveal` **[NEW]** (#227)
 
@@ -1154,4 +1158,6 @@ Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : tout
 - Côté interface (maquette retenue A, œil dans le champ, `docs/mockup/v6.6.0/ui/config_ui__element_cache.html` —
   **même composant pour tous les éléments cachés**) : valeur gardée en mémoire le temps de l'affichage seulement
   (re-masquage, H8 : clic, 30 s, changement de rubrique, fermeture), jamais écrite dans le DOM d'un champ éditable ni dans le stockage du navigateur.
-- `configModel` : entrée secrète gagne `"reveal": true|false` (faux pour un accès distant : l'œil est grisé).
+- `configModel` : entrée secrète gagne `"reveal": true|false`, **toujours présent** pour une entrée `type: "secret"`
+  (jamais omis : `false` est envoyé explicitement pour un accès distant — l'œil est grisé ; absent seulement pour une
+  entrée non secrète).
