@@ -1794,7 +1794,20 @@ function initProposalBar(path) {
 // Job de création en cours : l'instantané le pousse au dialogue ouvert (S.newDlg).
 function newJobSync(j) { S.newJob = j || null; if (S.newDlg) S.newDlg(S.newJob); }
 
-// création d'un projet : base, catégorie, nom, source (vide, dépôt Git, template), exécution
+// Les 3 sources (#215) : Projet brut (dossier + git init, remote si fourni, jamais de /init-project), Template projet
+// (idem + /init-project proposé à la 1re ouverture), Dépôt Git. Plus d'option « géré » ni de CLAUDE.md minimal (raw).
+const NEW_SOURCES = [
+  ['empty', '▢ Projet brut', 'Dossier et git init ; lien vers le remote seulement si une URL est fournie. Pas de /init-project.'],
+  ['template', '◆ Template projet', 'Comme brut, puis /init-project proposé à la 1re ouverture.'],
+  ['git', '⎇ Dépôt Git', 'Clonage d\'une URL. HTTPS : jeton de config.conf · ssh : clé du backend.'],
+];
+// arguments de `create` propres à la source
+function sourceArgs(src, url, remote) {
+  if (src === 'git') return { url: String(url || '').trim() };
+  return { raw: false, remote: String(remote || '').trim() };
+}
+
+// création d'un projet : base, catégorie, nom, source (brut, template, dépôt Git), exécution
 // `pre` : dossier de l'arbre (base ou catégorie) à pré-sélectionner, '' sinon.
 async function newProject(pre) {
   const info = await call('newInfo', {});
@@ -1808,7 +1821,7 @@ async function newProject(pre) {
     const cards = el('div', 'srccards');
     let src = 'empty';
     const cardEls = {};
-    for (const [v, t, d] of [['empty', '▢ Projet vide', 'Dossier, git init et remote facultatif (ou brut : CLAUDE.md minimal).'], ['git', '⎇ Dépôt Git', 'Clonage d\'une URL. HTTPS : jeton de config.conf · ssh : clé du backend.'], ['template', '◆ Template projet', '/init-project proposé à la 1re ouverture.']]) {
+    for (const [v, t, d] of NEW_SOURCES) {
       const c = el('div', 'card'); c.append(el('h4', '', t), el('p', '', d)); c.onclick = () => setSrc(v); cards.appendChild(c); cardEls[v] = c;
     }
     b.appendChild(cards);
@@ -1816,7 +1829,7 @@ async function newProject(pre) {
     const url = el('input'); url.placeholder = 'https://github.com/moi/projet.git ou git@github.com:moi/projet.git';
     const urlErr = el('div', 'fe err'); const auth = el('div', 'authline');
     urlBox.append(el('label', 'l', 'URL du dépôt'), url, urlErr, auth);
-    const tplBox = el('div', 'urlbox dim'); tplBox.textContent = 'Template adopté : ' + (info.template || 'version inconnue') + ' — projet géré (git init), /init-project proposé à la première ouverture.';
+    const tplBox = el('div', 'urlbox dim'); tplBox.textContent = 'Template adopté : ' + (info.template || 'version inconnue') + ' — dossier et git init (remote si fourni), /init-project proposé à la première ouverture.';
     b.append(urlBox, tplBox);
     b.append(el('div', 'cap', '2 · Emplacement'));
     const field = (label, ctl) => { f.append(el('label', '', label), ctl); const w = el('div', 'fe err'); f.append(el('span', ''), w); return w; };
@@ -1850,11 +1863,9 @@ async function newProject(pre) {
     cat.onchange = () => { catErr.textContent = ''; catNew.classList.toggle('hidden', cat.value !== NEWCAT); if (cat.value === NEWCAT) catNew.focus(); upd(); };
     catNew.oninput = upd; name.oninput = () => { nameErr.textContent = ''; upd(); };
     upd();
-    const kind = el('select');
-    for (const [v, t] of [['g', 'géré : git init, /init-project au démarrage'], ['b', 'brut : dossier et CLAUDE.md minimal']]) { const o = el('option', '', t); o.value = v; kind.appendChild(o); }
-    const remote = el('input'); remote.placeholder = 'git@github.com:moi/projet.git (facultatif)';
-    const kindL = el('label', '', 'Type'), remoteL = el('label', '', 'Remote git');
-    f.append(kindL, kind, remoteL, remote);
+    const remote = el('input'); remote.placeholder = 'URL du remote, ex. git@github.com:moi/projet.git (facultatif : sans URL, pas de remote)';
+    const remoteL = el('label', '', 'Remote git');
+    f.append(remoteL, remote);
     const ex = execFields(info, f);
     let nameTouched = false;
     const updAuth = () => { const a = authLine(info.auth, url.value, ex().backend || ''); auth.textContent = a.text; auth.className = 'authline ' + (a.ok ? 'ok' : 'warn'); };
@@ -1862,7 +1873,6 @@ async function newProject(pre) {
       src = v;
       for (const k of Object.keys(cardEls)) cardEls[k].classList.toggle('on', k === v);
       urlBox.classList.toggle('hidden', v !== 'git'); tplBox.classList.toggle('hidden', v !== 'template');
-      for (const x of [kindL, kind]) x.classList.toggle('hidden', v !== 'empty');
       for (const x of [remoteL, remote]) x.classList.toggle('hidden', v === 'git');
       if (v === 'git') { updAuth(); setTimeout(() => url.focus(), 0); }
     };
@@ -1873,7 +1883,6 @@ async function newProject(pre) {
     f.addEventListener('change', updAuth);
     name.addEventListener('input', () => { nameTouched = true; });
     setSrc('empty');
-    kind.onchange = () => { remote.disabled = kind.value === 'b'; };
     b.appendChild(f);
     const prog = el('div', 'newprog hidden'); b.appendChild(prog);
     const err = el('div', 'err'); b.appendChild(err);
@@ -1894,7 +1903,7 @@ async function newProject(pre) {
         if (k === '' || k === 'bad') { urlErr.textContent = k ? 'URL non acceptée (https://… ou git@hôte:chemin)' : 'URL du dépôt requise'; url.focus(); return; }
       }
       const args = { base: base.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value, source: src };
-      if (src === 'git') args.url = url.value.trim(); else { args.raw = src === 'empty' && kind.value === 'b'; args.remote = remote.value; }
+      Object.assign(args, sourceArgs(src, url.value, remote.value));
       try {
         const r = await transport.call('create', Object.assign(args, ex()));
         if (r && r.ok === false) { showFail(r); return; }

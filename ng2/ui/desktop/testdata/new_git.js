@@ -7,8 +7,8 @@ function grab(sig) {
   for (let k = open; k < src.length; k++) { if (src[k] === '{') d++; else if (src[k] === '}' && --d === 0) return src.slice(at, k + 1); }
 }
 const ctx = {}; vm.createContext(ctx);
-vm.runInContext(['gitUrlKind', 'nameFromUrl', 'authLine', 'jobView', 'jobGone'].map((n) => grab('function ' + n + '(')).join('\n') + '\nglobalThis.t = { gitUrlKind, nameFromUrl, authLine, jobView, jobGone };', ctx);
-const { gitUrlKind, nameFromUrl, authLine, jobView, jobGone } = ctx.t;
+vm.runInContext(['gitUrlKind', 'nameFromUrl', 'authLine', 'jobView', 'jobGone', 'sourceArgs'].map((n) => grab('function ' + n + '(')).join('\n') + '\nglobalThis.t = { gitUrlKind, nameFromUrl, authLine, jobView, jobGone, sourceArgs };', ctx);
+const { gitUrlKind, nameFromUrl, authLine, jobView, jobGone, sourceArgs } = ctx.t;
 let ko = 0; const eq = (n, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) { ko++; console.log('KO', n, JSON.stringify(a), '!=', JSON.stringify(b)); } };
 for (const [u, k] of [['', ''], ['https://github.com/a/b.git', 'https'], ['git@github.com:a/b.git', 'ssh'], ['ssh://git@h/a/b', 'ssh'],
   ['file:///x', 'bad'], ['/srv/repo', 'bad'], ['--upload-pack=x', 'bad'], ['http://h/a', 'bad'], ['https://h/a b', 'bad'], ['  https://h/a/b ', 'https']]) eq('kind ' + u, gitUrlKind(u), k);
@@ -32,4 +32,11 @@ eq('gone : jamais vu, délai écoulé', jobGone(false, 1000, 4000, 3000), true);
 eq('job borné', jobView({ pct: 250 }).pct, 100);
 eq('job échec', jobView({ state: 'failed', msg: 'refusé' }).msg, 'refusé');
 eq('job absent', jobView(null), null);
+eq('brut sans remote', sourceArgs('empty', 'u', ''), { raw: false, remote: '' });
+eq('brut avec remote', sourceArgs('empty', '', ' git@h:a/b.git '), { raw: false, remote: 'git@h:a/b.git' });
+eq('template avec remote', sourceArgs('template', '', 'https://h/a/b'), { raw: false, remote: 'https://h/a/b' });
+eq('git', sourceArgs('git', ' https://h/a/b ', 'x'), { url: 'https://h/a/b' });
+const ui = src.slice(src.indexOf('const NEW_SOURCES'), src.indexOf('async function newProject'));
+for (const lib of ['Projet brut', 'Template projet', 'Dépôt Git']) if (!ui.includes(lib)) { ko++; console.log('KO libellé absent', lib); }
+if (/géré|Projet vide|CLAUDE\.md minimal/.test(src.slice(src.indexOf('const NEW_SOURCES'), src.indexOf('// execFields')))) { ko++; console.log('KO libellé « géré » / « vide » subsiste dans le dialogue'); }
 console.log(ko ? ko + ' KO' : 'OK'); process.exit(ko ? 1 : 0);
