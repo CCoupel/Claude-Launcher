@@ -351,6 +351,12 @@ func (t *projTerm) prepareHost(cfg core.Config, start, copyInit string, synced b
 	}
 	w, h := t.size()
 	if out, err := t.localTmux("new-session", "-d", "-s", t.sess, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", t.path).CombinedOutput(); err != nil {
+		// has-session puis new-session n'est pas atomique : un autre ouvreur du même projet (clic doublé, reprise après
+		// « ignorer », autre fenêtre) a pu créer la session entre les deux. Elle existe : on s'y rattache — SANS retaper le
+		// démarrage, que son créateur envoie. (new-session -A détacherait au contraire les clients déjà attachés.)
+		if isDuplicateSession(string(out)) && t.localTmux("has-session", "-t", "="+t.sess).Run() == nil {
+			return nil
+		}
 		return fmt.Errorf("tmux : %s", strings.TrimSpace(string(out)))
 	}
 	_ = t.localTmux("set-option", "-t", "="+t.sess, "status", "off").Run()
@@ -361,6 +367,9 @@ func (t *projTerm) prepareHost(cfg core.Config, start, copyInit string, synced b
 	}
 	return nil
 }
+
+// isDuplicateSession : tmux refuse new-session parce que la session existe déjà.
+func isDuplicateSession(out string) bool { return strings.Contains(out, "duplicate session") }
 
 // size : taille demandée par l'interface (zone des terminaux), 200×50 à défaut.
 func (t *projTerm) size() (int, int) {
