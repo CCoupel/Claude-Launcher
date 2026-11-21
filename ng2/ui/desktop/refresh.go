@@ -547,7 +547,7 @@ func (a *App) forceCloseConfirm(path string) (any, error) {
 	a.mu.Lock()
 	delete(a.closing, path)
 	a.mu.Unlock()
-	go a.readCtr()
+	a.bg(a.readCtr)
 	go a.readSessions()
 	a.changed()
 	a.cardsChanged()

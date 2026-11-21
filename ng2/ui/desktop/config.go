@@ -277,7 +277,7 @@ func (a *App) applyLayoutFirst(path, layout string) (map[string]any, error) {
 			return map[string]any{"ok": true}, nil
 		}
 		a.clearLayoutOverride(base)
-		go a.relayoutOpen() // l'organisation précédente revient
+		a.bg(a.relayoutOpen) // l'organisation précédente revient
 		a.changed()
 		return map[string]any{"ok": false, "msg": "config.conf : " + err.Error() + " — organisation non enregistrée, retour à la précédente"}, nil
 	}
@@ -323,8 +323,8 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		cfg.Roots = a.cfg.Roots // la surveillance de l'arborescence garde ses racines
 		a.cfg = cfg
 		a.confMu.Unlock()
-		go a.readUsage()
-		go a.relayoutOpen() // organisation des fenêtres de projet changée : remise en page tout de suite (#153)
+		a.bg(a.readUsage)
+		a.bg(a.relayoutOpen) // organisation des fenêtres de projet changée : remise en page tout de suite (#153)
 		a.changed()
 		a.cardsChanged()
 	case core.ConfBackends:
@@ -333,9 +333,9 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		// hors de la réponse : a.mu peut être tenu par une lecture lente, l'écran
 		// Réglages n'a pas à l'attendre
 		a.storeBackends()
-		go a.applyWebUI() // desktop_web relu à chaud (#163)
+		a.bg(a.applyWebUI) // desktop_web relu à chaud (#163)
 		a.refreshHubWarns(core.HubConfigWarnings)
-		go a.readCtr()
+		a.bg(a.readCtr)
 		a.changed()
 	}
 	return core.ConfigReloadNote(kind)
@@ -630,7 +630,7 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 		}
 	}
 	if r.OK && (in.Backend != nil || in.Image != nil) {
-		go a.readCtr()
+		a.bg(a.readCtr)
 		go a.setMsg("⬡ " + filepath.Base(path) + " : réglages enregistrés")
 	}
 	if r.Env != nil && r.Env.Saved {

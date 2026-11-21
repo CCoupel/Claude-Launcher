@@ -216,9 +216,9 @@ func (a *App) finishCreate(dir string, mode core.LaunchMode) (any, error) {
 func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *createJob) (any, error) {
 	id, ctx, cancel := job.ID, job.ctx, job.cancel
 	a.setJob(id, func(j *createJob) { j.Name = filepath.Base(dir) })
-	a.bgWG.Add(1)
+	a.bgGate.begin()
 	go func() {
-		defer a.bgWG.Done()
+		defer a.bgGate.end()
 		defer cancel()
 		fail := func(msg string) {
 			note := undo()

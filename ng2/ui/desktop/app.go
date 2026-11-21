@@ -72,10 +72,10 @@ type App struct {
 	job        *createJob
 	proposedMu sync.Mutex // projets dont la proposition /init-project a été faite (ou refusée) dans ce processus
 	proposed   map[string]bool
-	bgWG       sync.WaitGroup // tâches de fond du démarrage (bg), attendues par waitBackground
-	treeCached bool           // arbre repris du lancement précédent (relu en tâche de fond)
-	hubCache   string         // cache d'état du hub Linux (hubs.<machine>.hub_cache)
-	hubWarns   []string       // clés inconnues de hubs: dans backends.yaml (#127), ignorées
+	bgGate     openGate // tâches de fond (bg), attendues par Stop (borné) et waitBackground ; compteur sous verrou : pas de course Add/Wait
+	treeCached bool     // arbre repris du lancement précédent (relu en tâche de fond)
+	hubCache   string   // cache d'état du hub Linux (hubs.<machine>.hub_cache)
+	hubWarns   []string // clés inconnues de hubs: dans backends.yaml (#127), ignorées
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
@@ -129,7 +129,7 @@ func NewApp(emit Emitter) *App {
 	}
 	a.perf.trace("démarrage : config", core.ConfigPath(), dConf)
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
-	go core.WarmEngineEnv() // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
+	a.bg(core.WarmEngineEnv) // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
 	a.perf.timed("démarrage : hubs", core.BackendsPath(), func() {
 		a.hubCache = core.HubCacheDir()
 		a.hubWarns = core.HubConfigWarnings() // faute de frappe dans hubs: (config partagée) : signalée
@@ -297,10 +297,19 @@ func (a *App) Start() {
 }
 
 // bg : tâche de fond d'écriture au démarrage, suivie pour qu'on puisse attendre sa fin (waitBackground).
+// Refusée (rien ne tourne) une fois l'App arrêtée : plus d'écrivain tardif après Stop.
 func (a *App) bg(f func()) {
-	a.bgWG.Add(1)
-	go func() { defer a.bgWG.Done(); f() }()
+	select {
+	case <-a.quit:
+		return
+	default:
+	}
+	a.bgGate.begin()
+	go func() { defer a.bgGate.end(); f() }()
 }
+
+// bgStopWait : durée maximale pendant laquelle Stop attend les tâches de fond suivies.
+var bgStopWait = tun.Of(2 * time.Second)
 
 // waitBackground : attend (au plus max) la fin des tâches suivies par bg, et du gestionnaire d'état ; faux si le délai
 // est dépassé. Sert aux tests : l'évènement d'arrêt remplace une pause fixe avant l'effacement des dossiers temporaires.
@@ -308,7 +317,7 @@ func (a *App) waitBackground(max time.Duration) bool {
 	if a.mgr != nil {
 		a.mgr.Stop() // idempotent ; rend la main quand ses tâches de fond sont finies
 	}
-	return waitDone(&a.bgWG, max)
+	return a.bgGate.wait(max)
 }
 
 // Stop : l'interface se ferme ; les sessions des projets continuent dans tmux.
@@ -320,6 +329,7 @@ func (a *App) Stop() {
 		close(a.quit)
 	}
 	a.stopWebUI()
+	a.bgGate.wait(bgStopWait.Get())        // tâches de fond suivies (relevés, remises en page…) : bornées
 	a.usageGate.wait(usageStopWait.Get())  // un relevé de consommation en cours finit d'écrire son cache (borné)
 	a.waitOpenings(shutdownOpenWait.Get()) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()

@@ -106,7 +106,7 @@ func (a *App) open(path string, mode core.LaunchMode) (any, error) {
 	a.openGate.begin()
 	go func() {
 		t.run()
-		go a.readCtr()
+		a.bg(a.readCtr)
 	}()
 	return map[string]any{"tab": path}, nil
 }
@@ -373,7 +373,7 @@ func (a *App) startClose(pl closePlan) {
 		}
 		a.mu.Unlock()
 		a.changed()
-		go a.readCtr()
+		a.bg(a.readCtr)
 		go a.readSessions()
 	}()
 }
@@ -532,7 +532,7 @@ func (a *App) execApply(path, image, backend string, openNext bool) (any, error)
 	} else {
 		a.setMsg("⬡ " + name + " : " + core.ImageLabel(image) + " sur " + backend + " (F2 pour reconfigurer)")
 	}
-	go a.readCtr()
+	a.bg(a.readCtr)
 	if openNext {
 		return a.open(path, core.LaunchNormal)
 	}
