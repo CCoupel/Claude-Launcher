@@ -1049,6 +1049,8 @@ on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un 
 - **« Non vérifiable »** couvre **le délai dépassé ET l'échec rapide** du backend (moteur absent, connexion refusée,
   erreur d'authentification, réponse illisible) : dans tous ces cas l'état est inconnu — `env.yaml` : autorisé avec
   `warn` ; backend / image et déplacement : refus.
+  Seul compte le **moteur du projet** (backend affecté au projet dans `projects.json`) : l'échec d'un **autre**
+  backend configuré est ignoré et ne rend pas le projet « non vérifiable ».
 - **Méthodes concernées** :
   - `projectApply` avec `env` : refus **avant toute écriture** (même ordre que backend/image : contrôles sans écriture
     d'abord) — `{ "ok": false, "field": "env", "msg": "<raison>", "blockers": ["…"] }` ; les autres parties de la même
