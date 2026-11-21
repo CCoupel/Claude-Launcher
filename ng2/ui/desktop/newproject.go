@@ -80,7 +80,7 @@ type createArgs struct {
 	NewCategory    bool
 	Name           string
 	Source         string // empty (défaut) | git | template
-	Raw            bool
+	Raw            bool   // obsolète : ignoré (l'interface ne l'émet plus)
 	Remote, URL    string
 	Image, Backend string
 }
@@ -178,11 +178,10 @@ func (a *App) create(in createArgs) (any, error) {
 	if err := core.ApplyExec(dir, in.Image, in.Backend); err != nil {
 		return nil, fmt.Errorf("env.yaml : %v — %s", err, undo())
 	}
-	mode := core.LaunchNormal // ni /init-project d'office, ni question : brut seulement pour le projet sans git
-	if in.Raw && source == "empty" {
-		mode = core.LaunchNewRaw
-	}
-	if err := core.InitProject(dir, in.Raw && source == "empty", in.Remote); err != nil {
+	// Projet brut (empty) et Template projet : dossier + git init, remote lié seulement s'il est fourni. Jamais de
+	// /init-project d'office ni de CLAUDE.md minimal : `raw` (obsolète) est ignoré (#215).
+	mode := core.LaunchNormal
+	if err := core.InitProject(dir, false, in.Remote); err != nil {
 		return nil, fmt.Errorf("%v — %s", err, undo())
 	}
 	if source == "template" {
