@@ -1,6 +1,8 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"claude-launcher-ng2/platform"
 )
 
 // ── Déplacer / renommer un projet (#216, contracts/desktop-dispatch.md « projectMove ») ──
@@ -49,7 +53,7 @@ type MoveImpact struct {
 	To    string   `json:"to,omitempty"`
 	Value string   `json:"value,omitempty"`
 	Keys  []string `json:"keys,omitempty"`
-	Label string   `json:"label,omitempty"` // texte affichable tel quel (trust)
+	Label string   `json:"label,omitempty"` // texte affichable tel quel (trust ; conf : clé partagée avec d'autres projets)
 }
 
 // MoveDest : destination envisagée (projectMoveInfo avec destination), sans rien écrire.
@@ -147,7 +151,19 @@ func (e MoveEnv) rename(a, b string) error {
 	if e.Rename != nil {
 		return e.Rename(a, b)
 	}
-	return os.Rename(a, b)
+	return platform.ReplaceFile(a, b) // Windows : retry court (fichier tenu par un antivirus ou un indexeur)
+}
+
+// removeAllRetry : os.RemoveAll retenté brièvement (Windows : fichier verrouillé passagèrement).
+func removeAllRetry(p string) error {
+	var err error
+	for i, d := 0, 50*time.Millisecond; i < 5; i, d = i+1, d*2 {
+		if err = os.RemoveAll(p); err == nil {
+			return nil
+		}
+		time.Sleep(d)
+	}
+	return err
 }
 
 func (e MoveEnv) fail(step string, undo bool) error {
@@ -168,15 +184,36 @@ func (e MoveEnv) claudeDir() string {
 
 func movesPath() string { return filepath.Join(Ng2ConfigDir(), "moves.json") }
 
-func readMovesLocked() []MoveEntry {
-	var out []MoveEntry
-	if b, err := os.ReadFile(movesPath()); err == nil {
-		_ = json.Unmarshal(b, &out)
-	}
-	return out
+// movesBrokenError : moves.json présent mais illisible (ou verrou du journal inaccessible) — fail-closed, comme trust.json :
+// tout déplacement est refusé, le journal n'est JAMAIS réécrit.
+type movesBrokenError struct{ cause string }
+
+func (e movesBrokenError) Error() string {
+	return fmt.Sprintf("journal des déplacements illisible (%s%s) : restaurez moves.json.bak ou supprimez moves.json", movesPath(), e.cause)
 }
 
-func writeMovesLocked(m []MoveEntry) error {
+// readMovesLocked : journal lu (verrou tenu) ; illisible : movesBrokenError.
+func readMovesLocked() ([]MoveEntry, []byte, error) {
+	raw, err := os.ReadFile(movesPath())
+	if os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+	if err != nil {
+		return nil, nil, movesBrokenError{" : " + err.Error()}
+	}
+	var out []MoveEntry
+	if len(strings.TrimSpace(string(raw))) == 0 || json.Unmarshal(raw, &out) != nil {
+		return nil, nil, movesBrokenError{}
+	}
+	return out, raw, nil
+}
+
+func writeMovesLocked(m []MoveEntry, prev []byte) error {
+	if prev != nil {
+		if err := WriteFileAtomic(movesPath()+".bak", prev, 0o600); err != nil {
+			return err
+		}
+	}
 	if len(m) == 0 {
 		if err := os.Remove(movesPath()); err != nil && !os.IsNotExist(err) {
 			return err
@@ -187,9 +224,15 @@ func writeMovesLocked(m []MoveEntry) error {
 	return WriteFileAtomic(movesPath(), b, 0o600)
 }
 
-// editMoves : lire-modifier-écrire du journal sous verrou.
+// editMoves : lire-modifier-écrire du journal sous verrou ; un journal illisible n'est jamais réécrit.
 func editMoves(fn func(m []MoveEntry) []MoveEntry) error {
-	return WithFileLock(movesPath(), func() error { return writeMovesLocked(fn(readMovesLocked())) })
+	return WithFileLock(movesPath(), func() error {
+		m, prev, err := readMovesLocked()
+		if err != nil {
+			return err
+		}
+		return writeMovesLocked(fn(m), prev)
+	})
 }
 
 func saveEntry(e *MoveEntry) error {
@@ -216,10 +259,34 @@ func dropEntry(id string) error {
 	})
 }
 
+// readMoves : journal complet ; erreur si illisible ou si le verrou du journal est inaccessible.
+func readMoves() ([]MoveEntry, error) {
+	var m []MoveEntry
+	err := WithFileLock(movesPath(), func() error {
+		var rerr error
+		m, _, rerr = readMovesLocked()
+		return rerr
+	})
+	if err != nil {
+		if _, ok := err.(movesBrokenError); ok {
+			return nil, err
+		}
+		return nil, movesBrokenError{" : " + err.Error()}
+	}
+	return m, nil
+}
+
+// movesError : le journal est-il lisible ? nil si oui.
+func movesError() error {
+	_, err := readMoves()
+	return err
+}
+
 // PendingMoves : déplacements inachevés (journal) qui concernent path (source ou destination).
 func PendingMoves(path string) []MoveEntry {
 	var out []MoveEntry
-	for _, e := range readMovesCached() {
+	m, _ := readMoves()
+	for _, e := range m {
 		if e.From == path || e.To == path {
 			out = append(out, e)
 		}
@@ -228,8 +295,7 @@ func PendingMoves(path string) []MoveEntry {
 }
 
 func readMovesCached() []MoveEntry {
-	var m []MoveEntry
-	_ = WithFileLock(movesPath(), func() error { m = readMovesLocked(); return nil })
+	m, _ := readMoves()
 	return m
 }
 
@@ -274,7 +340,9 @@ func MoveBlockers(env MoveEnv, path string) []string {
 	if what := run(path); what != "" {
 		out = append(out, "conteneur ou pod en cours d'exécution ("+what+")")
 	}
-	if len(PendingMoves(path)) > 0 {
+	if err := movesError(); err != nil {
+		out = append(out, err.Error()) // journal illisible : aucun déplacement (fail-closed)
+	} else if len(PendingMoves(path)) > 0 {
 		out = append(out, "déplacement inachevé")
 	}
 	return out
@@ -409,7 +477,19 @@ func moveDest(env MoveEnv, path string, t MoveTarget) MoveDest {
 			keys = append(keys, "PROJECT_HIDE_IDLE")
 		}
 		if len(keys) > 0 {
-			d.Impacts = append(d.Impacts, MoveImpact{What: MoveStepConf, Keys: keys})
+			im := MoveImpact{What: MoveStepConf, Keys: keys}
+			// la clé est le NOM du dossier : deux projets de même nom dans des catégories différentes la partagent
+			var shared []string
+			for _, n := range ScanTree(env.Roots) {
+				if n.Project && filepath.Base(n.Path) == oldName && filepath.Clean(n.Path) != filepath.Clean(path) {
+					shared = append(shared, n.Path)
+				}
+			}
+			if len(shared) > 0 {
+				sort.Strings(shared)
+				im.Label = "clé « " + oldName + " » partagée avec " + strings.Join(shared, ", ") + " : leur couleur / organisation sera retirée avec ce déplacement"
+			}
+			d.Impacts = append(d.Impacts, im)
 		}
 	}
 	hroot := filepath.Join(env.claudeDir(), "projects")
@@ -426,6 +506,79 @@ func moveDest(env MoveEnv, path string, t MoveTarget) MoveDest {
 
 func newMoveID() string { return newLockToken() }
 
+// ── Exclusion : un verrou par projet (source ET destination), tenu de la vérification des blockers à la fin ──
+
+func moveLockPath(path string) string {
+	h := sha256.Sum256([]byte(RemotePath(path)))
+	return filepath.Join(Ng2ConfigDir(), "moves-locks", hex.EncodeToString(h[:8])+".lock")
+}
+
+// lockProjectsForMove : prend le verrou de chacun des chemins (triés : pas d'interblocage). Refus immédiat si un autre
+// déplacement tient déjà l'un d'eux (« déjà en cours ») ; un verrou dont le détenteur ne bat plus (60 s) est repris.
+// Le verrou est entretenu (date du fichier) pendant les copies longues.
+func lockProjectsForMove(paths ...string) (unlock func(), err error) {
+	seen := map[string]bool{}
+	var list []string
+	for _, p := range paths {
+		if k := filepath.Clean(p); !seen[k] {
+			seen[k] = true
+			list = append(list, k)
+		}
+	}
+	sort.Strings(list)
+	token := newLockToken() + " " + LauncherID()
+	var held []string
+	release := func() {
+		for _, f := range held {
+			if lockOwnedBy(f, token) {
+				_ = removeRetry(f)
+			}
+		}
+	}
+	for _, p := range list {
+		f := moveLockPath(p)
+		var created bool
+		for try := 0; try < 2 && !created; try++ {
+			var cerr error
+			created, cerr = createExclusive(f, []byte(token+"\n"), 0o644)
+			if cerr != nil {
+				release()
+				return nil, fmt.Errorf("verrou de déplacement : %w", cerr)
+			}
+			if !created {
+				if st, serr := os.Stat(f); serr == nil && time.Since(st.ModTime()) > fileLockStale.Get() {
+					_, _ = reclaimStale(f, fileLockStale.Get())
+					continue
+				}
+				break
+			}
+		}
+		if !created {
+			release()
+			return nil, errors.New("un déplacement est déjà en cours pour ce projet")
+		}
+		held = append(held, f)
+	}
+	stop := make(chan struct{})
+	go func() {
+		t := time.NewTicker(10 * time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-t.C:
+				now := time.Now()
+				for _, f := range held {
+					_ = os.Chtimes(f, now, now)
+				}
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(stop); release() }) }, nil
+}
+
 // MoveProject : déplace / renomme le projet path vers target (règle commune de chemin, destination inexistante).
 func MoveProject(env MoveEnv, path string, target MoveTarget) MoveResult {
 	if _, _, _, ok := SplitProjectPath(env.Roots, path); !ok {
@@ -434,12 +587,18 @@ func MoveProject(env MoveEnv, path string, target MoveTarget) MoveResult {
 	if st, err := os.Stat(path); err != nil || !st.IsDir() {
 		return MoveResult{Msg: "projet introuvable"}
 	}
-	if bl := MoveBlockers(env, path); len(bl) > 0 {
-		return MoveResult{Msg: "déplacement impossible : " + strings.Join(bl, ", ")}
-	}
 	dest, err := ResolveProjectPathIn(env.Roots, target.Base, target.Category, target.Name)
 	if err != nil {
 		return MoveResult{Msg: err.Error()}
+	}
+	// exclusion : verrou de la source ET de la destination, de la vérification des blockers jusqu'à la fin
+	unlock, lerr := lockProjectsForMove(path, dest)
+	if lerr != nil {
+		return MoveResult{Msg: "déplacement impossible : " + lerr.Error()}
+	}
+	defer unlock()
+	if bl := MoveBlockers(env, path); len(bl) > 0 {
+		return MoveResult{Msg: "déplacement impossible : " + strings.Join(bl, ", ")}
 	}
 	if filepath.Clean(dest) == filepath.Clean(path) {
 		return MoveResult{Msg: "la destination est le projet lui-même"}
@@ -477,6 +636,11 @@ func ResumeMove(env MoveEnv, path string) MoveResult {
 	if e == nil {
 		return MoveResult{Msg: "aucun déplacement inachevé"}
 	}
+	unlock, lerr := lockProjectsForMove(e.From, e.To)
+	if lerr != nil {
+		return MoveResult{Msg: "reprise impossible : " + lerr.Error()}
+	}
+	defer unlock()
 	e.State, e.Failed, e.Msg = "running", "", ""
 	_ = saveEntry(e)
 	return runMove(env, e)
@@ -488,6 +652,11 @@ func CancelMove(env MoveEnv, path string) MoveResult {
 	if e == nil {
 		return MoveResult{Msg: "aucun déplacement inachevé"}
 	}
+	unlock, lerr := lockProjectsForMove(e.From, e.To)
+	if lerr != nil {
+		return MoveResult{Msg: "annulation impossible : " + lerr.Error()}
+	}
+	defer unlock()
 	return rollback(env, e, "", errors.New("annulé"))
 }
 
@@ -518,6 +687,14 @@ func ResumeMoveID(env MoveEnv, id string) MoveResult {
 	if e == nil {
 		return MoveResult{Msg: "aucun déplacement inachevé"}
 	}
+	unlock, lerr := lockProjectsForMove(e.From, e.To)
+	if lerr != nil {
+		return MoveResult{Msg: "reprise impossible : " + lerr.Error()}
+	}
+	defer unlock()
+	if e = findEntryByID(id); e == nil { // relu sous verrou : une autre exécution a pu finir entre-temps
+		return MoveResult{Msg: "aucun déplacement inachevé"}
+	}
 	if bl := MoveBlockersExceptPending(env, e.From); len(bl) > 0 {
 		return MoveResult{Msg: "reprise impossible : " + strings.Join(bl, ", ")}
 	}
@@ -534,6 +711,14 @@ func ResumeMoveID(env MoveEnv, id string) MoveResult {
 func AbortMoveID(env MoveEnv, id string) MoveResult {
 	e := findEntryByID(id)
 	if e == nil {
+		return MoveResult{Msg: "aucun déplacement inachevé"}
+	}
+	unlock, lerr := lockProjectsForMove(e.From, e.To)
+	if lerr != nil {
+		return MoveResult{Msg: "annulation impossible : " + lerr.Error()}
+	}
+	defer unlock()
+	if e = findEntryByID(id); e == nil {
 		return MoveResult{Msg: "aucun déplacement inachevé"}
 	}
 	for _, p := range []string{e.From, e.To} {
@@ -574,6 +759,9 @@ func runMove(env MoveEnv, e *MoveEntry) MoveResult {
 			continue
 		}
 		err := env.fail(step, false)
+		if err == nil {
+			err = preCheck(env, e, step) // blockers revérifiés juste avant l'étape longue (dir) et l'étape irréversible (ctr)
+		}
 		if err == nil {
 			err = doStep(env, e, step)
 		}
@@ -632,6 +820,94 @@ func removeStr(l []string, s string) []string {
 	return out
 }
 
+// preCheck : avant « dir » (copie de plusieurs minutes) et avant « ctr » (rm -f d'un conteneur), les blockers sont
+// revérifiés — un projet ouvert, un conteneur démarré ou une session d'un autre launcher depuis le premier contrôle
+// font échouer proprement l'étape (retour arrière), jamais un `rm -f` d'une session vivante.
+func preCheck(env MoveEnv, e *MoveEntry, step string) error {
+	switch step {
+	case MoveStepDir:
+		if bl := MoveBlockersExceptPending(env, e.From); len(bl) > 0 {
+			return errors.New("le projet n'est plus déplaçable : " + strings.Join(bl, ", "))
+		}
+	case MoveStepCtr:
+		if bl := ctrBlockers(env, e); len(bl) > 0 {
+			return errors.New("conteneur non supprimé, le projet est utilisé : " + strings.Join(bl, ", "))
+		}
+	}
+	return nil
+}
+
+// ctrBlockers : sessions ou conteneurs actifs de l'ANCIENNE clé, revus avant l'étape ctr. Le projet est déjà au nouveau
+// chemin (HasEnv(From) est faux) : les contrôles par défaut partent du backend noté dans le journal.
+func ctrBlockers(env MoveEnv, e *MoveEntry) []string {
+	var out []string
+	if env.OpenHere != nil && (env.OpenHere(e.From) || env.OpenHere(e.To)) {
+		out = append(out, "projet ouvert dans ce launcher")
+	}
+	foreign := func(p string) string { return foreignOwnerIn(e.Backend, p) }
+	if env.Foreign != nil {
+		foreign = env.Foreign
+	}
+	if who := foreign(e.From); who != "" {
+		out = append(out, "projet ouvert par un autre launcher ("+who+")")
+	}
+	running := func(p string) string { return runningCtrIn(e.Backend, p) }
+	if env.Running != nil {
+		running = env.Running
+	}
+	if what := running(e.From); what != "" {
+		out = append(out, "conteneur ou pod en cours d'exécution ("+what+")")
+	}
+	return out
+}
+
+// runningCtrIn : conteneur du backend (nom) dont le projet from tourne ; "" sinon. Sans condition sur env.yaml.
+func runningCtrIn(backend, from string) string {
+	b, ok := FindBackend(backend)
+	if backend == "" || backend == "host" || !ok {
+		return ""
+	}
+	e, ok := EngineOf(b)
+	if !ok {
+		return ""
+	}
+	fs, err := e.List()
+	if err != nil {
+		return ""
+	}
+	for _, f := range fs {
+		if f.Project == from && f.Running {
+			return f.Name + " sur " + b.Name
+		}
+	}
+	return ""
+}
+
+// foreignOwnerIn : propriétaire vivant, d'un autre launcher, d'une session du projet from sur ce backend.
+func foreignOwnerIn(backend, from string) string {
+	b, ok := FindBackend(backend)
+	if backend == "" || backend == "host" || !ok {
+		return ""
+	}
+	e, ok := EngineOf(b)
+	if !ok {
+		return ""
+	}
+	fs, err := e.List()
+	if err != nil {
+		return ""
+	}
+	for _, f := range fs {
+		if f.Project != from || !f.Running || !e.Of(f).HasSession(f.Name) {
+			continue
+		}
+		if o := e.Of(f).Owner(f.Name); o.Alive() && o.Id != LauncherID() {
+			return o.Id + " (" + b.Name + ")"
+		}
+	}
+	return ""
+}
+
 func doStep(env MoveEnv, e *MoveEntry, step string) error {
 	switch step {
 	case MoveStepDir:
@@ -644,6 +920,9 @@ func doStep(env MoveEnv, e *MoveEntry, step string) error {
 		return moveHistory(env, e.From, e.To)
 	case MoveStepTrust:
 		_, err := MoveTrustEntry(e.From, e.To)
+		if errors.Is(err, ErrTrustBroken) && !HasEnv(e.To) { // registre illisible : ne bloque que les projets à environnement
+			return nil
+		}
 		return err
 	case MoveStepCtr:
 		rm := env.RemoveCtr
@@ -667,6 +946,9 @@ func undoStep(env MoveEnv, e *MoveEntry, step string) error {
 		return moveHistory(env, e.To, e.From)
 	case MoveStepTrust:
 		_, err := MoveTrustEntry(e.To, e.From)
+		if errors.Is(err, ErrTrustBroken) && !HasEnv(e.From) {
+			return nil
+		}
 		return err
 	}
 	return nil
@@ -677,6 +959,19 @@ func undoStep(env MoveEnv, e *MoveEntry, step string) error {
 // moveDir : catégories absentes créées (notées), puis os.Rename ; EXDEV → copie complète vers <dest>.moving-<id>,
 // contrôle (nombre et taille des fichiers), rename en <dest>, suppression de la source.
 func moveDir(env MoveEnv, e *MoveEntry) error {
+	// reprise après un arrêt entre le rename de la copie et la suppression de la source : la destination est complète
+	// (contrôle de contenu) ⇒ le déplacement se termine, sans retour arrière par copie inverse
+	if d := e.Detail["dir"]; d == "copy-done" || d == "copy" || d == "copy-source-kept" {
+		if _, serr := os.Lstat(e.From); serr == nil {
+			if _, derr := os.Lstat(e.To); derr == nil && sameTreeContent(e.From, e.To) == nil {
+				if err := removeAllRetry(e.From); err != nil {
+					e.Detail["dir"] = "copy-source-kept"
+					return fmt.Errorf("suppression de la source : %w", err)
+				}
+				return nil
+			}
+		}
+	}
 	// idempotent : déjà à destination (reprise après un arrêt entre le rename et la mise à jour du journal)
 	if _, serr := os.Lstat(e.From); os.IsNotExist(serr) {
 		if _, derr := os.Lstat(e.To); derr == nil {
@@ -727,7 +1022,9 @@ func moveDir(env MoveEnv, e *MoveEntry) error {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("copie vers un autre système de fichiers : %w", err)
 	}
-	if err := sameTree(e.From, tmp); err != nil {
+	// la copie est durable (fsync des fichiers et des dossiers) ET identique (contenu, pas seulement nombre et taille)
+	// AVANT que la source ne soit touchée
+	if err := sameTreeContent(e.From, tmp); err != nil {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("contrôle de la copie : %w", err)
 	}
@@ -735,7 +1032,10 @@ func moveDir(env MoveEnv, e *MoveEntry) error {
 		_ = os.RemoveAll(tmp)
 		return err
 	}
-	if err := os.RemoveAll(e.From); err != nil {
+	_ = platform.SyncDir(filepath.Dir(e.To))
+	e.Detail["dir"] = "copy-done" // destination complète : la reprise termine par la suppression de la source
+	_ = saveEntry(e)
+	if err := removeAllRetry(e.From); err != nil {
 		e.Detail["dir"] = "copy-source-kept"
 		return fmt.Errorf("suppression de la source : %w", err)
 	}
@@ -746,14 +1046,14 @@ func moveDir(env MoveEnv, e *MoveEntry) error {
 // contrôle, puis suppression de la destination ; catégories créées par le déplacement retirées si vides.
 func undoMoveDir(env MoveEnv, e *MoveEntry) error {
 	switch e.Detail["dir"] {
-	case "copy", "copy-source-kept":
+	case "copy", "copy-source-kept", "copy-done":
 		if err := copyTree(e.To, e.From); err != nil {
 			return err
 		}
-		if err := sameTree(e.To, e.From); err != nil {
+		if err := sameTreeContent(e.To, e.From); err != nil {
 			return err
 		}
-		if err := os.RemoveAll(e.To); err != nil {
+		if err := removeAllRetry(e.To); err != nil {
 			return err
 		}
 	default:
@@ -764,10 +1064,10 @@ func undoMoveDir(env MoveEnv, e *MoveEntry) error {
 			if err := copyTree(e.To, e.From); err != nil {
 				return err
 			}
-			if err := sameTree(e.To, e.From); err != nil {
+			if err := sameTreeContent(e.To, e.From); err != nil {
 				return err
 			}
-			if err := os.RemoveAll(e.To); err != nil {
+			if err := removeAllRetry(e.To); err != nil {
 				return err
 			}
 		}
@@ -787,9 +1087,11 @@ func cleanupMadeCats(e *MoveEntry) {
 	delete(e.Detail, "madeCats")
 }
 
-// copyTree : copie récursive (modes, liens symboliques recréés) ; dst est créé.
+// copyTree : copie récursive (modes, dates de modification, liens symboliques recréés tels quels — relatifs ou absolus) ;
+// dst est créé. Chaque fichier est fsync, puis chaque dossier : la copie est durable avant toute suppression de la source.
 func copyTree(src, dst string) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+	var dirs [][2]string // dossier copié, date à lui rendre (après ses enfants)
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -801,6 +1103,7 @@ func copyTree(src, dst string) error {
 		}
 		switch {
 		case d.IsDir():
+			dirs = append(dirs, [2]string{t, info.ModTime().Format(time.RFC3339Nano)})
 			return os.MkdirAll(t, info.Mode().Perm()|0o700)
 		case info.Mode()&os.ModeSymlink != 0:
 			l, err := os.Readlink(p)
@@ -810,10 +1113,23 @@ func copyTree(src, dst string) error {
 			_ = os.Remove(t)
 			return os.Symlink(l, t)
 		case info.Mode().IsRegular():
-			return copyFile(p, t, info.Mode().Perm())
+			if err := copyFile(p, t, info.Mode().Perm()); err != nil {
+				return err
+			}
+			return os.Chtimes(t, info.ModTime(), info.ModTime())
 		}
 		return nil // sockets, périphériques : sans objet dans un projet
 	})
+	if err != nil {
+		return err
+	}
+	for i := len(dirs) - 1; i >= 0; i-- { // du bas vers le haut : fsync du dossier puis date de modification
+		_ = platform.SyncDir(dirs[i][0])
+		if mt, perr := time.Parse(time.RFC3339Nano, dirs[i][1]); perr == nil {
+			_ = os.Chtimes(dirs[i][0], mt, mt)
+		}
+	}
+	return nil
 }
 
 func copyFile(src, dst string, perm os.FileMode) error {
@@ -830,10 +1146,83 @@ func copyFile(src, dst string, perm os.FileMode) error {
 		out.Close()
 		return err
 	}
+	if err := out.Sync(); err != nil { // le contenu est sur le support avant que la source ne soit supprimée
+		out.Close()
+		return err
+	}
 	return out.Close()
 }
 
-// treeSig : nombre d'entrées et taille totale des fichiers réguliers.
+// sameTreeContent : b reproduit a — mêmes entrées (aucune en trop, aucune manquante), même taille ET même empreinte
+// SHA-256 pour chaque fichier, mêmes cibles de liens symboliques.
+func sameTreeContent(a, b string) error {
+	na := 0
+	err := filepath.WalkDir(a, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(a, p)
+		q := filepath.Join(b, rel)
+		ia, err := d.Info()
+		if err != nil {
+			return err
+		}
+		ib, err := os.Lstat(q)
+		if err != nil {
+			return fmt.Errorf("%s manquant dans la copie", rel)
+		}
+		switch {
+		case ia.IsDir():
+			if !ib.IsDir() {
+				return fmt.Errorf("%s : dossier d'un côté seulement", rel)
+			}
+		case ia.Mode()&os.ModeSymlink != 0:
+			na++
+			la, _ := os.Readlink(p)
+			lb, _ := os.Readlink(q)
+			if ib.Mode()&os.ModeSymlink == 0 || la != lb {
+				return fmt.Errorf("%s : lien symbolique différent", rel)
+			}
+		case ia.Mode().IsRegular():
+			na++
+			if !ib.Mode().IsRegular() || ia.Size() != ib.Size() {
+				return fmt.Errorf("%s : taille différente", rel)
+			}
+			ha, err1 := fileSHA(p)
+			hb, err2 := fileSHA(q)
+			if err1 != nil || err2 != nil || ha != hb {
+				return fmt.Errorf("%s : contenu différent", rel)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	nb, _, err := treeSig(b) // aucune entrée en trop dans la copie
+	if err != nil {
+		return err
+	}
+	if na != nb {
+		return fmt.Errorf("%d fichiers d'un côté, %d de l'autre", na, nb)
+	}
+	return nil
+}
+
+func fileSHA(p string) (string, error) {
+	f, err := os.Open(p)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+// treeSig : nombre d'entrées (fichiers réguliers et liens) et taille totale des fichiers réguliers.
 func treeSig(root string) (n int, size int64, err error) {
 	err = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -855,22 +1244,6 @@ func treeSig(root string) (n int, size int64, err error) {
 		return nil
 	})
 	return
-}
-
-// sameTree : a et b ont le même nombre de fichiers et la même taille totale.
-func sameTree(a, b string) error {
-	na, sa, err := treeSig(a)
-	if err != nil {
-		return err
-	}
-	nb, sb, err := treeSig(b)
-	if err != nil {
-		return err
-	}
-	if na != nb || sa != sb {
-		return fmt.Errorf("%d fichiers / %d octets d'un côté, %d / %d de l'autre", na, sa, nb, sb)
-	}
-	return nil
 }
 
 // ── Étape assign ──────────────────────────────────────────────────────────

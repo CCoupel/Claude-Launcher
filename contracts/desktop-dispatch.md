@@ -787,7 +787,7 @@ Arguments : `{ "path" }`, et facultativement la destination envisagée `{ "base"
   clé **recalculée** pour la destination (`CtrName` du nouveau chemin), `keyChanged` si elle diffère ; `crossDevice` :
   la destination est sur un autre système de fichiers (copie puis suppression) ; `exists` : la destination existe
   déjà (`ok: false`) ; erreur de la règle commune → `ok: false`, `field`, `msg`. `impacts` : lignes du tableau « ce
-  qui change » (texte `label` affiché tel quel pour `trust`, présent seulement si le projet a une entrée dans `trust.json` ; seules les étapes qui changent quelque chose : `conf` absent si la clé ne change pas et qu'aucune
+  qui change » (texte `label` affiché tel quel pour `trust` et pour `conf` quand la clé (nom du dossier) est partagée avec un autre projet de même nom, présent seulement si le projet a une entrée dans `trust.json` ; seules les étapes qui changent quelque chose : `conf` absent si la clé ne change pas et qu'aucune
   entrée n'existe, `ctr` absent sans conteneur ni StatefulSet).
 - `blockers` : projet ouvert ici (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou
   pod **en cours d'exécution**, déplacement inachevé (`pending`). Vide = déplaçable.
@@ -812,6 +812,13 @@ inachevé : `projectMoveResume` / `projectMoveAbort` (ci-dessous).
   6. `ctr` : ancien conteneur / StatefulSet + pod `<ancienne clé>` (arrêtés) supprimés — recréés au nouveau nom à
      la prochaine ouverture.
   Nom tmux, URL `/files/<clé>/…` et `CL_BROWSER_PATH_MAP` dérivent du chemin : rien à écrire.
+- **Exclusion et sûreté** : un verrou par projet (source ET destination) est tenu de la vérification des blockers à la
+  fin (refus « un déplacement est déjà en cours pour ce projet » ; reprise et annulation comprises) ; les blockers sont
+  revérifiés juste avant `dir` et avant `ctr` (jamais de suppression d'un conteneur démarré entre-temps : échec propre et
+  retour arrière). La copie entre systèmes de fichiers est durable (fsync des fichiers et dossiers) et contrôlée sur le
+  contenu (SHA-256) avant toute suppression de la source ; dates et liens symboliques (relatifs et absolus) sont
+  recopiés tels quels. `moves.json` illisible : tout déplacement refusé (« restaurez moves.json.bak ou supprimez
+  moves.json »), jamais réécrit. `trust.json` illisible : ne bloque que les projets portant un environnement.
 - Échec à l'étape N : étapes N-1…1 annulées dans l'ordre inverse (l'étape `ctr`, non réversible, est la dernière). Étapes : `dir`, `assign`, `conf`, `history`, `trust`, `ctr`.
   Résultat `{ "ok": false, "step": "ctr", "msg", "rolledBack": true }`. Retour arrière lui-même en échec :
   `{ "ok": false, "rolledBack": false, "state": "partial", "done": ["dir","assign"], "msg" }` ; l'entrée du journal
