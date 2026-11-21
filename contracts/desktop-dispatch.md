@@ -1029,6 +1029,12 @@ on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un 
   ce launcher (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou pod du projet **en
   cours d'exécution** (ici ou ailleurs). Contrôle **côté core**, revérifié **juste avant l'écriture** (sous le verrou
   d'`env.yaml`), pas seulement à l'ouverture de la page.
+- **Backend injoignable (décision utilisateur, 2026-11-21)** : si l'état du conteneur ou la présence d'un autre
+  launcher **ne peuvent pas être vérifiés** (backend injoignable) et que le projet **n'est pas ouvert ici**, l'écriture
+  est **autorisée** : `projectApply` → `{ "ok": true, "warn": "état du conteneur inconnu (backend injoignable) :
+  s'appliquera à la prochaine ouverture" }`, `configSave` / `configApply` → `{ "saved": true, …, "warn": "…" }`. Refus
+  **seulement** sur blocker **confirmé** (ouvert ici, autre launcher confirmé, conteneur actif confirmé). Le
+  déplacement / renommage (#216) reste fail-closed (backend injoignable → refus).
 - **Méthodes concernées** :
   - `projectApply` avec `env` : refus **avant toute écriture** (même ordre que backend/image : contrôles sans écriture
     d'abord) — `{ "ok": false, "field": "env", "msg": "<raison>", "blockers": ["…"] }` ; les autres parties de la même
@@ -1036,12 +1042,16 @@ on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un 
     ouvert : ils ne passent pas par cette garde).
   - `configSave`, `configApply`, `configValidate` sur `kind: "project-env"` (éditeur YAML / formulaire de l'env du
     projet, `path`) : `configSave` / `configApply` → même refus `{ "ok": false, "field": "env", "msg", "blockers" }` ;
-    `configValidate` reste permis (lecture) ; `configOpen` / `configModel` ajoutent `"readOnly": true` et
-    `"readOnlyReason"`.
-  - `ApplyExec` / `execApply` / `projectApply.image|backend` : refus inchangé (déjà en place), même message.
+    `configValidate` reste permis (lecture) ; `configOpen` ajoute `"readOnly": true` et `"readOnlyReason"`
+    (**écart d'implémentation accepté** : `configModel` n'a pas de modèle structuré pour `project-env`, il n'en reçoit
+    donc pas).
+  - `ApplyExec` / `execApply` / `projectApply.image|backend` : refus inchangé (déjà en place), même forme
+    `{ "ok": false, "field": "env", "msg", "blockers" }` pour un projet ouvert ici.
 - **`msg`** (une raison, la première blocker) : « projet ouvert — fermez le projet pour modifier son environnement »,
   « projet ouvert par un autre launcher (<hôte>) — … », « conteneur du projet en cours d'exécution — … ».
-- **`projectSettings`** gagne `"envLocked": true|false` et `"envLockReason": "<msg>"` : l'interface grise les sections
+- **`projectSettings`** gagne `"envLocked": true|false` et `"envLockReason": "<msg>"`, calculés **sans interroger les
+  moteurs** (ouvert ici, session vivante vue, conteneur actif vu à la dernière lecture) — indicatif ; le contrôle
+  complet est fait à l'écriture. L'interface grise les sections
   `env.yaml` du formulaire et l'éditeur YAML (lecture seule) avec cette mention ; un refus serveur (autre launcher,
   conteneur démarré entre-temps) affiche `msg`.
 - **Coque tmux** : F2 → entrées d'environnement grisées et mention « fermez le projet pour modifier son
