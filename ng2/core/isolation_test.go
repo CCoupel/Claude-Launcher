@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -71,7 +72,7 @@ func TestSyncLauncherEnvVersLeVraiDossierRefuse(t *testing.T) {
 // Journal des écritures de secrets : empreinte et longueur, jamais la valeur ; une ligne par clé secrète modifiée.
 func TestJournalDesEcrituresDeSecrets(t *testing.T) {
 	d := t.TempDir()
-	const tok = "ghp_FAKE_journal_test_value_1234567890"
+	const tok = "ghp_FAKE_TEST_journal_value_1"
 	vars := []envVar{{"GH_TOKEN", tok}, {"GITHUB_PERSONAL_ACCESS_TOKEN", tok}, {"CLAUDE_CODE_DISABLE_MOUSE", "1"}}
 	if err := SyncSettingsEnv(d, vars); err != nil {
 		t.Fatal(err)
@@ -85,7 +86,7 @@ func TestJournalDesEcrituresDeSecrets(t *testing.T) {
 	if len(lines) != 2 { // deux clés secrètes ; la clé non secrète n'est pas journalisée
 		t.Fatalf("lignes = %d : %s", len(lines), j)
 	}
-	for _, want := range []string{`"key":"GH_TOKEN"`, `"len":38`, `"fp":"` + secretFp(tok) + `"`, `"pid":`, `"bin":`, `"version":`, `"cmd":`, `"host":`, `"at":`} {
+	for _, want := range []string{`"key":"GH_TOKEN"`, `"len":` + strconv.Itoa(len(tok)), `"fp":"` + secretFp(tok) + `"`, `"pid":`, `"bin":`, `"version":`, `"cmd":`, `"host":`, `"at":`} {
 		if !strings.Contains(j, want) {
 			t.Errorf("journal sans %s : %s", want, j)
 		}
@@ -96,7 +97,7 @@ func TestJournalDesEcrituresDeSecrets(t *testing.T) {
 		t.Error("écriture journalisée sans changement")
 	}
 	// valeur modifiée : nouvelle ligne avec l'empreinte précédente (prev)
-	const tok2 = "ghp_FAKE_journal_test_value_AUTRE"
+	const tok2 = "ghp_FAKE_TEST_journal_value_2"
 	_ = SyncSettingsEnv(d, []envVar{{"GH_TOKEN", tok2}, {"GITHUB_PERSONAL_ACCESS_TOKEN", tok}, {"CLAUDE_CODE_DISABLE_MOUSE", "1"}})
 	j2 := read()
 	if strings.Contains(j2, tok2) || !strings.Contains(j2, `"prev":"`+secretFp(tok)+`"`) || !strings.Contains(j2, secretFp(tok2)) {

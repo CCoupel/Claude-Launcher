@@ -60,9 +60,9 @@ func fakeGit(t *testing.T, body string) (rec string) {
 }
 
 func TestCloneJetonJamaisDansArgvNiMessages(t *testing.T) {
-	const tok = "ghp_SECRETTOKEN123"
+	const tok = "ghp_FAKE_TEST_clone_secret_123"
 	rec := fakeGit(t, `printf 'Receiving objects:  50%% (1/2)\r' >&2
-printf 'remote: Invalid username or password. ghp_SECRETTOKEN123\nfatal: Authentication failed for https://github.com/a/b\n' >&2
+printf 'remote: Invalid username or password. ghp_FAKE_TEST_clone_secret_123\nfatal: Authentication failed for https://github.com/a/b\n' >&2
 exit 128
 `)
 	dir := t.TempDir()
@@ -86,10 +86,10 @@ exit 128
 
 func TestCloneJetonSeulementPourGithub(t *testing.T) {
 	rec := fakeGit(t, "exit 0\n")
-	if err := CloneProject(context.Background(), "https://gitlab.example.org/a/b.git", t.TempDir(), CloneAuth{Token: "ghp_X"}, nil); err != nil {
+	if err := CloneProject(context.Background(), "https://gitlab.example.org/a/b.git", t.TempDir(), CloneAuth{Token: "ghp_FAKE_TEST_X"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(rec); strings.Contains(string(b), "ghp_X") || strings.Contains(string(b), "GIT_ASKPASS=") {
+	if b, _ := os.ReadFile(rec); strings.Contains(string(b), "ghp_FAKE_TEST_X") || strings.Contains(string(b), "GIT_ASKPASS=") {
 		t.Error("jeton GitHub présenté à un autre hôte")
 	}
 }
@@ -143,14 +143,14 @@ func TestAskpassSeulementPourGithub(t *testing.T) {
 	}
 	run := func(prompt string) (string, error) {
 		c := exec.Command(sh, prompt)
-		c.Env = append(os.Environ(), "CL_GIT_TOKEN=ghp_SECRET")
+		c.Env = append(os.Environ(), "CL_GIT_TOKEN=ghp_FAKE_TEST_askpass")
 		out, err := c.Output()
 		return strings.TrimSpace(string(out)), err
 	}
 	for prompt, want := range map[string]string{
 		"Username for 'https://github.com': ":                "x-access-token",
-		"Password for 'https://x-access-token@github.com': ": "ghp_SECRET",
-		"Password for 'https://github.com': ":                "ghp_SECRET",
+		"Password for 'https://x-access-token@github.com': ": "ghp_FAKE_TEST_askpass",
+		"Password for 'https://github.com': ":                "ghp_FAKE_TEST_askpass",
 	} {
 		if out, err := run(prompt); err != nil || out != want {
 			t.Errorf("%q → %q %v, attendu %q", prompt, out, err, want)
@@ -176,7 +176,7 @@ func TestEnvironnementGitNeutralise(t *testing.T) {
 	t.Setenv("GIT_PROXY_COMMAND", "/evil")
 	empty := filepath.Join(t.TempDir(), "gitconfig")
 	_ = os.WriteFile(empty, nil, 0o600)
-	env := strings.Join(cloneEnv(CloneURLInfo{Scheme: "https", Host: "github.com"}, t.TempDir(), CloneAuth{Token: "ghp_X"}, "/tmp/Prénom Nom/askpass.sh", empty), "\n")
+	env := strings.Join(cloneEnv(CloneURLInfo{Scheme: "https", Host: "github.com"}, t.TempDir(), CloneAuth{Token: "ghp_FAKE_TEST_X"}, "/tmp/Prénom Nom/askpass.sh", empty), "\n")
 	for _, bad := range []string{"GIT_CONFIG_PARAMETERS", "evil", "url.https"} {
 		if strings.Contains(env, bad) {
 			t.Errorf("environnement git garde %q", bad)
@@ -207,7 +207,7 @@ func TestAskpassValueGuillemeteSiBesoin(t *testing.T) {
 // Environnement du faux git : configuration globale vide, followRedirects désactivé.
 func TestCloneLanceGitAvecConfigNeutre(t *testing.T) {
 	rec := fakeGit(t, "exit 0\n")
-	if err := CloneProject(context.Background(), "https://github.com/a/b", t.TempDir(), CloneAuth{Token: "ghp_X"}, nil); err != nil {
+	if err := CloneProject(context.Background(), "https://github.com/a/b", t.TempDir(), CloneAuth{Token: "ghp_FAKE_TEST_X"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(rec)
