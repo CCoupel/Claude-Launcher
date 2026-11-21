@@ -31,15 +31,17 @@ import (
 type formMode int
 
 const (
-	formNone formMode = iota
+	formNone        formMode = iota
+	formMovePending          // déplacement inachevé : reprendre ou annuler (#216)
 	formRoot
 	formCategory // catégorie : liste des dossiers de la base, « racine » ou « ＋ nouvelle » (#214)
 	formNewCat   // saisie d'une nouvelle catégorie
 	formName
-	formSource  // source : vide, template ou dépôt git (#215)
-	formURL     // URL du dépôt à cloner
-	formCloning // clonage en cours (progression)
-	formTrust   // approbation de l'environnement d'un projet cloné (#215)
+	formMoveConfirm // confirmation du déplacement (#216)
+	formSource      // source : vide, template ou dépôt git (#215)
+	formURL         // URL du dépôt à cloner
+	formCloning     // clonage en cours (progression)
+	formTrust       // approbation de l'environnement d'un projet cloné (#215)
 	formRemote
 	formExec // socle d'exécution : hôte ou conteneur (image)
 )
@@ -67,9 +69,12 @@ type newForm struct {
 	remote    string
 	err       string
 	// exécution (formExec) : 0 = hôte, i = images[i-1] dans le backend ctrBe
-	exec     int
-	images   []string
-	ctrBe    string
+	exec   int
+	images []string
+	ctrBe  string
+	// déplacement (#216) : projet source et ses informations
+	moveFrom string
+	moveInfo *core.MoveInfo
 	existing string // F2 ou première ouverture : dossier du projet existant (pas de création)
 	openNext bool   // première ouverture : lancer le projet une fois configuré
 }
@@ -130,9 +135,12 @@ func (f *newForm) cycleCtrBe(d int) {
 // backend affecté, ou « hôte » ; sinon les défauts de backends.yaml.
 func (m model) startExecChoice(n core.Node, openNext bool) model {
 	f, ok := execForm(newForm{existing: n.Path, name: n.Name, openNext: openNext})
-	if !ok {
-		m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
-		return m
+	if !ok { // pas de backend conteneur : F2 ne propose plus que « Déplacer / renommer » (#216)
+		if openNext {
+			m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
+			return m
+		}
+		return m.startMove(n.Path, n.Name)
 	}
 	if core.Assigned(n.Path) || core.HasEnv(n.Path) {
 		b := core.ProjectBackend(n.Path)
@@ -232,6 +240,9 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if f.mode == formTrust {
 		return m.onTrustKey(k)
 	}
+	if f.mode == formMoveConfirm || f.mode == formMovePending {
+		return m.onMoveKey(k)
+	}
 	switch k.String() {
 	case "esc", "ctrl+c":
 		if f.mode == formCloning {
@@ -300,6 +311,14 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			_, serr := os.Stat(p)
 			f.category, f.newCat, f.mode = cat, serr != nil, formName
 		case formName:
+			if f.moveFrom != "" { // déplacement : destination contrôlée, puis confirmation
+				if _, err := m.moveTarget(); err != nil {
+					f.err = err.Error()
+				} else {
+					f.mode = formMoveConfirm
+				}
+				break
+			}
 			if p, err := core.ResolveProjectPathIn(m.cfg.Roots, f.base, f.category, f.name); err != nil {
 				f.err = err.Error()
 			} else if _, err := os.Stat(p); err == nil {
@@ -369,6 +388,9 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m.chooseSource(2)
 			}
 		case formExec: // un chiffre choisit (0 : hôte) ; r : revoir l'environnement d'un dépôt cloné (F2)
+			if strings.ToLower(s) == "m" && f.existing != "" { // m : déplacer / renommer le projet (#216)
+				return m.startMove(f.existing, f.name), nil
+			}
 			if strings.ToLower(s) == "r" && f.existing != "" {
 				if err := core.ReviewEnvTrust(f.existing); err != nil {
 					f.err = err.Error()
@@ -616,6 +638,9 @@ func (m model) renderForm(w int) string {
 	if f.mode == formTrust && f.trust != nil {
 		return m.renderTrust(w)
 	}
+	if f.mode == formMoveConfirm || f.mode == formMovePending {
+		return m.renderMove(w)
+	}
 	var sb strings.Builder
 	if f.existing != "" {
 		sb.WriteString(" " + core.Cyan.Render("⬢ Exécution de "+f.name) + "\n")
@@ -627,10 +652,14 @@ func (m model) renderForm(w int) string {
 		if f.err != "" {
 			sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")
 		}
-		sb.WriteString("\n " + core.Dim.Render("↑↓ 0-9 socle · ←→ backend · ↵ · esc"))
+		sb.WriteString("\n " + core.Dim.Render("↑↓ 0-9 socle · ←→ backend · ↵ · m déplacer / renommer · esc"))
 		return truncLines(sb.String(), w)
 	}
-	sb.WriteString(" " + core.Cyan.Render("✦ Nouveau projet") + "\n\n")
+	title := "✦ Nouveau projet"
+	if f.moveFrom != "" {
+		title = "⇄ Déplacer / renommer " + core.SafeTerminalText(f.moveInfo.Name)
+	}
+	sb.WriteString(" " + core.Cyan.Render(title) + "\n\n")
 	if f.mode == formRoot {
 		sb.WriteString(" " + core.Dim.Render("Dossier racine :") + "\n")
 		for i, r := range m.cfg.Roots {
