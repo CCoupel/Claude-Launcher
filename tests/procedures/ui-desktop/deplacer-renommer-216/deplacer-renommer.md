@@ -1,7 +1,7 @@
 # Procedure de Test — Deplacer / renommer un projet depuis l'interface (#216)
 
 **Version** : 6.6.0
-**Date** : 2026-11-21
+**Date** : 2026-11-21 (+ scenario 8, env.yaml projet ouvert)
 **Testeur** : utilisateur (validation humaine, label `VALID-HUMAINE`)
 
 Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`projectMoveInfo`, `projectMove`, etapes `dir` → `assign` → `conf` → `history` → `trust` → `ctr`, journal `moves.json`) ; maquette retenue B `docs/mockup/v6.6.0/ui/project_move__deplacer_renommer.html`. Equivalents automatises (projets factices, faux podman/k8s, echec injecte a chaque etape, EXDEV simule) : `ng2/core/projectmove216_test.go`, `ng2/ui/desktop/move216_test.go`, `ng2/ui/tmux/move216_test.go`. Automatise, donc a ne pas rejouer a la main : retour arriere exact a chaque etape, reprise apres echec du retour arriere, destination existante ou hors base refusee, copie EXDEV, blockers.
@@ -126,6 +126,29 @@ Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`projectMoveInfo`, `proje
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+### Scenario 8 — env.yaml : modification refusee tant que le projet ou son conteneur tourne (complement #216)
+
+**Validation** : HUMAIN — **Issues** : #216
+
+Meme regle que « Deplacer / renommer » et que le choix backend / image : l'environnement d'un projet (paquets, setup, on_start, watch, mounts, prefer, local, image de l'env.yaml) ne se modifie pas tant que le projet est ouvert ou que son conteneur tourne, ici **ou** depuis un autre launcher. Couleur, organisation et masquage des inactifs restent modifiables a chaud.
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Projet **ferme** (aucun onglet, conteneur arrete) : Reglages > Projet, ajouter un paquet puis Enregistrer ; puis « Editer en YAML » et modifier `setup` | Les deux ecritures reussissent ; `env.yaml` du projet modifie | | |
+| 2 | Ouvrir le projet, rouvrir Reglages > Projet | Sections d'environnement (paquets, setup, on_start, mounts…) **grisees / en lecture seule** avec la mention « fermez le projet pour modifier son environnement » ; couleur, organisation, masquage restent actifs | | |
+| 3 | Meme projet ouvert : « Editer en YAML » de l'env.yaml | Editeur en lecture seule avec la meme mention ; Enregistrer impossible | | |
+| 4 | Projet ouvert : changer la **couleur** puis le masquage des inactifs | Effet **a chaud**, sans refus | | |
+| 5 | Provoquer l'ecriture malgre l'interface (appel `/api/call` forge ou second onglet de Reglages ouvert **avant** l'ouverture du projet) : enregistrer l'environnement | Refus lisible du serveur (`{ok:false}` + raison « projet ouvert dans ce launcher ») ; `env.yaml` inchange (comparer avant/apres) | | |
+| 6 | Projet ouvert **par un autre launcher** (l'exe ouvre le projet, le hub tente de modifier l'environnement) | Refus « projet ouvert par un autre launcher » ; apres fermeture dans l'exe, l'ecriture est possible | | |
+| 7 | Projet en conteneur dont le **conteneur tourne** mais sans onglet ouvert ici (session laissee en arriere-plan) | Refus « conteneur ou pod en cours d'execution » ; apres arret du conteneur, ecriture possible | | |
+| 8 | Hub : F2 sur un projet ouvert > entrees d'environnement | Entrees **grisees** avec la mention « fermez le projet pour modifier son environnement » ; couleur / masquage inchanges | | |
+| 9 | **Projet clone** a l'approbation en attente : depuis la fenetre ou la coque, Accepter / Ouvrir sans / Revoir | L'approbation fonctionne normalement **meme si** elle ecrit ou scelle l'empreinte de `env.yaml` : le refus ne la bloque pas | | |
+| 10 | Creer un nouveau projet avec un socle conteneur (ecriture de l'env.yaml a la creation) et cloner un depot avec socle | Creation et clonage reussissent (le projet n'est pas encore ouvert) | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Criteres de Validation
 
 - [ ] Un deplacement reussi ne perd rien : fichiers, `.git`, reglages (couleur, organisation, masquage), affectation, historique des conversations
@@ -133,6 +156,7 @@ Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`projectMoveInfo`, `proje
 - [ ] L'approbation d'environnement d'un projet clone suit le projet (meme etat, meme sha) ; aucune entree orpheline, aucune approbation heritee par erreur
 - [ ] Jamais de deplacement d'un projet ouvert (ici ou par un autre launcher) ni d'un conteneur en cours d'execution
 - [ ] Aucun dossier cree hors des bases configurees
+- [ ] L'environnement (env.yaml) d'un projet ouvert, ou dont le conteneur tourne, n'est jamais modifie ; l'approbation d'un depot clone et la creation ne sont pas bloquees
 
 ## Notes QA
 
