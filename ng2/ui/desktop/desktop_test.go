@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -125,13 +126,47 @@ func stopBg(a *App) {
 	}
 }
 
-// drainTree : os.RemoveAll de dir, retenté jusqu'à l'échéance tant que des écritures tardives le font échouer.
-func drainTree(dir string, within time.Duration) {
+// drainTree : os.RemoveAll de dir, retenté jusqu'à l'échéance tant que des écritures tardives le font échouer. Sur échec
+// définitif, DIT ce qui reste (chemin, taille, âge de chaque fichier ; xdg_cache_home et claude_config_dir d'abord) :
+// c'est ce qui permet d'identifier l'écrivain tardif d'un « directory is not empty » vu seulement en CI Windows.
+func drainTree(t *testing.T, dir string, within time.Duration) {
+	t.Helper()
+	var err error
 	for end := time.Now().Add(within); ; time.Sleep(25 * time.Millisecond) {
-		if err := os.RemoveAll(dir); err == nil || time.Now().After(end) {
+		if err = os.RemoveAll(dir); err == nil {
 			return
 		}
+		if time.Now().After(end) {
+			break
+		}
 	}
+	var left []string
+	_ = filepath.Walk(dir, func(p string, st os.FileInfo, werr error) error {
+		if werr != nil || st == nil {
+			left = append(left, p+" (illisible : "+fmt.Sprint(werr)+")")
+			return nil
+		}
+		kind := "fichier"
+		if st.IsDir() {
+			kind = "dossier"
+		}
+		rel, _ := filepath.Rel(dir, p)
+		left = append(left, fmt.Sprintf("%-8s %s  %d o  modifié il y a %s", kind, rel, st.Size(), time.Since(st.ModTime()).Round(time.Millisecond)))
+		return nil
+	})
+	sort.SliceStable(left, func(i, j int) bool { // caches et config claude d'abord : ce sont les écrivains tardifs habituels
+		pri := func(s string) int {
+			if strings.Contains(s, "xdg_cache_home") || strings.Contains(s, "claude_config_dir") {
+				return 0
+			}
+			return 1
+		}
+		return pri(left[i]) < pri(left[j])
+	})
+	if len(left) > 40 {
+		left = append(left[:40], fmt.Sprintf("… et %d autres", len(left)-40))
+	}
+	t.Errorf("effacement du bac à sable impossible après %s (%v) ; reste :\n  %s", within, err, strings.Join(left, "\n  "))
 }
 
 // sandbox : HOME, config, CLAUDE_CONFIG_DIR et racine de projets isolés ; un
@@ -154,7 +189,7 @@ func sandbox(t *testing.T, root string, names ...string) (projects []string) {
 	// dernier nettoyage (s'exécute APRÈS l'arrêt de l'App et l'attente des cartes) : une écriture de cache d'une tâche de
 	// fond qui finit juste après la fin du test ferait échouer le RemoveAll de t.TempDir (« directory not empty », #224) —
 	// on vide l'arborescence avec reprises jusqu'à une échéance, avant que t.TempDir ne s'en charge
-	t.Cleanup(func() { drainTree(root, 5*time.Second) })
+	t.Cleanup(func() { drainTree(t, root, 5*time.Second) })
 	t.Cleanup(cardsBg.Wait) // cartes complétées en tâche de fond : finies avant le nettoyage
 	t.Setenv("CL_NO_UPDATE", "1")
 	oldOwner := foreignOwner.Get() // jamais d'interrogation des moteurs (ni du réseau) dans les tests
