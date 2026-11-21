@@ -1,7 +1,7 @@
 # Procedure de Test — Nouveau projet : base et categorie en listes (#214)
 
 **Version** : 6.6.0
-**Date** : 2026-11-20
+**Date** : 2026-11-21
 **Testeur** : utilisateur (validation humaine, label `VALID-HUMAINE`)
 
 Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`ResolveProjectPath`, `projectBases`, `projectCategories`, `categoryCreate`, `create`) ; maquette retenue de `docs/mockup/INDEX.md`. Equivalents automatises : `ng2/core/newproject214_test.go`, `ng2/ui/desktop/create214_test.go`, JS `ng2/ui/desktop/testdata/new_project.js`. Les refus de chemin (`..`, absolu, `\`, lien sortant, base inconnue, appel forge) sont automatises : ne pas les rejouer a la main.
@@ -20,7 +20,7 @@ Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`ResolveProjectPath`, `pr
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | « Nouveau projet » | Dialogue conforme a la maquette retenue : listes Base et Categorie, champ Nom, chemin final affiche | | |
+| 1 | « Nouveau projet » | Dialogue conforme a la maquette retenue : listes Base et Categorie, champ Nom, chemin final affiche, sources « Projet brut » / « Template projet » / « Depot Git » (voir la procedure #215 pour les sources) | | |
 | 2 | Ouvrir la liste Base | Les deux bases dans l'ordre de `config.conf` ; une base absente du disque est signalee (grisee) | | |
 | 3 | Choisir la base A | Liste Categorie rechargee : `INFRA` (1 projet), `VIDE` (0) ; aucun projet ni dossier cache dans la liste | | |
 | 4 | Choisir `INFRA`, nom `essai-214` | Chemin final affiche = `C:\cl-test\PROJETS\INFRA\essai-214` | | |

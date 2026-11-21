@@ -1,7 +1,7 @@
-# Procedure de Test — Nouveau projet depuis un depot Git ou le template (#215)
+# Procedure de Test — Nouveau projet : Projet brut, Template projet, Depot Git (#215)
 
 **Version** : 6.6.0
-**Date** : 2026-11-20
+**Date** : 2026-11-21
 **Testeur** : utilisateur (validation humaine, label `VALID-HUMAINE`)
 
 Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`create` source `git` / `template`, `newJob`, `createCancel`, `initProposal`). Equivalents automatises (faux `git`, jamais de reseau) : `ng2/core/clone215_test.go`, `ng2/core/clone_test.go`, `ng2/ui/desktop/create215_test.go`. Automatise, donc a ne pas rejouer a la main : URL refusees, jeton absent de argv / `.git/config` / messages, nettoyage complet sur echec ou annulation, une seule creation a la fois.
@@ -20,7 +20,7 @@ Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`create` source `git` / `
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Nouveau projet > source « Depot Git », URL HTTPS du depot de test, categorie neuve `CLONES`, nom `essai-215` | Ligne d'authentification : jeton present / absent, sans jamais afficher sa valeur | | |
+| 1 | Nouveau projet > source « Depot Git » (⎇), URL HTTPS du depot de test, categorie neuve `CLONES`, nom `essai-215` | Ligne d'authentification : jeton present / absent, sans jamais afficher sa valeur | | |
 | 2 | Valider | Progression visible (etape + pourcentage) et fenetre reactive pendant le clonage | | |
 | 3 | Attendre la fin | Projet ouvert ; dossier `…\CLONES\essai-215` contient le depot ; categorie creee | | |
 | 4 | Ouvrir `.git\config` du projet dans un editeur | Une seule origine = l'URL, **aucun jeton**, aucun credential helper | | |
@@ -71,13 +71,13 @@ Reference : `contracts/desktop-dispatch.md` § v6.6.0 (`create` source `git` / `
 
 ---
 
-### Scenario 5 — Source Template : proposition de /init-project
+### Scenario 5 — Source « Template projet » : proposition de /init-project
 
 **Validation** : HUMAIN — **Issues** : #215
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Nouveau projet > source « Template », nom `tpl-215` | Projet cree et ouvert ; `/init-project` n'est **pas** lance d'office | | |
+| 1 | Nouveau projet > source « Template projet » (◆), nom `tpl-215` (remote facultatif : laisser vide) | Projet cree (dossier + `git init`, aucun `CLAUDE.md` minimal) et ouvert ; `/init-project` n'est **pas** lance d'office | | |
 | 2 | Observer la fenetre | Bandeau « Lancer /init-project ? » apparait une seule fois | | |
 | 3 | Cliquer « Plus tard » | Bandeau retire ; ne revient pas tant que le launcher tourne | | |
 | 4 | Relancer le launcher, rouvrir le projet | Bandeau propose de nouveau (marqueur `.claude-launcher/init-proposed` conserve) | | |
@@ -115,11 +115,31 @@ Prerequis du scenario : un **depot de test** contenant `.claude-launcher/env.yam
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
+---
+
+### Scenario 7 — Source « Projet brut » : dossier + git init, avec et sans remote
+
+**Validation** : HUMAIN — **Issues** : #215
+
+Les trois sources du dialogue sont **Projet brut** (▢), **Template projet** (◆) et **Depot Git** (⎇) ; l'ancienne option « gere » n'existe plus (ni dans la fenetre native, ni dans la coque).
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Nouveau projet : lister les sources proposees | Exactement trois : Projet brut, Template projet, Depot Git ; aucune option « gere » ; textes d'aide : brut « dossier et git init… Pas de /init-project », template « …puis /init-project propose », git « clonage d'une URL » | | |
+| 2 | Source « Projet brut », nom `brut-sans-remote`, **champ remote vide**, valider | Projet cree et ouvert ; `git init` fait (`.git` present) ; `git remote -v` **vide** ; aucun `CLAUDE.md` minimal cree ; **aucun** `/init-project` lance ni propose (pas de bandeau) ; pas de marqueur `.claude-launcher/init-proposed` | | |
+| 3 | Source « Projet brut », nom `brut-avec-remote`, remote `git@github.com:moi/depot-test.git`, valider | Meme resultat, et `git remote -v` montre `origin` = cette URL ; toujours aucun `/init-project` | | |
+| 4 | Source « Projet brut », remote **invalide** (`file:///tmp/x`, ou `-u`) | Refus lisible sous le champ ; dossier non cree (ou supprime) ; rien dans l'arbre | | |
+| 5 | Comparer avec « Template projet » (nom `tpl-comp`, meme remote) | `git init` + remote identiques a « brut » ; en plus : marqueur `init-proposed` et bandeau « Lancer /init-project ? » a la 1re ouverture (scenario 5) | | |
+| 6 | Meme parcours dans la **coque tmux** : touches `v` (brut), `t` (template), `g` (depot git) a l'etape source | Memes resultats (brut avec et sans remote : `git init`, remote seulement si fourni, pas de `/init-project`) | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
 ## Criteres de Validation
 
 - [ ] Le jeton n'apparait nulle part (argv, `.git/config`, messages, journaux)
 - [ ] Aucun dossier ni categorie residuels apres un echec ou une annulation
-- [ ] `/init-project` jamais lance sans reponse de l'utilisateur
+- [ ] `/init-project` jamais lance sans reponse de l'utilisateur ; jamais propose pour « Projet brut »
+- [ ] Aucune option « gere » ni `CLAUDE.md` minimal ; « Projet brut » = dossier + `git init` (+ remote si fourni)
 - [ ] L'environnement d'un depot clone n'est jamais applique sans accord explicite ; tout changement du depot (apres accepter comme apres ouvrir sans) est redemande, sauf s'il vient du launcher lui-meme
 - [ ] Un registre d'approbation illisible refuse l'ouverture (echec ferme) sans etre reecrit
 
