@@ -1780,20 +1780,20 @@ async function envTrustBox(src) {
 // ── Déplacer / renommer un projet (#216) ─────────────────────────────────────
 // Fonctions pures (testdata/project_move.js).
 const sameLocation = (info, base, category, name) => base === info.base && (category || '') === (info.category || '') && name === info.name;
-// « Ce qui change » : [{ label, old?, text, dim? }]
-function moveRows(info, base, category, name) {
-  const oldPath = joinNewPath(info.base, info.category, info.name), newPath = joinNewPath(base, category, name);
-  const keyChanges = (category || '') !== (info.category || '') || name !== info.name;
-  return [
-    { label: 'Dossier', old: oldPath, text: newPath },
-    { label: 'Nom', text: info.key || '', dim: keyChanges ? '(recalculé selon la catégorie et le nom)' : '(inchangé)' },
-    { label: 'Conteneur / pod', text: 'supprimé le cas échéant, recréé sur le nouveau chemin à la prochaine ouverture' },
-    { label: 'projects.json', text: 'affectation de backend reportée' },
-    { label: 'URL', text: '/files/<nom>/… ', dim: keyChanges ? '(suit le nouveau nom)' : '(inchangée)' },
-    { label: 'config.conf', text: 'couleur, organisation, masquage reportés' },
-    { label: 'Historique claude', text: 'conversations reprises (--resume) déplacées' },
-    { label: 'Approbation env.', text: 'conservée (pas de nouvelle question)' },
-  ];
+// « Ce qui change » : [{ label, old?, text, dim? }] depuis `dest` de projectMoveInfo (serveur : seules les étapes qui changent).
+function moveRows(info, dest) {
+  if (!dest || dest.ok === false) return [];
+  const rows = [];
+  for (const i of dest.impacts || []) {
+    if (i.what === 'dir') rows.push({ label: 'Dossier', old: i.from, text: i.to });
+    else if (i.what === 'ctr') rows.push({ label: 'Conteneur / pod', text: (i.from || '') + ' supprimé, recréé sur le nouveau chemin à la prochaine ouverture' });
+    else if (i.what === 'assign') rows.push({ label: 'projects.json', text: 'affectation' + (i.value ? ' « ' + i.value + ' »' : '') + ' reportée' });
+    else if (i.what === 'conf') rows.push({ label: 'config.conf', text: ((i.keys || []).join(', ') || 'entrées du projet') + ' reporté(es)' });
+    else if (i.what === 'history') rows.push({ label: 'Historique claude', text: 'conversations reprises (--resume) déplacées' });
+  }
+  const at = rows.findIndex((r) => r.label === 'Dossier') + 1;
+  rows.splice(at, 0, { label: 'Nom', text: dest.key || info.key || '', dim: dest.keyChanged ? '(recalculé : était ' + (info.key || '') + ')' : '(inchangé)' });
+  return rows;
 }
 // message d'échec : étape, retour arrière ou état partiel
 function moveFailText(r) {
@@ -1822,6 +1822,22 @@ async function moveBox(path) {
       }
       b.append(bx);
     }
+    const pend = info.pending;
+    if (pend) {
+      const px = el('div', 'note warn');
+      px.append(el('div', '', '⚠ Déplacement inachevé : ' + pend.from + ' → ' + pend.to));
+      px.append(el('div', 'dim', 'étape en échec : ' + (pend.step || '?') + ' · faites : ' + ((pend.done || []).join(', ') || 'aucune') + (pend.msg ? ' — ' + pend.msg : '')));
+      const pm = el('div', 'err');
+      const act = async (method, label) => {
+        px.querySelectorAll('button').forEach((x) => { x.disabled = true; }); pm.textContent = '';
+        let r; try { r = await transport.call(method, { id: pend.id }); } catch (e) { r = { ok: false, msg: e.message }; }
+        if (r && r.ok === true) { closeModal(); flash('✓ ' + label + ' : ' + (r.path || '')); return; }
+        pm.textContent = moveFailText(r); px.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+      };
+      const rs = el('button', 'btn sm pri', 'Reprendre'); rs.onclick = () => act('projectMoveResume', 'Déplacement repris');
+      const ab = el('button', 'btn sm', 'Annuler le déplacement'); ab.onclick = () => act('projectMoveAbort', 'Déplacement annulé');
+      px.append(rs, ab, pm); b.append(px);
+    }
     const cols = el('div', 'trustcols');
     const left = el('div', 'form');
     const baseSel = el('select');
@@ -1845,19 +1861,34 @@ async function moveBox(path) {
     const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
     const go = el('button', 'btn pri', 'Déplacer');
     btns.append(cancel, go); b.appendChild(btns);
-    const upd = () => {
+    let dest = null, qseq = 0, qtm = null;
+    const query = () => { // « ce qui change » : appelé à la frappe, le dernier appel gagne
+      clearTimeout(qtm); const my = ++qseq;
+      if (sameLocation(info, baseSel.value, curCat(), name.value.trim()) || !name.value.trim()) { dest = null; return; }
+      qtm = setTimeout(async () => {
+        let r = null;
+        try { r = await transport.call('projectMoveInfo', { path, base: baseSel.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value.trim() }); } catch (e) { r = null; }
+        if (my !== qseq) return;
+        dest = (r && r.dest) || null; render();
+      }, 200);
+    };
+    const upd = () => { query(); render(); };
+    const render = () => {
       final.textContent = joinNewPath(baseSel.value, curCat(), name.value.trim() || '<nom>');
       tbl.textContent = '';
-      for (const r of moveRows(info, baseSel.value, curCat(), name.value.trim() || info.name)) {
+      for (const r of moveRows(info, dest)) {
         const line = el('div', 'trow'); line.append(el('span', 'tl', r.label));
         const v = el('span', 'tv');
         if (r.old) v.append(el('code', 'old', r.old), el('span', 'dim', '→'));
         v.append(el('code', '', r.text)); if (r.dim) v.append(el('span', 'dim', r.dim));
         line.append(v); tbl.append(line);
       }
-      warn.classList.toggle('hidden', baseSel.value === info.base);
-      go.disabled = blockers.length > 0 || sameLocation(info, baseSel.value, curCat(), name.value.trim());
-      go.title = blockers.length ? 'voir les blocages ci-dessus' : go.disabled ? 'même emplacement' : '';
+      warn.classList.toggle('hidden', !(dest && dest.crossDevice));
+      const t = dest && dest.ok === false ? ({ base: baseErr, category: catErr, name: nameErr }[dest.field] || msg) : null;
+      for (const e of [baseErr, catErr, nameErr]) e.textContent = '';
+      if (t) t.textContent = dest.exists && !dest.msg ? 'la destination existe déjà' : (dest.msg || 'destination refusée');
+      go.disabled = blockers.length > 0 || sameLocation(info, baseSel.value, curCat(), name.value.trim()) || (dest && dest.ok === false);
+      go.title = blockers.length ? 'voir les blocages ci-dessus' : go.disabled ? 'même emplacement ou destination refusée' : '';
     };
     let want = info.category;
     const loadCats = makeCatLoader((bs) => transport.call('projectCategories', { base: bs }), (bs, cats) => {
