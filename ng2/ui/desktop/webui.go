@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"claude-launcher-ng2/core"
 )
@@ -58,7 +59,14 @@ type webUI struct {
 	pubKey string // adresse publique du serveur en marche : un changement le redémarre (#171)
 	last   string // dernière adresse écoutée, même arrêtée : un changement d'adresse renouvelle le jeton
 	state  WebUIState
+	// réessai de l'écoute à chaud (port pris entre l'arrêt et la ré-écoute) : essais faits et minuteur en attente
+	retries int
+	retryT  *time.Timer
 }
+
+// webListenRetryDelays : attentes (backoff) avant chacun des réessais de l'écoute ; leur nombre borne les essais. Après le
+// dernier, l'état reste « error » avec la raison et la mention de l'abandon (relancer en réenregistrant le réglage).
+var webListenRetryDelays = tun.Of([]time.Duration{250 * time.Millisecond, 500 * time.Millisecond, time.Second, 2 * time.Second, 4 * time.Second})
 
 // desktopWebTokenPath : jeton de l'interface web, tiré une fois par poste.
 func desktopWebTokenPath() string { return filepath.Join(core.CacheDir(), "desktop-web-token") }
@@ -166,7 +174,11 @@ func (a *App) WebUI() WebUIState {
 
 // applyWebUI : aligne le serveur sur le réglage desktop_web (démarre, arrête, déplace).
 // Sans effet dans le processus de « desktop --web » (le serveur y est le processus lui-même).
-func (a *App) applyWebUI() {
+func (a *App) applyWebUI() { a.applyWebUIFrom(false) }
+
+// applyWebUIFrom : applyWebUI ; retry vrai quand l'appel vient du minuteur de réessai (le compteur d'essais continue),
+// faux pour tout autre appel (changement de réglage, démarrage) : compteur remis à zéro, réessai en attente annulé.
+func (a *App) applyWebUIFrom(retry bool) {
 	if a.web {
 		return
 	}
@@ -174,6 +186,13 @@ func (a *App) applyWebUI() {
 	w := &a.webui
 	w.mu.Lock()
 	defer w.mu.Unlock()
+	if !retry {
+		w.retries = 0
+		if w.retryT != nil {
+			w.retryT.Stop()
+			w.retryT = nil
+		}
+	}
 	switch {
 	case err != nil: // réglage illisible : désactivé, la raison est dite
 		a.stopWebUILocked()
@@ -212,9 +231,28 @@ func (a *App) startWebUILocked(conf core.DesktopWebConf, pub *core.PublicURL, ac
 	w := &a.webui
 	ln, err := net.Listen("tcp", conf.Listen)
 	if err != nil {
-		w.state = WebUIState{State: "error", Listen: conf.Listen, Enabled: true, Msg: "écoute impossible sur " + conf.Listen + " : " + err.Error()}
+		// le port a pu être pris entre l'arrêt et la ré-écoute (passage à chaud) : réessai borné avec backoff, état visible
+		msg := "écoute impossible sur " + conf.Listen + " : " + err.Error()
+		delays := webListenRetryDelays.Get()
+		if w.retries < len(delays) {
+			d := delays[w.retries]
+			w.retries++
+			msg += fmt.Sprintf(" — nouvel essai %d/%d dans %s", w.retries, len(delays), d)
+			w.retryT = time.AfterFunc(d, func() {
+				select {
+				case <-a.quit:
+					return
+				default:
+				}
+				a.applyWebUIFrom(true)
+			})
+		} else {
+			msg += fmt.Sprintf(" — abandon après %d essais (réenregistrer le réglage pour réessayer)", len(delays))
+		}
+		w.state = WebUIState{State: "error", Listen: conf.Listen, Enabled: true, Msg: msg}
 		return
 	}
+	w.retries = 0
 	_, port, _ := net.SplitHostPort(ln.Addr().String())
 	var tok string
 	var terr error
@@ -261,6 +299,11 @@ func (a *App) stopWebUILocked() {
 func (a *App) stopWebUI() {
 	a.webui.mu.Lock()
 	defer a.webui.mu.Unlock()
+	if a.webui.retryT != nil { // fermeture : plus aucun réessai
+		a.webui.retryT.Stop()
+		a.webui.retryT = nil
+	}
+	a.webui.retries = 0
 	a.stopWebUILocked()
 	a.webui.state = WebUIState{State: "off"}
 }
