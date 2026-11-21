@@ -114,7 +114,7 @@ type ConfSettingView struct {
 	Effect    string     `json:"effect,omitempty"`
 	EffectHow *EffectHow `json:"effectHow,omitempty"`
 	// Reveal (#227) : une entrée secrète peut être révélée (œil) ; faux pour un accès distant (œil grisé)
-	Reveal bool `json:"reveal,omitempty"`
+	Reveal *bool `json:"reveal,omitempty"` // présent (true|false) pour une entrée secrète seulement ; absent sinon
 }
 
 // ConfModel : config.conf lu en modèle.
@@ -864,7 +864,10 @@ func (m ConfModel) WithEffects(iface string, reveal bool) ConfModel {
 			h := how
 			s.Effect, s.EffectHow = eff, &h
 		}
-		s.Reveal = s.Type == "secret" && reveal
+		if s.Type == "secret" {
+			r := reveal
+			s.Reveal = &r // toujours présent pour un secret : false envoyé en accès distant (œil grisé)
+		}
 		out[i] = s
 	}
 	m.Settings = out

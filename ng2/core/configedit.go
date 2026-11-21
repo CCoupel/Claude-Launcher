@@ -774,3 +774,15 @@ func sortProblems(ps []ConfigProblem) {
 		return ps[i].Severity == SevError && ps[j].Severity != SevError
 	})
 }
+
+// ConfigReloadNote : ce qu'un enregistrement change sans redémarrer, pour les fichiers qui n'ont pas encore de pastille d'effet
+// (#226 : config.conf a `effect` / `apply`, donc pas de note). "" pour config.conf et les types inconnus.
+func ConfigReloadNote(kind ConfigKind) string {
+	switch kind {
+	case ConfBackends:
+		return "relu : backends, pools, correspondance de chemins, outils requis, serveur web du navigateur"
+	case ConfLauncherEnv, ConfProjectEnv:
+		return "pris en compte à la prochaine ouverture du projet (bootstrap du conteneur)"
+	}
+	return ""
+}

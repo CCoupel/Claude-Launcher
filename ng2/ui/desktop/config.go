@@ -186,6 +186,9 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 	a.configReload(kind)
 	st, _ := os.Stat(f.Path)
 	out := map[string]any{"saved": true, "problems": ps, "apply": a.applyInfo(kind, before, content)}
+	if n := core.ConfigReloadNote(kind); n != "" { // backends.yaml, hub, env.yaml : pas encore de pastille d'effet → note (config.conf : `effect` / `apply`)
+		out["note"] = n
+	}
 	if kind == core.ConfConf { // recopie dans settings.json avec la config relue : {ok} ou {ok:false, msg}
 		out["sync"] = a.syncSettings()
 	}

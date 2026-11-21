@@ -118,14 +118,14 @@ type model struct {
 // refreshCfg : m.cfg à jour de config.conf (date, taille ; une comparaison par tour). Invalide : dernière copie valide gardée et
 // dite dans la ligne d'état. Les racines (Roots) restent celles du démarrage : « relance du launcher » (#226).
 func (m model) refreshCfg() model {
-	fresh, warn := core.FreshConfig(m.cfg)
+	fresh, warn, src := core.FreshConfigText(m.cfg)
 	if warn != "" {
 		m.cfg.Stamp = fresh.Stamp
 		m.msg = "⚠ " + warn
 		return m
 	}
 	if !fresh.Stamp.Same(m.cfg.Stamp) { // relue : dire dans la ligne d'état ce qui a changé et ce qu'il reste à faire (#226)
-		src := core.ReadConfSrc()
+		// le texte comparé est celui que FreshConfig a VALIDÉ et chargé : pas une seconde lecture
 		if note := core.ApplyNote(core.ChangedOptions(m.confSrc, src, core.IfaceShell), core.IfaceShell); note != "" {
 			m.msg = note
 		}

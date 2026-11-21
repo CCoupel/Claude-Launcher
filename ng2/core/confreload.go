@@ -123,30 +123,37 @@ func (s ConfStamp) Same(o ConfStamp) bool { return s == o }
 // chargé : un fichier modifié entre la validation et le chargement est revu au tour suivant. Garde « jamais plus ancien »
 // avant toute recopie dans settings.json.
 func FreshConfig(cur Config) (cfg Config, warn string) {
+	cfg, warn, _ = FreshConfigText(cur)
+	return cfg, warn
+}
+
+// FreshConfigText : FreshConfig, et le texte de config.conf qui a été VALIDÉ puis chargé (src ; "" si rien n'a été adopté ou
+// fichier absent) — pour comparer l'ancien et le nouveau contenu sans une seconde lecture (#226).
+func FreshConfigText(cur Config) (cfg Config, warn, src string) {
 	if !ConfigChanged(cur.Stamp) {
-		return cur, ""
+		return cur, "", ""
 	}
 	b, err := os.ReadFile(ConfigPath())
 	if err != nil && !os.IsNotExist(err) {
-		return cur, "" // illisible maintenant : ne pas retomber sur les valeurs par défaut, réessayer
+		return cur, "", "" // illisible maintenant : ne pas retomber sur les valeurs par défaut, réessayer
 	}
 	if err == nil {
 		noteConfPresent()
 	} else if !cur.Stamp.MTime.IsZero() && absentWithinGrace() { // supprimé puis recréé par un éditeur : copie gardée un moment
-		return cur, ""
+		return cur, "", ""
 	}
 	if err == nil {
 		if ps := ValidateConfig(ConfConf, b); HasErrors(ps) {
 			cur.Stamp = ConfStamp{MTime: confStampOf(ConfigPath()).MTime, Size: int64(len(b)), ReadAt: time.Now(), Sum: confSum(b)}
-			return cur, "config.conf invalide : dernière copie valide conservée — " + firstProblem(ps)
+			return cur, "config.conf invalide : dernière copie valide conservée — " + firstProblem(ps), ""
 		}
 	}
 	fresh := LoadConfig()
 	if err == nil && fresh.Stamp.Sum != confSum(b) { // modifié entre la validation et le chargement : non validé, au tour suivant
-		return cur, ""
+		return cur, "", ""
 	}
 	fresh.Roots = cur.Roots
-	return fresh, ""
+	return fresh, "", string(b)
 }
 
 func firstProblem(ps []ConfigProblem) string {

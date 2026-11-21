@@ -53,3 +53,31 @@ func TestChangedOptionsValeurEffective226(t *testing.T) {
 		t.Errorf("note : %q", n)
 	}
 }
+
+// Garde-fou #227 : toute entrée de type « secret » du modèle est révélable ET lue par RevealSecret. Une 2ᵉ clé secrète ajoutée
+// au modèle sans être branchée à RevealSecret fait échouer ce test (l'œil n'afficherait jamais rien, ou on ne saurait pas quoi lire).
+func TestToutSecretDuModeleEstRevelable227(t *testing.T) {
+	n := 0
+	for _, s := range confSettings {
+		if s.Type != "secret" {
+			continue
+		}
+		n++
+		if !RevealableKey(ConfConf, s.Key) {
+			t.Errorf("%s : secret du modèle mais pas révélable", s.Key)
+		}
+		conf, _ := confBench225(t)
+		editConf(t, conf, s.Key+"=ghp_FAKE_TEST_garde227\n", 0)
+		if v, err := RevealSecret(ConfConf, s.Key); err != nil || v == "" {
+			t.Errorf("%s : RevealSecret ne lit pas ce secret (%q, %v) — brancher la clé dans reveal.go", s.Key, v, err)
+		}
+	}
+	if n == 0 {
+		t.Fatal("aucun secret dans le modèle : garde-fou sans objet")
+	}
+	for _, s := range confSettings {
+		if s.Type != "secret" && RevealableKey(ConfConf, s.Key) {
+			t.Errorf("%s : révélable sans être de type secret", s.Key)
+		}
+	}
+}
