@@ -766,15 +766,32 @@ git par `.git/info/exclude`, jamais commité) reste tant que `/init-project` n'a
 reproposé au lancement suivant du launcher (une fois par processus). Seul un projet connu portant le marqueur est
 accepté. Coque tmux : même marqueur, même règle (question `[o/N]` à l'ouverture, retiré sur `o`).
 
-### `projectMoveInfo` **[NEW]**
+### `projectMoveInfo` **[NEW]** (complété 2026-11-21)
 
-Arguments : `{ "path" }`. Résultat :
+Arguments : `{ "path" }`, et facultativement la destination envisagée `{ "base", "category", "newCategory", "name" }`
+(appelée à la frappe par le dialogue, maquette B « ce qui change », sans rien écrire). Résultat :
 ```json
 { "base": "…", "category": "INFRA", "name": "supervision-k8s", "key": "infra-supervision-k8s",
-  "open": false, "blockers": [ "projet ouvert dans ce launcher" ] }
+  "open": false, "blockers": [ "projet ouvert dans ce launcher" ],
+  "dest": { "ok": true, "path": "/srv/projets/INFRA/supervision-k8s", "key": "infra-supervision-k8s",
+            "keyChanged": false, "crossDevice": true, "exists": false, "field": "", "msg": "",
+            "impacts": [ { "what": "dir", "from": "…", "to": "…" }, { "what": "ctr", "from": "infra-supervision-k8s", "to": "" },
+                         { "what": "assign", "value": "srv1-docker" }, { "what": "conf", "keys": ["PROJECT_COLORS"] },
+                         { "what": "history", "from": "…", "to": "…" } ] },
+  "pending": { "id": "m-20261121-0943-1", "from": "…/INFRA/supervision-k8s", "to": "…/MONITORING/supervision",
+               "fromKey": "infra-supervision-k8s", "toKey": "monitoring-supervision",
+               "step": "ctr", "done": ["dir", "assign", "conf", "history"], "msg": "…", "at": "2026-11-21T09:43:00Z" } }
 ```
-`blockers` : projet ouvert ici (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou
-pod **en cours d'exécution**, déplacement inachevé en attente (journal). Vide = déplaçable.
+- `key` : clé actuelle (`CtrName`, nom tmux / pod / `/files/<clé>`). `dest` : absent sans destination ; `dest.key` =
+  clé **recalculée** pour la destination (`CtrName` du nouveau chemin), `keyChanged` si elle diffère ; `crossDevice` :
+  la destination est sur un autre système de fichiers (copie puis suppression) ; `exists` : la destination existe
+  déjà (`ok: false`) ; erreur de la règle commune → `ok: false`, `field`, `msg`. `impacts` : lignes du tableau « ce
+  qui change » (seules les étapes qui changent quelque chose : `conf` absent si la clé ne change pas et qu'aucune
+  entrée n'existe, `ctr` absent sans conteneur ni StatefulSet).
+- `blockers` : projet ouvert ici (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou
+  pod **en cours d'exécution**, déplacement inachevé (`pending`). Vide = déplaçable.
+- `pending` : entrée de `moves.json` dont `from` **ou** `to` est `path` (le projet peut déjà être sous sa
+  destination si l'étape `dir` est faite) ; absent sinon. `done` : étapes terminées et non annulées, dans l'ordre.
 
 ### `projectMove` **[NEW]**
 
@@ -797,6 +814,25 @@ Arguments : `{ "path", "base", "category", "newCategory": false, "name" }`.
   reste, le projet porte le blocker « déplacement inachevé » et l'action propose « Reprendre » (rejoue depuis
   l'étape en échec) ou « Annuler » (retour arrière).
 - Succès : `{ "ok": true, "path": "<nouveau chemin>", "key": "<nouvelle clé>" }`, arbre relu, sélection suivie.
+
+### `projectMoveResume` **[NEW]** et `projectMoveAbort` **[NEW]** (2026-11-21)
+
+Arguments : `{ "id" }` (`pending.id` de `projectMoveInfo`). Sous le verrou du journal ; l'entrée doit exister (sinon
+`{ "ok": false, "msg": "aucun déplacement inachevé" }`) et le projet ne doit avoir **aucun autre** blocker (ouvert,
+conteneur actif).
+- `projectMoveResume` (« Reprendre ») : rejoue les étapes restantes à partir de `pending.step` (les étapes de
+  `done` ne sont pas refaites ; chaque étape est idempotente : `dir` déjà à destination, entrée déjà reportée, ancien
+  conteneur déjà absent = succès). Résultat comme `projectMove` : succès `{ "ok": true, "path", "key" }` (entrée
+  retirée du journal) ; nouvel échec → retour arrière comme `projectMove` (`rolledBack: true`, entrée retirée) ou
+  `state: "partial"` (entrée mise à jour : `step`, `done`, `msg`).
+- `projectMoveAbort` (« Annuler ») : annule les étapes de `done` dans l'ordre inverse (l'étape `ctr`, si faite, ne
+  s'annule pas : l'ancien conteneur est recréé à la prochaine ouverture). Succès `{ "ok": true, "path": "<chemin
+  d'origine>", "key": "<clé d'origine>", "rolledBack": true }` (entrée retirée) ; échec `{ "ok": false, "state":
+  "partial", "done", "msg" }` (entrée mise à jour).
+- Les deux relisent l'arbre et suivent la sélection. Aucun traitement automatique au démarrage : l'entrée reste en
+  `pending` jusqu'au choix de l'utilisateur (blocker « déplacement inachevé » affiché sur le projet).
+- Coque tmux : même choix depuis F2 → « déplacer / renommer » sur un projet en `pending` (touches `r` reprendre,
+  `a` annuler).
 
 ### `launcherInfo` **[NEW]** (#219)
 
