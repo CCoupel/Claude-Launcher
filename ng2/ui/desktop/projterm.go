@@ -363,6 +363,9 @@ func (t *projTerm) prepareHost(cfg core.Config, start, copyInit string, synced b
 	_ = t.localTmux("set-option", "-p", "-t", t.win, "window-style", "bg=colour"+t.color).Run()
 	keys := core.HostStartKeys(cfg, t.path, start, copyInit, synced)
 	if out, err := t.localTmux("send-keys", "-t", t.win, keys, "Enter").CombinedOutput(); err != nil {
+		// session créée mais démarrage non envoyé : la laisser vivante ferait rattacher les ouvertures suivantes à un
+		// terminal vide (has-session / « duplicate session » réussissent) — on la supprime, la prochaine ouverture repart de zéro
+		_ = t.localTmux("kill-session", "-t", "="+t.sess).Run()
 		return fmt.Errorf("send-keys : %s", strings.TrimSpace(string(out)))
 	}
 	return nil
