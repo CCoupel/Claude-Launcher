@@ -88,6 +88,7 @@ func effectiveMode(path string, mode launchMode) launchMode {
 }
 
 func launchProject(cfg core.Config, session string, n core.Node, latest string, mode launchMode) error {
+	cfg, _ = core.FreshConfig(cfg) // config.conf relu avant la recopie dans settings.json et le démarrage (#225)
 	mode = effectiveMode(n.Path, mode)
 	sess := targetSession(session)
 	if tmuxWindows(sess)[n.Key] {

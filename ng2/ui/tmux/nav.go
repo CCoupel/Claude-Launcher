@@ -114,6 +114,19 @@ type model struct {
 	loadedAt     time.Duration
 }
 
+// refreshCfg : m.cfg à jour de config.conf (date, taille ; une comparaison par tour). Invalide : dernière copie valide gardée et
+// dite dans la ligne d'état. Les racines (Roots) restent celles du démarrage : « relance du launcher » (#226).
+func (m model) refreshCfg() model {
+	fresh, warn := core.FreshConfig(m.cfg)
+	if warn != "" {
+		m.cfg.Stamp = fresh.Stamp
+		m.msg = "⚠ " + warn
+		return m
+	}
+	m.cfg = fresh
+	return m
+}
+
 func NewModel(launch bool) model {
 	cfg := core.LoadConfig()
 	m := model{
@@ -555,6 +568,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case usageMsg:
 		m.usage = core.Usage(msg)
 	case tickMsg:
+		m = m.refreshCfg() // config.conf relu par date à chaque tour, sans relancer le navigateur (#225)
 		return m, tea.Batch(tickCmd(), windowsCmd(m.session))
 	case cloneTickMsg:
 		if m.job != nil {

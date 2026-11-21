@@ -82,6 +82,7 @@ func (a *App) refreshProject(path string) (any, error) {
 	if err := a.checkProjectArg(true, path); err != nil {
 		return nil, err
 	}
+	_ = a.confNow() // config.conf relu à l'instant : le rafraîchissement part de la valeur à jour (#225)
 	if _, busy := a.refreshing.LoadOrStore(path, true); busy {
 		return map[string]any{"ok": false, "msg": "rafraîchissement déjà en cours"}, nil
 	}
@@ -308,7 +309,7 @@ func (a *App) ctrCopy() core.CtrView {
 // refreshSession : session de reprise, et onglet retiré s'il n'a plus de
 // session ni de conteneur derrière lui.
 func (a *App) refreshSession(path string, reliable bool) error {
-	r, has := a.conf().PendingSession(path)
+	r, has := a.confNow().PendingSession(path)
 	a.mu.Lock()
 	if has {
 		a.sessions[path] = r
@@ -385,7 +386,7 @@ func (a *App) refreshUsage() {
 	}
 	defer a.usageGate.end()
 	core.LinkUsageCache()
-	core.FetchUsageForced(a.conf().UsageRefreshSec)
+	core.FetchUsageForced(a.confNow().UsageRefreshSec)
 	u := core.ReadUsage()
 	a.mu.Lock()
 	a.usage = u

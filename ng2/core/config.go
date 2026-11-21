@@ -14,7 +14,9 @@ import (
 
 // Config reprend les clés utiles du ~/.config/claude-launcher.conf existant.
 type Config struct {
-	Roots           []string
+	Roots []string
+	// Stamp : date et taille de config.conf à la lecture de cette copie (#225) — voir FreshConfig
+	Stamp           ConfStamp
 	UsageRefreshSec int
 
 	GithubToken   string
@@ -102,6 +104,7 @@ func LoadConfig() Config { return loadConfigAt(ConfigPath()) }
 // loadConfigAt : LoadConfig pour le fichier path (validation de l'éditeur de
 // configuration, configedit.go : même lecture que le chargement réel).
 func loadConfigAt(path string) Config {
+	stamp := confStampOf(path) // AVANT la lecture : un fichier réécrit pendant la lecture sera revu au tour suivant
 	home, _ := os.UserHomeDir()
 	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, ProjectHideIdle: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
@@ -252,6 +255,7 @@ func loadConfigAt(path string) Config {
 	if len(cfg.Palette) == 0 {
 		cfg.Palette = strings.Fields("17 52 22 53 58 23 54 238 18 59")
 	}
+	cfg.Stamp = stamp
 	return cfg
 }
 

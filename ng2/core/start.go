@@ -143,6 +143,7 @@ func EnsureEndSession(path string) {
 // SyncLauncherEnv : recopie des variables du launcher dans settings.json ;
 // false si elle a échoué (les secrets sont alors tapés comme avant).
 func SyncLauncherEnv(cfg Config) bool {
+	cfg, _ = FreshConfig(cfg)        // jamais une copie plus ancienne que config.conf (#225) : relue si la date a changé
 	_ = SyncBrowserHook(ClaudeDir()) // consigne navigateur à chaque session (#106)
 	return SyncSettingsEnv(ClaudeDir(), cfg.EnvVars()) == nil
 }

@@ -24,7 +24,7 @@ type BaseInfo struct {
 // projectBases : racines configurées dans l'ordre de config.conf ; default = la seule base accessible, sinon la
 // base du projet sélectionné dans l'arbre, sinon "".
 func (a *App) projectBases() ([]BaseInfo, string) {
-	roots := a.conf().Roots
+	roots := a.confNow().Roots
 	bases := make([]BaseInfo, 0, len(roots))
 	var ok []string
 	for _, r := range roots {
@@ -143,7 +143,7 @@ func (a *App) create(in createArgs) (any, error) {
 			return map[string]any{"ok": false, "field": "remote", "msg": why}, nil
 		}
 	}
-	roots := a.conf().Roots
+	roots := a.confNow().Roots
 	var job *createJob // source git : place réservée AVANT toute écriture, test et pose sous un seul verrou (jamais deux clones)
 	if source == "git" {
 		if _, err := core.ValidateCloneURL(in.URL); err != nil {
@@ -230,7 +230,7 @@ func (a *App) startCloneJob(in createArgs, dir string, undo func() string, job *
 			fail("registre d'approbation : " + err.Error())
 			return
 		}
-		auth := core.CloneAuth{Token: a.conf().GithubToken, Backend: in.Backend}
+		auth := core.CloneAuth{Token: a.confNow().GithubToken, Backend: in.Backend}
 		err := core.CloneProject(ctx, in.URL, dir, auth, func(step string, pct int) {
 			a.setJob(id, func(j *createJob) { j.Step, j.Pct = step, pct })
 		})

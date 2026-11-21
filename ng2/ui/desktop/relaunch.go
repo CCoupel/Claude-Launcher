@@ -54,6 +54,7 @@ func (a *App) relaunchLauncher(confirm bool) (any, error) {
 	if !confirm {
 		return map[string]any{"ok": false, "msg": "confirmation requise"}, nil
 	}
+	_ = a.confNow() // config.conf à jour avant la relance (la copie en mémoire ne doit pas précéder le fichier, #225)
 	if a.launcherMode() == "pod" {
 		go func() {
 			a.Stop()

@@ -180,6 +180,9 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 	note := a.configReload(kind)
 	st, _ := os.Stat(f.Path)
 	out := map[string]any{"saved": true, "problems": ps, "note": note}
+	if kind == core.ConfConf { // recopie dans settings.json avec la config relue : {ok} ou {ok:false, msg}
+		out["sync"] = a.syncSettings()
+	}
 	if len(envWarns) > 0 {
 		out["warn"] = envWarns[0] // état du conteneur inconnu : écrit quand même
 	}
@@ -193,6 +196,62 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 // conf : configuration courante (relue à chaud après un enregistrement de
 // config.conf).
 func (a *App) conf() core.Config {
+	a.confRefresh(false)
+	return a.confCopy()
+}
+
+// confNow : conf() avec relecture IMMÉDIATE si config.conf a changé (pas la limite d'une par seconde) — avant une action qui en
+// dépend et la fige : ouverture d'un projet, création, rafraîchissement, milestones, relance (#225).
+func (a *App) confNow() core.Config {
+	a.confRefresh(true)
+	return a.confCopy()
+}
+
+// confRecheck : au plus une comparaison de config.conf (date, taille) par intervalle pour conf().
+var confRecheck = tun.Of(time.Second)
+
+// confRefresh : relit config.conf si sa date ou sa taille a changé depuis la copie en mémoire (édition extérieure : éditeur,
+// autre launcher, git pull). Invalide : dernière copie valide gardée et dite (message de pied). Même effet à chaud que
+// configReload (consommation, mise en page, cartes). Sans surveillance de fichier : 9P / MooseFS.
+func (a *App) confRefresh(force bool) {
+	if !force {
+		now := time.Now().UnixNano()
+		last := a.confCheck.Load()
+		if now-last < int64(confRecheck.Get()) || !a.confCheck.CompareAndSwap(last, now) {
+			return
+		}
+	}
+	a.confMu.RLock()
+	cur := a.cfg
+	a.confMu.RUnlock()
+	if core.ConfigStamp().Same(cur.Stamp) {
+		return
+	}
+	fresh, warn := core.FreshConfig(cur)
+	if warn != "" {
+		a.confMu.Lock()
+		if a.cfg.Stamp.Same(cur.Stamp) {
+			a.cfg.Stamp = fresh.Stamp // vue : pas de revalidation ni de nouveau message avant la prochaine modification
+		}
+		a.confMu.Unlock()
+		a.bg(func() { a.setMsg("⚠ " + warn) })
+		return
+	}
+	a.confMu.Lock()
+	if !a.cfg.Stamp.Same(cur.Stamp) { // relue entre-temps par un autre appelant (watcher, enregistrement) : rien à refaire
+		a.confMu.Unlock()
+		return
+	}
+	a.confAt = fresh.Stamp.MTime
+	a.cfg = fresh
+	a.confMu.Unlock()
+	a.bg(a.readUsage)
+	a.bg(a.relayoutOpen)
+	a.changed()
+	a.cardsChanged()
+}
+
+func (a *App) confCopy() core.Config {
 	a.confMu.RLock()
 	defer a.confMu.RUnlock()
 	c := a.cfg
@@ -338,6 +397,16 @@ func (a *App) confChangedOnDisk() bool {
 	return true
 }
 
+// syncSettings : recopie des variables du launcher (jeton, souris, teams, EXTRA_ENVS) dans le settings.json utilisateur avec la
+// configuration relue (#225) — résultat pour l'interface : {ok:true} ou {ok:false, msg}. Garde « jamais plus ancien » : voir
+// core.SyncLauncherEnv.
+func (a *App) syncSettings() map[string]any {
+	if core.SyncLauncherEnv(a.confNow()) {
+		return map[string]any{"ok": true}
+	}
+	return map[string]any{"ok": false, "msg": "recopie dans settings.json impossible (fichier illisible ou non inscriptible) : les valeurs secrètes seront tapées dans le shell à l'ouverture"}
+}
+
 // configReload : ce qui est relu sans redémarrer.
 func (a *App) configReload(kind core.ConfigKind) string {
 	switch kind {
@@ -349,6 +418,7 @@ func (a *App) configReload(kind core.ConfigKind) string {
 		cfg.Roots = a.cfg.Roots // la surveillance de l'arborescence garde ses racines
 		a.cfg = cfg
 		a.confMu.Unlock()
+		a.bg(func() { core.SyncLauncherEnv(a.conf()) }) // recopie dans settings.json avec la config relue (#225)
 		a.bg(a.readUsage)
 		a.bg(a.relayoutOpen) // organisation des fenêtres de projet changée : remise en page tout de suite (#153)
 		a.changed()

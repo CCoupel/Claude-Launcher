@@ -281,7 +281,7 @@ func (t *projTerm) run() {
 
 // prepare : backend, script de démarrage, conteneur ou session de l'hôte.
 func (t *projTerm) prepare() error {
-	cfg := t.a.conf()
+	cfg := t.a.confNow()
 	be, err := core.LaunchBackend(t.path)
 	if err != nil {
 		return err

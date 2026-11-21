@@ -35,6 +35,7 @@ type App struct {
 	openGate  openGate // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
 	cfg       core.Config
 	confMu    sync.RWMutex // cfg relue à chaud (config.go)
+	confCheck atomic.Int64 // dernière comparaison de config.conf par conf() (ns) : au plus une par seconde (#225)
 	confAt    time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
@@ -780,7 +781,7 @@ func (a *App) fetchMilestone(p string, force bool) error {
 		}
 		var s core.MsState
 		var err error
-		a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
+		a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.confNow().GithubToken) })
 		if !force {
 			<-core.MsSem
 		}
