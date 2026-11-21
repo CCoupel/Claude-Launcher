@@ -523,6 +523,9 @@ func (a *App) execApply(path, image, backend string, openNext bool) (any, error)
 	if t := a.term(path); t != nil {
 		return nil, fmt.Errorf("projet ouvert — le fermer avant de changer de backend")
 	}
+	if m := a.envEditRefusal(path); m != "" { // conteneur actif ou projet ouvert ailleurs : env.yaml (image) et backend intacts
+		return nil, fmt.Errorf("%s", m)
+	}
 	if err := core.ApplyExec(path, image, backend); err != nil {
 		return nil, err
 	}

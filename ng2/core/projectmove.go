@@ -360,6 +360,9 @@ func MoveBlockers(env MoveEnv, path string) []string {
 	return out
 }
 
+// RunningCtr : nom du conteneur / pod du projet en cours d'exécution et de son backend ; "" sinon (listing des moteurs).
+func RunningCtr(path string) string { return runningCtr(path) }
+
 // runningCtr : nom du backend dont un conteneur / pod du projet tourne ; "" sinon.
 func runningCtr(path string) string {
 	if !HasEnv(path) {

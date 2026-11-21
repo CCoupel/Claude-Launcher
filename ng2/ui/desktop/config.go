@@ -138,6 +138,11 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: rerr.Error()}}}, nil
 		}
 	}
+	if kind == core.ConfProjectEnv { // éditeur YAML de l'env.yaml : refusé projet ouvert / conteneur actif, revérifié à l'écriture
+		if m := a.envEditRefusal(project); m != "" {
+			return envRefused(m), nil
+		}
+	}
 	ps, err := core.SaveConfig(kind, f.Path, []byte(content), expected)
 	if kind == core.ConfConf {
 		ps = maskProblems(ps, core.ConfTokenValue(content), core.ConfTokenValue(cur)) // le jeton n'apparaît dans aucun message
@@ -552,6 +557,9 @@ func (a *App) refreshHubWarns(read func() []string) <-chan struct{} {
 // dans les tests : aucun accès aux moteurs ni au réseau).
 var foreignOwner = tun.Of(core.ForeignOwner)
 
+// runningOwner : conteneur / pod du projet en cours d'exécution (listing des moteurs), remplacé dans les tests.
+var runningOwner = tun.Of(core.RunningCtr)
+
 // foreignOwnerTimeout : délai global de la vérification du propriétaire.
 var foreignOwnerTimeout = tun.Of(5 * time.Second)
 
@@ -585,6 +593,15 @@ func (a *App) projectSettings(path string, changes []core.ConfigChange) (map[str
 	return out, nil
 }
 
+// envEditRefusal : "" si l'environnement du projet peut être modifié ; sinon la raison (ouvert ici, par un autre launcher,
+// conteneur / pod actif) avec la consigne « fermez le projet pour modifier son environnement ».
+func (a *App) envEditRefusal(path string) string { return core.EnvEditRefusal(a.moveEnv(), path) }
+
+// envRefused : réponse d'un refus d'écriture de l'environnement — {ok:false, saved:false, field:"env", msg}.
+func envRefused(msg string) map[string]any {
+	return map[string]any{"ok": false, "saved": false, "field": "env", "msg": msg}
+}
+
 // projectApply : applique les parties demandées (core.ApplyProjectSettings) puis
 // relit à chaud ce qui peut l'être : config.conf après une couleur (même si une
 // étape suivante a échoué : elle est écrite), les conteneurs après un backend ou
@@ -611,6 +628,7 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 			return map[string]any{"ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)"}, nil
 		}
 	}
+	in.EnvGuard = func() string { return a.envEditRefusal(path) } // env.yaml / backend / image : ni ouvert ni conteneur actif
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {
 		a.configReload(core.ConfConf)

@@ -187,3 +187,17 @@ func TestF2SansBackendProjetOuvert216(t *testing.T) {
 		t.Errorf("projet fermé : déplacement non ouvert (mode=%v)", out.form.mode)
 	}
 }
+
+// LOT-3 : F2 (applyExecExisting) n'écrit ni env.yaml ni l'affectation quand le projet est ouvert — la mention est dite.
+func TestF2EnvNonModifiableProjetOuvert216(t *testing.T) {
+	m, _, proj := moveModel(t)
+	m.windows["alpha"] = true
+	m.form = newForm{mode: formExec, existing: proj, name: "alpha", images: []string{"docker.io/library/debian:12"}, exec: 1, ctrBe: "srv1"}
+	m = m.applyExecExisting()
+	if !strings.Contains(m.form.err, "fermez le projet pour modifier son environnement") {
+		t.Errorf("mention absente : %q", m.form.err)
+	}
+	if core.HasEnv(proj) || core.Assigned(proj) {
+		t.Error("env.yaml ou affectation écrits malgré le refus")
+	}
+}

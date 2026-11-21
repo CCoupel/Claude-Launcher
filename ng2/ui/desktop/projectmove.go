@@ -25,6 +25,16 @@ func (a *App) moveEnv() core.MoveEnv {
 				return "backend injoignable : propriétaire non vérifiable"
 			}
 		},
+		Running: func(path string) string { // listing des moteurs : borné comme le propriétaire (un moteur qui ne répond pas ne bloque pas)
+			res := make(chan string, 1)
+			go func() { res <- runningOwner.Get()(path) }()
+			select {
+			case what := <-res:
+				return what
+			case <-time.After(foreignOwnerTimeout.Get()):
+				return "backend injoignable : conteneur non vérifiable"
+			}
+		},
 	}
 }
 

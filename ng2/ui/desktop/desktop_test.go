@@ -195,6 +195,9 @@ func sandbox(t *testing.T, root string, names ...string) (projects []string) {
 	oldOwner := foreignOwner.Get() // jamais d'interrogation des moteurs (ni du réseau) dans les tests
 	foreignOwner.Set(func(string) string { return "" })
 	t.Cleanup(func() { foreignOwner.Set(oldOwner) })
+	oldRun := runningOwner.Get() // idem : aucun listing des moteurs
+	runningOwner.Set(func(string) string { return "" })
+	t.Cleanup(func() { runningOwner.Set(oldRun) })
 	// un podman présent (runner de CI) crée son stockage sous XDG_DATA_HOME,
 	// avec des droits que le nettoyage de t.TempDir ne peut pas effacer : hors
 	// du dossier temporaire du test
