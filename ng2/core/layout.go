@@ -457,7 +457,28 @@ func PlanArrange(cfg Config, win string, panes []WinPane, w, h int, top, bot []s
 	for i, p := range panes {
 		at[i], pos[p.ID], idxs[i] = p.ID, i, p.Index
 	}
+	// classement borné aux panes QUI EXISTENT : un pane classé a pu disparaître pendant le tour (teammate fermé), et le
+	// classement peut en citer plus que la fenêtre n'en a ; sans ce filtre, idxs[len(top):len(want)] sortait des bornes
+	// (panic) et un id inconnu était échangé avec la position 0 (pos[p] absent = 0).
+	seen := map[string]bool{}
+	keep := func(ids []string) []string {
+		var out []string
+		for _, id := range ids {
+			if _, ok := pos[id]; ok && !seen[id] {
+				seen[id] = true
+				out = append(out, id)
+			}
+		}
+		return out
+	}
+	top, bot = keep(top), keep(bot)
+	if len(top) == 0 { // plus de ligne du haut (leader et cdp absents du tour) : tout passe en haut, jamais une ligne vide
+		top, bot = bot, nil
+	}
 	want := append(append([]string{}, top...), bot...)
+	if len(want) == 0 { // plus aucun pane classé : rien à ordonner (LayoutString diviserait par zéro sur une ligne vide)
+		return ArrangePlan{}
+	}
 	var plan ArrangePlan
 	for i, p := range want {
 		if i >= len(at) || at[i] == p {
@@ -505,6 +526,9 @@ func (p ArrangePlan) Exec(t Target) (fellBack bool) {
 // ExecChecked : Exec ; transport vrai si une commande a échoué par le transport (canal fermé, délai) et non
 // par un refus de tmux : la mise en page n'est pas faite, à retenter (jamais de repli sur « top »).
 func (p ArrangePlan) ExecChecked(t Target) (fellBack, transport bool) {
+	if len(p.Cmds) == 0 { // plan vide (aucun pane classé) : rien à envoyer
+		return false, false
+	}
 	errs := RunBatch(t, p.Cmds)
 	for _, e := range errs {
 		if IsTransportErr(e) {

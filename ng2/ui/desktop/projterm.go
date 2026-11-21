@@ -780,7 +780,7 @@ func (t *projTerm) watcher() {
 				return
 			case <-poke:
 				time.Sleep(15 * time.Millisecond) // regroupe les notifications d'un même changement
-				t.tick(true)
+				t.safeTick(true)
 			}
 		}
 	}()
@@ -791,9 +791,16 @@ func (t *projTerm) watcher() {
 		case <-t.stop:
 			return
 		case <-tk.C:
-			t.tick(false)
+			t.safeTick(false)
 		}
 	}
+}
+
+// safeTick : un tour du surveillant ; un panic (mise en page, lecture de la team…) est consigné et le tour suivant
+// repart — il ne fait jamais tomber l'exe ni le hub.
+func (t *projTerm) safeTick(fast bool) {
+	defer core.RecoverLog("surveillance du projet " + t.path)
+	t.tick(fast)
 }
 
 type winPaneFull struct {

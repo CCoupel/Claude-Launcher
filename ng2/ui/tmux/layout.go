@@ -262,6 +262,11 @@ func styleBusy(cfg core.Config, p projWin, ws winState, busy bool, color string)
 // RunLayoutWatch tourne en arrière-plan pour une fenêtre projet (lancé par
 // launchProject) et s'arrête avec elle.
 func RunLayoutWatch(win, leader, projectDir string) {
+	// un panic du surveillant est consigné et le surveillant redémarre (10 fois au plus) : il ne tue plus la mise en page
+	core.RunProtected("layout-watch "+win, 10, func() { runLayoutWatch(win, leader, projectDir) })
+}
+
+func runLayoutWatch(win, leader, projectDir string) {
 	confAt := confMtime() // avant la lecture : un enregistrement entre les deux est relu au premier tour
 	cfg := core.LoadConfig()
 	pw := projectOf(win)
