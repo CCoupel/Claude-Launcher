@@ -126,3 +126,57 @@ func TestDeplacementInachevePAReprendreAnnuler216(t *testing.T) {
 		t.Errorf("reprise : projet déplacé=%v mode=%v msg=%q err=%q", err == nil, m.form.mode, m.msg, m.form.err)
 	}
 }
+
+// Retour test humain : projet OUVERT ⇒ « Déplacer / renommer » grisé dans F2 avec la mention, touche m sans effet.
+func TestDeplacerGriseQuandLeProjetEstOuvert216(t *testing.T) {
+	m, _, proj := moveModel(t)
+	m.windows["alpha"] = true
+	n := core.Node{Name: "alpha", Path: proj, Project: true, Key: "alpha"}
+	// pas de backend conteneur dans ce banc : on part de l'écran F2 construit comme startExecChoice le fait
+	m.form = newForm{mode: formExec, existing: proj, name: "alpha", moveOpen: m.moveEnv().OpenHere(n.Path)}
+	if !m.form.moveOpen {
+		t.Fatal("moveOpen attendu pour un projet dont la fenêtre existe")
+	}
+	out := strings.Join(strings.Fields(m.renderForm(100)), " ")
+	if !strings.Contains(out, "fermez le projet pour le déplacer") {
+		t.Errorf("mention absente :\n%s", out)
+	}
+	if strings.Contains(out, "m déplacer / renommer · esc") {
+		t.Errorf("l'entrée active reste annoncée :\n%s", out)
+	}
+	nm, cmd := m.onFormKey(key215("m"))
+	f := nm.(model).form
+	if f.mode != formExec || f.moveFrom != "" || f.err != "" || cmd != nil {
+		t.Errorf("m doit être sans effet : mode=%v moveFrom=%q err=%q cmd=%v", f.mode, f.moveFrom, f.err, cmd != nil)
+	}
+	if nm.(model).msg != "" {
+		t.Errorf("message inattendu : %q", nm.(model).msg)
+	}
+	// projet fermé : entrée active (annoncée) et m ouvre le déplacement
+	m.windows["alpha"] = false
+	m.form = newForm{mode: formExec, existing: proj, name: "alpha", moveOpen: m.moveEnv().OpenHere(n.Path)}
+	out = strings.Join(strings.Fields(m.renderForm(100)), " ")
+	if !strings.Contains(out, "m déplacer / renommer") || strings.Contains(out, "fermez le projet") {
+		t.Errorf("entrée active attendue :\n%s", out)
+	}
+	nm, _ = m.onFormKey(key215("m"))
+	if f := nm.(model).form; f.moveFrom != proj {
+		t.Errorf("m n'ouvre pas le déplacement d'un projet fermé : %+v", f.mode)
+	}
+}
+
+// Sans backend conteneur, F2 ouvre directement le déplacement — sauf projet ouvert : mention, rien ne s'ouvre.
+func TestF2SansBackendProjetOuvert216(t *testing.T) {
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	m, _, proj := moveModel(t)
+	n := core.Node{Name: "alpha", Path: proj, Project: true, Key: "alpha"}
+	m.windows["alpha"] = true
+	out := m.startExecChoice(n, false)
+	if out.form.mode != formNone || !strings.Contains(out.msg, "fermez le projet pour le déplacer") {
+		t.Errorf("mode=%v msg=%q", out.form.mode, out.msg)
+	}
+	m.windows["alpha"] = false
+	if out := m.startExecChoice(n, false); out.form.moveFrom != proj {
+		t.Errorf("projet fermé : déplacement non ouvert (mode=%v)", out.form.mode)
+	}
+}

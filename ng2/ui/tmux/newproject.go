@@ -75,6 +75,7 @@ type newForm struct {
 	// déplacement (#216) : projet source et ses informations
 	moveFrom string
 	moveInfo *core.MoveInfo
+	moveOpen bool   // F2 : le projet est ouvert — « déplacer / renommer » grisé, touche m sans effet
 	existing string // F2 ou première ouverture : dossier du projet existant (pas de création)
 	openNext bool   // première ouverture : lancer le projet une fois configuré
 }
@@ -140,8 +141,13 @@ func (m model) startExecChoice(n core.Node, openNext bool) model {
 			m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
 			return m
 		}
+		if m.moveEnv().OpenHere(n.Path) {
+			m.msg = "déplacer / renommer : fermez le projet pour le déplacer"
+			return m
+		}
 		return m.startMove(n.Path, n.Name)
 	}
+	f.moveOpen = !openNext && m.moveEnv().OpenHere(n.Path)
 	if core.Assigned(n.Path) || core.HasEnv(n.Path) {
 		b := core.ProjectBackend(n.Path)
 		f.exec = 0
@@ -389,6 +395,9 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case formExec: // un chiffre choisit (0 : hôte) ; r : revoir l'environnement d'un dépôt cloné (F2)
 			if strings.ToLower(s) == "m" && f.existing != "" { // m : déplacer / renommer le projet (#216)
+				if f.moveOpen { // projet ouvert : entrée grisée, la touche n'a aucun effet (« fermez le projet pour le déplacer »)
+					break
+				}
 				return m.startMove(f.existing, f.name), nil
 			}
 			if strings.ToLower(s) == "r" && f.existing != "" {
@@ -652,7 +661,12 @@ func (m model) renderForm(w int) string {
 		if f.err != "" {
 			sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")
 		}
-		sb.WriteString("\n " + core.Dim.Render("↑↓ 0-9 socle · ←→ backend · ↵ · m déplacer / renommer · esc"))
+		hint := "↑↓ 0-9 socle · ←→ backend · ↵ · m déplacer / renommer · esc"
+		if f.moveOpen { // grisée : la mention dit quoi faire
+			hint = "↑↓ 0-9 socle · ←→ backend · ↵ · esc"
+			sb.WriteString("\n " + core.Dim.Render("m déplacer / renommer — fermez le projet pour le déplacer"))
+		}
+		sb.WriteString("\n " + core.Dim.Render(hint))
 		return truncLines(sb.String(), w)
 	}
 	title := "✦ Nouveau projet"
