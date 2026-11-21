@@ -27,6 +27,7 @@ var (
 )
 
 func TestMain(m *testing.M) {
+	os.Setenv("CL_TEST_ISOLATION", "1") // le binaire compilé et ses sous-processus refusent d'écrire config/secrets hors dossier temporaire
 	dir, err := os.MkdirTemp("", "cl-rootbase-bin-")
 	if err != nil {
 		os.Exit(1)

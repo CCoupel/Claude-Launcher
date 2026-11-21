@@ -616,6 +616,9 @@ var replaceFile = platform.ReplaceFile
 // WriteFileAtomic : temporaire du même dossier (0600 d'emblée), écriture, fsync, droits, rename sur path
 // (platform.ReplaceFile), fsync du dossier (Unix). L'ancien contenu reste intact en cas d'échec.
 func WriteFileAtomic(path string, content []byte, mode os.FileMode) error {
+	if err := guardWrite(path); err != nil { // isolation des tests (isolation.go)
+		return err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
@@ -663,6 +666,9 @@ func WriteFileAtomic(path string, content []byte, mode os.FileMode) error {
 // createExclusiveAtomic : crée path avec son contenu complet ou pas du tout, sans jamais écraser : temporaire
 // puis os.Link (échec si path existe) ; liens impossibles (partage réseau) : création exclusive directe.
 func createExclusiveAtomic(path string, data []byte, perm os.FileMode) (bool, error) {
+	if err := guardWrite(path); err != nil {
+		return false, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}

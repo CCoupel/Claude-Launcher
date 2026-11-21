@@ -184,6 +184,9 @@ func removeRetry(path string) error {
 
 // createExclusive : crée path avec data s'il n'existe pas (atomique) ; created faux : il existait déjà.
 func createExclusive(path string, data []byte, perm os.FileMode) (created bool, err error) {
+	if err := guardWrite(path); err != nil {
+		return false, err
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return false, err
 	}

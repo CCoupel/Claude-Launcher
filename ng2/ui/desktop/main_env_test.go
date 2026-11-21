@@ -3,15 +3,19 @@ package desktop
 import (
 	"claude-launcher-ng2/core"
 	"claude-launcher-ng2/internal/testguard"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
 // TestMain : tout tmux lancé par un test de la suite place son socket sous un
 // dossier temporaire dédié, supprimé à la fin — jamais dans /tmp/tmux-<uid> (#154).
 func TestMain(m *testing.M) {
-	core.NoExecSelf = true          // jamais « <binaire de test> version » (#219)
-	os.Setenv("CL_IN_CLUSTER", "0") // le conteneur de développement est lui-même un pod : jamais de refus du backend host (#169)
+	core.NoExecSelf = true                // jamais « <binaire de test> version » (#219)
+	core.TestIsolation = true             // écritures de config/secrets hors dossier temporaire refusées (isolation.go)
+	os.Setenv(core.TestIsolationVar, "1") // … aussi dans les sous-processus lancés par les tests
+	os.Setenv("CL_IN_CLUSTER", "0")       // le conteneur de développement est lui-même un pod : jamais de refus du backend host (#169)
 	code := 1
 	func() {
 		d, err := os.MkdirTemp("", "cltmux") // court : limite des chemins de sockets unix
@@ -22,6 +26,10 @@ func TestMain(m *testing.M) {
 		guard := testguard.Start()
 		code = m.Run()
 		if !guard() && code == 0 {
+			code = 1
+		}
+		if v := core.IsolationViolations(); len(v) > 0 && code == 0 { // écriture refusée par la garde, même si l'appelant a ignoré l'erreur
+			fmt.Fprintln(os.Stderr, "ISOLATION DES TESTS VIOLÉE :\n  "+strings.Join(v, "\n  "))
 			code = 1
 		}
 	}()
