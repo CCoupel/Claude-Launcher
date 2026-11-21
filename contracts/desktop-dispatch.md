@@ -1035,6 +1035,13 @@ on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un 
   s'appliquera à la prochaine ouverture" }`, `configSave` / `configApply` → `{ "saved": true, …, "warn": "…" }`. Refus
   **seulement** sur blocker **confirmé** (ouvert ici, autre launcher confirmé, conteneur actif confirmé). Le
   déplacement / renommage (#216) reste fail-closed (backend injoignable → refus).
+- **Backend / image : fail-closed**, comme le déplacement — changement plus risqué (conteneur recréé, sessions
+  perdues si le projet tourne ailleurs) : état non vérifiable → **refus** `{ "ok": false, "field": "env", "msg":
+  "état du conteneur inconnu (backend injoignable) : changement de backend / image refusé", "blockers" }`, jamais
+  l'avertissement d'`env.yaml`.
+- **« Non vérifiable »** couvre **le délai dépassé ET l'échec rapide** du backend (moteur absent, connexion refusée,
+  erreur d'authentification, réponse illisible) : dans tous ces cas l'état est inconnu — `env.yaml` : autorisé avec
+  `warn` ; backend / image et déplacement : refus.
 - **Méthodes concernées** :
   - `projectApply` avec `env` : refus **avant toute écriture** (même ordre que backend/image : contrôles sans écriture
     d'abord) — `{ "ok": false, "field": "env", "msg": "<raison>", "blockers": ["…"] }` ; les autres parties de la même
