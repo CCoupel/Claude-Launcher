@@ -50,6 +50,8 @@ func withHome(t *testing.T) string {
 	t.Setenv("HOME", h)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, "state"))
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("CL_CONFIG_DIR", "") // indépendant de l'environnement de l'appelant (config sous HOME attendue)
+	t.Setenv(core.RootBaseVar, "")
 	return h
 }
 
