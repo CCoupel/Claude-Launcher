@@ -194,7 +194,7 @@ des projets (PVC existant, ou créé par le chart) ; un nom `.local` (mDNS) pour
 une CA interne cert-manager dont le certificat public est installé sur les postes.
 
 ```bash
-VERSION=6.5.0
+VERSION=6.6.0
 TAG=v$VERSION
 DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
 CHART=oci://ghcr.io/ccoupel/charts/claude-launcher
