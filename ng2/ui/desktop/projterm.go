@@ -33,7 +33,7 @@ type projTerm struct {
 	path, key, name string
 	color           string // couleur tmux 256 du projet
 	mode            core.LaunchMode
-	host            bool        // projet sur l'hôte (Linux), tmux local dédié
+	host            atomic.Bool // projet sur l'hôte (Linux), tmux local dédié ; atomique : lu par Snapshot / canForce sans t.mu pendant que prepareHost l'écrit
 	sock, sess, win string      // hôte : socket et session ; win : cible de la fenêtre
 	e               core.Engine // conteneur : moteur…
 	ctr             string      // … et conteneur (pod)
@@ -344,7 +344,8 @@ func (t *projTerm) prepareHost(cfg core.Config, start, copyInit string, synced b
 		return fmt.Errorf("projet en cours dans un conteneur, piloté par %s — le fermer là-bas ou F2 pour le rejoindre sur ce backend", who)
 	}
 	t.mu.Lock()
-	t.host, t.sock, t.sess = true, deskSocket(), hostSession(t.path)
+	t.host.Store(true)
+	t.sock, t.sess = deskSocket(), hostSession(t.path)
 	t.win = "=" + t.sess + ":"
 	t.mu.Unlock()
 	fmt.Fprintf(t, "\033[1m▲ %s — hôte (tmux %s)\033[0m\r\n", t.name, t.sock)
@@ -396,7 +397,7 @@ func (t *projTerm) attach() error {
 		att = append(att, "-r")
 	}
 	var argv []string
-	if t.host {
+	if t.host.Load() {
 		argv = append([]string{"tmux", "-L", t.sock}, att...)
 	} else {
 		argv = t.e.ExecArgv(t.ctr, false, false, core.TmuxIn(att...)...)
@@ -412,7 +413,7 @@ func (t *projTerm) attach() error {
 	if w > 0 && h > 0 {
 		_ = c.Send("refresh-client", "-C", clientSize(w, h))
 	}
-	if t.host {
+	if t.host.Load() {
 		_ = c.Send("set-option", "-t", "="+t.sess, "status", "off")
 	}
 	if _, err := c.Output("display-message", "-p", "ok"); err != nil {
@@ -438,7 +439,7 @@ func (t *projTerm) ended() {
 		return
 	}
 	why := t.client.Why()
-	if !t.host && t.a.conf().CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
+	if !t.host.Load() && t.a.conf().CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
 		fmt.Fprintf(t, "\r\n⏻ claude terminé : arrêt du conteneur (CTR_STOP_ON_EXIT)\r\n")
 		_ = t.e.Stop(t.path, t.ctr)
 	}
@@ -856,7 +857,7 @@ func (t *projTerm) parseWin(b []byte) (panes []winPaneFull, w, h int, zoomed boo
 		top, _ := strconv.Atoi(f[9])
 		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[10], top: top})
 		pid := f[7]
-		if !t.host {
+		if !t.host.Load() {
 			pid = "" // conteneur : PID d'un autre espace
 		}
 		infos = append(infos, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[10]})
@@ -964,13 +965,13 @@ func (t *projTerm) tick(fast bool) {
 	if !fast {
 		// toutes les 5 s : propriétaire (conteneur) et règle de taille (#126)
 		if t.watch.beat++; t.watch.beat%5 == 1 {
-			if !t.host && !ro {
+			if !t.host.Load() && !ro {
 				t.heartbeat()
 			}
 			t.govern()
 		}
 	}
-	if !fast && !t.host && !ro {
+	if !fast && !t.host.Load() && !ro {
 		// Ctrl+B R dans le tmux du conteneur incrémente @cl_relayout (bootstrap.sh)
 		if b, err := t.cl().Output("show-options", "-wqv", "-t", t.win, "@cl_relayout"); err == nil {
 			r := strings.TrimSpace(string(b))
@@ -1079,7 +1080,7 @@ func (t *projTerm) tmuxFn() core.SessionTmux {
 // règle si own (le launcher a la main) et dit si des panes ont bougé. Les cartes
 // sont renvoyées quand l'état visible / caché / actif d'un pane change.
 func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bool {
-	f, inCtr := t.tmuxFn(), !t.host
+	f, inCtr := t.tmuxFn(), !t.host.Load()
 	home := core.ProjectHome(f, t.win, inCtr)
 	panes, choices, err := core.ProjectPanes(f, t.win, home, inCtr)
 	if err != nil {
@@ -1153,7 +1154,7 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	if tc == nil {
 		return false, "team en cours de lecture, réessayez"
 	}
-	f, inCtr := t.tmuxFn(), !t.host
+	f, inCtr := t.tmuxFn(), !t.host.Load()
 	home := core.ProjectHome(f, t.win, inCtr)
 	t.pubMu.Lock() // @cl_panevis écrit hors d'un tour du watcher
 	r := core.TogglePane(f, t.win, home, tc, pane, inCtr)
@@ -1617,3 +1618,14 @@ func leaderID(ids string) string {
 	id, _ := core.LeaderOf(ids)
 	return id
 }
+
+// hostTarget : socket et session tmux de l'hôte, lues sous t.mu — prepareHost les écrit sous ce verrou, pendant que Snapshot
+// (canForce) et le rafraîchissement les lisent depuis d'autres goroutines.
+func (t *projTerm) hostTarget() (sock, sess string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.sock, t.sess
+}
+
+// sessName : session tmux de l'hôte (sous t.mu).
+func (t *projTerm) sessName() string { _, sess := t.hostTarget(); return sess }

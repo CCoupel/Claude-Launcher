@@ -271,7 +271,7 @@ func (a *App) askClose(path string) (any, error) {
 			pl.engine, pl.ctr = &e, p.Ctr.Name
 		}
 	}
-	if t != nil && t.host {
+	if t != nil && t.host.Load() {
 		pl.host = t
 	}
 	running := pl.engine != nil && (p.Ctr.Running || p.Ctr.Failed)
@@ -410,7 +410,7 @@ func (a *App) runClose(pl closePlan, step func(string)) error {
 			if err := core.StopSession(t, h.win, false, closeWait, step); err != nil {
 				return err
 			}
-			_ = h.localTmux("kill-session", "-t", "="+h.sess).Run()
+			_ = h.localTmux("kill-session", "-t", "="+h.sessName()).Run()
 		}
 	}
 	if pl.tab {

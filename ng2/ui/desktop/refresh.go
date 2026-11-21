@@ -327,8 +327,8 @@ func (a *App) refreshSession(path string, reliable bool) error {
 	if t != nil && t.info().State != "opening" {
 		gone := false
 		switch {
-		case t.host:
-			gone = !hostSessionAlive(t.sock, t.sess)
+		case t.host.Load():
+			gone = !hostSessionAlive(t.hostTarget())
 		case hasEnv:
 			gone = !hasLive
 		}
@@ -403,8 +403,8 @@ func (a *App) forceInput(p core.ProjInfo, t *projTerm) core.ForceInput {
 	a.mu.Lock()
 	in.Unreliable, in.NotRead = a.ctrUnreliableLocked(p.Backend), a.ctr.Env == nil
 	a.mu.Unlock()
-	if t != nil && t.host {
-		in.HostGone = t.info().State != "opening" && !hostSessionAlive(t.sock, t.sess)
+	if t != nil && t.host.Load() {
+		in.HostGone = t.info().State != "opening" && !hostSessionAlive(t.hostTarget())
 	}
 	return in
 }
@@ -433,7 +433,7 @@ func (a *App) canForce(path string, p core.ProjInfo) bool {
 	t := a.terms[path]
 	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend),
 		Unreliable: a.ctrUnreliableLocked(p.Backend), NotRead: a.ctr.Env == nil}
-	if t != nil && t.host {
+	if t != nil && t.host.Load() {
 		st := t.info().State
 		in.HostGone = st == "closed" || st == "error"
 	}
