@@ -787,7 +787,9 @@ Arguments : `{ "path" }`, et facultativement la destination envisagée `{ "base"
   clé **recalculée** pour la destination (`CtrName` du nouveau chemin), `keyChanged` si elle diffère ; `crossDevice` :
   la destination est sur un autre système de fichiers (copie puis suppression) ; `exists` : la destination existe
   déjà (`ok: false`) ; erreur de la règle commune → `ok: false`, `field`, `msg`. `impacts` : lignes du tableau « ce
-  qui change » (texte `label` affiché tel quel pour `trust` et pour `conf` quand la clé (nom du dossier) est partagée avec un autre projet de même nom, présent seulement si le projet a une entrée dans `trust.json` ; seules les étapes qui changent quelque chose : `conf` absent si la clé ne change pas et qu'aucune
+  qui change ». Champ `label` (texte affiché tel quel) : sur la ligne `trust`, toujours (cette ligne n'existe que si
+  le projet a une entrée dans `trust.json`) ; sur la ligne `conf`, seulement quand la clé (nom du dossier) est
+  partagée avec un autre projet de même nom. Seules les étapes qui changent quelque chose ont une ligne : `conf` absent si la clé ne change pas et qu'aucune
   entrée n'existe, `ctr` absent sans conteneur ni StatefulSet).
 - `blockers` : projet ouvert ici (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou
   pod **en cours d'exécution**, déplacement inachevé (`pending`). Vide = déplaçable.
@@ -802,13 +804,15 @@ inachevé : `projectMoveResume` / `projectMoveAbort` (ci-dessous).
   commune KO. Pas de fermeture implicite : l'interface propose « Fermer le projet » (`close` existant) avant.
 - Étapes, dans l'ordre, consignées dans le journal `moves.json` (dossier de config, sous verrou `WithFileLock`) :
   1. `dir` : `os.Rename` ; si `EXDEV` (autre système de fichiers) → copie complète vers `<dest>.moving-<id>`,
-     contrôle (nombre et taille des fichiers), rename en `<dest>`, puis suppression de la source ;
+     fsync des fichiers et dossiers, contrôle du contenu (entrées, tailles et **SHA-256 de chaque fichier**, liens,
+     aucune entrée en trop), jalon `copy-done` au journal, rename en `<dest>`, puis suppression de la source ;
   2. `assign` : clé de `projects.json` (chemin) reportée ;
   3. `conf` : entrées de `config.conf` du projet (`PROJECT_COLORS`, organisation, `PROJECT_HIDE_IDLE`) reportées
      si la clé change (une seule écriture, `SaveConfig`) ;
   4. `history` : dossier `projects/<chemin encodé>` de la config de claude (`ProjectDirName`) renommé ;
   5. `trust` : la clé `RemotePath` du projet dans `trust.json` suit (état et empreinte conservés — un projet cloné
-     approuvé ne redemande rien ; sous verrou, `.bak` avant écriture ; registre illisible : l'étape échoue) ;
+     approuvé ne redemande rien ; sous verrou, `.bak` avant écriture ; `trust.json` illisible : l'étape échoue
+     **seulement** si le projet porte un environnement (`env.yaml` / `env-template.yaml`), sinon elle est sans objet) ;
   6. `ctr` : ancien conteneur / StatefulSet + pod `<ancienne clé>` (arrêtés) supprimés — recréés au nouveau nom à
      la prochaine ouverture.
   Nom tmux, URL `/files/<clé>/…` et `CL_BROWSER_PATH_MAP` dérivent du chemin : rien à écrire.
@@ -828,7 +832,8 @@ inachevé : `projectMoveResume` / `projectMoveAbort` (ci-dessous).
 
 ### `projectMoveResume` **[NEW]** et `projectMoveAbort` **[NEW]** (2026-11-21)
 
-Arguments : `{ "id" }` (`pending.id` de `projectMoveInfo`). Sous le verrou du journal ; l'entrée doit exister (sinon
+Arguments : `{ "id" }` (`pending.id` de `projectMoveInfo`). Sous le verrou du journal **et** le verrou par projet
+(source et destination de l'entrée, cf. « Exclusion et sûreté ») ; entrée relue sous ces verrous ; l'entrée doit exister (sinon
 `{ "ok": false, "msg": "aucun déplacement inachevé" }`) et le projet ne doit avoir **aucun autre** blocker (ouvert,
 conteneur actif).
 - `projectMoveResume` (« Reprendre ») : rejoue les étapes restantes à partir de `pending.step` (les étapes de
