@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -284,11 +285,11 @@ func fakeClaudeSession214(t *testing.T) {
 	}
 	// cwd = dossier du test : un serveur tmux qui plante ne dépose jamais de core dans le dépôt
 	t.Chdir(t.TempDir())
-	sock := "cl-desk-create214-" + strconv.Itoa(os.Getpid())
+	sock := uniqueDeskSocket("cl-desk-create214-")
 	t.Setenv("CL_DESK_SOCKET", sock)
 	// dernier enregistré, premier exécuté : l'App est arrêtée (clients tmux détachés, ouvertures terminées) AVANT
 	// kill-server — un kill-server pendant un new-session / attach -C en cours faisait planter tmux 3.6 (SIGSEGV)
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() })
+	t.Cleanup(func() { killDeskServer(sock) })
 	fake := filepath.Join(t.TempDir(), "claude")
 	_ = os.WriteFile(fake, []byte("#!/bin/sh\necho faux claude prêt\nexec sleep 300\n"), 0o755)
 	t.Setenv("CL_CLAUDE_BIN", fake)
@@ -427,5 +428,24 @@ func TestCreateProjetBrutRemoteEnOption214(t *testing.T) {
 			_ = os.Remove("/tmp/PREUVE-REMOTE-214")
 			t.Errorf("remote %q : commande exécutée", remote)
 		}
+	}
+}
+
+var deskSockSeq atomic.Int64
+
+// uniqueDeskSocket : un socket tmux PAR TEST (et non par processus) : un test ne se connecte jamais au serveur du test
+// précédent, encore en train de s'arrêter après son kill-server (seul le premier ouvrait une session sur un socket neuf).
+func uniqueDeskSocket(prefix string) string {
+	return prefix + strconv.Itoa(os.Getpid()) + "-" + strconv.FormatInt(deskSockSeq.Add(1), 10)
+}
+
+// killDeskServer : kill-server puis attente que plus aucun serveur ne réponde sur ce socket (au plus 3 s).
+func killDeskServer(sock string) {
+	_ = exec.Command("tmux", "-L", sock, "kill-server").Run()
+	for i := 0; i < 100; i++ {
+		if exec.Command("tmux", "-L", sock, "list-sessions").Run() != nil {
+			return
+		}
+		time.Sleep(30 * time.Millisecond)
 	}
 }

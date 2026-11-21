@@ -284,9 +284,9 @@ func TestHostProjectWithTmux(t *testing.T) {
 		t.Skip("tmux absent")
 	}
 	ps := sandbox(t, "", "alpha")
-	sock := "cl-desk-test-" + strconv.Itoa(os.Getpid())
+	sock := uniqueDeskSocket("cl-desk-test-")
 	t.Setenv("CL_DESK_SOCKET", sock)
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() })
+	t.Cleanup(func() { killDeskServer(sock) })
 	fake := filepath.Join(t.TempDir(), "claude")
 	_ = os.WriteFile(fake, []byte("#!/bin/sh\necho faux claude prêt\nwhile read -r l; do echo \"reçu:$l\"; done\n"), 0o755)
 	t.Setenv("CL_CLAUDE_BIN", fake)

@@ -155,9 +155,9 @@ func TestPasteBigLinesReadOnlyAndTooBig(t *testing.T) {
 	}
 	ps := sandbox(t, "", "alpha")
 	t.Chdir(t.TempDir()) // un serveur tmux qui plante ne dépose jamais de core dans le dépôt (#224)
-	sock := "cl-desk-paste-" + strconv.Itoa(os.Getpid())
+	sock := uniqueDeskSocket("cl-desk-paste-")
 	t.Setenv("CL_DESK_SOCKET", sock)
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() }) // exécuté APRÈS a.Stop (ci-dessous)
+	t.Cleanup(func() { killDeskServer(sock) }) // exécuté APRÈS a.Stop (ci-dessous)
 	fake := filepath.Join(t.TempDir(), "claude")
 	_ = os.WriteFile(fake, []byte("#!/bin/sh\necho faux claude prêt\nwhile read -r l; do echo \"reçu:$l\"; done\n"), 0o755)
 	t.Setenv("CL_CLAUDE_BIN", fake)

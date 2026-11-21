@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -110,9 +109,9 @@ func newPasteFix(t *testing.T) pasteFix {
 	}
 	ps := sandbox(t, "", "alpha")
 	t.Chdir(t.TempDir()) // un serveur tmux qui plante ne dépose jamais de core dans le dépôt (#224)
-	sock := "cl-desk-paste-" + strconv.Itoa(os.Getpid())
+	sock := uniqueDeskSocket("cl-desk-paste-")
 	t.Setenv("CL_DESK_SOCKET", sock)
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() }) // exécuté APRÈS a.Stop (ci-dessous)
+	t.Cleanup(func() { killDeskServer(sock) }) // exécuté APRÈS a.Stop (ci-dessous)
 	dir := t.TempDir()
 	out := filepath.Join(dir, "recu.txt")
 	fake := filepath.Join(dir, "claude")
