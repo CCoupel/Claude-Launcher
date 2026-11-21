@@ -207,6 +207,24 @@ l'arbre ou sur sa carte, « Déplacer / renommer… ». Dans la coque tmux, la t
   « Annuler ». Un projet à moitié copié n'apparaît jamais comme projet ; l'annulation remet `config.conf` à
   l'équivalent de l'état d'origine (mêmes clés et valeurs, pas à l'octet près).
 
+### Modifier la configuration à chaud (v6.6.0, #225)
+
+Un changement de `config.conf` est pris en compte sans relancer le launcher. Le fichier est relu dès qu'il change
+(par date et contenu), avant toute action qui en dépend : ouverture d'un projet, création, lecture des milestones.
+Le `settings.json` des projets est recopié à l'enregistrement de la fenêtre `⚙ config` et à l'ouverture d'un projet ;
+il ne reste jamais plus ancien que `config.conf`.
+
+- **Fichier invalide** : le launcher garde la dernière copie valide et l'indique en pied de fenêtre. Corrigez le
+  fichier, la relecture se fait toute seule.
+- **Fichier absent** (ex. supprimé puis recréé dans un éditeur) : les réglages en mémoire sont gardés pendant 3 s ;
+  s'il est toujours absent après, les valeurs par défaut s'appliquent. Il est relu dès qu'il revient.
+- **Ce qui reste « relance du launcher »** : les racines (`Roots`) et `CLAUDE_CONFIG_DIR`, lus une seule fois au
+  démarrage. Après l'enregistrement, l'interface propose « Relancer le launcher ».
+- **Env. d'un projet (`env.yaml`)** : il n'est pas modifiable pendant que le projet est ouvert ici, ouvert par un
+  autre launcher, ou que son conteneur tourne : l'interface le met en lecture seule et le serveur refuse l'écriture
+  avec la raison. Si le backend ne répond pas, l'écriture reste permise avec un avertissement « état du conteneur
+  inconnu » ; un changement de backend ou d'image reste refusé dans ce cas.
+
 ### Configurer l'exécution d'un projet
 
 Le formulaire **Exécution** propose `0 hôte` puis les socles (`↑↓` ou un
