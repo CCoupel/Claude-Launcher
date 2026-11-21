@@ -15,15 +15,35 @@ import (
 // que la date du fichier est à moins de racyWindow de l'instant de la lecture, on ne se fie pas au couple et on compare le
 // CONTENU (condensé).
 //
-// Dérive d'horloge (serveur MooseFS / 9P contre client) : la fenêtre se mesure en valeur ABSOLUE autour de l'instant de lecture
-// (|ReadAt − MTime| < racyWindow) et une date dans le FUTUR du client est toujours « racy » — le contenu tranche tant que la
-// date n'est pas nettement antérieure à la lecture.
+// Dérive d'horloge (serveur MooseFS / 9P contre client) : une date proche de l'instant de lecture OU dans le FUTUR du client
+// (serveur en avance) est toujours « racy » — le contenu tranche. Un serveur en RETARD de plus de racyWindow donne une date
+// qui paraît ancienne alors que le fichier vient d'être écrit : aucune marge fixe ne le couvre, donc, EN PLUS, le contenu est
+// comparé au plus toutes les confVerifyEvery quel que soit l'âge apparent de la date (coût : une petite lecture).
 const racyWindow = 2 * time.Second
 
 // confAbsentGrace : durée pendant laquelle l'absence de config.conf (éditeur qui fait supprimer puis recréer) garde la copie en
 // mémoire — adopter aussitôt les valeurs par défaut recopierait un jeton vide dans settings.json (famille de l'incident GH_TOKEN).
 // Au-delà, le fichier est réellement absent : défauts. Variable : tests.
 var confAbsentGrace = 3 * time.Second
+
+// confVerifyEvery : intervalle maximal entre deux comparaisons de contenu quand la date paraît fiable (serveur en retard).
+var confVerifyEvery = 30 * time.Second
+
+var (
+	verifyMu   sync.Mutex
+	lastVerify time.Time
+)
+
+// verifyDue : vrai si la dernière comparaison de contenu date de plus de confVerifyEvery (et la note).
+func verifyDue() bool {
+	verifyMu.Lock()
+	defer verifyMu.Unlock()
+	if time.Since(lastVerify) < confVerifyEvery {
+		return false
+	}
+	lastVerify = time.Now()
+	return true
+}
 
 var (
 	absentMu    sync.Mutex
@@ -83,7 +103,7 @@ func ConfigChanged(cur ConfStamp) bool {
 	if !st.ModTime().Equal(cur.MTime) || st.Size() != cur.Size {
 		return true
 	}
-	if d := cur.ReadAt.Sub(cur.MTime); cur.ReadAt.IsZero() || d < racyWindow { // date proche de la lecture ou dans le futur : le contenu tranche
+	if d := cur.ReadAt.Sub(cur.MTime); cur.ReadAt.IsZero() || d < racyWindow || verifyDue() { // date proche / future / contrôle périodique : le contenu tranche
 		b, rerr := os.ReadFile(path)
 		if rerr != nil {
 			return false

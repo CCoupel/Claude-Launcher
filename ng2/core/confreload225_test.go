@@ -201,3 +201,31 @@ func TestConfigChangedDeriveHorloge225(t *testing.T) {
 		t.Error("date dans le futur : édition de même taille non vue")
 	}
 }
+
+// Serveur en RETARD (> racyWindow) : la date du fichier paraît ancienne bien qu'il vienne d'être écrit — une édition de même
+// taille, même date n'est pas vue par la fenêtre racy ; le contrôle périodique du contenu la voit (au plus confVerifyEvery).
+func TestConfigChangedServeurEnRetard225(t *testing.T) {
+	conf, _ := confBench225(t)
+	oldV := confVerifyEvery
+	confVerifyEvery = 150 * time.Millisecond
+	defer func() { confVerifyEvery = oldV }()
+	past := time.Now().Add(-time.Hour) // date « en retard » : ancienne d'emblée
+	if err := os.WriteFile(conf, []byte("CLAUDE_DISABLE_MOUSE=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(conf, past, past) // exactement la même date avant et après l'édition
+	cur := LoadConfig()
+	time.Sleep(200 * time.Millisecond)
+	_ = ConfigChanged(cur.Stamp) // consomme l'échéance périodique en cours
+	if err := os.WriteFile(conf, []byte("CLAUDE_DISABLE_MOUSE=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(conf, past, past)
+	if st := ConfigStamp(); !st.MTime.Equal(cur.Stamp.MTime) || st.Size != cur.Stamp.Size {
+		t.Skip("même date non réalisable ici")
+	}
+	time.Sleep(200 * time.Millisecond) // l'échéance périodique est passée
+	if !ConfigChanged(cur.Stamp) {
+		t.Error("serveur en retard : édition de même taille jamais vue (contrôle périodique manquant)")
+	}
+}

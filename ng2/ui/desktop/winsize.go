@@ -89,7 +89,8 @@ func (t *projTerm) govern() {
 		return
 	}
 	_ = c.Send("refresh-client", "-f", "!ignore-size")
-	b, err := c.Output("list-clients", "-t", "="+t.sess, "-F", "#{client_name}|#{client_control_mode}|#{client_flags}|#{client_pid}")
+	_, sess := t.hostTarget()
+	b, err := c.Output("list-clients", "-t", "="+sess, "-F", "#{client_name}|#{client_control_mode}|#{client_flags}|#{client_pid}")
 	if err != nil {
 		return
 	}

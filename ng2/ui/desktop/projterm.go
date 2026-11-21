@@ -329,7 +329,8 @@ func deskSocket() string {
 func hostSession(path string) string { return "p-" + core.CtrName(path) }
 
 func (t *projTerm) localTmux(args ...string) *exec.Cmd {
-	c := platform.NoWindow(exec.Command("tmux", append([]string{"-L", t.sock}, args...)...))
+	sock, _ := t.hostTarget() // lu sous t.mu : appelé depuis des goroutines autres que celle de l'ouverture
+	c := platform.NoWindow(exec.Command("tmux", append([]string{"-L", sock}, args...)...))
 	c.Env = core.EnvWithout("TMUX", "TMUX_PANE")
 	return c
 }
@@ -344,9 +345,9 @@ func (t *projTerm) prepareHost(cfg core.Config, start, copyInit string, synced b
 		return fmt.Errorf("projet en cours dans un conteneur, piloté par %s — le fermer là-bas ou F2 pour le rejoindre sur ce backend", who)
 	}
 	t.mu.Lock()
-	t.host.Store(true)
 	t.sock, t.sess = deskSocket(), hostSession(t.path)
 	t.win = "=" + t.sess + ":"
+	t.host.Store(true) // en DERNIER : qui voit host voit déjà socket et session (lecteurs hors verrou)
 	t.mu.Unlock()
 	fmt.Fprintf(t, "\033[1m▲ %s — hôte (tmux %s)\033[0m\r\n", t.name, t.sock)
 	if t.localTmux("has-session", "-t", "="+t.sess).Run() == nil {
