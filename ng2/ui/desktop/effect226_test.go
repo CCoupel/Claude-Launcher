@@ -263,3 +263,44 @@ func TestAncienneNoteGlobaleRetiree226(t *testing.T) {
 		t.Error("`apply` absent")
 	}
 }
+
+// `note` (texte de prise en compte rendu par core) : conservé pour backends.yaml, hub et env.yaml (projet et launcher) tant que
+// leurs pastilles n'existent pas ; pour config.conf il est retiré (remplacé par effect / apply). Décision LOT-4.2.
+func TestNoteParTypeDeFichier226(t *testing.T) {
+	f := newFix226(t)
+	note := func(r map[string]any) string { s, _ := r["note"].(string); return s }
+	mt := func(kind, proj string) any {
+		return f.call("configModel", map[string]any{"kind": kind, "path": proj})["mtime"]
+	}
+	// config.conf : pas de note
+	if r := f.apply(set226("TEAM_HIDE_IDLE", 55)); note(r) != "" || r["apply"] == nil {
+		t.Errorf("config.conf : note = %q (attendu absente), apply = %v", note(r), r["apply"])
+	}
+	// env.yaml du launcher
+	r := f.call("configApply", map[string]any{"kind": "env.yaml", "mtime": mt("env.yaml", ""), "changes": []any{set226("packages", []any{"ripgrep"})}})
+	if r["saved"] != true || note(r) == "" {
+		t.Errorf("env.yaml launcher : saved=%v note=%q, attendu une note", r["saved"], note(r))
+	}
+	// env.yaml d'un projet
+	r = f.call("configApply", map[string]any{"kind": "env.yaml", "project": f.proj, "mtime": mt("env.yaml", f.proj), "changes": []any{set226("packages", []any{"jq"})}})
+	if r["saved"] != true || note(r) == "" {
+		t.Errorf("env.yaml projet : %v", r)
+	}
+	// hub
+	r = f.call("configApply", map[string]any{"kind": "hub", "mtime": mt("hub", ""), "changes": []any{set226("hub_cache", "/x226")}})
+	if r["saved"] != true || note(r) == "" {
+		t.Errorf("hub : %v", r)
+	}
+	// backends.yaml (éditeur texte)
+	b, _ := os.ReadFile(core.BackendsPath())
+	r = f.call("configSave", map[string]any{"kind": "backends.yaml", "content": string(b) + "\n# 226\n", "mtime": mt("backends.yaml", "")})
+	if r["saved"] != true || note(r) == "" {
+		t.Errorf("backends.yaml : %v", r)
+	}
+	// config.conf via l'éditeur texte : toujours pas de note
+	cb, _ := os.ReadFile(core.ConfigPath())
+	r = f.call("configSave", map[string]any{"kind": "config.conf", "content": string(cb) + "# 226\n", "mtime": mt("config.conf", "")})
+	if r["saved"] != true || note(r) != "" {
+		t.Errorf("config.conf configSave : saved=%v note=%q, attendu pas de note", r["saved"], note(r))
+	}
+}

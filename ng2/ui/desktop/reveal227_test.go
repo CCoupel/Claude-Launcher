@@ -289,14 +289,21 @@ func TestRevelationWebDistanteRefusee227(t *testing.T) {
 			if resp.StatusCode == 200 && (r["ok"] == true || !strings.Contains(strings.ToLower(out), "distant")) {
 				t.Errorf("réponse = %d %s, attendu un refus « indisponible depuis un accès distant »", resp.StatusCode, out)
 			}
+			seenTok := false
 			_, mo := post227(t, srv, c.host, sess, "configModel", map[string]any{"kind": "config.conf"})
 			if strings.Contains(mo, token227) {
 				t.Error("configModel distant : contient le jeton")
 			}
 			for _, it := range func() []any { s, _ := result227(mo)["model"].(map[string]any)["settings"].([]any); return s }() {
-				if s := it.(map[string]any); s["key"] == "GITHUB_TOKEN" && s["reveal"] == true {
-					t.Error("configModel distant : reveal vrai (l'œil doit être grisé)")
+				if s := it.(map[string]any); s["key"] == "GITHUB_TOKEN" {
+					seenTok = true
+					if v, present := s["reveal"]; !present || v != false {
+						t.Errorf("configModel distant : reveal = %v (présent : %v), attendu false PRÉSENT (l'œil grisé se décide sur reveal === false)", v, present)
+					}
 				}
+			}
+			if !seenTok {
+				t.Error("GITHUB_TOKEN absent du modèle distant")
 			}
 		})
 	}
