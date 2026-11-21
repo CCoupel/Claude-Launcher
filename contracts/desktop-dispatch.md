@@ -703,7 +703,7 @@ Arguments :
 ```json
 { "base": "<base>", "category": "INFRA", "newCategory": false, "name": "supervision-k8s",
   "source": "empty" | "git" | "template",
-  "raw": false, "remote": "git@github.com:moi/projet.git",
+  "remote": "git@github.com:moi/projet.git",
   "url": "https://github.com/CCoupel/supervision-k8s.git",
   "image": "…", "backend": "…" }
 ```
@@ -711,10 +711,11 @@ Arguments :
   catégorie ou racine passée telle quelle) — un ancien appel `{base: "<racine>/INFRA"}` est refusé (`base inconnue`) :
   l'interface et le backend sont livrés ensemble.
 - `source` (défaut `empty`) :
-  - `empty` : dossier, puis `raw` vrai → CLAUDE.md minimal ; faux → `git init` + `remote` facultatif (comportement
-    v6.5.0). Pas de `/init-project` automatique.
-  - `template` : comme `empty` géré (`git init`, `remote`) ; à la **première ouverture**, `/init-project` est
-    **proposé** (évènement `initProposal`), jamais lancé d'office.
+  - `empty` — « Projet brut » : dossier, `git init`, `remote` `origin` s'il est fourni ; **ni** marqueur
+    `init-proposed`, **ni** `/init-project`, **ni** CLAUDE.md minimal. **[CHANGED]** l'interface n'émet plus `raw` (un
+    `raw` reçu est ignoré).
+  - `template` : `git init` + `remote` facultatif ; marqueur `init-proposed` ; à la **première ouverture**,
+    `/init-project` est **proposé** (évènement `initProposal`), jamais lancé d'office.
   - `git` : `url` requise (`https://…` ou `git@…:…` / `ssh://…` ; `file://`, chemin local et options `-…` refusés) ;
     `git clone --` dans le dossier final. Authentification : HTTPS → jeton `GITHUB_TOKEN` de `config.conf` passé par
     `GIT_ASKPASS` (jamais dans l'URL, ni dans `.git/config`, ni dans un journal) ; ssh → clé et `known_hosts` du

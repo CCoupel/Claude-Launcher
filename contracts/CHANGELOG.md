@@ -7,6 +7,7 @@
 - **[NEW]** `core.ResolveProjectPath` : base ∈ racines configurées, catégorie relative sans `..`, contrôle après liens symboliques — appliquée par `create`, `categoryCreate`, `projectMove` (et la coque tmux) — `contracts/desktop-dispatch.md` « v6.6.0 »
 - **[NEW]** `projectBases`, `projectCategories`, `categoryCreate`, `createCancel`, instantané `newJob`, évènement `initProposal` / `initProposalAnswer`
 - **[CHANGED]** `create` : `base` = racine configurée seulement (+ `category`, `newCategory`), `source` `empty|git|template`, `url`, asynchrone pour `git`, nettoyage complet sur échec — un appel v6.5.0 avec `base` = dossier de catégorie est refusé (interface et backend livrés ensemble, aucun client externe)
+- **[CHANGED]** (amendement #215, 2026-11-21) `create` : l'interface n'émet plus `raw` (ignoré s'il est reçu) ; `source: empty` = « Projet brut » : `git init` + `remote` s'il est fourni, sans marqueur `init-proposed` ni `/init-project` ni CLAUDE.md minimal ; `template` = `git init` + `remote` facultatif + `/init-project` proposé
 - **[CHANGED]** `newInfo` : `bases`, `default`, `auth` (présence du jeton / des clés, jamais leur valeur), `template` ; `roots` gardé (retrait en v7)
 - **[NEW]** `projectMoveInfo`, `projectMove` (journal `moves.json`, retour arrière, état partiel repris)
 - **[NEW]** `launcherInfo` (sans `stale` ni `backup`), `relaunch` ; coque : `ctrl+r` contextuel (relance si l'annonce est affichée, rescan sinon) ; `FindStaleProcs` filtré sur `argv[0]` = nom du binaire, `argv[1]` ∈ {mirror, layout-watch}, `CL_INNER_SOCKET` du launcher
