@@ -560,7 +560,7 @@ func confLiteCheck(src string) []ConfigProblem {
 // version précédente, écriture atomique (fichier temporaire puis rename).
 // Rend les problèmes (avertissements compris).
 func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time.Time) ([]ConfigProblem, error) {
-	return SaveConfigGuarded(kind, path, content, expectedMtime, nil)
+	return SaveConfigGuarded(kind, path, content, expectedMtime, nil, nil)
 }
 
 // ErrEnvLocked : écriture de l'env.yaml refusée (projet ouvert, ouvert ailleurs, conteneur actif) ; voir EnvLockedError.
@@ -572,11 +572,12 @@ type EnvLockedError struct{ Blockers []string }
 func (e *EnvLockedError) Error() string   { return EnvEditMessage(e.Blockers) }
 func (e *EnvLockedError) Is(t error) bool { return t == ErrEnvLocked }
 
-// SaveConfigGuarded : SaveConfig ; guard (kind project-env seulement, nil : aucun) rend les blockers qui interdisent
-// d'écrire l'environnement — appelé AVANT toute écriture puis REVÉRIFIÉ juste avant l'écriture, sous le verrou d'env.yaml.
-func SaveConfigGuarded(kind ConfigKind, path string, content []byte, expectedMtime time.Time, guard func() []string) ([]ConfigProblem, error) {
+// SaveConfigGuarded : SaveConfig ; pour un env.yaml de projet seulement : guard (peut être lent : moteurs, propriétaire) est
+// appelé AVANT toute écriture et hors de tout verrou ; recheck (RAPIDE : état mémorisé, sans moteur) est REVÉRIFIÉ juste avant
+// l'écriture, sous le verrou d'env.yaml — un moteur lent ne retient donc jamais trust.json.lock ni env.yaml.lock. Nil : sans objet.
+func SaveConfigGuarded(kind ConfigKind, path string, content []byte, expectedMtime time.Time, guard, recheck func() []string) ([]ConfigProblem, error) {
 	if kind != ConfProjectEnv {
-		guard = nil
+		guard, recheck = nil, nil
 	}
 	if guard != nil {
 		if b := guard(); len(b) > 0 {
@@ -626,11 +627,11 @@ func SaveConfigGuarded(kind ConfigKind, path string, content []byte, expectedMti
 	if kind == ConfProjectEnv { // écriture du launcher : l'empreinte approuvée d'un projet cloné suit (pas de re-demande)
 		return ps, withTrustRefresh(filepath.Dir(filepath.Dir(path)), func() ([]byte, error) {
 			var werr error
-			if guard == nil {
+			if recheck == nil {
 				werr = WriteFileAtomic(path, content, mode)
 			} else {
 				werr = WithFileLock(path, func() error { // même ordre de verrous que setEnvImage : approbation, puis env.yaml
-					if b := guard(); len(b) > 0 { // revérifié juste avant l'écriture
+					if b := recheck(); len(b) > 0 { // revérifié juste avant l'écriture (état mémorisé)
 						return &EnvLockedError{Blockers: b}
 					}
 					return WriteFileAtomic(path, content, mode)

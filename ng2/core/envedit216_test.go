@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -37,22 +38,17 @@ func TestSaveConfigGuardedRevalideSousVerrou216(t *testing.T) {
 	psWrite(t, EnvPath(proj), src)
 	st, _ := os.Stat(EnvPath(proj))
 	calls := 0
-	late := func() []string { // libre au 1er contrôle, bloqué quand on revérifie à l'écriture
-		calls++
-		if calls >= 2 {
-			return []string{"projet ouvert par un autre launcher (x)"}
-		}
-		return nil
-	}
-	_, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), []byte("image: docker.io/library/debian:12\npackages: [git]\n"), st.ModTime(), late)
+	free := func() []string { calls++; return nil }                                        // contrôle complet (lent) : hors verrou, une fois
+	late := func() []string { return []string{"projet ouvert par un autre launcher (x)"} } // revérification rapide, sous verrou
+	_, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), []byte("image: docker.io/library/debian:12\npackages: [git]\n"), st.ModTime(), free, late)
 	var le *EnvLockedError
-	if !errors.As(err, &le) || !errors.Is(err, ErrEnvLocked) || len(le.Blockers) != 1 || calls != 2 {
+	if !errors.As(err, &le) || !errors.Is(err, ErrEnvLocked) || len(le.Blockers) != 1 || calls != 1 {
 		t.Fatalf("err = %v (appels %d)", err, calls)
 	}
 	if b, _ := os.ReadFile(EnvPath(proj)); string(b) != src {
 		t.Error("env.yaml écrit malgré la revérification")
 	}
-	if _, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), []byte("image: docker.io/library/debian:12\npackages: [git]\n"), st.ModTime(), func() []string { return nil }); err != nil {
+	if _, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), []byte("image: docker.io/library/debian:12\npackages: [git]\n"), st.ModTime(), func() []string { return nil }, func() []string { return nil }); err != nil {
 		t.Fatalf("libre : %v", err)
 	}
 }
@@ -73,5 +69,47 @@ func TestEnvEditCheckInjoignableEstUnAvertissement216(t *testing.T) {
 	env.OpenHere = func(string) bool { return false }
 	if len(MoveBlockers(env, "/p")) == 0 {
 		t.Error("MoveBlockers doit refuser quand la vérification est impossible")
+	}
+}
+
+// Échec RAPIDE d'un backend (le moteur répond « erreur » tout de suite, pas un délai) : « non vérifiable » comme un délai —
+// avertissement pour l'env.yaml, refus d'emblée pour le déplacement (fail-closed dès le départ) ; ForeignOwner (ouverture) inchangé.
+func TestBackendEnEchecRapideNonVerifiable216(t *testing.T) {
+	unixOnly(t)
+	proj := psEnv(t)
+	psWrite(t, EnvPath(proj), "image: docker.io/library/debian:12\n")
+	psWrite(t, BackendsPath(), "backends:\n  lab: { type: docker, host: 'tcp://10.0.0.1:2375', shared: [/share] }\n")
+	bin := t.TempDir()
+	psWrite(t, filepath.Join(bin, "docker"), "#!/bin/sh\necho 'cannot connect' >&2\nexit 1\n")
+	_ = os.Chmod(filepath.Join(bin, "docker"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	// projet LOCAL (non affecté à un backend conteneur) : jamais « non vérifiable » faute de moteur — déplacement non bloqué à tort
+	if who := ForeignOwnerChecked(proj); who != "" {
+		t.Fatalf("projet local : ForeignOwnerChecked = %q, attendu vide", who)
+	}
+	if r := runningCtr(proj); r != "" {
+		t.Fatalf("projet local : runningCtr = %q, attendu vide", r)
+	}
+	if b := MoveBlockers(MoveEnv{OpenHere: func(string) bool { return false }}, proj); len(b) != 0 {
+		t.Errorf("projet local : déplacement bloqué à tort : %v", b)
+	}
+	if err := WriteAssignment(proj, "lab"); err != nil { // projet sur le backend conteneur en échec
+		t.Fatal(err)
+	}
+	if who := ForeignOwnerChecked(proj); !strings.HasPrefix(who, UnverifiablePrefix) {
+		t.Fatalf("ForeignOwnerChecked = %q", who)
+	}
+	if who := ForeignOwner(proj); who != "" {
+		t.Errorf("ForeignOwner (ouverture) doit rester muet : %q", who)
+	}
+	if r := runningCtr(proj); !strings.HasPrefix(r, UnverifiablePrefix) {
+		t.Fatalf("runningCtr = %q", r)
+	}
+	env := MoveEnv{OpenHere: func(string) bool { return false }}
+	if b, w := EnvEditCheck(env, proj); len(b) != 0 || len(w) != 1 || w[0] != EnvWarnUnknown {
+		t.Errorf("env.yaml : blockers=%v warns=%v (avertissement attendu)", b, w)
+	}
+	if b := MoveBlockers(env, proj); len(b) == 0 {
+		t.Error("déplacement : un backend en échec rapide doit refuser dès le départ")
 	}
 }

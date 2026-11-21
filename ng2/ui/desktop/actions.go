@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -526,7 +527,12 @@ func (a *App) execApply(path, image, backend string, openNext bool) (any, error)
 	if m := a.envEditRefusal(path); m != "" { // conteneur actif ou projet ouvert ailleurs : env.yaml (image) et backend intacts
 		return nil, fmt.Errorf("%s", m)
 	}
-	if err := core.ApplyExec(path, image, backend); err != nil {
+	// revérifié sous les verrous, juste avant l'écriture (état mémorisé : onglet, session vivante, conteneur vu actif)
+	if err := core.ApplyExecChecked(path, image, backend, func() []string { return a.envFastBlockers(path) }); err != nil {
+		var locked *core.EnvLockedError
+		if errors.As(err, &locked) {
+			return nil, fmt.Errorf("%s", core.EnvEditMessage(locked.Blockers))
+		}
 		return nil, err
 	}
 	name := filepath.Base(path)

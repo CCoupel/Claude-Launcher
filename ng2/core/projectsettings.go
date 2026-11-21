@@ -586,6 +586,9 @@ type ProjectChange struct {
 	// EnvGuard : refus d'écrire l'environnement du projet (env.yaml, backend, image) — "" : permis. Appelé avant toute
 	// écriture ET revérifié juste avant chacune (le projet a pu s'ouvrir entre-temps). Nil : seul « ouvert ici » (open) compte.
 	EnvGuard func() []string `json:"-"`
+	// EnvRecheck : revérification RAPIDE (état mémorisé, sans moteur) juste avant chaque écriture, sous verrou ; nil : seul
+	// « ouvert ici » (open). EnvGuard, lui, n'est évalué qu'UNE fois, avant toute écriture.
+	EnvRecheck func() []string `json:"-"`
 }
 
 // UnverifiablePrefix : début de la réponse d'une vérification (propriétaire, conteneur) qui n'a pas pu se faire — backend
@@ -602,7 +605,7 @@ func EnvEditCheck(env MoveEnv, path string) (blockers, warns []string) {
 	if env.OpenHere != nil && env.OpenHere(path) {
 		blockers = append(blockers, "projet ouvert dans ce launcher")
 	}
-	foreign := ForeignOwner
+	foreign := ForeignOwnerChecked
 	if env.Foreign != nil {
 		foreign = env.Foreign
 	}
@@ -734,17 +737,29 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	}
 	// l'environnement (env.yaml, backend, image) n'est modifié ni projet ouvert ni conteneur actif (ici ou ailleurs)
 	envWrite := (in.Env != nil && len(in.Env.Changes) > 0) || in.Backend != nil || in.Image != nil
-	envBlockers := func() []string {
+	openOnly := func() []string {
+		if open { // seul « ouvert ici » est connu ici (pas d'accès aux moteurs depuis cette fonction)
+			return []string{"projet ouvert dans ce launcher"}
+		}
+		return nil
+	}
+	envBlockers := func() []string { // contrôle complet, une seule fois
 		if !envWrite {
 			return nil
 		}
 		if in.EnvGuard != nil {
 			return in.EnvGuard()
 		}
-		if open { // sans garde fournie : seul « ouvert ici » est connu (pas d'accès aux moteurs depuis cette fonction)
-			return []string{"projet ouvert dans ce launcher"}
+		return openOnly()
+	}
+	envRecheck := func() []string { // revérification rapide avant chaque écriture
+		if !envWrite {
+			return nil
 		}
-		return nil
+		if in.EnvRecheck != nil {
+			return in.EnvRecheck()
+		}
+		return openOnly()
 	}
 	envRefused := func(b []string) ProjectResult {
 		return ProjectResult{Msg: EnvEditMessage(b), Field: "env", Blockers: b}
@@ -775,7 +790,7 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		if err != nil {
 			return ProjectResult{Env: &EnvResult{Invalid: true, Problems: []ConfigProblem{{Severity: SevError, Message: err.Error()}}}}
 		}
-		ps, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), out, expected, envBlockers) // garde revérifiée sous verrou
+		ps, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), out, expected, nil, envRecheck) // revérifiée sous verrou
 		var locked *EnvLockedError
 		switch {
 		case errors.As(err, &locked):
@@ -811,7 +826,7 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	}
 	// 4. backend et image
 	if in.Backend != nil || in.Image != nil {
-		if b := envBlockers(); len(b) > 0 { // revérifié à l'écriture
+		if b := envRecheck(); len(b) > 0 { // revérifié à l'écriture
 			r := envRefused(b)
 			r.Env, r.Color = res.Env, res.Color
 			return r

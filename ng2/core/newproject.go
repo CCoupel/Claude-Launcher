@@ -15,21 +15,41 @@ import (
 
 // ApplyImage : socle img pour le projet — env.yaml modifié (ou créé) seulement
 // si l'environnement fusionné n'a pas déjà ce socle.
-func ApplyImage(dir, img string) error {
+func ApplyImage(dir, img string) error { return applyImage(dir, img, nil) }
+
+func applyImage(dir, img string, recheck func() []string) error {
 	if e, err := LoadEnv(dir); err == nil && e.Image == img {
 		return nil
 	}
-	return setEnvImage(dir, img) // absent, sans image valable, ou autre socle
+	return setEnvImageChecked(dir, img, recheck) // absent, sans image valable, ou autre socle
 }
 
 // ApplyExec : affectation du projet — img vide : sur l'hôte ; sinon le socle
 // img crée env.yaml, ou change sa ligne image: s'il existe déjà (hôte :
 // env.yaml gardé), et le projet est affecté au backend conteneur be.
-func ApplyExec(dir, img, be string) error {
+func ApplyExec(dir, img, be string) error { return ApplyExecChecked(dir, img, be, nil) }
+
+// ApplyExecChecked : ApplyExec d'un projet EXISTANT (F2) ; recheck (rapide : état mémorisé) est revérifié juste avant
+// l'écriture de l'env.yaml, sous son verrou, et avant l'affectation — refus : EnvLockedError. Nil : création / clone, sans garde.
+func ApplyExecChecked(dir, img, be string, recheck func() []string) error {
+	locked := func() error {
+		if recheck != nil {
+			if b := recheck(); len(b) > 0 {
+				return &EnvLockedError{Blockers: b}
+			}
+		}
+		return nil
+	}
 	if img == "" {
+		if err := locked(); err != nil {
+			return err
+		}
 		return WriteAssignment(dir, "host")
 	}
-	if err := ApplyImage(dir, img); err != nil {
+	if err := applyImage(dir, img, recheck); err != nil {
+		return err
+	}
+	if err := locked(); err != nil {
 		return err
 	}
 	return WriteAssignment(dir, be)

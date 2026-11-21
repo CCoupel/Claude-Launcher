@@ -763,10 +763,18 @@ func Assigned(proj string) bool {
 
 // setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
 // env.yaml absent (template seul, ou rien) : créé avec ce socle.
-func setEnvImage(proj, img string) error {
+func setEnvImage(proj, img string) error { return setEnvImageChecked(proj, img, nil) }
+
+// setEnvImageChecked : setEnvImage avec revérification (recheck) sous les verrous, avant l'écriture ; nil : sans garde.
+func setEnvImageChecked(proj, img string, recheck func() []string) error {
 	return withTrustRefresh(proj, func() ([]byte, error) {
 		var written []byte
 		err := WithFileLock(EnvPath(proj), func() error {
+			if recheck != nil { // F2 : revérifié sous les verrous, juste avant l'écriture
+				if b := recheck(); len(b) > 0 {
+					return &EnvLockedError{Blockers: b}
+				}
+			}
 			var e error
 			written, e = setEnvImageLocked(proj, img)
 			return e

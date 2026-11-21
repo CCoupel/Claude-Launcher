@@ -338,7 +338,7 @@ func MoveBlockers(env MoveEnv, path string) []string {
 	if env.OpenHere != nil && env.OpenHere(path) {
 		out = append(out, "projet ouvert dans ce launcher")
 	}
-	foreign := ForeignOwner
+	foreign := ForeignOwnerChecked // backend en échec (rapide ou délai) : « non vérifiable » = refus (fail-closed)
 	if env.Foreign != nil {
 		foreign = env.Foreign
 	}
@@ -368,10 +368,14 @@ func runningCtr(path string) string {
 	if !HasEnv(path) {
 		return ""
 	}
+	down, mine := "", projectCtrBackendName(path)
 	for _, b := range CtrBackends() {
 		e, _ := EngineOf(b)
 		fs, err := e.List()
 		if err != nil {
+			if down == "" && b.Name == mine { // seul le moteur du projet compte (projet local : jamais « non vérifiable »)
+				down = b.Name
+			}
 			continue
 		}
 		for _, f := range fs {
@@ -379,6 +383,9 @@ func runningCtr(path string) string {
 				return f.Name + " sur " + b.Name
 			}
 		}
+	}
+	if down != "" { // aucun conteneur trouvé mais un backend n'a pas répondu : état inconnu
+		return UnverifiablePrefix + " : " + down + " (conteneur non vérifiable)"
 	}
 	return ""
 }

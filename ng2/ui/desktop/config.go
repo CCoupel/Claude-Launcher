@@ -146,16 +146,17 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 			return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: rerr.Error()}}}, nil
 		}
 	}
-	var guard func() []string // éditeur YAML de l'env.yaml : refusé projet ouvert / conteneur actif, revérifié sous verrou
+	var guard, recheck func() []string // éditeur YAML de l'env.yaml : refusé projet ouvert / conteneur actif
 	var envWarns []string
 	if kind == core.ConfProjectEnv {
-		guard = func() []string {
+		guard = func() []string { // complet, hors verrou
 			b, w := core.EnvEditCheck(a.moveEnv(), project)
 			envWarns = w
 			return b
 		}
+		recheck = func() []string { return a.envFastBlockers(project) } // rapide, sous verrou
 	}
-	ps, err := core.SaveConfigGuarded(kind, f.Path, []byte(content), expected, guard)
+	ps, err := core.SaveConfigGuarded(kind, f.Path, []byte(content), expected, guard, recheck)
 	var locked *core.EnvLockedError
 	if errors.As(err, &locked) {
 		return envRefused(locked.Blockers), nil
@@ -574,7 +575,7 @@ func (a *App) refreshHubWarns(read func() []string) <-chan struct{} {
 
 // foreignOwner : propriétaire vivant d'une session d'un autre launcher (remplacé
 // dans les tests : aucun accès aux moteurs ni au réseau).
-var foreignOwner = tun.Of(core.ForeignOwner)
+var foreignOwner = tun.Of(core.ForeignOwnerChecked) // « backend injoignable : … » si un moteur ne répond pas (échec rapide compris)
 
 // runningOwner : conteneur / pod du projet en cours d'exécution (listing des moteurs), remplacé dans les tests.
 var runningOwner = tun.Of(core.RunningCtr)
@@ -626,20 +627,30 @@ func (a *App) envEditBlockers(path string) []string { return core.EnvEditBlocker
 // conteneurs, sans verrou). Le contrôle complet (propriétaire vivant, conteneur actif) reste celui de
 // l'écriture. Rend la raison, "" si libre.
 func (a *App) envLockedCheap(path string) string {
-	if _, open := a.openTabs.Load(path); open {
-		return core.EnvEditMessage([]string{"projet ouvert dans ce launcher"})
+	if b := a.envFastBlockers(path); len(b) > 0 {
+		return core.EnvEditMessage(b)
 	}
-	if p := a.liveSnap.Load(); p != nil && (*p)[path] { // session vivante dans un conteneur : ici ou chez un autre launcher
-		return core.EnvEditMessage([]string{"projet ouvert (session vivante dans son conteneur)"})
+	return ""
+}
+
+// envFastBlockers : blockers lus dans l'état mémorisé (onglet, session vivante vue, conteneur actif à la dernière lecture),
+// SANS interroger les moteurs — revérification rapide sous les verrous d'écriture, et affichage d'avance.
+func (a *App) envFastBlockers(path string) []string {
+	var out []string
+	if _, open := a.openTabs.Load(path); open {
+		out = append(out, "projet ouvert dans ce launcher")
+	} else if p := a.liveSnap.Load(); p != nil && (*p)[path] { // session vivante dans un conteneur : ici ou chez un autre launcher
+		out = append(out, "projet ouvert (session vivante dans son conteneur)")
 	}
 	if p := a.ctrFounds.Load(); p != nil {
 		for _, f := range *p {
 			if f.Project == path && f.Running {
-				return core.EnvEditMessage([]string{"conteneur ou pod en cours d'exécution (" + f.Name + ")"})
+				out = append(out, "conteneur ou pod en cours d'exécution ("+f.Name+")")
+				break
 			}
 		}
 	}
-	return ""
+	return out
 }
 
 // envRefused : réponse d'un refus d'écriture de l'environnement — {ok:false, saved:false, field:"env", msg, blockers}.
@@ -673,12 +684,13 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 			return map[string]any{"ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)"}, nil
 		}
 	}
-	var envWarns []string // vérification impossible (backend injoignable) : écriture permise, avertie
-	in.EnvGuard = func() []string {
+	var envWarns []string           // vérification impossible (backend injoignable) : écriture permise, avertie
+	in.EnvGuard = func() []string { // contrôle complet (moteurs, propriétaire) : une seule fois, avant toute écriture
 		b, w := core.EnvEditCheck(a.moveEnv(), path)
 		envWarns = w
 		return b
-	} // env.yaml / backend / image : ni ouvert ni conteneur actif
+	}
+	in.EnvRecheck = func() []string { return a.envFastBlockers(path) } // revérification rapide sous verrou // env.yaml / backend / image : ni ouvert ni conteneur actif
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {
 		a.configReload(core.ConfConf)

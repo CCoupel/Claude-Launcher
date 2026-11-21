@@ -183,20 +183,24 @@ func TestApplyProjectSettings(t *testing.T) {
 	if c, _ := os.ReadFile(ConfigPath()); strings.Contains(string(c), "PROJECT_COLORS") {
 		t.Fatal("couleur écrite malgré le refus de l'env")
 	}
-	// garde fournie (autre launcher / conteneur actif) : refus, revérifiée à l'écriture
-	calls := 0
-	g := func() []string {
-		calls++
-		if calls >= 2 {
+	// garde complète (1 seule fois) libre, puis revérification rapide qui bascule : refus, rien d'écrit
+	full, fast := 0, 0
+	g := func() []string { full++; return nil }
+	rc := func() []string {
+		fast++
+		if fast >= 1 {
 			return []string{"conteneur ou pod en cours d'exécution (x sur y)"}
 		}
 		return nil
 	}
-	if r := ApplyProjectSettings(proj, false, ProjectChange{Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}, EnvGuard: g}); r.OK || r.Field != "env" || !strings.Contains(r.Msg, "conteneur ou pod") {
-		t.Fatalf("garde revérifiée à l'écriture : %+v (appels %d)", r, calls)
+	if r := ApplyProjectSettings(proj, false, ProjectChange{Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}, EnvGuard: g, EnvRecheck: rc}); r.OK || r.Field != "env" || !strings.Contains(r.Msg, "conteneur ou pod") {
+		t.Fatalf("revérification à l'écriture : %+v (garde %d, recheck %d)", r, full, fast)
+	}
+	if full != 1 {
+		t.Errorf("garde complète évaluée %d fois, attendu 1", full)
 	}
 	if b, _ := os.ReadFile(EnvPath(proj)); string(b) != envSrc {
-		t.Fatal("env.yaml écrit malgré la garde")
+		t.Fatal("env.yaml écrit malgré la revérification")
 	}
 	r := ApplyProjectSettings(proj, false, ProjectChange{Color: str("22"), Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}})
 	if !r.OK || r.Env == nil || !r.Env.Saved || r.Env.MTime == "" || r.Note == "" || !r.Color {

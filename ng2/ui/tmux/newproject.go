@@ -598,8 +598,21 @@ func (m model) applyExecExisting() model {
 		m.form.err = why
 		return m
 	}
-	if err := applyExec(f.existing, f); err != nil {
-		m.form.err = err.Error()
+	img := ""
+	if f.exec > 0 && f.exec <= len(f.images) {
+		img = f.images[f.exec-1]
+	}
+	// revérifié sous les verrous, juste avant l'écriture : fenêtre du projet (état de la coque)
+	recheck := func() []string {
+		return core.EnvEditBlockers(core.MoveEnv{OpenHere: m.moveEnv().OpenHere, Foreign: func(string) string { return "" }, Running: func(string) string { return "" }}, f.existing)
+	}
+	if err := core.ApplyExecChecked(f.existing, img, f.ctrBe, recheck); err != nil {
+		var locked *core.EnvLockedError
+		if errors.As(err, &locked) {
+			m.form.err = core.EnvEditMessage(locked.Blockers)
+		} else {
+			m.form.err = err.Error()
+		}
 		return m
 	}
 	m.form = newForm{}
