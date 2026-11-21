@@ -100,6 +100,10 @@ func (a *App) open(path string, mode core.LaunchMode) (any, error) {
 		return map[string]any{"tab": path}, nil // ouvert entre-temps par un autre appel
 	}
 	a.setMsg("")
+	// l'ouverture est inscrite ICI, avant la goroutine : inscrite dans run(), le compteur pouvait encore valoir 0 juste après
+	// open() et Stop / le délai de grâce du pod (#198) n'attendait pas une ouverture lancée mais pas encore commencée.
+	// run() la termine (end) sur tous les chemins, panic compris.
+	a.openGate.begin()
 	go func() {
 		t.run()
 		go a.readCtr()
