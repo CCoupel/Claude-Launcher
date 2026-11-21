@@ -207,3 +207,28 @@ func TestJournalRevealInterface227(t *testing.T) {
 		t.Errorf("journal : interfaces attendues « web local » et « fenêtre native » :\n%s", j)
 	}
 }
+
+// Journal d'une révélation : AUCUNE clé « fingerprint » (ni vide), ni valeur, ni longueur.
+func TestJournalRevealSansEmpreinte227(t *testing.T) {
+	a := revealFix227(t)
+	args, _ := json.Marshal(map[string]any{"kind": "config.conf", "key": "GITHUB_TOKEN"})
+	_, _ = a.Dispatch("secretReveal", args)
+	j, _ := os.ReadFile(filepath.Join(core.CacheDir(), "secrets-journal.jsonl"))
+	n := 0
+	for _, l := range strings.Split(strings.TrimSpace(string(j)), "\n") {
+		var rec map[string]any
+		if json.Unmarshal([]byte(l), &rec) != nil || rec["action"] != "révélé" {
+			continue
+		}
+		n++
+		if _, has := rec["fingerprint"]; has {
+			t.Errorf("clé fingerprint présente dans une ligne de révélation : %s", l)
+		}
+		if strings.Contains(l, fakeTok227) || strings.Contains(l, "len") {
+			t.Errorf("valeur ou longueur dans le journal : %s", l)
+		}
+	}
+	if n == 0 {
+		t.Fatalf("aucune ligne « révélé » :\n%s", j)
+	}
+}
