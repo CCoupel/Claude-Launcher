@@ -38,58 +38,83 @@ func readF216(p string) string { b, _ := os.ReadFile(p); return string(b) }
 
 var refus216 = []string{"projet ouvert dans ce launcher"}
 
-// La garde est revérifiée à CHAQUE écriture : on la fait basculer en refus à chacun de ses appels successifs (le projet
-// s'ouvre entre deux contrôles) ; quel que soit l'instant, un refus avant l'écriture de l'env.yaml n'écrit RIEN (ni env.yaml
-// ni couleur), l'affectation n'est jamais changée, et un refus tardif (après l'env.yaml) le dit dans le résultat.
-func TestGardeRevereifieeATousLesInstants216(t *testing.T) {
+// Deux niveaux : la garde COMPLÈTE (moteurs, propriétaire : lente) n'est évaluée qu'UNE fois, avant toute écriture et hors
+// verrou ; la revérification RAPIDE (état mémorisé) précède CHAQUE écriture (env.yaml, backend / image). On fait basculer
+// la revérification en refus à chacun de ses appels (le projet s'ouvre entre deux contrôles) : un refus avant l'écriture
+// de l'env.yaml n'écrit RIEN (ni env.yaml ni couleur), l'affectation n'est jamais changée, un refus tardif le dit.
+func TestGardeUneFoisEtRevereifieeRapidementATousLesInstants216(t *testing.T) {
 	be, img, color := "pod", "docker.io/library/alpine:3.20", "52"
 	total := 0
 	for k := 1; k <= 12; k++ {
 		proj, env := guardProj216(t)
 		_ = WriteAssignment(proj, "host")
 		cfgBefore, envBefore := readF216(ConfigPath()), readF216(EnvPath(proj))
-		calls, envAtFlip, flipped := 0, "", false
-		r := ApplyProjectSettings(proj, false, ProjectChange{Env: env, Color: &color, Backend: &be, Image: &img, EnvGuard: func() []string {
-			calls++
-			if calls == k {
-				flipped, envAtFlip = true, readF216(EnvPath(proj))
-				return refus216
-			}
-			return nil
-		}})
-		if !flipped { // plus aucun appel d'indice k : le déplacement s'est déroulé sans basculer
-			total = calls
+		guards, rechecks, envAtFlip, flipped := 0, 0, "", false
+		r := ApplyProjectSettings(proj, false, ProjectChange{Env: env, Color: &color, Backend: &be, Image: &img,
+			EnvGuard: func() []string { guards++; return nil },
+			EnvRecheck: func() []string {
+				rechecks++
+				if rechecks == k {
+					flipped, envAtFlip = true, readF216(EnvPath(proj))
+					return refus216
+				}
+				return nil
+			}})
+		if guards != 1 {
+			t.Errorf("bascule n°%d : garde complète évaluée %d fois, attendu UNE (lente : jamais sous verrou, jamais répétée)", k, guards)
+		}
+		if !flipped { // plus aucun appel d'indice k : tout s'est déroulé sans basculement
+			total = rechecks
 			if !r.OK {
-				t.Fatalf("sans basculement (%d appels) : %+v", calls, r)
+				t.Fatalf("sans basculement (%d revérifications) : %+v", rechecks, r)
 			}
 			break
 		}
 		if r.OK || r.Field != "env" {
-			t.Errorf("bascule à l'appel %d : %+v, attendu un refus {field:env}", k, r)
+			t.Errorf("bascule à la revérification %d : %+v, attendu un refus {field:env}", k, r)
 			continue
 		}
 		if r.Msg != EnvEditMessage(refus216) || len(r.Blockers) != 1 || r.Blockers[0] != refus216[0] {
-			t.Errorf("bascule à l'appel %d : msg=%q blockers=%v", k, r.Msg, r.Blockers)
+			t.Errorf("bascule à la revérification %d : msg=%q blockers=%v", k, r.Msg, r.Blockers)
 		}
 		if got := ProjectBackend(proj).Name; got != "host" {
-			t.Errorf("bascule à l'appel %d : affectation changée en %q sous un projet ouvert", k, got)
+			t.Errorf("bascule à la revérification %d : affectation changée en %q sous un projet ouvert", k, got)
 		}
 		if envAtFlip == envBefore { // refus avant toute écriture de l'env.yaml
 			if readF216(EnvPath(proj)) != envBefore {
-				t.Errorf("bascule à l'appel %d : env.yaml écrit APRÈS le refus", k)
+				t.Errorf("bascule à la revérification %d : env.yaml écrit APRÈS le refus", k)
 			}
 			if readF216(ConfigPath()) != cfgBefore {
-				t.Errorf("bascule à l'appel %d : config.conf (couleur) écrit alors que l'env a été refusé", k)
+				t.Errorf("bascule à la revérification %d : config.conf (couleur) écrit alors que l'env a été refusé", k)
 			}
 			if r.Env != nil && r.Env.Saved {
-				t.Errorf("bascule à l'appel %d : EnvResult.Saved vrai sur un refus d'avant écriture", k)
+				t.Errorf("bascule à la revérification %d : EnvResult.Saved vrai sur un refus d'avant écriture", k)
 			}
 		} else if r.Env == nil || !r.Env.Saved { // refus tardif : l'env.yaml est déjà écrit, l'interface doit le savoir
-			t.Errorf("bascule à l'appel %d (env.yaml déjà écrit) : résultat sans EnvResult.Saved : %+v", k, r)
+			t.Errorf("bascule à la revérification %d (env.yaml déjà écrit) : résultat sans EnvResult.Saved : %+v", k, r)
 		}
 	}
-	if total < 3 {
-		t.Errorf("garde consultée %d fois seulement pour env.yaml + backend + image, attendu au moins 3 (avant toute écriture, avant l'env.yaml, avant le backend)", total)
+	if total < 2 {
+		t.Errorf("revérification rapide appelée %d fois seulement pour env.yaml + backend + image, attendu au moins 2 (avant l'env.yaml, avant le backend)", total)
+	}
+}
+
+// La garde complète qui refuse (une seule évaluation) n'écrit rien du tout, ni couleur ni env.yaml ni affectation, et la
+// revérification n'est même pas atteinte.
+func TestGardeCompleteRefuseNEcritRien216(t *testing.T) {
+	proj, env := guardProj216(t)
+	_ = WriteAssignment(proj, "host")
+	cfgBefore, envBefore := readF216(ConfigPath()), readF216(EnvPath(proj))
+	be, img, color := "pod", "docker.io/library/alpine:3.20", "52"
+	guards, rechecks := 0, 0
+	r := ApplyProjectSettings(proj, false, ProjectChange{Env: env, Color: &color, Backend: &be, Image: &img,
+		EnvGuard:   func() []string { guards++; return refus216 },
+		EnvRecheck: func() []string { rechecks++; return nil }})
+	if r.OK || r.Field != "env" || guards != 1 || rechecks != 0 {
+		t.Fatalf("résultat = %+v (garde %d fois, revérification %d fois), attendu un refus après UNE garde, sans revérification", r, guards, rechecks)
+	}
+	if readF216(EnvPath(proj)) != envBefore || readF216(ConfigPath()) != cfgBefore || ProjectBackend(proj).Name != "host" {
+		t.Error("quelque chose a été écrit malgré le refus de la garde complète")
 	}
 }
 
