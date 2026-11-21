@@ -56,3 +56,22 @@ func TestSaveConfigGuardedRevalideSousVerrou216(t *testing.T) {
 		t.Fatalf("libre : %v", err)
 	}
 }
+
+func TestEnvEditCheckInjoignableEstUnAvertissement216(t *testing.T) {
+	env := MoveEnv{OpenHere: func(string) bool { return false },
+		Foreign: func(string) string { return UnverifiablePrefix + " : propriétaire non vérifiable" },
+		Running: func(string) string { return UnverifiablePrefix + " : conteneur non vérifiable" }}
+	b, w := EnvEditCheck(env, "/p")
+	if len(b) != 0 || len(w) != 1 || w[0] != EnvWarnUnknown {
+		t.Errorf("blockers=%v warns=%v", b, w)
+	}
+	env.OpenHere = func(string) bool { return true }
+	if b, _ := EnvEditCheck(env, "/p"); len(b) != 1 {
+		t.Errorf("ouvert ici = blocker certain : %v", b)
+	}
+	// le déplacement, lui, reste fermé quand la vérification est impossible (fail-closed)
+	env.OpenHere = func(string) bool { return false }
+	if len(MoveBlockers(env, "/p")) == 0 {
+		t.Error("MoveBlockers doit refuser quand la vérification est impossible")
+	}
+}

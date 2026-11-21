@@ -22,7 +22,7 @@ func (a *App) moveEnv() core.MoveEnv {
 			case who := <-res:
 				return who
 			case <-time.After(foreignOwnerTimeout.Get()):
-				return "backend injoignable : propriétaire non vérifiable"
+				return core.UnverifiablePrefix + " : propriétaire non vérifiable"
 			}
 		},
 		Running: func(path string) string { // listing des moteurs : borné comme le propriétaire (un moteur qui ne répond pas ne bloque pas)
@@ -32,7 +32,7 @@ func (a *App) moveEnv() core.MoveEnv {
 			case what := <-res:
 				return what
 			case <-time.After(foreignOwnerTimeout.Get()):
-				return "backend injoignable : conteneur non vérifiable"
+				return core.UnverifiablePrefix + " : conteneur non vérifiable"
 			}
 		},
 	}

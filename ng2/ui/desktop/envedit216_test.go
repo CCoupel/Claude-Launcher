@@ -153,3 +153,44 @@ func TestEnvLockedAffichageConteneurEtAutreLauncher216(t *testing.T) {
 		t.Errorf("configOpen : %v", d["readOnly"])
 	}
 }
+
+// Backend injoignable (propriétaire / conteneur non vérifiables) ET projet non ouvert ici : env.yaml ÉCRIT, avec l'avertissement
+// « état du conteneur inconnu » ; un blocker certain reste un refus.
+func TestEnvYamlBackendInjoignableAutoriseAvecAvertissement216(t *testing.T) {
+	for name, c := range map[string][2]string{
+		"propriétaire": {core.UnverifiablePrefix + " : propriétaire non vérifiable", ""},
+		"conteneur":    {"", core.UnverifiablePrefix + " : conteneur non vérifiable"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newProjFix(t)
+			setOwner216(t, c[0], c[1])
+			mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+			r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "ripgrep", "fd")})
+			if r["ok"] != true || r["env"].(map[string]any)["saved"] != true || r["warn"] != core.EnvWarnUnknown {
+				t.Fatalf("écriture avertie attendue : %v", r)
+			}
+			if b, _ := os.ReadFile(core.EnvPath(f.proj)); !strings.Contains(string(b), "fd") {
+				t.Error("env.yaml non écrit")
+			}
+			// éditeur YAML : même autorisation avec avertissement
+			mt2 := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+			e := f.call("configSave", map[string]any{"kind": "project-env", "path": f.proj, "content": "image: docker.io/library/debian:12\npackages: [y]\n", "mtime": mt2})
+			if e["saved"] != true || e["warn"] != core.EnvWarnUnknown {
+				t.Errorf("configSave : %v", e)
+			}
+		})
+	}
+	// injoignable pour l'un, blocker CERTAIN pour l'autre : refus
+	f := newProjFix(t)
+	setOwner216(t, core.UnverifiablePrefix+" : propriétaire non vérifiable", "p-alpha sur srv1")
+	mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+	if r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "x")}); r["ok"] != false || r["field"] != "env" {
+		t.Errorf("conteneur actif confirmé : %v", r)
+	}
+	// projet ouvert ici : refus même si le backend est injoignable
+	f.open()
+	setOwner216(t, core.UnverifiablePrefix+" : propriétaire non vérifiable", "")
+	if r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "x")}); r["ok"] != false || r["field"] != "env" {
+		t.Errorf("ouvert ici : %v", r)
+	}
+}

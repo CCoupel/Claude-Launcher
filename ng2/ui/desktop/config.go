@@ -147,8 +147,13 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 		}
 	}
 	var guard func() []string // éditeur YAML de l'env.yaml : refusé projet ouvert / conteneur actif, revérifié sous verrou
+	var envWarns []string
 	if kind == core.ConfProjectEnv {
-		guard = func() []string { return a.envEditBlockers(project) }
+		guard = func() []string {
+			b, w := core.EnvEditCheck(a.moveEnv(), project)
+			envWarns = w
+			return b
+		}
 	}
 	ps, err := core.SaveConfigGuarded(kind, f.Path, []byte(content), expected, guard)
 	var locked *core.EnvLockedError
@@ -173,6 +178,9 @@ func (a *App) configSaveAs(web bool, kind core.ConfigKind, project, content, mti
 	note := a.configReload(kind)
 	st, _ := os.Stat(f.Path)
 	out := map[string]any{"saved": true, "problems": ps, "note": note}
+	if len(envWarns) > 0 {
+		out["warn"] = envWarns[0] // état du conteneur inconnu : écrit quand même
+	}
 	if st != nil {
 		out["mtime"] = st.ModTime().Format(time.RFC3339Nano)
 	}
@@ -665,7 +673,12 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 			return map[string]any{"ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)"}, nil
 		}
 	}
-	in.EnvGuard = func() []string { return a.envEditBlockers(path) } // env.yaml / backend / image : ni ouvert ni conteneur actif
+	var envWarns []string // vérification impossible (backend injoignable) : écriture permise, avertie
+	in.EnvGuard = func() []string {
+		b, w := core.EnvEditCheck(a.moveEnv(), path)
+		envWarns = w
+		return b
+	} // env.yaml / backend / image : ni ouvert ni conteneur actif
 	r := core.ApplyProjectSettings(path, open, in)
 	if r.Color {
 		a.configReload(core.ConfConf)
@@ -694,5 +707,8 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 	b, _ := json.Marshal(r)
 	var out map[string]any
 	_ = json.Unmarshal(b, &out)
+	if len(envWarns) > 0 && r.OK {
+		out["warn"] = envWarns[0]
+	}
 	return out, nil
 }

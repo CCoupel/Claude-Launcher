@@ -588,10 +588,48 @@ type ProjectChange struct {
 	EnvGuard func() []string `json:"-"`
 }
 
-// EnvEditBlockers : ce qui interdit de modifier l'environnement (env.yaml) du projet — mêmes blockers que le déplacement
-// (ouvert ici, par un autre launcher, conteneur / pod actif), sauf « déplacement inachevé » qui ne concerne pas l'env.
-// Le flux d'approbation d'un dépôt cloné (#215) n'en dépend pas : il n'appelle pas ceci.
-func EnvEditBlockers(env MoveEnv, path string) []string { return MoveBlockersExceptPending(env, path) }
+// UnverifiablePrefix : début de la réponse d'une vérification (propriétaire, conteneur) qui n'a pas pu se faire — backend
+// injoignable ou délai dépassé. Pour l'env.yaml ce n'est PAS un refus (avertissement) ; pour un déplacement, si.
+const UnverifiablePrefix = "backend injoignable"
+
+// EnvWarnUnknown : avertissement rendu quand l'état du conteneur n'a pu être vérifié (écriture quand même permise).
+const EnvWarnUnknown = "état du conteneur inconnu (backend injoignable) : s'appliquera à la prochaine ouverture"
+
+// EnvEditCheck : blockers CERTAINS (ouvert ici, autre launcher confirmé, conteneur / pod actif confirmé) qui interdisent de
+// modifier l'environnement du projet, et avertissements (vérification impossible : backend injoignable). Mêmes sources que le
+// déplacement, sauf « déplacement inachevé ». Le flux d'approbation d'un dépôt cloné (#215) n'en dépend pas.
+func EnvEditCheck(env MoveEnv, path string) (blockers, warns []string) {
+	if env.OpenHere != nil && env.OpenHere(path) {
+		blockers = append(blockers, "projet ouvert dans ce launcher")
+	}
+	foreign := ForeignOwner
+	if env.Foreign != nil {
+		foreign = env.Foreign
+	}
+	if who := foreign(path); strings.HasPrefix(who, UnverifiablePrefix) {
+		warns = append(warns, EnvWarnUnknown)
+	} else if who != "" {
+		blockers = append(blockers, "projet ouvert par un autre launcher ("+who+")")
+	}
+	run := runningCtr
+	if env.Running != nil {
+		run = env.Running
+	}
+	if what := run(path); strings.HasPrefix(what, UnverifiablePrefix) {
+		if len(warns) == 0 {
+			warns = append(warns, EnvWarnUnknown)
+		}
+	} else if what != "" {
+		blockers = append(blockers, "conteneur ou pod en cours d'exécution ("+what+")")
+	}
+	return blockers, warns
+}
+
+// EnvEditBlockers : les blockers certains de EnvEditCheck.
+func EnvEditBlockers(env MoveEnv, path string) []string {
+	b, _ := EnvEditCheck(env, path)
+	return b
+}
 
 // EnvEditRefusal : "" si l'environnement du projet peut être modifié, sinon la raison, avec la consigne.
 func EnvEditRefusal(env MoveEnv, path string) string {
