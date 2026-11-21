@@ -451,6 +451,28 @@ func w184Wait(t *testing.T, what string, cond func() bool) {
 	t.Fatalf("condition non atteinte en 45 s : %s", what)
 }
 
+// w184WaitApply : comme w184Wait, mais relance applyWebUI quand l'interface web est en erreur d'écoute. Un passage à chaud
+// arrête le serveur puis ré-écoute le MÊME port : si un autre processus a pris ce port entre les deux (paquets de tests
+// lancés en parallèle par la CI, ports éphémères), le démarrage échoue (« écoute impossible… in use ») et rien ne le
+// relance — l'attente, elle, durait 45 s pour rien. Le produit réessaie à chaque relecture du réglage ; le test fait de
+// même, lentement (pas de tempête de redémarrages). Cause du timeout observé en CI (TestWebAccessNoneRemovesStaleTokenFile).
+func w184WaitApply(t *testing.T, a *App, what string, cond func() bool) {
+	t.Helper()
+	last := time.Now()
+	w184Wait(t, what, func() bool {
+		if cond() {
+			return true
+		}
+		if time.Since(last) > 2*time.Second {
+			if st, _ := l4WebUIOf(t, a)["state"].(string); st == "error" {
+				a.applyWebUI()
+			}
+			last = time.Now()
+		}
+		return false
+	})
+}
+
 func w184TokenFileExists() bool { _, err := os.Stat(l4TokenFile()); return err == nil }
 
 // F3 : au passage en none (au démarrage ou à chaud), le fichier desktop-web-token résiduel est supprimé.
@@ -468,8 +490,8 @@ func TestWebAccessNoneRemovesStaleTokenFile(t *testing.T) {
 	if err != nil || res.(map[string]any)["saved"] != true {
 		t.Fatalf("configApply access none : %v %v", res, err)
 	}
-	w184Wait(t, "webUI.access = none", func() bool { return l4WebUIOf(t, a)["access"] == "none" })
-	w184Wait(t, "desktop-web-token supprimé après le passage à chaud en none", func() bool { return !w184TokenFileExists() })
+	w184WaitApply(t, a, "webUI.access = none", func() bool { return l4WebUIOf(t, a)["access"] == "none" })
+	w184WaitApply(t, a, "desktop-web-token supprimé après le passage à chaud en none", func() bool { return !w184TokenFileExists() })
 }
 
 // F3 (suite, test SÉPARÉ : sa propre App et son propre bac à sable) : au démarrage en none, le fichier résiduel est supprimé ;
