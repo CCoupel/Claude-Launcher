@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -653,6 +654,12 @@ func (a *App) envFastBlockers(path string) []string {
 	return out
 }
 
+// unverifiableOwner216 : backend / image refusés (fail-closed) — le propriétaire du projet n'a pas pu être vérifié.
+func unverifiableOwner216() map[string]any {
+	return map[string]any{"ok": false, "field": "env", "blockers": []string{core.EnvBlockUnknown},
+		"msg": "impossible de vérifier si le projet est ouvert ailleurs (" + core.EnvBlockUnknown + ")"}
+}
+
 // envRefused : réponse d'un refus d'écriture de l'environnement — {ok:false, saved:false, field:"env", msg, blockers}.
 func envRefused(blockers []string) map[string]any {
 	return map[string]any{"ok": false, "saved": false, "field": "env", "msg": core.EnvEditMessage(blockers), "blockers": blockers}
@@ -679,9 +686,12 @@ func (a *App) projectApply(path string, in core.ProjectChange) (map[string]any, 
 		go func() { res <- foreignOwner.Get()(path) }()
 		select {
 		case who := <-res:
+			if strings.HasPrefix(who, core.UnverifiablePrefix) { // propriétaire non vérifiable (échec rapide) : refus, comme le délai
+				return unverifiableOwner216(), nil
+			}
 			open = who != ""
 		case <-time.After(foreignOwnerTimeout.Get()):
-			return map[string]any{"ok": false, "msg": "impossible de vérifier si le projet est ouvert ailleurs (backend injoignable)"}, nil
+			return unverifiableOwner216(), nil
 		}
 	}
 	var envWarns []string           // vérification impossible (backend injoignable) : écriture permise, avertie
