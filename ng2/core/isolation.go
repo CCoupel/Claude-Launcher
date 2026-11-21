@@ -68,10 +68,7 @@ func guardWrite(path string) error {
 
 // underTemp : path (son plus proche dossier existant, liens résolus) est sous os.TempDir() résolu.
 func underTemp(path string) bool {
-	tmp, err := filepath.EvalSymlinks(os.TempDir())
-	if err != nil {
-		tmp = filepath.Clean(os.TempDir())
-	}
+	tmp := canonPath(os.TempDir())
 	p := filepath.Clean(path)
 	if !filepath.IsAbs(p) {
 		if a, err := filepath.Abs(p); err == nil {
@@ -89,9 +86,11 @@ func underTemp(path string) bool {
 		}
 		d = up
 	}
-	if r, err := filepath.EvalSymlinks(d); err == nil {
-		d = r
-	}
+	return pathUnder(tmp, canonPath(d))
+}
+
+// pathUnder : d est tmp ou dessous (les deux déjà canoniques : voir canonPath — nom court 8.3 et casse sous Windows).
+func pathUnder(tmp, d string) bool {
 	rel, err := filepath.Rel(tmp, d)
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }

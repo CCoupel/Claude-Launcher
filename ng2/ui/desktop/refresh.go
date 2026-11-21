@@ -380,6 +380,10 @@ func (a *App) refreshTpl(path string) {
 // refreshUsage : consommation ; dans le délai minimal après un échec de l'API,
 // la valeur en cache est rendue sans appel.
 func (a *App) refreshUsage() {
+	if !a.usageBegin() {
+		return
+	}
+	defer a.usageGate.end()
 	core.LinkUsageCache()
 	core.FetchUsageForced(a.conf().UsageRefreshSec)
 	u := core.ReadUsage()

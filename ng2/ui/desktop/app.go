@@ -31,10 +31,11 @@ type Emitter func(name string, data any)
 
 // App : état du launcher vu par l'interface.
 type App struct {
-	openGate openGate // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
-	cfg      core.Config
-	confMu   sync.RWMutex // cfg relue à chaud (config.go)
-	confAt   time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
+	usageGate openGate // relevés de consommation en cours (écrivent usage.json / .err) : attendus à l'arrêt, bornés
+	openGate  openGate // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
+	cfg       core.Config
+	confMu    sync.RWMutex // cfg relue à chaud (config.go)
+	confAt    time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
 	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
@@ -319,6 +320,7 @@ func (a *App) Stop() {
 		close(a.quit)
 	}
 	a.stopWebUI()
+	a.usageGate.wait(usageStopWait.Get())  // un relevé de consommation en cours finit d'écrire son cache (borné)
 	a.waitOpenings(shutdownOpenWait.Get()) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
@@ -698,7 +700,26 @@ func (a *App) storeBackends() {
 	a.bkSnap.Store(&bs)
 }
 
+// usageStopWait : durée maximale pendant laquelle Stop attend un relevé de consommation en cours d'écriture.
+var usageStopWait = tun.Of(2 * time.Second)
+
+// usageBegin : inscrit un relevé de consommation ; faux (rien inscrit) si l'App est arrêtée — plus aucun écrivain de
+// usage.json(.err) ne démarre après Stop (il écrivait dans un environnement déjà restauré / dossier en cours de suppression).
+func (a *App) usageBegin() bool {
+	select {
+	case <-a.quit:
+		return false
+	default:
+	}
+	a.usageGate.begin()
+	return true
+}
+
 func (a *App) readUsage() {
+	if !a.usageBegin() {
+		return
+	}
+	defer a.usageGate.end()
 	var u core.Usage
 	a.perf.timed("conso", core.ClaudeDir(), func() {
 		core.LinkUsageCache()
