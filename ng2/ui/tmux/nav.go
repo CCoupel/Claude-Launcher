@@ -112,6 +112,7 @@ type model struct {
 	pending      int
 	started      time.Time
 	loadedAt     time.Duration
+	confSrc      string // contenu de config.conf à la dernière relecture : options modifiées dites dans la ligne d'état (#226)
 }
 
 // refreshCfg : m.cfg à jour de config.conf (date, taille ; une comparaison par tour). Invalide : dernière copie valide gardée et
@@ -123,6 +124,13 @@ func (m model) refreshCfg() model {
 		m.msg = "⚠ " + warn
 		return m
 	}
+	if !fresh.Stamp.Same(m.cfg.Stamp) { // relue : dire dans la ligne d'état ce qui a changé et ce qu'il reste à faire (#226)
+		src := core.ReadConfSrc()
+		if note := core.ApplyNote(core.ChangedOptions(m.confSrc, src, core.IfaceShell), core.IfaceShell); note != "" {
+			m.msg = note
+		}
+		m.confSrc = src
+	}
 	m.cfg = fresh
 	return m
 }
@@ -130,7 +138,7 @@ func (m model) refreshCfg() model {
 func NewModel(launch bool) model {
 	cfg := core.LoadConfig()
 	m := model{
-		cfg: cfg, git: map[string]core.GitInfo{}, detail: map[string]core.GitDetail{}, asked: map[string]bool{}, tpl: map[string]core.TemplateState{},
+		confSrc: core.ReadConfSrc(), cfg: cfg, git: map[string]core.GitInfo{}, detail: map[string]core.GitDetail{}, asked: map[string]bool{}, tpl: map[string]core.TemplateState{},
 		windows: map[string]bool{}, launch: launch, started: time.Now(), shell: os.Getenv("CL_SHELL") == "1",
 	}
 	m.session = tmuxSession()
