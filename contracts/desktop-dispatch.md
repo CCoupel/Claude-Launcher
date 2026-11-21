@@ -830,7 +830,12 @@ conteneur actif).
   retirée du journal) ; nouvel échec → retour arrière comme `projectMove` (`rolledBack: true`, entrée retirée) ou
   `state: "partial"` (entrée mise à jour : `step`, `done`, `msg`).
 - `projectMoveAbort` (« Annuler ») : annule les étapes de `done` dans l'ordre inverse (l'étape `ctr`, si faite, ne
-  s'annule pas : l'ancien conteneur est recréé à la prochaine ouverture). Succès `{ "ok": true, "path": "<chemin
+  s'annule pas : l'ancien conteneur est recréé à la prochaine ouverture). **`config.conf`** (étape `conf`, ici comme dans le
+  retour arrière de `projectMove`) est rétabli à l'**équivalent sémantique** de l'état initial — mêmes clés, mêmes
+  valeurs pour le projet, reste du fichier (autres projets, commentaires) inchangé — **pas à l'identique octet** :
+  l'entrée réécrite peut changer de place (fin du littéral), prendre la forme `["clé"]="valeur"` (équivalente pour
+  bash à `[clé]=valeur`), et un commentaire de fin de ligne de l'entrée retirée reste seul sur sa ligne. Les autres
+  étapes (`dir`, `assign`, `history`) rétablissent l'état exact. Succès `{ "ok": true, "path": "<chemin
   d'origine>", "key": "<clé d'origine>", "rolledBack": true }` (entrée retirée) ; échec `{ "ok": false, "state":
   "partial", "done", "msg" }` (entrée mise à jour).
 - Les deux relisent l'arbre et suivent la sélection. Aucun traitement automatique au démarrage : l'entrée reste en
