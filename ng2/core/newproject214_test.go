@@ -154,8 +154,14 @@ func TestResolveProjectPathLienSymboliqueSortant214(t *testing.T) {
 	if err := os.Symlink(dehors, filepath.Join(base, "SORTIE")); err != nil {
 		t.Skipf("liens symboliques indisponibles : %v", err)
 	}
-	// lien relatif qui remonte
-	if err := os.Symlink("../../..", filepath.Join(base, "REMONTE")); err != nil {
+	// lien RELATIF qui remonte hors de la base, vers un dossier de ce test (jamais vers /tmp lui-même : le résultat de
+	// « REMONTE/x » dépendrait alors des fichiers qui s'y trouvent, ex. un /tmp/x existant)
+	ailleurs := t.TempDir()
+	rel, err := filepath.Rel(base, ailleurs)
+	if err != nil || !strings.HasPrefix(rel, "..") {
+		t.Fatalf("chemin relatif vers %s : %q %v", ailleurs, rel, err)
+	}
+	if err := os.Symlink(rel, filepath.Join(base, "REMONTE")); err != nil {
 		t.Fatal(err)
 	}
 	// catégorie sous un lien sortant, existante ou non
