@@ -184,26 +184,38 @@ func (e MoveEnv) claudeDir() string {
 
 func movesPath() string { return filepath.Join(Ng2ConfigDir(), "moves.json") }
 
-// movesBrokenError : moves.json présent mais illisible (ou verrou du journal inaccessible) — fail-closed, comme trust.json :
-// tout déplacement est refusé, le journal n'est JAMAIS réécrit.
-type movesBrokenError struct{ cause string }
-
-func (e movesBrokenError) Error() string {
-	return fmt.Sprintf("journal des déplacements illisible (%s%s) : restaurez moves.json.bak ou supprimez moves.json", movesPath(), e.cause)
+// movesBrokenError : le journal n'est pas utilisable — fail-closed, comme trust.json : tout déplacement est refusé, le
+// journal n'est JAMAIS réécrit. Le message dit EXACTEMENT ce qui se passe et quoi faire selon la cause :
+//   - contenu illisible (vide, JSON invalide) : restaurer moves.json.bak ou supprimer moves.json ;
+//   - fichier inaccessible (droits, E/S)      : vérifier les droits du fichier ;
+//   - verrou du journal inaccessible          : réessayer, ou supprimer le verrou s'il est périmé.
+type movesBrokenError struct {
+	kind  string // "contenu" | "acces" | "verrou"
+	cause string
 }
 
-// readMovesLocked : journal lu (verrou tenu) ; illisible : movesBrokenError.
+func (e movesBrokenError) Error() string {
+	switch e.kind {
+	case "acces":
+		return fmt.Sprintf("journal des déplacements inaccessible (%s : %s) : vérifiez les droits du fichier", movesPath(), e.cause)
+	case "verrou":
+		return fmt.Sprintf("verrou du journal des déplacements inaccessible (%s.lock : %s) : réessayez, ou supprimez ce verrou s'il est périmé", movesPath(), e.cause)
+	}
+	return fmt.Sprintf("journal des déplacements illisible (%s) : restaurez moves.json.bak ou supprimez moves.json pour repartir de zéro", movesPath())
+}
+
+// readMovesLocked : journal lu (verrou tenu) ; inutilisable : movesBrokenError.
 func readMovesLocked() ([]MoveEntry, []byte, error) {
 	raw, err := os.ReadFile(movesPath())
 	if os.IsNotExist(err) {
 		return nil, nil, nil
 	}
 	if err != nil {
-		return nil, nil, movesBrokenError{" : " + err.Error()}
+		return nil, nil, movesBrokenError{"acces", err.Error()}
 	}
 	var out []MoveEntry
 	if len(strings.TrimSpace(string(raw))) == 0 || json.Unmarshal(raw, &out) != nil {
-		return nil, nil, movesBrokenError{}
+		return nil, nil, movesBrokenError{kind: "contenu"}
 	}
 	return out, raw, nil
 }
@@ -271,7 +283,7 @@ func readMoves() ([]MoveEntry, error) {
 		if _, ok := err.(movesBrokenError); ok {
 			return nil, err
 		}
-		return nil, movesBrokenError{" : " + err.Error()}
+		return nil, movesBrokenError{"verrou", err.Error()} // WithFileLock : verrou pris au-delà de l'échéance
 	}
 	return m, nil
 }
@@ -426,6 +438,41 @@ func ctrExists(path string) bool {
 	return found
 }
 
+var sharedScanCache = struct {
+	sync.Mutex
+	at    time.Time
+	roots string
+	names map[string][]string // nom de dossier → chemins des projets de ce nom
+}{}
+
+// sharedConfKey : autres projets portant le même nom de dossier (même clé de config.conf). L'arbre n'est parcouru qu'une
+// fois par 20 s : projectMoveInfo est appelé à chaque frappe du dialogue et doit rester léger.
+func sharedConfKey(roots []string, name, path string) []string {
+	key := strings.Join(roots, "\x00")
+	sharedScanCache.Lock()
+	if sharedScanCache.names == nil || sharedScanCache.roots != key || time.Since(sharedScanCache.at) > 20*time.Second {
+		names := map[string][]string{}
+		sharedScanCache.Unlock() // le parcours se fait hors verrou
+		for _, n := range ScanTree(roots) {
+			if n.Project {
+				b := filepath.Base(n.Path)
+				names[b] = append(names[b], n.Path)
+			}
+		}
+		sharedScanCache.Lock()
+		sharedScanCache.names, sharedScanCache.roots, sharedScanCache.at = names, key, time.Now()
+	}
+	var out []string
+	for _, p := range sharedScanCache.names[name] {
+		if filepath.Clean(p) != filepath.Clean(path) {
+			out = append(out, p)
+		}
+	}
+	sharedScanCache.Unlock()
+	sort.Strings(out)
+	return out
+}
+
 func moveDest(env MoveEnv, path string, t MoveTarget) MoveDest {
 	d := MoveDest{Impacts: []MoveImpact{}}
 	fail := func(field, msg string) MoveDest { d.Field, d.Msg = field, msg; return d }
@@ -479,14 +526,8 @@ func moveDest(env MoveEnv, path string, t MoveTarget) MoveDest {
 		if len(keys) > 0 {
 			im := MoveImpact{What: MoveStepConf, Keys: keys}
 			// la clé est le NOM du dossier : deux projets de même nom dans des catégories différentes la partagent
-			var shared []string
-			for _, n := range ScanTree(env.Roots) {
-				if n.Project && filepath.Base(n.Path) == oldName && filepath.Clean(n.Path) != filepath.Clean(path) {
-					shared = append(shared, n.Path)
-				}
-			}
+			shared := sharedConfKey(env.Roots, oldName, path)
 			if len(shared) > 0 {
-				sort.Strings(shared)
 				im.Label = "clé « " + oldName + " » partagée avec " + strings.Join(shared, ", ") + " : leur couleur / organisation sera retirée avec ce déplacement"
 			}
 			d.Impacts = append(d.Impacts, im)
@@ -769,7 +810,9 @@ func runMove(env MoveEnv, e *MoveEntry) MoveResult {
 			return rollback(env, e, step, err)
 		}
 		e.Done = append(e.Done, step)
-		_ = saveEntry(e)
+		if serr := saveEntry(e); serr != nil { // journal non écrit : une reprise serait impossible → arrêt AVANT l'étape suivante
+			return rollback(env, e, step, fmt.Errorf("journal des déplacements non écrit : %w", serr))
+		}
 	}
 	_ = dropEntry(e.ID)
 	return MoveResult{OK: true, Path: e.To, Key: CtrName(e.To)}
@@ -1004,7 +1047,9 @@ func moveDir(env MoveEnv, e *MoveEntry) error {
 		if len(made) > 0 {
 			b, _ := json.Marshal(made)
 			e.Detail["madeCats"] = string(b)
-			_ = saveEntry(e)
+			if err := saveEntry(e); err != nil {
+				return fmt.Errorf("journal des déplacements non écrit : %w", err)
+			}
 		}
 	}
 	err := env.rename(e.From, e.To)
@@ -1017,7 +1062,9 @@ func moveDir(env MoveEnv, e *MoveEntry) error {
 	}
 	tmp := e.To + ".moving-" + e.ID
 	e.Detail["dir"], e.Detail["tmp"] = "copy", tmp
-	_ = saveEntry(e)
+	if err := saveEntry(e); err != nil { // sans trace de la copie en cours, aucun départ
+		return fmt.Errorf("journal des déplacements non écrit : %w", err)
+	}
 	if err := copyTree(e.From, tmp); err != nil {
 		_ = os.RemoveAll(tmp)
 		return fmt.Errorf("copie vers un autre système de fichiers : %w", err)
@@ -1033,8 +1080,11 @@ func moveDir(env MoveEnv, e *MoveEntry) error {
 		return err
 	}
 	_ = platform.SyncDir(filepath.Dir(e.To))
-	e.Detail["dir"] = "copy-done" // destination complète : la reprise termine par la suppression de la source
-	_ = saveEntry(e)
+	e.Detail["dir"] = "copy-done"        // destination complète : la reprise termine par la suppression de la source
+	if err := saveEntry(e); err != nil { // la source n'est pas supprimée tant que la trace de la copie complète n'est pas écrite
+		e.Detail["dir"] = "copy-source-kept"
+		return fmt.Errorf("journal des déplacements non écrit : %w", err)
+	}
 	if err := removeAllRetry(e.From); err != nil {
 		e.Detail["dir"] = "copy-source-kept"
 		return fmt.Errorf("suppression de la source : %w", err)

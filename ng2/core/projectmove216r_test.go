@@ -339,3 +339,102 @@ func TestConfNormaliseeLueParTousLesLecteurs(t *testing.T) {
 		t.Errorf("LoadConfig (bash) : %+v", c.ProjectColors)
 	}
 }
+
+// projectMoveInfo (appelé à chaque frappe) ne reparcourt pas l'arbre à chaque appel : la recherche des clés partagées est
+// mémorisée ; un nouvel appel dans la fenêtre ne voit pas un projet créé entre-temps (preuve du cache).
+func TestInfoALaFrappeSansReparcoursDeLArbre(t *testing.T) {
+	f := newMvFix(t)
+	sharedScanCache.Lock()
+	sharedScanCache.names = nil // cache vide
+	sharedScanCache.Unlock()
+	tgt := &MoveTarget{Base: f.base, Category: "AUTRE", Name: "gamma"}
+	first, _ := MoveInfoDest(f.env, f.proj, tgt)
+	for _, im := range first.Dest.Impacts {
+		if im.What == "conf" && im.Label != "" {
+			t.Fatalf("clé partagée annoncée sans autre projet : %+v", im)
+		}
+	}
+	autre := filepath.Join(f.base, "AUTRE", "alpha")
+	_ = os.MkdirAll(filepath.Join(autre, ".git"), 0o755) // créé APRÈS le premier parcours
+	second, _ := MoveInfoDest(f.env, f.proj, tgt)
+	for _, im := range second.Dest.Impacts {
+		if im.What == "conf" && im.Label != "" {
+			t.Error("l'arbre a été reparcouru à la frappe (le cache devait servir)")
+		}
+	}
+	sharedScanCache.Lock()
+	sharedScanCache.at = time.Now().Add(-time.Hour) // fenêtre échue : nouveau parcours
+	sharedScanCache.Unlock()
+	third, _ := MoveInfoDest(f.env, f.proj, tgt)
+	found := false
+	for _, im := range third.Dest.Impacts {
+		found = found || (im.What == "conf" && strings.Contains(im.Label, autre))
+	}
+	if !found {
+		t.Error("après la fenêtre, la clé partagée n'est pas détectée")
+	}
+}
+
+// Message exact selon la cause : contenu illisible / fichier inaccessible / verrou inaccessible.
+func TestMessageJournalSelonLaCause(t *testing.T) {
+	f := newMvFix(t)
+	// contenu illisible : restaurer .bak ou supprimer
+	_ = os.WriteFile(movesPath(), []byte("{casse"), 0o600)
+	msg := MoveProject(f.env, f.proj, MoveTarget{Base: f.base, Category: "AUTRE", Name: "beta"}).Msg
+	for _, want := range []string{"journal des déplacements illisible", movesPath(), "restaurez moves.json.bak", "supprimez moves.json"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("contenu : message sans %q : %s", want, msg)
+		}
+	}
+	// fichier inaccessible (dossier à la place du fichier) : droits, pas « restaurez »
+	_ = os.Remove(movesPath())
+	if err := os.Mkdir(movesPath(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	msg = MoveProject(f.env, f.proj, MoveTarget{Base: f.base, Category: "AUTRE", Name: "beta"}).Msg
+	if !strings.Contains(msg, "journal des déplacements inaccessible") || !strings.Contains(msg, "vérifiez les droits") || strings.Contains(msg, "restaurez") || strings.Contains(msg, "illisible") {
+		t.Errorf("accès : message = %s", msg)
+	}
+	_ = os.Remove(movesPath())
+	// verrou inaccessible : réessayer / supprimer le verrou
+	m := movesBrokenError{"verrou", "délai dépassé"}.Error()
+	for _, want := range []string{"verrou du journal des déplacements inaccessible", movesPath() + ".lock", "réessayez", "supprimez ce verrou"} {
+		if !strings.Contains(m, want) {
+			t.Errorf("verrou : message sans %q : %s", want, m)
+		}
+	}
+	if strings.Contains(m, "illisible") || strings.Contains(m, "moves.json.bak") {
+		t.Errorf("verrou : message trompeur : %s", m)
+	}
+}
+
+// Une écriture du journal en échec arrête le déplacement AVANT l'étape suivante (retour arrière), jamais « poursuivi sans trace ».
+func TestEcritureDuJournalEnEchecArreteLeDeplacement(t *testing.T) {
+	f := newMvFix(t)
+	ran := map[string]bool{}
+	f.env.Fail = func(step string, undo bool) error {
+		if !undo {
+			ran[step] = true
+		}
+		if step == MoveStepAssign && !undo {
+			// le journal devient impossible à écrire APRÈS que « dir » ait été journalisé : la sauvegarde qui suit « assign » échoue
+			_ = os.Remove(movesPath())
+			_ = os.Mkdir(movesPath(), 0o755)
+		}
+		return nil
+	}
+	r := MoveProject(f.env, f.proj, MoveTarget{Base: f.base, Category: "AUTRE", Name: "beta"})
+	if r.OK || r.Step != MoveStepAssign || !strings.Contains(r.Msg, "journal des déplacements") {
+		t.Fatalf("résultat = %+v", r)
+	}
+	if ran[MoveStepConf] || ran[MoveStepHistory] || ran[MoveStepTrust] || ran[MoveStepCtr] {
+		t.Errorf("étapes poursuivies malgré le journal non écrit : %v", ran)
+	}
+	_ = os.Remove(movesPath())
+	if d, a, tr, h, c := f.state(f.proj); !d || !a || !tr || !h || c != "52" {
+		t.Errorf("état initial non restauré : dir=%v assign=%v trust=%v hist=%v color=%q", d, a, tr, h, c)
+	}
+	if len(f.ctrRm) != 0 {
+		t.Error("conteneur supprimé")
+	}
+}
