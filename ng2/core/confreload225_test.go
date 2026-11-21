@@ -3,6 +3,7 @@ package core
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -138,5 +139,65 @@ func TestFreshConfigSansStampEstPeriméee225(t *testing.T) {
 	c, _ := FreshConfig(Config{UsageRefreshSec: 1})
 	if c.UsageRefreshSec != 555 {
 		t.Errorf("Config{} sans Stamp devait être relue : %d", c.UsageRefreshSec)
+	}
+}
+
+// config.conf ABSENT (éditeur : supprimer puis recréer) : copie gardée pendant le délai de grâce — jamais un jeton vide recopié ;
+// absent durablement : valeurs par défaut ; revenu : relu.
+func TestFreshConfigAbsentDelaiDeGrace225(t *testing.T) {
+	conf, settings := confBench225(t)
+	old := confAbsentGrace
+	confAbsentGrace = 300 * time.Millisecond
+	defer func() { confAbsentGrace = old }()
+	noteConfPresent()
+	editConf(t, conf, "GITHUB_TOKEN=ghp_FAKE_TEST_grace\nUSAGE_REFRESH_SEC=77\n", 0)
+	cur := LoadConfig()
+	if cur.GithubToken != "ghp_FAKE_TEST_grace" {
+		t.Fatalf("précondition : %q", cur.GithubToken)
+	}
+	_ = os.Remove(conf)
+	c, _ := FreshConfig(cur)
+	if c.GithubToken != "ghp_FAKE_TEST_grace" || c.UsageRefreshSec != 77 {
+		t.Fatalf("absence récente : copie perdue (%q, %d)", c.GithubToken, c.UsageRefreshSec)
+	}
+	if !SyncLauncherEnv(c) {
+		t.Fatal("recopie")
+	}
+	if b, _ := os.ReadFile(settings); !strings.Contains(string(b), "ghp_FAKE_TEST_grace") {
+		t.Errorf("jeton retiré de settings.json pendant l'absence :\n%s", b)
+	}
+	// recréé dans le délai : relu normalement
+	editConf(t, conf, "GITHUB_TOKEN=ghp_FAKE_TEST_grace\nUSAGE_REFRESH_SEC=88\n", 5*time.Second)
+	if c, _ := FreshConfig(cur); c.UsageRefreshSec != 88 {
+		t.Errorf("recréé : %d", c.UsageRefreshSec)
+	}
+	// absent durablement : défauts après le délai
+	_ = os.Remove(conf)
+	FreshConfig(cur)
+	time.Sleep(400 * time.Millisecond)
+	if c, _ := FreshConfig(cur); c.GithubToken != "" {
+		t.Errorf("absent durablement : défauts attendus, jeton %q", c.GithubToken)
+	}
+}
+
+// Dérive d'horloge : date du fichier dans le FUTUR du client (serveur en avance) = « racy » en permanence, le contenu tranche
+// (même taille, même date) ; date nettement ancienne : la date fait foi.
+func TestConfigChangedDeriveHorloge225(t *testing.T) {
+	conf, _ := confBench225(t)
+	future := time.Now().Add(time.Hour)
+	editConf(t, conf, "CLAUDE_DISABLE_MOUSE=0\n", time.Hour)
+	cur := LoadConfig()
+	if ConfigChanged(cur.Stamp) {
+		t.Fatal("précondition")
+	}
+	if err := os.WriteFile(conf, []byte("CLAUDE_DISABLE_MOUSE=1\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chtimes(conf, future, future)
+	if st := ConfigStamp(); !st.MTime.Equal(cur.Stamp.MTime) || st.Size != cur.Stamp.Size {
+		t.Skip("même date non réalisable ici")
+	}
+	if !ConfigChanged(cur.Stamp) {
+		t.Error("date dans le futur : édition de même taille non vue")
 	}
 }

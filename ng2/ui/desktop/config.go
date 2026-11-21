@@ -228,6 +228,9 @@ func (a *App) confRefresh(force bool) {
 		return
 	}
 	fresh, warn := core.FreshConfig(cur)
+	if warn == "" && fresh.Stamp == cur.Stamp { // rien à adopter (illisible, absence en délai de grâce, relecture à refaire) : aucun effet
+		return
+	}
 	if warn != "" {
 		a.confMu.Lock()
 		if a.cfg.Stamp == cur.Stamp {

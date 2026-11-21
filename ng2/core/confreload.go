@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -13,7 +14,37 @@ import (
 // même seconde que la lecture précédente garde le même couple (date, taille) — technique « racy timestamp » de git : tant
 // que la date du fichier est à moins de racyWindow de l'instant de la lecture, on ne se fie pas au couple et on compare le
 // CONTENU (condensé).
+//
+// Dérive d'horloge (serveur MooseFS / 9P contre client) : la fenêtre se mesure en valeur ABSOLUE autour de l'instant de lecture
+// (|ReadAt − MTime| < racyWindow) et une date dans le FUTUR du client est toujours « racy » — le contenu tranche tant que la
+// date n'est pas nettement antérieure à la lecture.
 const racyWindow = 2 * time.Second
+
+// confAbsentGrace : durée pendant laquelle l'absence de config.conf (éditeur qui fait supprimer puis recréer) garde la copie en
+// mémoire — adopter aussitôt les valeurs par défaut recopierait un jeton vide dans settings.json (famille de l'incident GH_TOKEN).
+// Au-delà, le fichier est réellement absent : défauts. Variable : tests.
+var confAbsentGrace = 3 * time.Second
+
+var (
+	absentMu    sync.Mutex
+	absentSince time.Time // début de l'absence en cours (zéro : fichier présent)
+)
+
+// absentWithinGrace : config.conf est absent ; vrai tant que l'absence dure depuis moins de confAbsentGrace.
+func absentWithinGrace() bool {
+	absentMu.Lock()
+	defer absentMu.Unlock()
+	if absentSince.IsZero() {
+		absentSince = time.Now()
+	}
+	return time.Since(absentSince) < confAbsentGrace
+}
+
+func noteConfPresent() {
+	absentMu.Lock()
+	absentSince = time.Time{}
+	absentMu.Unlock()
+}
 
 // ConfStamp : empreinte de config.conf à la lecture de la copie en mémoire (zéro : absent / copie construite à la main).
 // Invariant : une Config construite à la main (Config{…}) n'a pas de Stamp ; FreshConfig la tient pour périmée si le fichier
@@ -52,7 +83,7 @@ func ConfigChanged(cur ConfStamp) bool {
 	if !st.ModTime().Equal(cur.MTime) || st.Size() != cur.Size {
 		return true
 	}
-	if cur.ReadAt.IsZero() || cur.ReadAt.Sub(cur.MTime) < racyWindow { // date non fiable : le contenu tranche
+	if d := cur.ReadAt.Sub(cur.MTime); cur.ReadAt.IsZero() || d < racyWindow { // date proche de la lecture ou dans le futur : le contenu tranche
 		b, rerr := os.ReadFile(path)
 		if rerr != nil {
 			return false
@@ -78,6 +109,11 @@ func FreshConfig(cur Config) (cfg Config, warn string) {
 	b, err := os.ReadFile(ConfigPath())
 	if err != nil && !os.IsNotExist(err) {
 		return cur, "" // illisible maintenant : ne pas retomber sur les valeurs par défaut, réessayer
+	}
+	if err == nil {
+		noteConfPresent()
+	} else if !cur.Stamp.MTime.IsZero() && absentWithinGrace() { // supprimé puis recréé par un éditeur : copie gardée un moment
+		return cur, ""
 	}
 	if err == nil {
 		if ps := ValidateConfig(ConfConf, b); HasErrors(ps) {
