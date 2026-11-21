@@ -1019,3 +1019,67 @@ ouverture). Permis projet fermé seulement.
 Même garde à l'ouverture : écran de la question (image, paquets, commandes, montages),
 touches `a` accepter, `s` ouvrir sans, `Échap` annuler, `v` fichiers bruts (maquette retenue A,
 `docs/mockup/v6.6.0/ui/clone_trust__approbation_env.html`).
+
+## v6.6.0 — LOT-4 : config à chaud, effet des options, éléments cachés (#225, #226, #227)
+
+### Prise en compte à chaud de `config.conf` (#225) **[CHANGED]** (pas de nouvelle méthode)
+
+- **Relecture par date** : `App.conf()` relit `config.conf` si son `mtime` (ou sa taille) a changé depuis la dernière
+  lecture, au plus une fois par seconde (pas de surveillance de fichier : 9P / MooseFS). Cette relecture passe
+  **avant** toute recopie dans `settings.json` (`SyncLauncherEnv`) et toute action qui dépend de la config : ouverture
+  d'un projet (`prepare`), création, `refreshProject`, lecture des milestones, `relaunch`. Un `config.conf` invalide
+  garde la dernière copie valide et le signale (message de pied, comme le chargement).
+- **Recopie dans `settings.json`** : `configApply`, `configSave` (éditeur) et `configReload` appellent
+  `SyncLauncherEnv` avec la config relue. Résultat de `configApply` / `configSave` : champ `sync`
+  (`{ "ok": true }` ou `{ "ok": false, "msg" }`).
+- **Jamais de valeur plus ancienne** : `SyncLauncherEnv` compare le `mtime` de la config utilisée à celui de
+  `config.conf` et relit si besoin avant d'écrire (garde contre une copie mémoire périmée).
+- **Coque tmux** : le `nav` relit `config.conf` par date (même règle, à chaque tour) sans être relancé ; les
+  réglages lus seulement au démarrage (`Roots`, `CLAUDE_CONFIG_DIR`) restent à « relance du launcher » (#226).
+- `Roots` (racines) et `CLAUDE_CONFIG_DIR` ne sont **pas** appliqués à chaud (effet `launcher`).
+
+### `configModel` — champ `effect` par option **[NEW]** (#226)
+
+Chaque entrée de `settings[]` (kind `config.conf`, puis `backends.yaml`, `hub`, `env.yaml`) gagne :
+```json
+{ "key": "CLAUDE_DISABLE_MOUSE", "effect": "claude", "effectHelp": "recopié dans settings.json à l'enregistrement ; lu par claude à son démarrage" }
+```
+- `effect` ∈ `immediate` (appliqué dès l'enregistrement) | `project` (à la prochaine ouverture d'un projet) |
+  `claude` (relance des sessions claude déjà ouvertes ; les nouvelles l'ont) | `launcher` (relance du launcher, #219).
+- Valeur **pour l'interface qui appelle** (fenêtre native / web : un tableau ; coque : un autre quand il diffère) —
+  table unique dans `core` (`OptionEffect(key, iface)`), tirée du diagnostic
+  `_work/reports/dev-frontend-diag-config-a-chaud-20261121.md` corrigé par #225 (ex. `CLAUDE_DISABLE_MOUSE`,
+  `CLAUDE_EXPERIMENTAL_TEAMS`, `EXTRA_ENVS`, `GITHUB_TOKEN` → `claude` ; `CLAUDE_OPTIONS`, `RESUME_*` → `project` ;
+  `GITHUB_DIR(S)`, `CLAUDE_CONFIG_DIR` → `launcher` ; `TEAM_HIDE_IDLE*`, `LAYOUT_*`, `USAGE_REFRESH_SEC`,
+  `COLOR_PALETTE` → `immediate`). Clé inconnue : `effect` absent (pas de pastille).
+- `effectHelp` : texte court de l'infobulle.
+
+### `configApply` / `configSave` — champ `apply` **[NEW]** (#226)
+
+Après un enregistrement réussi :
+```json
+"apply": { "changed": [ { "key": "CLAUDE_DISABLE_MOUSE", "effect": "claude" } ],
+           "relaunch": false,
+           "projects": [ { "path": "…/Claude-Launcher", "name": "Claude-Launcher", "for": ["claude"] } ] }
+```
+- `changed` : options dont la **valeur effective** a changé (pas les commentaires), avec leur effet.
+- `relaunch` : vrai si une option `launcher` a changé (l'interface propose « Relancer le launcher », `relaunch` #219).
+- `projects` : projets **ouverts** concernés par une option `claude` ou `project` (« Rafraîchir », `refreshProject`
+  #158). Aucune action automatique : l'interface affiche le rappel selon la maquette retenue.
+- `ConfigReloadNote` (texte global) est retiré au profit de `apply`.
+
+### `secretReveal` **[NEW]** (#227)
+
+Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : toute entrée `type: "secret"` d'un
+`configModel`). Résultat : `{ "ok": true, "value": "<valeur>" }` ou `{ "ok": false, "msg" }`.
+- **Seules** les clés de type `secret` du modèle sont admises (liste fermée côté `core`) ; autre clé : refus.
+- La valeur n'est **jamais** dans `configModel`, un instantané, un évènement, un message d'erreur ni un journal ;
+  le journal des écritures de secrets consigne seulement « révélé : clé, interface, heure » (jamais la valeur, ni
+  longueur, ni empreinte).
+- **Accès web** : refusé (`msg: "indisponible depuis un accès distant"`) quand la requête vient de l'adresse
+  publique (`url` de `desktop_web`, #171) ou d'un hôte autre que la boucle locale ; admis depuis la fenêtre native
+  et l'accès web local (`127.0.0.1` / `::1`, session valide, `Origin` contrôlée comme les autres appels).
+  Réponse HTTP `Cache-Control: no-store`. Au plus 10 révélations par minute et par session.
+- Côté interface : valeur gardée en mémoire le temps de l'affichage seulement (re-masquage : clic, 30 s, changement
+  de rubrique, fermeture), jamais écrite dans le DOM d'un champ éditable ni dans le stockage du navigateur.
+- `configModel` : entrée secrète gagne `"reveal": true|false` (faux pour un accès distant : l'œil est grisé).

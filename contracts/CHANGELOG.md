@@ -2,6 +2,12 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261121] — v6.6.0 LOT-4 (plan) : config à chaud, effet des options, éléments cachés (#225, #226, #227)
+
+- **[CHANGED]** `config.conf` relu par date avant toute recopie dans `settings.json` et toute action qui en dépend ; `configApply` / `configSave` / `configReload` appellent `SyncLauncherEnv` (champ `sync`) ; coque : relecture à chaud sans relancer le nav — `contracts/desktop-dispatch.md` « v6.6.0 — LOT-4 »
+- **[NEW]** `configModel.settings[].effect` (`immediate|project|claude|launcher`) et `effectHelp` ; `configApply.apply` (`changed`, `relaunch`, `projects`) — **[CHANGED]** `ConfigReloadNote` retiré
+- **[NEW]** `secretReveal {kind, key}` : clés `secret` seulement, jamais journalisée, refusée depuis un accès web distant, `no-store`, 10/min ; `configModel` : `reveal` par entrée secrète
+
 ## [20261120] — v6.6.0 (plan) : gestion des projets (#214 à #219)
 
 - **[NEW]** `core.ResolveProjectPath` : base ∈ racines configurées, catégorie relative sans `..`, contrôle après liens symboliques — appliquée par `create`, `categoryCreate`, `projectMove` (et la coque tmux) — `contracts/desktop-dispatch.md` « v6.6.0 »
