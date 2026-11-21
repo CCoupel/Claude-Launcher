@@ -76,49 +76,75 @@ func TestRefusEnvFormeEtListeDesRaisons216(t *testing.T) {
 	}
 }
 
-// Propriétaire ou conteneur injoignable : le refus est BORNÉ (jamais d'attente sans fin) et dit que la vérification est
-// impossible ; rien n'est écrit. Un projet fermé et libre reste modifiable.
-func TestRefusBorneQuandLeMoteurNeRepondPas216(t *testing.T) {
-	f := newProjFix(t)
+// Propriétaire ou conteneur INJOIGNABLE (délai dépassé) : la vérification est BORNÉE (jamais d'attente sans fin) ; pour
+// l'env.yaml (projet non ouvert ici) ce n'est PAS un refus : écrit, avec l'avertissement « état du conteneur inconnu ».
+// Le déplacement, lui, reste fail-closed (déplacer sans savoir est irréversible). Projet ouvert ici : refus malgré tout.
+func TestBackendInjoignableBorneAutoriseAvecAvertissement216(t *testing.T) {
 	old := foreignOwnerTimeout.Set(300 * time.Millisecond)
 	t.Cleanup(func() { foreignOwnerTimeout.Set(old) })
 	for name, hang := range map[string]func(release chan struct{}){
 		"propriétaire": func(rel chan struct{}) {
-			of := foreignOwner.Get()
+			of, runOf := foreignOwner.Get(), runningOwner.Get()
 			foreignOwner.Set(func(string) string { <-rel; return "" })
-			t.Cleanup(func() { foreignOwner.Set(of) })
-			runOf := runningOwner.Get()
 			runningOwner.Set(func(string) string { return "" })
-			t.Cleanup(func() { runningOwner.Set(runOf) })
+			t.Cleanup(func() { foreignOwner.Set(of); runningOwner.Set(runOf) })
 		},
 		"conteneur": func(rel chan struct{}) {
-			of := foreignOwner.Get()
+			of, runOf := foreignOwner.Get(), runningOwner.Get()
 			foreignOwner.Set(func(string) string { return "" })
-			t.Cleanup(func() { foreignOwner.Set(of) })
-			runOf := runningOwner.Get()
 			runningOwner.Set(func(string) string { <-rel; return "" })
-			t.Cleanup(func() { runningOwner.Set(runOf) })
+			t.Cleanup(func() { foreignOwner.Set(of); runningOwner.Set(runOf) })
 		},
 	} {
 		t.Run(name, func(t *testing.T) {
+			f := newProjFix(t)
 			rel := make(chan struct{})
 			hang(rel)
 			t.Cleanup(func() { close(rel) })
-			envBefore, _ := os.ReadFile(core.EnvPath(f.proj))
 			mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
 			t0 := time.Now()
-			r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "x")})
+			r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "ripgrep", "fd")})
 			if el := time.Since(t0); el > 3*time.Second {
-				t.Errorf("refus après %v : la vérification doit être bornée (≈ 300 ms)", el)
+				t.Errorf("réponse après %v : la vérification doit être bornée (≈ 300 ms)", el)
 			}
-			bl := strings.Join(blockersOf216(t, r), " | ")
-			if r["ok"] == true || r["field"] != "env" || !strings.Contains(bl, "non vérifiable") {
-				t.Errorf("résultat = %v, attendu un refus {field:env} disant que %s est « non vérifiable »", r, name)
+			if r["ok"] != true || r["field"] != nil || r["warn"] != core.EnvWarnUnknown {
+				t.Fatalf("projectApply = %v, attendu {ok:true, warn: %q} (backend injoignable : écrit, avec avertissement)", r, core.EnvWarnUnknown)
 			}
-			if after, _ := os.ReadFile(core.EnvPath(f.proj)); string(after) != string(envBefore) {
-				t.Error("env.yaml écrit alors que le propriétaire / conteneur n'a pas pu être vérifié")
+			if b, _ := os.ReadFile(core.EnvPath(f.proj)); !strings.Contains(string(b), "fd") {
+				t.Error("env.yaml non écrit alors que seul un état INCONNU (pas un blocker confirmé) le contestait")
+			}
+			// éditeur YAML : même autorisation, même avertissement
+			mt2 := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+			e := f.call("configSave", map[string]any{"kind": "project-env", "path": f.proj, "content": "image: docker.io/library/debian:12\npackages: [y]\n", "mtime": mt2})
+			if e["saved"] != true || e["warn"] != core.EnvWarnUnknown {
+				t.Errorf("configSave : %v", e)
+			}
+			// déplacement : FAIL-CLOSED (blocker « non vérifiable » dans projectMoveInfo, refus de projectMove), rien déplacé
+			info := f.call("projectMoveInfo", map[string]any{"path": f.proj})
+			if bl := strings.Join(blockersOf216(t, info), " | "); !strings.Contains(bl, "non vérifiable") {
+				t.Errorf("projectMoveInfo.blockers = %q, attendu une raison « non vérifiable » (le déplacement reste fail-closed)", bl)
+			}
+			base := filepath.Dir(filepath.Dir(f.proj))
+			v := f.call("projectMove", map[string]any{"path": f.proj, "base": base, "category": "AUTRE", "newCategory": true, "name": "beta"})
+			if v["ok"] == true {
+				t.Errorf("déplacement accepté sans pouvoir vérifier le propriétaire / conteneur : %v", v)
+			}
+			if _, err := os.Stat(core.EnvPath(f.proj)); err != nil {
+				t.Errorf("projet déplacé ou env.yaml perdu malgré le refus : %v", err)
 			}
 		})
+	}
+	// blocker CONFIRMÉ pour l'un, injoignable pour l'autre : refus ; ouvert ici : refus même si le backend est injoignable
+	g := newProjFix(t)
+	setOwner216(t, core.UnverifiablePrefix+" : propriétaire non vérifiable", "p-alpha sur srv1")
+	mt := g.call("projectSettings", map[string]any{"path": g.proj})["envMtime"]
+	if r := g.call("projectApply", map[string]any{"path": g.proj, "env": envChange216(mt, "x")}); r["ok"] == true || r["field"] != "env" {
+		t.Errorf("conteneur actif confirmé + propriétaire injoignable : %v", r)
+	}
+	g.open()
+	setOwner216(t, core.UnverifiablePrefix+" : propriétaire non vérifiable", "")
+	if r := g.call("projectApply", map[string]any{"path": g.proj, "env": envChange216(mt, "x")}); r["ok"] == true || r["field"] != "env" {
+		t.Errorf("ouvert ici + backend injoignable : %v", r)
 	}
 }
 

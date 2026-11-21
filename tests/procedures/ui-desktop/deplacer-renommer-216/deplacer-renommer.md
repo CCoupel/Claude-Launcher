@@ -144,6 +144,9 @@ Meme regle que « Deplacer / renommer » et que le choix backend / image : l'env
 | 8 | Hub : F2 sur un projet ouvert > entrees d'environnement | Entrees **grisees** avec la mention « fermez le projet pour modifier son environnement » ; couleur / masquage inchanges | | |
 | 9 | **Projet clone** a l'approbation en attente : depuis la fenetre ou la coque, Accepter / Ouvrir sans / Revoir | L'approbation fonctionne normalement **meme si** elle ecrit ou scelle l'empreinte de `env.yaml` : le refus ne la bloque pas | | |
 | 10 | Creer un nouveau projet avec un socle conteneur (ecriture de l'env.yaml a la creation) et cloner un depot avec socle | Creation et clonage reussissent (le projet n'est pas encore ouvert) | | |
+| 11 | Projet **non ouvert ici**, backend conteneur **injoignable** (arreter le daemon podman / couper l'acces au serveur docker ou kubernetes) : modifier l'environnement (formulaire puis YAML) | Ecriture **autorisee** avec l'avertissement « etat du conteneur inconnu (backend injoignable) : s'appliquera a la prochaine ouverture » ; reponse en quelques secondes (jamais d'attente sans fin) | | |
+| 12 | Meme situation (backend injoignable) : « Deplacer / renommer » le projet | **Refuse** (« non verifiable ») : le deplacement reste prudent ; apres retablissement du backend, il est possible | | |
+| 13 | Backend injoignable **et** projet ouvert ici (ou conteneur confirme en cours sur un autre backend) | Modification de l'environnement refusee (le blocker certain l'emporte sur l'etat inconnu) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
