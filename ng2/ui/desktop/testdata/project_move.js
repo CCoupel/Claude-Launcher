@@ -9,8 +9,8 @@ function grab(sig) {
 const jn = src.slice(src.indexOf('const joinNewPath = '), src.indexOf('// Chargeur de catégories'));
 const sl = src.slice(src.indexOf('const sameLocation = '), src.indexOf('\n', src.indexOf('const sameLocation = ')));
 const ctx = {}; vm.createContext(ctx);
-vm.runInContext(jn + '\n' + sl + '\n' + grab('function moveRows(') + '\n' + grab('function moveFailText(') + '\n' + grab('function moveMenuState(') + '\nglobalThis.t = { sameLocation, moveRows, moveFailText, moveMenuState };', ctx);
-const { sameLocation, moveRows, moveFailText, moveMenuState } = ctx.t;
+vm.runInContext(jn + '\n' + sl + '\n' + grab('function moveRows(') + '\n' + grab('function moveFailText(') + '\n' + grab('function moveMenuState(') + '\nconst ENV_LOCK_MSG = ' + src.slice(src.indexOf('const ENV_LOCK_MSG = ') + 20, src.indexOf('\n', src.indexOf('const ENV_LOCK_MSG = '))) + '\n' + grab('function envLock(') + '\nglobalThis.t = { sameLocation, moveRows, moveFailText, moveMenuState, envLock };', ctx);
+const { sameLocation, moveRows, moveFailText, moveMenuState, envLock } = ctx.t;
 let ko = 0; const eq = (n, a, b) => { if (JSON.stringify(a) !== JSON.stringify(b)) { ko++; console.log('KO', n, JSON.stringify(a), '!=', JSON.stringify(b)); } };
 const info = { base: '/a', category: 'INFRA', name: 'x', key: 'infra-x' };
 eq('même', sameLocation(info, '/a', 'INFRA', 'x'), true);
@@ -34,4 +34,10 @@ eq('nul', moveFailText(null), 'déplacement refusé');
 eq('menu ouvert', moveMenuState({ open: true }), { disabled: true, why: 'Fermez le projet pour le déplacer ou le renommer' });
 eq('menu fermé', moveMenuState({ open: false }), { disabled: false, why: '' });
 eq('menu sans ligne', moveMenuState(undefined), { disabled: false, why: '' });
+eq('env ouvert', envLock({ open: true }, 'project-env'), { locked: true, why: 'Fermez le projet pour modifier son environnement' });
+eq('env fermé', envLock({ open: false }, 'project-env'), { locked: false, why: '' });
+eq('autre fichier jamais verrouillé', envLock({ open: true }, 'config.conf').locked, false);
+eq('env sans ligne', envLock(undefined, 'project-env').locked, false);
+const lockUi = src.slice(src.indexOf('async function ceOpen('), src.indexOf('function ceGutter('));
+if (!/ta\.readOnly/.test(lockUi) || !/cesave'\)\.disabled = true/.test(lockUi)) { ko++; console.log('KO éditeur YAML non verrouillé'); }
 console.log(ko ? ko + ' KO' : 'OK'); process.exit(ko ? 1 : 0);

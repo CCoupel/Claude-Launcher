@@ -1782,6 +1782,12 @@ async function envTrustBox(src) {
 }
 // ── Déplacer / renommer un projet (#216) ─────────────────────────────────────
 // Fonctions pures (testdata/project_move.js).
+// env.yaml d'un projet : lecture seule tant que le projet est ouvert (formulaire Réglages et éditeur YAML).
+const ENV_LOCK_MSG = 'Fermez le projet pour modifier son environnement';
+function envLock(row, kind) {
+  const locked = kind === 'project-env' && !!(row && row.open);
+  return { locked, why: locked ? ENV_LOCK_MSG : '' };
+}
 // Entrée de menu (arbre et ⋯ de la carte) : grisée tant que le projet est ouvert.
 function moveMenuState(row) {
   const open = !!(row && row.open);
@@ -2203,6 +2209,7 @@ function ceRenderList() {
 async function ceOpen(kind) {
   const d = await call('configOpen', { kind, path: CE.project });
   CE.doc = d; CE.dirty = false;
+  CE.lock = envLock((S.snap.rows || []).find((x) => x.path === CE.project), d.kind); // #216 : projet ouvert = lecture seule
   ceRenderList();
   const ed = $('ceed'); ed.textContent = '';
   const bar = el('div', 'cebar');
@@ -2213,7 +2220,7 @@ async function ceOpen(kind) {
   const wrap = el('div', 'cewrap');
   const gut = el('pre', 'cegut'); gut.id = 'cegut';
   const ta = el('textarea', 'cetext'); ta.id = 'cetext'; ta.spellcheck = false; ta.value = d.content;
-  ta.wrap = 'off';
+  ta.wrap = 'off'; ta.readOnly = !!(CE.lock && CE.lock.locked);
   ta.addEventListener('input', () => { CE.dirty = true; ceGutter(); clearTimeout(CE.timer); CE.timer = setTimeout(ceValidate, 300); });
   ta.addEventListener('scroll', () => { gut.scrollTop = ta.scrollTop; });
   ta.addEventListener('keydown', (e) => {
@@ -2237,7 +2244,8 @@ async function ceOpen(kind) {
     }
     ed.appendChild(side);
   }
-  if (d.fromTemp) $('cestatus').textContent = 'Fichier absent : modèle proposé, créé à l\'enregistrement.';
+  if (CE.lock && CE.lock.locked) { $('cesave').disabled = true; $('cesave').title = CE.lock.why; $('cestatus').textContent = '🔒 ' + CE.lock.why + ' (lecture seule).'; }
+  if (d.fromTemp && !(CE.lock && CE.lock.locked)) $('cestatus').textContent = 'Fichier absent : modèle proposé, créé à l\'enregistrement.';
   ceGutter(); ceProblems(d.problems || []);
   ta.focus();
 }
@@ -2254,8 +2262,9 @@ function ceProblems(ps) {
   const box = $('ceprobs'); if (!box) return;
   box.textContent = '';
   const errs = ps.filter((p) => p.severity === 'error').length;
-  $('cesave').disabled = errs > 0;
-  $('cesave').title = errs ? 'Corriger les erreurs avant d\'enregistrer (le brouillon reste ici)' : '';
+  const lk = !!(CE.lock && CE.lock.locked);
+  $('cesave').disabled = errs > 0 || lk;
+  $('cesave').title = lk ? CE.lock.why : errs ? 'Corriger les erreurs avant d\'enregistrer (le brouillon reste ici)' : '';
   if (!ps.length) { box.appendChild(el('div', 't-green', '✓ aucun problème')); return; }
   for (const p of ps) {
     const r = el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'));
@@ -2284,6 +2293,7 @@ async function ceSave(force) {
   const ta = $('cetext'); if (!ta || !CE.doc) return;
   if ($('cesave').disabled) return;
   const r = await call('configSave', { kind: CE.doc.kind, path: CE.project, content: ta.value, mtime: CE.doc.mtime });
+  if (r && r.ok === false) { $('cestatus').textContent = ''; $('cestatus').append(el('span', 't-red', '✗ ' + (r.msg || 'enregistrement refusé') + ' — rien n\'est enregistré.')); return; } // refus serveur : autre launcher, conteneur actif…
   if (r.invalid) { ceProblems(r.problems || []); $('cestatus').textContent = 'Erreurs : rien n\'est enregistré.'; return; }
   if (r.conflict) {
     const st = $('cestatus'); st.textContent = '';
