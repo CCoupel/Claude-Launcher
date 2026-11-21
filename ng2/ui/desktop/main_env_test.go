@@ -33,6 +33,9 @@ func TestMain(m *testing.M) {
 			os.Setenv("TMUX_TMPDIR", d)
 			defer os.RemoveAll(d)
 		}
+		if d := testguard.FakeEngines(); d != "" { // faux moteurs en échec immédiat : local = CI (engines.go)
+			defer os.RemoveAll(d)
+		}
 		guard := testguard.Start()
 		code = m.Run()
 		if !guard() && code == 0 {

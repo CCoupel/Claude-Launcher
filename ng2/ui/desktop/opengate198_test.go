@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// noContainerBackend198 : « aucun backend conteneur » POSÉ (backends.yaml vide), pas supposé — sans lui, un podman / docker du
+// noContainerBackend (helper commun des tests de la fenêtre) : « aucun backend conteneur » POSÉ (backends.yaml vide), pas supposé — sans lui, un podman / docker du
 // poste (runner de CI) fait répondre open() par le choix d'exécution (execChoice) : aucune ouverture, la barrière reste à 0.
-func noContainerBackend198(t *testing.T) {
+func noContainerBackend(t *testing.T) {
 	t.Helper()
 	if err := os.WriteFile(core.BackendsPath(), []byte("backends: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -33,7 +33,7 @@ func gateN(a *App) int {
 // de grâce du pod (#198) l'attendent même lancée à l'instant ; la barrière retombe à zéro quand elle finit, y compris en échec.
 func TestOpenInscritLOuvertureAvantLaGoroutine198(t *testing.T) {
 	ps := sandbox(t, "", "alpha")
-	noContainerBackend198(t)
+	noContainerBackend(t)
 	fakeClaudeSession214(t)
 	real, err := exec.LookPath("tmux")
 	if err != nil {
@@ -69,7 +69,7 @@ func TestOpenInscritLOuvertureAvantLaGoroutine198(t *testing.T) {
 // Ouverture refusée (onglet déjà ouvert) ou en échec : pas de begin sans end.
 func TestOpenBarriereRetombeSurTousLesChemins198(t *testing.T) {
 	ps := sandbox(t, "", "alpha")
-	noContainerBackend198(t)
+	noContainerBackend(t)
 	fakeClaudeSession214(t)
 	var r recorder
 	a := newApp(t, r.emit)

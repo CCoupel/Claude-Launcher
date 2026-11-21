@@ -170,12 +170,7 @@ func TestF2SansBackendProjetOuvert216(t *testing.T) {
 	// « sans backend conteneur » doit être POSÉ, pas supposé : sans backends.yaml, le launcher détecte podman / docker du
 	// poste (cas d'un runner de CI) et F2 ouvre alors l'écran d'exécution au lieu du déplacement
 	m, _, proj := moveModel(t) // pose son propre CL_CONFIG_DIR : backends.yaml s'écrit APRÈS
-	if err := os.WriteFile(filepath.Join(os.Getenv("CL_CONFIG_DIR"), "backends.yaml"), []byte("backends: {}\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := core.DefaultCtrBackend(); ok {
-		t.Fatal("un backend conteneur est encore détecté malgré backends.yaml vide : le banc n'est pas isolé")
-	}
+	noContainerBackend(t)
 	n := core.Node{Name: "alpha", Path: proj, Project: true, Key: "alpha"}
 	m.windows["alpha"] = true
 	out := m.startExecChoice(n, false)
