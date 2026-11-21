@@ -256,3 +256,111 @@ func TestReglagesAChaudJamaisRefuses216(t *testing.T) {
 		t.Error("couleur écrite alors que l'env de la même demande est refusé (un refus n'écrit rien)")
 	}
 }
+
+// Garde en deux temps, de bout en bout : le contrôle COMPLET (propriétaire, conteneur : lent) n'est évalué qu'UNE fois par
+// demande, hors verrou ; la revérification RAPIDE sous verrou lit l'état mémorisé et attrape ce qui apparaît ENTRE les deux
+// (onglet ouvert, session vivante dans un conteneur, conteneur vu actif) — rien n'est écrit.
+func TestRevereificationRapideAttrapeCeQuiApparaitEntreLesDeuxControles216(t *testing.T) {
+	appear := map[string]func(f projFix){
+		"onglet ouvert": func(f projFix) { f.open() },
+		"session vivante dans un conteneur": func(f projFix) {
+			m := map[string]bool{f.proj: true}
+			f.a.liveSnap.Store(&m)
+		},
+		"conteneur vu actif": func(f projFix) {
+			fs := []core.Found{{Backend: "srv1", Name: "p-alpha", Project: f.proj, Running: true}}
+			f.a.ctrFounds.Store(&fs)
+		},
+	}
+	want := map[string]string{"onglet ouvert": "projet ouvert dans ce launcher", "session vivante dans un conteneur": "session vivante",
+		"conteneur vu actif": "conteneur ou pod en cours d'exécution (p-alpha)"}
+	for name, make := range appear {
+		for _, entry := range []string{"projectApply", "configSave"} {
+			t.Run(name+"/"+entry, func(t *testing.T) {
+				f := newProjFix(t)
+				var owners, runs int
+				of, rf := foreignOwner.Get(), runningOwner.Get()
+				// le contrôle complet est « en cours » : c'est pendant lui (avant l'écriture) que le projet s'ouvre
+				foreignOwner.Set(func(string) string { owners++; make(f); return "" })
+				runningOwner.Set(func(string) string { runs++; return "" })
+				t.Cleanup(func() { foreignOwner.Set(of); runningOwner.Set(rf) })
+				envBefore, _ := os.ReadFile(core.EnvPath(f.proj))
+				mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+				var r map[string]any
+				if entry == "projectApply" {
+					r = f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "ripgrep", "pirate")})
+				} else {
+					r = f.call("configSave", map[string]any{"kind": "project-env", "path": f.proj, "mtime": mt,
+						"content": "image: docker.io/library/debian:12\npackages: [pirate]\n"})
+				}
+				if r["ok"] == true || r["saved"] == true || r["field"] != "env" || !strings.Contains(strings.Join(blockersOf216(t, r), " | "), want[name]) {
+					t.Fatalf("%s : %v, attendu un refus {field:env} disant « %s » (apparu entre le contrôle complet et l'écriture)", entry, r, want[name])
+				}
+				if owners != 1 || runs != 1 {
+					t.Errorf("%s : contrôle complet évalué %d fois (propriétaire) et %d fois (conteneur), attendu UNE fois chacun", entry, owners, runs)
+				}
+				if after, _ := os.ReadFile(core.EnvPath(f.proj)); string(after) != string(envBefore) {
+					t.Error("env.yaml écrit malgré ce qui est apparu avant l'écriture")
+				}
+			})
+		}
+	}
+}
+
+// Backend du projet en ÉCHEC RAPIDE (le client docker répond tout de suite « cannot connect ») : projet en conteneur →
+// env.yaml écrit AVEC avertissement et déplacement refusé (non vérifiable) ; projet LOCAL (sur l'hôte) → jamais « non
+// vérifiable » : ni avertissement ni blocage du déplacement. Vraies fonctions du produit (moteur factice en échec).
+func TestBackendEchecRapideContainerVsLocal216(t *testing.T) {
+	engines := t.TempDir()
+	for _, n := range []string{"docker", "podman"} {
+		_ = os.WriteFile(filepath.Join(engines, n), []byte("#!/bin/sh\necho 'Cannot connect to the Docker daemon' >&2\nexit 1\n"), 0o755)
+	}
+	t.Setenv("PATH", engines+string(os.PathListSeparator)+os.Getenv("PATH"))
+	real := func(t *testing.T, f projFix) {
+		of, rf := foreignOwner.Get(), runningOwner.Get()
+		foreignOwner.Set(core.ForeignOwnerChecked)
+		runningOwner.Set(core.RunningCtr)
+		t.Cleanup(func() { foreignOwner.Set(of); runningOwner.Set(rf) })
+	}
+	t.Run("projet en conteneur", func(t *testing.T) {
+		f := newProjFix(t)
+		real(t, f)
+		if err := core.WriteAssignment(f.proj, "srv1"); err != nil {
+			t.Fatal(err)
+		}
+		mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+		r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "ripgrep", "fd")})
+		if r["ok"] != true || r["warn"] != core.EnvWarnUnknown {
+			t.Errorf("projectApply = %v, attendu {ok:true, warn} (backend en échec rapide : écrit avec avertissement)", r)
+		}
+		info := f.call("projectMoveInfo", map[string]any{"path": f.proj})
+		if !strings.Contains(strings.Join(blockersOf216(t, info), " | "), "non vérifiable") {
+			t.Errorf("projectMoveInfo.blockers = %v, attendu « non vérifiable » (déplacement fail-closed)", info["blockers"])
+		}
+		base := filepath.Dir(filepath.Dir(f.proj))
+		if v := f.call("projectMove", map[string]any{"path": f.proj, "base": base, "category": "AUTRE", "newCategory": true, "name": "beta"}); v["ok"] == true {
+			t.Errorf("déplacement accepté sans pouvoir vérifier le conteneur : %v", v)
+		}
+	})
+	t.Run("projet local", func(t *testing.T) {
+		f := newProjFix(t)
+		real(t, f)
+		if err := core.WriteAssignment(f.proj, "host"); err != nil {
+			t.Fatal(err)
+		}
+		mt := f.call("projectSettings", map[string]any{"path": f.proj})["envMtime"]
+		r := f.call("projectApply", map[string]any{"path": f.proj, "env": envChange216(mt, "ripgrep", "fd")})
+		if r["ok"] != true || (r["warn"] != nil && r["warn"] != "") {
+			t.Errorf("projet local : %v, attendu {ok:true} SANS avertissement (le moteur d'un autre backend ne compte pas)", r)
+		}
+		info := f.call("projectMoveInfo", map[string]any{"path": f.proj})
+		if bl := blockersOf216(t, info); len(bl) != 0 {
+			t.Errorf("projet local : projectMoveInfo.blockers = %v, attendu aucun (jamais « non vérifiable »)", bl)
+		}
+		base := filepath.Dir(filepath.Dir(f.proj))
+		v := f.call("projectMove", map[string]any{"path": f.proj, "base": base, "category": "AUTRE", "newCategory": true, "name": "beta"})
+		if v["ok"] != true {
+			t.Errorf("projet local : déplacement refusé à tort : %v", v)
+		}
+	})
+}
