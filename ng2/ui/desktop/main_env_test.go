@@ -16,6 +16,16 @@ func TestMain(m *testing.M) {
 	core.TestIsolation = true             // écritures de config/secrets hors dossier temporaire refusées (isolation.go)
 	os.Setenv(core.TestIsolationVar, "1") // … aussi dans les sous-processus lancés par les tests
 	os.Setenv("CL_IN_CLUSTER", "0")       // le conteneur de développement est lui-même un pod : jamais de refus du backend host (#169)
+	// La config claude de la session n'est JAMAIS celle des tests, même hors t.Setenv : sans cette valeur de processus,
+	// l'environnement restauré à la fin de chaque test (sandbox) redonnait le CLAUDE_CONFIG_DIR RÉEL à tout code encore
+	// actif (tâche de fond d'une App, ouverture de projet) — c'est ainsi qu'un faux jeton a pu atteindre le vrai
+	// settings.json (#216, enquête GH_TOKEN). core et ui/tmux le faisaient déjà.
+	claudeDir, cerr := os.MkdirTemp("", "ng2-test-claude-")
+	if cerr != nil {
+		panic(cerr)
+	}
+	os.Setenv("CLAUDE_CONFIG_DIR", claudeDir)
+	defer os.RemoveAll(claudeDir)
 	code := 1
 	func() {
 		d, err := os.MkdirTemp("", "cltmux") // court : limite des chemins de sockets unix

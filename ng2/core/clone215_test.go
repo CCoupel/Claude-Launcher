@@ -16,7 +16,7 @@ import (
 	"time"
 )
 
-const tok215 = "ghp_ZZtopsecret215"
+const tok215 = "ghp_FAKE_TEST_215_core_not_a_token" // FACTICE : invalide par construction, reconnu par testguard
 
 // git215 : faux git. Imite un clone réussi (dossier cible : .git/config avec l'URL seule + un fichier), journalise argv
 // et environnement. extra est du sh exécuté après l'enregistrement, à la place du clone si exit est dedans.

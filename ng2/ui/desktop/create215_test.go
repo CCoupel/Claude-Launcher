@@ -18,7 +18,9 @@ import (
 	"time"
 )
 
-const tok215 = "ghp_SECRET215desktop"
+// jeton FACTICE : invalide par construction (underscores, longueur) et reconnaissable — testguard échoue s'il apparaît
+// dans un vrai settings.json (testguard.FakeTokenMarker)
+const tok215 = "ghp_FAKE_TEST_215_not_a_token"
 
 type fix215 struct {
 	a    *App
