@@ -1312,8 +1312,8 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
 		Category, Source, URL                                            string
-		NewCategory, Run, Resume, Cancel                                 bool
-		Job, Choice, SHA                                                 string
+		NewCategory, Run                                                 bool
+		Job, Choice, SHA, ID                                             string
 		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
 		Raw, OpenNext, Binary, Confirm                                   bool
@@ -1409,11 +1409,18 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "create":
 		return a.create(createArgs{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name,
 			Source: arg.Source, Raw: arg.Raw, Remote: arg.Remote, URL: arg.URL, Image: arg.Image, Backend: arg.Backend})
-	case "projectMoveInfo":
-		return a.projectMoveInfo(arg.Path)
+	case "projectMoveInfo": // destination facultative (base, category, newCategory, name) : « ce qui change », sans rien écrire
+		var dest *core.MoveTarget
+		if arg.Base != "" || arg.Name != "" || arg.Category != "" {
+			dest = &core.MoveTarget{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name}
+		}
+		return a.projectMoveInfo(arg.Path, dest)
 	case "projectMove":
-		return a.projectMove(moveArgs{Path: arg.Path, Base: arg.Base, Category: arg.Category, Name: arg.Name,
-			NewCategory: arg.NewCategory, Resume: arg.Resume, Cancel: arg.Cancel})
+		return a.projectMove(moveArgs{Path: arg.Path, Base: arg.Base, Category: arg.Category, Name: arg.Name, NewCategory: arg.NewCategory})
+	case "projectMoveResume":
+		return a.projectMoveResume(arg.ID)
+	case "projectMoveAbort":
+		return a.projectMoveAbort(arg.ID)
 	case "envTrustInfo":
 		return a.envTrustInfo(arg.Path)
 	case "envTrustAnswer":

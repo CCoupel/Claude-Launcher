@@ -29,11 +29,11 @@ func (a *App) moveEnv() core.MoveEnv {
 }
 
 // projectMoveInfo : base, catégorie, nom, clé, ouvert, blockers ; pending : déplacement inachevé à reprendre ou annuler.
-func (a *App) projectMoveInfo(path string) (any, error) {
-	if !a.knownProject(path) {
+func (a *App) projectMoveInfo(path string, dest *core.MoveTarget) (any, error) {
+	if !a.knownProject(path) && len(core.PendingMoves(path)) == 0 { // un projet déplacé à moitié peut être hors de l'arbre relu
 		return nil, fmt.Errorf("projet inconnu : %s", path)
 	}
-	info, err := core.MoveInfoFor(a.moveEnv(), path)
+	info, err := core.MoveInfoDest(a.moveEnv(), path, dest)
 	if err != nil {
 		return map[string]any{"ok": false, "msg": err.Error()}, nil
 	}
@@ -44,27 +44,27 @@ func (a *App) projectMoveInfo(path string) (any, error) {
 type moveArgs struct {
 	Path, Base, Category, Name string
 	NewCategory                bool
-	Resume, Cancel             bool // reprise / annulation d'un déplacement inachevé (état « partial »)
 }
 
 // projectMove : déplace ou renomme un projet fermé ; succès : arbre relu et sélection suivie. Refus de chemin :
 // {ok:false, field, msg} (règle commune de #214).
 func (a *App) projectMove(in moveArgs) (any, error) {
-	if !a.knownProject(in.Path) && !in.Resume && !in.Cancel {
+	if !a.knownProject(in.Path) {
 		return nil, fmt.Errorf("projet inconnu : %s", in.Path)
 	}
 	env := a.moveEnv()
-	var r core.MoveResult
-	switch {
-	case in.Resume:
-		r = core.ResumeMove(env, in.Path)
-	case in.Cancel:
-		r = core.CancelMove(env, in.Path)
-	default:
-		if _, err := core.ResolveProjectPathIn(env.Roots, in.Base, in.Category, in.Name); err != nil {
-			return pathFail(err)
-		}
-		r = core.MoveProject(env, in.Path, core.MoveTarget{Base: in.Base, Category: in.Category, NewCategory: in.NewCategory, Name: in.Name})
+	if _, err := core.ResolveProjectPathIn(env.Roots, in.Base, in.Category, in.Name); err != nil {
+		return pathFail(err)
+	}
+	r := core.MoveProject(env, in.Path, core.MoveTarget{Base: in.Base, Category: in.Category, NewCategory: in.NewCategory, Name: in.Name})
+	a.afterMove(r, "✓ projet déplacé")
+	return r, nil
+}
+
+// afterMove : succès — arbre relu et sélection suivie ; sinon l'instantané est rafraîchi (blocker « déplacement inachevé »).
+func (a *App) afterMove(r core.MoveResult, msg string) {
+	if r.State == "partial" {
+		a.rescan() // le projet peut déjà être sous sa destination
 	}
 	if r.OK {
 		a.rescan()
@@ -72,9 +72,22 @@ func (a *App) projectMove(in moveArgs) (any, error) {
 		a.sel = r.Path
 		a.mu.Unlock()
 		a.changed()
-		a.setMsg("✓ projet déplacé")
+		a.setMsg(msg)
 	} else if r.Msg != "" {
 		a.changed()
 	}
+}
+
+// projectMoveResume : « Reprendre » — rejoue les étapes restantes de l'entrée du journal id (pending.id).
+func (a *App) projectMoveResume(id string) (any, error) {
+	r := core.ResumeMoveID(a.moveEnv(), id)
+	a.afterMove(r, "✓ déplacement repris et terminé")
+	return r, nil
+}
+
+// projectMoveAbort : « Annuler » — retour arrière des étapes faites ; succès : projet à son chemin d'origine.
+func (a *App) projectMoveAbort(id string) (any, error) {
+	r := core.AbortMoveID(a.moveEnv(), id)
+	a.afterMove(r, "↩ déplacement annulé : état initial rétabli")
 	return r, nil
 }

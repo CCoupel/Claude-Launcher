@@ -120,7 +120,7 @@ func TestDeplacementInachevePAReprendreAnnuler216(t *testing.T) {
 			t.Errorf("écran sans %q", want)
 		}
 	}
-	nm, _ := m.onFormKey(key215("p")) // reprendre : rejoue les étapes non faites
+	nm, _ := m.onFormKey(key215("r")) // reprendre : rejoue les étapes non faites
 	m = nm.(model)
 	if _, err := os.Stat(filepath.Join(dst, "a.txt")); err != nil || m.form.mode != formNone {
 		t.Errorf("reprise : projet déplacé=%v mode=%v msg=%q err=%q", err == nil, m.form.mode, m.msg, m.form.err)

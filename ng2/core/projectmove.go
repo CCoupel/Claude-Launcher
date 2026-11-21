@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -41,16 +42,67 @@ type MoveTarget struct {
 	Name        string `json:"name"`
 }
 
+// MoveImpact : une ligne du tableau « ce qui change » du dialogue (étapes qui changent quelque chose seulement).
+type MoveImpact struct {
+	What  string   `json:"what"` // dir, ctr, assign, conf, history, trust
+	From  string   `json:"from,omitempty"`
+	To    string   `json:"to,omitempty"`
+	Value string   `json:"value,omitempty"`
+	Keys  []string `json:"keys,omitempty"`
+	Label string   `json:"label,omitempty"` // texte affichable tel quel (trust)
+}
+
+// MoveDest : destination envisagée (projectMoveInfo avec destination), sans rien écrire.
+type MoveDest struct {
+	OK          bool         `json:"ok"`
+	Path        string       `json:"path,omitempty"`
+	Key         string       `json:"key,omitempty"` // clé recalculée pour la destination
+	KeyChanged  bool         `json:"keyChanged"`
+	CrossDevice bool         `json:"crossDevice"` // autre système de fichiers : copie puis suppression
+	Exists      bool         `json:"exists"`
+	Field       string       `json:"field"`
+	Msg         string       `json:"msg"`
+	Impacts     []MoveImpact `json:"impacts"`
+}
+
+// MovePending : entrée du journal telle que l'interface la voit.
+type MovePending struct {
+	ID      string   `json:"id"`
+	From    string   `json:"from"`
+	To      string   `json:"to"`
+	FromKey string   `json:"fromKey"`
+	ToKey   string   `json:"toKey"`
+	Step    string   `json:"step"` // première étape non faite : celle d'où « Reprendre » rejoue
+	Done    []string `json:"done"`
+	Msg     string   `json:"msg"`
+	At      string   `json:"at"`
+}
+
+func pendingOf(e MoveEntry) *MovePending {
+	step := "" // première étape non faite : « Reprendre » rejoue à partir d'elle
+	for _, s := range moveStepOrder {
+		if !has(e.Done, s) {
+			step = s
+			break
+		}
+	}
+	done := e.Done
+	if done == nil {
+		done = []string{}
+	}
+	return &MovePending{ID: e.ID, From: e.From, To: e.To, FromKey: CtrName(e.From), ToKey: CtrName(e.To), Step: step, Done: done, Msg: e.Msg, At: e.At}
+}
+
 // MoveInfo : état d'un projet pour le dialogue (projectMoveInfo).
 type MoveInfo struct {
-	Base     string   `json:"base"`
-	Category string   `json:"category"`
-	Name     string   `json:"name"`
-	Key      string   `json:"key"`
-	Open     bool     `json:"open"`
-	Blockers []string `json:"blockers"`
-	// Pending : déplacement inachevé (reprise / annulation possibles)
-	Pending *MoveEntry `json:"pending,omitempty"`
+	Base     string       `json:"base"`
+	Category string       `json:"category"`
+	Name     string       `json:"name"`
+	Key      string       `json:"key"`
+	Open     bool         `json:"open"`
+	Blockers []string     `json:"blockers"`
+	Dest     *MoveDest    `json:"dest,omitempty"`    // seulement si une destination est donnée
+	Pending  *MovePending `json:"pending,omitempty"` // déplacement inachevé dont from ou to est path
 }
 
 // MoveResult : résultat de projectMove.
@@ -248,8 +300,12 @@ func runningCtr(path string) string {
 	return ""
 }
 
-// MoveInfoFor : projectMoveInfo.
-func MoveInfoFor(env MoveEnv, path string) (MoveInfo, error) {
+// MoveInfoFor : projectMoveInfo sans destination.
+func MoveInfoFor(env MoveEnv, path string) (MoveInfo, error) { return MoveInfoDest(env, path, nil) }
+
+// MoveInfoDest : projectMoveInfo ; avec une destination, dest : clé recalculée, système de fichiers, existence, impacts —
+// sans rien écrire (appelé à la frappe par le dialogue).
+func MoveInfoDest(env MoveEnv, path string, target *MoveTarget) (MoveInfo, error) {
 	base, cat, name, ok := SplitProjectPath(env.Roots, path)
 	if !ok {
 		return MoveInfo{}, errors.New("projet hors des bases configurées")
@@ -257,9 +313,113 @@ func MoveInfoFor(env MoveEnv, path string) (MoveInfo, error) {
 	info := MoveInfo{Base: base, Category: cat, Name: name, Key: CtrName(path), Blockers: MoveBlockers(env, path)}
 	info.Open = env.OpenHere != nil && env.OpenHere(path)
 	if p := PendingMoves(path); len(p) > 0 {
-		info.Pending = &p[0]
+		info.Pending = pendingOf(p[0])
+	}
+	if target != nil {
+		d := moveDest(env, path, *target)
+		info.Dest = &d
 	}
 	return info, nil
+}
+
+var ctrExistsCache = struct {
+	sync.Mutex
+	m map[string]ctrExistsEntry
+}{m: map[string]ctrExistsEntry{}}
+
+type ctrExistsEntry struct {
+	at time.Time
+	ok bool
+}
+
+// ctrExists : un conteneur / StatefulSet du projet existe (mémorisé 30 s : le dialogue interroge à la frappe).
+func ctrExists(path string) bool {
+	ctrExistsCache.Lock()
+	if e, ok := ctrExistsCache.m[path]; ok && time.Since(e.at) < 30*time.Second {
+		ctrExistsCache.Unlock()
+		return e.ok
+	}
+	ctrExistsCache.Unlock()
+	found := false
+	if HasEnv(path) {
+		if b := ProjectBackend(path); b.Name != "host" {
+			if e, ok := EngineOf(b); ok {
+				if fs, err := e.List(); err == nil {
+					for _, f := range fs {
+						found = found || f.Project == path
+					}
+				}
+			}
+		}
+	}
+	ctrExistsCache.Lock()
+	ctrExistsCache.m[path] = ctrExistsEntry{time.Now(), found}
+	ctrExistsCache.Unlock()
+	return found
+}
+
+func moveDest(env MoveEnv, path string, t MoveTarget) MoveDest {
+	d := MoveDest{Impacts: []MoveImpact{}}
+	fail := func(field, msg string) MoveDest { d.Field, d.Msg = field, msg; return d }
+	dest, err := ResolveProjectPathIn(env.Roots, t.Base, t.Category, t.Name)
+	if err != nil {
+		if pe, ok := AsPathError(err); ok {
+			return fail(pe.Field, pe.Msg)
+		}
+		return fail("", err.Error())
+	}
+	d.Path, d.Key = dest, CtrName(dest)
+	d.KeyChanged = d.Key != CtrName(path)
+	if filepath.Clean(dest) == filepath.Clean(path) {
+		return fail("name", "la destination est le projet lui-même")
+	}
+	if strings.HasPrefix(filepath.Clean(dest)+string(filepath.Separator), filepath.Clean(path)+string(filepath.Separator)) {
+		return fail("category", "la destination est dans le projet")
+	}
+	if _, err := os.Lstat(dest); err == nil {
+		d.Exists = true
+		return fail("name", "la destination existe déjà")
+	}
+	if !t.NewCategory && t.Category != "" {
+		if cat, cerr := ResolveCategoryPathIn(env.Roots, t.Base, t.Category); cerr == nil {
+			if _, serr := os.Stat(cat); serr != nil {
+				return fail("category", "catégorie inexistante")
+			}
+		}
+	}
+	d.OK = true
+	d.CrossDevice = !sameDevice(path, dest)
+	d.Impacts = append(d.Impacts, MoveImpact{What: MoveStepDir, From: path, To: dest})
+	if ctrExists(path) {
+		d.Impacts = append(d.Impacts, MoveImpact{What: MoveStepCtr, From: CtrName(path)})
+	}
+	if v, ok := ReadAssignments()[path]; ok {
+		d.Impacts = append(d.Impacts, MoveImpact{What: MoveStepAssign, Value: v})
+	}
+	if oldName, newName := filepath.Base(path), filepath.Base(dest); oldName != newName {
+		cfg := LoadConfig()
+		var keys []string
+		if cfg.ProjectColors[oldName] != "" {
+			keys = append(keys, "PROJECT_COLORS")
+		}
+		if cfg.ProjectLayouts[oldName] != "" {
+			keys = append(keys, "PROJECT_LAYOUTS")
+		}
+		if cfg.ProjectHideIdle[oldName] != "" {
+			keys = append(keys, "PROJECT_HIDE_IDLE")
+		}
+		if len(keys) > 0 {
+			d.Impacts = append(d.Impacts, MoveImpact{What: MoveStepConf, Keys: keys})
+		}
+	}
+	hroot := filepath.Join(env.claudeDir(), "projects")
+	if _, err := os.Stat(filepath.Join(hroot, ProjectDirName(path))); err == nil {
+		d.Impacts = append(d.Impacts, MoveImpact{What: MoveStepHistory, From: ProjectDirName(path), To: ProjectDirName(dest)})
+	}
+	if _, ok := EnvTrustEntry(path); ok { // approbation d'un dépôt cloné : suit le projet
+		d.Impacts = append(d.Impacts, MoveImpact{What: MoveStepTrust, Label: "Approbation de l'environnement : conservée"})
+	}
+	return d
 }
 
 // ── Déplacement ───────────────────────────────────────────────────────────
@@ -329,6 +489,63 @@ func CancelMove(env MoveEnv, path string) MoveResult {
 		return MoveResult{Msg: "aucun déplacement inachevé"}
 	}
 	return rollback(env, e, "", errors.New("annulé"))
+}
+
+// MoveBlockersExceptPending : blockers hors « déplacement inachevé » (reprise / abandon : seul le journal est attendu).
+func MoveBlockersExceptPending(env MoveEnv, path string) []string {
+	out := []string{}
+	for _, b := range MoveBlockers(env, path) {
+		if b != "déplacement inachevé" {
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func findEntryByID(id string) *MoveEntry {
+	for _, e := range readMovesCached() {
+		if e.ID == id {
+			c := e
+			return &c
+		}
+	}
+	return nil
+}
+
+// ResumeMoveID : « Reprendre » — rejoue les étapes restantes de l'entrée id (les étapes faites ne sont pas refaites).
+func ResumeMoveID(env MoveEnv, id string) MoveResult {
+	e := findEntryByID(id)
+	if e == nil {
+		return MoveResult{Msg: "aucun déplacement inachevé"}
+	}
+	if bl := MoveBlockersExceptPending(env, e.From); len(bl) > 0 {
+		return MoveResult{Msg: "reprise impossible : " + strings.Join(bl, ", ")}
+	}
+	if bl := MoveBlockersExceptPending(env, e.To); len(bl) > 0 {
+		return MoveResult{Msg: "reprise impossible : " + strings.Join(bl, ", ")}
+	}
+	e.State, e.Failed, e.Msg = "running", "", ""
+	_ = saveEntry(e)
+	return runMove(env, e)
+}
+
+// AbortMoveID : « Annuler » — retour arrière des étapes faites (l'étape ctr ne s'annule pas). Succès : chemin et clé
+// d'origine, rolledBack.
+func AbortMoveID(env MoveEnv, id string) MoveResult {
+	e := findEntryByID(id)
+	if e == nil {
+		return MoveResult{Msg: "aucun déplacement inachevé"}
+	}
+	for _, p := range []string{e.From, e.To} {
+		if bl := MoveBlockersExceptPending(env, p); len(bl) > 0 {
+			return MoveResult{Msg: "annulation impossible : " + strings.Join(bl, ", ")}
+		}
+	}
+	r := rollback(env, e, "", errors.New("annulé"))
+	if r.RolledBack {
+		r.OK, r.Path, r.Key, r.Step, r.Msg = true, e.From, CtrName(e.From), "", ""
+	}
+	return r
 }
 
 func findEntry(path string) *MoveEntry {
@@ -460,6 +677,13 @@ func undoStep(env MoveEnv, e *MoveEntry, step string) error {
 // moveDir : catégories absentes créées (notées), puis os.Rename ; EXDEV → copie complète vers <dest>.moving-<id>,
 // contrôle (nombre et taille des fichiers), rename en <dest>, suppression de la source.
 func moveDir(env MoveEnv, e *MoveEntry) error {
+	// idempotent : déjà à destination (reprise après un arrêt entre le rename et la mise à jour du journal)
+	if _, serr := os.Lstat(e.From); os.IsNotExist(serr) {
+		if _, derr := os.Lstat(e.To); derr == nil {
+			e.Detail["dir"] = "rename"
+			return nil
+		}
+	}
 	if _, err := os.Lstat(e.To); err == nil && !has(e.Done, MoveStepDir) && e.Detail["dir"] == "" {
 		return errors.New("la destination existe déjà")
 	}

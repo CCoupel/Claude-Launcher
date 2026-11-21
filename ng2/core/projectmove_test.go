@@ -331,3 +331,151 @@ func TestMoveTrustEntry(t *testing.T) {
 		t.Errorf("registre illisible : %v", err)
 	}
 }
+
+// projectMoveInfo avec destination : clé recalculée, système de fichiers, existence, impacts (dont l'approbation).
+func TestMoveInfoDestination(t *testing.T) {
+	f := newMvFix(t)
+	_ = os.MkdirAll(filepath.Join(f.base, "AUTRE", "existe"), 0o755)
+	info, err := MoveInfoDest(f.env, f.proj, &MoveTarget{Base: f.base, Category: "AUTRE", Name: "beta"})
+	if err != nil || info.Dest == nil {
+		t.Fatalf("%+v %v", info, err)
+	}
+	d := info.Dest
+	dst := filepath.Join(f.base, "AUTRE", "beta")
+	if !d.OK || d.Path != dst || d.Key != CtrName(dst) || !d.KeyChanged || d.CrossDevice || d.Exists || d.Field != "" {
+		t.Errorf("dest = %+v", d)
+	}
+	whats := map[string]MoveImpact{}
+	for _, im := range d.Impacts {
+		whats[im.What] = im
+	}
+	for _, w := range []string{"dir", "assign", "conf", "history", "trust"} {
+		if _, ok := whats[w]; !ok {
+			t.Errorf("impact %q absent : %+v", w, d.Impacts)
+		}
+	}
+	if whats["dir"].From != f.proj || whats["dir"].To != dst || whats["assign"].Value != "host" || whats["conf"].Keys[0] != "PROJECT_COLORS" {
+		t.Errorf("impacts = %+v", d.Impacts)
+	}
+	if whats["trust"].Label != "Approbation de l'environnement : conservée" {
+		t.Errorf("ligne d'approbation = %q", whats["trust"].Label)
+	}
+	if _, has := whats["ctr"]; has {
+		t.Error("impact ctr pour un projet sans conteneur")
+	}
+	// même nom (déplacement de catégorie seulement) : pas de ligne conf ; sans entrée d'approbation : pas de ligne trust
+	g := newMvFix(t)
+	_ = setTrust(g.proj, nil)
+	i2, _ := MoveInfoDest(g.env, g.proj, &MoveTarget{Base: g.base, Category: "AUTRE", Name: "alpha"})
+	for _, im := range i2.Dest.Impacts {
+		if im.What == "conf" || im.What == "trust" {
+			t.Errorf("impact %q inattendu : %+v", im.What, i2.Dest.Impacts)
+		}
+	}
+	// refus : existante, identique, traversée
+	for name, tc := range map[string]struct {
+		t     MoveTarget
+		field string
+	}{
+		"existante": {MoveTarget{Base: f.base, Category: "AUTRE", Name: "existe"}, "name"},
+		"identique": {MoveTarget{Base: f.base, Category: "INFRA", Name: "alpha"}, "name"},
+		"traversée": {MoveTarget{Base: f.base, Category: "../x", Name: "z"}, "category"},
+		"base":      {MoveTarget{Base: "/etc", Name: "z"}, "base"},
+	} {
+		i, _ := MoveInfoDest(f.env, f.proj, &tc.t)
+		if i.Dest.OK || i.Dest.Field != tc.field || i.Dest.Msg == "" {
+			t.Errorf("%s : %+v", name, i.Dest)
+		}
+		if name == "existante" && !i.Dest.Exists {
+			t.Error("exists attendu")
+		}
+	}
+	// sans destination : pas de dest
+	if i, _ := MoveInfoFor(f.env, f.proj); i.Dest != nil {
+		t.Error("dest présent sans destination")
+	}
+}
+
+// pending au format du contrat ; reprise / abandon par id.
+func TestMovePendingEtResumeAbortParID(t *testing.T) {
+	f := newMvFix(t)
+	f.env.Fail = func(s string, undo bool) error {
+		if s == MoveStepHistory && !undo {
+			return errors.New("échec history")
+		}
+		if s == MoveStepDir && undo {
+			return errors.New("retour arrière dir impossible")
+		}
+		return nil
+	}
+	r := MoveProject(f.env, f.proj, MoveTarget{Base: f.base, Category: "AUTRE", Name: "beta"})
+	if r.State != "partial" {
+		t.Fatalf("%+v", r)
+	}
+	dst := filepath.Join(f.base, "AUTRE", "beta")
+	info, _ := MoveInfoFor(f.env, dst)
+	p := info.Pending
+	if p == nil || p.ID == "" || p.From != f.proj || p.To != dst || p.FromKey != CtrName(f.proj) || p.ToKey != CtrName(dst) ||
+		p.Step != MoveStepAssign || len(p.Done) == 0 || p.At == "" || !strings.Contains(p.Msg, "retour arrière") {
+		t.Fatalf("pending = %+v", p)
+	}
+	// aussi visible depuis la source (le contrat : from OU to)
+	if i2, _ := MoveInfoFor(f.env, f.proj); i2.Pending == nil || i2.Pending.ID != p.ID {
+		t.Error("pending absent côté source")
+	}
+	// id inconnu
+	if r := ResumeMoveID(f.env, "inconnu"); r.OK || r.Msg != "aucun déplacement inachevé" {
+		t.Errorf("id inconnu : %+v", r)
+	}
+	// autre blocker (conteneur actif) : refusé
+	f.env.Running = func(string) string { return "ctr sur srv1" }
+	if r := ResumeMoveID(f.env, p.ID); r.OK || !strings.Contains(r.Msg, "en cours d'exécution") {
+		t.Errorf("reprise malgré un conteneur actif : %+v", r)
+	}
+	f.env.Running = func(string) string { return "" }
+	// abandon : retour arrière (le dir était la cause du « partial » : il passe maintenant)
+	f.env.Fail = nil
+	ab := AbortMoveID(f.env, p.ID)
+	if !ab.OK || !ab.RolledBack || ab.Path != f.proj || ab.Key != CtrName(f.proj) {
+		t.Fatalf("abandon = %+v", ab)
+	}
+	if d, a, tr, h, c := f.state(f.proj); !d || !a || !tr || !h || c != "52" {
+		t.Errorf("état d'origine non rétabli : %v %v %v %v %q", d, a, tr, h, c)
+	}
+	if len(readMovesCached()) != 0 {
+		t.Error("journal non vidé")
+	}
+	// reprise par id sur une nouvelle entrée partielle
+	f.env.Fail = func(s string, undo bool) error {
+		if s == MoveStepHistory && !undo {
+			return errors.New("échec history")
+		}
+		if s == MoveStepDir && undo {
+			return errors.New("retour arrière dir impossible")
+		}
+		return nil
+	}
+	_ = MoveProject(f.env, f.proj, MoveTarget{Base: f.base, Category: "AUTRE", Name: "beta"})
+	f.env.Fail = nil
+	id := readMovesCached()[0].ID
+	rs := ResumeMoveID(f.env, id)
+	if !rs.OK || rs.Path != dst {
+		t.Fatalf("reprise = %+v", rs)
+	}
+	if d, a, tr, h, c := f.state(dst); !d || !a || !tr || !h || c != "52" {
+		t.Errorf("après reprise : %v %v %v %v %q", d, a, tr, h, c)
+	}
+}
+
+// Étapes idempotentes : un dossier déjà à destination est un succès.
+func TestMoveDirIdempotent(t *testing.T) {
+	f := newMvFix(t)
+	dst := filepath.Join(f.base, "AUTRE", "beta")
+	if err := os.Rename(f.proj, dst); err != nil { // le rename a eu lieu, le journal ne le sait pas
+		t.Fatal(err)
+	}
+	e := &MoveEntry{ID: "x", From: f.proj, To: dst, Detail: map[string]string{}}
+	if err := moveDir(f.env, e); err != nil {
+		t.Errorf("dir déjà à destination : %v", err)
+	}
+}

@@ -777,27 +777,27 @@ Arguments : `{ "path" }`, et facultativement la destination envisagée `{ "base"
             "keyChanged": false, "crossDevice": true, "exists": false, "field": "", "msg": "",
             "impacts": [ { "what": "dir", "from": "…", "to": "…" }, { "what": "ctr", "from": "infra-supervision-k8s", "to": "" },
                          { "what": "assign", "value": "srv1-docker" }, { "what": "conf", "keys": ["PROJECT_COLORS"] },
-                         { "what": "history", "from": "…", "to": "…" } ] },
+                         { "what": "history", "from": "…", "to": "…" },
+                         { "what": "trust", "label": "Approbation de l'environnement : conservée" } ] },
   "pending": { "id": "m-20261121-0943-1", "from": "…/INFRA/supervision-k8s", "to": "…/MONITORING/supervision",
                "fromKey": "infra-supervision-k8s", "toKey": "monitoring-supervision",
-               "step": "ctr", "done": ["dir", "assign", "conf", "history"], "msg": "…", "at": "2026-11-21T09:43:00Z" } }
+               "step": "trust", "done": ["dir", "assign", "conf", "history"], "msg": "…", "at": "2026-11-21T09:43:00Z" } }
 ```
 - `key` : clé actuelle (`CtrName`, nom tmux / pod / `/files/<clé>`). `dest` : absent sans destination ; `dest.key` =
   clé **recalculée** pour la destination (`CtrName` du nouveau chemin), `keyChanged` si elle diffère ; `crossDevice` :
   la destination est sur un autre système de fichiers (copie puis suppression) ; `exists` : la destination existe
   déjà (`ok: false`) ; erreur de la règle commune → `ok: false`, `field`, `msg`. `impacts` : lignes du tableau « ce
-  qui change » (seules les étapes qui changent quelque chose : `conf` absent si la clé ne change pas et qu'aucune
+  qui change » (texte `label` affiché tel quel pour `trust`, présent seulement si le projet a une entrée dans `trust.json` ; seules les étapes qui changent quelque chose : `conf` absent si la clé ne change pas et qu'aucune
   entrée n'existe, `ctr` absent sans conteneur ni StatefulSet).
 - `blockers` : projet ouvert ici (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou
   pod **en cours d'exécution**, déplacement inachevé (`pending`). Vide = déplaçable.
 - `pending` : entrée de `moves.json` dont `from` **ou** `to` est `path` (le projet peut déjà être sous sa
-  destination si l'étape `dir` est faite) ; absent sinon. `done` : étapes terminées et non annulées, dans l'ordre.
+  destination si l'étape `dir` est faite) ; absent sinon. `done` : étapes terminées et non annulées, dans l'ordre ; `step` : la première étape non faite — celle d'où « Reprendre » rejoue.
 
 ### `projectMove` **[NEW]**
 
-Arguments : `{ "path", "base", "category", "newCategory": false, "name" }` ; **reprise / annulation** d'un déplacement
-inachevé : `{ "path", "resume": true }` (rejoue les étapes non faites) ou `{ "path", "cancel": true }` (retour arrière des
-étapes faites) — `path` = la source ou la destination de l'entrée du journal ; même résultat que `projectMove`.
+Arguments : `{ "path", "base", "category", "newCategory": false, "name" }`. Reprise et annulation d'un déplacement
+inachevé : `projectMoveResume` / `projectMoveAbort` (ci-dessous).
 - Refus si `blockers` non vide (`{ "ok": false, "msg" }`), destination identique, destination existante, ou règle
   commune KO. Pas de fermeture implicite : l'interface propose « Fermer le projet » (`close` existant) avant.
 - Étapes, dans l'ordre, consignées dans le journal `moves.json` (dossier de config, sous verrou `WithFileLock`) :

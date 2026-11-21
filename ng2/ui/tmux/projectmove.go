@@ -84,10 +84,10 @@ func (m model) onMoveKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case f.mode == formMoveConfirm && (key == "o" || key == "y"):
 		r := core.MoveProject(m.moveEnv(), f.moveFrom, core.MoveTarget{Base: f.base, Category: f.category, NewCategory: f.newCat, Name: f.name})
 		return m.moveDone(r), nil
-	case f.mode == formMovePending && key == "p":
-		return m.moveDone(core.ResumeMove(m.moveEnv(), f.moveFrom)), nil
+	case f.mode == formMovePending && key == "r":
+		return m.moveDone(core.ResumeMoveID(m.moveEnv(), f.moveInfo.Pending.ID)), nil
 	case f.mode == formMovePending && key == "a":
-		r := core.CancelMove(m.moveEnv(), f.moveFrom)
+		r := core.AbortMoveID(m.moveEnv(), f.moveInfo.Pending.ID)
 		if r.RolledBack {
 			m.form = newForm{}
 			m.msg = "↩ déplacement annulé : état initial rétabli"
@@ -122,9 +122,6 @@ func (m model) moveDone(r core.MoveResult) model {
 			m.form = newForm{mode: formMovePending, moveFrom: from, moveInfo: &info, name: name, err: r.Msg}
 			return m
 		}
-		if info, err := core.MoveInfoFor(m.moveEnv(), m.form.moveInfo.Base); err == nil {
-			m.form.moveInfo = &info
-		}
 	}
 	m.form.err = r.Msg
 	return m
@@ -146,14 +143,12 @@ func (m model) renderMove(w int) string {
 			line("de :", p.From)
 			line("vers :", p.To)
 			line("étapes faites :", strings.Join(p.Done, ", "))
-			if p.Failed != "" {
-				line("en échec :", p.Failed+" — "+p.Msg)
-			}
+			line("à rejouer :", p.Step+" "+p.Msg)
 		}
 		if f.err != "" {
 			sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")
 		}
-		sb.WriteString("\n " + core.Dim.Render("p reprendre · a annuler (retour arrière) · Échap fermer"))
+		sb.WriteString("\n " + core.Dim.Render("r reprendre · a annuler (retour arrière) · Échap fermer"))
 		return truncLines(sb.String(), w)
 	}
 	to, _ := m.moveTarget()
