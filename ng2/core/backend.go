@@ -1037,6 +1037,17 @@ func (e Engine) migrateLegacy(proj, name string, log io.Writer) {
 	}
 }
 
+// runTee : exécute c, sa sortie (stdout et stderr) copiée dans log ET rendue. UN SEUL écrivain partagé par stdout et stderr :
+// exec n'ouvre alors qu'une goroutine de copie. Deux MultiWriter distincts écrivant dans le même tampon étaient une course
+// (bytes.Buffer n'est pas sûr en écriture concurrente).
+func runTee(c *exec.Cmd, log io.Writer) (string, error) {
+	var out bytes.Buffer
+	w := io.MultiWriter(log, &out)
+	c.Stdout, c.Stderr = w, w
+	err := c.Run()
+	return out.String(), err
+}
+
 // pid1 : processus principal qui ignore tout sauf SIGTERM (arrêt propre, sans --init).
 const pid1 = `trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done`
 
@@ -1081,11 +1092,10 @@ func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 			return "", err
 		}
 		fmt.Fprintf(log, "  création du conteneur %s (%s)…\n", name, env.Image)
-		var out bytes.Buffer
 		c := e.cmd(args...)
-		c.Stdout, c.Stderr = io.MultiWriter(log, &out), io.MultiWriter(log, &out)
-		if err := c.Run(); err != nil {
-			if s := out.String(); strings.Contains(s, "bind source path does not exist") || strings.Contains(s, "no such file or directory") {
+		outS, err := runTee(c, log)
+		if err != nil {
+			if s := outS; strings.Contains(s, "bind source path does not exist") || strings.Contains(s, "no such file or directory") {
 				return "", fmt.Errorf("création du conteneur : un dossier monté manque sur la machine du moteur — stockage partagé non monté au même chemin (%s, %s)", ClaudeDir(), proj)
 			}
 			return "", fmt.Errorf("création du conteneur : %w", err)
