@@ -220,3 +220,18 @@ func TestProjetBrutEtTemplateCoque215(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteRefuseParLaCoque215(t *testing.T) {
+	m, root := srcModel(t)
+	for _, bad := range []string{"--upload-pack=x", "ext::sh -c id", "https://u:p@github.com/a/b"} {
+		m.form = newForm{mode: formRemote, base: root, name: "p", source: "empty", remote: bad}
+		nm, _ := m.onFormKey(tea.KeyMsg{Type: tea.KeyEnter})
+		f := nm.(model).form
+		if f.err == "" || f.mode != formRemote {
+			t.Errorf("remote %q : err=%q mode=%v", bad, f.err, f.mode)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "p")); err == nil {
+		t.Error("dossier créé malgré le remote refusé")
+	}
+}

@@ -318,6 +318,10 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 				return m.createProject()
 			}
 		case formRemote:
+			if why := core.ValidateRemote(f.remote); why != "" {
+				f.err = why
+				break
+			}
 			if mm, ok := m.execStep(); ok {
 				return mm, nil
 			}

@@ -138,6 +138,11 @@ func (a *App) create(in createArgs) (any, error) {
 	default:
 		return nil, fmt.Errorf("source inconnue : %q", in.Source)
 	}
+	if source != "git" {
+		if why := core.ValidateRemote(in.Remote); why != "" { // remote facultatif : refusé avant toute écriture
+			return map[string]any{"ok": false, "field": "remote", "msg": why}, nil
+		}
+	}
 	roots := a.conf().Roots
 	var job *createJob // source git : place réservée AVANT toute écriture, test et pose sous un seul verrou (jamais deux clones)
 	if source == "git" {

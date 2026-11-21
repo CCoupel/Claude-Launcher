@@ -3,11 +3,14 @@ package core
 import (
 	"claude-launcher-ng2/platform"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // ApplyImage : socle img pour le projet — env.yaml modifié (ou créé) seulement
@@ -44,6 +47,40 @@ func ValidProjectName(s string) string {
 	return ""
 }
 
+var (
+	remoteHelperRe = regexp.MustCompile(`^[A-Za-z0-9+.-]+::`)
+	remoteCredsRe  = regexp.MustCompile(`^[^/@:\s]+:[^/@\s]*@`) // user:pass@hôte:chemin (forme scp)
+)
+
+// ValidateRemote : "" si url peut être liée comme remote `origin` (facultatif : vide accepté), sinon la raison. Refus : un
+// « - » en tête (option git), espaces et caractères de contrôle, identifiants user:pass@ (URL ou forme scp), transports
+// à assistant `ext::` / `fd::` (et tout « <assistant>:: »). `file://` et les chemins locaux restent acceptés.
+func ValidateRemote(raw string) string {
+	r := strings.TrimSpace(raw)
+	switch {
+	case r == "":
+		return ""
+	case strings.HasPrefix(r, "-"):
+		return "URL du remote invalide (ne commence pas par -)"
+	case strings.IndexFunc(r, func(c rune) bool { return unicode.IsSpace(c) || unicode.IsControl(c) }) >= 0:
+		return "URL du remote invalide (espace ou caractère de contrôle)"
+	case remoteHelperRe.MatchString(r):
+		return "URL du remote refusée (transport à assistant ext:: / fd::)"
+	case remoteCredsRe.MatchString(r):
+		return "URL du remote refusée (pas d'identifiants user:pass@ dans l'URL)"
+	}
+	if i := strings.Index(r, "://"); i > 0 {
+		if u, err := url.Parse(r); err != nil {
+			return "URL du remote invalide"
+		} else if u.User != nil {
+			if _, hasPw := u.User.Password(); hasPw {
+				return "URL du remote refusée (pas d'identifiants user:pass@ dans l'URL)"
+			}
+		}
+	}
+	return ""
+}
+
 // InitProject : contenu d'un projet tout juste créé (dossier dir existant) —
 // brut : un CLAUDE.md minimal ; géré : git init et le remote origin s'il est
 // donné. L'erreur porte l'étape (« git init : … »).
@@ -63,7 +100,10 @@ func InitProject(dir string, raw bool, remote string) error {
 		return errors.New("git init : " + strings.TrimSpace(string(out)))
 	}
 	if r := strings.TrimSpace(remote); r != "" {
-		if out, err := gitIn("remote", "add", "origin", r).CombinedOutput(); err != nil {
+		if why := ValidateRemote(r); why != "" { // garde explicite, en plus du « -- » : jamais une option ni un transport à assistant
+			return errors.New("git remote : " + why)
+		}
+		if out, err := gitIn("remote", "add", "--", "origin", r).CombinedOutput(); err != nil {
 			return errors.New("git remote : " + strings.TrimSpace(string(out)))
 		}
 	}
