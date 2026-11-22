@@ -388,7 +388,9 @@ function renderTree() {
       dot.title = r.closing || (r.dot ? r.dot.text : '');
       const name = el('span', 'name', r.name);
       name.title = r.path;
-      d.append(dot, name, el('span', 'rel', r.release || ''), badgeCells(r));
+      d.append(dot, name);
+      if (r.attention) { const ab = el('span', 'attnbadge', '❓ en attente'); ab.title = attnText(r.attention); d.appendChild(ab); }
+      d.append(el('span', 'rel', r.release || ''), badgeCells(r));
       if (r.open) {
         d.classList.add('open');
         d.style.setProperty('--pc', r.color || '#1F4FD1');
@@ -1003,8 +1005,12 @@ function applyLayoutPrefs() {
 // ── Onglets ────────────────────────────────────────────────────────────────
 // Onglets de projets (#189, #190, #191) — fonctions pures (testées par node : testdata/tabs_bar.js).
 // tabView : titre = nom seul, toujours ; couleur du projet même hors sélection ; « agent au travail » en infobulle.
+// #223 : le teamleader attend une réponse (champ `attention` du contrat : kind question|permission, text, id)
+function attnText(a) { return (a.kind === 'permission' ? 'permission : ' : 'question : ') + (a.text || ''); }
+function attnAny(s) { return ((s && s.tabs) || []).some((t) => t.attention) || ((s && s.rows) || []).some((r) => r.attention); }
 function tabView(t, on) {
-  return { title: t.name, tip: t.busy ? 'agent au travail' : '', gear: !!t.busy, color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy ? ['busy'] : []) };
+  const a = t.attention;
+  return { title: (a ? '❓ ' : '') + t.name, tip: a ? 'en attente — ' + attnText(a) : (t.busy ? 'agent au travail' : ''), gear: !!t.busy, color: t.color || '#1F4FD1', cls: (on ? ['on'] : []).concat(t.busy ? ['busy'] : [], a ? ['attn'] : []) };
 }
 // tabOrder : ordre enregistré d'abord ; les chemins nouveaux à la fin (ordre d'origine) ; les disparus ignorés.
 function tabOrder(paths, saved) {
@@ -1106,7 +1112,8 @@ function renderTabs() {
   if (S.drag) return; // glisser en cours : l'affichage est rafraîchi à la fin du geste
   const bar = $('tabs'); bar.textContent = '';
   // Teamleaders (#162) : pastille à contour épinglée à gauche, hors de la zone qui défile, suivie d'un filet, sans ×
-  const lt = el('div', 'tl' + (S.view === 'leaders' ? ' on' : ''));
+  const lt = el('div', 'tl' + (S.view === 'leaders' ? ' on' : '') + (attnAny(S.snap) ? ' attn' : ''));
+  if (attnAny(S.snap)) lt.title = 'Un teamleader attend une réponse';
   lt.append(el('span', 'tlic', '⌗'), el('span', 'tltx', ' Teamleaders'));
   lt.onclick = () => showView('leaders');
   const scroll = el('div', 'tscroll');
@@ -1509,9 +1516,10 @@ const leaders = {
     if (!t) {
       const tab = (S.snap.tabs || []).find((x) => x.path === path) || { name: path.split(/[\\/]/).pop(), color: '#1F4FD1' };
       const tile = el('div', 'tile'), th = el('div', 'th'), body = el('div', 'tb'), cl = el('div', 'clone');
-      th.append(el('span', '', tab.name), el('span', 'dim', '· team-lead'));
+      th.append(el('span', '', tab.name), el('span', 'dim', '· team-lead'), el('span', 'attnbadge tilebadge hidden', '❓ en attente'));
+      const qb = el('div', 'qbar hidden');
       th.style.background = tab.color;
-      body.appendChild(cl); tile.append(th, body);
+      body.appendChild(cl); tile.append(th, qb, body);
       this.grid.appendChild(tile);
       const term = newTerm({ cols: lp.w, rows: lp.h, cursorBlink: false });
       term.open(cl);
@@ -1524,13 +1532,27 @@ const leaders = {
       term.textarea && term.textarea.addEventListener('blur', () => tile.classList.remove('focus'));
       th.addEventListener('dblclick', () => showView(path, true));
       th.addEventListener('click', () => term.focus());
-      t = this.tiles[path] = { tile, body, cl, term, pane: l.leader, w: lp.w, h: lp.h };
+      t = this.tiles[path] = { tile, body, cl, qb, term, pane: l.leader, w: lp.w, h: lp.h };
       call('termSync', { path }); // contenu actuel du leader (capture)
       this.layout();
     }
+    this.attn(path);
     if (t.w !== lp.w || t.h !== lp.h) { t.w = lp.w; t.h = lp.h; t.term.resize(lp.w, lp.h); this.scale(t); }
     t.term.options.theme = Object.assign({}, t.term.options.theme, { background: lp.bg });
   },
+  // #223 : cadre orange, pastille dans le titre et bandeau de la question ; retirés dès que l'attente cesse
+  attn(path) {
+    const t = this.tiles[path]; if (!t) return;
+    const tab = ((S.snap && S.snap.tabs) || []).find((x) => x.path === path);
+    const a = tab && tab.attention;
+    t.tile.classList.toggle('attn', !!a);
+    t.tile.querySelector('.tilebadge').classList.toggle('hidden', !a);
+    t.qb.classList.toggle('hidden', !a);
+    t.qb.textContent = a ? '❓ ' + attnText(a) : '';
+    t.qb.title = a ? attnText(a) : '';
+    this.scale(t);
+  },
+  attnAll() { for (const p of Object.keys(this.tiles)) this.attn(p); },
   out(path, c) { const t = this.tiles[path]; if (t && c.pane === t.pane) { if (c.reset && !c.keep) t.term.reset(); if (c.data) t.term.write(c.data); } },
   drop(path) { const t = this.tiles[path]; if (!t) return; t.term.dispose(); t.tile.remove(); delete this.tiles[path]; this.layout(); },
   layout() {
@@ -2453,6 +2475,7 @@ function applyState(s) {
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
   if (S.view === 'leaders') leaders.layout();
+  leaders.attnAll();
   graceStep();
   refusedSync(s.tabs);
 }
