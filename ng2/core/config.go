@@ -103,7 +103,11 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 // LoadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
 // celui du launcher actuel (tableaux, $HOME, variables), sans le réimplémenter.
 // Sortie : une ligne « TAG<TAB>valeur » par information.
-func LoadConfig() Config { return loadConfigAt(ConfigPath()) }
+func LoadConfig() Config {
+	cfg := loadConfigAt(ConfigPath())
+	shareTimeoutSec.Store(int64(cfg.ShareWriteTimeoutSec)) // délai d'écriture publié depuis la config ACTIVE seulement (#220)
+	return cfg
+}
 
 // loadConfigAt : LoadConfig pour le fichier path (validation de l'éditeur de
 // configuration, configedit.go : même lecture que le chargement réel).
@@ -253,7 +257,6 @@ func loadConfigAt(path string) Config {
 		cfg.UsageRefreshSec = 60
 	}
 	cfg.ShareWriteTimeoutSec = ClampShareWriteTimeout(cfg.ShareWriteTimeoutSec)
-	shareTimeoutSec.Store(int64(cfg.ShareWriteTimeoutSec))
 	if len(cfg.Roots) == 0 {
 		cfg.Roots = []string{filepath.Join(home, "GITHUB")}
 		if p := RootBaseProjects(); p != "" {

@@ -368,6 +368,16 @@ func (a *App) Stop() {
 	}
 }
 
+// stopped : Stop a été appelé.
+func (a *App) stopped() bool {
+	select {
+	case <-a.quit:
+		return true
+	default:
+		return false
+	}
+}
+
 func max0(d time.Duration) time.Duration { return max(d, 0) }
 
 // stopDeadline : échéance totale de Stop. Remplacée dans les tests.

@@ -410,13 +410,12 @@ func (t *projTerm) attach() error {
 	if err != nil {
 		return err
 	}
-	select {
-	case <-t.a.quit: // arrêt pendant l'attache : aucun client ne survit à Stop (#221)
+	t.mu.Lock()
+	if t.detaching || t.a.stopped() { // arrêt pendant l'attache : aucun client ne survit à Stop (#221) ; test et affectation sous t.mu, comme detachBy
+		t.mu.Unlock()
 		c.CloseBy(time.Now().Add(time.Second), time.Now().Add(2*time.Second))
 		return fmt.Errorf("interface arrêtée")
-	default:
 	}
-	t.mu.Lock()
 	t.client = c
 	w, h := t.cols, t.rows
 	t.mu.Unlock()

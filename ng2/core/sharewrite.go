@@ -38,6 +38,9 @@ type ShareTimeout struct {
 }
 
 func (e *ShareTimeout) Error() string {
+	if e.Busy {
+		return "partage injoignable : écriture précédente de config.conf toujours bloquée"
+	}
 	return fmt.Sprintf("partage injoignable : config.conf non écrit après %d s", int(e.After.Round(time.Second)/time.Second))
 }
 

@@ -2,6 +2,7 @@ package core
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -46,5 +47,15 @@ func TestWithinShareBlockedThenResumes(t *testing.T) {
 	ShareWriteHook = nil
 	if err := WithinShare(time.Second, func() error { return nil }); err != nil {
 		t.Fatalf("reprise attendue : %v", err)
+	}
+}
+
+// Refus immédiat (écriture précédente bloquée) : message distinct d'un vrai dépassement de délai.
+func TestShareTimeoutBusyMessage(t *testing.T) {
+	if m := (&ShareTimeout{After: 10 * time.Second}).Error(); m != "partage injoignable : config.conf non écrit après 10 s" {
+		t.Errorf("message de délai = %q", m)
+	}
+	if m := (&ShareTimeout{After: 10 * time.Second, Busy: true}).Error(); !strings.Contains(m, "précédente") || strings.Contains(m, "après") {
+		t.Errorf("message Busy = %q", m)
 	}
 }
