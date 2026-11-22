@@ -9,6 +9,15 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+### Added
+- Écriture bornée de `config.conf` : nouvelle option `SHARE_WRITE_TIMEOUT` (secondes, défaut 10, bornes 2–120). Un partage injoignable ne bloque plus l'interface : la réponse revient au bout du délai, l'organisation précédente est rétablie, l'écriture reprend seule au retour du partage (#220)
+
+### Changed
+- Arrêt de l'interface : échéance unique de 25 s. Les terminaux sont détachés puis attendus (flusher, watcher, client tmux) ; au bout de 5 s le processus client est arrêté de force ; après arrêt, aucune écriture vers un terminal n'est acceptée (#221)
+
+### Fixed
+- Message de repli « leader à gauche refusé par tmux — mise en page « leader en haut » appliquée » : affiché une fois par projet et par cause (et une fois par fenêtre dans la coque tmux), au lieu d'à chaque remise en page (#222)
+
 ## [6.6.0] — 2026-11-22
 
 ### Added

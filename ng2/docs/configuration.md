@@ -225,6 +225,29 @@ il ne reste jamais plus ancien que `config.conf`.
   avec la raison. Si le backend ne répond pas, l'écriture reste permise avec un avertissement « état du conteneur
   inconnu » ; un changement de backend ou d'image reste refusé dans ce cas.
 
+### Délai d'écriture sur le partage (v6.7.0, #220)
+
+Un clic qui modifie `config.conf` (bascule d'organisation, œil de masquage, couleur d'un projet) écrit sur le partage
+du launcher. Si le partage ne répond plus, l'interface ne reste pas bloquée : la réponse revient au bout de
+`SHARE_WRITE_TIMEOUT` secondes.
+
+```ini
+SHARE_WRITE_TIMEOUT=10
+```
+
+- **Défaut** `10`, bornes `2` à `120` (valeur hors bornes ramenée dans l'intervalle). Rubrique « Projets » de la fenêtre
+  `⚙ config`, effet immédiat.
+- **Délai dépassé** : la bascule est annulée (l'organisation précédente revient) et le message indique le délai, par
+  exemple « partage injoignable : config.conf non écrit après 10 s — retour à l'organisation précédente ».
+- **L'écriture abandonnée continue** en arrière-plan. Si elle aboutit plus tard, le fichier fait foi : la relecture
+  applique ce qui a été écrit.
+- **Une seule écriture abandonnée à la fois** par fichier : tant qu'elle est bloquée, les clics suivants échouent
+  tout de suite avec le même message.
+- **Reprise automatique** : dès que le partage répond, les clics suivants écrivent normalement, sans relance.
+- L'écran `⚙ config` (enregistrement explicite) n'est pas borné par ce délai.
+
+Pour le diagnostic, voir [Dépannage](depannage.md) (puce « Partage injoignable »).
+
 ### Effet d'une option et éléments cachés (v6.6.0, #226, #227)
 
 **Pastille d'effet.** Chaque option de la fenêtre `⚙ config` porte une pastille qui dit quand elle prend effet.

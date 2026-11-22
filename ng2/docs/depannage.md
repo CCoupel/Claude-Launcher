@@ -15,6 +15,11 @@
   (`~/.cache/claude-launcher-ng2/` sous Linux, `%LocalAppData%\claude-launcher-ng2\` sous Windows). Les lignes
   `bascule : avant écriture`, `bascule : écriture config.conf` et `bascule : total` donnent la durée de chaque étape
   (fichier gardé à 200 lignes).
+- **Partage injoignable : `config.conf` non écrit** (v6.7.0, #220) : le partage du launcher ne répond plus, un clic
+  (bascule d'organisation, œil, couleur) rend « partage injoignable : config.conf non écrit après N s » et l'organisation
+  précédente revient. Rien n'est à faire : dès que le partage répond, les clics suivants écrivent normalement. Si
+  l'écriture abandonnée aboutit, la relecture applique ce qui est écrit. Le délai se règle par `SHARE_WRITE_TIMEOUT`
+  (voir [Délai d'écriture sur le partage](configuration.md#délai-décriture-sur-le-partage-v670-220)).
 - **Ctrl+clic ne ferme pas le projet** : votre terminal le garde pour lui (ouverture de liens).
   Sélectionnez le projet et appuyez sur `Suppr`.
 - **Un projet ne se ferme plus** (pod k8s disparu, backend injoignable, session déjà morte) : menu du projet →
