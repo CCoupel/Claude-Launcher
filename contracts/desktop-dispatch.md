@@ -1196,7 +1196,7 @@ Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : tout
 - `App.Stop` : **échéance unique de 25 s** fixée à l'entrée ; chaque attente (tâches de fond, relevé de conso,
   ouvertures, terminaux) prend `min(sa borne, temps restant)` — la somme actuelle (2 + 2 + 20 + 5 s) ne dépasse plus.
 - Terminaux : `detach` puis **attente de leur fin** : goroutines `flusher`, `watcher` et lecture du client tmux
-  terminées, processus du client (`tmux -C`, `wsl.exe`, `kubectl exec`, `podman exec`) sorti. À l'échéance moins 1 s :
+  terminées, processus du client (`tmux -C`, `wsl.exe`, `kubectl exec`, `podman exec`) sorti. Au bout de `detachWait` (5 s, plafonné à échéance − 1 s) :
   arrêt forcé de l'arbre de processus (`platform.KillTree`), puis attente brève de la goroutine de lecture.
 - Après `Stop` : plus aucune écriture vers un terminal (`termIn` refusé : `{ ok:false, msg:"interface arrêtée" }`), aucune
   goroutine de terminal ni processus enfant restant (test `-race` : arrêt pendant une écriture dans un terminal).

@@ -17,7 +17,8 @@
   défaut, maquette A
 - **[CHANGED]** message de repli « leader en haut » une fois par projet et par cause (#222)
 - **[CHANGED]** `App.Stop` : échéance unique de 25 s, terminaux attendus (goroutines, processus), `termIn` refusé après
-  l'arrêt (#221)
+  l'arrêt (#221) ; arrêt forcé d'un terminal au bout de `detachWait` (5 s, plafonné à échéance − 1 s), écart
+  accepté en revue
 - Aucun BREAKING.
 
 ## [20261121] — v6.6.0 LOT-3 (complément #216) : env.yaml d'un projet refusé s'il tourne
