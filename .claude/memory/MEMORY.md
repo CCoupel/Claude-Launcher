@@ -4,20 +4,33 @@
 
 ## Etat courant
 
-- **Version** : **6.5.0 publiée le 2026-11-20** — PR #211 (merge a2fc3a0), tag `v6.5.0`, release.yml run 44703776401
-  verte, release vérifiée (5 binaires + SHA256SUMS, chart 6.5.0, image `ghcr.io/ccoupel/claude-launcher:v6.5.0`).
-  Milestone #29 « v6.5.0 — Fiabilisation » clos (9 issues : #201, #203–#210). Notes de version : release + PR #213
-  (`docs/releases/v6.5.0/`). Site gh-pages : PR #212 (https://ccoupel.github.io/Claude-Launcher/).
-- **Branche** : main (11096ec).
+- **Version** : **6.6.0 publiée en PROD le 2026-11-22** — tag `v6.6.0` sur b3ec811, release
+  https://github.com/CCoupel/Claude-Launcher/releases/tag/v6.6.0. Milestone #30 « v6.6.0 — Gestion des projets » clos
+  (11 issues : #214–#219, #224, #225–#227). Notes de version : release + PR #230. Site gh-pages v6.6.0 : PR #229
+  (https://ccoupel.github.io/Claude-Launcher/).
+- **Branche** : main.
 - **Environnements** :
-  - PROD : namespace `claude-ng2`, pod v6.5.0 (helm `-f values-prod -f values-local`, image par empreinte).
-  - QUALIF : `claude-qualif` 6.5.0.5.
-  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` v6.5.0 (ancien `.bak-v6.4.0`) —
-    **relance du hub à faire par l'utilisateur** (Échap puis `l`).
+  - PROD : namespace `claude-ng2`, helm révision 4, pod v6.6.0.
+  - QUALIF : `claude-qualif`, dernière valeur connue 6.5.0.5 (non mise à jour dans cette session).
+  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.6.0 (sauvegarde `claude-launcher-ng2.bak-v6.5.0`).
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
-- **Travail en cours** : aucun workflow actif.
-- **Prochain** : milestone v7.0.0 SaaS (#27 : #172 OAuth, #184 étude).
+- **Travail en cours** : aucun milestone en développement ; branche main.
+
+## Decisions de la session (v6.6.0)
+
+- **#215 trois sources** : « Projet brut » (git init + remote si fourni), « Template projet » (git init + /init-project
+  proposé), « Dépôt Git » ; option « géré » supprimée.
+- **Déplacer / renommer, backend / image et env.yaml** refusés si le projet est ouvert ou son conteneur actif ; backend
+  injoignable : env.yaml autorisé avec avertissement, backend / image / déplacement fail-closed.
+- **#225** : config.conf relu à chaud ; Roots et CLAUDE_CONFIG_DIR exigent toujours une relance.
+- **#226** : pastille d'effet par option + bulle ; note conservée pour backends.yaml / hub / env.yaml.
+- **#227** : œil commun à tous les éléments cachés : révélation refusée en accès distant, 30 s, 10/min, journal sans valeur
+  ni empreinte ; `kubectl port-forward` = accès local.
+- **Tests** : garde d'isolation (`CL_TEST_ISOLATION`, écritures limitées à `os.TempDir`), jetons `ghp_FAKE_TEST_…`,
+  faux podman/docker par défaut dans ui/desktop et ui/tmux.
+- **Process** : validation du dernier lot = feu vert PROD (PUBLISH + DEPLOY sans GATE 4 ni relecture de PR) ;
+  `publish.prod` exige une section `## [X.Y.Z] — date` dans CHANGELOG avant le merge.
 
 ## Decisions techniques de la session (v6.5.0)
 
@@ -60,14 +73,13 @@
 
 ## Points pour la prochaine session
 
-- **Relancer le hub** (Échap puis `l`) ; `pkill -f 'claude-launcher-ng2 mirror'` si d'anciens mirror / layout-watch.
-- Vérifier que les backends se connectent (migration du coffre local du hub au redémarrage).
-- Vérifier `https://launcher.local` depuis un poste (non testé depuis le conteneur).
-- `gh` non authentifié dans le conteneur de marketing (push délégué à deployer).
-- À arbitrer : StatefulSets de projets à 0/0 ; binaires QUALIF et `.bak` du hub ; PSA `baseline` sur `claude-ng2` non posée.
-- Suites mineures non créées en issues : verrou d'écriture de la bascule sans borne si le partage est mort ; message de
-  repli `top` répété ; `config.conf` écrit non atomiquement ; l'exe Windows n'est pas sauvegardé avant remplacement.
-- Idées : `App.Stop` n'attend pas les terminaux ; opérateur k8s + CRD `ClaudeProject` (non retenu).
+- Relancer les sessions Claude ouvertes avant le 2026-11-21 ~10:00 (GH_TOKEN factice hérité d'un test).
+- Suite ui/desktop plus lente avec les faux moteurs (95 s → 154 s) : à optimiser.
+- Pastilles d'effet pour backends.yaml / hub / env.yaml : suite possible (hors v6.6.0).
+- Coque : comparaison des options depuis un texte vide si config.conf disparaît (cosmétique).
+- `version` de project-config.json sur main ≠ X.Y.Z publié (6.5.0.5 historiquement) : à clarifier.
+- Commit local `chore(config)` (accès PROD vérifiés) sur main non poussé.
+- Réservé pour plus tard : PSA point 11 ; supprimer trust.json lève toutes les approbations.
 - **Consigne** : concision aux teammates (DONE ≤ 2 lignes, détail dans les rapports).
 - **Maquettes** : proposer d'emblée les variantes (horizontale ET verticale) quand une mise en page est en jeu.
 
