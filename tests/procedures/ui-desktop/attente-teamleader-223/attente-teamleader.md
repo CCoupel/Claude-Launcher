@@ -9,7 +9,13 @@
 - [ ] Environnement : QUALIF — exe Windows natif (Wails) de la version candidate ; interface web `https://launcher.local` dans Chrome ; hub Linux
 - [ ] Donnees : projets factices, **un projet en pod (k8s jetable)** ; **faux claude** qui joue les hooks (ou claude reel sur un projet factice) — jamais de vrai projet
 - [ ] Hooks : relancer les sessions apres la mise a jour (les hooks `# cl-attention` ne sont lus qu'au demarrage de claude) ; option `ATTENTION_NOTIFY` a sa valeur par defaut (1)
-- [ ] Declencher une attente : faire poser une question au teamleader (AskUserQuestion, ex. un GATE) ou une demande de permission (outil non autorise) ; ou, avec le faux claude, jouer le hook `PreToolUse` / `Notification`
+- [ ] **Simuler l'attente** (en QUALIF claude est un faux claude : ses hooks ne se declenchent pas) avec le script `simulate-attention.sh`, depuis la racine du depot, sur l'**hote** ou l'on lance le launcher :
+  `sh tests/procedures/ui-desktop/attente-teamleader-223/simulate-attention.sh <chemin du projet> question|permission|teammate|fin`
+  (`question` / `permission` : attente du teamleader ; `teammate` : attente d'un autre pane, ne doit rien signaler ; `fin` : equivaut a la reponse de l'utilisateur).
+  Le script trouve le pane leader comme le launcher (plus petit `%id` des panes de la session tmux du projet) et affiche ce qu'il ecrit.
+  **Projet en pod** : `sh .../simulate-attention.sh <chemin du projet DANS le pod> question --pod <pod> [<namespace>]` (rejoue le script par `kubectl exec -i`).
+  Serveur tmux different : variable `TMUX_SOCKET` (defaut `claude-desk-ng2`, fenetre native) ou `TMUX_SESSION`. Avec un vrai claude, le script est inutile : poser une vraie question.
+  Notation ci-dessous : **[sim X]** = lancer le script avec l'action X.
 - [ ] Maquette de reference : `docs/mockup/v6.7.0/ui/attente_teamleader__badge_notifications.html` (version A)
 
 ## Scenarios
@@ -20,12 +26,12 @@
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Ouvrir un projet, faire poser une question au teamleader | En 5 s au plus : pastille orange « ❓ en attente » sur la ligne du projet (infobulle = la question), ❓ et soulignement orange sur l'onglet | | |
+| 1 | Ouvrir un projet, **[sim question]** | En 5 s au plus : pastille orange « ❓ en attente » sur la ligne du projet (infobulle = la question), ❓ et soulignement orange sur l'onglet | | |
 | 2 | Ouvrir l'onglet Teamleaders | Vignette du projet : cadre orange, pastille dans le titre, bandeau « ❓ question : « … » » ; contour de la pastille Teamleaders sans compteur ni icone seule | | |
 | 3 | Comparer a la maquette A | Libelles, couleurs et placement conformes | | |
-| 4 | Repondre a la question | Pastille, soulignement, cadre et bandeau disparaissent en 5 s au plus | | |
-| 5 | Faire demander une permission (outil non autorise) | Meme signalement (« permission : … ») ; retire des la reponse | | |
-| 6 | Faire attendre un teammate (permission cote teammate) | **Aucun** signalement (seul le teamleader est signale) | | |
+| 4 | **[sim fin]** (reponse) | Pastille, soulignement, cadre et bandeau disparaissent en 5 s au plus | | |
+| 5 | **[sim permission]** | Meme signalement (« permission : … ») ; retire des la reponse | | |
+| 6 | **[sim teammate]** (attente ecrite par un teammate) | **Aucun** signalement (seul le teamleader est signale) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -37,10 +43,10 @@
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Fenetre de l'exe en arriere-plan (autre application au premier plan), faire poser une question au teamleader | **Une** notification Windows : titre avec le nom du projet, corps = la question ; pas de doublon apres 10 s | | |
+| 1 | Fenetre de l'exe en arriere-plan (autre application au premier plan), **[sim question]** | **Une** notification Windows : titre avec le nom du projet, corps = la question ; pas de doublon apres 10 s | | |
 | 2 | Cliquer la notification | Fenetre au premier plan, onglet du projet selectionne | | |
-| 3 | Repondre a la question puis observer le centre de notifications | Notification retiree ; aucune nouvelle notification apres la reponse | | |
-| 4 | Declencher une nouvelle attente | Une nouvelle notification (une par attente) | | |
+| 3 | **[sim fin]** puis observer le centre de notifications | Notification retiree ; aucune nouvelle notification apres la reponse | | |
+| 4 | **[sim question]** (nouvelle attente) | Une nouvelle notification (une par attente) | | |
 | 5 | Si Windows refuse les notifications (exe non installe) | Badge seul, aucune erreur visible ; ligne dans le journal | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -55,9 +61,9 @@
 |-------|--------|-----------------|----------------|------|
 | 1 | Ouvrir l'interface web, option active, autorisation Chrome jamais accordee | Bandeau discret « Autoriser les notifications d'attente » | | |
 | 2 | Cliquer le bandeau, autoriser dans Chrome | Bandeau disparu ; la demande de Chrome n'apparait que sur ce clic | | |
-| 3 | Onglet Chrome en arriere-plan, faire poser une question | Notification Chrome (projet, question) ; titre de l'onglet prefixe « ❓ » ; badge dans la page | | |
+| 3 | Onglet Chrome en arriere-plan, **[sim question]** | Notification Chrome (projet, question) ; titre de l'onglet prefixe « ❓ » ; badge dans la page | | |
 | 4 | Cliquer la notification | Onglet Chrome au premier plan, onglet du projet selectionne | | |
-| 5 | Repondre a la question | Notification fermee, prefixe « ❓ » retire | | |
+| 5 | **[sim fin]** | Notification fermee, prefixe « ❓ » retire | | |
 | 6 | Recommencer avec l'autorisation **refusee** dans Chrome | Badge seul, plus de bandeau | | |
 | 7 | Ouvrir l'interface en `http://<ip>:<port>` (contexte non securise) | Pas de notification ; mention « contexte non securise » sous l'option dans les Reglages ; badge et titre « ❓ » toujours la | | |
 | 8 | Deux onglets Chrome sur le meme hub | Une seule notification par attente (pas de doublon) | | |
@@ -72,9 +78,9 @@
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Ouvrir le projet en pod (session lancee apres la mise a jour), faire poser une question | Badge en 5 s au plus sur l'exe, l'interface web et la coque Linux (aucun `kubectl exec` supplementaire) | | |
+| 1 | Ouvrir le projet en pod (session lancee apres la mise a jour), **[sim question]** en variante pod (`--pod`) | Badge en 5 s au plus sur l'exe, l'interface web et la coque Linux (aucun `kubectl exec` supplementaire) | | |
 | 2 | Ouvrir le meme projet depuis un autre launcher (session vivante ailleurs) | Le badge est visible aussi (projet non ouvert ici mais session vivante) | | |
-| 3 | Repondre | Badge retire partout en 5 s au plus | | |
+| 3 | **[sim fin]** (variante pod) | Badge retire partout en 5 s au plus | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -87,7 +93,7 @@
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | Reglages > Teams et panes : decocher « Notifications d'attente » (pastille d'effet « immediat ») | Enregistre sans relance | | |
-| 2 | Faire poser une question | **Badge toujours affiche**, aucune notification (Windows ni Chrome) | | |
+| 2 | **[sim question]** | **Badge toujours affiche**, aucune notification (Windows ni Chrome) | | |
 | 3 | Recocher l'option, nouvelle attente | La notification revient | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL

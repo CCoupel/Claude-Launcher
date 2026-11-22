@@ -99,3 +99,4 @@
 | ng2/core/attentionnotify223_test.go | unitaire | core | Option ATTENTION_NOTIFY : bool, rubrique teams, active par defaut, effet immediat (#223) | feature | |
 | ng2/ui/desktop/attention_notify223_test.go | integration | ui-desktop | Notifications natives : une par id, retrait a la fin, aucune avec l'option a 0, a chaud, clic vers l'onglet, indisponibles = badge seul (#223) | feature | |
 | ng2/ui/tmux/attention223_test.go | integration | ui-tmux | Coque : pastille de la ligne, releve et option @cl_attn, vignette (types, largeur) (#223) | feature | |
+| ng2/core/simulate223_test.go | integration | core | Script simulate-attention.sh : pane leader (plus petit %id), question/permission/teammate/fin lus par ReadAttentionOf, erreurs, tmux isole (#223) | feature | |
