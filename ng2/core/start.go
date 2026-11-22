@@ -70,6 +70,17 @@ func StartCommands(cfg Config, path, latest string, mode LaunchMode) (start, cop
 	if mode == LaunchNewRaw {
 		copyInit = ""
 	}
+	if mode == LaunchNormal {
+		// /start-session (#231) : projet géré dont la team n'existe pas (team présente = reprise : rien). Posée après la
+		// question /init-project, seulement si elle est refusée (ou absente) ; une seule fois par lancement de claude.
+		if _, err := os.Stat(StartSessionPath(path)); err == nil && !TeamExists(path) {
+			if initPre == "" {
+				initPre, initArg = `_ip_arg=''; `, " $_ip_arg"
+			}
+			q := "session non démarrée — lancer /start-session ? [O/n] "
+			initPre += `if [[ -z $_ip_arg ]]; then read -rp ` + Shq(q) + ` _r; [[ "$_r" == [nN]* ]] || _ip_arg='/start-session'; fi; `
+		}
+	}
 	start = initPre + ClaudeBin() + " " + cfg.ClaudeOptions + initArg
 
 	// Reprise de la dernière conversation (resume.go) : si elle est choisie, ni

@@ -27,7 +27,7 @@ type helpSection struct {
 var helpSections = []helpSection{
 	{"Navigateur", []helpRow{
 		{"↑ ↓ PgUp PgDn, molette, clic", "sélectionner un projet (clic sur un projet ouvert : sa fenêtre)"},
-		{"Entrée, double-clic", "ouvrir / rejoindre le projet"},
+		{"Entrée, double-clic", "ouvrir / rejoindre le projet (projet géré sans team : /start-session proposé ; après un crash la team reste sur le disque : taper /start-session à la main)"},
 		{"Ctrl+clic, Suppr", "fermer le projet : /exit à claude, puis arrêt du conteneur (confirmation o/N) ; conteneur, pod ou session disparu : fermeture forcée proposée, sans /exit"},
 		{"point devant le nom", "○ rien ne tourne · ● bleu conteneur prêt sans claude · ▲ ouvert ici · ● vert lecture seule · ■ orange autre hub · ● orange personne ne pilote · ✕ problème"},
 		{"frappe", "filtrer ; Esc efface le filtre"},
