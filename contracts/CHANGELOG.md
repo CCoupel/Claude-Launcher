@@ -2,6 +2,24 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261122] — v6.7.0 (plan) : fiabilisation, /start-session, teamleaders en attente (#220–#223, #231)
+
+- **[NEW]** `contracts/attention.md` (#223) : hooks Claude Code `# cl-attention` dans `settings.json` (PreToolUse
+  AskUserQuestion, Notification permission → attente ; PostToolUse, UserPromptSubmit, Stop, SessionEnd → fin),
+  `CL_ATTENTION_DIR` exportée dans le script de démarrage, état `<projet>/.claude-launcher/attention/<pane>.json`
+  (exclu de git), `Row.attention` / `TabInfo.attention`, évènements `attention` / `attentionEnd`, option
+  `ATTENTION_NOTIFY`, notifications Windows (Wails) et navigateur
+- **[NEW]** option `SHARE_WRITE_TIMEOUT` (#220) ; `projectApply` / bascule d'organisation : `{ok:false, timeout:true, msg}`
+  après le délai, une seule écriture abandonnée par fichier — `contracts/desktop-dispatch.md` « v6.7.0 »
+- **[NEW]** question `/start-session` dans le script de démarrage d'un projet géré **sans team existante** (#231),
+  toujours après `/init-project` (décision GATE 2) ; `core.TeamExists`
+- Décisions GATE 2 : #220 retour à l'organisation précédente ; #223 question + permission, `ATTENTION_NOTIFY=1` par
+  défaut, maquette A
+- **[CHANGED]** message de repli « leader en haut » une fois par projet et par cause (#222)
+- **[CHANGED]** `App.Stop` : échéance unique de 25 s, terminaux attendus (goroutines, processus), `termIn` refusé après
+  l'arrêt (#221)
+- Aucun BREAKING.
+
 ## [20261121] — v6.6.0 LOT-3 (complément #216) : env.yaml d'un projet refusé s'il tourne
 
 - **[CHANGED]** écriture de l'`env.yaml` d'un projet (`projectApply.env`, `configSave` / `configApply` sur `project-env`, F2 coque) refusée tant qu'un blocker #216 s'applique (ouvert ici, autre launcher, conteneur actif), revérifié à l'écriture : `{ "ok": false, "field": "env", "msg", "blockers" }` ; `configValidate` permis — `contracts/desktop-dispatch.md` « env.yaml d'un projet refusé… »

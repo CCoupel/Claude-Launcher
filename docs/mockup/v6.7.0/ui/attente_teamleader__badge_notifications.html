@@ -1,0 +1,205 @@
+<!--
+mockup:
+  composant: attente_teamleader
+  feature: badge_notifications
+  version: 6.7.0
+  type: ui
+  issue: "#223"
+  proposition_retenue: "A — Pastille « ❓ en attente »"
+  decisions_gate2: "signaux question + permission ; notifications activées par défaut (ATTENTION_NOTIFY=1)"
+  complete: ["docs/mockup/v6.2.0/ui/tab_bar__teamleaders_separe.html", "docs/mockup/v6.2.0/ui/pane_header__etat_activite.html", "docs/mockup/v6.6.0/ui/config_ui__effet_des_options.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teamleader en attente</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--orange2:#3A2A18;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 14px;max-width:1200px;line-height:1.5}
+h2{font-size:12.5px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:22px 0 8px}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}
+.ptab{background:var(--panel);border:1px solid var(--line2);color:var(--text2);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+.ptab.on{background:var(--hl);border-color:var(--accent);color:var(--text)}
+section[data-proposition]{display:none}section[data-proposition].on{display:block}
+.why{color:var(--muted);margin:6px 0 10px;font-size:12.5px;min-height:18px;max-width:1200px}
+.cap{color:var(--muted);font-size:12px;margin:6px 0 0;max-width:1100px;line-height:1.5}
+.row2{display:flex;gap:18px;flex-wrap:wrap;align-items:flex-start}
+/* fenêtre native */
+.app{display:grid;grid-template-columns:290px 1fr;width:1060px;max-width:100%;height:360px;border:1px solid var(--line2);border-radius:8px;overflow:hidden;background:var(--bg)}
+.left{background:var(--panel);border-right:3px solid var(--line);display:flex;flex-direction:column;font-size:12.5px}
+.lhead{padding:8px 12px;color:var(--text2);font-family:var(--mono);font-size:11.5px;border-bottom:1px solid var(--line)}
+.tree{padding:6px 0;flex:1}
+.cat{padding:5px 12px 5px 26px;color:var(--text2);font-weight:700;font-size:11.5px;letter-spacing:.03em}
+.prow{display:flex;align-items:center;gap:8px;padding:5px 10px 5px 40px;margin:1px 6px;border-radius:4px;color:var(--text)}
+.prow .d{color:var(--muted);font-size:10px;width:10px}.prow .nm{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prow .ind{display:flex;gap:9px;font-size:10px;color:var(--dim)}.prow .ind .g{color:var(--green)}.prow .ind .b{color:var(--accent)}
+.prow.sel{background:#5c0a5c}
+.pend{padding:6px 10px;margin:4px 6px;border:1px solid #6a4a2c;background:var(--orange2);border-radius:6px}
+.pend .t{color:var(--orange);font-weight:700;font-size:11.5px;margin-bottom:3px}.pend .q{color:var(--text2);font-size:11.5px;padding:2px 0}
+.pend .q b{color:var(--text)}
+.foot{border-top:1px solid var(--line);padding:6px 12px;color:var(--muted);font-size:11px}
+.main{display:flex;flex-direction:column;min-width:0}
+.bar{height:32px;display:flex;align-items:stretch;border-bottom:1px solid var(--line);font-size:12px;background:var(--deep)}
+.tl{flex:none;display:flex;align-items:center;margin:5px 0 5px 8px;padding:0 12px;border:1px solid var(--muted);border-radius:12px;color:var(--text2);font-weight:600;white-space:nowrap}
+.tl.on{background:#1F4FD1;border-color:#1F4FD1;color:#fff}
+.sep{flex:none;width:1px;background:var(--muted);margin:3px 10px;opacity:.7}
+.tab{display:flex;align-items:center;gap:6px;padding:0 10px 0 12px;color:var(--text2);white-space:nowrap;border-right:1px solid var(--line);flex:none}
+.tab.on{color:#fff;font-weight:700}.tab .x{opacity:.6;margin-left:4px}
+.view{flex:1;display:grid;gap:4px;padding:4px;min-height:0}
+.tile{border:1px solid var(--line2);border-radius:3px;display:flex;flex-direction:column;min-height:0;background:#000}
+.th{padding:2px 8px;font-size:11.5px;font-weight:700;color:#fff;display:flex;gap:6px;align-items:center}
+.th .dim{font-weight:400;opacity:.75}
+.tb{flex:1;font:11px/1.45 var(--mono);color:#ddd;padding:4px 8px;white-space:pre;overflow:hidden}
+.tb .c{color:var(--cyan)}.tb .o{color:var(--orange)}.tb .d{color:#777}.tb .h{background:#1d3448}
+/* coque */
+.term{background:#000;border:1px solid var(--line2);border-radius:6px;font:12px/1.45 var(--mono);color:#ddd;padding:10px 12px;white-space:pre;overflow:auto;max-width:1060px}
+.term .c{color:var(--cyan)}.term .g{color:var(--green)}.term .o{color:var(--orange)}.term .d{color:#777}.term .b{color:var(--accent)}.term .ob{background:var(--orange);color:#1b1206}.term .rev{background:#5c0a5c;color:#fff}.term .hd{background:#2a2f3a;color:#fff}
+/* notifications */
+.toast{width:360px;background:#1f1f1f;border:1px solid #3a3a3a;border-radius:8px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.5);font-family:"Segoe UI",system-ui,sans-serif}
+.toast .ap{color:#bbb;font-size:11.5px;display:flex;gap:6px;align-items:center;margin-bottom:6px}.toast .ti{font-weight:600;margin-bottom:3px}.toast .bo{color:#ccc;font-size:12.5px;line-height:1.4}
+.toast .ac{display:flex;gap:8px;margin-top:10px}.toast .ac span{flex:1;text-align:center;background:#2d2d2d;border-radius:4px;padding:5px;font-size:12px}
+.browser{width:360px;background:#fff;color:#222;border-radius:8px;padding:12px 14px;box-shadow:0 10px 30px rgba(0,0,0,.5)}
+.browser .ap{color:#666;font-size:11.5px;margin-bottom:6px}.browser .ti{font-weight:600}.browser .bo{color:#444;font-size:12.5px;margin-top:3px}
+.win{background:var(--bg);border:1px solid var(--line2);border-radius:8px;overflow:hidden;width:520px}
+.wtitle{background:var(--head);padding:8px 14px;font-weight:600}
+.wbody{padding:12px 14px}
+.form3{display:grid;grid-template-columns:170px 1fr auto;gap:8px 10px;align-items:center}.form3>label{color:var(--muted);font-size:12px}
+.sel{background:var(--input);border:1px solid var(--line2);border-radius:5px;padding:5px 9px;min-height:28px;display:flex;align-items:center}.sel:after{content:"▾";margin-left:auto;color:var(--muted)}
+.eff{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;padding:1px 7px;border-radius:9px;border:1px solid #2c5a43;color:var(--green);white-space:nowrap}
+.note{border-left:3px solid var(--accent);background:var(--panel);padding:7px 10px;color:var(--text2);font-size:12px;line-height:1.5;border-radius:0 5px 5px 0;margin-top:10px}
+.note.w{border-color:var(--orange)}
+/* A */
+.A .badge{font-size:10.5px;font-weight:700;color:#1b1206;background:var(--orange);border-radius:9px;padding:0 7px;white-space:nowrap}
+.A .tab .q{color:var(--orange);font-weight:700}.A .tab.wait{box-shadow:inset 0 -3px 0 var(--orange)}
+.A .tl.wait{border-color:var(--orange);color:var(--orange)}
+.A .tile.wait{border:2px solid var(--orange)}
+.A .qbar{background:var(--orange2);color:var(--orange);font-size:11.5px;padding:3px 8px;border-bottom:1px solid #6a4a2c}
+/* B */
+.B .dot{width:9px;height:9px;border-radius:50%;background:var(--orange);box-shadow:0 0 0 3px rgba(240,168,104,.25);flex:none;animation:pl 1.6s infinite}
+@keyframes pl{50%{box-shadow:0 0 0 6px rgba(240,168,104,0)}}
+.B .th.wait{background:var(--orange)!important;color:#1b1206}
+.B .tl.wait{border-color:var(--orange)}
+/* C */
+.C .prow.wait{background:var(--orange2);box-shadow:inset 3px 0 0 var(--orange)}
+.C .tab.wait{background:var(--orange2);color:var(--orange)}
+.C .tl.wait{border-color:var(--orange)}
+.C .tile.wait{border:2px solid var(--orange)}
+.rules{columns:2;column-gap:28px;max-width:1200px;color:var(--text2);line-height:1.55;padding-left:18px;font-size:12.5px}
+</style>
+</head>
+<body>
+<h1>Maquette #223 — teamleader en attente de réponse : badge, vignette et notifications (v6.7.0) <span style="color:var(--muted);font-weight:400">· maquette retenue (A — Pastille « ❓ en attente »)</span></h1>
+<p class="sub">Quand le teamleader d'un projet pose une question (<code>AskUserQuestion</code>, dont les GATE) ou attend une <b>permission</b>, le launcher le signale sur <b>toutes les interfaces ouvertes</b> (fenêtre native Windows, navigateur <code>--web</code>, coque tmux Linux) en moins de 5 s, et le signal disparaît dès la réponse. Scène commune : trois projets ouverts ; le teamleader de <b>web-shop</b> pose la question « Valider le plan v2.3.0 ? » ; <b>Claude-Launcher</b> est le projet sélectionné. Les notifications (Windows et navigateur) sont <b>désactivables</b> dans Réglages. Les éléments inchangés (indicateurs de l'arbre, couleurs des onglets, cartes) restent tels qu'aujourd'hui.</p>
+
+<section data-proposition="A" class="on"><div class="mock"></div></section>
+
+<h2>Règles communes (toutes propositions)</h2>
+<ul class="rules">
+<li>Attente signalée (décision GATE 2) : question <code>AskUserQuestion</code> (dont les GATE) et demande de permission du <b>teamleader</b> seulement ; jamais d'un teammate.</li>
+<li>Le signal disparaît dès la réponse (question répondue, permission accordée ou refusée, nouveau message tapé, fin de session ou pane disparu).</li>
+<li>Détection par hooks Claude Code posés par le launcher : délai ≤ 5 s sur toutes les interfaces, y compris pour un projet en pod (état écrit dans le dossier du projet, partagé).</li>
+<li>Une seule notification par attente et par interface (même attente revue au tour suivant : pas de nouvelle notification) ; aucune après la réponse.</li>
+<li>Clic sur la notification : la fenêtre passe au premier plan et l'onglet du projet est sélectionné.</li>
+<li>Notifications <b>activées par défaut</b> (désactivables dans Réglages › Teams et panes). Navigateur : l'autorisation est demandée par un bandeau « Autoriser les notifications d'attente » (clic requis par le navigateur), affiché tant qu'elle n'est ni accordée ni refusée ; refusée ou adresse http hors poste local (contexte non sécurisé) → badge seul, mention dans Réglages.</li>
+<li>Teamleaders : jamais de compteur ni d'icône seule permanente sur la pastille (contrainte tab_bar).</li>
+<li>Projet non ouvert dans cette interface mais dont la session tourne (autre launcher, pod) : signalé dans l'arbre aussi.</li>
+</ul>
+
+<script>
+(function(){
+const Q='Valider le plan v2.3.0 ?';
+function tree(P){
+  const w=(nm)=>nm==='web-shop';
+  const rows=[['cat','CLAUDE_LAUNCHER'],['p','Claude-Launcher',1],['p','Claude-Template'],['cat','PERSO'],['p','web-shop'],['p','notes']];
+  let h='<div class="left"><div class="lhead">NG2 v6.7.0 · tpl v5.12.0</div><div class="tree">';
+  if(P==='C') h+='<div class="pend"><div class="t">❓ En attente</div><div class="q"><b>web-shop</b> · question : « '+Q+' »</div></div>';
+  rows.forEach(r=>{
+    if(r[0]==='cat'){h+='<div class="cat">⌄ '+r[1]+'</div>';return;}
+    const wt=w(r[1]);
+    let extra='';
+    if(wt&&P==='A') extra='<span class="badge" title="question : '+Q+'">❓ en attente</span>';
+    if(wt&&P==='B') extra='<span class="dot" title="en attente : '+Q+'"></span>';
+    h+='<div class="prow'+(r[2]?' sel':'')+(wt&&P==='C'?' wait':'')+'"><span class="d">'+(r[2]?'▲':'○')+'</span><span class="nm">'+r[1]+'</span>'+extra+'<span class="ind"><span class="g">●</span><span class="b">○</span><span>⊘</span></span></div>';
+  });
+  return h+'</div><div class="foot">↵ ouvrir · F1 aide</div></div>';
+}
+function bar(P,leadersOn){
+  const T=[['Claude-Launcher','#5c0a5c'],['web-shop','#8A3FD1',1],['notes','#1F8A5B']];
+  let h='<div class="bar"><div class="tl'+(leadersOn?' on':'')+' wait">⌗ Teamleaders</div><div class="sep"></div>';
+  T.forEach((t,i)=>{
+    const on=!leadersOn&&i===0, wt=t[2];
+    let pre='';
+    if(wt&&P==='A') pre='<span class="q">❓</span>';
+    if(wt&&P==='B') pre='<span class="dot"></span>';
+    if(wt&&P==='C') pre='❓ ';
+    h+='<div class="tab'+(on?' on':'')+(wt?' wait':'')+'" style="'+(on?'background:'+t[1]:'')+'">'+pre+t[0]+'<span class="x">×</span></div>';
+  });
+  return h+'</div>';
+}
+function tile(P,name,color,wait){
+  let cls='tile'+(wait?' wait':''), thc='th'+(wait&&P==='B'?' wait':'');
+  let head='<div class="'+thc+'" style="background:'+color+'"><span>'+name+'</span><span class="dim">· team-lead'+(wait&&P==='B'?' · en attente · question':'')+'</span>'+(wait&&P==='A'?'<span style="margin-left:auto;background:#F0A868;color:#1b1206;border-radius:9px;padding:0 7px;font-size:10.5px">❓ en attente</span>':'')+'</div>';
+  if(wait&&P==='A') head+='<div class="qbar">❓ question : « '+Q+' »</div>';
+  const body=wait?'<span class="c">●</span> Plan prêt : 9 tâches en 3 lots\n\n<span class="h"> '+Q+' </span>\n<span class="o">❯ 1. Valider et lancer</span>\n  2. Modifier le plan\n  3. Annuler':'<span class="c">●</span> Lecture de l\'issue #231…\n<span class="d">  ⎿ 48 lignes</span>\n\n> ';
+  return '<div class="'+cls+'">'+head+'<div class="tb">'+body+'</div></div>';
+}
+function leadersView(P){
+  const t=[['Claude-Launcher','#5c0a5c',0],['web-shop','#8A3FD1',1],['notes','#1F8A5B',0]];
+  if(P==='C'){ // la vignette en attente passe en premier et s'agrandit
+    return '<div class="view" style="grid-template-columns:1.4fr 1fr;grid-template-rows:1fr 1fr">'+
+      '<div style="grid-row:1/3;display:flex">'+tile(P,'web-shop','#8A3FD1',1).replace('class="tile','style="flex:1" class="tile')+'</div>'+
+      tile(P,'Claude-Launcher','#5c0a5c',0)+tile(P,'notes','#1F8A5B',0)+'</div>';
+  }
+  return '<div class="view" style="grid-template-columns:1fr 1fr 1fr">'+t.map(x=>tile(P,x[0],x[1],x[2])).join('')+'</div>';
+}
+function projectView(P){
+  return '<div class="view" style="grid-template-columns:1fr"><div class="tile"><div class="th" style="background:#5c0a5c"><span>team-lead</span><span class="dim">· leader</span></div><div class="tb"><span class="c">●</span> Update(ng2/core/start.go)\n<span class="d">  ⎿ Updated with 12 additions</span>\n\n> </div></div></div>';
+}
+function app(P,leadersOn){
+  return '<div class="app">'+tree(P)+'<div class="main">'+bar(P,leadersOn)+(leadersOn?leadersView(P):projectView(P))+'</div></div>';
+}
+function coque(P){
+  let nav, vign;
+  if(P==='A'){
+    nav=' <span class="d">⌄ PERSO</span>\n   ○ web-shop        <span class="ob"> ❓ en attente </span>  <span class="g">●</span> <span class="b">○</span>\n   ○ notes                          <span class="g">●</span> <span class="b">○</span>';
+    vign='<span class="o">┏━ web-shop · team-lead ━━ ❓ en attente ━━━━━━━━━━━━━━━━┓</span>\n<span class="o">┃</span> ❓ question : « '+Q+' »                       <span class="o">┃</span>\n<span class="o">┃</span> <span class="o">❯ 1. Valider et lancer</span>                                <span class="o">┃</span>';
+  } else if(P==='B'){
+    nav=' <span class="d">⌄ PERSO</span>\n   ○ web-shop  <span class="o">●</span>                  <span class="g">●</span> <span class="b">○</span>\n   ○ notes                      <span class="g">●</span> <span class="b">○</span>';
+    vign='<span class="ob"> web-shop · team-lead · en attente · question                 </span>\n <span class="h">'+Q+'</span>\n <span class="o">❯ 1. Valider et lancer</span>';
+  } else {
+    nav=' <span class="ob"> ❓ En attente : web-shop — « '+Q+' » </span>\n <span class="d">⌄ CLAUDE_LAUNCHER</span>\n   <span class="rev">▲ Claude-Launcher</span>                <span class="g">●</span> <span class="b">○</span>\n <span class="d">⌄ PERSO</span>\n   <span class="o">○ web-shop  ❓</span>                  <span class="g">●</span> <span class="b">○</span>';
+    vign='<span class="d">(vue ⌗ Teamleaders : la vignette de web-shop passe en première position, cadre orange)</span>\n<span class="o">┏━ web-shop · team-lead ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓</span>\n<span class="o">┃</span> '+Q+'                                   <span class="o">┃</span>';
+  }
+  return '<div class="term"><span class="d">— navigateur (colonne de gauche) —</span>\n'+nav+'\n\n<span class="d">— onglet ⌗ Teamleaders —</span>\n'+vign+'</div>';
+}
+function notifs(){
+  return '<div class="row2">'+
+  '<div><div class="cap" style="margin:0 0 6px">Notification Windows (fenêtre native)</div><div class="toast"><div class="ap">⌗ Claude Launcher · maintenant</div><div class="ti">web-shop : le teamleader attend une réponse</div><div class="bo">Question : « '+Q+' »</div><div class="ac"><span>Ouvrir</span><span>Ignorer</span></div></div></div>'+
+  '<div><div class="cap" style="margin:0 0 6px">Notification navigateur (--web)</div><div class="browser"><div class="ap">launcher.local</div><div class="ti">web-shop : le teamleader attend une réponse</div><div class="bo">Permission : Bash(git push origin milestone/v2.3.0)</div></div><div class="cap">Exemple d\'une demande de permission. Titre de l\'onglet du navigateur : « ❓ Claude Launcher » pendant l\'attente.</div></div>'+
+  '<div class="win"><div class="wtitle">⚙ Réglages — Teams et panes</div><div class="wbody"><div class="form3">'+
+  '<label>Notifications d\'attente</label><div class="sel">activées</div><span class="eff">● immédiat</span>'+
+  '<label>Badge « en attente »</label><div class="sel" style="opacity:.6">toujours affiché</div><span></span>'+
+  '</div><div class="note">Navigateur : l\'autorisation est demandée par un bandeau (clic requis). Adresse http hors poste local : notifications indisponibles (le navigateur les refuse), badge seul.</div></div></div>'+
+  '</div>';
+}
+document.querySelectorAll('section[data-proposition]').forEach(sec=>{
+  const P=sec.dataset.proposition; sec.classList.add(P);
+  sec.querySelector('.mock').innerHTML=
+   '<h2>1 · Fenêtre native / navigateur — un projet sélectionné</h2>'+app(P,false)+
+   '<p class="cap">'+({A:'Arbre : pastille « ❓ en attente » (infobulle : la question). Onglet web-shop : ❓ et soulignement orange. Pastille Teamleaders : contour orange, sans compteur.',B:'Arbre et onglet : point orange pulsant (infobulle : la question). Pastille Teamleaders : contour orange, sans compteur.',C:'Encart « ❓ En attente » épinglé en tête de l\'arbre avec la question (clic : ouvre / sélectionne le projet) ; ligne de web-shop sur fond orange ; onglet sur fond orange.'})[P]+'</p>'+
+   '<h2>2 · Onglet ⌗ Teamleaders — vignette mise en avant</h2>'+app(P,true)+
+   '<p class="cap">'+({A:'Vignette de web-shop : cadre orange, pastille dans le titre et bandeau de la question au-dessus du terminal.',B:'L\'en-tête de la vignette (et du pane leader dans l\'onglet du projet) prend l\'état « en attente · question » : bandeau entièrement orange, indépendant de la couleur du projet (comme actif / inactif).',C:'La vignette en attente passe en première position et occupe la colonne gauche en grand ; cadre orange. Elle reprend sa place après la réponse.'})[P]+'</p>'+
+   '<h2>3 · Coque tmux Linux</h2>'+coque(P)+
+   '<p class="cap">Coque : pas de notification système ; le signal apparaît dans le navigateur de projets et la vignette Teamleaders.</p>'+
+   '<h2>4 · Notifications et réglage (commun aux propositions)</h2>'+notifs();
+});
+})();
+</script>
+</body>
+</html>

@@ -42,3 +42,6 @@
 - Après enregistrement, rappel en bandeau limité aux options modifiées ; les actions sont proposées, jamais lancées d'office. _(v6.6.0, H6)_
 - Un élément de config caché (jeton…) est masqué par défaut avec un œil dans le champ ; révélé à la demande, re-masqué au clic ou après 30 s ; **même mise en page pour tous les éléments cachés**. Pas de barre d'actions, pas de bulle de valeur, pas d'appui maintenu. _(v6.6.0, element_cache — B, C, D écartées ; H8)_
 - La révélation d'un élément caché est refusée depuis un accès web distant (œil grisé, message). _(v6.6.0, H7)_
+
+## attente_teamleader
+- L'attente se signale par une pastille texte « ❓ en attente » (arbre, coque, titre de vignette), pas par une couleur seule ni par un réordonnancement. _(v6.7.0, attente_teamleader — B, C écartées)_
