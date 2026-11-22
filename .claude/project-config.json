@@ -162,15 +162,15 @@
             "credentials_file": "PRIVATE/PROD/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-20T08:26:52Z",
+              "at": "2026-11-22T09:00:00Z",
               "checks": [
                 "kubeconfig-admin",
                 "ns-claude-ng2",
-                "helm-release-6.4.0-deployed",
+                "helm-release-6.5.0-deployed",
                 "pvc-secrets-bound-keep",
-                "pod-uid-owns-root",
                 "clusterissuer-claude-launcher-ca-ready",
-                "helm-dry-run-server-6.5.0",
+                "certificate-ready",
+                "helm-dry-run-server-6.6.0",
                 "ghcr-pull-public"
               ],
               "note": "compte administrateur (risque accepté) ; PSA claude-ng2 laissé en privileged (décision utilisateur)"
@@ -183,24 +183,21 @@
           "credentials_env": [],
           "verified": {
             "status": "ok",
-            "at": "2026-11-16T08:54:01Z",
+            "at": "2026-11-22T09:00:00Z",
             "checks": [
               "gh-auth",
               "gh-push",
               "gh-admin",
-              "push-main-dry-run",
-              "push-tag-dry-run",
-              "main-unprotected",
-              "merge-sans-conflit",
-              "release-yml-active",
+              "pr-228-mergeable-clean",
               "ci-branch-green-sha",
-              "release-v6.2.0-absente",
+              "release-v6.6.0-absente",
+              "tag-v6.6.0-absent",
               "target-dir",
-              "target-writable",
-              "exe-writable",
+              "exe-present",
               "disk-space",
               "sha256sum",
-              "pkill"
+              "pkill",
+              "release-yml-tag-v*"
             ]
           }
         }
