@@ -94,6 +94,13 @@ func StartCommands(cfg Config, path, latest string, mode LaunchMode) (start, cop
 			start = pre + "if [[ -n $_rs ]]; then " + resume + "; else " + start + "; fi"
 		}
 	}
+	// teamleader en attente (#223) : dossier d'état vu de la session (le script a déjà fait cd dans le projet : hôte,
+	// conteneur et pod), exporté dans le shell du pane du teamleader seulement — les teammates (autres panes) ne
+	// l'héritent pas. État d'une session précédente effacé à chaque lancement neuf.
+	if mode != LaunchNewRaw {
+		start = `export CL_ATTENTION_DIR="$PWD/.claude-launcher/attention"; rm -rf "$CL_ATTENTION_DIR"; ` + start
+		EnsureAttentionExclude(path)
+	}
 	// sortie propre : marqueur posé seulement si claude rend la main au shell
 	start += "; " + CleanExitShell(path)
 	// projet non géré : /end-session minimal, pour pouvoir le clore comme les autres
@@ -154,7 +161,8 @@ func EnsureEndSession(path string) {
 // SyncLauncherEnv : recopie des variables du launcher dans settings.json ;
 // false si elle a échoué (les secrets sont alors tapés comme avant).
 func SyncLauncherEnv(cfg Config) bool {
-	cfg, _ = FreshConfig(cfg)        // jamais une copie plus ancienne que config.conf (#225) : relue si la date a changé
-	_ = SyncBrowserHook(ClaudeDir()) // consigne navigateur à chaque session (#106)
+	cfg, _ = FreshConfig(cfg)          // jamais une copie plus ancienne que config.conf (#225) : relue si la date a changé
+	_ = SyncBrowserHook(ClaudeDir())   // consigne navigateur à chaque session (#106)
+	_ = SyncAttentionHook(ClaudeDir()) // hooks « teamleader en attente » (#223)
 	return SyncSettingsEnv(ClaudeDir(), cfg.EnvVars()) == nil
 }

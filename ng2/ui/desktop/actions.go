@@ -31,6 +31,7 @@ func (a *App) addTab(t *projTerm) bool {
 	a.openTabs.Store(t.path, true)
 	a.order = append(a.order, t.path)
 	a.mu.Unlock()
+	a.startAttention() // le relevé « teamleader en attente » tourne dès qu'un projet est ouvert (#223)
 	a.changed()
 	return true
 }

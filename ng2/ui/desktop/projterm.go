@@ -1679,3 +1679,13 @@ func (t *projTerm) hostTarget() (sock, sess string) {
 
 // sessName : session tmux de l'hôte (sous t.mu).
 func (t *projTerm) sessName() string { _, sess := t.hostTarget(); return sess }
+
+// leaderPane : pane du teamleader d'après la dernière mise en page publiée (« %5 »), vide si inconnu.
+func (t *projTerm) leaderPane() string {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.layout == nil {
+		return ""
+	}
+	return t.layout.Leader
+}

@@ -62,8 +62,10 @@ type App struct {
 	closing    map[string]string    // projet -> étape de sa fermeture en cours
 	plans      map[string]closePlan // fermetures en attente de confirmation
 	terms      map[string]*projTerm
-	fromCache  map[string]bool // projets dont l'état vient d'un cache (git en tâche de fond inutile)
-	order      []string        // onglets, dans l'ordre d'ouverture
+	attnOnce   sync.Once
+	attn       map[string]core.Attention // teamleaders en attente de réponse par projet (#223), sous a.mu
+	fromCache  map[string]bool           // projets dont l'état vient d'un cache (git en tâche de fond inutile)
+	order      []string                  // onglets, dans l'ordre d'ouverture
 	started    time.Time
 	loadedAt   time.Duration
 	mgr        *core.StateMgr
@@ -277,6 +279,7 @@ func (a *App) Start() {
 	go a.everyTimed("conso", 30*time.Second, a.readUsage)
 	go a.everyTimed("milestones", time.Minute, func() { a.readMilestones(false) })
 	go a.every(2*time.Second, a.refreshCards)
+	a.startAttention() // teamleaders en attente (#223)
 	go a.updateLoop()
 	if a.mgr != nil {
 		go func() {
@@ -855,6 +858,20 @@ type Row struct {
 	// #158 : rafraîchissement du projet en cours ; fermeture forcée proposable
 	Refreshing bool `json:"refreshing,omitempty"`
 	CanForce   bool `json:"canForce,omitempty"`
+	// Attention : le teamleader du projet attend une réponse (#223, contracts/attention.md)
+	Attention *AttentionInfo `json:"attention,omitempty"`
+}
+
+// AttentionInfo : attente d'un teamleader (Row.attention, TabInfo.attention).
+type AttentionInfo struct {
+	Kind  string `json:"kind"` // question | permission
+	Text  string `json:"text"`
+	Since string `json:"since"` // RFC 3339
+	ID    string `json:"id"`
+}
+
+func attentionInfo(a core.Attention) *AttentionInfo {
+	return &AttentionInfo{Kind: a.Kind, Text: a.Text, Since: a.Since.Format(time.RFC3339), ID: a.ID}
 }
 
 // Alert : annonce de mise à jour.
@@ -910,6 +927,8 @@ type TabInfo struct {
 	Busy     bool   `json:"busy"`
 	State    string `json:"state"` // opening, ready, closed, error
 	ReadOnly bool   `json:"readOnly"`
+	// Attention : le teamleader du projet attend une réponse (#223)
+	Attention *AttentionInfo `json:"attention,omitempty"`
 }
 
 func (a *App) projInfo(n core.Node) core.ProjInfo {
@@ -956,6 +975,9 @@ func (a *App) Snapshot() Snapshot {
 			r.Closing = a.closing[n.Path]
 			_, r.Refreshing = a.refreshing.Load(n.Path)
 			r.CanForce = a.canForce(n.Path, p)
+			if at, ok := a.attn[n.Path]; ok {
+				r.Attention = attentionInfo(at)
+			}
 		}
 		s.Rows = append(s.Rows, r)
 	}
@@ -967,7 +989,11 @@ func (a *App) Snapshot() Snapshot {
 	}
 	for _, p := range a.order {
 		if t := a.terms[p]; t != nil {
-			s.Tabs = append(s.Tabs, t.info())
+			ti := t.info()
+			if at, ok := a.attn[p]; ok {
+				ti.Attention = attentionInfo(at)
+			}
+			s.Tabs = append(s.Tabs, ti)
 		}
 	}
 	return s

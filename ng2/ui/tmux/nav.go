@@ -59,6 +59,7 @@ type model struct {
 	tpl          map[string]core.TemplateState
 	latest       string
 	windows      map[string]bool
+	attn         map[string]core.Attention // projet (chemin) -> teamleader en attente de réponse (#223)
 	sessions     map[string]core.Resumable // projet -> conversation en suspens (icône ↺)
 	ctr          ctrView                   // backends et conteneurs (ctrnav.go)
 	treeCh       <-chan struct{}           // signal de changement de l'arborescence
@@ -577,7 +578,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.usage = core.Usage(msg)
 	case tickMsg:
 		m = m.refreshCfg() // config.conf relu par date à chaque tour, sans relancer le navigateur (#225)
-		return m, tea.Batch(tickCmd(), windowsCmd(m.session))
+		return m, tea.Batch(tickCmd(), windowsCmd(m.session), m.attentionCmd())
+	case attnMsg:
+		m.attn = msg
 	case cloneTickMsg:
 		if m.job != nil {
 			return m, cloneTickCmd() // le rendu relit la progression
@@ -1153,6 +1156,9 @@ func (m model) badges(n core.Node) string {
 	b := badgeLine(badgeIndicators(p))
 	if !p.gitOK {
 		b = core.Dim.Render(" …") + b
+	}
+	if _, ok := m.attn[n.Path]; ok {
+		b = " " + attnBadge + b // « ❓ en attente » : le teamleader attend une réponse (#223)
 	}
 	return b
 }
