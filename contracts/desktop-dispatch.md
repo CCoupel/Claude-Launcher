@@ -1161,3 +1161,67 @@ Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : tout
 - `configModel` : entrée secrète gagne `"reveal": true|false`, **toujours présent** pour une entrée `type: "secret"`
   (jamais omis : `false` est envoyé explicitement pour un accès distant — l'œil est grisé ; absent seulement pour une
   entrée non secrète).
+
+## v6.7.0 — Fiabilisation, /start-session, teamleaders en attente (#220, #221, #222, #223, #231)
+
+### Écriture bornée de `config.conf` (#220) **[CHANGED]**
+
+- Nouvelle option `config.conf` `SHARE_WRITE_TIMEOUT` (`int`, secondes, défaut `10`, bornes 2–120, rubrique
+  « Projets », libellé « Délai d'écriture sur le partage (s) », `effect: immediate`).
+- `core` : la séquence lecture-modification-écriture de `config.conf` déclenchée par un clic (`ApplyProjectConf*` :
+  bascule d'organisation `applyLayoutFirst`, œil de masquage, couleur via `projectApply`) passe par une attente bornée
+  (`core.WithinShare(d, fn)`) : au-delà du délai, réponse rendue tout de suite, l'écriture continue en tâche de fond
+  (un appel système bloqué ne s'interrompt pas). **Une seule** écriture abandonnée à la fois par fichier : tant
+  qu'elle est bloquée, les écritures suivantes du même fichier échouent tout de suite (même message), sans nouvelle
+  goroutine. Aucun verrou (`layoutJob.writeMu`, `confMu`, verrou fichier `.lock` #176) n'est tenu par l'appelant au-delà
+  du délai ; le `.lock` éventuellement posé par l'écriture abandonnée est retiré par elle à son retour (ou repris comme
+  périmé, règle #176).
+- Réponse (`projectApply`, bascule d'organisation) en cas de délai dépassé :
+  `{ "ok": false, "timeout": true, "msg": "partage injoignable : config.conf non écrit après 10 s — <suite>" }`.
+  `<suite>` = « retour à l'organisation précédente » (décision GATE 2) : l'organisation précédente revient ; si l'écriture abandonnée aboutit plus tard, la relecture de `config.conf` applique ce qui a
+  été écrit (le fichier fait foi).
+- Reprise automatique : dès que l'écriture abandonnée rend la main (partage revenu), les clics suivants écrivent
+  normalement, sans relance.
+- Coque tmux : mêmes écritures, même borne, message en pied du navigateur.
+
+### Message de repli « leader en haut » (#222) **[CHANGED]**
+
+- « ⚠ <projet> : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée » : **une fois par
+  projet et par cause** (pas à chaque remise en page). État remis à zéro quand une mise en page « leader à gauche »
+  réussit ou que le projet ne demande plus « left » ; le message de pied (`msg`) est alors effacé s'il est encore
+  celui-là. Coque : `display-message` une fois par fenêtre et par cause, même remise à zéro.
+
+### Arrêt de l'interface (#221) **[CHANGED]** (pas de nouvelle méthode)
+
+- `App.Stop` : **échéance unique de 25 s** fixée à l'entrée ; chaque attente (tâches de fond, relevé de conso,
+  ouvertures, terminaux) prend `min(sa borne, temps restant)` — la somme actuelle (2 + 2 + 20 + 5 s) ne dépasse plus.
+- Terminaux : `detach` puis **attente de leur fin** : goroutines `flusher`, `watcher` et lecture du client tmux
+  terminées, processus du client (`tmux -C`, `wsl.exe`, `kubectl exec`, `podman exec`) sorti. Au bout de `detachWait` (5 s, plafonné à échéance − 1 s) :
+  arrêt forcé de l'arbre de processus (`platform.KillTree`), puis attente brève de la goroutine de lecture.
+- Après `Stop` : plus aucune écriture vers un terminal (`termIn` refusé : `{ ok:false, msg:"interface arrêtée" }`), aucune
+  goroutine de terminal ni processus enfant restant (test `-race` : arrêt pendant une écriture dans un terminal).
+- Les sessions des projets continuent dans tmux (inchangé).
+
+### Proposition de `/start-session` (#231) **[NEW]** (décision GATE 2 du 2026-11-22)
+
+- `core.StartCommands` (commun coque, fenêtre native, `--web`, conteneurs, pods) : au **lancement neuf** de claude
+  (`LaunchNormal`) d'un projet **géré** (`.claude/commands/start-session.md` présent) **dont la team n'existe pas**,
+  question dans le terminal du projet, juste avant claude :
+  `session non démarrée — lancer /start-session ? [O/n] ` ; `o`/Entrée → `claude <options> /start-session`.
+- **Team existante = reprise** → aucune proposition. Team du projet : `<CLAUDE_CONFIG_DIR>/teams/<team_name>/config.json`,
+  `team_name` lu dans `<projet>/.claude/project-config.json` ; `team_name` absent ou illisible : une team dont le
+  premier membre a pour `cwd` le projet (`ClaudePath`, règle de `teamMembers`). Constat fait par le launcher en Go à la
+  génération du script (dossier partagé, aucun `wsl.exe` / `kubectl exec`) : `core.TeamExists(projet) bool`.
+- Ordre : la question `/init-project` (template en retard ou manquant) est **toujours posée d'abord** ; acceptée →
+  claude part sur `/init-project` (un seul argument possible), pas de question `/start-session` ; refusée → question
+  `/start-session` si les conditions ci-dessus sont réunies.
+- Aucune question : projet non géré, team existante, reprise de conversation choisie, création depuis le launcher
+  (`LaunchNew*`), rattachement à une session tmux vivante (le script de démarrage n'est pas rejoué).
+- Refus : pas de relance pendant cette ouverture (la question n'est posée qu'une fois par lancement de claude).
+- Repli par `cwd` : seulement si `team_name` est absent, illisible ou invalide ; `team_name` lu mais sa team manquante = pas de team (aucun balayage de `teams/*`).
+- Limite connue : le constat se fait dans le `CLAUDE_CONFIG_DIR` du launcher (`ClaudeDir()`, config `CLAUDE_CONFIG_DIR` / racine de base). Le launcher ne connaît pas de répertoire de config propre à un projet ou à un conteneur : si claude en utilise un autre, la team n'y est pas vue et la question est posée à tort (inoffensif : refusable, `/start-session` détecte lui-même une reprise).
+
+### Teamleader en attente (#223) **[NEW]**
+
+Voir `contracts/attention.md` : hooks, `CL_ATTENTION_DIR`, champs `Row.attention` / `TabInfo.attention`, évènements
+`attention` / `attentionEnd`, option `ATTENTION_NOTIFY`.

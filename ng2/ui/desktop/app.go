@@ -43,6 +43,7 @@ type App struct {
 	layoutOv   map[string]string
 	layoutJobs map[string]*layoutJob // clics de bascule par projet (config.go) ; garde : confMu
 	emit       Emitter
+	emitNative Emitter // fenêtre native SEULE, jamais le navigateur miroir (#163) : attentionFocus (#223)
 	// mirror : second destinataire des évènements (le navigateur servi par la fenêtre, #163)
 	mirror atomic.Pointer[Emitter]
 	webui  webUI
@@ -62,8 +63,13 @@ type App struct {
 	closing    map[string]string    // projet -> étape de sa fermeture en cours
 	plans      map[string]closePlan // fermetures en attente de confirmation
 	terms      map[string]*projTerm
-	fromCache  map[string]bool // projets dont l'état vient d'un cache (git en tâche de fond inutile)
-	order      []string        // onglets, dans l'ordre d'ouverture
+	attnOnce   sync.Once
+	notifMu    sync.Mutex
+	notifPast  map[string]string         // attentes terminées (≤ 64) : un clic tardif trouve encore le projet
+	notified   map[string]string         // id d'attente notifié -> projet (#223)
+	attn       map[string]core.Attention // teamleaders en attente de réponse par projet (#223), sous a.mu
+	fromCache  map[string]bool           // projets dont l'état vient d'un cache (git en tâche de fond inutile)
+	order      []string                  // onglets, dans l'ordre d'ouverture
 	started    time.Time
 	loadedAt   time.Duration
 	mgr        *core.StateMgr
@@ -121,6 +127,7 @@ func NewApp(emit Emitter) *App {
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
 		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{}, proposed: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
+	a.emitNative = emit
 	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
 		emit(name, data)
 		if m := a.mirror.Load(); m != nil {
@@ -277,6 +284,7 @@ func (a *App) Start() {
 	go a.everyTimed("conso", 30*time.Second, a.readUsage)
 	go a.everyTimed("milestones", time.Minute, func() { a.readMilestones(false) })
 	go a.every(2*time.Second, a.refreshCards)
+	a.startAttention() // teamleaders en attente (#223)
 	go a.updateLoop()
 	if a.mgr != nil {
 		go func() {
@@ -328,25 +336,38 @@ func (a *App) Stop() {
 	default:
 		close(a.quit)
 	}
+	// échéance UNIQUE de 25 s (#221) : chaque attente prend min(sa borne, temps restant), la somme ne dépasse plus
+	// le délai de grâce du pod (30 s)
+	deadline := time.Now().Add(stopDeadline.Get())
+	left := func(max time.Duration) time.Duration { return min(max, max0(time.Until(deadline))) }
 	a.stopWebUI()
-	a.bgGate.wait(bgStopWait.Get())        // tâches de fond suivies (relevés, remises en page…) : bornées
-	a.usageGate.wait(usageStopWait.Get())  // un relevé de consommation en cours finit d'écrire son cache (borné)
-	a.waitOpenings(shutdownOpenWait.Get()) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
+	a.bgGate.wait(left(bgStopWait.Get()))        // tâches de fond suivies (relevés, remises en page…) : bornées
+	a.usageGate.wait(left(usageStopWait.Get()))  // un relevé de consommation en cours finit d'écrire son cache (borné)
+	a.waitOpenings(left(shutdownOpenWait.Get())) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
 	for _, t := range a.terms {
 		terms = append(terms, t)
 	}
 	a.mu.Unlock()
+	// terminaux : detach puis attente de leur fin ; arrêt forcé de l'arbre de processus au bout de detachWait (au plus
+	// l'échéance moins 1 s), 1 s de grâce pour la goroutine de lecture ; un client tmux bloqué ne retient donc jamais
+	// l'arrêt au-delà de l'échéance, les sessions continuent dans leurs conteneurs
+	force := time.Now().Add(detachWait.Get())
+	if f := deadline.Add(-time.Second); f.Before(force) {
+		force = f
+	}
+	end := force.Add(time.Second)
+	if deadline.Before(end) {
+		end = deadline
+	}
 	var wg sync.WaitGroup
 	for _, t := range terms {
 		wg.Add(1)
-		go func(t *projTerm) { defer wg.Done(); t.detach() }(t)
+		go func(t *projTerm) { defer wg.Done(); t.detachBy(force, end) }(t)
 	}
-	// budget d'arrêt : ouvertures (20 s) + détachements (≤ 5 s) = 25 s au pire, sous le délai de grâce du pod (30 s) ; un
-	// detach bloqué (client tmux qui ne se ferme pas) ne retient pas l'arrêt, les sessions continuent dans leurs conteneurs
-	if !waitDone(&wg, detachWait.Get()) {
-		log.Printf("arrêt : détachement des terminaux toujours en cours après %s, arrêt sans l'attendre", detachWait.Get())
+	if !waitDone(&wg, max0(time.Until(end)+500*time.Millisecond)) {
+		log.Printf("arrêt : détachement des terminaux toujours en cours à l'échéance, arrêt sans l'attendre")
 	}
 	if a.mgr != nil {
 		// gestionnaire d'état : son watcher fsnotify (instance inotify du quota de l'utilisateur) est fermé tout de suite ;
@@ -354,6 +375,21 @@ func (a *App) Stop() {
 		go a.mgr.Stop()
 	}
 }
+
+// stopped : Stop a été appelé.
+func (a *App) stopped() bool {
+	select {
+	case <-a.quit:
+		return true
+	default:
+		return false
+	}
+}
+
+func max0(d time.Duration) time.Duration { return max(d, 0) }
+
+// stopDeadline : échéance totale de Stop. Remplacée dans les tests.
+var stopDeadline = tun.Of(25 * time.Second)
 
 // detachWait : au plus combien de temps l'arrêt attend le détachement des terminaux. Remplacé dans les tests.
 var detachWait = tun.Of(5 * time.Second)
@@ -827,6 +863,20 @@ type Row struct {
 	// #158 : rafraîchissement du projet en cours ; fermeture forcée proposable
 	Refreshing bool `json:"refreshing,omitempty"`
 	CanForce   bool `json:"canForce,omitempty"`
+	// Attention : le teamleader du projet attend une réponse (#223, contracts/attention.md)
+	Attention *AttentionInfo `json:"attention,omitempty"`
+}
+
+// AttentionInfo : attente d'un teamleader (Row.attention, TabInfo.attention).
+type AttentionInfo struct {
+	Kind  string `json:"kind"` // question | permission
+	Text  string `json:"text"`
+	Since string `json:"since"` // RFC 3339
+	ID    string `json:"id"`
+}
+
+func attentionInfo(a core.Attention) *AttentionInfo {
+	return &AttentionInfo{Kind: a.Kind, Text: a.Text, Since: a.Since.Format(time.RFC3339), ID: a.ID}
 }
 
 // Alert : annonce de mise à jour.
@@ -872,6 +922,8 @@ type Snapshot struct {
 	Launcher LauncherSnap `json:"launcher"`
 	// #215 : création asynchrone (clonage) en cours ou terminée depuis moins de 30 s ; absent sinon
 	NewJob *NewJob `json:"newJob,omitempty"`
+	// #223 : ATTENTION_NOTIFY (notifications d'attente) ; toujours envoyé, jamais omitempty (un false omis se lirait « activé »)
+	AttentionNotify bool `json:"attentionNotify"`
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -882,6 +934,8 @@ type TabInfo struct {
 	Busy     bool   `json:"busy"`
 	State    string `json:"state"` // opening, ready, closed, error
 	ReadOnly bool   `json:"readOnly"`
+	// Attention : le teamleader du projet attend une réponse (#223)
+	Attention *AttentionInfo `json:"attention,omitempty"`
 }
 
 func (a *App) projInfo(n core.Node) core.ProjInfo {
@@ -907,7 +961,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.Version(), Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap(), NewJob: a.newJobSnapLocked()}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap(), NewJob: a.newJobSnapLocked(), AttentionNotify: a.conf().AttentionNotify}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -928,6 +982,9 @@ func (a *App) Snapshot() Snapshot {
 			r.Closing = a.closing[n.Path]
 			_, r.Refreshing = a.refreshing.Load(n.Path)
 			r.CanForce = a.canForce(n.Path, p)
+			if at, ok := a.attn[n.Path]; ok {
+				r.Attention = attentionInfo(at)
+			}
 		}
 		s.Rows = append(s.Rows, r)
 	}
@@ -939,7 +996,11 @@ func (a *App) Snapshot() Snapshot {
 	}
 	for _, p := range a.order {
 		if t := a.terms[p]; t != nil {
-			s.Tabs = append(s.Tabs, t.info())
+			ti := t.info()
+			if at, ok := a.attn[p]; ok {
+				ti.Attention = attentionInfo(at)
+			}
+			s.Tabs = append(s.Tabs, ti)
 		}
 	}
 	return s
@@ -1470,6 +1531,11 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "execApply":
 		return a.execApply(arg.Path, arg.Image, arg.Backend, arg.OpenNext)
 	case "termInput":
+		select {
+		case <-a.quit: // plus aucune écriture vers un terminal après l'arrêt (#221)
+			return map[string]any{"ok": false, "msg": "interface arrêtée"}, nil
+		default:
+		}
 		if t := a.term(arg.Path); t != nil {
 			if arg.Binary {
 				arg.Data = binaryBytes(arg.Data)

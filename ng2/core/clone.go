@@ -334,19 +334,7 @@ func MarkInitProposed(dir string) error {
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}
-	if st, err := os.Stat(filepath.Join(dir, ".git")); err == nil && st.IsDir() {
-		ex := filepath.Join(dir, ".git", "info", "exclude")
-		if b, _ := os.ReadFile(ex); !strings.Contains(string(b), initProposedExclude) {
-			_ = os.MkdirAll(filepath.Dir(ex), 0o755)
-			if f, err := os.OpenFile(ex, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
-				if len(b) > 0 && !strings.HasSuffix(string(b), "\n") {
-					_, _ = f.WriteString("\n")
-				}
-				_, _ = f.WriteString(initProposedExclude + "\n")
-				f.Close()
-			}
-		}
-	}
+	excludeFromGit(dir, initProposedExclude)
 	return os.WriteFile(p, []byte(time.Now().Format(time.RFC3339)+"\n"), 0o644)
 }
 
@@ -358,3 +346,24 @@ func InitProposalPending(dir string) bool {
 
 // ClearInitProposal : retire le marqueur (/init-project lancé).
 func ClearInitProposal(dir string) { _ = os.Remove(InitProposedPath(dir)) }
+
+// excludeFromGit : ajoute line à .git/info/exclude du projet (une fois) ; sans dépôt git : rien.
+func excludeFromGit(dir, line string) {
+	st, err := os.Stat(filepath.Join(dir, ".git"))
+	if err != nil || !st.IsDir() {
+		return
+	}
+	ex := filepath.Join(dir, ".git", "info", "exclude")
+	b, _ := os.ReadFile(ex)
+	if strings.Contains(string(b), line) {
+		return
+	}
+	_ = os.MkdirAll(filepath.Dir(ex), 0o755)
+	if f, err := os.OpenFile(ex, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644); err == nil {
+		if len(b) > 0 && !strings.HasSuffix(string(b), "\n") {
+			_, _ = f.WriteString("\n")
+		}
+		_, _ = f.WriteString(line + "\n")
+		f.Close()
+	}
+}

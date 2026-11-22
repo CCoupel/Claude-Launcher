@@ -225,6 +225,49 @@ il ne reste jamais plus ancien que `config.conf`.
   avec la raison. Si le backend ne répond pas, l'écriture reste permise avec un avertissement « état du conteneur
   inconnu » ; un changement de backend ou d'image reste refusé dans ce cas.
 
+### Délai d'écriture sur le partage (v6.7.0, #220)
+
+Un clic qui modifie `config.conf` (bascule d'organisation, œil de masquage, couleur d'un projet) écrit sur le partage
+du launcher. Si le partage ne répond plus, l'interface ne reste pas bloquée : la réponse revient au bout de
+`SHARE_WRITE_TIMEOUT` secondes.
+
+```ini
+SHARE_WRITE_TIMEOUT=10
+```
+
+- **Défaut** `10`, bornes `2` à `120` (valeur hors bornes ramenée dans l'intervalle). Rubrique « Projets » de la fenêtre
+  `⚙ config`, effet immédiat.
+- **Délai dépassé** : la bascule est annulée (l'organisation précédente revient) et le message indique le délai, par
+  exemple « partage injoignable : config.conf non écrit après 10 s — retour à l'organisation précédente ».
+- **L'écriture abandonnée continue** en arrière-plan. Si elle aboutit plus tard, le fichier fait foi : la relecture
+  applique ce qui a été écrit.
+- **Une seule écriture abandonnée à la fois** par fichier : tant qu'elle est bloquée, les clics suivants échouent
+  tout de suite avec le même message.
+- **Reprise automatique** : dès que le partage répond, les clics suivants écrivent normalement, sans relance.
+- L'écran `⚙ config` (enregistrement explicite) n'est pas borné par ce délai.
+
+Pour le diagnostic, voir [Dépannage](depannage.md) (puce « Partage injoignable »).
+
+### Notifications d'attente du teamleader (v6.7.0, #223)
+
+Quand le teamleader d'un projet attend une réponse (question `AskUserQuestion`, demande de permission de claude), le
+projet est signalé par un badge « ❓ en attente » ; voir [Interface](interface.md). L'option suivante ne concerne que
+les notifications système et du navigateur, pas le badge :
+
+```ini
+ATTENTION_NOTIFY=1
+```
+
+- **Défaut** `1` (activées), rubrique « Teams et panes » de la fenêtre `⚙ config`, effet immédiat.
+- `0` : plus aucune notification système ni navigateur ; le badge, la bordure et le titre restent.
+- **Fenêtre native** : une notification par attente, retirée dès que l'attente se termine. Si les notifications
+  système sont indisponibles, seul le badge est affiché.
+- **Navigateur (`--web`)** : l'autorisation est demandée par un bandeau « Autoriser les notifications d'attente »,
+  affiché tant que la permission n'est pas donnée. Un refus retire le bandeau. Hors `127.0.0.1` / `localhost` (contexte
+  non sécurisé), il n'y a pas de notification.
+- **Hooks** : posés dans `<CLAUDE_CONFIG_DIR>/settings.json` par le launcher. Une session ouverte avant leur pose
+  ne signale rien tant qu'elle n'est pas relancée.
+
 ### Effet d'une option et éléments cachés (v6.6.0, #226, #227)
 
 **Pastille d'effet.** Chaque option de la fenêtre `⚙ config` porte une pastille qui dit quand elle prend effet.

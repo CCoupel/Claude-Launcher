@@ -54,6 +54,7 @@ type tmuxClient struct {
 // notifications, dans l'ordre, depuis la goroutine de lecture.
 func startClient(argv []string, notify func(Notif)) (*tmuxClient, error) {
 	cmd := platform.NoWindow(exec.Command(argv[0], argv[1:]...))
+	platform.SetProcessGroup(cmd) // arrêt forcé de tout l'arbre (KillTree) sans toucher au launcher
 	in, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -234,17 +235,38 @@ func (c *tmuxClient) Run(args ...string) error {
 	return err
 }
 
-// Close : détache le client (la session continue).
+// Close : détache le client (la session continue) ; arrêt forcé au bout de 2 s, attente brève de la fin.
 func (c *tmuxClient) Close() {
-	_ = c.Send("detach-client")
-	select {
-	case <-c.done:
-	case <-time.After(2 * time.Second):
-		if c.cmd.Process != nil {
-			_ = c.cmd.Process.Kill()
+	now := time.Now()
+	c.CloseBy(now.Add(2*time.Second), now.Add(3*time.Second))
+}
+
+// CloseBy : détache le client (la session continue) puis ATTEND sa fin : à force, arrêt de l'arbre de processus du client
+// (tmux -C, wsl.exe, kubectl exec, podman exec : platform.KillTree) ; l'attente de la goroutine de lecture finit à end au
+// plus (#221). Rend vrai si le client est bien sorti.
+func (c *tmuxClient) CloseBy(force, end time.Time) bool {
+	go func() { _ = c.Send("detach-client") }() // l'écriture sur un canal bloqué ne retient pas la fermeture
+	wait := func(until time.Time) bool {
+		d := time.Until(until)
+		if d < 0 {
+			d = 0
+		}
+		t := time.NewTimer(d)
+		defer t.Stop()
+		select {
+		case <-c.done:
+			return true
+		case <-t.C:
+			return false
 		}
 	}
+	ok := wait(force)
+	if !ok {
+		_ = platform.KillTree(c.cmd)
+		ok = wait(end)
+	}
 	_ = c.in.Close()
+	return ok
 }
 
 type limitedWriter struct {

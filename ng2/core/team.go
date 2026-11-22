@@ -337,3 +337,38 @@ func paneNum(id string) int {
 	}
 	return n
 }
+
+// ── Team existante d'un projet (#231) ─────────────────────────────────────
+
+// StartSessionPath : commande /start-session du template — sa présence dans le projet = projet géré.
+func StartSessionPath(proj string) string {
+	return filepath.Join(proj, ".claude", "commands", "start-session.md")
+}
+
+// TeamExists : la team du projet existe sur le disque (<CLAUDE_CONFIG_DIR>/teams/<team_name>/config.json) — une
+// reprise, pas un démarrage neuf. team_name est lu dans <projet>/.claude/project-config.json ; absent, illisible ou
+// suspect : une team dont le premier membre a le projet pour cwd (règle de teamMembers). Constat en Go, sur le
+// dossier partagé (aucun wsl.exe / kubectl exec).
+func TeamExists(proj string) bool {
+	teams := filepath.Join(ClaudeDir(), "teams")
+	if b, err := os.ReadFile(filepath.Join(proj, ".claude", "project-config.json")); err == nil {
+		var pc struct {
+			TeamName string `json:"team_name"`
+		}
+		if json.Unmarshal(b, &pc) == nil {
+			if n := strings.TrimSpace(pc.TeamName); n != "" && n != "." && n != ".." && !strings.ContainsAny(n, `/\`) {
+				// team_name connu : seule cette team compte (pas de balayage de toutes les teams quand elle manque)
+				_, err := os.Stat(filepath.Join(teams, n, "config.json"))
+				return err == nil
+			}
+		}
+	}
+	files, _ := filepath.Glob(filepath.Join(teams, "*", "config.json"))
+	want := path.Clean(ClaudePath(proj))
+	for _, f := range files {
+		if cfg, err := ReadTeam(f); err == nil && len(cfg.Members) > 0 && path.Clean(cfg.Members[0].Cwd) == want {
+			return true
+		}
+	}
+	return false
+}

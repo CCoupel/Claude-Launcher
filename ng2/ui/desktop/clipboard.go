@@ -109,3 +109,28 @@ func (a *App) setMsgSoon(m string) {
 	}
 	go a.setMsg(m)
 }
+
+// clearMsgIf : efface le message de pied de volet s'il est encore m (sans jamais attendre a.mu).
+func (a *App) clearMsgIf(m string) {
+	if a.mu.TryLock() {
+		if a.msg == m {
+			a.msg = ""
+			a.mu.Unlock()
+			a.changed()
+			return
+		}
+		a.mu.Unlock()
+		return
+	}
+	go func() {
+		a.mu.Lock()
+		ok := a.msg == m
+		if ok {
+			a.msg = ""
+		}
+		a.mu.Unlock()
+		if ok {
+			a.changed()
+		}
+	}()
+}

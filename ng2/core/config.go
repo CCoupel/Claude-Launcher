@@ -19,6 +19,8 @@ type Config struct {
 	// Stamp : date et taille de config.conf à la lecture de cette copie (#225) — voir FreshConfig
 	Stamp           ConfStamp
 	UsageRefreshSec int
+	// ShareWriteTimeoutSec : délai d'écriture de config.conf sur le partage (SHARE_WRITE_TIMEOUT, 2–120, défaut 10, #220)
+	ShareWriteTimeoutSec int
 
 	GithubToken   string
 	DisableMouse  bool
@@ -57,6 +59,8 @@ type Config struct {
 	// projet en conteneur : arrêter le conteneur quand claude se termine
 	// proprement de lui-même (#50 ; la fermeture Ctrl+clic l'arrête toujours)
 	CtrStopOnExit bool
+	// AttentionNotify : notifications quand un teamleader attend une réponse (ATTENTION_NOTIFY, défaut 1, #223)
+	AttentionNotify bool
 
 	// Windows : réglages-chemins Linux (/…) sans correspondance déclarée dans
 	// hubs.<machine>.paths (applyConfPaths), « RÉGLAGE chemin »
@@ -69,12 +73,12 @@ type Config struct {
 
 // loadConfigScript : config.conf sourcé par bash, réglages imprimés (LoadConfig).
 const loadConfigScript = `
-GITHUB_DIR="${CL_ROOT_BASE:+$CL_ROOT_BASE/PROJETS}"; GITHUB_DIR="${GITHUB_DIR:-$HOME/GITHUB}"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""
+GITHUB_DIR="${CL_ROOT_BASE:+$CL_ROOT_BASE/PROJETS}"; GITHUB_DIR="${GITHUB_DIR:-$HOME/GITHUB}"; GITHUB_DIRS=(); USAGE_REFRESH_SEC=120; GITHUB_TOKEN=""; SHARE_WRITE_TIMEOUT=10
 CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_ENVS=()
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=(); declare -A PROJECT_LAYOUTS=(); declare -A PROJECT_HIDE_IDLE=()
 LAYOUT_MODE=top; LAYOUT_LEFT_LEADER_PCT=46
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
-PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; TEAM_HIDE_IDLE=30; TEAM_HIDE_IDLE_ENABLED=1
+PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; ATTENTION_NOTIFY=1; TEAM_HIDE_IDLE=30; TEAM_HIDE_IDLE_ENABLED=1
 [[ -f "$1" ]] && source "$1" >/dev/null 2>&1
 printf 'layout\t%s %s %s %s\n' "$LAYOUT_2ROW_LEADER_PCT" "$LAYOUT_3ROW_LEADER_NUM" "$LAYOUT_3ROW_MID_NUM" "$LAYOUT_3ROW_DEN"
 printf 'layoutmode\t%s %s\n' "$LAYOUT_MODE" "$LAYOUT_LEFT_LEADER_PCT"
@@ -82,10 +86,12 @@ printf 'steps\t%s %s\n' "$PANE_ACTIVE_BRIGHTEN_STEP" "$PANE_INACTIVE_DARKEN_STEP
 printf 'hideidle\t%s\n' "$TEAM_HIDE_IDLE"
 printf 'hideidleon\t%s\n' "$TEAM_HIDE_IDLE_ENABLED"
 printf 'usage\t%s\n' "$USAGE_REFRESH_SEC"
+printf 'sharewrite\t%s\n' "$SHARE_WRITE_TIMEOUT"
 printf 'resume\t%s %s\n' "$RESUME_MODE" "$RESUME_MAX_AGE_H"
 printf 'token\t%s\n' "$GITHUB_TOKEN"
 printf 'mouse\t%s\n' "$CLAUDE_DISABLE_MOUSE"
 printf 'ctrstop\t%s\n' "$CTR_STOP_ON_EXIT"
+printf 'attnotify\t%s\n' "$ATTENTION_NOTIFY"
 printf 'teams\t%s\n' "$CLAUDE_EXPERIMENTAL_TEAMS"
 printf 'opts\t%s\n' "$CLAUDE_OPTIONS"
 printf 'claudedir\t%s\n' "${CLAUDE_CONFIG_DIR-}"
@@ -100,14 +106,18 @@ else printf 'root\t%s\n' "$GITHUB_DIR"; fi`
 // LoadConfig fait « sourcer » le conf bash par bash lui-même : le format reste
 // celui du launcher actuel (tableaux, $HOME, variables), sans le réimplémenter.
 // Sortie : une ligne « TAG<TAB>valeur » par information.
-func LoadConfig() Config { return loadConfigAt(ConfigPath()) }
+func LoadConfig() Config {
+	cfg := loadConfigAt(ConfigPath())
+	shareTimeoutSec.Store(int64(cfg.ShareWriteTimeoutSec)) // délai d'écriture publié depuis la config ACTIVE seulement (#220)
+	return cfg
+}
 
 // loadConfigAt : LoadConfig pour le fichier path (validation de l'éditeur de
 // configuration, configedit.go : même lecture que le chargement réel).
 func loadConfigAt(path string) Config {
 	stamp := confStampOf(path) // AVANT la lecture : un fichier réécrit pendant la lecture sera revu au tour suivant
 	home, _ := os.UserHomeDir()
-	cfg := Config{UsageRefreshSec: 120, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, ProjectHideIdle: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
+	cfg := Config{AttentionNotify: true, UsageRefreshSec: 120, ShareWriteTimeoutSec: 10, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, ProjectHideIdle: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
 		BrightenStep: 1, DarkenStep: 1, TeamHideIdle: 30, ResumeMode: "ask", ResumeMaxAgeH: 24}
 
@@ -146,6 +156,10 @@ func loadConfigAt(path string) Config {
 				if n, e := strconv.Atoi(f[1]); e == nil {
 					cfg.UsageRefreshSec = n
 				}
+			case "sharewrite":
+				if n, e := strconv.Atoi(strings.TrimSpace(f[1])); e == nil {
+					cfg.ShareWriteTimeoutSec = n
+				}
 			case "hideidle":
 				if n, e := strconv.Atoi(strings.TrimSpace(f[1])); e == nil && n >= 0 {
 					cfg.TeamHideIdle = n
@@ -165,6 +179,8 @@ func loadConfigAt(path string) Config {
 				cfg.GithubToken = f[1]
 			case "mouse":
 				cfg.DisableMouse = f[1] == "1"
+			case "attnotify":
+				cfg.AttentionNotify = f[1] == "1"
 			case "ctrstop":
 				cfg.CtrStopOnExit = f[1] == "1"
 			case "teams":
@@ -245,6 +261,7 @@ func loadConfigAt(path string) Config {
 	if cfg.UsageRefreshSec < 60 {
 		cfg.UsageRefreshSec = 60
 	}
+	cfg.ShareWriteTimeoutSec = ClampShareWriteTimeout(cfg.ShareWriteTimeoutSec)
 	if len(cfg.Roots) == 0 {
 		cfg.Roots = []string{filepath.Join(home, "GITHUB")}
 		if p := RootBaseProjects(); p != "" {
@@ -432,6 +449,10 @@ EXTRA_ENVS=()
 # Consommation du compte Claude : secondes entre deux lectures (min. 60, défaut 120).
 # Le milestone-panel des projets lit aussi cette valeur (repli 5 min si absente).
 # USAGE_REFRESH_SEC=120
+
+# Délai d'écriture de config.conf sur le partage, en secondes (2 à 120, défaut 10) : au-delà, une bascule
+# d'organisation ou un réglage de projet est abandonné avec un message.
+# SHARE_WRITE_TIMEOUT=10
 
 # Surbrillance des panes teammates actifs (agent en train de travailler) :
 # variante éclaircie de la couleur du projet. 1 = léger, 5 = blanc/couleur pleine.

@@ -35,7 +35,17 @@ func mirrorLeader(p projWin) string {
 // du leader : les dernières lignes jusqu'à la dernière non vide (ou le curseur),
 // la zone de saisie de claude étant en bas.
 func mirrorFrame(name, color string, rows, cols int, focus bool, curX, curY int, frame []string) string {
+	return mirrorFrameAttn(name, color, "", rows, cols, focus, curX, curY, frame)
+}
+
+// mirrorFrameAttn : mirrorFrame avec l'attente du teamleader (#223) : attn = « kind|texte » de @cl_attn, vide hors
+// attente. Titre : pastille « ❓ en attente » ; une ligne sous le titre pour la question.
+func mirrorFrameAttn(name, color, attn string, rows, cols int, focus bool, curX, curY int, frame []string) string {
+	kind, text, waiting := parseAttnOption(attn)
 	avail := rows - 1
+	if waiting {
+		avail--
+	}
 	last := 0
 	for i, l := range frame {
 		if strings.TrimSpace(ansi.Strip(l)) != "" {
@@ -50,8 +60,15 @@ func mirrorFrame(name, color string, rows, cols int, focus bool, curX, curY int,
 	if focus {
 		icon = "⌨ "
 	}
-	fmt.Fprintf(&b, "\033[1;1H\033[1;30;48;5;%sm %s%s \033[0m\033[K", color, icon, name)
+	fmt.Fprintf(&b, "\033[1;1H\033[1;30;48;5;%sm %s%s \033[0m", color, icon, name)
 	r := 2
+	if waiting {
+		b.WriteString("\033[1;30;48;5;208m ❓ en attente \033[0m\033[K")
+		fmt.Fprintf(&b, "\033[2;1H\033[38;5;208m%s\033[0m\033[K", ansi.Truncate(attnTitle(kind, text), cols, "…"))
+		r = 3
+	} else {
+		b.WriteString("\033[K")
+	}
 	for i := start; i <= last && r <= rows; i++ {
 		l := ""
 		if i-1 < len(frame) {
@@ -102,7 +119,7 @@ func RunMirror(win, name string) error {
 
 	pw := projectOf(win)
 	leader, leaderAt := "", time.Time{}
-	prev := ""
+	prev, attn, attnAt := "", "", time.Time{}
 	tick := time.NewTicker(mirrorPeriod)
 	defer tick.Stop()
 	for {
@@ -116,6 +133,12 @@ func RunMirror(win, name string) error {
 				return nil
 			}
 			leaderAt = time.Now()
+		}
+		if time.Since(attnAt) > 2*time.Second { // attente du teamleader, publiée par le navigateur (@cl_attn, #223)
+			if o, err := hub.Output("display-message", "-p", "-t", win, "#{@cl_attn}"); err == nil {
+				attn = strings.TrimSpace(string(o))
+			}
+			attnAt = time.Now()
 		}
 		// focus de la vignette (hub) + curseur et écran du leader (tmux du projet) :
 		// un seul appel tmux en exécution directe
@@ -156,7 +179,7 @@ func RunMirror(win, name string) error {
 			if r, c, err := platform.TermSize(fd); err == nil && r > 0 {
 				rows, cols = r, c
 			}
-			if s := mirrorFrame(name, color, rows, cols, focus, cx, cy, lines); s != prev {
+			if s := mirrorFrameAttn(name, color, attn, rows, cols, focus, cx, cy, lines); s != prev {
 				prev = s
 				os.Stdout.WriteString(s)
 			}

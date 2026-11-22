@@ -18,10 +18,11 @@ const teamWindow = "⌗ Teamleaders"
 const teamPlaceholder = `printf '\n  Aucun projet ouvert — lancez-en un depuis le navigateur.\n'; exec sleep 2147483647`
 
 type mirrorMgr struct {
-	cfg     core.Config
-	prevSig string
-	colored map[string]string // pane -> couleur déjà appliquée
-	guarded string            // onglet déjà protégé par keepTeamWindow
+	cfg      core.Config
+	prevSig  string
+	colored  map[string]string // pane -> couleur déjà appliquée
+	bordered map[string]string // pane -> style de bordure d'attente déjà appliqué (#223)
+	guarded  string            // onglet déjà protégé par keepTeamWindow
 }
 
 // keepTeamWindow : une vignette --mirror se termine d'elle-même dès que la fenêtre
@@ -34,24 +35,24 @@ func keepTeamWindow(win string) {
 
 // runMirrorManager tourne dans le navigateur (mode coque), une fois par seconde.
 func runMirrorManager(cfg core.Config) {
-	mm := &mirrorMgr{cfg: cfg, colored: map[string]string{}}
+	mm := &mirrorMgr{cfg: cfg, colored: map[string]string{}, bordered: map[string]string{}}
 	for {
 		time.Sleep(time.Second)
 		mm.tick()
 	}
 }
 
-type tmuxWin struct{ id, name string }
+type tmuxWin struct{ id, name, attn string } // attn : option @cl_attn (« kind|texte »), vide hors attente (#223)
 
 func listWindows() []tmuxWin {
-	out, err := tmuxOut("list-windows", "-t", exactS(hubSession), "-F", "#{window_id}|#{window_name}")
+	out, err := tmuxOut("list-windows", "-t", exactS(hubSession), "-F", "#{window_id}\t#{@cl_attn}\t#{window_name}")
 	if err != nil {
 		return nil
 	}
 	var ws []tmuxWin
 	for _, l := range strings.Split(out, "\n") {
-		if id, name, ok := strings.Cut(l, "|"); ok && id != "" {
-			ws = append(ws, tmuxWin{id, name})
+		if f := strings.SplitN(l, "\t", 3); len(f) == 3 && f[0] != "" {
+			ws = append(ws, tmuxWin{id: f[0], attn: f[1], name: f[2]})
 		}
 	}
 	return ws
@@ -173,6 +174,26 @@ func (mm *mirrorMgr) tick() {
 		if mm.colored[pid] != c {
 			_ = dtmux("set-option", "-p", "-t", pid, "window-style", c).Run()
 			mm.colored[pid] = c
+		}
+	}
+
+	// teamleader en attente (#223) : bordure orange de la vignette tant que la fenêtre du projet porte @cl_attn
+	for _, w := range want {
+		pid, ok := have[w.id]
+		if !ok {
+			continue
+		}
+		bd := ""
+		if w.attn != "" {
+			bd = "fg=colour208,bold"
+		}
+		if mm.bordered[pid] != bd {
+			if bd == "" {
+				_ = dtmux("set-option", "-p", "-u", "-t", pid, "pane-border-style").Run()
+			} else {
+				_ = dtmux("set-option", "-p", "-t", pid, "pane-border-style", bd).Run()
+			}
+			mm.bordered[pid] = bd
 		}
 	}
 

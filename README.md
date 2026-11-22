@@ -382,6 +382,8 @@ l'édite aussi dans l'interface.
 | `LAYOUT_2ROW_LEADER_PCT` | Hauteur du teamleader (%) quand la team tient sur 2 lignes (≤ 5 teammates, défaut 50) |
 | `LAYOUT_3ROW_LEADER_NUM`, `LAYOUT_3ROW_MID_NUM`, `LAYOUT_3ROW_DEN` | Au-delà de 5 teammates : fractions leader / ligne du milieu (défaut 3/7 et 2/7) |
 | `CLAUDE_CONFIG_DIR` | Config de claude (`~/.claude` par défaut) pour toutes les sessions du launcher, hôte et conteneurs ; relative au dossier de la config ; une variable déjà définie au lancement l'emporte |
+| `SHARE_WRITE_TIMEOUT` | Délai (s, défaut 10, bornes 2–120) au-delà duquel une écriture de `config.conf` sur le partage est abandonnée (clic de bascule, œil, couleur) ; l'écriture reprend seule au retour du partage |
+| `ATTENTION_NOTIFY` | `1` = notifications système (fenêtre native) ou du navigateur (`--web`) quand un teamleader attend une réponse (défaut 1) ; le badge « ❓ en attente » reste affiché dans tous les cas |
 | `USAGE_REFRESH_SEC` | Secondes entre deux lectures de la consommation du compte (min. 60, défaut 120) ; après un échec (429…), pause de max(5 min, 2 × cette valeur) |
 
 `EXTRA_ENVS` permet de passer n'importe quelle variable d'env à Claude Code :
@@ -406,6 +408,9 @@ EXTRA_ENVS=(
   repris reçoit une consigne pour respawner toute sa team. Rien n'est proposé si la conversation tourne
   encore (sur l'hôte ou dans un conteneur), ni si elle a été close par `/end-session` ou quittée
   proprement (`Ctrl+C`, `/exit`). Un projet non géré par le template reçoit un `/end-session` minimal.
+- **Démarrer la session** : un projet géré (`start-session.md` présent) sans team lance claude avec une question
+  `session non démarrée — lancer /start-session ? [O/n]`, après la question `/init-project` éventuelle. Une team
+  existante, une reprise ou un projet non géré ne pose pas la question.
 - NG2 se met à jour au lancement, puis vérifie GitHub toutes les 10 minutes (ou sur `F5`).
 
 **Consommation du compte Claude :** sous la liste des projets, les fenêtres de quota du compte
@@ -474,6 +479,12 @@ départ d'un teammate et à chaque changement d'activité (d'après `~/.claude/t
 
 Pour forcer une remise en ordre : `Ctrl+B R` dans l'onglet du projet, ou
 `claude-launcher-ng2 relayout <window_id>`.
+
+### Teamleader en attente
+
+Un teamleader qui pose une question ou demande une permission fait passer son projet en « ❓ en attente » : badge orange
+dans l'arbre, l'onglet et la vignette `⌗ Teamleaders`. La fenêtre native et `--web` envoient aussi une notification
+(désactivable par `ATTENTION_NOTIFY`) ; le clic ouvre le projet. Détails : [`ng2/docs/interface.md`](ng2/docs/interface.md).
 
 ---
 

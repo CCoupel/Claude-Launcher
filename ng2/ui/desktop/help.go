@@ -25,7 +25,7 @@ func helpData() map[string]any {
 		"sections": []helpSection{
 			{"Navigateur", []helpRow{
 				{"↑ ↓ PgUp PgDn, molette, clic", "sélectionner un projet (clic sur un projet ouvert : son onglet)"},
-				{"Entrée, double-clic", "ouvrir / rejoindre le projet ; les questions (template, reprise) se posent dans son terminal"},
+				{"Entrée, double-clic", "ouvrir / rejoindre le projet ; les questions (template, reprise, /start-session) se posent dans son terminal — après un crash la team reste sur le disque : taper /start-session à la main"},
 				{"Ctrl+clic, Suppr", "fermer le projet : /exit à claude, puis arrêt du conteneur (confirmation o/N)"},
 				{"frappe", "filtrer ; Esc efface le filtre"},
 				{"clic hors projet", "onglet ⌗ Teamleaders"},

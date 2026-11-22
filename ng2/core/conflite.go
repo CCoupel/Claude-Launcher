@@ -168,11 +168,11 @@ func confLite(src, home string) string { return confLiteWith(src, home, "") }
 // de l'environnement (racine déduite de l'emplacement du fichier).
 func confLiteWith(src, home, fbRoot string) string {
 	vars := map[string]string{
-		"HOME": home, "GITHUB_DIR": home + "/GITHUB", "USAGE_REFRESH_SEC": "120", "GITHUB_TOKEN": "",
+		"HOME": home, "GITHUB_DIR": home + "/GITHUB", "USAGE_REFRESH_SEC": "120", "SHARE_WRITE_TIMEOUT": "10", "GITHUB_TOKEN": "",
 		"CLAUDE_DISABLE_MOUSE": "1", "CLAUDE_EXPERIMENTAL_TEAMS": "1", "CLAUDE_OPTIONS": "",
 		"LAYOUT_2ROW_LEADER_PCT": "50", "LAYOUT_3ROW_LEADER_NUM": "3", "LAYOUT_3ROW_MID_NUM": "2", "LAYOUT_3ROW_DEN": "7",
 		"PANE_ACTIVE_BRIGHTEN_STEP": "1", "PANE_INACTIVE_DARKEN_STEP": "1", "RESUME_MODE": "ask", "RESUME_MAX_AGE_H": "24",
-		"CTR_STOP_ON_EXIT": "0", "TEAM_HIDE_IDLE": "30", "TEAM_HIDE_IDLE_ENABLED": "1", "LAYOUT_MODE": "top", "LAYOUT_LEFT_LEADER_PCT": "46",
+		"CTR_STOP_ON_EXIT": "0", "ATTENTION_NOTIFY": "1", "TEAM_HIDE_IDLE": "30", "TEAM_HIDE_IDLE_ENABLED": "1", "LAYOUT_MODE": "top", "LAYOUT_LEFT_LEADER_PCT": "46",
 	}
 	if strings.Contains(home, `\`) {
 		vars["GITHUB_DIR"] = home + `\GITHUB`
@@ -261,10 +261,12 @@ func confLiteWith(src, home, fbRoot string) string {
 	p("hideidle", vars["TEAM_HIDE_IDLE"])
 	p("hideidleon", vars["TEAM_HIDE_IDLE_ENABLED"])
 	p("usage", vars["USAGE_REFRESH_SEC"])
+	p("sharewrite", vars["SHARE_WRITE_TIMEOUT"])
 	p("resume", vars["RESUME_MODE"]+" "+vars["RESUME_MAX_AGE_H"])
 	p("token", vars["GITHUB_TOKEN"])
 	p("mouse", vars["CLAUDE_DISABLE_MOUSE"])
 	p("ctrstop", vars["CTR_STOP_ON_EXIT"])
+	p("attnotify", vars["ATTENTION_NOTIFY"])
 	p("teams", vars["CLAUDE_EXPERIMENTAL_TEAMS"])
 	p("opts", vars["CLAUDE_OPTIONS"])
 	cd := ""

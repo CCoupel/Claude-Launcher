@@ -6,8 +6,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
-
 ## [Unreleased]
+
+## [6.7.0] — 2026-11-22
+
+### Added
+- Écriture bornée de `config.conf` : nouvelle option `SHARE_WRITE_TIMEOUT` (secondes, défaut 10, bornes 2–120). Un partage injoignable ne bloque plus l'interface : la réponse revient au bout du délai, l'organisation précédente est rétablie, l'écriture reprend seule au retour du partage (#220)
+- Proposition de `/start-session` au lancement d'un projet géré (`start-session.md` présent) dont la team n'existe pas : question `session non démarrée — lancer /start-session ? [O/n]` juste avant claude, après la question `/init-project` ; une reprise ou une team existante ne pose pas la question (#231)
+- Teamleader en attente (#223) : badge « ❓ en attente » sur la ligne du projet, l'onglet, la pastille Teamleaders et la vignette (bordure orange, bandeau de la question ou de la permission), dans la fenêtre native, `--web` et la coque tmux. Le signal vient de hooks posés par le launcher (`AskUserQuestion`, demande de permission) ; un teamleader qui attend ses teammates n'est pas signalé
+- Notifications d'attente (#223) : notification système dans la fenêtre native (clic = onglet du projet au premier plan), notification du navigateur en `--web` (avec bandeau d'autorisation, titre de page préfixé « ❓ »). Option `ATTENTION_NOTIFY` (défaut 1) ; le badge reste affiché même désactivée
+
+### Changed
+- Arrêt de l'interface : échéance unique de 25 s. Les terminaux sont détachés puis attendus (flusher, watcher, client tmux) ; au bout de 5 s le processus client est arrêté de force ; après arrêt, aucune écriture vers un terminal n'est acceptée (#221)
+
+### Fixed
+- Message de repli « leader à gauche refusé par tmux — mise en page « leader en haut » appliquée » : affiché une fois par projet et par cause (et une fois par fenêtre dans la coque tmux), au lieu d'à chaque remise en page (#222)
 
 ## [6.6.0] — 2026-11-22
 
