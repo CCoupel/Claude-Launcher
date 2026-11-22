@@ -192,11 +192,14 @@ func layoutLocked(cfg core.Config, pw projWin, leader, teamPath string) {
 	// organisation effective du projet (PROJECT_LAYOUTS, puis LAYOUT_MODE, #153) ; échanges, géométrie
 	// et couleur de base : core.ArrangeTeam. tmux refuse la chaîne « leader à gauche » : repli sur « top »
 	cfg.LayoutMode = cfg.LayoutOf(ws.name)
-	fell := core.ArrangeTeamChecked(cfg, pw.t, pw.win, ws.core(), ws.w, ws.h, top, bot, cfg.ProjectColor(ws.name))
+	fell := arrangeTeamChecked(cfg, pw.t, pw.win, ws.core(), ws.w, ws.h, top, bot, cfg.ProjectColor(ws.name))
 	if noteFallback(pw.hubWin, fell) {
 		_ = hub.Run("display-message", "-t", pw.hubWin, "Leader à gauche refusé par tmux : mise en page « leader en haut » appliquée")
 	}
 }
+
+// arrangeTeamChecked : point d'injection des tests (#222) — forcer le refus « leader à gauche » de tmux sans tmux réel.
+var arrangeTeamChecked = core.ArrangeTeamChecked
 
 // repli « leader en haut » déjà annoncé, par fenêtre du hub (#222) : un message par cause, pas à chaque mise en page.
 var (
