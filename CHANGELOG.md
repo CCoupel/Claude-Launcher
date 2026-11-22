@@ -9,7 +9,6 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ## [6.7.0] — 2026-11-22
-## [Unreleased]
 
 ### Added
 - Écriture bornée de `config.conf` : nouvelle option `SHARE_WRITE_TIMEOUT` (secondes, défaut 10, bornes 2–120). Un partage injoignable ne bloque plus l'interface : la réponse revient au bout du délai, l'organisation précédente est rétablie, l'écriture reprend seule au retour du partage (#220)
