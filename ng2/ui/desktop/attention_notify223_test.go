@@ -144,7 +144,7 @@ func TestNotificationOptionAppliesHot223(t *testing.T) {
 	waitUntil(t, "notification après réactivation", attSignalWithin, func() bool { return len(n.sends()) == 1 })
 }
 
-// Clic sur la notification : l'interface sélectionne l'onglet du projet (évènement attentionFocus) ; plus rien après la fin.
+// Clic sur la notification : l'interface sélectionne l'onglet du projet (évènement attentionFocus), aussi après la fin de l'attente.
 func TestNotificationClickSelectsTab223(t *testing.T) {
 	n := recordNotifications(t)
 	x := attentionProject(t)
@@ -159,11 +159,27 @@ func TestNotificationClickSelectsTab223(t *testing.T) {
 	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse"}`, x.leader)
 	waitUntil(t, "retrait", attSignalWithin, func() bool { return len(n.removes()) == 1 })
 	before := len(x.f.r.all())
-	x.f.a.notificationClicked(id) // notification déjà retirée : clic tardif sans effet
+	x.f.a.notificationClicked(id) // attente déjà finie : le clic tardif sélectionne QUAND MÊME l'onglet (contrat § 7)
+	late := x.f.r.wait(t, 2*time.Second, "attentionFocus après la fin", func(e map[string]any) bool { return e["_name"] == "attentionFocus" && x.f.r.count() > before })
+	if late["path"] != x.f.path || late["id"] != id {
+		t.Errorf("clic tardif : %v, attendu le projet %s et l'id %s", late, x.f.path, id)
+	}
+	n1 := 0
+	for _, e := range x.f.r.since(before) {
+		if e["_name"] == "attentionFocus" {
+			n1++
+		}
+	}
+	if n1 != 1 {
+		t.Errorf("%d attentionFocus pour un clic tardif, attendu 1", n1)
+	}
+	// id jamais vu : aucun projet à sélectionner, aucun évènement
+	before = x.f.r.count()
+	x.f.a.notificationClicked("999-0")
 	time.Sleep(200 * time.Millisecond)
 	for _, e := range x.f.r.since(before) {
 		if e["_name"] == "attentionFocus" {
-			t.Errorf("clic après la fin : %v", e)
+			t.Errorf("clic sur un id inconnu : %v", e)
 		}
 	}
 }
