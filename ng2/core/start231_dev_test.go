@@ -1,15 +1,20 @@
 package core
 
 import (
+	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 // #231 : /start-session proposé (O/n) pour un projet géré sans team ; rien si team présente (team_name) ou projet non géré.
 func TestStartSessionQuestion231(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("le script de démarrage est du bash (tmux de l'hôte ou d'un conteneur) : jamais exécuté sous Windows")
+	}
 	cfgDir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
 	t.Setenv("CL_TEST_ISOLATION", "1")
@@ -55,7 +60,8 @@ func TestTeamExistsNamedMissingNoCwdFallback231(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(proj, ".claude", "project-config.json"), []byte(`{"team_name":"absente"}`), 0o644)
 	other := filepath.Join(cfgDir, "teams", "autre")
 	_ = os.MkdirAll(other, 0o755)
-	_ = os.WriteFile(filepath.Join(other, "config.json"), []byte(`{"members":[{"cwd":"`+ClaudePath(proj)+`"}]}`), 0o644)
+	cfgJSON, _ := json.Marshal(map[string]any{"members": []any{map[string]any{"cwd": ClaudePath(proj)}}}) // échappe les « \\ » Windows
+	_ = os.WriteFile(filepath.Join(other, "config.json"), cfgJSON, 0o644)
 	if TeamExists(proj) {
 		t.Error("team nommée absente : TeamExists ne doit pas retomber sur une autre team au même cwd")
 	}
