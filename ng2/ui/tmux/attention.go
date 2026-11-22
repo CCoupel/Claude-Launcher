@@ -2,6 +2,7 @@ package tmux
 
 import (
 	"strings"
+	"sync"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -19,9 +20,24 @@ var attnBadge = lipgloss.NewStyle().Background(lipgloss.Color("208")).Foreground
 
 type attnMsg map[string]core.Attention
 
+// attnPublished : @cl_attn réellement posé, par fenêtre (cible tmux -> id de l'attente) ; une écriture qui échoue
+// (fenêtre pas encore là, tmux en échec) n'est pas comptée publiée : elle est retentée au tour suivant.
+// setWinOption : écriture d'une option de fenêtre du hub (remplacée dans les tests : échec simulé).
+var setWinOption = func(args ...string) error { return hub.Run(args...) }
+
+var (
+	attnPubMu     sync.Mutex
+	attnPublished = map[string]string{}
+)
+
 // attentionCmd : relevé des attentes des projets ouverts ici ou vivants ailleurs ; publie @cl_attn par fenêtre ouverte.
+// Projet ouvert : seul le fichier du pane leader de la fenêtre compte (garde-fou si un teammate héritait de
+// CL_ATTENTION_DIR) ; leader introuvable : aucune attente (pane disparu = état périmé ignoré).
 func (m model) attentionCmd() tea.Cmd {
-	type target struct{ path, key string }
+	type target struct {
+		path, key string
+		open      bool
+	}
 	var ts []target
 	for _, n := range m.nodes {
 		if !n.Project {
@@ -29,29 +45,45 @@ func (m model) attentionCmd() tea.Cmd {
 		}
 		open := m.windows[n.Key]
 		if p := m.projInfo(n); open || p.hasLive && p.live.Claude {
-			ts = append(ts, target{n.Path, n.Key})
+			ts = append(ts, target{n.Path, n.Key, open})
 		}
 	}
-	prev := m.attn
 	session := m.session
 	return func() tea.Msg {
 		out := attnMsg{}
 		for _, t := range ts {
-			if a, ok := core.ReadAttention(t.path); ok {
+			leader := ""
+			if t.open {
+				if leader = mirrorLeader(projectOf(exactW(targetSession(session), t.key))); leader == "" {
+					continue
+				}
+			}
+			if a, ok := core.ReadAttentionOf(t.path, leader); ok {
 				out[t.path] = a
 			}
 		}
 		for _, t := range ts { // option de fenêtre : seulement quand l'attente change
-			a, has := out[t.path]
-			old, hadOld := prev[t.path]
-			if has == hadOld && (!has || a.ID == old.ID) {
+			if !t.open {
 				continue
 			}
 			win := exactW(targetSession(session), t.key)
-			if has {
-				_ = hub.Run("set-option", "-w", "-t", win, "@cl_attn", a.Kind+"|"+a.Text)
-			} else {
-				_ = hub.Run("set-option", "-w", "-u", "-t", win, "@cl_attn")
+			a, has := out[t.path]
+			attnPubMu.Lock()
+			pub, wasPub := attnPublished[win]
+			attnPubMu.Unlock()
+			switch {
+			case has && (!wasPub || pub != a.ID):
+				if setWinOption("set-option", "-w", "-t", win, "@cl_attn", a.Kind+"|"+a.Text) == nil {
+					attnPubMu.Lock()
+					attnPublished[win] = a.ID
+					attnPubMu.Unlock()
+				}
+			case !has && wasPub:
+				if setWinOption("set-option", "-w", "-u", "-t", win, "@cl_attn") == nil {
+					attnPubMu.Lock()
+					delete(attnPublished, win)
+					attnPubMu.Unlock()
+				}
 			}
 		}
 		return out

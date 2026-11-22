@@ -300,7 +300,15 @@ func TestAttentionEndHooksRemoveState223(t *testing.T) {
 		for _, n := range []string{"7.json", "8.json"} {
 			_ = os.WriteFile(filepath.Join(state, n), []byte(payloadQuestion), 0o644)
 		}
-		if out := runHook(t, cmd, "{}", "CL_ATTENTION_DIR="+state, "TMUX_PANE=%7"); out != "" {
+		stdin := "{}"
+		if ev == "PostToolUse" { // une question n'est close que par la fin de AskUserQuestion (revue LOT-3)
+			runHook(t, cmd, `{"tool_name":"Bash"}`, "CL_ATTENTION_DIR="+state, "TMUX_PANE=%7")
+			if _, err := os.Stat(filepath.Join(state, "7.json")); err != nil {
+				t.Errorf("PostToolUse d'un autre outil : la question a été retirée")
+			}
+			stdin = `{"tool_name":"AskUserQuestion"}`
+		}
+		if out := runHook(t, cmd, stdin, "CL_ATTENTION_DIR="+state, "TMUX_PANE=%7"); out != "" {
 			t.Errorf("%s : sortie %q", ev, out)
 		}
 		if _, err := os.Stat(filepath.Join(state, "7.json")); err == nil {
@@ -505,5 +513,17 @@ func TestStartExcludesAttentionDirFromGit223(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(s.proj, ".git", "info", "exclude"))
 	if n := strings.Count(string(b), "/.claude-launcher/attention/"); n != 1 {
 		t.Errorf("exclude contient l'entrée %d fois, attendu 1 :\n%s", n, b)
+	}
+}
+
+// Permission (état « Notification ») : retirée par la fin de n'importe quel outil.
+func TestAttentionPostToolUseEndsPermission223(t *testing.T) {
+	unixOnly(t)
+	state := filepath.Join(t.TempDir(), "attention")
+	_ = os.MkdirAll(state, 0o755)
+	_ = os.WriteFile(filepath.Join(state, "7.json"), []byte(`{"hook_event_name":"Notification","message":"permission"}`), 0o644)
+	runHook(t, hookCommand(t, "PostToolUse"), `{"tool_name":"Bash"}`, "CL_ATTENTION_DIR="+state, "TMUX_PANE=%7")
+	if _, err := os.Stat(filepath.Join(state, "7.json")); err == nil {
+		t.Error("permission non retirée par la fin de l'outil")
 	}
 }

@@ -1,6 +1,7 @@
 package tmux
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -53,10 +54,11 @@ func TestBadgeShowsWaitingTeamleader223(t *testing.T) {
 // un projet fermé (sans session) n'est pas lu.
 func TestAttentionCmdPublishesWindowOption223(t *testing.T) {
 	marker := isoInner(t)
-	key, win, _, proj, _, _ := visProject(t, marker)
+	key, win, _, proj, leader, _ := visProject(t, marker)
+	lp := strings.TrimPrefix(leader, "%") // seul le pane leader de la fenêtre compte
 	closed := t.TempDir()
 	writeAttn(t, closed, "5", attnQuestion) // projet fermé : ignoré
-	writeAttn(t, proj, "4", attnQuestion)
+	writeAttn(t, proj, lp, attnQuestion)
 
 	m := model{session: hubSession, windows: map[string]bool{key: true}, attn: map[string]core.Attention{},
 		nodes: []core.Node{{Project: true, Name: key, Key: key, Path: proj}, {Project: true, Name: "ferme", Key: "ferme", Path: closed}}}
@@ -75,15 +77,15 @@ func TestAttentionCmdPublishesWindowOption223(t *testing.T) {
 	// nouvelle attente (permission) : l'option suit
 	time.Sleep(10 * time.Millisecond)
 	m.attn = msg
-	writeAttn(t, proj, "4", attnPerm)
-	_ = os.Chtimes(filepath.Join(core.AttentionDir(proj), "4.json"), time.Now().Add(time.Second), time.Now().Add(time.Second))
+	writeAttn(t, proj, lp, attnPerm)
+	_ = os.Chtimes(filepath.Join(core.AttentionDir(proj), lp+".json"), time.Now().Add(time.Second), time.Now().Add(time.Second))
 	msg, _ = m.attentionCmd()().(attnMsg)
 	if got := opt(); !strings.HasPrefix(got, "permission|") || !strings.Contains(got, "permission pour utiliser Bash") {
 		t.Errorf("@cl_attn après permission = %q", got)
 	}
 	// réponse : l'attente disparaît, l'option est retirée
 	m.attn = msg
-	_ = os.Remove(filepath.Join(core.AttentionDir(proj), "4.json"))
+	_ = os.Remove(filepath.Join(core.AttentionDir(proj), lp+".json"))
 	msg, _ = m.attentionCmd()().(attnMsg)
 	if len(msg) != 0 {
 		t.Errorf("attente encore relevée après la réponse : %+v", msg)
@@ -122,3 +124,45 @@ var rowStart = regexp.MustCompile(`\x1b\[\d+;1H`)
 
 // frameLines : lignes d'une image de vignette (chaque ligne est positionnée par un déplacement de curseur).
 func frameLines(frame string) []string { return rowStart.Split(frame, -1) }
+
+// Revue LOT-3 : seul le pane leader de la fenêtre compte (un teammate qui hériterait de CL_ATTENTION_DIR ne signale pas),
+// et un état dont le pane n'est plus le leader (pane disparu, crash) est ignoré.
+func TestAttentionCmdLeaderOnly223(t *testing.T) {
+	marker := isoInner(t)
+	key, _, _, proj, leader, mates := visProject(t, marker)
+	if len(mates) == 0 {
+		t.Skip("pas de teammate dans la fixture")
+	}
+	writeAttn(t, proj, strings.TrimPrefix(mates[0], "%"), attnQuestion) // teammate seul
+	m := model{session: hubSession, windows: map[string]bool{key: true}, attn: map[string]core.Attention{},
+		nodes: []core.Node{{Project: true, Name: key, Key: key, Path: proj}}}
+	if msg, _ := m.attentionCmd()().(attnMsg); len(msg) != 0 {
+		t.Errorf("attente d'un teammate signalée : %+v", msg)
+	}
+	writeAttn(t, proj, strings.TrimPrefix(leader, "%"), attnQuestion)
+	if msg, _ := m.attentionCmd()().(attnMsg); len(msg) != 1 {
+		t.Errorf("attente du leader non signalée : %+v", msg)
+	}
+}
+
+// Revue LOT-3 : @cl_attn n'est compté publié que si l'écriture réussit — retentée au tour suivant sinon.
+func TestAttentionCmdRetriesFailedPublish223(t *testing.T) {
+	marker := isoInner(t)
+	key, win, _, proj, leader, _ := visProject(t, marker)
+	writeAttn(t, proj, strings.TrimPrefix(leader, "%"), attnQuestion)
+	m := model{session: hubSession, windows: map[string]bool{key: true}, attn: map[string]core.Attention{},
+		nodes: []core.Node{{Project: true, Name: key, Key: key, Path: proj}}}
+	old := setWinOption
+	defer func() { setWinOption = old }()
+	fails := 0
+	setWinOption = func(args ...string) error { fails++; return errors.New("tmux en échec") }
+	_ = m.attentionCmd()()
+	if got := dt(t, "display-message", "-p", "-t", win, "#{@cl_attn}"); got != "" {
+		t.Fatalf("option posée malgré l'échec : %q", got)
+	}
+	setWinOption = old // tmux répond de nouveau : même attente (même id), republiée
+	_ = m.attentionCmd()()
+	if got := dt(t, "display-message", "-p", "-t", win, "#{@cl_attn}"); got != "question|Valider le plan ?" {
+		t.Errorf("option non republiée après l'échec : %q (échecs simulés : %d)", got, fails)
+	}
+}

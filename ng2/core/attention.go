@@ -28,6 +28,12 @@ const (
 		`[ -n "$d" ] && [ -n "$p" ] && mkdir -p "$d" && head -c 65536 > "$d/.$p.tmp" && mv -f "$d/.$p.tmp" "$d/$p.json"; true ` + attentionHookMark
 	attentionEndCmd = `d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac; ` +
 		`[ -n "$d" ] && [ -n "$p" ] && [ -e "$d/$p.json" ] && rm -f "$d/$p.json"; true ` + attentionHookMark
+	// fin d'attente sur PostToolUse (sans matcher : le nom de l'outil de la permission n'est pas connu d'avance) : une
+	// question n'est close que par la fin de AskUserQuestion — un autre outil du leader qui se termine pendant qu'elle
+	// est ouverte ne retire plus le badge ; une permission (état « Notification ») l'est par tout outil terminé.
+	attentionEndToolCmd = `d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac; ` +
+		`f="$d/$p.json"; [ -n "$d" ] && [ -n "$p" ] && [ -f "$f" ] || exit 0; i=$(head -c 65536); ` +
+		`if grep -Eq '"hook_event_name" *: *"Notification"' "$f" || printf '%s' "$i" | grep -Eq '"tool_name" *: *"AskUserQuestion"'; then rm -f "$f"; fi; true ` + attentionHookMark
 )
 
 // attentionHookSpec : évènement Claude Code → (matcher, commande). Notification : les noms de matcher existent dans
@@ -37,7 +43,7 @@ type attentionHook struct{ event, matcher, cmd string }
 var attentionHooks = []attentionHook{
 	{"PreToolUse", "AskUserQuestion", attentionBeginCmd},
 	{"Notification", "permission_prompt|elicitation_dialog", attentionBeginCmd},
-	{"PostToolUse", "", attentionEndCmd},
+	{"PostToolUse", "", attentionEndToolCmd},
 	{"UserPromptSubmit", "", attentionEndCmd},
 	{"Stop", "", attentionEndCmd},
 	{"SessionEnd", "", attentionEndCmd},

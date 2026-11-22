@@ -80,7 +80,7 @@ func TestNotificationOncePerIDAndRemovedOnEnd223(t *testing.T) {
 		t.Errorf("notification = %+v, attendu le projet dans le titre et la question dans le corps", s[0])
 	}
 	// réponse : notification retirée, plus rien ensuite
-	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse"}`, x.leader)
+	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion"}`, x.leader)
 	waitUntil(t, "notification retirée", attSignalWithin, func() bool { return len(n.removes()) >= 1 })
 	if r := n.removes(); len(r) != 1 || r[0] != s[0].id {
 		t.Errorf("retraits = %v, attendu [%s]", r, s[0].id)
@@ -97,7 +97,7 @@ func TestNotificationPerNewWait223(t *testing.T) {
 	x := attentionProject(t)
 	x.hook(t, "PreToolUse", attPayloadQ, x.leader)
 	waitUntil(t, "première notification", attSignalWithin, func() bool { return len(n.sends()) == 1 })
-	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse"}`, x.leader)
+	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion"}`, x.leader)
 	waitUntil(t, "retrait", attSignalWithin, func() bool { return len(n.removes()) == 1 })
 	time.Sleep(1100 * time.Millisecond) // id = pane + date en ms : une attente distincte
 	x.hook(t, "Notification", attPayloadPerm, x.leader)
@@ -135,7 +135,7 @@ func TestNotificationOptionAppliesHot223(t *testing.T) {
 	x.f.a.configReload(core.ConfConf)
 	x.hook(t, "PreToolUse", attPayloadQ, x.leader)
 	x.waitAttention(t, "badge", true)
-	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse"}`, x.leader)
+	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion"}`, x.leader)
 	x.waitAttention(t, "retrait", false)
 	_ = os.WriteFile(core.ConfigPath(), []byte("ATTENTION_NOTIFY=1\n"), 0o644)
 	x.f.a.configReload(core.ConfConf)
@@ -156,7 +156,7 @@ func TestNotificationClickSelectsTab223(t *testing.T) {
 	if ev["path"] != x.f.path || ev["id"] != id {
 		t.Errorf("attentionFocus = %v, attendu le projet %s et l'id %s", ev, x.f.path, id)
 	}
-	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse"}`, x.leader)
+	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion"}`, x.leader)
 	waitUntil(t, "retrait", attSignalWithin, func() bool { return len(n.removes()) == 1 })
 	before := len(x.f.r.all())
 	x.f.a.notificationClicked(id) // attente déjà finie : le clic tardif sélectionne QUAND MÊME l'onglet (contrat § 7)
@@ -191,6 +191,6 @@ func TestNotificationUnavailableBadgeOnly223(t *testing.T) {
 	x := attentionProject(t)
 	x.hook(t, "PreToolUse", attPayloadQ, x.leader)
 	x.waitAttention(t, "badge sans notifications", true)
-	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse"}`, x.leader)
+	x.hook(t, "PostToolUse", `{"hook_event_name":"PostToolUse","tool_name":"AskUserQuestion"}`, x.leader)
 	x.waitAttention(t, "retrait", false)
 }
