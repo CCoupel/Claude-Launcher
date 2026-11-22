@@ -9,6 +9,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.6.0] — 2026-11-22
+
 ### Added
 - Relance du launcher depuis l'interface après une mise à jour du binaire : bandeau « binaire changé → Relancer » avec confirmation ; coque tmux : `ctrl+r` quand l'annonce est affichée (sinon rescan), anciens `mirror` / `layout-watch` du même serveur tmux arrêtés puis relancés, sessions des projets conservées ; en cluster, le pod redémarre (#219)
 - Sauvegarde avant mise à jour : le binaire remplacé est gardé en `<exe>.bak-v<version précédente>` (une seule sauvegarde). Retour arrière manuel documenté dans `ng2/docs/versions.md` (#218)
