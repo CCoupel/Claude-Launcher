@@ -44,7 +44,7 @@ var effectOf = map[string]string{
 	"LAYOUT_MODE": EffectImmediate, "LAYOUT_LEFT_LEADER_PCT": EffectImmediate, "LAYOUT_2ROW_LEADER_PCT": EffectImmediate,
 	"LAYOUT_3ROW_LEADER_NUM": EffectImmediate, "LAYOUT_3ROW_MID_NUM": EffectImmediate, "LAYOUT_3ROW_DEN": EffectImmediate,
 	"PANE_ACTIVE_BRIGHTEN_STEP": EffectImmediate, "PANE_INACTIVE_DARKEN_STEP": EffectImmediate,
-	"COLOR_PALETTE": EffectImmediate, "CTR_STOP_ON_EXIT": EffectImmediate, "USAGE_REFRESH_SEC": EffectImmediate,
+	"COLOR_PALETTE": EffectImmediate, "CTR_STOP_ON_EXIT": EffectImmediate, "USAGE_REFRESH_SEC": EffectImmediate, "SHARE_WRITE_TIMEOUT": EffectImmediate,
 }
 
 // effectShell : exceptions de la coque tmux (la palette n'y est lue qu'au lancement d'un projet).

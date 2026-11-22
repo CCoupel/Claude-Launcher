@@ -300,7 +300,7 @@ func (a *App) clearLayoutOverride(key string) {
 }
 
 // persistDelay : délai avant l'écriture de config.conf (tests : un partage réseau lent) ; nul en production.
-var persistDelay atomic.Int64
+var persistDelay = &core.ShareWriteDelay
 
 // layoutWrites : écritures de config.conf demandées par la bascule (tests : une rafale de clics en fait 2 au plus).
 var layoutWrites atomic.Int64
@@ -359,11 +359,9 @@ func (a *App) applyLayoutFirst(path, layout string) (map[string]any, error) {
 	if superseded { // un clic plus récent écrira la valeur finale
 		return map[string]any{"ok": true}, nil
 	}
-	if d := time.Duration(persistDelay.Load()); d > 0 {
-		time.Sleep(d)
-	}
 	t1 := time.Now()
 	layoutWrites.Add(1)
+	// écriture bornée (SHARE_WRITE_TIMEOUT, #220) : un partage injoignable rend la main au délai, sans verrou tenu
 	_, err := core.ApplyProjectConf(base, nil, &layout)
 	a.perf.trace("bascule : écriture config.conf", base, time.Since(t1))
 	j.mu.Lock()
@@ -376,6 +374,9 @@ func (a *App) applyLayoutFirst(path, layout string) (map[string]any, error) {
 		a.clearLayoutOverride(base)
 		a.bg(a.relayoutOpen) // l'organisation précédente revient
 		a.changed()
+		if core.IsShareTimeout(err) { // le fichier fait foi si l'écriture abandonnée aboutit plus tard (relecture)
+			return map[string]any{"ok": false, "timeout": true, "msg": err.Error() + " — retour à l'organisation précédente"}, nil
+		}
 		return map[string]any{"ok": false, "msg": "config.conf : " + err.Error() + " — organisation non enregistrée, retour à la précédente"}, nil
 	}
 	a.configReload(core.ConfConf)

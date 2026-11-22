@@ -540,6 +540,18 @@ func ApplyProjectConf(name string, color, layout *string) ([]ConfigProblem, erro
 
 // ApplyProjectConfAll : ApplyProjectConf avec le masquage des teammates inactifs (hide : auto | none | default ; nil : inchangé).
 func ApplyProjectConfAll(name string, color, layout, hide *string) ([]ConfigProblem, error) {
+	var ps []ConfigProblem
+	err := WithinShare(ShareWriteTimeoutNow(), func() (e error) {
+		ps, e = applyProjectConfAll(name, color, layout, hide)
+		return e
+	})
+	if IsShareTimeout(err) {
+		return nil, err
+	}
+	return ps, err
+}
+
+func applyProjectConfAll(name string, color, layout, hide *string) ([]ConfigProblem, error) {
 	path := ConfigPath()
 	src, expected := defaultConfig, time.Time{}
 	if b, err := os.ReadFile(path); err == nil {
@@ -704,6 +716,7 @@ type ProjectResult struct {
 	Color    bool       `json:"colorSaved,omitempty"` // config.conf écrite (relue à chaud côté interface)
 	Field    string     `json:"field,omitempty"`      // « env » : écriture de l'environnement refusée (projet ou conteneur actif)
 	Blockers []string   `json:"blockers,omitempty"`   // avec Field « env » : les raisons du refus
+	Timeout  bool       `json:"timeout,omitempty"`    // config.conf non écrite dans SHARE_WRITE_TIMEOUT (partage injoignable, #220)
 }
 
 // ApplyProjectSettings applique les parties demandées. open : le projet est
@@ -846,6 +859,9 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		if _, err := ApplyProjectConfAll(filepath.Base(proj), in.Color, in.Layout, in.HideIdle); err != nil {
 			// partiel : l'env.yaml est déjà écrit, l'interface doit en connaître le résultat
 			res.OK, res.Msg = false, "config.conf : "+err.Error()
+			if IsShareTimeout(err) {
+				res.Timeout, res.Msg = true, err.Error()
+			}
 			if err == ErrConfigInvalid || err == ErrConfigConflict {
 				res.Msg += " — réessayer, ou éditer config.conf à la main"
 			}

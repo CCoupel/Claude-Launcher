@@ -53,6 +53,8 @@ var confSettings = []confSetting{
 		Help: "ask : question à l'ouverture ; always : sans question ; never : jamais.", Default: "ask", Options: []string{"ask", "always", "never"}},
 	{Key: "RESUME_MAX_AGE_H", Group: "reprise", Type: "int", Label: "Âge maximal d'une reprise (heures)",
 		Help: "Proposée seulement si la conversation a moins de ces heures et n'a pas été close par /end-session.", Default: 24, Min: ip(1)},
+	{Key: "SHARE_WRITE_TIMEOUT", Group: "projets", Type: "int", Label: "Délai d'écriture sur le partage (s)",
+		Help: "Au-delà, une bascule ou un réglage de projet est abandonné avec un message (partage injoignable). De 2 à 120.", Default: 10, Min: ip(2), Max: ip(120)},
 	{Key: "TEAM_HIDE_IDLE_ENABLED", Group: "teams", Type: "bool", Label: "Cacher les teammates inactifs",
 		Help: "Désactivé : aucun teammate n'est caché (ceux déjà cachés réapparaissent), le masquage à la main est refusé ; le délai ci-dessous est conservé.", Default: true},
 	{Key: "TEAM_HIDE_IDLE", Group: "teams", Type: "int", Label: "Cacher les teammates inactifs après (s)",
