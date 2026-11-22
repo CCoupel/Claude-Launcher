@@ -328,25 +328,38 @@ func (a *App) Stop() {
 	default:
 		close(a.quit)
 	}
+	// échéance UNIQUE de 25 s (#221) : chaque attente prend min(sa borne, temps restant), la somme ne dépasse plus
+	// le délai de grâce du pod (30 s)
+	deadline := time.Now().Add(stopDeadline.Get())
+	left := func(max time.Duration) time.Duration { return min(max, max0(time.Until(deadline))) }
 	a.stopWebUI()
-	a.bgGate.wait(bgStopWait.Get())        // tâches de fond suivies (relevés, remises en page…) : bornées
-	a.usageGate.wait(usageStopWait.Get())  // un relevé de consommation en cours finit d'écrire son cache (borné)
-	a.waitOpenings(shutdownOpenWait.Get()) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
+	a.bgGate.wait(left(bgStopWait.Get()))        // tâches de fond suivies (relevés, remises en page…) : bornées
+	a.usageGate.wait(left(usageStopWait.Get()))  // un relevé de consommation en cours finit d'écrire son cache (borné)
+	a.waitOpenings(left(shutdownOpenWait.Get())) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
 	for _, t := range a.terms {
 		terms = append(terms, t)
 	}
 	a.mu.Unlock()
+	// terminaux : detach puis attente de leur fin ; arrêt forcé de l'arbre de processus au bout de detachWait (au plus
+	// l'échéance moins 1 s), 1 s de grâce pour la goroutine de lecture ; un client tmux bloqué ne retient donc jamais
+	// l'arrêt au-delà de l'échéance, les sessions continuent dans leurs conteneurs
+	force := time.Now().Add(detachWait.Get())
+	if f := deadline.Add(-time.Second); f.Before(force) {
+		force = f
+	}
+	end := force.Add(time.Second)
+	if deadline.Before(end) {
+		end = deadline
+	}
 	var wg sync.WaitGroup
 	for _, t := range terms {
 		wg.Add(1)
-		go func(t *projTerm) { defer wg.Done(); t.detach() }(t)
+		go func(t *projTerm) { defer wg.Done(); t.detachBy(force, end) }(t)
 	}
-	// budget d'arrêt : ouvertures (20 s) + détachements (≤ 5 s) = 25 s au pire, sous le délai de grâce du pod (30 s) ; un
-	// detach bloqué (client tmux qui ne se ferme pas) ne retient pas l'arrêt, les sessions continuent dans leurs conteneurs
-	if !waitDone(&wg, detachWait.Get()) {
-		log.Printf("arrêt : détachement des terminaux toujours en cours après %s, arrêt sans l'attendre", detachWait.Get())
+	if !waitDone(&wg, max0(time.Until(end)+500*time.Millisecond)) {
+		log.Printf("arrêt : détachement des terminaux toujours en cours à l'échéance, arrêt sans l'attendre")
 	}
 	if a.mgr != nil {
 		// gestionnaire d'état : son watcher fsnotify (instance inotify du quota de l'utilisateur) est fermé tout de suite ;
@@ -354,6 +367,11 @@ func (a *App) Stop() {
 		go a.mgr.Stop()
 	}
 }
+
+func max0(d time.Duration) time.Duration { return max(d, 0) }
+
+// stopDeadline : échéance totale de Stop. Remplacée dans les tests.
+var stopDeadline = tun.Of(25 * time.Second)
 
 // detachWait : au plus combien de temps l'arrêt attend le détachement des terminaux. Remplacé dans les tests.
 var detachWait = tun.Of(5 * time.Second)
@@ -1470,6 +1488,11 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "execApply":
 		return a.execApply(arg.Path, arg.Image, arg.Backend, arg.OpenNext)
 	case "termInput":
+		select {
+		case <-a.quit: // plus aucune écriture vers un terminal après l'arrêt (#221)
+			return map[string]any{"ok": false, "msg": "interface arrêtée"}, nil
+		default:
+		}
 		if t := a.term(arg.Path); t != nil {
 			if arg.Binary {
 				arg.Data = binaryBytes(arg.Data)

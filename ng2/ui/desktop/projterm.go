@@ -5,6 +5,7 @@ import (
 	"claude-launcher-ng2/internal/tun"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -67,6 +68,7 @@ type projTerm struct {
 	reads, finds    int32           // list-panes et recherches de team (tests)
 	infos           []core.PaneInfo // panes au dernier tour (carte Team, sans appel tmux)
 	stopOnce        sync.Once
+	tasks           openGate        // goroutines du terminal (flusher, watcher…) : attendues par detach (#221)
 	fbSaid          atomic.Bool     // repli « leader en haut » déjà annoncé (#222)
 	tmuxVer         string          // version du tmux du projet (drapeaux de client : 3.2)
 	flagged         map[string]bool // clients mis en ignore-size par l'interface (#126)
@@ -255,7 +257,7 @@ func newProjTerm(a *App, n core.Node, mode core.LaunchMode) *projTerm {
 
 // run : ouverture complète, puis attente de la fin du client.
 func (t *projTerm) run() {
-	go t.flusher()
+	t.spawn(t.flusher)
 	// ouverture déjà inscrite par open() (openGate.begin) : l'arrêt du launcher l'attend (Stop, #198) ; terminée ici
 	err := func() error {
 		defer t.a.openGate.end()
@@ -275,7 +277,7 @@ func (t *projTerm) run() {
 		return
 	}
 	t.setState("ready", "")
-	go t.watcher()
+	t.spawn(t.watcher)
 	<-t.client.Done()
 	t.ended()
 }
@@ -408,6 +410,12 @@ func (t *projTerm) attach() error {
 	if err != nil {
 		return err
 	}
+	select {
+	case <-t.a.quit: // arrêt pendant l'attache : aucun client ne survit à Stop (#221)
+		c.CloseBy(time.Now().Add(time.Second), time.Now().Add(2*time.Second))
+		return fmt.Errorf("interface arrêtée")
+	default:
+	}
 	t.mu.Lock()
 	t.client = c
 	w, h := t.cols, t.rows
@@ -454,6 +462,13 @@ func (t *projTerm) ended() {
 
 // detach : l'interface se ferme ou l'onglet est retiré ; la session continue.
 func (t *projTerm) detach() {
+	now := time.Now()
+	t.detachBy(now.Add(2*time.Second), now.Add(3*time.Second))
+}
+
+// detachBy : detach, puis ATTEND la fin du terminal (#221) : client tmux (arrêt forcé de son arbre de processus à force),
+// goroutines de lecture, flusher et watcher — au plus jusqu'à end.
+func (t *projTerm) detachBy(force, end time.Time) {
 	t.releaseOthers() // les autres clients retrouvent leur rôle dans la taille
 	t.mu.Lock()
 	t.detaching = true
@@ -461,8 +476,24 @@ func (t *projTerm) detach() {
 	t.mu.Unlock()
 	t.closeStop()
 	if c != nil {
-		c.Close()
+		if !c.CloseBy(force, end) {
+			log.Printf("arrêt : le client tmux de %s ne s'est pas fermé à l'échéance", t.name)
+		}
 	}
+	if d := time.Until(end); !t.tasks.wait(max(d, 0)) {
+		log.Printf("arrêt : goroutines du terminal de %s toujours en cours à l'échéance", t.name)
+	}
+}
+
+// spawn : goroutine du terminal, suivie par t.tasks ; rien n'est lancé si le terminal est déjà arrêté.
+func (t *projTerm) spawn(f func()) {
+	select {
+	case <-t.stop:
+		return
+	default:
+	}
+	t.tasks.begin()
+	go func() { defer t.tasks.end(); f() }()
 }
 
 // ── Notifications du mode contrôle (goroutine de lecture : jamais d'Output) ─
@@ -790,7 +821,7 @@ func (t *projTerm) watcher() {
 	defer pokeKey.Delete(t)
 	// tours rapides (notification, plein écran) à part : un tour lent qui
 	// lit la team (CLAUDE_CONFIG_DIR, parfois par 9P) ne les retarde pas (#138)
-	go func() {
+	t.spawn(func() {
 		for {
 			select {
 			case <-t.stop:
@@ -800,7 +831,7 @@ func (t *projTerm) watcher() {
 				t.safeTick(true)
 			}
 		}
-	}()
+	})
 	tk := time.NewTicker(time.Duration(tickEvery.Load()))
 	defer tk.Stop()
 	for {
