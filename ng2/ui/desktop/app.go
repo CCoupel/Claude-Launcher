@@ -43,6 +43,7 @@ type App struct {
 	layoutOv   map[string]string
 	layoutJobs map[string]*layoutJob // clics de bascule par projet (config.go) ; garde : confMu
 	emit       Emitter
+	emitNative Emitter // fenêtre native SEULE, jamais le navigateur miroir (#163) : attentionFocus (#223)
 	// mirror : second destinataire des évènements (le navigateur servi par la fenêtre, #163)
 	mirror atomic.Pointer[Emitter]
 	webui  webUI
@@ -64,6 +65,7 @@ type App struct {
 	terms      map[string]*projTerm
 	attnOnce   sync.Once
 	notifMu    sync.Mutex
+	notifPast  map[string]string         // attentes terminées (≤ 64) : un clic tardif trouve encore le projet
 	notified   map[string]string         // id d'attente notifié -> projet (#223)
 	attn       map[string]core.Attention // teamleaders en attente de réponse par projet (#223), sous a.mu
 	fromCache  map[string]bool           // projets dont l'état vient d'un cache (git en tâche de fond inutile)
@@ -125,6 +127,7 @@ func NewApp(emit Emitter) *App {
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
 		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{}, proposed: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
+	a.emitNative = emit
 	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
 		emit(name, data)
 		if m := a.mirror.Load(); m != nil {

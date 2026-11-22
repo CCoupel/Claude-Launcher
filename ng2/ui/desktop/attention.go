@@ -128,8 +128,17 @@ func (a *App) notifyAttention(d map[string]any) {
 func (a *App) notifyEnd(d map[string]any) {
 	id, _ := d["id"].(string)
 	a.notifMu.Lock()
-	_, had := a.notified[id]
+	path, had := a.notified[id]
 	delete(a.notified, id)
+	if had { // le chemin reste connu après la fin : un clic tardif sélectionne quand même l'onglet
+		if a.notifPast == nil {
+			a.notifPast = map[string]string{}
+		}
+		if len(a.notifPast) >= 64 {
+			clear(a.notifPast)
+		}
+		a.notifPast[id] = path
+	}
 	a.notifMu.Unlock()
 	if rm := notifyRemoveHook.Get(); had && rm != nil {
 		rm(id)
@@ -141,8 +150,11 @@ func (a *App) notifyEnd(d map[string]any) {
 func (a *App) notificationClicked(id string) {
 	a.notifMu.Lock()
 	path, ok := a.notified[id]
+	if !ok {
+		path, ok = a.notifPast[id] // attente déjà finie : l'onglet est sélectionné quand même
+	}
 	a.notifMu.Unlock()
-	if ok {
-		a.emit("attentionFocus", map[string]any{"path": path, "id": id})
+	if ok && a.emitNative != nil { // fenêtre native seule : jamais vers le navigateur miroir
+		a.emitNative("attentionFocus", map[string]any{"path": path, "id": id})
 	}
 }

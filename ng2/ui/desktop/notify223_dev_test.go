@@ -84,3 +84,30 @@ func TestSnapshotAttentionNotify223(t *testing.T) {
 		t.Errorf("option à 0 : %v présent=%v, attendu false présent", v, ok)
 	}
 }
+
+// attentionFocus : émetteur natif SEUL (pas le miroir navigateur) ; clic après la fin de l'attente : onglet sélectionné quand même.
+func TestAttentionFocusNativeOnly223(t *testing.T) {
+	defer notifySendHook.Set(notifySendHook.Set(func(string, string, string) error { return nil }))
+	_ = sandbox(t, "", "alpha")
+	var native, mirror recorder
+	a := newApp(t, native.emit)
+	me := Emitter(mirror.emit)
+	a.mirror.Store(&me)
+	a.notifyAttention(map[string]any{"path": "/p/alpha", "name": "alpha", "kind": "question", "text": "?", "id": "7-1"})
+	a.notifyEnd(map[string]any{"path": "/p/alpha", "id": "7-1"}) // attente finie
+	a.notificationClicked("7-1")
+	n := 0
+	for _, e := range native.all() {
+		if e["_name"] == "attentionFocus" && e["path"] == "/p/alpha" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("attentionFocus natif = %d, attendu 1 (attente finie : onglet sélectionné quand même)", n)
+	}
+	for _, e := range mirror.all() {
+		if e["_name"] == "attentionFocus" {
+			t.Errorf("attentionFocus envoyé au navigateur miroir : %v", e)
+		}
+	}
+}
