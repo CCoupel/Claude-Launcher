@@ -59,6 +59,10 @@ func withHome(t *testing.T) string {
 	winHome(t, h)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, "state"))
 	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	// indépendant de l'environnement de l'appelant : un CL_CONFIG_DIR (ou une racine de base) hérité déplacerait
+	// config.conf, backends.yaml et projects.json hors du dossier de config sous HOME que ces tests attendent
+	t.Setenv("CL_CONFIG_DIR", "")
+	t.Setenv(RootBaseVar, "")
 	return h
 }
 

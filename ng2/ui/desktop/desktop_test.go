@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -106,7 +107,15 @@ func newApp(t *testing.T, emit Emitter) *App {
 	t.Helper()
 	fastTicks(t) // tour lent du surveillant à 150 ms : aucune attente de secondes dans les tests
 	a := NewApp(emit)
-	t.Cleanup(func() { stopBg(a) })
+	// Stop (idempotent) puis attente des tâches suivies : relectures lancées par les réglages (applyWebUI, readCtr…), serveur
+	// web, terminaux ; un écrivain encore actif au moment de l'effacement du TempDir fait échouer RemoveAll sous Windows
+	// (« directory is not empty »). Le gestionnaire d'état, lui, est arrêté et attendu dans waitBackground.
+	t.Cleanup(func() {
+		a.Stop()
+		if !a.waitBackground(15 * time.Second) {
+			t.Errorf("tâches de fond de l'App encore actives 15 s après Stop : un écrivain tardif ferait échouer l'effacement du TempDir")
+		}
+	})
 	return a
 }
 
@@ -115,6 +124,49 @@ func stopBg(a *App) {
 	if a != nil && a.mgr != nil {
 		a.mgr.Stop()
 	}
+}
+
+// drainTree : os.RemoveAll de dir, retenté jusqu'à l'échéance tant que des écritures tardives le font échouer. Sur échec
+// définitif, DIT ce qui reste (chemin, taille, âge de chaque fichier ; xdg_cache_home et claude_config_dir d'abord) :
+// c'est ce qui permet d'identifier l'écrivain tardif d'un « directory is not empty » vu seulement en CI Windows.
+func drainTree(t *testing.T, dir string, within time.Duration) {
+	t.Helper()
+	var err error
+	for end := time.Now().Add(within); ; time.Sleep(25 * time.Millisecond) {
+		if err = os.RemoveAll(dir); err == nil {
+			return
+		}
+		if time.Now().After(end) {
+			break
+		}
+	}
+	var left []string
+	_ = filepath.Walk(dir, func(p string, st os.FileInfo, werr error) error {
+		if werr != nil || st == nil {
+			left = append(left, p+" (illisible : "+fmt.Sprint(werr)+")")
+			return nil
+		}
+		kind := "fichier"
+		if st.IsDir() {
+			kind = "dossier"
+		}
+		rel, _ := filepath.Rel(dir, p)
+		left = append(left, fmt.Sprintf("%-8s %s  %d o  modifié il y a %s", kind, rel, st.Size(), time.Since(st.ModTime()).Round(time.Millisecond)))
+		return nil
+	})
+	sort.SliceStable(left, func(i, j int) bool { // caches et config claude d'abord : ce sont les écrivains tardifs habituels
+		pri := func(s string) int {
+			if strings.Contains(s, "xdg_cache_home") || strings.Contains(s, "claude_config_dir") {
+				return 0
+			}
+			return 1
+		}
+		return pri(left[i]) < pri(left[j])
+	})
+	if len(left) > 40 {
+		left = append(left[:40], fmt.Sprintf("… et %d autres", len(left)-40))
+	}
+	t.Errorf("effacement du bac à sable impossible après %s (%v) ; reste :\n  %s", within, err, strings.Join(left, "\n  "))
 }
 
 // sandbox : HOME, config, CLAUDE_CONFIG_DIR et racine de projets isolés ; un
@@ -134,11 +186,18 @@ func sandbox(t *testing.T, root string, names ...string) (projects []string) {
 		t.Setenv("USERPROFILE", filepath.Join(root, "home"))
 	}
 	t.Setenv("CL_ROOTS", filepath.Join(root, "PROJETS"))
+	// dernier nettoyage (s'exécute APRÈS l'arrêt de l'App et l'attente des cartes) : une écriture de cache d'une tâche de
+	// fond qui finit juste après la fin du test ferait échouer le RemoveAll de t.TempDir (« directory not empty », #224) —
+	// on vide l'arborescence avec reprises jusqu'à une échéance, avant que t.TempDir ne s'en charge
+	t.Cleanup(func() { drainTree(t, root, 5*time.Second) })
 	t.Cleanup(cardsBg.Wait) // cartes complétées en tâche de fond : finies avant le nettoyage
 	t.Setenv("CL_NO_UPDATE", "1")
 	oldOwner := foreignOwner.Get() // jamais d'interrogation des moteurs (ni du réseau) dans les tests
 	foreignOwner.Set(func(string) string { return "" })
 	t.Cleanup(func() { foreignOwner.Set(oldOwner) })
+	oldRun := runningOwner.Get() // idem : aucun listing des moteurs
+	runningOwner.Set(func(string) string { return "" })
+	t.Cleanup(func() { runningOwner.Set(oldRun) })
 	// un podman présent (runner de CI) crée son stockage sous XDG_DATA_HOME,
 	// avec des droits que le nettoyage de t.TempDir ne peut pas effacer : hors
 	// du dossier temporaire du test
@@ -212,12 +271,19 @@ func TestDispatch(t *testing.T) {
 	if err != nil || !strings.Contains(fmt.Sprint(res), "rien ne tourne") {
 		t.Errorf("close : %v %v", res, err)
 	}
-	if _, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(filepath.Dir(a.projectPaths()[0]))+`,"name":"../x"}`)); err == nil {
-		t.Error("nom invalide accepté")
+	// #214 (contrat CHANGED) : create = base (racine configurée) + catégorie + nom ; un refus est { ok:false, field, msg }
+	cat := filepath.Dir(a.projectPaths()[0]) // <racine>/TEST
+	root, category := filepath.Dir(cat), filepath.Base(cat)
+	refuse := func(name, field, motif string) {
+		t.Helper()
+		res, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(root)+`,"category":`+strconv.Quote(category)+`,"name":`+strconv.Quote(name)+`}`))
+		m, _ := res.(map[string]any)
+		if err != nil || m == nil || m["ok"] != false || m["field"] != field || !strings.Contains(fmt.Sprint(m["msg"]), motif) {
+			t.Errorf("create %q = %v, %v ; attendu {ok:false, field:%q, msg ~ %q}", name, res, err, field, motif)
+		}
 	}
-	if _, err := a.Dispatch("create", json.RawMessage(`{"base":`+strconv.Quote(filepath.Dir(a.projectPaths()[0]))+`,"name":"alpha"}`)); err == nil || !strings.Contains(err.Error(), "existe déjà") {
-		t.Errorf("dossier existant accepté : %v", err)
-	}
+	refuse("../x", "name", "nom invalide")
+	refuse("alpha", "name", "existe déjà")
 }
 
 func TestReleaseSpansAndMsCard(t *testing.T) {
@@ -264,9 +330,9 @@ func TestHostProjectWithTmux(t *testing.T) {
 		t.Skip("tmux absent")
 	}
 	ps := sandbox(t, "", "alpha")
-	sock := "cl-desk-test-" + strconv.Itoa(os.Getpid())
+	sock := uniqueDeskSocket("cl-desk-test-")
 	t.Setenv("CL_DESK_SOCKET", sock)
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() })
+	t.Cleanup(func() { killDeskServer(sock) })
 	fake := filepath.Join(t.TempDir(), "claude")
 	_ = os.WriteFile(fake, []byte("#!/bin/sh\necho faux claude prêt\nwhile read -r l; do echo \"reçu:$l\"; done\n"), 0o755)
 	t.Setenv("CL_CLAUDE_BIN", fake)

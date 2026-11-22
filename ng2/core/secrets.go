@@ -699,8 +699,12 @@ func sshBaseArgs(backend string, connectTimeout string) []string {
 // journalSecret : une ligne par écriture, dans <CacheDir>/secrets-journal.jsonl (hors du coffre) ; écrite AVANT le secret :
 // un journal inaccessible refuse l'écriture ; (backend, type, action, empreinte, source) — jamais de contenu.
 func journalSecret(backend, secret, action, fingerprint, source string) error {
-	b, _ := json.Marshal(map[string]string{"at": time.Now().UTC().Format(time.RFC3339), "backend": backend, "secret": secret,
-		"action": action, "fingerprint": fingerprint, "source": source, "instance": secretsInstance(), "launcher": LauncherID()})
+	rec := map[string]string{"at": time.Now().UTC().Format(time.RFC3339), "backend": backend, "secret": secret,
+		"action": action, "source": source, "instance": secretsInstance(), "launcher": LauncherID()}
+	if fingerprint != "" { // une révélation ne porte NI valeur NI longueur NI empreinte : la clé n'est pas écrite du tout
+		rec["fingerprint"] = fingerprint
+	}
+	b, _ := json.Marshal(rec)
 	f, err := os.OpenFile(filepath.Join(CacheDir(), secretJournal), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return fmt.Errorf("journal des écritures inaccessible (%s) : écriture refusée", err)

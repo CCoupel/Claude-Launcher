@@ -82,6 +82,7 @@ func (a *App) refreshProject(path string) (any, error) {
 	if err := a.checkProjectArg(true, path); err != nil {
 		return nil, err
 	}
+	_ = a.confNow() // config.conf relu à l'instant : le rafraîchissement part de la valeur à jour (#225)
 	if _, busy := a.refreshing.LoadOrStore(path, true); busy {
 		return map[string]any{"ok": false, "msg": "rafraîchissement déjà en cours"}, nil
 	}
@@ -308,7 +309,7 @@ func (a *App) ctrCopy() core.CtrView {
 // refreshSession : session de reprise, et onglet retiré s'il n'a plus de
 // session ni de conteneur derrière lui.
 func (a *App) refreshSession(path string, reliable bool) error {
-	r, has := a.conf().PendingSession(path)
+	r, has := a.confNow().PendingSession(path)
 	a.mu.Lock()
 	if has {
 		a.sessions[path] = r
@@ -326,8 +327,8 @@ func (a *App) refreshSession(path string, reliable bool) error {
 	if t != nil && t.info().State != "opening" {
 		gone := false
 		switch {
-		case t.host:
-			gone = !hostSessionAlive(t.sock, t.sess)
+		case t.host.Load():
+			gone = !hostSessionAlive(t.hostTarget())
 		case hasEnv:
 			gone = !hasLive
 		}
@@ -380,8 +381,12 @@ func (a *App) refreshTpl(path string) {
 // refreshUsage : consommation ; dans le délai minimal après un échec de l'API,
 // la valeur en cache est rendue sans appel.
 func (a *App) refreshUsage() {
+	if !a.usageBegin() {
+		return
+	}
+	defer a.usageGate.end()
 	core.LinkUsageCache()
-	core.FetchUsageForced(a.conf().UsageRefreshSec)
+	core.FetchUsageForced(a.confNow().UsageRefreshSec)
 	u := core.ReadUsage()
 	a.mu.Lock()
 	a.usage = u
@@ -398,8 +403,8 @@ func (a *App) forceInput(p core.ProjInfo, t *projTerm) core.ForceInput {
 	a.mu.Lock()
 	in.Unreliable, in.NotRead = a.ctrUnreliableLocked(p.Backend), a.ctr.Env == nil
 	a.mu.Unlock()
-	if t != nil && t.host {
-		in.HostGone = t.info().State != "opening" && !hostSessionAlive(t.sock, t.sess)
+	if t != nil && t.host.Load() {
+		in.HostGone = t.info().State != "opening" && !hostSessionAlive(t.hostTarget())
 	}
 	return in
 }
@@ -428,7 +433,7 @@ func (a *App) canForce(path string, p core.ProjInfo) bool {
 	t := a.terms[path]
 	in := core.ForceInput{P: p, Tab: t != nil, K8s: a.backendIsK8s(p.Backend),
 		Unreliable: a.ctrUnreliableLocked(p.Backend), NotRead: a.ctr.Env == nil}
-	if t != nil && t.host {
+	if t != nil && t.host.Load() {
 		st := t.info().State
 		in.HostGone = st == "closed" || st == "error"
 	}
@@ -543,7 +548,7 @@ func (a *App) forceCloseConfirm(path string) (any, error) {
 	a.mu.Lock()
 	delete(a.closing, path)
 	a.mu.Unlock()
-	go a.readCtr()
+	a.bg(a.readCtr)
 	go a.readSessions()
 	a.changed()
 	a.cardsChanged()

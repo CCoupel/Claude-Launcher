@@ -2,6 +2,40 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261121] — v6.6.0 LOT-3 (complément #216) : env.yaml d'un projet refusé s'il tourne
+
+- **[CHANGED]** écriture de l'`env.yaml` d'un projet (`projectApply.env`, `configSave` / `configApply` sur `project-env`, F2 coque) refusée tant qu'un blocker #216 s'applique (ouvert ici, autre launcher, conteneur actif), revérifié à l'écriture : `{ "ok": false, "field": "env", "msg", "blockers" }` ; `configValidate` permis — `contracts/desktop-dispatch.md` « env.yaml d'un projet refusé… »
+- **[NEW]** `projectSettings.envLocked` / `envLockReason` (indicatifs, sans interroger les moteurs) ; `configOpen` (`project-env`) : `readOnly`, `readOnlyReason` — pas `configModel` (sans modèle structuré pour `project-env`, écart accepté)
+- **[CHANGED]** (décision utilisateur) backend injoignable et projet non ouvert ici : écriture d'`env.yaml` **autorisée** avec `warn` (« état du conteneur inconnu… ») ; refus seulement sur blocker confirmé ; déplacement **et backend / image** restent fail-closed (refus) ; « non vérifiable » = délai dépassé **ou** échec rapide du backend (conteneur seulement : un projet sur l'hôte n'est jamais « non vérifiable ») ; contrôle complet hors verrou à l'écriture puis revérification rapide sous verrou sur l'état mémorisé (fenêtre courte non couverte, admise) — 60ae84f
+- Exceptions : création (`create`), approbation (`envTrustAnswer`), étape `trust` de `projectMove` — jamais bloquées
+
+## [20261121] — v6.6.0 LOT-4.2 : corrections de revue (#226, #227)
+
+- **[CHANGED]** `note` de `configSave` / `configApply` par type : retiré pour `config.conf` (remplacé par `effect` / `apply`), **conservé** pour `backends.yaml`, `hub`, `env.yaml` (launcher) et `project-env` tant que leurs pastilles n'existent pas — `contracts/desktop-dispatch.md` « v6.6.0 — LOT-4 »
+- **[CHANGED]** `configModel` : `reveal` toujours présent (`true|false`) pour une entrée secrète, `false` explicite en accès distant
+
+## [20261121] — v6.6.0 LOT-4 (plan) : config à chaud, effet des options, éléments cachés (#225, #226, #227)
+
+- **[CHANGED]** `config.conf` relu par date avant toute recopie dans `settings.json` et toute action qui en dépend ; `configApply` / `configSave` / `configReload` appellent `SyncLauncherEnv` (champ `sync`) ; coque : relecture à chaud sans relancer le nav — `contracts/desktop-dispatch.md` « v6.6.0 — LOT-4 »
+- **[NEW]** `configModel.settings[].effect` (`immediate|project|claude|launcher`) et `effectHow` (bulle : `why`, `do`, `shell`, `action` — remplace `effectHelp`, maquette #226 A révisée) ; `configApply.apply` (`changed`, `relaunch`, `projects`) — **[CHANGED]** `ConfigReloadNote` retiré
+- **[NEW]** `secretReveal {kind, key}` (maquette #227 A, H7/H8 validées) : clés `secret` seulement, jamais journalisée, refusée depuis un accès web distant, `no-store`, 10/min ; `configModel` : `reveal` par entrée secrète
+
+## [20261120] — v6.6.0 (plan) : gestion des projets (#214 à #219)
+
+- **[NEW]** `core.ResolveProjectPath` : base ∈ racines configurées, catégorie relative sans `..`, contrôle après liens symboliques — appliquée par `create`, `categoryCreate`, `projectMove` (et la coque tmux) — `contracts/desktop-dispatch.md` « v6.6.0 »
+- **[NEW]** `projectBases`, `projectCategories`, `categoryCreate`, `createCancel`, instantané `newJob`, évènement `initProposal` / `initProposalAnswer`
+- **[CHANGED]** `create` : `base` = racine configurée seulement (+ `category`, `newCategory`), `source` `empty|git|template`, `url`, asynchrone pour `git`, nettoyage complet sur échec — un appel v6.5.0 avec `base` = dossier de catégorie est refusé (interface et backend livrés ensemble, aucun client externe)
+- **[CHANGED]** (amendement #215, 2026-11-21) `create` : l'interface n'émet plus `raw` (ignoré s'il est reçu) ; `source: empty` = « Projet brut » : `git init` + `remote` s'il est fourni, sans marqueur `init-proposed` ni `/init-project` ni CLAUDE.md minimal ; `template` = `git init` + `remote` facultatif + `/init-project` proposé
+- **[CHANGED]** `newInfo` : `bases`, `default`, `auth` (présence du jeton / des clés, jamais leur valeur), `template` ; `roots` gardé (retrait en v7)
+- **[CHANGED]** (#216, 3a36ba7) `projectMove` / reprise / annulation : verrou **par projet** (source et destination, `moves-locks/`) en plus du verrou du journal, refus « un déplacement est déjà en cours pour ce projet » ; blockers revérifiés avant `dir` et avant `ctr` ; copie entre systèmes de fichiers durable (fsync) et contrôlée par **SHA-256 par fichier** avant suppression de la source (au lieu de « nombre et taille »), dates et liens recopiés ; `moves.json` illisible → tout déplacement refusé, jamais réécrit ; `trust.json` illisible ne bloque que les projets à environnement ; `impacts[].label` aussi sur `conf` (clé partagée par deux projets de même nom)
+- **[CHANGED]** (précision #216, revue LOT-3) annulation / retour arrière : `config.conf` rétabli à l'équivalent sémantique (mêmes clés et valeurs), pas à l'octet près (ordre, forme `["clé"]`, commentaire de fin de ligne)
+- **[NEW]** (amendement #216, 2026-11-21, écart signalé ec0fd75) `projectMoveResume` / `projectMoveAbort {id}` (« Reprendre » / « Annuler » un déplacement inachevé de `moves.json`) ; **[CHANGED]** `projectMoveInfo` : destination facultative → `dest` (clé recalculée `key`, `keyChanged`, `crossDevice`, `exists`, `impacts` du tableau « ce qui change ») et `pending` (entrée du journal : `id`, `from`/`to`, `fromKey`/`toKey`, `step`, `done`, `msg`)
+- **[NEW]** `projectMoveInfo`, `projectMove` (journal `moves.json`, retour arrière, état partiel repris)
+- **[NEW]** `launcherInfo` (sans `stale` ni `backup`), `relaunch` ; coque : `ctrl+r` contextuel (relance si l'annonce est affichée, rescan sinon) ; `FindStaleProcs` filtré sur `argv[0]` = nom du binaire, `argv[1]` ∈ {mirror, layout-watch}, `CL_INNER_SOCKET` du launcher
+- **[CHANGED]** sauvegarde `<exe>.bak-v<version>` avant mise à jour (une seule gardée) ; écriture atomique de `config.conf` (retentée sous Windows), balayage des `.config.conf.tmp-*`
+- **[NEW]** (amendement #215, audit LOT-2.2) approbation de l'environnement d'un projet cloné : registre `trust.json` (dossier de config, jamais dans le projet), `core.EnvTrust`, `LoadEnv` refuse `pending` et réduit `ignored` au socle choisi, évènement `envTrust`, `envTrustInfo`, `envTrustAnswer` (sha contrôlé), `projectSettings.envTrust`, `projectApply.envTrust: "review"` — **[CHANGED]** `open` : `{needTrust}` pour un projet cloné non approuvé en conteneur ; choix **définitif** (pas de re-demande après un pull — H4), revu par « Revoir » des réglages
+- **[RETIRÉ]** (révision GATE 2, jamais publié) `rollback`, `update-skip`, champ `stale` de l'instantané : retour arrière = procédure manuelle documentée
+
 ## [20261119] — v6.5.0 (plan rev2) : coffre partagé (#201), masquage par projet (#209)
 
 - **[BREAKING]** coffre des secrets **commun** au hub, à l'exe Windows et au pod, en clair (`0700`/`0600`) sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/secrets/` ; refus « sous la racine partagée » **supprimé** ; secrets de projet = `<projet>/PRIVATE/` (jamais écrits par le launcher) ; migration automatique des coffres v6.4.0, ancien conservé — `contracts/backends-remote.md` « Coffre des secrets »

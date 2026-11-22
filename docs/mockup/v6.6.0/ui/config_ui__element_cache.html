@@ -1,0 +1,89 @@
+<!--
+mockup:
+  composant: config_ui
+  feature: element_cache
+  version: 6.6.0
+  type: ui
+  issue: "#227"
+  validee_le: 2026-11-21
+  proposition_retenue: "A — Horizontal · Œil dans le champ (modèle pour tous les éléments cachés)"
+  complete: ["docs/mockup/v6.1.0/ui/config_ui__interface_structuree.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #227 — Élément caché (v6.6.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.grp{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0 4px 0 10px}
+.tab{background:var(--panel);border:1px solid var(--line2);color:var(--text2);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+.tab.on{background:var(--hl);border-color:var(--accent);color:var(--text)}
+
+.why{color:var(--muted);margin:6px 0 14px;font-size:12.5px;min-height:18px}
+
+.stage{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.win{background:var(--bg);border:1px solid var(--line2);border-radius:8px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+.wtitle{background:var(--head);padding:8px 14px;font-weight:600;display:flex;gap:10px;align-items:center}.wtitle .x{margin-left:auto;color:var(--muted)}
+.wbody{padding:14px 16px}
+label.l{display:block;color:var(--muted);font-size:11.5px;margin:10px 0 4px}
+.in,.sel{background:var(--input);border:1px solid var(--line2);border-radius:5px;padding:6px 9px;color:var(--text);min-height:30px;display:flex;align-items:center;gap:6px}
+.sel:after{content:"▾";margin-left:auto;color:var(--muted)}.in.focus{border-color:var(--accent)}
+.ro{background:transparent;border:1px dashed var(--line2);color:var(--text2);font-family:var(--mono);font-size:12px;padding:6px 9px;border-radius:5px;word-break:break-all}
+.ro b{color:var(--green);font-weight:500}
+.dim{color:var(--dim)}.mut{color:var(--muted)}.ok{color:var(--green)}.warn{color:var(--orange)}.err{color:var(--red)}
+.btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn{background:var(--panel);border:1px solid var(--line2);border-radius:5px;padding:6px 14px;color:var(--text)}.btn.pri{background:var(--accent);color:#04121c;border-color:var(--accent);font-weight:600}.btn.dis{opacity:.4}
+.seg{display:flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden}.seg span{flex:1;text-align:center;padding:6px 8px;border-right:1px solid var(--line2);color:var(--text2)}.seg span:last-child{border:0}.seg span.on{background:var(--hl);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+.card{border:1px solid var(--line2);border-radius:7px;padding:10px;background:var(--panel)}.card.on{border-color:var(--accent);background:var(--hl)}.card h4{margin:0 0 4px;font-size:13px}.card p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.4}
+.menu{background:var(--menu);border:1px solid var(--line2);border-radius:6px;padding:4px 0;margin-top:2px}.menu div{padding:5px 10px}.menu .h{background:var(--hl)}.menu .sep{border-top:1px solid var(--line2);padding:0;margin:4px 0}
+.note{border-left:3px solid var(--accent);background:var(--panel);padding:8px 10px;color:var(--text2);font-size:12px;line-height:1.5;border-radius:0 5px 5px 0;margin-top:10px}
+.note.w{border-color:var(--orange)}.note.e{border-color:var(--red)}.note.g{border-color:var(--green)}
+.term{background:#000;border:1px solid var(--line2);border-radius:6px;font:12px/1.45 var(--mono);color:#ddd;padding:10px 12px;white-space:pre;overflow:auto}
+.term .c{color:var(--cyan)}.term .g{color:var(--green)}.term .y{color:var(--yellow)}.term .o{color:var(--orange)}.term .d{color:#777}.term .r{color:var(--red)}.term .h{background:#1d3448}
+.cap{color:var(--muted);font-size:11.5px;margin:6px 0 4px;text-transform:uppercase;letter-spacing:.05em}
+.steps{display:flex;gap:6px;margin-bottom:12px}.steps span{flex:1;padding:6px 8px;border-radius:5px;background:var(--panel);color:var(--muted);font-size:12px;border:1px solid var(--line2)}.steps span.on{color:var(--text);border-color:var(--accent);background:var(--hl)}.steps span.done{color:var(--green)}
+table.imp{border-collapse:collapse;width:100%;font-size:12px}table.imp td{padding:4px 6px;border-top:1px solid var(--line)}table.imp td:first-child{color:var(--muted);white-space:nowrap}table.imp code{font-family:var(--mono);font-size:11.5px}
+.old{color:var(--dim);text-decoration:line-through}.arrow{color:var(--accent);padding:0 4px}
+.bar{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;font-size:12.5px}.bar.g{background:#183A2A}.bar.y{background:#3A3418}.bar .sp{margin-left:auto}.link{color:var(--accent);text-decoration:underline;cursor:pointer}
+.cfg{display:grid;grid-template-columns:150px 1fr;min-height:330px}.rub{background:var(--panel);border-right:1px solid var(--line2);padding:8px 0}.rub div{padding:6px 14px;color:var(--text2)}.rub div.on{background:var(--hl);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+.page{padding:12px 16px}.page h4{margin:0 0 2px;font-size:14px}.ex{color:var(--muted);font-size:12px;margin:0 0 10px}
+.box{border:1px solid var(--line2);border-radius:7px;background:var(--panel)}.bh{padding:6px 10px;border-bottom:1px solid var(--line2);font-weight:600;font-size:12.5px;display:flex;gap:8px;align-items:center}.bb{padding:8px 10px}
+.form{display:grid;grid-template-columns:150px 1fr;gap:6px 10px;align-items:center}.form>label{color:var(--muted);font-size:12px}
+.form3{display:grid;grid-template-columns:150px 1fr 150px;gap:6px 10px;align-items:center}.form3>label{color:var(--muted);font-size:12px}
+.eff{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;padding:1px 7px;border-radius:9px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.eff.i{color:var(--green);border-color:#2c5a43}.eff.l{color:var(--orange);border-color:#6a4a2c}.eff.p{color:var(--accent);border-color:#2c4f66}.eff.c{color:var(--purple,#C4A1FF);border-color:#54447a}
+.mod{box-shadow:inset 3px 0 0 var(--yellow)}.chk{color:var(--text2)}
+.sec{display:flex;align-items:center;gap:6px;background:var(--input);border:1px solid var(--line2);border-radius:5px;padding:4px 8px;min-height:30px;font-family:var(--mono);font-size:12px}.sec .eye{margin-left:auto;cursor:pointer;color:var(--muted);font-family:var(--ui)}.sec.rev{border-color:var(--orange)}
+.pop{background:var(--menu);border:1px solid var(--orange);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:12px;margin-top:4px}
+.btn.sm{padding:3px 9px;font-size:12px}.legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.yaml{background:var(--input);border:1px solid var(--line2);border-radius:5px;font:11.5px/1.5 var(--mono);padding:8px 10px;white-space:pre;color:var(--text2)}
+</style>
+</head>
+<body>
+<h1>Maquette #227 — élément de config caché (jeton GitHub) avec bouton œil (v6.6.0)</h1>
+<p class="sub">Un élément caché est <b>masqué par défaut</b> ; la valeur n'est demandée au serveur <b>qu'au clic</b> (jamais dans <code>configModel</code> ni dans un journal), affichée, puis re-masquée (clic, ou automatiquement après 30 s, ou en quittant la rubrique). <b>Cette mise en page vaut pour tous les éléments de config cachés.</b> Interface web distante (adresse publique) : révélation refusée, message à la place. Rubrique Launcher → Claude ; web et fenêtre native ; coque : sans page de config (sans objet).</p>
+<p class="why">Proposition retenue : A — Horizontal · Œil dans le champ (modèle pour tous les éléments cachés)</p>
+
+<section><div class="stage">
+<div class="win" style="width:620px"><div class="wtitle">⚙ Réglages — Launcher › Claude<span class="x">✕</span></div><div class="wbody">
+<div class="form">
+<label>Jeton GitHub</label><div class="sec">•••••••••••••••• <span class="mut" style="font-family:var(--ui)">(défini)</span><span class="eye" title="Afficher">👁</span></div>
+<label>Jeton GitHub (affiché)</label><div class="sec rev">ghp_7Hk2…………………………Qz91 <span class="mut" style="font-family:var(--ui);margin-left:6px">masqué dans 24 s</span><span class="eye" title="Masquer">◡</span></div>
+<label></label><div class="mut" style="font-size:11.5px">Saisir pour remplacer · <span class="link">Retirer</span></div>
+<label>Variables ajoutées</label><div class="in">2 variables</div>
+</div>
+<div class="note e">Accès web distant (https://launcher.local) : « 👁 indisponible à distance — afficher depuis la fenêtre native ou l'accès local ».</div>
+</div></div>
+<div style="width:260px"><div class="cap">Règles</div><div class="note">Le champ révélé est en lecture seule ; le modifier revient à « saisir pour remplacer » (le champ se vide).</div><div class="note">Changement de rubrique, fermeture, 30 s : re-masqué, valeur effacée de la page.</div></div></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux</div>
+<div class="term"><span class="d"> Sans objet : la coque n'a pas de page de configuration (claude-launcher-ng2 configure ouvre config.conf dans l'éditeur).</span></div>
+</section>
+</body>
+</html>

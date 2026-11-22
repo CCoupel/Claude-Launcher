@@ -35,7 +35,7 @@ var helpSections = []helpSection{
 		{"double-clic catégorie", "créer un projet dans ce dossier"},
 		{"Tab, Alt+← Alt+→", "passer du navigateur à tmux et retour"},
 		{"Ctrl+← Ctrl+→, bordure", "largeur du navigateur (mémorisée)"},
-		{"Ctrl+R", "rescanner les projets"},
+		{"Ctrl+R", "rescanner les projets (relancer le launcher quand l'annonce « relancer » est affichée)"},
 		{"F2", "reconfigurer l'exécution du projet fermé (hôte, socle, backend)"},
 		{"F5", "mises à jour, consommation, liste des projets et relecture complète du projet sélectionné (conteneurs, sessions, git, diagnostic)"},
 		{"Ctrl+U, clic sur ✕", "masquer les annonces de mise à jour"},

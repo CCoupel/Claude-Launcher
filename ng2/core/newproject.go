@@ -3,30 +3,53 @@ package core
 import (
 	"claude-launcher-ng2/platform"
 	"errors"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // ApplyImage : socle img pour le projet — env.yaml modifié (ou créé) seulement
 // si l'environnement fusionné n'a pas déjà ce socle.
-func ApplyImage(dir, img string) error {
+func ApplyImage(dir, img string) error { return applyImage(dir, img, nil) }
+
+func applyImage(dir, img string, recheck func() []string) error {
 	if e, err := LoadEnv(dir); err == nil && e.Image == img {
 		return nil
 	}
-	return setEnvImage(dir, img) // absent, sans image valable, ou autre socle
+	return setEnvImageChecked(dir, img, recheck) // absent, sans image valable, ou autre socle
 }
 
 // ApplyExec : affectation du projet — img vide : sur l'hôte ; sinon le socle
 // img crée env.yaml, ou change sa ligne image: s'il existe déjà (hôte :
 // env.yaml gardé), et le projet est affecté au backend conteneur be.
-func ApplyExec(dir, img, be string) error {
+func ApplyExec(dir, img, be string) error { return ApplyExecChecked(dir, img, be, nil) }
+
+// ApplyExecChecked : ApplyExec d'un projet EXISTANT (F2) ; recheck (rapide : état mémorisé) est revérifié juste avant
+// l'écriture de l'env.yaml, sous son verrou, et avant l'affectation — refus : EnvLockedError. Nil : création / clone, sans garde.
+func ApplyExecChecked(dir, img, be string, recheck func() []string) error {
+	locked := func() error {
+		if recheck != nil {
+			if b := recheck(); len(b) > 0 {
+				return &EnvLockedError{Blockers: b}
+			}
+		}
+		return nil
+	}
 	if img == "" {
+		if err := locked(); err != nil {
+			return err
+		}
 		return WriteAssignment(dir, "host")
 	}
-	if err := ApplyImage(dir, img); err != nil {
+	if err := applyImage(dir, img, recheck); err != nil {
+		return err
+	}
+	if err := locked(); err != nil {
 		return err
 	}
 	return WriteAssignment(dir, be)
@@ -40,6 +63,40 @@ func ValidProjectName(s string) string {
 		return "nom requis"
 	case strings.ContainsAny(s, `/\`) || strings.HasPrefix(s, "."):
 		return "nom invalide (ni / ni . au début)"
+	}
+	return ""
+}
+
+var (
+	remoteHelperRe = regexp.MustCompile(`^[A-Za-z0-9+.-]+::`)
+	remoteCredsRe  = regexp.MustCompile(`^[^/@:\s]+:[^/@\s]*@`) // user:pass@hôte:chemin (forme scp)
+)
+
+// ValidateRemote : "" si url peut être liée comme remote `origin` (facultatif : vide accepté), sinon la raison. Refus : un
+// « - » en tête (option git), espaces et caractères de contrôle, identifiants user:pass@ (URL ou forme scp), transports
+// à assistant `ext::` / `fd::` (et tout « <assistant>:: »). `file://` et les chemins locaux restent acceptés.
+func ValidateRemote(raw string) string {
+	r := strings.TrimSpace(raw)
+	switch {
+	case r == "":
+		return ""
+	case strings.HasPrefix(r, "-"):
+		return "URL du remote invalide (ne commence pas par -)"
+	case strings.IndexFunc(r, func(c rune) bool { return unicode.IsSpace(c) || unicode.IsControl(c) }) >= 0:
+		return "URL du remote invalide (espace ou caractère de contrôle)"
+	case remoteHelperRe.MatchString(r):
+		return "URL du remote refusée (transport à assistant ext:: / fd::)"
+	case remoteCredsRe.MatchString(r):
+		return "URL du remote refusée (pas d'identifiants user:pass@ dans l'URL)"
+	}
+	if i := strings.Index(r, "://"); i > 0 {
+		if u, err := url.Parse(r); err != nil {
+			return "URL du remote invalide"
+		} else if u.User != nil {
+			if _, hasPw := u.User.Password(); hasPw {
+				return "URL du remote refusée (pas d'identifiants user:pass@ dans l'URL)"
+			}
+		}
 	}
 	return ""
 }
@@ -63,7 +120,10 @@ func InitProject(dir string, raw bool, remote string) error {
 		return errors.New("git init : " + strings.TrimSpace(string(out)))
 	}
 	if r := strings.TrimSpace(remote); r != "" {
-		if out, err := gitIn("remote", "add", "origin", r).CombinedOutput(); err != nil {
+		if why := ValidateRemote(r); why != "" { // garde explicite, en plus du « -- » : jamais une option ni un transport à assistant
+			return errors.New("git remote : " + why)
+		}
+		if out, err := gitIn("remote", "add", "--", "origin", r).CombinedOutput(); err != nil {
 			return errors.New("git remote : " + strings.TrimSpace(string(out)))
 		}
 	}

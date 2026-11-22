@@ -31,10 +31,12 @@ type Emitter func(name string, data any)
 
 // App : état du launcher vu par l'interface.
 type App struct {
-	openGate openGate // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
-	cfg      core.Config
-	confMu   sync.RWMutex // cfg relue à chaud (config.go)
-	confAt   time.Time    // date de config.conf à la dernière lecture (changement extérieur relu, #153)
+	reveal    revealLimiter // plafond des révélations d'éléments cachés par session (#227)
+	usageGate openGate      // relevés de consommation en cours (écrivent usage.json / .err) : attendus à l'arrêt, bornés
+	openGate  openGate      // ouvertures de projet en cours (prepare : bootstrap, session) ; attendues à l'arrêt (#198)
+	cfg       core.Config
+	confMu    sync.RWMutex // cfg relue à chaud (config.go)
+	confCheck atomic.Int64 // dernière comparaison de config.conf par conf() (ns) : au plus une par seconde (#225)
 	// layoutOv : organisation demandée d'un projet, appliquée AVANT l'écriture de config.conf (bascule du
 	// bouton : la mise en page ne attend pas le partage réseau) ; "" : le projet suit LAYOUT_MODE. Retirée une
 	// fois config.conf écrit (ou en cas d'échec). Garde : confMu.
@@ -67,10 +69,14 @@ type App struct {
 	mgr        *core.StateMgr
 	upd        updState
 	perf       perfLog
-	bgWG       sync.WaitGroup // tâches de fond du démarrage (bg), attendues par waitBackground
-	treeCached bool           // arbre repris du lancement précédent (relu en tâche de fond)
-	hubCache   string         // cache d'état du hub Linux (hubs.<machine>.hub_cache)
-	hubWarns   []string       // clés inconnues de hubs: dans backends.yaml (#127), ignorées
+	jobMu      sync.Mutex // création asynchrone (source git, newproject.go)
+	job        *createJob
+	proposedMu sync.Mutex // projets dont la proposition /init-project a été faite (ou refusée) dans ce processus
+	proposed   map[string]bool
+	bgGate     openGate // tâches de fond (bg), attendues par Stop (borné) et waitBackground ; compteur sous verrou : pas de course Add/Wait
+	treeCached bool     // arbre repris du lancement précédent (relu en tâche de fond)
+	hubCache   string   // cache d'état du hub Linux (hubs.<machine>.hub_cache)
+	hubWarns   []string // clés inconnues de hubs: dans backends.yaml (#127), ignorées
 
 	// instantanés lus sans a.mu par les méthodes de la fenêtre Réglages (#118) :
 	// un rafraîchissement lent (conteneurs, partage réseau) ne doit pas les retarder
@@ -113,9 +119,8 @@ func NewApp(emit Emitter) *App {
 	a := &App{cfg: cfg,
 		git: map[string]core.GitInfo{}, tpl: map[string]core.TemplateState{}, detail: map[string]core.GitDetail{},
 		sessions: map[string]core.Resumable{}, milestones: core.ReadMsCache(), closing: map[string]string{},
-		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{},
+		terms: map[string]*projTerm{}, started: time.Now(), fromCache: map[string]bool{}, proposed: map[string]bool{},
 		dirty: make(chan struct{}, 1), cardDirty: make(chan struct{}, 1), quit: make(chan struct{})}
-	a.confAt = confMtime()
 	a.emit = func(name string, data any) { // fenêtre native, et navigateur s'il est servi (#163)
 		emit(name, data)
 		if m := a.mirror.Load(); m != nil {
@@ -124,7 +129,7 @@ func NewApp(emit Emitter) *App {
 	}
 	a.perf.trace("démarrage : config", core.ConfigPath(), dConf)
 	a.tplVer = core.ReadTrim(core.TplVersionPath())
-	go core.WarmEngineEnv() // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
+	a.bg(core.WarmEngineEnv) // contexte docker lu d'avance (Windows : jusqu'à 4 s), pas à l'ouverture de Réglages
 	a.perf.timed("démarrage : hubs", core.BackendsPath(), func() {
 		a.hubCache = core.HubCacheDir()
 		a.hubWarns = core.HubConfigWarnings() // faute de frappe dans hubs: (config partagée) : signalée
@@ -292,10 +297,19 @@ func (a *App) Start() {
 }
 
 // bg : tâche de fond d'écriture au démarrage, suivie pour qu'on puisse attendre sa fin (waitBackground).
+// Refusée (rien ne tourne) une fois l'App arrêtée : plus d'écrivain tardif après Stop.
 func (a *App) bg(f func()) {
-	a.bgWG.Add(1)
-	go func() { defer a.bgWG.Done(); f() }()
+	select {
+	case <-a.quit:
+		return
+	default:
+	}
+	a.bgGate.begin()
+	go func() { defer a.bgGate.end(); f() }()
 }
+
+// bgStopWait : durée maximale pendant laquelle Stop attend les tâches de fond suivies.
+var bgStopWait = tun.Of(2 * time.Second)
 
 // waitBackground : attend (au plus max) la fin des tâches suivies par bg, et du gestionnaire d'état ; faux si le délai
 // est dépassé. Sert aux tests : l'évènement d'arrêt remplace une pause fixe avant l'effacement des dossiers temporaires.
@@ -303,7 +317,7 @@ func (a *App) waitBackground(max time.Duration) bool {
 	if a.mgr != nil {
 		a.mgr.Stop() // idempotent ; rend la main quand ses tâches de fond sont finies
 	}
-	return waitDone(&a.bgWG, max)
+	return a.bgGate.wait(max)
 }
 
 // Stop : l'interface se ferme ; les sessions des projets continuent dans tmux.
@@ -315,6 +329,8 @@ func (a *App) Stop() {
 		close(a.quit)
 	}
 	a.stopWebUI()
+	a.bgGate.wait(bgStopWait.Get())        // tâches de fond suivies (relevés, remises en page…) : bornées
+	a.usageGate.wait(usageStopWait.Get())  // un relevé de consommation en cours finit d'écrire son cache (borné)
 	a.waitOpenings(shutdownOpenWait.Get()) // une ouverture de projet en cours va au bout (délai de grâce du pod), #198
 	a.mu.Lock()
 	terms := make([]*projTerm, 0, len(a.terms))
@@ -694,7 +710,26 @@ func (a *App) storeBackends() {
 	a.bkSnap.Store(&bs)
 }
 
+// usageStopWait : durée maximale pendant laquelle Stop attend un relevé de consommation en cours d'écriture.
+var usageStopWait = tun.Of(2 * time.Second)
+
+// usageBegin : inscrit un relevé de consommation ; faux (rien inscrit) si l'App est arrêtée — plus aucun écrivain de
+// usage.json(.err) ne démarre après Stop (il écrivait dans un environnement déjà restauré / dossier en cours de suppression).
+func (a *App) usageBegin() bool {
+	select {
+	case <-a.quit:
+		return false
+	default:
+	}
+	a.usageGate.begin()
+	return true
+}
+
 func (a *App) readUsage() {
+	if !a.usageBegin() {
+		return
+	}
+	defer a.usageGate.end()
 	var u core.Usage
 	a.perf.timed("conso", core.ClaudeDir(), func() {
 		core.LinkUsageCache()
@@ -745,7 +780,7 @@ func (a *App) fetchMilestone(p string, force bool) error {
 		}
 		var s core.MsState
 		var err error
-		a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.conf().GithubToken) })
+		a.perf.timed("milestones (gh)", p, func() { s, err = core.ReadMilestones(p, a.confNow().GithubToken) })
 		if !force {
 			<-core.MsSem
 		}
@@ -833,6 +868,10 @@ type Snapshot struct {
 	OS       string     `json:"os"`
 	WebUI    WebUIState `json:"webUI"`  // interface web servie par la fenêtre (#163) ; jamais le jeton
 	Server   ServerInfo `json:"server"` // version et démarrage du serveur (#198)
+	// #219 : binaire remplacé depuis le démarrage (bandeau « Relancer ») ; détail et processus anciens : launcherInfo
+	Launcher LauncherSnap `json:"launcher"`
+	// #215 : création asynchrone (clonage) en cours ou terminée depuis moins de 30 s ; absent sinon
+	NewJob *NewJob `json:"newJob,omitempty"`
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -868,7 +907,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.Version(), Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo()}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap(), NewJob: a.newJobSnapLocked()}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {
@@ -1254,6 +1293,7 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 			Color    *string
 			Layout   *string
 			HideIdle *string
+			EnvTrust *string
 			Env      *struct {
 				MTime   string
 				Changes []core.ConfigChange
@@ -1261,6 +1301,17 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		}
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+		if in.EnvTrust != nil { // « Revoir » : l'entrée du registre repasse à pending (projet fermé)
+			if *in.EnvTrust != "review" {
+				return nil, fmt.Errorf("projectApply : envTrust « %s » inconnu", *in.EnvTrust)
+			}
+			if r := a.envTrustReview(in.Path); r["ok"] != true {
+				return r, nil
+			}
+			if in.Backend == nil && in.Image == nil && in.Color == nil && in.Layout == nil && in.HideIdle == nil && in.Env == nil {
+				return map[string]any{"ok": true}, nil
+			}
 		}
 		ch := core.ProjectChange{Backend: in.Backend, Image: in.Image, Color: in.Color, Layout: in.Layout, HideIdle: in.HideIdle}
 		if in.Env != nil {
@@ -1291,9 +1342,12 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	}
 	var arg struct {
 		Path, Pane, Data, Base, Name, Remote, Image, Backend, Kind, Mode string
+		Category, Source, URL                                            string
+		NewCategory, Run                                                 bool
+		Job, Choice, SHA, ID                                             string
 		Content, MTime, Text                                             string
 		Cols, Rows                                                       int
-		Raw, OpenNext, Binary                                            bool
+		Raw, OpenNext, Binary, Confirm                                   bool
 	}
 	if len(raw) > 0 && string(raw) != "null" {
 		if err := json.Unmarshal(raw, &arg); err != nil {
@@ -1384,7 +1438,35 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 	case "newInfo":
 		return a.newInfo(arg.Path), nil
 	case "create":
-		return a.create(arg.Base, arg.Name, arg.Raw, arg.Remote, arg.Image, arg.Backend)
+		return a.create(createArgs{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name,
+			Source: arg.Source, Raw: arg.Raw, Remote: arg.Remote, URL: arg.URL, Image: arg.Image, Backend: arg.Backend})
+	case "projectMoveInfo": // destination facultative (base, category, newCategory, name) : « ce qui change », sans rien écrire
+		var dest *core.MoveTarget
+		if arg.Base != "" || arg.Name != "" || arg.Category != "" {
+			dest = &core.MoveTarget{Base: arg.Base, Category: arg.Category, NewCategory: arg.NewCategory, Name: arg.Name}
+		}
+		return a.projectMoveInfo(arg.Path, dest)
+	case "projectMove":
+		return a.projectMove(moveArgs{Path: arg.Path, Base: arg.Base, Category: arg.Category, Name: arg.Name, NewCategory: arg.NewCategory})
+	case "projectMoveResume":
+		return a.projectMoveResume(arg.ID)
+	case "projectMoveAbort":
+		return a.projectMoveAbort(arg.ID)
+	case "envTrustInfo":
+		return a.envTrustInfo(arg.Path)
+	case "envTrustAnswer":
+		return a.envTrustAnswer(arg.Path, arg.Choice, arg.SHA)
+	case "createCancel":
+		return a.createCancel(arg.Job)
+	case "initProposalAnswer":
+		return a.initProposalAnswer(arg.Path, arg.Run)
+	case "projectBases":
+		b, d := a.projectBases()
+		return map[string]any{"bases": b, "default": d}, nil
+	case "projectCategories":
+		return a.projectCategories(arg.Base)
+	case "categoryCreate":
+		return a.categoryCreate(arg.Base, arg.Category)
 	case "execApply":
 		return a.execApply(arg.Path, arg.Image, arg.Backend, arg.OpenNext)
 	case "termInput":
@@ -1467,12 +1549,22 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 			return nil, err
 		}
 		return a.configSaveAs(web, core.ConfigKind(arg.Kind), arg.Path, arg.Content, arg.MTime)
-	case "configModel": // écran Réglages (#118) : fichier lu en modèle
-		return a.configModel(core.ConfigKind(arg.Kind), arg.Path)
+	case "configModel": // écran Réglages (#118) : fichier lu en modèle ; l'œil des secrets : fenêtre native seulement ici
+		return a.configModelFor(!web, core.ConfigKind(arg.Kind), arg.Path)
+	case "secretReveal": // #227 : élément caché, à la demande — web : refusé (l'accès local passe par DispatchWeb)
+		iface := "fenêtre native"
+		if web {
+			iface = "web"
+		}
+		return a.secretReveal(iface, web, "native", raw)
 	case "backendStates": // états et charge des pools, depuis le cache du diagnostic
 		return a.backendStates(), nil
 	case "quit":
 		return nil, a.quitApp(arg.Mode)
+	case "launcherInfo": // #219 : binaire remplacé, version installée, processus anciens
+		return a.launcherInfo(), nil
+	case "relaunch": // #219 : relance sur le binaire installé ; la confirmation est faite par l'interface
+		return a.relaunchLauncher(arg.Confirm)
 	case "webUIOpen": // #163 : interface web de la fenêtre dans le navigateur du poste
 		return a.webUIOpen(), nil
 	case "webUIRegen": // jeton régénéré : sessions et flux des navigateurs révoqués

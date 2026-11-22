@@ -192,6 +192,9 @@ func (a *App) install(tag, path, sum string) {
 		a.msg = "⚠ mise à jour : " + r.Err.Error()
 	case r.BinDone:
 		a.msg = "✓ " + tag + " installée — redémarrage…"
+		if r.Note != "" {
+			a.msg = "✓ " + tag + " installée (⚠ " + r.Note + ") — redémarrage…"
+		}
 	default:
 		a.msg = "✓ déjà à jour"
 		a.upd.hideLauncher = true

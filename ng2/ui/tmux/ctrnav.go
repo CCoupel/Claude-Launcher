@@ -68,7 +68,7 @@ func (m model) cycleBackend() model { // F2
 		return m
 	}
 	if m.windows[n.Key] {
-		m.msg = "F2 : projet ouvert — le fermer avant de changer de backend"
+		m.msg = "F2 : projet ouvert — fermez le projet pour modifier son environnement (backend, image, déplacement)"
 		return m
 	}
 	if core.HasEnv(n.Path) {

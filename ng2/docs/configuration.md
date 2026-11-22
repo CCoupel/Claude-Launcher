@@ -167,6 +167,94 @@ interpréteurs) :
 Les étapes `setup` et `on_start` tournent en utilisateur, dans le projet, avec
 `bash -e` : une erreur arrête l'ouverture (et `setup` sera retenté à la suivante).
 
+### Approbation d'un dépôt cloné (v6.6.0, #215)
+
+Un dépôt cloné n'est pas de confiance. S'il apporte `.claude-launcher/env.yaml` ou `env-template.yaml`
+(image, paquets, `setup`, `on_start`, `watch`, `mounts`, `local`), ce fichier n'est **jamais appliqué sans accord** :
+à la première ouverture du projet en conteneur, le launcher demande **Accepter**, **Ouvrir sans** (le projet
+s'ouvre avec la seule image choisie, rien d'autre du dépôt) ou **Annuler**.
+
+- **Quand c'est redemandé** : dès que `env.yaml` ou `env-template.yaml` change (par exemple après un `git pull`),
+  même si l'approbation précédente était « Accepter ». La question présente l'environnement courant ; elle n'affiche
+  pas de différence.
+- **Revoir** : dans les réglages du projet, « Revoir » remet l'approbation en attente ; la question revient à la
+  prochaine ouverture.
+- **Limite** : les scripts appelés par `setup` / `on_start` ne sont pas couverts par l'approbation. Accepter un
+  environnement, c'est accepter que ces scripts s'exécutent dans le conteneur.
+- **Registre `trust.json`** : il est partagé sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/` (exe Windows, hub et pod
+  s'accordent), jamais dans le projet. Une copie `trust.json.bak` est faite avant chaque écriture.
+- **Registre illisible** : le launcher refuse les projets concernés et ne réécrit rien. Message affiché :
+  « registre d'approbation illisible (<chemin>) : restaurez trust.json.bak ou supprimez trust.json pour repartir de zéro ».
+  Pour récupérer, restaurez `trust.json.bak`. Ou supprimez `trust.json` : **supprimer `trust.json` lève toutes les
+  approbations** ; les projets clonés devront être approuvés à nouveau.
+
+### Déplacer ou renommer un projet (v6.6.0, #216)
+
+Un projet se déplace vers une autre catégorie, une autre base, ou se renomme : clic droit sur le projet dans
+l'arbre ou sur sa carte, « Déplacer / renommer… ». Dans la coque tmux, la touche `m` dans F2.
+
+- **Avant de valider**, le dialogue montre ce qui change : nouveau chemin, nouvelle clé (nom de la fenêtre et du
+  conteneur), affectation de backend, réglages (couleur, organisation, masquage), historique de conversations,
+  conteneur, et l'approbation d'un dépôt cloné (« conservée »).
+- **Bloqueurs** : projet ouvert dans ce launcher (proposer « Fermer le projet »), ouvert par un autre launcher,
+  conteneur ou pod en cours d'exécution, déplacement inachevé. Destination identique, existante ou hors des bases
+  refusée. Rien n'est déplacé dans ces cas.
+- **Sur un autre système de fichiers** (ex. disque local vers base sur partage 9P), le dossier est copié, son contenu
+  est contrôlé fichier par fichier (SHA-256) puis la source est supprimée. Le déplacement peut être long.
+- **Ce qui suit le projet** : son historique de conversations, ses réglages et son approbation d'environnement.
+  Le conteneur ou le pod est **supprimé** et recréé au nouveau nom à la prochaine ouverture.
+- **Interruption** : si le launcher s'arrête en plein déplacement, il propose au relancement « Reprendre » ou
+  « Annuler ». Un projet à moitié copié n'apparaît jamais comme projet ; l'annulation remet `config.conf` à
+  l'équivalent de l'état d'origine (mêmes clés et valeurs, pas à l'octet près).
+
+### Modifier la configuration à chaud (v6.6.0, #225)
+
+Un changement de `config.conf` est pris en compte sans relancer le launcher. Le fichier est relu dès qu'il change
+(par date et contenu), avant toute action qui en dépend : ouverture d'un projet, création, lecture des milestones.
+Le `settings.json` des projets est recopié à l'enregistrement de la fenêtre `⚙ config` et à l'ouverture d'un projet ;
+il ne reste jamais plus ancien que `config.conf`.
+
+- **Fichier invalide** : le launcher garde la dernière copie valide et l'indique en pied de fenêtre. Corrigez le
+  fichier, la relecture se fait toute seule.
+- **Fichier absent** (ex. supprimé puis recréé dans un éditeur) : les réglages en mémoire sont gardés pendant 3 s ;
+  s'il est toujours absent après, les valeurs par défaut s'appliquent. Il est relu dès qu'il revient.
+- **Ce qui reste « relance du launcher »** : les racines (`Roots`) et `CLAUDE_CONFIG_DIR`, lus une seule fois au
+  démarrage. Après l'enregistrement, l'interface propose « Relancer le launcher ».
+- **Env. d'un projet (`env.yaml`)** : il n'est pas modifiable pendant que le projet est ouvert ici, ouvert par un
+  autre launcher, ou que son conteneur tourne : l'interface le met en lecture seule et le serveur refuse l'écriture
+  avec la raison. Si le backend ne répond pas, l'écriture reste permise avec un avertissement « état du conteneur
+  inconnu » ; un changement de backend ou d'image reste refusé dans ce cas.
+
+### Effet d'une option et éléments cachés (v6.6.0, #226, #227)
+
+**Pastille d'effet.** Chaque option de la fenêtre `⚙ config` porte une pastille qui dit quand elle prend effet.
+Survolez-la, donnez-lui le focus au clavier ou cliquez dessus pour ouvrir la bulle (elle se ferme en quittant la
+pastille, par Échap ou par un second appui).
+
+- **immédiat** : appliqué dès l'enregistrement (ex. couleurs, masquage des teammates inactifs).
+- **prochaine ouverture** : pris en compte à l'ouverture suivante d'un projet (ex. options de lancement).
+- **relance des sessions claude** : les sessions claude déjà ouvertes gardent l'ancienne valeur ; les nouvelles
+  l'ont (ex. désactivation de la souris de claude). Dans la coque tmux, la bulle indique la marche à suivre.
+- **relance du launcher** : les racines et `CLAUDE_CONFIG_DIR`. Voir [Modifier la configuration à chaud](#modifier-la-configuration-à-chaud-v660-225).
+
+**Rappel après enregistrement.** Un bandeau ne liste que les options modifiées, avec leur effet. Il propose, sans rien
+faire seul, « Rafraîchir » les projets ouverts concernés, ou « Relancer le launcher ». Rien n'est relancé ni
+rafraîchi automatiquement.
+
+Pour `backends.yaml`, le hub et `env.yaml`, la note de relecture reste affichée après enregistrement, tant que ces
+types n'ont pas leur pastille.
+
+**Éléments cachés.** Un mot de passe ou un jeton (ex. `GITHUB_TOKEN`) est masqué. L'œil dans le champ affiche la valeur :
+
+- la valeur reste en mémoire le temps de l'affichage seulement : elle est re-masquée au clic, après 30 s, au
+  changement de rubrique et à la fermeture de la fenêtre ;
+- elle n'est jamais écrite dans un champ éditable ni dans le stockage du navigateur ;
+- au plus 10 révélations par minute et par session ; un refus n'en consomme pas ;
+- le journal des écritures de secrets consigne « révélé : clé, interface, heure », jamais la valeur ;
+- **accès local seulement** : la révélation est refusée depuis un accès distant (adresse publique du serveur web).
+  Le message est « indisponible à distance — afficher depuis la fenêtre native ou l'accès local ». Un
+  `kubectl port-forward` vers le pod est un accès local : l'œil y est actif (l'accès kube donne déjà accès au pod).
+
 ### Configurer l'exécution d'un projet
 
 Le formulaire **Exécution** propose `0 hôte` puis les socles (`↑↓` ou un

@@ -206,7 +206,8 @@ function stRenderFoot() {
     for (const p of probs) left.appendChild(el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'),
       (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
   } else if (res && res.saved) {
-    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak).' + savedNote(res.note)));
+    if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (ST.loading) {
     left.appendChild(el('span', 'dim', 'Chargement…'));
   } else {
@@ -236,7 +237,7 @@ async function stSave() {
   const keep = { page: ST.page };
   await stLoad();
   ST.page = keep.page;
-  ST.result = { saved: true, note: r.note || '', problems: (r.problems || []).filter((p) => p.severity !== 'error') };
+  ST.result = { saved: true, note: r.note || '', warn: r.warn || '', problems: (r.problems || []).filter((p) => p.severity !== 'error') };
   stRender();
   stPoll();
 }
@@ -311,6 +312,8 @@ function stRenderPage(soft) {
   // rafraîchissement doux (états reçus) : ne pas écraser une saisie en cours
   if (soft && p.contains(document.activeElement) && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)) return;
   const top = p.scrollTop;
+  if (soft && typeof eyesShown === 'function' && eyesShown()) return; // valeur révélée : rafraîchissement doux ignoré
+  if (typeof eyesHide === 'function') eyesHide(); // #227 : changement de rubrique / nouveau rendu = valeurs re-masquées
   p.textContent = '';
   if (ST.loading && stEditable()) { p.appendChild(el('p', 'dim', 'Chargement…')); return; }
   if (!ST.draft && stEditable()) { p.appendChild(el('div', 't-red', 'Lecture impossible : ' + ((ST.loadProblems[0] || {}).message || 'erreur') + ' — utiliser « Éditer en YAML ».')); return; }
@@ -896,7 +899,7 @@ async function docSave(id) {
   const warn = (r.problems || []).filter((p) => p.severity !== 'error');
   if (typeof layoutDrop === 'function') { layoutDrop(); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // LAYOUT_MODE global peut avoir changé
   await docLoad(id);
-  if (ST.docs[id]) ST.docs[id].res = { saved: true, note: r.note || '', problems: warn };
+  if (ST.docs[id]) ST.docs[id].res = { saved: true, note: r.note || '', warn: r.warn || '', problems: warn, apply: r.apply || null };
   stRender();
 }
 
@@ -914,7 +917,8 @@ function docFoot(f, id) {
   } else if (probs.length) {
     for (const p of probs) left.appendChild(el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'), (p.severity === 'error' ? '✗ ' : '⚠ ') + (p.line ? 'ligne ' + p.line + ' : ' : '') + p.message));
   } else if (res && res.saved) {
-    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak). ' + (res.note || '')));
+    left.appendChild(el('span', 't-green', '✓ Enregistré (version précédente gardée en .bak).' + savedNote(res.note)));
+    if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (D.loading) left.appendChild(el('span', 'dim', 'Chargement…'));
   else left.appendChild(el('span', 't-green', '✓ valide'));
   const txt = el('button', 'btn', 'Éditer en YAML'); txt.onclick = () => stText(ST_KIND[ST.page]);
@@ -945,10 +949,29 @@ function confField(D, x) {
     return node;
   }
   if (x.type === 'secret') {
-    const w = el('span', 'stfont');
-    const i = el('input', 'stin'); i.type = 'password'; i.autocomplete = 'off'; i.placeholder = x.set ? '•••••• (défini — saisir pour remplacer)' : '(non défini)';
+    const w = el('span', 'stfont secwrap');
+    // œil (#227) : valeur demandée au clic, affichée dans un <span> en lecture seule (jamais un champ), re-masquée après 30 s
+    const disp = el('span', 'secdisp'); disp.setAttribute('aria-live', 'polite');
+    const tx = el('span', 'sectxt'); const hint = el('span', 'mut');
+    const eb = el('button', 'eye'); eb.type = 'button'; eb.textContent = '👁';
+    const off = !canReveal(x); // accès distant (reveal:false) ou serveur sans révélation : œil grisé
+    const eye = createEye(() => call('secretReveal', { kind: 'config.conf', key: x.key }), (st) => {
+      tx.textContent = st.shown ? st.value : (x.set ? '••••••••••••••••' : '');
+      hint.textContent = st.shown ? 'masqué dans ' + st.left + ' s' : st.busy ? '…' : (x.set ? '(défini)' : '(non défini)');
+      disp.classList.toggle('rev', st.shown);
+      eb.textContent = st.shown ? '◡' : '👁'; eb.title = st.shown ? 'Masquer' : 'Afficher';
+      if (st.msg) { msgEl.textContent = st.msg; } else msgEl.textContent = '';
+    });
+    const msgEl = el('div', 'fe err');
+    disp.append(tx, hint, eb);
+    if (off) { eb.disabled = true; eb.title = 'indisponible à distance — afficher depuis la fenêtre native ou l\'accès local'; }
+    else eb.onclick = () => eye.toggle();
+    tx.textContent = x.set ? '••••••••••••••••' : ''; hint.textContent = x.set ? '(défini)' : '(non défini)'; eb.title = 'Afficher';
+    if (!x.set) eb.disabled = true;
+    const i = el('input', 'stin'); i.type = 'password'; i.autocomplete = 'off'; i.placeholder = x.set ? 'saisir pour remplacer' : '(non défini)';
     i.addEventListener('input', () => { d.token = i.value; d.tokenDel = false; stRenderFoot(); });
-    w.appendChild(i);
+    w.append(disp, msgEl, i);
+    if (off && x.set) w.appendChild(el('div', 'mut', '👁 indisponible à distance — afficher depuis la fenêtre native ou l\'accès local'));
     if (x.set) w.appendChild(stBtn('Retirer', () => { d.tokenDel = true; d.token = ''; i.value = ''; i.placeholder = 'sera retiré à l\'enregistrement'; stRenderFoot(); }));
     return w;
   }
@@ -960,15 +983,51 @@ function confField(D, x) {
   return node;
 }
 
+// pastille d'effet (#226) : bulle au survol, au focus clavier ou à l'appui ; fermée par Échap, en quittant, ou par un second appui
+function effBadge(x) {
+  const ops = ((S.snap && S.snap.rows) || []).filter((r) => r.open && r.kind === 'project').map((r) => ({ name: r.name, path: r.path }));
+  const b = effectBubble(x, ops); if (!b) return null;
+  const wrap = el('span', 'effwrap');
+  const badge = el('button', 'eff ' + b.meta.cls, b.meta.label); badge.type = 'button'; badge.setAttribute('aria-haspopup', 'true');
+  const bub = el('div', 'effbub hidden'); bub.setAttribute('role', 'tooltip');
+  bub.append(el('div', 'effh ' + b.meta.cls, b.meta.label), el('div', '', ''));
+  bub.lastChild.append(el('b', '', b.title + ' : '), document.createTextNode(b.why));
+  if (b.doText) bub.append(el('div', '', b.doText));
+  if (b.shell) bub.append(el('div', 'mut', 'Coque Linux : ' + b.shell));
+  if (b.link) { const lk = el('button', 'link', b.link.text); lk.type = 'button'; lk.onclick = () => { runEffectLink(b.link); bub.classList.add('hidden'); }; bub.append(lk); }
+  let pin = false, tm = null;
+  const open = () => { clearTimeout(tm); bub.classList.remove('hidden'); };
+  const close = () => { pin = false; bub.classList.add('hidden'); };
+  wrap.addEventListener('mouseenter', open);
+  wrap.addEventListener('mouseleave', () => { if (!pin) { tm = setTimeout(close, 150); } });
+  wrap.addEventListener('focusin', open);
+  wrap.addEventListener('focusout', (e) => { if (!wrap.contains(e.relatedTarget) && !pin) close(); });
+  badge.onclick = (e) => { e.preventDefault(); if (pin) close(); else { pin = true; open(); } }; // appui (tactile) : ouvre, un second appui ferme
+  wrap.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !bub.classList.contains('hidden')) { e.stopPropagation(); e.preventDefault(); close(); badge.focus(); } });
+  wrap.append(badge, bub);
+  return wrap;
+}
+// rappel d'après enregistrement (#226) : seulement les options modifiées, actions proposées (jamais automatiques)
+function applyBar(p, D) {
+  const rem = D.res && D.res.apply ? applyReminder(D.res.apply, (k) => { const s = (D.model.settings || []).find((y) => y.key === k); return s ? s.label : k; }) : null;
+  if (!rem) return;
+  const bar = el('div', 'applybar');
+  const txt = el('div', 'at'); txt.append(el('b', 't-green', '✓ Enregistré'), document.createTextNode(' — ' + rem.lines.join(' · ')));
+  bar.appendChild(txt);
+  for (const a of rem.actions) { const bt = el('button', 'btn sm', a.text); bt.onclick = () => runEffectLink(a); bar.appendChild(bt); }
+  const x = el('button', 'btn sm', '✕'); x.title = 'Masquer'; x.onclick = () => { D.res.apply = null; bar.remove(); }; bar.appendChild(x);
+  p.appendChild(bar);
+}
 function stPageConf(p) {
   docPage(p, 'conf', 'Launcher', 'Réglages généraux du launcher, communs aux interfaces Linux et Windows.', (D) => {
     const bySet = {};
     for (const x of D.model.settings || []) (bySet[x.group] = bySet[x.group] || []).push(x);
+    applyBar(p, D);
     // Mise en page des panes (#153) : boîte dédiée en tête de page (LAYOUT_MODE, LAYOUT_LEFT_LEADER_PCT), pas noyée dans « Teams et panes »
     const layKeys = ['LAYOUT_MODE', 'LAYOUT_LEFT_LEADER_PCT'], layLabels = { LAYOUT_MODE: 'Mise en page des panes', LAYOUT_LEFT_LEADER_PCT: 'Largeur du leader (leader à gauche, %)' };
     const confRow = (x, label) => {
       const hint = [x.help, x.set ? '' : 'défaut : ' + confShow(x)].filter(Boolean).join(' · ');
-      const cell = el('div'); cell.appendChild(confField(D, x));
+      const cell = el('div', 'effcell'); cell.appendChild(confField(D, x)); const eb0 = effBadge(x); if (eb0) cell.appendChild(eb0);
       if (x.editable && x.set) {
         const rb = stBtn('↺ défaut', () => { D.d.v[x.key] = confDisplay(x, x.default); D.d.reset[x.key] = true; stRenderPage(); stRenderFoot(); }, 'dim');
         rb.title = 'retirer la ligne du fichier (valeur par défaut : ' + confShow(x) + ')'; cell.appendChild(rb);
@@ -988,7 +1047,7 @@ function stPageConf(p) {
         if (layKeys.includes(x.key)) continue;
         if (hideOn && hideDelay && hideOn.editable && hideDelay.editable && (x.key === 'TEAM_HIDE_IDLE_ENABLED' || x.key === 'TEAM_HIDE_IDLE')) continue;
         const hint = [x.help, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
-        const cell = el('div'); cell.appendChild(confField(D, x));
+        const cell = el('div', 'effcell'); cell.appendChild(confField(D, x)); const eb1 = effBadge(x); if (eb1) cell.appendChild(eb1);
         if (x.editable && x.type !== 'secret' && x.set) {
           const r = stBtn('↺ défaut', () => { D.d.v[x.key] = confDisplay(x, x.default); D.d.reset[x.key] = true; stRenderPage(); stRenderFoot(); }, 'dim');
           r.title = 'retirer la ligne du fichier (valeur par défaut : ' + confShow(x) + ')'; cell.appendChild(r);
@@ -1021,6 +1080,7 @@ function stHideIdleRow(D, on, delay) {
   const i = stInput(d.v[delay.key], (v) => { d.v[delay.key] = v; d.reset[delay.key] = false; }, '', 'w');
   i.inputMode = 'numeric'; i.disabled = !enabled;
   w.append(l, i, el('span', enabled ? '' : 'dim', 's'));
+  const eb2 = effBadge(on); if (eb2) w.appendChild(eb2);
   const hint = enabled ? 'teammates inactifs depuis ce délai : panes cachés ; 0 = jamais ; le leader et les actifs restent visibles' : 'masquage désactivé : aucun teammate n\'est caché (y compris ceux cachés à la main), le double-clic de masquage est indisponible ; délai conservé pour le rallumage';
   return ['Masquage des inactifs', w, hint];
 }
@@ -1320,8 +1380,8 @@ function stPageProjet(p) {
   const im = stInput(d.image, (v) => { d.image = v.trim(); }, 'image de base', 'w'); im.id = 'pjf-image'; im.disabled = open;
   const dl = el('datalist'); dl.id = 'pjimages'; for (const i of r.images || []) dl.appendChild(Object.assign(el('option'), { value: i }));
   im.setAttribute('list', 'pjimages');
-  const rows = [['Backend', be, open ? 'projet ouvert : le fermer avant de changer de backend ou d\'image' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
-    ['Image de base', im, 'ignorée pour le backend host'], ['Backend préféré', stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'), 'proposé aux autres postes (prefer, env.yaml)']];
+  const rows = [['Backend', be, open ? ENV_LOCK_MSG + ' (backend et image)' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
+    ['Image de base', im, 'ignorée pour le backend host'], ['Backend préféré', (() => { const pf = stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'); const l2 = envLock({ open }, 'project-env', r); if (l2.locked) { pf.disabled = true; pf.title = l2.why; } return pf; })(), envLock({ open }, 'project-env', r).locked ? envLock({ open }, 'project-env', r).why + ' (env.yaml)' : 'proposé aux autres postes (prefer, env.yaml)']];
   const sw = el('span', 'pjcolors'); sw.id = 'pjf-color';
   const mk = (val, label, css) => {
     const c = el('span', 'pjsw' + (d.color === val ? ' on' : '')); c.title = label; if (css) c.style.background = css; else c.textContent = 'auto';
@@ -1343,6 +1403,22 @@ function stPageProjet(p) {
   const ex = stForm(rows); ex.appendChild(dl);
   p.appendChild(layBox);
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
+  if (r.envTrust) { // #215 : environnement d'un dépôt cloné — état et « Revoir »
+    const et = r.envTrust, box = el('div');
+    const lbl = { pending: 'à approuver (la question vient à la prochaine ouverture en conteneur)', none: 'aucun fichier d\'environnement dans ce dépôt', accepted: 'accepté', ignored: 'ignoré — seul le socle choisi à la création est utilisé' }[et.state] || et.state;
+    box.append(el('div', '', 'Environnement du dépôt : ' + lbl));
+    if (et.source) box.append(el('div', 'dim', 'Cloné depuis ' + et.source + (et.at ? ' · ' + et.at.slice(0, 10) : '')));
+    if (et.state !== 'pending' && et.state !== 'none') {
+      const rv = el('button', 'btn sm', 'Revoir'); rv.id = 'pjf-trustreview'; rv.disabled = open;
+      rv.title = open ? 'Fermez le projet pour revoir l\'approbation' : 'remet la question à la prochaine ouverture';
+      rv.onclick = async () => {
+        try { const rr = await call('projectApply', { path: pj.path, envTrust: 'review' }); if (rr && rr.ok === false) { flash('⚠ ' + (rr.msg || 'refusé')); return; } } catch (e) { return; }
+        await pjLoad(); stRender();
+      };
+      box.append(rv);
+    }
+    p.appendChild(stBox('Environnement du dépôt', box, el('span', 'dim', 'trust.json')));
+  }
   // Environnement
   const env = el('div');
   const f2 = [['Image', stInput(d.env.image, (v) => { d.env.image = v; pjPreview(); }, 'image du projet (surcharge le template)')]];
@@ -1350,6 +1426,11 @@ function stPageProjet(p) {
   f2.push(['Paquets par gestionnaire', stArea(d.env.txt.pbm, (v) => { d.env.txt.pbm = v; pjPreview(); }, 2), 'une ligne par gestionnaire : apt: git jq']);
   f2.push(['Montages', stArea(d.env.txt.mounts, (v) => { d.env.txt.mounts = v; pjPreview(); }, 3), 'un chemin par ligne, lecture seule ; « :rw » en fin de ligne pour écrire']);
   env.appendChild(stForm(f2)); env.id = 'pjf-env';
+  const lk = envLock({ open }, 'project-env', r); // #216 : env.yaml en lecture seule (projet ouvert, autre launcher, conteneur actif : serveur)
+  if (lk.locked) {
+    env.prepend(el('p', 'note warn', '🔒 ' + lk.why + ' (lecture seule).'));
+    env.querySelectorAll('input, textarea, select, button').forEach((x) => { x.disabled = true; x.title = lk.why; });
+  }
   p.appendChild(stBox('Environnement du conteneur', env, el('span', 'dim', r.envPath ? r.envPath.split(/[\\/]/).slice(-2).join('/') + (r.envExists ? '' : ' (absent : créé à l\'enregistrement)') : '')));
   // Aperçu fusionné
   const mg = el('div', 'pjmerged'); mg.id = 'pjmerged';
@@ -1377,7 +1458,8 @@ function pjFoot(f) {
   } else if (probs.length) {
     for (const x of probs) left.appendChild(el('div', 'ceprob ' + (x.severity === 'error' ? 't-red' : 't-yellow'), (x.severity === 'error' ? '✗ ' : '⚠ ') + (x.line ? 'ligne ' + x.line + ' : ' : '') + x.message));
   } else if (res && res.saved) {
-    left.appendChild(el('span', 't-green', '✓ Enregistré. ' + (res.note || '')));
+    left.appendChild(el('span', 't-green', '✓ Enregistré.' + savedNote(res.note)));
+    if (res.warn) left.appendChild(el('span', 't-orange', ' ⚠ ' + res.warn)); // enregistré avec avertissement (ex. backend injoignable)
   } else if (!pj || pj.loading) {
     left.appendChild(el('span', 'dim', 'Chargement…'));
   } else left.appendChild(el('span', 't-green', '✓ valide'));
@@ -1409,13 +1491,13 @@ async function pjSave() {
     stRender(); return;
   }
   if (!r.ok) {
-    pj.res = r.env ? (r.env.conflict ? { conflict: true, mtime: r.env.mtime } : { problems: r.env.problems || [] }) : { msg: r.msg || 'refusé' };
+    pj.res = r.env ? (r.env.conflict ? { conflict: true, mtime: r.env.mtime } : { problems: r.env.problems || [] }) : { msg: (r.field === 'env' ? envRefusal(r) : r.msg) || 'refusé' }; // field env : refus serveur (blockers)
     stRenderFoot(); return;
   }
   const keep = pj.focus;
   if (typeof layoutDrop === 'function') { layoutDrop(pj.path); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // relecture après écriture
   await pjLoad();
-  if (ST.pj) ST.pj.res = { saved: true, note: r.note || '' };
+  if (ST.pj) ST.pj.res = { saved: true, note: r.note || '', warn: r.warn || '' };
   stRender();
 }
 

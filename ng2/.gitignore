@@ -1,0 +1,2 @@
+# core dumps (core.<pid>) laissés par un plantage de test ou du launcher
+core.[0-9]*

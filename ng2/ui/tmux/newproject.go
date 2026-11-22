@@ -1,10 +1,15 @@
 package tmux
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -26,26 +31,51 @@ import (
 type formMode int
 
 const (
-	formNone formMode = iota
+	formNone        formMode = iota
+	formMovePending          // déplacement inachevé : reprendre ou annuler (#216)
 	formRoot
+	formCategory // catégorie : liste des dossiers de la base, « racine » ou « ＋ nouvelle » (#214)
+	formNewCat   // saisie d'une nouvelle catégorie
 	formName
-	formKind
+	formMoveConfirm // confirmation du déplacement (#216)
+	formSource      // source : vide, template ou dépôt git (#215)
+	formURL         // URL du dépôt à cloner
+	formCloning     // clonage en cours (progression)
+	formTrust       // approbation de l'environnement d'un projet cloné (#215)
 	formRemote
 	formExec // socle d'exécution : hôte ou conteneur (image)
 )
 
 type newForm struct {
-	mode   formMode
-	root   int
-	base   string // dossier fixé (catégorie ou racine) ; vide tant que la racine n'est pas choisie
-	name   string
-	raw    bool // projet brut (sinon géré)
-	remote string
-	err    string
+	mode formMode
+	root int
+	base string // racine (base) ; vide tant qu'elle n'est pas choisie
+	// catégorie (#214) : chemin relatif à la base (« A/B », vide = racine) ; newCat : à créer avec le projet
+	category string
+	newCat   bool
+	cats     []core.Category
+	catIdx   int // 0 : racine ; 1..len(cats) : cats[i-1] ; len(cats)+1 : « ＋ nouvelle »
+	catInput string
+	// source (#215) : "" ou "empty" (Projet brut), "template" (Template projet), "git" (Dépôt Git)
+	source string
+	srcIdx int // 0 Projet brut, 1 Template projet, 2 Dépôt Git
+	url    string
+	// approbation (formTrust) : question, mode d'ouverture à reprendre, fichiers bruts affichés
+	trust     *core.EnvTrustInfo
+	trustPath string
+	trustMode launchMode
+	trustRaw  bool
+	name      string
+	remote    string
+	err       string
 	// exécution (formExec) : 0 = hôte, i = images[i-1] dans le backend ctrBe
-	exec     int
-	images   []string
-	ctrBe    string
+	exec   int
+	images []string
+	ctrBe  string
+	// déplacement (#216) : projet source et ses informations
+	moveFrom string
+	moveInfo *core.MoveInfo
+	moveOpen bool   // F2 : le projet est ouvert — « déplacer / renommer » grisé, touche m sans effet
 	existing string // F2 ou première ouverture : dossier du projet existant (pas de création)
 	openNext bool   // première ouverture : lancer le projet une fois configuré
 }
@@ -106,10 +136,18 @@ func (f *newForm) cycleCtrBe(d int) {
 // backend affecté, ou « hôte » ; sinon les défauts de backends.yaml.
 func (m model) startExecChoice(n core.Node, openNext bool) model {
 	f, ok := execForm(newForm{existing: n.Path, name: n.Name, openNext: openNext})
-	if !ok {
-		m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
-		return m
+	if !ok { // pas de backend conteneur : F2 ne propose plus que « Déplacer / renommer » (#216)
+		if openNext {
+			m.msg = "F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)"
+			return m
+		}
+		if m.moveEnv().OpenHere(n.Path) {
+			m.msg = "déplacer / renommer : fermez le projet pour le déplacer"
+			return m
+		}
+		return m.startMove(n.Path, n.Name)
 	}
+	f.moveOpen = !openNext && m.moveEnv().OpenHere(n.Path)
 	if core.Assigned(n.Path) || core.HasEnv(n.Path) {
 		b := core.ProjectBackend(n.Path)
 		f.exec = 0
@@ -156,30 +194,78 @@ func withSpecial(nodes []core.Node) []core.Node {
 }
 
 // startNewProject : base est le dossier choisi par double-clic sur une catégorie
-// ou une racine ; vide pour l'entrée « Nouveau projet ».
+// ou une racine (la racine et la catégorie en sont déduites) ; vide pour l'entrée « Nouveau projet ».
 func (m model) startNewProject(base string) model {
-	m.form = newForm{mode: formName, base: base}
-	if base == "" {
-		if len(m.cfg.Roots) > 1 {
-			m.form.mode = formRoot
-		} else {
-			m.form.base = filepath.Clean(m.cfg.Roots[0])
+	m.form = newForm{mode: formName}
+	if base != "" {
+		root, cat, ok := splitUnderRoot(m.cfg.Roots, base)
+		if !ok {
+			m.form = newForm{}
+			m.msg = "⚠ base inconnue : " + base
+			return m
+		}
+		m.form.base, m.form.category = root, cat
+		return m
+	}
+	if len(m.cfg.Roots) > 1 {
+		m.form.mode = formRoot
+		return m
+	}
+	m.form.base = filepath.Clean(m.cfg.Roots[0])
+	return m.enterCategory()
+}
+
+// splitUnderRoot : racine contenant dir, et chemin relatif (« / ») de dir sous cette racine.
+func splitUnderRoot(roots []string, dir string) (root, cat string, ok bool) {
+	d := filepath.Clean(dir)
+	for _, r := range roots {
+		root = filepath.Clean(r)
+		if d == root {
+			return root, "", true
+		}
+		if rel, err := filepath.Rel(root, d); err == nil && rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return root, filepath.ToSlash(rel), true
 		}
 	}
+	return "", "", false
+}
+
+// enterCategory : étape « catégorie » de la base choisie.
+func (m model) enterCategory() model {
+	cats, err := core.ListCategoriesIn(m.cfg.Roots, m.form.base)
+	if err != nil {
+		m.form.err = err.Error()
+		return m
+	}
+	m.form.cats, m.form.catIdx, m.form.mode = cats, 0, formCategory
 	return m
 }
 
 func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	f := &m.form
+	if f.mode == formTrust {
+		return m.onTrustKey(k)
+	}
+	if f.mode == formMoveConfirm || f.mode == formMovePending {
+		return m.onMoveKey(k)
+	}
 	switch k.String() {
 	case "esc", "ctrl+c":
+		if f.mode == formCloning {
+			if m.job != nil {
+				m.job.cancelNow() // l'arrêt se termine par cloneDoneMsg (nettoyage)
+			}
+			return m, nil
+		}
 		m.form = newForm{}
 	case "up":
 		switch f.mode {
 		case formRoot:
 			f.root = max(0, f.root-1)
-		case formKind:
-			f.raw = false
+		case formCategory:
+			f.catIdx = max(0, f.catIdx-1)
+		case formSource:
+			f.srcIdx = max(0, f.srcIdx-1)
 		case formExec:
 			f.exec = max(0, f.exec-1)
 		}
@@ -187,8 +273,10 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch f.mode {
 		case formRoot:
 			f.root = min(len(m.cfg.Roots)-1, f.root+1)
-		case formKind:
-			f.raw = true
+		case formCategory:
+			f.catIdx = min(len(f.cats)+1, f.catIdx+1)
+		case formSource:
+			f.srcIdx = min(2, f.srcIdx+1)
 		case formExec:
 			f.exec = min(len(f.images), f.exec+1)
 		}
@@ -205,38 +293,78 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch f.mode {
 		case formRoot:
 			f.base = filepath.Clean(m.cfg.Roots[f.root])
-			f.mode = formName
+			return m.enterCategory(), nil
+		case formCategory:
+			switch {
+			case f.catIdx == 0:
+				f.category, f.newCat, f.mode = "", false, formName
+			case f.catIdx > len(f.cats):
+				f.catInput, f.mode = "", formNewCat
+			default:
+				f.category, f.newCat, f.mode = f.cats[f.catIdx-1].Path, false, formName
+			}
+		case formNewCat:
+			cat := strings.TrimSpace(f.catInput)
+			p, err := core.ResolveCategoryPathIn(m.cfg.Roots, f.base, cat)
+			if err != nil {
+				f.err = err.Error()
+				break
+			}
+			if st, serr := os.Stat(p); serr == nil && !st.IsDir() {
+				f.err = "un fichier porte déjà ce nom"
+				break
+			}
+			_, serr := os.Stat(p)
+			f.category, f.newCat, f.mode = cat, serr != nil, formName
 		case formName:
-			if err := validName(f.name); err != "" {
-				f.err = err
-			} else if _, err := os.Stat(m.projectDir()); err == nil {
+			if f.moveFrom != "" { // déplacement : destination contrôlée, puis confirmation
+				if _, err := m.moveTarget(); err != nil {
+					f.err = err.Error()
+				} else {
+					f.mode = formMoveConfirm
+				}
+				break
+			}
+			if p, err := core.ResolveProjectPathIn(m.cfg.Roots, f.base, f.category, f.name); err != nil {
+				f.err = err.Error()
+			} else if _, err := os.Stat(p); err == nil {
 				f.err = "ce dossier existe déjà"
 			} else {
-				f.mode = formKind
+				f.mode = formSource
 			}
-		case formKind:
-			if f.raw {
-				if mm, ok := m.execStep(); ok {
-					return mm, nil
-				}
-				return m.createProject(), nil
+		case formSource:
+			return m.chooseSource(f.srcIdx)
+		case formURL:
+			if _, err := core.ValidateCloneURL(f.url); err != nil {
+				f.err = err.Error()
+			} else if mm, ok := m.execStep(); ok {
+				return mm, nil
+			} else {
+				return m.createProject()
 			}
-			f.mode = formRemote
 		case formRemote:
+			if why := core.ValidateRemote(f.remote); why != "" {
+				f.err = why
+				break
+			}
 			if mm, ok := m.execStep(); ok {
 				return mm, nil
 			}
-			return m.createProject(), nil
+			return m.createProject()
 		case formExec:
 			if f.existing != "" {
 				return m.applyExecExisting(), ctrNowCmd(m.projectPaths(), 0)
 			}
-			return m.createProject(), nil
+			return m.createProject()
 		}
 	case "backspace":
 		switch f.mode {
 		case formName:
 			f.name = dropLast(f.name)
+		case formNewCat:
+			f.catInput = dropLast(f.catInput)
+		case formURL:
+			f.url = dropLast(f.url)
 		case formRemote:
 			f.remote = dropLast(f.remote)
 		}
@@ -252,19 +380,36 @@ func (m model) onFormKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case formName:
 			f.name += s
-		case formKind: // g / b choisissent et valident
+		case formNewCat:
+			f.catInput += s
+		case formURL:
+			f.url += s
+		case formSource: // v / t / g choisissent et valident
 			switch strings.ToLower(s) {
-			case "g":
-				f.raw = false
-				f.mode = formRemote
 			case "b":
-				f.raw = true
-				if mm, ok := m.execStep(); ok {
-					return mm, nil
-				}
-				return m.createProject(), nil
+				return m.chooseSource(0)
+			case "t":
+				return m.chooseSource(1)
+			case "g":
+				return m.chooseSource(2)
 			}
-		case formExec: // un chiffre choisit (0 : hôte)
+		case formExec: // un chiffre choisit (0 : hôte) ; r : revoir l'environnement d'un dépôt cloné (F2)
+			if strings.ToLower(s) == "m" && f.existing != "" { // m : déplacer / renommer le projet (#216)
+				if f.moveOpen { // projet ouvert : entrée grisée, la touche n'a aucun effet (« fermez le projet pour le déplacer »)
+					break
+				}
+				return m.startMove(f.existing, f.name), nil
+			}
+			if strings.ToLower(s) == "r" && f.existing != "" {
+				if err := core.ReviewEnvTrust(f.existing); err != nil {
+					f.err = err.Error()
+				} else {
+					f.err = ""
+					m.msg = "↻ " + f.name + " : l'environnement du dépôt sera redemandé à la prochaine ouverture"
+					m.form = newForm{}
+				}
+				break
+			}
 			if len(s) == 1 && s[0] >= '0' && int(s[0]-'0') <= len(f.images) {
 				f.exec = int(s[0] - '0')
 			}
@@ -285,43 +430,118 @@ func dropLast(s string) string {
 
 func validName(s string) string { return core.ValidProjectName(s) }
 
-func (m model) projectDir() string {
-	return filepath.Join(m.form.base, strings.TrimSpace(m.form.name))
-}
-
-// where : « dans EMBY » — le dossier fixé, relatif à sa racine.
+// where : « dans EMBY » — la base et la catégorie, relatives à la racine.
 func (m model) where() string {
-	base := m.form.base
-	for _, r := range m.cfg.Roots {
-		root := filepath.Clean(r)
-		if rel, err := filepath.Rel(root, base); err == nil && !strings.HasPrefix(rel, "..") {
-			if rel == "." {
-				return filepath.Base(root)
-			}
-			return rel
-		}
+	root := filepath.Base(m.form.base)
+	if m.form.category != "" {
+		return root + "/" + m.form.category
 	}
-	return base
+	return root
 }
 
-func (m model) createProject() model {
-	dir := m.projectDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+// chooseSource : source choisie (0 vide, 1 template, 2 dépôt git) et étape suivante.
+func (m model) chooseSource(i int) (tea.Model, tea.Cmd) {
+	f := &m.form
+	f.srcIdx = i
+	f.err = ""
+	switch i {
+	case 1:
+		f.source, f.mode = "template", formRemote
+	case 2:
+		f.source, f.mode = "git", formURL
+	default:
+		f.source, f.mode = "empty", formRemote // Projet brut : dossier + git init, remote seulement si une URL est fournie
+	}
+	return m, nil
+}
+
+// cloneJob : clonage de la coque en cours (progression lue par le rendu).
+type cloneJob struct {
+	mu     sync.Mutex
+	step   string
+	pct    int
+	cancel context.CancelFunc
+	undo   func() string
+	dir    string
+}
+
+func (j *cloneJob) set(step string, pct int) {
+	j.mu.Lock()
+	j.step, j.pct = step, pct
+	j.mu.Unlock()
+}
+
+func (j *cloneJob) get() (string, int) {
+	j.mu.Lock()
+	defer j.mu.Unlock()
+	return j.step, j.pct
+}
+
+func (j *cloneJob) cancelNow() {
+	if j.cancel != nil {
+		j.cancel()
+	}
+}
+
+type cloneTickMsg struct{}
+
+// cloneDoneMsg : fin du clonage (err nil : réussi ; context.Canceled : annulé).
+type cloneDoneMsg struct {
+	job *cloneJob
+	err error
+}
+
+func cloneTickCmd() tea.Cmd {
+	return tea.Tick(400*time.Millisecond, func(time.Time) tea.Msg { return cloneTickMsg{} })
+}
+
+// createProject : crée le projet (vide, template) ou lance le clonage (git, asynchrone : cloneDoneMsg).
+func (m model) createProject() (tea.Model, tea.Cmd) {
+	f := m.form
+	// règle commune appliquée au moment de créer
+	dir, undo, err := core.CreateProjectDir(m.cfg.Roots, f.base, f.category, f.newCat, f.name)
+	if err != nil {
 		m.form.err = err.Error()
-		return m
+		return m, nil
+	}
+	fail := func(msg string) (tea.Model, tea.Cmd) { // ce que cet appel a créé (projet, catégories vides) : supprimé
+		m.form.err = msg + " — " + undo()
+		return m, nil
+	}
+	if f.source == "git" { // l'affectation (applyExec) vient APRÈS un clonage réussi, dans cloneDone
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		job := &cloneJob{step: "préparation", cancel: cancel, undo: undo, dir: dir}
+		m.job = job
+		m.form.mode, m.form.err = formCloning, ""
+		if err := core.RegisterClone(dir, f.url, m.formImage()); err != nil { // posée AVANT le clonage (fermé si le registre est illisible)
+			cancel()
+			return fail("registre d'approbation : " + err.Error())
+		}
+		auth := core.CloneAuth{Token: m.cfg.GithubToken, Backend: f.ctrBe}
+		url := f.url
+		run := func() tea.Msg {
+			defer cancel()
+			return cloneDoneMsg{job: job, err: core.CloneProject(ctx, url, dir, auth, job.set)}
+		}
+		return m, tea.Batch(run, cloneTickCmd())
 	}
 	if err := applyExec(dir, m.form); err != nil {
-		m.form.err = "env.yaml : " + err.Error()
-		return m
+		return fail("env.yaml : " + err.Error())
 	}
-	mode := launchNewManaged
-	if m.form.raw {
-		mode = launchNewRaw
+	mode := launchNormal // jamais de /init-project d'office : le template le propose à l'ouverture (marqueur)
+	if err := core.InitProject(dir, false, f.remote); err != nil {
+		return fail(err.Error())
 	}
-	if err := core.InitProject(dir, m.form.raw, m.form.remote); err != nil {
-		m.form.err = err.Error()
-		return m
+	if f.source == "template" { // même marqueur que la fenêtre native : proposé à l'ouverture (launchProject), jamais d'office
+		if err := core.MarkInitProposed(dir); err != nil {
+			return fail("marqueur /init-project : " + err.Error())
+		}
 	}
+	return m.finishCreated(dir, mode), nil
+}
+
+// finishCreated : formulaire fermé, arbre relu, projet sélectionné et ouvert.
+func (m model) finishCreated(dir string, mode launchMode) model {
 	m.form = newForm{}
 	m.filter = ""
 	m.nodes = withSpecial(core.ScanTree(m.cfg.Roots))
@@ -341,11 +561,58 @@ func (m model) createProject() model {
 	return m
 }
 
+// cloneDone : fin du clonage — projet ouvert, ou échec avec nettoyage de ce que cet appel a créé.
+func (m model) cloneDone(msg cloneDoneMsg) model {
+	j := msg.job
+	m.job = nil
+	switch {
+	case msg.err == nil:
+		// l'état (none / pending) est décidé sur le contenu du DÉPÔT seul, AVANT applyExec : l'env.yaml écrit ensuite est
+		// celui du launcher (empreinte re-scellée), jamais un « pending » sur son propre fichier
+		if _, err := core.MarkEnvPending(j.dir, m.form.url, m.formImage()); err != nil {
+			m.form.err = "registre d'approbation : " + err.Error() + " — " + j.undo()
+			m.form.mode = formURL
+			return m
+		}
+		if err := applyExec(j.dir, m.form); err != nil { // après le clonage réussi : jamais d'affectation sans projet cloné
+			m.form.err = "env.yaml : " + err.Error() + " — " + j.undo()
+			m.form.mode = formURL
+			return m
+		}
+		return m.finishCreated(j.dir, launchNormal)
+	case errors.Is(msg.err, context.Canceled):
+		m.form.err = "annulé — " + j.undo()
+	default:
+		m.form.err = msg.err.Error() + " — " + j.undo()
+	}
+	m.form.mode = formURL // l'URL reste modifiable pour une nouvelle tentative
+	return m
+}
+
 // applyExecExisting : fin du choix F2 sur un projet existant.
 func (m model) applyExecExisting() model {
 	f := m.form
-	if err := applyExec(f.existing, f); err != nil {
-		m.form.err = err.Error()
+	// l'environnement (image dans env.yaml, backend) n'est pas modifié projet ouvert ni conteneur actif (ici ou ailleurs),
+	// revérifié à l'écriture ; ouverture d'un projet jamais configuré : rien ne tourne, le contrôle passe
+	if why := core.EnvExecRefusal(m.moveEnv(), f.existing); why != "" {
+		m.form.err = why
+		return m
+	}
+	img := ""
+	if f.exec > 0 && f.exec <= len(f.images) {
+		img = f.images[f.exec-1]
+	}
+	// revérifié sous les verrous, juste avant l'écriture : fenêtre du projet (état de la coque)
+	recheck := func() []string {
+		return core.EnvEditBlockers(core.MoveEnv{OpenHere: m.moveEnv().OpenHere, Foreign: func(string) string { return "" }, Running: func(string) string { return "" }}, f.existing)
+	}
+	if err := core.ApplyExecChecked(f.existing, img, f.ctrBe, recheck); err != nil {
+		var locked *core.EnvLockedError
+		if errors.As(err, &locked) {
+			m.form.err = core.EnvEditMessage(locked.Blockers)
+		} else {
+			m.form.err = err.Error()
+		}
 		return m
 	}
 	m.form = newForm{}
@@ -396,6 +663,12 @@ func (m model) renderExec(w int) string {
 
 func (m model) renderForm(w int) string {
 	f := m.form
+	if f.mode == formTrust && f.trust != nil {
+		return m.renderTrust(w)
+	}
+	if f.mode == formMoveConfirm || f.mode == formMovePending {
+		return m.renderMove(w)
+	}
 	var sb strings.Builder
 	if f.existing != "" {
 		sb.WriteString(" " + core.Cyan.Render("⬢ Exécution de "+f.name) + "\n")
@@ -407,10 +680,19 @@ func (m model) renderForm(w int) string {
 		if f.err != "" {
 			sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")
 		}
-		sb.WriteString("\n " + core.Dim.Render("↑↓ 0-9 socle · ←→ backend · ↵ · esc"))
+		hint := "↑↓ 0-9 socle · ←→ backend · ↵ · m déplacer / renommer · esc"
+		if f.moveOpen { // grisée : la mention dit quoi faire
+			hint = "↑↓ 0-9 socle · ←→ backend · ↵ · esc"
+			sb.WriteString("\n " + core.Dim.Render("m déplacer / renommer — fermez le projet pour le déplacer"))
+		}
+		sb.WriteString("\n " + core.Dim.Render(hint))
 		return truncLines(sb.String(), w)
 	}
-	sb.WriteString(" " + core.Cyan.Render("✦ Nouveau projet") + "\n\n")
+	title := "✦ Nouveau projet"
+	if f.moveFrom != "" {
+		title = "⇄ Déplacer / renommer " + core.SafeTerminalText(f.moveInfo.Name)
+	}
+	sb.WriteString(" " + core.Cyan.Render(title) + "\n\n")
 	if f.mode == formRoot {
 		sb.WriteString(" " + core.Dim.Render("Dossier racine :") + "\n")
 		for i, r := range m.cfg.Roots {
@@ -420,8 +702,35 @@ func (m model) renderForm(w int) string {
 			}
 			sb.WriteString("  " + mark + style.Render(fmt.Sprintf("%d %s", i+1, shorten(r, w-9))) + "\n")
 		}
+	} else if f.mode == formCategory || f.mode == formNewCat {
+		sb.WriteString(" " + core.Dim.Render("base ") + core.Cyan.Render(shorten(filepath.Base(f.base), w-9)) + "\n\n")
 	} else {
-		sb.WriteString(" " + core.Dim.Render("dans ") + core.Cyan.Render(shorten(m.where(), w-8)) + "\n\n")
+		in := m.where()
+		if f.newCat {
+			in += " (nouvelle)"
+		}
+		sb.WriteString(" " + core.Dim.Render("dans ") + core.Cyan.Render(shorten(in, w-8)) + "\n\n")
+	}
+	if f.mode == formCategory {
+		sb.WriteString(" " + core.Dim.Render("Catégorie :") + "\n")
+		items := append([]string{"(à la racine)"}, func() []string {
+			var l []string
+			for _, c := range f.cats {
+				l = append(l, fmt.Sprintf("%s  (%d)", c.Path, c.Projects))
+			}
+			return l
+		}()...)
+		items = append(items, "＋ nouvelle catégorie…")
+		for i, o := range items {
+			mark, style := "  ", core.Dim
+			if i == f.catIdx {
+				mark, style = core.Green.Render("▶ "), core.Bold
+			}
+			sb.WriteString("  " + mark + style.Render(shorten(o, w-6)) + "\n")
+		}
+	}
+	if f.mode == formNewCat {
+		sb.WriteString(" " + core.Dim.Render("Nouvelle catégorie (A ou A/B) :") + " " + f.catInput + core.Dim.Render("▏") + "\n")
 	}
 	cur := core.Dim.Render("▏")
 	if f.mode >= formName {
@@ -431,26 +740,32 @@ func (m model) renderForm(w int) string {
 		}
 		sb.WriteString(" " + core.Dim.Render("Nom :") + " " + f.name + c + "\n")
 	}
-	if f.mode >= formKind {
-		sb.WriteString("\n " + core.Dim.Render("Type de projet :") + "\n")
-		for _, k := range []struct {
-			raw        bool
-			key, label string
-			desc       string
-		}{
-			{false, "g", "géré", "git + /init-project"},
-			{true, "b", "brut", "dossier + CLAUDE.md"},
+	if f.mode >= formSource {
+		sb.WriteString("\n " + core.Dim.Render("Source :") + "\n")
+		for i, o := range []struct{ key, label, desc string }{
+			{"b", "Projet brut", "dossier et git init (remote si URL fournie), sans /init-project"}, {"t", "Template projet", "comme brut, /init-project proposé à l'ouverture"}, {"g", "Dépôt Git", "cloner une URL"},
 		} {
 			mark, style := "  ", core.Dim
-			if k.raw == f.raw {
+			if i == f.srcIdx {
 				mark, style = core.Green.Render("▶ "), core.Bold
 			}
-			if f.mode == formKind || k.raw == f.raw {
-				sb.WriteString("  " + mark + style.Render(k.key+" "+k.label) + core.Dim.Render("  "+k.desc) + "\n")
+			if f.mode == formSource || i == f.srcIdx {
+				sb.WriteString("  " + mark + style.Render(o.key+" "+o.label) + core.Dim.Render("  "+o.desc) + "\n")
 			}
 		}
 	}
-	if f.mode >= formRemote && !f.raw {
+	if f.mode == formURL || f.mode == formCloning || f.mode >= formRemote && f.source == "git" {
+		sb.WriteString(" " + core.Dim.Render("URL du dépôt :") + " " + shorten(f.url, w-18))
+		if f.mode == formURL {
+			sb.WriteString(cur)
+		}
+		sb.WriteString("\n")
+	}
+	if f.mode == formCloning && m.job != nil {
+		step, pct := m.job.get()
+		sb.WriteString(" " + core.Cyan.Render(fmt.Sprintf("clonage : %s %d %%", step, pct)) + "\n")
+	}
+	if f.mode >= formRemote && f.source != "git" {
 		sb.WriteString(" " + core.Dim.Render("Remote git (facultatif) :") + "\n")
 		c := ""
 		if f.mode == formRemote {
@@ -468,11 +783,180 @@ func (m model) renderForm(w int) string {
 	switch f.mode {
 	case formRoot:
 		hint = "↑↓ ou 1-9 · ↵ valider · esc annuler"
-	case formKind:
-		hint = "↑↓ ou g/b · ↵ valider · esc annuler"
+	case formCategory:
+		hint = "↑↓ · ↵ choisir · esc annuler"
+	case formSource:
+		hint = "↑↓ ou b/t/g · ↵ choisir · esc annuler"
+	case formURL:
+		hint = "https://… ou git@hôte:dépôt · ↵ · esc annuler"
+	case formCloning:
+		hint = "esc : annuler le clonage"
 	case formExec:
 		hint = "↑↓ 0-9 socle · ←→ backend · ↵ · esc"
 	}
 	sb.WriteString("\n " + core.Dim.Render(hint))
+	return truncLines(sb.String(), w)
+}
+
+// formImage : socle choisi dans le formulaire ("" : hôte).
+func (m model) formImage() string {
+	f := m.form
+	if f.exec > 0 && f.exec <= len(f.images) {
+		return f.images[f.exec-1]
+	}
+	return ""
+}
+
+// startTrust : écran d'approbation de l'environnement d'un projet cloné, avant toute ouverture en conteneur.
+func (m model) startTrust(n core.Node, mode launchMode) model {
+	info, err := core.EnvTrustInfoFor(n.Path)
+	if err != nil {
+		m.msg = "⚠ " + err.Error()
+		return m
+	}
+	m.form = newForm{mode: formTrust, trust: &info, trustPath: n.Path, trustMode: mode, name: n.Name}
+	return m
+}
+
+// onTrustKey : a accepter (définitif), s ouvrir sans (socle choisi seul), Échap annuler, v fichiers bruts.
+func (m model) onTrustKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	f := &m.form
+	answer := func(choice string) (tea.Model, tea.Cmd) {
+		retry, err := core.AnswerEnvTrust(f.trustPath, choice, f.trust.SHA)
+		if retry { // fichiers modifiés pendant la question : relue
+			if info, ierr := core.EnvTrustInfoFor(f.trustPath); ierr == nil {
+				f.trust = &info
+			}
+			f.err = "l'environnement a encore changé : relire puis choisir"
+			return m, nil
+		}
+		if err != nil {
+			f.err = err.Error()
+			return m, nil
+		}
+		mode := f.trustMode
+		m.form = newForm{}
+		return m.openSelectedAs(mode), nil
+	}
+	switch strings.ToLower(k.String()) {
+	case "a":
+		return answer("accept")
+	case "s":
+		return answer("ignore")
+	case "v":
+		f.trustRaw = !f.trustRaw
+	case "esc", "ctrl+c":
+		m.form = newForm{} // annuler : rien n'est écrit, rien n'est ouvert
+	}
+	return m, nil
+}
+
+// wrapText : s coupé en lignes d'au plus w colonnes (jamais tronqué : une commande exécutée se lit en entier).
+func wrapText(s string, w int) []string {
+	if w < 8 {
+		w = 8
+	}
+	var out []string
+	for _, line := range strings.Split(s, "\n") {
+		r := []rune(line)
+		if len(r) == 0 {
+			out = append(out, "")
+		}
+		for len(r) > 0 {
+			n := min(len(r), w)
+			out = append(out, string(r[:n]))
+			r = r[n:]
+		}
+	}
+	return out
+}
+
+// renderTrust : la question — ce que le dépôt demande, le risque, les fichiers bruts (v). Tout texte du dépôt passe
+// par core.SafeTerminalText (jamais de séquence de terminal) puis est RETOURNÉ à la ligne, jamais tronqué.
+func (m model) renderTrust(w int) string {
+	f := m.form
+	t := f.trust
+	var sb strings.Builder
+	put := func(indent, text string) {
+		for _, l := range wrapText(core.SafeTerminalText(text), w-len([]rune(indent))-1) {
+			sb.WriteString(indent + l + "\n")
+		}
+	}
+	title := "⚠ Environnement d'un dépôt cloné : " + core.SafeTerminalText(f.name)
+	sb.WriteString(" " + core.Orange.Render(title) + "\n")
+	if t.Changed {
+		sb.WriteString(" " + core.Red.Render("l'environnement du dépôt a changé depuis l'approbation") + "\n")
+	}
+	if t.Broken != "" {
+		for _, l := range wrapWords(t.Broken, w-2) {
+			sb.WriteString(" " + core.Red.Render(l) + "\n")
+		}
+	}
+	sb.WriteString(" " + core.Dim.Render("source :") + "\n")
+	put("  ", t.Source)
+	sb.WriteString("\n")
+	if f.trustRaw {
+		for _, name := range []string{"env.yaml", "env-template.yaml"} {
+			if txt := t.Files[name]; txt != "" {
+				sb.WriteString(" " + core.Cyan.Render(name) + "\n")
+				put("  ", txt)
+			}
+		}
+	} else {
+		sp := t.Spec
+		list := func(label string, items []string) {
+			if len(items) > 0 {
+				sb.WriteString(" " + core.Dim.Render(label) + "\n")
+				for _, it := range items {
+					put("   ", it)
+				}
+			}
+		}
+		sb.WriteString(" " + core.Dim.Render("image :") + "\n")
+		put("   ", sp.Image+"   (choisie à la création : "+core.OrQ(t.ChosenImage)+")")
+		list("paquets :", sp.Packages)
+		var byMgr []string
+		for mgr, l := range sp.PackagesByManager {
+			byMgr = append(byMgr, mgr+" : "+strings.Join(l, " "))
+		}
+		sort.Strings(byMgr)
+		list("paquets par gestionnaire :", byMgr)
+		list("setup (exécuté une fois) :", sp.Setup)
+		list("on_start (exécuté à chaque démarrage) :", sp.OnStart)
+		list("watch (setup rejoué si ces fichiers changent) :", sp.Watch)
+		list("local (dossiers privés au conteneur) :", sp.Local)
+		if sp.Prefer != "" {
+			sb.WriteString(" " + core.Dim.Render("prefer :") + "\n")
+			put("   ", sp.Prefer)
+		}
+		var mts []string
+		for _, mt := range sp.Mounts {
+			mode := "lecture seule"
+			if !mt.RO {
+				mode = "ÉCRITURE"
+			}
+			mts = append(mts, mt.Path+"  ("+mode+")")
+		}
+		list("montages :", mts)
+		r := t.Risk
+		sb.WriteString("\n")
+		for _, l := range wrapWords(fmt.Sprintf("risque : %d commande(s) exécutée(s), %d montage(s) hors du projet, %d paquet(s), %d watch, %d local",
+			r.Exec, r.HostMounts, r.Packages, r.Watch, r.Local), w-2) {
+			sb.WriteString(" " + core.Red.Render(l) + "\n")
+		}
+		if len(r.Scripts) > 0 { // r2 : scripts du dépôt appelés par setup / on_start, hors de l'approbation
+			sb.WriteString(" " + core.Dim.Render("scripts du dépôt appelés :") + "\n")
+			for _, sc := range r.Scripts {
+				put("   ", sc)
+			}
+			for _, l := range wrapWords(t.ScriptNote, w-2) {
+				sb.WriteString(" " + core.Red.Render(l) + "\n")
+			}
+		}
+	}
+	if f.err != "" {
+		sb.WriteString("\n " + core.Red.Render("✗ "+f.err) + "\n")
+	}
+	sb.WriteString("\n " + core.Dim.Render("a accepter · s ouvrir sans · v fichiers bruts · Échap annuler"))
 	return truncLines(sb.String(), w)
 }

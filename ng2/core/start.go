@@ -23,6 +23,7 @@ const (
 	LaunchNormal LaunchMode = iota
 	LaunchNewManaged
 	LaunchNewRaw
+	LaunchNewProposed // projet créé depuis le template : /init-project proposé (jamais lancé d'office), #215
 )
 
 // ClaudeBin : commande lancée dans chaque projet (CL_CLAUDE_BIN : remplaçant de test).
@@ -45,6 +46,11 @@ func StartCommands(cfg Config, path, latest string, mode LaunchMode) (start, cop
 	case mode == LaunchNewManaged:
 		initArg = " /init-project" // projet tout juste créé : pas de question
 	case mode == LaunchNewRaw: // ni question ni /init-project
+	case mode == LaunchNewProposed:
+		// « o » : /init-project lancé, marqueur retiré ; sinon (N, Plus tard) le marqueur reste : reproposé au lancement suivant
+		q := "projet créé depuis le template — lancer /init-project ? [o/N] "
+		initPre = `_ip_arg=''; read -rp ` + Shq(q) + ` _r; [[ "$_r" == [oOyY]* ]] && { _ip_arg='/init-project'; rm -f .claude-launcher/init-proposed; }; `
+		initArg = " $_ip_arg"
 	case tpl == TplOutdated:
 		q := "↑ template en retard : projet " + ProjectTemplateRef(path) + " → disponible " + TemplateRef(ReadTrim(TplVersionPath()), latest) +
 			" — lancer /init-project ? [o/N] "
@@ -137,6 +143,7 @@ func EnsureEndSession(path string) {
 // SyncLauncherEnv : recopie des variables du launcher dans settings.json ;
 // false si elle a échoué (les secrets sont alors tapés comme avant).
 func SyncLauncherEnv(cfg Config) bool {
+	cfg, _ = FreshConfig(cfg)        // jamais une copie plus ancienne que config.conf (#225) : relue si la date a changé
 	_ = SyncBrowserHook(ClaudeDir()) // consigne navigateur à chaque session (#106)
 	return SyncSettingsEnv(ClaudeDir(), cfg.EnvVars()) == nil
 }

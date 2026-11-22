@@ -636,3 +636,528 @@ absent : inchangé. Permis sur un projet ouvert. Même passe d'écriture que `co
 
 Refus quand le masquage effectif du projet est désactivé : message
 `masquage désactivé pour ce projet : choisir « auto hide » dans le titre de la carte TEAM`.
+
+## v6.6.0 — Gestion des projets (#214 à #219)
+
+> Mêmes méthodes pour la fenêtre native (Wails) et l'interface web (`POST /api/call`). La coque tmux appelle les
+> mêmes fonctions de `core` (pas de Dispatch). **Toute** méthode qui reçoit une base, une catégorie ou un nom les
+> repasse par `core.ResolveProjectPath` (ci-dessous) : aucun chemin produit hors des bases configurées, même par un
+> appel forgé.
+
+### Règle commune — `core.ResolveProjectPath(base, category, name)` **[NEW]**
+
+- `base` : doit être **égale** (après `filepath.Clean`) à l'une des racines `LoadConfig().Roots` ; sinon
+  `base inconnue`. Une racine absente du disque (montage perdu) : `base inaccessible`.
+- `category` : chemin **relatif** à la base, segments séparés par `/` (catégories imbriquées admises, profondeur
+  `maxScanDepth`), vide = directement sous la base. Chaque segment : non vide après `TrimSpace`, ni `.` ni `..`, ni
+  `\`, ni caractère de contrôle, ne commence pas par `.`. Chemin absolu refusé.
+- `name` : `ValidProjectName` (inchangé) + pas de `..`.
+- **Portabilité** (les bases en partage 9P / SMB sont lues par Windows) : sont refusés, sur toutes les plateformes, les
+  caractères `: * ? " < > |`, un point ou un espace final, et les noms réservés de Windows — `CON`, `PRN`, `AUX`, `NUL`,
+  `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9` et leurs variantes en exposant (`COM¹ ²  ³`, `LPT¹ ²  ³`), avec ou sans
+  extension, insensible à la casse. Cette règle ne vaut que pour les segments **créés par l'appel** (le nom du
+  projet, une nouvelle catégorie) : une catégorie **existante** aux caractères non portables reste listée
+  (`projectCategories`) et utilisable si elle passe les contrôles de sécurité (traversée, liens, dossier caché).
+- Résultat `<base>/<category>/<name>` ; contrôle final après `filepath.EvalSymlinks` du **parent existant le plus
+  profond** : il doit rester sous `EvalSymlinks(base)` (un lien symbolique de catégorie qui sort de la base est
+  refusé : `chemin hors des bases`).
+- Erreur → `{ "ok": false, "field": "base"|"category"|"name", "msg": "<raison affichée sous le champ>" }`, jamais
+  d'écriture disque.
+
+### `projectBases` **[NEW]**
+
+Arguments : `{}`. Résultat :
+```json
+{ "bases": [ { "path": "/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS", "missing": false } ], "default": "/share/MFS/ROOT/CLAUDE_PROJETS/PROJETS" }
+```
+`bases` = racines configurées, dans l'ordre de `config.conf`. `default` = la seule base s'il n'y en a qu'une
+accessible, sinon la base du projet sélectionné dans l'arbre, sinon `""`.
+
+### `projectCategories` **[NEW]**
+
+Arguments : `{ "base": "<base>" }`. Résultat :
+```json
+{ "categories": [ { "path": "INFRA", "projects": 4 }, { "path": "PRO/CLIENT_A", "projects": 0 } ] }
+```
+Sous-dossiers réels de la base **qui ne sont pas des projets** (`isProjectDir` faux), récursivement jusqu'à
+`maxScanDepth`, dossiers cachés (`.`) exclus, triés. Une catégorie vide (0 projet) est listée. Base invalide :
+erreur de la règle commune.
+
+### `categoryCreate` **[NEW]**
+
+Arguments : `{ "base", "category" }`. Effet : `MkdirAll(<base>/<category>, 0755)` après la règle commune.
+Résultat : `{ "ok": true, "path": "INFRA", "existed": false }` — une catégorie existante (même nom, casse comprise)
+n'est pas une erreur : `existed: true` (fusion). Un fichier de ce nom : `{ "ok": false, "field": "category", … }`.
+L'interface ne l'appelle **qu'à la validation** du dialogue (pas à la frappe) : `create` accepte aussi une catégorie
+nouvelle et la crée lui-même (champ `newCategory`).
+
+### `newInfo` **[CHANGED]**
+
+Ajoute : `"bases"` et `"default"` (comme `projectBases`), `"auth": { "token": true, "sshKey": { "<backend>": true } }`
+(présence seulement — jamais la valeur du jeton ni la clé), `"template": "v5.11.1"` (tag du template adopté, vide
+si inconnu). `roots` reste (alias de `bases[].path`, retiré en v7).
+
+### `create` **[CHANGED]**
+
+Arguments :
+```json
+{ "base": "<base>", "category": "INFRA", "newCategory": false, "name": "supervision-k8s",
+  "source": "empty" | "git" | "template",
+  "remote": "git@github.com:moi/projet.git",
+  "url": "https://github.com/CCoupel/supervision-k8s.git",
+  "image": "…", "backend": "…" }
+```
+- `base` + `category` + `name` passent par la règle commune ; `base` **n'est plus** un dossier quelconque (avant :
+  catégorie ou racine passée telle quelle) — un ancien appel `{base: "<racine>/INFRA"}` est refusé (`base inconnue`) :
+  l'interface et le backend sont livrés ensemble.
+- `source` (défaut `empty`) :
+  - `empty` — « Projet brut » : dossier, `git init`, `remote` `origin` s'il est fourni ; **ni** marqueur
+    `init-proposed`, **ni** `/init-project`, **ni** CLAUDE.md minimal. **[CHANGED]** l'interface n'émet plus `raw` (un
+    `raw` reçu est ignoré).
+  - `template` : `git init` + `remote` facultatif ; marqueur `init-proposed` ; à la **première ouverture**,
+    `/init-project` est **proposé** (évènement `initProposal`), jamais lancé d'office.
+  - `git` : `url` requise (`https://…` ou `git@…:…` / `ssh://…` ; `file://`, chemin local et options `-…` refusés) ;
+    `git clone --` dans le dossier final. Authentification : HTTPS → jeton `GITHUB_TOKEN` de `config.conf` passé par
+    `GIT_ASKPASS` (jamais dans l'URL, ni dans `.git/config`, ni dans un journal) ; ssh → clé et `known_hosts` du
+    coffre pour `backend` (ou `host`), `GIT_SSH_COMMAND` avec `IdentitiesOnly=yes`, `StrictHostKeyChecking=yes`.
+    Exécuté par le processus qui sert l'interface (hub, exe, pod). `remote` ignoré (l'origine est `url`).
+- **Asynchrone** pour `git` : résultat immédiat `{ "job": "<id>" }` ; avancement par l'instantané (`newJob`,
+  ci-dessous) ; à la fin : projet ouvert comme pour les autres sources. `empty`/`template` : résultat `{ "tab" }`
+  comme avant.
+- **Échec** (toute source, toute étape) : suppression du dossier du projet **créé par cet appel**, et de la
+  catégorie si `newCategory` l'a créée et qu'elle est vide ; rien n'est écrit dans `projects.json`. Le message
+  dit ce qui a été nettoyé.
+
+### Instantané — champ `newJob` **[NEW]**
+
+```json
+"newJob": { "id": "…", "name": "supervision-k8s", "step": "réception", "pct": 34, "state": "running"|"done"|"failed",
+            "msg": "authentification refusée (HTTPS, jeton) — dossier supprimé" }
+```
+Absent sans création en cours ; une création terminée (`done`/`failed`) reste dans l'instantané 30 s (ou jusqu'à
+`createCancel` sur son id, qui la retire). Une création à la fois par launcher (deuxième `create` git : refus
+`création en cours`, la place est réservée avant toute écriture).
+
+**`step`** — libellés EXACTS émis (texte affichable, minuscules, accentués) et `pct` global (0–100) :
+
+| `step` | `pct` | quand |
+|---|---|---|
+| `préparation` | 0 | démarrage, comptage / énumération / compression côté serveur |
+| `réception` | 0 → 80 | `Receiving objects` (téléchargement) |
+| `résolution des deltas` | 80 → 95 | `Resolving deltas` |
+| `extraction` | 95 → 100 | `Updating files` / `Checking out files` |
+| `terminé` | 100 | `state: "done"` (projet ouvert) |
+
+`state: "failed"` conserve le dernier `step` et porte `msg` (raison courte, jamais le jeton, + ce qui a été nettoyé).
+Un clonage réussi dont l'**ouverture** du projet échoue est `failed` (`msg` : « cloné, mais ouverture impossible : … »),
+le dépôt cloné restant en place. En cas d'échec ou d'annulation, **aucune** entrée n'est laissée dans `projects.json`
+(l'affectation du backend n'est écrite qu'après un clonage réussi).
+
+### `createCancel` **[NEW]**
+
+Arguments : `{ "job": "<id>" }`. Arrête le clonage (processus tué) puis nettoie comme un échec.
+
+### Évènement `initProposal` **[NEW]** et `initProposalAnswer` **[NEW]**
+
+À la première ouverture d'un projet créé en `template` : `{ "path" }`. Réponse `initProposalAnswer
+{ "path", "run": true|false }` : `true` tape `/init-project` dans le leader (refusé sans retirer le marqueur tant que le
+leader n'est pas prêt) ; `false` (« Plus tard ») ne le tape pas. Le marqueur `.claude-launcher/init-proposed` (exclu de
+git par `.git/info/exclude`, jamais commité) reste tant que `/init-project` n'a pas été lancé : « Plus tard » ⇒
+reproposé au lancement suivant du launcher (une fois par processus). Seul un projet connu portant le marqueur est
+accepté. Coque tmux : même marqueur, même règle (question `[o/N]` à l'ouverture, retiré sur `o`).
+
+### `projectMoveInfo` **[NEW]** (complété 2026-11-21)
+
+Arguments : `{ "path" }`, et facultativement la destination envisagée `{ "base", "category", "newCategory", "name" }`
+(appelée à la frappe par le dialogue, maquette B « ce qui change », sans rien écrire). Résultat :
+```json
+{ "base": "…", "category": "INFRA", "name": "supervision-k8s", "key": "infra-supervision-k8s",
+  "open": false, "blockers": [ "projet ouvert dans ce launcher" ],
+  "dest": { "ok": true, "path": "/srv/projets/INFRA/supervision-k8s", "key": "infra-supervision-k8s",
+            "keyChanged": false, "crossDevice": true, "exists": false, "field": "", "msg": "",
+            "impacts": [ { "what": "dir", "from": "…", "to": "…" }, { "what": "ctr", "from": "infra-supervision-k8s", "to": "" },
+                         { "what": "assign", "value": "srv1-docker" }, { "what": "conf", "keys": ["PROJECT_COLORS"] },
+                         { "what": "history", "from": "…", "to": "…" },
+                         { "what": "trust", "label": "Approbation de l'environnement : conservée" } ] },
+  "pending": { "id": "m-20261121-0943-1", "from": "…/INFRA/supervision-k8s", "to": "…/MONITORING/supervision",
+               "fromKey": "infra-supervision-k8s", "toKey": "monitoring-supervision",
+               "step": "trust", "done": ["dir", "assign", "conf", "history"], "msg": "…", "at": "2026-11-21T09:43:00Z" } }
+```
+- `key` : clé actuelle (`CtrName`, nom tmux / pod / `/files/<clé>`). `dest` : absent sans destination ; `dest.key` =
+  clé **recalculée** pour la destination (`CtrName` du nouveau chemin), `keyChanged` si elle diffère ; `crossDevice` :
+  la destination est sur un autre système de fichiers (copie puis suppression) ; `exists` : la destination existe
+  déjà (`ok: false`) ; erreur de la règle commune → `ok: false`, `field`, `msg`. `impacts` : lignes du tableau « ce
+  qui change ». Champ `label` (texte affiché tel quel) : sur la ligne `trust`, toujours (cette ligne n'existe que si
+  le projet a une entrée dans `trust.json`) ; sur la ligne `conf`, seulement quand la clé (nom du dossier) est
+  partagée avec un autre projet de même nom. Seules les étapes qui changent quelque chose ont une ligne : `conf` absent si la clé ne change pas et qu'aucune
+  entrée n'existe, `ctr` absent sans conteneur ni StatefulSet).
+- `blockers` : projet ouvert ici (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou
+  pod **en cours d'exécution**, déplacement inachevé (`pending`). Vide = déplaçable.
+- `pending` : entrée de `moves.json` dont `from` **ou** `to` est `path` (le projet peut déjà être sous sa
+  destination si l'étape `dir` est faite) ; absent sinon. `done` : étapes terminées et non annulées, dans l'ordre ; `step` : la première étape non faite — celle d'où « Reprendre » rejoue.
+
+### `projectMove` **[NEW]**
+
+Arguments : `{ "path", "base", "category", "newCategory": false, "name" }`. Reprise et annulation d'un déplacement
+inachevé : `projectMoveResume` / `projectMoveAbort` (ci-dessous).
+- Refus si `blockers` non vide (`{ "ok": false, "msg" }`), destination identique, destination existante, ou règle
+  commune KO. Pas de fermeture implicite : l'interface propose « Fermer le projet » (`close` existant) avant.
+- Étapes, dans l'ordre, consignées dans le journal `moves.json` (dossier de config, sous verrou `WithFileLock`) :
+  1. `dir` : `os.Rename` ; si `EXDEV` (autre système de fichiers) → copie complète vers `<dest>.moving-<id>`,
+     fsync des fichiers et dossiers, contrôle du contenu (entrées, tailles et **SHA-256 de chaque fichier**, liens,
+     aucune entrée en trop), jalon `copy-done` au journal, rename en `<dest>`, puis suppression de la source ;
+  2. `assign` : clé de `projects.json` (chemin) reportée ;
+  3. `conf` : entrées de `config.conf` du projet (`PROJECT_COLORS`, organisation, `PROJECT_HIDE_IDLE`) reportées
+     si la clé change (une seule écriture, `SaveConfig`) ;
+  4. `history` : dossier `projects/<chemin encodé>` de la config de claude (`ProjectDirName`) renommé ;
+  5. `trust` : la clé `RemotePath` du projet dans `trust.json` suit (état et empreinte conservés — un projet cloné
+     approuvé ne redemande rien ; sous verrou, `.bak` avant écriture ; `trust.json` illisible : l'étape échoue
+     **seulement** si le projet porte un environnement (`env.yaml` / `env-template.yaml`), sinon elle est sans objet) ;
+  6. `ctr` : ancien conteneur / StatefulSet + pod `<ancienne clé>` (arrêtés) supprimés — recréés au nouveau nom à
+     la prochaine ouverture.
+  Nom tmux, URL `/files/<clé>/…` et `CL_BROWSER_PATH_MAP` dérivent du chemin : rien à écrire.
+- **Exclusion et sûreté** : un verrou par projet (source ET destination) est tenu de la vérification des blockers à la
+  fin (refus « un déplacement est déjà en cours pour ce projet » ; reprise et annulation comprises) ; les blockers sont
+  revérifiés juste avant `dir` et avant `ctr` (jamais de suppression d'un conteneur démarré entre-temps : échec propre et
+  retour arrière). La copie entre systèmes de fichiers est durable (fsync des fichiers et dossiers) et contrôlée sur le
+  contenu (SHA-256) avant toute suppression de la source ; dates et liens symboliques (relatifs et absolus) sont
+  recopiés tels quels. `moves.json` illisible : tout déplacement refusé (« restaurez moves.json.bak ou supprimez
+  moves.json »), jamais réécrit. `trust.json` illisible : ne bloque que les projets portant un environnement.
+- Échec à l'étape N : étapes N-1…1 annulées dans l'ordre inverse (l'étape `ctr`, non réversible, est la dernière). Étapes : `dir`, `assign`, `conf`, `history`, `trust`, `ctr`.
+  Résultat `{ "ok": false, "step": "ctr", "msg", "rolledBack": true }`. Retour arrière lui-même en échec :
+  `{ "ok": false, "rolledBack": false, "state": "partial", "done": ["dir","assign"], "msg" }` ; l'entrée du journal
+  reste, le projet porte le blocker « déplacement inachevé » et l'action propose « Reprendre » (rejoue depuis
+  l'étape en échec) ou « Annuler » (retour arrière).
+- Succès : `{ "ok": true, "path": "<nouveau chemin>", "key": "<nouvelle clé>" }`, arbre relu, sélection suivie.
+
+### `projectMoveResume` **[NEW]** et `projectMoveAbort` **[NEW]** (2026-11-21)
+
+Arguments : `{ "id" }` (`pending.id` de `projectMoveInfo`). Sous le verrou du journal **et** le verrou par projet
+(source et destination de l'entrée, cf. « Exclusion et sûreté ») ; entrée relue sous ces verrous ; l'entrée doit exister (sinon
+`{ "ok": false, "msg": "aucun déplacement inachevé" }`) et le projet ne doit avoir **aucun autre** blocker (ouvert,
+conteneur actif).
+- `projectMoveResume` (« Reprendre ») : rejoue les étapes restantes à partir de `pending.step` (les étapes de
+  `done` ne sont pas refaites ; chaque étape est idempotente : `dir` déjà à destination, entrée déjà reportée, ancien
+  conteneur déjà absent = succès). Résultat comme `projectMove` : succès `{ "ok": true, "path", "key" }` (entrée
+  retirée du journal) ; nouvel échec → retour arrière comme `projectMove` (`rolledBack: true`, entrée retirée) ou
+  `state: "partial"` (entrée mise à jour : `step`, `done`, `msg`).
+- `projectMoveAbort` (« Annuler ») : annule les étapes de `done` dans l'ordre inverse (l'étape `ctr`, si faite, ne
+  s'annule pas : l'ancien conteneur est recréé à la prochaine ouverture). **`config.conf`** (étape `conf`, ici comme dans le
+  retour arrière de `projectMove`) est rétabli à l'**équivalent sémantique** de l'état initial — mêmes clés, mêmes
+  valeurs pour le projet, reste du fichier (autres projets, commentaires) inchangé — **pas à l'identique octet** :
+  l'entrée réécrite peut changer de place (fin du littéral), prendre la forme `["clé"]="valeur"` (équivalente pour
+  bash à `[clé]=valeur`), et un commentaire de fin de ligne de l'entrée retirée reste seul sur sa ligne. Les autres
+  étapes (`dir`, `assign`, `history`) rétablissent l'état exact. Succès `{ "ok": true, "path": "<chemin
+  d'origine>", "key": "<clé d'origine>", "rolledBack": true }` (entrée retirée) ; échec `{ "ok": false, "state":
+  "partial", "done", "msg" }` (entrée mise à jour).
+- Les deux relisent l'arbre et suivent la sélection. Aucun traitement automatique au démarrage : l'entrée reste en
+  `pending` jusqu'au choix de l'utilisateur (blocker « déplacement inachevé » affiché sur le projet).
+- Coque tmux : même choix depuis F2 → « déplacer / renommer » sur un projet en `pending` (touches `r` reprendre,
+  `a` annuler).
+
+### `launcherInfo` **[NEW]** (#219)
+
+Arguments : `{}`. Résultat :
+```json
+{ "running": "v6.5.0", "installed": "v6.6.0", "binChanged": true, "mode": "shell" | "desktop" | "web" | "pod" }
+```
+- `binChanged` : le fichier de `SelfExe()` n'est plus celui du démarrage (inode/date/taille, ou `(deleted)`).
+- `installed` : version du binaire sur disque (`<exe> version`, délai 3 s ; vide si illisible).
+- Instantané : `launcher` reprend `running`, `installed`, `binChanged` pour le bandeau (une seule branche : « vX
+  installée — Relancer »). **[révision GATE 2]** pas de champ `stale` ni de branche « processus anciens » dans
+  l'interface web / native : les processus `mirror` / `layout-watch` n'existent que dans la coque, qui a sa propre
+  annonce (ci-dessous). Pas de champ `backup` (aucun retour arrière dans l'interface).
+
+### Processus anciens de la coque — `core.FindStaleProcs` (#219)
+
+Coque Linux seulement (hors Linux : liste vide, pas de parcours de `/proc`). Retient un processus de `/proc` si :
+- `argv[0]` a pour **nom de fichier le nom du binaire courant** (`claude-launcher-ng2`) et `argv[1]` ∈ {`mirror`,
+  `layout-watch`} — un processus d'un autre programme portant ces arguments n'est jamais retenu ;
+- son `CL_INNER_SOCKET` (environnement, défaut `claude-ng2`) est celui de ce launcher (pas d'action sur le serveur
+  tmux d'un autre launcher ou d'un test) ;
+- son `/proc/<pid>/exe` n'est **pas** le binaire courant (`os.SameFile`).
+
+### Coque — touche `ctrl+r` contextuelle **[CHANGED]** (#219)
+
+- Annonce affichée (binaire changé, ou processus anciens restants) : `ctrl+r` demande la confirmation (« Relancer ?
+  … sessions gardées (o/y) ») puis relance comme `relaunch` en mode `shell`. Un clic sur l'annonce fait de même.
+- Sans annonce : `ctrl+r` garde son rôle actuel (rescan).
+
+### `relaunch` **[NEW]** (#219)
+
+Arguments : `{ "confirm": true }` (sans `confirm` : refus — la confirmation est faite par l'interface).
+Effet selon `mode` :
+- `desktop` / `web` : `restartApp` (binaire installé relancé, `CL_NO_UPDATE=1`, port libéré, ancien processus
+  quitté).
+- `shell` : panes de la coque (`@cl` nav, cartes, état) relancés par `respawn-pane -k` avec le binaire installé ;
+  vignettes `mirror` relancées par `respawn-pane -k` ; `layout-watch` anciens (`FindStaleProcs`) arrêtés (`SIGTERM`,
+  puis `SIGKILL` après 2 s) et relancés par `run-shell -b` pour leur fenêtre. **Jamais** de `kill-session` ni de
+  `kill-server` de `claude-hub` : sessions et panes des projets intacts.
+- `pod` : sortie du processus (code 0) — le conteneur du launcher est redémarré par Kubernetes ; les pods des
+  projets ne sont pas touchés.
+Résultat : `{ "ok": true }` avant la relance (l'interface se reconnecte), ou `{ "ok": false, "msg" }`.
+
+### ~~`rollback`~~ **[RETIRÉ]** (#218, révision GATE 2)
+
+Aucun retour arrière dans l'interface (ni Dispatch, ni bandeau, ni touche de coque). Le retour à la version
+précédente est une **procédure manuelle documentée** (guide `ng2/docs/`, section mise à jour) : quitter le
+launcher, renommer `<exe>.bak-v<précédente>` en `<exe>`, relancer ; l'exe sauvegardé (v6.6.0) peut être gardé à côté.
+
+### Sauvegarde avant mise à jour (#218) **[CHANGED]**
+
+`InstallBinary` / `ReplaceExecutable` : avant remplacement, le binaire courant devient
+`<exe>.bak-v<version courante>` (Windows : renommage de l'exe en cours d'exécution ; Linux : copie atomique, le
+renommage par-dessus restant le mécanisme de remplacement). **Une seule** sauvegarde gardée : les autres
+`<exe>.bak-v*` sont supprimées après une installation réussie (une sauvegarde verrouillée est retentée au démarrage).
+Même convention que la sauvegarde du hub par `deployer` (`claude-launcher-ng2.bak-v<précédente>`). Échec de
+l'écriture du nouveau binaire : l'exe d'origine est remis en place (comportement `swapRunningExe` conservé). Pas de
+version « écartée » (`update-skip` retiré avec le retour arrière).
+
+### Écriture de `config.conf` (#217) **[CHANGED]**
+
+`SaveConfig` (et donc `ApplyProjectConf*`, `configApply`, `projectApply`), `EnsureConfig` : temporaire
+`.config.conf.tmp-*` du même dossier, `0600`, `fsync`, `rename`, puis `fsync` du dossier (Unix). Windows : rename
+retenté (5 essais, attentes 50/100/200/400 ms) sur `ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`, puis erreur explicite
+(`config.conf verrouillé par un autre programme`) ; l'ancien fichier reste intact. La copie `.bak` est écrite de
+la même façon. `EnsureConfig` : création exclusive par temporaire + lien/rename sans écrasement. Au démarrage, les
+`.config.conf.tmp-*` de plus de 10 min du dossier de config sont supprimés. Aucun changement d'API.
+
+### Approbation de l'environnement d'un projet cloné (#215, amendement audit LOT-2.2) **[NEW]**
+
+Un dépôt cloné n'est pas de confiance : son `.claude-launcher/env.yaml` et son `env-template.yaml` (image, paquets,
+`setup`, `on_start`, `watch`, `mounts`, `local`, `prefer`) ne sont **jamais appliqués sans accord**.
+
+**Registre `trust.json`** (dossier de config **partagé** `<CL_ROOT_BASE>/.config/claude-launcher-ng2/`, à côté de
+`projects.json`, comme le coffre des secrets #201 : l'exe Windows, le hub et le pod partagent les approbations ;
+`CL_CONFIG_DIR` l'emporte, sans racine de base : dossier de config du launcher ; **jamais dans le projet**, qu'un
+dépôt pourrait fournir) — clés = chemin du projet vu des backends (`RemotePath`, comme `projects.json`), écriture
+atomique sous `WithFileLock`, **copie `trust.json.bak` avant chaque écriture** :
+```json
+{ "/share/…/INFRA/supervision-k8s": { "state": "pending" | "accepted" | "ignored" | "none", "sha": "<sha256>",
+  "source": "https://github.com/CCoupel/supervision-k8s.git", "image": "debian:12", "at": "2026-11-20T10:00:00Z" } }
+```
+- `sha` : SHA-256 du contenu de `env-template.yaml` puis `env.yaml` (absent = vide). **Comparé à chaque ouverture.**
+- `image` : socle choisi à la création (gardé par « Ouvrir sans »).
+- **TOUT projet cloné est enregistré** : l'entrée `pending` est posée **avant** le clonage (un clone interrompu ne devient
+  jamais de confiance ; retirée par l'annulation de la création si le clonage échoue), puis, à la fin d'un clonage
+  réussi, elle reste `pending` si le dépôt porte `env.yaml` / `env-template.yaml`, ou devient **`none`** (aucun
+  environnement ; `sha` des fichiers absents). Pas d'entrée = projet de confiance (projets existants, `empty`, `template`).
+- **Re-demande sur changement d'empreinte (décision utilisateur, remplace « choix définitif »)** : état effectif =
+  `pending` dès que `sha` ≠ empreinte actuelle des fichiers, pour `accepted`, `ignored` **et `none`** (un `env.yaml`
+  qui apparaît après un `git pull` est redemandé). **Aucune différence n'est affichée** : la question présente
+  l'environnement courant (`changed: true` dit seulement « a changé depuis l'approbation »). Les écritures de
+  `env.yaml` **faites par le launcher lui-même** (F2, réglages du projet) mettent `sha` à jour — sauf si les fichiers
+  avaient déjà été modifiés par le dépôt avant l'écriture (jamais béni). « Revoir » remet l'entrée à `pending`.
+- **Migration** : au démarrage (`shell`, `desktop`), un `trust.json` resté dans le dossier de config LOCAL du poste (et
+  absent du registre partagé) est **fusionné** dans le registre partagé : jamais de perte — une entrée absente est
+  ajoutée ; en cas de désaccord, l'état le plus **RESTRICTIF** l'emporte (`pending` > `ignored` > `accepted` = `none` ;
+  même sévérité mais empreintes différentes, ou `accepted` face à `none` → `pending`) — le registre partagé peut donc
+  être resserré par un registre local plus strict, jamais assoupli. Écart journalisé, `trust.json.bak` avant l'écriture,
+  l'ancien fichier est conservé. Registre partagé illisible : rien n'est réécrit (échec fermé ci-dessous).
+- **Échec fermé** : `trust.json` présent mais vide ou illisible → tout projet portant un environnement est `pending`
+  (`ErrTrustBroken`, qui est aussi `ErrEnvNotApproved`), le fichier n'est **jamais réécrit** (toute écriture est
+  refusée) ; restaurer `trust.json.bak` ou supprimer le fichier. Un projet sans environnement n'est pas concerné.
+  **Message de reprise** (fenêtre native, web et coque — erreur de `LoadEnv`, réponse de `envTrustAnswer`, champ
+  `broken` d'`envTrustInfo` / de l'évènement `envTrust`, ligne rouge de l'écran de la coque) : « registre d'approbation
+  illisible (<chemin de trust.json>) : restaurez trust.json.bak ou supprimez trust.json pour repartir de zéro ».
+  Supprimer `trust.json` repart de zéro : les projets déjà clonés n'ont plus d'entrée (de confiance) ; restaurer
+  `trust.json.bak` rend l'état précédent la dernière écriture.
+
+**`core.EnvTrust(path)`** → état effectif : `trusted` (pas d'entrée) | `pending` | `accepted` | `ignored` | `none`.
+**`LoadEnv`** : `pending` → refus (`ErrEnvNotApproved` ; `ErrEnvChanged` quand l'empreinte a changé) pour toute
+préparation de conteneur ; `ignored` (empreinte à jour) → `EnvSpec{Image: entrée.image}` seul (rien d'autre du dépôt).
+Projet affecté à l'**hôte** : aucune question (env.yaml inutilisé) ; elle vient au premier passage en conteneur (F2) ou
+à l'ouverture en conteneur.
+
+### `open` **[CHANGED]** — garde d'approbation
+
+Projet en conteneur et `EnvTrust` = `pending` : rien n'est démarré, résultat
+`{ "needTrust": true, "path" }` et évènement `envTrust` (ci-dessous). Les autres cas : inchangés.
+
+### Évènement `envTrust` **[NEW]** et `envTrustInfo` **[NEW]**
+
+`envTrustInfo { "path" }` (et charge utile de l'évènement) :
+```json
+{ "path": "…", "state": "pending", "source": "https://github.com/…", "sha": "<sha courant>",
+  "chosenImage": "debian:12",
+  "spec": { "image": "…", "packages": [], "packagesByManager": {}, "setup": [], "onStart": [], "watch": [],
+            "mounts": [ { "path": "/var/run/docker.sock", "ro": false } ], "local": [], "prefer": "" },
+  "files": { "env.yaml": "<texte>", "env-template.yaml": "" },
+  "changed": false, "broken": "",
+  "risk": { "exec": 3, "hostMounts": 1, "packages": 4, "watch": 1, "local": 1, "scripts": ["./scripts/install.sh"] },
+  "scriptNote": "ce script n'est pas couvert par l'approbation : sa version courante sera exécutée" }
+```
+`risk.exec` = nombre de commandes `setup` + `on_start`, `risk.hostMounts` = montages hors du projet, `risk.packages` =
+paquets installés (`packages` + `packages_by_manager`), `risk.watch` / `risk.local` = entrées `watch` / `local`. `risk.scripts` = scripts **du dépôt** que `setup` / `on_start`
+appellent (jetons de chemin relatif — `./x`, `../x`, `dir/x` — ou d'extension de script `.sh` `.py` `.ps1`…, hors URL,
+option, chemin absolu ; heuristique qui signale) ; `scriptNote` (non vide s'ils existent) : « ce script n'est pas couvert
+par l'approbation : sa version courante sera exécutée » — seuls `env.yaml` / `env-template.yaml` sont couverts par
+l'empreinte, jamais les scripts qu'ils appellent.
+`broken` : message de reprise quand le registre est illisible (vide sinon). `changed` : la question revient parce que les fichiers ont changé depuis l'approbation (message « l'environnement du
+dépôt a changé depuis l'approbation », sans différences). Textes affichés tels quels, échappés (jamais interprétés en
+HTML ; en terminal : ESC, C0, C1, DEL **et caractères invisibles ou bidirectionnels** U+200B–200F, U+202A–202E,
+U+2066–2069, U+061C, U+FEFF remplacés par `·`, texte retourné à la ligne, jamais tronqué : une commande exécutée se lit
+en entier).
+
+### `envTrustAnswer` **[NEW]**
+
+Arguments : `{ "path", "choice": "accept" | "ignore" | "cancel", "sha": "<sha de envTrustInfo>" }`.
+- `sha` différent du contenu actuel (fichier modifié pendant la question) : `{ "ok": false, "msg": "l'environnement a
+  encore changé", "retry": true }` — l'interface recharge `envTrustInfo`.
+- `accept` → `state: accepted` (empreinte courante), puis ouverture ; `ignore` → `state: ignored`, ouverture avec le seul
+  socle `image` ; `cancel` → rien n'est écrit, rien n'est ouvert.
+- Résultat : comme `open` (`{ "tab" }`) ou `{ "ok": true }` pour `cancel`.
+
+### `projectSettings` / `projectApply` — `envTrust` **[NEW]**
+
+`projectSettings` gagne `"envTrust": { "state", "source", "at" }` (absent pour un projet de confiance).
+`projectApply { "envTrust": "review" }` remet l'entrée à `pending` (« Revoir » : la question revient à la prochaine
+ouverture). Permis projet fermé seulement.
+
+### Coque tmux
+
+Même garde à l'ouverture : écran de la question (image, paquets, commandes, montages),
+touches `a` accepter, `s` ouvrir sans, `Échap` annuler, `v` fichiers bruts (maquette retenue A,
+`docs/mockup/v6.6.0/ui/clone_trust__approbation_env.html`).
+
+### `env.yaml` d'un projet refusé tant que le projet ou son conteneur tourne (#216, complément LOT-3, décision 2026-11-21) **[CHANGED]**
+
+Comme déplacer / renommer et backend / image : toute **écriture de l'`env.yaml` d'un projet** (paquets, setup,
+on_start, watch, mounts, local, prefer, image de l'env) est refusée tant qu'un **blocker** de #216 s'applique.
+
+- **Blockers** : ceux de `projectMoveInfo` (`core.MoveBlockers`, hors « déplacement inachevé ») — projet ouvert dans
+  ce launcher (fenêtre tmux, onglet), ouvert par un autre launcher (présence #176), conteneur ou pod du projet **en
+  cours d'exécution** (ici ou ailleurs). Contrôle **côté core**, en deux temps à chaque écriture (60ae84f) :
+  1. **contrôle complet**, hors verrous, au moment de l'enregistrement : interroge les moteurs (conteneur / pod listé,
+     présence des autres launchers) — c'est lui qui attrape un conteneur démarré **après l'ouverture de la page** ;
+  2. **revérification rapide sous le verrou d'`env.yaml`**, juste avant l'écriture : porte sur l'**état mémorisé**
+     (onglet ouvert, session tmux vivante, conteneur vu actif par le contrôle 1), **sans** re-lister les moteurs.
+  Limite admise : un conteneur démarré dans la fenêtre courte entre le contrôle 1 et l'écriture n'est pas vu ; le
+  changement d'`env.yaml` s'applique alors à sa prochaine ouverture (pas de recréation du conteneur en cours).
+- **Projet sans backend conteneur** (sur l'hôte) : jamais « non vérifiable » — seuls l'onglet / la session tmux
+  comptent ; un échec d'un moteur conteneur ne le concerne pas.
+- **Backend injoignable (décision utilisateur, 2026-11-21)** : si l'état du conteneur ou la présence d'un autre
+  launcher **ne peuvent pas être vérifiés** (backend injoignable) et que le projet **n'est pas ouvert ici**, l'écriture
+  est **autorisée** : `projectApply` → `{ "ok": true, "warn": "état du conteneur inconnu (backend injoignable) :
+  s'appliquera à la prochaine ouverture" }`, `configSave` / `configApply` → `{ "saved": true, …, "warn": "…" }`. Refus
+  **seulement** sur blocker **confirmé** (ouvert ici, autre launcher confirmé, conteneur actif confirmé). Le
+  déplacement / renommage (#216) reste fail-closed (backend injoignable → refus).
+- **Backend / image : fail-closed**, comme le déplacement — changement plus risqué (conteneur recréé, sessions
+  perdues si le projet tourne ailleurs) : état non vérifiable → **refus** `{ "ok": false, "field": "env", "msg":
+  "état du conteneur inconnu (backend injoignable) : changement de backend / image refusé", "blockers" }`, jamais
+  l'avertissement d'`env.yaml`.
+- **« Non vérifiable »** couvre **le délai dépassé ET l'échec rapide** du backend (moteur absent, connexion refusée,
+  erreur d'authentification, réponse illisible) : dans tous ces cas l'état est inconnu — `env.yaml` : autorisé avec
+  `warn` ; backend / image et déplacement : refus.
+  Seul compte le **moteur du projet** (backend affecté au projet dans `projects.json`) : l'échec d'un **autre**
+  backend configuré est ignoré et ne rend pas le projet « non vérifiable ».
+- **Méthodes concernées** :
+  - `projectApply` avec `env` : refus **avant toute écriture** (même ordre que backend/image : contrôles sans écriture
+    d'abord) — `{ "ok": false, "field": "env", "msg": "<raison>", "blockers": ["…"] }` ; les autres parties de la même
+    demande ne sont pas écrites non plus (couleur, organisation, masquage envoyés **seuls** restent permis projet
+    ouvert : ils ne passent pas par cette garde).
+  - `configSave`, `configApply`, `configValidate` sur `kind: "project-env"` (éditeur YAML / formulaire de l'env du
+    projet, `path`) : `configSave` / `configApply` → même refus `{ "ok": false, "field": "env", "msg", "blockers" }` ;
+    `configValidate` reste permis (lecture) ; `configOpen` ajoute `"readOnly": true` et `"readOnlyReason"`
+    (**écart d'implémentation accepté** : `configModel` n'a pas de modèle structuré pour `project-env`, il n'en reçoit
+    donc pas).
+  - `ApplyExec` / `execApply` / `projectApply.image|backend` : refus inchangé (déjà en place), même forme
+    `{ "ok": false, "field": "env", "msg", "blockers" }` pour un projet ouvert ici.
+- **`msg`** (une raison, la première blocker) : « projet ouvert — fermez le projet pour modifier son environnement »,
+  « projet ouvert par un autre launcher (<hôte>) — … », « conteneur du projet en cours d'exécution — … ».
+- **`projectSettings`** gagne `"envLocked": true|false` et `"envLockReason": "<msg>"`, calculés **sans interroger les
+  moteurs** (ouvert ici, session vivante vue, conteneur actif vu à la dernière lecture) — indicatif ; le contrôle
+  complet est fait à l'écriture. L'interface grise les sections
+  `env.yaml` du formulaire et l'éditeur YAML (lecture seule) avec cette mention ; un refus serveur (autre launcher,
+  conteneur démarré depuis l'ouverture de la page, vu par le contrôle complet à l'écriture) affiche `msg`.
+- **Coque tmux** : F2 → entrées d'environnement grisées et mention « fermez le projet pour modifier son
+  environnement » ; écriture refusée par le même contrôle core.
+- **Exceptions (jamais bloquées)** : écritures du launcher lui-même liées à la création et à l'approbation — fin de
+  `create` (clone / `ApplyExec` de création, projet pas encore ouvert), `envTrustAnswer` (`accept` / `ignore`, appelé
+  **avant** le démarrage du conteneur, `open` étant suspendu par `needTrust`), étape `trust` de `projectMove`. Ces
+  chemins n'appellent pas la garde (testés).
+- Couleur, organisation, masquage des inactifs (`config.conf`) : inchangés, à chaud.
+
+## v6.6.0 — LOT-4 : config à chaud, effet des options, éléments cachés (#225, #226, #227)
+
+### Prise en compte à chaud de `config.conf` (#225) **[CHANGED]** (pas de nouvelle méthode)
+
+- **Relecture par date** : `App.conf()` relit `config.conf` si son `mtime` (ou sa taille) a changé depuis la dernière
+  lecture, au plus une fois par seconde (pas de surveillance de fichier : 9P / MooseFS). Cette relecture passe
+  **avant** toute recopie dans `settings.json` (`SyncLauncherEnv`) et toute action qui dépend de la config : ouverture
+  d'un projet (`prepare`), création, `refreshProject`, lecture des milestones, `relaunch`. Un `config.conf` invalide
+  garde la dernière copie valide et le signale (message de pied, comme le chargement).
+- **Recopie dans `settings.json`** : `configApply`, `configSave` (éditeur) et `configReload` appellent
+  `SyncLauncherEnv` avec la config relue. Résultat de `configApply` / `configSave` : champ `sync`
+  (`{ "ok": true }` ou `{ "ok": false, "msg" }`).
+- **Jamais de valeur plus ancienne** : `SyncLauncherEnv` compare le `mtime` de la config utilisée à celui de
+  `config.conf` et relit si besoin avant d'écrire (garde contre une copie mémoire périmée).
+- **Coque tmux** : le `nav` relit `config.conf` par date (même règle, à chaque tour) sans être relancé ; les
+  réglages lus seulement au démarrage (`Roots`, `CLAUDE_CONFIG_DIR`) restent à « relance du launcher » (#226).
+- `Roots` (racines) et `CLAUDE_CONFIG_DIR` ne sont **pas** appliqués à chaud (effet `launcher`).
+
+### `configModel` — champ `effect` par option **[NEW]** (#226)
+
+Chaque entrée de `settings[]` (kind `config.conf`, puis `backends.yaml`, `hub`, `env.yaml`) gagne :
+```json
+{ "key": "CLAUDE_DISABLE_MOUSE", "effect": "claude", "effectHelp": "recopié dans settings.json à l'enregistrement ; lu par claude à son démarrage" }
+```
+- `effect` ∈ `immediate` (appliqué dès l'enregistrement) | `project` (à la prochaine ouverture d'un projet) |
+  `claude` (relance des sessions claude déjà ouvertes ; les nouvelles l'ont) | `launcher` (relance du launcher, #219).
+- Valeur **pour l'interface qui appelle** (H5, défaut retenu) (fenêtre native / web : un tableau ; coque : un autre quand il diffère) —
+  table unique dans `core` (`OptionEffect(key, iface)`), tirée du diagnostic
+  `_work/reports/dev-frontend-diag-config-a-chaud-20261121.md` corrigé par #225 (ex. `CLAUDE_DISABLE_MOUSE`,
+  `CLAUDE_EXPERIMENTAL_TEAMS`, `EXTRA_ENVS`, `GITHUB_TOKEN` → `claude` ; `CLAUDE_OPTIONS`, `RESUME_*` → `project` ;
+  `GITHUB_DIR(S)`, `CLAUDE_CONFIG_DIR` → `launcher` ; `TEAM_HIDE_IDLE*`, `LAYOUT_*`, `USAGE_REFRESH_SEC`,
+  `COLOR_PALETTE` → `immediate`). Clé inconnue : `effect` absent (pas de pastille).
+- `effectHelp` : **[CHANGED — maquette retenue A révisée]** remplacé par `effectHow`, contenu de la **bulle** affichée au
+  survol, au focus clavier ou à l'appui de la pastille :
+  ```json
+  "effectHow": { "why": "recopiée dans settings.json dès l'enregistrement ; lue par claude à son démarrage",
+                 "do": "Rafraîchir chaque projet ouvert ; les nouvelles sessions l'ont déjà",
+                 "shell": "F5 sur le projet",
+                 "action": "refresh" | "relaunch" | "reopen" | "" }
+  ```
+  `why` : pourquoi cet effet ; `do` : quoi faire (fenêtre native / web) ; `shell` : procédure dans la coque Linux
+  (ex. `relaunch` → « ctrl+r quand l'annonce de relance est affichée, sinon Échap puis l puis relancer
+  claude-launcher-ng2 ») ; `action` : lien d'action de la bulle — `relaunch` → `relaunch` (#219), `refresh` →
+  `refreshProject` des projets ouverts concernés (#158), `reopen` → aucun appel (texte seul), `""` pour `immediate`.
+  Textes en français, produits par `core` (même table que `effect`).
+
+### `configApply` / `configSave` — champ `apply` **[NEW]** (#226)
+
+Après un enregistrement réussi :
+```json
+"apply": { "changed": [ { "key": "CLAUDE_DISABLE_MOUSE", "effect": "claude" } ],
+           "relaunch": false,
+           "projects": [ { "path": "…/Claude-Launcher", "name": "Claude-Launcher", "for": ["claude"] } ] }
+```
+- `changed` : options dont la **valeur effective** a changé (pas les commentaires), avec leur effet.
+- `relaunch` : vrai si une option `launcher` a changé (l'interface propose « Relancer le launcher », `relaunch` #219).
+- `projects` : projets **ouverts** concernés par une option `claude` ou `project` (« Rafraîchir », `refreshProject`
+  #158). Aucune action automatique (H6, décision utilisateur) : bandeau de rappel limité aux options modifiées, actions
+  proposées seulement (maquette retenue `docs/mockup/v6.6.0/ui/config_ui__effet_des_options.html`).
+- `note` (texte global produit par `core`, `ConfigReloadNote`) **par type** (correction revue LOT-4.2) :
+  - `config.conf` : **retiré** au profit de `effect` / `apply` (absent de la réponse) ;
+  - `backends.yaml`, `hub` (« Ce poste »), `env.yaml` du launcher et `project-env` : **conservé** (textes actuels :
+    « relu : backends, pools… », « pris en compte à la prochaine ouverture du projet… ») tant que ces types n'ont pas
+    leurs pastilles d'effet — l'interface l'affiche après l'enregistrement. Pastilles de ces types : hors LOT-4.2.
+
+### `secretReveal` **[NEW]** (#227)
+
+Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : toute entrée `type: "secret"` d'un
+`configModel`). Résultat : `{ "ok": true, "value": "<valeur>" }` ou `{ "ok": false, "msg" }`.
+- **Seules** les clés de type `secret` du modèle sont admises (liste fermée côté `core`) ; autre clé : refus.
+- La valeur n'est **jamais** dans `configModel`, un instantané, un évènement, un message d'erreur ni un journal ;
+  le journal des écritures de secrets consigne seulement « révélé : clé, interface, heure » (jamais la valeur, ni
+  longueur, ni empreinte).
+- **Accès web** (H7, décision utilisateur) : refusé (`msg: "indisponible depuis un accès distant"`) quand la requête vient de l'adresse
+  publique (`url` de `desktop_web`, #171) ou d'un hôte autre que la boucle locale ; admis depuis la fenêtre native
+  et l'accès web local (`127.0.0.1` / `::1`, session valide, `Origin` contrôlée comme les autres appels).
+  Réponse HTTP `Cache-Control: no-store`. Au plus 10 révélations par minute et par session.
+- Côté interface (maquette retenue A, œil dans le champ, `docs/mockup/v6.6.0/ui/config_ui__element_cache.html` —
+  **même composant pour tous les éléments cachés**) : valeur gardée en mémoire le temps de l'affichage seulement
+  (re-masquage, H8 : clic, 30 s, changement de rubrique, fermeture), jamais écrite dans le DOM d'un champ éditable ni dans le stockage du navigateur.
+- `configModel` : entrée secrète gagne `"reveal": true|false`, **toujours présent** pour une entrée `type: "secret"`
+  (jamais omis : `false` est envoyé explicitement pour un accès distant — l'œil est grisé ; absent seulement pour une
+  entrée non secrète).

@@ -97,7 +97,7 @@ func TestForceCloseConfirmRefusedWhenLiveSessionAppears(t *testing.T) {
 // en conteneur dont l'interface affiche l'onglet.
 func containerTab(t *testing.T, a *App, path string) *projTerm {
 	t.Helper()
-	pt := &projTerm{a: a, path: path, name: filepath.Base(path), host: false, state: "ready", stop: make(chan struct{})}
+	pt := &projTerm{a: a, path: path, name: filepath.Base(path), state: "ready", stop: make(chan struct{})}
 	a.mu.Lock()
 	a.terms[path] = pt
 	a.order = append(a.order, path)

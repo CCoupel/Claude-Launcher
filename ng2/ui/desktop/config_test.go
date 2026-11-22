@@ -44,7 +44,7 @@ func TestConfigEditorCalls(t *testing.T) {
 	}
 	// enregistrement d'un fichier absent, puis relecture à chaud
 	s := call("configSave", map[string]any{"kind": "config.conf", "content": "USAGE_REFRESH_SEC=300\n", "mtime": ""})
-	if s["saved"] != true || s["note"] == "" {
+	if s["saved"] != true || s["apply"] == nil {
 		t.Fatalf("enregistrement : %v", s)
 	}
 	if a.conf().UsageRefreshSec != 300 {

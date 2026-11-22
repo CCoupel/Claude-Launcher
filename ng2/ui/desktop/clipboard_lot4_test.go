@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -109,9 +108,10 @@ func newPasteFix(t *testing.T) pasteFix {
 		t.Skip("tmux absent")
 	}
 	ps := sandbox(t, "", "alpha")
-	sock := "cl-desk-paste-" + strconv.Itoa(os.Getpid())
+	t.Chdir(t.TempDir()) // un serveur tmux qui plante ne dépose jamais de core dans le dépôt (#224)
+	sock := uniqueDeskSocket("cl-desk-paste-")
 	t.Setenv("CL_DESK_SOCKET", sock)
-	t.Cleanup(func() { _ = exec.Command("tmux", "-L", sock, "kill-server").Run() })
+	t.Cleanup(func() { killDeskServer(sock) }) // exécuté APRÈS a.Stop (ci-dessous)
 	dir := t.TempDir()
 	out := filepath.Join(dir, "recu.txt")
 	fake := filepath.Join(dir, "claude")
@@ -121,6 +121,7 @@ func newPasteFix(t *testing.T) pasteFix {
 	_ = core.WriteAssignment(ps[0], "host")
 	var r recorder
 	a := newApp(t, r.emit)
+	cleanupApp(t, a) // clients tmux détachés et ouvertures terminées avant kill-server (SIGSEGV de tmux 3.6 sinon, #224)
 	if _, err := a.open(ps[0], core.LaunchNormal); err != nil {
 		t.Fatal(err)
 	}

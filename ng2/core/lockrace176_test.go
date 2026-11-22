@@ -109,9 +109,14 @@ func TestSlowHolderDoesNotReleaseAnotherLock(t *testing.T) {
 // Présence : deux lanceurs de même nom constatent ensemble un témoin périmé → un seul démarre.
 func TestPresenceStaleTakeoverStartsOnlyOne(t *testing.T) {
 	withHome(t)
-	oldStale := presenceStale.Get()
-	presenceStale.Set(150 * time.Millisecond)
-	defer func() { presenceStale.Set(oldStale) }()
+	// Le gagnant bat (presenceBeat) bien plus vite que la péremption : un perdant retardé (goroutine tardive, runner
+	// Windows chargé) voit un témoin FRAIS. Avec une péremption de 150 ms et le battement de 3 s, le témoin du gagnant
+	// devenait « périmé » avant que les retardataires le lisent → deux lanceurs (test trop serré, pas une course du
+	// code : un témoin sans battement depuis presenceStale est repris par conception).
+	oldStale, oldBeat := presenceStale.Get(), presenceBeat.Get()
+	presenceStale.Set(3 * time.Second)
+	presenceBeat.Set(25 * time.Millisecond)
+	defer func() { presenceStale.Set(oldStale); presenceBeat.Set(oldBeat) }()
 	t.Setenv("CL_CACHE_DIR", t.TempDir())
 	t.Setenv("CL_HUB_NAME", "hub-presence")
 	for round := 0; round < 6; round++ {

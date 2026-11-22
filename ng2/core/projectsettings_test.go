@@ -173,8 +173,36 @@ func TestApplyProjectSettings(t *testing.T) {
 	if Assigned(proj) {
 		t.Fatal("affectation écrite malgré le refus")
 	}
-	// mais env.yaml et couleur restent modifiables sur un projet ouvert
-	r := ApplyProjectSettings(proj, true, ProjectChange{Color: str("22"), Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}})
+	// env.yaml refusé aussi projet ouvert (LOT-3 #216) : rien n'est écrit, ni env.yaml ni la couleur ; la couleur seule passe
+	if r := ApplyProjectSettings(proj, true, ProjectChange{Color: str("22"), Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}}); r.OK || r.Field != "env" || !strings.Contains(r.Msg, "fermez le projet pour modifier son environnement") || r.Env != nil || r.Color {
+		t.Fatalf("env projet ouvert : %+v", r)
+	}
+	if b, _ := os.ReadFile(EnvPath(proj)); string(b) != envSrc {
+		t.Fatal("env.yaml écrit malgré le refus (projet ouvert)")
+	}
+	if c, _ := os.ReadFile(ConfigPath()); strings.Contains(string(c), "PROJECT_COLORS") {
+		t.Fatal("couleur écrite malgré le refus de l'env")
+	}
+	// garde complète (1 seule fois) libre, puis revérification rapide qui bascule : refus, rien d'écrit
+	full, fast := 0, 0
+	g := func() []string { full++; return nil }
+	rc := func() []string {
+		fast++
+		if fast >= 1 {
+			return []string{"conteneur ou pod en cours d'exécution (x sur y)"}
+		}
+		return nil
+	}
+	if r := ApplyProjectSettings(proj, false, ProjectChange{Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}, EnvGuard: g, EnvRecheck: rc}); r.OK || r.Field != "env" || !strings.Contains(r.Msg, "conteneur ou pod") {
+		t.Fatalf("revérification à l'écriture : %+v (garde %d, recheck %d)", r, full, fast)
+	}
+	if full != 1 {
+		t.Errorf("garde complète évaluée %d fois, attendu 1", full)
+	}
+	if b, _ := os.ReadFile(EnvPath(proj)); string(b) != envSrc {
+		t.Fatal("env.yaml écrit malgré la revérification")
+	}
+	r := ApplyProjectSettings(proj, false, ProjectChange{Color: str("22"), Env: &EnvChange{MTime: mt, Changes: []ConfigChange{set("packages", []any{"jq", "git"})}}})
 	if !r.OK || r.Env == nil || !r.Env.Saved || r.Env.MTime == "" || r.Note == "" || !r.Color {
 		t.Fatalf("env + couleur : %+v", r)
 	}

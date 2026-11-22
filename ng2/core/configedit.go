@@ -15,6 +15,9 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"claude-launcher-ng2/internal/tun"
+	"claude-launcher-ng2/platform"
 )
 
 // ── Fichiers de configuration en texte brut (#117) ────────────────────────
@@ -557,6 +560,30 @@ func confLiteCheck(src string) []ConfigProblem {
 // version précédente, écriture atomique (fichier temporaire puis rename).
 // Rend les problèmes (avertissements compris).
 func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time.Time) ([]ConfigProblem, error) {
+	return SaveConfigGuarded(kind, path, content, expectedMtime, nil, nil)
+}
+
+// ErrEnvLocked : écriture de l'env.yaml refusée (projet ouvert, ouvert ailleurs, conteneur actif) ; voir EnvLockedError.
+var ErrEnvLocked = errors.New("environnement non modifiable")
+
+// EnvLockedError : le refus et ses blockers (errors.Is(err, ErrEnvLocked)).
+type EnvLockedError struct{ Blockers []string }
+
+func (e *EnvLockedError) Error() string   { return EnvEditMessage(e.Blockers) }
+func (e *EnvLockedError) Is(t error) bool { return t == ErrEnvLocked }
+
+// SaveConfigGuarded : SaveConfig ; pour un env.yaml de projet seulement : guard (peut être lent : moteurs, propriétaire) est
+// appelé AVANT toute écriture et hors de tout verrou ; recheck (RAPIDE : état mémorisé, sans moteur) est REVÉRIFIÉ juste avant
+// l'écriture, sous le verrou d'env.yaml — un moteur lent ne retient donc jamais trust.json.lock ni env.yaml.lock. Nil : sans objet.
+func SaveConfigGuarded(kind ConfigKind, path string, content []byte, expectedMtime time.Time, guard, recheck func() []string) ([]ConfigProblem, error) {
+	if kind != ConfProjectEnv {
+		guard, recheck = nil, nil
+	}
+	if guard != nil {
+		if b := guard(); len(b) > 0 {
+			return nil, &EnvLockedError{Blockers: b}
+		}
+	}
 	if !configPathOK(kind, path) {
 		return nil, fmt.Errorf("%s : pas un fichier de configuration %s", path, kind)
 	}
@@ -593,33 +620,56 @@ func SaveConfig(kind ConfigKind, path string, content []byte, expectedMtime time
 		if rerr != nil {
 			return ps, rerr
 		}
-		bak := path + ".bak"
-		// créée en 0600 d'emblée : l'ancienne copie (peut-être plus ouverte, ou un lien)
-		// est supprimée avant, jamais écrite puis resserrée
-		_ = os.Remove(bak)
-		bf, berr := os.OpenFile(bak, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
-		if berr == nil {
-			_, berr = bf.Write(old)
-			if cerr := bf.Close(); berr == nil {
-				berr = cerr
-			}
-		}
-		if berr != nil {
+		if berr := WriteFileAtomic(path+".bak", old, mode); berr != nil { // 0600 d'emblée, jamais écrite puis resserrée
 			return ps, fmt.Errorf("copie .bak : %w", berr)
 		}
-		_ = os.Chmod(bak, mode) // une copie préexistante plus ouverte (config.conf.bak d'avant) est resserrée
 	}
-	return ps, writeFileAtomic(path, content, mode)
+	if kind == ConfProjectEnv { // écriture du launcher : l'empreinte approuvée d'un projet cloné suit (pas de re-demande)
+		return ps, withTrustRefresh(filepath.Dir(filepath.Dir(path)), func() ([]byte, error) {
+			var werr error
+			if recheck == nil {
+				werr = WriteFileAtomic(path, content, mode)
+			} else {
+				werr = WithFileLock(path, func() error { // même ordre de verrous que setEnvImage : approbation, puis env.yaml
+					if b := recheck(); len(b) > 0 { // revérifié juste avant l'écriture (état mémorisé)
+						return &EnvLockedError{Blockers: b}
+					}
+					return WriteFileAtomic(path, content, mode)
+				})
+			}
+			return content, werr
+		})
+	}
+	return ps, WriteFileAtomic(path, content, mode)
 }
 
-// writeFileAtomic : fichier temporaire dans le même dossier, puis rename.
-func writeFileAtomic(path string, content []byte, mode os.FileMode) error {
+// atomicBeforeReplace : point d'injection des tests (#217) — appelé entre l'écriture du temporaire et le rename ;
+// une erreur abandonne l'écriture (la cible est intacte, le temporaire est retiré).
+var atomicBeforeReplace func(tmp, path string) error
+
+// replaceFile : rename (retry Windows) injectable en test.
+var replaceFile = platform.ReplaceFile
+
+// WriteFileAtomic : temporaire du même dossier (0600 d'emblée), écriture, fsync, droits, rename sur path
+// (platform.ReplaceFile), fsync du dossier (Unix). L'ancien contenu reste intact en cas d'échec.
+func WriteFileAtomic(path string, content []byte, mode os.FileMode) error {
+	if err := guardWrite(path); err != nil { // isolation des tests (isolation.go)
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
 	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
 	if err != nil {
 		return err
 	}
 	tmp := f.Name()
-	defer os.Remove(tmp)
+	ok := false
+	defer func() {
+		if !ok {
+			os.Remove(tmp)
+		}
+	}()
 	if _, err := f.Write(content); err != nil {
 		f.Close()
 		return err
@@ -631,22 +681,88 @@ func writeFileAtomic(path string, content []byte, mode os.FileMode) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	_ = os.Chmod(tmp, mode)
-	return os.Rename(tmp, path)
+	if err := os.Chmod(tmp, mode); err != nil && runtime.GOOS != "windows" {
+		return err
+	}
+	if atomicBeforeReplace != nil {
+		if err := atomicBeforeReplace(tmp, path); err != nil {
+			return err
+		}
+	}
+	if err := replaceFile(tmp, path); err != nil {
+		if errors.Is(err, platform.ErrReplaceBusy) {
+			return fmt.Errorf("%s verrouillé par un autre programme : %w", filepath.Base(path), err)
+		}
+		return err
+	}
+	ok = true
+	_ = platform.SyncDir(filepath.Dir(path))
+	return nil
 }
 
-// ConfigReloadNote : ce qu'un enregistrement change sans redémarrer, et ce
-// qui attend le prochain lancement.
-func ConfigReloadNote(kind ConfigKind) string {
-	switch kind {
-	case ConfConf:
-		return "relu : options de claude, couleurs, mise en page, consommation, reprise ; au prochain lancement : racines de projets (surveillance), CLAUDE_CONFIG_DIR"
-	case ConfBackends:
-		return "relu : backends, pools, correspondance de chemins, outils requis, serveur web du navigateur"
-	case ConfLauncherEnv, ConfProjectEnv:
-		return "pris en compte à la prochaine ouverture du projet (bootstrap du conteneur)"
+// createExclusiveAtomic : crée path avec son contenu complet ou pas du tout, sans jamais écraser : temporaire
+// puis os.Link (échec si path existe) ; liens impossibles (partage réseau) : création exclusive directe.
+func createExclusiveAtomic(path string, data []byte, perm os.FileMode) (bool, error) {
+	if err := guardWrite(path); err != nil {
+		return false, err
 	}
-	return ""
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	f, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return createExclusive(path, data, perm)
+	}
+	tmp := f.Name()
+	defer os.Remove(tmp)
+	_, werr := f.Write(data)
+	if serr := f.Sync(); werr == nil {
+		werr = serr
+	}
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		return false, werr
+	}
+	_ = os.Chmod(tmp, perm)
+	switch lerr := os.Link(tmp, path); {
+	case lerr == nil:
+		_ = platform.SyncDir(filepath.Dir(path))
+		return true, nil
+	case errors.Is(lerr, os.ErrExist):
+		return false, nil
+	default:
+		return createExclusive(path, data, perm)
+	}
+}
+
+// configTmpMaxAge : âge au-delà duquel un « .config.conf.tmp-* » est un reste d'écriture interrompue. #217
+var configTmpMaxAge = tun.Of(10 * time.Minute)
+
+var configTmpRe = regexp.MustCompile(`^\.config\.conf(\.bak)?\.tmp-[A-Za-z0-9]+$`)
+
+// sweepConfigTmp : supprime les « .config.conf.tmp-<n> » de plus de configTmpMaxAge du dossier de config ;
+// rend le nombre supprimé. Erreurs ignorées.
+func sweepConfigTmp() int {
+	d := Ng2ConfigDir()
+	ents, err := os.ReadDir(d)
+	if err != nil {
+		return 0
+	}
+	n, limit := 0, time.Now().Add(-configTmpMaxAge.Get())
+	for _, e := range ents {
+		name := e.Name()
+		if e.IsDir() || !configTmpRe.MatchString(name) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && info.Mode().IsRegular() && info.ModTime().Before(limit) {
+			if os.Remove(filepath.Join(d, name)) == nil {
+				n++
+			}
+		}
+	}
+	return n
 }
 
 // sortProblems : par ligne, erreurs d'abord.
@@ -657,4 +773,16 @@ func sortProblems(ps []ConfigProblem) {
 		}
 		return ps[i].Severity == SevError && ps[j].Severity != SevError
 	})
+}
+
+// ConfigReloadNote : ce qu'un enregistrement change sans redémarrer, pour les fichiers qui n'ont pas encore de pastille d'effet
+// (#226 : config.conf a `effect` / `apply`, donc pas de note). "" pour config.conf et les types inconnus.
+func ConfigReloadNote(kind ConfigKind) string {
+	switch kind {
+	case ConfBackends:
+		return "relu : backends, pools, correspondance de chemins, outils requis, serveur web du navigateur"
+	case ConfLauncherEnv, ConfProjectEnv:
+		return "pris en compte à la prochaine ouverture du projet (bootstrap du conteneur)"
+	}
+	return ""
 }

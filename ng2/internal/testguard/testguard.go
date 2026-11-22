@@ -16,6 +16,52 @@ import (
 
 var watched = []string{".template-version", ".template-commit", "init-project.md"}
 
+// FakeTokenMarker : tout jeton factice d'un test contient cette chaîne (« ghp_FAKE_TEST_… » : invalide par construction,
+// reconnaissable). La garde échoue si elle apparaît dans un settings*.json RÉEL après la suite : seule une fuite
+// d'isolation (CLAUDE_CONFIG_DIR du poste visé par un test) peut l'y écrire (#216, enquête GH_TOKEN).
+const FakeTokenMarker = "FAKE_TEST"
+
+// realClaudeDirs : dossiers de config claude du poste, relevés à l'import — AVANT que le moindre TestMain ne change
+// l'environnement : CLAUDE_CONFIG_DIR de la session et ~/.claude.
+var realClaudeDirs, realMarkersBefore = func() ([]string, map[string]bool) {
+	var dirs []string
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		dirs = append(dirs, d)
+	}
+	if h, err := os.UserHomeDir(); err == nil {
+		dirs = append(dirs, filepath.Join(h, ".claude"))
+	}
+	return dirs, markerFiles(dirs)
+}()
+
+// markerFiles : fichiers settings*.json (settings.json, claude-launcher/settings-env*.json) qui portent le marqueur.
+func markerFiles(dirs []string) map[string]bool {
+	out := map[string]bool{}
+	for _, d := range dirs {
+		for _, pat := range []string{"settings*.json", filepath.Join("claude-launcher", "settings-env*.json")} {
+			m, _ := filepath.Glob(filepath.Join(d, pat))
+			for _, f := range m {
+				if b, err := os.ReadFile(f); err == nil && strings.Contains(string(b), FakeTokenMarker) {
+					out[f] = true
+				}
+			}
+		}
+	}
+	return out
+}
+
+// newLeaks : fichiers qui portent le marqueur maintenant sans l'avoir porté avant.
+func newLeaks(dirs []string, before map[string]bool) []string {
+	var out []string
+	for f := range markerFiles(dirs) {
+		if !before[f] {
+			out = append(out, f)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 type snap struct {
 	exists bool
 	size   int64
@@ -96,6 +142,10 @@ func Start() (end func() bool) {
 				fmt.Fprintf(os.Stderr, "GARDE : un test a modifié le vrai %s (CL_SCRIPT à régler vers un dossier temporaire)\n", filepath.Join(home, n))
 				ok = false
 			}
+		}
+		if leaks := newLeaks(realClaudeDirs, realMarkersBefore); len(leaks) > 0 {
+			fmt.Fprintf(os.Stderr, "GARDE : un jeton factice de test (%s) est dans la config claude RÉELLE : %s\n  → un test écrit dans CLAUDE_CONFIG_DIR du poste (isolation à corriger)\n", FakeTokenMarker, strings.Join(leaks, ", "))
+			ok = false
 		}
 		if t := tree(dirs); t != beforeTree {
 			fmt.Fprintf(os.Stderr, "GARDE : un test a modifié le vrai %s (coffre, configuration ou journal du launcher)\n", dirs[0])

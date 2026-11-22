@@ -1,0 +1,173 @@
+<!--
+mockup:
+  composant: config_ui
+  feature: effet_des_options
+  version: 6.6.0
+  type: ui
+  issue: "#226"
+  propositions: ["A — Horizontal · Pastille à droite du champ + bandeau de rappel", "B — Horizontal · Colonne d'effet + panneau À faire", "C — Vertical · Options regroupées par effet", "D — Vertical · Icône en marge + dialogue après enregistrement"]
+  complete: ["docs/mockup/v6.1.0/ui/config_ui__interface_structuree.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #226 — Effet des options (v6.6.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.grp{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0 4px 0 10px}
+.tab{background:var(--panel);border:1px solid var(--line2);color:var(--text2);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+.tab.on{background:var(--hl);border-color:var(--accent);color:var(--text)}
+section[data-proposition]{display:none}section[data-proposition].on{display:block}
+.why{color:var(--muted);margin:6px 0 14px;font-size:12.5px;min-height:18px}
+
+.stage{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.win{background:var(--bg);border:1px solid var(--line2);border-radius:8px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+.wtitle{background:var(--head);padding:8px 14px;font-weight:600;display:flex;gap:10px;align-items:center}.wtitle .x{margin-left:auto;color:var(--muted)}
+.wbody{padding:14px 16px}
+label.l{display:block;color:var(--muted);font-size:11.5px;margin:10px 0 4px}
+.in,.sel{background:var(--input);border:1px solid var(--line2);border-radius:5px;padding:6px 9px;color:var(--text);min-height:30px;display:flex;align-items:center;gap:6px}
+.sel:after{content:"▾";margin-left:auto;color:var(--muted)}.in.focus{border-color:var(--accent)}
+.ro{background:transparent;border:1px dashed var(--line2);color:var(--text2);font-family:var(--mono);font-size:12px;padding:6px 9px;border-radius:5px;word-break:break-all}
+.ro b{color:var(--green);font-weight:500}
+.dim{color:var(--dim)}.mut{color:var(--muted)}.ok{color:var(--green)}.warn{color:var(--orange)}.err{color:var(--red)}
+.btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn{background:var(--panel);border:1px solid var(--line2);border-radius:5px;padding:6px 14px;color:var(--text)}.btn.pri{background:var(--accent);color:#04121c;border-color:var(--accent);font-weight:600}.btn.dis{opacity:.4}
+.seg{display:flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden}.seg span{flex:1;text-align:center;padding:6px 8px;border-right:1px solid var(--line2);color:var(--text2)}.seg span:last-child{border:0}.seg span.on{background:var(--hl);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+.card{border:1px solid var(--line2);border-radius:7px;padding:10px;background:var(--panel)}.card.on{border-color:var(--accent);background:var(--hl)}.card h4{margin:0 0 4px;font-size:13px}.card p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.4}
+.menu{background:var(--menu);border:1px solid var(--line2);border-radius:6px;padding:4px 0;margin-top:2px}.menu div{padding:5px 10px}.menu .h{background:var(--hl)}.menu .sep{border-top:1px solid var(--line2);padding:0;margin:4px 0}
+.note{border-left:3px solid var(--accent);background:var(--panel);padding:8px 10px;color:var(--text2);font-size:12px;line-height:1.5;border-radius:0 5px 5px 0;margin-top:10px}
+.note.w{border-color:var(--orange)}.note.e{border-color:var(--red)}.note.g{border-color:var(--green)}
+.term{background:#000;border:1px solid var(--line2);border-radius:6px;font:12px/1.45 var(--mono);color:#ddd;padding:10px 12px;white-space:pre;overflow:auto}
+.term .c{color:var(--cyan)}.term .g{color:var(--green)}.term .y{color:var(--yellow)}.term .o{color:var(--orange)}.term .d{color:#777}.term .r{color:var(--red)}.term .h{background:#1d3448}
+.cap{color:var(--muted);font-size:11.5px;margin:6px 0 4px;text-transform:uppercase;letter-spacing:.05em}
+.steps{display:flex;gap:6px;margin-bottom:12px}.steps span{flex:1;padding:6px 8px;border-radius:5px;background:var(--panel);color:var(--muted);font-size:12px;border:1px solid var(--line2)}.steps span.on{color:var(--text);border-color:var(--accent);background:var(--hl)}.steps span.done{color:var(--green)}
+table.imp{border-collapse:collapse;width:100%;font-size:12px}table.imp td{padding:4px 6px;border-top:1px solid var(--line)}table.imp td:first-child{color:var(--muted);white-space:nowrap}table.imp code{font-family:var(--mono);font-size:11.5px}
+.old{color:var(--dim);text-decoration:line-through}.arrow{color:var(--accent);padding:0 4px}
+.bar{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;font-size:12.5px}.bar.g{background:#183A2A}.bar.y{background:#3A3418}.bar .sp{margin-left:auto}.link{color:var(--accent);text-decoration:underline;cursor:pointer}
+.cfg{display:grid;grid-template-columns:150px 1fr;min-height:330px}.rub{background:var(--panel);border-right:1px solid var(--line2);padding:8px 0}.rub div{padding:6px 14px;color:var(--text2)}.rub div.on{background:var(--hl);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}
+.page{padding:12px 16px}.page h4{margin:0 0 2px;font-size:14px}.ex{color:var(--muted);font-size:12px;margin:0 0 10px}
+.box{border:1px solid var(--line2);border-radius:7px;background:var(--panel)}.bh{padding:6px 10px;border-bottom:1px solid var(--line2);font-weight:600;font-size:12.5px;display:flex;gap:8px;align-items:center}.bb{padding:8px 10px}
+.form{display:grid;grid-template-columns:150px 1fr;gap:6px 10px;align-items:center}.form>label{color:var(--muted);font-size:12px}
+.form3{display:grid;grid-template-columns:150px 1fr 150px;gap:6px 10px;align-items:center}.form3>label{color:var(--muted);font-size:12px}
+.eff{display:inline-flex;align-items:center;gap:4px;font-size:10.5px;padding:1px 7px;border-radius:9px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap}
+.eff.i{color:var(--green);border-color:#2c5a43}.eff.l{color:var(--orange);border-color:#6a4a2c}.eff.p{color:var(--accent);border-color:#2c4f66}.eff.c{color:var(--purple,#C4A1FF);border-color:#54447a}
+.mod{box-shadow:inset 3px 0 0 var(--yellow)}.chk{color:var(--text2)}
+.sec{display:flex;align-items:center;gap:6px;background:var(--input);border:1px solid var(--line2);border-radius:5px;padding:4px 8px;min-height:30px;font-family:var(--mono);font-size:12px}.sec .eye{margin-left:auto;cursor:pointer;color:var(--muted);font-family:var(--ui)}.sec.rev{border-color:var(--orange)}
+.pop{background:var(--menu);border:1px solid var(--orange);border-radius:6px;padding:8px 10px;font-family:var(--mono);font-size:12px;margin-top:4px}
+.btn.sm{padding:3px 9px;font-size:12px}.legend{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.yaml{background:var(--input);border:1px solid var(--line2);border-radius:5px;font:11.5px/1.5 var(--mono);padding:8px 10px;white-space:pre;color:var(--text2)}
+</style>
+</head>
+<body>
+<h1>Maquette #226 — page de config : ce qu'il faut pour qu'une option prenne effet (v6.6.0)</h1>
+<p class="sub">Chaque option de la page Réglages indique quand elle prend effet : <span class="eff i">● immédiat</span> <span class="eff p">⟳ réouverture du projet</span> <span class="eff c">✳ relance des sessions claude</span> <span class="eff l">↻ relance du launcher</span>. Après l'enregistrement, un rappel liste les actions nécessaires pour les options modifiées (et propose « Relancer le launcher », #219). Effets établis après #225 (config relue à chaud, settings.json recopié à l'enregistrement). Rubrique « Launcher » (maquette active <code>v6.1.0/ui/config_ui__interface_structuree.html</code>) ; web et fenêtre native ; coque : mention texte sous chaque proposition.</p>
+<div class="tabs"><span class="grp">Horizontal</span>
+<button class="tab" data-k="A" data-why="Avantage : la pastille est collée au champ, rien ne change dans la disposition actuelle. Inconvénient : beaucoup de pastilles à l'écran.">A — Horizontal · Pastille à droite du champ + bandeau de rappel</button>
+<button class="tab" data-k="B" data-why="Avantage : une colonne « Prend effet » alignée et un panneau « À faire pour appliquer » toujours visible. Inconvénient : page plus large, formulaire à trois colonnes.">B — Horizontal · Colonne d'effet + panneau « À faire »</button>
+<span class="grp">Vertical</span>
+<button class="tab" data-k="C" data-why="Avantage : les options sont regroupées par moment d'effet, on voit d'un coup ce qui demande une relance. Inconvénient : l'ordre des rubriques actuel (Projets, Claude…) est remplacé.">C — Vertical · Options regroupées par effet</button>
+<button class="tab" data-k="D" data-why="Avantage : page sobre (icône en marge, légende en tête), le rappel est une boîte de dialogue après l'enregistrement avec les actions. Inconvénient : l'effet ne se lit qu'avec la légende.">D — Vertical · Icône en marge + dialogue après enregistrement</button>
+</div>
+<div class="why" id="why"></div>
+
+<!-- A -->
+<section data-proposition="A"><div class="stage">
+<div class="win" style="width:900px"><div class="wtitle">⚙ Réglages<span class="x">✕</span></div>
+<div class="cfg"><div class="rub"><div>Backends</div><div>Pools</div><div>Défauts</div><div class="on">Launcher</div><div>Conteneurs</div><div>Ce poste</div></div>
+<div class="page"><h4>Launcher</h4><p class="ex">config.conf — réglages généraux du launcher.</p>
+<div class="box"><div class="bh">Claude</div><div class="bb"><div class="form">
+<label>Options de claude</label><div style="display:flex;gap:8px;align-items:center"><div class="in" style="flex:1">--allow-dangerously-skip-permissions</div><span class="eff p">⟳ réouverture du projet</span></div>
+<label>Dossier de config</label><div style="display:flex;gap:8px;align-items:center"><div class="in" style="flex:1">../.claude</div><span class="eff l">↻ relance du launcher</span></div>
+<label>Jeton GitHub</label><div style="display:flex;gap:8px;align-items:center"><div class="in" style="flex:1">•••••••• (défini)</div><span class="eff c">✳ sessions claude</span></div>
+<label></label><div style="display:flex;gap:8px;align-items:center" class="mod"><span class="chk" style="flex:1;padding-left:8px">☑ souris de claude désactivée <span class="warn">(modifié)</span></span><span class="eff c">✳ sessions claude</span></div>
+<label>Cacher les inactifs</label><div style="display:flex;gap:8px;align-items:center"><div class="in" style="flex:1">après 30 s</div><span class="eff i">● immédiat</span></div>
+</div></div></div>
+<div class="bar g" style="margin-top:10px;background:#3A3418">✓ Enregistré — souris de claude : relancer les sessions claude ouvertes (Claude-Launcher, infra-monitoring) pour l'appliquer<span class="sp"></span><span class="btn sm">Rafraîchir ces projets</span><span class="mut">✕</span></div>
+<div class="btns"><span class="btn">Éditer en texte</span><span class="btn pri">Enregistrer</span></div>
+</div></div></div>
+<div style="width:250px"><div class="cap">Infobulle de la pastille</div><div class="note">« ✳ sessions claude : recopié dans settings.json dès l'enregistrement ; lu par claude à son démarrage — relancer les sessions ouvertes (Rafraîchir, F5). »</div>
+<div class="note">Une option « ↻ relance du launcher » modifiée ajoute « [↻ Relancer le launcher] » au bandeau (#219).</div></div>
+</div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux (config.conf relu à chaud, mention dans la ligne d'état)</div>
+<div class="term"><span class="g"> ✓ config.conf relu</span> — CLAUDE_DISABLE_MOUSE : <span class="y">relancer les sessions claude ouvertes</span> (F5) · <span class="d">GITHUB_DIRS : relance du launcher (ctrl+r)</span></div>
+</section>
+
+<!-- B -->
+<section data-proposition="B"><div class="stage">
+<div class="win" style="width:1000px"><div class="wtitle">⚙ Réglages<span class="x">✕</span></div>
+<div class="cfg" style="grid-template-columns:150px 1fr 230px"><div class="rub"><div>Backends</div><div>Pools</div><div>Défauts</div><div class="on">Launcher</div><div>Conteneurs</div><div>Ce poste</div></div>
+<div class="page"><h4>Launcher</h4><p class="ex">config.conf</p>
+<div class="box"><div class="bh">Claude</div><div class="bb"><div class="form3">
+<label></label><span class="cap" style="margin:0">Valeur</span><span class="cap" style="margin:0">Prend effet</span>
+<label>Options de claude</label><div class="in">--allow-dangerously-skip-permissions</div><span class="eff p">⟳ réouverture du projet</span>
+<label>Dossier de config</label><div class="in">../.claude</div><span class="eff l">↻ relance du launcher</span>
+<label>Jeton GitHub</label><div class="in">•••••••• (défini)</div><span class="eff c">✳ sessions claude</span>
+<label>Souris de claude</label><div class="mod" style="padding-left:8px">☑ désactivée</div><span class="eff c">✳ sessions claude</span>
+<label>Teams expérimentales</label><div>☑ activées</div><span class="eff c">✳ sessions claude</span>
+<label>Racines des projets</label><div class="in">2 racines</div><span class="eff l">↻ relance du launcher</span>
+<label>Cacher les inactifs</label><div class="in">après 30 s</div><span class="eff i">● immédiat</span>
+</div></div></div>
+<div class="btns"><span class="btn">Éditer en texte</span><span class="btn pri">Enregistrer</span></div></div>
+<div style="border-left:1px solid var(--line2);padding:12px;background:var(--panel)"><div class="cap" style="margin-top:0">À faire pour appliquer</div>
+<div style="margin:6px 0"><span class="eff c">✳</span> Souris de claude</div><div class="mut" style="font-size:11.5px">relancer les sessions claude : Claude-Launcher, infra-monitoring</div>
+<div class="btns" style="justify-content:flex-start;margin-top:6px"><span class="btn sm">Rafraîchir les 2 projets</span></div>
+<div style="margin:12px 0 6px"><span class="eff l">↻</span> Racines des projets</div><div class="btns" style="justify-content:flex-start;margin-top:0"><span class="btn sm pri">↻ Relancer le launcher</span></div>
+<div class="mut" style="font-size:11.5px;margin-top:12px">Vide quand tout est appliqué.</div></div>
+</div></div></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux</div>
+<div class="term"><span class="g"> ✓ config.conf relu</span>   <span class="d">à faire :</span> <span class="y">✳ CLAUDE_DISABLE_MOUSE → relancer 2 sessions claude (F5)</span> · <span class="o">↻ GITHUB_DIRS → ctrl+r</span></div>
+</section>
+
+<!-- C -->
+<section data-proposition="C"><div class="stage">
+<div class="win" style="width:560px"><div class="wtitle">⚙ Réglages — Launcher<span class="x">✕</span></div><div class="wbody">
+<div class="box"><div class="bh"><span class="eff i">● immédiat</span></div><div class="bb"><div class="form"><label>Cacher les inactifs</label><div class="in">après 30 s</div><label>Mise en page des teams</label><div class="in">leader en haut</div><label>Consommation</label><div class="in">toutes les 120 s</div></div></div></div>
+<div class="box" style="margin-top:8px"><div class="bh"><span class="eff p">⟳ à la prochaine ouverture d'un projet</span></div><div class="bb"><div class="form"><label>Options de claude</label><div class="in">--allow-dangerously-skip-permissions</div><label>Reprise des sessions</label><div class="in">demander · 24 h</div></div></div></div>
+<div class="box" style="margin-top:8px"><div class="bh"><span class="eff c">✳ après relance des sessions claude</span> <span class="mut" style="font-weight:400;font-size:11px">(settings.json)</span></div><div class="bb"><div class="form"><label>Souris de claude</label><div class="mod" style="padding-left:8px">☑ désactivée</div><label>Teams expérimentales</label><div>☑ activées</div><label>Jeton GitHub</label><div class="in">•••••••• (défini)</div><label>Variables ajoutées</label><div class="in">2 variables</div></div></div></div>
+<div class="box" style="margin-top:8px"><div class="bh"><span class="eff l">↻ après relance du launcher</span></div><div class="bb"><div class="form"><label>Racines des projets</label><div class="in">2 racines</div><label>Dossier de config</label><div class="in">../.claude</div></div></div></div>
+<div class="note w">Enregistré : 1 option à appliquer — souris de claude (relancer les sessions claude de Claude-Launcher, infra-monitoring). <span class="link">Rafraîchir</span></div>
+<div class="btns"><span class="btn">Éditer en texte</span><span class="btn pri">Enregistrer</span></div>
+</div></div>
+<div style="width:260px"><div class="note">Les rubriques actuelles (Projets, Claude, Reprise…) deviennent des sous-titres à l'intérieur de chaque groupe d'effet quand il y en a plusieurs.</div></div></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux</div>
+<div class="term"><span class="g"> ✓ config.conf relu</span>
+   <span class="c">✳ sessions claude</span> : CLAUDE_DISABLE_MOUSE — relancer Claude-Launcher, infra-monitoring (F5)</div>
+</section>
+
+<!-- D -->
+<section data-proposition="D"><div class="stage">
+<div class="win" style="width:520px"><div class="wtitle">⚙ Réglages — Launcher<span class="x">✕</span></div><div class="wbody">
+<div class="legend"><span class="mut" style="font-size:11.5px">Prend effet :</span><span class="eff i">● immédiat</span><span class="eff p">⟳ projet</span><span class="eff c">✳ claude</span><span class="eff l">↻ launcher</span></div>
+<div class="box"><div class="bh">Claude</div><div class="bb"><div class="form" style="grid-template-columns:18px 140px 1fr">
+<span class="eff p" style="padding:0 4px">⟳</span><label>Options de claude</label><div class="in">--allow-dangerously-skip…</div>
+<span class="eff l" style="padding:0 4px">↻</span><label>Dossier de config</label><div class="in">../.claude</div>
+<span class="eff c" style="padding:0 4px">✳</span><label>Jeton GitHub</label><div class="in">•••••••• (défini)</div>
+<span class="eff c" style="padding:0 4px">✳</span><label>Souris de claude</label><div class="mod" style="padding-left:8px">☑ désactivée</div>
+<span class="eff i" style="padding:0 4px">●</span><label>Cacher les inactifs</label><div class="in">après 30 s</div>
+</div></div></div>
+<div class="btns"><span class="btn">Éditer en texte</span><span class="btn pri">Enregistrer</span></div>
+</div></div>
+<div class="win" style="width:420px"><div class="wtitle">✓ Réglages enregistrés<span class="x">✕</span></div><div class="wbody">
+<div class="cap" style="margin-top:0">Pour appliquer</div>
+<div><span class="eff c">✳</span> Souris de claude — relancer les sessions claude ouvertes :</div>
+<div class="mut" style="margin:4px 0 0 22px">☑ Claude-Launcher &nbsp; ☑ infra-monitoring</div>
+<div style="margin-top:10px"><span class="eff l">↻</span> Racines des projets — relance du launcher</div>
+<div class="btns"><span class="btn">Plus tard</span><span class="btn">Rafraîchir les projets cochés</span><span class="btn pri">↻ Relancer le launcher</span></div>
+</div></div></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux</div>
+<div class="term"><span class="g"> ✓ config.conf relu</span> · <span class="y">✳ relancer 2 sessions claude (F5)</span> · <span class="o">↻ relance du launcher (ctrl+r)</span></div>
+</section>
+<script>
+(function(){const tabs=[...document.querySelectorAll('.tab')],secs=[...document.querySelectorAll('section[data-proposition]')],why=document.getElementById('why');
+function on(k){tabs.forEach(t=>t.classList.toggle('on',t.dataset.k===k));secs.forEach(s=>s.classList.toggle('on',s.dataset.proposition===k));const t=tabs.find(t=>t.dataset.k===k);why.textContent=t?t.dataset.why:'';}
+tabs.forEach(t=>t.onclick=()=>on(t.dataset.k));on(tabs[0].dataset.k);})();
+</script>
+</body>
+</html>

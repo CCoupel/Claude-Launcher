@@ -48,7 +48,7 @@ func TestLauncherSettingsCalls(t *testing.T) {
 		return map[string]any{"op": "set", "at": []string{k}, "value": v}
 	}
 	s := call("configApply", map[string]any{"kind": "config.conf", "mtime": "", "changes": []any{set("TEAM_HIDE_IDLE", 45), set("GITHUB_TOKEN", "ghp_TOPSECRET99")}})
-	if s["saved"] != true || s["note"] == "" || s["mtime"] == "" {
+	if s["saved"] != true || s["apply"] == nil || s["mtime"] == "" {
 		t.Fatalf("création : %v", s)
 	}
 	if st, err := os.Stat(core.ConfigPath()); err != nil || runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // Windows : pas de droits Unix

@@ -99,6 +99,9 @@ func SelfUpdate() {
 		time.Sleep(2 * time.Second)
 	}
 	if binDone {
+		if w := platform.TakeBackupWarning(); w != "" { // #218 : mise à jour faite sans sauvegarde de l'ancien binaire
+			fmt.Printf("\033[1;33m  ⚠ %s\033[0m\n", w)
+		}
 		fmt.Println("  ✓ launcher mis à jour. Relancement…")
 		_ = os.Setenv("CL_NO_UPDATE", "1") // le nouveau binaire ne revérifie pas
 		err := platform.ExecBinary(exe, os.Args, os.Environ())
@@ -126,6 +129,8 @@ type UpdDoneMsg struct {
 	BinDone bool
 	Err     error
 	Stale   bool // binaire préparé disparu ou modifié : à repréparer
+	// Note : avertissement à montrer malgré le succès (#218 : mise à jour faite sans sauvegarde de l'ancien binaire)
+	Note string
 }
 
 // applyUpdate télécharge depuis base (…/releases/download/<tag>) le binaire de
@@ -356,9 +361,9 @@ func fetchVerified(base, name string, sums map[string]string) ([]byte, error) {
 
 // InstallBinary : body à la place du binaire en cours d'exécution dst.
 // Linux/macOS : WriteAtomic (rename par-dessus). Windows : l'exe courant est
-// d'abord renommé en .old, supprimé au démarrage suivant (platform.ReplaceExecutable).
+// d'abord renommé en sauvegarde <exe>.bak-v<version> (#218, une seule gardée ; platform.ReplaceExecutable).
 func InstallBinary(dst string, body []byte) error {
-	return platform.ReplaceExecutable(dst, func(d string) error { return WriteAtomic(d, body) })
+	return platform.ReplaceExecutableWithBackup(dst, Version(), func(d string) error { return WriteAtomic(d, body) })
 }
 
 func SumOf(b []byte) string {

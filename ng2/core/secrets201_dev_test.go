@@ -10,8 +10,23 @@ import (
 
 // #201 (dev) : lien pendant, migration, kubeconfig par chemin, /files. Dossiers temporaires, aucun vrai projet.
 
+// resetSecretsMigration : le signalement « une fois par processus et par backend » est un état GLOBAL (secretsMigration) :
+// remis à zéro au début ET à la fin de chaque test qui migre, sinon un second passage (-count=2) ne voit plus l'écart.
+func resetSecretsMigration(t *testing.T) {
+	t.Helper()
+	reset := func() {
+		secretsMigration.Lock()
+		secretsMigration.conflicts = map[string]bool{}
+		secretsMigration.logged = map[string]bool{}
+		secretsMigration.Unlock()
+	}
+	reset()
+	t.Cleanup(reset)
+}
+
 func dev201Env(t *testing.T) (root string) {
 	t.Helper()
+	resetSecretsMigration(t)
 	root = t.TempDir()
 	home := t.TempDir()
 	t.Setenv("HOME", home)

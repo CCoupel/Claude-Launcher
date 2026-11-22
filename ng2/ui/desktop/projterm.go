@@ -33,7 +33,7 @@ type projTerm struct {
 	path, key, name string
 	color           string // couleur tmux 256 du projet
 	mode            core.LaunchMode
-	host            bool        // projet sur l'hôte (Linux), tmux local dédié
+	host            atomic.Bool // projet sur l'hôte (Linux), tmux local dédié ; atomique : lu par Snapshot / canForce sans t.mu pendant que prepareHost l'écrit
 	sock, sess, win string      // hôte : socket et session ; win : cible de la fenêtre
 	e               core.Engine // conteneur : moteur…
 	ctr             string      // … et conteneur (pod)
@@ -160,6 +160,9 @@ func (t *projTerm) setState(state, msg string) {
 	t.mu.Unlock()
 	t.emit("status", map[string]any{"state": state, "msg": msg, "readOnly": ro})
 	t.a.changed()
+	if state == "ready" && !ro {
+		t.a.proposeInit(t.path) // #215 : projet créé depuis le template : /init-project proposé à la 1re ouverture
+	}
 }
 
 // ── Terminal d'ouverture ──────────────────────────────────────────────────
@@ -252,9 +255,11 @@ func newProjTerm(a *App, n core.Node, mode core.LaunchMode) *projTerm {
 // run : ouverture complète, puis attente de la fin du client.
 func (t *projTerm) run() {
 	go t.flusher()
-	t.a.openGate.begin() // ouverture en cours : l'arrêt du launcher l'attend (Stop, #198)
-	err := t.prepare()
-	t.a.openGate.end()
+	// ouverture déjà inscrite par open() (openGate.begin) : l'arrêt du launcher l'attend (Stop, #198) ; terminée ici
+	err := func() error {
+		defer t.a.openGate.end()
+		return t.prepare()
+	}()
 	if err != nil {
 		fmt.Fprintf(t, "\r\n\033[1;31m⚠ %v\033[0m\r\n", strings.ReplaceAll(err.Error(), "\n", "\r\n"))
 		t.setState("error", err.Error())
@@ -276,7 +281,7 @@ func (t *projTerm) run() {
 
 // prepare : backend, script de démarrage, conteneur ou session de l'hôte.
 func (t *projTerm) prepare() error {
-	cfg := t.a.conf()
+	cfg := t.a.confNow()
 	be, err := core.LaunchBackend(t.path)
 	if err != nil {
 		return err
@@ -324,7 +329,8 @@ func deskSocket() string {
 func hostSession(path string) string { return "p-" + core.CtrName(path) }
 
 func (t *projTerm) localTmux(args ...string) *exec.Cmd {
-	c := platform.NoWindow(exec.Command("tmux", append([]string{"-L", t.sock}, args...)...))
+	sock, _ := t.hostTarget() // lu sous t.mu : appelé depuis des goroutines autres que celle de l'ouverture
+	c := platform.NoWindow(exec.Command("tmux", append([]string{"-L", sock}, args...)...))
 	c.Env = core.EnvWithout("TMUX", "TMUX_PANE")
 	return c
 }
@@ -339,8 +345,9 @@ func (t *projTerm) prepareHost(cfg core.Config, start, copyInit string, synced b
 		return fmt.Errorf("projet en cours dans un conteneur, piloté par %s — le fermer là-bas ou F2 pour le rejoindre sur ce backend", who)
 	}
 	t.mu.Lock()
-	t.host, t.sock, t.sess = true, deskSocket(), hostSession(t.path)
+	t.sock, t.sess = deskSocket(), hostSession(t.path)
 	t.win = "=" + t.sess + ":"
+	t.host.Store(true) // en DERNIER : qui voit host voit déjà socket et session (lecteurs hors verrou)
 	t.mu.Unlock()
 	fmt.Fprintf(t, "\033[1m▲ %s — hôte (tmux %s)\033[0m\r\n", t.name, t.sock)
 	if t.localTmux("has-session", "-t", "="+t.sess).Run() == nil {
@@ -348,16 +355,28 @@ func (t *projTerm) prepareHost(cfg core.Config, start, copyInit string, synced b
 	}
 	w, h := t.size()
 	if out, err := t.localTmux("new-session", "-d", "-s", t.sess, "-x", strconv.Itoa(w), "-y", strconv.Itoa(h), "-c", t.path).CombinedOutput(); err != nil {
+		// has-session puis new-session n'est pas atomique : un autre ouvreur du même projet (clic doublé, reprise après
+		// « ignorer », autre fenêtre) a pu créer la session entre les deux. Elle existe : on s'y rattache — SANS retaper le
+		// démarrage, que son créateur envoie. (new-session -A détacherait au contraire les clients déjà attachés.)
+		if isDuplicateSession(string(out)) && t.localTmux("has-session", "-t", "="+t.sess).Run() == nil {
+			return nil
+		}
 		return fmt.Errorf("tmux : %s", strings.TrimSpace(string(out)))
 	}
 	_ = t.localTmux("set-option", "-t", "="+t.sess, "status", "off").Run()
 	_ = t.localTmux("set-option", "-p", "-t", t.win, "window-style", "bg=colour"+t.color).Run()
 	keys := core.HostStartKeys(cfg, t.path, start, copyInit, synced)
 	if out, err := t.localTmux("send-keys", "-t", t.win, keys, "Enter").CombinedOutput(); err != nil {
+		// session créée mais démarrage non envoyé : la laisser vivante ferait rattacher les ouvertures suivantes à un
+		// terminal vide (has-session / « duplicate session » réussissent) — on la supprime, la prochaine ouverture repart de zéro
+		_ = t.localTmux("kill-session", "-t", "="+t.sess).Run()
 		return fmt.Errorf("send-keys : %s", strings.TrimSpace(string(out)))
 	}
 	return nil
 }
+
+// isDuplicateSession : tmux refuse new-session parce que la session existe déjà.
+func isDuplicateSession(out string) bool { return strings.Contains(out, "duplicate session") }
 
 // size : taille demandée par l'interface (zone des terminaux), 200×50 à défaut.
 func (t *projTerm) size() (int, int) {
@@ -379,7 +398,7 @@ func (t *projTerm) attach() error {
 		att = append(att, "-r")
 	}
 	var argv []string
-	if t.host {
+	if t.host.Load() {
 		argv = append([]string{"tmux", "-L", t.sock}, att...)
 	} else {
 		argv = t.e.ExecArgv(t.ctr, false, false, core.TmuxIn(att...)...)
@@ -395,7 +414,7 @@ func (t *projTerm) attach() error {
 	if w > 0 && h > 0 {
 		_ = c.Send("refresh-client", "-C", clientSize(w, h))
 	}
-	if t.host {
+	if t.host.Load() {
 		_ = c.Send("set-option", "-t", "="+t.sess, "status", "off")
 	}
 	if _, err := c.Output("display-message", "-p", "ok"); err != nil {
@@ -421,7 +440,7 @@ func (t *projTerm) ended() {
 		return
 	}
 	why := t.client.Why()
-	if !t.host && t.a.conf().CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
+	if !t.host.Load() && t.a.conf().CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
 		fmt.Fprintf(t, "\r\n⏻ claude terminé : arrêt du conteneur (CTR_STOP_ON_EXIT)\r\n")
 		_ = t.e.Stop(t.path, t.ctr)
 	}
@@ -777,7 +796,7 @@ func (t *projTerm) watcher() {
 				return
 			case <-poke:
 				time.Sleep(15 * time.Millisecond) // regroupe les notifications d'un même changement
-				t.tick(true)
+				t.safeTick(true)
 			}
 		}
 	}()
@@ -788,9 +807,16 @@ func (t *projTerm) watcher() {
 		case <-t.stop:
 			return
 		case <-tk.C:
-			t.tick(false)
+			t.safeTick(false)
 		}
 	}
+}
+
+// safeTick : un tour du surveillant ; un panic (mise en page, lecture de la team…) est consigné et le tour suivant
+// repart — il ne fait jamais tomber l'exe ni le hub.
+func (t *projTerm) safeTick(fast bool) {
+	defer core.RecoverLog("surveillance du projet " + t.path)
+	t.tick(fast)
 }
 
 type winPaneFull struct {
@@ -832,7 +858,7 @@ func (t *projTerm) parseWin(b []byte) (panes []winPaneFull, w, h int, zoomed boo
 		top, _ := strconv.Atoi(f[9])
 		panes = append(panes, winPaneFull{WinPane: core.WinPane{ID: f[0], Index: idx, Style: f[2]}, active: f[6] == "1", cmd: f[10], top: top})
 		pid := f[7]
-		if !t.host {
+		if !t.host.Load() {
 			pid = "" // conteneur : PID d'un autre espace
 		}
 		infos = append(infos, core.PaneInfo{ID: f[0], PID: pid, Cmd: f[10]})
@@ -883,8 +909,8 @@ func (t *projTerm) tick(fast bool) {
 		tickBegun.Add(1)
 		defer tickDone.Add(1)
 	}
-	if !fast && t.a.confChangedOnDisk() { // config.conf modifié ailleurs : relu à chaud (#153)
-		t.a.configReload(core.ConfConf)
+	if !fast { // config.conf modifié ailleurs : relu à chaud (#153), par le chemin unique (validation, copie valide gardée, #225)
+		t.a.confRefresh(true)
 	}
 	cfg := t.a.conf()
 	if d := time.Duration(tickSlow.Load()); !fast && d > 0 {
@@ -940,13 +966,13 @@ func (t *projTerm) tick(fast bool) {
 	if !fast {
 		// toutes les 5 s : propriétaire (conteneur) et règle de taille (#126)
 		if t.watch.beat++; t.watch.beat%5 == 1 {
-			if !t.host && !ro {
+			if !t.host.Load() && !ro {
 				t.heartbeat()
 			}
 			t.govern()
 		}
 	}
-	if !fast && !t.host && !ro {
+	if !fast && !t.host.Load() && !ro {
 		// Ctrl+B R dans le tmux du conteneur incrémente @cl_relayout (bootstrap.sh)
 		if b, err := t.cl().Output("show-options", "-wqv", "-t", t.win, "@cl_relayout"); err == nil {
 			r := strings.TrimSpace(string(b))
@@ -1055,7 +1081,7 @@ func (t *projTerm) tmuxFn() core.SessionTmux {
 // règle si own (le launcher a la main) et dit si des panes ont bougé. Les cartes
 // sont renvoyées quand l'état visible / caché / actif d'un pane change.
 func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bool {
-	f, inCtr := t.tmuxFn(), !t.host
+	f, inCtr := t.tmuxFn(), !t.host.Load()
 	home := core.ProjectHome(f, t.win, inCtr)
 	panes, choices, err := core.ProjectPanes(f, t.win, home, inCtr)
 	if err != nil {
@@ -1129,7 +1155,7 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	if tc == nil {
 		return false, "team en cours de lecture, réessayez"
 	}
-	f, inCtr := t.tmuxFn(), !t.host
+	f, inCtr := t.tmuxFn(), !t.host.Load()
 	home := core.ProjectHome(f, t.win, inCtr)
 	t.pubMu.Lock() // @cl_panevis écrit hors d'un tour du watcher
 	r := core.TogglePane(f, t.win, home, tc, pane, inCtr)
@@ -1593,3 +1619,14 @@ func leaderID(ids string) string {
 	id, _ := core.LeaderOf(ids)
 	return id
 }
+
+// hostTarget : socket et session tmux de l'hôte, lues sous t.mu — prepareHost les écrit sous ce verrou, pendant que Snapshot
+// (canForce) et le rafraîchissement les lisent depuis d'autres goroutines.
+func (t *projTerm) hostTarget() (sock, sess string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.sock, t.sess
+}
+
+// sessName : session tmux de l'hôte (sous t.mu).
+func (t *projTerm) sessName() string { _, sess := t.hostTarget(); return sess }

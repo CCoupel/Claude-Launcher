@@ -96,9 +96,13 @@ type model struct {
 	wantTeam     bool // clic hors projet : bascule sur « ⌗ Teamleaders »
 	lastShow     time.Time
 	hideLauncher bool
-	updating     bool    // mise à jour lancée d'un clic, en cours
-	checking     bool    // recherche de mises à jour demandée par F5, en cours
-	pendingCmd   tea.Cmd // commande produite par onMouse (qui ne renvoie que le modèle)
+	updating     bool              // mise à jour lancée d'un clic, en cours
+	launcher     core.LauncherInfo // binaire remplacé / processus anciens (#219), relu toutes les 10 s
+	hideRelaunch bool
+	job          *cloneJob // clonage de « Nouveau projet » en cours (#215)
+	relaunchAsk  bool      // confirmation de la relance en cours
+	checking     bool      // recherche de mises à jour demandée par F5, en cours
+	pendingCmd   tea.Cmd   // commande produite par onMouse (qui ne renvoie que le modèle)
 	hideTpl      bool
 	lastClickIdx int
 	lastClickAt  time.Time
@@ -108,18 +112,42 @@ type model struct {
 	pending      int
 	started      time.Time
 	loadedAt     time.Duration
+	confSrc      string // contenu de config.conf à la dernière relecture : options modifiées dites dans la ligne d'état (#226)
+}
+
+// refreshCfg : m.cfg à jour de config.conf (date, taille ; une comparaison par tour). Invalide : dernière copie valide gardée et
+// dite dans la ligne d'état. Les racines (Roots) restent celles du démarrage : « relance du launcher » (#226).
+func (m model) refreshCfg() model {
+	fresh, warn, src := core.FreshConfigText(m.cfg)
+	if warn != "" {
+		m.cfg.Stamp = fresh.Stamp
+		m.msg = "⚠ " + warn
+		return m
+	}
+	if !fresh.Stamp.Same(m.cfg.Stamp) { // relue : dire dans la ligne d'état ce qui a changé et ce qu'il reste à faire (#226)
+		// le texte comparé est celui que FreshConfig a VALIDÉ et chargé : pas une seconde lecture
+		if note := core.ApplyNote(core.ChangedOptions(m.confSrc, src, core.IfaceShell), core.IfaceShell); note != "" {
+			m.msg = note
+		}
+		m.confSrc = src
+	}
+	m.cfg = fresh
+	return m
 }
 
 func NewModel(launch bool) model {
 	cfg := core.LoadConfig()
 	m := model{
-		cfg: cfg, git: map[string]core.GitInfo{}, detail: map[string]core.GitDetail{}, asked: map[string]bool{}, tpl: map[string]core.TemplateState{},
+		confSrc: core.ReadConfSrc(), cfg: cfg, git: map[string]core.GitInfo{}, detail: map[string]core.GitDetail{}, asked: map[string]bool{}, tpl: map[string]core.TemplateState{},
 		windows: map[string]bool{}, launch: launch, started: time.Now(), shell: os.Getenv("CL_SHELL") == "1",
 	}
 	m.session = tmuxSession()
 	if m.shell {
 		_ = syncLauncherEnv(cfg) // variables du launcher pour toutes les sessions claude
 		exportBrowserPathsHub()  // chemins vus par le navigateur (#104), projets sur l'hôte
+		if note := core.TakeUpdateNote(); note != "" {
+			m.msg = "⚠ " + note
+		}
 		if why := takeNavCrash(); why != "" {
 			m.msg = "⚠ relancé après " + why // détail : nav.err.last (cache)
 		}
@@ -189,6 +217,7 @@ func (m model) Init() tea.Cmd {
 		cmds = append(cmds, waitState(m.mgr.Done))
 	}
 	if m.shell {
+		cmds = append(cmds, launcherStateCmd())
 		// onglet « ⌗ Teamleaders » : une vignette par projet ouvert
 		cfg := m.cfg
 		cmds = append(cmds, func() tea.Msg { runMirrorManager(cfg); return nil })
@@ -547,7 +576,23 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case usageMsg:
 		m.usage = core.Usage(msg)
 	case tickMsg:
+		m = m.refreshCfg() // config.conf relu par date à chaque tour, sans relancer le navigateur (#225)
 		return m, tea.Batch(tickCmd(), windowsCmd(m.session))
+	case cloneTickMsg:
+		if m.job != nil {
+			return m, cloneTickCmd() // le rendu relit la progression
+		}
+		return m, nil
+	case cloneDoneMsg:
+		return m.cloneDone(msg), nil
+	case launcherStateMsg:
+		if core.LauncherInfo(msg).BinChanged && !m.launcher.BinChanged {
+			m.hideRelaunch = false // nouveau remplacement : l'annonce revient
+		}
+		m.launcher = core.LauncherInfo(msg)
+		return m, launcherTickCmd()
+	case relaunchDoneMsg:
+		m.msg = msg.text
 	case usageTick:
 		return m, tea.Batch(usageTickCmd(), usageFetchCmd(m.cfg.UsageRefreshSec))
 	case tea.MouseMsg:
@@ -567,9 +612,15 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.Err != nil:
 			m.msg = "⚠ mise à jour : " + msg.Err.Error()
 		case msg.BinDone && m.shell:
+			if msg.Note != "" {
+				core.SaveUpdateNote(msg.Note) // ce pane est relancé : l'avertissement est repris au démarrage suivant
+			}
 			restartOnNewBinary() // ne revient pas : ce pane est relancé
 		case msg.BinDone:
 			m.msg = "✓ " + msg.Tag + " installée — relancer le launcher"
+			if msg.Note != "" {
+				m.msg = "✓ " + msg.Tag + " installée (⚠ " + msg.Note + ") — relancer le launcher"
+			}
 		default:
 			m.msg = "✓ déjà à jour"
 			m.hideLauncher = true
@@ -647,6 +698,10 @@ func (m model) openSelectedAs(mode launchMode) model {
 	if mode == launchNormal && m.launch && !m.windows[n.Key] && !core.Assigned(n.Path) && len(core.CtrBackends()) > 0 {
 		return m.startExecChoice(n, true)
 	}
+	// dépôt cloné : son environnement n'est appliqué qu'avec l'accord de l'utilisateur (#215) ; rien n'est démarré avant
+	if m.launch && !m.windows[n.Key] && core.EnvTrust(n.Path) == core.TrustPending && core.EnvContainerProject(n.Path) {
+		return m.startTrust(n, mode)
+	}
 	if m.shell && m.launch && dtmux("has-session", "-t", exactS(hubSession)).Run() != nil {
 		// claude-hub fermé entre-temps : la coque le recrée, zone tmux de droite comprise
 		if err := ensureInner(); err == nil {
@@ -698,6 +753,10 @@ func (m model) onMouse(e tea.MouseMsg) model {
 			a := m.alerts()[k]
 			switch {
 			case a == "github": // permanente, non cliquable
+			case a == "relaunch" && e.X < lipgloss.Width(m.alertText(a)):
+				if m.shell {
+					m.relaunchAsk = true
+				}
 			case e.X >= lipgloss.Width(m.alertText(a)):
 				m.dismissAlert(a)
 			case a == "launcher" && m.launcherOK && !m.updating:
@@ -906,6 +965,15 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.relaunchAsk {
+		m.relaunchAsk = false // toute autre touche que o/y annule : par défaut on garde
+		if key := strings.ToLower(k.String()); key == "o" || key == "y" {
+			m.msg = "↻ relance…"
+			return m, relaunchCmd()
+		}
+		m.msg = "relance annulée"
+		return m, nil
+	}
 	if m.form.mode != formNone {
 		return m.onFormKey(k)
 	}
@@ -938,7 +1006,7 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.quitStep = quitAsk
 		return m, nil
 	case "ctrl+u":
-		m.hideLauncher, m.hideTpl = true, true
+		m.hideLauncher, m.hideTpl, m.hideRelaunch = true, true, true
 		return m, nil
 	case "f1":
 		if !m.shell {
@@ -990,6 +1058,10 @@ func (m model) onKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "pgdown":
 		m.move(10)
 	case "ctrl+r":
+		if m.shell && m.relaunchWanted() && !m.hideRelaunch { // annonce affichée : ctrl+r relance (#219) ; sinon rescan
+			m.relaunchAsk = true
+			return m, nil
+		}
 		m.nodes = withSpecial(core.ScanTree(m.cfg.Roots))
 		if m.mgr != nil {
 			m.mgr.SetProjects(m.projectPaths())
@@ -1314,6 +1386,8 @@ func (m model) versionLines() string {
 			s += "\n" + core.Yellow.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		case a == "github": // permanente : pas de ✕
 			s += "\n" + core.Orange.Render(m.alertText(a))
+		case a == "relaunch":
+			s += "\n" + core.Green.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		default:
 			s += "\n" + core.Orange.Render(m.alertText(a)) + core.Dim.Render(" ✕")
 		}
@@ -1329,6 +1403,12 @@ func (m model) alertText(a string) string {
 	}
 	wide := m.w >= 70
 	switch {
+	case a == "relaunch" && m.relaunchAsk:
+		return fmt.Sprintf("  Relancer ? interface + %d processus anciens ; sessions gardées (o/n)", m.launcher.StaleCount())
+	case a == "relaunch" && m.launcher.BinChanged:
+		return "  ✓ " + core.OrQ(m.launcher.Installed) + " installée · ctrl+r : relancer · clic"
+	case a == "relaunch":
+		return fmt.Sprintf("  ⚠ %d processus de l'ancien binaire · ctrl+r : les relancer", m.launcher.StaleCount())
 	case a == "github" && m.errKind == core.UpdErrQuota:
 		return "  ⚠ vérification GitHub impossible (quota, reprise " + m.errRetry.Format("15:04") + ")"
 	case a == "github":
@@ -1371,6 +1451,9 @@ func (m model) alerts() []string {
 	if m.newTpl != "" && !m.hideTpl {
 		a = append(a, "template")
 	}
+	if m.relaunchWanted() && !m.hideRelaunch {
+		a = append(a, "relaunch")
+	}
 	if m.errKind != "" { // visible en continu, pas seulement après F5 (#199)
 		a = append(a, "github")
 	}
@@ -1383,6 +1466,8 @@ func (m *model) dismissAlert(kind string) {
 		m.hideLauncher = true
 	case "template":
 		m.hideTpl = true
+	case "relaunch":
+		m.hideRelaunch = true
 	}
 }
 

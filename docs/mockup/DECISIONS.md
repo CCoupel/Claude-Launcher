@@ -29,3 +29,16 @@
 - Deux organisations seulement : leader en haut (bandeau de teammates) et leader à gauche (teammates en une puis deux colonnes). _(v6.2.0, organisations)_
 - Le choix est un réglage global avec exception par projet ; pas de bascule à la volée par raccourci. _(v6.2.0, organisations)_
 - Pas de mise en page libre : un redimensionnement à la main n'est pas conservé. _(v6.2.0, organisations)_
+
+## launcher_update
+- Pas de retour arrière dans l'interface : l'exe garde `.bak-<version>`, le retour arrière est manuel et documenté. _(choix utilisateur 2026-11-20, #218)_
+
+## clone_trust
+- Approbation de l'`env.yaml` / `env-template.yaml` d'un dépôt cloné : **redemandée si ces fichiers changent** (ex. `git pull`), sans différences affichées (décision utilisateur 2026-11-20, après re-audit sécurité, remplace « approbation définitive ») ; registre partagé `trust.json` hors projet, état le plus restrictif en cas de désaccord entre registres. _(#215)_
+
+## config_ui
+- Chaque option affiche son effet par une pastille à droite du champ (immédiat / réouverture du projet / sessions claude / relance du launcher), pas une colonne dédiée, pas de regroupement des options par effet, pas d'icône en marge. _(v6.6.0, effet_des_options — B, C, D écartées)_
+- Au survol, au focus ou à l'appui d'une pastille, une bulle dit précisément quoi relancer et comment (lien « Relancer le launcher » #219, « Rafraîchir » des projets ouverts, procédure de la coque). _(v6.6.0, effet_des_options — révision de A)_
+- Après enregistrement, rappel en bandeau limité aux options modifiées ; les actions sont proposées, jamais lancées d'office. _(v6.6.0, H6)_
+- Un élément de config caché (jeton…) est masqué par défaut avec un œil dans le champ ; révélé à la demande, re-masqué au clic ou après 30 s ; **même mise en page pour tous les éléments cachés**. Pas de barre d'actions, pas de bulle de valeur, pas d'appui maintenu. _(v6.6.0, element_cache — B, C, D écartées ; H8)_
+- La révélation d'un élément caché est refusée depuis un accès web distant (œil grisé, message). _(v6.6.0, H7)_

@@ -1,0 +1,82 @@
+<!--
+mockup:
+  composant: launcher_update
+  feature: relance
+  version: 6.6.0
+  type: ui
+  issue: "#219"
+  validee_le: 2026-11-20
+  proposition_retenue: "A — Bandeau de mise à jour étendu (sans retour arrière)"
+  complete: []
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #219 — Relance du launcher (v6.6.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.grp{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0 4px 0 10px}
+.tab{background:var(--panel);border:1px solid var(--line2);color:var(--text2);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+.tab.on{background:var(--hl);border-color:var(--accent);color:var(--text)}
+
+.why{color:var(--muted);margin:6px 0 14px;font-size:12.5px;min-height:18px}
+
+.stage{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.win{background:var(--bg);border:1px solid var(--line2);border-radius:8px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+.wtitle{background:var(--head);padding:8px 14px;font-weight:600;display:flex;gap:10px;align-items:center}.wtitle .x{margin-left:auto;color:var(--muted)}
+.wbody{padding:14px 16px}
+label.l{display:block;color:var(--muted);font-size:11.5px;margin:10px 0 4px}
+.in,.sel{background:var(--input);border:1px solid var(--line2);border-radius:5px;padding:6px 9px;color:var(--text);min-height:30px;display:flex;align-items:center;gap:6px}
+.sel:after{content:"▾";margin-left:auto;color:var(--muted)}.in.focus{border-color:var(--accent)}
+.ro{background:transparent;border:1px dashed var(--line2);color:var(--text2);font-family:var(--mono);font-size:12px;padding:6px 9px;border-radius:5px;word-break:break-all}
+.ro b{color:var(--green);font-weight:500}
+.dim{color:var(--dim)}.mut{color:var(--muted)}.ok{color:var(--green)}.warn{color:var(--orange)}.err{color:var(--red)}
+.btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn{background:var(--panel);border:1px solid var(--line2);border-radius:5px;padding:6px 14px;color:var(--text)}.btn.pri{background:var(--accent);color:#04121c;border-color:var(--accent);font-weight:600}.btn.dis{opacity:.4}
+.seg{display:flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden}.seg span{flex:1;text-align:center;padding:6px 8px;border-right:1px solid var(--line2);color:var(--text2)}.seg span:last-child{border:0}.seg span.on{background:var(--hl);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+.card{border:1px solid var(--line2);border-radius:7px;padding:10px;background:var(--panel)}.card.on{border-color:var(--accent);background:var(--hl)}.card h4{margin:0 0 4px;font-size:13px}.card p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.4}
+.menu{background:var(--menu);border:1px solid var(--line2);border-radius:6px;padding:4px 0;margin-top:2px}.menu div{padding:5px 10px}.menu .h{background:var(--hl)}.menu .sep{border-top:1px solid var(--line2);padding:0;margin:4px 0}
+.note{border-left:3px solid var(--accent);background:var(--panel);padding:8px 10px;color:var(--text2);font-size:12px;line-height:1.5;border-radius:0 5px 5px 0;margin-top:10px}
+.note.w{border-color:var(--orange)}.note.e{border-color:var(--red)}.note.g{border-color:var(--green)}
+.term{background:#000;border:1px solid var(--line2);border-radius:6px;font:12px/1.45 var(--mono);color:#ddd;padding:10px 12px;white-space:pre;overflow:auto}
+.term .c{color:var(--cyan)}.term .g{color:var(--green)}.term .y{color:var(--yellow)}.term .o{color:var(--orange)}.term .d{color:#777}.term .r{color:var(--red)}.term .h{background:#1d3448}
+.cap{color:var(--muted);font-size:11.5px;margin:6px 0 4px;text-transform:uppercase;letter-spacing:.05em}
+.steps{display:flex;gap:6px;margin-bottom:12px}.steps span{flex:1;padding:6px 8px;border-radius:5px;background:var(--panel);color:var(--muted);font-size:12px;border:1px solid var(--line2)}.steps span.on{color:var(--text);border-color:var(--accent);background:var(--hl)}.steps span.done{color:var(--green)}
+table.imp{border-collapse:collapse;width:100%;font-size:12px}table.imp td{padding:4px 6px;border-top:1px solid var(--line)}table.imp td:first-child{color:var(--muted);white-space:nowrap}table.imp code{font-family:var(--mono);font-size:11.5px}
+.old{color:var(--dim);text-decoration:line-through}.arrow{color:var(--accent);padding:0 4px}
+.bar{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;font-size:12.5px}.bar.g{background:#183A2A}.bar.y{background:#3A3418}.bar .sp{margin-left:auto}.link{color:var(--accent);text-decoration:underline;cursor:pointer}
+</style>
+</head>
+<body>
+<h1>Maquette #219 — relancer le launcher (v6.6.0)</h1>
+<p class="sub">Après une mise à jour du binaire, « Relancer » est proposé d'office (bandeau de mise à jour #198), avec confirmation : ce qui est relancé et ce qui est gardé (sessions tmux, pods). <b>Pas de retour arrière dans l'interface</b> (#218) : l'exe garde sa sauvegarde <code>.bak-&lt;version&gt;</code> avant remplacement, le retour à la version précédente est une procédure manuelle documentée. Les processus anciens (<code>mirror</code>, <code>layout-watch</code>) ne concernent que la coque, qui a sa propre annonce. Web, fenêtre native et coque tmux (<b>ctrl+r</b> contextuel).</p>
+<p class="why">Proposition retenue : A — Bandeau de mise à jour étendu (sans retour arrière)</p>
+
+<section><div class="stage" style="flex-direction:column">
+<div class="win" style="width:900px"><div class="wbody" style="padding:8px">
+<div class="bar g">✓ v6.6.0 installée — l'interface tourne encore en v6.5.0<span class="sp"></span><span class="btn pri">↻ Relancer</span><span class="mut">✕</span></div>
+</div></div>
+<div style="display:flex;gap:22px;flex-wrap:wrap">
+<div class="win" style="width:440px"><div class="wtitle">↻ Relancer le launcher<span class="x">✕</span></div><div class="wbody">
+<div class="cap">Relancé</div>
+<div>• interface (v6.5.0 → v6.6.0)</div><div class="mut">• coque Linux : panes du launcher, vignettes mirror et layout-watch de l'ancien binaire</div>
+<div class="cap" style="margin-top:10px">Gardé</div>
+<div class="ok">• sessions des projets (tmux claude-hub, 4 fenêtres) · pods</div>
+<div class="note">En cluster : redémarrage du pod du launcher (l'interface revient seule).</div>
+<div class="btns"><span class="btn">Annuler</span><span class="btn pri">Relancer</span></div></div></div>
+</div></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux (ligne d'annonce du navigateur, ctrl+r contextuel)</div>
+<div class="term"><span class="g">  ✓ v6.6.0 installée · ctrl+r : relancer · clic</span>
+ <span class="o">  ⚠ 3 processus de l'ancien binaire · ctrl+r : les relancer</span>   <span class="d">(si seuls des processus anciens restent)</span>
+ <span class="y">  Relancer ? interface + 3 processus anciens ; sessions gardées (o/y)</span>
+ <span class="d">  sans annonce affichée : ctrl+r = rescan (inchangé)</span></div>
+</section>
+</body>
+</html>

@@ -9,6 +9,36 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 
 ## [Unreleased]
 
+## [6.6.0] — 2026-11-22
+
+### Added
+- Relance du launcher depuis l'interface après une mise à jour du binaire : bandeau « binaire changé → Relancer » avec confirmation ; coque tmux : `ctrl+r` quand l'annonce est affichée (sinon rescan), anciens `mirror` / `layout-watch` du même serveur tmux arrêtés puis relancés, sessions des projets conservées ; en cluster, le pod redémarre (#219)
+- Sauvegarde avant mise à jour : le binaire remplacé est gardé en `<exe>.bak-v<version précédente>` (une seule sauvegarde). Retour arrière manuel documenté dans `ng2/docs/versions.md` (#218)
+- Fenêtre `⚙ config` : chaque option porte une pastille d'effet (immédiat, prochaine ouverture du projet, relance des sessions claude, relance du launcher) avec une bulle expliquant quoi faire ; après enregistrement, un rappel ne propose que les options modifiées, sans action automatique (#226)
+- Éléments cachés (mots de passe, jetons) : œil dans le champ pour afficher la valeur le temps de la consultation (masquage au clic, après 30 s, au changement de rubrique et à la fermeture) ; révélation refusée depuis un accès distant, limitée à 10 par minute, jamais journalisée (#227)
+- « Nouveau projet » : la base et la catégorie se choisissent dans des listes (une nouvelle catégorie peut être créée), le chemin final est affiché avant validation ; le serveur refuse tout chemin hors des bases configurées ; les noms de ce qui est créé doivent être portables sous Windows (les catégories existantes sont acceptées telles quelles) ; web, fenêtre Windows et coque tmux (#214)
+- « Nouveau projet » depuis un dépôt Git (https ou ssh, jeton GitHub ou clé ssh du backend, progression, annulation) ou depuis le template (`/init-project` proposé à la première ouverture, « Plus tard » possible) ; web, fenêtre Windows, coque tmux (#215)
+- Déplacer / renommer un projet (#216) : menu clic droit de l'arbre et de la carte, touche `m` dans F2 (coque) ; le dialogue affiche ce qui change (dossier, affectation, réglages, historique, conteneur, approbation) avant validation. Un déplacement sur un autre système de fichiers copie, contrôle le contenu (SHA-256) puis supprime la source ; un déplacement inachevé se reprend ou s'annule (« Reprendre » / « Annuler »). L'approbation d'un dépôt cloné est conservée ; `config.conf` est rétabli à l'équivalent à l'annulation (#216)
+- « Nouveau projet » : trois sources, « Projet brut » (`git init`, dépôt distant facultatif, sans `/init-project` ni CLAUDE.md minimal), « Template projet » et « Dépôt Git » ; l'URL du dépôt distant est validée (https, ssh ; refus des options, des espaces et des identifiants dans l'URL) (#215)
+- Approbation de l'environnement d'un dépôt cloné (sécurité) : un projet cloné qui apporte `.claude-launcher/env.yaml` ou `env-template.yaml` doit être approuvé à sa première ouverture en conteneur (Accepter / Ouvrir sans / Annuler) ; la question revient si ces fichiers changent (ex. `git pull`) ; registre `trust.json` partagé sous `<CL_ROOT_BASE>/.config/claude-launcher-ng2/` (exe, hub, pod) (#215)
+
+### Changed
+- `create` (« Nouveau projet ») : `base` doit être une racine configurée, `category` et `name` passent par la même règle serveur ; l'ancien appel `{base: "<racine>/INFRA"}` est refusé (`base inconnue`) : l'interface et le backend sont livrés ensemble (#214)
+- Les projets vides, template et git ne lancent plus `/init-project` d'office (#215)
+- `config.conf` pris en compte à chaud (#225) : relu dès qu'il change (par date et contenu), avant toute recopie dans `settings.json` et à l'ouverture d'un projet ; un fichier invalide garde la dernière copie valide et le signale ; un fichier absent garde les réglages pendant 3 s, puis les valeurs par défaut. `Roots` et `CLAUDE_CONFIG_DIR` restent « relance du launcher » ; l'enregistrement indique l'effet de chaque option (#226)
+- Après enregistrement de `backends.yaml`, du hub, de `env.yaml` et de `project-env`, la note de relecture reste affichée, en attendant leurs pastilles d'effet (#226)
+- `env.yaml` d'un projet refusé tant que le projet est ouvert ici, ouvert par un autre launcher ou que son conteneur tourne (lecture seule dans l'interface, refus du serveur avec la raison). Si le backend ne répond pas, l'écriture reste permise avec un avertissement, sauf pour un changement de backend ou d'image (#216, #225)
+- « Nouveau projet » : l'option « géré » est retirée de l'interface ; l'ancien champ `raw` est ignoré (#215)
+
+### Fixed
+- Écriture de `config.conf` atomique : écriture dans un `.config.conf.tmp-*` du même dossier, `0600`, `fsync`, `rename`, puis `fsync` du dossier (Unix) ; copie `.bak` écrite par le même chemin. Sous Windows, le `rename` est retenté (5 essais, attentes 50/100/200/400 ms) sur verrou (`ERROR_ACCESS_DENIED` / `ERROR_SHARING_VIOLATION`), puis erreur explicite ; les `.config.conf(.bak).tmp-*` de plus de 10 min sont supprimés (#217)
+- Tests instables sous Windows fiabilisés : attente active du flux SSE plus large, bac à sable vidé après l'arrêt de l'App (#224)
+- Tests instables (verrou de présence, SSE, cookie) ; éviction des sessions web déterministe sous Windows (dates d'usage strictement croissantes) ; arrêt propre des serveurs tmux de test (#224)
+- Course de données sur la préparation d'un hôte (`prepareHost`, `canForce`) : hôte lu et écrit de façon atomique, socket et session lus sous verrou (#153)
+- Panic de l'arrangement des panes (`PlanArrange`) : bornée aux panes existants, division par zéro évitée, surveillants protégés par `recover` (#153)
+- Écoute web à chaud : un port pris entre l'arrêt et la nouvelle écoute est réessayé avec attente croissante, borné, et l'état est affiché (#163)
+- Tests : garde d'isolation — une écriture de config ou de secrets hors d'un dossier temporaire est refusée et fait échouer la suite ; `CLAUDE_CONFIG_DIR` du processus de test isolé ; jetons factices reconnaissables (#216)
+
 ## [6.5.0] — 2026-11-20
 
 ### Added

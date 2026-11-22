@@ -39,6 +39,11 @@ func selfCommand(args ...string) string {
 	if err != nil {
 		exe = "claude-launcher-ng2"
 	}
+	return selfCommandExe(exe, args...)
+}
+
+// selfCommandExe : comme selfCommand, avec un binaire donné (relance, #219).
+func selfCommandExe(exe string, args ...string) string {
 	c := rootBasePrefix() + "CL_HUB=" + core.Shq(hubSession) + " CL_INNER_SOCKET=" + core.Shq(core.InnerSocket()) +
 		" " + core.Shq(exe)
 	for _, a := range args {
@@ -70,9 +75,21 @@ const (
 	launchNormal     = core.LaunchNormal
 	launchNewManaged = core.LaunchNewManaged
 	launchNewRaw     = core.LaunchNewRaw
+	launchProposed   = core.LaunchNewProposed
 )
 
+// effectiveMode : un projet qui attend sa proposition /init-project (marqueur posé à la création depuis le template) la
+// reçoit à chaque ouverture normale, comme dans la fenêtre native : N ou « plus tard » ⇒ reproposé au lancement suivant.
+func effectiveMode(path string, mode launchMode) launchMode {
+	if mode == launchNormal && core.InitProposalPending(path) {
+		return launchProposed
+	}
+	return mode
+}
+
 func launchProject(cfg core.Config, session string, n core.Node, latest string, mode launchMode) error {
+	cfg, _ = core.FreshConfig(cfg) // config.conf relu avant la recopie dans settings.json et le démarrage (#225)
+	mode = effectiveMode(n.Path, mode)
 	sess := targetSession(session)
 	if tmuxWindows(sess)[n.Key] {
 		// fenêtre en lecture seule (un autre launcher a la main) : la rouvrir,

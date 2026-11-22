@@ -113,8 +113,31 @@ func parseEnvFile(b []byte, name string) (EnvSpec, error) {
 }
 
 // LoadEnv : environnement du projet, env-template.yaml et env.yaml fusionnés.
-// Aucun des deux : erreur « fichier absent » (os.IsNotExist).
+// Aucun des deux : erreur « fichier absent » (os.IsNotExist). Projet cloné (registre trust.json, envtrust.go) :
+// « pending » → ErrEnvNotApproved, « ignored » → le seul socle choisi à la création, rien d'autre du dépôt.
 func LoadEnv(proj string) (EnvSpec, error) {
+	ent, st, changed, broken := effectiveTrust(proj)
+	switch {
+	case broken:
+		if st == TrustPending {
+			return EnvSpec{}, trustBrokenError{}
+		}
+	case st == TrustPending:
+		if changed {
+			return EnvSpec{}, ErrEnvChanged
+		}
+		return EnvSpec{}, ErrEnvNotApproved
+	case st == TrustIgnored:
+		if ent.Image == "" {
+			return EnvSpec{}, fmt.Errorf("« image » manquante (environnement du dépôt ignoré, aucun socle choisi)")
+		}
+		return EnvSpec{Image: ent.Image}, nil
+	}
+	return loadEnvRaw(proj)
+}
+
+// loadEnvRaw : LoadEnv sans le registre d'approbation (lecture brute des fichiers du projet).
+func loadEnvRaw(proj string) (EnvSpec, error) {
 	var e EnvSpec
 	pb, perr := os.ReadFile(EnvPath(proj))
 	tb, terr := os.ReadFile(envTemplatePath(proj))
@@ -630,20 +653,24 @@ func DefaultCtrBackend() (BackendConf, bool) {
 }
 
 // writeEnv : env.yaml minimal et commenté pour le socle img (sans écraser un existant).
-func writeEnv(proj, img string) error {
+func writeEnv(proj, img string) ([]byte, error) {
 	p := EnvPath(proj)
 	if _, err := os.Stat(p); err == nil {
-		return nil
+		return nil, nil
 	}
 	// création exclusive : deux launchers qui initialisent le projet en même temps n'écrasent pas l'env.yaml de l'autre
-	_, err := createExclusive(p, []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n"+
-		"# Ajouts propres au projet ; env-template.yaml (s'il existe) vient du template : ne pas le modifier.\n"+
-		"image: "+img+"\n"+
-		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n"+
-		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n"+
-		"# setup: []                 # étapes exécutées une fois, en utilisateur, dans le projet\n"+
-		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n"), 0o644)
-	return err
+	content := []byte("# Exécution du projet en conteneur (Claude-Launcher-NG2) — versionné avec le projet\n" +
+		"# Ajouts propres au projet ; env-template.yaml (s'il existe) vient du template : ne pas le modifier.\n" +
+		"image: " + img + "\n" +
+		"# packages: []              # paquets en plus (tmux, git, bash, sudo, curl : implicites)\n" +
+		"# packages_by_manager: {}   # noms propres à une distribution, ex. { dnf: [libpq-devel] }\n" +
+		"# setup: []                 # étapes exécutées une fois, en utilisateur, dans le projet\n" +
+		"# mounts: []                # dossiers en plus, ex. [{ path: ../autre, ro: true }]\n")
+	created, err := createExclusive(p, content, 0o644)
+	if !created {
+		return nil, err
+	}
+	return content, err
 }
 
 func FindBackend(name string) (BackendConf, bool) {
@@ -712,11 +739,7 @@ func saveAssignments(m map[string]string) error {
 	if err := os.MkdirAll(filepath.Dir(assignPath()), 0o755); err != nil {
 		return err
 	}
-	tmp := fmt.Sprintf("%s.%d.tmp", assignPath(), os.Getpid()) // plusieurs hubs, plusieurs machines
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, assignPath())
+	return WriteFileAtomic(assignPath(), b, 0o644) // plusieurs hubs, plusieurs machines : temporaire unique, fsync, rename
 }
 
 func WriteAssignment(proj, backend string) error {
@@ -740,18 +763,34 @@ func Assigned(proj string) bool {
 
 // setEnvImage : remplace la ligne « image: » d'env.yaml (le reste est gardé) ;
 // env.yaml absent (template seul, ou rien) : créé avec ce socle.
-func setEnvImage(proj, img string) error {
-	return WithFileLock(EnvPath(proj), func() error { return setEnvImageLocked(proj, img) })
+func setEnvImage(proj, img string) error { return setEnvImageChecked(proj, img, nil) }
+
+// setEnvImageChecked : setEnvImage avec revérification (recheck) sous les verrous, avant l'écriture ; nil : sans garde.
+func setEnvImageChecked(proj, img string, recheck func() []string) error {
+	return withTrustRefresh(proj, func() ([]byte, error) {
+		var written []byte
+		err := WithFileLock(EnvPath(proj), func() error {
+			if recheck != nil { // F2 : revérifié sous les verrous, juste avant l'écriture
+				if b := recheck(); len(b) > 0 {
+					return &EnvLockedError{Blockers: b}
+				}
+			}
+			var e error
+			written, e = setEnvImageLocked(proj, img)
+			return e
+		})
+		return written, err
+	})
 }
 
-func setEnvImageLocked(proj, img string) error {
+func setEnvImageLocked(proj, img string) ([]byte, error) {
 	p := EnvPath(proj)
 	b, err := os.ReadFile(p)
 	if os.IsNotExist(err) {
 		return writeEnv(proj, img)
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	lines := strings.Split(string(b), "\n")
 	done := false
@@ -764,7 +803,8 @@ func setEnvImageLocked(proj, img string) error {
 	if !done {
 		lines = append([]string{"image: " + img}, lines...)
 	}
-	return WriteFileAtomic(p, []byte(strings.Join(lines, "\n")), 0o644)
+	out := []byte(strings.Join(lines, "\n"))
+	return out, WriteFileAtomic(p, out, 0o644)
 }
 
 // projectBackend : backend affecté au projet ; host sans env.yaml ou sans
@@ -1005,6 +1045,17 @@ func (e Engine) migrateLegacy(proj, name string, log io.Writer) {
 	}
 }
 
+// runTee : exécute c, sa sortie (stdout et stderr) copiée dans log ET rendue. UN SEUL écrivain partagé par stdout et stderr :
+// exec n'ouvre alors qu'une goroutine de copie. Deux MultiWriter distincts écrivant dans le même tampon étaient une course
+// (bytes.Buffer n'est pas sûr en écriture concurrente).
+func runTee(c *exec.Cmd, log io.Writer) (string, error) {
+	var out bytes.Buffer
+	w := io.MultiWriter(log, &out)
+	c.Stdout, c.Stderr = w, w
+	err := c.Run()
+	return out.String(), err
+}
+
 // pid1 : processus principal qui ignore tout sauf SIGTERM (arrêt propre, sans --init).
 const pid1 = `trap 'exit 0' TERM INT; while :; do sleep 3600 & wait $!; done`
 
@@ -1049,11 +1100,10 @@ func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 			return "", err
 		}
 		fmt.Fprintf(log, "  création du conteneur %s (%s)…\n", name, env.Image)
-		var out bytes.Buffer
 		c := e.cmd(args...)
-		c.Stdout, c.Stderr = io.MultiWriter(log, &out), io.MultiWriter(log, &out)
-		if err := c.Run(); err != nil {
-			if s := out.String(); strings.Contains(s, "bind source path does not exist") || strings.Contains(s, "no such file or directory") {
+		outS, err := runTee(c, log)
+		if err != nil {
+			if s := outS; strings.Contains(s, "bind source path does not exist") || strings.Contains(s, "no such file or directory") {
 				return "", fmt.Errorf("création du conteneur : un dossier monté manque sur la machine du moteur — stockage partagé non monté au même chemin (%s, %s)", ClaudeDir(), proj)
 			}
 			return "", fmt.Errorf("création du conteneur : %w", err)

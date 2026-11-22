@@ -15,6 +15,7 @@ import (
 // sharedEnv : racine partagée + cache, sans CL_SECRETS_DIR (emplacement par défaut du coffre commun).
 func sharedEnv201(t *testing.T) (root string) {
 	t.Helper()
+	resetSecretsMigration(t) // état global du signalement : propre à chaque test (-count=N)
 	root = t.TempDir()
 	home := t.TempDir() // ancien coffre local (v6.4.0) : jamais le vrai ~/.config/claude-launcher/secrets
 	t.Setenv("HOME", home)

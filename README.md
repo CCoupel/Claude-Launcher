@@ -27,6 +27,22 @@ launcher **Windows natif** ; sous Linux, la coque tmux ne change pas.
 > **Passer de la v4 à la v5/v6 (ou revenir) uniquement avec tous les projets fermés.**
 > Le passage de la v5 à la v6 se fait tout seul : voir [Passage à la v6](#passage-à-la-v6).
 
+**Ce qui est livré en v6.6** (détail dans [CHANGELOG.md](CHANGELOG.md)) :
+
+- **Gestion des projets** : « Nouveau projet » choisit la base et la catégorie dans des listes, et crée le projet
+  depuis un **projet brut** (`git init`), un **template** (`/init-project` proposé) ou un **dépôt Git** (https ou ssh,
+  jeton ou clé du backend). **Déplacer / renommer** un projet (clic droit, ou `m` dans F2) montre ce qui change avant
+  de valider ; un déplacement interrompu se reprend ou s'annule. Guides : [`ng2/docs/configuration.md`](ng2/docs/configuration.md#déplacer-ou-renommer-un-projet-v660-216).
+- **Dépôt cloné non approuvé** : son `env.yaml` n'est appliqué qu'après accord (Accepter / Ouvrir sans / Annuler), redemandé
+  s'il change après un `git pull`. Guide : [approbation d'un dépôt cloné](ng2/docs/configuration.md#approbation-dun-dépôt-cloné-v660-215).
+- **Configuration à chaud** : `config.conf` est relu sans relancer le launcher ; chaque option indique son effet (pastille et
+  bulle), et un rappel propose seulement les actions utiles après enregistrement. Les éléments cachés (jetons) s'affichent
+  à l'œil, en local seulement. Guide : [`ng2/docs/configuration.md`](ng2/docs/configuration.md#modifier-la-configuration-à-chaud-v660-225).
+- **Mise à jour** : le launcher peut être relancé depuis l'interface après une mise à jour du binaire ; l'ancien binaire
+  est gardé en `<exe>.bak-v<version>` et le retour arrière se fait à la main. Guide : [`ng2/docs/versions.md`](ng2/docs/versions.md#retour-arrière-manuel-windows-et-hub).
+- **Fiabilité** : écriture atomique de `config.conf` (avec réessai sous Windows), tests stabilisés, panic de l'arrangement
+  des panes corrigée.
+
 **Ce qui est livré en v6.5** (détail dans [CHANGELOG.md](CHANGELOG.md)) :
 
 - **Coffre des secrets partagé** : les clés ssh, `known_hosts` et kubeconfig des backends sont rangés dans **un seul coffre**,
@@ -178,7 +194,7 @@ des projets (PVC existant, ou créé par le chart) ; un nom `.local` (mDNS) pour
 une CA interne cert-manager dont le certificat public est installé sur les postes.
 
 ```bash
-VERSION=6.5.0
+VERSION=6.6.0
 TAG=v$VERSION
 DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
 CHART=oci://ghcr.io/ccoupel/charts/claude-launcher

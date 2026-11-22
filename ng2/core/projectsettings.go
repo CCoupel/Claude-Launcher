@@ -1,6 +1,7 @@
 package core
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -582,6 +583,101 @@ type ProjectChange struct {
 	// HideIdle : auto | none écrit l'entrée de PROJECT_HIDE_IDLE ; default (ou vide) la retire ; nil : inchangé (#209)
 	HideIdle *string
 	Env      *EnvChange
+	// EnvGuard : refus d'écrire l'environnement du projet (env.yaml, backend, image) — "" : permis. Appelé avant toute
+	// écriture ET revérifié juste avant chacune (le projet a pu s'ouvrir entre-temps). Nil : seul « ouvert ici » (open) compte.
+	EnvGuard func() []string `json:"-"`
+	// EnvRecheck : revérification RAPIDE (état mémorisé, sans moteur) juste avant chaque écriture, sous verrou ; nil : seul
+	// « ouvert ici » (open). EnvGuard, lui, n'est évalué qu'UNE fois, avant toute écriture.
+	EnvRecheck func() []string `json:"-"`
+}
+
+// UnverifiablePrefix : début de la réponse d'une vérification (propriétaire, conteneur) qui n'a pas pu se faire — backend
+// injoignable ou délai dépassé. Pour l'env.yaml ce n'est PAS un refus (avertissement) ; pour un déplacement, si.
+const UnverifiablePrefix = "backend injoignable"
+
+// EnvWarnUnknown : avertissement rendu quand l'état du conteneur n'a pu être vérifié (écriture quand même permise).
+const EnvWarnUnknown = "état du conteneur inconnu (backend injoignable) : s'appliquera à la prochaine ouverture"
+
+// EnvEditCheck : blockers CERTAINS (ouvert ici, autre launcher confirmé, conteneur / pod actif confirmé) qui interdisent de
+// modifier l'environnement du projet, et avertissements (vérification impossible : backend injoignable). Mêmes sources que le
+// déplacement, sauf « déplacement inachevé ». Le flux d'approbation d'un dépôt cloné (#215) n'en dépend pas.
+func EnvEditCheck(env MoveEnv, path string) (blockers, warns []string) {
+	if env.OpenHere != nil && env.OpenHere(path) {
+		blockers = append(blockers, "projet ouvert dans ce launcher")
+	}
+	foreign := ForeignOwnerChecked
+	if env.Foreign != nil {
+		foreign = env.Foreign
+	}
+	run := runningCtr
+	if env.Running != nil {
+		run = env.Running
+	}
+	// propriétaire et conteneur interrogés EN PARALLÈLE : la durée est celle du plus lent (bornée par l'appelant), pas la somme
+	var who, what string
+	done := make(chan struct{})
+	go func() { what = run(path); close(done) }()
+	who = foreign(path)
+	<-done
+	if strings.HasPrefix(who, UnverifiablePrefix) {
+		warns = append(warns, EnvWarnUnknown)
+	} else if who != "" {
+		blockers = append(blockers, "projet ouvert par un autre launcher ("+who+")")
+	}
+	if strings.HasPrefix(what, UnverifiablePrefix) {
+		if len(warns) == 0 {
+			warns = append(warns, EnvWarnUnknown)
+		}
+	} else if what != "" {
+		blockers = append(blockers, "conteneur ou pod en cours d'exécution ("+what+")")
+	}
+	return blockers, warns
+}
+
+// EnvBlockUnknown : blocker d'un changement de BACKEND ou d'IMAGE quand l'état du conteneur n'a pu être vérifié (moteur
+// injoignable, échec rapide ou délai) : fail-closed — recréer un conteneur qu'on ne voit pas serait destructif. L'env.yaml
+// seul, lui, est écrit avec un avertissement (EnvWarnUnknown).
+const EnvBlockUnknown = UnverifiablePrefix + " : état du conteneur non vérifiable"
+
+// EnvExecBlockers : blockers d'un changement de backend / d'image (F2, projectApply backend|image) = ceux de l'env.yaml
+// PLUS « non vérifiable » (fail-closed).
+func EnvExecBlockers(env MoveEnv, path string) []string {
+	b, w := EnvEditCheck(env, path)
+	if len(w) > 0 {
+		b = append(b, EnvBlockUnknown)
+	}
+	return b
+}
+
+// EnvExecRefusal : "" si le backend / l'image du projet peut être changé, sinon la raison.
+func EnvExecRefusal(env MoveEnv, path string) string {
+	return EnvEditMessage(EnvExecBlockers(env, path))
+}
+
+// EnvEditBlockers : les blockers certains de EnvEditCheck.
+func EnvEditBlockers(env MoveEnv, path string) []string {
+	b, _ := EnvEditCheck(env, path)
+	return b
+}
+
+// EnvEditRefusal : "" si l'environnement du projet peut être modifié, sinon la raison, avec la consigne.
+func EnvEditRefusal(env MoveEnv, path string) string {
+	b := EnvEditBlockers(env, path)
+	if len(b) == 0 {
+		return ""
+	}
+	return EnvEditMessage(b)
+}
+
+// EnvEditMessage : message de refus — la première raison, puis la consigne.
+func EnvEditMessage(blockers []string) string {
+	if len(blockers) == 0 {
+		return ""
+	}
+	if strings.HasPrefix(blockers[0], UnverifiablePrefix) { // pas un projet à fermer : un moteur à retrouver
+		return blockers[0] + " — réessayer quand le backend répond"
+	}
+	return blockers[0] + " — fermez le projet pour modifier son environnement"
 }
 
 // EnvChange : changements de l'env.yaml du projet, avec la date d'ouverture.
@@ -601,11 +697,13 @@ type EnvResult struct {
 
 // ProjectResult : résultat de ApplyProjectSettings.
 type ProjectResult struct {
-	OK    bool       `json:"ok"`
-	Msg   string     `json:"msg,omitempty"`
-	Note  string     `json:"note,omitempty"`
-	Env   *EnvResult `json:"env,omitempty"`        // présent aussi sur un échec POSTÉRIEUR à son écriture (résultat partiel)
-	Color bool       `json:"colorSaved,omitempty"` // config.conf écrite (relue à chaud côté interface)
+	OK       bool       `json:"ok"`
+	Msg      string     `json:"msg,omitempty"`
+	Note     string     `json:"note,omitempty"`
+	Env      *EnvResult `json:"env,omitempty"`        // présent aussi sur un échec POSTÉRIEUR à son écriture (résultat partiel)
+	Color    bool       `json:"colorSaved,omitempty"` // config.conf écrite (relue à chaud côté interface)
+	Field    string     `json:"field,omitempty"`      // « env » : écriture de l'environnement refusée (projet ou conteneur actif)
+	Blockers []string   `json:"blockers,omitempty"`   // avec Field « env » : les raisons du refus
 }
 
 // ApplyProjectSettings applique les parties demandées. open : le projet est
@@ -617,7 +715,9 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	backend, image := "", ""
 	if in.Backend != nil || in.Image != nil {
 		if open {
-			return fail("projet ouvert — le fermer avant de changer de backend")
+			r := ProjectResult{Field: "env", Blockers: []string{"projet ouvert dans ce launcher"}} // même refus que l'env.yaml
+			r.Msg = EnvEditMessage(r.Blockers)
+			return r
 		}
 		if in.Backend == nil {
 			cur, ok := ReadAssignments()[proj]
@@ -664,6 +764,38 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 			return fail("%v", err)
 		}
 	}
+	// l'environnement (env.yaml, backend, image) n'est modifié ni projet ouvert ni conteneur actif (ici ou ailleurs)
+	envWrite := (in.Env != nil && len(in.Env.Changes) > 0) || in.Backend != nil || in.Image != nil
+	openOnly := func() []string {
+		if open { // seul « ouvert ici » est connu ici (pas d'accès aux moteurs depuis cette fonction)
+			return []string{"projet ouvert dans ce launcher"}
+		}
+		return nil
+	}
+	envBlockers := func() []string { // contrôle complet, une seule fois
+		if !envWrite {
+			return nil
+		}
+		if in.EnvGuard != nil {
+			return in.EnvGuard()
+		}
+		return openOnly()
+	}
+	envRecheck := func() []string { // revérification rapide avant chaque écriture
+		if !envWrite {
+			return nil
+		}
+		if in.EnvRecheck != nil {
+			return in.EnvRecheck()
+		}
+		return openOnly()
+	}
+	envRefused := func(b []string) ProjectResult {
+		return ProjectResult{Msg: EnvEditMessage(b), Field: "env", Blockers: b}
+	}
+	if b := envBlockers(); len(b) > 0 {
+		return envRefused(b)
+	}
 	res := ProjectResult{OK: true}
 	// 2. env.yaml du projet — l'image demandée y entre par les mêmes changements :
 	//    une seule écriture du fichier
@@ -687,8 +819,11 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		if err != nil {
 			return ProjectResult{Env: &EnvResult{Invalid: true, Problems: []ConfigProblem{{Severity: SevError, Message: err.Error()}}}}
 		}
-		ps, err := SaveConfig(ConfProjectEnv, EnvPath(proj), out, expected)
+		ps, err := SaveConfigGuarded(ConfProjectEnv, EnvPath(proj), out, expected, nil, envRecheck) // revérifiée sous verrou
+		var locked *EnvLockedError
 		switch {
+		case errors.As(err, &locked):
+			return envRefused(locked.Blockers)
 		case err == ErrConfigConflict:
 			cur := ""
 			if st, e := os.Stat(EnvPath(proj)); e == nil {
@@ -704,7 +839,7 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 		if st, e := os.Stat(EnvPath(proj)); e == nil {
 			er.MTime = st.ModTime().Format(time.RFC3339Nano)
 		}
-		res.Env, res.Note = er, ConfigReloadNote(ConfProjectEnv)
+		res.Env, res.Note = er, "pris en compte à la prochaine ouverture du projet (bootstrap du conteneur)"
 	}
 	// 3. couleur et organisation : un seul enregistrement de config.conf
 	if in.Color != nil || in.Layout != nil || in.HideIdle != nil {
@@ -720,6 +855,11 @@ func ApplyProjectSettings(proj string, open bool, in ProjectChange) ProjectResul
 	}
 	// 4. backend et image
 	if in.Backend != nil || in.Image != nil {
+		if b := envRecheck(); len(b) > 0 { // revérifié à l'écriture
+			r := envRefused(b)
+			r.Env, r.Color = res.Env, res.Color
+			return r
+		}
 		var err error
 		if backend == "host" {
 			err = ApplyExec(proj, "", "")

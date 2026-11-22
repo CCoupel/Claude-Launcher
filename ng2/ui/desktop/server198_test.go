@@ -149,3 +149,75 @@ func TestClientLogiqueVersionServeur198(t *testing.T) {
 		t.Fatalf("simulation : %v\n%s", err, out)
 	}
 }
+
+func TestClientBandeauLauncher219(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node absent : simulation ignorée")
+	}
+	wd, _ := os.Getwd()
+	out, err := exec.Command(node, filepath.Join(wd, "testdata", "launcher_bar.js"), filepath.Join(wd, "frontend", "app.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("simulation : %v\n%s", err, out)
+	}
+}
+
+func TestClientNouveauProjet214(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node absent : simulation ignorée")
+	}
+	wd, _ := os.Getwd()
+	out, err := exec.Command(node, filepath.Join(wd, "testdata", "new_project.js"), filepath.Join(wd, "frontend", "app.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("simulation : %v\n%s", err, out)
+	}
+}
+
+func TestClientNouveauProjetGit215(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node absent : simulation ignorée")
+	}
+	wd, _ := os.Getwd()
+	out, err := exec.Command(node, filepath.Join(wd, "testdata", "new_git.js"), filepath.Join(wd, "frontend", "app.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("simulation : %v\n%s", err, out)
+	}
+}
+
+func TestClientApprobationEnv215(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node absent : simulation ignorée")
+	}
+	wd, _ := os.Getwd()
+	out, err := exec.Command(node, filepath.Join(wd, "testdata", "env_trust.js"), filepath.Join(wd, "frontend", "app.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("simulation : %v\n%s", err, out)
+	}
+}
+
+func TestClientDeplacerProjet216(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node absent : simulation ignorée")
+	}
+	wd, _ := os.Getwd()
+	out, err := exec.Command(node, filepath.Join(wd, "testdata", "project_move.js"), filepath.Join(wd, "frontend", "app.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("simulation : %v\n%s", err, out)
+	}
+}
+
+func TestClientEffetEtOeil226227(t *testing.T) {
+	node, err := exec.LookPath("node")
+	if err != nil {
+		t.Skip("node absent : simulation ignorée")
+	}
+	wd, _ := os.Getwd()
+	out, err := exec.Command(node, filepath.Join(wd, "testdata", "config_effect.js"), filepath.Join(wd, "frontend", "app.js")).CombinedOutput()
+	if err != nil {
+		t.Fatalf("simulation : %v\n%s", err, out)
+	}
+}

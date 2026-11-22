@@ -510,7 +510,12 @@ function renderCards() {
     kv.lastChild.title = c.lastMsg || '';
     pb.appendChild(kv);
   }
-  card('Projet', '', pb);
+  const pk = card('Projet', '', pb);
+  if (pk && pk.firstChild && c.path) { // #216 : menu ⋯ de la carte (mêmes actions que le clic droit de l'arbre)
+    const mb = el('span', 'cardmenu', '⋯'); mb.title = 'Actions du projet';
+    mb.onclick = (e) => { e.stopPropagation(); const r = mb.getBoundingClientRect(); showProjectMenu(c.path, r.left, r.bottom); };
+    pk.firstChild.append(mb);
+  }
   // Milestone
   const m = c.milestone;
   if (m) {
@@ -666,6 +671,7 @@ async function openProject(path, mode) {
   const r = await call('open', { path });
   if (!r) return;
   if (r.execChoice) return execChoice(r.execChoice, true);
+  if (r.needTrust) return envTrustBox(r.path || path); // #215 : environnement d'un dépôt cloné, à approuver
   if (r.tab) showView(r.tab, true);
 }
 
@@ -811,6 +817,7 @@ function showProjectMenu(path, x, y) {
     if (key) d.appendChild(el('span', 'k', key));
     if (!dis) d.onclick = (e) => { e.stopPropagation(); closeCtx(); fn(); };
     m.appendChild(d);
+    return d;
   };
   it('Ouvrir', 'Entrée', () => openProject(path));
   // Fermer : selon l'état de la ligne (ouvert ou pastille autre que ○), plus selon la présence d'un onglet (#158)
@@ -818,6 +825,9 @@ function showProjectMenu(path, x, y) {
   it('⟳ Rafraîchir', 'F5', () => refreshProject(path), !!r.refreshing);
   it('Forcer la fermeture…', '', () => askForceClose(path), !r.canForce);
   m.appendChild(el('hr'));
+  const mv = moveMenuState(r); // #216 : projet ouvert = grisé (les autres blocages restent dans le dialogue)
+  const mi = it('⇄ Déplacer / renommer…', '', () => moveBox(path), mv.disabled);
+  if (mv.why) mi.title = mv.why;
   it('⚙ Réglages du projet…', '', () => openSettings(path, 'projet'));
   it('Changer de backend…', 'F2', () => openSettings(path, 'projet', 'pjf-backend'));
   it('Environnement du conteneur…', '', () => openSettings(path, 'projet', 'pjf-env'));
@@ -1555,7 +1565,7 @@ function openModal(build) {
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
-function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); $('nav').focus(); }
+function closeModal() { if (typeof stKeepClear === 'function') stKeepClear(); if (typeof ST !== 'undefined') { ST.on = false; clearTimeout(ST.timer); } $('modal').classList.add('hidden'); S.newDlg = null; if (typeof eyesHide === 'function') eyesHide(); $('nav').focus(); }
 $('modal').addEventListener('mousedown', (e) => { if (e.target === $('modal')) { if (CE.doc) ceClose(); else if (typeof ST !== 'undefined' && ST.on) stClose(); else closeModal(); } });
 
 function confirmBox(text, ok, fn, danger) {
@@ -1620,42 +1630,573 @@ function toolsBox(t, force) {
   });
 }
 
-// création d'un projet : nom, type, remote, puis exécution (hôte ou conteneur)
-async function newProject(base) {
+// ── Nouveau projet (#214) : base, catégorie, nom, chemin final ───────────────
+// Fonctions pures (testées par node, testdata/new_project.js).
+// Pré-sélection depuis un dossier de l'arbre : la base la plus longue qui le contient, le reste = catégorie.
+function splitPreselect(bases, path) {
+  const norm = (x) => String(x || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  const p = norm(path); let best = null;
+  for (const b of bases || []) {
+    const bp = norm(b);
+    if ((p === bp || p.startsWith(bp + '/')) && (!best || bp.length > norm(best).length)) best = b;
+  }
+  if (!best) return { base: '', category: '' };
+  return { base: best, category: p.slice(norm(best).length).replace(/^\//, '') };
+}
+const joinNewPath = (base, category, name) => {
+  const sep = String(base).includes('\\') && !String(base).includes('/') ? '\\' : '/';
+  return [String(base).replace(/[\\/]+$/, ''), category, name].filter((x) => x).join(sep);
+};
+// Chargeur de catégories « le dernier appel gagne » : un retard de réponse d'une ancienne base est ignoré.
+function makeCatLoader(fetchCats, apply) {
+  let seq = 0;
+  return async (base) => {
+    const my = ++seq;
+    let r = null;
+    try { r = await fetchCats(base); } catch (e) { r = null; }
+    if (my !== seq) return false;
+    apply(base, (r && r.categories) || []);
+    return true;
+  };
+}
+const NEWCAT = '\u0000new';
+// « nouvelle catégorie » choisie sans nom : refus (sinon le projet serait créé à la racine de la base).
+const categoryError = (isNew, value) => (isNew && !String(value || '').trim() ? 'nom de catégorie requis' : '');
+
+// Dépôt Git (#215). Fonctions pures testées par node (testdata/new_git.js).
+// 'https' | 'ssh' | 'bad' (file://, chemin local, option -…, schéma inconnu) | '' (vide).
+function gitUrlKind(u) {
+  u = String(u || '').trim(); if (!u) return '';
+  if (/^-/.test(u) || /\s/.test(u)) return 'bad';
+  if (/^https:\/\/[^/\s]+\/\S+/i.test(u)) return 'https';
+  if (/^ssh:\/\/[^/\s]+\/\S+/i.test(u) || /^[\w.-]+@[\w.-]+:\S+/.test(u)) return 'ssh';
+  return 'bad';
+}
+// nom du dossier proposé : dernier segment de l'URL sans « .git »
+function nameFromUrl(u) {
+  const m = String(u || '').trim().replace(/\/+$/, '').match(/([^/:]+?)(?:\.git)?$/);
+  return m ? m[1] : '';
+}
+// ligne d'authentification (présence seulement, jamais de valeur) : { ok, text }
+function authLine(auth, url, backend) {
+  const k = gitUrlKind(url), a = auth || {};
+  if (k === 'https') return a.token ? { ok: true, text: '🔑 jeton GitHub (config.conf) ✓' } : { ok: false, text: '⚠ dépôt public seulement — ajouter un jeton (⚙ config.conf)' };
+  if (k === 'ssh') {
+    const ks = a.sshKey || {};
+    return ks[backend] || ks.host ? { ok: true, text: '🔑 clé ssh du ' + (ks[backend] ? 'backend' : 'poste') + ' ✓' } : { ok: false, text: '⚠ pas de clé ssh — ajouter une clé (⚙ ce poste)' };
+  }
+  return { ok: true, text: k === 'bad' ? 'URL non acceptée (https://… ou git@hôte:chemin)' : '' };
+}
+// avancement du job (`newJob` de l'instantané) : { state, pct (0-100), label, msg }.
+// `step` est déjà un libellé français émis par le serveur (préparation, réception, résolution des deltas,
+// extraction, terminé) : affiché tel quel.
+function jobView(j) {
+  if (!j) return null;
+  const pct = Math.max(0, Math.min(100, Math.round(Number(j.pct) || 0)));
+  return { state: j.state || 'running', pct, label: (j.step || 'clonage') + ' — ' + pct + ' %', msg: j.msg || '' };
+}
+// Job disparu de l'instantané (retiré après la durée de garde, ou reconnexion tardive) : vrai quand le panneau doit
+// cesser d'attendre — dès qu'il l'a vu une fois, sinon après `graceMs` sans le voir (le premier instantané peut
+// précéder l'enregistrement du job).
+function jobGone(seen, firstMissAt, now, graceMs) {
+  if (firstMissAt == null) return false;
+  return !!seen || now - firstMissAt >= graceMs;
+}
+// ── Approbation de l'environnement d'un dépôt cloné (#215) ───────────────────
+// Fonctions pures (testdata/env_trust.js). TOUT texte venant du dépôt passe par safeText puis textContent
+// (jamais innerHTML) : aucun HTML interprété ; caractères de contrôle (séquences de terminal) rendus visibles.
+function safeText(v) {
+  return String(v == null ? '' : v).replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\u061c\u200b-\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069\ufeff]/g,
+    (c) => (c === '\u001b' ? '\u241b' : '\u00b7'));
+}
+// Lignes du résumé : [{ label, items:[texte], tone:'' | 'warn' | 'err' }] — vide = rien demandé par le dépôt.
+function trustRows(info) {
+  const sp = (info && info.spec) || {}, rows = [];
+  const add = (label, items, tone) => { if (items && items.length) rows.push({ label, items: items.map(safeText), tone: tone || '' }); };
+  if (sp.image) add('Image', [sp.image + (info.chosenImage && info.chosenImage !== sp.image ? ' (au lieu de ' + info.chosenImage + ' choisie)' : '')]);
+  add('Paquets', sp.packages);
+  add('Paquets par gestionnaire', Object.keys(sp.packagesByManager || {}).sort().map((k) => k + ' : ' + [].concat(sp.packagesByManager[k] || []).join(', ')));
+  add('setup', sp.setup, 'warn'); add('on_start', sp.onStart, 'warn'); add('watch', sp.watch);
+  add('Montages', (sp.mounts || []).map((m) => (m.path || '') + (m.ro ? ' (lecture)' : ' (écriture)')), 'err');
+  add('Scripts du dépôt', (info && info.risk && info.risk.scripts) || [], 'err');
+  add('local', sp.local); if (sp.prefer) add('Backend préféré', [sp.prefer]);
+  return rows;
+}
+const trustNote = (info) => {
+  const r = (info && info.risk) || {}, n = [];
+  if (r.exec) n.push(r.exec + ' commande' + (r.exec > 1 ? 's' : '') + ' exécutée' + (r.exec > 1 ? 's' : '') + ' dans le conteneur');
+  if (r.hostMounts) n.push(r.hostMounts + ' montage' + (r.hostMounts > 1 ? 's' : '') + ' hors du projet');
+  if (r.packages) n.push(r.packages + ' paquet' + (r.packages > 1 ? 's' : ''));
+  if (r.watch) n.push(r.watch + ' surveillance' + (r.watch > 1 ? 's' : ''));
+  if (r.local) n.push(r.local + ' entrée' + (r.local > 1 ? 's' : '') + ' locale' + (r.local > 1 ? 's' : ''));
+  return n.join(' · ');
+};
+async function envTrustBox(src) {
+  const load = async (path) => call('envTrustInfo', { path });
+  const info = typeof src === 'string' ? await load(src) : src;
+  if (!info || !info.path) { if (info && info.ok === false) flash('⚠ ' + safeText(info.msg || 'environnement illisible')); return; }
+  const name = String(info.path).split(/[\\/]/).filter(Boolean).pop() || info.path;
+  const draw = (info, note) => openModal((b) => {
+    b.append(el('h2', '', '⚠ Environnement fourni par le dépôt — ' + safeText(name)));
+    b.append(el('div', 'dim', 'Cloné depuis ' + safeText(info.source || 'un dépôt externe') + '. Rien n\'est appliqué sans ton accord.'));
+    if (info.broken) b.append(el('div', 'err', '⚠ ' + safeText(info.broken))); // registre illisible : texte du serveur, échappé
+    if (info.changed === true) b.append(el('div', 'err', 'L\'environnement du dépôt a changé depuis votre approbation.'));
+    if (note) b.append(el('div', 'err', note));
+    const cols = el('div', 'trustcols');
+    const left = el('div'); left.append(el('div', 'cap', 'Ce que le dépôt demande'));
+    const rows = trustRows(info);
+    if (!rows.length) left.append(el('div', 'dim', 'rien de particulier'));
+    for (const r of rows) {
+      const line = el('div', 'trow'); line.append(el('span', 'tl', r.label));
+      const v = el('span', 'tv ' + r.tone); for (const it of r.items) v.append(el('code', '', it));
+      line.append(v); left.append(line);
+    }
+    const tn = trustNote(info); if (tn) left.append(el('div', 'note warn', '⚠ ' + tn + '.'));
+    if (info.scriptNote) left.append(el('div', 'err', safeText(info.scriptNote))); // scripts du dépôt : non couverts par l'approbation
+    const right = el('div');
+    for (const [fn, txt] of Object.entries(info.files || {})) {
+      right.append(el('div', 'cap', '.claude-launcher/' + fn));
+      right.append(txt ? el('pre', 'trustraw', safeText(txt)) : el('div', 'dim', 'absent'));
+    }
+    cols.append(left, right); b.appendChild(cols);
+    const msg = el('div', 'err'); b.appendChild(msg);
+    const btns = el('div', 'btns');
+    const answer = async (choice) => {
+      msg.textContent = ''; btns.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+      let r;
+      try { r = await transport.call('envTrustAnswer', { path: info.path, choice, sha: info.sha }); } catch (e) { msg.textContent = e.message; btns.querySelectorAll('button').forEach((x) => { x.disabled = false; }); return; }
+      if (r && r.ok === false) {
+        if (r.retry) { const ni = await load(info.path); if (ni) draw(ni, safeText(r.msg || 'l\'environnement a changé') + ' — relire avant de décider.'); return; }
+        msg.textContent = safeText(r.msg || 'refusé'); btns.querySelectorAll('button').forEach((x) => { x.disabled = false; }); return;
+      }
+      closeModal();
+      if (r && r.tab) showView(r.tab, true);
+    };
+    const no = el('button', 'btn', 'Annuler'); no.onclick = () => answer('cancel');
+    const ign = el('button', 'btn', 'Ouvrir sans'); ign.title = 'Socle choisi à la création, sans paquets, commandes ni montages du dépôt'; ign.onclick = () => answer('ignore');
+    const acc = el('button', 'btn pri', 'Accepter et ouvrir'); acc.onclick = () => answer('accept');
+    btns.append(no, ign, acc); b.appendChild(btns);
+    setTimeout(() => no.focus(), 0); // défaut sûr : Entrée n'accepte pas
+  });
+  draw(info, '');
+}
+// ── Effet des options de config (#226) et élément caché (#227) ─────────────
+// Fonctions pures et composant commun (testdata/config_effect.js). Contrat : desktop-dispatch.md § LOT-4.
+const EFFECTS = {
+  immediate: { cls: 'i', label: '● immédiat' },
+  project: { cls: 'p', label: '⟳ réouverture du projet' },
+  claude: { cls: 'c', label: '✳ sessions claude' },
+  launcher: { cls: 'l', label: '↻ relance du launcher' },
+};
+const effectMeta = (e) => EFFECTS[e] || null; // effet inconnu ou absent : pas de pastille
+// contenu de la bulle : { meta, title, why, doText, shell, link: { kind: 'relaunch'|'refresh', text, paths } | null }
+function effectBubble(x, openProjects) {
+  const meta = effectMeta(x && x.effect); if (!meta) return null;
+  const how = (x && x.effectHow) || {};
+  const ops = openProjects || [];
+  let link = null;
+  if (how.action === 'relaunch') link = { kind: 'relaunch', text: '↻ Relancer le launcher', paths: [] };
+  else if (how.action === 'refresh' && ops.length) link = { kind: 'refresh', text: 'Rafraîchir ' + ops.map((o) => o.name).join(', '), paths: ops.map((o) => o.path) };
+  return { meta, title: x.label || x.key || '', why: how.why || (x.effect === 'immediate' ? 'appliqué dès l\'enregistrement' : ''), doText: how.do || '', shell: how.shell || '', link };
+}
+// rappel après enregistrement (`apply` de configApply/configSave) : { lines:[texte], actions:[{kind,text,paths}] } | null
+function applyReminder(apply, labelOf) {
+  const ch = ((apply && apply.changed) || []).filter((c) => c.effect && c.effect !== 'immediate');
+  if (!ch.length) return null;
+  const names = (e) => ch.filter((c) => c.effect === e).map((c) => (labelOf && labelOf(c.key)) || c.key);
+  const ps = (apply.projects || []);
+  const pn = ps.map((p) => p.name).join(', ');
+  const lines = [], actions = [];
+  if (names('claude').length) lines.push(names('claude').join(', ') + ' : relancer les sessions claude ouvertes' + (pn ? ' (' + pn + ')' : '') + ' pour l\'appliquer');
+  if (names('project').length) lines.push(names('project').join(', ') + ' : appliqué à la prochaine ouverture du projet' + (pn ? ' (ouverts : ' + pn + ')' : ''));
+  if (names('launcher').length) lines.push(names('launcher').join(', ') + ' : relancer le launcher');
+  if (ps.length && (names('claude').length || names('project').length)) actions.push({ kind: 'refresh', text: 'Rafraîchir ces projets', paths: ps.map((p) => p.path) });
+  if (apply.relaunch) actions.push({ kind: 'relaunch', text: '↻ Relancer le launcher', paths: [] });
+  return { lines, actions };
+}
+function runEffectLink(l) {
+  if (!l) return;
+  if (l.kind === 'relaunch') relaunchBox();
+  else if (l.kind === 'refresh') for (const p of l.paths) refreshProject(p);
+}
+// Œil commun à tous les éléments cachés : valeur demandée au serveur au clic seulement, gardée en mémoire le temps de
+// l'affichage, re-masquée au clic, après `ms` (30 s), à la fermeture ou au changement de rubrique (eyesHide). Jamais dans un
+// champ éditable ni dans le stockage du navigateur ; `onChange(state)` reçoit { shown, value, left, msg, busy }.
+const EYES = new Set();
+function createEye(fetchValue, onChange, opt) {
+  const o = Object.assign({ ms: 30000, setT: setTimeout, clearT: clearTimeout, setI: setInterval, clearI: clearInterval }, opt || {});
+  let value = null, left = 0, msg = '', busy = false, tm = null, iv = null, gen = 0;
+  const state = () => ({ shown: value !== null, value, left, msg, busy });
+  const emit = () => onChange(state());
+  const eye = {
+    state,
+    hide() { gen++; o.clearT(tm); o.clearI(iv); tm = iv = null; value = null; left = 0; busy = false; emit(); },
+    async toggle() {
+      if (value !== null) { eye.hide(); return; }
+      if (busy) return;
+      busy = true; msg = ''; const my = ++gen; emit();
+      let r = null;
+      try { r = await fetchValue(); } catch (e) { r = { ok: false, msg: e && e.message ? e.message : 'révélation impossible' }; }
+      if (my !== gen) return; // masqué ou fermé pendant l'appel : la valeur reçue est jetée
+      busy = false;
+      if (!r || r.ok === false || typeof r.value !== 'string') { msg = (r && r.msg) || 'révélation refusée'; value = null; emit(); return; }
+      value = r.value; left = Math.round(o.ms / 1000); emit();
+      tm = o.setT(() => eye.hide(), o.ms);
+      iv = o.setI(() => { left = Math.max(0, left - 1); emit(); }, 1000);
+    },
+  };
+  EYES.add(eye);
+  return eye;
+}
+const eyesShown = () => [...EYES].some((e) => e.state().shown); // une valeur est affichée : un rafraîchissement doux de la page ne doit pas la détruire
+// l'œil n'est actif que si le serveur annonce `reveal: true` (faux ou absent : accès distant ou serveur sans secretReveal)
+const canReveal = (x) => !!x && x.reveal === true;
+// texte d'état après enregistrement : `note` (backends.yaml, hub, env.yaml ; absent pour config.conf, remplacé par `apply`)
+const savedNote = (note) => (note ? ' ' + note : '');
+function eyesHide() { for (const e of [...EYES]) e.hide(); EYES.clear(); }
+// Déplacer / renommer un projet (#216) ─────────────────────────────────────
+// Fonctions pures (testdata/project_move.js).
+// env.yaml d'un projet : lecture seule tant que le projet est ouvert (formulaire Réglages et éditeur YAML).
+const ENV_LOCK_MSG = 'Fermez le projet pour modifier son environnement';
+// `src` : réponse serveur (projectSettings : envLocked/envLockReason ; configOpen : readOnly/readOnlyReason), prioritaire sur la ligne.
+function envLock(row, kind, src) {
+  const s = src || {};
+  const srv = s.envLocked === true || s.readOnly === true;
+  const locked = kind === 'project-env' && (srv || !!(row && row.open));
+  return { locked, why: !locked ? '' : (srv && (s.envLockReason || s.readOnlyReason)) || ENV_LOCK_MSG };
+}
+// refus serveur d'une écriture d'env.yaml : raison + blockers
+const envRefusal = (r) => [r && r.msg].concat(((r && r.blockers) || []).filter((b) => b && b !== (r && r.msg)).map((b) => '• ' + b)).filter(Boolean).join('\n');
+// Entrée de menu (arbre et ⋯ de la carte) : grisée tant que le projet est ouvert.
+function moveMenuState(row) {
+  const open = !!(row && row.open);
+  return { disabled: open, why: open ? 'Fermez le projet pour le déplacer ou le renommer' : '' };
+}
+const sameLocation = (info, base, category, name) => base === info.base && (category || '') === (info.category || '') && name === info.name;
+// « Ce qui change » : [{ label, old?, text, dim? }] depuis `dest` de projectMoveInfo (serveur : seules les étapes qui changent).
+function moveRows(info, dest) {
+  if (!dest || dest.ok === false) return [];
+  const rows = [];
+  for (const i of dest.impacts || []) {
+    if (i.what === 'dir') rows.push({ label: 'Dossier', old: i.from, text: i.to });
+    else if (i.what === 'ctr') rows.push({ label: 'Conteneur / pod', text: (i.from || '') + ' supprimé, recréé sur le nouveau chemin à la prochaine ouverture' });
+    else if (i.what === 'assign') rows.push({ label: 'projects.json', text: 'affectation' + (i.value ? ' « ' + i.value + ' »' : '') + ' reportée' });
+    else if (i.what === 'conf') rows.push({ label: 'config.conf', text: ((i.keys || []).join(', ') || 'entrées du projet') + ' reporté(es)' });
+    else if (i.what === 'history') rows.push({ label: 'Historique claude', text: 'conversations reprises (--resume) déplacées' });
+    else if (i.what === 'trust') rows.push({ label: 'Approbation', text: i.label || 'approbation de l\'environnement conservée' }); // texte du serveur, tel quel
+  }
+  const at = rows.findIndex((r) => r.label === 'Dossier') + 1;
+  rows.splice(at, 0, { label: 'Nom', text: dest.key || info.key || '', dim: dest.keyChanged ? '(recalculé : était ' + (info.key || '') + ')' : '(inchangé)' });
+  return rows;
+}
+// message d'échec : étape, retour arrière ou état partiel
+function moveFailText(r) {
+  if (!r) return 'déplacement refusé';
+  let m = r.msg || 'déplacement refusé';
+  if (r.step) m = 'étape « ' + r.step + ' » : ' + m;
+  if (r.state === 'partial') m += ' — retour arrière incomplet' + ((r.done || []).length ? ' (étapes faites : ' + r.done.join(', ') + ')' : '') + ' : l\'état du projet est inachevé.';
+  else if (r.rolledBack) m += ' — retour arrière effectué, projet inchangé.';
+  return m;
+}
+async function moveBox(path) {
+  const info = await call('projectMoveInfo', { path });
+  if (!info || info.ok === false) { if (info && info.msg) flash('⚠ ' + info.msg); return; }
+  const bl = await call('projectBases', {});
+  const bases = ((bl && bl.bases) || []).filter((x) => x && !x.missing).map((x) => x.path);
+  if (info.base && !bases.includes(info.base)) bases.unshift(info.base);
+  const blockers = info.blockers || [];
+  openModal((b) => {
+    b.append(el('h2', '', '⇄ Déplacer / renommer — ' + info.name));
+    if (blockers.length) {
+      const bx = el('div', 'note warn'); bx.append(el('div', '', 'Déplacement impossible pour l\'instant :'));
+      for (const x of blockers) bx.append(el('div', '', '• ' + x));
+      if (info.open) {
+        const fc = el('button', 'btn sm', 'Fermer le projet'); fc.onclick = () => { closeModal(); askClose(path); };
+        bx.append(fc);
+      }
+      b.append(bx);
+    }
+    const pend = info.pending;
+    if (pend) {
+      const px = el('div', 'note warn');
+      px.append(el('div', '', '⚠ Déplacement inachevé : ' + pend.from + ' → ' + pend.to));
+      px.append(el('div', 'dim', 'étape en échec : ' + (pend.step || '?') + ' · faites : ' + ((pend.done || []).join(', ') || 'aucune') + (pend.msg ? ' — ' + pend.msg : '')));
+      const pm = el('div', 'err');
+      const act = async (method, label) => {
+        px.querySelectorAll('button').forEach((x) => { x.disabled = true; }); pm.textContent = '';
+        let r; try { r = await transport.call(method, { id: pend.id }); } catch (e) { r = { ok: false, msg: e.message }; }
+        if (r && r.ok === true) { closeModal(); flash('✓ ' + label + ' : ' + (r.path || '')); return; }
+        pm.textContent = moveFailText(r); px.querySelectorAll('button').forEach((x) => { x.disabled = false; });
+      };
+      const rs = el('button', 'btn sm pri', 'Reprendre'); rs.onclick = () => act('projectMoveResume', 'Déplacement repris');
+      const ab = el('button', 'btn sm', 'Annuler le déplacement'); ab.onclick = () => act('projectMoveAbort', 'Déplacement annulé');
+      px.append(rs, ab, pm); b.append(px);
+    }
+    const cols = el('div', 'trustcols');
+    const left = el('div', 'form');
+    const baseSel = el('select');
+    for (const x of bases) { const o = el('option', '', x); o.value = x; baseSel.appendChild(o); }
+    baseSel.value = info.base;
+    const cat = el('select'), catNew = el('input'); catNew.placeholder = 'nouvelle catégorie (a/b : imbriquée)'; catNew.classList.add('hidden');
+    const catWrap = el('div', 'catwrap'); catWrap.append(cat, catNew);
+    const name = el('input'); name.value = info.name;
+    const final = el('div', 'ro');
+    const mkErr = () => el('div', 'fe err');
+    const baseErr = mkErr(), catErr = mkErr(), nameErr = mkErr();
+    left.append(el('label', '', 'Base'), baseSel, el('span'), baseErr, el('label', '', 'Catégorie'), catWrap, el('span'), catErr, el('label', '', 'Nom'), name, el('span'), nameErr, el('label', '', 'Chemin final'), final);
+    const right = el('div'); right.append(el('div', 'cap', 'Ce qui change'));
+    const tbl = el('div'); right.append(tbl);
+    const warn = el('div', 'note warn hidden', '⚠ Changement de base : copie puis suppression (pas de simple renommage entre deux montages) — plus long.');
+    right.append(warn);
+    cols.append(left, right); b.appendChild(cols);
+    const curCat = () => (cat.value === NEWCAT ? catNew.value.trim() : cat.value);
+    const msg = el('div', 'err'); b.appendChild(msg);
+    const btns = el('div', 'btns');
+    const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
+    const go = el('button', 'btn pri', 'Déplacer');
+    btns.append(cancel, go); b.appendChild(btns);
+    let dest = null, qseq = 0, qtm = null;
+    const query = () => { // « ce qui change » : appelé à la frappe, le dernier appel gagne
+      clearTimeout(qtm); const my = ++qseq;
+      if (sameLocation(info, baseSel.value, curCat(), name.value.trim()) || !name.value.trim()) { dest = null; return; }
+      qtm = setTimeout(async () => {
+        let r = null;
+        try { r = await transport.call('projectMoveInfo', { path, base: baseSel.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value.trim() }); } catch (e) { r = null; }
+        if (my !== qseq) return;
+        dest = (r && r.dest) || null; render();
+      }, 200);
+    };
+    const upd = () => { query(); render(); };
+    const render = () => {
+      final.textContent = joinNewPath(baseSel.value, curCat(), name.value.trim() || '<nom>');
+      tbl.textContent = '';
+      for (const r of moveRows(info, dest)) {
+        const line = el('div', 'trow'); line.append(el('span', 'tl', r.label));
+        const v = el('span', 'tv');
+        if (r.old) v.append(el('code', 'old', r.old), el('span', 'dim', '→'));
+        v.append(el('code', '', r.text)); if (r.dim) v.append(el('span', 'dim', r.dim));
+        line.append(v); tbl.append(line);
+      }
+      warn.classList.toggle('hidden', !(dest && dest.crossDevice));
+      const t = dest && dest.ok === false ? ({ base: baseErr, category: catErr, name: nameErr }[dest.field] || msg) : null;
+      for (const e of [baseErr, catErr, nameErr]) e.textContent = '';
+      if (t) t.textContent = dest.exists && !dest.msg ? 'la destination existe déjà' : (dest.msg || 'destination refusée');
+      go.disabled = blockers.length > 0 || sameLocation(info, baseSel.value, curCat(), name.value.trim()) || (dest && dest.ok === false);
+      go.title = blockers.length ? 'voir les blocages ci-dessus' : go.disabled ? 'même emplacement ou destination refusée' : '';
+    };
+    let want = info.category;
+    const loadCats = makeCatLoader((bs) => transport.call('projectCategories', { base: bs }), (bs, cats) => {
+      if (bs !== baseSel.value) return;
+      cat.textContent = '';
+      const o0 = el('option', '', '(directement sous la base)'); o0.value = ''; cat.appendChild(o0);
+      const known = cats.map((c) => c.path);
+      for (const c of cats) { const o = el('option', '', c.path + ' (' + c.projects + ')'); o.value = c.path; cat.appendChild(o); }
+      const o1 = el('option', '', '＋ nouvelle catégorie…'); o1.value = NEWCAT; cat.appendChild(o1);
+      cat.value = want && known.includes(want) ? want : ''; want = '';
+      catNew.classList.toggle('hidden', cat.value !== NEWCAT); upd();
+    });
+    loadCats(baseSel.value);
+    baseSel.onchange = () => { want = ''; baseErr.textContent = catErr.textContent = ''; cat.textContent = ''; loadCats(baseSel.value); upd(); };
+    cat.onchange = () => { catErr.textContent = ''; catNew.classList.toggle('hidden', cat.value !== NEWCAT); if (cat.value === NEWCAT) catNew.focus(); upd(); };
+    catNew.oninput = upd; name.oninput = () => { nameErr.textContent = ''; upd(); };
+    upd();
+    go.onclick = async () => {
+      msg.textContent = ''; baseErr.textContent = catErr.textContent = nameErr.textContent = '';
+      const ce = categoryError(cat.value === NEWCAT, catNew.value);
+      if (ce) { catErr.textContent = ce; catNew.focus(); return; }
+      btns.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+      msg.className = 'dim'; msg.textContent = 'Déplacement en cours…' + (baseSel.value !== info.base ? ' (copie : peut durer)' : '');
+      let r;
+      try { r = await transport.call('projectMove', { path, base: baseSel.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value.trim() }); }
+      catch (e) { r = { ok: false, msg: e.message }; }
+      msg.className = 'err';
+      if (r && r.ok === true) { closeModal(); flash('✓ Projet déplacé : ' + (r.path || '')); return; }
+      msg.textContent = '';
+      const t = { base: baseErr, category: catErr, name: nameErr }[r && r.field];
+      if (t) t.textContent = (r && r.msg) || 'refusé'; else msg.textContent = moveFailText(r);
+      cancel.disabled = false; go.disabled = r && r.state === 'partial'; // état partiel : ne pas relancer à l'aveugle
+      if (go.disabled) go.title = 'déplacement inachevé : reprise non disponible ici';
+    };
+  });
+}
+// Proposition /init-project (évènement `initProposal`) : un bandeau par projet.
+function initProposalBar(path) {
+  if (!path) return;
+  const id = 'initprop-' + encodeURIComponent(path);
+  if ($(id)) return;
+  const name = String(path).split(/[\\/]/).filter(Boolean).pop() || path;
+  const b = el('div', 'lanbanner srv lbar g'); b.id = id;
+  b.textContent = '◆ ' + name + ' créé depuis le template — lancer /init-project ?';
+  b.append(el('span', 'sp'));
+  // refus du serveur (leader pas prêt…) : le bandeau reste, le message est affiché ; la proposition est gardée côté projet
+  const answer = (run) => {
+    b.classList.add('busy');
+    call('initProposalAnswer', { path, run }).then((r) => {
+      if (r && r.ok === false) { b.classList.remove('busy'); flash('⚠ ' + (r.msg || 'proposition refusée')); } else b.remove();
+    }, () => b.classList.remove('busy'));
+  };
+  const yes = el('button', 'btn sm pri', 'Lancer /init-project'); yes.onclick = () => answer(true);
+  const no = el('button', 'btn sm', 'Plus tard'); no.onclick = () => answer(false);
+  b.append(yes, no); $('main').insertBefore(b, $('tabs'));
+}
+// Job de création en cours : l'instantané le pousse au dialogue ouvert (S.newDlg).
+function newJobSync(j) { S.newJob = j || null; if (S.newDlg) S.newDlg(S.newJob); }
+
+// Les 3 sources (#215) : Projet brut (dossier + git init, remote si fourni, jamais de /init-project), Template projet
+// (idem + /init-project proposé à la 1re ouverture), Dépôt Git. Plus d'option « géré » ni de CLAUDE.md minimal (raw).
+const NEW_SOURCES = [
+  ['empty', '▢ Projet brut', 'Dossier et git init ; lien vers le remote seulement si une URL est fournie. Pas de /init-project.'],
+  ['template', '◆ Template projet', 'Comme brut, puis /init-project proposé à la 1re ouverture.'],
+  ['git', '⎇ Dépôt Git', 'Clonage d\'une URL. HTTPS : jeton de config.conf · ssh : clé du backend.'],
+];
+// arguments de `create` propres à la source
+function sourceArgs(src, url, remote) {
+  if (src === 'git') return { url: String(url || '').trim() };
+  return { raw: false, remote: String(remote || '').trim() };
+}
+
+// création d'un projet : base, catégorie, nom, source (brut, template, dépôt Git), exécution
+// `pre` : dossier de l'arbre (base ou catégorie) à pré-sélectionner, '' sinon.
+async function newProject(pre) {
   const info = await call('newInfo', {});
+  const bases = (info.bases || (info.roots || []).map((r) => ({ path: r }))).filter((x) => x && !x.missing).map((x) => x.path);
+  const sp = splitPreselect(bases, pre);
   openModal((b) => {
     b.append(el('h2', '', 'Nouveau projet'));
     const f = el('div', 'form');
-    let root = null;
-    if (!base) {
-      root = el('select');
-      for (const r of info.roots || []) { const o = el('option', '', r); o.value = r; root.appendChild(o); }
-      f.append(el('label', '', 'Racine'), root);
-    } else {
-      f.append(el('label', '', 'Dans'), el('span', 'dim', base));
+    // 1 · source : cartes Vide / Git / Template
+    b.append(el('div', 'cap', '1 · Créer à partir de'));
+    const cards = el('div', 'srccards');
+    let src = 'empty';
+    const cardEls = {};
+    for (const [v, t, d] of NEW_SOURCES) {
+      const c = el('div', 'card'); c.append(el('h4', '', t), el('p', '', d)); c.onclick = () => setSrc(v); cards.appendChild(c); cardEls[v] = c;
     }
+    b.appendChild(cards);
+    const urlBox = el('div', 'urlbox');
+    const url = el('input'); url.placeholder = 'https://github.com/moi/projet.git ou git@github.com:moi/projet.git';
+    const urlErr = el('div', 'fe err'); const auth = el('div', 'authline');
+    urlBox.append(el('label', 'l', 'URL du dépôt'), url, urlErr, auth);
+    const tplBox = el('div', 'urlbox dim'); tplBox.textContent = 'Template adopté : ' + (info.template || 'version inconnue') + ' — dossier et git init (remote si fourni), /init-project proposé à la première ouverture.';
+    b.append(urlBox, tplBox);
+    b.append(el('div', 'cap', '2 · Emplacement'));
+    const field = (label, ctl) => { f.append(el('label', '', label), ctl); const w = el('div', 'fe err'); f.append(el('span', ''), w); return w; };
+    const base = el('select');
+    for (const x of bases) { const o = el('option', '', x); o.value = x; base.appendChild(o); }
+    base.value = sp.base || info.default || bases[0] || '';
+    const baseErr = field('Base', base);
+    const cat = el('select');
+    const catNew = el('input'); catNew.placeholder = 'nouvelle catégorie (a/b : imbriquée)'; catNew.classList.add('hidden');
+    const catWrap = el('div', 'catwrap'); catWrap.append(cat, catNew);
+    const catErr = field('Catégorie', catWrap);
     const name = el('input'); name.placeholder = 'nom du dossier';
-    const kind = el('select');
-    for (const [v, t] of [['g', 'géré : git init, /init-project au démarrage'], ['b', 'brut : dossier et CLAUDE.md minimal']]) { const o = el('option', '', t); o.value = v; kind.appendChild(o); }
-    const remote = el('input'); remote.placeholder = 'git@github.com:moi/projet.git (facultatif)';
-    f.append(el('label', '', 'Nom'), name, el('label', '', 'Type'), kind, el('label', '', 'Remote git'), remote);
+    const nameErr = field('Nom', name);
+    const final = el('div', 'ro');
+    f.append(el('label', '', 'Chemin'), final);
+    const curCat = () => (cat.value === NEWCAT ? catNew.value.trim() : cat.value);
+    const upd = () => { final.textContent = base.value ? joinNewPath(base.value, curCat(), name.value.trim() || '<nom>') : '—'; };
+    let want = sp.category; // catégorie à sélectionner au prochain rechargement (pré-sélection)
+    const loadCats = makeCatLoader((bs) => transport.call('projectCategories', { base: bs }), (bs, cats) => {
+      if (bs !== base.value) return;
+      cat.textContent = '';
+      const o0 = el('option', '', '(directement sous la base)'); o0.value = ''; cat.appendChild(o0);
+      const known = cats.map((c) => c.path);
+      for (const c of cats) { const o = el('option', '', c.path + ' (' + c.projects + ')'); o.value = c.path; cat.appendChild(o); }
+      const o1 = el('option', '', '＋ nouvelle catégorie…'); o1.value = NEWCAT; cat.appendChild(o1);
+      cat.value = want && known.includes(want) ? want : ''; want = '';
+      catNew.classList.toggle('hidden', cat.value !== NEWCAT); upd();
+    });
+    if (base.value) loadCats(base.value);
+    base.onchange = () => { want = ''; baseErr.textContent = ''; catErr.textContent = ''; cat.textContent = ''; loadCats(base.value); upd(); };
+    cat.onchange = () => { catErr.textContent = ''; catNew.classList.toggle('hidden', cat.value !== NEWCAT); if (cat.value === NEWCAT) catNew.focus(); upd(); };
+    catNew.oninput = upd; name.oninput = () => { nameErr.textContent = ''; upd(); };
+    upd();
+    const remote = el('input'); remote.placeholder = 'URL du remote, ex. git@github.com:moi/projet.git (facultatif : sans URL, pas de remote)';
+    const remoteL = el('label', '', 'Remote git');
+    f.append(remoteL, remote);
     const ex = execFields(info, f);
-    kind.onchange = () => { remote.disabled = kind.value === 'b'; };
+    let nameTouched = false;
+    const updAuth = () => { const a = authLine(info.auth, url.value, ex().backend || ''); auth.textContent = a.text; auth.className = 'authline ' + (a.ok ? 'ok' : 'warn'); };
+    const setSrc = (v) => {
+      src = v;
+      for (const k of Object.keys(cardEls)) cardEls[k].classList.toggle('on', k === v);
+      urlBox.classList.toggle('hidden', v !== 'git'); tplBox.classList.toggle('hidden', v !== 'template');
+      for (const x of [remoteL, remote]) x.classList.toggle('hidden', v === 'git');
+      if (v === 'git') { updAuth(); setTimeout(() => url.focus(), 0); }
+    };
+    url.oninput = () => {
+      urlErr.textContent = ''; updAuth();
+      if (!nameTouched) { name.value = nameFromUrl(url.value); nameErr.textContent = ''; upd(); }
+    };
+    f.addEventListener('change', updAuth);
+    name.addEventListener('input', () => { nameTouched = true; });
+    setSrc('empty');
     b.appendChild(f);
+    const prog = el('div', 'newprog hidden'); b.appendChild(prog);
     const err = el('div', 'err'); b.appendChild(err);
     const btns = el('div', 'btns');
     const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
     const ok = el('button', 'btn pri', 'Créer et ouvrir');
+    const showFail = (r) => {
+      const m = (r && r.msg) || 'création refusée';
+      const t = { base: baseErr, category: catErr, name: nameErr }[r && r.field];
+      if (t) t.textContent = m; else err.textContent = m;
+    };
     ok.onclick = async () => {
-      err.textContent = '';
+      err.textContent = ''; baseErr.textContent = catErr.textContent = nameErr.textContent = '';
+      const ce = categoryError(cat.value === NEWCAT, catNew.value);
+      if (ce) { catErr.textContent = ce; catNew.focus(); return; }
+      if (src === 'git') {
+        const k = gitUrlKind(url.value);
+        if (k === '' || k === 'bad') { urlErr.textContent = k ? 'URL non acceptée (https://… ou git@hôte:chemin)' : 'URL du dépôt requise'; url.focus(); return; }
+      }
+      const args = { base: base.value, category: curCat(), newCategory: cat.value === NEWCAT, name: name.value, source: src };
+      Object.assign(args, sourceArgs(src, url.value, remote.value));
       try {
-        const r = await transport.call('create', Object.assign({ base: base || (root && root.value) || '', name: name.value, raw: kind.value === 'b', remote: remote.value }, ex()));
+        const r = await transport.call('create', Object.assign(args, ex()));
+        if (r && r.ok === false) { showFail(r); return; }
+        if (r && r.job) { watchJob(r.job); return; }
         closeModal();
         if (r && r.tab) showView(r.tab, true);
-      } catch (e) { err.textContent = e.message; }
+      } catch (e) { showFail({ msg: e.message }); }
+    };
+    // clonage : le dialogue montre l'avancement (instantané `newJob`), Annuler tue le clone ; échec : retour au formulaire
+    const watchJob = (id) => {
+      f.classList.add('hidden'); b.querySelectorAll('.cap, .srccards, .urlbox').forEach((x) => x.classList.add('hidden'));
+      btns.classList.add('hidden'); prog.classList.remove('hidden');
+      let seen = false, missAt = null, tm = null;
+      const render = (j) => {
+        clearTimeout(tm);
+        if (!j || j.id !== id) {
+          if (missAt == null) missAt = Date.now();
+          if (!jobGone(seen, missAt, Date.now(), 3000)) { tm = setTimeout(() => S.newDlg && S.newDlg(S.newJob), 3100); return; }
+          // job retiré sans état final vu : le panneau ne reste pas figé
+          S.newDlg = null; prog.textContent = '';
+          const close = el('button', 'btn pri', 'Fermer'); close.onclick = closeModal;
+          prog.append(el('h3', '', '⎇ Création : état inconnu'), el('div', 'dim', 'Le serveur ne signale plus ce clonage (connexion coupée ou relance). En cas d\'échec le dossier est supprimé : vérifier l\'arbre des projets.'), el('div', 'btns', ''));
+          prog.lastChild.appendChild(close); return;
+        }
+        seen = true; missAt = null;
+        const v = jobView(j);
+        prog.textContent = '';
+        if (v.state === 'done') { S.newDlg = null; closeModal(); return; }
+        if (v.state === 'failed') {
+          S.newDlg = null;
+          const e = el('div', 'err', v.msg || 'création échouée'); const back = el('button', 'btn pri', 'Revenir au formulaire');
+          back.onclick = () => { prog.classList.add('hidden'); f.classList.remove('hidden'); btns.classList.remove('hidden'); b.querySelectorAll('.cap, .srccards').forEach((x) => x.classList.remove('hidden')); setSrc(src); };
+          const close = el('button', 'btn', 'Fermer'); close.onclick = closeModal;
+          prog.append(el('h3', '', '⎇ Création de ' + (j.name || '') + ' échouée'), e, el('div', 'btns', ''));
+          prog.lastChild.append(close, back); return;
+        }
+        const bar = el('div', 'pbar'); const fill = el('span', ''); fill.style.width = v.pct + '%'; bar.appendChild(fill);
+        const cn = el('button', 'btn', 'Annuler le clonage'); cn.onclick = () => { cn.disabled = true; call('createCancel', { job: id }).catch(() => {}); };
+        prog.append(el('h3', '', '⎇ Clonage de ' + (j.name || name.value) + '…'), el('div', 'dim', v.label), bar, el('div', 'btns', ''));
+        prog.lastChild.appendChild(cn);
+      };
+      S.newDlg = render; render(S.newJob);
     };
     btns.append(cancel, ok); b.appendChild(btns);
-    b.onkeydown = (e) => { if (e.key === 'Enter') { e.preventDefault(); ok.click(); } };
+    b.onkeydown = (e) => { if (e.key === 'Enter' && e.target.tagName !== 'SELECT') { e.preventDefault(); ok.click(); } };
   });
   setTimeout(() => { const i = $('modalbox').querySelector('input'); if (i) i.focus(); }, 0);
 }
@@ -1698,7 +2239,7 @@ function execChoice(info, openNext) {
 
 async function execF2(path) {
   const r = (S.snap.rows || []).find((x) => x.path === path);
-  if (r && r.open) { flash('F2 : projet ouvert — le fermer avant de changer de backend'); return; }
+  if (r && r.open) { flash('F2 : ' + ENV_LOCK_MSG); return; }
   const info = await call('newInfo', { path });
   if (info.exec == null) { flash('F2 : aucun backend conteneur disponible (claude-launcher-ng2 backends)'); return; }
   execChoice(info, false);
@@ -1747,6 +2288,7 @@ function ceRenderList() {
 async function ceOpen(kind) {
   const d = await call('configOpen', { kind, path: CE.project });
   CE.doc = d; CE.dirty = false;
+  CE.lock = envLock((S.snap.rows || []).find((x) => x.path === CE.project), d.kind, d); // #216 : projet ouvert = lecture seule
   ceRenderList();
   const ed = $('ceed'); ed.textContent = '';
   const bar = el('div', 'cebar');
@@ -1757,7 +2299,7 @@ async function ceOpen(kind) {
   const wrap = el('div', 'cewrap');
   const gut = el('pre', 'cegut'); gut.id = 'cegut';
   const ta = el('textarea', 'cetext'); ta.id = 'cetext'; ta.spellcheck = false; ta.value = d.content;
-  ta.wrap = 'off';
+  ta.wrap = 'off'; ta.readOnly = !!(CE.lock && CE.lock.locked);
   ta.addEventListener('input', () => { CE.dirty = true; ceGutter(); clearTimeout(CE.timer); CE.timer = setTimeout(ceValidate, 300); });
   ta.addEventListener('scroll', () => { gut.scrollTop = ta.scrollTop; });
   ta.addEventListener('keydown', (e) => {
@@ -1781,7 +2323,8 @@ async function ceOpen(kind) {
     }
     ed.appendChild(side);
   }
-  if (d.fromTemp) $('cestatus').textContent = 'Fichier absent : modèle proposé, créé à l\'enregistrement.';
+  if (CE.lock && CE.lock.locked) { $('cesave').disabled = true; $('cesave').title = CE.lock.why; $('cestatus').textContent = '🔒 ' + CE.lock.why + ' (lecture seule).'; }
+  if (d.fromTemp && !(CE.lock && CE.lock.locked)) $('cestatus').textContent = 'Fichier absent : modèle proposé, créé à l\'enregistrement.';
   ceGutter(); ceProblems(d.problems || []);
   ta.focus();
 }
@@ -1798,8 +2341,9 @@ function ceProblems(ps) {
   const box = $('ceprobs'); if (!box) return;
   box.textContent = '';
   const errs = ps.filter((p) => p.severity === 'error').length;
-  $('cesave').disabled = errs > 0;
-  $('cesave').title = errs ? 'Corriger les erreurs avant d\'enregistrer (le brouillon reste ici)' : '';
+  const lk = !!(CE.lock && CE.lock.locked);
+  $('cesave').disabled = errs > 0 || lk;
+  $('cesave').title = lk ? CE.lock.why : errs ? 'Corriger les erreurs avant d\'enregistrer (le brouillon reste ici)' : '';
   if (!ps.length) { box.appendChild(el('div', 't-green', '✓ aucun problème')); return; }
   for (const p of ps) {
     const r = el('div', 'ceprob ' + (p.severity === 'error' ? 't-red' : 't-yellow'));
@@ -1828,6 +2372,7 @@ async function ceSave(force) {
   const ta = $('cetext'); if (!ta || !CE.doc) return;
   if ($('cesave').disabled) return;
   const r = await call('configSave', { kind: CE.doc.kind, path: CE.project, content: ta.value, mtime: CE.doc.mtime });
+  if (r && r.ok === false) { $('cestatus').textContent = ''; $('cestatus').append(el('span', 't-red pre', '✗ ' + (envRefusal(r) || 'enregistrement refusé') + '\nRien n\'est enregistré.')); return; } // refus serveur : autre launcher, conteneur actif…
   if (r.invalid) { ceProblems(r.problems || []); $('cestatus').textContent = 'Erreurs : rien n\'est enregistré.'; return; }
   if (r.conflict) {
     const st = $('cestatus'); st.textContent = '';
@@ -1839,7 +2384,10 @@ async function ceSave(force) {
   }
   CE.doc.mtime = r.mtime || ''; CE.doc.fromTemp = false; CE.dirty = false;
   ceProblems(r.problems || []);
-  $('cestatus').textContent = '✓ Enregistré (version précédente gardée en .bak). ' + (r.note || '');
+  $('cestatus').textContent = '✓ Enregistré (version précédente gardée en .bak).' + savedNote(r.note);
+  const rem = applyReminder(r.apply, null); // #226 : rappel des actions pour les options modifiées
+  if (rem) { $('cestatus').append(el('span', 't-yellow', ' ' + rem.lines.join(' · ') + ' ')); for (const a of rem.actions) { const bt = el('button', 'btn sm', a.text); bt.onclick = () => runEffectLink(a); $('cestatus').append(bt); } }
+  if (r.warn) $('cestatus').append(el('span', 't-orange', ' ⚠ ' + r.warn)); // enregistré avec avertissement
   CE.files = await call('configFiles', { path: CE.project });
   ceRenderList();
 }
@@ -1900,7 +2448,7 @@ function applyState(s) {
   for (const p of Object.keys(S.views)) if (!open.has(p) && !(S.grace && S.grace.pending.has(p))) { dropView(p); if (S.view === p) S.view = 'leaders'; }
   for (const p of open) if (!S.views[p]) ensureView(p);
   if (S.view !== 'leaders' && !open.has(S.view) && !(S.grace && S.grace.pending.has(S.view))) S.view = 'leaders';
-  renderHead(); renderTree(); renderTabs(); lanBanner();
+  renderHead(); renderTree(); renderTabs(); lanBanner(); launcherBar(); newJobSync(s.newJob);
   if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');
@@ -1917,6 +2465,51 @@ function lanBanner() {
   if (!show) { if (b) b.remove(); return; }
   if (!b) { b = el('div', 'lanbanner'); b.id = 'lanbanner'; $('main').insertBefore(b, $('tabs')); }
   b.textContent = '⚠ Interface web ouverte au réseau sur ' + w.listen + ' — ' + (w.warn || (w.access === 'none' ? 'sans jeton : toute machine qui atteint cette adresse pilote ce poste' : 'le jeton circule en clair en HTTP : préférer un tunnel SSH ou TLS')) + ' (Réglages › Interface web)';
+}
+
+// Binaire du launcher changé (#219) : `launcher{binChanged}` de l'instantané.
+// Fonction pure : null (rien à dire), ou { kind: 'g', text } — bandeau vert : binaire remplacé.
+function launcherBarState(l) {
+  if (!l || !l.binChanged) return null;
+  return { kind: 'g', text: '✓ nouvelle version installée — l\'interface tourne encore avec l\'ancienne' };
+}
+function launcherBar() {
+  const st = launcherBarState(S.snap && S.snap.launcher);
+  let b = $('launchbar');
+  const key = st ? st.kind + st.text : '';
+  if (!st || S.launchDismiss === key) { if (b) b.remove(); return; }
+  if (b && b.dataset.key === key) return;
+  if (!b) { b = el('div', 'lanbanner'); b.id = 'launchbar'; $('main').insertBefore(b, $('tabs')); }
+  b.className = 'lanbanner srv lbar ' + st.kind; b.dataset.key = key; b.textContent = st.text;
+  b.append(el('span', 'sp'));
+  const r = el('button', 'btn sm pri', '↻ Relancer'); r.onclick = relaunchBox; b.appendChild(r);
+  const x = el('button', 'btn sm', '✕'); x.title = 'Masquer'; x.onclick = () => { S.launchDismiss = key; b.remove(); }; b.appendChild(x);
+}
+async function relaunchBox() {
+  let i = {};
+  try { i = (await transport.call('launcherInfo')) || {}; } catch (e) { /* dialogue sans détail */ }
+  openModal((b) => {
+    b.append(el('h2', '', '↻ Relancer le launcher'));
+    b.append(el('h3', '', 'Relancé'));
+    const ul = el('div', '');
+    const ver = i.running && i.installed ? ' (' + verTxt(i.running) + ' → ' + verTxt(i.installed) + ')' : '';
+    ul.append(el('div', '', '• interface' + (i.mode === 'pod' ? ' (redémarrage du pod du launcher, elle revient seule)' : '') + ver));
+    b.append(ul, el('h3', '', 'Gardé'), el('div', 't-green', '• sessions des projets (tmux), conteneurs et pods'));
+    const msg = el('div', 't-red'); b.append(msg);
+    const btns = el('div', 'btns');
+    const no = el('button', 'btn', 'Annuler (N)'); no.onclick = closeModal;
+    const yes = el('button', 'btn pri', 'Relancer (O)');
+    yes.onclick = async () => {
+      yes.disabled = true; msg.textContent = '';
+      try {
+        const r = await transport.call('relaunch', { confirm: true });
+        if (r && r.ok === false) { msg.textContent = r.msg || 'relance refusée'; yes.disabled = false; return; }
+        closeModal(); // l'interface se reconnecte seule (flux, bandeau « connexion perdue »)
+      } catch (e) { closeModal(); } // coupure attendue : le serveur quitte
+    };
+    btns.append(no, yes); b.appendChild(btns);
+    b.onkeydown = (e) => { const k = e.key.toLowerCase(); if (k === 'o' || k === 'y') { e.preventDefault(); yes.click(); } else if (k === 'n') { e.preventDefault(); closeModal(); } };
+  });
 }
 
 // Version du serveur (#198) : `server{version,boot}` de l'init, gardé à la première réception (celui de la page).
@@ -2021,6 +2614,8 @@ function onEvent(name, data) {
     case 'cards': takeCards(data); break;
     case 'hello': onServerInfo(data && data.server); break; // version et démarrage du serveur à l'ouverture du flux (#198)
     case 'refresh': onRefresh(data); break;
+    case 'envTrust': if (data && data.path) envTrustBox(data); break; // #215 : approbation de l'environnement du dépôt
+    case 'initProposal': initProposalBar(data && data.path); break; // #215 : proposition /init-project (projet Template)
     case 'term': {
       const v = ensureView(data.path);
       switch (data.kind) {

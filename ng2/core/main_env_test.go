@@ -2,7 +2,9 @@ package core
 
 import (
 	"claude-launcher-ng2/internal/testguard"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -10,6 +12,9 @@ import (
 // stockage partagé) n'est jamais celle des tests — un test qui ne la redéfinit
 // pas écrirait dans le vrai cache de consommation commun (usage.go).
 func TestMain(m *testing.M) {
+	NoExecSelf = true                // jamais « <binaire de test> version » (#219)
+	TestIsolation = true             // écritures de config/secrets hors dossier temporaire refusées (isolation.go)
+	os.Setenv(TestIsolationVar, "1") // … aussi dans les sous-processus lancés par les tests
 	d, err := os.MkdirTemp("", "ng2-test-claude-")
 	if err != nil {
 		panic(err)
@@ -21,6 +26,10 @@ func TestMain(m *testing.M) {
 	guard := testguard.Start()
 	code := m.Run()
 	if !guard() && code == 0 {
+		code = 1
+	}
+	if v := IsolationViolations(); len(v) > 0 && code == 0 { // écriture refusée par la garde, même si l'appelant a ignoré l'erreur
+		fmt.Fprintln(os.Stderr, "ISOLATION DES TESTS VIOLÉE :\n  "+strings.Join(v, "\n  "))
 		code = 1
 	}
 	os.RemoveAll(d)

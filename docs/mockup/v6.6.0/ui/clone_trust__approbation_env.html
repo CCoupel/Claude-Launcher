@@ -1,0 +1,110 @@
+<!--
+mockup:
+  composant: clone_trust
+  feature: approbation_env
+  version: 6.6.0
+  type: ui
+  issue: "#215"
+  validee_le: 2026-11-20
+  proposition_retenue: "A — Horizontal · Résumé + fichiers bruts"
+  complete: ["docs/mockup/v6.6.0/ui/new_project__base_categorie_source.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Maquette #215 — Approbation de l'environnement cloné (v6.6.0)</title>
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--red:#F87171;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px}
+h1{font-size:17px;margin:0 0 4px}.sub{color:var(--muted);margin:0 0 14px;max-width:1150px;line-height:1.5}
+.tabs{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px}.grp{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin:0 4px 0 10px}
+.tab{background:var(--panel);border:1px solid var(--line2);color:var(--text2);padding:6px 12px;border-radius:6px;cursor:pointer;font:inherit}
+.tab.on{background:var(--hl);border-color:var(--accent);color:var(--text)}
+
+.why{color:var(--muted);margin:6px 0 14px;font-size:12.5px;min-height:18px}
+
+.stage{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.win{background:var(--bg);border:1px solid var(--line2);border-radius:8px;overflow:hidden;box-shadow:0 8px 30px rgba(0,0,0,.45)}
+.wtitle{background:var(--head);padding:8px 14px;font-weight:600;display:flex;gap:10px;align-items:center}.wtitle .x{margin-left:auto;color:var(--muted)}
+.wbody{padding:14px 16px}
+label.l{display:block;color:var(--muted);font-size:11.5px;margin:10px 0 4px}
+.in,.sel{background:var(--input);border:1px solid var(--line2);border-radius:5px;padding:6px 9px;color:var(--text);min-height:30px;display:flex;align-items:center;gap:6px}
+.sel:after{content:"▾";margin-left:auto;color:var(--muted)}.in.focus{border-color:var(--accent)}
+.ro{background:transparent;border:1px dashed var(--line2);color:var(--text2);font-family:var(--mono);font-size:12px;padding:6px 9px;border-radius:5px;word-break:break-all}
+.ro b{color:var(--green);font-weight:500}
+.dim{color:var(--dim)}.mut{color:var(--muted)}.ok{color:var(--green)}.warn{color:var(--orange)}.err{color:var(--red)}
+.btns{display:flex;gap:8px;justify-content:flex-end;margin-top:16px}
+.btn{background:var(--panel);border:1px solid var(--line2);border-radius:5px;padding:6px 14px;color:var(--text)}.btn.pri{background:var(--accent);color:#04121c;border-color:var(--accent);font-weight:600}.btn.dis{opacity:.4}
+.seg{display:flex;border:1px solid var(--line2);border-radius:6px;overflow:hidden}.seg span{flex:1;text-align:center;padding:6px 8px;border-right:1px solid var(--line2);color:var(--text2)}.seg span:last-child{border:0}.seg span.on{background:var(--hl);color:var(--text);box-shadow:inset 0 -2px 0 var(--accent)}
+.card{border:1px solid var(--line2);border-radius:7px;padding:10px;background:var(--panel)}.card.on{border-color:var(--accent);background:var(--hl)}.card h4{margin:0 0 4px;font-size:13px}.card p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.4}
+.menu{background:var(--menu);border:1px solid var(--line2);border-radius:6px;padding:4px 0;margin-top:2px}.menu div{padding:5px 10px}.menu .h{background:var(--hl)}.menu .sep{border-top:1px solid var(--line2);padding:0;margin:4px 0}
+.note{border-left:3px solid var(--accent);background:var(--panel);padding:8px 10px;color:var(--text2);font-size:12px;line-height:1.5;border-radius:0 5px 5px 0;margin-top:10px}
+.note.w{border-color:var(--orange)}.note.e{border-color:var(--red)}.note.g{border-color:var(--green)}
+.term{background:#000;border:1px solid var(--line2);border-radius:6px;font:12px/1.45 var(--mono);color:#ddd;padding:10px 12px;white-space:pre;overflow:auto}
+.term .c{color:var(--cyan)}.term .g{color:var(--green)}.term .y{color:var(--yellow)}.term .o{color:var(--orange)}.term .d{color:#777}.term .r{color:var(--red)}.term .h{background:#1d3448}
+.cap{color:var(--muted);font-size:11.5px;margin:6px 0 4px;text-transform:uppercase;letter-spacing:.05em}
+.steps{display:flex;gap:6px;margin-bottom:12px}.steps span{flex:1;padding:6px 8px;border-radius:5px;background:var(--panel);color:var(--muted);font-size:12px;border:1px solid var(--line2)}.steps span.on{color:var(--text);border-color:var(--accent);background:var(--hl)}.steps span.done{color:var(--green)}
+table.imp{border-collapse:collapse;width:100%;font-size:12px}table.imp td{padding:4px 6px;border-top:1px solid var(--line)}table.imp td:first-child{color:var(--muted);white-space:nowrap}table.imp code{font-family:var(--mono);font-size:11.5px}
+.old{color:var(--dim);text-decoration:line-through}.arrow{color:var(--accent);padding:0 4px}
+.bar{display:flex;align-items:center;gap:10px;padding:7px 12px;border-radius:6px;font-size:12.5px}.bar.g{background:#183A2A}.bar.y{background:#3A3418}.bar .sp{margin-left:auto}.link{color:var(--accent);text-decoration:underline;cursor:pointer}
+.yaml{background:var(--input);border:1px solid var(--line2);border-radius:5px;font:11.5px/1.5 var(--mono);padding:8px 10px;white-space:pre;color:var(--text2);overflow:auto}.yaml .k{color:var(--cyan)}.yaml .add{color:var(--green)}.yaml .del{color:var(--red)}.yaml .risk{color:var(--orange)}
+.tag{display:inline-block;font-size:10.5px;padding:1px 6px;border-radius:9px;border:1px solid var(--line2);color:var(--muted)}.tag.o{color:var(--orange);border-color:var(--orange)}.tag.r{color:var(--red);border-color:var(--red)}
+.tabpane{background:var(--bg);border:1px solid var(--line2);border-radius:8px;overflow:hidden}.tabbar{display:flex;background:var(--panel);border-bottom:1px solid var(--line2)}.tabbar span{padding:6px 12px;color:var(--muted)}.tabbar span.on{color:var(--text);background:var(--bg);box-shadow:inset 0 2px 0 var(--accent)}
+</style>
+</head>
+<body>
+<h1>Maquette #215 (amendement) — approbation de l'environnement d'un projet cloné (v6.6.0)</h1>
+<p class="sub">Un projet <b>cloné</b> qui apporte <code>.claude-launcher/env.yaml</code> ou <code>env-template.yaml</code> est « non approuvé ». À sa première ouverture dans un conteneur, le launcher montre ce que le dépôt demande — image, paquets, commandes <code>setup</code> / <code>on_start</code>, montages — et demande <b>Accepter</b> / <b>Ouvrir sans</b> (environnement du dépôt ignoré : seul le socle choisi à la création est gardé) / <b>Annuler</b>. Le choix est mémorisé côté launcher (jamais dans le projet) et <b>définitif</b> : un pull qui modifie ensuite ces fichiers ne redemande pas (le choix se revoit dans ⚙ Réglages du projet → « Revoir »). Web et fenêtre native : même dialogue ; coque tmux dessous. Exemple : <code>CCoupel/supervision-k8s</code>.</p>
+<p class="why">Proposition retenue : A — Horizontal · Résumé + fichiers bruts</p>
+
+<section><div class="stage">
+<div class="win" style="width:860px"><div class="wtitle">⚠ Environnement fourni par le dépôt — supervision-k8s<span class="x">✕</span></div><div class="wbody">
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+<div>
+<div class="mut">Cloné depuis <code>https://github.com/CCoupel/supervision-k8s.git</code> le 20/11 · backend <b>srv1-docker</b></div>
+<label class="l">Ce que le dépôt demande</label>
+<table class="imp">
+<tr><td>Image</td><td><code>ghcr.io/ccoupel/k8s-tools:1.4</code> <span class="dim">(au lieu de debian-12 choisie)</span></td></tr>
+<tr><td>Paquets</td><td>kubectl, helm, jq</td></tr>
+<tr><td>setup</td><td><span class="warn">2 commandes</span> exécutées à l'installation</td></tr>
+<tr><td>on_start</td><td><span class="warn">1 commande</span> à chaque démarrage</td></tr>
+<tr><td>Montages</td><td><span class="err">/var/run/docker.sock</span> (écriture)</td></tr>
+</table>
+<div class="note w">Ces commandes s'exécutent dans le conteneur du projet, avec ses accès (dossier du projet, montages).</div>
+</div>
+<div><label class="l" style="margin-top:0">.claude-launcher/env.yaml</label>
+<div class="yaml"><span class="k">image:</span> ghcr.io/ccoupel/k8s-tools:1.4
+<span class="k">packages:</span> [kubectl, helm, jq]
+<span class="k">setup:</span>
+  - <span class="risk">curl -fsSL https://get.k3d.io | bash</span>
+  - pip install -r requirements.txt
+<span class="k">on_start:</span>
+  - <span class="risk">./scripts/dev-up.sh</span>
+<span class="k">mounts:</span>
+  - <span class="k">path:</span> <span class="risk">/var/run/docker.sock</span>
+    <span class="k">ro:</span> false</div>
+<div class="mut" style="font-size:11.5px;margin-top:4px">env-template.yaml : absent</div>
+</div></div>
+<div class="btns"><span class="btn">Annuler</span><span class="btn">Ouvrir sans</span><span class="btn pri">Accepter et ouvrir</span></div>
+</div></div>
+<div style="width:300px"><div class="cap">États</div>
+<div class="note">« Ouvrir sans » : conteneur sur le socle choisi à la création (debian-12), sans paquets, commandes ni montages du dépôt. Réversible dans ⚙ Réglages du projet → « Environnement du dépôt : ignoré · Revoir ».</div>
+<div class="note">Projet sur l'hôte : pas de question (env.yaml inutilisé) ; elle vient au premier passage en conteneur (F2).</div>
+<div class="note">Choix définitif : un pull qui modifie env.yaml ensuite ne redemande pas.</div>
+</div></div>
+<div class="cap" style="margin-top:18px">Coque tmux Linux</div>
+<div class="term"><span class="o"> ⚠ supervision-k8s : environnement fourni par le dépôt (cloné de github.com/CCoupel/supervision-k8s)</span>
+   image      ghcr.io/ccoupel/k8s-tools:1.4   <span class="d">(au lieu de debian-12)</span>
+   paquets    kubectl, helm, jq
+   setup      <span class="y">curl -fsSL https://get.k3d.io | bash</span> ; pip install -r requirements.txt
+   on_start   <span class="y">./scripts/dev-up.sh</span>
+   montages   <span class="r">/var/run/docker.sock (écriture)</span>
+ <span class="c">a</span> accepter et ouvrir · <span class="c">s</span> ouvrir sans · <span class="c">Échap</span> annuler · <span class="d">v : voir env.yaml</span></div>
+</section>
+</body>
+</html>

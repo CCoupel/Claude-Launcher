@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -88,14 +89,25 @@ func (a *App) open(path string, mode core.LaunchMode) (any, error) {
 			return map[string]any{"execChoice": info}, nil
 		}
 	}
+	if core.EnvTrust(path) == core.TrustPending && core.EnvContainerProject(path) {
+		// dépôt cloné : son environnement n'est appliqué qu'avec l'accord de l'utilisateur (#215) ; rien n'est démarré
+		if info, err := core.EnvTrustInfoFor(path); err == nil {
+			a.emit("envTrust", info)
+		}
+		return map[string]any{"needTrust": true, "path": path}, nil
+	}
 	t = newProjTerm(a, n, mode)
 	if !a.addTab(t) {
 		return map[string]any{"tab": path}, nil // ouvert entre-temps par un autre appel
 	}
 	a.setMsg("")
+	// l'ouverture est inscrite ICI, avant la goroutine : inscrite dans run(), le compteur pouvait encore valoir 0 juste après
+	// open() et Stop / le délai de grâce du pod (#198) n'attendait pas une ouverture lancée mais pas encore commencée.
+	// run() la termine (end) sur tous les chemins, panic compris.
+	a.openGate.begin()
 	go func() {
 		t.run()
-		go a.readCtr()
+		a.bg(a.readCtr)
 	}()
 	return map[string]any{"tab": path}, nil
 }
@@ -259,7 +271,7 @@ func (a *App) askClose(path string) (any, error) {
 			pl.engine, pl.ctr = &e, p.Ctr.Name
 		}
 	}
-	if t != nil && t.host {
+	if t != nil && t.host.Load() {
 		pl.host = t
 	}
 	running := pl.engine != nil && (p.Ctr.Running || p.Ctr.Failed)
@@ -362,7 +374,7 @@ func (a *App) startClose(pl closePlan) {
 		}
 		a.mu.Unlock()
 		a.changed()
-		go a.readCtr()
+		a.bg(a.readCtr)
 		go a.readSessions()
 	}()
 }
@@ -398,7 +410,7 @@ func (a *App) runClose(pl closePlan, step func(string)) error {
 			if err := core.StopSession(t, h.win, false, closeWait, step); err != nil {
 				return err
 			}
-			_ = h.localTmux("kill-session", "-t", "="+h.sess).Run()
+			_ = h.localTmux("kill-session", "-t", "="+h.sessName()).Run()
 		}
 	}
 	if pl.tab {
@@ -432,6 +444,22 @@ func (t *projTerm) lastLayout() *LayoutMsg {
 // le choix de l'exécution d'un projet existant (path) prérempli avec son état.
 func (a *App) newInfo(path string) map[string]any {
 	out := map[string]any{"roots": a.conf().Roots}
+	bases, def := a.projectBases()
+	out["bases"], out["default"] = bases, def
+	// présence seulement des identifiants de clonage (#215) : jamais le jeton ni la clé
+	keys := map[string]bool{}
+	for _, c := range core.CtrBackends() {
+		if si, err := core.SecretGet(c.Name); err == nil {
+			keys[c.Name] = si.HasKey
+		}
+	}
+	if si, err := core.SecretGet("host"); err == nil {
+		keys["host"] = si.HasKey
+	}
+	out["auth"] = map[string]any{"token": a.conf().GithubToken != "", "sshKey": keys}
+	a.mu.Lock()
+	out["template"] = a.tplVer
+	a.mu.Unlock()
 	b, ok := core.DefaultCtrBackend()
 	if !ok {
 		return out
@@ -494,9 +522,17 @@ func (a *App) newInfo(path string) map[string]any {
 // execApply : fin du choix de l'exécution (F2, ou première ouverture : openNext).
 func (a *App) execApply(path, image, backend string, openNext bool) (any, error) {
 	if t := a.term(path); t != nil {
-		return nil, fmt.Errorf("projet ouvert — le fermer avant de changer de backend")
+		return nil, fmt.Errorf("%s", core.EnvEditMessage([]string{"projet ouvert dans ce launcher"})) // même consigne que les autres refus
 	}
-	if err := core.ApplyExec(path, image, backend); err != nil {
+	if m := a.envEditRefusal(path); m != "" { // conteneur actif ou projet ouvert ailleurs : env.yaml (image) et backend intacts
+		return nil, fmt.Errorf("%s", m)
+	}
+	// revérifié sous les verrous, juste avant l'écriture (état mémorisé : onglet, session vivante, conteneur vu actif)
+	if err := core.ApplyExecChecked(path, image, backend, func() []string { return a.envFastBlockers(path) }); err != nil {
+		var locked *core.EnvLockedError
+		if errors.As(err, &locked) {
+			return nil, fmt.Errorf("%s", core.EnvEditMessage(locked.Blockers))
+		}
 		return nil, err
 	}
 	name := filepath.Base(path)
@@ -505,51 +541,11 @@ func (a *App) execApply(path, image, backend string, openNext bool) (any, error)
 	} else {
 		a.setMsg("⬡ " + name + " : " + core.ImageLabel(image) + " sur " + backend + " (F2 pour reconfigurer)")
 	}
-	go a.readCtr()
+	a.bg(a.readCtr)
 	if openNext {
 		return a.open(path, core.LaunchNormal)
 	}
 	return nil, nil
-}
-
-// create : nouveau projet dans base (catégorie, racine), puis ouvert.
-func (a *App) create(base, name string, raw bool, remote, image, backend string) (any, error) {
-	if base == "" {
-		if len(a.conf().Roots) != 1 {
-			return nil, fmt.Errorf("racine à choisir")
-		}
-		base = filepath.Clean(a.conf().Roots[0])
-	}
-	if why := core.ValidProjectName(name); why != "" {
-		return nil, fmt.Errorf("%s", why)
-	}
-	dir := filepath.Join(base, strings.TrimSpace(name))
-	if _, err := os.Stat(dir); err == nil {
-		return nil, fmt.Errorf("ce dossier existe déjà")
-	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
-	}
-	if err := core.ApplyExec(dir, image, backend); err != nil {
-		return nil, fmt.Errorf("env.yaml : %v", err)
-	}
-	mode := core.LaunchNewManaged
-	if raw {
-		mode = core.LaunchNewRaw
-	}
-	if err := core.InitProject(dir, raw, remote); err != nil {
-		return nil, err
-	}
-	a.rescan()
-	a.mu.Lock()
-	a.sel = dir
-	a.mu.Unlock()
-	go a.gitOne(dir, latestTemplate())
-	r, err := a.open(dir, mode) // comme le bash : le projet créé est lancé aussitôt
-	if err == nil {
-		a.setMsg("✓ projet créé")
-	}
-	return r, err
 }
 
 // ── Connexion claude.ai, diagnostic, outils, sortie ───────────────────────

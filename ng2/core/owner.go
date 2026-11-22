@@ -118,16 +118,40 @@ func OwnerChoiceIO(o OwnerInfo, out io.Writer, rd *bufio.Reader) string {
 // ForeignOwner : le projet tourne dans un conteneur (sur un backend connu) dont
 // la session a un autre propriétaire vivant ; "" sinon.
 func ForeignOwner(proj string) string {
-	if !HasEnv(proj) {
-		return ""
+	who, _ := foreignOwnerScan(proj)
+	return who
+}
+
+// ForeignOwnerChecked : ForeignOwner, mais « UnverifiablePrefix : <backend> » quand aucun propriétaire n'est trouvé et qu'un
+// backend n'a pas pu être interrogé (diagnostic en erreur, listing en échec — échec rapide comme délai). Pour les
+// contrôles de sécurité (déplacement : fail-closed ; env.yaml : avertissement) ; l'ouverture d'un projet garde ForeignOwner.
+func ForeignOwnerChecked(proj string) string {
+	who, down := foreignOwnerScan(proj)
+	if who == "" && down != "" {
+		return UnverifiablePrefix + " : " + down + " (propriétaire non vérifiable)"
 	}
+	return who
+}
+
+// foreignOwnerScan : propriétaire d'un autre launcher, et le premier backend qui n'a pas pu être interrogé.
+func foreignOwnerScan(proj string) (who, down string) {
+	if !HasEnv(proj) {
+		return "", ""
+	}
+	mine := projectCtrBackendName(proj)
 	for _, b := range CtrBackends() {
 		e, _ := EngineOf(b)
 		if len(DiagnoseCached(b)) > 0 {
+			if down == "" && b.Name == mine { // seul le moteur DU projet compte : un projet local n'est jamais « non vérifiable »
+				down = b.Name
+			}
 			continue
 		}
 		fs, err := e.List()
 		if err != nil {
+			if down == "" && b.Name == mine {
+				down = b.Name
+			}
 			continue
 		}
 		for _, f := range fs {
@@ -135,9 +159,19 @@ func ForeignOwner(proj string) string {
 				continue
 			}
 			if o := e.Of(f).Owner(f.Name); o.Alive() && o.Id != LauncherID() {
-				return o.Id + " (" + b.Name + ")"
+				return o.Id + " (" + b.Name + ")", down
 			}
 		}
+	}
+	return "", down
+}
+
+// projectCtrBackendName : nom du backend conteneur (podman / docker / pool / k8s) du projet ; "" pour un projet local
+// (hôte, sans conteneur) — son état ne dépend d'aucun moteur.
+func projectCtrBackendName(proj string) string {
+	b := ProjectBackend(proj)
+	if _, ok := EngineOf(b); ok {
+		return b.Name
 	}
 	return ""
 }
