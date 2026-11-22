@@ -919,6 +919,8 @@ type Snapshot struct {
 	Launcher LauncherSnap `json:"launcher"`
 	// #215 : création asynchrone (clonage) en cours ou terminée depuis moins de 30 s ; absent sinon
 	NewJob *NewJob `json:"newJob,omitempty"`
+	// #223 : ATTENTION_NOTIFY (notifications d'attente) ; toujours envoyé, jamais omitempty (un false omis se lirait « activé »)
+	AttentionNotify bool `json:"attentionNotify"`
 }
 
 // TabInfo : un onglet de projet ouvert.
@@ -956,7 +958,7 @@ func (a *App) Snapshot() Snapshot {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	s := Snapshot{Version: core.NgName + " " + core.Version(), Tpl: core.OrQ(a.tplVer), Selected: a.sel, Msg: a.msg,
-		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap(), NewJob: a.newJobSnapLocked()}
+		Roots: a.conf().Roots, OS: goos, WebUI: a.WebUI(), Server: serverInfo(), Launcher: a.launcherSnap(), NewJob: a.newJobSnapLocked(), AttentionNotify: a.conf().AttentionNotify}
 	s.Alerts = a.alerts()
 	a.usageRows(&s)
 	for _, n := range a.nodes {

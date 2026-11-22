@@ -1,6 +1,7 @@
 package desktop
 
 import (
+	"encoding/json"
 	"os"
 	"sync"
 	"testing"
@@ -59,5 +60,27 @@ func TestNotifyAttention223(t *testing.T) {
 	a.notifyAttention(ev)
 	if len(sent) != 1 {
 		t.Errorf("option à 0 : %v notifié(s)", sent)
+	}
+}
+
+// #223 : snapshot.attentionNotify toujours présent, suit config.conf à chaud.
+func TestSnapshotAttentionNotify223(t *testing.T) {
+	_ = sandbox(t, "", "alpha")
+	var r recorder
+	a := newApp(t, r.emit)
+	get := func() (bool, bool) {
+		b, _ := json.Marshal(a.Snapshot())
+		var m map[string]any
+		_ = json.Unmarshal(b, &m)
+		v, ok := m["attentionNotify"].(bool)
+		return v, ok
+	}
+	if v, ok := get(); !ok || !v {
+		t.Fatalf("défaut : %v présent=%v, attendu true", v, ok)
+	}
+	_ = os.WriteFile(core.ConfigPath(), []byte("ATTENTION_NOTIFY=0\n"), 0o644)
+	a.configReload(core.ConfConf)
+	if v, ok := get(); !ok || v {
+		t.Errorf("option à 0 : %v présent=%v, attendu false présent", v, ok)
 	}
 }
