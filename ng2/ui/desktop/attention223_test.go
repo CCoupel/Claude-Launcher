@@ -43,6 +43,12 @@ func attentionProject(t *testing.T) *attFixture {
 	if len(ids) < 2 {
 		t.Fatalf("panes = %v", ids)
 	}
+	// le script de démarrage (export CL_ATTENTION_DIR + « rm -rf » du dossier d'état, puis faux claude) a fini de s'exécuter dans
+	// le pane du leader : « ready » ne le garantit pas, et sur un runner chargé il effaçait l'état écrit par le hook du test
+	// (course du test, jamais du produit : un vrai claude n'a pas encore de hook avant son démarrage)
+	waitUntil(t, "faux claude démarré dans le pane du leader", 20*time.Second, func() bool {
+		return strings.Contains(f.tmux("capture-pane", "-p", "-t", ids[0]), "faux claude prêt")
+	})
 	// commandes réelles des hooks (settings.json isolé du test)
 	dir := core.ClaudeDir()
 	if err := core.SyncAttentionHook(dir); err != nil {
@@ -132,6 +138,22 @@ func (x *attFixture) events(name string) (out []map[string]any) {
 
 func (x *attFixture) waitAttention(t *testing.T, what string, present bool) {
 	t.Helper()
+	defer func() { // diagnostic à l'échec (CI) : dossier d'état, pane du hook, leader vu par l'interface, état lu par la boucle
+		if !t.Failed() {
+			return
+		}
+		var names []string
+		if ents, err := os.ReadDir(x.state); err == nil {
+			for _, e := range ents {
+				names = append(names, e.Name())
+			}
+		}
+		x.f.a.mu.Lock()
+		got := x.f.a.attn[x.f.path]
+		x.f.a.mu.Unlock()
+		t.Logf("diagnostic attention : dossier %s = %v ; pane du hook %s (teammate %s) ; leader de l'interface %q ; état lu %+v",
+			x.state, names, x.leader, x.mate, x.f.a.term(x.f.path).leaderPane(), got)
+	}()
 	waitUntil(t, what, attSignalWithin, func() bool {
 		row, tab := x.view(t)
 		return (attOf(row) != nil) == present && (attOf(tab) != nil) == present
