@@ -59,6 +59,8 @@ type Config struct {
 	// projet en conteneur : arrêter le conteneur quand claude se termine
 	// proprement de lui-même (#50 ; la fermeture Ctrl+clic l'arrête toujours)
 	CtrStopOnExit bool
+	// AttentionNotify : notifications quand un teamleader attend une réponse (ATTENTION_NOTIFY, défaut 1, #223)
+	AttentionNotify bool
 
 	// Windows : réglages-chemins Linux (/…) sans correspondance déclarée dans
 	// hubs.<machine>.paths (applyConfPaths), « RÉGLAGE chemin »
@@ -76,7 +78,7 @@ CLAUDE_DISABLE_MOUSE=1; CLAUDE_EXPERIMENTAL_TEAMS=1; CLAUDE_OPTIONS=""; EXTRA_EN
 COLOR_PALETTE=(17 52 22 53 58 23 54 238 18 59); declare -A PROJECT_COLORS=(); declare -A PROJECT_LAYOUTS=(); declare -A PROJECT_HIDE_IDLE=()
 LAYOUT_MODE=top; LAYOUT_LEFT_LEADER_PCT=46
 LAYOUT_2ROW_LEADER_PCT=50; LAYOUT_3ROW_LEADER_NUM=3; LAYOUT_3ROW_MID_NUM=2; LAYOUT_3ROW_DEN=7
-PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; TEAM_HIDE_IDLE=30; TEAM_HIDE_IDLE_ENABLED=1
+PANE_ACTIVE_BRIGHTEN_STEP=1; PANE_INACTIVE_DARKEN_STEP=1; RESUME_MODE=ask; RESUME_MAX_AGE_H=24; CTR_STOP_ON_EXIT=0; ATTENTION_NOTIFY=1; TEAM_HIDE_IDLE=30; TEAM_HIDE_IDLE_ENABLED=1
 [[ -f "$1" ]] && source "$1" >/dev/null 2>&1
 printf 'layout\t%s %s %s %s\n' "$LAYOUT_2ROW_LEADER_PCT" "$LAYOUT_3ROW_LEADER_NUM" "$LAYOUT_3ROW_MID_NUM" "$LAYOUT_3ROW_DEN"
 printf 'layoutmode\t%s %s\n' "$LAYOUT_MODE" "$LAYOUT_LEFT_LEADER_PCT"
@@ -89,6 +91,7 @@ printf 'resume\t%s %s\n' "$RESUME_MODE" "$RESUME_MAX_AGE_H"
 printf 'token\t%s\n' "$GITHUB_TOKEN"
 printf 'mouse\t%s\n' "$CLAUDE_DISABLE_MOUSE"
 printf 'ctrstop\t%s\n' "$CTR_STOP_ON_EXIT"
+printf 'attnotify\t%s\n' "$ATTENTION_NOTIFY"
 printf 'teams\t%s\n' "$CLAUDE_EXPERIMENTAL_TEAMS"
 printf 'opts\t%s\n' "$CLAUDE_OPTIONS"
 printf 'claudedir\t%s\n' "${CLAUDE_CONFIG_DIR-}"
@@ -114,7 +117,7 @@ func LoadConfig() Config {
 func loadConfigAt(path string) Config {
 	stamp := confStampOf(path) // AVANT la lecture : un fichier réécrit pendant la lecture sera revu au tour suivant
 	home, _ := os.UserHomeDir()
-	cfg := Config{UsageRefreshSec: 120, ShareWriteTimeoutSec: 10, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, ProjectHideIdle: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
+	cfg := Config{AttentionNotify: true, UsageRefreshSec: 120, ShareWriteTimeoutSec: 10, ProjectColors: map[string]string{}, ProjectLayouts: map[string]string{}, ProjectHideIdle: map[string]string{}, LayoutMode: LayoutTop, LayoutLeftLeaderPct: 46,
 		Layout2RowLeaderPct: 50, Layout3RowLeaderNum: 3, Layout3RowMidNum: 2, Layout3RowDen: 7,
 		BrightenStep: 1, DarkenStep: 1, TeamHideIdle: 30, ResumeMode: "ask", ResumeMaxAgeH: 24}
 
@@ -176,6 +179,8 @@ func loadConfigAt(path string) Config {
 				cfg.GithubToken = f[1]
 			case "mouse":
 				cfg.DisableMouse = f[1] == "1"
+			case "attnotify":
+				cfg.AttentionNotify = f[1] == "1"
 			case "ctrstop":
 				cfg.CtrStopOnExit = f[1] == "1"
 			case "teams":

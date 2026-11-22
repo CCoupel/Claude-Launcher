@@ -1,10 +1,12 @@
 package desktop
 
 import (
+	"log"
 	"path/filepath"
 	"time"
 
 	"claude-launcher-ng2/core"
+	"claude-launcher-ng2/internal/tun"
 )
 
 // Teamleader en attente de réponse (#223, contracts/attention.md § 5-6) : relevé des dossiers d'état toutes les 2 s,
@@ -69,5 +71,78 @@ func (a *App) attentionTick() {
 	a.changed() // l'instantané porte Row.attention / TabInfo.attention
 	for _, e := range evs {
 		a.emit(e.name, e.data)
+		switch e.name {
+		case "attention":
+			a.notifyAttention(e.data)
+		case "attentionEnd":
+			a.notifyEnd(e.data)
+		}
+	}
+}
+
+// ── Notifications de la fenêtre native (#223, contracts/attention.md § 7) ─────
+
+var (
+	// notifySendHook : notification système (Wails SendNotification) ; nil : indisponible (build sans Wails, mode web,
+	// IsNotificationAvailable faux) — le badge seul signale l'attente. Remplacé dans les tests.
+	notifySendHook = tun.Of[func(id, title, body string) error](nil)
+	// notifyRemoveHook : retire la notification d'un id (RemoveNotification).
+	notifyRemoveHook = tun.Of[func(id string)](nil)
+)
+
+// notifyAttention : une notification par id (la boucle n'émet « attention » qu'une fois par id), aucune si l'option
+// ATTENTION_NOTIFY vaut 0 ou si les notifications sont indisponibles.
+func (a *App) notifyAttention(d map[string]any) {
+	send := notifySendHook.Get()
+	if send == nil || !a.conf().AttentionNotify {
+		return
+	}
+	id, _ := d["id"].(string)
+	path, _ := d["path"].(string)
+	name, _ := d["name"].(string)
+	text, _ := d["text"].(string)
+	kind, _ := d["kind"].(string)
+	if id == "" {
+		return
+	}
+	a.notifMu.Lock()
+	if a.notified == nil {
+		a.notified = map[string]string{}
+	}
+	if _, dup := a.notified[id]; dup {
+		a.notifMu.Unlock()
+		return
+	}
+	a.notified[id] = path
+	a.notifMu.Unlock()
+	title := "❓ " + name + " : question du teamleader"
+	if kind == "permission" {
+		title = "❓ " + name + " : permission demandée"
+	}
+	if err := send(id, title, text); err != nil {
+		log.Printf("notification d'attente (%s) : %v", name, err)
+	}
+}
+
+// notifyEnd : retire la notification de l'attente terminée (aucune notification après la fin).
+func (a *App) notifyEnd(d map[string]any) {
+	id, _ := d["id"].(string)
+	a.notifMu.Lock()
+	_, had := a.notified[id]
+	delete(a.notified, id)
+	a.notifMu.Unlock()
+	if rm := notifyRemoveHook.Get(); had && rm != nil {
+		rm(id)
+	}
+}
+
+// notificationClicked : clic sur la notification id — le frontend sélectionne l'onglet du projet (évènement
+// « attentionFocus » {path}) ; la mise au premier plan de la fenêtre est faite par l'appelant (Wails).
+func (a *App) notificationClicked(id string) {
+	a.notifMu.Lock()
+	path, ok := a.notified[id]
+	a.notifMu.Unlock()
+	if ok {
+		a.emit("attentionFocus", map[string]any{"path": path, "id": id})
 	}
 }

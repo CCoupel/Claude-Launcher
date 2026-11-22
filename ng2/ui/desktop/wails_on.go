@@ -4,6 +4,7 @@ package desktop
 
 import (
 	"context"
+	"log"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -46,6 +47,7 @@ func runWails() error {
 			// presse-papiers du poste par le runtime Wails, côté Go (#155)
 			clipboardSetHook.Set(func(text string) error { return wrt.ClipboardSetText(c, text) })
 			clipboardGetHook.Set(func() (string, error) { return wrt.ClipboardGetText(c) })
+			initNotifications(c, b.app)
 			b.app.Start()
 		},
 		OnShutdown: func(context.Context) { b.app.Stop() },
@@ -64,4 +66,25 @@ func windowTheme(ctx context.Context, mode string) {
 	default:
 		wrt.WindowSetSystemDefaultTheme(ctx)
 	}
+}
+
+// initNotifications : notifications système de la fenêtre (#223) — une par attente, retirée à la fin, clic = fenêtre au
+// premier plan et onglet du projet. Indisponibles : crochets laissés nuls, le badge seul signale l'attente.
+func initNotifications(ctx context.Context, a *App) {
+	if err := wrt.InitializeNotifications(ctx); err != nil || !wrt.IsNotificationAvailable(ctx) {
+		log.Printf("notifications système indisponibles (%v) : badge seul pour les teamleaders en attente", err)
+		return
+	}
+	notifySendHook.Set(func(id, title, body string) error {
+		return wrt.SendNotification(ctx, wrt.NotificationOptions{ID: id, Title: title, Body: body})
+	})
+	notifyRemoveHook.Set(func(id string) { _ = wrt.RemoveNotification(ctx, id) })
+	wrt.OnNotificationResponse(ctx, func(r wrt.NotificationResult) {
+		if r.Error != nil {
+			return
+		}
+		wrt.WindowUnminimise(ctx)
+		wrt.WindowShow(ctx)
+		a.notificationClicked(r.Response.ID)
+	})
 }

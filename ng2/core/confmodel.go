@@ -55,6 +55,8 @@ var confSettings = []confSetting{
 		Help: "Proposée seulement si la conversation a moins de ces heures et n'a pas été close par /end-session.", Default: 24, Min: ip(1)},
 	{Key: "SHARE_WRITE_TIMEOUT", Group: "projets", Type: "int", Label: "Délai d'écriture sur le partage (s)",
 		Help: "Au-delà, une bascule ou un réglage de projet est abandonné avec un message (partage injoignable). De 2 à 120.", Default: 10, Min: ip(2), Max: ip(120)},
+	{Key: "ATTENTION_NOTIFY", Group: "teams", Type: "bool", Label: "Notifications d'attente",
+		Help: "Notification (fenêtre native, navigateur) quand le teamleader d'un projet attend une réponse. Le badge « en attente » reste toujours affiché. Navigateur : l'autorisation est demandée par un clic ; sans contexte sécurisé (http hors localhost), pas de notification.", Default: true},
 	{Key: "TEAM_HIDE_IDLE_ENABLED", Group: "teams", Type: "bool", Label: "Cacher les teammates inactifs",
 		Help: "Désactivé : aucun teammate n'est caché (ceux déjà cachés réapparaissent), le masquage à la main est refusé ; le délai ci-dessous est conservé.", Default: true},
 	{Key: "TEAM_HIDE_IDLE", Group: "teams", Type: "int", Label: "Cacher les teammates inactifs après (s)",

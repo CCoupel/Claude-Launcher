@@ -161,6 +161,7 @@ func TestConfEverySettingWritesAndReadsBack(t *testing.T) {
 		"LAYOUT_MODE": "left", "LAYOUT_LEFT_LEADER_PCT": 40, // #153
 		"TEAM_HIDE_IDLE_ENABLED": false, // #188
 		"SHARE_WRITE_TIMEOUT":    30,    // #220
+		"ATTENTION_NOTIFY":       false, // #223
 	}
 	base := ReadConfModel("")
 	for _, s := range base.Settings {

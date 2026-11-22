@@ -63,6 +63,8 @@ type App struct {
 	plans      map[string]closePlan // fermetures en attente de confirmation
 	terms      map[string]*projTerm
 	attnOnce   sync.Once
+	notifMu    sync.Mutex
+	notified   map[string]string         // id d'attente notifié -> projet (#223)
 	attn       map[string]core.Attention // teamleaders en attente de réponse par projet (#223), sous a.mu
 	fromCache  map[string]bool           // projets dont l'état vient d'un cache (git en tâche de fond inutile)
 	order      []string                  // onglets, dans l'ordre d'ouverture
