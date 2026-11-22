@@ -101,6 +101,13 @@
   pendant au plus 5 s (effet borné : une opération en erreur est ignorée et rejouée au tour suivant). Un launcher
   antérieur à v6.1.0 ignore les teammates cachés : ils restent vivants dans la réserve jusqu'au retour d'un
   launcher v6.1.0, et sa fermeture de projet ne les tue pas.
+- **Teamleader en attente** (v6.7.0, #223) : quand le teamleader d'un projet pose une question (`AskUserQuestion`)
+  ou demande une permission, le projet porte un badge orange « ❓ en attente » (arbre, pastille de l'onglet, `❓` dans
+  le titre et soulignement de l'onglet, pastille `⌗ Teamleaders` en contour orange, vignette en bordure orange avec le
+  texte de la question au-dessus du terminal). Le badge disparaît à la réponse. Les notifications système et du
+  navigateur sont décrites dans [Notifications d'attente](configuration.md#notifications-dattente-du-teamleader-v670-223).
+  Un clic sur la notification ouvre l'onglet du projet. Dans la coque tmux : badge seul, sans notification système.
+  Limite : si claude est tué alors qu'il attend, le badge reste jusqu'à la prochaine réponse de la session, ou 24 h.
 - **Droite** : tmux, un onglet par projet, plus l'onglet épinglé `⌗ Teamleaders` (une
   vignette interactive par projet ouvert). Le teamleader d'une fenêtre est son premier pane
   créé (plus petit `%id`), jamais le pane actif ni le premier par position : rouvrir un projet

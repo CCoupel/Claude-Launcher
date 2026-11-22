@@ -248,6 +248,26 @@ SHARE_WRITE_TIMEOUT=10
 
 Pour le diagnostic, voir [Dépannage](depannage.md) (puce « Partage injoignable »).
 
+### Notifications d'attente du teamleader (v6.7.0, #223)
+
+Quand le teamleader d'un projet attend une réponse (question `AskUserQuestion`, demande de permission de claude), le
+projet est signalé par un badge « ❓ en attente » ; voir [Interface](interface.md). L'option suivante ne concerne que
+les notifications système et du navigateur, pas le badge :
+
+```ini
+ATTENTION_NOTIFY=1
+```
+
+- **Défaut** `1` (activées), rubrique « Teams et panes » de la fenêtre `⚙ config`, effet immédiat.
+- `0` : plus aucune notification système ni navigateur ; le badge, la bordure et le titre restent.
+- **Fenêtre native** : une notification par attente, retirée dès que l'attente se termine. Si les notifications
+  système sont indisponibles, seul le badge est affiché.
+- **Navigateur (`--web`)** : l'autorisation est demandée par un bandeau « Autoriser les notifications d'attente »,
+  affiché tant que la permission n'est pas donnée. Un refus retire le bandeau. Hors `127.0.0.1` / `localhost` (contexte
+  non sécurisé), il n'y a pas de notification.
+- **Hooks** : posés dans `<CLAUDE_CONFIG_DIR>/settings.json` par le launcher. Une session ouverte avant leur pose
+  ne signale rien tant qu'elle n'est pas relancée.
+
 ### Effet d'une option et éléments cachés (v6.6.0, #226, #227)
 
 **Pastille d'effet.** Chaque option de la fenêtre `⚙ config` porte une pastille qui dit quand elle prend effet.

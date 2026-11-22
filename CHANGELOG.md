@@ -12,6 +12,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ### Added
 - Écriture bornée de `config.conf` : nouvelle option `SHARE_WRITE_TIMEOUT` (secondes, défaut 10, bornes 2–120). Un partage injoignable ne bloque plus l'interface : la réponse revient au bout du délai, l'organisation précédente est rétablie, l'écriture reprend seule au retour du partage (#220)
 - Proposition de `/start-session` au lancement d'un projet géré (`start-session.md` présent) dont la team n'existe pas : question `session non démarrée — lancer /start-session ? [O/n]` juste avant claude, après la question `/init-project` ; une reprise ou une team existante ne pose pas la question (#231)
+- Teamleader en attente (#223) : badge « ❓ en attente » sur la ligne du projet, l'onglet, la pastille Teamleaders et la vignette (bordure orange, bandeau de la question ou de la permission), dans la fenêtre native, `--web` et la coque tmux. Le signal vient de hooks posés par le launcher (`AskUserQuestion`, demande de permission) ; un teamleader qui attend ses teammates n'est pas signalé
+- Notifications d'attente (#223) : notification système dans la fenêtre native (clic = onglet du projet au premier plan), notification du navigateur en `--web` (avec bandeau d'autorisation, titre de page préfixé « ❓ »). Option `ATTENTION_NOTIFY` (défaut 1) ; le badge reste affiché même désactivée
 
 ### Changed
 - Arrêt de l'interface : échéance unique de 25 s. Les terminaux sont détachés puis attendus (flusher, watcher, client tmux) ; au bout de 5 s le processus client est arrêté de force ; après arrêt, aucune écriture vers un terminal n'est acceptée (#221)

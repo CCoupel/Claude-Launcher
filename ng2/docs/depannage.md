@@ -23,6 +23,14 @@
 - **Après un crash, la session ne redémarre pas son travail d'équipe** (v6.7.0, #231) : la team reste sur le disque
   (`teams/<team_name>/config.json`), donc le launcher ne propose pas `/start-session` à la reprise. Tapez
   `/start-session` vous-même dans claude : il reprend la team existante.
+- **Pas de badge « ❓ en attente » sur une session ouverte avant la mise à jour** (v6.7.0, #223) : claude lit ses hooks
+  au démarrage. Relancez la session (ou le projet) pour qu'elle les prenne en compte.
+- **Pas de notification dans `--web`** : en `http` hors `127.0.0.1` / `localhost`, le navigateur refuse les
+  notifications (contexte non sécurisé) ; le badge reste affiché. Ouvrez l'interface en `127.0.0.1` ou en `https`.
+- **Notifications système indisponibles** : l'interface native n'en envoie pas ; le badge reste la seule indication.
+  Vérifiez que les notifications de l'application sont autorisées dans le système et que `ATTENTION_NOTIFY=1`.
+- **Badge « en attente » qui ne disparaît pas** : claude a pu mourir pendant une question. Le badge s'efface à la
+  prochaine réponse ou fin de tour de cette session, ou après 24 h.
 - **Ctrl+clic ne ferme pas le projet** : votre terminal le garde pour lui (ouverture de liens).
   Sélectionnez le projet et appuyez sur `Suppr`.
 - **Un projet ne se ferme plus** (pod k8s disparu, backend injoignable, session déjà morte) : menu du projet →
