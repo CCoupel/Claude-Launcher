@@ -11,7 +11,7 @@
 - **Branche** : main.
 - **Environnements** :
   - PROD : namespace `claude-ng2`, helm révision 4, pod v6.6.0.
-  - QUALIF : `claude-qualif`, dernière valeur connue 6.5.0.5 (non mise à jour dans cette session).
+  - QUALIF : v6.6.0.8 (pod `claude-launcher-qualif-0`, image `claude-launcher-qualif:v6.6.0.8`, build 261f49b, binaires `claude-launcher-ng2-6.6.0.8[.exe]` sous `/share/MFS/ROOT/CLAUDE_PROJETS/`), mise à jour dans cette session.
   - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.6.0 (sauvegarde `claude-launcher-ng2.bak-v6.5.0`).
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
