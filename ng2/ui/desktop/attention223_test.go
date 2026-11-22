@@ -224,12 +224,10 @@ func TestAttentionStaleAndNotOpen223(t *testing.T) {
 	_ = os.WriteFile(stale, []byte(attPayloadQ), 0o644)
 	old := time.Now().Add(-25 * time.Hour)
 	_ = os.Chtimes(stale, old, old)
-	time.Sleep(4500 * time.Millisecond)
+	// la boucle de 2 s supprime le fichier : attente sur la condition, pas sur une pause fixe (stabilité sous charge)
+	waitUntil(t, "état périmé supprimé", 12*time.Second, func() bool { _, err := os.Stat(stale); return err != nil })
 	if row, _ := x.view(t); attOf(row) != nil {
 		t.Errorf("état de 25 h signalé : %v", attOf(row))
-	}
-	if _, err := os.Stat(stale); err == nil {
-		t.Error("état périmé non supprimé")
 	}
 }
 
