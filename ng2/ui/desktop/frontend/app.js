@@ -2694,6 +2694,7 @@ function onEvent(name, data) {
     case 'refresh': onRefresh(data); break;
     case 'attention': onAttention(data); break; // #223
     case 'attentionEnd': onAttentionEnd(data); break;
+    case 'attentionFocus': if (data && data.path && (S.snap.tabs || []).some((t) => t.path === data.path)) showView(data.path, true); break; // clic sur la notification Windows
     case 'envTrust': if (data && data.path) envTrustBox(data); break; // #215 : approbation de l'environnement du dépôt
     case 'initProposal': initProposalBar(data && data.path); break; // #215 : proposition /init-project (projet Template)
     case 'term': {
