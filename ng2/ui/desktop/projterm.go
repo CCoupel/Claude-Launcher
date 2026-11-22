@@ -67,6 +67,7 @@ type projTerm struct {
 	reads, finds    int32           // list-panes et recherches de team (tests)
 	infos           []core.PaneInfo // panes au dernier tour (carte Team, sans appel tmux)
 	stopOnce        sync.Once
+	fbSaid          atomic.Bool     // repli « leader en haut » déjà annoncé (#222)
 	tmuxVer         string          // version du tmux du projet (drapeaux de client : 3.2)
 	flagged         map[string]bool // clients mis en ignore-size par l'interface (#126)
 	reseed          *time.Timer     // recapture des panes après un redimensionnement
@@ -1274,8 +1275,8 @@ func (t *projTerm) relayoutNow() {
 		fb := append(append([][]string{}, plan.Fallback...), list)
 		o2, e2 := c.Batch(fb)
 		outs[last], errs[last] = o2[len(fb)-1], e2[len(fb)-1]
-		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
 	}
+	t.noteFallback(plan.Fallback != nil && errs[plan.LayoutAt] != nil)
 	t.watch.layoutSig = sig // seulement après la mise en page
 	tArrange := time.Since(t1)
 	if errs[last] == nil {
@@ -1452,10 +1453,28 @@ func (t *projTerm) arrangeWith(cfg core.Config, panes []core.WinPane, w, h int, 
 	if transport {
 		return false
 	}
-	if fellBack {
-		t.a.setMsgSoon("⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée")
-	}
+	t.noteFallback(fellBack)
 	return true
+}
+
+// fallbackMsg : message de pied de volet du repli « leader en haut » (#222).
+func (t *projTerm) fallbackMsg() string {
+	return "⚠ " + t.name + " : leader à gauche refusé par tmux — mise en page « leader en haut » appliquée"
+}
+
+// noteFallback : le repli « leader en haut » ne se dit qu'une fois par cause (#222). fell = « leader à gauche »
+// refusé à cette mise en page ; faux (réussi, ou le projet ne demande plus « left ») remet l'état à zéro et efface
+// le message s'il est encore celui-là.
+func (t *projTerm) noteFallback(fell bool) {
+	if fell {
+		if !t.fbSaid.Swap(true) {
+			t.a.setMsgSoon(t.fallbackMsg())
+		}
+		return
+	}
+	if t.fbSaid.Swap(false) {
+		t.a.clearMsgIf(t.fallbackMsg())
+	}
 }
 
 // publish : géométrie, couleurs et noms des panes pour l'interface ; panes
