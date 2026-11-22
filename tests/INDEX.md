@@ -92,3 +92,4 @@
 | ng2/ui/desktop/stop221_unix_test.go | integration | ui-desktop | Stop avec client tmux bloque (SIGSTOP) : 25 s au plus, arret force, aucun orphelin (#221) | feature | critical |
 | ng2/ui/desktop/fallback222_test.go | unitaire | ui-desktop | Repli « leader en haut » : un seul message par cause, efface au retour a la normale (#222) | feature | |
 | ng2/ui/tmux/fallback222_test.go | unitaire | ui-tmux | Coque : repli « leader en haut » dit une fois par fenetre et par cause, remise a zero au retour (#222) | feature | |
+| ng2/core/start231_test.go | integration | core | Proposition de /start-session : script de demarrage execute avec faux claude (gere sans team, team presente par nom ou cwd, non gere, LaunchNew*, reprise, ordre avec /init-project, refus non repose), TeamExists (#231) | feature | smoke |
