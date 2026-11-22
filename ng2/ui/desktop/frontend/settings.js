@@ -1046,7 +1046,8 @@ function stPageConf(p) {
       for (const x of bySet[g.id] || []) {
         if (layKeys.includes(x.key)) continue;
         if (hideOn && hideDelay && hideOn.editable && hideDelay.editable && (x.key === 'TEAM_HIDE_IDLE_ENABLED' || x.key === 'TEAM_HIDE_IDLE')) continue;
-        const hint = [x.help, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
+        const insecure = x.key === 'ATTENTION_NOTIFY' && isWebClient() && window.isSecureContext === false ? 'cette page n\'est pas en contexte sécurisé (https ou localhost) : pas de notification dans ce navigateur, badge seul' : '';
+        const hint = [x.help, insecure, x.set ? '' : 'défaut : ' + (x.type === 'secret' ? '(aucun)' : confShow(x))].filter(Boolean).join(' · ');
         const cell = el('div', 'effcell'); cell.appendChild(confField(D, x)); const eb1 = effBadge(x); if (eb1) cell.appendChild(eb1);
         if (x.editable && x.type !== 'secret' && x.set) {
           const r = stBtn('↺ défaut', () => { D.d.v[x.key] = confDisplay(x, x.default); D.d.reset[x.key] = true; stRenderPage(); stRenderFoot(); }, 'dim');

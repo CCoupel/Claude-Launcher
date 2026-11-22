@@ -2464,6 +2464,7 @@ function notifyChanges(s) {
 function applyState(s) {
   notifyChanges(s);
   S.snap = s;
+  attnSync();
   if (!S.cursor || (S.cursor !== 'new' && !s.rows.find((r) => r.path === S.cursor))) S.cursor = s.selected || (projectRows()[0] || {}).path || 'new';
   // onglets disparus (session terminée, détachée)
   const open = new Set((s.tabs || []).map((t) => t.path));
@@ -2478,6 +2479,60 @@ function applyState(s) {
   leaders.attnAll();
   graceStep();
   refusedSync(s.tabs);
+}
+
+// ── Attente du teamleader : notifications navigateur (#223, contracts/attention.md § 7) ──
+// Fenêtre native : notification système par le Go, rien ici. Option ATTENTION_NOTIFY lue dans l'instantané
+// (`attentionNotify`, absent = défaut activé). Une notification au plus par `id`, fermée à la fin de l'attente.
+const attnNotes = {}; // id -> Notification
+const ATTN_BASE_TITLE = document.title;
+function attnNotifyOn() { return !(S.snap && S.snap.attentionNotify === false); }
+function attnCanNotify() { return isWebClient() && 'Notification' in window && window.isSecureContext !== false; }
+function attnClose(id) { const n = attnNotes[id]; if (n) { try { n.close(); } catch (e) { /* déjà fermée */ } delete attnNotes[id]; } }
+function attnShow(d) {
+  if (!d || !d.id || attnNotes[d.id] || !attnNotifyOn() || Notification.permission !== 'granted') return;
+  try {
+    const n = new Notification(d.name + ' : le teamleader attend une réponse', { body: (d.kind === 'permission' ? 'Permission : ' : '') + (d.text || ''), tag: d.id });
+    n.onclick = () => { try { window.focus(); } catch (e) { /* refusé */ } if (d.path && rowOf(d.path) && S.snap.tabs.some((t) => t.path === d.path)) showView(d.path, true); n.close(); };
+    n.onclose = () => { if (attnNotes[d.id] === n) delete attnNotes[d.id]; };
+    attnNotes[d.id] = n;
+  } catch (e) { /* notification refusée par le navigateur : badge seul */ }
+}
+function attnPending() { return (S.attnLive || []).filter((d) => !attnNotes[d.id]); }
+function attnSync() {
+  // titre de page « ❓ » tant qu'au moins un teamleader attend (badge toujours affiché, indépendant de l'option)
+  document.title = (attnAny(S.snap) ? '❓ ' : '') + ATTN_BASE_TITLE;
+  // l'instantané fait foi : une attente connue des évènements mais absente de l'instantané est terminée
+  const ids = new Set(); for (const t of (S.snap.tabs || [])) if (t.attention) ids.add(t.attention.id);
+  for (const id of Object.keys(attnNotes)) if (!ids.has(id)) attnClose(id);
+  attnBar();
+}
+// Bandeau d'autorisation : option activée, permission jamais décidée, contexte sûr. Le clic est le geste exigé.
+function attnBar() {
+  let b = $('attnbar');
+  const want = attnCanNotify() && attnNotifyOn() && Notification.permission === 'default' && !store.get('attnBarOff', false);
+  if (!want) { if (b) b.remove(); return; }
+  if (b) return;
+  b = el('div', 'lanbanner srv attnbar'); b.id = 'attnbar';
+  b.append(el('span', '', '❓ Être prévenu quand un teamleader attend une réponse ?'), el('span', 'sp'));
+  const ok = el('button', 'btn sm pri', 'Autoriser les notifications d\'attente');
+  ok.onclick = () => {
+    const done = (p) => { b.remove(); if (p === 'granted') for (const d of S.attnLive || []) attnShow(d); };
+    try { const r = Notification.requestPermission(done); if (r && r.then) r.then(done); } catch (e) { b.remove(); }
+  };
+  const x = el('button', 'btn sm', '✕'); x.title = 'Ne plus proposer'; x.onclick = () => { store.set('attnBarOff', true); b.remove(); };
+  b.append(ok, x);
+  $('main').insertBefore(b, $('tabs'));
+}
+function onAttention(d) {
+  if (!d) return;
+  S.attnLive = (S.attnLive || []).filter((x) => x.path !== d.path).concat([d]);
+  if (attnCanNotify() && attnNotifyOn()) { attnShow(d); attnBar(); }
+}
+function onAttentionEnd(d) {
+  if (!d) return;
+  S.attnLive = (S.attnLive || []).filter((x) => x.id !== d.id);
+  attnClose(d.id);
 }
 
 // Bannière tant que l'interface web écoute hors boucle locale (webUI.lan) : fenêtre native seulement (#163)
@@ -2637,6 +2692,8 @@ function onEvent(name, data) {
     case 'cards': takeCards(data); break;
     case 'hello': onServerInfo(data && data.server); break; // version et démarrage du serveur à l'ouverture du flux (#198)
     case 'refresh': onRefresh(data); break;
+    case 'attention': onAttention(data); break; // #223
+    case 'attentionEnd': onAttentionEnd(data); break;
     case 'envTrust': if (data && data.path) envTrustBox(data); break; // #215 : approbation de l'environnement du dépôt
     case 'initProposal': initProposalBar(data && data.path); break; // #215 : proposition /init-project (projet Template)
     case 'term': {
