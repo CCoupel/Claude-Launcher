@@ -45,3 +45,23 @@ func TestStartSessionQuestion231(t *testing.T) {
 		t.Errorf("projet non géré : question posée")
 	}
 }
+
+// team_name connu mais sa team absente : pas de repli par cwd, même si une autre team a le projet pour cwd.
+func TestTeamExistsNamedMissingNoCwdFallback231(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfgDir)
+	proj := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(proj, ".claude"), 0o755)
+	_ = os.WriteFile(filepath.Join(proj, ".claude", "project-config.json"), []byte(`{"team_name":"absente"}`), 0o644)
+	other := filepath.Join(cfgDir, "teams", "autre")
+	_ = os.MkdirAll(other, 0o755)
+	_ = os.WriteFile(filepath.Join(other, "config.json"), []byte(`{"members":[{"cwd":"`+ClaudePath(proj)+`"}]}`), 0o644)
+	if TeamExists(proj) {
+		t.Error("team nommée absente : TeamExists ne doit pas retomber sur une autre team au même cwd")
+	}
+	// sans team_name : repli par cwd
+	_ = os.WriteFile(filepath.Join(proj, ".claude", "project-config.json"), []byte(`{}`), 0o644)
+	if !TeamExists(proj) {
+		t.Error("team_name absent : repli par cwd attendu")
+	}
+}

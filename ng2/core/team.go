@@ -357,9 +357,9 @@ func TeamExists(proj string) bool {
 		}
 		if json.Unmarshal(b, &pc) == nil {
 			if n := strings.TrimSpace(pc.TeamName); n != "" && n != "." && n != ".." && !strings.ContainsAny(n, `/\`) {
-				if _, err := os.Stat(filepath.Join(teams, n, "config.json")); err == nil {
-					return true
-				}
+				// team_name connu : seule cette team compte (pas de balayage de toutes les teams quand elle manque)
+				_, err := os.Stat(filepath.Join(teams, n, "config.json"))
+				return err == nil
 			}
 		}
 	}

@@ -1218,6 +1218,8 @@ Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : tout
 - Aucune question : projet non géré, team existante, reprise de conversation choisie, création depuis le launcher
   (`LaunchNew*`), rattachement à une session tmux vivante (le script de démarrage n'est pas rejoué).
 - Refus : pas de relance pendant cette ouverture (la question n'est posée qu'une fois par lancement de claude).
+- Repli par `cwd` : seulement si `team_name` est absent, illisible ou invalide ; `team_name` lu mais sa team manquante = pas de team (aucun balayage de `teams/*`).
+- Limite connue : le constat se fait dans le `CLAUDE_CONFIG_DIR` du launcher (`ClaudeDir()`, config `CLAUDE_CONFIG_DIR` / racine de base). Le launcher ne connaît pas de répertoire de config propre à un projet ou à un conteneur : si claude en utilise un autre, la team n'y est pas vue et la question est posée à tort (inoffensif : refusable, `/start-session` détecte lui-même une reprise).
 
 ### Teamleader en attente (#223) **[NEW]**
 
