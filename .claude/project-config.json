@@ -83,17 +83,23 @@
             "credentials_file": "PRIVATE/QUALIF/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-19T16:13:39Z",
+              "at": "2026-11-22T15:06:45Z",
               "checks": [
+                "target-dir",
+                "target-writable",
+                "disk-space",
+                "go-toolchain",
+                "build-dir-ignored",
                 "kubeconfig-admin",
                 "ns-claude-qualif",
                 "psa-baseline",
                 "can-i-chart-objects",
                 "pv-claude-qualif-pv-bound",
+                "pvc-bound",
                 "clusterissuer-claude-launcher-ca-ready",
-                "ghcr-write-packages",
+                "ghcr/gh-push",
                 "helm-lint-qualif",
-                "buildah-netavark"
+                "buildah"
               ],
               "note": "compte administrateur (risque accepté) ; registre local abandonné (2026-11-17) : image de QUALIF sur ghcr (claude-launcher-qualif)"
             }
@@ -105,19 +111,23 @@
           "credentials_env": [],
           "verified": {
             "status": "ok",
-            "at": "2026-11-15T12:49:52Z",
+            "at": "2026-11-22T15:06:45Z",
             "checks": [
               "target-dir",
               "target-writable",
               "disk-space",
               "go-toolchain",
               "build-dir-ignored",
-              "qualif-artefacts-sha",
-              "k8s-context",
-              "k8s-namespace",
-              "k8s-pvc-rwx-bound",
-              "k8s-rbac-sts",
-              "k8s-exec"
+              "kubeconfig-admin",
+              "ns-claude-qualif",
+              "psa-baseline",
+              "can-i-chart-objects",
+              "pv-claude-qualif-pv-bound",
+              "pvc-bound",
+              "clusterissuer-claude-launcher-ca-ready",
+              "ghcr/gh-push",
+              "helm-lint-qualif",
+              "buildah"
             ]
           }
         }
