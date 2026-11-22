@@ -92,7 +92,10 @@ d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac
   `effect: immediate`). Défaut **`1` (activées)**, décision GATE 2. Le badge, lui, est toujours affiché.
 - **Fenêtre native** (build `wails`) : notification système par `runtime.SendNotification` (Wails v2.17), une par `id`,
   retirée à `attentionEnd` (`RemoveNotification`) ; clic (`OnNotificationResponse`) : fenêtre au premier plan et
-  onglet du projet sélectionné (ouvert si besoin). Notifications indisponibles (`IsNotificationAvailable` faux) :
+  onglet du projet sélectionné (ouvert si besoin) : le Go met la fenêtre au premier plan et émet l'évènement
+  **`attentionFocus`** `{ "path", "id" }` ; le frontend sélectionne alors l'onglet du projet (`path`). Émis par la
+  fenêtre native seulement (jamais vers le navigateur miroir #163) ; `id` inconnu ou attente déjà terminée :
+  l'onglet est quand même sélectionné. Notifications indisponibles (`IsNotificationAvailable` faux) :
   badge seul, ligne dans le journal.
 - **Navigateur `--web`** : API `Notification` du navigateur ; option active par défaut, l'autorisation du navigateur est
   demandée par un geste de l'utilisateur (les navigateurs refusent une demande sans clic) : bandeau discret « Autoriser
