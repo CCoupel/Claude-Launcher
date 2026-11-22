@@ -11,6 +11,9 @@
   `ATTENTION_NOTIFY`, notifications Windows (Wails) et navigateur ; instantané `attentionNotify` (absent = activé, suit
   le rechargement à chaud) lu par le client web ; évènement `attentionFocus` `{path, id}` (clic sur une notification
   Windows → onglet du projet sélectionné)
+- **[CHANGED]** (65ca574, revue LOT-3) fin d'attente sur `PostToolUse` seulement pour une permission ou la fin de
+  `AskUserQuestion` (limite : outil parallèle pendant une permission) ; coque : `ReadAttentionOf(leader de la fenêtre)`,
+  leader introuvable → pas d'attente (limite : claude mort, pane resté → état jusqu'à Stop/UserPromptSubmit/SessionEnd ou 24 h)
 - **[NEW]** option `SHARE_WRITE_TIMEOUT` (#220) ; `projectApply` / bascule d'organisation : `{ok:false, timeout:true, msg}`
   après le délai, une seule écriture abandonnée par fichier — `contracts/desktop-dispatch.md` « v6.7.0 »
 - **[NEW]** question `/start-session` dans le script de démarrage d'un projet géré **sans team existante** (#231),

@@ -11,11 +11,14 @@
 |---|---|---|
 | `PreToolUse` | `AskUserQuestion` | attente `question` (dont les GATE du template) |
 | `Notification` | `permission_prompt` (et `elicitation_dialog` si la version de claude le connaît) | attente `permission` |
-| `PostToolUse` | tous (sans `matcher`) | fin d'attente |
-| `UserPromptSubmit`, `Stop`, `SessionEnd` | — | fin d'attente |
+| `PostToolUse` | tous (sans `matcher`) | fin d'attente **seulement** si l'état en cours est une permission (`Notification`) ou si l'outil terminé est `AskUserQuestion` (`tool_name`) — 65ca574 |
+| `UserPromptSubmit`, `Stop`, `SessionEnd` | — | fin d'attente (toujours) |
 
 - Jamais `idle_prompt` (inactivité de 60 s) ni `Stop` comme signal d'attente : un teamleader qui attend ses
   teammates finit son tour sans attendre l'utilisateur.
+- `PostToolUse` reste sans `matcher` : l'outil d'une permission n'est pas connu d'avance. Une question n'est close
+  que par la fin de `AskUserQuestion` (un autre outil du leader qui se termine pendant qu'elle est ouverte ne retire
+  plus le badge). **Limite admise** : un outil lancé en parallèle qui se termine pendant une permission la clôt (rare).
 - Les noms de `matcher` de `Notification` dépendent de la version de claude : le dev vérifie sur la version installée ;
   si le filtre n'existe pas, hook sans `matcher` et le launcher filtre sur le contenu (`notification_type` / `message`).
 
@@ -32,10 +35,17 @@
 # attente (PreToolUse AskUserQuestion, Notification)
 d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac
 [ -n "$d" ] && [ -n "$p" ] && mkdir -p "$d" && head -c 65536 > "$d/.$p.tmp" && mv -f "$d/.$p.tmp" "$d/$p.json"; true # cl-attention
-# fin d'attente (PostToolUse, UserPromptSubmit, Stop, SessionEnd)
+# fin d'attente (UserPromptSubmit, Stop, SessionEnd)
 d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac
 [ -n "$d" ] && [ -n "$p" ] && [ -e "$d/$p.json" ] && rm -f "$d/$p.json"; true # cl-attention
+# fin d'attente sur PostToolUse : permission en cours, ou fin de AskUserQuestion
+d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac
+f="$d/$p.json"; [ -n "$d" ] && [ -n "$p" ] && [ -f "$f" ] || exit 0; i=$(head -c 65536)
+if grep -Eq '"hook_event_name" *: *"Notification"' "$f" || printf '%s' "$i" | grep -Eq '"tool_name" *: *"AskUserQuestion"'; then rm -f "$f"; fi; true # cl-attention
 ```
+
+  Référence : `core/attention.go` (`attentionEndCmd`, `attentionEndToolCmd`) — en cas d'écart, le code fait foi et
+  ce contrat est mis à jour.
 
 - Hooks lus par claude **au démarrage de la session** : une session ouverte avant leur pose ne signale rien tant
   qu'elle n'est pas relancée (documenté).
@@ -74,6 +84,12 @@ d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac
   dont la session vit ailleurs (`ctr.Live`, autre launcher, pod) — jamais tout l'arbre. Une lecture de dossier par
   projet, par le partage (aucun `wsl.exe` / `kubectl exec` lancé). Seuil : attente affichée **≤ 5 s** après le hook.
 - Transition repérée par `id` : nouvelle attente → évènement `attention` ; disparition → `attentionEnd`.
+- Filtre leader : `core.ReadAttentionOf(projet, leader)` — pour un projet ouvert ici, seul le fichier du pane leader
+  compte ; leader vide (projet non ouvert ici) : pas de filtre.
+- **Coque tmux** : lecture par `ReadAttentionOf(leader de la fenêtre du projet)` ; leader introuvable → pas d'attente ;
+  état d'un pane qui n'est plus leader ignoré.
+- **Limite admise** : claude mort mais pane resté ouvert → l'état reste affiché jusqu'au prochain `Stop` /
+  `UserPromptSubmit` / `SessionEnd` de ce pane, ou 24 h (péremption § 4).
 
 ## 6. Interface native et `--web` **[NEW]**
 
@@ -94,8 +110,9 @@ d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac
   retirée à `attentionEnd` (`RemoveNotification`) ; clic (`OnNotificationResponse`) : fenêtre au premier plan et
   onglet du projet sélectionné (ouvert si besoin) : le Go met la fenêtre au premier plan et émet l'évènement
   **`attentionFocus`** `{ "path", "id" }` ; le frontend sélectionne alors l'onglet du projet (`path`). Émis par la
-  fenêtre native seulement (jamais vers le navigateur miroir #163) ; `id` inconnu ou attente déjà terminée :
-  l'onglet est quand même sélectionné. Notifications indisponibles (`IsNotificationAvailable` faux) :
+  fenêtre native seulement (jamais vers le navigateur miroir #163). Clic tardif sur un `id` connu dont l'attente est
+  terminée : `attentionFocus` émis et onglet sélectionné quand même ; `id` jamais vu (aucun chemin associé) : aucun
+  évènement (test 31d2e35). Notifications indisponibles (`IsNotificationAvailable` faux) :
   badge seul, ligne dans le journal.
 - **Navigateur `--web`** : API `Notification` du navigateur ; option active par défaut, l'autorisation du navigateur est
   demandée par un geste de l'utilisateur (les navigateurs refusent une demande sans clic) : bandeau discret « Autoriser
