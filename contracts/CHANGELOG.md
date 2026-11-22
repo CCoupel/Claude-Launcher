@@ -8,7 +8,8 @@
   AskUserQuestion, Notification permission → attente ; PostToolUse, UserPromptSubmit, Stop, SessionEnd → fin),
   `CL_ATTENTION_DIR` exportée dans le script de démarrage, état `<projet>/.claude-launcher/attention/<pane>.json`
   (exclu de git), `Row.attention` / `TabInfo.attention`, évènements `attention` / `attentionEnd`, option
-  `ATTENTION_NOTIFY`, notifications Windows (Wails) et navigateur
+  `ATTENTION_NOTIFY`, notifications Windows (Wails) et navigateur ; instantané `attentionNotify` (absent = activé, suit
+  le rechargement à chaud) lu par le client web
 - **[NEW]** option `SHARE_WRITE_TIMEOUT` (#220) ; `projectApply` / bascule d'organisation : `{ok:false, timeout:true, msg}`
   après le délai, une seule écriture abandonnée par fichier — `contracts/desktop-dispatch.md` « v6.7.0 »
 - **[NEW]** question `/start-session` dans le script de démarrage d'un projet géré **sans team existante** (#231),

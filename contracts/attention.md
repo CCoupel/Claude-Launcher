@@ -102,6 +102,11 @@ d="$CL_ATTENTION_DIR"; p="${TMUX_PANE#%}"; case "$p" in ''|*[!0-9]*) p=;; esac
   et onglet du projet. Contexte non sécurisé (http hors `127.0.0.1` / `localhost`) : pas de notification, mention
   sous l'option. Titre de la page préfixé « ❓ » pendant une attente.
 - Une notification au plus par `id` et par interface ; aucune après la fin de l'attente.
+- Instantané : champ **`attentionNotify`** (`bool`) = valeur courante de `ATTENTION_NOTIFY`, **toujours envoyé**
+  (`true|false`, jamais `omitempty` : un `false` omis se lirait « activé ») ; côté client, **absent = activé** (serveur
+  plus ancien ; option non renseignée = défaut `1`). Suit le rechargement à chaud de `config.conf`
+  (#225) : un changement d'option renvoie un instantané. Le client web le lit pour couper (ou rétablir) ses
+  notifications navigateur sans recharger la page ; le badge n'en dépend pas.
 
 ## 8. Coque tmux
 
