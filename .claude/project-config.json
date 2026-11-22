@@ -172,15 +172,17 @@
             "credentials_file": "PRIVATE/PROD/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-22T09:00:00Z",
+              "at": "2026-11-22T18:05:04Z",
               "checks": [
                 "kubeconfig-admin",
                 "ns-claude-ng2",
-                "helm-release-6.5.0-deployed",
-                "pvc-secrets-bound-keep",
+                "can-i-chart-objects",
+                "helm-release-6.6.0-deployed",
+                "pvc-secrets-bound",
                 "clusterissuer-claude-launcher-ca-ready",
                 "certificate-ready",
-                "helm-dry-run-server-6.6.0",
+                "helm-lint-prod",
+                "helm-dry-run-server-6.7.0",
                 "ghcr-pull-public"
               ],
               "note": "compte administrateur (risque accepté) ; PSA claude-ng2 laissé en privileged (décision utilisateur)"
@@ -193,17 +195,13 @@
           "credentials_env": [],
           "verified": {
             "status": "ok",
-            "at": "2026-11-22T09:00:00Z",
+            "at": "2026-11-22T18:05:04Z",
             "checks": [
               "gh-auth",
               "gh-push",
               "gh-admin",
-              "pr-228-mergeable-clean",
-              "ci-branch-green-sha",
-              "release-v6.6.0-absente",
-              "tag-v6.6.0-absent",
-              "target-dir",
-              "exe-present",
+              "release-v6.7.0-absente",
+              "hub-binary-present",
               "disk-space",
               "sha256sum",
               "pkill",
