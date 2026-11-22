@@ -80,7 +80,7 @@ if grep -Eq '"hook_event_name" *: *"Notification"' "$f" || printf '%s' "$i" | gr
 
 ## 5. Lecture par le launcher
 
-- Boucle `attention` (fenêtre native / `--web` et coque) toutes les **2 s**, sur les projets **ouverts ici** et ceux
+- Boucle `attention` : toutes les **1 s** pour la fenêtre native / `--web` (4b70f8f), **2 s** pour la coque, sur les projets **ouverts ici** et ceux
   dont la session vit ailleurs (`ctr.Live`, autre launcher, pod) — jamais tout l'arbre. Une lecture de dossier par
   projet, par le partage (aucun `wsl.exe` / `kubectl exec` lancé). Seuil : attente affichée **≤ 5 s** après le hook.
 - Transition repérée par `id` : nouvelle attente → évènement `attention` ; disparition → `attentionEnd`.
