@@ -151,3 +151,23 @@ Création d'un projet : le formulaire demande le nom, puis le type de projet :
 
 Le projet est ensuite lancé. (Rouvert plus tard, un projet brut reçoit `init-project.md` comme
 les autres : `/init-project` reste possible pour le convertir.)
+
+**Démarrer la session (`/start-session`, v6.7.0, #231).** Au lancement neuf de claude (`Entrée` sur le projet, sans
+reprise de conversation), un projet géré qui n'a pas encore de team demande, dans le terminal du projet :
+
+```
+session non démarrée — lancer /start-session ? [O/n]
+```
+
+- `o` ou `Entrée` : claude démarre sur `/start-session` ; autre réponse : claude démarre sans.
+- **Ordre des questions** : la question `/init-project` (template en retard ou manquant) passe **avant**. Si vous
+  l'acceptez, claude part sur `/init-project` et `/start-session` n'est pas proposé (un seul argument possible).
+- **Critère** : le projet est géré (`.claude/commands/start-session.md` présent) et sa team n'existe pas. La team est
+  cherchée dans `teams/<team_name>/config.json` du `CLAUDE_CONFIG_DIR` du launcher, `team_name` lu dans
+  `.claude/project-config.json` (à défaut, le premier membre dont le `cwd` est le projet).
+- **Pas de question** : projet non géré, team existante (reprise), reprise de conversation choisie, création depuis le
+  launcher, rattachement à une session tmux déjà vivante.
+- **Limite** : le launcher ne voit que le `CLAUDE_CONFIG_DIR` qu'il connaît. Si claude utilise un autre répertoire de
+  config (projet ou conteneur), la question peut être posée à tort ; refusez-la, `/start-session` détecte lui-même une
+  reprise.
+- La question n'est posée qu'une fois par lancement de claude.

@@ -20,6 +20,9 @@
   précédente revient. Rien n'est à faire : dès que le partage répond, les clics suivants écrivent normalement. Si
   l'écriture abandonnée aboutit, la relecture applique ce qui est écrit. Le délai se règle par `SHARE_WRITE_TIMEOUT`
   (voir [Délai d'écriture sur le partage](configuration.md#délai-décriture-sur-le-partage-v670-220)).
+- **Après un crash, la session ne redémarre pas son travail d'équipe** (v6.7.0, #231) : la team reste sur le disque
+  (`teams/<team_name>/config.json`), donc le launcher ne propose pas `/start-session` à la reprise. Tapez
+  `/start-session` vous-même dans claude : il reprend la team existante.
 - **Ctrl+clic ne ferme pas le projet** : votre terminal le garde pour lui (ouverture de liens).
   Sélectionnez le projet et appuyez sur `Suppr`.
 - **Un projet ne se ferme plus** (pod k8s disparu, backend injoignable, session déjà morte) : menu du projet →
