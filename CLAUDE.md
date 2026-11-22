@@ -78,6 +78,7 @@
 | `/start-session` | Démarrer la session (team, mémoire, backlog) |
 | `/end-session` | Clôturer la session (mémoire, git, dissolution team) |
 | `/team-status` | État des agents, fermeture sélective |
+| `/team-delete [--force]` | Fermer les teammates IDLE (ou tous avec `--force`) |
 | `/feature <desc>` | Nouveau workflow feature |
 | `/bugfix <desc>` | Workflow correction de bug |
 | `/hotfix <desc>` | Correction urgente prod |
@@ -90,6 +91,7 @@
 | `/secu [scope]` | Audit sécurité |
 | `/backlog [desc]` | Consulter / traiter les GitHub Issues |
 | `/milestone status` | Progression du milestone actif |
+| `/marketing` | Mise à jour du site marketing (`gh-pages`) après une release |
 | `/progression` | État d'avancement des agents en cours |
 | `/context-audit [scope]` | Audit doc (doublons, refs cassées) |
 | `/init-project` | Réinitialiser / mettre à jour le projet |

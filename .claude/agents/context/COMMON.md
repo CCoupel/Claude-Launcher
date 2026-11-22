@@ -25,6 +25,11 @@ Ils ne touchent jamais les vrais projets, le vrai `claude`, ni la session `claud
 - **Maquette avant le développement** : toute nouvelle interface passe par une maquette validée par l'utilisateur,
   ouverte dans Chrome par le serveur web du launcher (`commands/context/MOCKUPS.md` §14.9), onglet laissé ouvert.
 - **README dans la PR même** : le README est mis à jour dans la PR qui change le comportement, avant fusion et release.
+- **Mesure Windows réelle** : ce qui est mesuré sous Linux (latence, I/O) se vérifie sur l'exe Windows réel
+  (wsl.exe, partage 9P) avant de conclure — trois refus du GATE LOT-5 (v6.5.0) venaient de mesures simulées.
+- **Issue rouverte après validation** (retours utilisateur) : elle s'intègre au lot en cours ; sa maquette est refaite
+  d'abord.
+- **Concision** : messages `DONE` au teamleader en 2 lignes au plus, le détail va dans le rapport `_work/reports/`.
 
 ## Release
 

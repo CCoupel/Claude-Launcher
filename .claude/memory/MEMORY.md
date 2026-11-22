@@ -29,8 +29,6 @@
   ni empreinte ; `kubectl port-forward` = accès local.
 - **Tests** : garde d'isolation (`CL_TEST_ISOLATION`, écritures limitées à `os.TempDir`), jetons `ghp_FAKE_TEST_…`,
   faux podman/docker par défaut dans ui/desktop et ui/tmux.
-- **Process** : validation du dernier lot = feu vert PROD (PUBLISH + DEPLOY sans GATE 4 ni relecture de PR) ;
-  `publish.prod` exige une section `## [X.Y.Z] — date` dans CHANGELOG avant le merge.
 
 ## Decisions techniques de la session (v6.5.0)
 
@@ -77,20 +75,13 @@
 - Suite ui/desktop plus lente avec les faux moteurs (95 s → 154 s) : à optimiser.
 - Pastilles d'effet pour backends.yaml / hub / env.yaml : suite possible (hors v6.6.0).
 - Coque : comparaison des options depuis un texte vide si config.conf disparaît (cosmétique).
-- `version` de project-config.json sur main ≠ X.Y.Z publié (6.5.0.5 historiquement) : à clarifier.
-- Commit local `chore(config)` (accès PROD vérifiés) sur main non poussé.
 - Réservé pour plus tard : PSA point 11 ; supprimer trust.json lève toutes les approbations.
-- **Consigne** : concision aux teammates (DONE ≤ 2 lignes, détail dans les rapports).
-- **Maquettes** : proposer d'emblée les variantes (horizontale ET verticale) quand une mise en page est en jeu.
 
 ## Regles critiques
 
-- Règles permanentes du projet (tests isolés, milestone non démarré, maquette, README) : `.claude/agents/context/COMMON.md`.
+- Règles permanentes du projet (tests isolés, milestone non démarré, maquette, README, mesure Windows réelle, issue rouverte, concision) : `.claude/agents/context/COMMON.md`.
 - Branches, PR et fusion vers `main` : `CLAUDE.md` « Conventions Git ».
 
 ## Corrections de comportement
 
-- Les agents doivent vérifier sur Windows réel ce qu'ils mesurent sur Linux : trois refus du GATE LOT-5 viennent de
-  mesures simulées (tour lent, FS local) qui ne reproduisaient pas wsl.exe / partage 9P.
 - Pas de diffusion sur les réseaux sociaux : marketing = release notes + site seulement.
-- Une issue rouverte après validation (retours utilisateur) s'intègre au lot en cours ; maquette refaite d'abord.
