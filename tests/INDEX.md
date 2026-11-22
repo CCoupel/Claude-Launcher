@@ -91,3 +91,4 @@
 | ng2/ui/desktop/stop221_test.go | integration | ui-desktop | Stop : aucun client tmux -C ni goroutine de terminal restants, termInput refuse apres arret, arret pendant ecritures sous -race (#221) | feature | critical |
 | ng2/ui/desktop/stop221_unix_test.go | integration | ui-desktop | Stop avec client tmux bloque (SIGSTOP) : 25 s au plus, arret force, aucun orphelin (#221) | feature | critical |
 | ng2/ui/desktop/fallback222_test.go | unitaire | ui-desktop | Repli « leader en haut » : un seul message par cause, efface au retour a la normale (#222) | feature | |
+| ng2/ui/tmux/fallback222_test.go | unitaire | ui-tmux | Coque : repli « leader en haut » dit une fois par fenetre et par cause, remise a zero au retour (#222) | feature | |
