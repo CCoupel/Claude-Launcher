@@ -9,12 +9,13 @@ import (
 	"claude-launcher-ng2/internal/tun"
 )
 
-// Teamleader en attente de réponse (#223, contracts/attention.md § 5-6) : relevé des dossiers d'état toutes les 2 s,
+// Teamleader en attente de réponse (#223, contracts/attention.md § 5-6) : relevé des dossiers d'état toutes les secondes,
 // sur les projets ouverts ici et ceux dont la session vit ailleurs (autre launcher, pod) — jamais tout l'arbre. Une
 // lecture de dossier par projet, par le partage : aucun wsl.exe / kubectl exec.
 
-// attentionEvery : période du relevé (l'attente est affichée ≤ 5 s après le hook).
-const attentionEvery = 2 * time.Second
+// attentionEvery : période du relevé (l'attente est affichée ≤ 5 s après le hook) : 1 s, pour laisser de la marge à une
+// machine chargée (une lecture de dossier par projet ouvert).
+const attentionEvery = time.Second
 
 // startAttention : lance (une fois) la boucle de relevé ; elle s'arrête avec l'App (a.quit).
 func (a *App) startAttention() {
@@ -23,21 +24,30 @@ func (a *App) startAttention() {
 
 // attentionTick : un relevé ; émet « attention » (nouvelle attente, id nouveau) et « attentionEnd » (disparue).
 func (a *App) attentionTick() {
-	type target struct{ path, leader string }
+	type target struct {
+		path   string
+		term   *projTerm
+		leader string
+	}
 	var targets []target
-	a.mu.Lock()
+	a.mu.Lock() // seulement la copie des cibles : aucun verrou de terminal ni E/S sous a.mu
 	seen := map[string]bool{}
 	for p, t := range a.terms {
 		seen[p] = true
-		targets = append(targets, target{p, t.leaderPane()})
+		targets = append(targets, target{path: p, term: t})
 	}
 	for p, l := range a.ctr.Live {
 		if !seen[p] && l.Claude { // session vivante ailleurs : fichier du pane le plus récent
 			seen[p] = true
-			targets = append(targets, target{p, ""})
+			targets = append(targets, target{path: p})
 		}
 	}
 	a.mu.Unlock()
+	for i := range targets {
+		if t := targets[i].term; t != nil {
+			targets[i].leader = t.leaderPane()
+		}
+	}
 
 	now := map[string]core.Attention{}
 	for _, t := range targets {
