@@ -57,12 +57,31 @@ La question au lancement (`core/start.go`) ne propose jamais une cible égale ou
      "template": {"tag": "v5.11.1", "sha": "4cf4bbd…", "etag": "…", "released": true},
      "error": "", "retry_after": "" }
    ```
-   Une instance qui trouve un résultat de moins de 10 min l'utilise sans appeler GitHub (F5 force l'appel).
+   Une instance qui trouve un résultat de moins de 10 min l'utilise sans appeler GitHub (F5 force l'appel). **[CHANGED v6.8.1 → point 6]**
 4. **Quota** : `403` ou `429` avec `X-RateLimit-Remaining: 0` → `error: "quota"`, `retry_after` = `X-RateLimit-Reset`.
    Aucun nouvel appel avant cette heure (F5 compris : message immédiat). Alerte visible en continu (pas seulement
    après F5) : « ⚠ vérification GitHub impossible (quota, reprise HH:MM) » — même zone que les annonces de mise
    à jour, orange, non cliquable. Autre échec : « ⚠ GitHub injoignable », visible aussi hors F5.
 5. `UpdMsg` gagne `Err` (`""` | `"quota"` | `"network"`) et `RetryAt` (heure) ; `Ok` garde son sens.
+6. **Cycle et réutilisation (v6.8.1, #238)** **[CHANGED]** — `core.UpdateCheckEvery(pending bool)` :
+
+   | Jeton GitHub | Cycle normal | Release attendue (tag sans release, ou template pas encore prêt) |
+   |---|---|---|
+   | présent | **2 min** | **1 min** |
+   | absent | **5 min** | 2 min (inchangé) |
+
+   - Avec jeton, un `304` (requête conditionnelle authentifiée) n'est pas décompté du quota GitHub : ≤ 60 requêtes/h
+     par instance, presque toutes en `304`. Sans jeton (décision GATE 2, risque accepté) : 5 min, soit ~24 requêtes/h
+     par poste ; le quota anonyme (60/h **par adresse IP**) est partagé par toutes les instances derrière la même
+     sortie : à partir de ~3 postes sans jeton (hub, pod du cluster, poste Windows), `429` → alerte « quota » et pause
+     jusqu'à `X-RateLimit-Reset` (point 4). Remède : un jeton (`GITHUB_TOKEN` de `config.conf`).
+   - Le résultat partagé (`update-check.json`) n'est réutilisé que s'il a **moins que le cycle de l'appelant − 10 s**
+     (remplace les 10 min fixes, qui neutralisaient le cycle de 2 min « release attendue »). `UpdMsg.CheckedAt` porte
+     son heure ; la vérification suivante a lieu à `CheckedAt + cycle` (au moins 10 s) au lieu de `maintenant + cycle`
+     — délai d'apparition borné par un cycle, même avec plusieurs instances sur le poste.
+   - Quota épuisé (point 4) : inchangé, prioritaire (`NextUpdateDelay`).
+   - Coque tmux et fenêtre native / `--web` : même fonction, mêmes valeurs. Le client web reçoit l'annonce par
+     l'évènement `state` (instantané `alerts`), sans F5 ni rechargement.
 
 ## Tests (règle)
 
