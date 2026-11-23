@@ -4,17 +4,19 @@
 
 ## Etat courant
 
-- **Version** : **6.8.1 livrée en QUALIF (6.8.1.1), PROD en cours** (branche `milestone/v6.8.1`, PR vers main + tag
-  `v6.8.1`). Précédente : 6.8.0 en PROD (PR #236 mergée). Milestone #33 « v6.8.1 » (#237, #238), workflow `completed`.
-  Site gh-pages à jour jusqu'à v6.7.0 (PR #233).
-- **Branche** : `milestone/v6.8.1`.
+- **Version** : **6.8.1 en PROD** (PR #239, tag `v6.8.1`, helm `claude-ng2` rév. 7, hub v6.8.1, sauvegarde `.bak-v6.8.0`) ;
+  QUALIF 6.8.1.1 (rév. 48). Milestone #33 clos. Site gh-pages : PR #240 (Nouveautés v6.8.1 = quotas colorés, variante V1) ;
+  release notes 6.8.0 / 6.8.1 : PR #241.
+- **Session 2026-11-23** : template synchronisé v5.13.1 ; v6.8.0 livrée (#234 image de base, #235 quotas colorés ; PR #236) ;
+  v6.8.1 livrée (#237 `usage-levels.json` + seuils 1 h / 5 h ; #238 délais de vérification D1 = C).
+- **Branche** : main.
 - **Environnements** :
-  - PROD : namespace `claude-ng2` (v6.8.0, v6.8.1 en cours de déploiement).
-  - QUALIF : v6.8.1.1.
-  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` (à relancer après la PROD).
+  - PROD : namespace `claude-ng2`, helm révision 7, pod v6.8.1.
+  - QUALIF : v6.8.1.1 (rév. 48).
+  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.8.1.
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
-- **Travail en cours** : aucun (reste : déploiement PROD v6.8.1).
+- **Travail en cours** : aucun.
 
 ## Decisions de la session (v6.8.1)
 
@@ -101,15 +103,19 @@
 
 ## Points pour la prochaine session
 
+- template#160 (panneau consomme `usage-levels.json`) traité côté template ; un `usage-levels.json` présent dans le vrai
+  cache avant v6.8.1 → possible fuite de test côté template (à signaler sur #160 si l'utilisateur le souhaite).
+- BuzzMaster (`other-buzzmaster-0`) : bootstrap lent car `archive.ubuntu.com` / `security.ubuntu.com` quasi inaccessibles
+  depuis le réseau (`fr.archive.ubuntu.com` rapide) ; correctif miroir FR à reposer dans le pod après réouverture (perdu à
+  chaque recréation) ; pas d'issue (décision utilisateur).
+- Hub à relancer (`Esc` puis `l`) ; `launcher.local` et `/healthz` QUALIF non vérifiés depuis les conteneurs.
 - Procédure HUMAIN #223 jamais jouée (lot validé sans test Windows) : rejouable via
-  `tests/procedures/ui-desktop/attente-teamleader-223/simulate-attention.sh`.
-- Relancer le hub et les sessions claude pour charger les hooks #223 (lus au démarrage de claude).
-- Pistes d'issues non ouvertes : suite ui/desktop lente (166–230 s), test Windows instable
-  `TestFilesSansSessionEnModeNone174`, `_work/test-plan/` non servi, QUALIF 6.7.0.4 et binaires QUALIF 6.6.0.x résiduels.
+  `tests/procedures/ui-desktop/attente-teamleader-223/simulate-attention.sh` ; relancer les sessions claude pour charger les
+  hooks #223 (lus au démarrage de claude).
+- Pistes d'issues non ouvertes : suite ui/desktop ~190 s (hors budget 60 s, à optimiser), test Windows instable
+  `TestFilesSansSessionEnModeNone174`, `_work/test-plan/` non servi, binaires QUALIF 6.6.0.x résiduels.
 - Limites connues : badge conservé jusqu'à 24 h si claude est mort mais son pane resté ; un outil parallèle terminé
   pendant une permission l'efface.
-- Relancer les sessions Claude ouvertes avant le 2026-11-21 ~10:00 (GH_TOKEN factice hérité d'un test).
-- Suite ui/desktop plus lente avec les faux moteurs : à optimiser.
 - Réservé pour plus tard : PSA point 11 ; supprimer trust.json lève toutes les approbations.
 
 ## Regles critiques
