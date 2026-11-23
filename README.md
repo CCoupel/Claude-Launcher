@@ -417,6 +417,11 @@ EXTRA_ENVS=(
 (session, semaine, limites par modèle) — même source que la page « Utilisation » de claude.ai. Le cache
 `~/.cache/claude-launcher/usage.json` est **partagé avec les panneaux milestone des projets** (et monté
 dans les conteneurs locaux) : le launcher est le seul à appeler l'endpoint tant que ce cache est frais.
+La **date de renouvellement** de chaque fenêtre (session 5 h, semaine 7 j) est colorée d'après une projection linéaire
+de l'épuisement (rythme moyen depuis le début de la fenêtre, extrapolé à 100 %, identique au panneau milestone du
+template) : **rouge** = épuisé avant le renouvellement (avec `⚠ épuisé ~HH:MM`), **orange** = épuisé moins de 6 h après,
+**vert** = au-delà. Sans couleur si la projection n'est pas fiable (conso nulle, fenêtre entamée depuis moins de
+10 min ou 5 % de sa durée) ou si les données sont périmées. Coque tmux, fenêtre native et `--web`.
 
 ---
 

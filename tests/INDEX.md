@@ -100,3 +100,7 @@
 | ng2/ui/desktop/attention_notify223_test.go | integration | ui-desktop | Notifications natives : une par id, retrait a la fin, aucune avec l'option a 0, a chaud, clic vers l'onglet, indisponibles = badge seul (#223) | feature | |
 | ng2/ui/tmux/attention223_test.go | integration | ui-tmux | Coque : pastille de la ligne, releve et option @cl_attn, vignette (types, largeur) (#223) | feature | |
 | ng2/core/simulate223_test.go | integration | core | Script simulate-attention.sh : pane leader (plus petit %id), question/permission/teammate/fin lus par ReadAttentionOf, erreurs, tmux isole (#223) | feature | |
+| tests/procedures/ui-desktop/image-base-234/ | procedure | ui-desktop | Image de base des reglages projet : liste complete des images quelle que soit la valeur pre-remplie (#234) | regression | |
+| ng2/ui/desktop/imagelist234_test.go | unitaire | ui-desktop | Image de base : select de la liste complete, plus de input list pre-rempli (#234) | regression | |
+| tests/procedures/ui-desktop/renouvellement-colore-235/ | procedure | ui-desktop | Date de renouvellement des quotas coloree selon l'epuisement projete, alerte d'epuisement, natif et web (#235) | feature | |
+| ng2/ui/desktop/exhaustion235_test.go | unitaire | ui-desktop | Projection d'epuisement : couleurs et alerte (#235) | feature | |

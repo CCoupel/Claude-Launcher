@@ -93,7 +93,7 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
      case "$REF" in ghcr.io/ccoupel/claude-launcher-qualif:*) ;; *) echo "ARRÊT : $REF n'est pas dans ghcr.io/ccoupel/claude-launcher-qualif" >&2; exit 1 ;; esac
      OUT_DIR=$C SOURCE_BIN=$C/claude-launcher-ng2-${V#v} OCI_ARCHIVE=1 deploy/image/build.sh "$V"
      # identifiants ghcr en mémoire (tmpfs /dev/shm), JAMAIS sur le partage ; déconnexion + suppression même en échec
-     A=$(mktemp -p /dev/shm claude-launcher-ghcr-XXXXXX.json)
+     A=$(mktemp -p /dev/shm claude-launcher-ghcr-XXXXXX.json) && echo '{}' > "$A"   # mktemp crée un fichier vide : JSON invalide pour buildah push
      printf '{}' > "$A"                           # buildah exige un JSON valide, pas un fichier vide
      trap 'sudo buildah logout --authfile "$A" ghcr.io >/dev/null 2>&1; sudo rm -f "$A"; test ! -e PRIVATE/QUALIF/.ghcr-auth.json' EXIT
      (umask 077; gh auth token | sudo buildah login --authfile "$A" -u "$(gh api user --jq .login)" --password-stdin ghcr.io)

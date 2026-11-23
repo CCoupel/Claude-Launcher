@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
 ## [Unreleased]
 
+## [6.8.0] — 2026-11-23
+
+### Added
+- Quotas : la date de renouvellement de chaque fenêtre (session 5 h, hebdomadaire 7 j) est colorée selon une projection linéaire de l'épuisement, comme le panneau milestone du template : rouge = épuisé avant le renouvellement (avec « ⚠ épuisé ~HH:MM »), orange = épuisé moins de 6 h après, vert au-delà ; aucune couleur si la projection n'est pas fiable (conso nulle, fenêtre entamée depuis moins de 10 min ou 5 %). Coque tmux, fenêtre native et `--web` (#235)
+
+### Fixed
+- Réglages du projet : la liste « Image de base » propose toutes les images (backends.yaml, défauts, image courante) au lieu de la seule image déjà configurée ; saisie libre via « Autre… » (#234)
+
 ## [6.7.0] — 2026-11-22
 
 ### Added
