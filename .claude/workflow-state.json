@@ -1,29 +1,32 @@
 {
   "type": "BUGFIX",
-  "description": "Reconfigurer le backend (k8s) : seule l image actuelle est proposee, pas la liste des images du backend (fenetre native + client web)",
+  "description": "Milestone v6.8.0 — #234 (bugfix image) + date de renouvellement des quotas colorée",
   "status": "in_progress",
-  "branch": "milestone/v6.7.1",
-  "version": "6.7.1",
+  "branch": "milestone/v6.8.0",
+  "version": "6.8.0",
   "started_at": "2026-11-23T10:13:24Z",
-  "updated_at": "2026-11-23T10:14:07Z",
-  "cycles": 0,
+  "updated_at": "2026-11-23T10:19:31Z",
+  "cycles": 1,
   "issue_nums": [
-    234
+    234,
+    235
   ],
   "milestone_num": 32,
   "plan": null,
   "cadrage": {
-    "intensite": "leger",
+    "intensite": "leger+revue",
     "test_writer": false,
-    "review": false,
+    "review": true,
     "qualif": true,
     "doc": "dev",
     "team": [
       "dev-backend",
       "dev-frontend",
-      "qa"
+      "qa",
+      "code-reviewer"
     ],
-    "valide": "GATE 1"
+    "valide": "GATE 1 (re-cadrage mineure)",
+    "maquette": false
   },
   "phases": {
     "init": {
@@ -34,16 +37,23 @@
       "status": "completed"
     },
     "analyse": {
-      "status": "in_progress"
+      "status": "completed",
+      "report": "_work/reports/analyse-v6.7.1.md",
+      "decision": "option A seule (affichage), sans issue de suivi"
     },
     "red_check": {
-      "status": "pending"
+      "status": "completed",
+      "sha": "2b0eb65",
+      "reserve": "2e controle faible"
     },
     "dev": {
-      "status": "pending"
+      "status": "completed"
     },
     "qa": {
-      "status": "pending"
+      "status": "completed",
+      "verdict": "VALIDATED WITH RESERVATIONS",
+      "report": "_work/reports/qa-v6.8.0.md",
+      "sha": "b5fbcc4"
     },
     "build": {
       "status": "pending"
@@ -56,6 +66,11 @@
     },
     "deploy-prod": {
       "status": "pending"
+    },
+    "review": {
+      "status": "completed",
+      "verdict": "OK",
+      "report": "_work/reports/code-review-235.md"
     }
   },
   "lots": {
@@ -67,9 +82,10 @@
       "LOT-1": {
         "status": "in_progress",
         "issues": [
-          234
+          234,
+          235
         ],
-        "phase": "analyse"
+        "phase": "ci-branch"
       }
     }
   }
