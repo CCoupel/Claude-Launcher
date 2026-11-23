@@ -1549,7 +1549,24 @@ func (m model) renderHeader(w int) string {
 		sb.WriteString(style.Render(strings.Repeat("█", filled)) + core.Dim.Render(strings.Repeat("░", barW-filled)))
 		sb.WriteString(style.Render(fmt.Sprintf(" %3d %%", pct)))
 		if resets[i] != "" {
-			sb.WriteString("  " + core.Dim.Render(resets[i]))
+			rs, alert := core.Dim, ""
+			if stale == "" { // projection d'épuisement (#235) : date de renouvellement colorée
+				now := time.Now()
+				ex := l.Exhaustion(now)
+				switch ex.Level {
+				case core.ExhaustRed:
+					rs = core.Red
+				case core.ExhaustYellow:
+					rs = core.Yellow
+				case core.ExhaustGreen:
+					rs = core.Green
+				}
+				alert = ex.Alert(now)
+			}
+			sb.WriteString("  " + rs.Render(resets[i]))
+			if alert != "" {
+				sb.WriteString("  " + core.Red.Render(alert))
+			}
 		}
 	}
 	if stale != "" {

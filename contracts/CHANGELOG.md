@@ -2,6 +2,10 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261123] — v6.8.0 : quotas colorés (#235)
+
+- **[ADDED]** `Snapshot.usage[]` (`UsageRow`) : `resetLevel` (`red` | `yellow` | `green`, absent = projection non fiable ou données périmées) et `alert` (« ⚠ épuisé ~HH:MM », présent seulement si `resetLevel` = `red`) — à afficher sur `reset` (couleur de la date, texte d'alerte en rouge) ; calcul unique `core.ProjectExhaustion` (identique à `lib.ts` du template 0.6.0). Aucun BREAKING.
+
 ## [20261122] — v6.7.0 (plan) : fiabilisation, /start-session, teamleaders en attente (#220–#223, #231)
 
 - **[NEW]** `contracts/attention.md` (#223) : hooks Claude Code `# cl-attention` dans `settings.json` (PreToolUse
