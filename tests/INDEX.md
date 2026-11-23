@@ -104,3 +104,5 @@
 | ng2/ui/desktop/imagelist234_test.go | unitaire | ui-desktop | Image de base : select de la liste complete, plus de input list pre-rempli (#234) | regression | |
 | tests/procedures/ui-desktop/renouvellement-colore-235/ | procedure | ui-desktop | Date de renouvellement des quotas coloree selon l'epuisement projete, alerte d'epuisement, natif et web (#235) | feature | |
 | ng2/ui/desktop/exhaustion235_test.go | unitaire | ui-desktop | Projection d'epuisement : couleurs et alerte (#235) | feature | |
+| ng2/core/exhaustion237_test.go, ng2/core/usagelevels237_test.go, ng2/ui/desktop/exhaustion237_test.go | integration | core | Marge de l'orange par fenetre (1 h session, 5 h hebdo) et usage-levels.json conforme au contrat (#237) | feature | |
+| ng2/core/updatecheck238_test.go, ng2/ui/desktop/update238_test.go, ng2/ui/tmux/update238_test.go | integration | core | Cycle de verification des versions 2/1 min (jeton) 5/2 min, resultat partage < cycle - 10 s, annonce poussee sans F5 (#238) | feature | slow |

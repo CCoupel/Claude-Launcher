@@ -220,6 +220,7 @@ func ReadUsage() Usage {
 		return u
 	}
 	u.ReadAt = st.ModTime()
+	SyncUsageLevels(time.Now()) // niveaux du panneau milestone (#237) : stat seul si à jour
 	b, _ := os.ReadFile(path)
 	var doc struct {
 		Limits []Limit `json:"limits"`
@@ -306,6 +307,9 @@ func FetchUsage(refreshSec int) {
 		if os.WriteFile(tmp, body, 0o644) == nil && os.Rename(tmp, path) == nil {
 			_ = os.Remove(path + ".err")
 			_ = os.Remove(path + ".wait")
+			SyncUsageLevels(time.Now())
+		} else {
+			_ = os.Remove(tmp) // temporaire jamais laissé derrière (#237)
 		}
 	case resp.StatusCode == 401 || resp.StatusCode == 403:
 		fail(AuthErr)

@@ -442,7 +442,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.loadedAt = time.Since(m.started)
 		}
 	case core.UpdTickMsg:
-		return m, core.CheckUpdates(false)
+		pending := (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK)
+		cycle := core.UpdateCheckEvery(pending)
+		return m, func() tea.Msg { return core.CheckUpdatesEvery(false, cycle) }
 	case core.UpdMsg:
 		var prepCmd tea.Cmd
 		m.errKind, m.errRetry = msg.Err, msg.RetryAt
@@ -486,10 +488,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, prepCmd
 		}
 		// release attendue : revérifie plus souvent pour passer au vert
-		if (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK) {
-			return m, tea.Batch(prepCmd, core.UpdTickCmd(core.NextUpdateDelay(msg, 2*time.Minute)))
-		}
-		return m, tea.Batch(prepCmd, core.UpdTickCmd(core.NextUpdateDelay(msg, 10*time.Minute)))
+		pending := (m.newLauncher != "" && !m.launcherOK) || (m.newTpl != "" && !m.tplOK)
+		return m, tea.Batch(prepCmd, core.UpdTickCmd(core.NextCheckDelay(msg, core.UpdateCheckEvery(pending))))
 	case prefStepMsg:
 		if msg.tag == m.prefTag {
 			m.prefStep = msg.step

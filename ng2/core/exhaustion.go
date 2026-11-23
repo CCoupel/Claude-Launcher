@@ -5,19 +5,26 @@ import (
 	"time"
 )
 
-// Projection linéaire de l'épuisement d'un quota (#235), identique au panneau
-// milestone du template 0.6.0 (hooks/lib.ts : usageWindowMs, projectExhaustion,
-// exhaustionInfo). Calculée une seule fois ici ; les interfaces n'affichent que
-// le niveau (Exhaustion.Level) et le texte d'alerte.
+// Projection linéaire de l'épuisement d'un quota (#235, marges par fenêtre #237).
+// Le launcher est la seule source du calcul : calculée une seule fois ici ; les
+// interfaces et usage-levels.json (contracts/usage-levels.md) n'affichent que le
+// niveau (Exhaustion.Level) et le texte d'alerte.
 
 // Niveaux de la date de renouvellement.
 const (
 	ExhaustRed    = "red"    // épuisé avant le renouvellement
-	ExhaustYellow = "yellow" // épuisé moins de 6 h après
+	ExhaustYellow = "yellow" // épuisé dans la marge de la fenêtre après (session 1 h, hebdomadaire 5 h)
 	ExhaustGreen  = "green"  // épuisé bien au-delà
 )
 
-const exhaustMargin = 6 * time.Hour
+// exhaustMargin : marge de l'orange selon la durée de la fenêtre (#237) :
+// 5 h → 1 h, 7 j → 5 h.
+func exhaustMargin(win time.Duration) time.Duration {
+	if win <= 5*time.Hour {
+		return time.Hour
+	}
+	return 5 * time.Hour
+}
 
 // UsageWindow : durée de la fenêtre d'après le kind (session 5 h, hebdo 7 j) ; 0 si inconnue (dépense…).
 func UsageWindow(kind string) time.Duration {
@@ -66,7 +73,7 @@ func ProjectExhaustion(kind string, percent float64, resetsAt string, now time.T
 		switch {
 		case ex.Before(reset):
 			return Exhaustion{Level: ExhaustRed, Before: true, Exhausts: ex}
-		case ex.Before(reset.Add(exhaustMargin)):
+		case ex.Before(reset.Add(exhaustMargin(win))):
 			return Exhaustion{Level: ExhaustYellow, Exhausts: ex}
 		}
 		return Exhaustion{Level: ExhaustGreen, Exhausts: ex}

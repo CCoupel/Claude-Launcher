@@ -896,7 +896,7 @@ type UsageRow struct {
 	Reset  string `json:"reset"`
 	Tone   string `json:"tone"` // blue, yellow, red, dim
 	Passed bool   `json:"passed,omitempty"`
-	// ResetLevel : couleur de la date de renouvellement (#235) — red (épuisé avant), yellow (< 6 h après),
+	// ResetLevel : couleur de la date de renouvellement (#235) — red (épuisé avant), yellow (dans la marge de la fenêtre : 1 h session, 5 h hebdo),
 	// green (au-delà) ; absent = projection non fiable ou données périmées (date neutre).
 	ResetLevel string `json:"resetLevel,omitempty"`
 	// Alert : « ⚠ épuisé ~HH:MM » (rouge), seulement si ResetLevel = red.

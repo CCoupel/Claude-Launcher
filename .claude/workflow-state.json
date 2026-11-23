@@ -1,92 +1,83 @@
 {
-  "type": "BUGFIX",
-  "description": "Milestone v6.8.0 — #234 (bugfix image) + date de renouvellement des quotas colorée",
+  "type": "FEATURE",
+  "description": "Milestone v6.8.1 — #237 (quotas mutualisés, usage-levels.json) + #238 (versions sans F5)",
   "status": "completed",
-  "branch": "milestone/v6.8.0",
-  "version": "6.8.0",
-  "started_at": "2026-11-23T10:13:24Z",
-  "updated_at": "2026-11-23T12:59:59Z",
-  "cycles": 1,
+  "branch": "milestone/v6.8.1",
+  "version": "6.8.1",
+  "started_at": "2026-11-23T13:49:45Z",
+  "updated_at": "2026-11-23T14:23:42Z",
+  "cycles": 0,
   "issue_nums": [
-    234,
-    235
+    237,
+    238
   ],
-  "milestone_num": 32,
-  "plan": null,
+  "milestone_num": 33,
+  "plan": ".claude/workflow/plan-v6.8.1.md",
   "cadrage": {
-    "intensite": "leger+revue",
-    "test_writer": false,
-    "review": true,
+    "intensite": "leger",
+    "test_writer": true,
+    "review": false,
     "qualif": true,
     "doc": "dev",
     "team": [
       "dev-backend",
-      "dev-frontend",
-      "qa",
-      "code-reviewer"
+      "test-writer",
+      "qa"
     ],
-    "valide": "GATE 1 (re-cadrage mineure)",
-    "maquette": false
+    "decisions": {
+      "D1": "C : 2 min avec jeton (1 min si release attendue), 5 min sans jeton — risque 429 anonyme accepté par l utilisateur"
+    },
+    "valide": "GATE 2"
   },
   "phases": {
     "init": {
       "status": "completed",
-      "sha": "55a28a4"
+      "sha": "8ad3385"
     },
-    "clarification": {
-      "status": "completed"
-    },
-    "analyse": {
+    "plan": {
       "status": "completed",
-      "report": "_work/reports/analyse-v6.7.1.md",
-      "decision": "option A seule (affichage), sans issue de suivi"
-    },
-    "red_check": {
-      "status": "completed",
-      "sha": "2b0eb65",
-      "reserve": "2e controle faible"
+      "report": ".claude/workflow/plan-v6.8.1.md"
     },
     "dev": {
-      "status": "completed"
+      "status": "completed",
+      "shas": [
+        "07631b5",
+        "1a9b519"
+      ]
+    },
+    "review": {
+      "status": "skipped"
     },
     "qa": {
       "status": "completed",
-      "verdict": "VALIDATED WITH RESERVATIONS",
-      "report": "_work/reports/qa-v6.8.0.md",
-      "sha": "b5fbcc4"
+      "verdict": "OK",
+      "sha": "a3e5f01",
+      "report": "_work/reports/qa-v6.8.1.md"
     },
     "build": {
       "status": "completed",
-      "sha": "4a77e8e",
-      "version": "6.8.0.1"
+      "version": "6.8.1.1",
+      "sha": "156b821"
     },
     "publish_qualif": {
       "status": "completed",
-      "note": "image construite avec le Dockerfile inchangé (miroirs officiels, 33 min) — pas d écart avec la release",
-      "image": "ghcr.io/ccoupel/claude-launcher-qualif:v6.8.0.1@sha256:6e4e51a734e041657199d96e8e632bbea3057b30cb8681fad2f7289902f73ffa"
+      "image": "ghcr.io/ccoupel/claude-launcher-qualif:v6.8.1.1@sha256:d36de3b9b018ebf5d3a461eddf269cd70299a0b9615c34282802370f82e6657c"
     },
     "deploy_qualif": {
       "status": "completed",
-      "helm_rev": 47,
-      "version": "6.8.0.1",
-      "smoke": "partiel : /healthz Ingress non joignable depuis le conteneur"
+      "helm_rev": 48,
+      "version": "6.8.1.1"
     },
     "deploy-prod": {
       "status": "pending"
     },
-    "review": {
-      "status": "completed",
-      "verdict": "OK",
-      "report": "_work/reports/code-review-235.md"
-    },
     "ci_branch": {
       "status": "completed",
-      "sha": "4ce46bd",
-      "run": "45156788573"
+      "sha": "3ac9298"
     }
   },
   "lots": {
-    "current": "v6.8.0 validée (GATE 4) — PROD en attente de /deploy prod",
+    "current": "v6.8.1 validée (GATE 4) — RETEX puis PROD",
     "order": [
       "LOT-1"
     ],
@@ -94,16 +85,16 @@
       "LOT-1": {
         "status": "completed",
         "issues": [
-          234,
-          235
+          237,
+          238
         ],
         "phase": null,
-        "gate": "validé (explicite, 2/2 OK)"
+        "gate": "auto-validé (aucun scénario HUMAIN)"
       }
     }
   },
   "gate4": {
     "status": "validé",
-    "at": "2026-11-23T12:59:59Z"
+    "at": "2026-11-23T14:23:42Z"
   }
 }

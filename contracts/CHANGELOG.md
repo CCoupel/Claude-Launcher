@@ -2,6 +2,21 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261123] — v6.8.1 (plan) : quotas mutualisés, versions sans F5 (#237, #238)
+
+- **[ADDED]** `contracts/usage-levels.md` (#237) : `$CLAUDE_CONFIG_DIR/claude-launcher-cache/usage-levels.json`, schéma 1
+  (`computed_at`, `source_mtime`, `windows[]` : `kind`, `scope` brut, `resets_at`, `percent`, `exhausts_at`, `level`,
+  `alert`), écrit atomiquement après chaque relevé et à la lecture si `source_mtime` ≠ mtime de `usage.json` ;
+  consommé par le panneau milestone (template#160). `usage.json` inchangé.
+- **[CHANGED]** seuil de l'orange (`resetLevel` = `yellow`) : épuisement prévu < **1 h** après le renouvellement pour la
+  session 5 h, < **5 h** pour les hebdomadaires (`weekly_all`, `weekly_scoped`) — au lieu de 6 h pour toutes ; rouge,
+  vert et « non fiable » inchangés. Même calcul pour la coque, la fenêtre native, `--web` et le fichier.
+- **[CHANGED]** `contracts/template-version.md` §3 (#238) : cycle de vérification GitHub 2 min avec jeton (1 min tant
+  qu'une release est attendue), **5 min sans jeton** (2 min si attendue ; décision GATE 2 : risque de 429 anonyme accepté) ; le résultat partagé n'est réutilisé que s'il
+  a moins que le cycle de l'appelant − 10 s (au lieu de 10 min fixes) et la vérification suivante est calée sur son
+  âge. Annonce poussée au client web par l'évènement `state` existant (pas de changement côté client).
+- Aucun BREAKING.
+
 ## [20261123] — v6.8.0 : quotas colorés (#235)
 
 - **[ADDED]** `Snapshot.usage[]` (`UsageRow`) : `resetLevel` (`red` | `yellow` | `green`, absent = projection non fiable ou données périmées) et `alert` (« ⚠ épuisé ~HH:MM », présent seulement si `resetLevel` = `red`) — à afficher sur `reset` (couleur de la date, texte d'alerte en rouge) ; calcul unique `core.ProjectExhaustion` (identique à `lib.ts` du template 0.6.0). Aucun BREAKING.

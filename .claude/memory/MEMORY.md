@@ -4,18 +4,26 @@
 
 ## Etat courant
 
-- **Version** : **6.8.0 livrée en QUALIF (6.8.0.1, helm `claude-qualif` rev 47), PROD en attente de `/deploy prod`**
-  (PR de la branche `milestone/v6.8.0` vers main + tag `v6.8.0` à faire). Dernière PROD : 6.7.0 (2026-11-22, PR #232, helm
-  `claude-ng2` rev 5, sauvegarde hub `claude-launcher-ng2.bak-v6.6.0`). Milestone #32 « v6.8.0 » (#234, #235), workflow
-  `completed`. Site gh-pages à jour jusqu'à v6.7.0 (PR #233).
-- **Branche** : `milestone/v6.8.0` (non poussée).
+- **Version** : **6.8.1 livrée en QUALIF (6.8.1.1), PROD en cours** (branche `milestone/v6.8.1`, PR vers main + tag
+  `v6.8.1`). Précédente : 6.8.0 en PROD (PR #236 mergée). Milestone #33 « v6.8.1 » (#237, #238), workflow `completed`.
+  Site gh-pages à jour jusqu'à v6.7.0 (PR #233).
+- **Branche** : `milestone/v6.8.1`.
 - **Environnements** :
-  - PROD : namespace `claude-ng2`, helm révision 5, pod v6.7.0.
-  - QUALIF : v6.8.0.1.
-  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.7.0.
+  - PROD : namespace `claude-ng2` (v6.8.0, v6.8.1 en cours de déploiement).
+  - QUALIF : v6.8.1.1.
+  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` (à relancer après la PROD).
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
-- **Travail en cours** : aucun (reste : déploiement PROD v6.8.0).
+- **Travail en cours** : aucun (reste : déploiement PROD v6.8.1).
+
+## Decisions de la session (v6.8.1)
+
+- **#237** : le launcher est la **seule source** du calcul d'épuisement ; marge de l'orange par fenêtre (session 1 h,
+  hebdo 5 h) ; `usage-levels.json` (schéma 1, `contracts/usage-levels.md`) écrit à côté de `usage.json` seulement quand
+  son `source_mtime` change ; consommateur = panneau milestone du template (template#160).
+- **#238** : cause côté Go (cycle 10 min + TTL partagé 10 min qui neutralisait le cycle accéléré). **D1 = C** : 2/1 min avec
+  jeton, 5/2 min sans ; **risque 429 anonyme accepté** (60 req/h par IP partagée hub/pod/postes) et documenté
+  (`ng2/docs/versions.md`) ; remède `GITHUB_TOKEN`. Résultat partagé réutilisé s'il a moins que cycle − 10 s.
 
 ## Decisions de la session (v6.8.0)
 

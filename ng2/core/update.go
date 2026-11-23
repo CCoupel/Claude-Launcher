@@ -74,6 +74,7 @@ type (
 		Manual        bool      // demandée par F5 : hors du cycle de 10 min
 		Err           string    // "" | "quota" | "network" (#199) : alerte visible en continu
 		RetryAt       time.Time // reprise annoncée quand Err == "quota" (X-RateLimit-Reset)
+		CheckedAt     time.Time // heure de la vérification (la nôtre ou celle du résultat partagé) ; zéro si inconnue (#238)
 	}
 	TplAdoptedMsg struct {
 		Tag    string
@@ -233,9 +234,13 @@ func CheckUpdates(manual bool) tea.Cmd {
 	return func() tea.Msg { return CheckUpdatesNow(manual) }
 }
 
-// CheckUpdatesNow : la recherche elle-même, sans bubbletea (interface native). Résultat partagé par poste
-// (update-check.json, 10 min), requêtes conditionnelles, pause jusqu'à la reprise quand le quota est épuisé (#199).
-func CheckUpdatesNow(manual bool) UpdMsg {
+// CheckUpdatesNow : la recherche elle-même, sans bubbletea (interface native), au cycle normal du poste.
+func CheckUpdatesNow(manual bool) UpdMsg { return CheckUpdatesEvery(manual, UpdateCheckEvery(false)) }
+
+// CheckUpdatesEvery : comme CheckUpdatesNow pour un appelant dont le cycle est cycle. Résultat partagé par poste
+// (update-check.json) réutilisé s'il a moins que cycle − 10 s (#238), requêtes conditionnelles, pause jusqu'à la
+// reprise quand le quota est épuisé (#199).
+func CheckUpdatesEvery(manual bool, cycle time.Duration) UpdMsg {
 	out := UpdMsg{Manual: manual}
 	fake := os.Getenv("CL_FAKE_LATEST_TPL") != "" || os.Getenv("CL_FAKE_LATEST_LAUNCHER") != ""
 	prev := readUpdateCheck()
@@ -246,7 +251,7 @@ func CheckUpdatesNow(manual bool) UpdMsg {
 			return out
 		}
 		if at, err := time.Parse(time.RFC3339, prev.CheckedAt); !manual && err == nil && prev.Error == "" &&
-			time.Since(at) < updateCheckTTL && prev.Launcher.Tag != "" {
+			time.Since(at) < cycle-updateCheckTTLMargin.Get() && prev.Launcher.Tag != "" {
 			fillUpd(&out, prev) // un autre processus vient de vérifier
 			ensureInitSynced()
 			return out
@@ -315,6 +320,7 @@ func CheckUpdatesNow(manual bool) UpdMsg {
 // sa version est strictement plus récente que la version adoptée ; sans cache, première installation : adoption.
 func fillUpd(out *UpdMsg, c updCheck) {
 	out.Ok = true
+	out.CheckedAt, _ = time.Parse(time.RFC3339, c.CheckedAt)
 	out.LauncherTag = c.Launcher.Tag
 	if VersionNewer(Version(), c.Launcher.Tag) {
 		out.LauncherReady = c.Launcher.Released
