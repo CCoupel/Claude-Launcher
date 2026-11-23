@@ -28,7 +28,6 @@
 - **#223** : question + permission = attente ; notifications activées par défaut (`ATTENTION_NOTIFY`) ; état dans
   `<projet>/.claude-launcher/attention/<pane>.json` (`CL_ATTENTION_DIR`) ; `attentionFocus` émis par l'émetteur natif
   seul ; id inconnu = aucun évènement (contrat aligné). Maquette A retenue (badge « ❓ en attente »).
-- Plans de test HTML servis seulement depuis `_work/mockup/` (le `/files` du launcher ne sert que `_work/mockup`).
 
 ## Decisions de la session (v6.6.0)
 
@@ -66,7 +65,6 @@
 - Site : installation en sous-onglets Linux/Windows/Docker/k8s, « Nouveautés » = version courante seule, anciennes
   nouveautés dans Fonctionnalités avec chips Linux/Windows/Web/k8s (62/62 vérifiées dans le code), matrice
   fonctionnalités × plateformes (#matrix).
-- `helm upgrade` : `--reset-then-reuse-values` ou `-f`, jamais `--reuse-values` seul.
 - **Leçon release** : `Chart.yaml` doit suivre la version du milestone (contrôle automatisé par #204).
 
 ### Décisions antérieures (condensées)
@@ -91,7 +89,6 @@
   `TestFilesSansSessionEnModeNone174`, `_work/test-plan/` non servi, QUALIF 6.7.0.4 et binaires QUALIF 6.6.0.x résiduels.
 - Limites connues : badge conservé jusqu'à 24 h si claude est mort mais son pane resté ; un outil parallèle terminé
   pendant une permission l'efface.
-- Template v5.12.1 disponible (sync local v5.12.0) : proposer `/init-project`.
 - Relancer les sessions Claude ouvertes avant le 2026-11-21 ~10:00 (GH_TOKEN factice hérité d'un test).
 - Suite ui/desktop plus lente avec les faux moteurs : à optimiser.
 - Réservé pour plus tard : PSA point 11 ; supprimer trust.json lève toutes les approbations.
@@ -99,8 +96,8 @@
 ## Regles critiques
 
 - Règles permanentes du projet (tests isolés, milestone non démarré, maquette, README, mesure Windows réelle, issue rouverte, concision) : `.claude/agents/context/COMMON.md`.
-- Branches, PR et fusion vers `main` : `CLAUDE.md` « Conventions Git ».
+- Branches : `CLAUDE.md` « Conventions Git » ; fusion vers `main` par PR (`project-config.json` → `release.merge_mode`, `.claude/agents/context/COMMON.md` « Release »).
 
 ## Corrections de comportement
 
-- Pas de diffusion sur les réseaux sociaux : marketing = release notes + site seulement.
+- Réseaux sociaux : aucun post (`marketing.social` absent de `project-config.json`, opt-in du template).
