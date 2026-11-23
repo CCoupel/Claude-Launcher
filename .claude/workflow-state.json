@@ -39,13 +39,20 @@
       "report": ".claude/workflow/plan-v6.8.1.md"
     },
     "dev": {
-      "status": "pending"
+      "status": "completed",
+      "shas": [
+        "07631b5",
+        "1a9b519"
+      ]
     },
     "review": {
-      "status": "pending"
+      "status": "skipped"
     },
     "qa": {
-      "status": "pending"
+      "status": "completed",
+      "verdict": "OK",
+      "sha": "a3e5f01",
+      "report": "_work/reports/qa-v6.8.1.md"
     },
     "build": {
       "status": "pending"
@@ -72,7 +79,7 @@
           237,
           238
         ],
-        "phase": "dev"
+        "phase": "ci-branch"
       }
     }
   }
