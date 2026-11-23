@@ -30,7 +30,7 @@ func TestProjectImageFieldProposesFullList234(t *testing.T) {
 	if e := strings.Index(blk, "const imBox"); e >= 0 {
 		blk = blk[:e]
 	}
-	for _, want := range []string{"im.id = 'pjf-image'", "r.images", "d.image", "Autre…"} {
+	for _, want := range []string{"im.id = 'pjf-image'", "r.images", "d.image", "Autre…", "(aucune)", "pj.orig.image"} {
 		if !strings.Contains(blk, want) {
 			t.Errorf("select pjf-image : %q absent (liste complète, image courante ou saisie libre)", want)
 		}

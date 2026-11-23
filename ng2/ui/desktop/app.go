@@ -896,6 +896,11 @@ type UsageRow struct {
 	Reset  string `json:"reset"`
 	Tone   string `json:"tone"` // blue, yellow, red, dim
 	Passed bool   `json:"passed,omitempty"`
+	// ResetLevel : couleur de la date de renouvellement (#235) — red (épuisé avant), yellow (< 6 h après),
+	// green (au-delà) ; absent = projection non fiable ou données périmées (date neutre).
+	ResetLevel string `json:"resetLevel,omitempty"`
+	// Alert : « ⚠ épuisé ~HH:MM » (rouge), seulement si ResetLevel = red.
+	Alert string `json:"alert,omitempty"`
 }
 
 // Snapshot : tout ce que montre la colonne de gauche, et les onglets.
@@ -1045,7 +1050,13 @@ func (a *App) usageRows(s *Snapshot) {
 		case l.Severity == "warning" || pct >= 70:
 			tone = "yellow"
 		}
-		s.Usage = append(s.Usage, UsageRow{Label: l.Label(), Pct: min(100, max(0, pct)), Reset: reset, Tone: tone, Passed: reset == "passée"})
+		row := UsageRow{Label: l.Label(), Pct: min(100, max(0, pct)), Reset: reset, Tone: tone, Passed: reset == "passée"}
+		if tone != "dim" {
+			now := time.Now()
+			ex := l.Exhaustion(now)
+			row.ResetLevel, row.Alert = ex.Level, ex.Alert(now)
+		}
+		s.Usage = append(s.Usage, row)
 	}
 }
 

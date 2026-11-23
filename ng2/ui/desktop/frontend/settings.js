@@ -1381,15 +1381,15 @@ function stPageProjet(p) {
   // #234 : select de la liste complète (backends.yaml ∪ défauts ∪ image courante), indépendante de la valeur pré-remplie ; « Autre… » = saisie libre
   const im = el('select', 'stin w'); im.id = 'pjf-image'; im.disabled = open;
   const imgs = (r.images || []).slice(); if (d.image && !imgs.includes(d.image)) imgs.push(d.image);
-  if (!d.image) im.appendChild(Object.assign(el('option', '', '(aucune)'), { value: '' }));
+  im.appendChild(Object.assign(el('option', '', '(aucune)'), { value: '' }));
   for (const i of imgs) im.appendChild(Object.assign(el('option', '', i), { value: i }));
   im.appendChild(Object.assign(el('option', '', 'Autre…'), { value: '\u0000other' }));
   im.value = d.image || '';
-  const imo = stInput('', (v) => { d.image = v.trim(); }, 'image de base', 'w'); imo.id = 'pjf-image-other'; imo.disabled = open; imo.style.display = 'none';
+  const imo = stInput('', (v) => { d.image = v.trim() || pj.orig.image; }, 'image de base', 'w'); imo.id = 'pjf-image-other'; imo.disabled = open; imo.style.display = 'none';
   im.addEventListener('change', () => {
     const other = im.value === '\u0000other';
     imo.style.display = other ? '' : 'none';
-    if (other) { imo.value = ''; d.image = ''; imo.focus(); } else d.image = im.value;
+    if (other) { imo.value = ''; d.image = pj.orig.image; imo.focus(); } // rien saisi : ancienne valeur conservée else d.image = im.value;
     stRenderFoot();
   });
   const imBox = el('span'); imBox.append(im, imo);
