@@ -56,13 +56,20 @@
       "sha": "b5fbcc4"
     },
     "build": {
-      "status": "pending"
+      "status": "completed",
+      "sha": "4a77e8e",
+      "version": "6.8.0.1"
     },
     "publish_qualif": {
-      "status": "pending"
+      "status": "completed",
+      "note": "image construite avec le Dockerfile inchangé (miroirs officiels, 33 min) — pas d écart avec la release",
+      "image": "ghcr.io/ccoupel/claude-launcher-qualif:v6.8.0.1@sha256:6e4e51a734e041657199d96e8e632bbea3057b30cb8681fad2f7289902f73ffa"
     },
     "deploy_qualif": {
-      "status": "pending"
+      "status": "completed",
+      "helm_rev": 47,
+      "version": "6.8.0.1",
+      "smoke": "partiel : /healthz Ingress non joignable depuis le conteneur"
     },
     "deploy-prod": {
       "status": "pending"
@@ -71,6 +78,11 @@
       "status": "completed",
       "verdict": "OK",
       "report": "_work/reports/code-review-235.md"
+    },
+    "ci_branch": {
+      "status": "completed",
+      "sha": "4ce46bd",
+      "run": "45156788573"
     }
   },
   "lots": {
@@ -85,7 +97,8 @@
           234,
           235
         ],
-        "phase": "ci-branch"
+        "phase": "gate-lot",
+        "gate": "en attente"
       }
     }
   }
