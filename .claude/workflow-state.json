@@ -1,109 +1,50 @@
 {
-  "type": "BUGFIX",
-  "description": "Milestone v6.8.0 — #234 (bugfix image) + date de renouvellement des quotas colorée",
-  "status": "completed",
-  "branch": "milestone/v6.8.0",
-  "version": "6.8.0",
-  "started_at": "2026-11-23T10:13:24Z",
-  "updated_at": "2026-11-23T12:59:59Z",
-  "cycles": 1,
+  "type": "FEATURE",
+  "description": "Milestone v6.8.1 — #237 (quotas mutualisés, usage-levels.json) + #238 (versions sans F5)",
+  "status": "in_progress",
+  "branch": "milestone/v6.8.1",
+  "version": "6.8.1",
+  "started_at": "2026-11-23T13:49:45Z",
+  "updated_at": "2026-11-23T13:49:45Z",
+  "cycles": 0,
   "issue_nums": [
-    234,
-    235
+    237,
+    238
   ],
-  "milestone_num": 32,
+  "milestone_num": 33,
   "plan": null,
   "cadrage": {
-    "intensite": "leger+revue",
-    "test_writer": false,
-    "review": true,
-    "qualif": true,
-    "doc": "dev",
-    "team": [
-      "dev-backend",
-      "dev-frontend",
-      "qa",
-      "code-reviewer"
-    ],
-    "valide": "GATE 1 (re-cadrage mineure)",
-    "maquette": false
+    "intensite": "leger+plan",
+    "valide": null
   },
   "phases": {
     "init": {
       "status": "completed",
-      "sha": "55a28a4"
+      "sha": "8ad3385"
     },
-    "clarification": {
-      "status": "completed"
-    },
-    "analyse": {
-      "status": "completed",
-      "report": "_work/reports/analyse-v6.7.1.md",
-      "decision": "option A seule (affichage), sans issue de suivi"
-    },
-    "red_check": {
-      "status": "completed",
-      "sha": "2b0eb65",
-      "reserve": "2e controle faible"
+    "plan": {
+      "status": "in_progress"
     },
     "dev": {
-      "status": "completed"
-    },
-    "qa": {
-      "status": "completed",
-      "verdict": "VALIDATED WITH RESERVATIONS",
-      "report": "_work/reports/qa-v6.8.0.md",
-      "sha": "b5fbcc4"
-    },
-    "build": {
-      "status": "completed",
-      "sha": "4a77e8e",
-      "version": "6.8.0.1"
-    },
-    "publish_qualif": {
-      "status": "completed",
-      "note": "image construite avec le Dockerfile inchangé (miroirs officiels, 33 min) — pas d écart avec la release",
-      "image": "ghcr.io/ccoupel/claude-launcher-qualif:v6.8.0.1@sha256:6e4e51a734e041657199d96e8e632bbea3057b30cb8681fad2f7289902f73ffa"
-    },
-    "deploy_qualif": {
-      "status": "completed",
-      "helm_rev": 47,
-      "version": "6.8.0.1",
-      "smoke": "partiel : /healthz Ingress non joignable depuis le conteneur"
-    },
-    "deploy-prod": {
       "status": "pending"
     },
     "review": {
-      "status": "completed",
-      "verdict": "OK",
-      "report": "_work/reports/code-review-235.md"
+      "status": "pending"
     },
-    "ci_branch": {
-      "status": "completed",
-      "sha": "4ce46bd",
-      "run": "45156788573"
+    "qa": {
+      "status": "pending"
+    },
+    "build": {
+      "status": "pending"
+    },
+    "publish_qualif": {
+      "status": "pending"
+    },
+    "deploy_qualif": {
+      "status": "pending"
+    },
+    "deploy-prod": {
+      "status": "pending"
     }
-  },
-  "lots": {
-    "current": "v6.8.0 validée (GATE 4) — PROD en attente de /deploy prod",
-    "order": [
-      "LOT-1"
-    ],
-    "items": {
-      "LOT-1": {
-        "status": "completed",
-        "issues": [
-          234,
-          235
-        ],
-        "phase": null,
-        "gate": "validé (explicite, 2/2 OK)"
-      }
-    }
-  },
-  "gate4": {
-    "status": "validé",
-    "at": "2026-11-23T12:59:59Z"
   }
 }
