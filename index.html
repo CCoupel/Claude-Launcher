@@ -17,6 +17,15 @@
 .v62-v{display:grid;grid-template-columns:minmax(240px,320px) 1fr;gap:1.5rem;align-items:start}.v62-v .v62-figs{grid-template-columns:1fr;margin:0}
 /*v63*/.v63-fig svg{width:100%;height:auto;color:var(--text,#e6edf3);background:rgba(128,128,128,.08);border:1px solid rgba(128,128,128,.3);border-radius:12px;padding:.5rem}.v63-fig figcaption{font-size:.85rem;opacity:.75;margin-top:.4rem;text-align:center}.v63-v{display:grid;grid-template-columns:minmax(220px,300px) 1fr;gap:1.5rem;align-items:start}.v63-v.r{grid-template-columns:1fr minmax(220px,300px)}.v63-v.r .v63-fig{order:2}.v63-fig{margin:0 0 1.25rem}@media(max-width:760px){.v63-v,.v63-v.r{grid-template-columns:1fr}.v63-v.r .v63-fig{order:0}}.v63-list{display:grid;gap:1rem}.v63-cta{margin:1rem 0 0;text-align:center}
 .v62-list{display:grid;gap:1rem}@media(max-width:760px){.v62-v{grid-template-columns:1fr}}
+
+.q{--r:#f85149;--o:#f0883e;--g:#3fb950}
+.q-red{color:var(--r)}.q-or{color:var(--o)}.q-gr{color:var(--g)}
+.qrow{display:grid;grid-template-columns:150px 1fr auto;gap:.75rem;align-items:center;padding:.55rem .75rem;border:1px solid rgba(128,128,128,.3);border-radius:10px;background:rgba(128,128,128,.07);font-size:.92rem}
+.qrow .bar{height:8px;border-radius:4px;background:rgba(128,128,128,.25);overflow:hidden}.qrow .bar i{display:block;height:100%}
+.qrow .when{font-family:'JetBrains Mono',monospace;font-weight:600;white-space:nowrap}
+.qpanel{display:grid;gap:.5rem}
+.vstack{max-width:640px;margin:0 auto;display:grid;gap:1rem}
+
 </style>
 </head>
 <body>
@@ -43,7 +52,7 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v6.7.0</span> · Linux, macOS et Windows · compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v6.8.1</span> · Linux, macOS et Windows · compagnon de claude_project_template</div>
     <h1>Un hub pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
     <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil — sur votre machine ou <em>dans un conteneur</em> : podman, docker, ssh, Kubernetes.</p>
     <p class="hero-sub">Un seul binaire Go par système : dans tmux sous Linux et macOS, dans une vraie fenêtre sous Windows. Chaque projet peut avoir son conteneur, ses outils, sa machine : votre OS reste propre.</p>
@@ -89,7 +98,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>
-<span style="color:#6e7681" data-ng-term>  NG v6.7.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.8.1 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -156,21 +165,16 @@
   </div>
 </section>
 
-<section id="news">
+<section id="news" class="q">
   <div class="container">
     <div class="section-header">
-      <span class="new-badge">Nouveau en v6.7.0</span>
-      <h2>Nouveautés de la v6.7 — Ne ratez plus une question</h2>
-      <p>Signalement des teamleaders en attente, démarrage de session proposé et interface plus robuste face à un partage injoignable.</p>
+      <span class="new-badge">Nouveau en v6.8.1</span>
+      <h2>Nouveautés de la v6.8 — Les quotas se lisent d’un coup d’œil</h2>
+      <p>La date de renouvellement de chaque quota prend la couleur de votre rythme d’utilisation : vous savez avant la panne si le quota tiendra jusqu’au renouvellement.</p>
     </div>
-    <div class="win-grid">
-      <div class="feature-card"><div class="feature-icon">❓</div><div class="feature-body"><h3>Savoir quel teamleader vous attend<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.7.0">Nouveau v6.7.0</span></h3><p>Un badge, un onglet et une vignette signalent le teamleader en attente de votre réponse (question ou permission), avec une notification du navigateur ; la fin de l’attente les retire.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
-      <div class="feature-card"><div class="feature-icon">💬</div><div class="feature-body"><h3>Proposition de /start-session à l’ouverture<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.7.0">Nouveau v6.7.0</span></h3><p>À l’ouverture d’un projet géré dont la session n’est pas démarrée, le launcher propose de lancer <code>/start-session</code> avant claude.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
-      <div class="feature-card"><div class="feature-icon">⏱</div><div class="feature-body"><h3>Partage injoignable : l’interface ne se fige plus<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.7.0">Nouveau v6.7.0</span></h3><p>L’écriture de <code>config.conf</code> est bornée par <code>SHARE_WRITE_TIMEOUT</code> (10 s par défaut) ; l’organisation précédente est rétablie et l’écriture reprend au retour du partage.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
-      <div class="feature-card"><div class="feature-icon">🛑</div><div class="feature-body"><h3>Arrêt propre de l’interface<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.7.0">Nouveau v6.7.0</span></h3><p>Les terminaux sont détachés puis attendus (échéance de 25 s) ; plus aucune écriture n’est acceptée après l’arrêt.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span></div></div></div>
-      <div class="feature-card"><div class="feature-icon">🧹</div><div class="feature-body"><h3>Message de repli affiché une seule fois<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.7.0">Nouveau v6.7.0</span></h3><p>Le message « leader à gauche refusé par tmux » n’apparaît plus à chaque remise en page.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
-    </div>
-    <p class="v63-cta">👉 <a href="https://github.com/CCoupel/Claude-Launcher/releases/tag/v6.7.0">Release v6.7.0</a></p>
+    <div class="vstack"><div class="feature-card"><div class="feature-icon">⏳</div><div class="feature-body"><h3>Les quotas se lisent d’un coup d’œil<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.8.1">Nouveau v6.8.1</span></h3><p><span class="q-red">Rouge</span> + « ⚠ épuisé ~HH:MM » : le quota sera épuisé <b>avant</b> son renouvellement. <span class="q-or">Orange</span> : épuisé peu après le renouvellement (session&nbsp;&lt;&nbsp;1&nbsp;h, hebdo&nbsp;&lt;&nbsp;5&nbsp;h). <span class="q-gr">Vert</span> : tout va bien. Valable pour la session de 5&nbsp;h, la semaine et la semaine par modèle (ex. Fable).</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
+    <div class="qpanel" role="img" aria-label="Exemple : session rouge, hebdomadaire orange, Fable vert"><div class="qrow"><span>Session 5 h</span><span class="bar"><i style="width:92%;background:#f85149"></i></span><span class="when q-red">↻ 18:10 · ⚠ épuisé ~16:42</span></div><div class="qrow"><span>Hebdomadaire</span><span class="bar"><i style="width:78%;background:#f0883e"></i></span><span class="when q-or">↻ dim. 09:00 · ⚠ épuisé ~07:30</span></div><div class="qrow"><span>Hebdo Fable</span><span class="bar"><i style="width:35%;background:#3fb950"></i></span><span class="when q-gr">↻ dim. 09:00</span></div></div></div>
+    <p class="v63-cta">👉 <a href="https://github.com/CCoupel/Claude-Launcher/releases/tag/v6.8.1">Release v6.8.1</a></p>
   </div>
 </section>
 
@@ -276,6 +280,8 @@
         <caption class="sr-only">Fonctionnalités et plateformes où elles sont utilisables</caption>
         <thead><tr><th scope="col">Fonctionnalité</th><th scope="col">Linux</th><th scope="col">Windows</th><th scope="col">Web</th><th scope="col">k8s</th></tr></thead>
         <tbody>
+          <tr class="grp"><th scope="colgroup" colspan="5">Nouveautés v6.8.1</th></tr>
+          <tr><th scope="row">Quotas : renouvellement coloré selon l’épuisement prévu</th><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td></tr>
           <tr class="grp"><th scope="colgroup" colspan="5">Nouveautés v6.7.0</th></tr>
           <tr><th scope="row">Savoir quel teamleader vous attend</th><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td></tr>
           <tr><th scope="row">Proposition de /start-session à l’ouverture</th><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr-only">non disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td></tr>
@@ -555,7 +561,7 @@
           <div class="win-body">
             <div class="win-left">
               <div class="win-head">
-                <div class="win-ver"><b>NG2 <span data-ng-version>v6.7.0</span></b><span class="dim"> · tpl 5.0.0</span><span class="win-sp"></span><span class="win-seg"><span class="on">Auto</span><span>☀</span><span>☾</span></span><span class="win-cfg">⚙ config</span></div>
+                <div class="win-ver"><b>NG2 <span data-ng-version>v6.8.1</span></b><span class="dim"> · tpl 5.0.0</span><span class="win-sp"></span><span class="win-seg"><span class="on">Auto</span><span>☀</span><span>☾</span></span><span class="win-cfg">⚙ config</span></div>
                 <div class="win-usage">
                   <span class="dim">session</span><span class="bar"><i style="width:42%;background:#3fb950"></i></span><span class="dim">42 %</span>
                   <span class="dim">semaine</span><span class="bar"><i style="width:71%;background:#d29922"></i></span><span class="dim">71 %</span>
@@ -715,7 +721,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681" data-ng-term>  NG v6.7.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.8.1 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -1135,7 +1141,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v6.7.0</span> — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v6.8.1</span> — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 
