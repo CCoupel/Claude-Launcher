@@ -1389,7 +1389,8 @@ function stPageProjet(p) {
   im.addEventListener('change', () => {
     const other = im.value === '\u0000other';
     imo.style.display = other ? '' : 'none';
-    if (other) { imo.value = ''; d.image = pj.orig.image; imo.focus(); } // rien saisi : ancienne valeur conservée else d.image = im.value;
+    // « Autre… » : rien saisi → ancienne valeur conservée
+    if (other) { imo.value = ''; d.image = pj.orig.image; imo.focus(); } else d.image = im.value;
     stRenderFoot();
   });
   const imBox = el('span'); imBox.append(im, imo);
