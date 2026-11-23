@@ -892,7 +892,7 @@ réécrit par remplacement). Au premier conteneur, ce fichier est **copié** dep
 
 ### Consommation du compte : un seul cache pour tous
 
-Le cache de la consommation du compte est dans `<config claude>/claude-launcher-cache/`
+Le cache de la consommation du compte est dans `<config claude>/claude-launcher-cache/` (avec `usage-levels.json`, les niveaux d'épuisement calculés par le launcher pour le panneau milestone des projets, réécrit seulement quand `usage.json` change)
 (la config claude, `CLAUDE_CONFIG_DIR`, est montée au même chemin dans tous les
 conteneurs, locaux ou distants, et l'endpoint est propre au compte) :
 

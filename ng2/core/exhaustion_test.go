@@ -20,7 +20,8 @@ func TestExhaustion235(t *testing.T) {
 		before     bool
 	}{
 		{"rouge : épuisé dans 1h20 < renew", "five_hour", 60, reset, ExhaustRed, true},
-		{"orange : 4h40 → renew + 1h40 < 6 h", "five_hour", 30, reset, ExhaustYellow, false},
+		{"vert : 4h40 → renew + 1h40 > marge 1 h (#237)", "five_hour", 30, reset, ExhaustGreen, false},
+		{"orange : session épuisée à renew + 30 min", "five_hour", 100 / 2.75, reset, ExhaustYellow, false},
 		{"vert : bien au-delà", "five_hour", 5, reset, ExhaustGreen, false},
 		{"non fiable : conso nulle", "five_hour", 0, reset, "", false},
 		{"non fiable : fenêtre entamée < 5 %", "five_hour", 50, at(4*time.Hour + 57*time.Minute), "", false},

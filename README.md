@@ -419,7 +419,7 @@ EXTRA_ENVS=(
 dans les conteneurs locaux) : le launcher est le seul à appeler l'endpoint tant que ce cache est frais.
 La **date de renouvellement** de chaque fenêtre (session 5 h, semaine 7 j) est colorée d'après une projection linéaire
 de l'épuisement (rythme moyen depuis le début de la fenêtre, extrapolé à 100 %, identique au panneau milestone du
-template) : **rouge** = épuisé avant le renouvellement (avec `⚠ épuisé ~HH:MM`), **orange** = épuisé moins de 6 h après,
+template) : **rouge** = épuisé avant le renouvellement (avec `⚠ épuisé ~HH:MM`), **orange** = épuisé peu après (moins de 1 h après pour la session, 5 h pour la semaine),
 **vert** = au-delà. Sans couleur si la projection n'est pas fiable (conso nulle, fenêtre entamée depuis moins de
 10 min ou 5 % de sa durée) ou si les données sont périmées. Coque tmux, fenêtre native et `--web`.
 

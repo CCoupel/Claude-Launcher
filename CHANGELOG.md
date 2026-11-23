@@ -8,6 +8,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
 ## [Unreleased]
 
+### Added
+- Quotas : le launcher écrit `usage-levels.json` (niveau d'épuisement de chaque fenêtre, dans le cache partagé à côté de `usage.json`) pour le panneau milestone des projets : une seule source du calcul, schéma `contracts/usage-levels.md` (#237)
+
+### Changed
+- Quotas : la marge de l'orange dépend de la fenêtre — moins de 1 h après le renouvellement pour la session (5 h), moins de 5 h pour les fenêtres hebdomadaires — au lieu de 6 h pour toutes (#237)
+
 ## [6.8.0] — 2026-11-23
 
 ### Added
