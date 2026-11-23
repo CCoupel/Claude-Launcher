@@ -4,18 +4,31 @@
 
 ## Etat courant
 
-- **Version** : **6.6.0 publiée en PROD le 2026-11-22** — tag `v6.6.0` sur b3ec811, release
-  https://github.com/CCoupel/Claude-Launcher/releases/tag/v6.6.0. Milestone #30 « v6.6.0 — Gestion des projets » clos
-  (11 issues : #214–#219, #224, #225–#227). Notes de version : release + PR #230. Site gh-pages v6.6.0 : PR #229
-  (https://ccoupel.github.io/Claude-Launcher/).
+- **Version** : **6.7.0 publiée en PROD le 2026-11-22** — tag `v6.7.0`, PR #232 mergée (b2b8ac6), release GitHub
+  publiée, helm `claude-ng2` rev 5, binaire hub v6.7.0 (sauvegarde `claude-launcher-ng2.bak-v6.6.0`). Site gh-pages à
+  jour : PR #233. Milestone #31 « v6.7.0 » clos, `milestone/v6.7.0` supprimée, workflow `completed`.
 - **Branche** : main.
 - **Environnements** :
-  - PROD : namespace `claude-ng2`, helm révision 4, pod v6.6.0.
-  - QUALIF : v6.6.0.8 (pod `claude-launcher-qualif-0`, image `claude-launcher-qualif:v6.6.0.8`, build 261f49b, binaires `claude-launcher-ng2-6.6.0.8[.exe]` sous `/share/MFS/ROOT/CLAUDE_PROJETS/`), mise à jour dans cette session.
-  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.6.0 (sauvegarde `claude-launcher-ng2.bak-v6.5.0`).
+  - PROD : namespace `claude-ng2`, helm révision 5, pod v6.7.0.
+  - QUALIF : v6.7.0.4 (dernière build déployée ; binaires QUALIF 6.6.0.x résiduels sous `/share/MFS/ROOT/CLAUDE_PROJETS/`).
+  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.7.0 (sauvegarde `claude-launcher-ng2.bak-v6.6.0`).
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
-- **Travail en cours** : aucun milestone en développement ; branche main.
+- **Travail en cours** : aucun. Branche main.
+
+## Decisions de la session (v6.7.0)
+
+- **#220** : `SHARE_WRITE_TIMEOUT` (défaut 10 s, bornes 2–120) ; au-delà du délai, retour à l'organisation précédente,
+  écriture abandonnée poursuivie en tâche de fond, reprise automatique.
+- **#221** : arrêt de l'interface borné à 25 s ; terminaux détachés puis attendus, arrêt forcé du client au bout de 5 s
+  (écart contrat accepté : `detachWait` et non échéance − 1 s).
+- **#222** : message de repli « leader à gauche refusé » affiché une fois par projet et par cause.
+- **#231** : `/init-project` proposé d'abord ; `/start-session` proposé si projet géré ET `teams/<team>/config.json` absent.
+  Limite : constat dans le `CLAUDE_CONFIG_DIR` du launcher seulement.
+- **#223** : question + permission = attente ; notifications activées par défaut (`ATTENTION_NOTIFY`) ; état dans
+  `<projet>/.claude-launcher/attention/<pane>.json` (`CL_ATTENTION_DIR`) ; `attentionFocus` émis par l'émetteur natif
+  seul ; id inconnu = aucun évènement (contrat aligné). Maquette A retenue (badge « ❓ en attente »).
+- Plans de test HTML servis seulement depuis `_work/mockup/` (le `/files` du launcher ne sert que `_work/mockup`).
 
 ## Decisions de la session (v6.6.0)
 
@@ -71,10 +84,16 @@
 
 ## Points pour la prochaine session
 
+- Procédure HUMAIN #223 jamais jouée (lot validé sans test Windows) : rejouable via
+  `tests/procedures/ui-desktop/attente-teamleader-223/simulate-attention.sh`.
+- Relancer le hub et les sessions claude pour charger les hooks #223 (lus au démarrage de claude).
+- Pistes d'issues non ouvertes : suite ui/desktop lente (166–230 s), test Windows instable
+  `TestFilesSansSessionEnModeNone174`, `_work/test-plan/` non servi, QUALIF 6.7.0.4 et binaires QUALIF 6.6.0.x résiduels.
+- Limites connues : badge conservé jusqu'à 24 h si claude est mort mais son pane resté ; un outil parallèle terminé
+  pendant une permission l'efface.
+- Template v5.12.1 disponible (sync local v5.12.0) : proposer `/init-project`.
 - Relancer les sessions Claude ouvertes avant le 2026-11-21 ~10:00 (GH_TOKEN factice hérité d'un test).
-- Suite ui/desktop plus lente avec les faux moteurs (95 s → 154 s) : à optimiser.
-- Pastilles d'effet pour backends.yaml / hub / env.yaml : suite possible (hors v6.6.0).
-- Coque : comparaison des options depuis un texte vide si config.conf disparaît (cosmétique).
+- Suite ui/desktop plus lente avec les faux moteurs : à optimiser.
 - Réservé pour plus tard : PSA point 11 ; supprimer trust.json lève toutes les approbations.
 
 ## Regles critiques
