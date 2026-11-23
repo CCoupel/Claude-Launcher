@@ -12,30 +12,30 @@ import (
 
 // ── Annonces de mise à jour (même cycle que la coque) ─────────────────────
 //
-// Vérification GitHub 6 s après le démarrage, puis toutes les 10 min (2 min
-// tant qu'une release est attendue ou pas encore prête). NG : orange (tag sans
+// Vérification GitHub 6 s après le démarrage, puis selon le cycle de core.UpdateCheckEvery (avec jeton 2 min, 1 min
+// tant qu'une release est attendue ; sans jeton 5 min / 2 min — #238). NG : orange (tag sans
 // release) → jaune (téléchargement et contrôle) → vert (un clic installe et
 // relance l'application ; les projets restent dans tmux). Template : orange →
 // vert (un clic l'adopte).
 
 func (a *App) updateLoop() {
 	d := 6 * time.Second
+	pending := func() bool {
+		a.mu.Lock()
+		defer a.mu.Unlock()
+		u := a.upd
+		return (u.newLauncher != "" && !u.launcherOK) || (u.newTpl != "" && !u.tplOK)
+	}
 	for {
 		select {
 		case <-a.quit:
 			return
 		case <-time.After(d):
 		}
-		msg := core.CheckUpdatesNow(false)
+		msg := core.CheckUpdatesEvery(false, core.UpdateCheckEvery(pending()))
 		a.applyUpd(msg)
-		a.mu.Lock()
-		u := a.upd
-		a.mu.Unlock()
-		d = 10 * time.Minute
-		if (u.newLauncher != "" && !u.launcherOK) || (u.newTpl != "" && !u.tplOK) {
-			d = 2 * time.Minute
-		}
-		d = core.NextUpdateDelay(msg, d) // quota épuisé : pas d'appel avant la reprise (#199)
+		// CheckedAt + cycle (résultat partagé compris), quota épuisé : pas d'appel avant la reprise (#199, #238)
+		d = core.NextCheckDelay(msg, core.UpdateCheckEvery(pending()))
 	}
 }
 

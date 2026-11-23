@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"claude-launcher-ng2/internal/tun"
 )
 
 // Vérification GitHub (#199, contracts/template-version.md) : jeton si disponible, requêtes conditionnelles
@@ -19,8 +21,41 @@ const (
 	UpdErrNetwork = "network"
 )
 
-// updateCheckTTL : durée pendant laquelle le résultat partagé évite tout appel (F5 la contourne).
-const updateCheckTTL = 10 * time.Minute
+// Cycles de vérification (#238, contracts/template-version.md §6) : avec jeton GitHub (les 304 authentifiés ne
+// comptent pas dans le quota), sans jeton (quota anonyme de 60/h par adresse IP, partagé par toutes les
+// instances derrière la même sortie) ; « attendue » = tag sans release, ou template pas encore prêt.
+var (
+	updateEveryToken       = tun.Of(2 * time.Minute)
+	updateEveryTokenWait   = tun.Of(1 * time.Minute)
+	updateEveryAnon        = tun.Of(5 * time.Minute)
+	updateEveryAnonWait    = tun.Of(2 * time.Minute)
+	updateCheckTTLMargin   = tun.Of(10 * time.Second) // le résultat partagé est réutilisé s'il a moins que cycle − marge
+	updateCheckMinInterval = tun.Of(10 * time.Second) // plancher du délai calé sur CheckedAt
+)
+
+// UpdateCheckEvery : cycle de vérification GitHub ; pending : une release est attendue.
+func UpdateCheckEvery(pending bool) time.Duration {
+	switch {
+	case githubToken() != "" && pending:
+		return updateEveryTokenWait.Get()
+	case githubToken() != "":
+		return updateEveryToken.Get()
+	case pending:
+		return updateEveryAnonWait.Get()
+	}
+	return updateEveryAnon.Get()
+}
+
+// NextCheckDelay : délai avant la prochaine vérification d'après un résultat — CheckedAt + cycle (au moins
+// 10 s) : plusieurs instances du poste partageant le résultat ne cumulent plus leurs attentes — puis la reprise
+// annoncée si le quota est épuisé (NextUpdateDelay, prioritaire).
+func NextCheckDelay(msg UpdMsg, cycle time.Duration) time.Duration {
+	d := cycle
+	if !msg.CheckedAt.IsZero() {
+		d = min(cycle, max(updateCheckMinInterval.Get(), time.Until(msg.CheckedAt)+cycle))
+	}
+	return NextUpdateDelay(msg, d)
+}
 
 // updRepo : dernier tag connu d'un dépôt.
 type updRepo struct {

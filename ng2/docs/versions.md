@@ -21,8 +21,17 @@ main (version `dev` ou suffixée) ne se remplace jamais.
 Si le tag est déjà poussé mais que sa release n'est pas encore publiée (CI en cours), le NG
 démarre avec la version en place.
 
-Ensuite, vérification GitHub 6 s après le démarrage, puis toutes les 10 minutes (2 minutes tant
-qu'une release est attendue ou pas encore prête). Chaque nouvelle version du NG passe par trois
+Ensuite, vérification GitHub 6 s après le démarrage, puis **toutes les 2 minutes avec un jeton
+GitHub** (1 minute tant qu'une release est attendue ou pas encore prête), **toutes les 5 minutes sans jeton** (2 minutes
+si une release est attendue). Une nouvelle version apparaît donc sur une page web ouverte au plus un cycle après sa
+publication, sans `F5`. Le résultat est partagé par les instances du poste (réutilisé s'il a moins d'un cycle − 10 s).
+Le jeton est `GH_TOKEN` / `GITHUB_TOKEN` (environnement) ou `GITHUB_TOKEN` de `config.conf`.
+
+> **Sans jeton, risque de quota** : le quota anonyme de GitHub est de 60 requêtes par heure **par adresse IP**. Le hub,
+> le pod du cluster et les postes Windows derrière la même sortie le partagent : à partir de ~3 instances sans jeton
+> (≈ 24 requêtes/h chacune), GitHub répond `429` — alerte « ⚠ vérification GitHub impossible (quota, reprise HH:MM) » et
+> pause jusqu'à la reprise. Remède : régler `GITHUB_TOKEN` dans `config.conf` (les requêtes conditionnelles
+> authentifiées répondant `304` ne comptent pas dans le quota). Chaque nouvelle version du NG passe par trois
 couleurs :
 
 | Annonce | État | Clic |

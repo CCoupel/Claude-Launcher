@@ -411,7 +411,7 @@ EXTRA_ENVS=(
 - **Démarrer la session** : un projet géré (`start-session.md` présent) sans team lance claude avec une question
   `session non démarrée — lancer /start-session ? [O/n]`, après la question `/init-project` éventuelle. Une team
   existante, une reprise ou un projet non géré ne pose pas la question.
-- NG2 se met à jour au lancement, puis vérifie GitHub toutes les 10 minutes (ou sur `F5`).
+- NG2 se met à jour au lancement, puis vérifie GitHub toutes les 2 minutes avec un jeton GitHub, 5 minutes sans (ou sur `F5`) — sans jeton, plusieurs instances derrière la même adresse IP peuvent atteindre le quota anonyme de 60 requêtes/h (`429`) : régler `GITHUB_TOKEN` dans `config.conf` (voir `ng2/docs/versions.md`).
 
 **Consommation du compte Claude :** sous la liste des projets, les fenêtres de quota du compte
 (session, semaine, limites par modèle) — même source que la page « Utilisation » de claude.ai. Le cache

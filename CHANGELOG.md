@@ -12,6 +12,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Quotas : le launcher écrit `usage-levels.json` (niveau d'épuisement de chaque fenêtre, dans le cache partagé à côté de `usage.json`) pour le panneau milestone des projets : une seule source du calcul, schéma `contracts/usage-levels.md` (#237)
 
 ### Changed
+- Versions : vérification GitHub toutes les 2 min avec jeton (1 min si une release est attendue), 5 min sans jeton (2 min si attendue) au lieu de 10 min ; le résultat partagé du poste n'est plus réutilisé 10 min (il neutralisait le cycle accéléré) mais moins d'un cycle − 10 s, et la vérification suivante est calée sur son heure : une nouvelle version apparaît au plus un cycle après sa publication, sans `F5`. Sans jeton, plusieurs instances derrière la même adresse IP peuvent atteindre le quota anonyme GitHub (60/h) : régler `GITHUB_TOKEN` (#238)
 - Quotas : la marge de l'orange dépend de la fenêtre — moins de 1 h après le renouvellement pour la session (5 h), moins de 5 h pour les fenêtres hebdomadaires — au lieu de 6 h pour toutes (#237)
 
 ## [6.8.0] — 2026-11-23
