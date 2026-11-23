@@ -8,6 +8,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
 ## [Unreleased]
 
+### Fixed
+- Réglages du projet : la liste « Image de base » propose toutes les images (backends.yaml, défauts, image courante) au lieu de la seule image déjà configurée ; saisie libre via « Autre… » (#234)
+
 ## [6.7.0] — 2026-11-22
 
 ### Added

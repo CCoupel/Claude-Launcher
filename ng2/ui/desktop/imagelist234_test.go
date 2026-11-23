@@ -22,7 +22,20 @@ func TestProjectImageFieldProposesFullList234(t *testing.T) {
 	if strings.Contains(body, "setAttribute('list', 'pjimages')") {
 		t.Error("l'image de base reste un <input list=pjimages> pré-rempli : le datalist filtre sur la valeur et ne montre que l'image courante")
 	}
-	if !strings.Contains(body, "el('select'") || !strings.Contains(body, "pjf-image") {
-		t.Error("aucun <select> (id pjf-image) proposant la liste complète des images")
+	k := strings.Index(body, "const im = el('select'")
+	if k < 0 {
+		t.Fatal("le champ pjf-image n'est pas un <select>")
+	}
+	blk := body[k:]
+	if e := strings.Index(blk, "const imBox"); e >= 0 {
+		blk = blk[:e]
+	}
+	for _, want := range []string{"im.id = 'pjf-image'", "r.images", "d.image", "Autre…"} {
+		if !strings.Contains(blk, want) {
+			t.Errorf("select pjf-image : %q absent (liste complète, image courante ou saisie libre)", want)
+		}
+	}
+	if !strings.Contains(body, "['Image de base', imBox") {
+		t.Error("la ligne « Image de base » n'utilise pas le select")
 	}
 }

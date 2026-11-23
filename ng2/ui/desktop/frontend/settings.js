@@ -1378,11 +1378,23 @@ function stPageProjet(p) {
   for (const n of names) be.appendChild(Object.assign(el('option', '', n === 'host' ? 'host (hôte local)' : n), { value: n }));
   be.value = d.backend; be.disabled = open;
   be.addEventListener('change', () => { d.backend = be.value; stRenderFoot(); });
-  const im = stInput(d.image, (v) => { d.image = v.trim(); }, 'image de base', 'w'); im.id = 'pjf-image'; im.disabled = open;
-  const dl = el('datalist'); dl.id = 'pjimages'; for (const i of r.images || []) dl.appendChild(Object.assign(el('option'), { value: i }));
-  im.setAttribute('list', 'pjimages');
+  // #234 : select de la liste complète (backends.yaml ∪ défauts ∪ image courante), indépendante de la valeur pré-remplie ; « Autre… » = saisie libre
+  const im = el('select', 'stin w'); im.id = 'pjf-image'; im.disabled = open;
+  const imgs = (r.images || []).slice(); if (d.image && !imgs.includes(d.image)) imgs.push(d.image);
+  if (!d.image) im.appendChild(Object.assign(el('option', '', '(aucune)'), { value: '' }));
+  for (const i of imgs) im.appendChild(Object.assign(el('option', '', i), { value: i }));
+  im.appendChild(Object.assign(el('option', '', 'Autre…'), { value: '\u0000other' }));
+  im.value = d.image || '';
+  const imo = stInput('', (v) => { d.image = v.trim(); }, 'image de base', 'w'); imo.id = 'pjf-image-other'; imo.disabled = open; imo.style.display = 'none';
+  im.addEventListener('change', () => {
+    const other = im.value === '\u0000other';
+    imo.style.display = other ? '' : 'none';
+    if (other) { imo.value = ''; d.image = ''; imo.focus(); } else d.image = im.value;
+    stRenderFoot();
+  });
+  const imBox = el('span'); imBox.append(im, imo);
   const rows = [['Backend', be, open ? ENV_LOCK_MSG + ' (backend et image)' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
-    ['Image de base', im, 'ignorée pour le backend host'], ['Backend préféré', (() => { const pf = stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'); const l2 = envLock({ open }, 'project-env', r); if (l2.locked) { pf.disabled = true; pf.title = l2.why; } return pf; })(), envLock({ open }, 'project-env', r).locked ? envLock({ open }, 'project-env', r).why + ' (env.yaml)' : 'proposé aux autres postes (prefer, env.yaml)']];
+    ['Image de base', imBox, 'ignorée pour le backend host'], ['Backend préféré', (() => { const pf = stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'); const l2 = envLock({ open }, 'project-env', r); if (l2.locked) { pf.disabled = true; pf.title = l2.why; } return pf; })(), envLock({ open }, 'project-env', r).locked ? envLock({ open }, 'project-env', r).why + ' (env.yaml)' : 'proposé aux autres postes (prefer, env.yaml)']];
   const sw = el('span', 'pjcolors'); sw.id = 'pjf-color';
   const mk = (val, label, css) => {
     const c = el('span', 'pjsw' + (d.color === val ? ' on' : '')); c.title = label; if (css) c.style.background = css; else c.textContent = 'auto';
@@ -1401,7 +1413,7 @@ function stPageProjet(p) {
   ls.value = d.layout || '';
   ls.addEventListener('change', () => { d.layout = ls.value; stRenderFoot(); });
   const layBox = stBox('Mise en page des panes', stForm([['Mise en page des panes', ls, 'appliquée aux fenêtres ouvertes sans relance ; réglage global : Réglages › Launcher › Mise en page des panes']]), el('span', 'dim', 'config.conf'));
-  const ex = stForm(rows); ex.appendChild(dl);
+  const ex = stForm(rows);
   p.appendChild(layBox);
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
   if (r.envTrust) { // #215 : environnement d'un dépôt cloné — état et « Revoir »
