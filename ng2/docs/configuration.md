@@ -71,7 +71,8 @@ leur champ. « Éditer env.yaml en YAML » ouvre l'éditeur de texte sur le fich
 
 La rubrique **Projet** contient :
 
-- **Exécution** : le backend (`host` ou backend conteneur) et l'image de base, modifiables **projet fermé
+- **Exécution** : le backend (`host` ou backend conteneur) et l'image de base (liste : `images:` de `backends.yaml` ou socles par défaut, plus l'image courante ; « Autre… »
+  pour une saisie libre), modifiables **projet fermé
   seulement** (ouvert ici, ou par l'autre launcher qui le tient, ils sont désactivés avec un message) ; le backend
   préféré ; la couleur du projet (pastilles de la palette `COLOR_PALETTE`, ou automatique).
 - **Environnement du conteneur** : image, paquets (par gestionnaire, `apt: git jq`), `setup`, `on_start`, `watch`,

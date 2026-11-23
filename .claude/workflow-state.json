@@ -1,11 +1,11 @@
 {
   "type": "BUGFIX",
   "description": "Milestone v6.8.0 — #234 (bugfix image) + date de renouvellement des quotas colorée",
-  "status": "in_progress",
+  "status": "completed",
   "branch": "milestone/v6.8.0",
   "version": "6.8.0",
   "started_at": "2026-11-23T10:13:24Z",
-  "updated_at": "2026-11-23T10:19:31Z",
+  "updated_at": "2026-11-23T12:59:59Z",
   "cycles": 1,
   "issue_nums": [
     234,
@@ -86,20 +86,24 @@
     }
   },
   "lots": {
-    "current": "LOT-1",
+    "current": "v6.8.0 validée (GATE 4) — PROD en attente de /deploy prod",
     "order": [
       "LOT-1"
     ],
     "items": {
       "LOT-1": {
-        "status": "in_progress",
+        "status": "completed",
         "issues": [
           234,
           235
         ],
-        "phase": "gate-lot",
-        "gate": "en attente"
+        "phase": null,
+        "gate": "validé (explicite, 2/2 OK)"
       }
     }
+  },
+  "gate4": {
+    "status": "validé",
+    "at": "2026-11-23T12:59:59Z"
   }
 }

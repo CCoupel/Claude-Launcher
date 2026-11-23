@@ -4,17 +4,28 @@
 
 ## Etat courant
 
-- **Version** : **6.7.0 publiée en PROD le 2026-11-22** — tag `v6.7.0`, PR #232 mergée (b2b8ac6), release GitHub
-  publiée, helm `claude-ng2` rev 5, binaire hub v6.7.0 (sauvegarde `claude-launcher-ng2.bak-v6.6.0`). Site gh-pages à
-  jour : PR #233. Milestone #31 « v6.7.0 » clos, `milestone/v6.7.0` supprimée, workflow `completed`.
-- **Branche** : main.
+- **Version** : **6.8.0 livrée en QUALIF (6.8.0.1, helm `claude-qualif` rev 47), PROD en attente de `/deploy prod`**
+  (PR de la branche `milestone/v6.8.0` vers main + tag `v6.8.0` à faire). Dernière PROD : 6.7.0 (2026-11-22, PR #232, helm
+  `claude-ng2` rev 5, sauvegarde hub `claude-launcher-ng2.bak-v6.6.0`). Milestone #32 « v6.8.0 » (#234, #235), workflow
+  `completed`. Site gh-pages à jour jusqu'à v6.7.0 (PR #233).
+- **Branche** : `milestone/v6.8.0` (non poussée).
 - **Environnements** :
   - PROD : namespace `claude-ng2`, helm révision 5, pod v6.7.0.
-  - QUALIF : v6.7.0.4 (dernière build déployée ; binaires QUALIF 6.6.0.x résiduels sous `/share/MFS/ROOT/CLAUDE_PROJETS/`).
-  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.7.0 (sauvegarde `claude-launcher-ng2.bak-v6.6.0`).
+  - QUALIF : v6.8.0.1.
+  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.7.0.
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
-- **Travail en cours** : aucun. Branche main.
+- **Travail en cours** : aucun (reste : déploiement PROD v6.8.0).
+
+## Decisions de la session (v6.8.0)
+
+- **#234** : cause = `<input list>`+`<datalist>` pré-rempli (le navigateur filtre sur la valeur), pas le Go ; option A
+  retenue (liste complète : `images:` de backends.yaml ∪ défauts ∪ image courante, « Autre… » en saisie libre, « (aucune) »
+  toujours proposé) ; images des pods k8s (option B) non faite, sans issue de suivi.
+- **#235** : projection d'épuisement calculée une fois dans `core.ProjectExhaustion` (identique à `lib.ts` du template 0.6.0) ;
+  `UsageRow.resetLevel` / `alert` ; pas de couleur si données périmées ou « passée ». Procédure HUMAIN #235 à jouer.
+- Build image QUALIF : 33 min avec les miroirs Ubuntu officiels (lents depuis le réseau ; `fr.archive.ubuntu.com` rapide).
+- Deux agents sur le même checkout : un `git commit` de l'un embarque les modifications non commitées de l'autre (ca18e29).
 
 ## Decisions de la session (v6.7.0)
 
