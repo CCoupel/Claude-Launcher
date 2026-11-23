@@ -266,6 +266,10 @@ function renderHead() {
       const bar = el('div', 'bar'); const f = el('div'); f.style.width = (r.passed ? 0 : r.pct) + '%'; f.style.background = col[r.tone] || col.blue; bar.appendChild(f);
       const pct = el('span', 'pct t-' + (r.tone === 'blue' ? 'blue' : r.tone), r.passed ? '—' : r.pct + ' %');
       const rst = el('span', 'rst', r.passed ? 'réinit. passée' : r.reset);
+      // #235 : date de renouvellement colorée par la projection d'épuisement (yellow = orange à l'écran), alerte rouge
+      const lvl = { red: 'rst-red', yellow: 'rst-orange', green: 'rst-green' }[r.resetLevel];
+      if (lvl && !r.passed) rst.classList.add(lvl);
+      if (r.alert && !r.passed) rst.appendChild(el('span', 'rst-alert', ' ' + r.alert));
       u.append(lab, bar, pct, rst);
     }
     if (s.stale) u.appendChild(el('span', 'msg t-yellow', s.stale));

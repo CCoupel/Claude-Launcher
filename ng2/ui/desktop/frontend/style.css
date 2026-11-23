@@ -132,6 +132,8 @@ html, body { margin: 0; height: 100%; background: var(--bg-deep); color: var(--t
 #usage .bar > div { height: calc(6 * var(--tu)); border-radius: calc(3 * var(--tu)); }
 #usage .pct { text-align: right; font-family: var(--mono); }
 #usage .rst { color: var(--dim); font-size: calc(11 * var(--tu)); white-space: nowrap; }
+#usage .rst-red { color: var(--red); } #usage .rst-orange { color: var(--orange); } #usage .rst-green { color: var(--green); }
+#usage .rst-alert { color: var(--red); font-weight: 600; }
 #usage .msg { grid-column: 1 / -1; color: var(--muted); }
 .login { padding: calc(4 * var(--tu)) calc(8 * var(--tu)); border-radius: calc(4 * var(--tu)); cursor: pointer; font-size: calc(12 * var(--tu)); }
 .login.warn { background: var(--alert-yellow); color: var(--yellow); }
