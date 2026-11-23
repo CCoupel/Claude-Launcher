@@ -1,0 +1,171 @@
+{
+  "type": "FEATURE",
+  "description": "Milestone v6.7.0 — issues #220, #221, #222, #223, #231",
+  "status": "completed",
+  "branch": "main",
+  "version": "6.7.0",
+  "started_at": "2026-11-22T14:20:00Z",
+  "updated_at": "2026-11-22T21:00:00Z",
+  "cycles": 3,
+  "issue_nums": [
+    220,
+    221,
+    222,
+    223,
+    231
+  ],
+  "milestone_num": 31,
+  "plan": ".claude/workflow/plan-v6.7.0.md",
+  "phases": {
+    "clarification": {
+      "status": "completed",
+      "skipped": false
+    },
+    "plan": {
+      "status": "completed",
+      "report": "_work/reports/plan-20261122-v6.7.0.md"
+    },
+    "dev-backend": {
+      "status": "completed",
+      "sha": "e02e974",
+      "note": "course test/rm -rf script de démarrage"
+    },
+    "dev-frontend": {
+      "status": "completed",
+      "shas": [
+        "3664ad6",
+        "3135d31",
+        "12c9667"
+      ],
+      "note": "rendu non vu, validé par procédure HUMAIN"
+    },
+    "test-writer": {
+      "status": "completed",
+      "shas": [
+        "ea54156",
+        "2ea2d61",
+        "31d2e35"
+      ],
+      "sha": "2ea2d61",
+      "handoff": "_work/handoff/test-writer-20261122-lot3b.md",
+      "validation_humaine": "#223",
+      "procedure": "tests/procedures/ui-desktop/attente-teamleader-223/attente-teamleader.md"
+    },
+    "review": {
+      "status": "completed",
+      "verdict": "APPROUVE AVEC RESERVES",
+      "report": "_work/reports/code-review-20261122-lot3.md"
+    },
+    "qa": {
+      "status": "completed",
+      "verdict": "VALIDATED",
+      "sha": "4b70f8f",
+      "report": "_work/reports/qa-20261122-171807.md"
+    },
+    "doc": {
+      "status": "completed",
+      "step": "finalize",
+      "sha": "ac828dd",
+      "readme": "mis à jour"
+    },
+    "deploy-qualif": {
+      "status": "completed",
+      "version": "6.7.0.4"
+    },
+    "deploy-prod": {
+      "status": "completed",
+      "steps": {
+        "publish": {
+          "status": "completed",
+          "tag": "v6.7.0",
+          "merge": "b2b8ac6",
+          "pr": 232
+        },
+        "deploy": {
+          "status": "completed",
+          "helm_revision": 5
+        }
+      }
+    }
+  },
+  "cadrage": {
+    "intensite": "complet",
+    "test_writer": true,
+    "review": true,
+    "qualif": true,
+    "doc": "agent",
+    "team": [
+      "dev-backend",
+      "dev-frontend",
+      "test-writer",
+      "code-reviewer",
+      "qa",
+      "doc-updater"
+    ],
+    "valide": "GATE 2"
+  },
+  "lots": {
+    "current": "v6.7.0 TERMINÉE (PROD)",
+    "order": [
+      "LOT-1",
+      "LOT-2",
+      "LOT-3"
+    ],
+    "items": {
+      "LOT-1": {
+        "status": "completed",
+        "issues": [
+          222,
+          220,
+          221
+        ],
+        "phase": null,
+        "gate": "validé (explicite, 3/3 OK)",
+        "test_report": "_work/reports/test-report-LOT-1.md",
+        "ci_sha": "2b50be8"
+      },
+      "LOT-2": {
+        "status": "completed",
+        "issues": [
+          231
+        ],
+        "phase": null,
+        "gate": "auto-validé (aucun scénario HUMAIN)",
+        "ci_fail": "51ded3a run 45038659522 windows",
+        "ci_sha": "831fbdc"
+      },
+      "LOT-3": {
+        "status": "completed",
+        "issues": [
+          223
+        ],
+        "phase": null,
+        "batch3a": {
+          "dev-backend": "dc5c4ee",
+          "dev-frontend": "3664ad6",
+          "test-writer": "ea54156"
+        },
+        "gate": "Q1 validé sans rapport (6.7.0.4)",
+        "test_report": "_work/reports/test-report-LOT-3.md",
+        "ci_fail": "3607ea7 run 45048682446 ubuntu ui/desktop (2e échec)",
+        "ci_green": "e02e974 run 45049480913",
+        "ci_sha": "14731bd"
+      }
+    }
+  },
+  "decisions": {
+    "Q1_220": "retour à la précédente",
+    "Q2_231": "projet géré et aucune team (teams/<team>/config.json absent), après /init-project",
+    "Q3_223": "question + permission",
+    "Q4_223": "notifications activées par défaut",
+    "maquette_223": "A"
+  },
+  "marketing": {
+    "status": "PRET",
+    "report": "_work/reports/marketing-20261122.md",
+    "mockup": "https://launcher.local/files/claude-launcher-claude-launcher/MARKETING/index.html#news-v67"
+  },
+  "frozen": true,
+  "gate4": "validé (Q2)",
+  "mockup_ok": true
+}
