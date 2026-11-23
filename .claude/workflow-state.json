@@ -12,10 +12,22 @@
     238
   ],
   "milestone_num": 33,
-  "plan": null,
+  "plan": ".claude/workflow/plan-v6.8.1.md",
   "cadrage": {
-    "intensite": "leger+plan",
-    "valide": null
+    "intensite": "leger",
+    "test_writer": true,
+    "review": false,
+    "qualif": true,
+    "doc": "dev",
+    "team": [
+      "dev-backend",
+      "test-writer",
+      "qa"
+    ],
+    "decisions": {
+      "D1": "C : 2 min avec jeton (1 min si release attendue), 5 min sans jeton — risque 429 anonyme accepté par l utilisateur"
+    },
+    "valide": "GATE 2"
   },
   "phases": {
     "init": {
@@ -23,7 +35,8 @@
       "sha": "8ad3385"
     },
     "plan": {
-      "status": "in_progress"
+      "status": "completed",
+      "report": ".claude/workflow/plan-v6.8.1.md"
     },
     "dev": {
       "status": "pending"
@@ -45,6 +58,22 @@
     },
     "deploy-prod": {
       "status": "pending"
+    }
+  },
+  "lots": {
+    "current": "LOT-1",
+    "order": [
+      "LOT-1"
+    ],
+    "items": {
+      "LOT-1": {
+        "status": "in_progress",
+        "issues": [
+          237,
+          238
+        ],
+        "phase": "dev"
+      }
     }
   }
 }
