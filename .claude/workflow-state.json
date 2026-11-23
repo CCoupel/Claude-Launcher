@@ -1,11 +1,11 @@
 {
   "type": "FEATURE",
   "description": "Milestone v6.8.1 — #237 (quotas mutualisés, usage-levels.json) + #238 (versions sans F5)",
-  "status": "in_progress",
+  "status": "completed",
   "branch": "milestone/v6.8.1",
   "version": "6.8.1",
   "started_at": "2026-11-23T13:49:45Z",
-  "updated_at": "2026-11-23T13:49:45Z",
+  "updated_at": "2026-11-23T14:23:42Z",
   "cycles": 0,
   "issue_nums": [
     237,
@@ -55,32 +55,46 @@
       "report": "_work/reports/qa-v6.8.1.md"
     },
     "build": {
-      "status": "pending"
+      "status": "completed",
+      "version": "6.8.1.1",
+      "sha": "156b821"
     },
     "publish_qualif": {
-      "status": "pending"
+      "status": "completed",
+      "image": "ghcr.io/ccoupel/claude-launcher-qualif:v6.8.1.1@sha256:d36de3b9b018ebf5d3a461eddf269cd70299a0b9615c34282802370f82e6657c"
     },
     "deploy_qualif": {
-      "status": "pending"
+      "status": "completed",
+      "helm_rev": 48,
+      "version": "6.8.1.1"
     },
     "deploy-prod": {
       "status": "pending"
+    },
+    "ci_branch": {
+      "status": "completed",
+      "sha": "3ac9298"
     }
   },
   "lots": {
-    "current": "LOT-1",
+    "current": "v6.8.1 validée (GATE 4) — RETEX puis PROD",
     "order": [
       "LOT-1"
     ],
     "items": {
       "LOT-1": {
-        "status": "in_progress",
+        "status": "completed",
         "issues": [
           237,
           238
         ],
-        "phase": "ci-branch"
+        "phase": null,
+        "gate": "auto-validé (aucun scénario HUMAIN)"
       }
     }
+  },
+  "gate4": {
+    "status": "validé",
+    "at": "2026-11-23T14:23:42Z"
   }
 }
