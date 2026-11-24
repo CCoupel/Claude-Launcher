@@ -52,11 +52,39 @@ f.addEventListener('load', async () => {
         const m = /\\[<\\d+;(\\d+);(\\d+)M/.exec(got[0] || '');
         res.push({ viseLigne: row, lue: m ? +m[2] : null });
       }
-      return { bandeau: !!bar, hauteurAvant: before, hauteurApres: vr().height, echelle: k, lignes: res };
+      // 2) vignette Teamleaders : le bandeau de la question (#223, .qbar) réduit la zone du terminal
+      const probe = async (term, scr, kk, nrows) => {
+        await new Promise((r) => term.write('\\x1b[?1000h\\x1b[?1006h', r));
+        const g = []; term.onData((d) => g.push(d));
+        const rr = scr.getBoundingClientRect(), hh = term._core._renderService.dimensions.css.cell.height, ww = term._core._renderService.dimensions.css.cell.width;
+        const o = [];
+        for (const row of [1, Math.ceil(nrows / 2), nrows]) {
+          g.length = 0;
+          const x = rr.left + 5.5 * ww * kk, y = rr.top + (row - 0.5) * hh * kk;
+          scr.dispatchEvent(new MouseEvent('mousedown', { clientX: x, clientY: y, button: 0, bubbles: true }));
+          document.dispatchEvent(new MouseEvent('mouseup', { clientX: x, clientY: y, button: 0, bubbles: true }));
+          const m = /\\[<\\d+;(\\d+);(\\d+)M/.exec(g[0] || '');
+          o.push({ viseLigne: row, lue: m ? +m[2] : null });
+        }
+        return o;
+      };
+      document.getElementById('attnbar') && document.getElementById('attnbar').remove();
+      showView('leaders', false); await sleep(200);
+      const bodyH = () => { const t = leaders.tiles[P]; return t ? t.body.getBoundingClientRect().height : 0; };
+      leaders.update(P, layout); await sleep(200);
+      const tcols = 60, trows = Math.floor(bodyH() / c.h);
+      const lay2 = { cols: tcols, rows: trows, leader: '%1', panes: [{ id: '%1', x: 0, y: 0, w: tcols, h: trows, active: true, role: 'leader', name: 'lead', bg: '#1F4FD1' }] };
+      leaders.update(P, lay2); await sleep(200);
+      S.snap.tabs[0].attention = { id: 'a1', kind: 'question', text: 'Quelle branche ?' };
+      leaders.attn(P); await sleep(200);
+      const tl = leaders.tiles[P], tscr = tl.body.querySelector('.xterm-screen');
+      const tk = tl.cl.getBoundingClientRect().width / tl.cl.offsetWidth;
+      const tuile = await probe(tl.term, tscr, tk, trows);
+      return { vignette: { qbarVisible: !tl.qb.classList.contains('hidden'), echelle: tk, lignes: tuile }, bandeau: !!bar, hauteurAvant: before, hauteurApres: vr().height, echelle: k, lignes: res };
     } catch (e) { return { err: step + ' ' + String(e.stack || e).split(String.fromCharCode(10)).join(' ⏎ ') }; } })()`);
     const r = await run;
     if (r.err) throw new Error(r.err);
-    const bad = r.lignes.filter((l) => l.lue !== l.viseLigne);
+    const bad = r.lignes.concat(r.vignette.lignes).filter((l) => l.lue !== l.viseLigne);
     out.textContent = (bad.length ? 'ROUGE' : 'VERT') + ' ' + JSON.stringify(r);
   } catch (e) { fail((e && e.stack || e)); }
 });
