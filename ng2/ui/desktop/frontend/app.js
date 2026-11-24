@@ -214,6 +214,34 @@ function attachClip(clip) {
   });
 }
 
+// #242 : xterm.js ignore le `transform: scale(k)` d'un ancêtre pour passer de la souris à la cellule (il divise par la
+// taille de cellule non réduite) : le clic tombait plus haut dès qu'un terminal était réduit (bandeau d'attente qui
+// rétrécit la zone). Les évènements souris reçus par un terminal d'un conteneur réduit sont donc rejoués avec des
+// coordonnées ramenées à l'échelle 1, relatives au `.xterm-screen` du terminal visé (origine du transform en 0 0).
+function fixScaledMouse(host) {
+  const types = ['mousedown', 'mouseup', 'mousemove', 'click', 'dblclick', 'contextmenu'];
+  for (const type of types) {
+    host.addEventListener(type, (e) => {
+      if (e.__scaleFixed || !e.target || !e.target.closest) return;
+      const x = e.target.closest('.xterm');
+      const scr = x && x.querySelector('.xterm-screen');
+      if (!scr || !scr.offsetWidth) return;
+      const r = scr.getBoundingClientRect();
+      const k = r.width / scr.offsetWidth;
+      if (!(k > 0) || Math.abs(k - 1) < 0.001) return;
+      e.stopImmediatePropagation();
+      const ne = new MouseEvent(type, {
+        bubbles: true, cancelable: true, composed: true, view: window,
+        clientX: r.left + (e.clientX - r.left) / k, clientY: r.top + (e.clientY - r.top) / k,
+        screenX: e.screenX, screenY: e.screenY, button: e.button, buttons: e.buttons, detail: e.detail,
+        ctrlKey: e.ctrlKey, shiftKey: e.shiftKey, altKey: e.altKey, metaKey: e.metaKey,
+      });
+      ne.__scaleFixed = true;
+      e.target.dispatchEvent(ne);
+    }, true);
+  }
+}
+
 // ── Mesure des cellules du terminal ────────────────────────────────────────
 let cell = null;
 function measureCell() {
@@ -1275,6 +1303,7 @@ class ProjView {
     this.launchEl = el('div', 'lt');
     this.launchBox.appendChild(this.launchEl);
     this.panesEl = el('div', 'panes hidden');
+    fixScaledMouse(this.panesEl); // #242
     this.banner = el('div', 'banner hidden');
     this.prefixEl = el('div', 'prefix hidden', 'Ctrl+B …');
     this.root.append(this.launchBox, this.panesEl, this.banner, this.prefixEl);
@@ -1523,6 +1552,7 @@ const leaders = {
       th.append(el('span', '', tab.name), el('span', 'dim', '· team-lead'), el('span', 'attnbadge tilebadge hidden', '❓ en attente'));
       const qb = el('div', 'qbar hidden');
       th.style.background = tab.color;
+      fixScaledMouse(cl); // #242
       body.appendChild(cl); tile.append(th, qb, body);
       this.grid.appendChild(tile);
       const term = newTerm({ cols: lp.w, rows: lp.h, cursorBlink: false });
@@ -2789,6 +2819,18 @@ function scheduleFit() {
   fitTimer = setTimeout(() => { for (const v of Object.values(S.views)) v.fit(); leaders.layout(); }, 80);
 }
 window.addEventListener('resize', scheduleFit);
+// #242 : la zone des vues change de hauteur sans évènement de fenêtre (bandeau d'attente ou de notifications qui
+// apparaît ou disparaît) : fit puis nouvelle réduction éventuelle des terminaux, sans attendre le layout suivant
+if (typeof ResizeObserver === 'function') {
+  let vw = -1, vh = -1;
+  new ResizeObserver((es) => {
+    const w = Math.round(es[0].contentRect.width), h = Math.round(es[0].contentRect.height);
+    if (w === vw && h === vh) return;
+    vw = w; vh = h;
+    scheduleFit();
+    requestAnimationFrame(() => { for (const v of Object.values(S.views)) if (v.layout) v.applyLayout(v.layout); });
+  }).observe($('views'));
+}
 // un client qui prend le clavier fixe la taille : sa géométrie est renvoyée
 window.addEventListener('focus', () => { if (!sharedTerms()) return; for (const v of Object.values(S.views)) { v.sent = null; v.fit(); } });
 

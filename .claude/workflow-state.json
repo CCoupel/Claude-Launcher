@@ -1,100 +1,92 @@
 {
-  "type": "FEATURE",
-  "description": "Milestone v6.8.1 — #237 (quotas mutualisés, usage-levels.json) + #238 (versions sans F5)",
+  "type": "BUGFIX",
+  "description": "Web : le bandeau d'attente (#223) décale d'une ligne la correspondance souris ↔ terminal",
   "status": "completed",
-  "branch": "milestone/v6.8.1",
-  "version": "6.8.1",
-  "started_at": "2026-11-23T13:49:45Z",
-  "updated_at": "2026-11-23T14:23:42Z",
+  "branch": "milestone/v6.8.2",
+  "version": "6.8.2",
+  "started_at": "2026-11-24T13:49:00Z",
+  "updated_at": "2026-11-24T16:22:00Z",
   "cycles": 0,
   "issue_nums": [
-    237,
-    238
+    242
   ],
-  "milestone_num": 33,
-  "plan": ".claude/workflow/plan-v6.8.1.md",
+  "milestone_num": 34,
+  "version_commit": "cc2c716",
+  "plan": null,
   "cadrage": {
     "intensite": "leger",
-    "test_writer": true,
+    "test_writer": false,
     "review": false,
     "qualif": true,
     "doc": "dev",
     "team": [
+      "dev-frontend",
       "dev-backend",
-      "test-writer",
       "qa"
     ],
-    "decisions": {
-      "D1": "C : 2 min avec jeton (1 min si release attendue), 5 min sans jeton — risque 429 anonyme accepté par l utilisateur"
-    },
-    "valide": "GATE 2"
+    "valide": "GATE 1",
+    "note": "dev-backend ajouté (bump x/net GO-2026-5026, CI rouge, validé par l utilisateur)"
   },
   "phases": {
+    "clarification": {
+      "status": "completed",
+      "skipped": false
+    },
     "init": {
-      "status": "completed",
-      "sha": "8ad3385"
+      "status": "completed"
     },
-    "plan": {
-      "status": "completed",
-      "report": ".claude/workflow/plan-v6.8.1.md"
+    "analyse": {
+      "status": "completed"
     },
-    "dev": {
+    "reproduction": {
       "status": "completed",
-      "shas": [
-        "07631b5",
-        "1a9b519"
-      ]
+      "sha": "f37cc47",
+      "handoff": "_work/reports/dev-frontend-20261124-135202.md"
     },
-    "review": {
-      "status": "skipped"
+    "red-check": {
+      "status": "completed",
+      "report": "_work/reports/qa-20261124-red-check-242.md"
+    },
+    "dev-frontend": {
+      "status": "completed",
+      "sha": "55c2a51"
     },
     "qa": {
       "status": "completed",
-      "verdict": "OK",
-      "sha": "a3e5f01",
-      "report": "_work/reports/qa-v6.8.1.md"
+      "report": "_work/reports/qa-20261124-242-fix.md",
+      "verdict": "VALIDATED WITH RESERVATIONS"
     },
-    "build": {
+    "deploy-qualif": {
       "status": "completed",
-      "version": "6.8.1.1",
-      "sha": "156b821"
-    },
-    "publish_qualif": {
-      "status": "completed",
-      "image": "ghcr.io/ccoupel/claude-launcher-qualif:v6.8.1.1@sha256:d36de3b9b018ebf5d3a461eddf269cd70299a0b9615c34282802370f82e6657c"
-    },
-    "deploy_qualif": {
-      "status": "completed",
-      "helm_rev": 48,
-      "version": "6.8.1.1"
+      "version": "6.8.2.1",
+      "helm_rev": 49,
+      "steps": {
+        "build": {
+          "status": "completed"
+        },
+        "publish": {
+          "status": "completed"
+        },
+        "deploy": {
+          "status": "completed"
+        }
+      }
     },
     "deploy-prod": {
-      "status": "pending"
-    },
-    "ci_branch": {
-      "status": "completed",
-      "sha": "3ac9298"
-    }
-  },
-  "lots": {
-    "current": "v6.8.1 validée (GATE 4) — RETEX puis PROD",
-    "order": [
-      "LOT-1"
-    ],
-    "items": {
-      "LOT-1": {
-        "status": "completed",
-        "issues": [
-          237,
-          238
-        ],
-        "phase": null,
-        "gate": "auto-validé (aucun scénario HUMAIN)"
+      "status": "pending",
+      "steps": {
+        "publish": {
+          "status": "pending"
+        },
+        "deploy": {
+          "status": "pending"
+        }
       }
     }
   },
-  "gate4": {
-    "status": "validé",
-    "at": "2026-11-23T14:23:42Z"
-  }
+  "lots": {
+    "current": "v6.8.2 validée (GATE 4) — RETEX puis PROD",
+    "order": []
+  },
+  "gate4": "validé par l utilisateur 2026-11-24"
 }

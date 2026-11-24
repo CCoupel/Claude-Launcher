@@ -19,7 +19,7 @@
     "file": "env-template.yaml",
     "updated": "2026-11-13"
   },
-  "version": "6.8.1",
+  "version": "6.8.2.1",
   "initialized_at": "2026-11-13T17:40:00Z",
   "initialized_from": "analysis",
   "template_version": {
@@ -172,18 +172,18 @@
             "credentials_file": "PRIVATE/PROD/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-22T18:05:04Z",
+              "at": "2026-11-24T16:20:16Z",
               "checks": [
                 "kubeconfig-admin",
                 "ns-claude-ng2",
                 "can-i-chart-objects",
-                "helm-release-6.6.0-deployed",
+                "helm-release-6.8.1-deployed",
                 "pvc-secrets-bound",
                 "clusterissuer-claude-launcher-ca-ready",
                 "certificate-ready",
                 "helm-lint-prod",
-                "helm-dry-run-server-6.7.0",
-                "ghcr-pull-public"
+                "ghcr-pull-public",
+                "gh-push-admin"
               ],
               "note": "compte administrateur (risque accepté) ; PSA claude-ng2 laissé en privileged (décision utilisateur)"
             }
