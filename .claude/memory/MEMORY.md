@@ -4,19 +4,26 @@
 
 ## Etat courant
 
-- **Version** : **6.8.1 en PROD** (PR #239, tag `v6.8.1`, helm `claude-ng2` rév. 7, hub v6.8.1, sauvegarde `.bak-v6.8.0`) ;
-  QUALIF 6.8.1.1 (rév. 48). Milestone #33 clos. Site gh-pages : PR #240 (Nouveautés v6.8.1 = quotas colorés, variante V1) ;
-  release notes 6.8.0 / 6.8.1 : PR #241.
-- **Session 2026-11-23** : template synchronisé v5.13.1 ; v6.8.0 livrée (#234 image de base, #235 quotas colorés ; PR #236) ;
-  v6.8.1 livrée (#237 `usage-levels.json` + seuils 1 h / 5 h ; #238 délais de vérification D1 = C).
-- **Branche** : main.
+- **Version** : **6.8.2 livrée** (PR/tag selon release) ; QUALIF 6.8.2.1 (helm rév. 49). Milestone #34 clos.
+  Précédente : 6.8.1 en PROD (PR #239, tag `v6.8.1`, helm `claude-ng2` rév. 7).
+- **Session 2026-11-24** : v6.8.2 livrée (#242 : clic souris décalé d'une ligne avec un bandeau, web). Cause : xterm.js 6
+  ignore `transform: scale()` ; deux bandeaux la déclenchaient (`#attnbar` demande de notifications, vue projet, web seul ;
+  `#qbar` question du teamleader, vignette Teamleaders, web et natif) ; fix `fixScaledMouse()` + `ResizeObserver` sur
+  `#views` (documenté `ng2/docs/windows.md`). CI rouge `x/net` GO-2026-5026 corrigée par le bump v0.57.0 (crypto/sys/text
+  montés par `go mod tidy`).
+- **Branche** : milestone/v6.8.2 (main après la PROD).
 - **Environnements** :
-  - PROD : namespace `claude-ng2`, helm révision 7, pod v6.8.1.
-  - QUALIF : v6.8.1.1 (rév. 48).
-  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` en v6.8.1.
+  - PROD : namespace `claude-ng2` (v6.8.2 après déploiement ; rév. 7 avant).
+  - QUALIF : v6.8.2.1 (rév. 49).
+  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` (à mettre à jour en 6.8.2).
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
 - **Travail en cours** : aucun.
+
+## Decisions de la session (v6.8.2)
+
+- **#242** : correctif minimal côté interface (pas de refonte du redimensionnement) ; test de reproduction headless
+  `tests/integration/ui-web/clic-bandeau-242/` + procédure QUALIF `tests/procedures/ui-web/clic-bandeau-242/`.
 
 ## Decisions de la session (v6.8.1)
 
@@ -109,6 +116,8 @@
   depuis le réseau (`fr.archive.ubuntu.com` rapide) ; correctif miroir FR à reposer dans le pod après réouverture (perdu à
   chaque recréation) ; pas d'issue (décision utilisateur).
 - Hub à relancer (`Esc` puis `l`) ; `launcher.local` et `/healthz` QUALIF non vérifiés depuis les conteneurs.
+- Le test Ingress QUALIF n'est pas faisable depuis le conteneur (pas de mDNS ; poste en 192.168.1.0/24).
+- Validations humaines à jouer : #223, #234, #235 (et #242 sur QUALIF).
 - Procédure HUMAIN #223 jamais jouée (lot validé sans test Windows) : rejouable via
   `tests/procedures/ui-desktop/attente-teamleader-223/simulate-attention.sh` ; relancer les sessions claude pour charger les
   hooks #223 (lus au démarrage de claude).

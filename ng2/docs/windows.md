@@ -292,6 +292,12 @@ Les balises `desktop,production` sont celles qu'exige Wails (sans elles, l'exe n
 le dit) ; la CLI `wails` n'est pas nécessaire. Versions embarquées : Wails v2.17.0, xterm.js 6.0.0,
 `@xterm/addon-unicode11` 0.9.0 (`ui/desktop/frontend/vendor/VERSIONS.txt`).
 
+**Terminaux réduits** : xterm.js 6 ignore le `transform: scale()` d'un ancêtre pour passer de la souris à la
+cellule. L'interface réduit un terminal par `scale` (fenêtre tmux plus grande que la zone, vignettes Teamleaders,
+bandeaux qui rétrécissent la zone) : `fixScaledMouse()` (`frontend/app.js`) rejoue donc les évènements souris à l'échelle 1,
+et un `ResizeObserver` sur `#views` recalcule la réduction quand la hauteur change (#242). Test de reproduction :
+`tests/integration/ui-web/clic-bandeau-242/run.sh` (`chrome-headless-shell`, interface réelle sur réponses factices).
+
 ### Correspondance de chemins : `hubs.<machine>.paths`
 
 Le launcher lit les projets à leur chemin Windows et transmet **toujours** aux backends le chemin
