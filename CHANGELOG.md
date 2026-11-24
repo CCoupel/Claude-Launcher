@@ -9,6 +9,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Fixed
+- Sécurité : `golang.org/x/net` v0.56.0 → v0.57.0 (GO-2026-5026, appelée via `idna.Profile.ToASCII` dans `core.publicHost`) ; `crypto`, `sys` et `text` montés avec elle par `go mod tidy`
 - Interface web : le clic dans un terminal tombe sur la ligne visée quand un bandeau (attente du teamleader, demande d'autorisation des notifications) réduit la zone des terminaux — la souris était décalée d'une ligne ou plus, aussi dans la vignette Teamleaders ; la zone des terminaux est recalculée dès que sa hauteur change (#242)
 
 ## [6.8.1] — 2026-11-23
