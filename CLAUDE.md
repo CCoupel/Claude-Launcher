@@ -94,6 +94,7 @@
 | `/marketing` | Mise à jour du site marketing (`gh-pages`) après une release |
 | `/progression` | État d'avancement des agents en cours |
 | `/context-audit [scope]` | Audit doc (doublons, refs cassées) |
+| `/cleanup [scope]` | Ménage des fichiers (temporaires, builds, caches) — proposé, jamais sans validation |
 | `/init-project` | Réinitialiser / mettre à jour le projet |
 
 ---
