@@ -106,3 +106,5 @@
 | ng2/ui/desktop/exhaustion235_test.go | unitaire | ui-desktop | Projection d'epuisement : couleurs et alerte (#235) | feature | |
 | ng2/core/exhaustion237_test.go, ng2/core/usagelevels237_test.go, ng2/ui/desktop/exhaustion237_test.go | integration | core | Marge de l'orange par fenetre (1 h session, 5 h hebdo) et usage-levels.json conforme au contrat (#237) | feature | |
 | ng2/core/updatecheck238_test.go, ng2/ui/desktop/update238_test.go, ng2/ui/tmux/update238_test.go | integration | core | Cycle de verification des versions 2/1 min (jeton) 5/2 min, resultat partage < cycle - 10 s, annonce poussee sans F5 (#238) | feature | slow |
+| tests/integration/ui-web/clic-bandeau-242/ | integration | ui-web | Clic souris sur la ligne N d'un terminal lue N avec le bandeau d'attente web affiche, interface reelle sur reponses factices, chrome-headless-shell (#242) | regression | |
+| tests/procedures/ui-web/clic-bandeau-242/ | procedure | ui-web | Clic souris decale d'une ligne avec le bandeau d'attente, web et fenetre native (#242) | regression | |

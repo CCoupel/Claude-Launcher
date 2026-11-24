@@ -1,0 +1,63 @@
+<!doctype html>
+<!-- #242 : harnais de reproduction. Charge l'interface réelle (index.html : app.js, style.css, xterm) sans serveur :
+     fetch et le flux SSE sont factices (aucun vrai projet, aucun claude). Le résultat est écrit dans #result. -->
+<html><head><meta charset="utf-8"></head><body>
+<iframe id="f" src="../../../../ng2/ui/desktop/frontend/index.html" style="position:absolute;inset:0;width:100%;height:100%;border:0"></iframe>
+<pre id="result"></pre>
+<script>
+const f = document.getElementById('f'), out = document.getElementById('result');
+const fail = (m) => { out.textContent = 'ERREUR ' + m; };
+f.addEventListener('load', async () => {
+  try {
+    const w = f.contentWindow;
+    const P = '/demo/projet';
+    // l'interface web tourne ici sans réseau : un état minimal à la place du serveur
+    w.fetch = async () => ({ status: 200, headers: new w.Headers(), json: async () => ({ result: null }) });
+    w.EventSource = function () { this.close = () => {}; };
+    const run = w.eval(`(async () => { let step=''; try {
+      const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+      const P = '${P}';
+      S.snap = { tabs: [{ path: P, name: 'projet', color: '#1F4FD1' }], rows: [] };
+      const v = ensureView(P); showView(P, false); step='m2'; v.status({ state: 'ready' });
+      await sleep(200);
+      const vr = () => document.getElementById('views').getBoundingClientRect();
+      // une fenêtre tmux qui tient exactement dans la zone SANS bandeau (aucune réduction : échelle 1)
+      const c = cell || (cell = measureCell());
+      const cols = Math.floor((vr().width - 8) / c.w), rows = Math.floor((vr().height - 8) / c.h) - 1;
+      const layout = { cols, rows, leader: '%1', panes: [{ id: '%1', x: 0, y: 0, w: cols, h: rows, active: true, role: 'leader', name: 'lead', bg: '#1F4FD1' }] };
+      v.applyLayout(layout);
+      await sleep(200);
+      const before = vr().height;
+      // le teamleader attend une réponse : l'interface web propose les notifications (bandeau #attnbar, #223)
+      Object.defineProperty(Notification, 'permission', { get: () => 'default' });
+      onAttention({ path: P, id: 'a1', name: 'lead', kind: 'question', text: 'Quelle branche ?' });
+      await sleep(100);
+      const bar = document.getElementById('attnbar');
+      // le serveur renvoie la mise en page (évènement layout), comme à chaque changement réel
+      v.applyLayout(layout);
+      await sleep(300);
+      const pv = v.panes['%1'], term = pv.term;
+      const screen = pv.box.querySelector('.xterm-screen'), rc = screen.getBoundingClientRect();
+      const k = v.panesEl.getBoundingClientRect().width / v.panesEl.offsetWidth;
+      const ch = term._core._renderService.dimensions.css.cell.height, cw = term._core._renderService.dimensions.css.cell.width;
+      await new Promise((r) => term.write('\\x1b[?1000h\\x1b[?1006h', r));
+      const got = []; term.onData((d) => got.push(d));
+      const res = [];
+      for (const row of [1, Math.ceil(rows / 2), rows]) {
+        got.length = 0;
+        // clic au milieu de la ligne visée, à l'écran
+        const x = rc.left + 5.5 * cw * k, y = rc.top + (row - 0.5) * ch * k;
+        screen.dispatchEvent(new MouseEvent('mousedown', { clientX: x, clientY: y, button: 0, bubbles: true }));
+        document.dispatchEvent(new MouseEvent('mouseup', { clientX: x, clientY: y, button: 0, bubbles: true }));
+        const m = /\\[<\\d+;(\\d+);(\\d+)M/.exec(got[0] || '');
+        res.push({ viseLigne: row, lue: m ? +m[2] : null });
+      }
+      return { bandeau: !!bar, hauteurAvant: before, hauteurApres: vr().height, echelle: k, lignes: res };
+    } catch (e) { return { err: step + ' ' + String(e.stack || e).split(String.fromCharCode(10)).join(' ⏎ ') }; } })()`);
+    const r = await run;
+    if (r.err) throw new Error(r.err);
+    const bad = r.lignes.filter((l) => l.lue !== l.viseLigne);
+    out.textContent = (bad.length ? 'ROUGE' : 'VERT') + ' ' + JSON.stringify(r);
+  } catch (e) { fail((e && e.stack || e)); }
+});
+</script></body></html>
