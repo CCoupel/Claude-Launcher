@@ -176,6 +176,7 @@ func SetAgentOverride(proj, agent string, model, effort *string) (AgentOverrideR
 		return fail("%v", err)
 	}
 
+	defer ResetTplInfo(proj) // carte relue : le compagnon (« + ») a pu apparaître ou disparaître
 	timeout := ShareWriteTimeoutNow()
 	werr := writeShared(timeout, comp, func() error {
 		removed, _, err := applyCompanion(comp, newM, newE)

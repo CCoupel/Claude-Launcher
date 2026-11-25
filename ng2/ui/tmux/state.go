@@ -323,6 +323,7 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				regCache.Lock()
 				delete(regCache.m, r.Path)
 				regCache.Unlock()
+				core.ResetTplInfo(r.Path)
 				m.teamMsg, m.teamMsgAt, m.teamWarn = r.Msg, time.Now(), !r.OK || r.Warn
 				m.paneAt = time.Time{}
 			}
