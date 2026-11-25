@@ -16,6 +16,8 @@ type TeamHead struct {
 	// HideIdle : état du masquage des teammates inactifs (#188) : commutateur effectif et délai conservé ; renseigné par
 	// l'appelant (la configuration n'est pas connue d'ApplyTeamHead)
 	HideIdle HideIdleInfo `json:"hideIdle"`
+	// ModelEfforts : table modèle → efforts acceptés (#250, P2), pour filtrer le menu sans aller-retour
+	ModelEfforts map[string][]string `json:"modelEfforts"`
 }
 
 // Odd* : sur quoi une ligne s'écarte de l'en-tête.
@@ -28,7 +30,7 @@ const (
 // tplTarget : version cible du template (TplInfo.Target) ; à défaut, celle qu'une
 // ligne porte déjà (TplTarget). Une version inconnue d'un côté ne crée aucun écart.
 func ApplyTeamHead(lines []TeamLine, tplTarget string) ([]TeamLine, TeamHead) {
-	h := TeamHead{Tpl: tplTarget}
+	h := TeamHead{Tpl: tplTarget, ModelEfforts: ModelEffortsTable()}
 	for _, l := range lines {
 		h.Tpl = cmp.Or(h.Tpl, l.TplTarget)
 		if l.Name == "leader" && l.Started && h.Claude == "" {

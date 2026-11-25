@@ -20,9 +20,17 @@ import (
 type Teammate struct {
 	Name, Tag     string
 	Companion     bool
-	Model, Effort string // compagnon > template ; modèle réel si lancé
+	Model, Effort string // valeur résolue : compagnon > template (#250, P3 : plus le modèle réel du spawn)
 	Claude        string // version de claude si lancé
 	Count         int    // instances lancées
+	RunModel      string // modèle réel d'un teammate lancé (config.json de la team) ; "" si inconnu
+
+	// réglage modèle / effort depuis la carte (#250)
+	CompFile              string // compagnon à écrire, relatif à .claude/agents ("generic.<nom>.md" pour une instance)
+	ModelSrc, EffortSrc   string // "companion" (clé présente dans le compagnon) ou "template"
+	TplModel, TplEffort   string // référence : template (instance : generic.md s'il fixe la clé)
+	CompModel, CompEffort string // valeurs explicites du compagnon ("" si clé absente)
+	Editable              bool   // le template porte model: ou effort:
 }
 
 // frontKeys : model/effort du frontmatter d'un fichier d'agent.
@@ -73,11 +81,26 @@ func ReadTeammates(proj string) []Teammate {
 		_ = json.Unmarshal(b, &cfg)
 	}
 	// mk : le compagnon (ou la spécification d'instance) prime sur le template
+	// instance générique : generic.template.md, puis generic.md (commun aux instances, repli), puis generic.<nom>.md
 	mk := func(name, tag, tpl, comp string) Teammate {
-		t := Teammate{Name: name, Tag: tag, Companion: has(comp)}
-		t.Model, t.Effort = frontKeys(filepath.Join(agents, tpl+".template.md"))
-		if m, e := frontKeys(filepath.Join(agents, comp)); m != "" || e != "" {
-			t.Model, t.Effort = cmp.Or(m, t.Model), cmp.Or(e, t.Effort)
+		t := Teammate{Name: name, Tag: tag, Companion: has(comp), CompFile: comp}
+		t.TplModel, t.TplEffort = frontKeys(filepath.Join(agents, tpl+".template.md"))
+		t.Editable = t.TplModel != "" || t.TplEffort != ""
+		if comp != tpl+".md" { // instance : generic.md sert de référence
+			if m, e := frontKeys(filepath.Join(agents, tpl+".md")); m != "" || e != "" {
+				t.TplModel, t.TplEffort = cmp.Or(m, t.TplModel), cmp.Or(e, t.TplEffort)
+				t.Editable = true
+			}
+			t.Companion = t.Companion || has(tpl+".md")
+		}
+		t.CompModel, t.CompEffort = frontKeys(filepath.Join(agents, comp))
+		t.Model, t.Effort = cmp.Or(t.CompModel, t.TplModel), cmp.Or(t.CompEffort, t.TplEffort)
+		t.ModelSrc, t.EffortSrc = "template", "template"
+		if t.CompModel != "" {
+			t.ModelSrc = "companion"
+		}
+		if t.CompEffort != "" {
+			t.EffortSrc = "companion"
 		}
 		return t
 	}
@@ -179,7 +202,7 @@ func LiveTeam(tm []Teammate, proj string, panes []PaneInfo) []Teammate {
 	for i := range tm {
 		if rs := byType[tm[i].Name]; len(rs) > 0 {
 			tm[i].Claude, tm[i].Count = rs[0].ver, len(rs)
-			tm[i].Model = cmp.Or(rs[0].model, tm[i].Model)
+			tm[i].RunModel = rs[0].model
 			delete(byType, tm[i].Name)
 		}
 	}
@@ -207,7 +230,7 @@ type TeamLine struct {
 	Name, Tag     string
 	Agent         string // entrée du registre du template (deploy pour « deployer »)
 	Companion     bool
-	Model, Effort string
+	Model, Effort string // valeur résolue (#250, P3)
 	Claude        string // version de claude si lancé
 	Pane          string // %id, vide si non démarré
 	Started       bool
@@ -215,6 +238,12 @@ type TeamLine struct {
 	Hidden        bool // mis de côté dans la réserve
 	Pinned        bool // visible fixé à la main
 	IdleLeft      int  // secondes avant masquage automatique (0 : sans objet)
+
+	// réglage modèle / effort (#250) : sources, références, modèle réel d'un teammate lancé s'il diffère de la valeur
+	// résolue (RunModel), éditable depuis la carte
+	ModelSrc, EffortSrc, TplModel, TplEffort string
+	Running                                  *TeamRunning
+	Editable                                 bool
 
 	// état du template (TplInfo.Apply) : ok / late / "" (neutre), version
 	// cible ("" si inconnue), fichier compagnon ("" si aucun)
@@ -301,8 +330,13 @@ func TeamLinesFor(tm []Teammate, members map[string]TeamMember, panes []ProjPane
 		}
 		agent := cmp.Or(t.Name, typ)
 		started[typ], started[name], started[agent] = true, true, true
-		l := TeamLine{Name: name, Agent: agent, Tag: t.Tag, Companion: t.Companion, Model: cmp.Or(mb.Model, t.Model), Effort: t.Effort,
-			Claude: claudeVersion(p.Cmd, p.PID), Pane: p.ID, Started: true, Hidden: p.Hidden && hideIdle >= 0, // désactivé : jamais « caché »
+		if t.Name == "" { // lancé hors registre : pas de valeur résolue, le modèle réel fait foi, non réglable
+			t.Model = mb.Model
+		}
+		l := TeamLine{Name: name, Agent: agent, Tag: t.Tag, Companion: t.Companion, Model: t.Model, Effort: t.Effort,
+			ModelSrc: t.ModelSrc, EffortSrc: t.EffortSrc, TplModel: t.TplModel, TplEffort: t.TplEffort, Editable: t.Editable,
+			Running: runningOf(runModelDiff(t.Model, cmp.Or(mb.Model, t.RunModel))),
+			Claude:  claudeVersion(p.Cmd, p.PID), Pane: p.ID, Started: true, Hidden: p.Hidden && hideIdle >= 0, // désactivé : jamais « caché »
 			Pinned: choices[p.ID] == visPinned}
 		l.Active = ok && mb.IsActive
 		if !prot[p.ID] && !l.Active && choices[p.ID] == "" && hideIdle > 0 && !p.Hidden {
@@ -317,10 +351,36 @@ func TeamLinesFor(tm []Teammate, members map[string]TeamMember, panes []ProjPane
 	lines = append(leaders, lines...)
 	for _, t := range tm {
 		if !started[t.Name] {
-			lines = append(lines, TeamLine{Name: t.Name, Tag: t.Tag, Companion: t.Companion, Model: t.Model, Effort: t.Effort})
+			lines = append(lines, TeamLine{Name: t.Name, Agent: t.Name, Tag: t.Tag, Companion: t.Companion, Model: t.Model, Effort: t.Effort,
+				ModelSrc: t.ModelSrc, EffortSrc: t.EffortSrc, TplModel: t.TplModel, TplEffort: t.TplEffort, Editable: t.Editable})
 		}
 	}
 	return lines
+}
+
+// TeamRunning : ce qui tourne quand cela diffère de la valeur résolue (⟳ sur la carte) ; Effort : seulement s'il
+// est connu (non relevé au spawn : jamais renseigné, R2 du plan).
+type TeamRunning struct {
+	Model  string `json:"model,omitempty"`
+	Effort string `json:"effort,omitempty"`
+}
+
+func runningOf(model string) *TeamRunning {
+	if model == "" {
+		return nil
+	}
+	return &TeamRunning{Model: model}
+}
+
+// runModelDiff : modèle réel d'un teammate lancé s'il diffère de la valeur résolue (⟳ sur la carte), "" sinon. Le
+// résolu est un alias (opus) ou un identifiant ; le réel, souvent un identifiant (claude-opus-4-6[1m]).
+func runModelDiff(resolved, real string) string {
+	r := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(real), "claude-"))
+	w := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(resolved), "claude-"))
+	if r == "" || w == "" || r == w || strings.HasPrefix(r, w+"-") || strings.HasPrefix(r, w+"[") {
+		return ""
+	}
+	return real
 }
 
 func cmpIdle(at, now int64) int64 {
