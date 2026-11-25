@@ -1,5 +1,7 @@
 # Architecture
 
+> Pour l'évolution vers plusieurs utilisateurs (agent d'espace, plan de contrôle), voir [saas.md](saas.md).
+
 > Autres guides : [Installation et lancement](installation.md) · [Configuration et projets en conteneur](configuration.md) · [Launcher Windows natif](windows.md) · [Déploiement dans un cluster Kubernetes](kubernetes.md) · [Interface](interface.md) · [Versions, mises à jour et template](versions.md) · [Dépannage](depannage.md) · [Tests](tests.md). Vue d'ensemble : [README](../README.md).
 
 **Sommaire**

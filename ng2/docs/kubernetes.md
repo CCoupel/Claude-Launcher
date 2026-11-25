@@ -10,7 +10,7 @@
     - [2. Valeurs](#2-valeurs)
     - [3. Installation](#3-installation)
     - [4. Accès](#4-accès)
-    - [4b. Authentification (v7.0.0)](#4b-authentification-v700)
+    - [4b. Authentification (v7.0.0)](#4b-authentification-v700) (application GitHub, rôles, compte local, ingress externe)
     - [5. Vérifications obligatoires](#5-vérifications-obligatoires)
     - [6. Mise à jour et retour arrière](#6-mise-à-jour-et-retour-arrière)
     - [7. Cohabitation : cluster, hub Linux et exe Windows sur la même racine](#7-cohabitation--cluster-hub-linux-et-exe-windows-sur-la-même-racine)
@@ -285,6 +285,11 @@ pose ; il n'a ni mot de passe ni session propre. Contrat complet : `contracts/au
     --from-file=client-id=PRIVATE/<ENV>/client-id --from-file=client-secret=PRIVATE/<ENV>/client-secret
   ```
   puis `auth.existingSecret: <nom-du-secret>`. Sans ce Secret, le pod ne démarre pas, et `NOTES.txt` le nomme.
+- **Autre façon (moins recommandée)** : `auth.github.clientId` et `auth.github.clientSecret` en valeurs Helm. Le chart crée
+  alors le Secret `<release>-github`. Ces valeurs se mettent **uniquement** dans `PRIVATE/<ENV>/values-local.yaml`, jamais
+  commitées. **Attention** : `helm get values` et `helm template` les affichent en clair, et elles sont stockées dans le
+  Secret de release Helm. `existingSecret` reste donc la voie recommandée. Les deux à la fois sont refusés au rendu, de même
+  qu'une seule des deux valeurs. `scripts/ci.sh` échoue si un `clientSecret` non vide est dans un fichier suivi par git.
 
 **2. Rôles et comptes GitHub** : les comptes se déclarent dans les valeurs Helm, pas dans un Secret : `auth.admins` (logins
 GitHub, rôle `admin`, obligatoire et non vide si GitHub est activé) et `auth.users` (rôle `user`). Ce ne sont pas des secrets :
@@ -314,8 +319,18 @@ listes (refus au rendu). Un login absent des deux listes reçoit `403`.
 - Désactivation : `auth.localAdmin.enabled: false`. Le compte est refusé sur l'hôte externe, par construction et par le launcher.
 - Force brute : `rateLimit` Traefik sur `/oauth2/` (10 essais par minute en moyenne, 20 en rafale, par adresse source), puis `429`.
 
-**4. Ingress externe** (`externalIngress.enabled: true`) : une seconde instance d'oauth2-proxy (`auth-proxy-ext`), sans compte local
-ni formulaire ; cookie distinct de l'interne. Requiert `auth.enabled: true`.
+**4. Ingress externe** (`externalIngress.enabled: true`) : accès depuis Internet, derrière l'authentification.
+
+- Prérequis : `auth.enabled: true` (sinon refus au rendu), un nom public (`externalIngress.host`), une classe d'ingress
+  (`externalIngress.className`) et un émetteur public, par exemple `externalIngress.tls.clusterIssuer: letsencrypt-prod`
+  (HTTP-01). L'émetteur interne `claude-launcher-ca` est refusé : il ne peut pas signer un nom public.
+- Ports : 80 et 443 doivent atteindre Traefik depuis Internet (HTTP redirigé vers HTTPS).
+- Une seconde instance d'oauth2-proxy (`auth-proxy-ext`, port 8083) sert l'hôte externe. Elle n'a **ni compte local ni
+  formulaire** : `admin@local` n'existe pas sur Internet, et le launcher le refuse aussi sur cet hôte. Son cookie
+  (`_cl_auth_ext`) est distinct de celui de l'interne.
+- Le launcher annonce l'hôte externe aux sessions (`CL_WEB_URL`) quand il est activé ; l'hôte interne reste admis
+  (`CL_WEB_ALT_URLS`).
+- L'application GitHub doit accepter les deux URL de retour, interne et externe (`https://<hôte>/oauth2/callback`).
 
 **5. Sessions** : `auth.sessionDuration` (8 h par défaut), renouvelée toutes les `auth.sessionRefresh` (1 h) : l'appartenance aux
 listes est revérifiée à chaque renouvellement. Déconnexion : menu « Se déconnecter » (page `/signed-out`).
@@ -326,6 +341,14 @@ fréquentes), recopiée sur la sortie du conteneur `launcher` avec le préfixe `
 admin est écrite avant son exécution (`phase: intent`). Aucun contenu, aucune valeur de secret n'est journalisé.
 
 **7. Requêtes JSON à clés en double** (même à la casse près, à toute profondeur) : refusées (`400`), avant toute décision R1.
+
+**8. Notes**
+
+- **Tag oauth2-proxy surchargé** : `auth.proxy.image.tag` est figé par le chart (v7.15.6). Une version sans le champ `StatusCode`
+  dans les données du gabarit `sign_in` ferait répondre `500` à la page de connexion. Ne surchargez le tag que vers une
+  version testée en QUALIF (revue #172-3).
+- **Backends** (`contracts/auth.md` §4) : un `user` peut tester un backend déjà déclaré tel quel. Il ne peut plus tester un
+  backend dont il a modifié l'hôte ou le pool.
 
 #### 5. Vérifications obligatoires
 
