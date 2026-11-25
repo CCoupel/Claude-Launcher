@@ -84,7 +84,7 @@ Risques de C : un protocole plan de contrôle ↔ agent à versionner ; la laten
   changeant la configuration du proxy.
 - **Où** : oauth2-proxy **en sidecar** du pod, le launcher n'écoutant qu'en boucle locale : l'usurpation d'en-tête est
   impossible par construction.
-- **Clé** : l'identifiant numérique GitHub (stable) ; le login sert à l'affichage. Pas d'utilisateur système par personne.
+- **Clé** : cible de **v7.1.0** : l'identifiant numérique GitHub (stable), le login servant à l'affichage. **En v7.0.0, l'identité repose sur les logins** (`auth.admins`, `auth.users`) : un login renommable est donc un risque accepté (voir § 6). Pas d'utilisateur système par personne.
 - **Rôles** : `admin` (réglages plateforme, comptes, limites) et `user`. Partage par projet (`owner`, `full`, `readonly`) en v7.2.0.
 
 ### Q3 — Secrets par utilisateur

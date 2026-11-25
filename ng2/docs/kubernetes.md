@@ -292,7 +292,9 @@ pose ; il n'a ni mot de passe ni session propre. Contrat complet : `contracts/au
   le modèle du pod). Ces valeurs se mettent **uniquement** dans `PRIVATE/<ENV>/values-local.yaml`, jamais
   commitées. **Attention** : `helm get values` et `helm template` les affichent en clair, et elles sont stockées dans le
   Secret de release Helm. `existingSecret` reste donc la voie recommandée. Les deux à la fois sont refusés au rendu, de même
-  qu'une seule des deux valeurs. `scripts/ci.sh` échoue si un `clientSecret` non vide est dans un fichier suivi par git.
+  qu'une seule des deux valeurs.
+  Un `clientId` purement numérique se passe avec `--set-string` (sinon le schéma le refuse).
+  Le contrôle de `scripts/ci.sh` (un `clientSecret` non vide dans un fichier suivi par git) est une **protection de confort, pas une garantie** : il ne voit pas les formes en flux (`{clientSecret: x}`), ni les `.json` et `.md`, ni les fichiers pas encore suivis par git.
 
 **2. Rôles et comptes GitHub** : les comptes se déclarent dans les valeurs Helm, pas dans un Secret : `auth.admins` (logins
 GitHub, rôle `admin`, obligatoire et non vide si GitHub est activé) et `auth.users` (rôle `user`). Ce ne sont pas des secrets :
