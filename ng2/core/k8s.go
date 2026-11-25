@@ -243,17 +243,30 @@ const mountsModel = "v2"
 const OldMountsNote = "Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre"
 
 // volumeFor : volume (racine, PVC) qui contient p — la racine la plus longue — et
-// le subPath de p dans ce volume (sans « / » initial ; "" pour la racine même).
-func (b BackendConf) volumeFor(p string) (root, claim, sub string, ok bool) {
+// le subPath de p dans ce volume (sans « / » initial). Erreur si deux racines
+// identiques (après Clean) déclarent des PVC différents.
+func (b BackendConf) volumeFor(p string) (root, claim, sub string, ok bool, err error) {
 	p = path.Clean(p)
-	for r, c := range b.Volumes {
+	rs := make([]string, 0, len(b.Volumes))
+	for r := range b.Volumes {
+		rs = append(rs, r)
+	}
+	sort.Strings(rs)
+	claims := map[string]string{}
+	for _, r := range rs {
 		cr := path.Clean(r)
-		if (p == cr || strings.HasPrefix(p, strings.TrimSuffix(cr, "/")+"/")) && len(cr) >= len(root) {
+		if c, dup := claims[cr]; dup && c != b.Volumes[r] {
+			return "", "", "", false, fmt.Errorf("volumes : la racine %s est déclarée avec deux PVC (%s, %s)", cr, c, b.Volumes[r])
+		}
+		claims[cr] = b.Volumes[r]
+	}
+	for cr, c := range claims {
+		if (p == cr || strings.HasPrefix(p, strings.TrimSuffix(cr, "/")+"/")) && len(cr) > len(root) {
 			root, claim, ok = cr, c, true
 			sub = strings.TrimPrefix(strings.TrimPrefix(p, cr), "/")
 		}
 	}
-	return root, claim, sub, ok
+	return root, claim, sub, ok, nil
 }
 
 // sharedMounts : volumeMounts (subPath) et volumes PVC des chemins donnés (vus du
@@ -267,7 +280,14 @@ func (e Engine) sharedMounts(paths ...string) (mounts, vols []map[string]any, er
 	vname := map[string]string{} // racine → nom de volume
 	seen := map[string]bool{}
 	for _, p := range paths {
-		root, claim, sub, ok := e.B.volumeFor(p)
+		root, claim, sub, ok, verr := e.B.volumeFor(p)
+		if verr != nil {
+			return nil, nil, verr
+		}
+		if ok && sub == "" {
+			// racine de volume = tout le stockage partagé monté : contourne le durcissement #253
+			return nil, nil, fmt.Errorf("stockage partagé : %s est la racine du volume %s : monter un sous-dossier (dossier du projet, CLAUDE_CONFIG_DIR), jamais la racine", path.Clean(p), claim)
+		}
 		if !ok {
 			return nil, nil, fmt.Errorf("stockage partagé : %s hors de tout volume du backend %s (%s)", p, e.B.Name, strings.Join(roots, ", "))
 		}
