@@ -240,8 +240,8 @@ func TestAudit251OverSixtyPerMinuteAggregated(t *testing.T) {
 		_ = a.Record(AuditEntry{User: "bob", Role: "user", Method: "refresh", OK: true})
 		_ = a.Record(AuditEntry{User: "alice", Role: "user", Method: "refresh", OK: true}) // autre utilisateur : son propre quota
 	}
-	for i := 0; i < 100; i++ {
-		_ = a.Record(AuditEntry{User: "bob", Role: "user", Method: "backendSecretSet", OK: false, Err: "forbidden", Target: "backend-a"})
+	for i := 0; i < 100; i++ { // succès R1 : jamais agrégés
+		_ = a.Record(AuditEntry{User: "bob", Role: "admin", Method: "backendSecretSet", OK: true, Target: "backend-a"})
 	}
 	*clock = clock.Add(time.Minute)
 	_ = a.Flush(false)
@@ -264,7 +264,7 @@ func TestAudit251OverSixtyPerMinuteAggregated(t *testing.T) {
 		t.Errorf("agrégat bob/refresh : count %v, attendu 40 (100 − 60)", aggBob)
 	}
 	if indiv["bob/backendSecretSet"] != 100 {
-		t.Errorf("appels R1 : %d entrées, attendu 100 (jamais agrégés)", indiv["bob/backendSecretSet"])
+		t.Errorf("succès R1 : %d entrées, attendu 100 (jamais agrégés)", indiv["bob/backendSecretSet"])
 	}
 }
 
@@ -435,5 +435,96 @@ func TestAudit251DenyAggregated(t *testing.T) {
 		if r := []rune(strings.TrimSuffix(k, "/403")); len(r) > 64 && strings.HasSuffix(k, "/403") && k != "bob-test/403" {
 			t.Errorf("login de %d caractères, attendu tronqué à 64", len(r))
 		}
+	}
+}
+
+// MAJ-A : les REFUS R1 (ok false, err forbidden) sont soumis au plafond de 60 par minute et par utilisateur — un user ne
+// peut pas renouveler le journal à coups de refus quasi gratuits ; les succès R1 ne le sont jamais.
+func TestAudit251ForbiddenFloodLimited(t *testing.T) {
+	a, p, clock := audit251(t)
+	for i := 0; i < 500; i++ {
+		_ = a.Record(AuditEntry{User: "mallory", Role: "user", Method: "configSave", Target: "config.conf", OK: false, Err: "forbidden"})
+	}
+	for i := 0; i < 5; i++ {
+		_ = a.Record(AuditEntry{User: "ccoupel", Role: "admin", Method: "configSave", Target: "config.conf", OK: true})
+	}
+	*clock = clock.Add(time.Minute)
+	_ = a.Flush(false)
+	var indiv, agg, admin int
+	for _, l := range lines251(t, p) {
+		switch {
+		case l["user"] == "mallory" && l["kind"] == "agg":
+			agg += int(l["count"].(float64))
+		case l["user"] == "mallory":
+			indiv++
+		case l["user"] == "ccoupel":
+			admin++
+		}
+	}
+	if indiv > 60 {
+		t.Errorf("%d refus R1 écrits ligne à ligne, attendu au plus 60 par minute", indiv)
+	}
+	if agg > 0 && indiv+agg != 500 {
+		t.Errorf("agrégat %d + %d individuelles != 500 refus", agg, indiv)
+	}
+	if admin != 5 {
+		t.Errorf("succès R1 de l'admin : %d entrées, attendu 5 (jamais limités)", admin)
+	}
+	// le plafond de l'un ne limite pas l'autre : un autre utilisateur garde son quota
+	_ = a.Record(AuditEntry{User: "alice", Role: "user", Method: "configSave", OK: false, Err: "forbidden"})
+	found := false
+	for _, l := range lines251(t, p) {
+		if l["user"] == "alice" {
+			found = true
+		}
+	}
+	if !found {
+		t.Error("le refus d'un autre utilisateur n'est pas écrit (quota propre à chaque utilisateur)")
+	}
+}
+
+// Bornes : method 64, target et project 128 caractères ; méthode inconnue → « unknown » (jamais une clé arbitraire) ; une
+// ligne reste petite même avec des champs d'un mégaoctet ; le champ phase (ligne d'intention) est écrit tel quel.
+func TestAudit251FieldsBounded(t *testing.T) {
+	a, p, clock := audit251(t)
+	big := strings.Repeat("é", 1<<20)
+	_ = a.Record(AuditEntry{User: "u", Role: "admin", Method: big, OK: true})
+	_ = a.Record(AuditEntry{User: "u", Role: "admin", Method: "configSave", Target: big, Project: big, OK: true})
+	for i := 0; i < 1000; i++ { // méthodes inconnues distinctes : une seule clé d'agrégat (« unknown »), pas 1000
+		_ = a.Record(AuditEntry{User: "u", Role: "user", Method: "zz" + strconv.Itoa(i), OK: false, Err: "forbidden"})
+	}
+	_ = a.Record(AuditEntry{User: "u", Role: "admin", Method: "configSave", Target: "config.conf", OK: true, Phase: "intent"})
+	*clock = clock.Add(time.Minute)
+	_ = a.Flush(true)
+	st, _ := os.Stat(p)
+	if st.Size() > 64<<10 {
+		t.Errorf("journal de %d octets après des champs d'un mégaoctet et 1000 méthodes inconnues", st.Size())
+	}
+	unknown, intent := 0, 0
+	for _, l := range lines251(t, p) {
+		if m, _ := l["method"].(string); len([]rune(m)) > 64 {
+			t.Errorf("method de %d caractères", len([]rune(m)))
+		}
+		if tg, _ := l["target"].(string); len([]rune(tg)) > 128 {
+			t.Errorf("target de %d caractères", len([]rune(tg)))
+		}
+		if pr, _ := l["project"].(string); len([]rune(pr)) > 128 {
+			t.Errorf("project de %d caractères", len([]rune(pr)))
+		}
+		if l["method"] == "unknown" {
+			unknown++
+		}
+		if strings.HasPrefix(fmt.Sprint(l["method"]), "zz") {
+			t.Errorf("méthode inconnue écrite sous son nom : %v", l["method"])
+		}
+		if l["phase"] == "intent" {
+			intent++
+		}
+	}
+	if unknown == 0 {
+		t.Error("aucune entrée « unknown »")
+	}
+	if intent != 1 {
+		t.Errorf("%d lignes phase intent, attendu 1", intent)
 	}
 }

@@ -467,13 +467,16 @@ func TestProxy172AuditOverHTTP(t *testing.T) {
 	for _, l := range lines {
 		for k := range l {
 			switch k {
-			case "ts", "user", "role", "src", "method", "project", "target", "ok", "err", "kind", "count", "since":
+			case "ts", "user", "role", "src", "method", "project", "target", "ok", "err", "kind", "count", "since", "phase":
 			default:
 				t.Errorf("champ %q hors contrat : %v", k, l)
 			}
 		}
 		if strings.Contains(fmt.Sprint(l), "valeur-secrete-xyz") {
 			t.Errorf("valeur dans le journal : %v", l)
+		}
+		if l["phase"] == "intent" { // ligne d'intention d'une méthode R1, écrite avant l'exécution (correctif cycle 1)
+			continue
 		}
 		switch {
 		case l["method"] == "refresh" && l["user"] == "ccoupel" && l["role"] == "admin" && l["ok"] == true:
@@ -556,7 +559,7 @@ func TestProxy172AuditBurstAggregated(t *testing.T) {
 			aggCount += int(l["count"].(float64))
 		case l["method"] == "refresh" && l["user"] == "alice":
 			indiv++
-		case l["method"] == "configSave" && l["user"] == "ccoupel" && l["kind"] != "agg":
+		case l["method"] == "configSave" && l["user"] == "ccoupel" && l["kind"] != "agg" && l["phase"] != "intent":
 			r1++
 		}
 	}
@@ -608,7 +611,7 @@ func TestProxy172AuditSrcTruncatedAndClean(t *testing.T) {
 	s.stop()
 	n := 0
 	for _, l := range s.auditLines(t) {
-		if l["method"] != "configSave" {
+		if l["method"] != "configSave" || l["phase"] == "intent" {
 			continue
 		}
 		n++

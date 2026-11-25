@@ -251,7 +251,6 @@ func TestAuth172AdminFieldsChanged(t *testing.T) {
 		"backend ssh ajouté":             {base, base + "  t: {type: ssh, host: h3, shared: [/a]}\n", false},
 		"backend supprimé":               {base, "backends:\n  s: {type: ssh, host: h1, shared: [/a]}\n", true}, // k portait volumes, context, namespace
 		"ressources du pod":              {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {resources: {limits: {memory: 4Gi}}}", 1), false},
-		"placement du pod":               {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {nodeSelector: {a: b}, tolerations: [{key: x}]}", 1), false},
 		"volumes changé":                 {base, strings.Replace(base, "{/a: pvc}", "{/a: autre}", 1), true},
 		"namespace changé":               {base, strings.Replace(base, "namespace: n", "namespace: kube-system", 1), true},
 		"context changé":                 {base, strings.Replace(base, "context: c", "context: admin", 1), true},
@@ -264,6 +263,10 @@ func TestAuth172AdminFieldsChanged(t *testing.T) {
 		"runtimeClassName":               {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {runtimeClassName: x}", 1), true},
 		"hostAliases":                    {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {hostAliases: [{ip: 1.2.3.4, hostnames: [a]}]}", 1), true},
 		"dnsConfig":                      {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {dnsConfig: {nameservers: [1.2.3.4]}}", 1), true},
+		"tolerations (m2)":               {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {tolerations: [{key: node-role.kubernetes.io/control-plane, operator: Exists}]}", 1), true},
+		"priorityClassName (m2)":         {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {priorityClassName: system-cluster-critical}", 1), true},
+		"schedulerName (m2)":             {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {schedulerName: autre}", 1), true},
+		"imagePullSecrets (m2)":          {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {imagePullSecrets: [{name: s}]}", 1), true},
 		"dnsPolicy":                      {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {dnsPolicy: None}", 1), true},
 		"rubrique globale desktop_web":   {base, base + "desktop_web: {enabled: true}\n", true},
 		"rubrique globale browser_paths": {base, base + "browser_paths: [{local: a, remote: b}]\n", true},
@@ -361,6 +364,46 @@ func TestAuth172AuditFrequentList(t *testing.T) {
 	for m := range r1Methods {
 		if auditFrequent[m] {
 			t.Errorf("%s est R1 : jamais agrégée (une entrée par appel)", m)
+		}
+	}
+}
+
+// Pas de dérive des listes : le champ access.deny est GÉNÉRÉ depuis le classement (toute méthode de la classe R1 sauf
+// configSave / configApply — refusés par kind —, et toute méthode refusée en proxy, clipboard* compris).
+func TestAuth172AccessDenyDerivedFromClasses(t *testing.T) {
+	t.Parallel()
+	user := AccessFor(AccessProxy, &Identity{Login: "u", Role: RoleUser})
+	admin := AccessFor(AccessProxy, &Identity{Login: "a", Role: RoleAdmin})
+	has := func(ai AccessInfo, m string) bool {
+		for _, d := range ai.Deny {
+			if d == m {
+				return true
+			}
+		}
+		return false
+	}
+	for _, m := range ClassifiedMethods() {
+		c, _ := ClassOf(m)
+		switch {
+		case c == ClassProxyDenied:
+			if !has(user, m) || !has(admin, m) {
+				t.Errorf("%s (refusée en proxy) absente de access.deny (user %v, admin %v)", m, has(user, m), has(admin, m))
+			}
+		case c == ClassR1 && m != "configSave" && m != "configApply":
+			if !has(user, m) || has(admin, m) {
+				t.Errorf("%s (R1) : deny user %v, admin %v, attendu vrai et faux", m, has(user, m), has(admin, m))
+			}
+		case c != ClassR1 && c != ClassProxyDenied:
+			if has(user, m) || has(admin, m) {
+				t.Errorf("%s (libre) présente dans access.deny", m)
+			}
+		}
+	}
+	for _, kind := range []string{"config.conf", "env.yaml", "hub"} {
+		for _, m := range []string{"configSave", "configApply"} {
+			if !has(user, m+":"+kind) || has(admin, m+":"+kind) {
+				t.Errorf("%s:%s : user %v admin %v", m, kind, has(user, m+":"+kind), has(admin, m+":"+kind))
+			}
 		}
 	}
 }

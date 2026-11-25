@@ -277,6 +277,83 @@ QUALIF avec `auth.sessionDuration: 15m`, `auth.sessionRefresh: 5m` ; un terminal
 
 ---
 
+### Scenario 18 — Charge ambigue (casse, doublons de cles) : R1 non contournable (CRIT-1, critical)
+
+**Validation** : AUTO — **Issues** : #172 #252
+
+Cookie d'un compte `user` (GitHub, fourni par l'utilisateur) dans `$JU`. Contenus valides et reconnaissables (marqueur `POC-CRIT-1`) ; `<projet>` = projet factice.
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `curl -s -b $JU -H 'Content-Type: application/json' -d '{"method":"configSave","args":{"kind":"project-env","Kind":"config.conf","path":"<projet>","content":"x","CONTENT":"# POC-CRIT-1"}}' <URL>/api/call` | `400` (cles ambigues) ou `forbidden: admin` ; **rien d'ecrit** | | |
+| 2 | Idem avec `{"kind":"project-env","kind":"config.conf",…}` (cle en double), `KIND":"env.yaml"`, et `configApply` avec `Changes` / `CHANGES` sur `backends.yaml` (`pod.serviceAccountName`, `volumes`, `type: host`) | meme resultat a chaque fois | | |
+| 3 | `kubectl -n <ns> exec <pod> -c launcher -- sh -c 'grep -rl POC-CRIT-1 "$CL_CONFIG_DIR" ~/.config 2>/dev/null; echo fin'` | aucun fichier ne contient le marqueur (seule la ligne `fin`) | | |
+| 4 | Journal : `kubectl … exec … -- tail -n 5 "$CL_CACHE_DIR/audit.jsonl"` | refus journalises (`ok:false`, `err:forbidden`, `target` court) ou `400` sans execution ; jamais un `ok:true` de ce user pour une methode R1 | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 19 — Les fichiers de projet gardent leur CSP `sandbox` derriere Traefik (CRIT-2, critical)
+
+**Validation** : AUTO — **Issues** : #172
+
+Projet factice contenant `x.html` (page statique) et `evil.html` (script : `fetch('/api/call',{method:'POST',headers:{'Content-Type':'application/json'},body:'{"method":"clientInfo","args":{}}'}).then(r=>document.title='LU:'+r.status).catch(e=>document.title='BLOQUE')`).
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `curl -sI -b $J <URL>/files/<projet>/x.html \| grep -i content-security-policy` (cookie admin du scenario 3) | l'en-tete contient **`sandbox`** (`allow-scripts …` : voir `contracts/web-server.md`) ; pas seulement `frame-ancestors` | | |
+| 2 | Idem sur l'hote externe si active (`<URL externe>`) | meme CSP `sandbox` | | |
+| 3 | `curl -sI <URL>/ \| grep -i content-security-policy` et `curl -sI <URL>/oauth2/sign_in \| grep -i content-security-policy` | `/` : aucun CSP du middleware Traefik (celui du launcher, `frame-ancestors 'none'`) ; pages du proxy : CSP strict | | |
+| 4 | Navigateur sans tete ou onglet : ouvrir `<URL>/files/<projet>/evil.html` | le titre devient `BLOQUE` ou `LU:403` : la page ne s'execute **pas** dans l'origine du launcher (origine opaque), aucun appel authentifie n'aboutit | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 20 — Inondation de refus R1 et champs geants (MAJ-A)
+
+**Validation** : AUTO — **Issues** : #251
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Marquer une ecriture R1 de l'admin (scenario 6 etape 1), puis `seq 100000 \| xargs -P 16 -I{} curl -s -o /dev/null -b $JU -H 'Content-Type: application/json' -d '{"method":"configSave","args":{"kind":"config.conf","content":"x"}}' <URL>/api/call` (compte `user`) | le serveur repond ; au plus 60 refus par minute ecrits ligne a ligne, le reste agrege ou ecarte | | |
+| 2 | `kubectl -n <ns> exec <pod> -c launcher -- sh -c 'ls -l $CL_CACHE_DIR \| grep audit; grep -c POC-ADMIN "$CL_CACHE_DIR"/audit.jsonl*'` | taille totale du journal bornee (loin des 60 Mio) ; l'ecriture R1 de l'admin y figure toujours | | |
+| 3 | `curl -s -b $J -H 'Content-Type: application/json' -d "{\"method\":\"$(head -c 1000000 /dev/zero \| tr '\0' M)\",\"args\":{}}" <URL>/api/call -o /dev/null -w '%{http_code}'` puis `tail -c 2000 "$CL_CACHE_DIR/audit.jsonl"` | la ligne d'audit est courte, `method` : `unknown` ; `target` et `project` d'une autre methode : 128 caracteres au plus | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 21 — `backendTest` : un user teste un backend declare, pas des champs R1 (revue, majeur)
+
+**Validation** : AUTO — **Issues** : #252
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Compte `user` : `backendTest` du backend declare, tel quel (champs de connexion et R1 identiques) | permis : etapes du diagnostic renvoyees | | |
+| 2 | Compte `user` : `backendTest` du meme backend avec un `context`, un `namespace`, un `kubeconfig`, des `volumes` ou un `host` differents, ou un nouveau backend portant un champ R1 | refuse (`forbidden: admin`) ; **aucun** `kubectl` / `ssh` lance dans le pod (`kubectl logs … -c launcher` sans trace de commande ; `ps` du conteneur) | | |
+| 3 | Compte `admin` : memes appels | permis | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 22 — Le flux d'evenements est revalide
+
+**Validation** : AUTO — **Issues** : #172 #251
+
+Mesure : `auth.sessionRefresh: 5m` en QUALIF (sinon valeur par defaut).
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `curl -sN -b $J <URL>/api/events -o /dev/null -w '%{time_total}'` (cookie admin) | le serveur ferme le flux apres `sessionRefresh` environ ; le client web se reconnecte | | |
+| 2 | Retirer le login de `auth.admins` (`helm upgrade`), rouvrir `/api/events` avec l'ancien cookie | `403` (`X-Launcher-Refusal: user`) | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Criteres de Validation
 
 - [ ] Aucun en-tete d'identite forge n'est accepte ; le port `8081` n'est pas joignable hors du pod

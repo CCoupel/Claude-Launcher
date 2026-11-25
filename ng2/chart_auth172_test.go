@@ -659,31 +659,6 @@ func TestChartAuth172RateLimitTraefik(t *testing.T) {
 	}
 }
 
-func TestChartAuth172RateLimitNginx(t *testing.T) {
-	needHelm(t)
-	v := t172Local()
-	sub(v, "ingress")["controller"] = "nginx"
-	sub(v, "ingress")["className"] = "nginx"
-	o := must(t, v)
-	found := false
-	for _, ing := range o["Ingress"] {
-		for _, r := range get(ing, "spec", "rules").([]any) {
-			ps, _ := get(r, "http", "paths").([]any)
-			for _, p := range ps {
-				if strings.HasPrefix(fmt.Sprint(get(p, "path")), "/oauth2") {
-					found = true
-					if get(ing, "metadata", "annotations", "nginx.ingress.kubernetes.io/limit-rpm") == nil {
-						t.Errorf("Ingress /oauth2 sans limit-rpm : %v", get(ing, "metadata", "annotations"))
-					}
-				}
-			}
-		}
-	}
-	if !found {
-		t.Error("aucun Ingress dédié à /oauth2 (nginx)")
-	}
-}
-
 // ── NOTES.txt, version du chart ──────────────────────────────────────────────────────────────────────────────────
 
 func TestChartAuth172Notes(t *testing.T) {
@@ -766,7 +741,8 @@ func TestChartAuth172AuthorizationHeaderStrippedTraefik(t *testing.T) {
 	}
 	b, _ := yaml.Marshal(get(hd, "spec", "headers"))
 	hs := strings.ToLower(string(b))
-	for _, w := range []string{"stsseconds", "frame-ancestors 'none'", "nosniff", "no-referrer"} {
+	// CRIT-2 : pas de CSP sur la route « / » (il écraserait le « sandbox » de /files) : frame-ancestors est posé par le launcher
+	for _, w := range []string{"stsseconds", "nosniff", "no-referrer"} {
 		if !strings.Contains(hs, w) {
 			t.Errorf("en-têtes de sécurité (m7) : « %s » absent :\n%s", w, hs)
 		}
@@ -790,25 +766,6 @@ func TestChartAuth172AuthorizationHeaderStrippedTraefik(t *testing.T) {
 					t.Errorf("%s de %v : %v = %#v, attendu 0 explicite", k, get(mw, "metadata", "name"), path, get(sp, path...))
 				}
 			}
-		}
-	}
-}
-
-func TestChartAuth172AuthorizationHeaderStrippedNginx(t *testing.T) {
-	needHelm(t)
-	v := t172Local()
-	sub(v, "ingress")["controller"] = "nginx"
-	sub(v, "ingress")["className"] = "nginx"
-	o := must(t, v)
-	for _, ing := range o["Ingress"] {
-		ok := false
-		for _, val := range get(ing, "metadata", "annotations").(m) {
-			if strings.Contains(fmt.Sprint(val), `proxy_set_header Authorization ""`) {
-				ok = true
-			}
-		}
-		if !ok {
-			t.Errorf("Ingress %v sans proxy_set_header Authorization vide", get(ing, "metadata", "name"))
 		}
 	}
 }
@@ -1043,5 +1000,91 @@ func TestChartAuth172TemplatesNoInjection(t *testing.T) {
 				t.Errorf("%s : action de gabarit suspecte %s (seules {{ .X }} / {{ if }} / {{ end }} sont admises)", f, a)
 			}
 		}
+	}
+}
+
+// CRIT-2 : le middleware de la route « / » (interne et externe) ne pose AUCUN Content-Security-Policy : Traefik remplacerait
+// le CSP « sandbox » des fichiers de projets (/files) et un HTML de projet s'exécuterait dans l'origine du launcher. Le CSP
+// strict reste réservé aux pages d'oauth2-proxy (route /oauth2, middleware -headers-oauth).
+func TestChartAuth172NoCSPOnMainRoute(t *testing.T) {
+	needHelm(t)
+	o := must(t, t172Ext())
+	byName := map[string]m{}
+	for _, mw := range o["Middleware"] {
+		byName[fmt.Sprint(get(mw, "metadata", "name"))] = mw
+	}
+	lookup := func(ref string) m { // « claude-ng2-rel-headers@kubernetescrd » → « rel-headers »
+		ref = strings.TrimSuffix(strings.TrimSpace(ref), "@kubernetescrd")
+		for n, mw := range byName {
+			if strings.HasSuffix(ref, "-"+n) || ref == n {
+				return mw
+			}
+		}
+		return nil
+	}
+	hasCSP := func(mw m) bool {
+		b, _ := yaml.Marshal(get(mw, "spec"))
+		l := strings.ToLower(string(b))
+		return strings.Contains(l, "contentsecuritypolicy") || strings.Contains(l, "content-security-policy")
+	}
+	mainRoutes, oauthRoutes := 0, 0
+	for _, ing := range o["Ingress"] {
+		isOAuth := strings.Contains(fmt.Sprint(get(ing, "spec", "rules")), "/oauth2")
+		for _, ref := range strings.Split(t172Anno(ing), ",") {
+			mw := lookup(ref)
+			if mw == nil {
+				continue
+			}
+			if isOAuth {
+				oauthRoutes++
+				continue
+			}
+			mainRoutes++
+			if hasCSP(mw) {
+				t.Errorf("Ingress %v (route /) : le middleware %v pose un Content-Security-Policy (écrase le sandbox de /files)", get(ing, "metadata", "name"), get(mw, "metadata", "name"))
+			}
+		}
+	}
+	if mainRoutes < 2 {
+		t.Errorf("%d middlewares résolus sur les routes « / », attendu au moins 2 (interne et externe) : références non résolues ?", mainRoutes)
+	}
+	// le CSP strict reste sur les pages du proxy
+	csp := false
+	for n, mw := range byName {
+		if strings.HasSuffix(n, "-headers-oauth") && hasCSP(mw) {
+			csp = true
+		}
+	}
+	if !csp {
+		t.Error("le middleware -headers-oauth doit garder son CSP strict (pages d'oauth2-proxy seulement)")
+	}
+	// ni le CSP ni aucun en-tête de réponse de « -headers » ne vise « sandbox »
+	if mw := byName[t172Release+"-headers"]; mw != nil && strings.Contains(strings.ToLower(fmt.Sprint(get(mw, "spec"))), "sandbox") {
+		t.Error("-headers mentionne sandbox")
+	}
+}
+
+// m8 : la rotation décrite par NOTES.txt inclut le Secret de cookie de l'instance externe.
+func TestChartAuth172NotesRotationIncludesExternalCookie(t *testing.T) {
+	needHelm(t)
+	notes := t172Notes(t, t172Ext())
+	if !strings.Contains(notes, t172Release+"-auth-cookie-ext") {
+		t.Errorf("NOTES.txt : la rotation ne cite pas %s-auth-cookie-ext :\n%s", t172Release, notes)
+	}
+}
+
+// m6 : nginx ne retire pas Authorization ni ne limite les essais sans snippet (désactivé par défaut dans ingress-nginx) : refusé avec le
+// compte local ; permis sans compte local (pas de formulaire ni de chemin Basic).
+func TestChartAuth172NginxRefusedWithLocalAccount(t *testing.T) {
+	needHelm(t)
+	v := t172Local()
+	sub(v, "ingress")["controller"] = "nginx"
+	sub(v, "ingress")["className"] = "nginx"
+	t172Refused(t, v, "nginx", "auth.localAdmin")
+	v = t172Values() // sans compte local
+	sub(v, "ingress")["controller"] = "nginx"
+	sub(v, "ingress")["className"] = "nginx"
+	if _, out, err := render(t, v); err != nil {
+		t.Errorf("nginx sans compte local refusé : %.300s", out)
 	}
 }
