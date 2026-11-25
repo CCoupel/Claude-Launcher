@@ -12,7 +12,7 @@ qui servait à l'équipe d'agents.
 - [2. Réponses aux questions de #184](#2-réponses-aux-questions-de-184)
 - [3. Architecture retenue pour #249](#3-architecture-retenue-pour-249)
 - [4. Découpage en milestones](#4-découpage-en-milestones)
-- [5. Décisions D1 à D11](#5-décisions-d1-à-d11)
+- [5. Décisions](#5-décisions)
 - [6. État après v7.0.0](#6-état-après-v700)
 
 ---

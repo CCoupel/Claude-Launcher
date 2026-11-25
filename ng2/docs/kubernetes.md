@@ -285,8 +285,11 @@ pose ; il n'a ni mot de passe ni session propre. Contrat complet : `contracts/au
     --from-file=client-id=PRIVATE/<ENV>/client-id --from-file=client-secret=PRIVATE/<ENV>/client-secret
   ```
   puis `auth.existingSecret: <nom-du-secret>`. Sans ce Secret, le pod ne démarre pas, et `NOTES.txt` le nomme.
+  Le Secret étant hors du chart, **un changement de sa valeur ne redémarre pas le pod** : lancez
+  `kubectl -n <ns> rollout restart statefulset/<release>` après la mise à jour du Secret.
 - **Autre façon (moins recommandée)** : `auth.github.clientId` et `auth.github.clientSecret` en valeurs Helm. Le chart crée
-  alors le Secret `<release>-github`. Ces valeurs se mettent **uniquement** dans `PRIVATE/<ENV>/values-local.yaml`, jamais
+  alors le Secret `<release>-github`. Un changement de ces valeurs redémarre le pod automatiquement (checksum du Secret dans
+  le modèle du pod). Ces valeurs se mettent **uniquement** dans `PRIVATE/<ENV>/values-local.yaml`, jamais
   commitées. **Attention** : `helm get values` et `helm template` les affichent en clair, et elles sont stockées dans le
   Secret de release Helm. `existingSecret` reste donc la voie recommandée. Les deux à la fois sont refusés au rendu, de même
   qu'une seule des deux valeurs. `scripts/ci.sh` échoue si un `clientSecret` non vide est dans un fichier suivi par git.
