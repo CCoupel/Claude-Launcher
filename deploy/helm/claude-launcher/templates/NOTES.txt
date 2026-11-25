@@ -15,6 +15,10 @@ ATTENTION : le secret de la GitHub App est dans les valeurs Helm (lisible par «
 {{- else }}
 Connexion GitHub DÉSACTIVÉE (auth.github.enabled: false) : seul le compte local ouvre l'interface.
 {{- end }}
+{{- if .Values.auth.existingSecret }}
+Secret {{ .Values.auth.existingSecret }} (hors chart) : s'il change, redémarrer le pod pour que les sidecars le relisent :
+  kubectl -n {{ .Release.Namespace }} rollout restart statefulset/{{ include "cl.fullname" . }}
+{{- end }}
 {{- if .Values.auth.localAdmin.enabled }}
 Compte local de secours « admin@local » (hôtes admis : {{ include "cl.localHosts" . }}, jamais depuis Internet). Mot de passe :
   kubectl -n {{ .Release.Namespace }} get secret {{ include "cl.localAdminSecretName" . }} -o jsonpath='{.data.password}' | base64 -d

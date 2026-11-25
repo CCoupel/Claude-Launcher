@@ -27,6 +27,14 @@ spec:
       labels:
         {{- include "cl.selector" . | nindent 8 }}
         app.kubernetes.io/version: {{ include "cl.versionLabel" . | quote }}
+      {{- if $auth }}
+      annotations:
+        # le pod redémarre quand ces objets (rendus par le chart) changent : un sidecar lit son Secret et ses gabarits au démarrage
+        checksum/auth-templates: {{ include (print $.Template.BasePath "/configmap-auth-templates.yaml") . | sha256sum | quote }}
+        {{- if and $a.github.enabled $a.github.clientId (not $a.existingSecret) }}
+        checksum/github-secret: {{ printf "%s:%s" $a.github.clientId $a.github.clientSecret | sha256sum | quote }}
+        {{- end }}
+      {{- end }}
     spec:
       serviceAccountName: {{ include "cl.fullname" . }}
       automountServiceAccountToken: true
