@@ -89,6 +89,31 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
    prise de main hub ↔ cluster sur un projet réel, faite par l'utilisateur.
 5. Mise à jour : rejouer l'étape 2 avec le nouveau `vX.Y.Z` (nouvelle empreinte) — l'ancien pod s'arrête avant le démarrage du nouveau.
 
+## Authentification (v7.0.0, #172) — avant et après `helm upgrade`
+
+Contrat : `contracts/helm-values.md` (« Valeurs `auth.*` »), `contracts/auth.md`. Valeurs de PROD dans `PRIVATE/PROD/values-local.yaml`.
+
+1. **Secret GitHub OAuth — créé AVANT `helm upgrade`** (`auth.github.enabled: true`, défaut ; absent → le pod ne démarre pas) :
+   `client-id` / `client-secret` de l'application GitHub **de PROD** fournis par l'utilisateur dans `PRIVATE/PROD/` (jamais inventés ni
+   affichés) ; URL de retour : `https://launcher.local/oauth2/callback`. Le `cookie-secret` est généré par le chart (`<release>-auth-cookie`).
+   ```bash
+   ( set -euo pipefail; . .claude/agents/environments/prod.env
+     KUBECONFIG=$PROD_KUBECONFIG kubectl -n claude-ng2 create secret generic <nom auth.existingSecret> \
+       --from-file=client-id=PRIVATE/PROD/github-client-id --from-file=client-secret=PRIVATE/PROD/github-client-secret )
+   ```
+   `auth.admins` (logins GitHub, non vide) dans `PRIVATE/PROD/values-local.yaml` — fournis par l'utilisateur (M4).
+2. **Mot de passe `admin@local`** : secours seulement sur l'hôte interne (refusé sur l'hôte externe). Lecture à la demande dans un fichier
+   tmpfs pour l'utilisateur, jamais affiché dans un rapport ni un journal :
+   `( umask 077; . .claude/agents/environments/prod.env; U=$(mktemp -p /dev/shm claude-launcher-prod-admin-XXXXXX); KUBECONFIG=$PROD_KUBECONFIG kubectl -n claude-ng2 get secret claude-launcher-local-admin -o jsonpath='{.data.password}' | base64 -d > "$U"; ( sleep 600; rm -f "$U" ) >/dev/null 2>&1 & echo "$U (cat par l'utilisateur, effacé dans 10 min)" )`
+   (nom de clé à vérifier dans `contracts/auth.md` §8).
+3. **Contrôle `/healthz`** (port santé `CL_HEALTH_ADDR`, 8082, interne au pod) :
+   `kubectl -n claude-ng2 exec statefulset/claude-launcher -c launcher -- curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/healthz` → `200`
+   (ou `port-forward pod/claude-launcher-0 8082`). Sans identité, `https://launcher.local/` ne répond que la connexion.
+4. **Ingress externe : reste DÉSACTIVÉ** (`externalIngress.enabled: false`) **jusqu'à LOT-3** (#254, hôte public + `letsencrypt-prod`,
+   applications GitHub). Ne pas l'activer à la mise en production de LOT-2.
+5. Sidecar figé par empreinte : `quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048`
+   (relevée le 2026-11-25) ; contrôler l'image rendue du sidecar comme celle du launcher (étape 2 ci-dessus).
+
 ## `helm upgrade` — jamais `--reuse-values` (constaté en QUALIF 6.4.0.12, vital pour la PROD v6.4.0)
 
 `--reuse-values` n'applique pas les défauts du chart de la nouvelle version : une clé **nouvelle** (ex. `externalIngress.enabled`,

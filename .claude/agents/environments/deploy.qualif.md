@@ -156,6 +156,39 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
    (`kubectl -n claude-qualif delete sts -l cl.launcher=ng2,cl.backend=k8s`). La racine de QUALIF et son `backends.yaml` sont
    **gardés** pour la QUALIF suivante ; seul le dossier d'état `…/.cache/claude-launcher-ng2/cluster-qualif` (jeton) est supprimé.
 
+## Authentification (v7.0.0, #172) — avant et après `helm upgrade`
+
+Contrat : `contracts/helm-values.md` (« Valeurs `auth.*` »), `contracts/auth.md`. Valeurs de QUALIF dans `PRIVATE/QUALIF/values-local.yaml`
+(`auth.enabled: true`, `auth.github.enabled: false` + compte local `admin@local` tant que les applications GitHub n'existent pas).
+
+1. **Secret GitHub OAuth — créé AVANT `helm upgrade`** (seulement quand `auth.github.enabled: true` ; absent → le pod ne démarre pas).
+   `client-id` et `client-secret` de l'application GitHub **de QUALIF** sont fournis par l'utilisateur dans `PRIVATE/QUALIF/`
+   (jamais inventés, jamais affichés) ; URL de retour de l'application : `https://launcher-qualif.local/oauth2/callback`.
+   Le `cookie-secret` n'est **pas** à créer : le chart le génère (`<release>-auth-cookie`, contrat rev1). Création, sans écho :
+   ```bash
+   ( set -euo pipefail; . .claude/agents/environments/qualif.env
+     KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif create secret generic <nom auth.existingSecret> \
+       --from-file=client-id=PRIVATE/QUALIF/github-client-id --from-file=client-secret=PRIVATE/QUALIF/github-client-secret )
+   ```
+   puis reporter ce nom dans `auth.existingSecret` et `auth.github.enabled: true` + `auth.admins` (M4, logins fournis par l'utilisateur).
+2. **Mot de passe `admin@local`** (Secret généré par le chart, P11) — lu à la demande, **jamais affiché dans un rapport ni un journal** :
+   écrit dans un fichier tmpfs que l'utilisateur lit, effacé au bout de 10 min (clé `password` ; vérifier le nom de clé dans `contracts/auth.md` §8) :
+   ```bash
+   ( umask 077; . .claude/agents/environments/qualif.env
+     U=$(mktemp -p /dev/shm claude-launcher-qualif-admin-XXXXXX)
+     KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif get secret claude-launcher-qualif-local-admin \
+       -o jsonpath='{.data.password}' | base64 -d > "$U"
+     ( sleep 600; rm -f "$U" ) >/dev/null 2>&1 &
+     echo "mot de passe admin@local : $U (cat par l'utilisateur ; effacé dans 10 min)" )
+   ```
+3. **Contrôle `/healthz`** (port santé `CL_HEALTH_ADDR`, 8082 dans le pod, non exposé par le Service ni l'Ingress) :
+   `kubectl -n claude-qualif exec statefulset/claude-launcher-qualif -c launcher -- curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/healthz` → `200`
+   (si `curl` est absent du conteneur : `kubectl port-forward pod/claude-launcher-qualif-0 8082` puis `curl localhost:8082/healthz`).
+   Sans identité, l'adresse publique ne répond que la connexion (jamais l'interface) : `curl -sk -o /dev/null -w '%{http_code}' https://launcher-qualif.local/`
+   → redirection/connexion, jamais `200` sur l'interface.
+4. Image du sidecar figée par empreinte : `quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048`
+   (relevée le 2026-11-25) ; l'image rendue du sidecar est contrôlée comme celle du launcher (étape 3 ci-dessus).
+
 ## `helm upgrade` — jamais `--reuse-values` (constaté en 6.4.0.12)
 
 `--reuse-values` réutilise **uniquement** les valeurs enregistrées à l'installation précédente, sans les défauts du chart de
