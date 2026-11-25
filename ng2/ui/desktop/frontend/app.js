@@ -9,14 +9,29 @@
 const SESSION_MSG = 'session expirée — rouvrir le lien d\'accès';
 const DENIED_MSG = 'accès refusé : adresse ou origine non admise (voir Réglages › Interface web › Adresse publique)';
 // ── Identité (mode proxy, v7.0.0 : #251, #252) ─────────────────────────────
-// `user` = { login, role: admin|user, logout } rendu par init et clientInfo en mode proxy seulement (absent ailleurs :
-// ni pastille ni verrouillage). Le serveur reste seul juge (refus R1) ; le client grise seulement.
-let whoUser = null;
-const r1Locked = () => !!(whoUser && whoUser.role === 'user');
+// `user` = { login, role, kind: github|local, session: {duration, refresh}, logout } (mode proxy seulement).
+// `access` = { mode, role, deny[], backendsAdminFields } (tous modes du serveur web ; absent en fenêtre native) : seule
+// source du grisage — aucune liste de méthodes en dur ici. Le serveur reste seul juge (refus R1).
+let whoUser = null, whoAccess = null;
 const R1_TIP = 'réservé à un administrateur';
-function setUser(u) {
-  whoUser = u && u.login ? { login: String(u.login), role: u.role === 'admin' ? 'admin' : 'user', logout: typeof u.logout === 'string' ? u.logout : '', session: typeof u.session === 'string' ? u.session : '' } : null;
+const r1Denied = (m, kind) => !!(whoAccess && whoAccess.deny && (whoAccess.deny.includes(m) || (kind && whoAccess.deny.includes(m + ':' + kind))));
+const r1Admin = () => !!(whoAccess && whoAccess.backendsAdminFields); // champs R1 de backends.yaml non modifiables
+// grise un contrôle dont la méthode (ou méthode:kind) est refusée à ce client
+function r1Gate(x, m, kind) { if (x && r1Denied(m, kind)) { x.disabled = true; x.classList.add('r1off'); if (!x.title) x.title = R1_TIP; } return x; }
+function r1Info(r) {
+  if (!r) return;
+  if (r.access !== undefined) { whoAccess = r.access && r.access.mode ? { mode: r.access.mode, role: r.access.role || '', deny: Array.isArray(r.access.deny) ? r.access.deny : [], backendsAdminFields: !!r.access.backendsAdminFields } : null; }
+  if (r.user !== undefined) {
+    const u = r.user;
+    whoUser = u && u.login ? { login: String(u.login), role: u.role === 'admin' ? 'admin' : 'user', kind: u.kind === 'local' || u.login === 'admin@local' ? 'local' : 'github', logout: typeof u.logout === 'string' ? u.logout : '', session: u.session && typeof u.session === 'object' ? u.session : null } : null;
+  }
   renderWho(); r1Apply();
+}
+const fmtDur = (d) => { const m = /^(\d+)\s*(h|m)$/.exec(String(d || '')); return m ? m[1] + (m[2] === 'h' ? ' h' : ' min') : String(d || ''); };
+function sessionText(se) {
+  if (!se || !se.duration) return '';
+  const rf = String(se.refresh || '');
+  return 'session : ' + fmtDur(se.duration) + (rf ? (rf === '1h' ? ', renouvelée chaque heure' : ', renouvelée toutes les ' + fmtDur(rf)) : '');
 }
 function renderWho() {
   const w = document.getElementById('who'); if (!w) return;
@@ -31,11 +46,10 @@ function whoMenu(ev) {
   if (!whoUser) return;
   const old = document.getElementById('ctxmenu'); if (old) { old.remove(); if (old.dataset.who) return; }
   const m = el('div', 'ctxmenu whomenu'); m.id = 'ctxmenu'; m.dataset.who = '1';
-  const local = whoUser.login === 'admin@local';
-  m.append(el('div', 'dis hd', local ? 'Compte local' : 'Connecté avec GitHub'));
-  const l = el('div', 'dis'); const b = el('b', '', whoUser.login); l.append(b, document.createTextNode(' · ' + (whoUser.role === 'admin' ? 'administrateur' : 'utilisateur (lecture seule)')));
+  m.append(el('div', 'dis hd', whoUser.kind === 'local' ? 'Compte local' : 'Connecté avec GitHub'));
+  const l = el('div', 'dis'); l.append(el('b', '', whoUser.login), document.createTextNode(' · ' + (whoUser.role === 'admin' ? 'administrateur' : 'utilisateur')));
   m.appendChild(l);
-  if (whoUser.session) m.appendChild(el('div', 'dis hd', 'session : ' + whoUser.session));
+  const st = sessionText(whoUser.session); if (st) m.appendChild(el('div', 'dis hd', st));
   m.appendChild(el('hr'));
   const out = el('div'); out.append(el('span', 'ck', '⎋'), el('span', '', 'Se déconnecter'));
   out.onclick = (e) => { e.stopPropagation(); m.remove(); location.href = whoUser.logout || '/oauth2/sign_out?rd=%2Fsigned-out'; };
@@ -45,24 +59,29 @@ function whoMenu(ev) {
   m.style.left = Math.max(0, Math.min(r.left, window.innerWidth - m.offsetWidth - 4)) + 'px';
   m.style.top = (r.bottom + 4) + 'px';
 }
-// Règle R1 : actions d'écriture sensibles grisées pour le rôle `user`, dans la fenêtre modale (Réglages, projet,
-// approbations). Observateur sur les ajouts seulement (pas les attributs : pas de boucle).
+// Page de Réglages d'un document global (config.conf, env.yaml, hub) : lecture seule si l'écriture est refusée.
+// Contrôles marqués (secrets, known_hosts, webUI…) : grisés à leur création par r1Gate. Observateur sur les ajouts
+// seulement (pas les attributs : pas de boucle).
 function r1Lock(root) {
-  if (!r1Locked() || !root) return;
-  root.querySelectorAll('button, input, select, textarea').forEach((x) => {
-    if (x.closest('.cehead, .strail') || x.dataset.r1ok || x.disabled) return;
+  if (!whoAccess || !root || typeof ST === 'undefined' || !ST.on || typeof docOfPage !== 'function') return;
+  const id = docOfPage(); if (!id) return;
+  const kind = DOCS[id].kind;
+  if (!r1Denied('configSave', kind) && !r1Denied('configApply', kind)) return;
+  root.querySelectorAll('#stpg button, #stpg input, #stpg select, #stpg textarea, #stfoot button').forEach((x) => {
+    if (x.disabled) return;
     x.disabled = true; x.classList.add('r1off'); if (!x.title) x.title = R1_TIP;
   });
   const t = root.querySelector('.cehead h2');
-  if (t && !t.dataset.ro) { t.dataset.ro = '1'; t.append(el('span', 't-yellow ro', ' · lecture seule')); }
+  if (t && !t.querySelector('.ro')) t.append(el('span', 't-yellow ro', ' · lecture seule'));
 }
 let r1Obs = null;
 function r1Apply() {
   const box = document.getElementById('modalbox'); if (!box) return;
   if (r1Obs) { r1Obs.disconnect(); r1Obs = null; }
-  if (!r1Locked()) return;
+  const t = box.querySelector('.cehead h2 .ro'); if (t) t.remove();
+  if (!whoAccess || !whoAccess.deny.length) return;
   r1Lock(box);
-  r1Obs = new MutationObserver(() => { r1Obs.disconnect(); r1Lock(box); r1Obs.observe(box, { childList: true, subtree: true }); });
+  r1Obs = new MutationObserver(() => { r1Obs.disconnect(); const t2 = box.querySelector('.cehead h2 .ro'); if (t2 && !(typeof ST !== 'undefined' && ST.on && typeof docOfPage === 'function' && docOfPage())) t2.remove(); r1Lock(box); r1Obs.observe(box, { childList: true, subtree: true }); });
   r1Obs.observe(box, { childList: true, subtree: true });
 }
 // Session expirée : modale bloquante (identité connue) ; terminaux figés, aucune frappe envoyée.
@@ -1035,7 +1054,7 @@ function showTeamMenu(c, m, x, y) {
   menu.style.top = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + 'px';
 }
 // P1 : une fois au démarrage ; échec (serveur plus ancien) = non distant
-transport.call('clientInfo', {}).then((r) => { clientRemote = !!(r && r.remote); if (r && r.user) setUser(r.user); if (S.cards) renderCards(); }).catch(() => {});
+transport.call('clientInfo', {}).then((r) => { clientRemote = !!(r && r.remote); r1Info(r); if (S.cards) renderCards(); }).catch(() => {});
 
 // ── Menu contextuel d'un projet (#148, LOT-3.2) ────────────────────────────
 function closeCtx() { const m = $('ctxmenu'); if (m) m.remove(); }
@@ -1082,7 +1101,7 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeCtx()
 window.addEventListener('blur', closeCtx);
 
 $('newproj').addEventListener('click', () => { select('new'); newProject(''); });
-$('login').addEventListener('click', () => call('login').then(() => {}).catch(() => {}));
+$('login').addEventListener('click', () => r1Denied('login') ? flash('⚠ ' + R1_TIP) : call('login').then(() => {}).catch(() => {}));
 $('cards').addEventListener('click', () => $('nav').focus());
 
 document.addEventListener('keydown', (e) => {
@@ -2070,7 +2089,7 @@ function applyReminder(apply, labelOf) {
 }
 function runEffectLink(l) {
   if (!l) return;
-  if (l.kind === 'relaunch') relaunchBox();
+  if (l.kind === 'relaunch') { if (r1Denied('relaunch')) { flash('⚠ ' + R1_TIP); return; } relaunchBox(); }
   else if (l.kind === 'refresh') for (const p of l.paths) refreshProject(p);
 }
 // Œil commun à tous les éléments cachés : valeur demandée au serveur au clic seulement, gardée en mémoire le temps de
@@ -2596,7 +2615,8 @@ function ceProblems(ps) {
   box.textContent = '';
   const errs = ps.filter((p) => p.severity === 'error').length;
   const lk = !!(CE.lock && CE.lock.locked);
-  $('cesave').disabled = errs > 0 || lk;
+  const r1 = r1Denied('configSave', CE.doc && CE.doc.kind);
+  $('cesave').disabled = errs > 0 || lk || r1;
   $('cesave').title = lk ? CE.lock.why : errs ? 'Corriger les erreurs avant d\'enregistrer (le brouillon reste ici)' : '';
   if (!ps.length) { box.appendChild(el('div', 't-green', '✓ aucun problème')); return; }
   for (const p of ps) {
@@ -2912,7 +2932,7 @@ function onServerInfo(next) {
 
 function applyInit(r) {
   S.help = r.help; S.tools = r.tools;
-  if (r.user !== undefined) setUser(r.user);
+  r1Info(r);
   onServerInfo(r.server);
   prefs.v = r.prefs || {};
   applyLayoutPrefs();
