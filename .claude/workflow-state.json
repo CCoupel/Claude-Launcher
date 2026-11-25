@@ -1,120 +1,42 @@
 {
   "type": "FEATURE",
-  "description": "Carte TEAM : changer le modèle et l'effort d'un teammate (compagnon .claude/agents/<nom>.md) — #250",
-  "status": "completed",
-  "branch": "milestone/v6.9.0",
-  "version": "6.9.0",
-  "started_at": "2026-11-25T10:58:06Z",
-  "updated_at": "2026-11-25T13:45:45Z",
-  "cycles": 2,
-  "issue_nums": [
-    250
-  ],
-  "milestone_num": 36,
-  "plan": ".claude/workflow/plan-v6.9.0.md",
-  "phases": {
-    "clarification": {
-      "status": "completed",
-      "skipped": false
-    },
-    "init": {
-      "status": "completed"
-    },
-    "plan": {
-      "status": "completed",
-      "report": "_work/reports/plan-20261125-113818.md",
-      "timestamp": "2026-11-25T12:54:36Z"
-    },
-    "dev-backend": {
-      "status": "completed",
-      "sha": "41cb378",
-      "handoff": "_work/handoff/dev-backend-250.md"
-    },
-    "dev-frontend": {
-      "status": "completed",
-      "sha": "c9bfd7f",
-      "handoff": "_work/handoff/dev-frontend-20261125-250.md"
-    },
-    "test-writer": {
-      "status": "completed",
-      "sha": "280f14b"
-    },
-    "review": {
-      "status": "completed",
-      "report": "_work/reports/code-review-250-20261125-131024-cycle1.md",
-      "verdict": "APPROUVE"
-    },
-    "qa": {
-      "status": "completed",
-      "report": "_work/reports/qa-250-20261125-1500.md",
-      "verdict": "VALIDATED WITH RESERVATIONS",
-      "nr": {
-        "status": "completed",
-        "report": "_work/reports/qa-nr-v6.9.0-20261125-1530.md",
-        "verdict": "VALIDATED"
-      }
-    },
-    "doc": {
-      "status": "completed",
-      "draft_sha": "ca0e897",
-      "sha": "66e12e6",
-      "readme": "mis a jour"
-    },
-    "deploy-qualif": {
-      "status": "completed",
-      "version": "6.9.0.1",
-      "helm_rev": 50,
-      "steps": {
-        "build": {
-          "status": "completed"
-        },
-        "publish": {
-          "status": "completed"
-        },
-        "deploy": {
-          "status": "completed"
-        }
-      }
-    },
-    "deploy-prod": {
-      "status": "pending",
-      "steps": {
-        "publish": {
-          "status": "pending"
-        },
-        "deploy": {
-          "status": "pending"
-        }
-      }
-    }
-  },
+  "description": "Milestone v7.0.0 — Accès authentifié du launcher (mono-utilisateur) : #172 #184 #251 #252 #253 #254",
+  "status": "in_progress",
+  "branch": "milestone/v7.0.0",
+  "version": "7.0.0",
+  "started_at": "2026-11-25T14:35:00Z",
+  "updated_at": "2026-11-25T15:10:00Z",
+  "cycles": 0,
+  "issue_nums": [172, 184, 251, 252, 253, 254],
+  "milestone_num": 27,
+  "plan": ".claude/workflow/plan-v7.0.0.md",
   "cadrage": {
     "intensite": "complet",
     "test_writer": true,
     "review": true,
     "qualif": true,
     "doc": "agent",
-    "team": [
-      "dev-backend",
-      "dev-frontend",
-      "test-writer",
-      "code-reviewer",
-      "qa",
-      "doc-updater"
-    ],
+    "team": ["dev-backend", "dev-frontend", "test-writer", "code-reviewer", "qa", "doc-updater"],
     "valide": "GATE 2"
   },
   "lots": {
-    "current": "v6.9.0 validée (GATE 4, maquette validée) — RETEX puis PROD",
+    "current": "LOT-1",
     "items": {
-      "LOT-1": {
-        "status": "completed",
-        "issues": [
-          250
-        ],
-        "phase": "dev-backend",
-        "ci_sha": "f922efd"
-      }
+      "LOT-1": { "status": "in_progress", "issues": [253], "phase": "dev-backend" },
+      "LOT-2": { "status": "pending", "issues": [172, 251, 252] },
+      "LOT-3": { "status": "pending", "issues": [254, 184] }
     }
+  },
+  "phases": {
+    "clarification": { "status": "completed", "skipped": true },
+    "init": { "status": "completed", "sha": "f2bed1b" },
+    "plan": { "status": "completed", "report": "_work/reports/plan-20261125-171500-rev1.md", "timestamp": "2026-11-25T15:08:00Z" },
+    "dev-backend": { "status": "pending" },
+    "test-writer": { "status": "pending" },
+    "review": { "status": "pending" },
+    "qa": { "status": "pending" },
+    "doc": { "status": "pending" },
+    "deploy-qualif": { "status": "pending", "steps": { "build": { "status": "pending" }, "publish": { "status": "pending" }, "deploy": { "status": "pending" } } },
+    "deploy-prod": { "status": "pending", "steps": { "publish": { "status": "pending" }, "deploy": { "status": "pending" } } }
   }
 }
