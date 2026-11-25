@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path"
 	"runtime"
 	"sort"
 	"strings"
@@ -120,40 +121,41 @@ func k8sAsUser(uid, gid int, tty bool) string {
 
 // k8sState : phase du pod ("Running"…) et image en place ; "" si absent.
 func (e Engine) k8sState(proj string) (phase, image string) {
-	phase, image, _, _, _ = e.k8sStateFull(k8sName(proj))
+	phase, image, _, _, _, _ = e.k8sStateFull(k8sName(proj))
 	return phase, image
 }
 
 // k8sStateFull : phase du pod du StatefulSet name, image, empreintes des
-// dossiers « local » et du placement (cl.sched, #60), projet (cl.project).
-func (e Engine) k8sStateFull(name string) (phase, image, local, sched, project string) {
-	b, err := e.kcmd("get", "statefulset", name, "-o", `jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}|{.metadata.annotations.cl\.sched}|{.metadata.annotations.cl\.project}`).Output()
+// dossiers « local » et du placement (cl.sched, #60), projet (cl.project), modèle
+// de montage (cl.mounts : "v2" depuis v7.0.0, "" avant — #253).
+func (e Engine) k8sStateFull(name string) (phase, image, local, sched, project, mounts string) {
+	b, err := e.kcmd("get", "statefulset", name, "-o", `jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}|{.metadata.annotations.cl\.sched}|{.metadata.annotations.cl\.project}|{.metadata.annotations.cl\.mounts}`).Output()
 	if err != nil {
-		return "", "", "", "", ""
+		return "", "", "", "", "", ""
 	}
-	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 4)
-	for len(f) < 4 {
+	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 5)
+	for len(f) < 5 {
 		f = append(f, "")
 	}
-	image, local, sched, project = f[0], f[1], f[2], f[3]
+	image, local, sched, project, mounts = f[0], f[1], f[2], f[3], f[4]
 	p, _ := e.kcmd("get", "pod", name+"-0", "-o", "jsonpath={.status.phase}").Output()
 	phase = strings.TrimSpace(string(p))
 	if phase == "" {
 		phase = "Pending"
 	}
-	return phase, image, local, sched, project
+	return phase, image, local, sched, project, mounts
 }
 
-// k8sPodCurrent : le pod porte l'image et les dossiers « local » attendus, et
-// n'est pas en cours de suppression.
+// k8sPodCurrent : le pod porte l'image, les dossiers « local » et le modèle de
+// montage attendus, et n'est pas en cours de suppression.
 func (e Engine) k8sPodCurrent(pod string, env EnvSpec) bool {
 	b, err := e.kcmd("get", "pod", pod, "-o",
-		`jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}|{.metadata.annotations.cl\.sched}|{.metadata.deletionTimestamp}`).Output()
+		`jsonpath={.metadata.annotations.cl\.image}|{.metadata.annotations.cl\.local}|{.metadata.annotations.cl\.sched}|{.metadata.annotations.cl\.mounts}|{.metadata.deletionTimestamp}`).Output()
 	if err != nil {
 		return false
 	}
-	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 4)
-	return len(f) == 4 && f[0] == env.Image && f[1] == env.localKey() && f[2] == e.B.schedKey() && f[3] == ""
+	f := strings.SplitN(strings.TrimSpace(string(b)), "|", 5)
+	return len(f) == 5 && f[0] == env.Image && f[1] == env.localKey() && f[2] == e.B.schedKey() && f[3] == mountsModel && f[4] == ""
 }
 
 func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, error) {
@@ -164,12 +166,12 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 		return "", err
 	}
 	pod := k8sPod(proj)
-	phase, image, local, sched, owner := e.k8sStateFull(k8sName(proj))
+	phase, image, local, sched, owner, mounts := e.k8sStateFull(k8sName(proj))
 	if phase == "" {
 		// StatefulSet d'avant v5.6 : gardé tant que son pod tourne à jour (sa
 		// session continue), sinon supprimé et recréé sous le nouveau nom
 		old := legacyK8sName(proj)
-		if lp, li, ll, _, _ := e.k8sStateFull(old); lp == "Running" && li == env.Image && ll == env.localKey() {
+		if lp, li, ll, _, _, _ := e.k8sStateFull(old); lp == "Running" && li == env.Image && ll == env.localKey() {
 			fmt.Fprintf(log, "  StatefulSet %s (ancien nom) conservé : renommé %s à sa prochaine ouverture après fermeture\n", old, k8sName(proj))
 			return old + "-0", nil
 		} else if lp != "" {
@@ -185,6 +187,11 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 		// couperait sa session) ; il le sera au prochain démarrage du pod
 		if sched != e.B.schedKey() {
 			fmt.Fprintf(log, "  placement modifié dans backends.yaml : appliqué au prochain démarrage du pod\n")
+		}
+		// montages d'avant v7.0.0 (#253, P6) : pod conservé, session intacte ;
+		// recréé au modèle restreint à sa prochaine ouverture
+		if mounts != mountsModel {
+			fmt.Fprintf(log, "  %s\n", OldMountsNote)
 		}
 		return pod, nil
 	}
@@ -228,21 +235,76 @@ func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, erro
 	return "", fmt.Errorf("pod %s pas prêt après 5 min :\n%s", pod, strings.TrimSpace(string(ev)))
 }
 
+// mountsModel : valeur de l'annotation cl.mounts du modèle de montage restreint
+// (v7.0.0, #253). Un pod sans elle monte les racines des volumes en entier.
+const mountsModel = "v2"
+
+// OldMountsNote : avertissement d'un pod en marche à l'ancien modèle de montage.
+const OldMountsNote = "Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre"
+
+// volumeFor : volume (racine, PVC) qui contient p — la racine la plus longue — et
+// le subPath de p dans ce volume (sans « / » initial ; "" pour la racine même).
+func (b BackendConf) volumeFor(p string) (root, claim, sub string, ok bool) {
+	p = path.Clean(p)
+	for r, c := range b.Volumes {
+		cr := path.Clean(r)
+		if (p == cr || strings.HasPrefix(p, strings.TrimSuffix(cr, "/")+"/")) && len(cr) >= len(root) {
+			root, claim, ok = cr, c, true
+			sub = strings.TrimPrefix(strings.TrimPrefix(p, cr), "/")
+		}
+	}
+	return root, claim, sub, ok
+}
+
+// sharedMounts : volumeMounts (subPath) et volumes PVC des chemins donnés (vus du
+// pod), dédupliqués ; un chemin hors de tout volume du backend est refusé.
+func (e Engine) sharedMounts(paths ...string) (mounts, vols []map[string]any, err error) {
+	roots := make([]string, 0, len(e.B.Volumes))
+	for r := range e.B.Volumes {
+		roots = append(roots, path.Clean(r))
+	}
+	sort.Strings(roots)
+	vname := map[string]string{} // racine → nom de volume
+	seen := map[string]bool{}
+	for _, p := range paths {
+		root, claim, sub, ok := e.B.volumeFor(p)
+		if !ok {
+			return nil, nil, fmt.Errorf("stockage partagé : %s hors de tout volume du backend %s (%s)", p, e.B.Name, strings.Join(roots, ", "))
+		}
+		v, have := vname[root]
+		if !have {
+			for i, r := range roots {
+				if r == root {
+					v = fmt.Sprintf("shared%d", i)
+				}
+			}
+			vname[root] = v
+			vols = append(vols, map[string]any{"name": v, "persistentVolumeClaim": map[string]any{"claimName": claim}})
+		}
+		mp := path.Clean(p)
+		if seen[mp] {
+			continue
+		}
+		seen[mp] = true
+		m := map[string]any{"name": v, "mountPath": mp}
+		if sub != "" {
+			m["subPath"] = sub
+		}
+		mounts = append(mounts, m)
+	}
+	return mounts, vols, nil
+}
+
 func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 	// chemins et identité vus du pod (pathmap.go ; Linux : inchangés)
 	home := CtrUser().Home
 	rp := RemotePath(proj)
 	name := k8sName(proj)
-	roots := make([]string, 0, len(e.B.Volumes))
-	for r := range e.B.Volumes {
-		roots = append(roots, r)
-	}
-	sort.Strings(roots)
-	var mounts, vols []map[string]any
-	for i, r := range roots {
-		v := fmt.Sprintf("shared%d", i)
-		mounts = append(mounts, map[string]any{"name": v, "mountPath": r})
-		vols = append(vols, map[string]any{"name": v, "persistentVolumeClaim": map[string]any{"claimName": e.B.Volumes[r]}})
+	// stockage partagé : seuls le dossier du projet et CLAUDE_CONFIG_DIR sont montés,
+	// en subPath de leur volume (#253) — jamais une racine entière
+	mounts, vols, err := e.sharedMounts(rp, RemotePath(ClaudeDir()))
+	if err != nil {
+		return nil, err
 	}
 	// dossiers « local » : emptyDir du pod, monté par-dessus le dossier du projet
 	for i, p := range env.localPaths(proj) {
@@ -251,7 +313,8 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 		vols = append(vols, map[string]any{"name": v, "emptyDir": map[string]any{}})
 	}
 	labels := map[string]string{"cl.launcher": "ng2", "cl.backend": e.B.Name, "cl.ctr": name}
-	ann := map[string]string{"cl.project": rp, "cl.image": env.Image, "cl.local": env.localKey(), "cl.sched": e.B.schedKey()}
+	ann := map[string]string{"cl.project": rp, "cl.image": env.Image, "cl.local": env.localKey(), "cl.sched": e.B.schedKey(),
+		"cl.mounts": mountsModel}
 	envs := []map[string]string{{"name": "HOME", "value": home}, {"name": "CLAUDE_CONFIG_DIR", "value": RemotePath(ClaudeDir())},
 		{"name": "LANG", "value": "C.UTF-8"}, {"name": "DISABLE_AUTOUPDATER", "value": "1"}}
 	m := map[string]any{
@@ -264,6 +327,8 @@ func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
 				"metadata": map[string]any{"labels": labels, "annotations": ann},
 				"spec": map[string]any{
 					"terminationGracePeriodSeconds": 10,
+					// pas de jeton d'API dans les pods projets (#253) ; « pod » peut le rétablir
+					"automountServiceAccountToken": false,
 					"containers": []map[string]any{e.B.withResources(map[string]any{
 						"name": "main", "image": env.Image, "command": []string{"sh", "-c", pid1},
 						"workingDir": rp, "env": envs, "volumeMounts": mounts,
@@ -385,19 +450,19 @@ func (b BackendConf) PlacementText() string {
 
 func (e Engine) K8sList() ([]Found, error) {
 	b, err := e.kcmd("get", "statefulsets", "-l", "cl.launcher=ng2,cl.backend="+e.B.Name, "-o",
-		`jsonpath={range .items[*]}{.metadata.name}|{.spec.replicas}|{.status.readyReplicas}|{.metadata.annotations.cl\.project}{"\n"}{end}`).Output()
+		`jsonpath={range .items[*]}{.metadata.name}|{.spec.replicas}|{.status.readyReplicas}|{.metadata.annotations.cl\.project}|{.metadata.annotations.cl\.mounts}{"\n"}{end}`).Output()
 	if err != nil {
 		return nil, err
 	}
 	var out []Found
 	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
 		// nom|réplicas voulues|prêtes|projet ; 0 réplique = arrêté (fermeture #50)
-		f := strings.SplitN(l, "|", 4)
-		if len(f) != 4 || f[3] == "" {
+		f := strings.SplitN(l, "|", 5)
+		if len(f) != 5 || f[3] == "" {
 			continue
 		}
 		out = append(out, Found{Backend: e.B.Name, Name: f[0] + "-0", Project: LocalPath(f[3]), Running: f[2] == "1",
-			Failed: f[1] == "1" && f[2] != "1"})
+			Failed: f[1] == "1" && f[2] != "1", OldMounts: f[1] == "1" && f[4] != mountsModel})
 	}
 	return out, nil
 }
@@ -498,7 +563,8 @@ func k8sStepsInCluster(b BackendConf, e Engine, ns string, steps []TestStep) []T
 		return steps // volumes et montages non contrôlés tant que l'API ne répond pas
 	}
 	steps = k8sVolumeSteps(b, e, ns, steps)
-	return append(steps, k8sMountedSteps(b, e)...)
+	steps = append(steps, k8sMountedSteps(b, e)...)
+	return append(steps, k8sHardeningSteps(b, e)...)
 }
 
 // k8sMountedSteps : chaque PVC déclaré est monté dans le pod du launcher au chemin déclaré.
@@ -616,7 +682,40 @@ func k8sSteps(b BackendConf) []TestStep {
 			Fix: "accorder un rôle (ex. edit) sur le namespace " + ns})
 	}
 	steps = append(steps, TestStep{Label: "droits dans " + ns, OK: true, Detail: "création de StatefulSets autorisée"})
-	return k8sVolumeSteps(b, e, ns, steps)
+	steps = k8sVolumeSteps(b, e, ns, steps)
+	return append(steps, k8sHardeningSteps(b, e)...)
+}
+
+// k8sHardeningSteps (#253) : jeton de ServiceAccount des pods projets (monté
+// seulement si « pod.automountServiceAccountToken: true »), puis pods en marche
+// au modèle de montage d'avant v7.0.0 (conservés jusqu'à leur réouverture).
+func k8sHardeningSteps(b BackendConf, e Engine) []TestStep {
+	var steps []TestStep
+	if v, ok := b.Pod["automountServiceAccountToken"].(bool); ok && v {
+		steps = append(steps, TestStep{Label: "jeton de ServiceAccount des pods projets",
+			Detail: "jeton de ServiceAccount monté dans les pods projets (pod.automountServiceAccountToken: true)",
+			Fix:    "retirer « automountServiceAccountToken » de pod dans " + BackendsPath() + " : les pods projets n'ont pas besoin de l'API du cluster"})
+	} else {
+		steps = append(steps, TestStep{Label: "jeton de ServiceAccount des pods projets", OK: true, Detail: "non monté"})
+	}
+	// sans saut de ligne dans le jsonpath : une entrée « nom|réplicas|cl.mounts » par StatefulSet
+	out, err := runQuiet(15*time.Second, e.kubectl("get", "statefulsets", "-l", "cl.launcher=ng2,cl.backend="+b.Name, "-o",
+		`jsonpath={range .items[*]}{.metadata.name}|{.spec.replicas}|{.metadata.annotations.cl\.mounts} {end}`)...)
+	if err == nil {
+		var old []string
+		for _, ent := range strings.Fields(out) {
+			if f := strings.SplitN(ent, "|", 3); len(f) == 3 && f[1] == "1" && f[2] != mountsModel {
+				old = append(old, f[0]+"-0")
+			}
+		}
+		if len(old) > 0 {
+			sort.Strings(old)
+			steps = append(steps, TestStep{Label: "montages des pods projets",
+				Detail: OldMountsNote + " (" + strings.Join(old, ", ") + ")",
+				Fix:    "fermer puis rouvrir ces projets : leurs pods sont recréés avec le dossier du projet et CLAUDE_CONFIG_DIR seulement"})
+		}
+	}
+	return steps
 }
 
 // k8sVolumeSteps : volumes déclarés puis un PVC par volume (présent, lié, ReadWriteMany) ; chaque PVC est jugé séparément.

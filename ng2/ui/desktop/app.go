@@ -1135,6 +1135,7 @@ type Cards struct {
 	Open      bool             `json:"open"`
 	Files     []FileRow        `json:"files"`
 	Pending   []string         `json:"pending,omitempty"` // encore à compléter (état, team) : en cours
+	Warn      string           `json:"warn,omitempty"`    // avertissement du projet (pod aux montages d'avant v7.0.0, #253)
 }
 
 // Span : texte et sa couleur (dim, yellow… ; vide : normal).
