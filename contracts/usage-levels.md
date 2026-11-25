@@ -40,14 +40,32 @@ visible de tous les conteneurs et pods du compte.
 | `scope` | objet ou `null` | objet `scope` de l'endpoint **recopié octet pour octet** (JSON brut), `null` si absent ou `null` (cas de `session` / `weekly_all`). Le consommateur joint sur `kind` + `scope` (clé : `model.id`, sinon `model.display_name`, sinon `surface`), repli `kind` + `resets_at`. |
 | `resets_at` | chaîne RFC3339 ou `null` | valeur de l'endpoint telle quelle (microsecondes et décalage `+00:00` conservés) ; `null` si absente. |
 | `percent` | nombre | `percent` de l'endpoint tel quel (nombre JSON, entier ou décimal). |
-| `exhausts_at` | RFC3339 UTC ms, ou `null` | instant d'épuisement projeté ; `null` si projection non fiable. Déjà épuisé (`percent` ≥ 100) → `computed_at`. |
-| `level` | `"red"` \| `"yellow"` \| `"green"` \| `null` | voir « Calcul » ; `null` = projection non fiable (pas de couleur). `yellow` est affiché **orange**. |
+| `exhausts_at` | RFC3339 UTC ms, ou `null` | instant d'épuisement projeté ; **[CHANGED v7.0.0, #268]** calculé dès que la projection est possible (garde-fous ci-dessous), même sur un échantillon court (`approx: true`) ; `null` seulement si impossible. Déjà épuisé (`percent` ≥ 100) → `computed_at`. |
+| `approx` | booléen | **[NEW v7.0.0, #268]** `true` = échantillon court (voir « Calcul ») : `exhausts_at` est une estimation **approximative**, `level` et `alert` valent `null` (aucune couleur, jamais de rouge sur un échantillon court) ; `false` sinon (y compris projection impossible). Absent (producteur < 7.0.0) = `false`. |
+| `level` | `"red"` \| `"yellow"` \| `"green"` \| `null` | voir « Calcul » ; `null` = projection impossible **ou approximative** (pas de couleur). `yellow` est affiché **orange**. |
 | `alert` | chaîne ou `null` | `"⚠ épuisé ~<heure>"` (ou `"⚠ épuisé"` si déjà épuisé) seulement si `level` = `red`, sinon `null`. Texte de `core.Exhaustion.Alert` (heure locale du producteur, format `FormatReset`) : **indicatif** ; le consommateur réaffiche l'heure depuis `exhausts_at`. |
 
 ## Calcul (`core.ProjectExhaustion`, commun coque tmux / fenêtre native / `--web` / fichier)
 
-Projection linéaire inchangée (rythme moyen depuis le début de la fenêtre, extrapolé à 100 % ; non fiable si fenêtre
-inconnue, `resets_at` invalide ou passé, consommation nulle, fenêtre entamée depuis moins de max(10 min, 5 %)).
+Projection linéaire inchangée (rythme moyen depuis le début de la fenêtre `D = R − durée`, extrapolé à 100 % :
+`E = now + (100 − p) / p × (now − D)`), **recalculée à chaque mise à jour du compteur** (chaque nouveau `usage.json`),
+pour la session 5 h **et** les hebdomadaires, **sans délai d'attente** **[CHANGED v7.0.0, #268]** (avant : rien tant
+que la fenêtre était entamée depuis moins de max(10 min, 5 %), soit 8 h 24 pour l'hebdomadaire).
+
+- **Projection impossible** (`exhausts_at`, `level`, `alert` = `null`, `approx` = `false`) — garde-fous techniques
+  seulement (aucune division par zéro) : fenêtre inconnue, `resets_at` absent, invalide ou passé, `p` ≤ 0, temps écoulé
+  `now − D` ≤ 0.
+- **Approximative** (`approx: true`, `exhausts_at` calculé, `level` / `alert` = `null`) si l'échantillon est court :
+  temps écoulé < **30 min** (session 5 h) ou < **3 h** (hebdomadaires), **ou** `p` < **3 %** (un pourcentage entier à
+  ±1 % pèse plus de 30 %).
+- Sinon : niveau du tableau ci-dessous.
+
+| Cas (#268) | Résultat |
+|------------|----------|
+| session, `p` = 11 %, 24 min écoulées | `approx`, `exhausts_at` ≈ +3 h 14 (avant `R`), **aucun rouge** |
+| session, `p` = 10 %, 90 min écoulées | non approximatif, `exhausts_at` = +13 h 30 > `R` + 1 h → `green` |
+| hebdomadaire, `p` = 10 %, 5 h 23 écoulées | non approximatif, `exhausts_at` ≈ +2 j 0 h 27 < `R` → `red` (rythme réel de ~1,9 %/h) |
+| `p` = 2 % (toute fenêtre, temps écoulé > 0) | `approx`, `exhausts_at` calculé, pas de couleur |
 Niveau par rapport au renouvellement `R` et à l'épuisement projeté `E` :
 
 | Niveau | Condition | Fenêtre |

@@ -1369,3 +1369,13 @@ pour un client web `proxy` de rôle `user` et pour tout client web en mode `none
 
 En mode `proxy`, `/api/call` et `/api/events` peuvent répondre `401` (session oauth2-proxy expirée) : bandeau
 « Session expirée — Se reconnecter » (rechargement de `/`), aucune nouvelle tentative automatique.
+
+## v7.0.0 — estimation approximative des quotas (#268)
+
+### `Snapshot.usage[]` (`UsageRow`) **[CHANGED]**
+
+- `approx` (booléen, **NEW**) : estimation sur échantillon court (`contracts/usage-levels.md` « Calcul ») ; alors
+  `resetLevel` et `alert` sont absents.
+- `estimate` (chaîne, **NEW**) : `"≈ épuisement ~HH:MM"` (heure locale, `FormatReset`) quand `approx` est vrai et que
+  l'épuisement projeté précède le renouvellement ; sinon absent. Affiché en gris (pas de couleur d'alerte), infobulle
+  « estimation approximative : échantillon court ». Coque tmux : même texte, couleur atténuée.

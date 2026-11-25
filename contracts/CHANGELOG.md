@@ -2,6 +2,17 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261125] — v7.0.0 (addendum LOT-2) : estimation d'épuisement des quotas (#268, bugfix)
+
+- **[CHANGED]** `contracts/usage-levels.md` « Calcul » : projection calculée à chaque mise à jour du compteur, session
+  et hebdomadaires, sans délai d'attente ; garde-fous techniques seuls (`p` ≤ 0, temps écoulé ≤ 0, `resets_at`
+  invalide/passé) ; échantillon court (< 30 min session, < 3 h hebdo, ou `p` < 3 %) → estimation **approximative** sans
+  couleur (plus de rouge sur un échantillon court). `exhausts_at` n'est plus `null` sur un échantillon court.
+- **[NEW]** champ `approx` (booléen) de `windows[]` (schéma reste `1` : ajout rétrocompatible, absent = `false`) ;
+  `UsageRow.approx` et `UsageRow.estimate` (« ≈ épuisement ~HH:MM ») pour l'interface (`contracts/desktop-dispatch.md`).
+- Consommateur (panneau du template #160) : un ancien panneau voit `exhausts_at` renseigné avec `level` = `null` ; il
+  n'affiche pas de couleur (comportement inchangé).
+
 ## [20261125] — v7.0.0 (plan rev1, GATE 2) : compte local de secours, GitHub App, ingress externe sans compte local
 
 - **[NEW]** compte `admin@local` (rôle admin) par le fichier htpasswd d'oauth2-proxy : `auth.localAdmin.enabled`
