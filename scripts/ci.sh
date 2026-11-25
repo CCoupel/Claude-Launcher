@@ -246,11 +246,46 @@ case "$(uname -s)" in
       --set externalIngress.host=ext.ci.test --set externalIngress.tls.clusterIssuer=ci-public >/dev/null 2>&1; then
       echo "ECHEC : le chart rend un ingress externe avec auth.enabled=false (refus attendu)" >&2; exit 1
     fi
-    # le secret de la GitHub App ne doit jamais figurer dans un YAML suivi par git (auth.github.clientSecret : visible par
-    # « helm get values », réservé à PRIVATE/<ENV>/values-local.yaml, gitignoré) — Helm ne sait pas d'où vient une valeur
-    if bad=$(cd .. && git ls-files -z '*.yaml' '*.yml' 2>/dev/null | xargs -0 -r grep -nE '^[[:space:]]*clientSecret:[[:space:]]*["'"'"']?[^"'"'"'#[:space:]]' 2>/dev/null) && [ -n "$bad" ]; then
-      echo "ECHEC : clientSecret non vide dans un fichier suivi par git (PRIVATE/<ENV>/values-local.yaml, jamais commité) :" >&2
-      echo "$bad" | sed -E 's/(clientSecret:[[:space:]]*).*/\1<masqué>/' >&2; exit 1
+    # le secret de la GitHub App ne doit jamais figurer dans un fichier suivi par git (auth.github.clientSecret : visible par
+    # « helm get values », réservé à PRIVATE/<ENV>/values-local.yaml, gitignoré) — Helm ne sait pas d'où vient une valeur.
+    # Contrôle durci (audit LOT-3) : toute clé « client[_-]secret » (casse, guillemets, forme en ligne, valeur à la ligne suivante,
+    # --set, Secret stringData/data) dont la valeur n'est ni vide ni un espace réservé (${VAR}, $VAR, {{ }}) fait échouer ;
+    # la valeur n'est JAMAIS affichée. Exclus : documentation, contrats, tests, modèles du chart, ce script.
+    leaks=$(cd .. && git ls-files -z -- '*.yaml' '*.yml' '*.json' '*.env' '*.toml' '*.properties' 2>/dev/null | while IFS= read -r -d '' f; do
+      case "$f" in
+        contracts/*|tests/*|*_test.go|ng2/docs/*|deploy/helm/claude-launcher/templates/*|scripts/ci.sh|.claude/*|*.md) continue ;;
+      esac
+      [ -f "$f" ] || continue
+      awk -v F="$f" '
+        function placeholder(v) { return v ~ /^\$\{/ || v ~ /^\$[a-z_]/ || v ~ /^[{[]/ }  # espace réservé, ou structure (schéma JSON)
+        function bad(n) { print F ":" n; found = 1 }
+        { l = tolower($0) }
+        l ~ /^[[:space:]]*#/ { next }
+        pending {
+          pending = 0
+          if (l !~ /^[[:space:]]*$/ && l !~ /^[[:space:]]*#/ && l !~ /^[[:space:]]*["\047]?[a-z_][a-z0-9_.-]*["\047]?[[:space:]]*:([[:space:]]|$)/ && !placeholder(gensub0(l))) { bad(NR) }
+        }
+        {
+          s = l
+          while (match(s, /client[_-]?secret["\047]?[[:space:]]*[:=]/)) {
+            endk = RSTART + RLENGTH; v = substr(s, endk)
+            if (match(v, /^[[:space:]]*["\047]/)) {                       # valeur entre guillemets : le contenu compte, espaces compris
+              q = substr(v, RLENGTH, 1); v = substr(v, RLENGTH + 1); i = index(v, q)
+              inner = (i > 0) ? substr(v, 1, i - 1) : v
+              if (inner != "" && !placeholder(inner)) bad(NR)
+            } else {
+              sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]*(#.*)?$/, "", v); sub(/[,}].*$/, "", v)
+              if (v == "") { if (s ~ /:[[:space:]]*(#.*)?$/) pending = 1 } else if (!placeholder(v)) bad(NR)
+            }
+            s = substr(s, endk)
+          }
+        }
+        function gensub0(x) { sub(/^[[:space:]]+/, "", x); return x }
+        END { exit 0 }' "$f" 2>/dev/null || true
+    done) || true
+    if [ -n "$leaks" ]; then
+      echo "ECHEC : clientSecret non vide dans un fichier suivi par git (PRIVATE/<ENV>/values-local.yaml, jamais commité) — valeur non affichée :" >&2
+      echo "$leaks" >&2; exit 1
     fi
     step_done "chart"
     # image du launcher du cluster (#167, décision C3) : même Dockerfile que la release ; buildah sans démon,
