@@ -10,6 +10,7 @@ Reference : `contracts/desktop-dispatch.md` « v6.9.0 » (`teamAgentSet`, `clien
 
 - [ ] Environnement : conteneur de dev (AUTO) ; QUALIF (exe Windows, coque tmux du hub, launcher du cluster derriere l'Ingress) pour les scenarios HUMAIN
 - [ ] Donnees : **projet factice uniquement** (jamais un vrai projet), cree sur la QUALIF et initialise avec le template (registre d'agents, `teamleader.template.md`, `settings.json` du projet) ; le projet factice est supprime en fin de procedure
+- [ ] Projet factice avec team : `tests/procedures/ui-desktop/modele-effort-250/seed-factice-team.sh <dossier-factice> [<CLAUDE_CONFIG_DIR>]` (registre, templates, compagnons `dev-backend.md` sans frontmatter et `qa.md` avec `model: opus`, `settings.json`, `cdp` non reglable, instance generique `redacteur`, team factice dont dev-backend et qa tournent avec un modele different du modele resolu : ⟳). `PANE_IDS="%12,%13,%14"` : ids des panes vivants du projet ouvert, sinon teammates non demarres. `--clean` retire tout. Refuse un dossier sans « factice » dans le nom.
 - [ ] Acces : `go`, `node` (AUTO) ; fenetre native Windows, navigateur en boucle locale, navigateur via l'Ingress QUALIF, coque tmux du hub (HUMAIN)
 - [ ] Git : le projet factice est un depot ; relever `git status` / `git diff` avant et apres chaque scenario
 
