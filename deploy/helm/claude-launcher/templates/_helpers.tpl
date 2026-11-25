@@ -232,6 +232,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- $_ := required "externalIngress.className est obligatoire quand externalIngress.enabled" .Values.externalIngress.className -}}
 {{- $_ := required "externalIngress.host est obligatoire quand externalIngress.enabled" .Values.externalIngress.host -}}
+{{- if not (regexMatch "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$" (lower .Values.externalIngress.host)) -}}
+{{- fail (printf "externalIngress.host : « %s » n'est pas un nom d'hôte (sans schéma, chemin, espace ni joker)" .Values.externalIngress.host) -}}
+{{- end -}}
 {{- if and .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer -}}
 {{- fail "externalIngress.tls : secretName et clusterIssuer sont exclusifs, en donner un seul" -}}
 {{- end -}}
@@ -268,6 +271,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- if and (not $a.github.enabled) (not $a.localAdmin.enabled) -}}
 {{- fail "auth.github.enabled: false exige auth.localAdmin.enabled: true (aucune connexion possible sinon)" -}}
+{{- end -}}
+{{- if or (and $a.github.clientId (not (trim $a.github.clientId))) (and $a.github.clientSecret (not (trim $a.github.clientSecret))) -}}
+{{- fail "auth.github.clientId / clientSecret : valeur vide (espaces seuls) refusée — la paire complète de la GitHub App est exigée" -}}
 {{- end -}}
 {{- if and $a.existingSecret (or $a.github.clientId $a.github.clientSecret) -}}
 {{- fail "auth.existingSecret et auth.github.clientId/clientSecret sont exclusifs : en donner un seul" -}}
