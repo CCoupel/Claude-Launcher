@@ -213,6 +213,9 @@ Manifeste produit par le launcher (`core/k8s.go`), sans valeur du chart :
   `<racine>/.config`, `.cache`, `.kube`, les binaires ni les autres projets. Les dossiers « local » (emptyDir) restent
   montés par-dessus le dossier du projet.
 - Un chemin à monter hors de tout volume du backend → erreur existante « stockage partagé » (aucun repli sur la racine).
+- Le dossier du projet **ou** `CLAUDE_CONFIG_DIR` égal à la racine d'un volume/PVC → refusé (`stockage partagé : … est la
+  racine du volume … monter un sous-dossier …, jamais la racine`). Deux racines identiques déclarées avec des PVC
+  différents → erreur « deux PVC » (résolution déterministe, pas de choix au hasard).
 - **Jeton de ServiceAccount** : `automountServiceAccountToken: false` dans le pod, sauf si `pod.automountServiceAccountToken`
   est posé explicitement dans `backends.yaml` (signalé par le diagnostic « jeton de ServiceAccount monté »).
 - Annotation `cl.mounts: "v2"` (modèle de montage). Pod **en marche** sans elle : conservé (sa session continue),

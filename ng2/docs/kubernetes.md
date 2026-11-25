@@ -356,7 +356,9 @@ chemin que dans le launcher :
 Les dossiers « local » (emptyDir) restent montés par-dessus le dossier du projet. Sont **absents** du pod : `<racine>/.config`
 (dont le coffre des secrets, voir [secrets.md](secrets.md)), `backends.yaml`, `.kube`, `.cache`, les binaires, les autres
 projets et la racine elle-même. Un chemin hors de tout volume du backend est refusé (erreur « stockage partagé ») : aucun
-repli sur la racine. Un dossier égal à la racine d'un volume est refusé.
+repli sur la racine. Le dossier du projet ou `CLAUDE_CONFIG_DIR` égal à la racine d'un volume est refusé (erreur
+« stockage partagé … racine » : monter un sous-dossier). Deux racines identiques déclarées avec des PVC différents sont
+refusées (erreur « deux PVC »).
 
 - **Jeton de ServiceAccount** : non monté (`automountServiceAccountToken: false`). Pour le remonter, poser
   `pod.automountServiceAccountToken: true` dans `backends.yaml` ; le diagnostic le signale (« jeton de ServiceAccount monté »).

@@ -9,7 +9,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 ## [Unreleased]
 
 ### Changed
-- **[BREAKING] Pods projets Kubernetes** : un pod projet ne monte plus la racine partagée, seulement son dossier et `CLAUDE_CONFIG_DIR` (`subPath`). Le coffre des secrets, `backends.yaml`, `.kube` et `.cache` ne sont plus visibles depuis un pod projet. Le jeton de ServiceAccount n'est plus monté, sauf `pod.automountServiceAccountToken: true` dans `backends.yaml` (#253)
+- **[BREAKING] Pods projets Kubernetes** : un pod projet ne monte plus la racine partagée, seulement son dossier et `CLAUDE_CONFIG_DIR` (`subPath`). Le coffre des secrets, `backends.yaml`, `.kube` et `.cache` ne sont plus visibles depuis un pod projet. Le jeton de ServiceAccount n'est plus monté, sauf `pod.automountServiceAccountToken: true` dans `backends.yaml` ; un dossier de projet ou `CLAUDE_CONFIG_DIR` égal à la racine d'un volume est refusé (« stockage partagé … racine »), deux racines identiques avec des PVC différents donnent une erreur « deux PVC » (#253)
 - Pods projets en marche à l'ancien modèle : conservés jusqu'à la fermeture puis la réouverture du projet ; la carte et le diagnostic le signalent. Un pod arrêté est recréé au nouveau modèle (#253)
 
 ## [6.9.0] — à publier
