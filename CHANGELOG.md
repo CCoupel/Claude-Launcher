@@ -8,6 +8,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
 ## [Unreleased]
 
+### Changed
+- **[BREAKING] Pods projets Kubernetes** : un pod projet ne monte plus la racine partagée, seulement son dossier et `CLAUDE_CONFIG_DIR` (`subPath`). Le coffre des secrets, `backends.yaml`, `.kube` et `.cache` ne sont plus visibles depuis un pod projet. Le jeton de ServiceAccount n'est plus monté, sauf `pod.automountServiceAccountToken: true` dans `backends.yaml` (#253)
+- Pods projets en marche à l'ancien modèle : conservés jusqu'à la fermeture puis la réouverture du projet ; la carte et le diagnostic le signalent. Un pod arrêté est recréé au nouveau modèle (#253)
+
 ## [6.9.0] — à publier
 
 ### Added

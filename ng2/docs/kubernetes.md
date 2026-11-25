@@ -345,6 +345,26 @@ launchers de même nom sont refusés.
   `backends.docker.secretName` (`DOCKER_CERT_PATH`, `DOCKER_TLS_VERIFY=1`). Un `tcp://…:2375` sans TLS reste accepté.
 - **« Tester »** : vérifie le client présent, la clé et l'empreinte (ssh), puis l'accès.
 
+#### 8b. Pods projets (v7.0.0, breaking)
+
+Un pod projet ne voit plus la racine partagée. Pour chaque volume du backend, seuls sont montés, en `subPath` et au même
+chemin que dans le launcher :
+
+- le **dossier du projet** ;
+- **`CLAUDE_CONFIG_DIR`**.
+
+Les dossiers « local » (emptyDir) restent montés par-dessus le dossier du projet. Sont **absents** du pod : `<racine>/.config`
+(dont le coffre des secrets, voir [secrets.md](secrets.md)), `backends.yaml`, `.kube`, `.cache`, les binaires, les autres
+projets et la racine elle-même. Un chemin hors de tout volume du backend est refusé (erreur « stockage partagé ») : aucun
+repli sur la racine. Un dossier égal à la racine d'un volume est refusé.
+
+- **Jeton de ServiceAccount** : non monté (`automountServiceAccountToken: false`). Pour le remonter, poser
+  `pod.automountServiceAccountToken: true` dans `backends.yaml` ; le diagnostic le signale (« jeton de ServiceAccount monté »).
+- **Pods en marche à l'ancien modèle** (sans l'annotation `cl.mounts: "v2"`) : conservés, leur session continue. La carte
+  affiche « Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre », et le diagnostic le signale.
+  Un pod arrêté, ou à recréer, est recréé au nouveau modèle.
+- Docker, podman et ssh : inchangés (ils ne montent déjà que le projet et `CLAUDE_CONFIG_DIR`).
+
 #### 9. Limites de v6.4.0 (risques acceptés)
 
 Ces risques sont acceptés pour v6.4.0 et levés par la règle R1 de **v7.0.0** (#172) : session authentifiée exigée pour toute
@@ -363,7 +383,7 @@ Ces risques sont acceptés pour v6.4.0 et levés par la règle R1 de **v7.0.0** 
 - **Script cross-site d'une maquette** : une page tierce peut exécuter un fichier `.js` d'un projet servi sous `/files` et lire
   ses variables globales. Les scripts de maquette ne sont pas restreints en `connect-src` (CDN et API publiques).
 - **`web.access: token`** : le jeton reste dans `<cache>/desktop-web-token`, sur le volume partagé de la racine : tout pod qui
-  monte ce volume, y compris les pods de projets, peut le lire. Avec `web.access: none`, aucun jeton n'existe.
+  monte ce volume peut le lire. Les pods projets ne montent plus ce volume depuis v7.0.0 (§8b). Avec `web.access: none`, aucun jeton n'existe.
 - **Saturation possible** : 32 flux `/api/events` au total, ouvrables par tout client qui atteint le port.
 - **Contexte k8s** : sans `kubeconfig` du backend, le `context` d'un backend `k8s` est ignoré en cluster. Déclarez seulement
   des backends `k8s` du cluster où tourne le launcher.
