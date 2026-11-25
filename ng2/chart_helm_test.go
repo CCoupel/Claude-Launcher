@@ -37,6 +37,8 @@ func baseValues() m {
 	return m{
 		"rootBase": "/data/p",
 		"volume":   m{"existingClaim": "claude-projets"},
+		// v7.0.0 : l'authentification est activée par défaut (P1) ; les tests du chart d'avant l'authentification la coupent
+		"auth": m{"enabled": false},
 		"ingress": m{
 			"controller":          "traefik",
 			"className":           "traefik",
