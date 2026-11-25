@@ -455,7 +455,7 @@ var adminBackendKeys = []string{"kubeconfig", "context", "volumes", "namespace"}
 
 // adminPodKeys : clés de pod: réservées à l'administrateur.
 var adminPodKeys = []string{"serviceAccountName", "automountServiceAccountToken", "securityContext", "nodeName", "runtimeClassName",
-	"hostAliases", "dnsConfig", "dnsPolicy"}
+	"hostAliases", "dnsConfig", "dnsPolicy", "tolerations", "priorityClassName", "schedulerName", "imagePullSecrets"}
 
 // AdminFieldsChanged : les champs R1 de deux contenus de backends.yaml diffèrent — toutes les rubriques hors « backends: »,
 // et pour chaque backend : kubeconfig, context, volumes, namespace, type host, et les clés de pod sensibles. Contenu illisible :

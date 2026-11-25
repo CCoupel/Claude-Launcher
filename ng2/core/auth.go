@@ -1,9 +1,12 @@
 package core
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 )
@@ -263,15 +266,45 @@ func R1Method(method string) bool {
 	return c == ClassR1
 }
 
-// Refus du mode proxy (tous rôles), repris par le champ access.deny.
-var proxyDeny = []string{"quit", "webUIOpen", "webUIRegen", "teamAgentSet", "secretReveal"}
+// proxyDenied : méthodes du classement refusées en proxy (tous rôles), triées — source unique : methodClass.
+func proxyDenied() []string {
+	var out []string
+	for m, c := range methodClass {
+		if c == ClassProxyDenied {
+			out = append(out, m)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// r1Deny : méthodes R1 refusées à un client non administrateur, triées ; configSave / configApply par fichier de config R1
+// (« méthode:kind ») — source unique : r1Methods et ConfigKindR1.
+func r1Deny() []string {
+	var out []string
+	for m := range r1Methods {
+		if m == "configSave" || m == "configApply" {
+			for _, k := range configR1Kinds {
+				out = append(out, m+":"+k)
+			}
+			continue
+		}
+		out = append(out, m)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// configR1Kinds : fichiers de configuration dont l'écriture est R1 d'office.
+var configR1Kinds = []string{string(ConfConf), string(ConfLauncherEnv), "hub"}
 
 // R1 par fichier de configuration (kind → R1 pour configSave / configApply) : config.conf, env.yaml du launcher, hub : R1 ;
 // project-env : projet ; backends.yaml : R1 seulement si un champ R1 change (AdminFieldsChanged) — décidé par l'appelant.
 func ConfigKindR1(kind string) bool {
-	switch kind {
-	case string(ConfConf), string(ConfLauncherEnv), "hub":
-		return true
+	for _, k := range configR1Kinds {
+		if kind == k {
+			return true
+		}
 	}
 	return false
 }
@@ -300,8 +333,7 @@ func AccessFor(mode string, id *Identity) AccessInfo {
 	if mode == "" {
 		mode = AccessToken
 	}
-	r1 := []string{"configSave:config.conf", "configSave:env.yaml", "configSave:hub", "configApply:config.conf", "configApply:env.yaml",
-		"configApply:hub", "backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "relaunch", "login"}
+	r1 := r1Deny()
 	ai := AccessInfo{Mode: mode, Deny: []string{}}
 	switch mode {
 	case AccessProxy:
@@ -312,10 +344,106 @@ func AccessFor(mode string, id *Identity) AccessInfo {
 			ai.Deny = append(ai.Deny, r1...)
 			ai.BackendsAdminFields = true
 		}
-		ai.Deny = append(ai.Deny, proxyDeny...)
+		ai.Deny = append(ai.Deny, proxyDenied()...)
 	case AccessNone:
 		ai.Deny = append(ai.Deny, r1...)
 		ai.BackendsAdminFields = true
 	}
 	return ai
+}
+
+// ── Arguments JSON : une seule lecture possible (CRIT-1) ─────────────────────────────────────────────────────────────
+
+// StrictJSONArgs : refuse un document JSON dont un objet (à toute profondeur) porte deux clés égales — à la casse près, comme
+// le décodeur de encoding/json qui les confond : la décision R1 et l'exécution ne peuvent lire des valeurs différentes.
+func StrictJSONArgs(raw []byte) error {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if err := strictValue(dec); err != nil {
+		return err
+	}
+	if _, err := dec.Token(); err == nil {
+		return fmt.Errorf("arguments invalides : données après la valeur")
+	}
+	return nil
+}
+
+func strictValue(dec *json.Decoder) error {
+	t, err := dec.Token()
+	if err != nil {
+		return fmt.Errorf("arguments invalides : %v", err)
+	}
+	d, ok := t.(json.Delim)
+	if !ok {
+		return nil
+	}
+	switch d {
+	case '{':
+		seen := map[string]bool{}
+		for dec.More() {
+			kt, err := dec.Token()
+			if err != nil {
+				return fmt.Errorf("arguments invalides : %v", err)
+			}
+			k, _ := kt.(string)
+			lk := strings.ToLower(k)
+			if seen[lk] {
+				return fmt.Errorf("arguments invalides : clé en double (« %s »)", k)
+			}
+			seen[lk] = true
+			if err := strictValue(dec); err != nil {
+				return err
+			}
+		}
+	case '[':
+		for dec.More() {
+			if err := strictValue(dec); err != nil {
+				return err
+			}
+		}
+	}
+	_, err = dec.Token() // } ou ]
+	return err
+}
+
+// BackendTestNeedsAdmin : un backendTest d'un client non administrateur doit-il être refusé (R1) ? Un backend DÉJÀ déclaré ne
+// se teste qu'avec ses champs de connexion et R1 tels que déclarés ; un backend nouveau ne porte aucun champ R1 (kubeconfig,
+// context, namespace, volumes, type host, clés de pod sensibles) — sinon le test utiliserait, depuis le pod du launcher, un
+// contexte, un hôte ou une clé du coffre d'un autre backend.
+func BackendTestNeedsAdmin(declared []BackendEntry, in BackendEntry) bool {
+	r1 := func(e BackendEntry) string {
+		pod := map[string]any{}
+		for _, k := range adminPodKeys {
+			if v, ok := e.Pod[k]; ok {
+				pod[k] = v
+			}
+		}
+		var kc any = e.Kubeconfig
+		if kc == nil || kc == "" || kc == false {
+			kc = nil
+		}
+		var vols any
+		if len(e.Volumes) > 0 {
+			vols = e.Volumes
+		}
+		b, _ := json.Marshal([]any{kc, e.Context, e.Namespace, vols, e.Type == "host", pod})
+		return string(b)
+	}
+	conn := func(e BackendEntry) string { // champs de connexion : choisis par l'utilisateur pour un nouveau backend seulement
+		hs := e.Hosts
+		if len(hs) == 0 {
+			hs = nil
+		}
+		b, _ := json.Marshal([]any{e.Host, hs, e.Pool, e.Engine, e.EngineHost})
+		return string(b)
+	}
+	var zero BackendEntry
+	for _, d := range declared {
+		if d.Name == in.Name {
+			return r1(d) != r1(in) || conn(d) != conn(in)
+		}
+	}
+	return r1(zero) != r1(in)
 }

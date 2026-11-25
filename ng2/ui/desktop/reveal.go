@@ -146,21 +146,36 @@ func (c webCall) accessInfo() core.AccessInfo {
 // fichier visé (config.conf, env.yaml du launcher, hub : R1 ; project-env : non ; backends.yaml : R1 si un champ R1 change).
 func (a *App) r1Info(method string, raw json.RawMessage) (target string, r1 bool) {
 	cls, known := core.ClassOf(method)
+	if method == "backendTest" { // un user ne teste qu'un backend déjà déclaré, ou un nouveau sans champ R1 (revue : majeur backendTest)
+		var in struct{ Backend core.BackendEntry }
+		if json.Unmarshal(raw, &in) != nil {
+			return "", true
+		}
+		var declared []core.BackendEntry
+		if f, err := a.configFile(core.ConfBackends, "", ""); err == nil {
+			if b, rerr := os.ReadFile(f.Path); rerr == nil {
+				if m, merr := core.ReadBackendsModel(b); merr == nil {
+					declared = m.Backends
+				}
+			}
+		}
+		return in.Backend.Name, core.BackendTestNeedsAdmin(declared, in.Backend)
+	}
 	if known && cls != core.ClassR1 {
 		return "", false
 	}
+	// MÊME décodage que l'exécution (encoding/json : clés insensibles à la casse, dernière valeur) : la décision R1 ne peut pas
+	// lire une valeur différente de celle qui sera exécutée (CRIT-1). Les clés en double sont refusées plus haut (StrictJSONArgs).
 	var in struct {
-		Kind, Path, Content, MTime, Backend string
-		Changes                             []core.ConfigChange
+		Kind, Path, Content, MTime string
+		Changes                    []core.ConfigChange
+		Backend                    json.RawMessage
 	}
-	// « backend » est un nom (chaîne) pour les secrets, un objet pour backendTest : seul le premier cas est décodé ici
-	var generic map[string]json.RawMessage
-	_ = json.Unmarshal(raw, &generic)
-	_ = json.Unmarshal(generic["kind"], &in.Kind)
-	_ = json.Unmarshal(generic["path"], &in.Path)
-	_ = json.Unmarshal(generic["content"], &in.Content)
-	_ = json.Unmarshal(generic["changes"], &in.Changes)
-	_ = json.Unmarshal(generic["backend"], &in.Backend)
+	if json.Unmarshal(raw, &in) != nil && method != "" {
+		return "", true // arguments illisibles : échec fermé
+	}
+	backend := ""
+	_ = json.Unmarshal(in.Backend, &backend)
 	switch method {
 	case "configSave", "configApply":
 		kind := core.ConfigKind(in.Kind)
@@ -187,12 +202,15 @@ func (a *App) r1Info(method string, raw json.RawMessage) (target string, r1 bool
 		}
 		return in.Kind, true // fichier inconnu : échec fermé
 	}
-	return in.Backend, true
+	return backend, true
 }
 
 // DispatchWebAs : DispatchWeb avec l'identité et le mode d'accès (v7.0.0) — règle R1, champ user, journal des secrets.
 func (a *App) DispatchWebAs(c webCall, method string, raw json.RawMessage) (any, error) {
 	src, remote, sid := c.Src, c.Remote, c.Sid
+	if err := core.StrictJSONArgs(raw); err != nil { // deux clés égales à la casse près : refusé avant toute décision (CRIT-1)
+		return nil, fmt.Errorf("%s : %v", method, err)
+	}
 	if c.Access == core.AccessProxy && method == "quit" { // arrêt du serveur : jamais depuis le web du cluster, même admin (MAJ-2)
 		return nil, fmt.Errorf("quit : indisponible derrière le proxy d'authentification")
 	}
