@@ -305,7 +305,7 @@ function stBox(title, body, extra) {
   if (extra) h.append(extra);
   b.append(h, body); body.classList.add('bb'); return b;
 }
-const stBtn = (t, fn, cls, r1) => { const b = el('button', 'btn sm' + (cls ? ' ' + cls : ''), t); b.onclick = fn; return r1 && typeof r1Gate === 'function' ? r1Gate(b, r1) : b; };
+const stBtn = (t, fn, cls, r1) => { const b = el('button', 'btn sm' + (cls ? ' ' + cls : ''), t); b.onclick = fn; return r1 ? r1Gate(b, r1) : b; };
 
 function stRenderPage(soft) {
   const p = $('stpg'); if (!p) return;
@@ -379,7 +379,7 @@ function stUniqueName(base, list) {
 }
 
 // champ R1 de backends.yaml (grisé quand le serveur l'indique : access.backendsAdminFields)
-const r1Adm = (x) => { if (typeof r1Admin === 'function' && r1Admin()) { x.disabled = true; x.classList.add('r1off'); x.title = R1_TIP; } return x; };
+const r1Adm = (x) => { if (r1Admin()) { x.disabled = true; x.classList.add('r1off'); x.title = R1_TIP; } return x; };
 function stBackendForm(b) {
   const d = ST.draft;
   const body = el('div');
@@ -391,7 +391,7 @@ function stBackendForm(b) {
   };
   const rows = [['Nom', stInput(b.name, rename)]];
   const typeSel = stSelect(b.type, ST_TYPES.map((x) => [x, x]), (v) => { b.type = v; ST.test = null; stRenderPage(); });
-  if (typeof r1Admin === 'function' && r1Admin()) { const oh = [...typeSel.options].find((o) => o.value === 'host'); if (oh && b.type !== 'host') { oh.disabled = true; oh.title = R1_TIP; } else if (b.type === 'host') { typeSel.disabled = true; typeSel.title = R1_TIP; } }
+  if (r1Admin()) { const oh = [...typeSel.options].find((o) => o.value === 'host'); if (oh && b.type !== 'host') { oh.disabled = true; oh.title = R1_TIP; } else if (b.type === 'host') { typeSel.disabled = true; typeSel.title = R1_TIP; } }
   rows.push(['Type', typeSel]);
   const t = b.type;
   if (t === 'podman' || t === 'docker' || t === 'ssh') {
@@ -570,7 +570,7 @@ function stSshFill(b, box) {
     bb.appendChild(el('div', 'dim', i.hasKey ? 'Remplacement de la paire :' : 'Aucune clé enregistrée : ssh utilisera l\'agent ssh du poste. Collez une paire, ou faites-en générer une.'));
     const priv = el('textarea', 'stin stta'); priv.rows = 4; priv.spellcheck = false; priv.autocomplete = 'off'; priv.placeholder = '-----BEGIN OPENSSH PRIVATE KEY-----'; stKeep('ssh:priv:' + b.name, priv);
     const pub = el('textarea', 'stin stta'); pub.rows = 2; pub.spellcheck = false; pub.placeholder = 'ssh-ed25519 AAAA…'; stKeep('ssh:pub:' + b.name, pub);
-    if (typeof r1Denied === 'function' && r1Denied('backendSecretSet')) { priv.disabled = true; pub.disabled = true; }
+    if (r1Denied('backendSecretSet')) { priv.disabled = true; pub.disabled = true; }
     bb.appendChild(stForm([['Clé privée', priv, 'jamais relue ni affichée après l\'enregistrement ; sans phrase de passe'], ['Clé publique', pub]]));
     const bar = el('div', 'stbar');
     const save = stBtn('Enregistrer', () => act(async () => {
