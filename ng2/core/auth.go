@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // ── Accès authentifié du launcher de cluster (v7.0.0, contracts/auth.md) ─────
@@ -370,6 +371,22 @@ func StrictJSONArgs(raw []byte) error {
 	return nil
 }
 
+// foldKey : clé pliée comme le fait encoding/json pour rapprocher une clé d'un champ (pliage simple de Unicode : « ſ » et
+// « K » (Kelvin) se rapprochent de « s » et « k »). Chaque rune est ramenée au plus petit représentant de son orbite.
+func foldKey(k string) string {
+	var b strings.Builder
+	for _, r := range k {
+		min := r
+		for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+			if f < min {
+				min = f
+			}
+		}
+		b.WriteRune(min)
+	}
+	return b.String()
+}
+
 func strictValue(dec *json.Decoder) error {
 	t, err := dec.Token()
 	if err != nil {
@@ -388,7 +405,7 @@ func strictValue(dec *json.Decoder) error {
 				return fmt.Errorf("arguments invalides : %v", err)
 			}
 			k, _ := kt.(string)
-			lk := strings.ToLower(k)
+			lk := foldKey(k)
 			if seen[lk] {
 				return fmt.Errorf("arguments invalides : clé en double (« %s »)", k)
 			}
