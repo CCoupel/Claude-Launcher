@@ -8,6 +8,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"os"
 	"os/exec"
@@ -38,6 +39,29 @@ func world216d(t *testing.T, base string) map[string]string {
 	return w
 }
 
+// stableWorld216 : instantané pris une fois l'arbre STABLE — l'ouverture d'un projet crée en arrière-plan des fichiers
+// (.claude/commands/init-project.md…) après l'état « ready » ; l'instantané « avant » ne doit pas les ignorer (#270). Stable =
+// quatre lectures espacées de 150 ms identiques, au plus 8 s ; le test garde sa garantie : le déplacement ne change rien.
+func stableWorld216(t *testing.T, base string) map[string]string {
+	t.Helper()
+	prev := world216d(t, base)
+	stable := 0
+	for deadline := time.Now().Add(8 * time.Second); time.Now().Before(deadline); {
+		time.Sleep(150 * time.Millisecond)
+		cur := world216d(t, base)
+		if fmt.Sprint(cur) == fmt.Sprint(prev) {
+			if stable++; stable >= 4 {
+				return cur
+			}
+		} else {
+			stable = 0
+		}
+		prev = cur
+	}
+	t.Logf("arbre toujours en mouvement après 8 s : instantané pris tel quel")
+	return prev
+}
+
 func sameWorld216(t *testing.T, what string, a, b map[string]string) {
 	t.Helper()
 	for k, v := range a {
@@ -60,7 +84,7 @@ func TestMoveProjetOuvertRefuse216(t *testing.T) {
 		t.Fatalf("open = %v", v)
 	}
 	f.r.wait(t, 20*time.Second, "ready", isTerm(src, "status", func(e map[string]any) bool { return e["state"] == "ready" }))
-	before := world216d(t, f.base)
+	before := stableWorld216(t, f.base)
 	info := dispatchJSON(t, f.a, "projectMoveInfo", map[string]any{"path": src})
 	if info["open"] != true {
 		t.Errorf("open = %v, attendu true", info["open"])
@@ -97,7 +121,7 @@ func TestMoveAppelsForgesWeb216(t *testing.T) {
 	src := filepath.Join(f.base, "TEST", "alpha")
 	dehors := t.TempDir()
 	_ = os.Symlink(dehors, filepath.Join(f.base, "SORTIE"))
-	before := world216d(t, f.base)
+	before := stableWorld216(t, f.base)
 	w := &webBridge{app: f.a, token: "tok216", subs: map[chan []byte]bool{}, strictHost: true}
 	srv := httptest.NewServer(w.handler())
 	defer srv.Close()
