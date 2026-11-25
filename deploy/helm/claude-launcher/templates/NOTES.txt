@@ -26,7 +26,7 @@ Ingress externe : https://{{ .Values.externalIngress.host }} (adresse principale
 {{- end }}
 Journal d'audit : <CL_CACHE_DIR>/audit.jsonl et sortie standard du conteneur launcher (lignes « audit … ») ; connexions : journal du conteneur auth-proxy.
 Avant de renommer ou supprimer un compte GitHub administrateur ou utilisateur : retirer son login de auth.admins / auth.users (un login libéré peut être recréé par un tiers).
-Rotation des accès locaux : supprimer les Secrets {{ include "cl.localAdminSecretName" . }} et {{ include "cl.cookieSecretName" . }} puis helm upgrade (sessions en cours invalidées).
+Rotation des accès locaux : supprimer les Secrets {{ include "cl.localAdminSecretName" . }}, {{ include "cl.cookieSecretName" . }}{{ if .Values.externalIngress.enabled }} et {{ include "cl.cookieSecretNameExt" . }}{{ end }} puis helm upgrade (sessions en cours invalidées).
 {{- else if eq (.Values.web.access | default "none") "none" }}
 Accès SANS jeton (web.access: none) : ouvrir https://{{ .Values.ingress.host | default "<hôte>" }}/ depuis une adresse admise.
 AUCUNE authentification (auth.enabled: false) : tout poste de la liste d'adresses de l'Ingress interne pilote les projets ; configuration et secrets en lecture seule depuis l'interface (règle R1).

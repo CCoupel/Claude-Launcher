@@ -164,6 +164,7 @@ que l'ingress externe attend v7.0.0.
 | `auth.proxy.resources` | table | demandes `10m` / `32Mi`, limite mémoire `128Mi` | — | — |
 | `auth.rateLimit.average` / `.burst` | entiers | `10` / `20` | — | Traefik `rateLimit` (par adresse source, par minute) sur les routes `/oauth2/` des ingress : essais répétés bloqués (#172) ; nginx : `limit-rpm` sur un Ingress `/oauth2` séparé |
 
+- **[cycle 1, m6]** `ingress.controller: nginx` avec `auth.localAdmin.enabled` → refus au rendu (le retrait de `Authorization` et la limite d'essais passent par un snippet souvent désactivé).
 - `auth.enabled: true` et `web.access` posé explicitement → refus (« web.access est imposé à proxy par auth.enabled ;
   le retirer »).
 - `auth.enabled: true` avec `ingress.enabled: false` et `externalIngress.enabled: false` → refus (aucune adresse https
@@ -187,8 +188,9 @@ que l'ingress externe attend v7.0.0.
 - **[addendum 2]** Règles de rendu : `allowHostBackend: true` avec `auth.enabled: true` → refus (« backend host interdit
   derrière le proxy d'authentification », MAJ-3).
 - **[addendum 2]** Middleware Traefik `<release>-headers` sur **les deux** ingress : `customRequestHeaders:
-  {Authorization: ""}` (MAJ-1 : chemin Basic-auth fermé) et en-têtes de réponse HSTS, `frame-ancestors 'none'`,
-  `nosniff`, `Referrer-Policy: no-referrer` (m7) ; `ipAllowList` et `rateLimit` avec `ipStrategy.depth: 0`. nginx :
+  {Authorization: ""}` (MAJ-1 : chemin Basic-auth fermé) et en-têtes de réponse HSTS, `nosniff`, `Referrer-Policy:
+  no-referrer` (m7) — **jamais de CSP** sur `/` (cycle 1, CRIT-2 : elle écraserait le CSP `sandbox` de `/files`) ; le CSP strict
+  ne vaut que pour `<release>-headers-oauth` (route `/oauth2`) ; `ipAllowList` et `rateLimit` avec `ipStrategy.depth: 0`. nginx :
   `proxy_set_header Authorization ""` par l'annotation dédiée du chart. Tests de rendu : middleware référencé par
   chaque ingress.
 - **[addendum 2, réserves dev-frontend]** Gabarits : la ConfigMap `<release>-auth-templates` porte `error.html` et

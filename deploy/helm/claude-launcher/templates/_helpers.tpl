@@ -253,6 +253,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Values.allowHostBackend -}}
 {{- fail "backend host interdit derrière le proxy d'authentification (allowHostBackend: true avec auth.enabled) : une session du conteneur du launcher forgerait l'identité" -}}
 {{- end -}}
+{{- if and $a.localAdmin.enabled (eq (default "traefik" .Values.ingress.controller) "nginx") -}}
+{{- fail "ingress.controller: nginx refusé avec auth.localAdmin.enabled : le retrait de l'en-tête Authorization et la limite d'essais passent par un snippet que ingress-nginx désactive par défaut (chemin Basic-auth ouvert) — utiliser Traefik, ou désactiver le compte local" -}}
+{{- end -}}
 {{- if .Values.web.access -}}
 {{- fail "web.access est imposé à proxy par auth.enabled ; le retirer (ou auth.enabled: false)" -}}
 {{- end -}}

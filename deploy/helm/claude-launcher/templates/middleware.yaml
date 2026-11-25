@@ -68,7 +68,7 @@ spec:
       port: http
     query: /too-many
 ---
-# Traefik : en-têtes de sécurité (HSTS, nosniff, Referrer-Policy, frame-ancestors) et en-tête Authorization retiré de la requête
+# Traefik : en-têtes de sécurité (HSTS, nosniff, Referrer-Policy ; jamais de CSP sur « / », voir /files) et en-tête Authorization retiré de la requête
 # (oauth2-proxy accepterait sinon « Authorization: Basic » avec le fichier htpasswd, hors limite de débit)
 apiVersion: traefik.io/v1alpha1
 kind: Middleware
@@ -84,7 +84,8 @@ spec:
     stsIncludeSubdomains: false
     contentTypeNosniff: true
     referrerPolicy: no-referrer
-    contentSecurityPolicy: "frame-ancestors 'none'"
+    # AUCUNE CSP ici : elle écraserait le CSP « sandbox » de /files/… (HTML de projet : origine opaque) ;
+    # frame-ancestors, X-Frame-Options et nosniff sont posés par le launcher lui-même
 ---
 # Traefik : pages du proxy (/oauth2/…) — CSP stricte, sans script ni ressource externe
 apiVersion: traefik.io/v1alpha1

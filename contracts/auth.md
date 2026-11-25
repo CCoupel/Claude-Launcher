@@ -161,13 +161,18 @@ kubelet ──http──► [launcher :8082] /healthz /readyz seulement (aucune 
 | **Terminal** | `termInput`, `launchInput`, `resizePane`, `termResize`, `termFocus`, `termZoom`, `termSync` | oui | oui | oui |
 | **Refusé en mode `proxy`** (tous rôles) | `quit` (MAJ-2 : arrêt du serveur), `webUIOpen`, `webUIRegen`, `clipboardRead`, `clipboardWrite` (indisponibles), `teamAgentSet`, `secretReveal` (refus distant existant) | non | non | inchangé v6.9.0 |
 
+- **Arguments JSON (cycle 1, CRIT-1)** : un objet `args` portant deux clés égales **à la casse près** (à toute profondeur) est
+  refusé (`400` sur `/api/call`) ; la décision R1 lit les arguments avec le même décodeur que l'exécution.
+- **`backendTest` (cycle 1)** : un `user` teste un backend **déjà déclaré** tel quel (champs R1 et de connexion `host`, `hosts`,
+  `pool`, `engine`, `engine_host` identiques) ou un **nouveau** backend sans champ R1 ; sinon R1 (refus).
 - **Échec fermé** : une méthode absente de ce classement est traitée comme **R1**. Un test énumère les `case` du
   dispatch (et `secretMethods`) et échoue si une méthode n'est pas classée (MAJ-2).
 - **Champs R1 de `backends.yaml`** (empreinte `AdminFieldsChanged(old, new)`, échec fermé : YAML illisible = changé) :
   toutes les rubriques hors `backends:` (`desktop_web`, `browser_server`, `browser_paths`, `browser_device`, `hubs`,
   défauts globaux) ; et, pour chaque backend : `kubeconfig`, `context`, `volumes`, `namespace`, `type: host`, et sous
   `pod:` les clés `serviceAccountName`, `automountServiceAccountToken`, `securityContext`, `nodeName`,
-  `runtimeClassName`, `hostAliases`, `dnsConfig`, `dnsPolicy`. Raison : ces clés donnent au pod d'un projet le
+  `runtimeClassName`, `hostAliases`, `dnsConfig`, `dnsPolicy`, `tolerations`, `priorityClassName`, `schedulerName`,
+  `imagePullSecrets` [cycle 1, m2]. Raison : ces clés donnent au pod d'un projet le
   ServiceAccount du launcher (droits d'administration du namespace → `pods/exec` dans le pod du launcher → coffre et
   falsification d'identité), un volume autre que le projet, ou la machine hôte. Un `user` crée, modifie et supprime
   les autres champs (image, `shared`, `host` ssh, ressources, placement, `spread`…). `WebExposureChanged` (exposition
@@ -221,6 +226,10 @@ non effaçable par l'application — MAJ-4). Mode `proxy` seulement.
   identifiant court — `kind` de config (`config.conf`, `backends.yaml`…), nom de backend — **jamais une valeur**. Aucun
   autre argument (ni contenu, ni commande, ni frappe, ni cookie).
 - `ok` / `err` : `err` court (`forbidden`, `invalid`, `error`).
+- **Cycle 1 (MAJ-A)** : `method` borné à 64 caractères (inconnue : `unknown`), `target` et `project` à 128 ; les **refus** R1 sont
+  soumis à la rafale de 60/min (agrégés au-delà), jamais les succès ; une action R1 est précédée d'une ligne d'**intention**
+  (`"phase":"intent"`, journal inaccessible = refus) puis de sa ligne de résultat ; `src` garde la **queue** du
+  `X-Forwarded-For`. Le flux `/api/events` du mode proxy se ferme après `CL_AUTH_SESSION_REFRESH` (le client se reconnecte).
 - `src` : adresse de la connexion + `X-Forwarded-For` **tronqué à 256 octets**, caractères de contrôle retirés
   (indication, non fiable). Écriture par `encoding/json` **uniquement** (jamais de concaténation).
 - Rotation : au-delà de 10 Mio, rotation sur **5 générations** (`audit.jsonl.1` … `.5`, 50 Mio au total) ; la
