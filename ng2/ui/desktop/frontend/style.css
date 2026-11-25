@@ -534,3 +534,15 @@ body.cardsfolded #hsplit { display: none; }
 .tile .qbar.hidden, .tile .tilebadge.hidden { display: none; }
 .tl.attn { border-color: var(--orange); box-shadow: 0 0 0 1px var(--orange); }
 .tab.attn { text-decoration: underline; text-decoration-color: var(--orange); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+
+/* Modèle et effort d'un teammate (#250, M1 A) */
+.team .m.hot { color: var(--text); text-decoration: underline dotted var(--muted); text-underline-offset: 3px; cursor: pointer; }
+.team .m.locked { cursor: not-allowed; }
+.team .m.busy { opacity: .5; }
+.team .m .nx { color: var(--cyan); }
+.team .m:focus-visible { outline: 1px solid var(--accent); outline-offset: 1px; }
+.ctxmenu.teammenu { min-width: 300px; }
+.ctxmenu .ck { width: 14px; color: var(--accent); flex: none; }
+.ctxmenu .tag { margin-left: auto; color: var(--dim, var(--muted)); font-size: 11px; }
+.ctxmenu div.ft { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; white-space: normal; cursor: default; max-width: 330px; }
+.ctxmenu div.ft:hover { background: transparent; }
