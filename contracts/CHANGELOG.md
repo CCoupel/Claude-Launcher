@@ -2,6 +2,41 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261125] — v7.0.0 (plan rev1, GATE 2) : compte local de secours, GitHub App, ingress externe sans compte local
+
+- **[NEW]** compte `admin@local` (rôle admin) par le fichier htpasswd d'oauth2-proxy : `auth.localAdmin.enabled`
+  (défaut vrai, P9), mot de passe généré (Secret `<release>-local-admin`, P11) ou `auth.localAdmin.existingSecret`
+  (bcrypt), `auth.localAdmin.hosts` (hôte interne seul, P10) ; `CL_AUTH_LOCAL_ADMIN_HOSTS` ; page de connexion
+  affichée (M7) — `contracts/auth.md` §8.
+- **[NEW]** `auth.github.enabled` (false permis avec le compte local) ; `cookie-secret` généré par le chart
+  (`auth.existingSecret` ne porte plus que `client-id` / `client-secret`).
+- **[CHANGED]** P8 : GitHub App (plusieurs URL de retour) au lieu d'une OAuth App ; second sidecar `auth-proxy-ext`
+  (port 8083, sans compte local) derrière l'ingress externe.
+- **[CHANGED]** `auth.admins` obligatoire seulement si `auth.github.enabled`.
+
+## [20261125] — v7.0.0 (plan) : accès authentifié du launcher de cluster (#172, #251, #252, #253, #254)
+
+- **[BREAKING]** chart : `auth.enabled` **vrai par défaut** (P1) — `auth.existingSecret` (OAuth App GitHub) et
+  `auth.admins` deviennent obligatoires ; une installation v6.x mise à jour sans eux échoue au rendu
+  (`contracts/helm-values.md` « v7.0.0 »).
+- **[BREAKING]** mode serveur authentifié : plus de jeton ni de cookie du launcher, identité par oauth2-proxy (sidecar),
+  launcher en boucle locale `127.0.0.1:8081`, sondes sur `8082` ; nouveau mode `CL_WEB_ACCESS=proxy`
+  (`contracts/auth.md` §2). `web.access` posé avec `auth.enabled` → refus.
+- **[BREAKING]** règle R1 : 12 méthodes d'écriture refusées (`{ok:false, forbidden:"admin"}`) pour un client web
+  `proxy` de rôle `user` et pour tout client web en `none` (cluster sans authentification = réglages en lecture seule
+  depuis l'interface) ; la clé `kubeconfig` entre dans `WebExposureChanged` (`contracts/auth.md` §4,
+  `contracts/backends-remote.md` « v7.0.0 »).
+- **[BREAKING]** pods projets k8s : seuls le dossier du projet et `CLAUDE_CONFIG_DIR` montés (`subPath`), plus de jeton
+  de ServiceAccount (`automountServiceAccountToken: false`) ; annotation `cl.mounts: "v2"` ; pod en marche conservé
+  jusqu'à sa réouverture (P5, P6).
+- **[CHANGED]** `externalIngress.enabled` activable (refusé si `auth.enabled: false`, émetteur interne refusé) ;
+  `CL_WEB_URL` = hôte externe s'il est activé, `CL_WEB_ALT_URLS` = hôte interne (P7).
+- **[NEW]** `init.user` / `clientInfo.user` `{login, role, logout}` ; réponse `401` de session expirée ; page
+  `/signed-out` ; journal `<CacheDir>/audit.jsonl` (méthodes fréquentes agrégées par minute, P3) ; champ `user` du
+  journal des secrets ; variables `CL_WEB_ADDR`, `CL_HEALTH_ADDR`, `CL_WEB_ALT_URLS`, `CL_AUTH_ADMINS`, `CL_AUTH_USERS` ;
+  valeurs `auth.*`, ConfigMap des gabarits oauth2-proxy, `rateLimit` sur `/oauth2/`.
+- Hub Linux, exe Windows, fenêtre native : **aucun changement**.
+
 ## [20261125] — v6.9.0 (plan, révisé GATE 2) : modèle et effort des teammates (#250)
 
 - **[NEW]** méthode `teamAgentSet` `{path, agent, model, effort}` : surcharge écrite dans le frontmatter du compagnon

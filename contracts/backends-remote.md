@@ -149,3 +149,21 @@ Inchangé par la révision : Secret `backends.docker.secretName` (`ca.pem`, `cer
 
 Étapes ajoutées : « client <ssh|docker|podman> présent », « clé ssh enregistrée » (ssh), « empreinte de l'hôte
 connue » (ssh), puis les étapes actuelles.
+
+## v7.0.0 — règle R1 définitive **[CHANGED]** (#252)
+
+La règle provisoire de v6.4.0 (« Règle d'écriture des secrets ») est **remplacée** par la règle R1 de
+`contracts/auth.md` §4 :
+
+| Client | Écriture d'un secret, de la configuration, approbation d'environnement |
+|--------|--------------------------------------------------------------------------|
+| fenêtre native (hub, exe) | oui |
+| client web du hub / de l'exe (mode `token`) | oui (décision du plan v7.0.0 : le jeton désigne le propriétaire du poste) |
+| client web du cluster, `proxy`, rôle `admin` | oui |
+| client web du cluster, `proxy`, rôle `user` | non |
+| client web du cluster, `none` (`auth.enabled: false`) | **non** — la chaîne d'attaque M2 (redéclaration d'un backend ssh depuis le LAN) est levée |
+
+- `secrets-journal.jsonl` : champ `user` ajouté (login GitHub, `fenêtre native` ou `web local`).
+- La clé `kubeconfig` d'un backend **entre** dans l'empreinte `WebExposureChanged` : non modifiable depuis un client
+  web par `configSave` / `configApply` ; dépôt dans le coffre par `backendSecretSet {kubeconfig}` : administrateur.
+- Le risque accepté « toute machine du LAN peut déposer une clé » est **retiré** de ce contrat.

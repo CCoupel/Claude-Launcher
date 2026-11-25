@@ -1347,3 +1347,25 @@ Arguments : `{ "path": "<projet>", "agent": "<entrée du registre>", "model": "o
   `claude-launcher-ng2 team-set <projet> <agent> [model=<m>|model=default] [effort=<e>|effort=default]` (sortie : la ligne `note`,
   code 0 ; refus : message sur stderr, code 2), lancée par le menu `display-menu` de la carte (maquette retenue A) et
   utilisée par les tests.
+
+## v7.0.0 — identité et règle R1 (#251, #252)
+
+Contrat complet : `contracts/auth.md` §3 à §5. Résumé pour le client :
+
+### `init`, `clientInfo` **[CHANGED]**
+
+- Champ `user = {login, role, logout}` en mode `proxy` seulement (absent ailleurs). `clientInfo` rend
+  `{ "remote": true, "user": {…} }`.
+
+### Méthodes R1 **[CHANGED]**
+
+`configSave`, `configApply`, `projectSettings`, `projectApply`, `execApply`, `envTrustAnswer`, `initProposalAnswer`,
+`backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet`, `backendHostScan`, `relaunch` : refus
+`{ "ok": false, "forbidden": "admin", "msg": "réservé à un administrateur authentifié (règle R1)" }` (sans `error`)
+pour un client web `proxy` de rôle `user` et pour tout client web en mode `none`. Le client grise ces actions quand
+`user.role` vaut `user`, ou quand le mode d'accès (`webui.access`) vaut `none` en mode serveur.
+
+### Réponse `401` **[NEW]**
+
+En mode `proxy`, `/api/call` et `/api/events` peuvent répondre `401` (session oauth2-proxy expirée) : bandeau
+« Session expirée — Se reconnecter » (rechargement de `/`), aucune nouvelle tentative automatique.
