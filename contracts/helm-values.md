@@ -190,7 +190,7 @@ que l'ingress externe attend v7.0.0.
 - **[addendum 2]** Middleware Traefik `<release>-headers` sur **les deux** ingress : `customRequestHeaders:
   {Authorization: ""}` (MAJ-1 : chemin Basic-auth fermé) et en-têtes de réponse HSTS, `nosniff`, `Referrer-Policy:
   no-referrer` (m7) — **jamais de CSP** sur `/` (cycle 1, CRIT-2 : elle écraserait le CSP `sandbox` de `/files`) ; le CSP strict
-  ne vaut que pour `<release>-headers-oauth` (route `/oauth2`) ; `ipAllowList` et `rateLimit` avec `ipStrategy.depth: 0`. nginx :
+  ne vaut que pour `<release>-headers-oauth` (route `/oauth2`) ; `ipAllowList.ipStrategy.depth: 0` et `rateLimit.sourceCriterion.ipStrategy.depth: 0` (champ valide du CRD Traefik : un `rateLimit.ipStrategy` serait élagué). nginx :
   `proxy_set_header Authorization ""` par l'annotation dédiée du chart. Tests de rendu : middleware référencé par
   chaque ingress.
 - **[addendum 2, réserves dev-frontend]** Gabarits : la ConfigMap `<release>-auth-templates` porte `error.html` et
@@ -199,7 +199,7 @@ que l'ingress externe attend v7.0.0.
   propre ConfigMap `<release>-auth-templates-ext` (`sign_in.html` = colonne GitHub seule ; page jamais vue en pratique :
   `--skip-provider-button=true` sur l'externe, faute de formulaire).
 - **[addendum 2]** Page `429` : middleware Traefik `<release>-errors` (`errors`, `status: ["429"]`, `service:` le Service
-  du launcher port `http`, `query: /too-many`) chaîné **après** `rateLimit` sur la route `/oauth2/` de chaque ingress ;
+  du launcher port `http`, `query: /too-many`) chaîné **avant** `rateLimit` sur la route `/oauth2/` de chaque ingress (Traefik exécute la chaîne dans l'ordre listé : `headers-oauth`, `errors`, `ratelimit` ; listé après, il ne voit jamais le `429`) ;
   `/too-many` est servie par le launcher sans identité (route exemptée par oauth2-proxy). nginx : `429` brut (corps du
   contrôleur), documenté.
 - Variables ajoutées : `CL_AUTH_SESSION_DURATION`, `CL_AUTH_SESSION_REFRESH` (réservées).

@@ -289,7 +289,7 @@ Contrepartie : oauth2-proxy n'a pas de limite d'essais propre → limite de déb
   user`) si l'hôte de la requête (`Host`, transmis par le proxy, `--pass-host-header`) n'est pas dans
   `CL_AUTH_LOCAL_ADMIN_HOSTS` (P10).
 - **Limite d'essais** : `rateLimit` Traefik sur `/oauth2/` de l'ingress interne (10/min en moyenne, 20 en rafale,
-  par adresse source, `ipStrategy` profondeur 0) → `429` ; bcrypt coût ≥ 10. L'ingress interne garde sa liste
+  par adresse source, `sourceCriterion.ipStrategy.depth: 0`) → `429`, page `errors` listée avant `rateLimit` ; bcrypt coût ≥ 10. L'ingress interne garde sa liste
   d'adresses (LAN).
 - **Chemin Basic-auth fermé (MAJ-1)** : avec `--htpasswd-file`, oauth2-proxy accepte aussi `Authorization: Basic` sur
   toute route, hors limite de débit. Le chart pose sur **les deux** ingress un middleware Traefik `headers`
