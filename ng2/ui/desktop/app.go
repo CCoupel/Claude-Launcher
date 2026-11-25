@@ -901,6 +901,9 @@ type UsageRow struct {
 	ResetLevel string `json:"resetLevel,omitempty"`
 	// Alert : « ⚠ épuisé ~HH:MM » (rouge), seulement si ResetLevel = red.
 	Alert string `json:"alert,omitempty"`
+	// Approx : estimation sur échantillon court (#268) — ni ResetLevel ni Alert ; Estimate : « ≈ épuisement ~HH:MM ».
+	Approx   bool   `json:"approx,omitempty"`
+	Estimate string `json:"estimate,omitempty"`
 }
 
 // Snapshot : tout ce que montre la colonne de gauche, et les onglets.
@@ -1055,6 +1058,7 @@ func (a *App) usageRows(s *Snapshot) {
 			now := time.Now()
 			ex := l.Exhaustion(now)
 			row.ResetLevel, row.Alert = ex.Level, ex.Alert(now)
+			row.Approx, row.Estimate = ex.Approx, ex.Estimate(l.ResetsAt)
 		}
 		s.Usage = append(s.Usage, row)
 	}

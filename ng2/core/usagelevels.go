@@ -32,6 +32,7 @@ type levelWindow struct {
 	ResetsAt   *string         `json:"resets_at"`
 	Percent    json.Number     `json:"percent"`
 	ExhaustsAt *string         `json:"exhausts_at"`
+	Approx     bool            `json:"approx"`
 	Level      *string         `json:"level"`
 	Alert      *string         `json:"alert"`
 }
@@ -88,9 +89,13 @@ func SyncUsageLevels(now time.Time) {
 		if l.ResetsAt != nil {
 			reset = *l.ResetsAt
 		}
-		if e := ProjectExhaustion(l.Kind, pct, reset, now); e.Level != "" {
-			lv, at := e.Level, levelTime(e.Exhausts)
-			w.Level, w.ExhaustsAt = &lv, &at
+		if e := ProjectExhaustion(l.Kind, pct, reset, now); e.Level != "" || e.Approx {
+			at := levelTime(e.Exhausts)
+			w.ExhaustsAt, w.Approx = &at, e.Approx
+			if e.Level != "" {
+				lv := e.Level
+				w.Level = &lv
+			}
 			if a := e.Alert(now); a != "" {
 				w.Alert = &a
 			}
