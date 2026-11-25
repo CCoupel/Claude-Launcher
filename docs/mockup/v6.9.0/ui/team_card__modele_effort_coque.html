@@ -1,0 +1,136 @@
+<!--
+mockup:
+  composant: team_card
+  feature: modele_effort_coque
+  version: 6.9.0
+  type: ui
+  issue: "#250"
+  validee_le: 2026-11-25
+  proposition_retenue: "A — Menu tmux au clic"
+  complete: ["docs/mockup/v6.5.0/ui/team_card__masquage_par_projet_v2.html", "docs/mockup/v6.2.0/ui/team_card__versions_entete.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team_card coque — modèle et effort (#250, v6.9.0, retenue A)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎨%3C/text%3E%3C/svg%3E">
+<style>
+:root{--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--accent:#60CDFF;--input:#0A0C10;--type:#2f6fed;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px;border-top:6px solid var(--type)}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1250px;line-height:1.5}
+section[data-proposition]{display:block;padding-top:4px}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--accent);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.cols{display:flex;gap:22px;flex-wrap:wrap;align-items:flex-start}
+.col h3{font:600 12px var(--ui);color:var(--muted);margin:0 0 6px;max-width:460px}
+.tui{background:#000;border:1px solid var(--line2);border-radius:6px;padding:10px 12px;font:12.5px/1.35 var(--mono);white-space:pre;overflow:auto;color:#d0d0d0;width:max-content;max-width:100%}
+.c{color:#5fd7ff}.cb{color:#5fd7ff;font-weight:700}.g{color:#5fd75f}.d{color:#808080}.y{color:#ffd75f}.o{color:#ff8700}.b{font-weight:700;color:#fff}
+.u{text-decoration:underline}
+.mn{background:#303030;color:#e0e0e0}.ms{background:#005f87;color:#fff}.md{background:#303030;color:#808080}
+.pp{background:#1c1c1c;color:#e0e0e0}.pk{background:#1c1c1c;color:#5fd7ff;font-weight:700}.pd{background:#1c1c1c;color:#808080}.pon{background:#5fd7ff;color:#000}
+.tip{display:inline-block;margin-top:8px;background:#2A2F38;border:1px solid var(--line2);border-radius:4px;padding:5px 8px;font:12px var(--ui);color:var(--text2);line-height:1.45;max-width:460px;white-space:pre-line}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+@media (max-width:700px){.rules{columns:1}}
+</style>
+</head>
+<body>
+<h1>Carte TEAM de la coque Linux — changer le modèle et l'effort <span style="color:var(--muted);font-weight:400">· #250 · v6.9.0 · pane ◈ État (Bubble Tea) · maquette retenue (A — Menu tmux au clic)</span></h1>
+<p class="sub">Projet <b>Claude-Launcher</b>, pane des cartes de la coque tmux. Ce qui ne change pas : une ligne par teammate (● lancé, ○ non lancé, « + » si compagnon), les colonnes modèle et effort, ⚠ en cas d'écart et le double-clic sur le <b>nom</b> qui montre ou cache le pane. Aujourd'hui, les touches de ce pane vont au navigateur : le réglage se fait donc <b>à la souris</b>, sur les colonnes modèle et effort. L'écriture est celle de la fenêtre native (sous-commande <code>team-set</code>, contrat <code>teamAgentSet</code>). Décisions du GATE 2 intégrées : efforts filtrés selon le modèle (P2), nouvelle valeur suivie de <span style="color:#5fd7ff">⟳</span> (P3), teamleader écrit dans <code>teamleader.md</code> et <code>.claude/settings.json</code> (P4), compagnon vide supprimé (P5) ; la coque est locale, P1 (refus en accès distant) ne la concerne pas. Trois cas : planner (non démarré), dev-backend (tourne) et leader (teamleader).</p>
+
+
+<section data-proposition="A">
+  <div class="parti"><b>Retenue — A — Menu tmux au clic.</b> Un clic sur les colonnes modèle et effort d'une ligne ouvre un menu natif tmux (<code>display-menu</code>) à l'endroit du clic. On choisit à la souris ou par une touche (d, o, s, h, f ; 0 à 5 ; t). Chaque choix lance <code>team-set</code> en tâche de fond, le menu se ferme et la carte est relue.</div>
+  <div class="mock"></div>
+</section>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li>La zone cliquable est la paire de colonnes modèle et effort. Le double-clic sur le nom garde son effet (montrer ou cacher le pane). Les lignes ○ non démarrées sont réglables aussi. Pas de nouvelle touche (DECISIONS.md) : réglage à la souris.</li>
+  <li>Menu : <code>display-menu -T "&lt;agent&gt; — modèle et effort" -x/-y</code> = position du clic (coordonnées du pane des cartes + colonne et ligne de la souris), repli au centre. Rubrique modèle : « défaut (template) — &lt;valeur&gt; » (d) puis o, s, h, f ; séparateur ; rubrique effort : « défaut (template) — &lt;valeur&gt; » (0) puis 1 à 5, <b>filtrées selon le modèle</b> (P2, P6 : un effort non pris en charge est grisé, sans raccourci ; « défaut » jamais grisé) ; séparateur ; « ↺ tout par défaut » (t), puis une ligne grisée (prochain spawn, ou rappel du teamleader).</li>
+  <li>« défaut » retire la clé du compagnon (cochée quand la clé est absente) ; choisir la valeur marquée « = défaut » a le même effet (règle de l'issue).</li>
+  <li>Teammate qui tourne : la ligne affiche la <b>nouvelle</b> valeur suivie de <span style="color:#5fd7ff">⟳</span> (P3). Le message de confirmation s'affiche 6 s sous la liste, à la place du message de refus actuel.</li>
+  <li>Teamleader : écriture de <code>teamleader.md</code> et de <code>.claude/settings.json</code> (<code>model</code>, <code>effortLevel</code>) ; message jaune sous la liste : la session en cours garde son modèle (<code>/model</code>, <code>/effort</code>) (P4).</li>
+  <li>Entrée non réglable (<code>cdp</code>, agent hors registre) : le clic affiche « pas réglable : … » sous la liste. Partage injoignable : message du délai (<code>SHARE_WRITE_TIMEOUT</code>).</li>
+  <li>Le pane étroit garde ses abréviations (<code>med</code>, <code>xhi</code>).</li>
+</ul>
+
+<script>
+(function(){
+function e(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;');}
+function pad(s,n){s=String(s);while(s.length<n)s+=' ';return s;}
+var W=70;
+function top(){var t=' TEAM · 5 · TPL v5.16.0 · default (masqués 30 s) · CLAUDE 2.1.87 ';return '<span class="d">╭─</span><span class="cb">'+e(t)+'</span><span class="d">'+'─'.repeat(Math.max(0,W-t.length-3))+'╮</span>';}
+function bot(){return '<span class="d">╰'+'─'.repeat(W-2)+'╯</span>';}
+function box(inner,len){return '<span class="d">│</span> '+inner+' '.repeat(Math.max(0,W-4-len))+' <span class="d">│</span>';}
+var T=[['leader',1,'sonnet','medium',1,1,'leader'],['planner',0,'opus','high',0,0],['deployer',0,'sonnet','low',1,0],['dev-backend',1,'sonnet','medium',1,1],['dev-frontend',1,'sonnet','medium',1,0],['qa',0,'sonnet','medium',1,0,'actif'],['doc-updater',0,'haiku','low',0,0],['security',0,'sonnet','high',0,0]];
+// o : {hot:nom (colonnes soulignées), over:{nom:[m,e,nx,uM,uE]}, msg:[classe,texte]}
+function card(o){
+  var L=[top()];
+  T.forEach(function(t){
+    var ov=(o.over||{})[t[0]]||[], m=ov[0]||t[2], ef=ov[1]||t[3];
+    var name=(t[1]?'+':'')+t[0];
+    var mk=t[4]?'<span class="g">●</span>':'<span class="d">○</span>';
+    var nm=t[4]&&t[5]?'<span class="b">'+pad(name,13)+'</span>':'<span class="d">'+pad(name,13)+'</span>';
+    var hot=o.hot===t[0];
+    var ms=pad(m,7), es=pad(ef,6);
+    var mh=(hot||ov[3])?'<span class="u'+(ov[3]?' c':'')+'">'+m+'</span>'+' '.repeat(7-m.length):ms;
+    var eh='<span class="d">'+((hot||ov[4])?'<span class="u'+(ov[4]?' c':'')+'">'+ef+'</span>'+' '.repeat(6-ef.length):es)+'</span>';
+    var st=t[6]==='actif'?' <span class="g">actif</span>':'';
+    var nx=ov[2]?' <span class="c">⟳</span>':'';
+    var len=1+1+13+1+7+6+(ov[2]?2:0)+(t[6]==='actif'?6:0);
+    L.push(box(mk+' '+nm+' '+mh+eh+nx+st,len));
+  });
+  if(o.msg) L.push(box('<span class="'+o.msg[0]+'">'+e(o.msg[1])+'</span>',o.msg[1].length));
+  L.push(bot());
+  return L;
+}
+// superpose un bloc (lignes HTML déjà construites, longueur visible lens) à partir de la ligne y, colonne x
+function overlay(L,y,x,blk){
+  // approche simple : les lignes concernées sont remplacées par « début de ligne » + bloc (la fin de la ligne est masquée)
+  var out=L.slice();
+  blk.forEach(function(b,i){var raw=pad(strip(out[y+i]||''),x);out[y+i]=e(raw.slice(0,x))+b;});
+  return out;
+}
+function strip(h){var d=document.createElement('div');d.innerHTML=h;return d.textContent;}
+function mrow(txt,key,sel,dim){var s=pad(' '+txt,30)+pad(key,3);return '<span class="'+(sel?'ms':dim?'md':'mn')+'">'+e(s)+'</span>';}
+// cm / ce = 'default' : clé absente du compagnon (valeur du template)
+function menuA(name,cm,ce,tm,te,note){
+  var hd='┌─ '+name+' — modèle et effort ';while(hd.length<34)hd+='─';var b=['<span class="mn">'+e(hd)+'┐</span>'];
+  function row(txt,key,sel,dim){b.push('<span class="mn">│</span>'+mrow(txt,key,sel,dim)+'<span class="mn">│</span>');}
+  row((cm==='default'?'✓ ':'  ')+'défaut (template) — '+tm,'d',cm==='default');
+  [['opus','o'],['sonnet','s'],['haiku','h'],['fable','f']].forEach(function(r){row((r[0]===cm?'✓ ':'  ')+r[0]+(r[0]===tm?'  = défaut':''),r[1],r[0]===cm);});
+  b.push('<span class="mn">├'+'─'.repeat(33)+'┤</span>');
+  row((ce==='default'?'✓ ':'  ')+'défaut (template) — '+te,'0',ce==='default');
+  [['low','1'],['medium','2'],['high','3'],['xhigh','4'],['max','5']].forEach(function(r){row((r[0]===ce?'✓ ':'  ')+r[0]+(r[0]===te?'  = défaut':''),r[1],r[0]===ce);});
+  b.push('<span class="mn">├'+'─'.repeat(33)+'┤</span>');
+  row('  ↺ tout par défaut','t');
+  row('  '+note,'',0,1);
+  b.push('<span class="mn">└'+'─'.repeat(33)+'┘</span>');
+  return b;
+}
+function pre(L){return '<div class="tui">'+L.join('\n')+'</div>';}
+function col(t,html,tip){return '<div class="col"><h3>'+t+'</h3>'+html+(tip?'<div class="tip">'+tip+'</div>':'')+'</div>';}
+var P={
+ A:function(){
+  var L1=overlay(card({hot:'planner'}),3,24,menuA('planner','default','default','opus','high','au prochain spawn'));
+  var L2=card({over:{'dev-backend':['opus','high',1]},msg:['c','⟳ dev-backend : opus · high (compagnon) — prochain spawn']});
+  var L3=overlay(card({hot:'leader'}),2,24,menuA('leader','sonnet','default','opus','medium','+ settings.json ; /model'));
+  L3.push('<span class="y">'+e('⚠ leader : teamleader.md + settings.json écrits ; session en cours : /model, /effort')+'</span>');
+  return '<div class="cols">'+col('1. planner (○) — clic sur « opus high »',pre(L1))+col('2. dev-backend (tourne) — après « o » puis « 3 »',pre(L2),'La ligne affiche la nouvelle valeur (opus high) suivie de ⟳ : dev-backend tourne encore en sonnet · medium jusqu\'à son prochain spawn.')+col('3. leader — menu ouvert',pre(L3))+'</div>';
+ }
+};
+document.querySelectorAll('section[data-proposition]').forEach(function(s){s.querySelector('.mock').innerHTML=P.A();});
+})();
+</script>
+</body>
+</html>

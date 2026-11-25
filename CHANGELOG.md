@@ -8,6 +8,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
 ## [Unreleased]
 
+## [6.9.0] — à publier
+
+### Added
+- Carte TEAM : le modèle et l'effort de chaque teammate se règlent depuis la carte (fenêtre native : clic → menu ; coque tmux : clic sur la colonne → `display-menu`). Le réglage écrit le compagnon projet `.claude/agents/<agent>.md` et prend effet au prochain spawn (⟳ tant qu'un teammate tourne avec une autre valeur). Entrée « Défaut (template) » pour retirer la surcharge ; effort non pris en charge par le modèle grisé ; teamleader : `.claude/settings.json` réécrit aussi (#250)
+- API : méthode `teamAgentSet`, `clientInfo`, et `teamHead.modelEfforts` (table modèle → efforts) ; `cards` expose `model`/`effort` résolus, `modelSrc`/`effortSrc`, `tplModel`/`tplEffort`, `running`, `editable` (#250)
+
+### Security
+- Le réglage modèle/effort est refusé hors fenêtre native (accès web distant) ; le serveur reste seul juge (#250)
+
 ## [6.8.2] — 2026-11-24
 
 ### Fixed

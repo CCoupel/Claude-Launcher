@@ -10,6 +10,8 @@
 - Le masquage des inactifs par projet se règle par une icône œil à trois états au bout du titre : ouvert = no hide, fermé = auto hide, grisé = default (suit le réglage global). Pas de bandeau ni de ligne supplémentaire sous le titre, pas d'interrupteur, pas de puce cliquable. _(v6.5.0, masquage_par_projet — A, B, D, E, F écartées)_
 - L'œil est le dernier élément de la ligne de titre, aligné à droite ; aucune puce « masquage N s » dans le titre (redondante avec l'œil, le délai est dans l'infobulle). Le mode default doit se distinguer d'un choix du projet au premier coup d'œil. _(v6.5.0, masquage_par_projet_v2)_
 - Vocabulaire des trois états : « auto hide », « default », « no hide ». _(v6.5.0, masquage_par_projet)_
+- Réglage modèle/effort : menu sur la colonne `modèle · effort`, entrée `Défaut (template)` en tête de chaque rubrique ; accès distant : grisé avec l'infobulle « réglage réservé à la fenêtre native » ; teamleader : avertissement /model /effort. _(v6.9.0, modele_effort — #250)_
+
 
 ## pane_header
 - L'état actif / inactif colore tout le bandeau (vert / gris sombre), pas seulement une pastille ou un liseré. _(v6.2.0, etat_activite)_

@@ -43,13 +43,21 @@ func TestTeam(t *testing.T) {
 	got := LiveTeam(ReadTeammates(proj), proj, panes)
 	want := []Teammate{
 		{Name: "teamleader", Tag: "v3.29.1", Model: "opus", Effort: "medium", Claude: "2.1.311", Count: 1},
-		// compagnon > template pour l'effort, modèle réel du teammate lancé
-		{Name: "dev-plugin", Tag: "v3.29.1", Companion: true, Model: "opus", Effort: "high", Claude: "2.1.311", Count: 2},
+		// compagnon > template pour l'effort ; Model = valeur résolue (#250, P3), le modèle réel va dans RunModel
+		{Name: "dev-plugin", Tag: "v3.29.1", Companion: true, Model: "sonnet", Effort: "high", Claude: "2.1.311", Count: 2, RunModel: "opus"},
 		{Name: "redacteur", Tag: "v3.28.0", Companion: true, Model: "haiku", Effort: "medium"},
 		{Name: "qa", Tag: "v3.29.1"},
 		{Name: "custom", Claude: "2.1.311", Count: 1},
 	}
-	if !reflect.DeepEqual(got, want) {
+	core := func(in []Teammate) []Teammate { // champs du réglage #250 : testés à part
+		out := append([]Teammate(nil), in...)
+		for i := range out {
+			out[i].CompFile, out[i].ModelSrc, out[i].EffortSrc, out[i].TplModel, out[i].TplEffort = "", "", "", "", ""
+			out[i].CompModel, out[i].CompEffort, out[i].Editable = "", "", false
+		}
+		return out
+	}
+	if got = core(got); !reflect.DeepEqual(got, want) {
 		t.Errorf("liveTeam =\n%+v\nwant\n%+v", got, want)
 	}
 
@@ -58,7 +66,7 @@ func TestTeam(t *testing.T) {
 	write(filepath.Join(old, ".claude", ".template-source.json"), `{"tag":"v2.0.0"}`)
 	write(filepath.Join(old, ".claude", "agents", "cdp.template.md"), "x")
 	write(filepath.Join(old, ".claude", "agents", "cdp.md"), "x")
-	if got := ReadTeammates(old); !reflect.DeepEqual(got, []Teammate{{Name: "cdp", Tag: "v2.0.0", Companion: true}}) {
+	if got := core(ReadTeammates(old)); !reflect.DeepEqual(got, []Teammate{{Name: "cdp", Tag: "v2.0.0", Companion: true}}) {
 		t.Errorf("readTeammates sans registre = %+v", got)
 	}
 }

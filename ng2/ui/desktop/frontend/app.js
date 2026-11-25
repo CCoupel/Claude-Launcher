@@ -600,8 +600,7 @@ function renderCards() {
       const odd = m.odd || [];
       const mark = el('span', ok || on ? 't-green' : 't-dim', on ? '●' : '○');
       const warn = el('span', 't-orange', odd.length ? '⚠' : '');
-      r.append(mark, el('span', 'n', (m.companion ? '+ ' : '') + m.name),
-        el('span', 'm', (m.model || '—') + ' · ' + (m.effort || '—')), warn);
+      r.append(mark, el('span', 'n', (m.companion ? '+ ' : '') + m.name), teamCell(c, m), warn);
       const st = !on ? 'non démarré' : m.name === 'leader' ? 'leader' : m.active ? 'actif' : m.hidden ? 'caché' : m.pinned ? 'visible (fixé)' : 'visible' + (m.idleLeft ? ' · ' + m.idleLeft + ' s' : '');
       const tip = [st];
       if (m.tplState) tip.push('template ' + (m.tag || '?') + (m.tplTarget ? ' — cible ' + m.tplTarget : ' — version cible inconnue') + (late ? ' (en retard)' : ' (à jour)'));
@@ -839,6 +838,132 @@ function showHideMenu(path, hi, x, y) {
   m.style.left = Math.max(0, Math.min(x, window.innerWidth - w - 4)) + 'px';
   m.style.top = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + 'px';
 }
+
+// ── Modèle et effort d'un teammate depuis la carte TEAM (#250, maquette M1 A « Menu sur modèle · effort ») ──
+// Fonctions pures (autonomes : extraites telles quelles par un test node). m = ligne de carte (TeamRow), table = teamHead.modelEfforts.
+const TEAM_MODELS = ['opus', 'sonnet', 'haiku', 'fable'], TEAM_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'];
+const TEAM_REMOTE_TIP = 'réglage réservé à la fenêtre native';
+function teamEffortsFor(table, model) {
+  const t = table || {};
+  return Array.isArray(t[model]) ? t[model] : Array.isArray(t['*']) ? t['*'] : TEAM_EFFORTS;
+}
+function teamSrcLabel(src, file) { return src === 'companion' ? 'compagnon' + (file ? ' + ' + file : '') : src === 'template' ? 'template' : '?'; }
+// cellule « modèle · effort » : texte, ⟳, état cliquable, infobulle
+function teamCellView(m, remote) {
+  const file = m.companionFile || (m.agent ? m.agent + '.md' : '');
+  const run = m.running || null;
+  const nx = !!(run && (run.model || run.effort));
+  const text = (m.model || '—') + ' · ' + (m.effort || '—') + (nx ? ' ⟳' : '');
+  const lines = [];
+  let clickable = false;
+  if (remote) lines.push(TEAM_REMOTE_TIP);
+  else if (m.editable !== true) lines.push('non réglable : ' + (m.agent ? 'pas de modèle ni d\'effort dans le template de cet agent' : 'agent lancé hors registre'));
+  else {
+    clickable = true;
+    lines.push('Modèle : ' + (m.model || '—') + ' (' + teamSrcLabel(m.modelSrc, m.modelSrc === 'companion' ? file : '') + ') · Effort : ' + (m.effort || '—') + ' (' + teamSrcLabel(m.effortSrc, m.effortSrc === 'companion' ? file : '') + ') — clic : changer');
+  }
+  if (nx) lines.push('En cours : ' + (run.model || m.model || '—') + ' · ' + (run.effort || 'effort inconnu'), '⟳ ' + (m.model || '—') + ' · ' + (m.effort || '—') + ' au prochain spawn');
+  return { text, nx, clickable, locked: !clickable, tip: lines.join('\n') };
+}
+// contenu du menu : entrées Modèle et Effort (« Défaut (template) » en tête, jamais grisée), note de bas de menu
+function teamMenuView(m, table) {
+  const entry = (kind, value, cur, src, tpl, disabled, tip) => ({ kind, value, current: !!cur, tag: value !== 'default' && value === tpl ? 'template = défaut' : '', disabled: !!disabled, tip: tip || '',
+    label: value === 'default' ? 'Défaut (template) — ' + (tpl || '—') : value });
+  const models = [entry('model', 'default', m.modelSrc === 'template', m.modelSrc, m.tplModel)]
+    .concat(TEAM_MODELS.map((v) => entry('model', v, m.modelSrc === 'companion' && m.model === v, m.modelSrc, m.tplModel)));
+  const ok = teamEffortsFor(table, m.model);
+  const efforts = [entry('effort', 'default', m.effortSrc === 'template', m.effortSrc, m.tplEffort)]
+    .concat(TEAM_EFFORTS.map((v) => {
+      const bad = ok.indexOf(v) < 0;
+      return entry('effort', v, m.effortSrc === 'companion' && m.effort === v, m.effortSrc, m.tplEffort, bad, bad ? 'non pris en charge par ' + (m.model || 'ce modèle') : '');
+    }));
+  const file = m.companionFile || (m.agent ? m.agent + '.md' : '');
+  const lead = m.agent === 'teamleader';
+  const foot = ['Modèle : ' + (m.model || '—') + ' (' + teamSrcLabel(m.modelSrc, m.modelSrc === 'companion' ? file : '') + ') · Effort : ' + (m.effort || '—') + ' (' + teamSrcLabel(m.effortSrc, m.effortSrc === 'companion' ? file : '') + ')',
+    'Écrit dans .claude/agents/' + (file || '<agent>.md') + (lead ? ' et .claude/settings.json (model, effortLevel)' : '') + ' · appliqué au prochain spawn'];
+  const warn = lead ? '⚠ La session en cours garde ' + (m.model || '—') + ' · ' + (m.effort || '—') + ' : /model, /effort pour la changer maintenant. La prochaine session suit settings.json.' : '';
+  return { title: 'Modèle — ' + m.name, models, efforts, all: { label: 'Tout par défaut (template : ' + (m.tplModel || '—') + ' · ' + (m.tplEffort || '—') + ')' }, foot, warn };
+}
+// argument de teamAgentSet ; what : 'model' | 'effort' | 'all'
+function teamSetArgs(path, m, what, value) {
+  const a = { path, agent: m.agent };
+  if (what === 'all') { a.model = 'default'; a.effort = 'default'; } else a[what] = value;
+  return a;
+}
+// message de retour : { warn, text }
+function teamSetFlash(res, m) {
+  if (!res) return { warn: true, text: 'réglage du modèle non enregistré' };
+  if (res.ok === false) {
+    const base = res.msg || (res.remote ? TEAM_REMOTE_TIP : res.timeout ? 'partage injoignable' : 'refusé');
+    return { warn: true, text: res.partial === 'companion' ? base + ' (compagnon écrit, settings.json à réaligner)' : base };
+  }
+  let t = m.name + ' : ' + (res.model || m.model) + ' · ' + (res.effort || m.effort) + (res.removed ? ' — compagnon supprimé (template)' : ' enregistré' + (res.file ? ' (' + res.file + ')' : ''));
+  if (res.effortAdjusted) t += ' — effort ajusté au modèle';
+  if (res.note) t += ' — ' + res.note;
+  return { warn: false, text: t };
+}
+
+let clientRemote = false;   // clientInfo : requête web hors boucle locale (P1) ; le serveur reste seul juge
+const teamBusy = {};        // chemin|agent -> true pendant l'écriture (pas de second clic)
+function teamCell(c, m) {
+  const v = teamCellView(m, clientRemote);
+  const e = el('span', 'm' + (v.clickable ? ' hot' : '') + (v.locked && m.editable === true ? ' locked' : ''), v.text);
+  if (v.nx) { e.textContent = ''; e.append(v.text.slice(0, -2), el('span', 'nx', ' ⟳')); }
+  e.title = v.tip;
+  if (!v.clickable) return e;
+  e.tabIndex = 0; e.setAttribute('role', 'button'); e.setAttribute('aria-label', v.tip.split('\n')[0]);
+  if (teamBusy[c.path + '|' + m.agent]) e.classList.add('busy');
+  const open = (x, y) => showTeamMenu(c, m, x, y);
+  e.onclick = (ev) => { ev.stopPropagation(); const r = e.getBoundingClientRect(); open(r.left, r.bottom); };
+  e.onkeydown = (ev) => {
+    if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); ev.stopPropagation(); const r = e.getBoundingClientRect(); open(r.left, r.bottom); }
+  };
+  e.addEventListener('mousedown', (ev) => ev.stopPropagation());
+  return e;
+}
+async function setTeamAgent(c, m, what, value) {
+  const k = c.path + '|' + m.agent;
+  if (teamBusy[k]) return;
+  teamBusy[k] = true; renderCards();
+  let r = null;
+  try { r = await transport.call('teamAgentSet', teamSetArgs(c.path, m, what, value)); } catch (err) { r = { ok: false, msg: err && err.message }; }
+  delete teamBusy[k];
+  const f = teamSetFlash(r, m);
+  if (f.warn) flash('⚠ ' + f.text); else flashBrief(f.text, 6000);
+  renderCards();
+  call('cardsFor', { path: c.path }).then(takeCards).catch(() => {});
+}
+function showTeamMenu(c, m, x, y) {
+  closeCtx();
+  const v = teamMenuView(m, c.teamHead && c.teamHead.modelEfforts);
+  const menu = el('div', 'ctxmenu teammenu'); menu.id = 'ctxmenu';
+  const item = (o, what, value) => {
+    const d = el('div', (o.current ? 'sel' : '') + (o.disabled ? ' dis' : ''));
+    d.append(el('span', 'ck', o.current ? '✓' : ''), el('span', '', o.label));
+    if (o.tag) d.appendChild(el('span', 'tag', o.tag));
+    if (o.tip) d.title = o.tip;
+    if (!o.disabled) d.onclick = (ev) => { ev.stopPropagation(); closeCtx(); if (!o.current) setTeamAgent(c, m, what, value); };
+    menu.appendChild(d);
+  };
+  menu.appendChild(el('div', 'dis hd', v.title));
+  for (const o of v.models) item(o, 'model', o.value);
+  menu.appendChild(el('hr'));
+  menu.appendChild(el('div', 'dis hd', 'Effort'));
+  for (const o of v.efforts) item(o, 'effort', o.value);
+  menu.appendChild(el('hr'));
+  const all = el('div'); all.append(el('span', 'ck', '↺'), el('span', '', v.all.label));
+  all.onclick = (ev) => { ev.stopPropagation(); closeCtx(); setTeamAgent(c, m, 'all'); };
+  menu.append(all, el('hr'));
+  const ft = el('div', 'ft'); ft.append(v.foot[0], el('br'), v.foot[1]);
+  if (v.warn) { ft.appendChild(el('br')); ft.appendChild(el('span', 't-yellow', v.warn)); }
+  menu.appendChild(ft);
+  document.body.appendChild(menu);
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  menu.style.left = Math.max(0, Math.min(x, window.innerWidth - w - 4)) + 'px';
+  menu.style.top = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + 'px';
+}
+// P1 : une fois au démarrage ; échec (serveur plus ancien) = non distant
+transport.call('clientInfo', {}).then((r) => { clientRemote = !!(r && r.remote); if (S.cards) renderCards(); }).catch(() => {});
 
 // ── Menu contextuel d'un projet (#148, LOT-3.2) ────────────────────────────
 function closeCtx() { const m = $('ctxmenu'); if (m) m.remove(); }

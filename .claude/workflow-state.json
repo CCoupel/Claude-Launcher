@@ -1,32 +1,17 @@
 {
-  "type": "BUGFIX",
-  "description": "Web : le bandeau d'attente (#223) décale d'une ligne la correspondance souris ↔ terminal",
+  "type": "FEATURE",
+  "description": "Carte TEAM : changer le modèle et l'effort d'un teammate (compagnon .claude/agents/<nom>.md) — #250",
   "status": "completed",
-  "branch": "milestone/v6.8.2",
-  "version": "6.8.2",
-  "started_at": "2026-11-24T13:49:00Z",
-  "updated_at": "2026-11-24T16:22:00Z",
-  "cycles": 0,
+  "branch": "milestone/v6.9.0",
+  "version": "6.9.0",
+  "started_at": "2026-11-25T10:58:06Z",
+  "updated_at": "2026-11-25T13:45:45Z",
+  "cycles": 2,
   "issue_nums": [
-    242
+    250
   ],
-  "milestone_num": 34,
-  "version_commit": "cc2c716",
-  "plan": null,
-  "cadrage": {
-    "intensite": "leger",
-    "test_writer": false,
-    "review": false,
-    "qualif": true,
-    "doc": "dev",
-    "team": [
-      "dev-frontend",
-      "dev-backend",
-      "qa"
-    ],
-    "valide": "GATE 1",
-    "note": "dev-backend ajouté (bump x/net GO-2026-5026, CI rouge, validé par l utilisateur)"
-  },
+  "milestone_num": 36,
+  "plan": ".claude/workflow/plan-v6.9.0.md",
   "phases": {
     "clarification": {
       "status": "completed",
@@ -35,31 +20,50 @@
     "init": {
       "status": "completed"
     },
-    "analyse": {
-      "status": "completed"
-    },
-    "reproduction": {
+    "plan": {
       "status": "completed",
-      "sha": "f37cc47",
-      "handoff": "_work/reports/dev-frontend-20261124-135202.md"
+      "report": "_work/reports/plan-20261125-113818.md",
+      "timestamp": "2026-11-25T12:54:36Z"
     },
-    "red-check": {
+    "dev-backend": {
       "status": "completed",
-      "report": "_work/reports/qa-20261124-red-check-242.md"
+      "sha": "41cb378",
+      "handoff": "_work/handoff/dev-backend-250.md"
     },
     "dev-frontend": {
       "status": "completed",
-      "sha": "55c2a51"
+      "sha": "c9bfd7f",
+      "handoff": "_work/handoff/dev-frontend-20261125-250.md"
+    },
+    "test-writer": {
+      "status": "completed",
+      "sha": "280f14b"
+    },
+    "review": {
+      "status": "completed",
+      "report": "_work/reports/code-review-250-20261125-131024-cycle1.md",
+      "verdict": "APPROUVE"
     },
     "qa": {
       "status": "completed",
-      "report": "_work/reports/qa-20261124-242-fix.md",
-      "verdict": "VALIDATED WITH RESERVATIONS"
+      "report": "_work/reports/qa-250-20261125-1500.md",
+      "verdict": "VALIDATED WITH RESERVATIONS",
+      "nr": {
+        "status": "completed",
+        "report": "_work/reports/qa-nr-v6.9.0-20261125-1530.md",
+        "verdict": "VALIDATED"
+      }
+    },
+    "doc": {
+      "status": "completed",
+      "draft_sha": "ca0e897",
+      "sha": "66e12e6",
+      "readme": "mis a jour"
     },
     "deploy-qualif": {
       "status": "completed",
-      "version": "6.8.2.1",
-      "helm_rev": 49,
+      "version": "6.9.0.1",
+      "helm_rev": 50,
       "steps": {
         "build": {
           "status": "completed"
@@ -84,9 +88,33 @@
       }
     }
   },
-  "lots": {
-    "current": "v6.8.2 validée (GATE 4) — RETEX puis PROD",
-    "order": []
+  "cadrage": {
+    "intensite": "complet",
+    "test_writer": true,
+    "review": true,
+    "qualif": true,
+    "doc": "agent",
+    "team": [
+      "dev-backend",
+      "dev-frontend",
+      "test-writer",
+      "code-reviewer",
+      "qa",
+      "doc-updater"
+    ],
+    "valide": "GATE 2"
   },
-  "gate4": "validé par l utilisateur 2026-11-24"
+  "lots": {
+    "current": "v6.9.0 validée (GATE 4, maquette validée) — RETEX puis PROD",
+    "items": {
+      "LOT-1": {
+        "status": "completed",
+        "issues": [
+          250
+        ],
+        "phase": "dev-backend",
+        "ci_sha": "f922efd"
+      }
+    }
+  }
 }

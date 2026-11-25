@@ -21,7 +21,7 @@ import (
 
 // windowsUnsupported : sous-commandes de la coque tmux (sans objet sous Windows).
 var windowsUnsupported = map[string]bool{"shell": true, "nav": true, "state": true, "fixwidth": true,
-	"mirror": true, "layout-watch": true, "relayout": true, "ctr-attach": true}
+	"mirror": true, "layout-watch": true, "relayout": true, "ctr-attach": true, "team-set": true}
 
 func main() {
 	if err := stripRootBaseOption(); err != nil {
@@ -142,6 +142,8 @@ func main() {
 			args = os.Args[1:]
 		}
 		err = desktop.Run(args)
+	case "team-set": // modèle / effort d'un teammate (#250) : lancée par le menu de la carte TEAM
+		os.Exit(tmux.RunTeamSet(os.Args[2:], os.Stdout, os.Stderr))
 	case "backends":
 		err = tmux.RunBackends()
 	case "configure":

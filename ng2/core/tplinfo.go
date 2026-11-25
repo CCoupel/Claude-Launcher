@@ -40,6 +40,13 @@ var tplCache = struct {
 	m map[string]tplEntry
 }{m: map[string]tplEntry{}}
 
+// ResetTplInfo : le projet est relu au prochain appel (compagnon créé, réécrit ou supprimé, #250).
+func ResetTplInfo(proj string) {
+	tplCache.Lock()
+	delete(tplCache.m, proj)
+	tplCache.Unlock()
+}
+
 // ReadTplInfo : état du template du projet. Les fichiers du projet (config,
 // compagnons) sont relus au plus toutes les 60 s ; la version cible (petit
 // fichier du cache du launcher) à chaque appel.
