@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -149,7 +150,7 @@ func TestK8s253PathOutsideVolumeRefused(t *testing.T) {
 	}
 }
 
-// Chemins nettoyés (filepath.Clean) : « .. » et « / » final ne changent ni le subPath ni le mountPath.
+// Chemins nettoyés (path.Clean) : « .. » et « / » final ne changent ni le subPath ni le mountPath.
 func TestK8s253PathsCleaned(t *testing.T) {
 	m, err := t253Manifest(t, t253K8s(map[string]string{t253Root: "claude-projets"}), "/data/p/x/../proj/", t253Cfg, EnvSpec{})
 	if err != nil {
@@ -158,7 +159,7 @@ func TestK8s253PathsCleaned(t *testing.T) {
 	_, mounts, _ := t253Parts(m)
 	ok := false
 	for _, mt := range mounts {
-		if mt.Sub == "proj" && filepath.Clean(mt.Path) == t253Proj {
+		if mt.Sub == "proj" && path.Clean(mt.Path) == t253Proj {
 			ok = true
 		}
 		if strings.Contains(mt.Sub, "..") || strings.HasSuffix(mt.Sub, "/") || strings.HasPrefix(mt.Sub, "/") {
