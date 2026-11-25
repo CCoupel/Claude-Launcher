@@ -85,6 +85,7 @@ func TestLocalMounts(t *testing.T) {
 	if !strings.Contains(j, "-v "+filepath.Join(proj, "node_modules")+" ") || !strings.Contains(j, "cl.local="+env.localKey()) {
 		t.Errorf("runArgs : %s", j)
 	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "/share/MFS/ROOT/.claude") // dans le volume (montage subPath, #253)
 	k := Engine{BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "ns", Volumes: map[string]string{"/share/MFS/ROOT": "pvc-a"}}}
 	m, err := k.k8sManifest("/share/MFS/ROOT/p", env)
 	if err != nil || !strings.Contains(string(m), `"emptyDir":{}`) || !strings.Contains(string(m), `"mountPath":"/share/MFS/ROOT/p/node_modules"`) || !strings.Contains(string(m), `"cl.local":"`+env.localKey()+`"`) {

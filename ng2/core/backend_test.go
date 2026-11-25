@@ -217,6 +217,7 @@ func TestLeaderRemoteContainerUnknown(t *testing.T) {
 }
 
 func TestK8sArgv(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/share/MFS/ROOT/.claude") // dans le volume (montage subPath, #253)
 	e := Engine{BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "ns", Volumes: map[string]string{"/share/MFS/ROOT": "pvc-a"}}}
 	a := e.ExecArgv("clx-p-1-0", true, false, "sh", "-s")
 	if strings.Join(a, " ") != "kubectl --context k8s -n ns exec -i clx-p-1-0 -c main -- sh -s" {
@@ -235,7 +236,7 @@ func TestK8sArgv(t *testing.T) {
 		t.Errorf("nom de pod : %s", k8sPod("/x/Demo Projet"))
 	}
 	m, err := e.k8sManifest("/share/MFS/ROOT/p", EnvSpec{Image: "debian:12"})
-	if err != nil || !strings.Contains(string(m), `"claimName":"pvc-a"`) || !strings.Contains(string(m), `"mountPath":"/share/MFS/ROOT"`) || !strings.Contains(string(m), `"cl.project":"/share/MFS/ROOT/p"`) {
+	if err != nil || !strings.Contains(string(m), `"claimName":"pvc-a"`) || !strings.Contains(string(m), `"mountPath":"/share/MFS/ROOT/p"`) || !strings.Contains(string(m), `"cl.project":"/share/MFS/ROOT/p"`) {
 		t.Errorf("manifeste : %v %s", err, m)
 	}
 }
@@ -363,6 +364,7 @@ func TestCtrHostIsProjectName(t *testing.T) {
 	if err != nil || !strings.Contains(strings.Join(a, " "), "--hostname "+ctrHost(proj)+" ") {
 		t.Errorf("runArgs hostname : %v %q", err, a)
 	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "/share/MFS/ROOT/.claude")
 	k := Engine{BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "ns", Volumes: map[string]string{"/share/MFS/ROOT": "pvc-a"}}}
 	m, err := k.k8sManifest("/share/MFS/ROOT/Mon_Projet", EnvSpec{Image: "debian:12"})
 	if err != nil || !strings.Contains(string(m), `"name":"root-mon-projet"`) {
