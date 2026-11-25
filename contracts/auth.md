@@ -291,6 +291,7 @@ Contrepartie : oauth2-proxy n'a pas de limite d'essais propre → limite de déb
 - **Cookies distincts (m1)** : `auth-proxy` (`_cl_auth`, Secret `<release>-auth-cookie`) et `auth-proxy-ext`
   (`_cl_auth_ext`, Secret `<release>-auth-cookie-ext`) : un cookie de l'interne n'ouvre pas de session sur l'externe.
   Le compte local est refusé sur l'externe **par construction (proxy sans htpasswd) et par le launcher** (garde `Host`).
+- **Droits du fichier htpasswd** : Secret monté en `0444` dans le seul conteneur `auth-proxy` (pas de `fsGroup` dans le pod, pour ne pas faire changer de propriétaire le partage ; `0440` serait illisible par l'uid du pod) ; le conteneur `launcher` ne le monte pas.
 - **Mot de passe** (P11) : généré par le chart à la première installation (32 caractères aléatoires,
   `randAlphaNum`), haché en bcrypt (`htpasswd` de Helm) dans le Secret `<release>-local-admin` (clés `password` et
   `htpasswd`, `helm.sh/resource-policy: keep`, réutilisé par `lookup` aux mises à jour). Lecture :

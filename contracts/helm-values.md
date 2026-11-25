@@ -182,7 +182,7 @@ que l'ingress externe attend v7.0.0.
   **GitHub App** par environnement (P8 : plusieurs URL de retour), permission « Email addresses : read-only »,
   expiration des jetons utilisateur désactivée. GitHub ne se connecte jamais à ces URL : le retour est une redirection
   du navigateur ; seul oauth2-proxy appelle `github.com` (sortie du pod).
-- Compte local activé : `--htpasswd-file` (Secret monté en lecture seule, `0440`), `--display-htpasswd-form=true`,
+- Compte local activé : `--htpasswd-file` (Secret monté en lecture seule, `defaultMode: 0444` — **[écart justifié]** le chart ne pose jamais `fsGroup` (changement de propriétaire récursif du partage) : un fichier `root:root 0440` serait illisible par l'uid du pod ; le Secret n'est monté que dans le conteneur `auth-proxy`, jamais dans `launcher`), `--display-htpasswd-form=true`,
   `--skip-provider-button=false` ; ConfigMap des gabarits rendue avec ou sans bouton GitHub.
 - **[addendum 2]** Règles de rendu : `allowHostBackend: true` avec `auth.enabled: true` → refus (« backend host interdit
   derrière le proxy d'authentification », MAJ-3).
