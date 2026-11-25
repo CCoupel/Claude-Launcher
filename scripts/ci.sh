@@ -217,13 +217,28 @@ case "$(uname -s)" in
     # de test est donné au rendu de QUALIF et de PROD.
     chart=../deploy/helm/claude-launcher
     issuer=(--set ingress.tls.clusterIssuer=ci-test)
-    minimal=(--set rootBase=/ci --set volume.existingClaim=ci --set ingress.enabled=false --set web.access=token)
+    # v7.0.0 : l'authentification est activée par défaut (#172) — le rendu exige le Secret de la GitHub App et au moins un
+    # administrateur (valeurs de test, jamais de secret) ; le rendu minimal sans Ingress la désactive (sans adresse https, refusée)
+    auth=(--set auth.existingSecret=ci-test --set 'auth.admins={ci-admin}')
+    minimal=(--set rootBase=/ci --set volume.existingClaim=ci --set ingress.enabled=false --set web.access=token --set auth.enabled=false)
     helm lint --quiet "$chart" "${minimal[@]}" >/dev/null
-    helm lint --quiet "$chart" -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" >/dev/null
-    helm lint --quiet "$chart" -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null
+    helm lint --quiet "$chart" -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
+    helm lint --quiet "$chart" -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
     helm template ci "$chart" "${minimal[@]}" >/dev/null
-    helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" >/dev/null
-    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null
+    helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
+    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
+    # authentification activée par défaut (aucun auth.enabled posé), avec compte local et GitHub
+    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" --set auth.localAdmin.enabled=true >/dev/null
+    # QUALIF avant les applications GitHub : GitHub coupé, compte local seul
+    helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" --set auth.github.enabled=false >/dev/null
+    # refus attendus : authentification activée sans Secret ni administrateur ; ingress externe sans authentification
+    if helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null 2>&1; then
+      echo "ECHEC : le chart rend avec auth.enabled sans auth.existingSecret ni auth.admins (refus attendu)" >&2; exit 1
+    fi
+    if helm template ci "$chart" "${minimal[@]}" --set externalIngress.enabled=true --set externalIngress.className=traefik \
+      --set externalIngress.host=ext.ci.test --set externalIngress.tls.clusterIssuer=ci-public >/dev/null 2>&1; then
+      echo "ECHEC : le chart rend un ingress externe avec auth.enabled=false (refus attendu)" >&2; exit 1
+    fi
     step_done "chart"
     # image du launcher du cluster (#167, décision C3) : même Dockerfile que la release ; buildah sans démon,
     # stockage vfs ; la couche d'outils (RUN apt) exige root → sudo hors root (deploy/image/build.sh).
