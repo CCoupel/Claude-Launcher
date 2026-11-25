@@ -22,7 +22,7 @@ Reference : `contracts/auth.md` (§1 zones de confiance, §2 mode `proxy`, §4 r
 **Validation** : AUTO — **Issues** : #172 #251 #252
 
 ```bash
-cd ng2 && go test -race -count=1 -run 'Auth172|Audit251|Proxy172|R1172' ./core/ ./ui/desktop/ && go test -count=1 -run 'ChartAuth172' . && cd .. && tests/integration/ui-web/auth-proxy-172/run.sh && echo OK
+cd ng2 && go test -race -count=1 -run 'Auth172|Audit251|Proxy172|R1172' ./core/ ./ui/desktop/ && go test -count=1 -run 'ChartAuth172|SignIn172|ErrorsMiddlewareOnly429' . && cd .. && tests/integration/ui-web/auth-proxy-172/run.sh && echo OK
 ```
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
@@ -72,7 +72,7 @@ cd ng2 && go test -race -count=1 -run 'Auth172|Audit251|Proxy172|R1172' ./core/ 
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | `curl -s -c $J -o /dev/null -w '%{http_code}' -d 'username=admin@local&password=mauvais' <URL>/oauth2/sign_in` | pas de cookie `_cl_auth` ; page de connexion reaffichee avec « Identifiant ou mot de passe incorrect » | | |
+| 1 | `curl -s -c $J -o /dev/null -w '%{http_code}' -d 'username=admin@local&password=mauvais' <URL>/oauth2/sign_in` | pas de cookie `_cl_auth` ; page de connexion reaffichee avec « Identifiant ou mot de passe incorrect. » (statut 401 ; absent a la premiere visite, statut 200) ; ce message n'est jamais remplace par la page « Trop de tentatives » (seul le 429 l'est) | | |
 | 2 | Rafale : `for i in $(seq 30); do curl -s -o /dev/null -w '%{http_code}\n' -d 'username=admin@local&password=mauvais' <URL>/oauth2/sign_in; done \| sort \| uniq -c` | au plus ~20 reponses normales (rafale `burst`), les suivantes **`429`** ; au moins un `429` ; le corps d'un `429` est la page « Trop de tentatives » du launcher (`/too-many`, middleware `errors`), sans identite | | |
 | 3 | Attendre 1 minute puis un essai avec le bon mot de passe | connexion de nouveau possible (pas de blocage definitif) | | |
 
@@ -193,7 +193,7 @@ QUALIF avec `auth.sessionDuration: 15m`, `auth.sessionRefresh: 5m` ; un terminal
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Saisir un mauvais mot de passe | message unique « Identifiant ou mot de passe incorrect » (sans indiquer lequel est faux) | | |
+| 1 | Saisir un mauvais mot de passe | message unique « Identifiant ou mot de passe incorrect. » (sans indiquer lequel est faux), affiche a chaque echec, pas a la premiere visite | | |
 | 2 | Valider 25 fois de suite le formulaire (ou laisser le scenario 4 tourner) | page « Trop de tentatives — réessayer plus tard » lisible (M2) | | |
 | 3 | Avec un compte GitHub `auth.users` (si disponible), ouvrir les Reglages | seules les actions du serveur et des options globales (config.conf, env.yaml, hub, coffre et known_hosts des backends, champs R1 de backends.yaml, relance, connexion claude) sont grisees avec l'infobulle « réservé à un administrateur » ; le reste des Reglages, les projets et les backends restent utilisables | | |
 | 4 | Toujours en `user` : creer un projet factice (image et backend au choix), le deplacer, modifier un backend (hote ssh, image), lancer `backendTest` | **permis** (le `user` est libre sur ses projets et backends) ; ecrire une cle ssh / un known_hosts, changer `config.conf`, ou ajouter un champ R1 a un backend (`volumes`, `namespace`, `kubeconfig`, `serviceAccountName`, type `host`) : refuse, message R1, rien d'ecrit | | |
