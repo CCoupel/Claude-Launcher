@@ -30,8 +30,6 @@ func snapDir214(t *testing.T, root string) []string {
 	return out
 }
 
-// voisins214 : entrées à côté de la base qui ne sont pas des dossiers du bac à sable (écrits en tâche de fond par
-// l'application : config, cache d'état… — jamais comptés). Tout le reste serait une écriture hors de la base.
 // stableSnap214 : instantané de la base une fois l'arbre STABLE (#270). L'ouverture d'un projet écrit en arrière-plan, APRÈS l'état
 // « ready », des fichiers (.claude/commands/init-project.md…) ; sous charge ils arrivent pendant le sous-test suivant et seraient pris
 // pour des créations hors du projet attendu. Stable = quatre lectures identiques espacées de 200 ms, au plus 10 s. Le contrôle de
@@ -56,6 +54,8 @@ func stableSnap214(t *testing.T, root string) []string {
 	return prev
 }
 
+// voisins214 : entrées à côté de la base qui ne sont pas des dossiers du bac à sable (écrits en tâche de fond par
+// l'application : config, cache d'état… — jamais comptés). Tout le reste serait une écriture hors de la base.
 func voisins214(t *testing.T, base string) []string {
 	t.Helper()
 	app := map[string]bool{"home": true, "xdg_config_home": true, "xdg_cache_home": true, "cl_config_dir": true,

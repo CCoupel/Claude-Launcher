@@ -664,3 +664,202 @@ func TestChartExt254HostPrefixedCookie(t *testing.T) {
 		t.Errorf("noms de cookie interne %q et externe %q : distincts attendus", in, name)
 	}
 }
+
+// ── cycle 1 LOT-3 : garde FAIL-CLOSED, exclusions réduites, placeholders stricts ─────────────────────────────────────
+
+// runCIGuardPath254 : comme runCIGuard254, avec un répertoire placé EN TÊTE du PATH (faux awk) ; rend aussi la sortie.
+func runCIGuardPath254(t *testing.T, guard string, files map[string]string, fakeAwk string) (int, string) {
+	t.Helper()
+	repo := t.TempDir()
+	_ = os.MkdirAll(filepath.Join(repo, "ng2"), 0o755)
+	for p, c := range files {
+		full := filepath.Join(repo, p)
+		_ = os.MkdirAll(filepath.Dir(full), 0o755)
+		if err := os.WriteFile(full, []byte(c), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, args := range [][]string{{"init", "-q"}, {"config", "user.email", "t@t"}, {"config", "user.name", "t"}, {"add", "-A"}} {
+		if out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v : %v %s", args, err, out)
+		}
+	}
+	bin := t.TempDir()
+	if err := os.WriteFile(filepath.Join(bin, "awk"), []byte("#!/bin/sh\n"+fakeAwk+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cmd := exec.Command("bash", "-c", guard+"\necho GARDE-PASSEE")
+	cmd.Dir = filepath.Join(repo, "ng2")
+	cmd.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	out, err := cmd.CombinedOutput()
+	code := 0
+	if ee, ok := err.(*exec.ExitError); ok {
+		code = ee.ExitCode()
+	}
+	return code, string(out)
+}
+
+// Fail-closed : un awk absent, cassé (erreur) ou neutralisé (ne détecte plus rien, code 0) ne doit JAMAIS laisser passer la garde ;
+// le canari intégré (un échantillon contenant un clientSecret, qui doit être détecté) en est la preuve : s'il n'est pas détecté, la
+// garde échoue — même sur un dépôt propre, même sur un dépôt qui fuit.
+func TestCI254GuardFailsClosed(t *testing.T) {
+	b, err := os.ReadFile("../scripts/ci.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := ciGuard254(t, string(b))
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	clean := map[string]string{"deploy/values-x.yaml": "auth:\n  github:\n    clientSecret: \"\"\n"}
+	leaky := map[string]string{"deploy/values-x.yaml": "auth:\n  github:\n    clientSecret: abc123xyz\n"}
+	for name, awk := range map[string]string{
+		"awk en erreur (code 2)":                      "echo 'awk: erreur de syntaxe' >&2; exit 2",
+		"awk tué (code 137)":                          "exit 137",
+		"awk neutralisé (code 0, aucune sortie)":      "exit 0",
+		"awk qui n'affiche que des lignes vides":      "echo; echo; exit 0",
+		"awk absent (commande introuvable, code 127)": "exit 127",
+	} {
+		for repoName, files := range map[string]map[string]string{"dépôt propre": clean, "dépôt qui fuit": leaky} {
+			code, out := runCIGuardPath254(t, guard, files, awk)
+			if code == 0 || strings.Contains(out, "GARDE-PASSEE") {
+				t.Errorf("%s / %s : garde PASSÉE alors que le contrôle est inopérant (fail-open) :\n%s", name, repoName, out)
+			}
+			if !strings.Contains(out, "ECHEC") {
+				t.Errorf("%s / %s : échec sans message « ECHEC » :\n%s", name, repoName, out)
+			}
+		}
+	}
+	// le canari existe dans le script (preuve de vie du détecteur) et ne fuit rien
+	low := strings.ToLower(guard)
+	if !strings.Contains(low, "canari") && !strings.Contains(low, "canary") {
+		t.Error("aucun canari dans la garde (échantillon qui doit être détecté pour prouver que le détecteur fonctionne)")
+	}
+	// témoin positif : awk réel, dépôt propre → passe
+	if code, out := runCIGuard254(t, guard, clean, true); code != 0 || !strings.Contains(out, "GARDE-PASSEE") {
+		t.Errorf("garde échouée sur un dépôt propre avec un awk sain (code %d) :\n%s", code, out)
+	}
+}
+
+// Exclusions réduites : un client_secret en clair est détecté dans un env d'environnement, un YAML de tests, un script, un .txt et un
+// .env.prod suivis par git ; les exclusions ciblées restantes (modèles du chart, documentation et contrats qui citent le NOM de la
+// clé, le test de la garde et ses fixtures) ne déclenchent rien.
+func TestCI254GuardNarrowExclusions(t *testing.T) {
+	b, err := os.ReadFile("../scripts/ci.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := ciGuard254(t, string(b))
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	const v = "abc123xyz-secret"
+	for name, files := range map[string]map[string]string{
+		".claude/agents/environments/prod.env":  {".claude/agents/environments/prod.env": "CLIENT_ID=x\nclient_secret=" + v + "\n"},
+		"tests/x.yaml":                          {"tests/x.yaml": "auth:\n  github:\n    client_secret: " + v + "\n"},
+		"un script .sh":                         {"scripts/deploy.sh": "#!/bin/sh\nCLIENT_SECRET=" + v + " helm upgrade r c\n"},
+		"un fichier .txt":                       {"notes/acces.txt": "client_secret: " + v + "\n"},
+		"un .env.prod":                          {"deploy/.env.prod": "GITHUB_CLIENT_SECRET=" + v + "\n"},
+		"un .env":                               {".env": "client_secret=" + v + "\n"},
+		"un .ini":                               {"conf/app.ini": "client_secret = " + v + "\n"},
+		"un Dockerfile":                         {"deploy/Dockerfile": "ENV CLIENT_SECRET=" + v + "\n"},
+		"un test Go (hors le test de la garde)": {"ng2/autre_test.go": "const s = \"client_secret: " + v + "\"\n"},
+		"un YAML sous .claude/":                 {".claude/settings.yaml": "clientSecret: " + v + "\n"},
+	} {
+		code, out := runCIGuard254(t, guard, files, true)
+		if code == 0 || strings.Contains(out, "GARDE-PASSEE") || !strings.Contains(out, "ECHEC") {
+			t.Errorf("%s : garde PASSÉE (code %d) alors qu'un secret en clair est suivi par git :\n%s", name, code, out)
+		}
+		if strings.Contains(out, v) {
+			t.Errorf("%s : la valeur du secret est affichée :\n%s", name, out)
+		}
+	}
+	// exclusions ciblées : rien ne se déclenche
+	for name, files := range map[string]map[string]string{
+		"modèle du chart":               {"deploy/helm/claude-launcher/templates/secret-github.yaml": "stringData:\n  client-secret: {{ .Values.auth.github.clientSecret | quote }}\n"},
+		"documentation (nom de la clé)": {"ng2/docs/kubernetes.md": "Renseigner `auth.github.clientSecret` (jamais dans git).\n"},
+		"contrat (nom de la clé)":       {"contracts/helm-values.md": "| `auth.github.clientSecret` | chaîne | `\"\"` |\n"},
+		"README (nom de la clé)":        {"README.md": "voir clientSecret et client_secret dans le guide\n"},
+		"test de la garde":              {"ng2/chart_lot3_254_test.go": "// clientSecret: " + v + "\n"},
+		"fixtures du test de la garde":  {"ng2/chart_lot3_254_fixtures/values.yaml": "clientSecret: " + v + "\n"},
+	} {
+		if code, out := runCIGuard254(t, guard, files, true); code != 0 || !strings.Contains(out, "GARDE-PASSEE") {
+			t.Errorf("%s : garde échouée à tort (code %d) :\n%s", name, code, out)
+		}
+	}
+}
+
+// Espaces réservés : seuls "", ”, ${VAR}, {{ … }} et <…> ENTIERS sont tolérés ; tout le reste est une valeur réelle.
+func TestCI254GuardStrictPlaceholders(t *testing.T) {
+	b, err := os.ReadFile("../scripts/ci.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard := ciGuard254(t, string(b))
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git absent")
+	}
+	for _, val := range []string{`""`, `''`, `${CLIENT_SECRET}`, `"${CLIENT_SECRET}"`, `{{ .Values.x }}`, `"{{ .Values.x }}"`, `{{.Values.x}}`, `<CLIENT_SECRET>`, `"<votre secret ici>"`, `<secret>`} {
+		files := map[string]map[string]string{
+			"yaml":      {"deploy/values-x.yaml": "auth:\n  github:\n    clientSecret: " + val + "\n"},
+			"snake-env": {"deploy/prod.env": "client_secret=" + strings.Trim(val, `"'`) + "\n"},
+		}
+		for kind, f := range files {
+			if code, out := runCIGuard254(t, guard, f, true); code != 0 {
+				t.Errorf("espace réservé %s (%s) : garde échouée à tort (code %d) :\n%s", val, kind, code, out)
+			}
+		}
+	}
+	const real = "x1y2z3"
+	for _, val := range []string{`$x1`, `$abc` + real, `{abc`, `[abc`, `${abc`, `{{abc`, `<abc`, `abc>`, `$`, `"$x1"`, `"{abc"`, `"[abc"`, `$$` + real, `<` + real, `{` + real + `}`, `[` + real + `]`} {
+		code, out := runCIGuard254(t, guard, map[string]string{"deploy/values-x.yaml": "auth:\n  github:\n    clientSecret: " + val + "\n"}, true)
+		if code == 0 || strings.Contains(out, "GARDE-PASSEE") {
+			t.Errorf("valeur réelle %s tolérée à tort comme espace réservé :\n%s", val, out)
+		}
+		if strings.Contains(out, real) {
+			t.Errorf("valeur %s : le secret est affiché :\n%s", val, out)
+		}
+	}
+}
+
+// externalIngress.host : nom DNS valide (RFC 1123, minuscules) — majuscules, étiquette vide, « .. », tiret en bord d'étiquette,
+// étiquette > 63 caractères, hôte > 253 : refusés avec un message clair nommant externalIngress.host ; hôtes valides acceptés.
+func TestChartExt254HostValidation(t *testing.T) {
+	needHelm(t)
+	long63, long64 := strings.Repeat("a", 63), strings.Repeat("a", 64)
+	for name, host := range map[string]string{
+		"majuscules":                 "Launcher.Example.org",
+		"majuscule isolée":           "launcher.exampLe.org",
+		"deux points":                "a..b.example.org",
+		"tiret final d'étiquette":    "a-.b.example.org",
+		"tiret initial d'étiquette":  "-a.b.example.org",
+		"étiquette initiale vide":    ".example.org",
+		"point final":                "launcher.example.org.",
+		"étiquette de 64 caractères": long64 + ".example.org",
+		"underscore":                 "launcher_x.example.org",
+		"caractère non ASCII":        "lauñcher.example.org",
+		"port":                       "launcher.example.org:8443",
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := t254Values()
+			sub(v, "externalIngress")["host"] = host
+			t172Refused(t, v, "externalIngress.host")
+		})
+	}
+	for name, host := range map[string]string{
+		"valide":                     "launcher.example.org",
+		"tirets internes":            "mon-launcher.sous-domaine.example.org",
+		"chiffres":                   "l4uncher.example.org",
+		"étiquette de 63 caractères": long63 + ".example.org",
+		"punycode":                   "xn--lancher-d1a.example.org",
+		"profondeur":                 "a.b.c.d.example.org",
+	} {
+		t.Run("accepté/"+name, func(t *testing.T) {
+			v := t254Values()
+			sub(v, "externalIngress")["host"] = host
+			if _, out, err := render(t, v); err != nil {
+				t.Errorf("hôte valide %q refusé : %.300s", host, out)
+			}
+		})
+	}
+}
