@@ -231,13 +231,26 @@ case "$(uname -s)" in
     helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" --set auth.localAdmin.enabled=true >/dev/null
     # QUALIF avant les applications GitHub : GitHub coupé, compte local seul
     helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" --set auth.github.enabled=false >/dev/null
+    # paire clientId / clientSecret (Secret <release>-github créé par le chart) à la place de auth.existingSecret
+    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" --set 'auth.admins={ci-admin}' \
+      --set auth.github.clientId=ci-id --set auth.github.clientSecret=ci-secret >/dev/null
     # refus attendus : authentification activée sans Secret ni administrateur ; ingress externe sans authentification
     if helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null 2>&1; then
       echo "ECHEC : le chart rend avec auth.enabled sans auth.existingSecret ni auth.admins (refus attendu)" >&2; exit 1
     fi
+    if helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" \
+      --set auth.github.clientId=ci-id --set auth.github.clientSecret=ci-secret >/dev/null 2>&1; then
+      echo "ECHEC : auth.existingSecret et auth.github.clientId/clientSecret acceptés ensemble (refus attendu)" >&2; exit 1
+    fi
     if helm template ci "$chart" "${minimal[@]}" --set externalIngress.enabled=true --set externalIngress.className=traefik \
       --set externalIngress.host=ext.ci.test --set externalIngress.tls.clusterIssuer=ci-public >/dev/null 2>&1; then
       echo "ECHEC : le chart rend un ingress externe avec auth.enabled=false (refus attendu)" >&2; exit 1
+    fi
+    # le secret de la GitHub App ne doit jamais figurer dans un YAML suivi par git (auth.github.clientSecret : visible par
+    # « helm get values », réservé à PRIVATE/<ENV>/values-local.yaml, gitignoré) — Helm ne sait pas d'où vient une valeur
+    if bad=$(cd .. && git ls-files -z '*.yaml' '*.yml' 2>/dev/null | xargs -0 -r grep -nE '^[[:space:]]*clientSecret:[[:space:]]*["'"'"']?[^"'"'"'#[:space:]]' 2>/dev/null) && [ -n "$bad" ]; then
+      echo "ECHEC : clientSecret non vide dans un fichier suivi par git (PRIVATE/<ENV>/values-local.yaml, jamais commité) :" >&2
+      echo "$bad" | sed -E 's/(clientSecret:[[:space:]]*).*/\1<masqué>/' >&2; exit 1
     fi
     step_done "chart"
     # image du launcher du cluster (#167, décision C3) : même Dockerfile que la release ; buildah sans démon,

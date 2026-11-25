@@ -212,6 +212,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Values.externalIngress.enabled -}}https://{{ .Values.externalIngress.host }}{{- else if .Values.ingress.enabled -}}https://{{ .Values.ingress.host }}{{- end -}}
 {{- end -}}
 
+{{/* Secret de la GitHub App : celui fourni (existingSecret), sinon <release>-github créé par le chart (clientId / clientSecret) */}}
+{{- define "cl.githubSecretName" -}}
+{{- if .Values.auth.existingSecret -}}{{ .Values.auth.existingSecret }}{{- else -}}{{ include "cl.fullname" . }}-github{{- end -}}
+{{- end -}}
 {{- define "cl.cookieSecretName" -}}{{ include "cl.fullname" . }}-auth-cookie{{- end -}}
 {{- define "cl.cookieSecretNameExt" -}}{{ include "cl.fullname" . }}-auth-cookie-ext{{- end -}}
 {{/* hôte de l'instance interne : l'ingress interne, sinon l'externe (seule adresse) */}}
@@ -265,8 +269,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and (not $a.github.enabled) (not $a.localAdmin.enabled) -}}
 {{- fail "auth.github.enabled: false exige auth.localAdmin.enabled: true (aucune connexion possible sinon)" -}}
 {{- end -}}
+{{- if and $a.existingSecret (or $a.github.clientId $a.github.clientSecret) -}}
+{{- fail "auth.existingSecret et auth.github.clientId/clientSecret sont exclusifs : en donner un seul" -}}
+{{- end -}}
+{{- if ne (not (not $a.github.clientId)) (not (not $a.github.clientSecret)) -}}
+{{- fail "auth.github.clientId et auth.github.clientSecret vont ensemble : la paire complète est exigée" -}}
+{{- end -}}
 {{- if $a.github.enabled -}}
-{{- $_ := required "auth.existingSecret est obligatoire (Secret du namespace, clés client-id et client-secret de la GitHub App)" $a.existingSecret -}}
+{{- if not (or $a.existingSecret $a.github.clientId) -}}
+{{- fail "auth.github.enabled : donner auth.existingSecret (recommandé : Secret du namespace, clés client-id et client-secret de la GitHub App) ou la paire auth.github.clientId / clientSecret" -}}
+{{- end -}}
 {{- if not $a.admins -}}
 {{- fail "auth.admins est obligatoire et non vide quand auth.github.enabled (logins GitHub administrateurs)" -}}
 {{- end -}}
@@ -383,10 +395,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     {{- if $a.github.enabled }}
     - name: OAUTH2_PROXY_CLIENT_ID
       valueFrom:
-        secretKeyRef: {name: {{ $a.existingSecret | quote }}, key: client-id}
+        secretKeyRef: {name: {{ include "cl.githubSecretName" $root | quote }}, key: client-id}
     - name: OAUTH2_PROXY_CLIENT_SECRET
       valueFrom:
-        secretKeyRef: {name: {{ $a.existingSecret | quote }}, key: client-secret}
+        secretKeyRef: {name: {{ include "cl.githubSecretName" $root | quote }}, key: client-secret}
     {{- end }}
     - name: OAUTH2_PROXY_COOKIE_SECRET
       valueFrom:

@@ -452,6 +452,14 @@
           "properties": {
             "enabled": {
               "type": "boolean"
+            },
+            "clientId": {
+              "type": "string",
+              "description": "identifiant de la GitHub App (avec clientSecret ; exclusif avec auth.existingSecret)"
+            },
+            "clientSecret": {
+              "type": "string",
+              "description": "secret de la GitHub App : visible par helm get values — PRIVATE/<ENV>/values-local.yaml seulement"
             }
           }
         },

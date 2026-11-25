@@ -83,7 +83,13 @@ auth:
   enabled: true
   github:
     enabled: true           # connexion GitHub ; false permis seulement avec localAdmin.enabled (QUALIF avant les applications GitHub, secours)
-  existingSecret: ""        # OBLIGATOIRE si github.enabled — Secret du namespace, clés client-id et client-secret (GitHub App) ; jamais ici
+    # Alternative à existingSecret : le chart crée le Secret <release>-github (client-id, client-secret). ATTENTION : la valeur de
+    # clientSecret est lisible par « helm get values » et « helm template », et stockée dans le Secret de release Helm — réservé à
+    # PRIVATE/<ENV>/values-local.yaml, JAMAIS dans un fichier suivi par git (scripts/ci.sh le contrôle). existingSecret reste recommandé.
+    clientId: ""
+    clientSecret: ""
+  existingSecret: ""        # Secret du namespace, clés client-id et client-secret (GitHub App) — RECOMMANDÉ ; jamais la valeur ici.
+                            # OBLIGATOIRE si github.enabled, sauf si github.clientId / github.clientSecret sont donnés (exclusifs)
   admins: []                # OBLIGATOIRE non vide si github.enabled — logins GitHub, rôle admin (écritures sensibles R1 permises)
   users: []                 # logins GitHub, rôle user (terminaux et projets, pas d'écriture R1)
   localAdmin:               # compte local de secours admin@local (htpasswd d'oauth2-proxy), jamais sur l'hôte externe
