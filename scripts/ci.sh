@@ -248,41 +248,69 @@ case "$(uname -s)" in
     fi
     # le secret de la GitHub App ne doit jamais figurer dans un fichier suivi par git (auth.github.clientSecret : visible par
     # « helm get values », réservé à PRIVATE/<ENV>/values-local.yaml, gitignoré) — Helm ne sait pas d'où vient une valeur.
-    # Contrôle durci (audit LOT-3) : toute clé « client[_-]secret » (casse, guillemets, forme en ligne, valeur à la ligne suivante,
-    # --set, Secret stringData/data) dont la valeur n'est ni vide ni un espace réservé (${VAR}, $VAR, {{ }}) fait échouer ;
-    # la valeur n'est JAMAIS affichée. Exclus : documentation, contrats, tests, modèles du chart, ce script.
-    leaks=$(cd .. && git ls-files -z -- '*.yaml' '*.yml' '*.json' '*.env' '*.toml' '*.properties' 2>/dev/null | while IFS= read -r -d '' f; do
-      case "$f" in
-        contracts/*|tests/*|*_test.go|ng2/docs/*|deploy/helm/claude-launcher/templates/*|scripts/ci.sh|.claude/*|*.md) continue ;;
-      esac
-      [ -f "$f" ] || continue
-      awk -v F="$f" '
-        function placeholder(v) { return v ~ /^\$\{/ || v ~ /^\$[a-z_]/ || v ~ /^[{[]/ }  # espace réservé, ou structure (schéma JSON)
-        function bad(n) { print F ":" n; found = 1 }
-        { l = tolower($0) }
-        l ~ /^[[:space:]]*#/ { next }
-        pending {
-          pending = 0
-          if (l !~ /^[[:space:]]*$/ && l !~ /^[[:space:]]*#/ && l !~ /^[[:space:]]*["\047]?[a-z_][a-z0-9_.-]*["\047]?[[:space:]]*:([[:space:]]|$)/ && !placeholder(gensub0(l))) { bad(NR) }
-        }
-        {
-          s = l
-          while (match(s, /client[_-]?secret["\047]?[[:space:]]*[:=]/)) {
-            endk = RSTART + RLENGTH; v = substr(s, endk)
-            if (match(v, /^[[:space:]]*["\047]/)) {                       # valeur entre guillemets : le contenu compte, espaces compris
-              q = substr(v, RLENGTH, 1); v = substr(v, RLENGTH + 1); i = index(v, q)
-              inner = (i > 0) ? substr(v, 1, i - 1) : v
-              if (inner != "" && !placeholder(inner)) bad(NR)
-            } else {
-              sub(/^[[:space:]]+/, "", v); sub(/[[:space:]]*(#.*)?$/, "", v); sub(/[,}].*$/, "", v)
-              if (v == "") { if (s ~ /:[[:space:]]*(#.*)?$/) pending = 1 } else if (!placeholder(v)) bad(NR)
-            }
-            s = substr(s, endk)
+    # Garde FAIL-CLOSED : toute clé « client[_-]secret » (casse, guillemets, forme en ligne, valeur à la ligne suivante, --set,
+    # Secret stringData/data) dont la valeur n'est pas un espace réservé ENTIER ("" '' ${VAR} ${{ … }} {{ … }} <…>) fait échouer ;
+    # la valeur n'est JAMAIS affichée ; une erreur d'awk fait échouer ; un CANARI (fichier factice portant un client_secret en clair)
+    # doit être détecté par la même fonction, sinon la CI échoue (la garde ne peut pas devenir aveugle sans bruit).
+    # Exclusions ciblées (raison) : *.md (documentation et contrats qui citent le NOM de la clé) ; modèles du chart (références
+    # .Values, jamais de valeur) ; values.schema.json (le schéma DÉFINIT la propriété, aucune valeur) ; scripts/ci.sh (porte le canari) ;
+    # test de la garde et ses fixtures (ng2/chart_lot3_254_test.go, ng2/chart_lot3_254_fixtures/) ; code tiers embarqué
+    # (ng2/ui/desktop/frontend/vendor/, minifié). Tous les autres fichiers texte suivis sont contrôlés, binaires exclus.
+    # Limites assumées : une clé YAML exotique (« ? clientSecret », clé multi-lignes), une valeur échappée ou encodée au-delà de la
+    # base64 de Secret ne sont pas reconnues — gitleaks (non installé) couvrirait une détection générale.
+    ghscan() {   # chemins séparés par NUL sur l'entrée ; affiche fichier:ligne des fuites ; 2 si awk échoue
+      local f
+      while IFS= read -r -d '' f; do
+        [ -f "$f" ] || continue
+        awk -v F="$f" '
+          function trim(x) { sub(/^[[:space:]]+/, "", x); sub(/[[:space:]]+$/, "", x); return x }
+          function placeholder(v) {   # espace réservé ENTIER seulement : un vrai secret commençant par $x, { ou [ est une fuite
+            return v ~ /^\$\{[^{}]*\}$/ || v ~ /^\$\{\{.*\}\}$/ || v ~ /^\{\{.*\}\}$/ || v ~ /^<[^<>]*>$/ || v ~ /^%[-+# 0-9.]*[a-z]([^a-z0-9]|$)/   # dernier : verbe de format Go/printf (message de test)
           }
-        }
-        function gensub0(x) { sub(/^[[:space:]]+/, "", x); return x }
-        END { exit 0 }' "$f" 2>/dev/null || true
-    done) || true
+          function bad(n) { print F ":" n }
+          { l = tolower($0) }
+          l ~ /^[[:space:]]*#/ { next }
+          pending {
+            pending = 0
+            if (l !~ /^[[:space:]]*$/ && l !~ /^[[:space:]]*["\047]?[a-z_][a-z0-9_.-]*["\047]?[[:space:]]*:([[:space:]]|$)/ && !placeholder(trim(l))) bad(NR)
+          }
+          {
+            s = l
+            while (match(s, /client[_-]?secret["\047]?[[:space:]]*[:=]/)) {
+              endk = RSTART + RLENGTH; v = substr(s, endk)
+              if (match(v, /^[[:space:]]*["\047]/)) {          # valeur entre guillemets : le contenu compte, espaces compris
+                q = substr(v, RLENGTH, 1); v = substr(v, RLENGTH + 1); i = index(v, q)
+                inner = (i > 0) ? substr(v, 1, i - 1) : v
+                if (inner != "" && !placeholder(inner)) bad(NR)
+              } else {
+                sub(/[[:space:]]+#.*$/, "", v); v = trim(v)
+                if (v == "") { if (s ~ /:[[:space:]]*(#.*)?$/) pending = 1 }
+                else if (!placeholder(v)) bad(NR)
+              }
+              s = substr(s, endk)
+            }
+          }' "$f" || return 2
+      done
+    }
+    ghfiles() {  # fichiers suivis à contrôler (tous les fichiers texte), séparés par NUL (cwd : racine du dépôt)
+      local f
+      git ls-files -z | while IFS= read -r -d '' f; do
+        case "$f" in
+          *.md|deploy/helm/claude-launcher/templates/*|deploy/helm/claude-launcher/values.schema.json|scripts/ci.sh) continue ;;
+          ng2/chart_lot3_254_test.go|ng2/chart_lot3_254_fixtures/*|ng2/ui/desktop/frontend/vendor/*) continue ;;
+        esac
+        [ -f "$f" ] && grep -Iq . "$f" && printf '%s\0' "$f"
+      done
+    }
+    canary=$(mktemp -d "${TMPDIR:-/tmp}/ci-canary.XXXXXX") || { echo "ECHEC : garde du clientSecret : dossier temporaire du canari impossible" >&2; exit 1; }
+    printf 'auth:\n  github:\n    client_secret: canari-ci-123\n' > "$canary/canari.yaml"
+    printf 'CLIENT_SECRET=canari-ci-123\n' > "$canary/canari.env"
+    printf '%s\0' "$canary/canari.yaml" "$canary/canari.env" | ghscan > "$canary/detected" || { rm -rf "$canary"; echo "ECHEC : garde du clientSecret en erreur sur le canari" >&2; exit 1; }
+    if [ "$(wc -l < "$canary/detected")" -ne 2 ]; then
+      rm -rf "$canary"; echo "ECHEC : la garde du clientSecret n'a pas détecté son canari (garde aveugle)" >&2; exit 1
+    fi
+    rm -rf "$canary"
+    leaks=$(cd .. && ghfiles | ghscan) || { echo "ECHEC : garde du clientSecret en erreur (awk ou git) — contrôle non fiable" >&2; exit 1; }
     if [ -n "$leaks" ]; then
       echo "ECHEC : clientSecret non vide dans un fichier suivi par git (PRIVATE/<ENV>/values-local.yaml, jamais commité) — valeur non affichée :" >&2
       echo "$leaks" >&2; exit 1

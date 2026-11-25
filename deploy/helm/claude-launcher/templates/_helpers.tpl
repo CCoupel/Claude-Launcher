@@ -232,9 +232,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- $_ := required "externalIngress.className est obligatoire quand externalIngress.enabled" .Values.externalIngress.className -}}
 {{- $_ := required "externalIngress.host est obligatoire quand externalIngress.enabled" .Values.externalIngress.host -}}
-{{- if not (regexMatch "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$" (lower .Values.externalIngress.host)) -}}
-{{- fail (printf "externalIngress.host : « %s » n'est pas un nom d'hôte (sans schéma, chemin, espace ni joker)" .Values.externalIngress.host) -}}
-{{- end -}}
+{{- include "cl.checkHostname" (dict "name" "externalIngress.host" "host" .Values.externalIngress.host) -}}
 {{- if and .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer -}}
 {{- fail "externalIngress.tls : secretName et clusterIssuer sont exclusifs, en donner un seul" -}}
 {{- end -}}
@@ -439,4 +437,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/* contrôleur de l'ingress externe : celui de l'interne, sinon Traefik (contrôleur du cluster) */}}
 {{- define "cl.extController" -}}
 {{- default "traefik" .Values.ingress.controller -}}
+{{- end -}}
+
+{{/* nom d'hôte DNS en minuscules (RFC 1123) : étiquettes de 1 à 63 caractères [a-z0-9-] sans « - » en tête ni en queue, 253 au total ;
+     ni schéma, ni chemin, ni espace, ni joker, ni majuscule */}}
+{{- define "cl.checkHostname" -}}
+{{- $h := toString .host -}}
+{{- if or (ne $h (lower $h)) (gt (len $h) 253) -}}
+{{- fail (printf "%s : « %s » : nom d'hôte en minuscules RFC 1123 attendu (au plus 253 caractères)" .name $h) -}}
+{{- end -}}
+{{- range (splitList "." $h) -}}
+{{- if not (regexMatch "^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$" .) -}}
+{{- fail (printf "%s : « %s » : nom d'hôte en minuscules RFC 1123 attendu (étiquettes de 1 à 63 caractères a-z 0-9 -, sans tiret en tête ou en queue, sans schéma, chemin, espace ni joker)" $.name $h) -}}
+{{- end -}}
+{{- end -}}
 {{- end -}}
