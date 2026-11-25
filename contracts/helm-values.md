@@ -205,7 +205,7 @@ que l'ingress externe attend v7.0.0.
   contrôleur), documenté.
 - Variables ajoutées : `CL_AUTH_SESSION_DURATION`, `CL_AUTH_SESSION_REFRESH` (réservées).
 - **[addendum 2, m1]** Secrets de cookie distincts : `<release>-auth-cookie` (`_cl_auth`) et `<release>-auth-cookie-ext`
-  (`_cl_auth_ext`), générés, `keep`, `lookup`.
+  (`__Host-_cl_auth_ext` : préfixe __Host- = Secure, Path=/, sans Domain), générés, `keep`, `lookup`.
 - **[addendum 2, m3]** Service : ports `http` (8080) et, si l'externe est activé, `http-ext` (8083) ; **jamais**
   `health` (8082) ni 8081. NetworkPolicy : entrée sur `http` et `http-ext` depuis le contrôleur d'Ingress seulement
   (vérifié en QUALIF depuis un pod projet : 8080, 8082, 8083 refusés).

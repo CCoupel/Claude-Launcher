@@ -23,3 +23,6 @@ _work/
 .claude/workflow/
 .claude/worktrees/
 build/
+
+# valeurs locales du chart (identifiants GitHub App, jamais commités)
+**/values-local*.yaml

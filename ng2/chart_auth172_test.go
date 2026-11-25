@@ -832,7 +832,7 @@ func TestChartAuth172ExternalInstance(t *testing.T) {
 		t.Fatal("auth-proxy-ext absent avec l'ingress externe")
 	}
 	ia, ea := t172Args(in), t172Args(ex)
-	if !t172HasArg(ia, "--cookie-name=_cl_auth") || !t172HasArg(ea, "--cookie-name=_cl_auth_ext") {
+	if !t172HasArg(ia, "--cookie-name=_cl_auth") || !t172HasArg(ea, "--cookie-name=__Host-_cl_auth_ext") {
 		t.Errorf("noms de cookie : interne %v / externe %v", t172ArgPrefix(ia, "--cookie-name="), t172ArgPrefix(ea, "--cookie-name="))
 	}
 	for _, bad := range []string{"--htpasswd-file", "--display-htpasswd-form"} {
