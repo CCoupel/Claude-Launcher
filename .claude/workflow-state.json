@@ -5,7 +5,7 @@
   "branch": "milestone/v7.0.0",
   "version": "7.0.0",
   "started_at": "2026-11-25T14:35:00Z",
-  "updated_at": "2026-11-25T15:50:00Z",
+  "updated_at": "2026-11-25T18:15:00Z",
   "cycles": 0,
   "issue_nums": [
     172,
@@ -35,7 +35,7 @@
     "valide": "GATE 2"
   },
   "lots": {
-    "current": "LOT-2",
+    "current": "LOT-3",
     "items": {
       "LOT-1": {
         "status": "completed",
@@ -45,21 +45,22 @@
         "ci_sha": "ffc96f8"
       },
       "LOT-2": {
-        "status": "in_progress",
+        "status": "completed",
         "issues": [
           172,
           251,
           252,
           268
         ],
-        "phase": "infra"
+        "ci_sha": "f7c4acb"
       },
       "LOT-3": {
-        "status": "pending",
+        "status": "in_progress",
         "issues": [
           254,
           184
-        ]
+        ],
+        "phase": "dev-backend"
       }
     }
   },
