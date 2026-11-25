@@ -56,6 +56,11 @@ func (l *revealLimiter) allow(session string) bool {
 // secretReveal : {kind, key} → {ok:true, value} | {ok:false, msg}. iface : « fenêtre native » ou « web local » (journal) ;
 // remote : accès distant → refusé ; session : clé du plafond de débit.
 func (a *App) secretReveal(iface string, remote bool, session string, raw json.RawMessage) (any, error) {
+	return a.secretRevealAs(iface, "", remote, session, raw)
+}
+
+// secretRevealAs : secretReveal avec l'utilisateur journalisé (login en mode proxy).
+func (a *App) secretRevealAs(iface, user string, remote bool, session string, raw json.RawMessage) (any, error) {
 	var in struct {
 		Kind string `json:"kind"`
 		Key  string `json:"key"`
@@ -76,7 +81,7 @@ func (a *App) secretReveal(iface string, remote bool, session string, raw json.R
 	if err != nil {
 		return map[string]any{"ok": false, "msg": err.Error()}, nil
 	}
-	if err := core.JournalReveal(in.Key, iface); err != nil {
+	if err := core.JournalRevealAs(in.Key, iface, user); err != nil {
 		return map[string]any{"ok": false, "msg": err.Error()}, nil
 	}
 	return map[string]any{"ok": true, "value": v}, nil
@@ -85,13 +90,63 @@ func (a *App) secretReveal(iface string, remote bool, session string, raw json.R
 // DispatchWeb : appel venu du serveur web avec ce que le serveur sait de la requête — remote : accès distant (adresse
 // publique, hôte non local, proxy), sid : session. secretReveal et configModel.reveal en dépendent ; le reste est DispatchFromAddr.
 func (a *App) DispatchWeb(src string, remote bool, sid, method string, raw json.RawMessage) (any, error) {
+	return a.DispatchWebAs(webCall{Src: src, Remote: remote, Sid: sid}, method, raw)
+}
+
+// webCall : ce que le serveur web sait d'une requête d'appel (v7.0.0).
+type webCall struct {
+	Src    string
+	Remote bool
+	Sid    string
+	// Access : mode d'accès du serveur (token, none, proxy ; "" = token) ; User : identité du mode proxy (nil ailleurs)
+	Access string
+	User   *core.Identity
+}
+
+// msgR1 : refus d'une écriture sensible (règle R1, contracts/auth.md §4).
+const msgR1 = "réservé à un administrateur authentifié (règle R1)"
+
+// userLabel : utilisateur journalisé pour une écriture de secret : login (proxy), sinon "" (la source fait foi).
+func (c webCall) userLabel() string {
+	if c.User != nil {
+		return c.User.Login
+	}
+	return ""
+}
+
+// userInfo : champ « user » d'init et de clientInfo (mode proxy seulement).
+func (c webCall) userInfo() map[string]any {
+	if c.User == nil || c.Access != core.AccessProxy {
+		return nil
+	}
+	return map[string]any{"login": c.User.Login, "role": c.User.Role, "logout": "/oauth2/sign_out?rd=%2Fsigned-out"}
+}
+
+// DispatchWebAs : DispatchWeb avec l'identité et le mode d'accès (v7.0.0) — règle R1, champ user, journal des secrets.
+func (a *App) DispatchWebAs(c webCall, method string, raw json.RawMessage) (any, error) {
+	src, remote, sid := c.Src, c.Remote, c.Sid
+	if core.R1Method(method) && !core.R1Allowed(c.Access, c.User) {
+		return map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}, nil
+	}
 	switch method {
 	case "clientInfo": // #250 : l'interface grise le réglage modèle · effort d'un accès distant
-		return map[string]any{"remote": remote}, nil
+		out := map[string]any{"remote": remote}
+		if u := c.userInfo(); u != nil {
+			out["user"] = u
+		}
+		return out, nil
+	case "init":
+		res, err := a.DispatchFromAddr(originWeb, src, method, raw)
+		if m, ok := res.(map[string]any); ok && err == nil {
+			if u := c.userInfo(); u != nil {
+				m["user"] = u
+			}
+		}
+		return res, err
 	case "teamAgentSet": // #250 : refusé côté serveur pour un accès distant
 		return a.teamAgentSet(remote, raw)
 	case "secretReveal":
-		return a.secretReveal("web local", remote, "web:"+sid, raw)
+		return a.secretRevealAs("web local", c.userLabel(), remote, "web:"+sid, raw)
 	case "configModel":
 		var arg struct {
 			Kind string `json:"kind"`
@@ -103,12 +158,21 @@ func (a *App) DispatchWeb(src string, remote bool, sid, method string, raw json.
 		}
 		return a.configModelFor(!remote, core.ConfigKind(arg.Kind), arg.Path)
 	}
+	if secretMethods[method] {
+		if src == "" {
+			src = "navigateur"
+		}
+		return a.secretCallAs(src, c.userLabel(), method, raw)
+	}
 	return a.DispatchFromAddr(originWeb, src, method, raw)
 }
 
 // remoteAccess : la requête ne vient PAS de la boucle locale directe — adresse publique, hôte (en-tête Host) autre que la
 // boucle locale, source autre que 127.0.0.1 / ::1, ou passage par un proxy (en-têtes X-Forwarded-*, Forwarded, X-Real-IP).
 func (w *webBridge) remoteAccess(r *http.Request) bool {
+	if w.access == core.AccessProxy { // derrière oauth2-proxy : toujours distant (contracts/auth.md §2)
+		return true
+	}
 	if w.public != nil && w.public.MatchesHost(r.Host) {
 		return true
 	}
@@ -138,7 +202,10 @@ func (w *webBridge) remoteAccess(r *http.Request) bool {
 // sessionID : identifiant de la session du navigateur (cookie) pour le plafond de débit ; à défaut, la source. En mode « none »
 // (aucune session : le cookie n'est pas validé, un client en changerait à chaque appel) : la SOURCE seule.
 func (w *webBridge) sessionID(r *http.Request) string {
-	if w.access == core.AccessNone {
+	if id := identityOf(r); id != nil { // mode proxy : le plafond est par login (« user:<login> »)
+		return "user:" + id.Login
+	}
+	if w.noToken() {
 		return "src:" + requestSource(r)
 	}
 	if c, err := r.Cookie(w.cookieName(r)); err == nil && c.Value != "" {

@@ -33,6 +33,11 @@ func (a *App) DispatchFromAddr(from origin, src, method string, raw json.RawMess
 }
 
 func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
+	return a.secretCallAs(src, "", method, raw)
+}
+
+// secretCallAs : secretCall avec l'utilisateur journalisé (login en mode proxy ; "" : la source).
+func (a *App) secretCallAs(src, user, method string, raw json.RawMessage) (any, error) {
 	var in struct {
 		Backend    string          `json:"backend"`
 		PrivateKey string          `json:"privateKey"`
@@ -45,7 +50,7 @@ func (a *App) secretCall(src, method string, raw json.RawMessage) (any, error) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
 	}
-	w := core.SecretWrite{Source: src}
+	w := core.SecretWrite{Source: src, User: user}
 	if method == "backendSecretSet" || method == "backendKnownHostsSet" || method == "backendHostScan" { // écriture et relevé : seulement pour un backend ssh déclaré
 		if err := declaredFor(in.Backend, in.Kubeconfig != ""); err != nil {
 			return map[string]any{"ok": false, "msg": err.Error()}, nil

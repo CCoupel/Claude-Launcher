@@ -355,7 +355,8 @@ func writeSecretFile(path string, data []byte) error {
 // ── Clés ssh ──────────────────────────────────────────────────────────────
 
 // SecretWrite : sources d'une écriture, pour le journal.
-type SecretWrite struct{ Source string }
+// SecretWrite : source (interface) et utilisateur (login en mode proxy, sinon la source) d'une écriture, pour le journal.
+type SecretWrite struct{ Source, User string }
 
 // normKey : fins de ligne Unix et retour final (une clé collée depuis Windows porte des CRLF, que ssh refuse).
 func normKey(s string) []byte {
@@ -513,7 +514,7 @@ func SecretSetKey(backend, privateKey, publicKey string, generate bool, w Secret
 		what = "generate"
 	}
 	err = inVault(backend, func(d string) error {
-		if err := journalSecret(backend, "ssh-key", what, fingerprint, w.Source); err != nil {
+		if err := journalSecret(backend, "ssh-key", what, fingerprint, w.Source, w.User); err != nil {
 			return err
 		}
 		// la clé publique d'abord : un échec n'écrase jamais une clé privée par une moitié de paire
@@ -547,7 +548,7 @@ func SecretSetKnownHosts(backend, lines string, w SecretWrite) (int, error) {
 		fps = append(fps, e.Fingerprint)
 	}
 	err = inVault(backend, func(d string) error {
-		if err := journalSecret(backend, "known_hosts", "set", strings.Join(fps, ","), w.Source); err != nil {
+		if err := journalSecret(backend, "known_hosts", "set", strings.Join(fps, ","), w.Source, w.User); err != nil {
 			return err
 		}
 		return writeSecretFile(filepath.Join(d, secretKnownFile), []byte(sb.String()))
@@ -578,7 +579,7 @@ func SecretDelete(backend, what string, w SecretWrite) error {
 		return fmt.Errorf("suppression : « %s » inconnu (key, known_hosts, kubeconfig, all)", what)
 	}
 	return withVaultLockAt(filepath.Dir(d), func() error {
-		if err := journalSecret(backend, what, "delete", "", w.Source); err != nil {
+		if err := journalSecret(backend, what, "delete", "", w.Source, w.User); err != nil {
 			return err
 		}
 		for _, n := range names {
@@ -698,8 +699,11 @@ func sshBaseArgs(backend string, connectTimeout string) []string {
 
 // journalSecret : une ligne par écriture, dans <CacheDir>/secrets-journal.jsonl (hors du coffre) ; écrite AVANT le secret :
 // un journal inaccessible refuse l'écriture ; (backend, type, action, empreinte, source) — jamais de contenu.
-func journalSecret(backend, secret, action, fingerprint, source string) error {
-	rec := map[string]string{"at": time.Now().UTC().Format(time.RFC3339), "backend": backend, "secret": secret,
+func journalSecret(backend, secret, action, fingerprint, source, user string) error {
+	if user == "" {
+		user = source
+	}
+	rec := map[string]string{"user": user, "at": time.Now().UTC().Format(time.RFC3339), "backend": backend, "secret": secret,
 		"action": action, "source": source, "instance": secretsInstance(), "launcher": LauncherID()}
 	if fingerprint != "" { // une révélation ne porte NI valeur NI longueur NI empreinte : la clé n'est pas écrite du tout
 		rec["fingerprint"] = fingerprint

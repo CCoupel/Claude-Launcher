@@ -97,8 +97,10 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 		merge(v.ov.DesktopWeb, v.src("desktop_web", true))
 	}
 	c := DesktopWebConf{Source: src, ListenSrc: src, URL: strings.TrimSpace(pubURL), Access: strings.TrimSpace(access)}
-	if a := c.Access; a != "" && a != AccessToken && a != AccessNone {
-		return DesktopWebConf{Off: true, Source: src, ListenSrc: src, URL: c.URL, Access: a}, fmt.Errorf("%s : access %q inconnu (token ou none attendu)", src, a)
+	if a := c.Access; a == AccessProxy && !InCluster() {
+		return DesktopWebConf{Off: true, Source: src, ListenSrc: src, URL: c.URL, Access: a}, fmt.Errorf("%s : accès proxy : réservé au launcher de cluster", src)
+	} else if a != "" && a != AccessToken && a != AccessNone && a != AccessProxy {
+		return DesktopWebConf{Off: true, Source: src, ListenSrc: src, URL: c.URL, Access: a}, fmt.Errorf("%s : access %q inconnu (token, none ou proxy attendu)", src, a)
 	}
 	listen = strings.TrimSpace(listen)
 	noListen := listen == "" || isOff(listen)
@@ -231,7 +233,7 @@ func DesktopWebChanged(oldContent, newContent []byte) bool {
 }
 
 // WebExposureChanged : les réglages des deux rubriques web — desktop_web (interface complète), browser_server
-// (fichiers en lecture seule), browser_paths et browser_device (chemins et appariement du serveur de maquettes) : défauts, machines, surcharges par système — de deux contenus
+// (fichiers en lecture seule), browser_paths et browser_device (chemins et appariement du serveur de maquettes) : défauts, machines, surcharges par système — et le kubeconfig de chaque backend (v7.0.0) — de deux contenus
 // de backends.yaml diffèrent. Un client web ne peut modifier ni l'un ni l'autre ; les autres réglages restent
 // permis. Contenu illisible : l'empreinte vide diffère, donc refus (fail-closed).
 func WebExposureChanged(oldContent, newContent []byte) bool {
@@ -268,6 +270,21 @@ func desktopWebPrint(content []byte) string {
 	}
 	sort.Strings(names)
 	var sb strings.Builder
+	// kubeconfig de chaque backend (chemin ou true, v7.0.0 R1) : un client web, même administrateur, ne le modifie pas
+	var bnames []string
+	for k := range f.Backends {
+		bnames = append(bnames, k)
+	}
+	sort.Strings(bnames)
+	for _, k := range bnames {
+		if kc := f.Backends[k].Kubeconfig; kc.set() {
+			v := kc.Path
+			if kc.Vault {
+				v = "true"
+			}
+			sb.WriteString("kubeconfig:" + k + "=" + v + ";")
+		}
+	}
 	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb, f.Defaults.BrowserServer, f.Defaults.BrowserPaths, ""))
 	for _, k := range names {
 		h := f.Hubs[k]
@@ -408,10 +425,10 @@ func EffectiveWebAccess(conf DesktopWebConf) (string, error) {
 	switch v {
 	case "":
 		return AccessToken, nil
-	case AccessToken, AccessNone:
+	case AccessToken, AccessNone, AccessProxy:
 		return v, nil
 	}
-	return AccessToken, fmt.Errorf("%s : access %q inconnu (token ou none attendu)", src, v)
+	return AccessToken, fmt.Errorf("%s : access %q inconnu (token, none ou proxy attendu)", src, v)
 }
 
 // AccessNoneRefusal : le mode « none » n'est admis que sur une écoute en boucle locale SANS adresse publique, ou avec une

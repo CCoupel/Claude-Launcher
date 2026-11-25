@@ -135,7 +135,7 @@ func migrateBackend(root, src, name string) (copied, conflict bool, err error) {
 			secretsMigration.Unlock()
 			if first {
 				conflict = true
-				_ = journalSecret(name, "all", "migrate-conflict", "", "migration")
+				_ = journalSecret(name, "all", "migrate-conflict", "", "migration", "")
 				log.Printf("migration du coffre : backend %s présent dans l'ancien coffre et dans le coffre commun avec un contenu différent : coffre commun conservé", name)
 			}
 		}
@@ -148,7 +148,7 @@ func migrateBackend(root, src, name string) (copied, conflict bool, err error) {
 	if err := restrictSecret(dst, true); err != nil {
 		return false, false, err
 	}
-	if err := journalSecret(name, "all", "migrate", "", "migration"); err != nil {
+	if err := journalSecret(name, "all", "migrate", "", "migration", ""); err != nil {
 		return false, false, err
 	}
 	for _, f := range secretFileNames {

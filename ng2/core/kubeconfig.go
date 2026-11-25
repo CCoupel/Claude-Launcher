@@ -259,7 +259,7 @@ func SecretSetKubeconfig(backend, content string, w SecretWrite) (contexts []str
 	if err != nil {
 		return nil, "", nil, err
 	}
-	if err := journalSecret(backend, "kubeconfig", "set", fingerprint, w.Source); err != nil {
+	if err := journalSecret(backend, "kubeconfig", "set", fingerprint, w.Source, w.User); err != nil {
 		return nil, "", nil, err
 	}
 	if err := writeSecretFile(filepath.Join(d, secretKubeFile), raw); err != nil {

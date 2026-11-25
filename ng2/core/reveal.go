@@ -39,6 +39,9 @@ func RevealSecret(kind ConfigKind, key string) (string, error) {
 
 // JournalReveal : consigne « révélé : clé, interface, heure » dans le journal des secrets — jamais la valeur, ni sa longueur ni
 // son empreinte. Une erreur d'écriture du journal refuse la révélation (pas de révélation sans trace).
-func JournalReveal(key, iface string) error {
-	return journalSecret("", key, "révélé", "", iface)
+func JournalReveal(key, iface string) error { return JournalRevealAs(key, iface, "") }
+
+// JournalRevealAs : JournalReveal avec l'utilisateur (login, mode proxy).
+func JournalRevealAs(key, iface, user string) error {
+	return journalSecret("", key, "révélé", "", iface, user)
 }
