@@ -1,11 +1,11 @@
 {
   "type": "FEATURE",
   "description": "Carte TEAM : changer le modèle et l'effort d'un teammate (compagnon .claude/agents/<nom>.md) — #250",
-  "status": "in_progress",
+  "status": "completed",
   "branch": "milestone/v6.9.0",
   "version": "6.9.0",
   "started_at": "2026-11-25T10:58:06Z",
-  "updated_at": "2026-11-25T13:33:23Z",
+  "updated_at": "2026-11-25T13:45:45Z",
   "cycles": 2,
   "issue_nums": [
     250
@@ -36,7 +36,7 @@
       "handoff": "_work/handoff/dev-frontend-20261125-250.md"
     },
     "test-writer": {
-      "status": "in_progress",
+      "status": "completed",
       "sha": "280f14b"
     },
     "review": {
@@ -45,7 +45,7 @@
       "verdict": "APPROUVE"
     },
     "qa": {
-      "status": "in_progress",
+      "status": "completed",
       "report": "_work/reports/qa-250-20261125-1500.md",
       "verdict": "VALIDATED WITH RESERVATIONS",
       "nr": {
@@ -105,14 +105,15 @@
     "valide": "GATE 2"
   },
   "lots": {
-    "current": "LOT-1",
+    "current": "v6.9.0 validée (GATE 4, maquette validée) — RETEX puis PROD",
     "items": {
       "LOT-1": {
-        "status": "in_progress",
+        "status": "completed",
         "issues": [
           250
         ],
-        "phase": "dev-backend"
+        "phase": "dev-backend",
+        "ci_sha": "f922efd"
       }
     }
   }
