@@ -1,0 +1,182 @@
+<!--
+mockup:
+  composant: team_card
+  feature: modele_effort
+  version: 6.9.0
+  type: ui
+  issue: "#250"
+  validee_le: 2026-11-25
+  proposition_retenue: "A — Menu sur « modèle · effort »"
+  complete: ["docs/mockup/v6.5.0/ui/team_card__masquage_par_projet_v2.html", "docs/mockup/v6.2.0/ui/team_card__versions_entete.html"]
+  remplace: []
+-->
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>team_card — modèle et effort (#250, v6.9.0, retenue A)</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E🎨%3C/text%3E%3C/svg%3E">
+<style>
+:root{--bg:#0F1217;--deep:#0B0D11;--panel:#12151B;--head:#1E232C;--line:#1F242D;--line2:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--dim:#5B6372;--green:#6EE7A8;--orange:#F0A868;--yellow:#F5D76B;--cyan:#67D4E8;--accent:#60CDFF;--hl:rgba(96,205,255,.16);--input:#0A0C10;--menu:#232833;--type:#2f6fed;
+--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono","Cascadia Mono",Consolas,"DejaVu Sans Mono",monospace}
+*{box-sizing:border-box}
+body{margin:0;background:var(--deep);color:var(--text);font:13px var(--ui);padding:16px 20px 40px;border-top:6px solid var(--type)}
+h1{font-size:17px;margin:0 0 4px}
+.sub{color:var(--muted);margin:0 0 14px;max-width:1250px;line-height:1.5}
+section[data-proposition]{display:block;padding-top:4px}
+section[data-proposition].on{display:block}
+.parti{background:var(--panel);border:1px solid var(--line2);border-left:4px solid var(--accent);border-radius:6px;padding:8px 12px;margin-bottom:14px;line-height:1.5;color:var(--text2);max-width:1250px}
+.parti b{color:var(--text)}
+h2{font-size:13px;color:var(--muted);letter-spacing:.05em;text-transform:uppercase;margin:18px 0 8px}
+.cols{display:flex;gap:24px;flex-wrap:wrap;align-items:flex-start}
+.col{max-width:370px;min-height:540px}
+.col h3{font:600 12px var(--ui);color:var(--muted);margin:0 0 6px}
+.card{border:1px solid var(--line2);border-radius:6px;background:var(--bg);width:370px;max-width:100%;position:relative}
+.ch{padding:4px 6px 4px 10px;background:var(--head);font-weight:600;white-space:nowrap;display:flex;align-items:center;gap:6px;border-radius:6px 6px 0 0;min-height:28px}
+.ch .d{font-weight:400;color:var(--muted)}
+.ch .ver{font-weight:400;color:var(--cyan);font-family:var(--mono);font-size:12px}
+.ch .eye{margin-left:auto;display:inline-flex;width:24px;height:20px;align-items:center;justify-content:center;color:var(--dim)}
+.cb{padding:7px 6px}
+.team{font:12px var(--mono)}
+.tr{display:grid;grid-template-columns:12px 122px 1fr 14px;gap:0 8px;padding:1px 4px;border-radius:3px;white-space:nowrap;align-items:center}
+.tr.vis{background:var(--hl);box-shadow:inset 3px 0 0 var(--accent)}
+.tr.off .n{color:var(--dim)}
+.tr .m{color:var(--muted)}
+.tr .m.hot{color:var(--text);text-decoration:underline dotted var(--muted);text-underline-offset:3px;cursor:pointer}
+.tr.sel{outline:1px solid var(--accent)}
+.nx{color:var(--cyan)}
+.g{color:var(--green)}.mu{color:var(--muted)}.dm{color:var(--dim)}.o{color:var(--orange)}.ac{color:var(--accent)}.cy{color:var(--cyan)}
+.menu{position:absolute;z-index:3;background:var(--menu);border:1px solid var(--line2);border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.5);padding:4px 0;font:12px var(--ui);min-width:280px;width:300px}
+.menu div{padding:3px 12px;color:var(--text2);white-space:nowrap;display:flex;gap:8px;align-items:center}
+.menu div.t{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em;padding-top:6px}
+.menu div.sel{background:var(--hl);color:var(--text)}
+.menu div .ck{width:12px;color:var(--accent)}
+.menu div .tag{margin-left:auto;color:var(--dim);font-size:11px}
+.menu hr{border:none;border-top:1px solid var(--line2);margin:4px 0}
+.menu div.ft{display:block;color:var(--muted);font-size:11px;white-space:normal;line-height:1.4}
+.ed{margin:4px 2px 6px 22px;padding:8px 10px;background:var(--panel);border:1px solid var(--line2);border-left:3px solid var(--accent);border-radius:4px;font:12px var(--ui);color:var(--text2)}
+.ed .row{display:flex;gap:6px;align-items:center;margin:3px 0;flex-wrap:wrap}
+.ed .lb{width:52px;color:var(--muted)}
+.chip{border:1px solid var(--line2);border-radius:10px;padding:1px 8px;font:12px var(--mono);color:var(--text2);background:var(--input)}
+.chip.on{background:var(--accent);color:#0B0D11;border-color:var(--accent)}
+.chip.tp{box-shadow:inset 0 -2px 0 var(--dim)}
+.btn{border:1px solid var(--line2);border-radius:4px;padding:2px 10px;background:var(--head);color:var(--text);font:12px var(--ui)}
+.btn.pr{background:var(--accent);color:#0B0D11;border-color:var(--accent)}
+.src{color:var(--muted);font-size:11px;margin-top:4px;line-height:1.4}
+.warn{color:var(--yellow)}
+.flash{margin:6px 4px 0;font:12px var(--ui);color:var(--text2);background:#1A2A33;border:1px solid #24414f;border-radius:4px;padding:4px 8px}
+.flash.w{background:#2e2716;border-color:#5a4a1d;color:var(--yellow)}
+.tip{display:inline-block;margin-top:8px;background:#2A2F38;border:1px solid var(--line2);border-radius:4px;padding:5px 8px;font:12px var(--ui);color:var(--text2);line-height:1.45;max-width:370px;white-space:pre-line}
+.dlgwrap{position:relative;width:370px;max-width:100%}
+.dlgwrap .card{filter:brightness(.55)}
+.dlg{position:absolute;left:10px;right:-60px;top:46px;background:var(--panel);border:1px solid var(--line2);border-radius:8px;box-shadow:0 10px 30px rgba(0,0,0,.6);font:12px var(--ui);color:var(--text2);z-index:4}
+.dlg .hd{padding:8px 12px;background:var(--head);border-radius:8px 8px 0 0;font-weight:600;color:var(--text)}
+.dlg .bd{padding:10px 12px}
+.dlg table{border-collapse:collapse;width:100%;margin:6px 0;font:12px var(--mono)}
+.dlg td,.dlg th{border-bottom:1px solid var(--line);padding:3px 6px;text-align:left}
+.dlg th{color:var(--muted);font:600 11px var(--ui)}
+.sel2{display:inline-block;border:1px solid var(--line2);background:var(--input);border-radius:4px;padding:2px 8px;font:12px var(--mono);min-width:110px}
+.sel2:after{content:" ▾";color:var(--muted)}
+.dlg .bx{margin:8px 0;padding:6px 8px;border-radius:4px;background:#2e2716;border:1px solid #5a4a1d;color:var(--yellow);line-height:1.4}
+.dlg .bx.i{background:#1A2A33;border-color:#24414f;color:var(--text2)}
+.dlg .ft{display:flex;gap:8px;justify-content:flex-end;padding:8px 12px;border-top:1px solid var(--line2)}
+.rules{columns:2;column-gap:28px;max-width:1250px;color:var(--text2);line-height:1.55;padding-left:18px}
+.rules li{break-inside:avoid;margin-bottom:4px}
+code{font-family:var(--mono);background:var(--input);padding:1px 5px;border-radius:4px;font-size:12px}
+@media (max-width:700px){.rules{columns:1}}
+</style>
+</head>
+<body>
+<h1>Carte TEAM — changer le modèle et l'effort d'un teammate <span style="color:var(--muted);font-weight:400">· #250 · v6.9.0 · fenêtre native et navigateur · maquette retenue (A — Menu sur « modèle · effort »)</span></h1>
+<p class="sub">Projet <b>Claude-Launcher</b>, team <code>claude-launcher-team</code>. Cette maquette complète les maquettes actives de la carte TEAM. Ce qui ne change pas : une ligne par teammate, « modèle · effort » sur chaque ligne, ⚠ orange pour un écart de version, l'œil du masquage au bout du titre et le double-clic qui montre ou cache un pane. Ce qui est nouveau : un menu « Modèle / Effort » ouvert par un clic sur la colonne « modèle · effort », avec une entrée « Défaut (template) » en tête de chaque rubrique. Décisions du GATE 2 intégrées : réglage refusé en accès distant (P1), efforts filtrés selon le modèle, table de la documentation de l'API (P2, P6), nouvelle valeur affichée suivie de <span class="cy">⟳</span> (P3), teamleader écrit dans <code>teamleader.md</code> <b>et</b> <code>.claude/settings.json</code> (P4), compagnon vide supprimé (P5). Quatre cas : planner (non démarré), dev-backend (tourne), leader (teamleader) et navigateur distant.</p>
+
+
+<section data-proposition="A">
+  <div class="parti"><b>Retenue — A — Menu sur « modèle · effort ».</b> Un clic sur la colonne « modèle · effort » de la ligne (soulignée en pointillé au survol) ouvre un menu du même style que celui de l'œil, en deux rubriques : Modèle et Effort. Chaque choix s'enregistre tout de suite et le menu se ferme. La carte ne bouge pas. Changer le modèle <i>et</i> l'effort demande deux ouvertures du menu.</div>
+  <div class="mock"></div>
+</section>
+
+<h2>Règles</h2>
+<ul class="rules">
+  <li>« modèle · effort » reste sur chaque ligne (DECISIONS.md, team_card). Il devient cliquable : survol souligné en pointillé, infobulle « Modèle : opus (template) · Effort : max (compagnon + implementation-planner.md) — clic : changer ». Clavier : Entrée / Espace ouvrent, Échap ferme.</li>
+  <li>Menu : rubrique Modèle (<code>opus</code>, <code>sonnet</code>, <code>haiku</code>, <code>fable</code>), rubrique Effort (<code>low</code> à <code>max</code>) <b>filtrée selon le modèle</b> (P2, table de compatibilité du contrat ; un effort non pris en charge est grisé avec la raison en infobulle). ✓ = valeur actuelle, « template » = valeur du template, puis « ↺ Valeurs du template » et la note de bas de menu (source, fichier écrit, prochain spawn).</li>
+  <li>Choisir un modèle dont la table n'accepte pas l'effort actuel : l'effort passe à la valeur du template si elle est acceptée, sinon à la plus haute acceptée ; la note le dit.</li>
+  <li><b>« Défaut (template) — &lt;valeur&gt; »</b> en tête de chaque rubrique : retire la clé du compagnon ; cochée quand la clé est absente (la ligne affiche alors la source « template »). Jamais grisée par le filtre. Choisir la valeur marquée « template = défaut » a le même effet (règle de l'issue : pas de surcharge égale au template) : la clé est retirée et « Défaut » devient cochée. « ↺ Tout par défaut » retire les deux clés. Un compagnon devenu vide est supprimé (P5). Seul le frontmatter de <code>.claude/agents/&lt;agent&gt;.md</code> change ; le <code>.template.md</code> n'est jamais écrit.</li>
+  <li>Teammate qui tourne : la ligne affiche la <b>nouvelle</b> valeur (résolue) suivie de <span class="cy">⟳</span> ; l'infobulle donne ce qui tourne (« en cours : sonnet · medium — opus · high au prochain spawn ») (P3).</li>
+  <li>Teamleader (ligne <b>leader</b>) : le choix est écrit dans <code>teamleader.md</code> <b>et</b> dans <code>.claude/settings.json</code> (<code>model</code>, <code>effortLevel</code>, valeurs résolues ; le reste du fichier intact). « Défaut » retire la clé de <code>teamleader.md</code> et écrit la valeur du template dans <code>settings.json</code>. La note rappelle que la session en cours garde son modèle (<code>/model</code>, <code>/effort</code>) (P4).</li>
+  <li>Accès distant (navigateur hors boucle locale : LAN, ingress du cluster) : « modèle · effort » n'est pas cliquable, infobulle « réglage réservé à la fenêtre native » ; l'appel est de toute façon refusé par le serveur (P1). Fenêtre native et navigateur en boucle locale : réglage permis.</li>
+  <li>Entrée non réglable (<code>cdp</code> : pas de modèle dans son template ; agent lancé hors registre) : non cliquable, raison dans l'infobulle.</li>
+</ul>
+
+<script>
+(function(){
+var TEAM=[
+ {n:'leader',c:1,m:'sonnet',e:'medium',on:1,vis:1,st:'leader'},
+ {n:'planner',c:0,m:'opus',e:'high',on:0},
+ {n:'deployer',c:0,m:'sonnet',e:'low',on:1,vis:0},
+ {n:'dev-backend',c:1,m:'sonnet',e:'medium',on:1,vis:1},
+ {n:'dev-frontend',c:1,m:'sonnet',e:'medium',on:1,vis:0},
+ {n:'qa',c:0,m:'sonnet',e:'medium',on:1,vis:0},
+ {n:'doc-updater',c:0,m:'haiku',e:'low',on:0},
+ {n:'security',c:0,m:'sonnet',e:'high',on:0}
+];
+var MOD=['opus','sonnet','haiku','fable'],EFF=['low','medium','high','xhigh','max'];
+var TPL={leader:['opus','medium'],planner:['opus','high'],'dev-backend':['sonnet','medium']};
+var EYE='<svg viewBox="0 0 24 16" width="18" height="14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 8s4-7 11-7 11 7 11 7-4 7-11 7S1 8 1 8z"/><circle cx="12" cy="8" r="3"/></svg>';
+function head(){return '<div class="ch">Team <span class="d">·</span> <span class="d">5</span> <span class="d">·</span> <span class="ver">tpl v5.16.0</span> <span class="d">·</span> <span class="ver">claude 2.1.87</span><span class="eye" title="default">'+EYE+'</span></div>';}
+// o : {sel:nom, hot:nom, over:{nom:{m,e,nx}}, after:html (inséré après la ligne sel)}
+function rows(o){
+  var h='<div class="cb"><div class="team">';
+  TEAM.forEach(function(t){
+    var ov=(o.over||{})[t.n]||{}, m=ov.m||t.m, e=ov.e||t.e;
+    var cls='tr'+(t.on&&t.vis?' vis':'')+(t.on?'':' off')+(o.sel===t.n?' sel':'');
+    var me='<span class="m'+(o.hot===t.n||o.sel===t.n?' hot':'')+'">'+m+' · '+e+(ov.nx?' <span class="nx">⟳</span>':'')+'</span>';
+    h+='<div class="'+cls+'"><span class="'+(t.on?'g':'dm')+'">'+(t.on?'●':'○')+'</span><span class="n">'+(t.c||ov.c?'+ ':'')+t.n+'</span>'+me+'<span class="o"></span></div>';
+    if(o.sel===t.n&&o.after) h+=o.after;
+  });
+  return h+'</div>'+(o.flash||'')+'</div>';
+}
+function card(o,extra){return '<div class="card">'+head()+rows(o)+(extra||'')+'</div>';}
+function mitem(v,cur,tpl){return '<div'+(v===cur?' class="sel"':'')+'><span class="ck">'+(v===cur?'✓':'')+'</span><span>'+v+'</span>'+(v===tpl?'<span class="tag">template = défaut</span>':'')+'</div>';}
+function mdef(cur,tpl){var on=cur==='default';return '<div'+(on?' class="sel"':'')+'><span class="ck">'+(on?'✓':'')+'</span><span>Défaut (template) — '+tpl+'</span></div>';}
+// cm / ce = 'default' : clé absente du compagnon (valeur du template)
+function menuA(name,cm,ce,top,src,foot){
+  var t=TPL[name]||['sonnet','medium'];
+  var h='<div class="menu" style="left:130px;top:'+top+'px"><div class="t">Modèle — '+name+'</div>';
+  h+=mdef(cm,t[0]);
+  MOD.forEach(function(v){h+=mitem(v,cm,t[0]);});
+  h+='<hr><div class="t">Effort</div>';
+  h+=mdef(ce,t[1]);
+  EFF.forEach(function(v){h+=mitem(v,ce,t[1]);});
+  h+='<hr><div><span class="ck">↺</span><span>Tout par défaut (template : '+t[0]+' · '+t[1]+')</span></div><hr><div class="ft">'+src+'<br>'+foot+'</div></div>';
+  return h;
+}
+function chips(list,cur,tpl){return list.map(function(v){return '<span class="chip'+(v===cur?' on':'')+(v===tpl?' tp':'')+'">'+v+'</span>';}).join('');}
+function edB(name,cm,ce,src,warn){
+  var t=TPL[name]||['sonnet','medium'];
+  return '<div class="ed"><div class="row"><span class="lb">Modèle</span>'+chips(MOD,cm,t[0])+'</div><div class="row"><span class="lb">Effort</span>'+chips(EFF,ce,t[1])+'</div><div class="src">'+src+'</div>'+(warn?'<div class="src warn">'+warn+'</div>':'')+'<div class="row" style="margin-top:6px"><span class="btn pr">Enregistrer</span><span class="btn">Annuler</span><span class="btn">↺ Valeurs du template</span></div></div>';
+}
+function dlgC(name,cm,ce,file,rowsT,box){
+  var h='<div class="dlg"><div class="hd">Modèle et effort — '+name+'</div><div class="bd">';
+  h+='<div style="display:flex;gap:14px;align-items:center;margin-bottom:6px"><span>Modèle <span class="sel2">'+cm+'</span></span><span>Effort <span class="sel2">'+ce+'</span></span></div>';
+  h+='<table><tr><th></th><th>modèle</th><th>effort</th></tr>'+rowsT+'</table>';
+  h+='<div class="src">Fichier écrit : <code>.claude/agents/'+file+'</code> (frontmatter seulement ; le reste du fichier est conservé)</div>';
+  h+=box+'</div><div class="ft"><span class="btn">↺ Valeurs du template</span><span class="btn">Annuler</span><span class="btn pr">Enregistrer</span></div></div>';
+  return h;
+}
+function col(t,html,tip){return '<div class="col"><h3>'+t+'</h3>'+html+(tip?'<div class="tip">'+tip+'</div>':'')+'</div>';}
+var P={
+ A:function(){
+  var c1=card({sel:'planner',hot:'planner'},menuA('planner','default','default',62,'Modèle et effort : défaut (template, implementation-planner.template.md) — aucun compagnon','Écrit dans .claude/agents/implementation-planner.md · appliqué au prochain spawn'));
+  var c2=card({hot:'dev-backend',over:{'dev-backend':{m:'opus',e:'high',nx:1}},flash:'<div class="flash">dev-backend : opus · high enregistré (compagnon) — appliqué au prochain spawn</div>'});
+  var c3=card({sel:'leader',hot:'leader'},menuA('leader','sonnet','default',30,'Modèle : sonnet (compagnon + teamleader.md) · Effort : défaut (template : medium)','Écrit dans .claude/agents/teamleader.md et .claude/settings.json (model, effortLevel)<br><span class="warn">⚠ La session en cours garde sonnet · medium : /model, /effort pour la changer maintenant. La prochaine session suit settings.json.</span>'));
+  var c4=card({});
+  return '<div class="cols" style="gap:60px">'+col('1. planner (non démarré) — clic sur « opus · high »',c1)+col('2. dev-backend (tourne) — après choix opus puis high',c2,'Infobulle de « opus · high ⟳ » :\nEn cours : sonnet · medium\n⟳ opus · high au prochain spawn (compagnon + dev-backend.md)')+col('3. leader — clic sur « sonnet · medium »',c3)+col('4. navigateur distant (ingress du cluster)',c4,'Infobulle de « modèle · effort » :\nModèle : opus (template) · Effort : high (template)\nréglage réservé à la fenêtre native')+'</div>';
+ }
+};
+document.querySelectorAll('section[data-proposition]').forEach(function(s){s.querySelector('.mock').innerHTML=P.A();});
+})();
+</script>
+</body>
+</html>

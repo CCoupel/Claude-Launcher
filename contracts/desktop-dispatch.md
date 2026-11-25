@@ -1225,3 +1225,125 @@ Arguments : `{ "kind": "config.conf", "key": "GITHUB_TOKEN" }` (plus tard : tout
 
 Voir `contracts/attention.md` : hooks, `CL_ATTENTION_DIR`, champs `Row.attention` / `TabInfo.attention`, évènements
 `attention` / `attentionEnd`, option `ATTENTION_NOTIFY`.
+
+## v6.9.0 — Modèle et effort des teammates depuis la carte TEAM (#250)
+
+> Règle du template : `.claude/agents/context/MODEL_EFFORT.template.md` §7 (résolution compagnon > template, effet au
+> spawn). Décisions du GATE 2 du 2026-11-25 intégrées (P1 à P6 ; P6 = A, table de la documentation de l'API, plus
+> l'entrée « Défaut (template) » des menus).
+> Maquettes retenues : `team_card__modele_effort.html` (fenêtre native, navigateur), `team_card__modele_effort_coque.html` (coque).
+
+### Table de compatibilité modèle → efforts **[NEW]** (P2)
+
+`core.ModelEfforts(model string) (efforts []string, known bool)` — une seule table, dans le launcher, utilisée par les
+trois interfaces et par `teamAgentSet` :
+
+| Modèle (valeur du frontmatter) | Efforts acceptés |
+|---|---|
+| `opus`, `sonnet`, `haiku`, `fable` (alias, génération courante) | `low`, `medium`, `high`, `xhigh`, `max` |
+| identifiant complet `claude-opus-4-6`, `claude-sonnet-4-6` | `low`, `medium`, `high`, `max` |
+| identifiant complet `claude-opus-4-5` | `low`, `medium`, `high` |
+| identifiant complet `claude-haiku-4-5`, `claude-sonnet-4-5` et plus anciens | aucun (menu Effort grisé : « effort non pris en charge par ce modèle ») |
+| autre identifiant complet `claude-<famille>-<version>` de génération ≥ 4.7, ou modèle inconnu | tous (`known` = faux) ; l'effort courant est conservé tel quel |
+
+- Exposée aux clients web et natif par `teamHead.modelEfforts` : `{ "opus": ["low",…], …, "*": [ … ] }` (`*` = repli
+  pour un modèle inconnu), pour filtrer le menu sans aller-retour.
+- Un effort non accepté par le modèle est **grisé** dans les menus (infobulle « non pris en charge par <modèle> »), jamais
+  masqué. L'entrée « Défaut (template) » n'est **jamais** grisée.
+
+### `cards` — champ `team` (`TeamRow`) **[CHANGED]**
+
+Ajoute à chaque ligne (teammates démarrés et non démarrés) :
+
+```json
+{ "name": "dev-backend", "agent": "dev-backend", "model": "opus", "effort": "high",
+  "modelSrc": "companion", "effortSrc": "companion", "tplModel": "sonnet", "tplEffort": "medium",
+  "running": { "model": "sonnet" }, "editable": true }
+```
+
+- `agent` : entrée du registre du template (`deploy` pour `deployer`, `implementation-planner` pour `planner`,
+  `teamleader` pour `leader`), déjà calculée par `core.TeamLine.Agent` ; désormais exposée.
+- `model`, `effort` **[CHANGED]** (P3) : **valeur résolue** (compagnon > template ; instance générique :
+  `generic.<nom>.md` > `generic.md` > `generic.template.md`), pour tous les teammates, démarrés ou non. (Avant : modèle
+  réel du spawn pour un teammate démarré.)
+- `modelSrc`, `effortSrc` : `"companion"` (clé présente dans le compagnon) ou `"template"` (clé absente : état « Défaut »,
+  coché dans les menus) ; `""` si inconnu. Une clé égale à la référence n'est jamais écrite : `template` ⇔ « Défaut ».
+- `tplModel`, `tplEffort` : valeurs de référence (celles du template ; instance : `generic.md` s'il fixe la clé, sinon
+  `generic.template.md`).
+- `running` : présent seulement pour un teammate **démarré** dont ce qui tourne diffère de la valeur résolue — ce qui
+  tourne jusqu'à son prochain spawn (⟳ sur la ligne, infobulle « en cours : … — … au prochain spawn »). `running.model` :
+  modèle réel (`config.json` de la team, `members[].model`) s'il diffère. `running.effort` : seulement si l'effort du spawn
+  est connu (empreinte relevée au spawn, R2 du plan) ; sinon absent.
+- `editable` : faux pour une entrée sans `model:`/`effort:` dans son template (ex. `cdp`, pas un teammate) ou un agent
+  hors registre (lancé sans template). Ne dépend pas du client (la carte est diffusée à tous les clients).
+
+### `clientInfo` **[NEW]** (P1)
+
+Arguments : `{}`. Résultat : `{ "remote": true|false }` — `true` pour une requête web hors boucle locale directe (même
+règle que `reveal.go` : `remoteAccess`), `false` pour la fenêtre native et le navigateur en boucle locale. Appelée une fois
+au démarrage par le client ; un client `remote` affiche « modèle · effort » non cliquable, infobulle « réglage réservé à la
+fenêtre native ». Le serveur reste seul juge (`teamAgentSet` refusé ci-dessous).
+
+### `teamAgentSet` **[NEW]**
+
+Arguments : `{ "path": "<projet>", "agent": "<entrée du registre>", "model": "opus"|…|"default", "effort": "high"|…|"default" }`.
+
+- **Accès distant refusé** (P1) : requête web hors boucle locale →
+  `{ "ok": false, "remote": true, "msg": "réglage réservé à la fenêtre native" }`, rien n'est lu ni écrit.
+- `agent` : **nom d'entrée du registre** du projet (`agents.registry[].name`, instance `agents.generic[].name`), jamais
+  un chemin. Refus si le nom ne figure pas dans le registre (ou, sans registre, s'il n'existe pas de
+  `<agent>.template.md`), s'il ne correspond pas à `^[a-z0-9][a-z0-9._-]{0,63}$`, s'il contient `..`, ou si l'entrée n'est
+  pas `editable`.
+- `model` : `opus` | `sonnet` | `haiku` | `fable` | `default` ; `effort` : `low` | `medium` | `high` | `xhigh` | `max` |
+  `default`. Une clé absente de la requête n'est pas modifiée. **`"default"` = entrée « Défaut (template) »** : la clé est
+  retirée du compagnon. Choisir explicitement la valeur égale à la référence du template a **le même effet** (règle de
+  l'issue : pas de surcharge égale au template) — les deux comportements fusionnent, aucun état « valeur figée égale au
+  template » n'existe. Toute autre valeur (dont `""` et `null`) : refus.
+- **Compatibilité** (P2) : `default` n'est jamais refusé par la table. Effort **explicite** non accepté par le modèle résultant → refus (« effort <e> non pris en charge par
+  <m> »). Modèle seul changé et effort courant non accepté par le nouveau modèle → l'effort passe à la valeur du template
+  s'il est accepté, sinon au plus haut effort accepté (aucun : clé retirée) ; le résultat porte `effortAdjusted: true`.
+- Effet sur le compagnon (`core.SetAgentOverride`) — seul fichier écrit, sauf teamleader :
+  - fichier `<projet>/.claude/agents/<agent>.md` (instance générique : `generic.<nom>.md`) ;
+  - valeur égale à la référence du template → la clé est **retirée** ; sinon elle est écrite (`model: opus`) ;
+  - frontmatter existant (`---` en première ligne) : les lignes `model:` / `effort:` sont remplacées ou retirées à leur
+    place ; les autres lignes du frontmatter et **tout le reste du fichier sont conservés octet pour octet**
+    (fins de ligne CRLF comprises) ; frontmatter devenu vide → le bloc `---`/`---` est retiré ;
+  - pas de frontmatter et une surcharge à écrire → `---\nmodel: …\neffort: …\n---\n` ajouté en tête, le contenu existant
+    suit inchangé ;
+  - compagnon absent → créé avec ce seul frontmatter ; **compagnon dont il ne reste rien → supprimé** (P5) ;
+  - jamais d'écriture dans `<agent>.template.md` ;
+  - confinement : chemin final sous `<projet>/.claude/agents/` (contrôle après nettoyage), compagnon qui est un lien
+    symbolique → refus.
+- **Teamleader** (`agent` = `teamleader`, P4) : en plus du compagnon `teamleader.md`, écrit `<projet>/.claude/settings.json` :
+  - clés `model` et `effortLevel` de **premier niveau** seulement, aux **valeurs résolues** après l'écriture du compagnon
+    (compagnon > template). Retour aux valeurs du template → `settings.json` reçoit les valeurs du template (la clé n'est
+    **pas** retirée : `/init-project` écrit toujours les valeurs résolues ; sans clé, la session prendrait le modèle par
+    défaut du compte, pas celui du template) ;
+  - réécriture **textuelle minimale** : seule la valeur de chaque clé change ; clé absente → insérée en tête de l'objet
+    racine avec l'indentation détectée ; tout le reste du fichier (autres clés, ordre, espaces, fin de ligne finale) est
+    conservé octet pour octet ; fichier absent → créé (`{\n  "model": "…",\n  "effortLevel": "…"\n}\n`) ;
+  - `settings.json` invalide (JSON illisible, racine non objet, clé en double) → **rien n'est écrit** (ni compagnon, ni
+    `settings.json`), `{ "ok": false, "msg": "settings.json illisible : <raison>" }` ;
+  - `.claude/settings.local.json` et le `settings.json` de `CLAUDE_CONFIG_DIR` ne sont jamais touchés ;
+  - ordre : tous les nouveaux contenus sont calculés et validés d'abord ; puis compagnon, puis `settings.json`. Échec du
+    second (délai, disque) → `{ "ok": false, "partial": "companion", "msg": "…" }` : le compagnon (source durable, relue par
+    `/init-project`) est écrit, `settings.json` sera réaligné au prochain `/init-project` ou par un nouvel essai.
+- Écriture de chaque fichier : atomique (`core.WriteFileAtomic`, mode conservé, défaut `0644`), sous le verrou fichier
+  `.lock` (#176), dans l'attente bornée `core.WithinShare` (`SHARE_WRITE_TIMEOUT`, #220).
+- Résultat :
+  `{ "ok": true, "model": "opus", "effort": "max", "modelSrc": "template", "effortSrc": "companion",
+  "file": "implementation-planner.md", "removed": false, "effortAdjusted": false, "nextSpawn": true,
+  "note": "appliqué au prochain spawn" }`.
+  - `removed` : vrai si le compagnon a été supprimé (P5).
+  - `nextSpawn` : vrai si le teammate tourne (il garde son modèle jusqu'à son prochain spawn).
+  - Teamleader : `"settings": { "file": ".claude/settings.json", "model": "opus", "effortLevel": "medium" }` (valeurs
+    écrites) et `note` = « teamleader.md et settings.json écrits — la session en cours garde son modèle (/model, /effort) ».
+  - Délai : `{ "ok": false, "timeout": true, "msg": "partage injoignable : <fichier> non écrit après N s" }`.
+- La carte TEAM du projet est renvoyée tout de suite après l'écriture (évènement `cards`, comme `teamToggle`).
+
+### Coque tmux — carte TEAM **[CHANGED]**
+
+- Même écriture que `teamAgentSet` (la coque est locale : pas de refus distant), par la sous-commande
+  `claude-launcher-ng2 team-set <projet> <agent> [model=<m>|model=default] [effort=<e>|effort=default]` (sortie : la ligne `note`,
+  code 0 ; refus : message sur stderr, code 2), lancée par le menu `display-menu` de la carte (maquette retenue A) et
+  utilisée par les tests.

@@ -5,6 +5,8 @@
 ## Actives
 | Composant | Feature | Fichier | Version | Relation |
 |-----------|---------|---------|---------|----------|
+| team_card | #250 modèle et effort d'un teammate — A menu sur « modèle · effort » + entrée Défaut, fenêtre native et web (validée 2026-11-25) | v6.9.0/ui/team_card__modele_effort.html | 6.9.0 | complète `v6.5.0/ui/team_card__masquage_par_projet_v2.html` |
+| team_card | #250 modèle et effort d'un teammate — A menu tmux au clic + entrée Défaut, coque tmux (validée 2026-11-25) | v6.9.0/ui/team_card__modele_effort_coque.html | 6.9.0 | complète `v6.5.0/ui/team_card__masquage_par_projet_v2.html` |
 | config_ui | #226 effet des options — A pastille + bulle explicative (validée 2026-11-21) | v6.6.0/ui/config_ui__effet_des_options.html | 6.6.0 | complète `v6.1.0/ui/config_ui__interface_structuree.html` |
 | config_ui | #227 élément caché — A œil dans le champ, modèle de tous les éléments cachés (validée 2026-11-21) | v6.6.0/ui/config_ui__element_cache.html | 6.6.0 | complète `v6.1.0/ui/config_ui__interface_structuree.html` |
 | clone_trust | #215 approbation de l'environnement d'un projet cloné — A résumé + fichiers bruts (validée 2026-11-20) | v6.6.0/ui/clone_trust__approbation_env.html | 6.6.0 | complète `v6.6.0/ui/new_project__base_categorie_source.html` |

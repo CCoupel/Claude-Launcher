@@ -2,6 +2,23 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261125] — v6.9.0 (plan, révisé GATE 2) : modèle et effort des teammates (#250)
+
+- **[NEW]** méthode `teamAgentSet` `{path, agent, model, effort}` : surcharge écrite dans le frontmatter du compagnon
+  `.claude/agents/<agent>.md` (clé retirée si égale au template, reste du fichier conservé octet pour octet, compagnon
+  créé si absent, supprimé s'il devient vide) ; **refusée en accès distant** (`{ok:false, remote:true}`) ; effort
+  contrôlé par la table de compatibilité ; teamleader : écrit aussi `model` / `effortLevel` de `.claude/settings.json`
+  (valeurs résolues, réécriture textuelle minimale) — `contracts/desktop-dispatch.md` « v6.9.0 »
+- **[NEW]** méthode `clientInfo` → `{remote}` ; **[NEW]** table `core.ModelEfforts`, exposée par `teamHead.modelEfforts`
+  (P6 = table de la documentation de l'API) ; valeur `"default"` de `model` / `effort` = entrée « Défaut (template) »
+  des menus (clé retirée, jamais grisée)
+- **[CHANGED]** `TeamRow` : `model` / `effort` = valeur **résolue** pour tous les teammates (avant : modèle réel du spawn
+  pour un teammate démarré) ; ajout de `agent`, `modelSrc`, `effortSrc`, `tplModel`, `tplEffort`, `running`, `editable`.
+  Les clients qui affichaient `model` comme « modèle réel » affichent désormais la valeur résolue (`running` porte ce
+  qui tourne) — rétrocompatible pour la forme, changement de sens assumé (décision P3).
+- **[NEW]** sous-commande `claude-launcher-ng2 team-set <projet> <agent> [model=…] [effort=…]` (coque tmux, tests)
+- Aucun BREAKING.
+
 ## [20261123] — v6.8.1 (plan) : quotas mutualisés, versions sans F5 (#237, #238)
 
 - **[ADDED]** `contracts/usage-levels.md` (#237) : `$CLAUDE_CONFIG_DIR/claude-launcher-cache/usage-levels.json`, schéma 1
