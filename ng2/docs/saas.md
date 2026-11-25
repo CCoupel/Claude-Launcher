@@ -170,10 +170,30 @@ pas ici.
 
 ---
 
-## 5. Décisions D1 à D11
+## 5. Décisions
 
-Ce tableau donne la **recommandation** du cadrage. Les points effectivement tranchés pour v7.0.0 sont les P1 à P11 du plan
-(voir § 6).
+### 5.1 Arbitrées pour v7.0.0 (décidé)
+
+Ces points sont tranchés par l'utilisateur. Ils priment sur les recommandations du cadrage. Référence : `plan-v7.0.0` (P1 à P11).
+
+| Point | Arbitrage retenu pour v7.0.0 |
+|---|---|
+| **P1** Authentification | Activée par défaut (`auth.enabled: true`). `false` reste permis : lecture seule des réglages depuis l'interface, ingress externe refusé. |
+| **P2** Rôles | Deux listes : `auth.admins` et `auth.users` (rôles `admin` et `user`). |
+| **P3** Audit | Une entrée par appel ; les méthodes fréquentes sont agrégées par minute. |
+| **P4** R1 (recentrée, addendum 2) | `admin` = serveur et options globales. `user` libre sur ses projets et ses backends. Coffre, clés et `known_hosts` réservés à l'admin en v7.0.0 ; « ses secrets » viendront en v7.1.0. |
+| **P5** Montages des pods projets | Dossier du projet et `.claude` seulement (`CLAUDE_CONFIG_DIR`). |
+| **P6** Pods en marche | Les pods en marche à l'ancien modèle sont conservés et signalés (carte, diagnostic). |
+| **P7** Adresse annoncée | L'hôte externe, quand il est activé. |
+| **P8** Application GitHub | Une GitHub App à deux URL de retour (interne et externe). Sous réserve que GitHub accepte une URL en `.local` (vérification en QUALIF). |
+| **P9** Compte local `admin@local` | Activé par défaut, sur l'hôte interne seul. |
+| **P10** Compte local sur l'externe | Jamais, ni par le proxy ni par le launcher. |
+| **P11** Mot de passe local | Généré par le chart ; un `existingSecret` bcrypt reste possible en option. |
+| **Clés GitHub** | `auth.existingSecret` (recommandé), et valeurs Helm `auth.github.clientId` / `clientSecret` ajoutées en LOT-3 (dans `PRIVATE/<ENV>/values-local.yaml`, jamais commitées). |
+
+### 5.2 Recommandé ou à décider (v7.1 et au-delà)
+
+Ce tableau donne la **recommandation** du cadrage pour les milestones suivants. Rien n'y est tranché.
 
 | Décision | Recommandation | Alternatives écartées |
 |---|---|---|
@@ -196,8 +216,8 @@ cluster est conservée (voir [kubernetes.md](kubernetes.md) §7). Pas de migrati
 
 ## 6. État après v7.0.0
 
-Livré : accès authentifié du launcher de cluster, **mono-utilisateur**. Les décisions de milestone (P1 à P11) sont dans
-`.claude/workflow/plan-v7.0.0.md`. En résumé :
+Livré : accès authentifié du launcher de cluster, **mono-utilisateur**. Les décisions arbitrées (P1 à P11) sont au § 5.1.
+En résumé :
 
 - **Identité** : oauth2-proxy en sidecar (P1 à P2) ; comptes `auth.admins` et `auth.users` ; identité par requête, pas de jeton.
 - **Compte de secours** `admin@local` : mot de passe généré par le chart, hôte interne seulement, jamais sur l'hôte externe (P9 à P11).
