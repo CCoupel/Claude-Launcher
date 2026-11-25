@@ -5,8 +5,8 @@
   "branch": "milestone/v6.9.0",
   "version": "6.9.0",
   "started_at": "2026-11-25T10:58:06Z",
-  "updated_at": "2026-11-25T12:54:36Z",
-  "cycles": 0,
+  "updated_at": "2026-11-25T13:22:17Z",
+  "cycles": 1,
   "issue_nums": [
     250
   ],
@@ -26,34 +26,48 @@
       "timestamp": "2026-11-25T12:54:36Z"
     },
     "dev-backend": {
-      "status": "pending"
+      "status": "completed",
+      "sha": "41cb378",
+      "handoff": "_work/handoff/dev-backend-250.md"
     },
     "dev-frontend": {
-      "status": "pending"
+      "status": "completed",
+      "sha": "c9bfd7f",
+      "handoff": "_work/handoff/dev-frontend-20261125-250.md"
     },
     "test-writer": {
-      "status": "pending"
+      "status": "completed",
+      "sha": "280f14b"
     },
     "review": {
-      "status": "pending"
+      "status": "completed",
+      "report": "_work/reports/code-review-250-20261125-131024-cycle1.md",
+      "verdict": "APPROUVE"
     },
     "qa": {
-      "status": "pending"
+      "status": "completed",
+      "report": "_work/reports/qa-250-20261125-1500.md",
+      "verdict": "VALIDATED WITH RESERVATIONS"
     },
     "doc": {
-      "status": "pending"
+      "status": "completed",
+      "draft_sha": "ca0e897",
+      "sha": "66e12e6",
+      "readme": "mis a jour"
     },
     "deploy-qualif": {
-      "status": "pending",
+      "status": "completed",
+      "version": "6.9.0.1",
+      "helm_rev": 50,
       "steps": {
         "build": {
-          "status": "pending"
+          "status": "completed"
         },
         "publish": {
-          "status": "pending"
+          "status": "completed"
         },
         "deploy": {
-          "status": "pending"
+          "status": "completed"
         }
       }
     },
@@ -93,7 +107,7 @@
         "issues": [
           250
         ],
-        "phase": "dev-backend"
+        "phase": "nr-complete"
       }
     }
   }
