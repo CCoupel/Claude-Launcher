@@ -425,3 +425,55 @@ func TestTeamCardAffichageRunningEtMessage250(t *testing.T) {
 		t.Error("message encore affiché après 6 s")
 	}
 }
+
+// ── cycle 1, M1 : aucun format tmux actif dans les textes du menu (titre, libellés) ──
+
+// actif250 : texte contenant un format tmux actif (#( #{ …) une fois les « ## » (dièse littéral) retirés.
+func actif250(s string) bool {
+	r := strings.ReplaceAll(s, "##", "")
+	return strings.Contains(r, "#(") || strings.Contains(r, "#{") || strings.Contains(r, "#[") || strings.Contains(r, "#S")
+}
+
+func TestTeamMenuSansFormatTmuxActif250(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "injecte")
+	evil := "#(touch " + marker + ")"
+	l := core.TeamLine{
+		Name: "x" + evil, Agent: "dev" + evil, Started: true, Editable: true,
+		Model: evil, Effort: "#{pane_pid}", ModelSrc: "companion", EffortSrc: "companion",
+		TplModel: evil, TplEffort: "#{session_name}",
+	}
+	items, opts := items250(t, teamMenuArgs(l, "/p", "/x/ng2", 3, 4))
+	if actif250(opts["-T"]) {
+		t.Errorf("titre du menu avec format actif : %q (# doit être échappé en ##)", opts["-T"])
+	}
+	for _, it := range items {
+		if actif250(it.label) {
+			t.Errorf("libellé avec format actif : %q (# doit être échappé en ##)", it.label)
+		}
+		if strings.Contains(it.label, "touch") && !strings.Contains(it.label, "##") && strings.Contains(it.label, "#") {
+			t.Errorf("libellé exposant le texte du fichier : %q", it.label)
+		}
+	}
+	// valeur hors listes core.Models / core.Efforts : « — » (jamais la valeur brute)
+	d, z := find250(items, "d"), find250(items, "0")
+	if d == nil || !strings.Contains(d.label, "Défaut (template) — —") {
+		t.Errorf("modèle du template hors liste : %+v, attendu « Défaut (template) — — »", d)
+	}
+	if z == nil || !strings.Contains(z.label, "Défaut (template) — —") {
+		t.Errorf("effort du template hors liste : %+v, attendu « Défaut (template) — — »", z)
+	}
+	for _, it := range items {
+		if strings.Contains(it.label, "pane_pid") || strings.Contains(it.label, "session_name") || strings.Contains(it.label, "touch") && !strings.Contains(opts["-T"], it.label) {
+			t.Errorf("valeur brute du fichier dans un libellé : %q", it.label)
+		}
+	}
+	// la commande run-shell reste quotée (valeurs choisies dans les listes, agent entre apostrophes)
+	for _, it := range items {
+		if it.cmd != "" && !strings.Contains(it.cmd, "'dev#(touch") && !strings.Contains(it.cmd, "dev##(touch") && strings.Contains(it.cmd, "#(touch") {
+			t.Errorf("commande avec format actif non protégé : %q", it.cmd)
+		}
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Error("marqueur créé : une commande a été exécutée")
+	}
+}

@@ -129,8 +129,11 @@ cd ng2 && CL_TEST_ISOLATION=1 go test -race -count=1 -run '250' ./core/ ./ui/des
 - [ ] Les compagnons modifies conservent leur corps octet pour octet ; aucun `.template.md` modifie
 - [ ] « Defaut (template) » present, coche selon la source, jamais grise, dans les trois interfaces
 - [ ] Acces distant refuse et grise ; fenetre native et boucle locale autorises
+- [ ] Deux reglages rapproches de cles differentes (modele puis effort) : les deux valeurs sont presentes a la fin
 - [ ] Aucune regression sur la carte TEAM (double-clic de masquage, œil, versions en en-tete)
 
 ## Notes QA
 
-[Espace pour observations — noter notamment le comportement de `xhigh` / `max` (R7)]
+- **Timeout d'ecriture** : si l'ecriture depasse `SHARE_WRITE_TIMEOUT` (partage lent ou injoignable), le message dit « non ecrit apres N s » mais l'ecriture bloquee continue en tache de fond et **peut aboutir plus tard** : relire le fichier (`git diff`) avant de conclure, et ne pas rejouer le reglage a l'aveugle.
+- Noter notamment le comportement de `xhigh` / `max` (R7).
+- [Espace pour observations]

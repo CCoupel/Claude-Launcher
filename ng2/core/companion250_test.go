@@ -637,3 +637,99 @@ func TestTeamLinesValeurResolueEtRunning250(t *testing.T) {
 		t.Errorf("planner non démarré : started=%v %s/%s", p.Started, p.Model, p.Effort)
 	}
 }
+
+// ── cycle 1, M2 : deux réglages concurrents de clés différentes — aucune mise à jour perdue ──
+
+func TestSetOverrideConcurrentsCleDifferenteAucunePerte250(t *testing.T) {
+	proj := c250Proj(t)
+	p := c250Companion(proj, "dev-backend")
+	body := "# corps\n"
+	for i := 0; i < 40; i++ {
+		c250Write(t, p, "---\nname: dev-backend\nmodel: haiku\neffort: low\n---\n"+body)
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		wg.Add(2)
+		go func() { defer wg.Done(); _, errs[0] = c250Set(t, proj, "dev-backend", s250("opus"), nil) }()
+		go func() { defer wg.Done(); _, errs[1] = c250Set(t, proj, "dev-backend", nil, s250("high")) }()
+		wg.Wait()
+		for _, e := range errs {
+			if e != nil {
+				t.Fatalf("itération %d : réglage refusé : %v", i, e)
+			}
+		}
+		got := c250Read(t, p)
+		if got != "---\nname: dev-backend\nmodel: opus\neffort: high\n---\n"+body {
+			t.Fatalf("itération %d : mise à jour perdue ou fichier altéré : %q (attendu model opus ET effort high)", i, got)
+		}
+	}
+	ents, _ := os.ReadDir(filepath.Join(proj, ".claude", "agents"))
+	for _, en := range ents {
+		if strings.Contains(en.Name(), ".tmp") || strings.HasSuffix(en.Name(), ".lock") {
+			t.Errorf("temporaire ou verrou laissé : %s", en.Name())
+		}
+	}
+}
+
+// Idem pour le teamleader : compagnon ET settings.json portent les deux valeurs.
+func TestSetOverrideConcurrentsTeamleaderSettings250(t *testing.T) {
+	proj := c250Proj(t)
+	for i := 0; i < 30; i++ {
+		_ = os.Remove(c250Companion(proj, "teamleader"))
+		c250Write(t, st250Path(proj), "{\n  \"model\": \"sonnet\",\n  \"effortLevel\": \"medium\",\n  \"x\": 1\n}\n")
+		var wg sync.WaitGroup
+		errs := make([]error, 2)
+		wg.Add(2)
+		go func() { defer wg.Done(); _, errs[0] = c250Set(t, proj, "teamleader", s250("opus"), nil) }()
+		go func() { defer wg.Done(); _, errs[1] = c250Set(t, proj, "teamleader", nil, s250("high")) }()
+		wg.Wait()
+		for _, e := range errs {
+			if e != nil {
+				t.Fatalf("itération %d : réglage refusé : %v", i, e)
+			}
+		}
+		if got := c250Read(t, c250Companion(proj, "teamleader")); got != "---\nmodel: opus\neffort: high\n---\n" {
+			t.Fatalf("itération %d : teamleader.md %q, attendu model opus ET effort high", i, got)
+		}
+		if got := c250Read(t, st250Path(proj)); got != "{\n  \"model\": \"opus\",\n  \"effortLevel\": \"high\",\n  \"x\": 1\n}\n" {
+			t.Fatalf("itération %d : settings.json %q, attendu model opus ET effortLevel high, reste intact", i, got)
+		}
+	}
+	ents, _ := os.ReadDir(filepath.Join(proj, ".claude"))
+	for _, en := range ents {
+		if strings.Contains(en.Name(), ".tmp") || strings.HasSuffix(en.Name(), ".lock") {
+			t.Errorf("temporaire ou verrou laissé dans .claude : %s", en.Name())
+		}
+	}
+}
+
+// ── cycle 1, mineur 1 : lien symbolique sur .claude/agents ou sur .claude → refus, cible intacte ──
+
+func TestSetOverrideLienSurDossiersRefuse250(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("liens symboliques : Linux seulement")
+	}
+	for _, c := range []struct{ name, rel string }{{"dossier .claude/agents", filepath.Join(".claude", "agents")}, {"dossier .claude", ".claude"}} {
+		for _, agent := range []string{"dev-backend", "teamleader"} {
+			proj := c250Proj(t)
+			link := filepath.Join(proj, c.rel)
+			target := filepath.Join(t.TempDir(), "cible")
+			if err := os.Rename(link, target); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Skip("lien symbolique impossible : " + err.Error())
+			}
+			before := snapshot250(t, target)
+			_, err := c250Set(t, proj, agent, s250("opus"), s250("high"))
+			if err == nil {
+				t.Errorf("%s (%s) : refus attendu", c.name, agent)
+			}
+			if d := diff250(before, snapshot250(t, target)); d != "" {
+				t.Errorf("%s (%s) : cible du lien modifiée : %s", c.name, agent, d)
+			}
+			if st, e := os.Lstat(link); e != nil || st.Mode()&os.ModeSymlink == 0 {
+				t.Errorf("%s (%s) : le lien symbolique a été remplacé", c.name, agent)
+			}
+		}
+	}
+}
