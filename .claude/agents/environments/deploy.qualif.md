@@ -167,10 +167,10 @@ Contrat : `contracts/helm-values.md` (« Valeurs `auth.*` »), `contracts/auth.m
    Le `cookie-secret` n'est **pas** à créer : le chart le génère (`<release>-auth-cookie`, contrat rev1). Création, sans écho :
    ```bash
    ( set -euo pipefail; . .claude/agents/environments/qualif.env
-     KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif create secret generic <nom auth.existingSecret> \
+     KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif create secret generic claude-launcher-qualif-github \
        --from-file=client-id=PRIVATE/QUALIF/github-client-id --from-file=client-secret=PRIVATE/QUALIF/github-client-secret )
    ```
-   puis reporter ce nom dans `auth.existingSecret` et `auth.github.enabled: true` + `auth.admins` (M4, logins fournis par l'utilisateur).
+   (nom retenu : `claude-launcher-qualif-github`) puis reporter ce nom dans `auth.existingSecret` et `auth.github.enabled: true` + `auth.admins` (M4, logins fournis par l'utilisateur).
 2. **Mot de passe `admin@local`** (Secret généré par le chart, P11) — lu à la demande, **jamais affiché dans un rapport ni un journal** :
    écrit dans un fichier tmpfs que l'utilisateur lit, effacé au bout de 10 min (clé `password` ; vérifier le nom de clé dans `contracts/auth.md` §8) :
    ```bash
