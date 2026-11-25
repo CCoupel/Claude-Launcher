@@ -42,6 +42,7 @@ type AuditEntry struct {
 	Src     string // adresse source (RemoteAddr, X-Forwarded-For en indication)
 	Method  string // méthode d'appel, « events » (flux), « files » (lecture /files)
 	Project string // nom du projet dans le launcher (core.CtrName) ; "" : l'appel n'en porte pas
+	Phase   string // « intent » : intention d'une action R1, journalisée avant son exécution (le résultat suit)
 	Target  string // méthodes R1 : identifiant court (kind de config, nom de backend), jamais une valeur
 	OK      bool
 	Err     string // court : forbidden, invalid, error
@@ -111,6 +112,7 @@ func (a *Audit) Record(e AuditEntry) error {
 	defer a.mu.Unlock()
 	now := a.now()
 	err := a.flushLocked(now, false)
+	e = auditClean(e)
 	c, known := ClassOf(e.Method)
 	r1 := known && c == ClassR1 // « events » et « files » ne sont pas des méthodes d'appel
 	freq := auditFrequent[e.Method] || e.Method == "files"
@@ -122,6 +124,23 @@ func (a *Audit) Record(e AuditEntry) error {
 		}
 		if bk.n++; bk.n > auditBurst {
 			freq = true
+		}
+	}
+	if r1 && !e.OK && e.Phase == "" && e.User != "" { // refus R1 : peu coûteux pour un client, donc soumis à la rafale (jamais les succès)
+		bk := a.perMin[e.User]
+		if bk == nil || !bk.minute.Equal(now.Truncate(time.Minute)) {
+			bk = &auditBucket{minute: now.Truncate(time.Minute)}
+			a.perMin[e.User] = bk
+		}
+		if bk.n++; bk.n > auditBurst {
+			k := auditKey{e.User, e.Method + " (refusé)"}
+			g := a.agg[k]
+			if g == nil {
+				g = &auditAgg{since: now.Truncate(time.Minute)}
+				a.agg[k] = g
+			}
+			g.count++
+			return err
 		}
 	}
 	if freq && !r1 {
@@ -143,6 +162,9 @@ func (a *Audit) Record(e AuditEntry) error {
 	}
 	if e.Err != "" {
 		rec["err"] = e.Err
+	}
+	if e.Phase != "" {
+		rec["phase"] = e.Phase
 	}
 	if werr := a.writeLocked(rec); werr != nil {
 		return werr
@@ -261,4 +283,22 @@ func (a *Audit) writeLocked(rec map[string]any) error {
 		return fmt.Errorf("journal d'audit inaccessible")
 	}
 	return nil
+}
+
+// auditClean : champs d'origine client bornés — method 64, target et project 128 caractères, caractères de contrôle retirés ;
+// une méthode inconnue (hors méthodes classées, « events » et « files ») devient « unknown » (pas de clé arbitraire dans l'agrégat).
+func auditClean(e AuditEntry) AuditEntry {
+	cut := func(s string, n int) string {
+		s = cleanCtl(s)
+		if r := []rune(s); len(r) > n {
+			s = string(r[:n])
+		}
+		return s
+	}
+	e.Method = cut(e.Method, 64)
+	if _, known := ClassOf(e.Method); !known && e.Method != "events" && e.Method != "files" {
+		e.Method = "unknown"
+	}
+	e.Target, e.Project = cut(e.Target, 128), cut(e.Project, 128)
+	return e
 }

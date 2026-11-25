@@ -576,10 +576,14 @@ func (w *webBridge) handler() http.Handler {
 		}
 		rw.Header().Set("Cache-Control", "no-store") // jamais mis en cache (secretReveal : valeur révélée)
 		id := identityOf(r)
+		if serr := core.StrictJSONArgs(req.Args); serr != nil { // clés en double (casse comprise) : jamais deux lectures possibles
+			http.Error(rw, serr.Error(), http.StatusBadRequest)
+			return
+		}
 		target, r1 := w.app.r1Info(req.Method, req.Args)
-		// journal d'audit inaccessible : les écritures sensibles (R1) sont refusées (comme le journal des secrets)
+		// action R1 : l'INTENTION est journalisée avant l'exécution ; journal inaccessible : l'écriture sensible est refusée
 		if w.audit != nil && id != nil && r1 && core.R1Allowed(w.access, id) {
-			if aerr := w.audit.Check(); aerr != nil {
+			if aerr := w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: req.Method, Target: target, OK: true, Phase: "intent"}); aerr != nil {
 				rw.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(rw).Encode(map[string]any{"result": map[string]any{"ok": false, "msg": aerr.Error()}})
 				return
@@ -657,6 +661,13 @@ func (w *webBridge) handler() http.Handler {
 				return
 			}
 		}
+		// mode proxy : durée de vie bornée du flux (≈ renouvellement du cookie) ; le client se reconnecte, l'identité est revérifiée
+		var maxLife <-chan time.Time
+		if w.access == core.AccessProxy {
+			t := time.NewTimer(sseMaxLife())
+			defer t.Stop()
+			maxLife = t.C
+		}
 		ping := time.NewTicker(ssePingEvery.Get())
 		defer ping.Stop()
 		check := time.NewTicker(checkEvery())
@@ -664,6 +675,8 @@ func (w *webBridge) handler() http.Handler {
 		for {
 			select {
 			case <-r.Context().Done():
+				return
+			case <-maxLife:
 				return
 			case <-check.C:
 				if !w.noToken() && !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
@@ -754,6 +767,14 @@ func (w *webBridge) auditCall(r *http.Request, id *core.Identity, method string,
 		target = ""
 	}
 	_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: method, Project: project, Target: target, OK: ok, Err: es})
+}
+
+// sseMaxLife : durée de vie maximale d'un flux d'évènements en mode proxy : CL_AUTH_SESSION_REFRESH (défaut 1 h).
+var sseMaxLife = func() time.Duration {
+	if d, err := time.ParseDuration(os.Getenv("CL_AUTH_SESSION_REFRESH")); err == nil && d > 0 {
+		return d
+	}
+	return time.Hour
 }
 
 // ssePingEvery : cadence du ping du flux d'évènements (#198) ; remplacée dans les tests.
@@ -1026,8 +1047,8 @@ func requestSource(r *http.Request) string {
 		s = h
 	}
 	if x := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); x != "" {
-		if len(x) > 256 { // tronqué à 256 octets, caractères de contrôle retirés
-			x = x[:256]
+		if len(x) > 256 { // la QUEUE est gardée : Traefik ajoute la vraie adresse source en fin de chaîne
+			x = x[len(x)-256:]
 		}
 		x = strings.Map(func(r rune) rune {
 			if r < 0x20 || r == 0x7f {
