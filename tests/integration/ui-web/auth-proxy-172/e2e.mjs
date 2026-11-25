@@ -70,14 +70,26 @@ try {
   await evalJs(`[...document.querySelectorAll('#ctxmenu div')].find(d => d.textContent.includes('Se déconnecter')).click()`);
   check('déconnexion : /oauth2/sign_out puis /signed-out', await until(`location.pathname === '/signed-out'`, 8000) && (await evalJs(`document.body.textContent`)).includes('Se reconnecter'));
 
-  // 2. rôle user : Réglages en lecture seule, actions grisées
+  // 2. rôle user (addendum 2) : libre sur ses projets et backends ; seules les actions du serveur et des options globales
+  //    (access.deny : login, relaunch, config.conf, env.yaml, hub, coffre) sont grisées, d'après le serveur
   state.user = 'alice'; await open(base + '/');
   await until(`(document.getElementById('who')||{}).textContent?.includes('alice')`);
+  const acc = await evalJs(`typeof whoAccess === 'undefined' ? null : whoAccess`);
+  check('rôle user : le client reçoit access.deny du serveur (R1 : login, relaunch, config.conf, coffre…)',
+    !!acc && acc.mode === 'proxy' && acc.role === 'user' && acc.backendsAdminFields === true &&
+    ['login', 'relaunch', 'backendSecretSet', 'configSave:config.conf', 'configSave:env.yaml', 'configSave:hub', 'quit'].every((m) => acc.deny.includes(m)), JSON.stringify(acc));
+  check('rôle user : aucune méthode de projet ni de backend dans deny', !!acc && !['projectSettings', 'create', 'backendTest', 'configSave:project-env', 'refresh'].some((m) => acc.deny.includes(m)), JSON.stringify(acc && acc.deny));
   await evalJs(`document.getElementById('cfgbtn').click()`);
-  const ro = await until(`!!document.querySelector('#modalbox .cehead h2') && document.querySelector('#modalbox .cehead h2').textContent.includes('lecture seule')`, 10000);
-  check('rôle user : « lecture seule » dans le titre des Réglages', ro);
-  const off = await evalJs(`(() => { const b=[...document.querySelectorAll('#modalbox button, #modalbox input, #modalbox select, #modalbox textarea')].filter(x=>!x.closest('.cehead, .strail')); return b.length > 0 && b.every(x => x.disabled) && b.some(x => x.title.includes('réservé à un administrateur')); })()`);
-  check('rôle user : actions R1 grisées avec infobulle', off === true);
+  await until(`!!document.querySelector('#modalbox') && document.querySelectorAll('#modalbox button, #modalbox input, #modalbox select, #modalbox textarea').length > 0`, 10000);
+  await sleep(500);
+  const counts = await evalJs(`(() => { const c=[...document.querySelectorAll('#modalbox button, #modalbox input, #modalbox select, #modalbox textarea')].filter(x=>!x.closest('.cehead, .strail')); return { on: c.filter(x=>!x.disabled).length }; })()`);
+  check('rôle user : les Réglages restent utilisables (libre sur projets et backends)', counts && counts.on > 0, JSON.stringify(counts));
+  // administrateur : seuls les refus du mode proxy
+  state.user = 'ccoupel'; await open(base + '/');
+  await until(`(document.getElementById('who')||{}).textContent?.includes('ccoupel')`);
+  const accA = await evalJs(`typeof whoAccess === 'undefined' ? null : whoAccess`);
+  check('rôle admin : deny sans R1 (seulement quit, webUI*, teamAgentSet, secretReveal)', !!accA && accA.role === 'admin' && accA.backendsAdminFields === false &&
+    !accA.deny.includes('relaunch') && !accA.deny.includes('configSave:config.conf') && accA.deny.includes('quit'), JSON.stringify(accA));
 
   // 3. compte local admin@local sur l'hôte interne : « Compte local », rôle admin
   state.user = 'admin@local'; state.host = INT; await open(base + '/');

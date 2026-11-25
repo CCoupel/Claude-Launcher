@@ -22,12 +22,12 @@ Reference : `contracts/auth.md` (§1 zones de confiance, §2 mode `proxy`, §4 r
 **Validation** : AUTO — **Issues** : #172 #251 #252
 
 ```bash
-cd ng2 && go test -race -count=1 -run 'Auth172|Audit251|Proxy172' ./core/ ./ui/desktop/ && go test -count=1 -run 'ChartAuth172' . && cd .. && tests/integration/ui-web/auth-proxy-172/run.sh && echo OK
+cd ng2 && go test -race -count=1 -run 'Auth172|Audit251|Proxy172|R1172' ./core/ ./ui/desktop/ && go test -count=1 -run 'ChartAuth172' . && cd .. && tests/integration/ui-web/auth-proxy-172/run.sh && echo OK
 ```
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | Commande ci-dessus | identite par `X-Forwarded-User` (401 absent/vide/invalide/multiple, 403 inconnu, `admin@local` admis seulement sur l'hote interne) ; aucun jeton ni cookie du launcher ; controles Host/Origin/JSON inchanges ; `init.user` / `clientInfo.user` ; regle R1 (12 methodes) refusee a un `user` avec `forbidden: admin` ; audit (une entree par appel, agregation, rotation 10 Mio, echec = R1 refusees) ; port de sante ; refus de demarrer ; chart (sidecar, secrets, compte local, refus de rendu, `rateLimit`) ; navigateur : pastille, menu, deconnexion, `user` en lecture seule, modale de session expiree | | |
+| 1 | Commande ci-dessus | identite par `X-Forwarded-User` (401 absent/vide/invalide/multiple, 403 inconnu, `admin@local` admis seulement sur l'hote interne) ; aucun jeton ni cookie du launcher ; controles Host/Origin/JSON inchanges ; `init.user` / `clientInfo.user` ; regle R1 recentree (serveur et options globales : coffre, known_hosts, config.conf / env.yaml / hub, champs R1 de backends.yaml, relaunch, login) refusee a un `user` avec `forbidden: admin`, `user` libre sur projets et backends, methode inconnue = R1, enumeration des `case` du dispatch, refus du mode proxy (quit, webUI*, clipboard*, teamAgentSet, secretReveal) ; audit (une entree par appel, agregation, > 60 appels/min, `deny`, `target`, copie sur la sortie standard, 5 generations de 10 Mio, XFF 256 octets, echec = R1 refusees) ; port de sante ; refus de demarrer ; chart (sidecar, secrets, compte local, refus de rendu, `rateLimit`) ; navigateur : pastille, menu, deconnexion, `user` en lecture seule, modale de session expiree | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -73,7 +73,7 @@ cd ng2 && go test -race -count=1 -run 'Auth172|Audit251|Proxy172' ./core/ ./ui/d
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
 | 1 | `curl -s -c $J -o /dev/null -w '%{http_code}' -d 'username=admin@local&password=mauvais' <URL>/oauth2/sign_in` | pas de cookie `_cl_auth` ; page de connexion reaffichee avec « Identifiant ou mot de passe incorrect » | | |
-| 2 | Rafale : `for i in $(seq 30); do curl -s -o /dev/null -w '%{http_code}\n' -d 'username=admin@local&password=mauvais' <URL>/oauth2/sign_in; done \| sort \| uniq -c` | au plus ~20 reponses normales (rafale `burst`), les suivantes **`429`** ; au moins un `429` | | |
+| 2 | Rafale : `for i in $(seq 30); do curl -s -o /dev/null -w '%{http_code}\n' -d 'username=admin@local&password=mauvais' <URL>/oauth2/sign_in; done \| sort \| uniq -c` | au plus ~20 reponses normales (rafale `burst`), les suivantes **`429`** ; au moins un `429` ; le corps d'un `429` est la page « Trop de tentatives » du launcher (`/too-many`, middleware `errors`), sans identite | | |
 | 3 | Attendre 1 minute puis un essai avec le bon mot de passe | connexion de nouveau possible (pas de blocage definitif) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
@@ -195,7 +195,83 @@ QUALIF avec `auth.sessionDuration: 15m`, `auth.sessionRefresh: 5m` ; un terminal
 |-------|--------|-----------------|----------------|------|
 | 1 | Saisir un mauvais mot de passe | message unique « Identifiant ou mot de passe incorrect » (sans indiquer lequel est faux) | | |
 | 2 | Valider 25 fois de suite le formulaire (ou laisser le scenario 4 tourner) | page « Trop de tentatives — réessayer plus tard » lisible (M2) | | |
-| 3 | Avec un compte GitHub `auth.users` (si disponible), ouvrir les Reglages | titre « … · lecture seule », actions grisees avec l'infobulle « réservé à un administrateur » ; les terminaux et projets restent utilisables | | |
+| 3 | Avec un compte GitHub `auth.users` (si disponible), ouvrir les Reglages | seules les actions du serveur et des options globales (config.conf, env.yaml, hub, coffre et known_hosts des backends, champs R1 de backends.yaml, relance, connexion claude) sont grisees avec l'infobulle « réservé à un administrateur » ; le reste des Reglages, les projets et les backends restent utilisables | | |
+| 4 | Toujours en `user` : creer un projet factice (image et backend au choix), le deplacer, modifier un backend (hote ssh, image), lancer `backendTest` | **permis** (le `user` est libre sur ses projets et backends) ; ecrire une cle ssh / un known_hosts, changer `config.conf`, ou ajouter un champ R1 a un backend (`volumes`, `namespace`, `kubeconfig`, `serviceAccountName`, type `host`) : refuse, message R1, rien d'ecrit | | |
+| 5 | Toujours en `user` : `quit` (arret du serveur) | refuse ; le serveur continue de repondre | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 13 — Le chemin « Basic » d'oauth2-proxy est ferme (MAJ-1, critical)
+
+**Validation** : AUTO — **Issues** : #172
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `for i in $(seq 30); do curl -s -o /dev/null -w '%{http_code}\n' -u admin@local:faux <URL>/ ; done \| sort \| uniq -c` puis idem sur `<URL>/api/call` | aucune reponse `200` ; l'en-tete `Authorization` est retire avant le proxy (`401` / redirection vers la connexion) ; au moins un `429` sur la rafale | | |
+| 2 | `curl -s -o /dev/null -w '%{http_code}' -u "admin@local:$PW" <URL>/api/call -H 'Content-Type: application/json' -d '{"method":"clientInfo","args":{}}'` (**bon** mot de passe, sans passer par le formulaire) | pas d'acces : `401` ou redirection, jamais `200` | | |
+| 3 | `kubectl -n <ns> get middleware <rel>-headers -o jsonpath='{.spec.headers.customRequestHeaders}'` | `{"Authorization":""}` ; meme middleware reference par chaque Ingress (`kubectl get ingress -o jsonpath='{..router\.middlewares}'`) | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 14 — Sources, reseau et hote backend (MAJ-3, critical)
+
+**Validation** : AUTO — **Issues** : #172 #253
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Depuis un **pod projet** (factice) : `kubectl -n <ns> exec <pod-projet> -- sh -c 'for p in 8080 8081 8082 8083; do timeout 5 wget -qO- --header="X-Forwarded-User: <login admin>" http://<IP du pod launcher>:$p/ >/dev/null 2>&1; echo "$p=$?"; done'` | les quatre ports refuses ou sans reponse (NetworkPolicy : entree depuis le controleur d'Ingress seulement) ; aucune reponse du launcher | | |
+| 2 | `curl -s -o /dev/null -w '%{http_code}' -H 'Host: launcher.local' https://<IP publique de l'Ingress>/ -k` | `403` (hote refuse) ou refus de l'Ingress ; jamais l'interface | | |
+| 3 | `kubectl -n <ns> exec <pod> -c launcher -- env \| grep -c CL_ALLOW_HOST_BACKEND` | `0` : le backend `host` est absent derriere le proxy | | |
+| 4 | `helm upgrade <rel> … --set allowHostBackend=true --dry-run` | refus : « backend host interdit derriere le proxy d'authentification » | | |
+| 5 | Hote avec casse et point final : `curl -s -o /dev/null -w '%{http_code}' --resolve ... -H 'Host: <HOTE en MAJUSCULES>.' ` avec un cookie `admin@local` | memes decisions que sans variation (admis sur l'hote interne ; jamais admis sur l'externe) | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 15 — Cookie de l'instance interne rejoue sur l'hote externe (m1)
+
+**Validation** : AUTO — **Issues** : #172 #254 (si l'ingress externe est active en QUALIF ; sinon reporte au LOT-3)
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Connexion `admin@local` sur l'hote interne (scenario 3), relever la valeur du cookie `_cl_auth` | session interne valide | | |
+| 2 | Rejouer ce cookie sur l'hote externe : `curl -s -o /dev/null -w '%{http_code}' -H "Cookie: _cl_auth=<valeur>" https://<hote externe>/api/call -d '{}'` (et sous le nom `_cl_auth_ext`) | `401` / redirection : aucune session ; le compte local est refuse aussi par le launcher (`403`, `X-Launcher-Refusal: user`) si l'en-tete arrivait | | |
+| 3 | `curl -s https://<hote externe>/oauth2/sign_in` | pas de formulaire de mot de passe (colonne GitHub seule) | | |
+| 4 | `kubectl -n <ns> get secret <rel>-auth-cookie <rel>-auth-cookie-ext -o name` | deux Secrets, valeurs differentes | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 16 — 100 000 appels : les entrees de l'administrateur survivent (MAJ-4)
+
+**Validation** : AUTO — **Issues** : #251
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Marquer : une ecriture R1 identifiable de l'admin (`configSave` `config.conf` sans changement, scenario 6 etape 1) | entree dans `audit.jsonl` et sur la sortie du conteneur | | |
+| 2 | `seq 100000 \| xargs -P 16 -I{} curl -s -o /dev/null -b $J -H 'Content-Type: application/json' -d '{"method":"refresh","args":{}}' <URL>/api/call` (cookie du scenario 3) | le serveur reste disponible ; **au plus** quelques dizaines de milliers d'octets ajoutes par minute (appels > 60/min agreges) | | |
+| 3 | `kubectl -n <ns> logs <pod> -c launcher \| grep '^audit ' \| grep -c 'configSave'` | l'entree de l'etape 1 est presente dans la sortie standard (collectee, non effacable par l'application), meme si `audit.jsonl` a tourne | | |
+| 4 | `kubectl … exec … -- ls -l "$CL_CACHE_DIR" \| grep audit` | au plus `audit.jsonl` et `.1` a `.5` ; taille totale bornee (~60 Mio) | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 17 — Rotation du mot de passe local invalide les sessions (m5)
+
+**Validation** : AUTO — **Issues** : #172
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Cookie valide `admin@local` (scenario 3), puis `kubectl -n <ns> delete secret <rel>-local-admin <rel>-auth-cookie` et `helm upgrade <rel> … ` (memes valeurs) | pod redemarre avec de nouveaux Secrets | | |
+| 2 | Rejouer l'ancien cookie | `401` / redirection (session invalidee) | | |
+| 3 | Ancien mot de passe sur le formulaire | echec ; le **nouveau** (relu par `kubectl`) ouvre une session | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -205,7 +281,8 @@ QUALIF avec `auth.sessionDuration: 15m`, `auth.sessionRefresh: 5m` ; un terminal
 
 - [ ] Aucun en-tete d'identite forge n'est accepte ; le port `8081` n'est pas joignable hors du pod
 - [ ] Le compte local ouvre une session admin, les essais sont limites (`429`), le mot de passe n'apparait nulle part
-- [ ] La regle R1 refuse les ecritures sensibles a un `user` ; l'audit est nominatif et sans argument
+- [ ] La regle R1 (serveur et options globales) refuse ces ecritures a un `user`, libre sur ses projets et backends ; l'audit est nominatif, sans argument, copie sur la sortie standard
+- [ ] Le chemin `Authorization: Basic` est ferme ; le cookie interne n'ouvre rien sur l'hote externe ; la rotation invalide les sessions
 - [ ] Les pages de connexion, d'erreur, de deconnexion et la modale d'expiration sont lisibles
 
 ## Notes QA

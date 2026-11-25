@@ -21,7 +21,7 @@ import (
 // désormais poser auth.enabled: false (changement BREAKING du CHANGELOG) — mise à jour à la charge de l'infra.
 
 const (
-	t172Admin   = "ccoupel"
+	t172Admin   = "zoe-admin" // pas « ccoupel » : présent dans le nom de l'image (ghcr.io/ccoupel/…)
 	t172Release = "rel"
 )
 
@@ -108,6 +108,20 @@ func t172Refused(t *testing.T, v m, wants ...string) {
 			t.Errorf("le message ne contient pas « %s » : %.300s", w, out)
 		}
 	}
+}
+
+// t172Notes : NOTES.txt rendu (helm template ne l'affiche pas : helm install --dry-run=client, sans cluster).
+func t172Notes(t *testing.T, v m) string {
+	t.Helper()
+	out, errOut, err := helm(t, "install", "rel", chartDir, "-f", writeVals(t, v), "--dry-run=client")
+	if err != nil {
+		t.Fatalf("NOTES.txt : %v\n%s%s", err, out, errOut)
+	}
+	if i := strings.Index(out, "NOTES:"); i >= 0 {
+		return out[i:]
+	}
+	t.Fatalf("NOTES.txt absent de la sortie de helm install --dry-run")
+	return ""
 }
 
 func t172Named(o map[string][]m, kind, name string) m {
@@ -243,7 +257,7 @@ func TestChartAuth172ImageTagAndSessionValues(t *testing.T) {
 	v := t172Values()
 	sub(v, "auth")["users"] = []any{"alice", "bob-1"}
 	o := must(t, v)
-	if got := t172ArgPrefix(t172Args(t172Container(t, o, "auth-proxy")), "--github-user="); got != "--github-user=ccoupel,alice,bob-1" {
+	if got := t172ArgPrefix(t172Args(t172Container(t, o, "auth-proxy")), "--github-user="); got != "--github-user=zoe-admin,alice,bob-1" {
 		t.Errorf("--github-user = %q (admins ∪ users)", got)
 	}
 	if e := t172Env(t172Container(t, o, "launcher")); e["CL_AUTH_USERS"] != "alice,bob-1" {
@@ -282,12 +296,12 @@ func TestChartAuth172RenderRefusals(t *testing.T) {
 		"Secret OAuth vide":          {func(v m) { sub(v, "auth")["existingSecret"] = "" }, []string{"auth.existingSecret"}},
 		"aucun administrateur":       {func(v m) { sub(v, "auth")["admins"] = []any{} }, []string{"auth.admins"}},
 		"admins absent":              {func(v m) { delete(sub(v, "auth"), "admins") }, []string{"auth.admins"}},
-		"login invalide":             {func(v m) { sub(v, "auth")["admins"] = []any{"ccoupel", "pas valide"} }, []string{"pas valide"}},
+		"login invalide":             {func(v m) { sub(v, "auth")["admins"] = []any{"zoe-admin", "pas valide"} }, []string{"pas valide"}},
 		"login commençant par -":     {func(v m) { sub(v, "auth")["admins"] = []any{"-ccoupel"} }, []string{"-ccoupel"}},
 		"login avec @":               {func(v m) { sub(v, "auth")["admins"] = []any{"admin@local"} }, []string{"admin@local"}},
-		"doublon d'administrateurs":  {func(v m) { sub(v, "auth")["admins"] = []any{"ccoupel", "CCoupel"} }, []string{"ccoupel"}},
+		"doublon d'administrateurs":  {func(v m) { sub(v, "auth")["admins"] = []any{"zoe-admin", "ZOE-Admin"} }, []string{"zoe-admin"}},
 		"user invalide":              {func(v m) { sub(v, "auth")["users"] = []any{"x y"} }, []string{"x y"}},
-		"login dans les deux listes": {func(v m) { sub(v, "auth")["users"] = []any{"CCoupel"} }, []string{"ccoupel"}},
+		"login dans les deux listes": {func(v m) { sub(v, "auth")["users"] = []any{"ZOE-Admin"} }, []string{"zoe-admin"}},
 		"web.access posé avec auth":  {func(v m) { sub(v, "web")["access"] = "none" }, []string{"web.access est imposé à proxy par auth.enabled"}},
 		"web.access token avec auth": {func(v m) { sub(v, "web")["access"] = "token" }, []string{"web.access"}},
 		"aucune adresse https":       {func(v m) { v["ingress"] = m{"enabled": false} }, []string{"https"}},
@@ -418,17 +432,12 @@ func TestChartAuth172LocalAdminSecret(t *testing.T) {
 			}
 		}
 	}
-	_, out, _ := render(t, t172Local())
-	if i := strings.Index(out, "NOTES:"); i >= 0 {
-		notes := out[i:]
-		if strings.Contains(notes, pw) {
-			t.Error("mot de passe dans NOTES.txt")
-		}
-		if !strings.Contains(notes, "kubectl") || !strings.Contains(notes, t172Release+"-local-admin") || !strings.Contains(notes, "base64 -d") {
-			t.Errorf("NOTES.txt sans la commande de lecture du mot de passe : %s", notes)
-		}
-	} else {
-		t.Error("NOTES.txt absent du rendu")
+	notes := t172Notes(t, t172Local())
+	if strings.Contains(notes, pw) {
+		t.Error("mot de passe dans NOTES.txt")
+	}
+	if !strings.Contains(notes, "kubectl") || !strings.Contains(notes, t172Release+"-local-admin") || !strings.Contains(notes, "base64 -d") {
+		t.Errorf("NOTES.txt sans la commande de lecture du mot de passe : %s", notes)
 	}
 }
 
@@ -458,8 +467,9 @@ func TestChartAuth172LocalAdminWiring(t *testing.T) {
 	if vol == nil {
 		t.Fatal("volume du Secret du compte local absent")
 	}
-	if dm := fmt.Sprint(get(vol, "secret", "defaultMode")); dm != "288" { // 0440
-		t.Errorf("defaultMode = %s, attendu 288 (0440)", dm)
+	// contrat : 0440 (288) ; 0444 (292) tolérée (utilisateur non root sans fsGroup) ; jamais d'écriture ni plus ouvert
+	if dm := fmt.Sprint(get(vol, "secret", "defaultMode")); dm != "288" && dm != "292" {
+		t.Errorf("defaultMode = %s, attendu 288 (0440, contrat) ou 292 (0444)", dm)
 	}
 	ro := false
 	for _, vm := range get(t172Container(t, o, "auth-proxy"), "volumeMounts").([]any) {
@@ -578,7 +588,7 @@ func TestChartAuth172Templates(t *testing.T) {
 				}
 			}
 		}
-		for _, w := range []string{"Accès refusé", "Trop de tentatives", "/oauth2/sign_out?rd=%2Fsigned-out"} {
+		for _, w := range []string{"Accès refusé", "Trop de tentatives", "/sign_out?rd=%2Fsigned-out"} { // {{.ProxyPrefix}} = /oauth2
 			if !strings.Contains(er, w) {
 				t.Errorf("%s : error.html sans « %s »", name, w)
 			}
@@ -678,16 +688,8 @@ func TestChartAuth172RateLimitNginx(t *testing.T) {
 
 func TestChartAuth172Notes(t *testing.T) {
 	needHelm(t)
-	_, out, err := render(t, t172Values())
-	if err != nil {
-		t.Fatal(err)
-	}
-	i := strings.Index(out, "NOTES:")
-	if i < 0 {
-		t.Fatal("NOTES.txt absent")
-	}
-	notes := out[i:]
-	for _, w := range []string{"https://launcher-test.coupel.lan", "authentification GitHub : 1 administrateur(s)", "gh-oauth"} {
+	notes := t172Notes(t, t172Values())
+	for _, w := range []string{"https://launcher-test.coupel.lan", "1 administrateur(s)", "gh-oauth"} {
 		if !strings.Contains(notes, w) {
 			t.Errorf("NOTES.txt sans « %s »", w)
 		}
@@ -699,6 +701,10 @@ func TestChartAuth172Notes(t *testing.T) {
 	}
 	if strings.Contains(notes, t172Admin) {
 		t.Errorf("NOTES.txt liste les logins (« %s »)", t172Admin)
+	}
+	// addendum 2 (MAJ-5) : consigne de retirer le login avant de renommer ou supprimer son compte GitHub
+	if !strings.Contains(strings.ToLower(notes), "renomm") {
+		t.Error("NOTES.txt sans la consigne « retirer le login avant de renommer ou supprimer son compte GitHub »")
 	}
 }
 
@@ -725,6 +731,312 @@ func TestChartAuth172Lint(t *testing.T) {
 		out, errOut, err := helm(t, "lint", chartDir, "--strict", "-f", writeVals(t, v))
 		if err != nil {
 			t.Errorf("%s : helm lint --strict : %v\n%s%s", name, err, out, errOut)
+		}
+	}
+}
+
+// ── addendum 2 (revue sécurité) : Authorization vidé, en-têtes, cookies distincts, hôte backend, 429, arguments ─────
+
+// t172Ext : valeurs avec l'ingress externe (instance auth-proxy-ext, cookie distinct).
+func t172Ext() m {
+	v := t172Local()
+	v["externalIngress"] = m{
+		"enabled": true, "className": "traefik", "host": "launcher.example.org",
+		"tls": m{"clusterIssuer": "letsencrypt-prod"},
+	}
+	return v
+}
+
+func t172Anno(ing m) string {
+	a, _ := get(ing, "metadata", "annotations").(m)
+	return fmt.Sprint(a["traefik.ingress.kubernetes.io/router.middlewares"])
+}
+
+// MAJ-1 : le chemin Basic-auth est fermé — middleware headers (Authorization vidé, en-têtes de sécurité, m7) référencé par
+// CHAQUE ingress ; ipStrategy.depth 0 explicite sur ipAllowList et rateLimit.
+func TestChartAuth172AuthorizationHeaderStrippedTraefik(t *testing.T) {
+	needHelm(t)
+	o := must(t, t172Ext())
+	hd := t172Named(o, "Middleware", t172Release+"-headers")
+	if hd == nil {
+		t.Fatal("Middleware rel-headers absent")
+	}
+	if a, ok := get(hd, "spec", "headers", "customRequestHeaders", "Authorization").(string); !ok || a != "" {
+		t.Errorf("customRequestHeaders.Authorization = %#v, attendu la chaîne vide (en-tête retiré)", get(hd, "spec", "headers", "customRequestHeaders"))
+	}
+	b, _ := yaml.Marshal(get(hd, "spec", "headers"))
+	hs := strings.ToLower(string(b))
+	for _, w := range []string{"stsseconds", "frame-ancestors 'none'", "nosniff", "no-referrer"} {
+		if !strings.Contains(hs, w) {
+			t.Errorf("en-têtes de sécurité (m7) : « %s » absent :\n%s", w, hs)
+		}
+	}
+	if n := len(o["Ingress"]); n < 3 { // interne, /oauth2 interne, externe (au moins)
+		t.Errorf("%d Ingress, attendu au moins 3 (interne, /oauth2, externe)", n)
+	}
+	for _, ing := range o["Ingress"] {
+		if !strings.Contains(t172Anno(ing), t172Release+"-headers") {
+			t.Errorf("Ingress %v sans middleware headers : %q", get(ing, "metadata", "name"), t172Anno(ing))
+		}
+	}
+	for _, mw := range o["Middleware"] {
+		for _, k := range []string{"ipAllowList", "rateLimit"} {
+			if sp, ok := get(mw, "spec", k).(m); ok {
+				if d, ok := get(sp, "ipStrategy", "depth").(int); !ok || d != 0 {
+					t.Errorf("%s de %v : ipStrategy.depth = %#v, attendu 0 explicite", k, get(mw, "metadata", "name"), get(sp, "ipStrategy"))
+				}
+			}
+		}
+	}
+}
+
+func TestChartAuth172AuthorizationHeaderStrippedNginx(t *testing.T) {
+	needHelm(t)
+	v := t172Local()
+	sub(v, "ingress")["controller"] = "nginx"
+	sub(v, "ingress")["className"] = "nginx"
+	o := must(t, v)
+	for _, ing := range o["Ingress"] {
+		ok := false
+		for _, val := range get(ing, "metadata", "annotations").(m) {
+			if strings.Contains(fmt.Sprint(val), `proxy_set_header Authorization ""`) {
+				ok = true
+			}
+		}
+		if !ok {
+			t.Errorf("Ingress %v sans proxy_set_header Authorization vide", get(ing, "metadata", "name"))
+		}
+	}
+}
+
+// Arguments explicites d'oauth2-proxy (m4) et exemption /too-many.
+func TestChartAuth172ProxyHardeningArguments(t *testing.T) {
+	needHelm(t)
+	args := t172Args(t172Container(t, must(t, t172Local()), "auth-proxy"))
+	for _, want := range []string{
+		"--pass-basic-auth=false", "--pass-authorization-header=false", "--set-xauthrequest=false", "--skip-auth-strip-headers=true",
+		"--redirect-url=https://launcher-test.coupel.lan/oauth2/callback", "--skip-auth-route=GET=^/signed-out$", "--skip-auth-route=GET=^/too-many$",
+	} {
+		if !t172HasArg(args, want) {
+			t.Errorf("argument %q absent de %v", want, args)
+		}
+	}
+	for _, bad := range []string{"--metrics-address", "--whitelist-domain"} {
+		if a := t172ArgPrefix(args, bad); a != "" && a != bad+"=" {
+			t.Errorf("%s présent (%q) : attendu absent ou vide", bad, a)
+		}
+	}
+}
+
+// Page 429 : middleware errors (status 429 → Service du launcher, port http, /too-many) chaîné APRÈS rateLimit.
+func TestChartAuth172TooManyPage(t *testing.T) {
+	needHelm(t)
+	o := must(t, t172Local())
+	er := t172Named(o, "Middleware", t172Release+"-errors")
+	if er == nil {
+		t.Fatal("Middleware rel-errors absent")
+	}
+	st := fmt.Sprint(get(er, "spec", "errors", "status"))
+	if !strings.Contains(st, "429") || get(er, "spec", "errors", "query") != "/too-many" || fmt.Sprint(get(er, "spec", "errors", "service", "port")) != "http" {
+		t.Errorf("errors = %v, attendu status [429], query /too-many, service port http", get(er, "spec", "errors"))
+	}
+	found := false
+	for _, ing := range o["Ingress"] {
+		for _, r := range get(ing, "spec", "rules").([]any) {
+			ps, _ := get(r, "http", "paths").([]any)
+			for _, p := range ps {
+				if strings.HasPrefix(fmt.Sprint(get(p, "path")), "/oauth2") {
+					found = true
+					a := t172Anno(ing)
+					ri, ei := strings.Index(a, "rate"), strings.Index(a, "errors")
+					if ri < 0 || ei < 0 || ri > ei {
+						t.Errorf("middlewares de /oauth2 : %q, attendu rateLimit puis errors", a)
+					}
+				}
+			}
+		}
+	}
+	if !found {
+		t.Error("aucun Ingress /oauth2")
+	}
+}
+
+// m1 + m3 : instance externe — cookies distincts, redirect-url fixe, sans htpasswd, ConfigMap propre, ports du Service, NetworkPolicy.
+func TestChartAuth172ExternalInstance(t *testing.T) {
+	needHelm(t)
+	o := must(t, t172Ext())
+	in, ex := t172Container(t, o, "auth-proxy"), t172Container(t, o, "auth-proxy-ext")
+	if ex == nil {
+		t.Fatal("auth-proxy-ext absent avec l'ingress externe")
+	}
+	ia, ea := t172Args(in), t172Args(ex)
+	if !t172HasArg(ia, "--cookie-name=_cl_auth") || !t172HasArg(ea, "--cookie-name=_cl_auth_ext") {
+		t.Errorf("noms de cookie : interne %v / externe %v", t172ArgPrefix(ia, "--cookie-name="), t172ArgPrefix(ea, "--cookie-name="))
+	}
+	for _, bad := range []string{"--htpasswd-file", "--display-htpasswd-form"} {
+		if t172ArgPrefix(ea, bad) != "" {
+			t.Errorf("auth-proxy-ext : %s présent (le formulaire n'existe pas sur Internet)", bad)
+		}
+	}
+	if !t172HasArg(ea, "--skip-provider-button=true") || !t172HasArg(ea, "--http-address=0.0.0.0:8083") ||
+		!t172HasArg(ea, "--redirect-url=https://launcher.example.org/oauth2/callback") {
+		t.Errorf("arguments de l'instance externe : %v", ea)
+	}
+	secrets := map[string]string{}
+	for name, c := range map[string]m{"interne": in, "externe": ex} {
+		for _, e := range get(c, "env").([]any) {
+			if get(e, "name") == "OAUTH2_PROXY_COOKIE_SECRET" {
+				secrets[name] = fmt.Sprint(get(e, "valueFrom", "secretKeyRef", "name"))
+			}
+		}
+	}
+	if secrets["interne"] != t172Release+"-auth-cookie" || secrets["externe"] != t172Release+"-auth-cookie-ext" {
+		t.Errorf("Secrets de cookie : %v, attendu rel-auth-cookie et rel-auth-cookie-ext", secrets)
+	}
+	a, b := t172Named(o, "Secret", t172Release+"-auth-cookie"), t172Named(o, "Secret", t172Release+"-auth-cookie-ext")
+	if a == nil || b == nil {
+		t.Fatal("Secrets de cookie absents")
+	}
+	if t172SecretValue(t, a, "cookie-secret") == t172SecretValue(t, b, "cookie-secret") {
+		t.Error("les deux cookie-secret sont identiques : un cookie interne ouvrirait une session externe")
+	}
+	if get(b, "metadata", "annotations", "helm.sh/resource-policy") != "keep" {
+		t.Error("cookie externe sans annotation keep")
+	}
+	// ConfigMap propre à l'externe : colonne GitHub seule
+	cm := t172Named(o, "ConfigMap", t172Release+"-auth-templates-ext")
+	if cm == nil {
+		t.Fatal("ConfigMap rel-auth-templates-ext absente")
+	}
+	if si, _ := get(cm, "data", "sign_in.html").(string); strings.Contains(si, "Compte local") {
+		t.Error("sign_in.html externe avec la colonne « Compte local »")
+	}
+	// Service : http et http-ext seulement ; jamais health ni 8081
+	var ports []string
+	for _, p := range get(o["Service"][0], "spec", "ports").([]any) {
+		ports = append(ports, fmt.Sprint(get(p, "name"), "/", get(p, "port")))
+	}
+	if strings.Join(ports, ",") != "http/"+fmt.Sprint(get(o["Service"][0], "spec", "ports").([]any)[0].(m)["port"])+",http-ext/8083" {
+		t.Errorf("ports du Service = %v, attendu http et http-ext/8083", ports)
+	}
+	for _, p := range ports {
+		if strings.Contains(p, "health") || strings.HasSuffix(p, "/8081") || strings.HasSuffix(p, "/8082") {
+			t.Errorf("port %s exposé par le Service", p)
+		}
+	}
+	// NetworkPolicy : entrée sur http et http-ext
+	if len(o["NetworkPolicy"]) > 0 {
+		b, _ := yaml.Marshal(o["NetworkPolicy"])
+		if !strings.Contains(string(b), "http-ext") && !strings.Contains(string(b), "8083") {
+			t.Errorf("NetworkPolicy sans le port http-ext : %s", b)
+		}
+		if strings.Contains(string(b), "8082") || strings.Contains(string(b), "8081") {
+			t.Errorf("NetworkPolicy ouvre 8081/8082 : %s", b)
+		}
+	}
+	// l'Ingress externe vise http-ext, sans htpasswd (pas de /oauth2 local) ; adresses du launcher
+	var extIng m
+	for _, ing := range o["Ingress"] {
+		if strings.Contains(fmt.Sprint(get(ing, "spec", "rules")), "launcher.example.org") {
+			extIng = ing
+		}
+	}
+	if extIng == nil || !strings.Contains(fmt.Sprint(get(extIng, "spec", "rules")), "http-ext") {
+		t.Errorf("Ingress externe absent ou ne visant pas http-ext : %v", get(extIng, "spec", "rules"))
+	}
+	e := t172Env(t172Container(t, o, "launcher"))
+	if e["CL_WEB_URL"] != "https://launcher.example.org" || e["CL_WEB_ALT_URLS"] != "https://launcher-test.coupel.lan" {
+		t.Errorf("CL_WEB_URL / CL_WEB_ALT_URLS = %q / %q", e["CL_WEB_URL"], e["CL_WEB_ALT_URLS"])
+	}
+	if e["CL_AUTH_LOCAL_ADMIN_HOSTS"] != "launcher-test.coupel.lan" {
+		t.Errorf("CL_AUTH_LOCAL_ADMIN_HOSTS = %q : l'hôte externe n'y figure jamais", e["CL_AUTH_LOCAL_ADMIN_HOSTS"])
+	}
+	// rateLimit sur /oauth2/ de chaque ingress
+	n := 0
+	for _, ing := range o["Ingress"] {
+		if strings.Contains(fmt.Sprint(get(ing, "spec", "rules")), "/oauth2") {
+			n++
+		}
+	}
+	if n < 2 {
+		t.Errorf("%d Ingress /oauth2, attendu un par hôte (interne et externe)", n)
+	}
+}
+
+func TestChartAuth172ExternalRefusals(t *testing.T) {
+	needHelm(t)
+	must(t, t172Ext())
+	v := t172Ext()
+	sub(v, "auth", "localAdmin")["hosts"] = []any{"launcher-test.coupel.lan", "launcher.example.org"}
+	t.Run("hôte externe dans localAdmin.hosts", func(t *testing.T) { t172Refused(t, v, "launcher.example.org") })
+	v = t172Ext()
+	sub(v, "auth")["enabled"] = false
+	t.Run("externe sans authentification", func(t *testing.T) { t172Refused(t, v, "authentification désactivée") })
+	v = t172Ext()
+	sub(v, "externalIngress", "tls")["clusterIssuer"] = "interne" // émetteur interne de ingress.tls
+	t.Run("émetteur interne sur l'externe", func(t *testing.T) { t172Refused(t, v, "clusterIssuer") })
+}
+
+// MAJ-3 : backend host interdit derrière le proxy d'authentification (une session tmux joindrait 127.0.0.1:8081).
+func TestChartAuth172HostBackendRefused(t *testing.T) {
+	needHelm(t)
+	v := t172Values()
+	v["allowHostBackend"] = true
+	t.Run("allowHostBackend avec auth", func(t *testing.T) { t172Refused(t, v, "backend host interdit derrière le proxy d'authentification") })
+	// sans authentification : permis (comportement de v6.9.0), CL_ALLOW_HOST_BACKEND posée
+	v = baseValues()
+	v["auth"] = m{"enabled": false}
+	v["allowHostBackend"] = true
+	if e := env(t, must(t, v)); e["CL_ALLOW_HOST_BACKEND"] != "1" && e["CL_ALLOW_HOST_BACKEND"] != "true" {
+		t.Errorf("auth désactivée : CL_ALLOW_HOST_BACKEND = %q", e["CL_ALLOW_HOST_BACKEND"])
+	}
+	// jamais posée avec l'authentification
+	if e := t172Env(t172Container(t, must(t, t172Values()), "launcher")); e["CL_ALLOW_HOST_BACKEND"] != "" {
+		t.Errorf("CL_ALLOW_HOST_BACKEND = %q derrière le proxy", e["CL_ALLOW_HOST_BACKEND"])
+	}
+	// extraEnv ne la pose pas non plus
+	v = t172Values()
+	v["extraEnv"] = []any{m{"name": "CL_ALLOW_HOST_BACKEND", "value": "1"}}
+	t.Run("extraEnv", func(t *testing.T) { t172Refused(t, v, "CL_ALLOW_HOST_BACKEND") })
+}
+
+// Variables de session : CL_AUTH_SESSION_DURATION / _REFRESH (réservées) = valeurs du chart.
+func TestChartAuth172SessionEnv(t *testing.T) {
+	needHelm(t)
+	e := t172Env(t172Container(t, must(t, t172Values()), "launcher"))
+	if e["CL_AUTH_SESSION_DURATION"] != "8h" || e["CL_AUTH_SESSION_REFRESH"] != "1h" {
+		t.Errorf("session = %q / %q, attendu 8h / 1h", e["CL_AUTH_SESSION_DURATION"], e["CL_AUTH_SESSION_REFRESH"])
+	}
+	v := t172Values()
+	sub(v, "auth")["sessionDuration"], sub(v, "auth")["sessionRefresh"] = "12h", "30m"
+	e = t172Env(t172Container(t, must(t, v), "launcher"))
+	if e["CL_AUTH_SESSION_DURATION"] != "12h" || e["CL_AUTH_SESSION_REFRESH"] != "30m" {
+		t.Errorf("session configurée = %q / %q", e["CL_AUTH_SESSION_DURATION"], e["CL_AUTH_SESSION_REFRESH"])
+	}
+	for _, name := range []string{"CL_AUTH_SESSION_DURATION", "CL_AUTH_SESSION_REFRESH"} {
+		v := t172Values()
+		v["extraEnv"] = []any{m{"name": name, "value": "1h"}}
+		t.Run("reserve/"+name, func(t *testing.T) { t172Refused(t, v, name) })
+	}
+}
+
+// m7 : gabarits — aucune injection : jamais safeHTML ni script ; les valeurs du proxy passent par {{ .X }} (auto-échappé).
+func TestChartAuth172TemplatesNoInjection(t *testing.T) {
+	for _, f := range []string{"error.html", "sign_in.html", "sign_in.local-only.html"} {
+		b, err := os.ReadFile(chartDir + "/files/auth-templates/" + f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(b)
+		for _, bad := range []string{"safeHTML", "safeJS", "safeURL", "safeHTMLAttr", "<script", "javascript:"} {
+			if strings.Contains(s, bad) {
+				t.Errorf("%s : « %s » présent", f, bad)
+			}
+		}
+		for _, a := range regexp.MustCompile(`\{\{[^}]*\}\}`).FindAllString(s, -1) {
+			if bare := regexp.MustCompile(`"[^"]*"`).ReplaceAllString(a, `""`); strings.Contains(bare, "|") || regexp.MustCompile(`\b(html|js|urlquery|print)\b`).MatchString(bare) {
+				t.Errorf("%s : action de gabarit suspecte %s (seules {{ .X }} / {{ if }} / {{ end }} sont admises)", f, a)
+			}
 		}
 	}
 }

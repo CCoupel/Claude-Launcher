@@ -6,10 +6,13 @@ package core
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -192,7 +195,7 @@ func TestAudit251FilesAggregatedEventsSingle(t *testing.T) {
 	}
 }
 
-// Rotation : au-delà de 10 Mio, audit.jsonl → audit.jsonl.1 (une seule génération gardée), nouveau fichier ensuite.
+// Rotation (addendum 2, MAJ-4) : au-delà de 10 Mio, audit.jsonl → audit.jsonl.1, … jusqu'à 5 générations (.5) ; aucune .6.
 func TestAudit251Rotation(t *testing.T) {
 	a, p, _ := audit251(t)
 	big := strings.Repeat("x", 1<<20) + "\n"
@@ -206,29 +209,92 @@ func TestAudit251Rotation(t *testing.T) {
 		}
 		f.Close()
 	}
-	fill()
-	if err := a.Record(AuditEntry{User: "u", Method: "configSave", OK: true}); err != nil {
-		t.Fatal(err)
+	methods := []string{"configSave", "configApply", "relaunch", "backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "login"}
+	for i, m := range methods { // 7 rotations : les 5 dernières générations seulement
+		fill()
+		if err := a.Record(AuditEntry{User: "u", Method: m, OK: true}); err != nil {
+			t.Fatal(err)
+		}
+		ls := lines251(t, p)
+		if len(ls) != 1 || ls[0]["method"] != m {
+			t.Fatalf("rotation %d : nouveau journal = %v", i+1, ls)
+		}
+		if st, _ := os.Stat(p); st.Size() > 1<<10 {
+			t.Errorf("rotation %d : le nouveau journal contient l'ancien (%d octets)", i+1, st.Size())
+		}
 	}
-	st1, err := os.Stat(p + ".1")
-	if err != nil || st1.Size() < 10<<20 {
-		t.Fatalf("audit.jsonl.1 absent ou trop petit : %v", err)
+	for g := 1; g <= 5; g++ {
+		if st, err := os.Stat(p + "." + strconv.Itoa(g)); err != nil || st.Size() < 10<<20 {
+			t.Errorf("audit.jsonl.%d absent ou trop petit : %v", g, err)
+		}
+	}
+	if _, err := os.Stat(p + ".6"); err == nil {
+		t.Error("audit.jsonl.6 créé : cinq générations gardées au plus")
+	}
+}
+
+// Au-delà de 60 appels par minute et par utilisateur, toute méthode est agrégée (entrée agg) ; les appels R1 ne le sont JAMAIS.
+func TestAudit251OverSixtyPerMinuteAggregated(t *testing.T) {
+	a, p, clock := audit251(t)
+	for i := 0; i < 100; i++ {
+		_ = a.Record(AuditEntry{User: "bob", Role: "user", Method: "refresh", OK: true})
+		_ = a.Record(AuditEntry{User: "alice", Role: "user", Method: "refresh", OK: true}) // autre utilisateur : son propre quota
+	}
+	for i := 0; i < 100; i++ {
+		_ = a.Record(AuditEntry{User: "bob", Role: "user", Method: "backendSecretSet", OK: false, Err: "forbidden", Target: "backend-a"})
+	}
+	*clock = clock.Add(time.Minute)
+	_ = a.Flush(false)
+	indiv := map[string]int{}
+	var aggBob float64
+	for _, l := range lines251(t, p) {
+		key := l["user"].(string) + "/" + l["method"].(string)
+		if l["kind"] == "agg" {
+			if key == "bob/refresh" {
+				aggBob += l["count"].(float64)
+			}
+			continue
+		}
+		indiv[key]++
+	}
+	if indiv["bob/refresh"] != 60 || indiv["alice/refresh"] != 60 {
+		t.Errorf("entrées individuelles refresh : bob %d, alice %d, attendu 60 chacun", indiv["bob/refresh"], indiv["alice/refresh"])
+	}
+	if aggBob != 40 {
+		t.Errorf("agrégat bob/refresh : count %v, attendu 40 (100 − 60)", aggBob)
+	}
+	if indiv["bob/backendSecretSet"] != 100 {
+		t.Errorf("appels R1 : %d entrées, attendu 100 (jamais agrégés)", indiv["bob/backendSecretSet"])
+	}
+}
+
+// target (méthodes R1 et refus R1) : identifiant court écrit tel quel ; absent sinon.
+func TestAudit251TargetField(t *testing.T) {
+	a, p, _ := audit251(t)
+	_ = a.Record(AuditEntry{User: "u", Role: "admin", Method: "configSave", Target: "backends.yaml", OK: true})
+	_ = a.Record(AuditEntry{User: "u", Role: "admin", Method: "refresh", OK: true})
+	ls := lines251(t, p)
+	if len(ls) != 2 || ls[0]["target"] != "backends.yaml" {
+		t.Fatalf("lignes = %v", ls)
+	}
+	if _, has := ls[1]["target"]; has {
+		t.Errorf("target sur un appel qui n'en porte pas : %v", ls[1])
+	}
+}
+
+// Écriture par encoding/json : une valeur hostile (guillemets, retours à la ligne, caractères de contrôle) reste UNE ligne
+// JSON valide, sans champ ajouté.
+func TestAudit251JSONEscaping(t *testing.T) {
+	a, p, _ := audit251(t)
+	hostile := "x\"},{\"ok\":true,\"role\":\"admin\"\n{\"forged\":1}\r\x00\x1b[31m"
+	_ = a.Record(AuditEntry{User: hostile, Role: "user", Src: hostile, Method: "configSave", Target: hostile, OK: false, Err: "forbidden"})
+	b, _ := os.ReadFile(p)
+	if n := strings.Count(strings.TrimRight(string(b), "\n"), "\n"); n != 0 {
+		t.Fatalf("%d sauts de ligne dans l'entrée : %q", n, b)
 	}
 	ls := lines251(t, p)
-	if len(ls) != 1 || ls[0]["method"] != "configSave" {
-		t.Errorf("nouveau journal : %v", ls)
-	}
-	if st, _ := os.Stat(p); st.Size() > 1<<10 {
-		t.Errorf("le nouveau journal contient l'ancien (%d octets)", st.Size())
-	}
-	// seconde rotation : .1 est remplacé, aucune génération .2
-	fill()
-	_ = a.Record(AuditEntry{User: "u", Method: "configApply", OK: true})
-	if _, err := os.Stat(p + ".2"); err == nil {
-		t.Error("audit.jsonl.2 créé : une seule génération gardée")
-	}
-	if _, err := os.Stat(p + ".1"); err != nil {
-		t.Error("audit.jsonl.1 perdu")
+	if len(ls) != 1 || ls[0]["role"] != "user" || ls[0]["ok"] != false || ls[0]["forged"] != nil {
+		t.Errorf("entrée forgée : %v", ls)
 	}
 }
 
@@ -281,5 +347,93 @@ func TestAudit251NoSecretLeak(t *testing.T) {
 	}
 	if !strings.Contains(string(b), `"user":"admin@local"`) {
 		t.Errorf("user admin@local absent : %s", b)
+	}
+}
+
+// Sortie standard (MAJ-4) : chaque ligne écrite dans le fichier l'est aussi, préfixée « audit », sur la sortie du conteneur
+// (collecte Kubernetes : non effaçable par l'application) — y compris quand le fichier est inaccessible.
+func TestAudit251StdoutMirror(t *testing.T) {
+	a, p, clock := audit251(t)
+	var out bytes.Buffer
+	a.out = &out
+	_ = a.Record(AuditEntry{User: "ccoupel", Role: "admin", Method: "configSave", Target: "backends.yaml", OK: true})
+	for i := 0; i < 3; i++ {
+		_ = a.Record(AuditEntry{User: "ccoupel", Role: "admin", Method: "termInput", OK: true})
+	}
+	*clock = clock.Add(time.Minute)
+	_ = a.Flush(false)
+	var file []string
+	b, _ := os.ReadFile(p)
+	for _, l := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		file = append(file, l)
+	}
+	got := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(got) != len(file) || len(file) != 2 {
+		t.Fatalf("sortie standard %d lignes, fichier %d (attendu 2 et 2) :\n%s", len(got), len(file), out.String())
+	}
+	for i, l := range got {
+		if l != "audit "+file[i] {
+			t.Errorf("ligne %d : %q, attendu « audit » + la ligne du fichier %q", i, l, file[i])
+		}
+	}
+	// fichier inaccessible : la sortie standard reste écrite, les méthodes R1 sont refusées par l'appelant (Check)
+	_ = os.Remove(p)
+	if err := os.Mkdir(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	_ = a.Record(AuditEntry{User: "u", Role: "user", Method: "refresh", OK: true})
+	if !strings.Contains(out.String(), `"method":"refresh"`) {
+		t.Errorf("fichier en échec : sortie standard non écrite : %q", out.String())
+	}
+	if err := a.Check(); err == nil {
+		t.Error("Check sans erreur alors que le fichier est inaccessible")
+	}
+}
+
+// Refus d'identité (401, 403 du launcher) : agrégat par minute kind « deny » (login tronqué à 64 caractères sans caractère
+// de contrôle, code, count) ; rien d'autre ; jamais écrit tant que la minute n'est pas révolue.
+func TestAudit251DenyAggregated(t *testing.T) {
+	a, p, clock := audit251(t)
+	long := strings.Repeat("é", 100) + "\x1b[2J"
+	for i := 0; i < 4; i++ {
+		_ = a.Deny("bob-test", 403)
+	}
+	_ = a.Deny("", 401)
+	_ = a.Deny(long, 403)
+	if ls := lines251(t, p); len(ls) != 0 {
+		t.Fatalf("écrit dans la minute en cours : %v", ls)
+	}
+	*clock = clock.Add(time.Minute)
+	_ = a.Flush(false)
+	by := map[string]map[string]any{}
+	for _, l := range lines251(t, p) {
+		if l["kind"] != "deny" {
+			t.Errorf("entrée inattendue : %v", l)
+			continue
+		}
+		for k := range l {
+			switch k {
+			case "ts", "kind", "login", "code", "count", "since":
+			default:
+				t.Errorf("champ %q hors contrat : %v", k, l)
+			}
+		}
+		l2, _ := l["login"].(string)
+		by[l2+"/"+fmt.Sprint(l["code"])] = l
+	}
+	if d := by["bob-test/403"]; d == nil || d["count"] != float64(4) || d["since"] != "2026-12-01T10:00:00Z" {
+		t.Errorf("bob-test/403 = %v, attendu count 4 depuis le début de la minute", d)
+	}
+	if d := by["/401"]; d == nil || d["count"] != float64(1) {
+		t.Errorf("identité absente = %v", d)
+	}
+	for k := range by {
+		if strings.Contains(k, "\x1b") {
+			t.Errorf("caractère de contrôle dans le login : %q", k)
+		}
+		if r := []rune(strings.TrimSuffix(k, "/403")); len(r) > 64 && strings.HasSuffix(k, "/403") && k != "bob-test/403" {
+			t.Errorf("login de %d caractères, attendu tronqué à 64", len(r))
+		}
 	}
 }

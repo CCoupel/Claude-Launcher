@@ -5,6 +5,7 @@ package core
 // Aucun appel réseau ni fichier : fonctions pures.
 
 import (
+	"encoding/json"
 	"sort"
 	"strings"
 	"testing"
@@ -172,45 +173,174 @@ func TestAuth172EffectiveAccessProxy(t *testing.T) {
 	}
 }
 
-// R1 : la liste exacte du contrat (P4) — ni plus ni moins ; backendSecretGet et les lectures n'en sont pas.
-func TestAuth172R1MethodList(t *testing.T) {
+// Classement des méthodes (contracts/auth.md §4, addendum 2) : liste exacte de chaque classe — ni plus ni moins.
+func TestAuth172MethodClasses(t *testing.T) {
 	t.Parallel()
-	want := []string{"configSave", "configApply", "projectSettings", "projectApply", "execApply", "envTrustAnswer",
-		"initProposalAnswer", "backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "backendHostScan", "relaunch"}
-	for _, m := range want {
+	want := map[Class][]string{
+		ClassR1: {"configSave", "configApply", "backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "relaunch", "login"},
+		ClassProject: {"create", "createCancel", "projectSettings", "projectApply", "execApply", "envTrustAnswer", "initProposalAnswer",
+			"projectMove", "projectMoveResume", "projectMoveAbort", "categoryCreate", "backendTest", "backendHostScan", "open", "reattach",
+			"refreshProject", "forceClose", "forceCloseConfirm", "close", "closeConfirm", "detach", "refresh", "rescan", "teamToggle",
+			"relayout", "select", "cardsFor", "setPrefs", "setTheme", "dismiss", "alert"},
+		ClassRead: {"init", "clientInfo", "diag", "tools", "newInfo", "projectMoveInfo", "envTrustInfo", "projectBases", "projectCategories",
+			"configFiles", "configOpen", "configValidate", "configModel", "backendStates", "launcherInfo", "backendSecretGet"},
+		ClassTerminal:    {"termInput", "launchInput", "resizePane", "termResize", "termFocus", "termZoom", "termSync"},
+		ClassProxyDenied: {"quit", "webUIOpen", "webUIRegen", "clipboardRead", "clipboardWrite", "teamAgentSet", "secretReveal"},
+	}
+	total := 0
+	for class, ms := range want {
+		for _, m := range ms {
+			total++
+			if c, known := ClassOf(m); !known || c != class {
+				t.Errorf("%s : classe %v (connue %v), attendu %v", m, c, known, class)
+			}
+		}
+	}
+	if got := len(ClassifiedMethods()); got != total {
+		t.Errorf("%d méthodes classées, attendu %d (liste du contrat) : %v", got, total, ClassifiedMethods())
+	}
+	// R1Method : seulement la classe R1 (les écritures de projets et de backends ne le sont plus — décision utilisateur)
+	for _, m := range []string{"projectSettings", "projectApply", "execApply", "envTrustAnswer", "initProposalAnswer", "backendHostScan",
+		"backendSecretGet", "refresh", "termInput", "init", "create", "projectMove"} {
+		if R1Method(m) {
+			t.Errorf("%s ne doit plus être R1", m)
+		}
+	}
+	for _, m := range want[ClassR1] {
 		if !R1Method(m) {
 			t.Errorf("%s devrait être R1", m)
 		}
 	}
-	for _, m := range []string{"backendSecretGet", "secretReveal", "configModel", "teamAgentSet", "init", "clientInfo", "refresh",
-		"termInput", "select", "cardsFor", "setPrefs", "", "CONFIGSAVE"} {
-		if R1Method(m) {
-			t.Errorf("%q ne doit pas être R1", m)
+}
+
+// Échec fermé : une méthode non classée est R1 (et signalée « non connue »), quelle que soit la casse ou la forme.
+func TestAuth172UnknownMethodIsR1(t *testing.T) {
+	t.Parallel()
+	for _, m := range []string{"", "inconnue", "CONFIGSAVE", "configsave", "refresh ", "future_method", "../relaunch"} {
+		c, known := ClassOf(m)
+		if known || c != ClassR1 || !R1Method(m) {
+			t.Errorf("%q : classe %v connue %v R1 %v, attendu non connue et R1", m, c, known, R1Method(m))
 		}
 	}
 }
 
-// R1 selon le mode et le rôle (tableau §4).
-func TestAuth172R1Allowed(t *testing.T) {
+// configSave / configApply : R1 selon le fichier (config.conf, env.yaml du launcher, hub) ; project-env : libre.
+func TestAuth172ConfigKindR1(t *testing.T) {
 	t.Parallel()
-	admin, user := &Identity{Login: "ccoupel", Role: RoleAdmin}, &Identity{Login: "alice", Role: RoleUser}
+	for kind, want := range map[string]bool{"config.conf": true, "env.yaml": true, "hub": true, "project-env": false, "backends.yaml": false, "": false, "autre": false} {
+		if got := ConfigKindR1(kind); got != want {
+			t.Errorf("ConfigKindR1(%q) = %v, attendu %v (backends.yaml : décidé par AdminFieldsChanged)", kind, got, want)
+		}
+	}
+}
+
+// backends.yaml : R1 seulement quand un champ R1 change (rubriques globales, kubeconfig, context, volumes, namespace, type host,
+// clés de pod sensibles) ; image, shared, host ssh, ressources, placement : libres ; YAML illisible = changé (échec fermé).
+func TestAuth172AdminFieldsChanged(t *testing.T) {
+	t.Parallel()
+	const base = "backends:\n  k: {type: k8s, namespace: n, context: c, volumes: {/a: pvc}, image: img:1, shared: [/a]}\n  s: {type: ssh, host: h1, shared: [/a]}\n"
 	for name, tc := range map[string]struct {
-		access string
-		id     *Identity
-		want   bool
+		old, new string
+		want     bool
 	}{
-		"jeton":                  {AccessToken, nil, true},
-		"défaut (vide)":          {"", nil, true},
-		"proxy admin":            {AccessProxy, admin, true},
-		"proxy admin@local":      {AccessProxy, &Identity{Login: LocalAdminLogin, Role: RoleAdmin}, true},
-		"proxy user":             {AccessProxy, user, false},
-		"proxy sans identité":    {AccessProxy, nil, false},
-		"proxy rôle inconnu":     {AccessProxy, &Identity{Login: "x", Role: ""}, false},
-		"none":                   {AccessNone, nil, false},
-		"none avec un « admin »": {AccessNone, admin, false},
+		"identique":                      {base, base, false},
+		"vide vers vide":                 {"", "", false},
+		"image changée":                  {base, strings.Replace(base, "img:1", "img:2", 1), false},
+		"shared changé":                  {base, strings.Replace(base, "shared: [/a]}\n  s", "shared: [/a, /b]}\n  s", 1), false},
+		"hôte ssh changé":                {base, strings.Replace(base, "host: h1", "host: h2", 1), false},
+		"backend ssh ajouté":             {base, base + "  t: {type: ssh, host: h3, shared: [/a]}\n", false},
+		"backend supprimé":               {base, "backends:\n  s: {type: ssh, host: h1, shared: [/a]}\n", true}, // k portait volumes, context, namespace
+		"ressources du pod":              {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {resources: {limits: {memory: 4Gi}}}", 1), false},
+		"placement du pod":               {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {nodeSelector: {a: b}, tolerations: [{key: x}]}", 1), false},
+		"volumes changé":                 {base, strings.Replace(base, "{/a: pvc}", "{/a: autre}", 1), true},
+		"namespace changé":               {base, strings.Replace(base, "namespace: n", "namespace: kube-system", 1), true},
+		"context changé":                 {base, strings.Replace(base, "context: c", "context: admin", 1), true},
+		"kubeconfig ajouté":              {base, strings.Replace(base, "image: img:1", "image: img:1, kubeconfig: /etc/k", 1), true},
+		"type host ajouté":               {base, base + "  h: {type: host}\n", true},
+		"serviceAccountName":             {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {serviceAccountName: admin}", 1), true},
+		"automountServiceAccountToken":   {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {automountServiceAccountToken: true}", 1), true},
+		"securityContext":                {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {securityContext: {runAsUser: 0}}", 1), true},
+		"nodeName":                       {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {nodeName: n1}", 1), true},
+		"runtimeClassName":               {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {runtimeClassName: x}", 1), true},
+		"hostAliases":                    {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {hostAliases: [{ip: 1.2.3.4, hostnames: [a]}]}", 1), true},
+		"dnsConfig":                      {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {dnsConfig: {nameservers: [1.2.3.4]}}", 1), true},
+		"dnsPolicy":                      {base, strings.Replace(base, "image: img:1", "image: img:1, pod: {dnsPolicy: None}", 1), true},
+		"rubrique globale desktop_web":   {base, base + "desktop_web: {enabled: true}\n", true},
+		"rubrique globale browser_paths": {base, base + "browser_paths: [{local: a, remote: b}]\n", true},
+		"rubrique globale hubs":          {base, base + "hubs: {x: {}}\n", true},
+		"défauts globaux":                {base, "defaults:\n  browser_server: {listen: off}\n" + base, true},
+		"YAML illisible (nouveau)":       {base, "backends: [\n", true},
+		"YAML illisible (ancien)":        {"backends: [\n", base, true},
+		"deux illisibles":                {"{{", "[[", true},
 	} {
-		if got := R1Allowed(tc.access, tc.id); got != tc.want {
+		if got := AdminFieldsChanged([]byte(tc.old), []byte(tc.new)); got != tc.want {
 			t.Errorf("%s : %v, attendu %v", name, got, tc.want)
+		}
+	}
+}
+
+// access (init, clientInfo) : capacités d'un client web, seule source du grisage ; deny calculé par le serveur.
+func TestAuth172AccessFor(t *testing.T) {
+	t.Parallel()
+	admin, user := &Identity{Login: "a", Role: RoleAdmin}, &Identity{Login: "u", Role: RoleUser}
+	r1 := []string{"configSave:config.conf", "configSave:env.yaml", "configSave:hub", "configApply:config.conf", "configApply:env.yaml", "configApply:hub",
+		"backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "relaunch", "login"}
+	denied := []string{"quit", "webUIOpen", "webUIRegen", "teamAgentSet", "secretReveal"}
+	has := func(ai AccessInfo, ms []string) []string {
+		var miss []string
+		for _, m := range ms {
+			found := false
+			for _, d := range ai.Deny {
+				if d == m {
+					found = true
+				}
+			}
+			if !found {
+				miss = append(miss, m)
+			}
+		}
+		return miss
+	}
+	ai := AccessFor(AccessProxy, user)
+	if ai.Mode != "proxy" || ai.Role != "user" || !ai.BackendsAdminFields || len(has(ai, r1)) != 0 || len(has(ai, denied)) != 0 {
+		t.Errorf("proxy user = %+v, manque %v %v", ai, has(ai, r1), has(ai, denied))
+	}
+	ai = AccessFor(AccessProxy, admin)
+	if ai.Role != "admin" || ai.BackendsAdminFields || len(has(ai, r1)) != len(r1) || len(has(ai, denied)) != 0 {
+		t.Errorf("proxy admin = %+v : seuls les refus du mode proxy attendus", ai)
+	}
+	ai = AccessFor(AccessProxy, nil)
+	if len(has(ai, r1)) != 0 || !ai.BackendsAdminFields {
+		t.Errorf("proxy sans identité = %+v : tout refusé", ai)
+	}
+	ai = AccessFor(AccessNone, nil)
+	if ai.Mode != "none" || ai.Role != "" || !ai.BackendsAdminFields || len(has(ai, r1)) != 0 {
+		t.Errorf("none = %+v, attendu toutes les méthodes R1 refusées, sans rôle", ai)
+	}
+	for _, mode := range []string{AccessToken, ""} {
+		ai = AccessFor(mode, nil)
+		if ai.Mode != "token" || len(ai.Deny) != 0 || ai.BackendsAdminFields {
+			t.Errorf("mode %q = %+v, attendu token sans refus", mode, ai)
+		}
+	}
+	if b, _ := json.Marshal(AccessFor(AccessToken, nil)); !strings.Contains(string(b), `"deny":[]`) {
+		t.Errorf("deny doit être [] (pas null) : %s", b)
+	}
+}
+
+// Comparaison d'hôtes (m2) : minuscules, port retiré, point final retiré, puis ÉGALITÉ stricte ; valeur illisible → refus.
+func TestAuth172HostComparison(t *testing.T) {
+	t.Parallel()
+	c := conf172(t, "ccoupel", "", "Launcher.Internal.")
+	for host, want := range map[string]bool{
+		"launcher.internal": true, "LAUNCHER.INTERNAL": true, "launcher.internal.": true, "Launcher.Internal.:8443": true,
+		"launcher.internal:443": true, "launcher.internal.evil.com": false, "evil-launcher.internal": false, "xlauncher.internal": false,
+		"launcher.internal@evil.com": false, "evil.com#launcher.internal": false, "launcher.internal..": false, "launcher.internal ": false,
+		" launcher.internal": false, "launcher.internal/x": false, "[::1]": false, "": false, "launcher.internal:notaport": false,
+	} {
+		_, why := c.Identify([]string{"admin@local"}, host)
+		if (why == "") != want {
+			t.Errorf("Host %q : admis %v, attendu %v (refus %q)", host, why == "", want, why)
 		}
 	}
 }
