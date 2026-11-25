@@ -1359,8 +1359,9 @@ Contrat complet : `contracts/auth.md` §3 à §5. Résumé pour le client :
 
 ### Méthodes R1 **[CHANGED]**
 
-`configSave`, `configApply`, `projectSettings`, `projectApply`, `execApply`, `envTrustAnswer`, `initProposalAnswer`,
-`backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet`, `backendHostScan`, `relaunch` : refus
+**[addendum 2]** Classement complet : `contracts/auth.md` §4 (R1 = `configSave`/`configApply` sur config globale ou
+champs R1 de `backends.yaml`, `backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet`, `relaunch`, `login` ;
+`quit` refusé en mode `proxy` ; méthode non classée = R1) : refus
 `{ "ok": false, "forbidden": "admin", "msg": "réservé à un administrateur authentifié (règle R1)" }` (sans `error`)
 pour un client web `proxy` de rôle `user` et pour tout client web en mode `none`. Le client grise ces actions quand
 `user.role` vaut `user`, ou quand le mode d'accès (`webui.access`) vaut `none` en mode serveur.
@@ -1379,3 +1380,9 @@ En mode `proxy`, `/api/call` et `/api/events` peuvent répondre `401` (session o
 - `estimate` (chaîne, **NEW**) : `"≈ épuisement ~HH:MM"` (heure locale, `FormatReset`) quand `approx` est vrai et que
   l'épuisement projeté précède le renouvellement ; sinon absent. Affiché en gris (pas de couleur d'alerte), infobulle
   « estimation approximative : échantillon court ». Coque tmux : même texte, couleur atténuée.
+
+### `init.access`, `user.session`, `user.kind` **[NEW addendum 2]**
+
+Voir `contracts/auth.md` « Précisions client » : `access = {mode, role, deny[], backendsAdminFields}` dans tous les modes
+du serveur web (absent dans la fenêtre native) — seule source du grisage côté client ; `configModel` marque les champs
+R1 de `backends.yaml` par `adminOnly: true`. `user.session = {duration, refresh}`, `user.kind = github | local`.

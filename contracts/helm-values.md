@@ -153,11 +153,11 @@ que l'ingress externe attend v7.0.0.
 | — (cookie) | — | — | — | **[rev1]** `cookie-secret` généré par le chart (Secret `<release>-auth-cookie`, 32 caractères, `keep`, réutilisé par `lookup`) |
 | `auth.admins` | liste de logins GitHub | `[]` | **oui**, non vide, si `auth.github.enabled` | rôle `admin` (R1) ; chaque entrée validée (forme d'un login, sans doublon) |
 | `auth.localAdmin.enabled` | booléen | `true` (P9) | — | **[rev1]** compte `admin@local` (`contracts/auth.md` §8) |
-| `auth.localAdmin.existingSecret` | chaîne | `""` | — | **[rev1]** Secret fourni (clé `htpasswd`, ligne `admin@local:$2y$<coût≥10>$…`) ; vide : Secret `<release>-local-admin` généré (P11) |
+| `auth.localAdmin.existingSecret` | chaîne | `""` | — | **[rev1]** Secret fourni (clé `htpasswd`, ligne `admin@local:$2[aby]$<coût≥10>$…`, contrôlée au rendu par `lookup` quand le cluster est joignable ; mot de passe ≥ 20 caractères aléatoires : consigne) ; vide : Secret `<release>-local-admin` généré (P11) |
 | `auth.localAdmin.hosts` | liste | `[<ingress.host>]` | — | **[rev1]** hôtes où le compte local est admis (`CL_AUTH_LOCAL_ADMIN_HOSTS`) ; l'hôte externe y est **refusé au rendu** (P10) |
 | `auth.users` | liste de logins GitHub | `[]` | — | rôle `user` (P2) : terminaux et projets, pas d'écriture R1 ; un login présent dans les deux listes est refusé au rendu |
 | `auth.sessionDuration` | durée (`h`, `m`) | `8h` | — | `--cookie-expire` ; minimum `15m`, maximum `168h` |
-| `auth.sessionRefresh` | durée | `1h` | — | `--cookie-refresh` (< `sessionDuration`, `0` interdit) : l'appartenance aux listes et le jeton GitHub sont revérifiés à chaque renouvellement |
+| `auth.sessionRefresh` | durée | `1h` | — | `--cookie-refresh` (< `sessionDuration`, `0` interdit). **[addendum 2, m6]** Le fournisseur GitHub n'a pas de jeton de renouvellement : rien n'est revérifié chez GitHub ; la révocation est la liste du launcher (`CL_AUTH_*`, relue à chaque requête) ou la rotation du `cookie-secret` |
 | `auth.proxy.image.repository` | chaîne | `quay.io/oauth2-proxy/oauth2-proxy` | — | image du sidecar |
 | `auth.proxy.image.tag` | chaîne | `v7.15.6` (rapport `infra` du 2026-11-25) | — | jamais `latest` (refusé au rendu) ; digest relevé au build |
 | `auth.proxy.image.digest` | chaîne | `""` | — | `sha256:…` facultatif, comme `image.digest` |
@@ -184,6 +184,28 @@ que l'ingress externe attend v7.0.0.
   du navigateur ; seul oauth2-proxy appelle `github.com` (sortie du pod).
 - Compte local activé : `--htpasswd-file` (Secret monté en lecture seule, `0440`), `--display-htpasswd-form=true`,
   `--skip-provider-button=false` ; ConfigMap des gabarits rendue avec ou sans bouton GitHub.
+- **[addendum 2]** Règles de rendu : `allowHostBackend: true` avec `auth.enabled: true` → refus (« backend host interdit
+  derrière le proxy d'authentification », MAJ-3).
+- **[addendum 2]** Middleware Traefik `<release>-headers` sur **les deux** ingress : `customRequestHeaders:
+  {Authorization: ""}` (MAJ-1 : chemin Basic-auth fermé) et en-têtes de réponse HSTS, `frame-ancestors 'none'`,
+  `nosniff`, `Referrer-Policy: no-referrer` (m7) ; `ipAllowList` et `rateLimit` avec `ipStrategy.depth: 0`. nginx :
+  `proxy_set_header Authorization ""` par l'annotation dédiée du chart. Tests de rendu : middleware référencé par
+  chaque ingress.
+- **[addendum 2, réserves dev-frontend]** Gabarits : la ConfigMap `<release>-auth-templates` porte `error.html` et
+  `sign_in.html` ; la clé `sign_in.html` est rendue depuis `files/auth-templates/sign_in.html` (GitHub + compte local,
+  M7 B) ou `files/auth-templates/sign_in.local-only.html` quand `auth.github.enabled: false`. L'instance externe a sa
+  propre ConfigMap `<release>-auth-templates-ext` (`sign_in.html` = colonne GitHub seule ; page jamais vue en pratique :
+  `--skip-provider-button=true` sur l'externe, faute de formulaire).
+- **[addendum 2]** Page `429` : middleware Traefik `<release>-errors` (`errors`, `status: ["429"]`, `service:` le Service
+  du launcher port `http`, `query: /too-many`) chaîné **après** `rateLimit` sur la route `/oauth2/` de chaque ingress ;
+  `/too-many` est servie par le launcher sans identité (route exemptée par oauth2-proxy). nginx : `429` brut (corps du
+  contrôleur), documenté.
+- Variables ajoutées : `CL_AUTH_SESSION_DURATION`, `CL_AUTH_SESSION_REFRESH` (réservées).
+- **[addendum 2, m1]** Secrets de cookie distincts : `<release>-auth-cookie` (`_cl_auth`) et `<release>-auth-cookie-ext`
+  (`_cl_auth_ext`), générés, `keep`, `lookup`.
+- **[addendum 2, m3]** Service : ports `http` (8080) et, si l'externe est activé, `http-ext` (8083) ; **jamais**
+  `health` (8082) ni 8081. NetworkPolicy : entrée sur `http` et `http-ext` depuis le contrôleur d'Ingress seulement
+  (vérifié en QUALIF depuis un pod projet : 8080, 8082, 8083 refusés).
 - NetworkPolicy : inchangée (entrée sur le port `http` depuis le contrôleur d'Ingress) ; sortie non restreinte
   (oauth2-proxy appelle `github.com` et `api.github.com`).
 - `NOTES.txt` : adresse(s), « authentification GitHub : N administrateur(s) », nom du Secret attendu ; plus de mention

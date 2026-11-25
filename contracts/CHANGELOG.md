@@ -2,6 +2,28 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261125] — v7.0.0 (addendum 2) : R1 recentrée sur le serveur, corrections de sécurité (revue du modèle de menace)
+
+- **[BREAKING]** (par rapport au plan) R1 = **serveur et options globales** (décision utilisateur) : `config.conf`,
+  `env.yaml` du launcher, `hub`, champs R1 de `backends.yaml` (rubriques globales ; `kubeconfig`, `context`, `volumes`,
+  `namespace`, `type: host`, clés `pod.` de ServiceAccount, sécurité et placement d'hôte), écriture du coffre,
+  `relaunch`, `login`. Un `user` garde `create`, `projectSettings`, `projectApply`, `execApply`, `envTrustAnswer`,
+  `initProposalAnswer`, `projectMove*`, `categoryCreate`, `backendHostScan`, le reste de `backends.yaml`. `quit` refusé en
+  mode `proxy`. Méthode non classée = R1 (test) — `contracts/auth.md` §4.
+- **[CHANGED]** refus de démarrage et de rendu : mode `proxy` + `CL_ALLOW_HOST_BACKEND` ; `RemoteAddr` en boucle locale
+  contrôlé à chaque requête ; comparaison d'hôtes normalisée (m2).
+- **[CHANGED]** audit : doublé sur la sortie standard, 5 générations de 10 Mio, agrégation au-delà de 60 appels/min hors
+  R1, entrées `deny` (401/403), `target` court, `src` borné à 256 octets, `encoding/json` seul — `auth.md` §5.
+- **[CHANGED]** chart : middleware `headers` (retrait d'`Authorization`, en-têtes de sécurité), `ipStrategy` profondeur 0,
+  cookies et Secrets distincts par instance (`_cl_auth_ext`), Service/NetworkPolicy `http-ext`, `allowHostBackend`
+  refusé avec l'auth, bcrypt `$2a|$2b|$2y$` ; arguments oauth2-proxy explicites (m4) — `helm-values.md` « v7.0.0 ».
+- **[NEW]** `init.access` / `clientInfo.access` `{mode, role, deny[], backendsAdminFields}` (grisage reçu du serveur,
+  plus de liste en dur), `configModel` `adminOnly`, `user.session {duration, refresh}`, `user.kind` ; routes Go
+  embarquées `GET /signed-out` et `GET /too-many` ; chart : `sign_in.local-only.html` monté comme `sign_in.html` si
+  GitHub désactivé, ConfigMap externe distincte, middleware `errors` 429 → `/too-many` (réserves dev-frontend 4421a97).
+- **[ADDED]** risques acceptés écrits : login GitHub renommable (MAJ-5, `CL_AUTH_ADMIN_IDS` en v7.1.0), mot de passe local
+  dans le Secret de release Helm, session non révocable avant expiration, pouvoir d'exécution d'un `user` (m9).
+
 ## [20261125] — v7.0.0 (addendum LOT-2) : estimation d'épuisement des quotas (#268, bugfix)
 
 - **[CHANGED]** `contracts/usage-levels.md` « Calcul » : projection calculée à chaque mise à jour du compteur, session

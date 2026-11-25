@@ -153,9 +153,11 @@ connue » (ssh), puis les étapes actuelles.
 ## v7.0.0 — règle R1 définitive **[CHANGED]** (#252)
 
 La règle provisoire de v6.4.0 (« Règle d'écriture des secrets ») est **remplacée** par la règle R1 de
-`contracts/auth.md` §4 :
+`contracts/auth.md` §4. **[addendum 2]** R1 = serveur et options globales ; un `user` est libre sur les projets et les
+champs non sensibles des backends ; **l'écriture du coffre (clés ssh, `known_hosts`, kubeconfig) reste R1** tant que
+backends et coffre sont communs (v7.0.0) :
 
-| Client | Écriture d'un secret, de la configuration, approbation d'environnement |
+| Client | Écriture d'un secret du coffre, de la configuration globale (R1) |
 |--------|--------------------------------------------------------------------------|
 | fenêtre native (hub, exe) | oui |
 | client web du hub / de l'exe (mode `token`) | oui (décision du plan v7.0.0 : le jeton désigne le propriétaire du poste) |
