@@ -403,7 +403,8 @@ func (p PublicURL) MatchesHost(reqHost string) bool {
 	if err != nil {
 		h, port = strings.Trim(reqHost, "[]"), ""
 	}
-	return strings.EqualFold(strings.Trim(h, "[]"), p.Host) && port == p.Port
+	h = strings.TrimSuffix(strings.Trim(h, "[]"), ".") // point final retiré (m2)
+	return strings.EqualFold(h, p.Host) && port == p.Port
 }
 
 // ── Mode d'accès (LOT-4.4) ───────────────────────────────────────────────
@@ -445,4 +446,67 @@ func AccessNoneRefusal(access string, loopback bool, pub *PublicURL) string {
 		return ""
 	}
 	return "accès sans jeton refusé : écoute réseau sans adresse publique en https"
+}
+
+// ── Champs R1 de backends.yaml (v7.0.0, contracts/auth.md §4) ──────────────────────────────────────────────────────
+
+// adminBackendKeys : clés d'un backend réservées à l'administrateur (ServiceAccount, volumes, machine hôte).
+var adminBackendKeys = []string{"kubeconfig", "context", "volumes", "namespace"}
+
+// adminPodKeys : clés de pod: réservées à l'administrateur.
+var adminPodKeys = []string{"serviceAccountName", "automountServiceAccountToken", "securityContext", "nodeName", "runtimeClassName",
+	"hostAliases", "dnsConfig", "dnsPolicy"}
+
+// AdminFieldsChanged : les champs R1 de deux contenus de backends.yaml diffèrent — toutes les rubriques hors « backends: »,
+// et pour chaque backend : kubeconfig, context, volumes, namespace, type host, et les clés de pod sensibles. Contenu illisible :
+// vrai (échec fermé).
+func AdminFieldsChanged(oldContent, newContent []byte) bool {
+	a, okA := adminPrint(oldContent)
+	b, okB := adminPrint(newContent)
+	return !okA || !okB || a != b
+}
+
+func adminPrint(content []byte) (string, bool) {
+	var f map[string]any
+	if len(strings.TrimSpace(string(content))) > 0 {
+		if yaml.Unmarshal(content, &f) != nil {
+			return "", false
+		}
+	}
+	js := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	var keys []string
+	for k := range f {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	for _, k := range keys {
+		if k != "backends" {
+			sb.WriteString("top:" + k + "=" + js(f[k]) + ";")
+		}
+	}
+	bs, _ := f["backends"].(map[string]any)
+	var names []string
+	for n := range bs {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		be, _ := bs[n].(map[string]any)
+		if t, _ := be["type"].(string); t == "host" {
+			sb.WriteString("host:" + n + ";")
+		}
+		for _, k := range adminBackendKeys {
+			if v, ok := be[k]; ok {
+				sb.WriteString(n + "." + k + "=" + js(v) + ";")
+			}
+		}
+		pod, _ := be["pod"].(map[string]any)
+		for _, k := range adminPodKeys {
+			if v, ok := pod[k]; ok {
+				sb.WriteString(n + ".pod." + k + "=" + js(v) + ";")
+			}
+		}
+	}
+	return sb.String(), true
 }

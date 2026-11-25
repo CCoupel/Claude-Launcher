@@ -368,9 +368,21 @@ func (w *webBridge) secured(next http.Handler) http.Handler {
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
-		if w.access == core.AccessProxy && !signedOutRoute(r) { // identité exigée partout sauf santé et /signed-out
+		if w.access == core.AccessProxy && !publicStatic(r) { // identité exigée partout sauf santé, /signed-out et /too-many
+			// seul le sidecar (même espace réseau que le pod) est un client : toute autre source est refusée à CHAQUE requête
+			if !loopbackSource(r.RemoteAddr) {
+				w.auditDeny(r, "", http.StatusForbidden)
+				rw.Header().Set("X-Launcher-Refusal", "source")
+				http.Error(rw, "source refusée", http.StatusForbidden)
+				return
+			}
 			id, why := w.auth.Identify(r.Header.Values("X-Forwarded-User"), r.Host)
 			if why != "" {
+				code := http.StatusUnauthorized
+				if why == core.RefusalUser {
+					code = http.StatusForbidden
+				}
+				w.auditDeny(r, strings.TrimSpace(r.Header.Get("X-Forwarded-User")), code)
 				refuseIdentity(rw, why)
 				return
 			}
@@ -407,6 +419,30 @@ func (w *webBridge) healthHandler() http.Handler {
 		}
 		rw.WriteHeader(http.StatusNotFound)
 	})
+}
+
+// publicStatic : pages statiques servies sans identité (mode proxy) : /signed-out et /too-many.
+func publicStatic(r *http.Request) bool { return signedOutRoute(r) || tooManyRoute(r) }
+
+func tooManyRoute(r *http.Request) bool {
+	return r.URL.Path == "/too-many" && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
+// loopbackSource : la connexion vient de la boucle locale (sidecar du pod).
+func loopbackSource(remote string) bool {
+	h, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		h = remote
+	}
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+// auditDeny : refus d'identité (401, 403) du launcher, agrégé par minute dans le journal d'audit.
+func (w *webBridge) auditDeny(r *http.Request, login string, code int) {
+	if w.audit != nil {
+		_ = w.audit.Deny(login, code)
+	}
 }
 
 // signedOutRoute : page /signed-out (statique, sans identité, exemptée par le proxy).
@@ -503,6 +539,16 @@ func (w *webBridge) handler() http.Handler {
 		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = io.WriteString(rw, signedOutFallback)
 	})
+	// page du 429 de Traefik (essais de connexion limités) : statique, sans identité (exemptée par oauth2-proxy)
+	mux.HandleFunc("/too-many", func(rw http.ResponseWriter, r *http.Request) {
+		if w.access != core.AccessProxy || r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(rw, r)
+			return
+		}
+		rw.Header().Set("Cache-Control", "no-store")
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(rw, tooManyPage)
+	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method != http.MethodPost:
@@ -530,8 +576,9 @@ func (w *webBridge) handler() http.Handler {
 		}
 		rw.Header().Set("Cache-Control", "no-store") // jamais mis en cache (secretReveal : valeur révélée)
 		id := identityOf(r)
+		target, r1 := w.app.r1Info(req.Method, req.Args)
 		// journal d'audit inaccessible : les écritures sensibles (R1) sont refusées (comme le journal des secrets)
-		if w.audit != nil && id != nil && core.R1Method(req.Method) && core.R1Allowed(w.access, id) {
+		if w.audit != nil && id != nil && r1 && core.R1Allowed(w.access, id) {
 			if aerr := w.audit.Check(); aerr != nil {
 				rw.Header().Set("Content-Type", "application/json")
 				_ = json.NewEncoder(rw).Encode(map[string]any{"result": map[string]any{"ok": false, "msg": aerr.Error()}})
@@ -539,7 +586,7 @@ func (w *webBridge) handler() http.Handler {
 			}
 		}
 		res, err := w.app.DispatchWebAs(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id}, req.Method, req.Args)
-		w.auditCall(r, id, req.Method, req.Args, res, err)
+		w.auditCall(r, id, req.Method, req.Args, res, err, target, r1)
 		out := map[string]any{"result": res}
 		if err != nil {
 			out["error"] = err.Error()
@@ -653,6 +700,11 @@ const signedOutFallback = `<!doctype html><html lang="fr"><meta charset="utf-8">
 	`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem"><h1>Déconnecté du launcher</h1>` +
 	`<p>La session GitHub de ce navigateur reste ouverte : se reconnecter peut aboutir sans saisie.</p><p><a href="/">Se reconnecter</a></p></body></html>`
 
+// tooManyPage : « Trop de tentatives » (style M2 A, sans ressource externe).
+const tooManyPage = `<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trop de tentatives</title>` +
+	`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;background:#0F1217;color:#C9CED6"><h1>Trop de tentatives</h1>` +
+	`<p>Trop de tentatives de connexion depuis cette adresse. Réessayer dans une minute.</p><p><a style="color:#60CDFF" href="/">Réessayer</a></p></body></html>`
+
 // filesProject : nom de projet d'un chemin /files/<projet>/… ("" : racine ou chemin réservé).
 func filesProject(p string) string {
 	rest := strings.TrimPrefix(p, core.FilesPrefix+"/")
@@ -673,7 +725,7 @@ func (w *webBridge) auditRecord(r *http.Request, id *core.Identity, method, proj
 }
 
 // auditCall : journalise un appel /api/call — jamais d'argument, seulement le nom du projet qu'il porte.
-func (w *webBridge) auditCall(r *http.Request, id *core.Identity, method string, args json.RawMessage, res any, err error) {
+func (w *webBridge) auditCall(r *http.Request, id *core.Identity, method string, args json.RawMessage, res any, err error, target string, r1 bool) {
 	if w.audit == nil || id == nil {
 		return
 	}
@@ -698,7 +750,10 @@ func (w *webBridge) auditCall(r *http.Request, id *core.Identity, method string,
 			ok, es = false, "invalid"
 		}
 	}
-	w.auditRecord(r, id, method, project, ok, es)
+	if !r1 {
+		target = ""
+	}
+	_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: method, Project: project, Target: target, OK: ok, Err: es})
 }
 
 // ssePingEvery : cadence du ping du flux d'évènements (#198) ; remplacée dans les tests.
@@ -746,6 +801,9 @@ func RunWeb(addr string, open bool) error {
 	if access == core.AccessProxy {
 		if !core.InCluster() && strings.TrimSpace(os.Getenv(core.WebAccessVar)) == "" {
 			return errors.New("accès proxy : réservé au launcher de cluster")
+		}
+		if os.Getenv("CL_ALLOW_HOST_BACKEND") != "" { // une session tmux du conteneur du launcher forgerait l'identité (MAJ-3)
+			return errors.New("backend host interdit derrière le proxy d'authentification")
 		}
 		auth, err := core.LoadAuthConf()
 		if err != nil {
@@ -968,10 +1026,16 @@ func requestSource(r *http.Request) string {
 		s = h
 	}
 	if x := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); x != "" {
-		if len(x) > 100 {
-			x = x[:100]
+		if len(x) > 256 { // tronqué à 256 octets, caractères de contrôle retirés
+			x = x[:256]
 		}
-		s += " (X-Forwarded-For: " + strings.NewReplacer("\n", " ", "\r", " ").Replace(x) + ")"
+		x = strings.Map(func(r rune) rune {
+			if r < 0x20 || r == 0x7f {
+				return -1
+			}
+			return r
+		}, x)
+		s += " (X-Forwarded-For: " + x + ")"
 	}
 	return s
 }

@@ -2,8 +2,10 @@ package desktop
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -119,18 +121,87 @@ func (c webCall) userInfo() map[string]any {
 	if c.User == nil || c.Access != core.AccessProxy {
 		return nil
 	}
-	return map[string]any{"login": c.User.Login, "role": c.User.Role, "logout": "/oauth2/sign_out?rd=%2Fsigned-out"}
+	u := map[string]any{"login": c.User.Login, "role": c.User.Role, "logout": "/oauth2/sign_out?rd=%2Fsigned-out", "kind": "github"}
+	if c.User.Local() {
+		u["kind"] = "local"
+	}
+	// durée de session (affichage seulement : le cookie d'oauth2-proxy est opaque pour le launcher)
+	if d, r := os.Getenv("CL_AUTH_SESSION_DURATION"), os.Getenv("CL_AUTH_SESSION_REFRESH"); d != "" && r != "" {
+		u["session"] = map[string]any{"duration": d, "refresh": r}
+	}
+	return u
+}
+
+// accessInfo : champ « access » d'init et de clientInfo (tous les modes du serveur web).
+func (c webCall) accessInfo() core.AccessInfo {
+	mode := c.Access
+	if mode == "" {
+		mode = core.AccessToken
+	}
+	return core.AccessFor(mode, c.User)
+}
+
+// r1Info : l'appel est-il une écriture réservée à l'administrateur (R1) ? target : identifiant court pour le journal (kind de
+// config, nom de backend), jamais une valeur. Méthode non classée : R1 (échec fermé) ; configSave / configApply : selon le
+// fichier visé (config.conf, env.yaml du launcher, hub : R1 ; project-env : non ; backends.yaml : R1 si un champ R1 change).
+func (a *App) r1Info(method string, raw json.RawMessage) (target string, r1 bool) {
+	cls, known := core.ClassOf(method)
+	if known && cls != core.ClassR1 {
+		return "", false
+	}
+	var in struct {
+		Kind, Path, Content, MTime, Backend string
+		Changes                             []core.ConfigChange
+	}
+	// « backend » est un nom (chaîne) pour les secrets, un objet pour backendTest : seul le premier cas est décodé ici
+	var generic map[string]json.RawMessage
+	_ = json.Unmarshal(raw, &generic)
+	_ = json.Unmarshal(generic["kind"], &in.Kind)
+	_ = json.Unmarshal(generic["path"], &in.Path)
+	_ = json.Unmarshal(generic["content"], &in.Content)
+	_ = json.Unmarshal(generic["changes"], &in.Changes)
+	_ = json.Unmarshal(generic["backend"], &in.Backend)
+	switch method {
+	case "configSave", "configApply":
+		kind := core.ConfigKind(in.Kind)
+		if core.ConfigKindR1(in.Kind) {
+			return in.Kind, true
+		}
+		switch kind {
+		case core.ConfProjectEnv:
+			return in.Kind, false
+		case core.ConfBackends:
+			f, err := a.configFile(core.ConfBackends, "", "")
+			if err != nil {
+				return in.Kind, true
+			}
+			old, _ := os.ReadFile(f.Path)
+			next := []byte(in.Content)
+			if method == "configApply" {
+				var aerr error
+				if next, aerr = core.ApplyConfigChanges(core.ConfBackends, old, in.Changes); aerr != nil {
+					return in.Kind, true
+				}
+			}
+			return in.Kind, core.AdminFieldsChanged(old, next)
+		}
+		return in.Kind, true // fichier inconnu : échec fermé
+	}
+	return in.Backend, true
 }
 
 // DispatchWebAs : DispatchWeb avec l'identité et le mode d'accès (v7.0.0) — règle R1, champ user, journal des secrets.
 func (a *App) DispatchWebAs(c webCall, method string, raw json.RawMessage) (any, error) {
 	src, remote, sid := c.Src, c.Remote, c.Sid
-	if core.R1Method(method) && !core.R1Allowed(c.Access, c.User) {
+	if c.Access == core.AccessProxy && method == "quit" { // arrêt du serveur : jamais depuis le web du cluster, même admin (MAJ-2)
+		return nil, fmt.Errorf("quit : indisponible derrière le proxy d'authentification")
+	}
+	if _, r1 := a.r1Info(method, raw); r1 && !core.R1Allowed(c.Access, c.User) {
 		return map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}, nil
 	}
 	switch method {
 	case "clientInfo": // #250 : l'interface grise le réglage modèle · effort d'un accès distant
-		out := map[string]any{"remote": remote}
+		out := map[string]any{"remote": remote, "access": c.accessInfo()}
 		if u := c.userInfo(); u != nil {
 			out["user"] = u
 		}
@@ -138,6 +209,7 @@ func (a *App) DispatchWebAs(c webCall, method string, raw json.RawMessage) (any,
 	case "init":
 		res, err := a.DispatchFromAddr(originWeb, src, method, raw)
 		if m, ok := res.(map[string]any); ok && err == nil {
+			m["access"] = c.accessInfo()
 			if u := c.userInfo(); u != nil {
 				m["user"] = u
 			}

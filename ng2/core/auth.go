@@ -2,9 +2,9 @@ package core
 
 import (
 	"fmt"
-	"net"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 )
 
@@ -83,9 +83,14 @@ func ParseAuthConf(admins, users, localHosts string) (AuthConf, error) {
 		return AuthConf{}, err
 	}
 	for _, h := range strings.Split(localHosts, ",") {
-		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
-			c.LocalHosts = append(c.LocalHosts, h)
+		if h = strings.TrimSpace(h); h == "" {
+			continue
 		}
+		n, ok := normHost(h)
+		if !ok {
+			return AuthConf{}, fmt.Errorf("%s : hôte %q invalide", AuthLocalHostsVar, h)
+		}
+		c.LocalHosts = append(c.LocalHosts, n)
 	}
 	return c, nil
 }
@@ -98,13 +103,32 @@ func LoadAuthConf() (AuthConf, error) {
 // LocalEnabled : le compte local est admis sur au moins un hôte.
 func (c AuthConf) LocalEnabled() bool { return len(c.LocalHosts) > 0 }
 
-// localAdmitted : admin@local est admis pour l'hôte de la requête (en-tête Host, port retiré).
-func (c AuthConf) localAdmitted(reqHost string) bool {
+var hostRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$`)
+
+// normHost : hôte comparable (m2) — minuscules, port numérique retiré, UN point final retiré ; "" et false si illisible
+// (espace, « @ », « # », « / », crochets, point final double, port non numérique).
+func normHost(reqHost string) (string, bool) {
 	h := reqHost
-	if hh, _, err := net.SplitHostPort(reqHost); err == nil {
-		h = hh
+	if i := strings.LastIndex(h, ":"); i >= 0 {
+		port := h[i+1:]
+		if n, err := strconv.Atoi(port); err != nil || n < 1 || n > 65535 {
+			return "", false
+		}
+		h = h[:i]
 	}
-	h = strings.ToLower(strings.Trim(h, "[]"))
+	h = strings.TrimSuffix(strings.ToLower(h), ".")
+	if h == "" || strings.Contains(h, "..") || !hostRE.MatchString(h) {
+		return "", false
+	}
+	return h, true
+}
+
+// localAdmitted : admin@local est admis pour l'hôte de la requête (en-tête Host) : égalité stricte après normalisation.
+func (c AuthConf) localAdmitted(reqHost string) bool {
+	h, ok := normHost(reqHost)
+	if !ok {
+		return false
+	}
 	for _, a := range c.LocalHosts {
 		if a == h {
 			return true
@@ -173,18 +197,86 @@ func ParseAltURLs(raw string) ([]PublicURL, error) {
 	return out, nil
 }
 
-// r1Methods : écritures sensibles (règle R1, contracts/auth.md §4).
-var r1Methods = map[string]bool{
-	"configSave": true, "configApply": true, "projectSettings": true, "projectApply": true, "execApply": true,
-	"envTrustAnswer": true, "initProposalAnswer": true, "backendSecretSet": true, "backendSecretDelete": true,
-	"backendKnownHostsSet": true, "backendHostScan": true, "relaunch": true,
+// ── Classement des méthodes d'appel (contracts/auth.md §4, addendum 2) ──────────────────────────────────────────────
+
+// Class : classe d'une méthode d'appel de l'interface.
+type Class int
+
+const (
+	ClassR1          Class = iota // serveur et options globales : admin seulement (méthode non classée : ici aussi, échec fermé)
+	ClassProject                  // projets et backends : libre pour un user
+	ClassRead                     // lecture
+	ClassTerminal                 // terminaux
+	ClassProxyDenied              // refusé en mode proxy, tous rôles
+)
+
+var methodClass = map[string]Class{}
+
+// r1Methods : méthodes R1 par nature (configSave / configApply : R1 selon le fichier, ConfigKindR1 / AdminFieldsChanged).
+var r1Methods = map[string]bool{"configSave": true, "configApply": true, "backendSecretSet": true, "backendSecretDelete": true,
+	"backendKnownHostsSet": true, "relaunch": true, "login": true}
+
+func init() {
+	for m := range r1Methods { // configSave / configApply : R1 ou projet selon le fichier ; classés « R1 » ici (échec fermé)
+		methodClass[m] = ClassR1
+	}
+	for _, m := range []string{"create", "createCancel", "projectSettings", "projectApply", "execApply", "envTrustAnswer",
+		"initProposalAnswer", "projectMove", "projectMoveResume", "projectMoveAbort", "categoryCreate", "backendTest",
+		"backendHostScan", "open", "reattach", "refreshProject", "forceClose", "forceCloseConfirm", "close", "closeConfirm",
+		"detach", "refresh", "rescan", "teamToggle", "relayout", "select", "cardsFor", "setPrefs", "setTheme", "dismiss", "alert"} {
+		methodClass[m] = ClassProject
+	}
+	for _, m := range []string{"init", "clientInfo", "diag", "tools", "newInfo", "projectMoveInfo", "envTrustInfo", "projectBases",
+		"projectCategories", "configFiles", "configOpen", "configValidate", "configModel", "backendStates", "launcherInfo", "backendSecretGet"} {
+		methodClass[m] = ClassRead
+	}
+	for _, m := range []string{"termInput", "launchInput", "resizePane", "termResize", "termFocus", "termZoom", "termSync"} {
+		methodClass[m] = ClassTerminal
+	}
+	for _, m := range []string{"quit", "webUIOpen", "webUIRegen", "clipboardRead", "clipboardWrite", "teamAgentSet", "secretReveal"} {
+		methodClass[m] = ClassProxyDenied
+	}
 }
 
-// R1Method : l'appel est une écriture sensible réservée au propriétaire ou à un administrateur authentifié.
-func R1Method(method string) bool { return r1Methods[method] }
+// ClassOf : classe d'une méthode ; known faux = méthode non classée (traitée comme R1, un test énumère le dispatch).
+func ClassOf(method string) (c Class, known bool) {
+	c, known = methodClass[method]
+	if !known {
+		return ClassR1, false
+	}
+	return c, true
+}
 
-// R1Allowed : R1 permise selon le mode d'accès web et le rôle (table de contracts/auth.md §4) — la fenêtre native n'appelle
-// pas cette fonction (toujours permise).
+// ClassifiedMethods : toutes les méthodes classées (tests).
+func ClassifiedMethods() []string {
+	out := make([]string, 0, len(methodClass))
+	for m := range methodClass {
+		out = append(out, m)
+	}
+	return out
+}
+
+// R1Method : l'appel est, au moins pour certains arguments, une écriture réservée à l'administrateur (configSave et
+// configApply : voir ConfigR1 pour le fichier visé). Méthode non classée : R1.
+func R1Method(method string) bool {
+	c, _ := ClassOf(method)
+	return c == ClassR1
+}
+
+// Refus du mode proxy (tous rôles), repris par le champ access.deny.
+var proxyDeny = []string{"quit", "webUIOpen", "webUIRegen", "teamAgentSet", "secretReveal"}
+
+// R1 par fichier de configuration (kind → R1 pour configSave / configApply) : config.conf, env.yaml du launcher, hub : R1 ;
+// project-env : projet ; backends.yaml : R1 seulement si un champ R1 change (AdminFieldsChanged) — décidé par l'appelant.
+func ConfigKindR1(kind string) bool {
+	switch kind {
+	case string(ConfConf), string(ConfLauncherEnv), "hub":
+		return true
+	}
+	return false
+}
+
+// R1Allowed : un client web de ce mode et de ce rôle peut-il appeler une méthode R1 ? (fenêtre native : toujours, sans appel)
 func R1Allowed(access string, id *Identity) bool {
 	switch access {
 	case AccessProxy:
@@ -195,9 +287,35 @@ func R1Allowed(access string, id *Identity) bool {
 	return true // jeton : le jeton désigne le propriétaire du poste
 }
 
-// AuditFrequent : méthodes agrégées par (utilisateur, méthode) et par minute dans le journal d'audit (P3).
-var auditFrequent = map[string]bool{
-	"termInput": true, "termResize": true, "termFocus": true, "termSync": true, "termZoom": true, "resizePane": true,
-	"launchInput": true, "cardsFor": true, "select": true, "init": true, "clientInfo": true, "backendStates": true,
-	"setPrefs": true,
+// AccessInfo : champ « access » d'init et de clientInfo (contracts/auth.md §3) — seule source du grisage côté client.
+type AccessInfo struct {
+	Mode                string   `json:"mode"`
+	Role                string   `json:"role,omitempty"`
+	Deny                []string `json:"deny"`
+	BackendsAdminFields bool     `json:"backendsAdminFields"`
+}
+
+// AccessFor : capacités d'un client web selon le mode d'accès et l'identité.
+func AccessFor(mode string, id *Identity) AccessInfo {
+	if mode == "" {
+		mode = AccessToken
+	}
+	r1 := []string{"configSave:config.conf", "configSave:env.yaml", "configSave:hub", "configApply:config.conf", "configApply:env.yaml",
+		"configApply:hub", "backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "relaunch", "login"}
+	ai := AccessInfo{Mode: mode, Deny: []string{}}
+	switch mode {
+	case AccessProxy:
+		if id != nil {
+			ai.Role = id.Role
+		}
+		if !R1Allowed(mode, id) {
+			ai.Deny = append(ai.Deny, r1...)
+			ai.BackendsAdminFields = true
+		}
+		ai.Deny = append(ai.Deny, proxyDeny...)
+	case AccessNone:
+		ai.Deny = append(ai.Deny, r1...)
+		ai.BackendsAdminFields = true
+	}
+	return ai
 }
