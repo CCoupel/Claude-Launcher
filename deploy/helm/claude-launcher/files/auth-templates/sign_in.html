@@ -26,6 +26,7 @@ a.b1:focus,a.b2:focus,button:focus,input:focus{outline:2px solid var(--accent);o
 input[type=text],input[type=password]{width:100%;border:1px solid #3a414d;border-radius:4px;background:#0A0C10;padding:6px 8px;color:var(--text);font:12px var(--mono)}
 form{margin:0}
 .note{color:var(--muted);font-size:12px;margin:8px 0 0}
+.err{color:#F28B82;font-size:12px;margin:0 0 6px}
 @media(max-width:560px){.cols{grid-template-columns:1fr}}
 </style>
 </head>
@@ -44,11 +45,11 @@ form{margin:0}
 <p class="note">Accès normal.</p></div>
 <div><h2>Compte local</h2>
 <form method="POST" action="{{.ProxyPrefix}}/sign_in">
+{{if or (eq .StatusCode 401) (eq .StatusCode 400)}}<p class="err" role="alert">Identifiant ou mot de passe incorrect.</p>{{end}}
 <input type="hidden" name="rd" value="{{.Redirect}}">
 <label class="fld"><span>Identifiant</span><input type="text" name="username" autocomplete="username" required></label>
 <label class="fld"><span>Mot de passe</span><input type="password" name="password" autocomplete="current-password" required></label>
 <button type="submit" class="b2">Se connecter</button>
-<p class="note">Identifiant ou mot de passe incorrect : cette page se réaffiche.</p>
 </form>
 </div>
 </div>
