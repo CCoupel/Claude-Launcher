@@ -92,6 +92,12 @@ Un navigateur de projets à gauche, tmux à droite :
 - **`◈ État`, sous le navigateur** : suit la sélection et détaille le projet sans l'ouvrir — légende des
   icônes de sa ligne, git, versions, template, composition de la team (version du template de chaque
   teammate, modèle, effort, version de claude), fichiers.
+- **Modèle et effort des teammates** (v6.9.0) : la colonne « modèle · effort » de la carte TEAM se règle au clic
+  (fenêtre native ou coque tmux). Le choix est écrit dans le compagnon `.claude/agents/<agent>.md` et prend effet au
+  prochain spawn (`⟳` tant qu'un teammate tourne avec une autre valeur). L'entrée « Défaut (template) » retire la
+  surcharge ; un effort non pris en charge par le modèle est grisé. Le teamleader écrit aussi `.claude/settings.json`
+  (la session en cours garde son modèle : `/model`, `/effort`). Réglage refusé en accès web distant : réservé à la
+  fenêtre native. Dans le menu tmux : `d` `o` `s` `h` `f` (modèle), `0` `1`–`5` (effort), `t` (tout par défaut).
 - **Onglet `⌗ Teamleaders`** : une vignette interactive par projet ouvert, à la couleur du projet.
 - **Un onglet par projet** : le teamleader et ses teammates, rangés automatiquement (voir
   [Mise en page des teams](#mise-en-page-des-teams)) — sur l'hôte ou dans le conteneur du projet.
