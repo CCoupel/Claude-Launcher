@@ -286,7 +286,16 @@ pose ; il n'a ni mot de passe ni session propre. Contrat complet : `contracts/au
   ```
   puis `auth.existingSecret: <nom-du-secret>`. Sans ce Secret, le pod ne démarre pas, et `NOTES.txt` le nomme.
 
-**2. Rôles** : `auth.admins` (logins GitHub, rôle `admin`) et `auth.users` (rôle `user`). Un login ne peut figurer dans les deux
+**2. Rôles et comptes GitHub** : les comptes se déclarent dans les valeurs Helm, pas dans un Secret : `auth.admins` (logins
+GitHub, rôle `admin`, obligatoire et non vide si GitHub est activé) et `auth.users` (rôle `user`). Ce ne sont pas des secrets :
+ils vont dans `PRIVATE/<ENV>/values-local.yaml` ou `values-<env>.yaml`, à passer avec `-f` à `helm upgrade`. Au démarrage, le
+launcher journalise `Accès authentifié (oauth2-proxy, GitHub) : N administrateur(s), M utilisateur(s)`. En QUALIF, ces listes
+sont vides car GitHub est coupé : seul le compte `admin@local` peut se connecter.
+
+- **Login renommable** : avant de renommer ou de supprimer un compte GitHub, retirez son login de `auth.admins` et `auth.users`,
+  et relancez `helm upgrade` ; sinon un autre compte pourrait reprendre le login et hériter de ses droits.
+
+Un login ne peut figurer dans les deux
 listes (refus au rendu). Un login absent des deux listes reçoit `403`.
 
 - `admin` : serveur et options globales (`config.conf`, `env.yaml`, hub), relance du launcher, coffre des secrets des backends
