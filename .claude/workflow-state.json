@@ -5,22 +5,96 @@
   "branch": "milestone/v6.9.0",
   "version": "6.9.0",
   "started_at": "2026-11-25T10:58:06Z",
-  "updated_at": "2026-11-25T10:58:06Z",
+  "updated_at": "2026-11-25T12:54:36Z",
   "cycles": 0,
-  "issue_nums": [250],
+  "issue_nums": [
+    250
+  ],
   "milestone_num": 36,
-  "plan": null,
+  "plan": ".claude/workflow/plan-v6.9.0.md",
   "phases": {
-    "clarification": { "status": "completed", "skipped": false },
-    "init": { "status": "in_progress" },
-    "plan": { "status": "pending" },
-    "dev-backend": { "status": "pending" },
-    "dev-frontend": { "status": "pending" },
-    "test-writer": { "status": "pending" },
-    "review": { "status": "pending" },
-    "qa": { "status": "pending" },
-    "doc": { "status": "pending" },
-    "deploy-qualif": { "status": "pending", "steps": { "build": {"status":"pending"}, "publish": {"status":"pending"}, "deploy": {"status":"pending"} } },
-    "deploy-prod": { "status": "pending", "steps": { "publish": {"status":"pending"}, "deploy": {"status":"pending"} } }
+    "clarification": {
+      "status": "completed",
+      "skipped": false
+    },
+    "init": {
+      "status": "completed"
+    },
+    "plan": {
+      "status": "completed",
+      "report": "_work/reports/plan-20261125-113818.md",
+      "timestamp": "2026-11-25T12:54:36Z"
+    },
+    "dev-backend": {
+      "status": "pending"
+    },
+    "dev-frontend": {
+      "status": "pending"
+    },
+    "test-writer": {
+      "status": "pending"
+    },
+    "review": {
+      "status": "pending"
+    },
+    "qa": {
+      "status": "pending"
+    },
+    "doc": {
+      "status": "pending"
+    },
+    "deploy-qualif": {
+      "status": "pending",
+      "steps": {
+        "build": {
+          "status": "pending"
+        },
+        "publish": {
+          "status": "pending"
+        },
+        "deploy": {
+          "status": "pending"
+        }
+      }
+    },
+    "deploy-prod": {
+      "status": "pending",
+      "steps": {
+        "publish": {
+          "status": "pending"
+        },
+        "deploy": {
+          "status": "pending"
+        }
+      }
+    }
+  },
+  "cadrage": {
+    "intensite": "complet",
+    "test_writer": true,
+    "review": true,
+    "qualif": true,
+    "doc": "agent",
+    "team": [
+      "dev-backend",
+      "dev-frontend",
+      "test-writer",
+      "code-reviewer",
+      "qa",
+      "doc-updater"
+    ],
+    "valide": "GATE 2"
+  },
+  "lots": {
+    "current": "LOT-1",
+    "items": {
+      "LOT-1": {
+        "status": "in_progress",
+        "issues": [
+          250
+        ],
+        "phase": "dev-backend"
+      }
+    }
   }
 }
