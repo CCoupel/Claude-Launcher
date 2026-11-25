@@ -316,7 +316,6 @@ func TestAudit172WrittenBeforeR1Execution(t *testing.T) {
 		if ti.After(tr) {
 			t.Errorf("%s : horodatage de l'intention %s postérieur à celui du résultat %s", c.kind, ti, tr)
 		}
-		_ = os.Stat
 	}
 }
 
