@@ -93,6 +93,10 @@ spec:
               value: {{ join "," ($a.admins | default list) | lower | quote }}
             - name: CL_AUTH_USERS
               value: {{ join "," ($a.users | default list) | lower | quote }}
+            - name: CL_AUTH_SESSION_DURATION
+              value: {{ $a.sessionDuration | quote }}
+            - name: CL_AUTH_SESSION_REFRESH
+              value: {{ $a.sessionRefresh | quote }}
             - name: CL_AUTH_LOCAL_ADMIN_HOSTS
               value: {{ include "cl.localHosts" . | quote }}
             {{- end }}
@@ -164,9 +168,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- if $auth }}
-        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy" "port" 8080 "portName" "http" "local" $a.localAdmin.enabled) | nindent 8 }}
+        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy" "port" 8080 "portName" "http" "local" $a.localAdmin.enabled "host" (include "cl.internalHost" .) "cookie" "_cl_auth" "secret" (include "cl.cookieSecretName" .) "tpl" "auth-templates") | nindent 8 }}
         {{- if .Values.externalIngress.enabled }}
-        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy-ext" "port" 8083 "portName" "http-ext" "local" false) | nindent 8 }}
+        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy-ext" "port" 8083 "portName" "http-ext" "local" false "host" .Values.externalIngress.host "cookie" "_cl_auth_ext" "secret" (include "cl.cookieSecretNameExt" .) "tpl" "auth-templates-ext") | nindent 8 }}
         {{- end }}
         {{- end }}
       volumes:
@@ -174,6 +178,11 @@ spec:
         - name: auth-templates
           configMap:
             name: {{ include "cl.fullname" . }}-auth-templates
+        {{- if .Values.externalIngress.enabled }}
+        - name: auth-templates-ext
+          configMap:
+            name: {{ include "cl.fullname" . }}-auth-templates-ext
+        {{- end }}
         {{- if $a.localAdmin.enabled }}
         - name: auth-local
           secret:

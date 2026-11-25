@@ -14,6 +14,9 @@ metadata:
     {{- include "cl.labels" . | nindent 4 }}
 spec:
   ipAllowList:
+    # adresse de la connexion TCP, jamais X-Forwarded-For (profondeur 0, explicite)
+    ipStrategy:
+      depth: 0
     sourceRange:
       {{- toYaml .Values.ingress.allowedSourceRanges | nindent 6 }}
 {{- end }}
@@ -45,5 +48,58 @@ spec:
     average: {{ .Values.auth.rateLimit.average }}
     period: 1m
     burst: {{ .Values.auth.rateLimit.burst }}
+    sourceCriterion:
+      ipStrategy:
+        depth: 0
+---
+# Traefik : page « Trop de tentatives » — le 429 du rateLimit est remplacé par /too-many du launcher (route sans identité,
+# exemptée par oauth2-proxy) ; ce middleware doit ENCADRER le rateLimit (listé avant lui) pour intercepter son 429
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-errors
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  errors:
+    status: ["429"]
+    service:
+      name: {{ include "cl.fullname" . }}
+      port: http
+    query: /too-many
+---
+# Traefik : en-têtes de sécurité (HSTS, nosniff, Referrer-Policy, frame-ancestors) et en-tête Authorization retiré de la requête
+# (oauth2-proxy accepterait sinon « Authorization: Basic » avec le fichier htpasswd, hors limite de débit)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    stsSeconds: 31536000
+    stsIncludeSubdomains: false
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    contentSecurityPolicy: "frame-ancestors 'none'"
+---
+# Traefik : pages du proxy (/oauth2/…) — CSP stricte, sans script ni ressource externe
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers-oauth
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    stsSeconds: 31536000
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    contentSecurityPolicy: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
 {{- end }}
 {{- end }}

@@ -77,7 +77,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $_ := set $seen .name true -}}
 {{- end -}}
 {{- /* variables posées par le chart : extraEnv ne peut pas les remplacer (le dernier doublon l'emporterait) */ -}}
-{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_WEB_ADDR" "CL_HEALTH_ADDR" "CL_WEB_ALT_URLS" "CL_AUTH_ADMINS" "CL_AUTH_USERS" "CL_AUTH_LOCAL_ADMIN_HOSTS" "CL_SECRETS_DIR" "CL_SECRETS_LEGACY_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
+{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_WEB_ADDR" "CL_HEALTH_ADDR" "CL_WEB_ALT_URLS" "CL_AUTH_ADMINS" "CL_AUTH_USERS" "CL_AUTH_LOCAL_ADMIN_HOSTS" "CL_AUTH_SESSION_DURATION" "CL_AUTH_SESSION_REFRESH" "CL_SECRETS_DIR" "CL_SECRETS_LEGACY_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
 {{- range .Values.extraEnv -}}
 {{- if has .name $reservedEnv -}}
 {{- fail (printf "extraEnv : %s est posée par le chart (valeur dédiée : rootBase, hubName, allowHostBackend, web.access, ingress.host, auth.*…), refusée" .name) -}}
@@ -213,6 +213,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{- define "cl.cookieSecretName" -}}{{ include "cl.fullname" . }}-auth-cookie{{- end -}}
+{{- define "cl.cookieSecretNameExt" -}}{{ include "cl.fullname" . }}-auth-cookie-ext{{- end -}}
+{{/* hôte de l'instance interne : l'ingress interne, sinon l'externe (seule adresse) */}}
+{{- define "cl.internalHost" -}}{{ if .Values.ingress.enabled }}{{ .Values.ingress.host }}{{ else }}{{ .Values.externalIngress.host }}{{ end }}{{- end -}}
 {{- define "cl.localAdminSecretName" -}}
 {{- default (printf "%s-local-admin" (include "cl.fullname" .)) .Values.auth.localAdmin.existingSecret -}}
 {{- end -}}
@@ -247,6 +250,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 {{- end -}}
 {{- if $a.enabled -}}
+{{- if .Values.allowHostBackend -}}
+{{- fail "backend host interdit derrière le proxy d'authentification (allowHostBackend: true avec auth.enabled) : une session du conteneur du launcher forgerait l'identité" -}}
+{{- end -}}
 {{- if .Values.web.access -}}
 {{- fail "web.access est imposé à proxy par auth.enabled ; le retirer (ou auth.enabled: false)" -}}
 {{- end -}}
@@ -317,7 +323,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
 {{/* conteneur oauth2-proxy (contracts/helm-values.md « Pod du launcher avec auth.enabled ») : dict root, name, port, portName,
-     local (compte local : htpasswd + formulaire ; jamais sur l'instance externe) */}}
+     local (compte local : htpasswd + formulaire ; jamais sur l'instance externe), host (hôte de l'instance : URL de retour fixe),
+     cookie (nom du cookie), secret (Secret du cookie), tpl (volume des gabarits) */}}
 {{- define "cl.authProxy" -}}
 {{- $root := .root -}}
 {{- $a := $root.Values.auth -}}
@@ -349,7 +356,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     - --skip-provider-button={{ if .local }}false{{ else }}true{{ end }}
     - --api-route=^/api/
     - --skip-auth-route=GET=^/signed-out$
-    - --cookie-name=_cl_auth
+    - --skip-auth-route=GET=^/too-many$
+    - --cookie-name={{ .cookie }}
     - --cookie-secure=true
     - --cookie-samesite=lax
     - --cookie-expire={{ $a.sessionDuration }}
@@ -358,6 +366,12 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     - --request-logging=false
     - --auth-logging=true
     - --ping-path=/ping
+    # chemins d'authentification annexes fermés (contracts/auth.md §8, m4) : ni Basic ni Authorization transmis, retour OAuth fixe
+    - --pass-basic-auth=false
+    - --pass-authorization-header=false
+    - --set-xauthrequest=false
+    - --skip-auth-strip-headers=true
+    - --redirect-url=https://{{ .host }}/oauth2/callback
     {{- if .local }}
     - --htpasswd-file=/etc/cl-auth/local/htpasswd
     - --display-htpasswd-form=true
@@ -373,13 +387,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     {{- end }}
     - name: OAUTH2_PROXY_COOKIE_SECRET
       valueFrom:
-        secretKeyRef: {name: {{ include "cl.cookieSecretName" $root | quote }}, key: cookie-secret}
+        secretKeyRef: {name: {{ .secret | quote }}, key: cookie-secret}
   ports:
     - name: {{ .portName }}
       containerPort: {{ .port }}
       protocol: TCP
   volumeMounts:
-    - name: auth-templates
+    - name: {{ .tpl }}
       mountPath: /etc/cl-auth/templates
       readOnly: true
     {{- if .local }}

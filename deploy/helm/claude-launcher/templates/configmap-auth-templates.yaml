@@ -20,4 +20,20 @@ data:
     {{- else }}
     {{- .Files.Get "files/auth-templates/sign_in.local-only.html" | nindent 4 }}
     {{- end }}
+{{- if .Values.externalIngress.enabled }}
+---
+# Instance externe (sans compte local) : sign_in.html = colonne GitHub seule (page jamais vue : --skip-provider-button=true)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cl.fullname" . }}-auth-templates-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+data:
+  error.html: |-
+    {{- .Files.Get "files/auth-templates/error.html" | nindent 4 }}
+  sign_in.html: |-
+    {{- $si := regexReplaceAll "(?s)\\{\\{if \\.CustomLogin\\}\\}.*?\\{\\{else\\}\\}" (.Files.Get "files/auth-templates/sign_in.html") "" }}
+    {{- regexReplaceAll "\\{\\{end\\}\\}\\n</body>" $si "</body>" | nindent 4 }}
+{{- end }}
 {{- end }}

@@ -17,13 +17,15 @@ metadata:
     {{- end }}
     {{- if eq $ctl "traefik" }}
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd" .Release.Namespace $base | quote }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers@kubernetescrd" .Release.Namespace $base .Release.Namespace $base | quote }}
     {{- else }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Authorization "";
     {{- end }}
     {{- with .Values.externalIngress.annotations }}
     {{- toYaml . | nindent 4 }}
@@ -55,10 +57,12 @@ metadata:
   annotations:
     {{- if eq $ctl "traefik" }}
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $base .Release.Namespace $base | quote }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers-oauth@kubernetescrd,%s-%s-errors@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base | quote }}
     {{- else }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Authorization "";
     nginx.ingress.kubernetes.io/limit-rpm: {{ .Values.auth.rateLimit.average | quote }}
     nginx.ingress.kubernetes.io/limit-burst-multiplier: {{ div .Values.auth.rateLimit.burst .Values.auth.rateLimit.average | max 1 | quote }}
     {{- end }}

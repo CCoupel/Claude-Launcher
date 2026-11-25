@@ -10,7 +10,7 @@ metadata:
     {{- if eq .Values.ingress.controller "traefik" }}
     # liste d'adresses d'abord, puis redirection HTTPS ; routeur sur web et websecure
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-allowlist@kubernetescrd,%s-%s-https@kubernetescrd" .Release.Namespace $name .Release.Namespace $name | quote }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ if .Values.auth.enabled }}{{ printf "%s-%s-allowlist@kubernetescrd,%s-%s-https@kubernetescrd,%s-%s-headers@kubernetescrd" .Release.Namespace $name .Release.Namespace $name .Release.Namespace $name | quote }}{{ else }}{{ printf "%s-%s-allowlist@kubernetescrd,%s-%s-https@kubernetescrd" .Release.Namespace $name .Release.Namespace $name | quote }}{{ end }}
     {{- else if eq .Values.ingress.controller "nginx" }}
     nginx.ingress.kubernetes.io/whitelist-source-range: {{ join "," .Values.ingress.allowedSourceRanges | quote }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
@@ -19,6 +19,10 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-buffering: "off"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
     nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- if .Values.auth.enabled }}
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Authorization "";
+    {{- end }}
     {{- end }}
     {{- with .Values.ingress.annotations }}
     {{- toYaml . | nindent 4 }}
@@ -52,11 +56,13 @@ metadata:
   annotations:
     {{- if eq .Values.ingress.controller "traefik" }}
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-allowlist@kubernetescrd,%s-%s-https@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $name .Release.Namespace $name .Release.Namespace $name | quote }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-allowlist@kubernetescrd,%s-%s-https@kubernetescrd,%s-%s-headers-oauth@kubernetescrd,%s-%s-errors@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $name .Release.Namespace $name .Release.Namespace $name .Release.Namespace $name .Release.Namespace $name | quote }}
     {{- else if eq .Values.ingress.controller "nginx" }}
     nginx.ingress.kubernetes.io/whitelist-source-range: {{ join "," .Values.ingress.allowedSourceRanges | quote }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Authorization "";
     nginx.ingress.kubernetes.io/limit-rpm: {{ .Values.auth.rateLimit.average | quote }}
     nginx.ingress.kubernetes.io/limit-burst-multiplier: {{ div .Values.auth.rateLimit.burst .Values.auth.rateLimit.average | max 1 | quote }}
     {{- end }}
