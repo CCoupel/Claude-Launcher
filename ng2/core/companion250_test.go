@@ -532,19 +532,27 @@ func TestSetOverrideConcurrenceFichierValide250(t *testing.T) {
 	if !strings.HasSuffix(got, "---\n"+body) || !strings.HasPrefix(got, "---\nname: dev-backend\n") {
 		t.Errorf("fichier invalide après écritures concurrentes : %q", got)
 	}
-	if strings.Count(got, "model:") != 1 || strings.Count(got, "effort:") != 1 {
+	// une clé au plus : absente quand la dernière valeur écrite est celle du template (sonnet / medium : clé retirée)
+	if strings.Count(got, "model:") > 1 || strings.Count(got, "effort:") > 1 {
 		t.Errorf("clés dupliquées : %q", got)
 	}
 	m, e := frontKeys(c250Companion(proj, "dev-backend"))
-	okM, okE := false, false
-	for _, v := range models {
-		okM = okM || v == m
+	inList := func(v string, list []string, tpl string) bool {
+		if v == "" {
+			return true // clé retirée : le dernier écrivain avait choisi la valeur du template
+		}
+		if v == tpl {
+			return false // une valeur égale au template ne doit jamais être écrite
+		}
+		for _, x := range list {
+			if x == v {
+				return true
+			}
+		}
+		return false
 	}
-	for _, v := range efforts {
-		okE = okE || v == e
-	}
-	if !okM || !okE {
-		t.Errorf("valeurs finales hors liste : model=%q effort=%q", m, e)
+	if !inList(m, models, "sonnet") || !inList(e, efforts, "medium") {
+		t.Errorf("valeurs finales invalides : model=%q effort=%q (hors liste, ou égales au template mais écrites)", m, e)
 	}
 	ents, _ := os.ReadDir(filepath.Join(proj, ".claude", "agents"))
 	for _, en := range ents {
