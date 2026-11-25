@@ -69,6 +69,8 @@ type stateModel struct {
 	lastClickAt   time.Time
 	teamMsg       string // refus de la dernière bascule, affiché 6 s sous la liste
 	teamMsgAt     time.Time
+	teamWarn      bool  // le message est un avertissement (jaune) ; sinon une confirmation (vert)
+	teamSetAt     int64 // heure du dernier résultat de team-set déjà affiché
 }
 
 // navKeys : commandes du navigateur aussi acceptées dans le pane des cartes —
@@ -269,7 +271,14 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		if msg.Button == tea.MouseButtonLeft && msg.Action == tea.MouseActionPress && m.loaded {
 			if i := msg.Y - m.teamTop(); i >= 0 && i < len(m.panes.lines) {
-				if l := m.panes.lines[i]; l.Started {
+				if l := m.panes.lines[i]; m.teamTop() >= 0 && msg.X >= m.modelX() && msg.X < m.modelX()+7+m.effW() { // colonnes modèle · effort (#250)
+					m.lastClickAt = time.Time{}
+					if why := notSettable(l); why != "" {
+						m.teamMsg, m.teamMsgAt, m.teamWarn = "pas réglable : "+why, time.Now(), true
+						return m, nil
+					}
+					return m, teamMenuCmd(m.sel.Path, l, msg.X, msg.Y)
+				} else if l.Started {
 					double := l.Pane == m.lastClickPane && time.Since(m.lastClickAt) < 450*time.Millisecond
 					m.lastClickPane, m.lastClickAt = l.Pane, time.Now()
 					if double {
@@ -308,6 +317,16 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.clampScroll()
 	case selTick:
 		cmds := []tea.Cmd{selTickCmd()}
+		if r, ok := readTeamSetMsg(); ok && r.At != m.teamSetAt { // team-set vient de répondre (#250) : registre relu, message 6 s
+			m.teamSetAt = r.At
+			if r.Path == m.sel.Path && time.Now().Unix()-r.At < 6 {
+				regCache.Lock()
+				delete(regCache.m, r.Path)
+				regCache.Unlock()
+				m.teamMsg, m.teamMsgAt, m.teamWarn = r.Msg, time.Now(), !r.OK || r.Warn
+				m.paneAt = time.Time{}
+			}
+		}
 		if time.Since(m.navAt) > 3*time.Second {
 			m.navAt = time.Now()
 			cmds = append(cmds, healNavCmd())
@@ -344,6 +363,10 @@ func (m stateModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case paneData:
 		if msg.path == m.sel.Path {
 			m.panes = msg
+		}
+	case teamMenuMsg:
+		if msg.path == m.sel.Path {
+			m.teamMsg, m.teamMsgAt, m.teamWarn = msg.msg, time.Now(), true
 		}
 	case toggleMsg:
 		if msg.path == m.sel.Path {
@@ -546,6 +569,28 @@ func tplMark(core.TeamLine) string { return core.Green.Render("●") }
 // visible, nom (+ si compagnon), modèle et effort, ⚠ si la ligne s'écarte de l'en-tête
 // (template ou claude), état (actif, caché, fixé, délai avant masquage). Les versions
 // sont dans le titre de la carte (#151).
+// effW : largeur de la colonne effort ; modelX : colonne d'écran de la colonne modèle (zone cliquable du réglage, #250).
+func (m stateModel) effW() int {
+	if m.narrow() {
+		return 4
+	}
+	return 6
+}
+
+func (m stateModel) modelX() int {
+	w := min(m.w-2, 110)
+	nameW := 0
+	for _, t := range m.panes.lines {
+		nameW = max(nameW, len(teamName(t)))
+	}
+	nameW = min(nameW, max(8, w-1-2-1-7-m.effW()-2))
+	off := 2 // bordure et marge de la carte
+	if m.narrow() {
+		off = 1
+	}
+	return off + 2 + nameW + 1
+}
+
 func (m stateModel) teamBody(w int) string {
 	tm := m.panes.lines
 	if len(tm) == 0 {
@@ -584,6 +629,9 @@ func (m stateModel) teamBody(w int) string {
 			effort = shortEffort(effort)
 		}
 		l := mark + " " + name + " " + core.PadRight(orDash(model), 7) + core.Dim.Render(core.PadRight(orDash(effort), effW))
+		if t.Running != nil { // tourne encore avec l'ancien réglage jusqu'à son prochain spawn (#250, P3)
+			l += " " + core.Cyan.Render("⟳")
+		}
 		if len(t.Odd) > 0 {
 			l += " " + tplLate.Render("⚠")
 		}
@@ -594,7 +642,11 @@ func (m stateModel) teamBody(w int) string {
 		lines = append(lines, l)
 	}
 	if m.teamMsg != "" && time.Since(m.teamMsgAt) < 6*time.Second {
-		lines = append(lines, core.Yellow.Render(ansi.Truncate("⚠ "+m.teamMsg, inner, "…")))
+		if m.teamWarn {
+			lines = append(lines, core.Yellow.Render(ansi.Truncate("⚠ "+m.teamMsg, inner, "…")))
+		} else {
+			lines = append(lines, core.Green.Render(ansi.Truncate("✓ "+m.teamMsg, inner, "…")))
+		}
 	}
 	return strings.Join(lines, "\n")
 }
