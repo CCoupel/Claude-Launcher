@@ -39,4 +39,42 @@ spec:
                 name: {{ $name }}
                 port:
                   name: http
+{{- if .Values.auth.enabled }}
+---
+# Essais de connexion limités (#172) : Ingress dédié aux routes /oauth2/ (formulaire du compte local, retour OAuth), plus
+# long préfixe donc prioritaire sur « / » ; même liste d'adresses, même HTTPS, plus la limite de débit par adresse source.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}-oauth
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+  annotations:
+    {{- if eq .Values.ingress.controller "traefik" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-allowlist@kubernetescrd,%s-%s-https@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $name .Release.Namespace $name .Release.Namespace $name | quote }}
+    {{- else if eq .Values.ingress.controller "nginx" }}
+    nginx.ingress.kubernetes.io/whitelist-source-range: {{ join "," .Values.ingress.allowedSourceRanges | quote }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-rpm: {{ .Values.auth.rateLimit.average | quote }}
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: {{ div .Values.auth.rateLimit.burst .Values.auth.rateLimit.average | max 1 | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  tls:
+    - hosts: [{{ .Values.ingress.host | quote }}]
+      secretName: {{ include "cl.tlsSecret" . }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $name }}
+                port:
+                  name: http
+{{- end }}
 {{- end }}

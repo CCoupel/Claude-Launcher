@@ -2,6 +2,8 @@
 {{- $root := .Values.rootBase -}}
 {{- $hub := include "cl.hubName" . -}}
 {{- $mount := include "cl.mountPath" . -}}
+{{- $auth := .Values.auth.enabled -}}
+{{- $a := .Values.auth -}}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -55,9 +57,16 @@ spec:
             capabilities:
               drop: [ALL]
           ports:
+            {{- if $auth }}
+            # derrière le proxy d'authentification : le launcher n'écoute que sur 127.0.0.1:8081 ; seul port exposé = sondes
+            - name: health
+              containerPort: 8082
+              protocol: TCP
+            {{- else }}
             - name: http
               containerPort: 8080
               protocol: TCP
+            {{- end }}
           env:
             - name: CL_ROOT_BASE
               value: {{ $root | quote }}
@@ -73,9 +82,26 @@ spec:
               value: notify
             # interface web : none = sans jeton (Ingress = seule barrière), token = URL d'amorçage avec jeton
             - name: CL_WEB_ACCESS
-              value: {{ .Values.web.access | default "none" | quote }}
-            {{- if .Values.ingress.enabled }}
+              value: {{ if $auth }}proxy{{ else }}{{ .Values.web.access | default "none" }}{{ end }}
+            {{- if $auth }}
+            # accès authentifié (contracts/auth.md §7) : boucle locale, port de santé séparé, listes de logins
+            - name: CL_WEB_ADDR
+              value: "127.0.0.1:8081"
+            - name: CL_HEALTH_ADDR
+              value: "0.0.0.0:8082"
+            - name: CL_AUTH_ADMINS
+              value: {{ join "," ($a.admins | default list) | lower | quote }}
+            - name: CL_AUTH_USERS
+              value: {{ join "," ($a.users | default list) | lower | quote }}
+            - name: CL_AUTH_LOCAL_ADMIN_HOSTS
+              value: {{ include "cl.localHosts" . | quote }}
+            {{- end }}
+            {{- if include "cl.primaryURL" . }}
             - name: CL_WEB_URL
+              value: {{ include "cl.primaryURL" . | quote }}
+            {{- end }}
+            {{- if and .Values.externalIngress.enabled .Values.ingress.enabled }}
+            - name: CL_WEB_ALT_URLS
               value: {{ printf "https://%s" .Values.ingress.host | quote }}
             {{- end }}
             {{- if .Values.allowHostBackend }}
@@ -119,17 +145,17 @@ spec:
             {{- end }}
           # démarrage (lecture de la racine sur MooseFS) : jusqu'à 2 min avant que la sonde de vie prenne le relais
           startupProbe:
-            httpGet: {path: /healthz, port: http}
+            httpGet: {path: /healthz, port: {{ if $auth }}health{{ else }}http{{ end }}}
             periodSeconds: 2
             timeoutSeconds: 2
             failureThreshold: 60
           livenessProbe:
-            httpGet: {path: /healthz, port: http}
+            httpGet: {path: /healthz, port: {{ if $auth }}health{{ else }}http{{ end }}}
             periodSeconds: 20
             timeoutSeconds: 5
             failureThreshold: 3
           readinessProbe:
-            httpGet: {path: /readyz, port: http}
+            httpGet: {path: /readyz, port: {{ if $auth }}health{{ else }}http{{ end }}}
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -137,7 +163,28 @@ spec:
           resources:
             {{- toYaml . | nindent 12 }}
           {{- end }}
+        {{- if $auth }}
+        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy" "port" 8080 "portName" "http" "local" $a.localAdmin.enabled) | nindent 8 }}
+        {{- if .Values.externalIngress.enabled }}
+        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy-ext" "port" 8083 "portName" "http-ext" "local" false) | nindent 8 }}
+        {{- end }}
+        {{- end }}
       volumes:
+        {{- if $auth }}
+        - name: auth-templates
+          configMap:
+            name: {{ include "cl.fullname" . }}-auth-templates
+        {{- if $a.localAdmin.enabled }}
+        - name: auth-local
+          secret:
+            secretName: {{ include "cl.localAdminSecretName" . }}
+            # 0444 : pas de fsGroup (comme les autres Secrets montés) — 0440 serait illisible par l'uid du pod
+            defaultMode: 0444
+            items:
+              - key: htpasswd
+                path: htpasswd
+        {{- end }}
+        {{- end }}
         - name: projets
           persistentVolumeClaim:
             claimName: {{ .Values.volume.existingClaim }}

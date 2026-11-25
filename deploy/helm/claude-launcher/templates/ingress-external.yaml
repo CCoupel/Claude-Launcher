@@ -1,7 +1,10 @@
-{{- /* Ingress externe PRÉPARÉ (#172, v7.0.0) : jamais rendu en v6.4.0 — cl.validate refuse externalIngress.enabled tant que
-l'authentification n'existe pas. Aucune liste d'adresses : l'authentification serait la seule barrière. */ -}}
+{{- /* Ingress externe (v7.0.0, #254) : Internet, SANS liste d'adresses — l'authentification (GitHub, instance auth-proxy-ext
+sans compte local) est la seule barrière ; cl.validate refuse externalIngress.enabled sans auth.enabled. */ -}}
 {{- if .Values.externalIngress.enabled }}
 {{- $name := printf "%s-external" (include "cl.fullname" .) }}
+{{- $base := include "cl.fullname" . }}
+{{- $ctl := include "cl.extController" . }}
+{{- $tls := default (printf "%s-tls" $name) .Values.externalIngress.tls.secretName }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -12,6 +15,16 @@ metadata:
     {{- if .Values.externalIngress.tls.clusterIssuer }}
     cert-manager.io/cluster-issuer: {{ .Values.externalIngress.tls.clusterIssuer | quote }}
     {{- end }}
+    {{- if eq $ctl "traefik" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd" .Release.Namespace $base | quote }}
+    {{- else }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    {{- end }}
     {{- with .Values.externalIngress.annotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -19,7 +32,7 @@ spec:
   ingressClassName: {{ .Values.externalIngress.className }}
   tls:
     - hosts: [{{ .Values.externalIngress.host | quote }}]
-      secretName: {{ default (printf "%s-tls" $name) .Values.externalIngress.tls.secretName }}
+      secretName: {{ $tls }}
   rules:
     - host: {{ .Values.externalIngress.host | quote }}
       http:
@@ -28,7 +41,41 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: {{ include "cl.fullname" . }}
+                name: {{ $base }}
                 port:
-                  name: http
+                  name: http-ext
+---
+# Essais de connexion limités sur /oauth2/ (#172, #254)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}-oauth
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+  annotations:
+    {{- if eq $ctl "traefik" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $base .Release.Namespace $base | quote }}
+    {{- else }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/limit-rpm: {{ .Values.auth.rateLimit.average | quote }}
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: {{ div .Values.auth.rateLimit.burst .Values.auth.rateLimit.average | max 1 | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.externalIngress.className }}
+  tls:
+    - hosts: [{{ .Values.externalIngress.host | quote }}]
+      secretName: {{ $tls }}
+  rules:
+    - host: {{ .Values.externalIngress.host | quote }}
+      http:
+        paths:
+          - path: /oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $base }}
+                port:
+                  name: http-ext
 {{- end }}

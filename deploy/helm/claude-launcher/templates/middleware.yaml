@@ -1,4 +1,6 @@
-{{- if and .Values.ingress.enabled (eq .Values.ingress.controller "traefik") }}
+{{- $internal := and .Values.ingress.enabled (eq .Values.ingress.controller "traefik") -}}
+{{- $external := and .Values.externalIngress.enabled (eq (include "cl.extController" .) "traefik") -}}
+{{- if $internal }}
 # Traefik : seules les adresses de ingress.allowedSourceRanges atteignent le launcher.
 # Sans ipStrategy (choix délibéré) : Traefik compare l'adresse distante de la connexion TCP, jamais
 # X-Forwarded-For (falsifiable par le client). Prérequis : le Service de Traefik doit conserver l'adresse
@@ -14,6 +16,8 @@ spec:
   ipAllowList:
     sourceRange:
       {{- toYaml .Values.ingress.allowedSourceRanges | nindent 6 }}
+{{- end }}
+{{- if or $internal $external }}
 ---
 # Traefik : HTTP redirigé vers HTTPS (sans effet sur une requête déjà en HTTPS)
 apiVersion: traefik.io/v1alpha1
@@ -26,4 +30,20 @@ spec:
   redirectScheme:
     scheme: https
     permanent: true
+{{- if .Values.auth.enabled }}
+---
+# Traefik : essais de connexion limités par adresse source sur /oauth2/ (#172) — average par minute, burst en rafale ;
+# dépassement : 429, page « Trop de tentatives » d'oauth2-proxy n'est pas rendue (réponse de Traefik)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-ratelimit
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  rateLimit:
+    average: {{ .Values.auth.rateLimit.average }}
+    period: 1m
+    burst: {{ .Values.auth.rateLimit.burst }}
+{{- end }}
 {{- end }}

@@ -33,9 +33,8 @@ volume:
       enabled: false
       name: claude-qualif-pv
 
-# interface sans jeton (défaut du chart, décision du 2026-11-17) : l'Ingress est la seule barrière
-web:
-  access: none
+# accès : authentifié par oauth2-proxy (auth.enabled, défaut v7.0.0) — web.access est imposé à proxy, ne pas le poser ;
+# auth.* (Secret GitHub, administrateurs, compte local) : PRIVATE/<ENV>/values-local.yaml, jamais commité
 
 ingress:
   enabled: true
@@ -49,3 +48,9 @@ ingress:
     # émetteur réel (claude-launcher-ca, CA interne) donné par PRIVATE/QUALIF/values-local.yaml ;
     # le chart refuse « a-renseigner » (garde contre un oubli du fichier local).
     clusterIssuer: a-renseigner
+
+# sidecar d'authentification : empreinte de oauth2-proxy v7.15.6 (relevée le 2026-11-25, rapport infra) — image fixée par empreinte
+auth:
+  proxy:
+    image:
+      digest: "sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048"

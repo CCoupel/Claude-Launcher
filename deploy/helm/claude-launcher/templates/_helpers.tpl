@@ -58,9 +58,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not (or (eq $root $mount) (hasPrefix (printf "%s/" $mount) $root)) -}}
 {{- fail (printf "rootBase (%s) doit être volume.mountPath (%s) ou un de ses sous-dossiers" $root $mount) -}}
 {{- end -}}
-{{- if .Values.externalIngress.enabled -}}
-{{- fail "ingress externe refusé : aucune authentification avant v7.0.0 (#172) — l'interface web ne doit pas être exposée hors du LAN (externalIngress.enabled: false)" -}}
-{{- end -}}
+{{- include "cl.validateAuth" . -}}
 {{- if and .Values.networkPolicy.enabled (not .Values.networkPolicy.ingressNamespaces) (not .Values.networkPolicy.ingressCIDRs) -}}
 {{- fail "networkPolicy.enabled sans ingressNamespaces ni ingressCIDRs : plus aucune entrée admise (même l'Ingress) — donner le namespace du contrôleur, ou networkPolicy.enabled: false" -}}
 {{- end -}}
@@ -79,13 +77,13 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $_ := set $seen .name true -}}
 {{- end -}}
 {{- /* variables posées par le chart : extraEnv ne peut pas les remplacer (le dernier doublon l'emporterait) */ -}}
-{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_SECRETS_DIR" "CL_SECRETS_LEGACY_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
+{{- $reservedEnv := list "CL_ROOT_BASE" "CL_HUB_NAME" "CL_CACHE_DIR" "CL_K8S_VOLUMES" "CL_IN_CLUSTER" "CL_UPDATE_MODE" "CL_WEB_URL" "CL_ALLOW_HOST_BACKEND" "CL_WEB_ACCESS" "CL_WEB_ADDR" "CL_HEALTH_ADDR" "CL_WEB_ALT_URLS" "CL_AUTH_ADMINS" "CL_AUTH_USERS" "CL_AUTH_LOCAL_ADMIN_HOSTS" "CL_SECRETS_DIR" "CL_SECRETS_LEGACY_DIR" "DOCKER_CERT_PATH" "DOCKER_TLS_VERIFY" -}}
 {{- range .Values.extraEnv -}}
 {{- if has .name $reservedEnv -}}
-{{- fail (printf "extraEnv : %s est posée par le chart (valeur dédiée : rootBase, hubName, allowHostBackend, web.access, ingress.host…), refusée" .name) -}}
+{{- fail (printf "extraEnv : %s est posée par le chart (valeur dédiée : rootBase, hubName, allowHostBackend, web.access, ingress.host, auth.*…), refusée" .name) -}}
 {{- end -}}
 {{- end -}}
-{{- if and (not .Values.ingress.enabled) (eq (.Values.web.access | default "none") "none") -}}
+{{- if and (not .Values.auth.enabled) (not .Values.ingress.enabled) (eq (.Values.web.access | default "none") "none") -}}
 {{- fail "web.access: none sans Ingress refusé (accès sans jeton sans Ingress : poser web.access: token) — le launcher exige une adresse publique https pour l'accès sans jeton" -}}
 {{- end -}}
 {{- if .Values.ingress.enabled -}}
@@ -173,4 +171,237 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if .Values.secrets.legacy.enabled -}}
 {{- if lookup "v1" "PersistentVolumeClaim" .Release.Namespace (printf "%s-secrets" (include "cl.fullname" .)) -}}true{{- end -}}
 {{- end -}}
+{{- end -}}
+
+{{/* ── v7.0.0 : accès authentifié (contracts/helm-values.md « Valeurs auth.* ») ── */}}
+
+{{/* logins GitHub : forme d'un login (1 à 39 caractères alphanumériques ou « - », ni début ni fin par « - »), en minuscules, sans doublon */}}
+{{- define "cl.checkLogins" -}}
+{{- $name := .name -}}
+{{- $seen := dict -}}
+{{- range .list -}}
+{{- $l := lower (toString .) -}}
+{{- if not (regexMatch "^[a-z0-9]([a-z0-9-]{0,37}[a-z0-9])?$" $l) -}}
+{{- fail (printf "%s : « %v » n'est pas un login GitHub valide" $name .) -}}
+{{- end -}}
+{{- if hasKey $seen $l -}}
+{{- fail (printf "%s : le login %q est donné deux fois" $name $l) -}}
+{{- end -}}
+{{- $_ := set $seen $l true -}}
+{{- end -}}
+{{- end -}}
+
+{{/* durée « 15m » / « 8h » en minutes */}}
+{{- define "cl.minutes" -}}
+{{- $d := toString .value -}}
+{{- if not (regexMatch "^[1-9][0-9]*[hm]$" $d) -}}
+{{- fail (printf "%s : durée « %s » invalide (entier suivi de h ou m, ex. 8h, 30m)" .name $d) -}}
+{{- end -}}
+{{- if hasSuffix "h" $d -}}{{ mul (atoi (trimSuffix "h" $d)) 60 }}{{- else -}}{{ atoi (trimSuffix "m" $d) }}{{- end -}}
+{{- end -}}
+
+{{/* hôtes où le compte local est admis : auth.localAdmin.hosts, défaut ingress.host ; vide si le compte local est désactivé */}}
+{{- define "cl.localHosts" -}}
+{{- if and .Values.auth.enabled .Values.auth.localAdmin.enabled -}}
+{{- if .Values.auth.localAdmin.hosts -}}{{ join "," .Values.auth.localAdmin.hosts }}{{- else if .Values.ingress.enabled -}}{{ .Values.ingress.host }}{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* adresse publique principale (CL_WEB_URL) : l'hôte externe s'il est activé (P7), sinon l'hôte interne */}}
+{{- define "cl.primaryURL" -}}
+{{- if .Values.externalIngress.enabled -}}https://{{ .Values.externalIngress.host }}{{- else if .Values.ingress.enabled -}}https://{{ .Values.ingress.host }}{{- end -}}
+{{- end -}}
+
+{{- define "cl.cookieSecretName" -}}{{ include "cl.fullname" . }}-auth-cookie{{- end -}}
+{{- define "cl.localAdminSecretName" -}}
+{{- default (printf "%s-local-admin" (include "cl.fullname" .)) .Values.auth.localAdmin.existingSecret -}}
+{{- end -}}
+
+{{- define "cl.validateAuth" -}}
+{{- $a := .Values.auth -}}
+{{- if .Values.externalIngress.enabled -}}
+{{- if not $a.enabled -}}
+{{- fail "ingress externe refusé : authentification désactivée (auth.enabled: false)" -}}
+{{- end -}}
+{{- $_ := required "externalIngress.className est obligatoire quand externalIngress.enabled" .Values.externalIngress.className -}}
+{{- $_ := required "externalIngress.host est obligatoire quand externalIngress.enabled" .Values.externalIngress.host -}}
+{{- if and .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer -}}
+{{- fail "externalIngress.tls : secretName et clusterIssuer sont exclusifs, en donner un seul" -}}
+{{- end -}}
+{{- if not (or .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer) -}}
+{{- fail "externalIngress.tls : TLS obligatoire — donner externalIngress.tls.secretName ou externalIngress.tls.clusterIssuer" -}}
+{{- end -}}
+{{- if and .Values.ingress.enabled .Values.externalIngress.tls.clusterIssuer (eq .Values.externalIngress.tls.clusterIssuer .Values.ingress.tls.clusterIssuer) -}}
+{{- fail (printf "externalIngress.tls.clusterIssuer (%s) est celui de l'ingress interne : un émetteur public est exigé (l'émetteur interne a des contraintes de nom)" .Values.externalIngress.tls.clusterIssuer) -}}
+{{- end -}}
+{{- if eq .Values.externalIngress.host .Values.ingress.host -}}
+{{- fail "externalIngress.host est celui de ingress.host : deux noms distincts exigés" -}}
+{{- end -}}
+{{- if not $a.github.enabled -}}
+{{- fail "ingress externe refusé : auth.github.enabled: false (le compte local n'est jamais admis depuis Internet)" -}}
+{{- end -}}
+{{- range $k, $_ := .Values.externalIngress.annotations -}}
+{{- if or (hasPrefix "traefik.ingress.kubernetes.io/router." $k) (has $k (list "nginx.ingress.kubernetes.io/whitelist-source-range" "nginx.ingress.kubernetes.io/allowlist-source-range" "nginx.ingress.kubernetes.io/denylist-source-range" "nginx.ingress.kubernetes.io/ssl-redirect" "nginx.ingress.kubernetes.io/force-ssl-redirect" "nginx.ingress.kubernetes.io/configuration-snippet" "nginx.ingress.kubernetes.io/server-snippet" "nginx.ingress.kubernetes.io/use-forwarded-headers")) -}}
+{{- fail (printf "externalIngress.annotations : %s est réservée au chart (redirection HTTPS, TLS), refusée" $k) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- if $a.enabled -}}
+{{- if .Values.web.access -}}
+{{- fail "web.access est imposé à proxy par auth.enabled ; le retirer (ou auth.enabled: false)" -}}
+{{- end -}}
+{{- if not (or .Values.ingress.enabled .Values.externalIngress.enabled) -}}
+{{- fail "auth.enabled sans ingress.enabled ni externalIngress.enabled : aucune adresse https pour le retour OAuth et CL_WEB_URL" -}}
+{{- end -}}
+{{- if and (not $a.github.enabled) (not $a.localAdmin.enabled) -}}
+{{- fail "auth.github.enabled: false exige auth.localAdmin.enabled: true (aucune connexion possible sinon)" -}}
+{{- end -}}
+{{- if $a.github.enabled -}}
+{{- $_ := required "auth.existingSecret est obligatoire (Secret du namespace, clés client-id et client-secret de la GitHub App)" $a.existingSecret -}}
+{{- if not $a.admins -}}
+{{- fail "auth.admins est obligatoire et non vide quand auth.github.enabled (logins GitHub administrateurs)" -}}
+{{- end -}}
+{{- end -}}
+{{- include "cl.checkLogins" (dict "name" "auth.admins" "list" $a.admins) -}}
+{{- include "cl.checkLogins" (dict "name" "auth.users" "list" $a.users) -}}
+{{- range $a.users -}}
+{{- $u := lower (toString .) -}}
+{{- range $a.admins -}}
+{{- if eq (lower (toString .)) $u -}}
+{{- fail (printf "auth.users : %q est aussi dans auth.admins (un seul rôle par login)" $u) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- $dur := include "cl.minutes" (dict "name" "auth.sessionDuration" "value" $a.sessionDuration) | atoi -}}
+{{- $ref := include "cl.minutes" (dict "name" "auth.sessionRefresh" "value" $a.sessionRefresh) | atoi -}}
+{{- if or (lt $dur 15) (gt $dur 10080) -}}
+{{- fail (printf "auth.sessionDuration (%s) : 15m au minimum, 168h au maximum" $a.sessionDuration) -}}
+{{- end -}}
+{{- if ge $ref $dur -}}
+{{- fail (printf "auth.sessionRefresh (%s) doit être inférieur à auth.sessionDuration (%s)" $a.sessionRefresh $a.sessionDuration) -}}
+{{- end -}}
+{{- $pi := $a.proxy.image -}}
+{{- if or (not $pi.tag) (eq (lower $pi.tag) "latest") -}}
+{{- fail "auth.proxy.image.tag : une version précise est exigée (jamais latest ni vide)" -}}
+{{- end -}}
+{{- if $a.localAdmin.enabled -}}
+{{- range $a.localAdmin.hosts -}}
+{{- if and $.Values.externalIngress.enabled (eq . $.Values.externalIngress.host) -}}
+{{- fail (printf "auth.localAdmin.hosts : %s est l'hôte externe — le compte local n'est jamais admis depuis Internet" .) -}}
+{{- end -}}
+{{- if not (regexMatch "^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$" (lower .)) -}}
+{{- fail (printf "auth.localAdmin.hosts : « %s » n'est pas un nom d'hôte" .) -}}
+{{- end -}}
+{{- end -}}
+{{- if $a.localAdmin.existingSecret -}}
+{{- $ls := lookup "v1" "Secret" .Release.Namespace $a.localAdmin.existingSecret -}}
+{{- if $ls -}}
+{{- $h := (index $ls.data "htpasswd" | default "") | b64dec -}}
+{{- if not (regexMatch "^admin@local:\\$2[aby]\\$(1[0-9]|[2-3][0-9])\\$.{53}\\s*$" $h) -}}
+{{- fail (printf "auth.localAdmin.existingSecret (%s) : la clé htpasswd doit être « admin@local:$2y$<coût ≥ 10>$… » (bcrypt)" $a.localAdmin.existingSecret) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- else -}}
+{{- if or $a.localAdmin.hosts $a.localAdmin.existingSecret -}}
+{{- /* auth.localAdmin.* sans auth.enabled : ignorés, sans erreur (valeurs par défaut du chart) */ -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/* image du sidecar oauth2-proxy : dépôt:tag, ou dépôt:tag@empreinte */}}
+{{- define "cl.proxyImage" -}}
+{{- $i := .Values.auth.proxy.image -}}
+{{- if $i.digest -}}{{ printf "%s:%s@%s" $i.repository $i.tag $i.digest }}{{- else -}}{{ printf "%s:%s" $i.repository $i.tag }}{{- end -}}
+{{- end -}}
+
+{{/* conteneur oauth2-proxy (contracts/helm-values.md « Pod du launcher avec auth.enabled ») : dict root, name, port, portName,
+     local (compte local : htpasswd + formulaire ; jamais sur l'instance externe) */}}
+{{- define "cl.authProxy" -}}
+{{- $root := .root -}}
+{{- $a := $root.Values.auth -}}
+{{- $logins := concat ($a.admins | default list) ($a.users | default list) | uniq -}}
+- name: {{ .name }}
+  image: {{ include "cl.proxyImage" $root | quote }}
+  imagePullPolicy: {{ $root.Values.image.pullPolicy }}
+  securityContext:
+    runAsNonRoot: true
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop: [ALL]
+  args:
+    - --provider=github
+    {{- if $a.github.enabled }}
+    - --github-user={{ join "," $logins | lower }}
+    {{- else }}
+    # sans connexion GitHub : client factice (le bouton GitHub n'est pas rendu), aucun Secret exigé
+    - --client-id=disabled
+    - --client-secret=disabled
+    {{- end }}
+    - --email-domain=*
+    - --upstream=http://127.0.0.1:8081/
+    - --http-address=0.0.0.0:{{ .port }}
+    - --reverse-proxy=true
+    - --pass-user-headers=true
+    - --pass-access-token=false
+    - --skip-provider-button={{ if .local }}false{{ else }}true{{ end }}
+    - --api-route=^/api/
+    - --skip-auth-route=GET=^/signed-out$
+    - --cookie-name=_cl_auth
+    - --cookie-secure=true
+    - --cookie-samesite=lax
+    - --cookie-expire={{ $a.sessionDuration }}
+    - --cookie-refresh={{ $a.sessionRefresh }}
+    - --custom-templates-dir=/etc/cl-auth/templates
+    - --request-logging=false
+    - --auth-logging=true
+    - --ping-path=/ping
+    {{- if .local }}
+    - --htpasswd-file=/etc/cl-auth/local/htpasswd
+    - --display-htpasswd-form=true
+    {{- end }}
+  env:
+    {{- if $a.github.enabled }}
+    - name: OAUTH2_PROXY_CLIENT_ID
+      valueFrom:
+        secretKeyRef: {name: {{ $a.existingSecret | quote }}, key: client-id}
+    - name: OAUTH2_PROXY_CLIENT_SECRET
+      valueFrom:
+        secretKeyRef: {name: {{ $a.existingSecret | quote }}, key: client-secret}
+    {{- end }}
+    - name: OAUTH2_PROXY_COOKIE_SECRET
+      valueFrom:
+        secretKeyRef: {name: {{ include "cl.cookieSecretName" $root | quote }}, key: cookie-secret}
+  ports:
+    - name: {{ .portName }}
+      containerPort: {{ .port }}
+      protocol: TCP
+  volumeMounts:
+    - name: auth-templates
+      mountPath: /etc/cl-auth/templates
+      readOnly: true
+    {{- if .local }}
+    - name: auth-local
+      mountPath: /etc/cl-auth/local
+      readOnly: true
+    {{- end }}
+  livenessProbe:
+    httpGet: {path: /ping, port: {{ .portName }}}
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readinessProbe:
+    httpGet: {path: /ping, port: {{ .portName }}}
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  resources:
+    {{- toYaml $a.proxy.resources | nindent 4 }}
+{{- end -}}
+
+{{/* contrôleur de l'ingress externe : celui de l'interne, sinon Traefik (contrôleur du cluster) */}}
+{{- define "cl.extController" -}}
+{{- default "traefik" .Values.ingress.controller -}}
 {{- end -}}

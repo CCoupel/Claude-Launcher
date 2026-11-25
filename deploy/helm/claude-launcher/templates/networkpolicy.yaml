@@ -34,4 +34,8 @@ spec:
       ports:
         - protocol: TCP
           port: http   # port NOMMÉ du conteneur (8080), pas service.port : une NetworkPolicy vise le port du pod
+        {{- if .Values.externalIngress.enabled }}
+        - protocol: TCP
+          port: http-ext   # instance auth-proxy-ext (ingress externe)
+        {{- end }}
 {{- end }}

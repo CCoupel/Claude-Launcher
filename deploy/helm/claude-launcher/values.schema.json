@@ -286,7 +286,7 @@
             "none",
             "token"
           ],
-          "description": "CL_WEB_ACCESS : none (sans jeton, défaut du chart) ou token"
+          "description": "CL_WEB_ACCESS sans auth.enabled : none (défaut) ou token ; ne pas poser avec auth.enabled (imposé à proxy)"
         }
       }
     },
@@ -435,6 +435,112 @@
         },
         "annotations": {
           "type": "object"
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "v7.0.0 — accès authentifié (contracts/helm-values.md « Valeurs auth.* »)",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "github": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "existingSecret": {
+          "type": "string",
+          "description": "Secret client-id / client-secret de la GitHub App"
+        },
+        "admins": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+          }
+        },
+        "users": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9]([A-Za-z0-9-]{0,37}[A-Za-z0-9])?$"
+          }
+        },
+        "localAdmin": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "existingSecret": {
+              "type": "string",
+              "description": "Secret avec la clé htpasswd (admin@local:$2y$…)"
+            },
+            "hosts": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              }
+            }
+          }
+        },
+        "sessionDuration": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[hm]$"
+        },
+        "sessionRefresh": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[hm]$"
+        },
+        "proxy": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "image": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "repository": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "tag": {
+                  "type": "string",
+                  "pattern": "^([A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?$"
+                },
+                "digest": {
+                  "type": "string",
+                  "pattern": "^(sha256:[0-9a-f]{64})?$"
+                }
+              }
+            },
+            "resources": {
+              "type": "object"
+            }
+          }
+        },
+        "rateLimit": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "average": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "burst": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
         }
       }
     }
