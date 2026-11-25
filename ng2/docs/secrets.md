@@ -53,3 +53,7 @@ Un pod projet Kubernetes ne monte plus que son dossier et `CLAUDE_CONFIG_DIR` (v
 Le dossier `<racine>/.config/claude-launcher-ng2/secrets/` lui est donc absent : une session claude ne peut pas lire les
 clés ssh, les `known_hosts` ni les kubeconfigs du coffre. Le coffre reste accessible au hub Linux et à l'exe Windows, comme
 avant.
+
+**« Pas de coffre dans les pods » ne veut pas dire « pas de jeton GitHub ».** `.claude/settings.json` (dans
+`CLAUDE_CONFIG_DIR`, monté dans les pods projets) contient les variables `GH_TOKEN` et `GITHUB_PERSONAL_ACCESS_TOKEN`,
+injectées volontairement depuis la v5.7.0 (hors périmètre de #253). Ces jetons sont donc lisibles par les sessions du pod.

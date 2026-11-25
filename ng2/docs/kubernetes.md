@@ -366,6 +366,8 @@ refusées (erreur « deux PVC »).
   affiche « Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre », et le diagnostic le signale.
   Un pod arrêté, ou à recréer, est recréé au nouveau modèle.
 - Docker, podman et ssh : inchangés (ils ne montent déjà que le projet et `CLAUDE_CONFIG_DIR`).
+- Le coffre est hors des pods, mais **pas les jetons GitHub** : `GH_TOKEN` et `GITHUB_PERSONAL_ACCESS_TOKEN` figurent dans
+  `.claude/settings.json` (`CLAUDE_CONFIG_DIR`, monté) et sont lisibles par les sessions du pod (voir [secrets.md](secrets.md)).
 
 #### 9. Limites de v6.4.0 (risques acceptés)
 
