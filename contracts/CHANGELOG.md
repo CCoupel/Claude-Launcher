@@ -15,6 +15,13 @@
 - **[CHANGED]** chart : aucune CSP sur la route `/` (préserve le `sandbox` de `/files`) ; `ingress.controller: nginx` refusé avec
   le compte local.
 
+## [20261125] — v7.0.0 (addendum 3, LOT-3) : identifiants GitHub en valeurs Helm
+
+- **[NEW]** `auth.github.clientId` / `auth.github.clientSecret` : le chart crée le Secret `<release>-github` ; exclusif
+  avec `auth.existingSecret` (conservé, recommandé) ; GitHub activé sans aucun des deux → refus. Valeurs réservées à
+  `PRIVATE/<ENV>/values-local.yaml` ; avertissement `helm get values` / `helm template` ; contrôle `scripts/ci.sh` contre
+  un `clientSecret` dans un fichier suivi par git — `helm-values.md` « v7.0.0 ».
+
 ## [20261125] — v7.0.0 (addendum 2) : R1 recentrée sur le serveur, corrections de sécurité (revue du modèle de menace)
 
 - **[BREAKING]** (par rapport au plan) R1 = **serveur et options globales** (décision utilisateur) : `config.conf`,
