@@ -625,7 +625,7 @@ func (m stateModel) teamBody(w int) string {
 				name = teamShown.Render(core.PadRight(nm, nameW))
 			}
 		}
-		model, effort := strings.TrimPrefix(t.Model, "claude-"), t.Effort
+		model, effort := noCtl(strings.TrimPrefix(t.Model, "claude-")), noCtl(t.Effort) // valeurs de fichiers : sans caractère de contrôle
 		if narrow {
 			effort = shortEffort(effort)
 		}
@@ -650,6 +650,16 @@ func (m stateModel) teamBody(w int) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// noCtl : s sans caractère de contrôle (séquences d'échappement d'un fichier du projet).
+func noCtl(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 func orDash(s string) string {

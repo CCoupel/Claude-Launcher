@@ -92,102 +92,83 @@ func SetAgentOverride(proj, agent string, model, effort *string) (AgentOverrideR
 	if strings.HasSuffix(tm.CompFile, ".template.md") || filepath.Dir(filepath.Clean(comp)) != filepath.Clean(agentsDir) {
 		return fail("fichier refusé : %s", tm.CompFile)
 	}
-	if st, err := os.Lstat(comp); err == nil && st.Mode()&os.ModeSymlink != 0 {
-		return fail("%s est un lien symbolique : réglage refusé", tm.CompFile)
+	if err := checkNoLinks(proj, comp); err != nil {
+		return fail("%v", err)
 	}
 
-	// nouvelles valeurs explicites du compagnon ("" : clé absente)
-	newM, newE := tm.CompModel, tm.CompEffort
-	if model != nil {
-		newM = ""
-		if *model != DefaultValue {
-			newM = *model
-		}
+	// premier calcul (valeurs lues hors verrou) : refus avant toute écriture ; recalculé sous verrou
+	pl, err := planOverride(*tm, tm.CompModel, tm.CompEffort, model, effort)
+	if err != nil {
+		return fail("%v", err)
 	}
-	if effort != nil {
-		newE = ""
-		if *effort != DefaultValue {
-			newE = *effort
-		}
-	}
-	if newM == tm.TplModel {
-		newM = ""
-	}
-	if newE == tm.TplEffort {
-		newE = ""
-	}
-	resM := cmp.Or(newM, tm.TplModel)
-	resE := cmp.Or(newE, tm.TplEffort)
-	adjusted := ""
-	if effort != nil && *effort != DefaultValue && !EffortAccepted(resM, *effort) {
-		return fail("effort %s non pris en charge par %s", *effort, resM)
-	}
-	if effort == nil && model != nil && resE != "" && !EffortAccepted(resM, resE) {
-		acc, _ := ModelEfforts(resM)
-		switch {
-		case slices.Contains(acc, tm.TplEffort):
-			newE = ""
-		case len(acc) > 0:
-			newE = highestEffort(acc)
-		default:
-			newE = ""
-		}
-		old := resE
-		resE = cmp.Or(newE, tm.TplEffort)
-		if acc2, _ := ModelEfforts(resM); len(acc2) == 0 {
-			resE = ""
-		}
-		res.EffortAdjusted = resE != old
-		if res.EffortAdjusted {
-			adjusted = fmt.Sprintf("effort ajusté à %s (%s ne prend pas %s) — ", cmp.Or(resE, "aucun"), resM, old)
-		}
-	}
-	res.Model, res.Effort = resM, resE
-	res.ModelSrc, res.EffortSrc = srcOf(newM), srcOf(newE)
 	res.File = tm.CompFile
 
 	isLeader := agent == teamleaderAgent
 	var settingsPath string
 	var settingsOld []byte
 	var settingsMode os.FileMode = 0o644
-	vals := map[string]string{"model": resM}
-	keys := []string{"model"}
-	if resE != "" {
-		keys, vals["effortLevel"] = append(keys, "effortLevel"), resE
+	settingsKV := func(p overridePlan) ([]string, map[string]string) {
+		vals := map[string]string{"model": p.resM}
+		keys := []string{"model"}
+		if p.resE != "" {
+			keys, vals["effortLevel"] = append(keys, "effortLevel"), p.resE
+		}
+		return keys, vals
 	}
 	if isLeader {
 		settingsPath = filepath.Join(proj, ".claude", "settings.json")
+		if err := checkNoLinks(proj, settingsPath); err != nil {
+			return fail("%v", err)
+		}
 		if st, err := os.Lstat(settingsPath); err == nil {
-			if st.Mode()&os.ModeSymlink != 0 {
-				return fail("settings.json est un lien symbolique : réglage refusé")
-			}
 			settingsMode = st.Mode().Perm()
 			if settingsOld, err = os.ReadFile(settingsPath); err != nil {
 				return fail("settings.json illisible : %v", err)
 			}
 		}
-		var err error
-		if _, err = settingsSet(settingsOld, keys, vals); err != nil {
+		keys, vals := settingsKV(pl)
+		if _, err := settingsSet(settingsOld, keys, vals); err != nil {
 			return fail("settings.json illisible : %v", err)
 		}
 	}
 	// contenu du compagnon calculé d'abord : un compagnon illisible refuse tout avant écriture
-	if _, _, err := rewriteCompanion(comp, newM, newE); err != nil {
+	if _, _, err := rewriteCompanion(comp, pl.ptrM(model), pl.ptrE(effort)); err != nil {
 		return fail("%v", err)
 	}
 
 	defer ResetTplInfo(proj) // carte relue : le compagnon (« + ») a pu apparaître ou disparaître
 	timeout := ShareWriteTimeoutNow()
+	var final overridePlan
 	werr := writeShared(timeout, comp, func() error {
-		removed, _, err := applyCompanion(comp, newM, newE)
+		// sous le verrou : état courant relu, seules les clés demandées sont touchées, référence et P5 recalculés
+		if err := checkNoLinks(proj, comp); err != nil {
+			return err
+		}
+		curM, curE := frontKeys(comp)
+		p, err := planOverride(*tm, curM, curE, model, effort)
+		if err != nil {
+			return err
+		}
+		final = p
+		removed, _, err := applyCompanion(comp, p.ptrM(model), p.ptrE(effort))
 		res.Removed = removed
 		return err
 	})
 	if werr != nil {
 		return writeFailure(res, tm.CompFile, werr)
 	}
+	pl = final
+	resM, resE := pl.resM, pl.resE
+	res.Model, res.Effort = resM, resE
+	res.ModelSrc, res.EffortSrc = srcOf(pl.newM), srcOf(pl.newE)
+	res.EffortAdjusted = pl.effortAdjusted
+	adjusted := pl.adjusted
+	keys, vals := settingsKV(pl)
 	if isLeader {
 		serr := writeShared(timeout, settingsPath, func() error {
+			if err := checkNoLinks(proj, settingsPath); err != nil {
+				return err
+			}
 			cur, err := os.ReadFile(settingsPath)
 			if err != nil && !errors.Is(err, os.ErrNotExist) {
 				return err
@@ -257,7 +238,7 @@ func writeShared(d time.Duration, target string, fn func() error) error {
 
 // applyCompanion : relit le compagnon (sous verrou), applique les valeurs et l'écrit (ou le supprime s'il ne reste
 // rien). removed : compagnon supprimé.
-func applyCompanion(path, model, effort string) (removed, changed bool, err error) {
+func applyCompanion(path string, model, effort *string) (removed, changed bool, err error) {
 	out, del, err := rewriteCompanion(path, model, effort)
 	if err != nil {
 		return false, false, err
@@ -282,7 +263,7 @@ func applyCompanion(path, model, effort string) (removed, changed bool, err erro
 
 // rewriteCompanion : nouveau contenu du compagnon. del : plus rien à garder (fichier supprimé, ou jamais créé).
 // model / effort : valeur explicite à écrire, "" pour retirer la clé.
-func rewriteCompanion(path, model, effort string) (out []byte, del bool, err error) {
+func rewriteCompanion(path string, model, effort *string) (out []byte, del bool, err error) {
 	src, rerr := os.ReadFile(path)
 	if rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
 		return nil, false, rerr
@@ -298,7 +279,7 @@ var frontKeyRe = regexp.MustCompile(`^(model|effort)[ \t]*:`)
 
 // rewriteFront : réécrit les lignes model: / effort: du frontmatter de src ; le reste est conservé octet pour octet
 // (CRLF, BOM compris). Sans frontmatter : bloc ajouté en tête si une valeur est à écrire. Bloc devenu vide : retiré.
-func rewriteFront(src []byte, model, effort string) ([]byte, error) {
+func rewriteFront(src []byte, model, effort *string) ([]byte, error) {
 	bom := []byte{0xEF, 0xBB, 0xBF}
 	var pre []byte
 	if bytes.HasPrefix(src, bom) {
@@ -310,11 +291,11 @@ func rewriteFront(src []byte, model, effort string) ([]byte, error) {
 	}
 	want := func() []string {
 		var l []string
-		if model != "" {
-			l = append(l, "model: "+model)
+		if model != nil && *model != "" {
+			l = append(l, "model: "+*model)
 		}
-		if effort != "" {
-			l = append(l, "effort: "+effort)
+		if effort != nil && *effort != "" {
+			l = append(l, "effort: "+*effort)
 		}
 		return l
 	}
@@ -337,24 +318,39 @@ func rewriteFront(src []byte, model, effort string) ([]byte, error) {
 	if end < 0 {
 		return nil, errors.New("frontmatter non fermé, réglage refusé")
 	}
-	vals := map[string]string{"model": model, "effort": effort}
+	vals := map[string]*string{"model": model, "effort": effort} // nil : clé non touchée
 	done := map[string]bool{}
 	var body []string // lignes conservées du frontmatter
 	for _, l := range lines[1:end] {
 		if g := frontKeyRe.FindStringSubmatch(l); g != nil {
 			k := g[1]
-			if done[k] || vals[k] == "" { // doublon, ou clé retirée
+			if vals[k] == nil { // clé non demandée : ligne conservée telle quelle
+				done[k] = true
+				body = append(body, l)
+				continue
+			}
+			if done[k] || *vals[k] == "" { // doublon, ou clé retirée
 				continue
 			}
 			done[k] = true
-			body = append(body, k+": "+vals[k]+eolOf(l, eol))
+			body = append(body, k+": "+*vals[k]+eolOf(l, eol))
 			continue
 		}
 		body = append(body, l)
 	}
 	for _, k := range []string{"model", "effort"} {
-		if vals[k] != "" && !done[k] {
-			body = append(body, k+": "+vals[k]+eol)
+		if vals[k] != nil && *vals[k] != "" && !done[k] {
+			line := k + ": " + *vals[k] + eol
+			at := len(body)
+			if k == "model" { // model avant effort, même ajouté après coup
+				for n, l := range body {
+					if frontKeyRe.MatchString(l) && strings.HasPrefix(l, "effort") {
+						at = n
+						break
+					}
+				}
+			}
+			body = append(body[:at], append([]string{line}, body[at:]...)...)
 		}
 	}
 	rest := lines[end+1:]
@@ -404,4 +400,87 @@ func eolOf(l, def string) string {
 		return "\n"
 	}
 	return def
+}
+
+// overridePlan : résultat du calcul d'un réglage sur l'état courant du compagnon.
+type overridePlan struct {
+	newM, newE     string // valeurs explicites du compagnon après réglage ("" : clé absente)
+	resM, resE     string // valeurs résolues
+	adjusted       string // préfixe de note quand l'effort a été ajusté
+	effortAdjusted bool
+	touchE         bool // l'effort est réécrit (demandé, ou ajusté à un changement de modèle)
+}
+
+func (p overridePlan) ptrM(req *string) *string {
+	if req == nil {
+		return nil
+	}
+	return &p.newM
+}
+
+func (p overridePlan) ptrE(req *string) *string {
+	if req == nil && !p.touchE {
+		return nil
+	}
+	return &p.newE
+}
+
+// planOverride : valeurs du compagnon (curM, curE : état courant) après la demande ; référence du template et
+// compatibilité modèle/effort appliquées. Erreur : refus.
+func planOverride(tm Teammate, curM, curE string, model, effort *string) (overridePlan, error) {
+	p := overridePlan{newM: curM, newE: curE}
+	if model != nil {
+		p.newM = ""
+		if *model != DefaultValue {
+			p.newM = *model
+		}
+		if p.newM == tm.TplModel {
+			p.newM = ""
+		}
+	}
+	if effort != nil {
+		p.newE = ""
+		if *effort != DefaultValue {
+			p.newE = *effort
+		}
+		if p.newE == tm.TplEffort {
+			p.newE = ""
+		}
+	}
+	p.resM = cmp.Or(p.newM, tm.TplModel)
+	p.resE = cmp.Or(p.newE, tm.TplEffort)
+	if effort != nil && *effort != DefaultValue && !EffortAccepted(p.resM, *effort) {
+		return p, fmt.Errorf("effort %s non pris en charge par %s", *effort, p.resM)
+	}
+	if effort == nil && model != nil && p.resE != "" && !EffortAccepted(p.resM, p.resE) {
+		acc, _ := ModelEfforts(p.resM)
+		switch {
+		case slices.Contains(acc, tm.TplEffort), len(acc) == 0:
+			p.newE = ""
+		default:
+			p.newE = highestEffort(acc)
+		}
+		p.touchE = true
+		old := p.resE
+		p.resE = cmp.Or(p.newE, tm.TplEffort)
+		if len(acc) == 0 {
+			p.resE = ""
+		}
+		p.effortAdjusted = p.resE != old
+		if p.effortAdjusted {
+			p.adjusted = fmt.Sprintf("effort ajusté à %s (%s ne prend pas %s) — ", cmp.Or(p.resE, "aucun"), p.resM, old)
+		}
+	}
+	return p, nil
+}
+
+// checkNoLinks : ni .claude, ni .claude/agents, ni le fichier ne sont des liens symboliques (défense en profondeur,
+// contrôlé aussi sous le verrou).
+func checkNoLinks(proj, file string) error {
+	for _, p := range []string{filepath.Join(proj, ".claude"), filepath.Join(proj, ".claude", "agents"), file} {
+		if st, err := os.Lstat(p); err == nil && st.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("%s est un lien symbolique : réglage refusé", filepath.Base(p))
+		}
+	}
+	return nil
 }

@@ -92,7 +92,7 @@ func teamMenuArgs(l core.TeamLine, proj, exe string, x, y int) []string {
 		}
 		return `run-shell -b "` + tmuxDQ(cmd) + `"`
 	}
-	a := []string{"display-menu", "-T", " " + l.Agent + " — modèle et effort "}
+	a := []string{"display-menu", "-T", " " + fmtEsc(l.Agent) + " — modèle et effort "}
 	if x >= 0 && y >= 0 {
 		a = append(a, "-x", strconv.Itoa(x), "-y", strconv.Itoa(y))
 	}
@@ -108,16 +108,18 @@ func teamMenuArgs(l core.TeamLine, proj, exe string, x, y int) []string {
 		}
 		return ""
 	}
-	// modèle
-	a = append(a, mark(l.ModelSrc != "companion")+"Défaut (template) — "+orDash(l.TplModel), "d", run("model=default"))
+	// modèle ; valeurs lues d'un fichier : jamais affichées brutes (formats tmux), seulement si connues
+	tplM := orDash(known(l.TplModel, core.Models))
+	tplE := orDash(known(l.TplEffort, core.Efforts))
+	a = append(a, mark(l.ModelSrc != "companion")+"Défaut (template) — "+tplM, "d", run("model=default"))
 	for _, m := range []struct{ v, key string }{{"opus", "o"}, {"sonnet", "s"}, {"haiku", "h"}, {"fable", "f"}} {
 		on := l.ModelSrc == "companion" && strings.TrimPrefix(l.Model, "claude-") == m.v
 		a = append(a, mark(on)+m.v+tplMark(m.v, l.TplModel), m.key, run("model="+m.v))
 	}
 	a = append(a, "", "", "")
 	// effort : filtré selon le modèle résolu ; « Défaut » jamais grisé
-	a = append(a, mark(l.EffortSrc != "companion")+"Défaut (template) — "+orDash(l.TplEffort), "0", run("effort=default"))
-	acc, _ := core.ModelEfforts(l.Model)
+	a = append(a, mark(l.EffortSrc != "companion")+"Défaut (template) — "+tplE, "0", run("effort=default"))
+	acc, _ := core.ModelEfforts(l.Model) // l.Model brut : sert à la table, jamais affiché
 	for i, e := range core.Efforts {
 		label := mark(l.EffortSrc == "companion" && l.Effort == e) + e + tplMark(e, l.TplEffort)
 		if !slices.Contains(acc, e) { // grisé, sans raccourci
@@ -137,6 +139,17 @@ func teamMenuArgs(l core.TeamLine, proj, exe string, x, y int) []string {
 		a = append(a, "-appliqué au prochain démarrage", "", "")
 	}
 	return a
+}
+
+// fmtEsc : texte issu d'un fichier placé dans un menu tmux : « # » doublé (les formats #{…} sont développés).
+func fmtEsc(s string) string { return strings.ReplaceAll(s, "#", "##") }
+
+// known : v s'il figure dans la liste, "" sinon.
+func known(v string, list []string) string {
+	if slices.Contains(list, strings.TrimPrefix(v, "claude-")) {
+		return strings.TrimPrefix(v, "claude-")
+	}
+	return ""
 }
 
 // shQuote : argument shell entre apostrophes.
