@@ -143,10 +143,19 @@ func teamRows(lines []core.TeamLine) []TeamRow {
 	for _, l := range lines {
 		rows = append(rows, TeamRow{Name: l.Name, Tag: l.Tag, Companion: l.Companion,
 			Model: strings.TrimPrefix(l.Model, "claude-"), Effort: l.Effort, Claude: l.Claude, Pane: l.Pane,
+			Agent: l.Agent, ModelSrc: l.ModelSrc, EffortSrc: l.EffortSrc, Editable: l.Editable,
+			TplModel: strings.TrimPrefix(l.TplModel, "claude-"), TplEffort: l.TplEffort, Running: trimRunning(l.Running),
 			Started: l.Started, Active: l.Active, Hidden: l.Hidden, Pinned: l.Pinned, IdleLeft: l.IdleLeft,
 			TplState: l.TplState, TplTarget: l.TplTarget, CompanionFile: l.CompanionFile, Odd: l.Odd})
 	}
 	return rows
+}
+
+func trimRunning(r *core.TeamRunning) *core.TeamRunning {
+	if r == nil {
+		return nil
+	}
+	return &core.TeamRunning{Model: strings.TrimPrefix(r.Model, "claude-"), Effort: r.Effort}
 }
 
 // pushTeam : carte Team du projet sélectionné renvoyée tout de suite (état d'un

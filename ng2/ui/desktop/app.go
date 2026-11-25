@@ -1179,6 +1179,16 @@ type TeamRow struct {
 	Pinned    bool   `json:"pinned"`
 	IdleLeft  int    `json:"idleLeft"`
 
+	// réglage modèle / effort (#250) : model et effort = valeur résolue (compagnon > template) ; sources
+	// "companion" | "template" ; références du template ; ce qui tourne s'il diffère ; réglable depuis la carte
+	Agent     string            `json:"agent,omitempty"`
+	ModelSrc  string            `json:"modelSrc,omitempty"`
+	EffortSrc string            `json:"effortSrc,omitempty"`
+	TplModel  string            `json:"tplModel,omitempty"`
+	TplEffort string            `json:"tplEffort,omitempty"`
+	Running   *core.TeamRunning `json:"running,omitempty"`
+	Editable  bool              `json:"editable"`
+
 	// état du template (cycle 4) : ok / late / "" ; version cible ; compagnon
 	TplState      string `json:"tplState"`
 	TplTarget     string `json:"tplTarget,omitempty"`
@@ -1348,6 +1358,10 @@ func (a *App) dispatch(web bool, method string, raw json.RawMessage) (any, error
 		return a.secretCall(src, method, raw)
 	}
 	switch method {
+	case "teamAgentSet": // #250 : sans adresse de requête, un appel web est refusé comme distant (échec fermé)
+		return a.teamAgentSet(web, raw)
+	case "clientInfo":
+		return map[string]any{"remote": web}, nil
 	case "projectSettings":
 		var in struct {
 			Path    string

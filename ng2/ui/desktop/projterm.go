@@ -1393,6 +1393,13 @@ func (t *projTerm) registry() []core.Teammate {
 	return r
 }
 
+// resetRegistry : le registre est relu au prochain appel (compagnon réécrit, #250).
+func (t *projTerm) resetRegistry() {
+	t.mu.Lock()
+	t.reg = nil
+	t.mu.Unlock()
+}
+
 // teamRows : lignes de la carte Team depuis la mémoire du watcher (panes, team,
 // registre en cache) : aucun accès disque lent, utilisable à chaque changement.
 func (t *projTerm) teamRows() []core.TeamLine {

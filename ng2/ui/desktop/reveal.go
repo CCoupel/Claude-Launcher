@@ -86,6 +86,10 @@ func (a *App) secretReveal(iface string, remote bool, session string, raw json.R
 // publique, hôte non local, proxy), sid : session. secretReveal et configModel.reveal en dépendent ; le reste est DispatchFromAddr.
 func (a *App) DispatchWeb(src string, remote bool, sid, method string, raw json.RawMessage) (any, error) {
 	switch method {
+	case "clientInfo": // #250 : l'interface grise le réglage modèle · effort d'un accès distant
+		return map[string]any{"remote": remote}, nil
+	case "teamAgentSet": // #250 : refusé côté serveur pour un accès distant
+		return a.teamAgentSet(remote, raw)
 	case "secretReveal":
 		return a.secretReveal("web local", remote, "web:"+sid, raw)
 	case "configModel":
