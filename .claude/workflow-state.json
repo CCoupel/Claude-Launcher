@@ -5,8 +5,8 @@
   "branch": "milestone/v6.9.0",
   "version": "6.9.0",
   "started_at": "2026-11-25T10:58:06Z",
-  "updated_at": "2026-11-25T13:30:04Z",
-  "cycles": 1,
+  "updated_at": "2026-11-25T13:33:23Z",
+  "cycles": 2,
   "issue_nums": [
     250
   ],
@@ -36,7 +36,7 @@
       "handoff": "_work/handoff/dev-frontend-20261125-250.md"
     },
     "test-writer": {
-      "status": "completed",
+      "status": "in_progress",
       "sha": "280f14b"
     },
     "review": {
@@ -45,7 +45,7 @@
       "verdict": "APPROUVE"
     },
     "qa": {
-      "status": "completed",
+      "status": "in_progress",
       "report": "_work/reports/qa-250-20261125-1500.md",
       "verdict": "VALIDATED WITH RESERVATIONS",
       "nr": {
@@ -112,7 +112,7 @@
         "issues": [
           250
         ],
-        "phase": "gate-lot-valide"
+        "phase": "dev-backend"
       }
     }
   }
