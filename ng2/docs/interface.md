@@ -71,6 +71,16 @@
   (`●` démarré, `○` non démarré), sans regroupement ; son titre porte les versions une seule fois, « TEAM · N · TPL vX ·
   CLAUDE Y » (template, claude du leader), et les lignes n'ont plus de colonne de version : la carte est plus étroite (#151).
   `⚠` orange sur un teammate dont la version diffère (template ou claude) ; sous Windows, le détail est en infobulle.
+  **Modèle et effort** (v6.9.0, #250) : les colonnes modèle et effort de chaque ligne se règlent depuis la carte. Fenêtre
+  native : clic → menu ; coque tmux : clic sur la colonne → `display-menu`. Chaque entrée écrit le **compagnon projet**
+  `.claude/agents/<agent>.md` (`model:` / `effort:`) ; la valeur prise effet au **prochain spawn** du teammate (⟳ sur la
+  ligne tant qu'un teammate tourne avec une autre valeur). Entrée « Défaut (template) » : retire la clé du compagnon, le
+  teammate suit le template. Un effort non pris en charge par le modèle est grisé (sans raccourci). Le **teamleader**
+  réglé aussi `.claude/settings.json` (`model`, `effortLevel`) : la session en cours garde son modèle, à changer avec
+  `/model` / `/effort`. Accès distant (navigateur hors boucle locale) : réglage refusé, réservé à la fenêtre native.
+  Raccourcis du menu tmux : `d` Défaut modèle, `o` opus, `s` sonnet, `h` haiku, `f` fable ; `0` Défaut effort, `1`–`5`
+  low → max ; `t` « Tout par défaut » (modèle et effort). Message de résultat 6 s sous la liste (vert ; jaune pour le
+  teamleader ou un refus). Contrat : `contracts/desktop-dispatch.md` § v6.9.0.
   **Surbrillance** = son pane est visible dans la fenêtre du
   projet. Double-clic sur un teammate inactif : visible ↔ caché. Un teammate caché sort de la fenêtre du projet,
   mais continue de tourner et reçoit ses messages. Règle : un teammate **actif est toujours visible** (double-clic
@@ -136,6 +146,7 @@
 | double-clic sur un pane d'une team | plein écran (comme `Ctrl+B z`) ; double-clic ou `Ctrl+B z` à nouveau pour revenir en taille normale |
 | `Maj`+glisser (terminal hôte) | sélectionner en contournant tmux (la souris est captée par tmux) ; la sélection traverse les panes, bordures comprises. Copie dans le presse-papiers : renvoi à #156 |
 | double-clic sur un teammate inactif (carte Team) | visible ↔ caché ; refusé pour un teammate actif (message dans la carte) |
+| clic sur la colonne modèle ou effort (carte Team, coque tmux) | menu de réglage ; touches `d` `o` `s` `h` `f` (modèle), `0` `1`–`5` (effort), `t` (tout par défaut) |
 | clic sur `↑ NG … cliquer pour installer` (vert) | installer la nouvelle version, déjà téléchargée et contrôlée, et redémarrer le navigateur (projets conservés) |
 | clic sur `↑ NG … réessayer` (jaune) | relancer tout de suite le téléchargement de la nouvelle version |
 | clic sur `↑ tpl … cliquer pour installer` (vert) | adopter la nouvelle version du template |
