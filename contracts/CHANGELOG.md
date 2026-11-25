@@ -2,6 +2,19 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261125] — v7.0.0 (correctif cycle 1 LOT-2, audit sécurité final et revue)
+
+- **[CHANGED]** audit `auth.md` §5 : toute action **R1** autorisée est précédée d'une ligne d'**intention** (`"phase":"intent"`,
+  champs `ts`, `user`, `role`, `src`, `method`, `target`, `ok: true`), puis de sa ligne de résultat habituelle (sans `phase`) ;
+  journal inaccessible : l'action est refusée. Refus R1 soumis à la rafale de 60/min ; `method` ≤ 64 (`unknown` si inconnue),
+  `target` et `project` ≤ 128 ; `src` garde la queue du `X-Forwarded-For` ; flux `/api/events` fermé après
+  `CL_AUTH_SESSION_REFRESH`.
+- **[CHANGED]** `auth.md` §4 : arguments JSON à clés égales (casse comprise) refusés ; `backendTest` : backend déclaré tel
+  quel ou nouveau sans champ R1, sinon R1 ; clés de pod R1 : + `tolerations`, `priorityClassName`, `schedulerName`,
+  `imagePullSecrets`.
+- **[CHANGED]** chart : aucune CSP sur la route `/` (préserve le `sandbox` de `/files`) ; `ingress.controller: nginx` refusé avec
+  le compte local.
+
 ## [20261125] — v7.0.0 (addendum 2) : R1 recentrée sur le serveur, corrections de sécurité (revue du modèle de menace)
 
 - **[BREAKING]** (par rapport au plan) R1 = **serveur et options globales** (décision utilisateur) : `config.conf`,
