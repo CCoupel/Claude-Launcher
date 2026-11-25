@@ -1,92 +1,26 @@
 {
-  "type": "BUGFIX",
-  "description": "Web : le bandeau d'attente (#223) décale d'une ligne la correspondance souris ↔ terminal",
-  "status": "completed",
-  "branch": "milestone/v6.8.2",
-  "version": "6.8.2",
-  "started_at": "2026-11-24T13:49:00Z",
-  "updated_at": "2026-11-24T16:22:00Z",
+  "type": "FEATURE",
+  "description": "Carte TEAM : changer le modèle et l'effort d'un teammate (compagnon .claude/agents/<nom>.md) — #250",
+  "status": "in_progress",
+  "branch": "milestone/v6.9.0",
+  "version": "6.9.0",
+  "started_at": "2026-11-25T10:58:06Z",
+  "updated_at": "2026-11-25T10:58:06Z",
   "cycles": 0,
-  "issue_nums": [
-    242
-  ],
-  "milestone_num": 34,
-  "version_commit": "cc2c716",
+  "issue_nums": [250],
+  "milestone_num": 36,
   "plan": null,
-  "cadrage": {
-    "intensite": "leger",
-    "test_writer": false,
-    "review": false,
-    "qualif": true,
-    "doc": "dev",
-    "team": [
-      "dev-frontend",
-      "dev-backend",
-      "qa"
-    ],
-    "valide": "GATE 1",
-    "note": "dev-backend ajouté (bump x/net GO-2026-5026, CI rouge, validé par l utilisateur)"
-  },
   "phases": {
-    "clarification": {
-      "status": "completed",
-      "skipped": false
-    },
-    "init": {
-      "status": "completed"
-    },
-    "analyse": {
-      "status": "completed"
-    },
-    "reproduction": {
-      "status": "completed",
-      "sha": "f37cc47",
-      "handoff": "_work/reports/dev-frontend-20261124-135202.md"
-    },
-    "red-check": {
-      "status": "completed",
-      "report": "_work/reports/qa-20261124-red-check-242.md"
-    },
-    "dev-frontend": {
-      "status": "completed",
-      "sha": "55c2a51"
-    },
-    "qa": {
-      "status": "completed",
-      "report": "_work/reports/qa-20261124-242-fix.md",
-      "verdict": "VALIDATED WITH RESERVATIONS"
-    },
-    "deploy-qualif": {
-      "status": "completed",
-      "version": "6.8.2.1",
-      "helm_rev": 49,
-      "steps": {
-        "build": {
-          "status": "completed"
-        },
-        "publish": {
-          "status": "completed"
-        },
-        "deploy": {
-          "status": "completed"
-        }
-      }
-    },
-    "deploy-prod": {
-      "status": "pending",
-      "steps": {
-        "publish": {
-          "status": "pending"
-        },
-        "deploy": {
-          "status": "pending"
-        }
-      }
-    }
-  },
-  "lots": {
-    "current": "v6.8.2 validée (GATE 4) — RETEX puis PROD",
-    "order": []
-  },
-  "gate4": "validé par l utilisateur 2026-11-24"
+    "clarification": { "status": "completed", "skipped": false },
+    "init": { "status": "in_progress" },
+    "plan": { "status": "pending" },
+    "dev-backend": { "status": "pending" },
+    "dev-frontend": { "status": "pending" },
+    "test-writer": { "status": "pending" },
+    "review": { "status": "pending" },
+    "qa": { "status": "pending" },
+    "doc": { "status": "pending" },
+    "deploy-qualif": { "status": "pending", "steps": { "build": {"status":"pending"}, "publish": {"status":"pending"}, "deploy": {"status":"pending"} } },
+    "deploy-prod": { "status": "pending", "steps": { "publish": {"status":"pending"}, "deploy": {"status":"pending"} } }
+  }
 }
