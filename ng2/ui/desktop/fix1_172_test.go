@@ -417,3 +417,65 @@ func TestAudit172FieldsBoundedOverHTTP(t *testing.T) {
 		t.Errorf("méthode inconnue non journalisée sous « unknown » : %v", lines)
 	}
 }
+
+// N1 (ré-audit) : encoding/json plie la casse au-delà de l'ASCII — « ſ » (U+017F, s long) égale « s » et « K » (U+212A,
+// signe Kelvin) égale « k ». Deux clés qui ne diffèrent que par ce pliage sont AMBIGUËS comme celles qui diffèrent par la
+// casse : refusées (400) pour tous les rôles, jamais décodées deux fois différemment, aucune écriture R1 possible.
+func unicodeFoldPayloads(conf, bk string) map[string]string {
+	q := func(s string) string { b, _ := json.Marshal(s); return string(b) }
+	c, k := q(conf), q(bk)
+	return map[string]string{
+		"Kelvin \\u212A contre k (kind)":      `{"method":"configSave","args":{"kind":"project-env","Kind":"config.conf","path":"/x","content":` + c + `}}`,
+		"Kelvin littéral contre k (kind)":     `{"method":"configSave","args":{"kind":"project-env","Kind":"config.conf","path":"/x","content":` + c + `}}`,
+		"s long \\u017F contre s (changes)":   `{"method":"configApply","args":{"kind":"backends.yaml","changes":[],"changeſ":[{"path":"backends.s.pod.serviceAccountName","value":"admin"}]}}`,
+		"s long littéral contre s (changes)":  `{"method":"configApply","args":{"kind":"backends.yaml","changes":[],"changeſ":[{"path":"backends.s.type","value":"host"}]}}`,
+		"s long dans content":                 `{"method":"configSave","args":{"kind":"backends.yaml","content":"backends:\n  s: {type: ssh, host: h}\n","content":` + k + `}}`,
+		"Kelvin dans un champ de backendTest": `{"method":"backendTest","args":{"backend":{"name":"k","type":"k8s","context":"ctx-a","namespace":"ns-a","kubeconfig":"/a","Kubeconfig":"/b"}}}`,
+		"s long dans un champ de backendTest": `{"method":"backendTest","args":{"backend":{"name":"k","type":"k8s","namespace":"ns-a","nameſ":"x","namespace":"kube-system"}}}`,
+		"Kelvin majuscule + s long":           `{"method":"configSave","args":{"KIND":"config.conf","kind":"project-env","content":` + c + `,"CONTENT":` + c + `}}`,
+	}
+}
+
+func TestCrit1172UnicodeFoldKeysRefusedForEveryRole(t *testing.T) {
+	px172Env(t)
+	s := px172Start(t, false)
+	conf, _, bk := crit1Contents()
+	before := cfgSnapshot(t)
+	for name, body := range unicodeFoldPayloads(conf, bk) {
+		for _, who := range [][2]string{{"alice", px172Ext}, {"ccoupel", px172Ext}, {"admin@local", px172Int}} {
+			h := map[string]string{"X-Forwarded-User": who[0], "Content-Type": "application/json"}
+			resp, b := s.do("POST", "/api/call", who[1], h, body)
+			if resp == nil || resp.StatusCode != 400 {
+				code := 0
+				if resp != nil {
+					code = resp.StatusCode
+				}
+				t.Errorf("%s / %s : HTTP %d %.100s, attendu 400 (clés ambiguës après pliage de casse)", who[0], name, code, b)
+			}
+		}
+	}
+	sameSnapshot(t, before, cfgSnapshot(t), "pliage de casse unicode")
+	// une clé qui ne diffère QUE par un autre caractère n'est pas un doublon : la charge normale passe
+	if v, st := s.call("alice", px172Ext, `{"method":"refresh","args":{"path":"/a","paths":"/b","ſ":1}}`); st != 200 {
+		t.Errorf("clés distinctes refusées : %d %v", st, v)
+	}
+}
+
+// Même décision au niveau de l'application (sans passer par HTTP) : aucune charge n'écrit un fichier R1 pour un user.
+func TestCrit1172UnicodeFoldNoR1WriteByUser(t *testing.T) {
+	a := r1App(t)
+	conf, _, bk := crit1Contents()
+	before := cfgSnapshot(t)
+	for name, body := range unicodeFoldPayloads(conf, bk) {
+		var env struct {
+			Method string          `json:"method"`
+			Args   json.RawMessage `json:"args"`
+		}
+		_ = json.Unmarshal([]byte(body), &env)
+		res, err := r1Call(a, core.AccessProxy, r1User, env.Method, string(env.Args))
+		if err == nil && res != nil && res["ok"] == true && !forbidden(res) {
+			t.Errorf("%s : accepté pour un user : %v", name, res)
+		}
+		sameSnapshot(t, before, cfgSnapshot(t), name)
+	}
+}
