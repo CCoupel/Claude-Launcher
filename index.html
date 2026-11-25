@@ -52,7 +52,7 @@
 
 <section id="hero">
   <div class="container">
-    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v6.8.1</span> · Linux, macOS et Windows · compagnon de claude_project_template</div>
+    <div class="hero-badge"><span class="dot"></span> <span data-ng-version>v6.9.0</span> · Linux, macOS et Windows · compagnon de claude_project_template</div>
     <h1>Un hub pour piloter <em>plusieurs projets Claude Code</em> en parallèle</h1>
     <p class="hero-tagline">Un navigateur de projets, l'état de chacun en un clic, tous vos teamleaders d'un coup d'œil — sur votre machine ou <em>dans un conteneur</em> : podman, docker, ssh, Kubernetes.</p>
     <p class="hero-sub">Un seul binaire Go par système : dans tmux sous Linux et macOS, dans une vraie fenêtre sous Windows. Chaque projet peut avoir son conteneur, ses outils, sa machine : votre OS reste propre.</p>
@@ -98,7 +98,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>
-<span style="color:#6e7681" data-ng-term>  NG v6.8.1 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.9.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>
@@ -168,13 +168,12 @@
 <section id="news" class="q">
   <div class="container">
     <div class="section-header">
-      <span class="new-badge">Nouveau en v6.8.1</span>
-      <h2>Nouveautés de la v6.8 — Les quotas se lisent d’un coup d’œil</h2>
-      <p>La date de renouvellement de chaque quota prend la couleur de votre rythme d’utilisation : vous savez avant la panne si le quota tiendra jusqu’au renouvellement.</p>
+      <span class="new-badge">Nouveau en v6.9.0</span>
+      <h2>Nouveautés de la v6.9 — Le bon modèle pour chaque teammate</h2>
+      <p>Réglez le modèle et l’effort de vos agents directement depuis la carte TEAM, dans la fenêtre native comme dans la coque tmux.</p>
     </div>
-    <div class="vstack"><div class="feature-card"><div class="feature-icon">⏳</div><div class="feature-body"><h3>Les quotas se lisent d’un coup d’œil<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.8.1">Nouveau v6.8.1</span></h3><p><span class="q-red">Rouge</span> + « ⚠ épuisé ~HH:MM » : le quota sera épuisé <b>avant</b> son renouvellement. <span class="q-or">Orange</span> : épuisé peu après le renouvellement (session&nbsp;&lt;&nbsp;1&nbsp;h, hebdo&nbsp;&lt;&nbsp;5&nbsp;h). <span class="q-gr">Vert</span> : tout va bien. Valable pour la session de 5&nbsp;h, la semaine et la semaine par modèle (ex. Fable).</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
-    <div class="qpanel" role="img" aria-label="Exemple : session rouge, hebdomadaire orange, Fable vert"><div class="qrow"><span>Session 5 h</span><span class="bar"><i style="width:92%;background:#f85149"></i></span><span class="when q-red">↻ 18:10 · ⚠ épuisé ~16:42</span></div><div class="qrow"><span>Hebdomadaire</span><span class="bar"><i style="width:78%;background:#f0883e"></i></span><span class="when q-or">↻ dim. 09:00 · ⚠ épuisé ~07:30</span></div><div class="qrow"><span>Hebdo Fable</span><span class="bar"><i style="width:35%;background:#3fb950"></i></span><span class="when q-gr">↻ dim. 09:00</span></div></div></div>
-    <p class="v63-cta">👉 <a href="https://github.com/CCoupel/Claude-Launcher/releases/tag/v6.8.1">Release v6.8.1</a></p>
+    <div class="vstack"><div class="feature-card"><div class="feature-icon">🎚</div><div class="feature-body"><h3>Modèle et effort de chaque teammate, depuis la carte<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.9.0">Nouveau v6.9.0</span></h3><p>Un clic sur la colonne modèle ou effort de la carte TEAM ouvre un menu : choisissez le modèle et l’effort de réflexion du teamleader ou d’un teammate sans éditer de fichier. Le réglage est écrit dans le compagnon du projet et prend effet au prochain démarrage du teammate (⟳ tant qu’il tourne avec une autre valeur). « Défaut (template) » retire votre surcharge ; un effort non géré par le modèle est grisé.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span></div></div></div></div>
+    <p class="v63-cta">👉 <a href="https://github.com/CCoupel/Claude-Launcher/releases/tag/v6.9.0">Release v6.9.0</a></p>
   </div>
 </section>
 
@@ -225,6 +224,9 @@
       <div class="feature-card"><div class="feature-icon">📡</div><div class="feature-body"><h3>Une interface web qui se rattache seule <span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.4.0">Nouveau v6.4.0</span></h3><p>Coupure du serveur ou simple redémarrage : un bandeau le dit, l'état est redemandé et les terminaux se rattachent à leur session tmux. « Serveur mis à jour — Recharger » quand la version change.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
       <div class="feature-card"><div class="feature-icon">📂</div><div class="feature-body"><h3>Les fichiers de vos projets sous /files <span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.4.0">Nouveau v6.4.0</span></h3><p>En cluster, maquettes et fichiers de projet sont servis par le launcher, en bac à sable ; <code>PRIVATE</code>, <code>.git</code>, <code>.claude</code>, clés et identifiants ne sont jamais servis.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
     </div>
+        <h3 class="sub-h" id="f-v68">Les quotas se lisent d’un coup d’œil (v6.8)</h3>
+    <div class="vstack"><div class="feature-card"><div class="feature-icon">⏳</div><div class="feature-body"><h3>Les quotas se lisent d’un coup d’œil<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.8.1">Nouveau v6.8.1</span></h3><p><span class="q-red">Rouge</span> + « ⚠ épuisé ~HH:MM » : le quota sera épuisé <b>avant</b> son renouvellement. <span class="q-or">Orange</span> : épuisé peu après le renouvellement (session&nbsp;&lt;&nbsp;1&nbsp;h, hebdo&nbsp;&lt;&nbsp;5&nbsp;h). <span class="q-gr">Vert</span> : tout va bien. Valable pour la session de 5&nbsp;h, la semaine et la semaine par modèle (ex. Fable).</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
+    <div class="qpanel" role="img" aria-label="Exemple : session rouge, hebdomadaire orange, Fable vert"><div class="qrow"><span>Session 5 h</span><span class="bar"><i style="width:92%;background:#f85149"></i></span><span class="when q-red">↻ 18:10 · ⚠ épuisé ~16:42</span></div><div class="qrow"><span>Hebdomadaire</span><span class="bar"><i style="width:78%;background:#f0883e"></i></span><span class="when q-or">↻ dim. 09:00 · ⚠ épuisé ~07:30</span></div><div class="qrow"><span>Hebdo Fable</span><span class="bar"><i style="width:35%;background:#3fb950"></i></span><span class="when q-gr">↻ dim. 09:00</span></div></div></div>
         <h3 class="sub-h" id="f-v67">Équipes en attente et robustesse (v6.7)</h3>
     <div class="win-grid">
       <div class="feature-card"><div class="feature-icon">❓</div><div class="feature-body"><h3>Savoir quel teamleader vous attend<span class="new-badge" style="margin:0 0 0 .5rem" data-badge-version="v6.7.0">Nouveau v6.7.0</span></h3><p>Un badge, un onglet et une vignette signalent le teamleader en attente de votre réponse (question ou permission), avec une notification du navigateur ; la fin de l’attente les retire.</p><div class="chips" aria-label="Plateformes"><span class="chip chip-linux"><span aria-hidden="true">🐧</span> Linux</span><span class="chip chip-windows"><span aria-hidden="true">🪟</span> Windows</span><span class="chip chip-web"><span aria-hidden="true">🌐</span> Web</span><span class="chip chip-k"><span aria-hidden="true">☸</span> k8s</span></div></div></div>
@@ -280,6 +282,8 @@
         <caption class="sr-only">Fonctionnalités et plateformes où elles sont utilisables</caption>
         <thead><tr><th scope="col">Fonctionnalité</th><th scope="col">Linux</th><th scope="col">Windows</th><th scope="col">Web</th><th scope="col">k8s</th></tr></thead>
         <tbody>
+          <tr class="grp"><th scope="colgroup" colspan="5">Nouveautés v6.9.0</th></tr>
+          <tr><th scope="row">Modèle et effort des teammates réglables depuis la carte TEAM</th><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="no"><span aria-hidden="true">—</span><span class="sr-only">non disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td></tr>
           <tr class="grp"><th scope="colgroup" colspan="5">Nouveautés v6.8.1</th></tr>
           <tr><th scope="row">Quotas : renouvellement coloré selon l’épuisement prévu</th><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td><td class="yes"><span aria-hidden="true">✓</span><span class="sr-only">disponible</span></td></tr>
           <tr class="grp"><th scope="colgroup" colspan="5">Nouveautés v6.7.0</th></tr>
@@ -561,7 +565,7 @@
           <div class="win-body">
             <div class="win-left">
               <div class="win-head">
-                <div class="win-ver"><b>NG2 <span data-ng-version>v6.8.1</span></b><span class="dim"> · tpl 5.0.0</span><span class="win-sp"></span><span class="win-seg"><span class="on">Auto</span><span>☀</span><span>☾</span></span><span class="win-cfg">⚙ config</span></div>
+                <div class="win-ver"><b>NG2 <span data-ng-version>v6.9.0</span></b><span class="dim"> · tpl 5.0.0</span><span class="win-sp"></span><span class="win-seg"><span class="on">Auto</span><span>☀</span><span>☾</span></span><span class="win-cfg">⚙ config</span></div>
                 <div class="win-usage">
                   <span class="dim">session</span><span class="bar"><i style="width:42%;background:#3fb950"></i></span><span class="dim">42 %</span>
                   <span class="dim">semaine</span><span class="bar"><i style="width:71%;background:#d29922"></i></span><span class="dim">71 %</span>
@@ -721,7 +725,7 @@
  <span style="color:#6e7681">  └─ </span><span style="color:#58a6ff;font-weight:700">● </span>docs-site<span style="color:#6e7681"> v2.0.1</span> <span style="color:#3fb950;font-weight:700">●</span> <span style="color:#ff7b72;font-weight:700">↓1</span><span style="color:#3fb950;font-weight:700"> ✔</span><span style="color:#39c5cf"> ⬢</span><span style="color:#3fb950"> ⚑</span>     <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  filtre › ▏</span>                            <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
 <span style="color:#6e7681">  session : </span><span style="color:#39c5cf;font-weight:700">claude-hub-ng2</span>              <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
-<span style="color:#6e7681" data-ng-term>  NG v6.8.1 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
+<span style="color:#6e7681" data-ng-term>  NG v6.9.0 · tpl 5.0.0              </span>   <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="color:#d29922">⚠ /login avant jeu. 10:38</span>             <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Session  </span> <span style="color:#58a6ff;font-weight:700">█████</span><span style="color:#6e7681">░░░</span><span style="color:#58a6ff;font-weight:700">  58 %</span>  <span style="color:#6e7681">12:02</span>       <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
   <span style="font-weight:700">Semaine  </span> <span style="color:#58a6ff;font-weight:700">████</span><span style="color:#6e7681">░░░░</span><span style="color:#58a6ff;font-weight:700">  47 %</span>  <span style="color:#6e7681">sam. 13:38</span>  <span style="color:#005fff">┃</span>                                                      <span style="color:#3fb950">│</span>
@@ -1141,7 +1145,7 @@ case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac
 
 <footer>
   <div class="container">
-    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v6.8.1</span> — historique migré depuis claude_project_template</p>
+    <p><a href="https://github.com/CCoupel/Claude-Launcher">github.com/CCoupel/Claude-Launcher</a> — Claude-Launcher-NG2 <span data-ng-version>v6.9.0</span> — historique migré depuis claude_project_template</p>
   </div>
 </footer>
 
