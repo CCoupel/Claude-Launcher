@@ -298,3 +298,121 @@ func TestEcritureAtomique237(t *testing.T) {
 		}
 	}
 }
+
+// ── #268 (v7.0.0) — champ `approx`, exhausts_at calculé sur un échantillon court, sans couleur ───────────────────
+
+type win268 struct {
+	Kind       string  `json:"kind"`
+	ExhaustsAt *string `json:"exhausts_at"`
+	Approx     *bool   `json:"approx"`
+	Level      *string `json:"level"`
+	Alert      *string `json:"alert"`
+}
+
+func read268(t *testing.T, p string) (computedAt string, ws []win268) {
+	t.Helper()
+	b, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatalf("usage-levels.json absent : %v", err)
+	}
+	var f struct {
+		ComputedAt string   `json:"computed_at"`
+		Windows    []win268 `json:"windows"`
+	}
+	if err := json.Unmarshal(b, &f); err != nil {
+		t.Fatalf("usage-levels.json invalide : %v\n%s", err, b)
+	}
+	return f.ComputedAt, f.Windows
+}
+
+// usage.json #268 : durées écoulées choisies par rapport à l'instant courant (la projection utilise l'heure réelle).
+func usageJSON268(now time.Time) string {
+	r := func(win, elapsed time.Duration) string {
+		return now.Add(win-elapsed).Format("2006-01-02T15:04:05.000000") + "+00:00"
+	}
+	return fmt.Sprintf(`{"limits":[
+ {"kind":"session","percent":11,"resets_at":%q,"scope":null},
+ {"kind":"weekly_all","percent":10,"resets_at":%q,"scope":null},
+ {"kind":"weekly_scoped","percent":2,"resets_at":%q,"scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}}
+]}`, r(5*time.Hour, 24*time.Minute), r(7*24*time.Hour, 5*time.Hour+23*time.Minute), r(7*24*time.Hour, 48*time.Hour))
+}
+
+// session 11 % à 24 min : approx, exhausts_at ≈ +3 h 14, level et alert null ; hebdo 10 % à 5 h 23 : calculé, rouge ;
+// hebdo borné 2 % : approx, exhausts_at calculé. `approx` est présent (booléen) sur chaque fenêtre.
+func TestApprox268Fichier(t *testing.T) {
+	up, lp := isolate237(t)
+	put237(t, up, usageJSON268(time.Now()), time.Now())
+	ReadUsage()
+	computed, ws := read268(t, lp)
+	if len(ws) != 3 {
+		t.Fatalf("windows = %d, attendu 3", len(ws))
+	}
+	for _, w := range ws {
+		if w.Approx == nil {
+			t.Errorf("%s : clé approx absente (booléen attendu sur chaque fenêtre)", w.Kind)
+		}
+	}
+	ca, _ := time.Parse(time.RFC3339Nano, computed)
+	sess, all, scoped := ws[0], ws[1], ws[2]
+
+	if sess.Approx == nil || !*sess.Approx || sess.Level != nil || sess.Alert != nil || sess.ExhaustsAt == nil {
+		t.Fatalf("session 11 %% à 24 min : %+v", sess)
+	}
+	if e, _ := time.Parse(time.RFC3339Nano, *sess.ExhaustsAt); e.Sub(ca) < 3*time.Hour+12*time.Minute || e.Sub(ca) > 3*time.Hour+16*time.Minute {
+		t.Errorf("session exhausts_at − computed_at = %s, attendu ≈ 3 h 14", e.Sub(ca))
+	}
+
+	if all.Approx == nil || *all.Approx || all.Level == nil || *all.Level != "red" || all.Alert == nil || all.ExhaustsAt == nil {
+		t.Fatalf("hebdo 10 %% à 5 h 23 : %+v", all)
+	}
+	if e, _ := time.Parse(time.RFC3339Nano, *all.ExhaustsAt); e.Sub(ca) < 47*time.Hour || e.Sub(ca) > 49*time.Hour {
+		t.Errorf("hebdo exhausts_at − computed_at = %s, attendu ≈ 48 h 27", e.Sub(ca))
+	}
+
+	if scoped.Approx == nil || !*scoped.Approx || scoped.Level != nil || scoped.Alert != nil || scoped.ExhaustsAt == nil {
+		t.Errorf("hebdo ciblé 2 %% : %+v", scoped)
+	}
+}
+
+// Projection impossible (p = 0, resets_at invalide) : approx false, exhausts_at / level / alert null ;
+// déjà épuisé : approx false, rouge, exhausts_at = computed_at, même fenêtre à peine entamée.
+func TestApprox268ImpossibleEtEpuise(t *testing.T) {
+	up, lp := isolate237(t)
+	now := time.Now()
+	r := func(d time.Duration) string { return now.Add(d).Format(time.RFC3339Nano) }
+	put237(t, up, fmt.Sprintf(`{"limits":[
+ {"kind":"session","percent":0,"resets_at":%q,"scope":null},
+ {"kind":"weekly_all","percent":50,"resets_at":"pas une date","scope":null},
+ {"kind":"weekly_scoped","percent":100,"resets_at":%q,"scope":{"model":{"id":null,"display_name":"Fable"},"surface":null}}
+]}`, r(2*time.Hour), r(7*24*time.Hour-time.Minute)), now)
+	ReadUsage()
+	computed, ws := read268(t, lp)
+	for _, w := range ws[:2] {
+		if w.Approx == nil || *w.Approx || w.ExhaustsAt != nil || w.Level != nil || w.Alert != nil {
+			t.Errorf("%s : projection impossible attendue (approx false, tout null) : %+v", w.Kind, w)
+		}
+	}
+	w := ws[2]
+	if w.Approx == nil || *w.Approx || w.Level == nil || *w.Level != "red" || w.ExhaustsAt == nil || *w.ExhaustsAt != computed {
+		t.Errorf("épuisé : %+v (computed_at %s)", w, computed)
+	}
+}
+
+// Un niveau calculé (échantillon long) garde approx false et sa couleur : vert et orange sont conservés.
+func TestApprox268NiveauCalculeInchange(t *testing.T) {
+	up, lp := isolate237(t)
+	now := time.Now()
+	r := func(win, elapsed time.Duration) string { return now.Add(win - elapsed).Format(time.RFC3339Nano) }
+	put237(t, up, fmt.Sprintf(`{"limits":[
+ {"kind":"session","percent":10,"resets_at":%q,"scope":null},
+ {"kind":"session","percent":50,"resets_at":%q,"scope":null}
+]}`, r(5*time.Hour, 90*time.Minute), r(5*time.Hour, 2*time.Hour+45*time.Minute)), now)
+	ReadUsage()
+	_, ws := read268(t, lp)
+	for i, want := range []string{"green", "yellow"} {
+		w := ws[i]
+		if w.Approx == nil || *w.Approx || w.Level == nil || *w.Level != want || w.ExhaustsAt == nil {
+			t.Errorf("session %d : attendu %s non approximatif : %+v", i, want, w)
+		}
+	}
+}
