@@ -1,0 +1,47 @@
+{{define "sign_in.html"}}
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Connexion — Claude Launcher</title>
+<style>
+:root{--bg:#0F1217;--panel:#12151B;--line:#262C36;--text:#E6E8EC;--text2:#C9CED6;--muted:#8B93A1;--accent:#60CDFF;--ui:"Segoe UI Variable Text","Segoe UI",Inter,system-ui,sans-serif;--mono:"JetBrains Mono",Consolas,monospace}
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;background:var(--bg);color:var(--text2);font:14px/1.55 var(--ui);padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:22px 26px;width:380px;max-width:100%}
+.card.wide{width:560px}
+.lg{font:600 12px var(--ui);color:var(--muted);letter-spacing:.06em;text-transform:uppercase;margin-bottom:8px}
+h1{margin:0 0 8px;font-size:18px;color:var(--text)}
+code{background:#0A0C10;padding:0 4px;border-radius:3px;color:var(--text);font-family:var(--mono)}
+.dim{color:var(--muted)}
+.btns{display:flex;gap:8px;margin-top:14px;flex-wrap:wrap}
+.b1,.b2{display:inline-block;border-radius:5px;padding:6px 14px;font:600 13px var(--ui);text-decoration:none;cursor:pointer;border:1px solid transparent}
+.b1{background:var(--accent);color:#08131c}
+.b2{border-color:#3a414d;background:transparent;color:var(--text2);font-weight:400}
+a.b1:focus,a.b2:focus,button:focus,input:focus{outline:2px solid var(--accent);outline-offset:2px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.cols>div{border:1px solid var(--line);border-radius:8px;padding:12px}
+.cols h2{margin:0 0 8px;font-size:13px;color:var(--text)}
+.fld{display:block;margin:6px 0}.fld span{display:block;font-size:11px;color:var(--muted);margin-bottom:2px}
+input[type=text],input[type=password]{width:100%;border:1px solid #3a414d;border-radius:4px;background:#0A0C10;padding:6px 8px;color:var(--text);font:12px var(--mono)}
+form{margin:0}
+.note{color:var(--muted);font-size:12px;margin:8px 0 0}
+@media(max-width:560px){.cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="card">
+<div class="lg">Claude Launcher</div>
+<h1>Connexion</h1>
+<h2 class="dim" style="font-size:13px;margin:0 0 6px">Compte local</h2>
+<form method="POST" action="{{.ProxyPrefix}}/sign_in">
+<input type="hidden" name="rd" value="{{.Redirect}}">
+<label class="fld"><span>Identifiant</span><input type="text" name="username" autocomplete="username" required></label>
+<label class="fld"><span>Mot de passe</span><input type="password" name="password" autocomplete="current-password" required></label>
+<button type="submit" class="b2">Se connecter</button>
+<p class="note">Identifiant ou mot de passe incorrect : cette page se réaffiche.</p>
+</form>
+</main>
+</body>
+</html>
+{{end}}

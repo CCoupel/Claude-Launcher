@@ -547,3 +547,12 @@ body.cardsfolded #hsplit { display: none; }
 .ctxmenu .tag { margin-left: auto; color: var(--dim, var(--muted)); font-size: 11px; }
 .ctxmenu div.ft { display: block; color: var(--muted); font-size: 11px; line-height: 1.4; white-space: normal; cursor: default; max-width: 330px; }
 .ctxmenu div.ft:hover { background: transparent; }
+/* v7.0.0 : identité (#251), R1 (#252), estimation approximative (#268) */
+.who { cursor: pointer; color: var(--text2); font-family: var(--ui); white-space: nowrap; max-width: 40%; overflow: hidden; text-overflow: ellipsis; padding: 0 calc(6 * var(--tu)); border: 1px solid var(--line2); border-radius: 9px; }
+.who .dot { color: var(--green); margin-right: 4px; } .who:hover { border-color: var(--accent, var(--orange)); }
+.ctxmenu.whomenu div.hd { text-transform: none; letter-spacing: 0; }
+.r1off { opacity: .45; cursor: not-allowed; }
+.expired { position: fixed; inset: 0; z-index: 3000; background: rgba(5, 6, 8, .65); display: flex; align-items: center; justify-content: center; }
+.expdlg { background: var(--panel); border: 1px solid var(--orange); border-radius: 8px; padding: 18px 20px; max-width: min(420px, 92vw); color: var(--text2); line-height: 1.5; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); }
+.expdlg b { color: var(--text); font-size: 15px; } .expdlg p { margin: 6px 0; } .expdlg .btns { display: flex; justify-content: flex-end; margin-top: 12px; }
+#usage .rst-est { color: var(--dim); }

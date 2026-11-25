@@ -8,10 +8,80 @@
 // ── Transport : Wails (window.go) ou HTTP + SSE ────────────────────────────
 const SESSION_MSG = 'session expirée — rouvrir le lien d\'accès';
 const DENIED_MSG = 'accès refusé : adresse ou origine non admise (voir Réglages › Interface web › Adresse publique)';
+// ── Identité (mode proxy, v7.0.0 : #251, #252) ─────────────────────────────
+// `user` = { login, role: admin|user, logout } rendu par init et clientInfo en mode proxy seulement (absent ailleurs :
+// ni pastille ni verrouillage). Le serveur reste seul juge (refus R1) ; le client grise seulement.
+let whoUser = null;
+const r1Locked = () => !!(whoUser && whoUser.role === 'user');
+const R1_TIP = 'réservé à un administrateur';
+function setUser(u) {
+  whoUser = u && u.login ? { login: String(u.login), role: u.role === 'admin' ? 'admin' : 'user', logout: typeof u.logout === 'string' ? u.logout : '', session: typeof u.session === 'string' ? u.session : '' } : null;
+  renderWho(); r1Apply();
+}
+function renderWho() {
+  const w = document.getElementById('who'); if (!w) return;
+  w.textContent = '';
+  w.classList.toggle('hidden', !whoUser);
+  if (!whoUser) return;
+  w.append(el('span', 'dot', sessionIsLost ? '○' : '●'), document.createTextNode(whoUser.login + ' ▾'));
+  w.title = whoUser.login + ' — ' + (whoUser.role === 'admin' ? 'administrateur' : 'utilisateur');
+}
+function whoMenu(ev) {
+  if (ev) ev.stopPropagation();
+  if (!whoUser) return;
+  const old = document.getElementById('ctxmenu'); if (old) { old.remove(); if (old.dataset.who) return; }
+  const m = el('div', 'ctxmenu whomenu'); m.id = 'ctxmenu'; m.dataset.who = '1';
+  const local = whoUser.login === 'admin@local';
+  m.append(el('div', 'dis hd', local ? 'Compte local' : 'Connecté avec GitHub'));
+  const l = el('div', 'dis'); const b = el('b', '', whoUser.login); l.append(b, document.createTextNode(' · ' + (whoUser.role === 'admin' ? 'administrateur' : 'utilisateur (lecture seule)')));
+  m.appendChild(l);
+  if (whoUser.session) m.appendChild(el('div', 'dis hd', 'session : ' + whoUser.session));
+  m.appendChild(el('hr'));
+  const out = el('div'); out.append(el('span', 'ck', '⎋'), el('span', '', 'Se déconnecter'));
+  out.onclick = (e) => { e.stopPropagation(); m.remove(); location.href = whoUser.logout || '/oauth2/sign_out?rd=%2Fsigned-out'; };
+  m.appendChild(out);
+  document.body.appendChild(m);
+  const r = $('who').getBoundingClientRect();
+  m.style.left = Math.max(0, Math.min(r.left, window.innerWidth - m.offsetWidth - 4)) + 'px';
+  m.style.top = (r.bottom + 4) + 'px';
+}
+// Règle R1 : actions d'écriture sensibles grisées pour le rôle `user`, dans la fenêtre modale (Réglages, projet,
+// approbations). Observateur sur les ajouts seulement (pas les attributs : pas de boucle).
+function r1Lock(root) {
+  if (!r1Locked() || !root) return;
+  root.querySelectorAll('button, input, select, textarea').forEach((x) => {
+    if (x.closest('.cehead, .strail') || x.dataset.r1ok || x.disabled) return;
+    x.disabled = true; x.classList.add('r1off'); if (!x.title) x.title = R1_TIP;
+  });
+  const t = root.querySelector('.cehead h2');
+  if (t && !t.dataset.ro) { t.dataset.ro = '1'; t.append(el('span', 't-yellow ro', ' · lecture seule')); }
+}
+let r1Obs = null;
+function r1Apply() {
+  const box = document.getElementById('modalbox'); if (!box) return;
+  if (r1Obs) { r1Obs.disconnect(); r1Obs = null; }
+  if (!r1Locked()) return;
+  r1Lock(box);
+  r1Obs = new MutationObserver(() => { r1Obs.disconnect(); r1Lock(box); r1Obs.observe(box, { childList: true, subtree: true }); });
+  r1Obs.observe(box, { childList: true, subtree: true });
+}
+// Session expirée : modale bloquante (identité connue) ; terminaux figés, aucune frappe envoyée.
+function expiredModal() {
+  if (document.getElementById('expired')) return;
+  const o = el('div', 'expired'); o.id = 'expired'; o.setAttribute('role', 'alertdialog'); o.setAttribute('aria-modal', 'true');
+  const d = el('div', 'expdlg');
+  const b = el('button', 'btn pri', 'Se reconnecter'); b.onclick = () => { location.href = '/'; };
+  const bt = el('div', 'btns'); bt.appendChild(b);
+  d.append(el('b', '', 'Session expirée'), el('p', '', 'La session du launcher a pris fin. Les terminaux sont figés ; les projets continuent dans leurs pods.'), bt);
+  o.appendChild(d); document.body.appendChild(o);
+  for (const ev of ['keydown', 'keypress', 'keyup', 'paste', 'input']) document.addEventListener(ev, (e) => { if (!e.target.closest || !e.target.closest('#expired')) { e.stopImmediatePropagation(); e.preventDefault(); } }, true);
+  b.focus(); renderWho();
+}
 let sessionIsLost = false; // vrai aussi après un refus d'hôte/origine : on ne réessaie plus
 function stopBanner(msg) {
   if (sessionIsLost) return;
   sessionIsLost = true;
+  if (msg === SESSION_MSG && whoUser) { expiredModal(); return; } // identité connue (proxy) : modale bloquante
   const b = document.createElement('div');
   b.className = 'lanbanner sessionlost'; b.id = 'sessionlost'; b.textContent = '⚠ ' + msg;
   document.body.insertBefore(b, document.body.firstChild);
@@ -298,6 +368,7 @@ function renderHead() {
       const lvl = { red: 'rst-red', yellow: 'rst-orange', green: 'rst-green' }[r.resetLevel];
       if (lvl && !r.passed) rst.classList.add(lvl);
       if (r.alert && !r.passed) rst.appendChild(el('span', 'rst-alert', ' ' + r.alert));
+      if (r.estimate && !r.passed) { const es = el('span', 'rst-est', ' ' + r.estimate); es.title = 'estimation approximative : échantillon court'; rst.appendChild(es); } // #268 : gris, jamais de couleur d'alerte
       u.append(lab, bar, pct, rst);
     }
     if (s.stale) u.appendChild(el('span', 'msg t-yellow', s.stale));
@@ -964,7 +1035,7 @@ function showTeamMenu(c, m, x, y) {
   menu.style.top = Math.max(0, Math.min(y, window.innerHeight - h - 4)) + 'px';
 }
 // P1 : une fois au démarrage ; échec (serveur plus ancien) = non distant
-transport.call('clientInfo', {}).then((r) => { clientRemote = !!(r && r.remote); if (S.cards) renderCards(); }).catch(() => {});
+transport.call('clientInfo', {}).then((r) => { clientRemote = !!(r && r.remote); if (r && r.user) setUser(r.user); if (S.cards) renderCards(); }).catch(() => {});
 
 // ── Menu contextuel d'un projet (#148, LOT-3.2) ────────────────────────────
 function closeCtx() { const m = $('ctxmenu'); if (m) m.remove(); }
@@ -1744,6 +1815,7 @@ function openModal(build) {
   const box = $('modalbox'); box.textContent = '';
   build(box);
   $('modal').classList.remove('hidden');
+  r1Apply();
   const f = box.querySelector('input, select, .btn.pri, .btn');
   if (f) f.focus();
 }
@@ -2600,6 +2672,7 @@ function ceClose() {
   $('modalbox').classList.remove('wide');
   closeModal();
 }
+$('who').addEventListener('click', whoMenu); $('who').addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') whoMenu(e); });
 $('cfgbtn').addEventListener('click', (e) => { e.stopPropagation(); openSettings(S.cursor && S.cursor !== 'new' ? S.cursor : ''); });
 
 // ── Événements du Go ───────────────────────────────────────────────────────
@@ -2839,6 +2912,7 @@ function onServerInfo(next) {
 
 function applyInit(r) {
   S.help = r.help; S.tools = r.tools;
+  if (r.user !== undefined) setUser(r.user);
   onServerInfo(r.server);
   prefs.v = r.prefs || {};
   applyLayoutPrefs();
