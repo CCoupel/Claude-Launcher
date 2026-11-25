@@ -616,7 +616,7 @@ func TestChartEnvironmentValuesFiles(t *testing.T) {
 		if _, err := os.Stat(f); err != nil {
 			t.Fatalf("%s absent", f)
 		}
-		out, errOut, err := helm(t, "template", "rel", chartDir, "-f", f, "--set", "ingress.tls.clusterIssuer=interne-test") // l'émetteur « a-renseigner » est refusé par le chart : testé à part
+		out, errOut, err := helm(t, "template", "rel", chartDir, "-f", f, "--set", "ingress.tls.clusterIssuer=interne-test", "--set", "auth.existingSecret=gh-oauth-test", "--set", "auth.admins={zoe-admin}") // l'émetteur « a-renseigner » est refusé par le chart : testé à part
 		if err != nil {
 			t.Errorf("%s : %v\n%s", env, err, errOut)
 			continue
@@ -880,14 +880,14 @@ func TestChartQualifNamespaceAndRootAreSeparateFromProd(t *testing.T) {
 	}
 	// rendu QUALIF dans claude-qualif : variables sous la racine de QUALIF, objets dans le namespace de la release
 	out, errOut, err := helm(t, "template", "claude-launcher-qualif", chartDir, "-n", "claude-qualif",
-		"-f", "../deploy/helm/values-qualif.yaml", "--set", "ingress.tls.clusterIssuer=interne-test")
+		"-f", "../deploy/helm/values-qualif.yaml", "--set", "ingress.tls.clusterIssuer=interne-test", "--set", "auth.existingSecret=gh-oauth-test", "--set", "auth.admins={zoe-admin}")
 	if err != nil {
 		t.Fatalf("rendu QUALIF dans claude-qualif : %v\n%s", err, errOut)
 	}
 	if !strings.Contains(out, "namespace: claude-qualif") || strings.Contains(out, "namespace: claude-ng2\n") || strings.Contains(out, prodRoot) {
 		t.Errorf("le rendu QUALIF doit rester dans claude-qualif et ne jamais citer la racine de PROD")
 	}
-	o, _, _ := render(t, q, "-n", "claude-qualif", "--set", "ingress.tls.clusterIssuer=interne-test")
+	o, _, _ := render(t, q, "-n", "claude-qualif", "--set", "ingress.tls.clusterIssuer=interne-test", "--set", "auth.existingSecret=gh-oauth-test", "--set", "auth.admins={zoe-admin}")
 	e := env(t, o)
 	if e["CL_ROOT_BASE"] != qualifRoot || !strings.HasPrefix(e["CL_CACHE_DIR"], qualifRoot+"/.cache/claude-launcher-ng2/") {
 		t.Errorf("variables du pod de QUALIF : CL_ROOT_BASE=%q CL_CACHE_DIR=%q", e["CL_ROOT_BASE"], e["CL_CACHE_DIR"])
@@ -933,7 +933,7 @@ func TestChartCreatesNoVolumeByDefault(t *testing.T) {
 		t.Errorf("PersistentVolume créé sans volume.create.enabled")
 	}
 	// environnement de PROD : aucun PV/PVC rendu
-	out, errOut, err := helm(t, "template", "claude-launcher", chartDir, "-n", "claude-ng2", "-f", "../deploy/helm/values-prod.yaml", "--set", "ingress.tls.clusterIssuer=interne-test")
+	out, errOut, err := helm(t, "template", "claude-launcher", chartDir, "-n", "claude-ng2", "-f", "../deploy/helm/values-prod.yaml", "--set", "ingress.tls.clusterIssuer=interne-test", "--set", "auth.existingSecret=gh-oauth-test", "--set", "auth.admins={zoe-admin}")
 	if err != nil {
 		t.Fatalf("rendu PROD : %v\n%s", err, errOut)
 	}
@@ -1094,7 +1094,7 @@ func TestChartPVSourceMandatoryAndPlatformKeysRefused(t *testing.T) {
 func TestChartQualifValuesCreateItsOwnPVC(t *testing.T) {
 	needHelm(t)
 	q := readValues(t, "qualif")
-	o, out, err := render(t, q, "-n", "claude-qualif", "--set", "ingress.tls.clusterIssuer=interne-test")
+	o, out, err := render(t, q, "-n", "claude-qualif", "--set", "ingress.tls.clusterIssuer=interne-test", "--set", "auth.existingSecret=gh-oauth-test", "--set", "auth.admins={zoe-admin}")
 	if err != nil {
 		t.Fatalf("rendu QUALIF : %v\n%s", err, out)
 	}
@@ -1240,7 +1240,7 @@ func TestChartQualifAndProdImagesAreSeparatePackages(t *testing.T) {
 	if get(p, "image", "repository") != prodImageRepo {
 		t.Errorf("PROD : image.repository = %v, attendu %s", get(p, "image", "repository"), prodImageRepo)
 	}
-	issuer := []string{"--set", "ingress.tls.clusterIssuer=interne-test"}
+	issuer := []string{"--set", "ingress.tls.clusterIssuer=interne-test", "--set", "auth.existingSecret=gh-oauth-test", "--set", "auth.admins={zoe-admin}"}
 	qout, qerr, err := helm(t, append([]string{"template", "claude-launcher-qualif", chartDir, "-n", "claude-qualif", "-f", "../deploy/helm/values-qualif.yaml", "--set", "image.tag=v6.3.0.1"}, issuer...)...)
 	if err != nil {
 		t.Fatalf("rendu QUALIF : %v\n%s", err, qerr)
@@ -1377,12 +1377,20 @@ func TestChartWebAccessInvalidValuesAndReservedEnv(t *testing.T) {
 	}
 }
 
+// v7.0.0 : l'authentification est activée par défaut et impose web.access à proxy ; les valeurs de QUALIF et de PROD ne
+// posent donc plus web.access (le poser avec auth.enabled est refusé au rendu) et fixent l'empreinte du sidecar.
 func TestChartEnvironmentValuesSetWebAccessNoneExplicitly(t *testing.T) {
 	needHelm(t)
 	for _, name := range []string{"qualif", "prod"} {
 		v := readValues(t, name)
-		if get(v, "web", "access") != "none" {
-			t.Errorf("values-%s.yaml : web.access = %v, attendu none écrit explicitement", name, get(v, "web", "access"))
+		if get(v, "web", "access") != nil {
+			t.Errorf("values-%s.yaml : web.access = %v, attendu absent (imposé à proxy par auth.enabled)", name, get(v, "web", "access"))
+		}
+		if d, _ := get(v, "auth", "proxy", "image", "digest").(string); !strings.HasPrefix(d, "sha256:") {
+			t.Errorf("values-%s.yaml : auth.proxy.image.digest = %q, attendu une empreinte sha256", name, d)
+		}
+		if get(v, "auth", "enabled") == false {
+			t.Errorf("values-%s.yaml : auth.enabled: false (authentification exigée en v7.0.0)", name)
 		}
 	}
 }

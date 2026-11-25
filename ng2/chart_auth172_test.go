@@ -467,9 +467,9 @@ func TestChartAuth172LocalAdminWiring(t *testing.T) {
 	if vol == nil {
 		t.Fatal("volume du Secret du compte local absent")
 	}
-	// contrat : 0440 (288) ; 0444 (292) tolérée (utilisateur non root sans fsGroup) ; jamais d'écriture ni plus ouvert
-	if dm := fmt.Sprint(get(vol, "secret", "defaultMode")); dm != "288" && dm != "292" {
-		t.Errorf("defaultMode = %s, attendu 288 (0440, contrat) ou 292 (0444)", dm)
+	// contrat (écart justifié, helm-values.md) : 0444 (292) — pas de fsGroup, un 0440 serait illisible par l'uid du pod
+	if dm := fmt.Sprint(get(vol, "secret", "defaultMode")); dm != "292" {
+		t.Errorf("defaultMode = %s, attendu 292 (0444)", dm)
 	}
 	ro := false
 	for _, vm := range get(t172Container(t, o, "auth-proxy"), "volumeMounts").([]any) {
@@ -782,8 +782,12 @@ func TestChartAuth172AuthorizationHeaderStrippedTraefik(t *testing.T) {
 	for _, mw := range o["Middleware"] {
 		for _, k := range []string{"ipAllowList", "rateLimit"} {
 			if sp, ok := get(mw, "spec", k).(m); ok {
-				if d, ok := get(sp, "ipStrategy", "depth").(int); !ok || d != 0 {
-					t.Errorf("%s de %v : ipStrategy.depth = %#v, attendu 0 explicite", k, get(mw, "metadata", "name"), get(sp, "ipStrategy"))
+				path := []string{"ipStrategy", "depth"}
+				if k == "rateLimit" { // Traefik : le critère de source porte la stratégie d'adresse
+					path = []string{"sourceCriterion", "ipStrategy", "depth"}
+				}
+				if d, ok := get(sp, path...).(int); !ok || d != 0 {
+					t.Errorf("%s de %v : %v = %#v, attendu 0 explicite", k, get(mw, "metadata", "name"), path, get(sp, path...))
 				}
 			}
 		}
@@ -828,7 +832,8 @@ func TestChartAuth172ProxyHardeningArguments(t *testing.T) {
 	}
 }
 
-// Page 429 : middleware errors (status 429 → Service du launcher, port http, /too-many) chaîné APRÈS rateLimit.
+// Page 429 : middleware errors (status 429 → Service du launcher, port http, /too-many) qui ENCADRE rateLimit (listé avant lui :
+// Traefik applique les middlewares dans l'ordre, errors doit être en amont pour intercepter le 429 du rateLimit).
 func TestChartAuth172TooManyPage(t *testing.T) {
 	needHelm(t)
 	o := must(t, t172Local())
@@ -848,9 +853,9 @@ func TestChartAuth172TooManyPage(t *testing.T) {
 				if strings.HasPrefix(fmt.Sprint(get(p, "path")), "/oauth2") {
 					found = true
 					a := t172Anno(ing)
-					ri, ei := strings.Index(a, "rate"), strings.Index(a, "errors")
-					if ri < 0 || ei < 0 || ri > ei {
-						t.Errorf("middlewares de /oauth2 : %q, attendu rateLimit puis errors", a)
+					ri, ei := strings.Index(a, "ratelimit"), strings.Index(a, "errors")
+					if ri < 0 || ei < 0 || ei > ri {
+						t.Errorf("middlewares de /oauth2 : %q, attendu errors puis rateLimit (errors encadre rateLimit)", a)
 					}
 				}
 			}
