@@ -410,6 +410,7 @@ body.cardsfolded #hsplit { display: none; }
 /* ── Rafraîchir un projet : bandeau d'étapes en tête des cartes (#158) — hauteur fixe, sans animation ── */
 .steps { flex: none; box-sizing: border-box; height: calc(46 * var(--cu)); border: 1px solid var(--cyan); border-radius: calc(6 * var(--cu)); padding: calc(5 * var(--cu)) calc(10 * var(--cu)); background: color-mix(in srgb, var(--cyan) 8%, transparent); line-height: 1.6; overflow: hidden; white-space: nowrap; }
 .steps.err { border-color: var(--red); background: color-mix(in srgb, var(--red) 8%, transparent); }
+.cardwarn { flex: none; box-sizing: border-box; border: 1px solid var(--orange); border-radius: calc(6 * var(--cu)); padding: calc(4 * var(--cu)) calc(10 * var(--cu)); background: var(--alert-orange); color: var(--orange); font-size: calc(12 * var(--cu)); line-height: 1.4; overflow-wrap: anywhere; }
 .steps .sthead { display: flex; gap: calc(8 * var(--cu)); }
 .steps .sthead b { color: var(--text); }
 .steps .stx { margin-left: auto; color: var(--muted); cursor: pointer; padding: 0 calc(4 * var(--cu)); }

@@ -508,6 +508,7 @@ function renderCards() {
   t.append(el('span', 'sp'), ce);
   box.appendChild(t);
   const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
+  if (c.warn) { const w = el('div', 'cardwarn', '⚠ ' + c.warn); w.title = c.warn; box.appendChild(w); } // ancien montage k8s (#253) ; textContent via el() : pas de HTML
   box.classList.toggle('folded', hidden);
   // carte repliable d'un clic sur son bandeau (#124), état mémorisé
   const card = (title, sub, body, eye) => {
