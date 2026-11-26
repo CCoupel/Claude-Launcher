@@ -1,0 +1,312 @@
+# Contrat — espace par utilisateur et backends de l'utilisateur, sans agent (v7.1.0)
+
+> Issues : #255 (réécrite : espace par utilisateur), #257 (réécrite : backends k8s et docker/podman de l'utilisateur),
+> #259 (réécrite : backend injoignable), #275 (configuration par utilisateur), parapluie #249. #256 et #258 : fermées
+> sans objet. Décisions utilisateur au GATE 2 (2026-11-26) :
+> - **modèle sans agent** : rien n'est installé chez l'utilisateur. Le launcher découvre les projets qui existent sur les
+>   backends, les démarre si besoin, et y accède comme aujourd'hui (exec, terminaux).
+> - Le launcher **fournit une interface, ni stockage ni calcul** (P15).
+> - Backends en mode serveur : **k8s, docker, podman** ; **ssh refusé pour tous** (P13).
+>
+> - **Les données projet restent chez l'utilisateur** (P18, principe) : le launcher ne garde par utilisateur que ses
+>   backends, ses identifiants, ses réglages et une **trace** minimale des projets vus (§2) ; projets découverts sur le
+>   backend, métadonnées lues dans le projet ou sur l'objet du backend.
+> - Pas d'arrêt automatique (P17) ; relance seulement sur Ouvrir ou F5 (P20) ; compte k8s trop puissant = avertissement
+>   (P19) ; approbation `env.yaml` dans le volume, scellée par le launcher (P21). Aucun point ouvert. **Mode poste inchangé** (hub tmux Linux, exe Windows, fenêtre native : ssh compris).
+
+## 1. Vocabulaire et règles
+
+| Terme | Sens |
+|---|---|
+| **Mode serveur** | Le launcher de cluster (`desktop --web`, `CL_IN_CLUSTER=1`, `CL_WEB_ACCESS=proxy`). Les règles de ce contrat ne s'appliquent qu'à lui. |
+| **Espace d'un utilisateur** | Ce que le launcher garde pour lui **dans son propre état** : ses backends, son coffre, ses réglages, la trace des projets vus (§2). **Aucune donnée projet** (ni fichier, ni métadonnée git) ; la liste des projets vient de ses backends (§5). |
+| **Backend de l'utilisateur** | Un k8s (kubeconfig) ou un docker/podman (`tcp://`, TLS activable) **déclaré par l'utilisateur**, joint par le launcher en connexion **entrante** vers l'API du backend, avec les accès fournis par l'utilisateur. |
+| **Stockage d'un backend** | Le PVC (k8s) ou le volume (docker/podman) **nommé par l'utilisateur** dans la déclaration du backend (§4). Le launcher ne crée ni ne nomme aucun stockage. |
+| **Conteneur du projet** | Le pod/conteneur qui monte le dossier du projet ; **seul** processus qui lit ou exécute le contenu de l'utilisateur. |
+| **Espace de l'admin** | La racine actuelle (MooseFS) et ses backends existants, inchangés : le pod launcher monte toujours la racine (H1). |
+
+- **Règle n°1 (F2) maintenue pour les tiers** : le processus du launcher ne lit **jamais** le stockage d'un utilisateur
+  autre que l'admin et n'y exécute rien (`git status`, `.git/config`, hooks). Tout passe par le conteneur du projet, **sur
+  le backend de l'utilisateur**.
+- **Règle n°2 (P15)** : la plateforme ne fournit ni stockage ni calcul. Un utilisateur qui veut utiliser le k8s de la
+  plateforme le déclare comme n'importe quel backend, avec ses propres accès (namespace, ServiceAccount, PVC).
+- **Règle n°3** : aucun contenu d'utilisateur tiers n'est écrit sur la racine de l'admin (seul l'état du launcher, §2).
+
+## 2. État par utilisateur (pas de base de données)
+
+```
+<racine>/.config/claude-launcher-ng2/users/<uid>/     (0700 ; <uid> = "github-<id numérique>" — P2)
+├── backends.yaml      backends de l'utilisateur (k8s, docker, podman), images et défauts — §3
+├── vault/             identifiants des backends, PAT GitHub, clé d'approbation (§6 bis), EN CLAIR 0600 (§7)
+├── config.json        réglages **globaux** de l'utilisateur : affichage, CLAUDE_OPTIONS, choix du jeton GitHub (§8)
+└── traces.json        trace des projets vus (§5) — seul résidu lié aux projets
+```
+
+- **Règle de rangement** (décision utilisateur, GATE 2) : ce qui concerne **un projet** vit dans le stockage du projet ou
+  sur son objet, **sur le backend** (état §6, approbation `env.yaml` scellée §6 bis) ; ce qui concerne **l'utilisateur
+  globalement** vit dans le launcher (backends, identifiants, réglages). Seule exception : la trace ci-dessous.
+- **Trace** (`traces.json`), une entrée par projet vu à la dernière découverte réussie :
+  `{backend, kind (k8s|docker|podman), object (nom du StatefulSet ou du conteneur), project (cl.project),
+  category (cl.category), first_seen, last_seen}`. **Rien d'autre** : ni branche, ni état git, ni chemin de fichier, ni
+  dépôt. Rôle : afficher en erreur un projet dont l'objet ou le backend a disparu (§5). Durée : jusqu'à « Purger », ou
+  jusqu'au retrait du backend par son propriétaire (traces purgées avec lui, après confirmation listant les projets).
+  Pas d'expiration automatique.
+- Écriture atomique + verrou (`core/lockfile.go`) ; aucune lecture croisée entre `<uid>`.
+- **Admin** : son `<uid>` désigne l'espace actuel (`backends.yaml`, `projects.json`, coffre de la racine), sans migration ni
+  changement de comportement. Compte local `admin@local` = l'admin.
+- **Utilisateur sans backend** : espace vide → interface « Ajoute ton premier backend » (M1).
+- Identifiant numérique : résolu depuis le login (`X-Forwarded-User`) par `GET https://api.github.com/users/<login>`,
+  mis en cache (`users/index.json` : login → id, date). Un login dont l'id change est refusé (`401` + audit) jusqu'à
+  action de l'admin.
+
+## 3. Backends en mode serveur **[NEW / CHANGED]** (#257, P12, P13)
+
+| Type | Connexion (entrante, depuis le pod launcher) | Identifiants (coffre) | Refus |
+|---|---|---|---|
+| `k8s` | API du cluster (URL du kubeconfig), `namespace` obligatoire | kubeconfig à jeton (ServiceAccount) ou certificat client | `exec:` / `auth-provider:` dans le kubeconfig (commande exécutée dans le launcher) ; namespace absent |
+| `docker` | `host: tcp://hôte:port` | si `tls.enabled` : `ca.pem` (si `tls.verify`), `cert.pem`, `key.pem` | `unix://` et moteur local pour un utilisateur (calcul sur la plateforme, règle n°2) ; `ssh://` |
+| `podman` | `host: tcp://hôte:port` (API compatible docker ; TLS via un proxy, podman n'en ayant pas) | idem docker | idem docker |
+| `ssh` ; tout `host`/`engine_host` en `ssh://` ; pools d'hôtes ssh | — | — | **refusés pour tous en mode serveur** (P13) |
+| `host` | — | — | refusé en mode serveur (déjà le cas derrière le proxy, v7.0.0) |
+
+### TLS docker/podman (P12)
+
+```yaml
+backends:
+  nas:
+    type: docker
+    host: tcp://nas.lan:2376
+    volume: projets-alice          # §4
+    tls:
+      enabled: true                # false : connexion en clair
+      verify: true                 # false : certificat du serveur non vérifié (LAN, certificat auto-signé)
+```
+
+- Mise en place côté hôte : procédure officielle <https://docs.docker.com/engine/security/protect-access/> (TLS,
+  `dockerd --tlsverify`), à reprendre dans `ng2/docs/backends-utilisateur.md`.
+- **Avertissement affiché à l'enregistrement, et en permanence sur la carte du backend** quand TLS est désactivé ou non
+  vérifié : « Accès docker sans TLS vérifié : quiconque atteint ce port est root sur l'hôte. À réserver à un réseau de
+  confiance. » Le même texte vaut, sous une forme courte, pour tout accès docker distant : « un accès docker donne
+  l'équivalent de root sur l'hôte ».
+- Le backend `srv1-docker` existant de l'admin (`tcp://192.168.1.211:2375`, sans TLS) reste accepté, avec l'avertissement.
+
+### Saisie des identifiants : par collage, jamais par fichier (éditeur de backends actuel)
+
+- L'éditeur de backends actuel (Réglages › Backends, `settings.js`) est conservé. Pour un utilisateur en mode serveur :
+  type limité à docker / podman / k8s ; champ `volume` (docker/podman) ou `pvc` (k8s) ; le bouton « Fichier » de
+  l'encadré kubeconfig est **retiré** (collage seulement) ; nouvel encadré **TLS** pour docker/podman.
+- **Encadré TLS** : `tls.enabled`, `tls.verify` ; **CA du serveur à coller** (`ca.pem`, exigée si `tls.verify`),
+  certificat client (`cert.pem`) et clé client (`key.pem`) collés. Envoi par `backendSecretSet` (`ca`, `cert`, `key`),
+  comme le kubeconfig et les clés ssh aujourd'hui.
+- Aucun chemin local lu par le launcher pour un utilisateur : `kubeconfig.path`, `DOCKER_CERT_PATH`, `context` docker
+  (fichier local du poste) refusés.
+- Contrôles à la réception (refus avec message, rien n'est écrit) : taille ≤ 64 Kio par champ ; kubeconfig = YAML valide,
+  formes `*-data` seulement, sans `exec` / `auth-provider` ; `ca` et `cert` = exactement un bloc `CERTIFICATE` valide
+  (dates affichées, `ca` avec `CA:TRUE` ou auto-signé) ; `key` = un bloc de clé privée **non chiffrée**
+  (`PRIVATE KEY`, `RSA PRIVATE KEY`, `EC PRIVATE KEY`), qui correspond au certificat client.
+- Après l'envoi : champ vidé, contenu **jamais réaffiché** ; état affiché = « enregistré · empreinte SHA256 · sujet ·
+  expiration » (clé : « enregistrée », sans détail). Remplacer / Supprimer comme l'encadré ssh actuel.
+
+### Droits vérifiés à l'enregistrement (`backendTest` étendu)
+
+- k8s : `SelfSubjectAccessReview` sur les verbes requis dans le namespace (statefulsets CRUD + scale, pods
+  get/list/watch/delete, `pods/exec` create, pvc get, events list). S'il en manque, refus avec la Role à appliquer
+  (documentée). Des droits **au-delà** du namespace (`*` sur `*`, ressources de cluster) donnent un **avertissement**
+  (P19 tranché), sans refus : « Compte plus puissant que nécessaire. Le coffre est en clair : préfère un ServiceAccount
+  limité au namespace » + la Role minimale suggérée. Risque documenté (`backends-utilisateur.md`). `insecure-skip-tls-verify` est accepté avec
+  l'avertissement « certificat de l'API non vérifié » (même logique que `tls.verify: false`).
+- docker/podman : `version`, `info` ; le volume déclaré doit exister (`volume inspect`), sinon refus.
+- **Joignabilité** : le launcher doit atteindre l'API (Internet ou LAN). Un backend derrière un NAT sans redirection de
+  port ni tunnel fourni par l'utilisateur est **impossible** (diagnostic « injoignable depuis la plateforme »).
+- Pools nommés, `hosts` multiples, `spread` : non proposés aux utilisateurs en v7.1.0.
+
+### ssh en mode serveur : refus explicite, jamais silencieux (P13)
+
+- **Chargement** de `backends.yaml` (admin compris) en mode serveur : un backend ssh (liste ci-dessus) est **écarté avec
+  un diagnostic visible** sur sa carte et au démarrage : « backend `<nom>` ignoré : ssh est interdit en mode serveur ;
+  utilise docker (TLS) ou k8s ». Ses projets apparaissent « backend refusé », sans aucune suppression. Le fichier reste
+  lisible : le hub Linux et l'exe Windows, qui partagent la racine, continuent d'utiliser ces backends.
+- **Enregistrement / validation** (`configValidate`, `configSave`, `userBackendAdd`) depuis le mode serveur : un backend
+  ssh est **refusé** avec le même message.
+- **Mode poste** (hub, exe Windows) : ssh **conservé**, sans changement.
+- État constaté le 2026-11-26 : **aucun backend ssh** dans les `backends.yaml` de QUALIF ni de PROD (seulement `podman`
+  local, `srv1-docker`, `k8s`) : migration nulle. Les backends ssh éventuels du hub restent en mode poste.
+
+## 4. Stockage d'un backend **[NEW]** (P10, P11)
+
+| Backend | Paramètre (nommé par l'utilisateur) | Montage dans le conteneur du projet |
+|---|---|---|
+| `k8s` | `pvc: <nom>` : PVC **existant** du namespace (RWX, pour que plusieurs projets ouverts le montent), créé par l'utilisateur | `subPath` `PROJETS/<catégorie>/<projet>` + `subPath` `.claude` sur `CLAUDE_CONFIG_DIR` (règle #253) |
+| `docker` / `podman` | `volume: <nom>` : volume **existant** de l'hôte, créé par l'utilisateur | volume monté entier sur `/space` ; travail dans `/space/PROJETS/<catégorie>/<projet>` ; `CLAUDE_CONFIG_DIR=/space/.claude` |
+
+- Le launcher ne crée ni ne supprime aucun PVC ni volume (règle n°2). Un PVC ou volume absent donne un refus à
+  l'enregistrement et un diagnostic à l'usage.
+- `.claude` = un par backend : la connexion claude.ai se fait **une fois par backend** (`claude /login` dans un terminal
+  du premier projet), puis sert à tous les projets de ce backend.
+- Le backend `k8s` de l'admin garde sa déclaration actuelle (`volumes:`), sans changement.
+
+## 5. Source de vérité et cycle de vie d'un projet
+
+- **Source de vérité = le backend** : les projets d'un utilisateur sont les objets qui **existent** sur ses backends,
+  découverts par le launcher en s'y connectant (`ReadCtrView` / `K8sList` actuels) :
+  - k8s : StatefulSets `cl.launcher=ng2, cl.user=<uid>` du namespace ;
+  - docker/podman : conteneurs (arrêtés compris, `ps -a`) aux mêmes labels.
+  Sondage toutes les 10 s (cadence actuelle de `readCtr`). Chaque découverte réussie met à jour la trace (§2).
+- Labels posés à la création (immuables) : `cl.launcher`, `cl.user`, `cl.project`, `cl.category`, `cl.backend`,
+  `cl.repo` (URL du dépôt, si clone), `cl.created`.
+
+### Disparition (P18)
+
+| Situation | Affichage | Action |
+|---|---|---|
+| Objet absent du backend joignable, trace présente | projet **visible en erreur** : « introuvable sur `<backend>` (vu le …) » | **Purger** : efface la trace seulement ; message « les fichiers éventuels restent dans `<PVC/volume>` » ; **aucune** suppression chez l'utilisateur |
+| Backend retiré de la déclaration par l'utilisateur | — | confirmation listant les projets, puis traces purgées ; rien n'est supprimé sur le backend |
+| Backend injoignable | projets de la trace visibles « backend injoignable » (§10) | aucune (attente du retour) ; Purger disponible |
+| Dossier dans le stockage sans objet **et** sans trace | invisible (orphelin) | aucune en v7.1.0 ; documenté : recréer un projet du même nom réutilise les fichiers |
+
+### Actions
+
+| Action | Où | Détail |
+|---|---|---|
+| **Créer** | launcher → backend choisi | l'utilisateur choisit backend, catégorie et nom ; le launcher crée l'objet labellisé, monte le stockage déclaré (§4), le dossier est créé au premier démarrage |
+| Cloner | conteneur du projet | création puis `git clone` lancé **dans** le conteneur (uid de session), URL validée (`ValidateCloneURL`) ; progression en job |
+| Ouvrir | API + exec | démarre le conteneur s'il est arrêté, puis session et terminaux comme aujourd'hui (`Engine`, exec, `tmux -C`) |
+| **F5** | API + exec | démarre le conteneur s'il est arrêté (sans session claude), relit l'état, met à jour `cl.meta` (k8s) |
+| Fermer / Forcer fermer | API + exec | comme aujourd'hui (#269) : fin de session puis arrêt du conteneur. **Pas d'arrêt automatique** (P17). **Relance** : seulement sur action explicite (Ouvrir, F5), jamais par le sondage de 10 s **(P20 tranché)** |
+| Déplacer / renommer | conteneur (démarré au besoin) | dans le **même** backend : déplacement du dossier + recréation de l'objet aux nouveaux labels ; vers un autre backend : refusé (hors v7.1.0) |
+| Supprimer | conteneur puis API | suppression du dossier (confirmation détaillée existante) puis de l'objet et de la trace |
+| Purger | launcher | trace seulement (§2) |
+| Approbation `env.yaml` (#215) | conteneur à la première ouverture | condensés lus dans le conteneur, approbation scellée (HMAC) écrite dans le volume du projet (§6 bis) |
+
+## 6. Projet arrêté **[NEW]** (P9, principe P18)
+
+**Seul l'état est conservé, et il est conservé sur le backend**, jamais dans le launcher.
+
+| Information | Projet arrêté | Projet en marche (exec, comme aujourd'hui) |
+|---|---|---|
+| Nom, catégorie, backend, état, image, dépôt, création | labels de l'objet | idem |
+| Git (branche, modifié, en avance/retard, dernier commit), template, team | **dernier état connu + date**, lu **sans démarrer** : k8s → annotation `cl.meta` du StatefulSet (lisible à 0 réplique) ; docker/podman → fichier `.claude-launcher/state.json` du projet, dans le volume, lu dans le conteneur arrêté (`docker cp` / `podman cp`, API archive) | en direct, toutes les 30 s ; état réécrit à chaque lecture et avant l'arrêt |
+| Milestones GitHub | API GitHub à partir de `cl.repo` | idem |
+| Attention, sessions en attente | aucune | en direct |
+| Consommation claude.ai du backend | inconnue | lue dans un conteneur en marche de ce backend |
+| `/files/<projet>/…` | **`404 projet arrêté`** (aucune lecture, aucun démarrage) | flux `exec cat` / `tar`, règles `sensitiveRel` appliquées par le launcher, liens résolus dans le conteneur (`realpath`) |
+
+- **Où est écrit le dernier état** (par le launcher, jamais par le projet) :
+  - k8s : annotation `cl.meta` du StatefulSet (patch par l'API ; le pod n'a pas de jeton de ServiceAccount, il ne peut
+    pas l'écrire) ;
+  - docker/podman : fichier `<projet>/.claude-launcher/state.json` **dans le volume** (survit à la recréation du
+    conteneur), écrit par exec à chaque lecture et avant l'arrêt, lu à l'arrêt par l'API archive (`docker cp`).
+    Vérifié le 2026-11-26 sur docker 29.2.1 (srv1) : `inspect` et `cp` d'un conteneur arrêté lisent les labels, le
+    système de fichiers et les volumes sans le démarrer. podman : `podman cp` et l'API archive compatible lisent aussi un
+    conteneur arrêté (documentation ; à confirmer en QUALIF).
+  - Pourquoi k8s diffère : un PVC ne se lit pas sans pod en marche ; l'annotation de l'objet, elle, reste lisible.
+  - Le contenu est **affiché seulement**, jamais exécuté : JSON ≤ 4 Kio, schéma fixe, valeurs échappées. Le fichier
+    étant dans le volume, le contenu du projet peut le modifier : au pire, un état affiché faux, sans autre effet.
+- **Objet supprimé** : plus d'objet, donc plus d'état ; c'est le rôle de la **trace** (§2, §5) : projet visible en
+  erreur avec « Purger ». **Backend injoignable** : ni inspect ni cp possibles, donc trace seulement (§10).
+- **F5** sur un projet arrêté : démarrage (docker/podman `start` 1 à 3 s ; k8s `scale 0→1` 5 à 30 s, jusqu'à 2 min si
+  l'image n'est pas en cache du nœud), relecture, le conteneur **reste en marche** (pas d'arrêt automatique).
+- **Ressources d'un conteneur sans session** (image du projet au repos : `sh` + serveur tmux) : environ 5 à 20 Mio de
+  mémoire, CPU nul ; en k8s, un emplacement de pod du nœud (110 par défaut) et les requêtes de `pod.resources` si
+  l'utilisateur en déclare (réservées même au repos). C'est le calcul de l'utilisateur, pas de la plateforme (règle n°2).
+- `cl.meta` : JSON ≤ 4 Kio (`branch`, `dirty`, `ahead`, `behind`, `head`, `tpl`, `team`, `seen`) ; jamais de contenu de
+  fichier ni de secret. Exige le verbe `patch` sur `statefulsets` (déjà dans la Role requise).
+
+## 6 bis. Approbation de l'environnement d'un projet cloné (#215) **[CHANGED]** (P21)
+
+- **Existant** : registre `trust.json` dans la config partagée du launcher (`core/envtrust.go:71`), hors projet. (L'annotation
+  `cl.trust` de la révision 5 n'était qu'une proposition.) L'espace de l'admin et le mode poste **gardent** ce registre.
+- **Utilisateurs en mode serveur** — règle : par projet, donc **dans le volume du projet**, pour k8s comme pour
+  docker/podman (survit à la recréation du conteneur) : fichier `<projet>/.claude-launcher/trust.json`.
+- **Sécurité : approbation scellée** — le fichier contient, pour chaque fichier d'environnement approuvé, son condensé
+  SHA-256, la date, et `mac = HMAC-SHA256(clé d'approbation de l'utilisateur, uid ‖ liste triée des condensés)`.
+  - La clé d'approbation (32 octets aléatoires, une par utilisateur, créée au premier besoin) est rangée dans le coffre de
+    l'utilisateur **côté launcher** (`users/<uid>/vault/approval.key`) : réglage global de l'utilisateur, jamais
+    envoyée au backend.
+  - À l'ouverture, le launcher lit les fichiers d'environnement et `trust.json` dans le conteneur (exec), recalcule les
+    condensés et le HMAC : approbation valide seulement si tout correspond ; sinon il redemande (#215 : redemandée si ces
+    fichiers changent).
+  - Un dépôt cloné qui embarque un `trust.json` ne peut pas le forger (pas de clé) ; du code déjà exécuté dans le conteneur
+    non plus. Copier l'approbation d'un autre projet de l'utilisateur ne vaut que pour un contenu identique, donc déjà approuvé.
+- **Limites** :
+  - perte ou rotation de la clé → toutes les approbations sont redemandées (échec sûr) ;
+  - le coffre étant en clair (P14), qui lit la racine peut forger une approbation. Mais il a déjà les identifiants des
+    backends ;
+  - le fichier est versionnable par erreur : exclu de git (`.git/info/exclude`, comme le dossier d'attention).
+
+## 7. Coffre de l'utilisateur **[NEW]** (P14 : en clair)
+
+- `users/<uid>/vault/<backend>/` **en clair**, `0700` / `0600`, comme le coffre actuel de l'admin (risque accepté
+  v6.5.0) : lisible par les administrateurs du stockage partagé et dans les instantanés MooseFS.
+- **Dette assumée** : chiffrement au repos (clé hors racine) dans une prochaine version (issue de suivi proposée).
+- Écrit par l'interface (`secretSet`, aucune relecture sauf clé publique) ; jamais journalisé, jamais rendu, jamais
+  transmis au navigateur ; passé à `kubectl` ou `docker` par chemin de fichier.
+
+## 8. Jeton GitHub de l'utilisateur **[NEW]** (P5 « les 2 »)
+
+| Choix (`config.json` `github.token`) | Source | Usage |
+|---|---|---|
+| `pat` | PAT saisi par l'utilisateur, coffre §7 | milestones (launcher), `GH_TOKEN` des sessions |
+| `oauth` | jeton de la connexion : oauth2-proxy `--pass-access-token` → en-tête `X-Forwarded-Access-Token` (sidecar → launcher en boucle locale seulement) | idem ; gardé **en mémoire** (par session web), jamais écrit, jamais journalisé ; injecté dans l'environnement du conteneur à l'ouverture |
+
+- `oauth` impose une GitHub App avec permissions dépôts (contenu, issues, métadonnées) et organisation en lecture. Le jeton
+  d'utilisateur a une durée limitée (8 h) : une session claude ouverte plus longtemps perd l'accès git. L'interface
+  l'indique, et la documentation conseille un PAT pour les longues sessions.
+- L'en-tête `X-Forwarded-Access-Token` reçu d'une autre source que le sidecar est ignoré (même règle que
+  `X-Forwarded-User`, `auth.md` §2).
+
+## 9. Routage par utilisateur (P1)
+
+- Une identité → son espace : une instance d'état d'interface par utilisateur (créée à la première connexion, libérée
+  10 min après le dernier client). SSE, terminaux et `/files` sont filtrés par identité (fin de l'`emit` commun, `web.go`).
+- Un utilisateur ne voit que ses backends et projets. L'admin voit son espace (la racine) ; il ne voit pas les espaces
+  des autres (liste des utilisateurs seulement, méthode `userList`).
+
+## 10. Backend injoignable **[NEW]** (#259)
+
+| État d'un backend | Condition | Interface |
+|---|---|---|
+| `ok` | diagnostic vert | normal |
+| `unreachable` | API injoignable (3 échecs, sondage 30 s) | projets de la **trace** affichés « injoignables » (nom et catégorie seulement : l'état vit sur le backend), actions désactivées avec la raison, Purger disponible |
+| `forbidden` | identifiants refusés (jeton révoqué, certificat expiré) | « identifiants à renouveler » + lien vers le backend |
+| `degraded` | droits insuffisants (verbe manquant), PVC/volume absent | message précis (verbe, ressource) |
+| `refused` | ssh en mode serveur (§3) | « ssh interdit en mode serveur » |
+
+- Terminaux : exec coupé → message dans le terminal, **rattachement automatique** au retour (session tmux intacte sur le
+  backend). Écritures refusées hors ligne, jamais mises en file.
+- Alerte après 5 min (pastille persistante) ; audit `backend.unreachable` / `backend.ok` (avec durée).
+
+## 11. Méthodes web **[NEW / CHANGED]**
+
+| Méthode | Rôle | Effet |
+|---|---|---|
+| (existantes) `configOpen/Save/Validate` sur `backends.yaml`, `secretSet/Delete/Status`, `backendTest`, `create`, `open`, `refresh`… | user | **portée = espace de l'identité** ; fichiers de l'admin réservés à l'admin (R1 inchangée) ; `refresh` démarre un projet arrêté (§5) |
+| `userBackendAdd` | user | déclare un backend (type, URL, namespace, `pvc`/`volume`, `tls`) + identifiants → coffre ; lance `backendTest` |
+| `userBackendRemove` | user | retire le backend ; ses projets disparaissent de l'arbre, rien n'est supprimé chez l'utilisateur |
+| `githubTokenMode` | user | `pat` / `oauth` (§8) |
+| `projectPurge` | user | efface la trace d'un projet introuvable (§5) ; jamais de suppression sur le backend |
+| `userList` | admin | utilisateurs, nombre de backends, état ; jamais d'identifiant |
+
+- Audit : `user.backend.add/remove`, `user.vault.set`, `backend.unreachable/ok`, `backend.refused`, `project.refreshstart`,
+  `project.purge`.
+
+## 12. Sécurité — règles vérifiables
+
+1. Le processus du launcher n'exécute **aucun** `git` ni lecture de fichier sur le stockage d'un utilisateur tiers (test :
+   espace tiers simulé, traçage des appels `exec.Command` / `os.Open`).
+2. Kubeconfig avec `exec` ou `auth-provider` → refus à l'enregistrement (test).
+3. Compte k8s trop puissant → avertissement avec la Role minimale, enregistrement accepté (P19, faux `SelfSubjectAccessReview`). ssh (type, `ssh://`, pool ssh) en mode serveur : écarté au chargement avec diagnostic, refusé à l'enregistrement ;
+   conservé en mode poste (tests des deux modes).
+4. docker/podman sans TLS ou sans vérification : accepté avec l'avertissement « root sur l'hôte » (test du texte) ;
+   `unix://` pour un utilisateur → refus.
+5. Coffre : `0700`/`0600`, jamais journalisé ni rendu (test) ; chiffrement = dette.
+6. Aucune donnée d'un utilisateur visible par un autre (SSE, terminaux, `/files`, état) — test d'isolement critique.
+7. Jeton OAuth : jamais écrit sur disque ni dans un journal (recherche dans `audit.jsonl`, journaux, `users/`).
+8. `/files` d'un projet arrêté → `404` sans démarrage ; F5 → démarrage sans session claude ; aucun arrêt automatique ;
+   le sondage ne relance jamais un projet arrêté (P20 tranché).
+10. **Aucune donnée projet dans le launcher** : `users/<uid>/` ne contient que `backends.yaml`, `vault/`, `config.json`,
+   `traces.json` (champs de §2 seulement) — test de schéma. Purger n'émet aucune commande vers le backend.
+11. Identifiants **collés** seulement : aucune API ne lit un chemin local ; contrôles PEM/YAML/taille (test).
+12. Approbation : un `trust.json` sans HMAC valide (forgé, copié pour un autre contenu, clé changée) est ignoré et
+   l'approbation redemandée (tests) ; la clé d'approbation n'est jamais envoyée au backend.
+9. Aucun PVC ni volume créé ou supprimé par le launcher (test : kubectl/docker factices, aucun `create pvc` / `volume create`).

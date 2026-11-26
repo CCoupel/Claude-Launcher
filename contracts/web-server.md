@@ -180,3 +180,11 @@ le reste de ce contrat est inchangé.
 **[addendum 4]** Accès par sous-chemin (`externalIngress.pathPrefix`) : toutes les routes de ce contrat (`/files/…`,
 `/api/…`, `/healthz` excepté) sont servies sous `<base>` pour l'hôte externe ; le client web n'emploie que des chemins
 relatifs avec `<base href>` injecté — `contracts/auth.md` §9.
+
+## v7.1.0 — `/files` des projets d'un utilisateur, `_work/test-plan` **[CHANGED]** (#271, `contracts/user-backends.md` §6)
+
+- **#271** : dossiers de `_work/` servis = `mockup` **et** `test-plan` (casse ignorée) ; `reports`, `handoff`, `tasks`, `tmp`
+  et tout autre sous-dossier de `_work/` restent refusés (`404`) et absents des listes.
+- Projet d'un utilisateur sur son backend : `/files/<projet>/<chemin>` lu **dans le conteneur du projet** (`exec`),
+  règles `sensitiveRel` appliquées par le launcher au chemin, liens résolus dans le conteneur ; projet arrêté :
+  `404 projet arrêté`, sans démarrage ni lecture (P9). Espace de l'admin : inchangé (lecture directe de la racine).

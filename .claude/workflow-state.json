@@ -1,18 +1,37 @@
 {
   "type": "FEATURE",
-  "description": "Milestone v7.1.0 — Agent d'espace et stockage utilisateur (#249 #255 #256 #257 #258 #259 #275 #269 #271)",
+  "description": "Milestone v7.1.0 — Espace par utilisateur et backends de l'utilisateur, sans agent (#255 #257 #259 #275 #249 #269 #271)",
   "status": "in_progress",
   "branch": "milestone/v7.1.0",
   "version": "7.1.0",
   "started_at": "2026-11-26T13:40:00Z",
-  "updated_at": "2026-11-26T13:40:00Z",
+  "updated_at": "2026-11-26T15:40:00Z",
   "cycles": 1,
-  "issue_nums": [249, 255, 256, 257, 258, 259, 269, 271, 275],
+  "issue_nums": [249, 255, 257, 259, 269, 271, 275],
   "milestone_num": 37,
-  "plan": null,
+  "plan": ".claude/workflow/plan-v7.1.0.md",
+  "cadrage": {
+    "intensite": "complet",
+    "test_writer": true,
+    "review": true,
+    "qualif": true,
+    "doc": "agent",
+    "team": ["dev-backend", "dev-frontend", "test-writer", "code-reviewer", "qa", "doc-updater"],
+    "valide": "GATE 2"
+  },
+  "lots": {
+    "current": "LOT-1",
+    "items": {
+      "LOT-1": { "status": "in_progress", "issues": [269, 271], "phase": "dev-backend" },
+      "LOT-2": { "status": "pending", "issues": [255] },
+      "LOT-3.1": { "status": "pending", "issues": [257] },
+      "LOT-3.2": { "status": "pending", "issues": [275] },
+      "LOT-4": { "status": "pending", "issues": [259, 249] }
+    }
+  },
   "phases": {
     "clarification": { "status": "completed", "skipped": false },
-    "plan": { "status": "pending" },
+    "plan": { "status": "completed", "report": "_work/reports/plan-20261126-134958.md", "timestamp": "2026-11-26T15:30:00Z" },
     "dev-backend": { "status": "pending" },
     "dev-frontend": { "status": "pending" },
     "test-writer": { "status": "pending" },

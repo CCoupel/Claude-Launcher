@@ -2,6 +2,35 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261126] — v7.1.0 (plan rév. 3, modèle sans agent, réponses GATE 2) : espace par utilisateur, backends de l'utilisateur
+
+- **[NEW]** `contracts/user-backends.md` :
+  - espace par utilisateur dans l'état du launcher (`users/<uid>/` : backends, coffre en clair, réglages globaux,
+    trace minimale des projets vus) ; **aucune donnée projet côté launcher** ;
+  - projets **découverts** sur les backends (labels `cl.user`) ; état d'un projet arrêté gardé sur le backend
+    (annotation k8s `cl.meta`) ; F5 démarre si besoin ; pas d'arrêt automatique ; projet disparu visible en erreur avec
+    « Purger » (trace seulement) ; docker/podman arrêté : état lu sans démarrer (fichier dans le volume, API archive) ;
+  - approbation `env.yaml` par projet **dans le volume du projet**, scellée par HMAC (clé par utilisateur côté launcher) ;
+  - identifiants **collés** dans l'éditeur de backends actuel (kubeconfig ; TLS docker/podman : CA du serveur, certificat
+    et clé client), validation PEM, masqués après l'envoi ; jamais de fichier ni de chemin local ; compte k8s trop
+    puissant = avertissement ;
+  - backends `k8s` (kubeconfig, namespace, droits vérifiés) et `docker`/`podman` (`tcp://`, TLS activable, vérification
+    désactivable, avertissement « root sur l'hôte ») ;
+  - stockage = PVC / volume **nommé par l'utilisateur** (aucun stockage créé par le launcher) ;
+  - jeton GitHub PAT ou OAuth ; routage par identité ; backend injoignable.
+- **[CHANGED]** mode serveur : **ssh refusé pour tous** (écarté au chargement avec diagnostic, refusé à l'enregistrement) ;
+  mode poste inchangé. Aucun backend ssh en QUALIF ni en PROD au 2026-11-26.
+- **[NEW]** méthodes web `userBackendAdd`, `userBackendRemove`, `githubTokenMode`, `projectPurge`, `userList` ; méthodes existantes
+  limitées à l'espace de l'identité.
+- **[NEW]** Helm : `users.enabled`, `auth.passAccessToken`.
+- **[CHANGED]** identité : clé = identifiant numérique GitHub (login résolu par l'API GitHub, login repris → refus).
+- **[CHANGED]** client web : SSE, terminaux et `/files` limités à l'espace de l'identité ; `/files` d'un projet arrêté → `404`.
+- **[CHANGED]** `/files` : `_work/test-plan/` servi comme `_work/mockup/` (#271).
+- **[CHANGED]** diagnostic k8s : un pod projet en marche à l'ancien modèle (sans `cl.mounts`) est un **avertissement**,
+  plus un problème bloquant du backend (#269) ; Fermer et Forcer fermer arrêtent ces pods.
+- Aucun BREAKING de contrat : le pod launcher garde la racine, `users.enabled: false` rend le comportement v7.0.0.
+  Comportement : un backend ssh de la config partagée n'est plus utilisé par le launcher de cluster (aucun en service).
+
 ## [20261125] — v7.0.0 (correctif cycle 1 LOT-2, audit sécurité final et revue)
 
 - **[CHANGED]** audit `auth.md` §5 : toute action **R1** autorisée est précédée d'une ligne d'**intention** (`"phase":"intent"`,

@@ -251,3 +251,16 @@ Manifeste produit par le launcher (`core/k8s.go`), sans valeur du chart :
   carte « Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre » et ligne du diagnostic ;
   pod arrêté ou à recréer : recréé au nouveau modèle (P6).
 - Docker / podman / ssh : inchangés (ils ne montent déjà que le projet et `CLAUDE_CONFIG_DIR`).
+
+## v7.1.0 — espace par utilisateur, backends de l'utilisateur **[NEW]** (#257, #275 ; `contracts/user-backends.md`)
+
+| Valeur | Type | Défaut | Rôle |
+|---|---|---|---|
+| `users.enabled` | booléen | `true` | espaces par utilisateur (`users/<uid>/` sous la config de la racine) ; `false` : comportement v7.0.0 (un espace commun) |
+| `auth.passAccessToken` | booléen | `false` | `--pass-access-token` sur les sidecars oauth2-proxy (choix `oauth` du jeton GitHub, P5) ; exige une GitHub App avec permissions dépôts |
+
+- Rien d'autre ne change : le pod launcher **monte toujours la racine** (espace de l'admin), RBAC et NetworkPolicy
+  d'entrée inchangés. Sortie (egress) : libre aujourd'hui (rapport infra) — les API des backends des utilisateurs
+  (443/6443/2376) doivent rester joignables ; ne pas poser de `policyTypes: [Egress]` restrictive.
+- Coffre des utilisateurs en clair sous la racine (P14) : aucune valeur Helm ; chiffrement = version ultérieure.
+- La plateforme ne crée aucun stockage ni calcul pour les utilisateurs (P15) : aucune valeur de PVC/namespace par utilisateur.
