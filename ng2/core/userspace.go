@@ -426,13 +426,13 @@ func (s Space) SaveBackends(content []byte, expectedMtime time.Time) ([]ConfigPr
 
 // UserAdminFields : le backends.yaml proposé touche un champ que seul l'admin peut poser (règle R1, contracts/auth.md §4) — un
 // backend « host », ou kubeconfig, context, volumes, clés de pod sensibles. « namespace » n'en fait plus partie dans l'espace
-// d'un utilisateur : il déclare le sien (#257). Contenu illisible : faux (la validation le signale).
+// d'un utilisateur : il déclare le sien (#257). Contenu illisible : vrai (échec fermé, contracts/auth.md §4).
 func UserAdminFields(content []byte) bool {
 	var f struct {
 		Backends map[string]map[string]any `yaml:"backends"`
 	}
 	if yaml.Unmarshal(content, &f) != nil {
-		return false
+		return true
 	}
 	for _, be := range f.Backends {
 		if t, _ := be["type"].(string); t == "host" {

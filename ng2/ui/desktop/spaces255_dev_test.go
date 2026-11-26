@@ -248,3 +248,15 @@ func TestSpacesLiberationApres10Minutes255(t *testing.T) {
 		t.Error("non libérée après 10 min sans client")
 	}
 }
+
+func TestSpacesYamlIllisibleRefuse255(t *testing.T) {
+	s := sp255Start(t)
+	_, out := s.call(t, "alice", "configSave", `{"kind":"backends.yaml","content":"backends: ["}`)
+	if r, _ := out["result"].(map[string]any); r["forbidden"] != "admin" || r["saved"] != nil {
+		t.Errorf("configSave d'un YAML illisible : %v", out)
+	}
+	_, out = s.call(t, "alice", "configValidate", `{"kind":"backends.yaml","content":"backends: ["}`)
+	if ps := fmt.Sprint(out["result"]); !strings.Contains(ps, "error") && !strings.Contains(ps, "erreur") {
+		t.Errorf("configValidate d'un YAML illisible sans erreur : %v", out)
+	}
+}

@@ -207,3 +207,26 @@ func TestTracesSchemaEtPurge255(t *testing.T) {
 		t.Error("l'admin n'a pas de traces")
 	}
 }
+
+// Échec fermé : un backends.yaml illisible est tenu pour touchant un champ R1 ; il n'est jamais enregistré ni validé comme bon.
+func TestUserAdminFieldsEchecFerme255(t *testing.T) {
+	dev255Env(t)
+	for _, bad := range []string{"backends: [", "backends:\n  k: {type: k8s\n", "\tx: : :"} {
+		if !UserAdminFields([]byte(bad)) {
+			t.Errorf("YAML illisible %q : vrai attendu", bad)
+		}
+	}
+	if UserAdminFields([]byte("backends:\n  k:\n    type: k8s\n    namespace: ns\n")) || UserAdminFields(nil) {
+		t.Error("contenu sain tenu pour R1")
+	}
+	sp, _ := UserSpace("github-5")
+	if ps := sp.ValidateBackends([]byte("backends: [")); !HasErrors(ps) {
+		t.Errorf("validation d'un YAML illisible : %v", ps)
+	}
+	if _, err := sp.SaveBackends([]byte("backends: ["), time.Time{}); !errors.Is(err, ErrConfigInvalid) {
+		t.Errorf("enregistrement d'un YAML illisible : %v", err)
+	}
+	if _, err := os.Stat(sp.BackendsPath()); err == nil {
+		t.Error("fichier écrit malgré un YAML illisible")
+	}
+}
