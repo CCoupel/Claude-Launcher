@@ -283,7 +283,7 @@ func hasAnySuffix(l string, sufs []string) bool {
 // sensitiveRel : le chemin relatif à une racine (segments séparés par « / ») contient-il un élément jamais servi ?
 // Un segment PRIVATE, .git, .claude, .ssh, .aws, .kube, .gnupg, .docker, .azure ou un fichier d'identifiants d'outil
 // (.netrc, .git-credentials, .gitconfig, .npmrc, .pypirc, .pgpass, .htpasswd, .terraformrc…) ; un nom commençant par .env,
-// id_ ou kubeconfig ; un nom en .pem, .key, .p12, .pfx, .jks, .keystore, .pkcs12, .ppk, .kdbx, .tfstate ou .tfvars ; tout _work SAUF _work/mockup (les maquettes y vivent ; rapports d'audit, handoff, tâches, tmp… ne sont jamais servis). Casse
+// id_ ou kubeconfig ; un nom en .pem, .key, .p12, .pfx, .jks, .keystore, .pkcs12, .ppk, .kdbx, .tfstate ou .tfvars ; tout _work SAUF _work/mockup et _work/test-plan (maquettes et plans de test ; rapports d'audit, handoff, tâches, tmp… ne sont jamais servis). Casse
 // ignorée (systèmes de fichiers insensibles à la casse). Aussi .config/claude-launcher* (coffre commun des secrets sous la racine, #201).
 func sensitiveRel(rel string) bool {
 	segs := strings.Split(rel, "/")
@@ -296,8 +296,8 @@ func sensitiveRel(rel string) bool {
 			return true
 		case l == ".config" && i+1 < len(segs) && strings.HasPrefix(strings.ToLower(segs[i+1]), "claude-launcher"):
 			return true // configuration et coffre des secrets du launcher (<racine>/.config/claude-launcher-ng2/secrets), #201
-		case l == "_work" && i+1 < len(segs) && segs[i+1] != "" && !strings.EqualFold(segs[i+1], "mockup"):
-			return true // de _work, seul _work/mockup (les maquettes) est servi : rapports, handoff, tâches, tmp… jamais
+		case l == "_work" && i+1 < len(segs) && segs[i+1] != "" && !strings.EqualFold(segs[i+1], "mockup") && !strings.EqualFold(segs[i+1], "test-plan"):
+			return true // de _work, seuls _work/mockup (maquettes) et _work/test-plan (plans de test, #271) sont servis : rapports, handoff, tâches, tmp… jamais
 		}
 	}
 	return false
