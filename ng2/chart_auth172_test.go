@@ -1088,3 +1088,93 @@ func TestChartAuth172NginxRefusedWithLocalAccount(t *testing.T) {
 		t.Errorf("nginx sans compte local refusé : %.300s", out)
 	}
 }
+
+// ── casse des logins GitHub : conservée pour oauth2-proxy (sensible à la casse), insensible côté launcher ─────────────
+
+func t172GithubUser(t *testing.T, o map[string][]m, container string) []string {
+	t.Helper()
+	c := t172Container(t, o, container)
+	if c == nil {
+		t.Fatalf("conteneur %s absent", container)
+	}
+	a := t172ArgPrefix(t172Args(c), "--github-user=")
+	if a == "" {
+		t.Fatalf("%s : --github-user absent", container)
+	}
+	return strings.Split(strings.TrimPrefix(a, "--github-user="), ",")
+}
+
+// GitHub rend le login avec sa casse (« CCoupel ») et oauth2-proxy compare sans l'adapter : --github-user garde la casse saisie, pour
+// l'instance interne ET l'externe ; jamais passé en minuscules.
+func TestChartAuth172GithubUserKeepsCase(t *testing.T) {
+	needHelm(t)
+	for name, v := range map[string]m{"interne seule": t172Values(), "avec l'externe": t254Values()} {
+		sub(v, "auth")["admins"] = []any{"CCoupel"}
+		sub(v, "auth")["users"] = []any{"Alice-B", "bob"}
+		o := must(t, v)
+		for _, c := range []string{"auth-proxy", "auth-proxy-ext"} {
+			if c == "auth-proxy-ext" && t172Container(t, o, c) == nil {
+				continue
+			}
+			got := strings.Join(t172GithubUser(t, o, c), ",")
+			if got != "CCoupel,Alice-B,bob" {
+				t.Errorf("%s / %s : --github-user=%s, attendu CCoupel,Alice-B,bob (casse conservée, ordre admins puis users)", name, c, got)
+			}
+			if strings.Contains(got, "ccoupel") || strings.Contains(got, "alice-b") {
+				t.Errorf("%s / %s : login passé en minuscules : %s", name, c, got)
+			}
+		}
+		// launcher : la liste lue est insensible à la casse ; aucune entrée en double
+		e := t172Env(t172Container(t, o, "launcher"))
+		for _, k := range []string{"CL_AUTH_ADMINS", "CL_AUTH_USERS"} {
+			seen := map[string]bool{}
+			for _, l := range strings.Split(e[k], ",") {
+				if l == "" {
+					continue
+				}
+				if seen[strings.ToLower(l)] {
+					t.Errorf("%s / %s : doublon %q dans %s", name, k, l, e[k])
+				}
+				seen[strings.ToLower(l)] = true
+			}
+		}
+		if !strings.EqualFold(e["CL_AUTH_ADMINS"], "CCoupel") {
+			t.Errorf("%s : CL_AUTH_ADMINS = %q", name, e["CL_AUTH_ADMINS"])
+		}
+	}
+}
+
+// [CCoupel, ccoupel] : le même compte GitHub — pas de doublon dans les arguments (refus nommant le login, ou une seule entrée) ;
+// idem auth.users ; un login présent dans admins ET users (casse différente) reste refusé.
+func TestChartAuth172GithubUserCaseDuplicates(t *testing.T) {
+	needHelm(t)
+	for list, other := range map[string]string{"admins": "users", "users": "admins"} {
+		v := t172Values()
+		sub(v, "auth")[list] = []any{"CCoupel", "ccoupel"}
+		if list == "users" {
+			sub(v, "auth")["admins"] = []any{"zoe-admin"}
+		}
+		_, out, err := render(t, v)
+		if err != nil { // refusé : le message nomme le login
+			if !strings.Contains(strings.ToLower(out), "ccoupel") {
+				t.Errorf("auth.%s [CCoupel, ccoupel] refusé sans nommer le login : %.200s", list, out)
+			}
+			continue
+		}
+		o := must(t, v)
+		n := 0
+		for _, l := range t172GithubUser(t, o, "auth-proxy") {
+			if strings.EqualFold(l, "ccoupel") {
+				n++
+			}
+		}
+		if n != 1 {
+			t.Errorf("auth.%s [CCoupel, ccoupel] : %d occurrences dans --github-user, attendu 1 (ou un refus)", list, n)
+		}
+		_ = other
+	}
+	v := t172Values()
+	sub(v, "auth")["admins"] = []any{"CCoupel"}
+	sub(v, "auth")["users"] = []any{"ccoupel"}
+	t172Refused(t, v, "ccoupel")
+}

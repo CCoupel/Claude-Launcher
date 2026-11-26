@@ -10,6 +10,7 @@ Reference : `contracts/helm-values.md` « Ingress externe » et `auth.github.cli
 
 - [ ] Environnement : **QUALIF** avec `externalIngress.enabled: true` (hote public `<EXT>`, `tls.clusterIssuer` public ou `tls.secretName`), `auth.enabled: true`, compte local active sur l'hote interne `<INT>` ; DNS public et redirection du port 443 vers l'Ingress externe en place
 - [ ] **GitHub App de l'environnement** (fournie par l'utilisateur) avec **deux URL de retour** : `https://<INT>/oauth2/callback` et `https://<EXT>/oauth2/callback` ; cles posees par `auth.existingSecret` (recommande) ou par `auth.github.clientId` / `clientSecret` dans `PRIVATE/<ENV>/values-local.yaml` (jamais commite)
+- [ ] **Logins GitHub copies avec leur casse exacte** (`CCoupel`, pas `ccoupel`) dans `auth.admins` / `auth.users` : oauth2-proxy est sensible a la casse (le chart la conserve dans `--github-user`) ; verifier `kubectl -n <ns> get statefulset <rel> -o yaml | grep github-user`
 - [ ] Un poste **hors du LAN** (reseau mobile, partage de connexion) pour les scenarios HUMAIN ; un compte GitHub administrateur (`auth.admins`) et un compte GitHub non liste
 - [ ] Donnees : **aucun projet reel** ; projet factice ouvert (scenario 7) ; mot de passe `admin@local` lu par l'utilisateur seul (`kubectl -n <ns> get secret <rel>-local-admin -o jsonpath='{.data.password}' | base64 -d`), jamais ecrit dans un rapport
 

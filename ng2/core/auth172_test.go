@@ -414,3 +414,40 @@ func TestAuth172AccessDenyDerivedFromClasses(t *testing.T) {
 		}
 	}
 }
+
+// La casse d'un login GitHub (« CCoupel ») est conservée par le chart pour oauth2-proxy ; le launcher compare SANS casse : un login
+// saisi dans CL_AUTH_ADMINS / CL_AUTH_USERS avec une casse admet toute autre casse du même login, sous une identité canonique unique.
+func TestAuth172LoginCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	c := conf172(t, "CCoupel, Zoe-Admin", "Alice-B, ALICE-B,bob", "launcher.internal")
+	for _, hdr := range []string{"CCoupel", "ccoupel", "CCOUPEL", "cCoUpEl", "  CCoupel "} {
+		id, why := c.Identify([]string{hdr}, "launcher.internal")
+		if why != "" || id.Role != RoleAdmin || id.Login != "ccoupel" {
+			t.Errorf("en-tête %q : (%q, %q, %q), attendu admin « ccoupel » (identité canonique)", hdr, id.Login, id.Role, why)
+		}
+	}
+	for _, hdr := range []string{"Alice-B", "alice-b", "ALICE-B"} {
+		if id, why := c.Identify([]string{hdr}, "launcher.internal"); why != "" || id.Role != RoleUser || id.Login != "alice-b" {
+			t.Errorf("en-tête %q : (%q, %q, %q), attendu user « alice-b »", hdr, id.Login, id.Role, why)
+		}
+	}
+	if len(c.Users) != 2 || len(c.Admins) != 2 {
+		t.Errorf("doublons de casse : admins %v users %v (Alice-B et ALICE-B = un seul compte)", c.Admins, c.Users)
+	}
+	// un autre login proche reste refusé
+	for _, hdr := range []string{"CCoupe", "CCoupell", "C-Coupel", "ccoupel2"} {
+		if _, why := c.Identify([]string{hdr}, "launcher.internal"); why != RefusalUser {
+			t.Errorf("en-tête %q : refus %q, attendu %q", hdr, why, RefusalUser)
+		}
+	}
+	// ParseLogins : canonique en minuscules, sans doublon de casse
+	m, err := ParseLogins("CL_AUTH_ADMINS", "CCoupel,ccoupel,CCOUPEL")
+	if err != nil || len(m) != 1 || !m["ccoupel"] {
+		t.Errorf("ParseLogins : %v %v, attendu {ccoupel}", m, err)
+	}
+	// un même login dans les deux listes (casse différente) : les deux listes le contiennent, le rôle admin l'emporte (R1 reste réservée)
+	d := conf172(t, "CCoupel", "ccoupel", "")
+	if id, why := d.Identify([]string{"CCOUPEL"}, "x"); why != "" || id.Role != RoleAdmin {
+		t.Errorf("login dans les deux listes : (%+v, %q), attendu admin", id, why)
+	}
+}

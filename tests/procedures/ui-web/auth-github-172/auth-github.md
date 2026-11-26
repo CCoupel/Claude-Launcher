@@ -13,6 +13,7 @@ Reference : `contracts/auth.md` (§1 zones de confiance, §2 mode `proxy`, §4 r
 - [ ] Donnees : **aucun projet reel** ; compte GitHub administrateur (`auth.admins`), compte GitHub **non liste**, et si disponible un compte GitHub `auth.users` (scenarios HUMAIN). Les applications GitHub (M4 a M6) etant fournies par l'utilisateur, tant qu'elles manquent les scenarios GitHub (7 a 10, 12) sont reportes ; le compte local suffit a jouer 2 a 6 et 11
 - [ ] QUALIF pour l'expiration (scenario 10) : `auth.sessionDuration: 15m` et `auth.sessionRefresh: 5m`, remis ensuite aux valeurs par defaut
 - [ ] Acces : `kubectl` (exec, logs, get secret) sur `<ns>` ; `curl` ; `go`, `node`, `helm`, `chrome-headless-shell` (scenario 1)
+- [ ] **Login GitHub : le copier avec sa casse exacte** (`CCoupel`, tel que GitHub l'affiche) dans `auth.admins` / `auth.users` : oauth2-proxy compare `--github-user` en respectant la casse (le chart la conserve), alors que le launcher compare sans casse ; un login saisi en minuscules ne passerait pas le proxy
 - [ ] Mot de passe local : `PW=$(kubectl -n <ns> get secret <rel>-local-admin -o jsonpath='{.data.password}' | base64 -d)` — ne jamais l'afficher dans un rapport ni l'ecrire dans un fichier
 
 ## Scenarios
