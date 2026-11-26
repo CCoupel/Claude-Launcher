@@ -68,3 +68,38 @@ func TestBrowserEnv254AltOrderAndGarbageIgnored(t *testing.T) {
 		}
 	}
 }
+
+// Addendum 4 (sous-chemin) : l'adresse principale porte la base (CL_WEB_URL = https://hôte/claude-qualif) : les correspondances et
+// l'indication annoncées aux sessions claude la contiennent (<CL_WEB_URL>/files/<projet>), l'appariement aussi ; l'alternative interne
+// (sans chemin) n'est jamais annoncée.
+func TestBrowserEnv254PrincipalAddressWithBase(t *testing.T) {
+	env, name := envP7(t, "https://coupel.net/claude-qualif", "https://launcher-test.coupel.lan")
+	var ps []BrowserPath
+	if err := json.Unmarshal([]byte(env[browserPathVar]), &ps); err != nil || len(ps) != 1 || ps[0].Host != "https://coupel.net/claude-qualif/files/"+name {
+		t.Fatalf("CL_BROWSER_PATH_MAP = %s (%v), attendu https://coupel.net/claude-qualif/files/%s", env[browserPathVar], err, name)
+	}
+	hint := env[browserHintVar]
+	for _, want := range []string{"https://coupel.net/claude-qualif/files/" + name + "/<chemin du fichier", "https://coupel.net/claude-qualif/files/__claude-launcher__/pair?device=<"} {
+		if !strings.Contains(hint, want) {
+			t.Errorf("CL_BROWSER_HINT sans %q : %s", want, hint)
+		}
+	}
+	if strings.Contains(hint, "launcher-test.coupel.lan") || strings.Contains(hint, "https://coupel.net/files/") {
+		t.Errorf("l'indication cite l'alternative ou une URL sans la base : %s", hint)
+	}
+}
+
+func TestServerFilesBase254WithBase(t *testing.T) {
+	t.Setenv("CL_IN_CLUSTER", "1")
+	for in, want := range map[string]string{
+		"https://coupel.net/claude-qualif": "https://coupel.net/claude-qualif/files",
+		"https://x.local/a/b":              "https://x.local/a/b/files",
+		"https://x.local":                  "https://x.local/files",
+		"https://x.local/":                 "https://x.local/files",
+	} {
+		t.Setenv("CL_WEB_URL", in)
+		if got := ServerFilesBase(); got != want {
+			t.Errorf("CL_WEB_URL=%q : %q, attendu %q", in, got, want)
+		}
+	}
+}

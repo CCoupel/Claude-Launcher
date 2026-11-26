@@ -155,9 +155,51 @@ Poste **hors du LAN** (reseau mobile), fenetre privee.
 
 ---
 
+### Scenario 10 — Acces par sous-chemin `https://coupel.net/claude-qualif` : routage, cookie, absence de HSTS (addendum 4)
+
+**Validation** : AUTO — **Issues** : #254
+
+`<EXT>` = `coupel.net`, `<BASE>` = `/claude-qualif`. Le prefixe n'est jamais retire par Traefik ; l'Ingress ne couvre que `<BASE>`.
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `cd ng2 && go test -count=1 -run 'Prefix254' . ./ui/desktop/ && go test -count=1 -run 'BrowserEnv254\|ServerFilesBase254' ./core/ && cd .. && tests/integration/ui-web/auth-prefix-254/run.sh` | validation du prefixe, aucun StripPrefix, aucune capture de `/`, arguments `--proxy-prefix` / `--cookie-path` / `--redirect-url`, cookie `__Secure-cl_auth_ext`, pas de HSTS, base injectee, redirections, SSE, `/files`, Origin strict, `X-Forwarded-Prefix` ignore ; navigateur sans tete derriere un reverse proxy a prefixe : aucune requete hors de la base | | |
+| 2 | `curl -sI https://<EXT><BASE>/` | redirection vers la connexion GitHub ou `/oauth2/…` **sous la base** (`Location: <BASE>/oauth2/…`) ; **aucun** `Strict-Transport-Security` | | |
+| 3 | `curl -sI https://<EXT><BASE>` (sans `/` final) | `308` vers `<BASE>/` | | |
+| 4 | `curl -sI https://<EXT>/emby/` et `https://<EXT>/` (autres applications de l'hote) | **meme reponse qu'avant l'activation** (aucune capture) : relever les codes et en-tetes avant et apres `helm upgrade` | | |
+| 5 | `curl -sI https://<EXT>/claude-qualifier/` et `https://<EXT>/claude-qualif-autre/` | pas de reponse du launcher (le segment est `<BASE>` exactement : `404` de l'application voisine ou de Traefik) | | |
+| 6 | Cookie : `curl -sI -c - https://<EXT><BASE>/oauth2/start` (ou outils du navigateur apres connexion) | `__Secure-cl_auth_ext` avec `Path=<BASE>`, `Secure`, `HttpOnly`, `SameSite=Lax`, **sans** `Domain` ; jamais `__Host-` | | |
+| 7 | Cookie vers une autre application : `curl -sI -H 'Cookie: __Secure-cl_auth_ext=x' https://<EXT>/emby/` puis relire les cookies recus par `/emby` dans le navigateur | le cookie du launcher n'est pas envoye a `/emby` (Path) ; le launcher ne journalise jamais l'en-tete `Cookie` | | |
+| 8 | `curl -s https://<EXT><BASE>/oauth2/sign_in \| grep -ci 'type="password"'` | `0` : aucun formulaire de mot de passe (le compte local n'est PAS permis sur l'externe) | | |
+| 9 | `curl -s -o /dev/null -w '%{http_code}' -H 'X-Forwarded-Prefix: /evil' -H 'X-Forwarded-User: admin@local' https://<EXT><BASE>/api/call -d '{}'` | refus (`401`) ; le prefixe de l'en-tete n'est ni lu ni repris dans la reponse | | |
+| 10 | `curl -s https://<EXT><BASE>/signed-out \| grep -o 'href="[^"]*"'` | liens relatifs a la base (`<BASE>/` ou relatifs), jamais `href="/"` | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
+### Scenario 11 — Parcours GitHub reel sous le sous-chemin
+
+**Validation** : HUMAIN — **Issues** : #254 #172 (parcours reel : retour OAuth, liens, deconnexion, SSE sous la base) — **N/T tant que la GitHub App n'existe pas**
+
+La GitHub App porte l'URL de retour `https://coupel.net/claude-qualif/oauth2/callback` (en plus de celle de l'hote interne). Le compte local `admin@local` n'est PAS permis sur l'hote externe : seul GitHub ouvre une session.
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Hors du LAN, fenetre privee : ouvrir `https://coupel.net/claude-qualif/` | connexion GitHub (colonne GitHub seule) ; certificat valide pour `coupel.net` ; aucune barre d'adresse sortant de `/claude-qualif/` | | |
+| 2 | Autoriser l'application avec le compte administrateur | retour sur `https://coupel.net/claude-qualif/` (pas sur la racine de `coupel.net`) ; interface chargee, pastille avec le login | | |
+| 3 | Utiliser l'interface : ouvrir un projet factice, un terminal, les Reglages, un fichier de maquette (`files/…`) | tout fonctionne sous le sous-chemin ; le terminal reste vivant (flux d'evenements) ; aucun lien ne mene a la racine de `coupel.net` | | |
+| 4 | Menu de la pastille › « Se deconnecter » puis « Se reconnecter » | `/claude-qualif/signed-out` lisible, retour dans `/claude-qualif/` | | |
+| 5 | Dans un autre onglet, ouvrir une autre application de `coupel.net` (ex. `/emby/`) | inchangee ; aucune session du launcher n'y apparait | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Criteres de Validation
 
 - [ ] **Bloquant** : depuis Internet, `Host: <INT>` donne 403 (scenario 8) avant toute ouverture de 80/443
+- [ ] Sous-chemin : aucune autre route de `coupel.net` n'est capturee, pas de HSTS, cookie `__Secure-` limite a `/claude-qualif` (scenario 10)
 - [ ] L'hote externe ne propose que GitHub : ni formulaire, ni compte local, ni liste d'adresses ; certificat public valide
 - [ ] Un cookie de l'instance interne n'ouvre aucune session sur l'externe ; l'adresse annoncee aux sessions est l'externe
 - [ ] Le secret de la GitHub App n'apparait ni dans `NOTES.txt`, ni dans les journaux, ni dans un fichier suivi par git

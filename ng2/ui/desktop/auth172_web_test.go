@@ -131,7 +131,11 @@ func px172Start(t *testing.T, withHealth bool) *px172 {
 			t.Fatalf("RunWeb s'est arrêté au démarrage : %v", err)
 		default:
 		}
+		// prêt dès que /signed-out répond sur l'un des hôtes (l'hôte interne n'a pas de sous-chemin, addendum 4)
 		if r, _ := s.do("GET", "/signed-out", px172Ext, nil, ""); r != nil && r.StatusCode == 200 {
+			break
+		}
+		if r, _ := s.do("GET", "/signed-out", px172Int, nil, ""); r != nil && r.StatusCode == 200 {
 			break
 		}
 		if time.Now().After(deadline) {
