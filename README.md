@@ -197,10 +197,11 @@ Traefik ou nginx. L'image est publiée sur ghcr, avec son empreinte jointe à ch
 
 **Prérequis** : un cluster avec Traefik ou nginx et cert-manager ; un namespace dédié ; un volume RWX pour la racine
 des projets (PVC existant, ou créé par le chart) ; un nom `.local` (mDNS) pour l'accès, par exemple `launcher.local` ;
-une CA interne cert-manager dont le certificat public est installé sur les postes.
+une CA interne cert-manager dont le certificat public est installé sur les postes ; **une application GitHub**
+(GitHub App) par environnement, avec son Secret (`client-id`, `client-secret`) dans le namespace, créé avant l'installation.
 
 ```bash
-VERSION=6.6.0
+VERSION=7.0.0
 TAG=v$VERSION
 DIGEST=$(sed -nE 's/.*@(sha256:[0-9a-f]+).*/\1/p' claude-launcher-image-$TAG.digest)   # empreinte jointe à la release
 CHART=oci://ghcr.io/ccoupel/charts/claude-launcher
@@ -211,17 +212,37 @@ helm upgrade --install claude-launcher "$CHART" --version "$VERSION" -n claude-n
 
 Valeurs clés (`values.yaml`) : `rootBase` (racine des projets, dans le pod), `hubName`, `volume.existingClaim`,
 `ingress.controller` (`traefik` ou `nginx`), `ingress.className`, `ingress.host`, `ingress.allowedSourceRanges` (liste
-d'adresses admises, non vide, jamais `/0`), `ingress.tls.clusterIssuer` ou `secretName`. Le défaut `web.access: none`
-s'ouvre **sans jeton** : `https://launcher.local/` depuis une adresse de la liste.
+d'adresses admises, non vide, jamais `/0`), `ingress.tls.clusterIssuer` ou `secretName`.
 
-**Limites de v6.4** (risques acceptés) : **aucune authentification** avant v7.0.0 (#172) : la liste d'adresses de
-l'Ingress interne est la seule barrière. Les secrets (clés ssh, kubeconfig ; coffre commun en clair, [`ng2/docs/secrets.md`](ng2/docs/secrets.md)) peuvent être écrits depuis le LAN, et `/files`
-est lisible depuis le LAN, avec exclusions. L'ingress externe est préparé mais refusé au rendu. Ne jamais exposer
-l'Ingress hors du réseau interne.
+**Authentification (v7.0.0)** : `auth.enabled: true` par défaut. Un sidecar oauth2-proxy place le launcher derrière une
+connexion GitHub ; `web.access` est alors imposé à `proxy`. Les comptes se déclarent dans les valeurs, non secrètes :
+`auth.admins` (rôle `admin`, obligatoire si GitHub est activé) et `auth.users` (rôle `user`). Les logins se copient
+**avec leur casse exacte**, telle qu'affichée par GitHub. Les clés de l'application GitHub vont dans
+`auth.existingSecret` (recommandé) ou dans `auth.github.clientId` / `clientSecret` (valeurs Helm, à garder hors git).
+Un compte local de secours `admin@local` existe, sur l'hôte interne seulement : son mot de passe est généré par le chart
+et se lit dans le Secret `<release>-local-admin`. `auth.enabled: false` rétablit le comportement de v6.9.0 (liste
+d'adresses seule).
+
+**Rôles et audit (v7.0.0)** : `admin` gère le serveur, les options globales, le coffre des secrets des backends et les
+champs de `backends.yaml` qui touchent au pod ; `user` gère ses projets et ses backends. Chaque appel est journalisé
+(`audit.jsonl` et sortie du conteneur `launcher`).
+
+**Pods projets (v7.0.0)** : ils ne montent que leur dossier et `CLAUDE_CONFIG_DIR`, sans le coffre, sans `backends.yaml`,
+sans `.kube` et sans jeton de ServiceAccount.
+
+**Accès externe** : `externalIngress` expose le launcher hors du LAN, derrière l'authentification (il exige
+`auth.enabled: true`). `externalIngress.pathPrefix` permet un sous-chemin d'un hôte partagé, par exemple
+`coupel.net/claude-qualif` : le risque d'origine partagée est accepté par l'utilisateur pour QUALIF et PROD, et HSTS n'est
+pas posé dans ce mode (voir le guide).
+
+**Limites** (risques acceptés en v7.0.0) : pas de locataire (tous les utilisateurs voient les mêmes projets et backends) ;
+pods projets encore en root (v7.1.0) ; un login GitHub renommable doit être retiré de `auth.admins` / `auth.users` avant
+de renommer ou de supprimer son compte ; le coffre reste en clair sur la racine partagée. L'accès n'est plus seulement
+réseau : la liste d'adresses reste une barrière en amont.
 
 Le guide complet (schéma des zones de confiance, valeurs, vérifications de la liste d'adresses, mise à jour, retour arrière,
 cohabitation avec le hub et l'exe Windows, backends distants) est dans
-[`ng2/docs/kubernetes.md`](ng2/docs/kubernetes.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne). Pour passer d'un hub à un
+[`ng2/docs/kubernetes.md`](ng2/docs/kubernetes.md#installer-le-launcher-dans-kubernetes-par-helm-accès-interne). L'étude multi-utilisateur qui prépare v7.1 et au-delà : [`ng2/docs/saas.md`](ng2/docs/saas.md). Pour passer d'un hub à un
 launcher de cluster sans perte : [`ng2/MIGRATION.md`](ng2/MIGRATION.md#14-passer-dun-hub-à-un-launcher-de-cluster-ou-en-ajouter-un-à-côté).
 
 ---
@@ -498,6 +519,19 @@ dans l'arbre, l'onglet et la vignette `⌗ Teamleaders`. La fenêtre native et `
 (désactivable par `ATTENTION_NOTIFY`) ; le clic ouvre le projet. Détails : [`ng2/docs/interface.md`](ng2/docs/interface.md).
 
 ---
+
+## Passage à la v7
+
+La v7.0.0 active l'authentification du mode serveur (cluster). **Poste et hub Linux : rien ne change.**
+
+1. **Cluster** : créez l'application GitHub et son Secret **avant** `helm upgrade`, et renseignez `auth.admins` (logins
+   copiés avec leur casse exacte) ; sans cela le pod ne démarre pas. Pour garder le comportement de v6.9.0, posez
+   `auth.enabled: false`.
+2. **Pods projets** : les pods en marche à l'ancien modèle sont conservés et signalés sur la carte ; fermez puis rouvrez le
+   projet pour les restreindre. Ils ne voient plus le coffre ni `backends.yaml`.
+3. **Commandes** : `web.access` ne se règle plus à la main avec `auth.enabled: true`.
+
+Détails : [`ng2/docs/kubernetes.md`](ng2/docs/kubernetes.md) §4b et §8b.
 
 ## Passage à la v6
 

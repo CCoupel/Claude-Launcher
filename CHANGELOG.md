@@ -6,7 +6,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
-## [Unreleased]
+## [7.0.0] — 2026-11-26
 
 ### Changed
 - **[BREAKING] Pods projets Kubernetes** : un pod projet ne monte plus la racine partagée, seulement son dossier et `CLAUDE_CONFIG_DIR` (`subPath`). Le coffre des secrets, `backends.yaml`, `.kube` et `.cache` ne sont plus visibles depuis un pod projet. Le jeton de ServiceAccount n'est plus monté, sauf `pod.automountServiceAccountToken: true` dans `backends.yaml` ; un dossier de projet ou `CLAUDE_CONFIG_DIR` égal à la racine d'un volume est refusé (« stockage partagé … racine »), deux racines identiques avec des PVC différents donnent une erreur « deux PVC » (#253)
@@ -22,7 +22,7 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   (`--github-user` la compare en respectant la casse) ; le launcher les compare toujours sans casse. Une même identité sous
   deux casses est refusée au rendu. Sans cela, une casse différente de celle de GitHub donnait une erreur de connexion (#172)
 
-## [6.9.0] — à publier
+## [6.9.0] — 2026-11-25
 
 ### Added
 - Carte TEAM : le modèle et l'effort de chaque teammate se règlent depuis la carte (fenêtre native : clic → menu ; coque tmux : clic sur la colonne → `display-menu`). Le réglage écrit le compagnon projet `.claude/agents/<agent>.md` et prend effet au prochain spawn (⟳ tant qu'un teammate tourne avec une autre valeur). Entrée « Défaut (template) » pour retirer la surcharge ; effort non pris en charge par le modèle grisé ; teamleader : `.claude/settings.json` réécrit aussi (#250)
