@@ -186,6 +186,12 @@ Contrat : `contracts/helm-values.md` (« Valeurs `auth.*` »), `contracts/auth.m
    (si `curl` est absent du conteneur : `kubectl port-forward pod/claude-launcher-qualif-0 8082` puis `curl localhost:8082/healthz`).
    Sans identité, l'adresse publique ne répond que la connexion (jamais l'interface) : `curl -sk -o /dev/null -w '%{http_code}' https://launcher-qualif.local/`
    → redirection/connexion, jamais `200` sur l'interface.
+4a. **Accès public (#254, QUALIF)** : `externalIngress` sur `coupel.net` + `pathPrefix: /claude-qualif` (hôte partagé avec d'autres applications ; aucun chemin
+   existant ne chevauche : `/emby /radarr /sonarr /lidarr /prowlarr /chaptarr /ombi /seerr /automation-factory`). Le chart refuse `tls.clusterIssuer`
+   avec un `pathPrefix` et ne crée aucun Certificat : le certificat de `coupel.net` (Secret `coupel.net-tls`, namespace `media`, hors de notre périmètre) est
+   choisi par SNI — **à contrôler après déploiement** (`curl -vI https://coupel.net/claude-qualif/` : émetteur Let's Encrypt, pas le certificat par défaut de Traefik).
+   Callbacks à enregistrer dans la GitHub App : `https://coupel.net/claude-qualif/oauth2/callback` et `https://launcher-qualif.local/oauth2/callback`.
+   Secret `claude-launcher-qualif-github` créé le 2026-11-26 (clés `client-id` 20 o, `client-secret` 40 o) ; fichiers `PRIVATE/QUALIF/github-client-id|secret` en 600.
 4. Image du sidecar figée par empreinte : `quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048`
    (relevée le 2026-11-25) ; l'image rendue du sidecar est contrôlée comme celle du launcher (étape 3 ci-dessus).
 
