@@ -497,7 +497,9 @@ function noBackendBox() {
   const b = el('button', 'btn primary', '+ Ajouter un backend');
   b.onclick = () => { if (typeof openSettings === 'function') openSettings('', 'backends'); };
   d.append(b);
-  if (whoUser) d.append(el('p', 'dim', 'Connecté en tant que ' + whoUser.login));
+  const lg = (whoSpace && whoSpace.login) || (whoUser && whoUser.login);
+  if (whoSpace && whoSpace.error) d.append(el('p', 't-red', '⚠ ' + String(whoSpace.error)));
+  if (lg) d.append(el('p', 'dim', 'Connecté en tant que ' + lg));
   return d;
 }
 

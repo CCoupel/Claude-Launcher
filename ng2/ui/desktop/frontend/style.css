@@ -562,3 +562,4 @@ body.cardsfolded #hsplit { display: none; }
 .nobackend h2 { margin: 0 0 10px; font-size: 18px; color: var(--text); }
 .nobackend p { margin: 0 0 14px; }
 .nobackend .btn.primary { background: var(--orange); color: #0B0D11; border: 0; border-radius: 4px; padding: 6px 14px; font-weight: 700; cursor: pointer; }
+.row.empty { position: static; display: block; inset: auto; text-align: left; line-height: inherit; }
