@@ -2,6 +2,16 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261126] — v7.1.0 LOT-2 (#255) : formes livrées, `userList` en R1
+
+- **[CHANGED]** `auth.md` §4 : `userList` classée **R1** (admin). Instance d'un utilisateur : méthodes R1 → refus R1,
+  méthodes non servies → « indisponible dans votre espace » ; champs R1 de son propre `backends.yaml` sans `namespace`
+  (libre, #257), liste complète inchangée pour le `backends.yaml` de l'admin.
+- **[CHANGED]** `user-backends.md` §9 : formes livrées de `init` / `clientInfo` (`space = {admin, login, backends[{name,
+  type}], empty, error?}`), méthodes servies par l'instance d'un utilisateur, SSE par identité, `/files` → `404` pour
+  un utilisateur en LOT-2 ; §11 : `userList → {users: [{login, backends, state}]}` ; §2 : cache login → id (24 h),
+  repli sur le dernier id connu, `503` sans id connu.
+
 ## [20261126] — v7.1.0 (plan rév. 3, modèle sans agent, réponses GATE 2) : espace par utilisateur, backends de l'utilisateur
 
 - **[NEW]** `contracts/user-backends.md` :

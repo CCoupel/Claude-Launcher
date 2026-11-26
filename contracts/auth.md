@@ -158,7 +158,7 @@ kubelet ──http──► [launcher :8082] /healthz /readyz seulement (aucune 
 
 | Classe | Méthodes | `admin` | `user` | mode `none` (web) |
 |--------|----------|---------|--------|-------------------|
-| **R1** — serveur, options globales | `configSave` / `configApply` sur `config.conf`, `env.yaml` (launcher), `hub` ; `configSave` / `configApply` sur `backends.yaml` **quand un champ R1 change** (ci-dessous) ; `backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet` ; `relaunch` ; `login` | oui | **non** | non |
+| **R1** — serveur, options globales | `configSave` / `configApply` sur `config.conf`, `env.yaml` (launcher), `hub` ; `configSave` / `configApply` sur `backends.yaml` **quand un champ R1 change** (ci-dessous) ; `backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet` ; `relaunch` ; `login` ; **`userList`** (v7.1.0, #255 : utilisateurs connus, jamais d'identifiant) | oui | **non** | non |
 | **Projets et backends** (`user` libre) | `create`, `createCancel`, `projectSettings`, `projectApply`, `execApply`, `envTrustAnswer`, `initProposalAnswer`, `projectMove`, `projectMoveResume`, `projectMoveAbort`, `categoryCreate`, `configSave` / `configApply` sur `project-env` et sur `backends.yaml` hors champs R1, `backendTest`, `backendHostScan`, `open`, `reattach`, `refreshProject`, `forceClose`, `forceCloseConfirm`, `close`, `closeConfirm`, `detach`, `refresh`, `rescan`, `teamToggle`, `relayout`, `select`, `cardsFor`, `setPrefs`, `setTheme`, `dismiss`, `alert` | oui | oui | oui |
 | **Lecture** | `init`, `clientInfo`, `diag`, `tools`, `newInfo`, `projectMoveInfo`, `envTrustInfo`, `projectBases`, `projectCategories`, `configFiles`, `configOpen`, `configValidate`, `configModel`, `backendStates`, `launcherInfo`, `backendSecretGet` | oui | oui | oui |
 | **Terminal** | `termInput`, `launchInput`, `resizePane`, `termResize`, `termFocus`, `termZoom`, `termSync` | oui | oui | oui |
@@ -168,6 +168,11 @@ kubelet ──http──► [launcher :8082] /healthz /readyz seulement (aucune 
   refusé (`400` sur `/api/call`) ; la décision R1 lit les arguments avec le même décodeur que l'exécution.
 - **`backendTest` (cycle 1)** : un `user` teste un backend **déjà déclaré** tel quel (champs R1 et de connexion `host`, `hosts`,
   `pool`, `engine`, `engine_host` identiques) ou un **nouveau** backend sans champ R1 ; sinon R1 (refus).
+- **v7.1.0 — instance d'un utilisateur** (`users.enabled`, `contracts/user-backends.md` §9) : un `user` n'atteint que son
+  espace ; les méthodes R1 y répondent le refus R1 habituel, les autres méthodes non encore servies dans son espace
+  répondent `error: « … indisponible dans votre espace »`. **Champs R1 de son propre `backends.yaml`** : `type: host`,
+  `kubeconfig`, `context`, `volumes` et les clés de pod ci-dessous ; **`namespace` y est libre** (il déclare le sien,
+  #257). Le `backends.yaml` de l'admin garde la liste complète ci-dessous (dont `namespace`).
 - **Échec fermé** : une méthode absente de ce classement est traitée comme **R1**. Un test énumère les `case` du
   dispatch (et `secretMethods`) et échoue si une méthode n'est pas classée (MAJ-2).
 - **Champs R1 de `backends.yaml`** (empreinte `AdminFieldsChanged(old, new)`, échec fermé : YAML illisible = changé) :

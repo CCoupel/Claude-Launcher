@@ -56,8 +56,9 @@
   changement de comportement. Compte local `admin@local` = l'admin.
 - **Utilisateur sans backend** : espace vide → interface « Ajoute ton premier backend » (M1).
 - Identifiant numérique : résolu depuis le login (`X-Forwarded-User`) par `GET https://api.github.com/users/<login>`,
-  mis en cache (`users/index.json` : login → id, date). Un login dont l'id change est refusé (`401` + audit) jusqu'à
-  action de l'admin.
+  mis en cache (`users/index.json` : login → id, date ; nouvelle résolution après 24 h). Un login dont l'id change est
+  refusé (`401` + audit) jusqu'à action de l'admin (`ForgetUserLogin`). API GitHub injoignable : dernier id connu ;
+  sans id connu → `503`.
 
 ## 3. Backends en mode serveur **[NEW / CHANGED]** (#257, P12, P13)
 
@@ -255,12 +256,22 @@ backends:
 - L'en-tête `X-Forwarded-Access-Token` reçu d'une autre source que le sidecar est ignoré (même règle que
   `X-Forwarded-User`, `auth.md` §2).
 
-## 9. Routage par utilisateur (P1)
+## 9. Routage par utilisateur (P1) — formes livrées en LOT-2
 
 - Une identité → son espace : une instance d'état d'interface par utilisateur (créée à la première connexion, libérée
-  10 min après le dernier client). SSE, terminaux et `/files` sont filtrés par identité (fin de l'`emit` commun, `web.go`).
+  10 min après le dernier client). SSE, terminaux et `/files` sont filtrés par identité : chaque client ne reçoit que
+  les événements de son espace (`hello` et `ping` compris), plus de diffusion commune. Admin et modes sans identité :
+  inchangés.
+- **Instance d'un utilisateur** (LOT-2) : méthodes servies `clientInfo`, `init`, `setPrefs`, `setTheme`, `configFiles`,
+  `configOpen`, `configValidate`, `configSave` (fichier `backends.yaml` de l'espace seulement). Méthodes R1 → refus R1 ;
+  autres → `error` « … indisponible dans votre espace » (projets, coffre et tests de backend arrivent en LOT-3).
+- `init` (utilisateur) : `{state: {rows: []}, cards: null, help, prefs (config.json › affichage), server, access, user, space}`.
+- `clientInfo` : `{remote, access, user, space}`.
+- `space` = `{admin: bool, login, backends: [{name, type}], empty: bool, error?}`. `empty` vrai → « Ajoute ton premier
+  backend ». Jamais d'identifiant numérique ni de chemin serveur.
+- `/files/…` pour un utilisateur : `404` en LOT-2 (aucun projet) ; servi par exec à partir de LOT-3.2 (§6).
 - Un utilisateur ne voit que ses backends et projets. L'admin voit son espace (la racine) ; il ne voit pas les espaces
-  des autres (liste des utilisateurs seulement, méthode `userList`).
+  des autres (méthode `userList` seulement, §11).
 
 ## 10. Backend injoignable **[NEW]** (#259)
 
@@ -285,7 +296,7 @@ backends:
 | `userBackendRemove` | user | retire le backend ; ses projets disparaissent de l'arbre, rien n'est supprimé chez l'utilisateur |
 | `githubTokenMode` | user | `pat` / `oauth` (§8) |
 | `projectPurge` | user | efface la trace d'un projet introuvable (§5) ; jamais de suppression sur le backend |
-| `userList` | admin | utilisateurs, nombre de backends, état ; jamais d'identifiant |
+| `userList` | admin (R1, `auth.md` §4) | `{users: [{login, backends, state}]}` : login, nombre de backends, état ; jamais d'identifiant numérique |
 
 - Audit : `user.backend.add/remove`, `user.vault.set`, `backend.unreachable/ok`, `backend.refused`, `project.refreshstart`,
   `project.purge`.
