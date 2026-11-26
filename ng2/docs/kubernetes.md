@@ -11,6 +11,7 @@
     - [3. Installation](#3-installation)
     - [4. Accès](#4-accès)
     - [4b. Authentification (v7.0.0)](#4b-authentification-v700) (application GitHub, rôles, compte local, ingress externe)
+    - [4c. Créer la GitHub App](#4c-créer-la-github-app)
     - [5. Vérifications obligatoires](#5-vérifications-obligatoires)
     - [6. Mise à jour et retour arrière](#6-mise-à-jour-et-retour-arrière)
     - [7. Cohabitation : cluster, hub Linux et exe Windows sur la même racine](#7-cohabitation--cluster-hub-linux-et-exe-windows-sur-la-même-racine)
@@ -275,7 +276,7 @@ Avec `auth.enabled: true` (défaut), un sidecar **oauth2-proxy** (`auth-proxy`, 
 devant le launcher. Le launcher écoute sur la boucle locale du pod (`CL_WEB_ACCESS=proxy`) et lit l'identité que le proxy
 pose ; il n'a ni mot de passe ni session propre. Contrat complet : `contracts/auth.md`.
 
-**1. Application GitHub** (une par environnement, créée avant le `helm upgrade`) :
+**1. Application GitHub** (une par environnement, créée avant le `helm upgrade` ; pas à pas : [4c](#4c-créer-la-github-app)) :
 
 - URL de retour : `https://<hôte>/oauth2/callback`, où `<hôte>` est celui d'où l'on se connecte (ex. `https://launcher.local/oauth2/callback`).
 - Permission « Email addresses : read-only ». Expiration des jetons utilisateur désactivée.
@@ -398,6 +399,119 @@ admin est écrite avant son exécution (`phase: intent`). Aucun contenu, aucune 
   version testée en QUALIF (revue #172-3).
 - **Backends** (`contracts/auth.md` §4) : un `user` peut tester un backend déjà déclaré tel quel. Il ne peut plus tester un
   backend dont il a modifié l'hôte ou le pool.
+
+#### 4c. Créer la GitHub App
+
+Cette section suit la création pas à pas. La version courte est dans le [README](../../README.md#kubernetes-helm--le-launcher-dans-le-cluster).
+
+**1. Pourquoi une GitHub App, et non une OAuth App.** Le launcher est joignable par deux adresses : l'interne
+(`https://launcher.local`) et l'externe (`https://coupel.net/<sous-chemin>`). Une OAuth App n'accepte qu'une seule URL de
+retour ; une GitHub App en accepte plusieurs. Une même App sert QUALIF et PROD : il suffit d'ajouter les URL de retour.
+
+**2. Créer l'application** (compte GitHub de l'administrateur) :
+
+1. Ouvrir `github.com` › photo de profil › **Settings** › **Developer settings** › **GitHub Apps** › **New GitHub App**.
+2. **GitHub App name** : un nom unique sur GitHub, par exemple `Claude Launcher <ENV>` (ajouter un suffixe si pris).
+3. **Homepage URL** : l'URL du dépôt ou `https://<hôte interne>`. Elle n'est pas appelée par le launcher.
+4. **Callback URL** : une entrée par adresse, avec le bouton « Add Callback URL » pour la seconde (10 au maximum) :
+   - interne : `https://<hôte interne>/oauth2/callback`, par exemple `https://launcher.local/oauth2/callback` ;
+   - externe, si activée : `https://<hôte>[/<sous-chemin>]/oauth2/callback`, par exemple
+     `https://coupel.net/claude/oauth2/callback` (PROD) ou `https://coupel.net/claude-qualif/oauth2/callback` (QUALIF).
+   - Une URL en `.local` est acceptée : GitHub ne l'appelle jamais, c'est le navigateur qui y est redirigé.
+5. **Expire user authorization tokens** : **décoché**. Coché, le jeton expire après 8 h et la session se coupe.
+6. **Request user authorization (OAuth) during installation** : **coché**.
+7. **Webhook** : **Active décoché**. Le launcher n'a pas besoin de webhook.
+8. **Permissions** › **Account permissions** › **Email addresses** : **Read-only**. Sans cette permission, la connexion
+   échoue. Aucune permission de dépôt ni d'organisation.
+9. **Where can this GitHub App be installed?** : **Only on this account**.
+10. Cliquer sur **Create GitHub App**.
+
+**3. Récupérer le Client ID et le client secret.** Sur la page de l'App :
+
+- **About** : noter le **Client ID** (il commence par `Iv`). Ce n'est pas l'**App ID**.
+- **Client secrets** › **Generate a new client secret** : le secret n'est affiché **qu'une fois**. Le copier aussitôt.
+
+**4. Installer l'App sur son compte** : page de l'App › **Install App** › installer sur le compte de l'administrateur
+(« Install & Authorize »). Sans cette étape, la connexion n'aboutit pas.
+
+**5. Stocker les deux valeurs hors git.** Un fichier par valeur, sans retour à la ligne final ni espace, en mode `600` :
+
+```bash
+cd <racine du projet>
+read -rsp 'Client ID : ' v; printf '%s' "$v" > PRIVATE/<ENV>/github-client-id; echo
+read -rsp 'Client secret : ' v; printf '%s' "$v" > PRIVATE/<ENV>/github-client-secret; echo; unset v
+chmod 600 PRIVATE/<ENV>/github-client-id PRIVATE/<ENV>/github-client-secret
+```
+
+`PRIVATE/` est ignoré par git. Ne collez jamais ces valeurs dans un chat, un ticket ou un fichier suivi par git. Si un
+secret a fuité, régénérez-le sur la page de l'App, puis remplacez-le (étape 7).
+
+**6. Créer le Secret Kubernetes, avant le `helm upgrade`** :
+
+```bash
+kubectl -n <ns> create secret generic <nom-du-secret> \
+  --from-file=client-id=PRIVATE/<ENV>/github-client-id \
+  --from-file=client-secret=PRIVATE/<ENV>/github-client-secret
+```
+
+Dans `PRIVATE/<ENV>/values-local.yaml` :
+
+```yaml
+auth:
+  existingSecret: <nom-du-secret>
+  admins: [<login-github>]        # copié tel qu'affiché par GitHub, avec sa casse exacte
+  users: []
+```
+
+Variante : `auth.github.clientId` et `auth.github.clientSecret` en valeurs Helm. Le chart crée alors le Secret lui-même.
+**Attention** : `helm get values` et `helm template` affichent ces valeurs en clair, et elles sont stockées dans le Secret
+de release. `existingSecret` reste la voie recommandée. Un `clientId` purement numérique se passe avec `--set-string`.
+
+**7. Les logins GitHub.** Les listes `auth.admins` et `auth.users` reçoivent les logins **exactement comme GitHub les affiche**.
+oauth2-proxy compare `--github-user` **en respectant la casse** : `<login>` et `<Login>` ne sont pas équivalents côté
+proxy, même si le launcher les compare sans casse. Vérifier la casse exacte :
+
+```bash
+curl -s https://api.github.com/users/<login> | grep '"login"'
+```
+
+Une même identité saisie sous deux casses est refusée au rendu.
+
+**8. Vérifier la paire Client ID / secret, sans se connecter.** Le fichier de test contient les deux valeurs : le
+créer dans `_work/tmp`, puis le supprimer.
+
+```bash
+F=$(mktemp -p _work/tmp)
+printf 'client_id=%s&client_secret=%s&code=invalid' \
+  "$(cat PRIVATE/<ENV>/github-client-id)" "$(cat PRIVATE/<ENV>/github-client-secret)" > "$F"
+curl -s -X POST https://github.com/login/oauth/access_token -H 'Accept: application/json' --data @"$F"
+rm -f "$F"
+```
+
+Lire la réponse :
+
+| Réponse | Signification |
+|---------|---------------|
+| `bad_verification_code` | paire valide (le code `invalid` est seul en cause) |
+| `incorrect_client_credentials` | paire fausse : Client ID ou secret incorrect |
+| `404` | Client ID inconnu, ou requête mal formée (ex. valeurs séparées par des retours à la ligne au lieu de `&`) |
+
+**9. Dépannage.**
+
+| Symptôme | Cause probable | Action |
+|----------|----------------|--------|
+| « Erreur de connexion », `500` | casse du login différente de celle de GitHub, ou secret périmé | vérifier la casse (étape 7) ; régénérer le secret si la paire est fausse (étape 8) |
+| `missing github user` dans le sidecar | login absent de `auth.admins` / `auth.users` ou casse différente | corriger la liste, `helm upgrade` |
+| `redirect_uri mismatch` | URL de retour absente ou différente de l'URL utilisée | ajouter l'URL exacte dans les Callback URL de l'App |
+| connexion qui boucle | permission « Email addresses » absente, ou App non installée | étapes 2.8 et 4 |
+| session coupée après 8 h | expiration des jetons utilisateurs active | décocher « Expire user authorization tokens » |
+
+**Rotation du secret.** Régénérer le client secret sur la page de l'App, puis : avec `existingSecret`, mettre à jour le
+Secret (étape 6) et **redémarrer le pod** : `kubectl -n <ns> rollout restart statefulset/<release>`. Avec les valeurs Helm,
+un `helm upgrade` suffit : le pod redémarre seul.
+
+**10. Une seule App pour plusieurs environnements.** Ajouter les URL de retour de chaque environnement dans la même App
+(QUALIF et PROD), chacune avec son propre Secret Kubernetes dans son namespace.
 
 #### 5. Vérifications obligatoires
 

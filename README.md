@@ -214,6 +214,17 @@ Valeurs clés (`values.yaml`) : `rootBase` (racine des projets, dans le pod), `h
 `ingress.controller` (`traefik` ou `nginx`), `ingress.className`, `ingress.host`, `ingress.allowedSourceRanges` (liste
 d'adresses admises, non vide, jamais `/0`), `ingress.tls.clusterIssuer` ou `secretName`.
 
+**Créer la GitHub App** (une seule App pour QUALIF et PROD, [procédure complète](ng2/docs/kubernetes.md#4c-créer-la-github-app)) :
+
+1. github.com › Settings › Developer settings › GitHub Apps › **New GitHub App**.
+2. **Callback URL** : une par adresse, interne `https://<hôte interne>/oauth2/callback` et externe `https://<hôte>[/<sous-chemin>]/oauth2/callback`.
+3. Décocher **Expire user authorization tokens** et **Webhook (Active)** ; cocher **Request user authorization (OAuth) during installation**.
+4. Permission **Account › Email addresses : Read-only** ; installable **Only on this account**.
+5. Noter le **Client ID** (commence par `Iv`), générer un **client secret** (affiché une fois), puis **Install App**.
+6. Déposer les deux valeurs hors git (`PRIVATE/<ENV>/github-client-id`, `github-client-secret`, sans retour à la ligne) et
+   créer le Secret `kubectl -n <ns> create secret generic <nom> --from-file=client-id=… --from-file=client-secret=…` **avant** `helm upgrade`.
+7. Logins `auth.admins` : copiés avec la **casse exacte** de GitHub (`https://api.github.com/users/<login>`).
+
 **Authentification (v7.0.0)** : `auth.enabled: true` par défaut. Un sidecar oauth2-proxy place le launcher derrière une
 connexion GitHub ; `web.access` est alors imposé à `proxy`. Les comptes se déclarent dans les valeurs, non secrètes :
 `auth.admins` (rôle `admin`, obligatoire si GitHub est activé) et `auth.users` (rôle `user`). Les logins se copient
