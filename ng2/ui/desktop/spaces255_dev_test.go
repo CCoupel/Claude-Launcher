@@ -102,13 +102,13 @@ func TestSpacesInitVideEtBackendsIsoles255(t *testing.T) {
 func TestSpacesMethodesEtFichiersRefuses255(t *testing.T) {
 	s := sp255Start(t)
 	// écritures R1 : « forbidden » comme en v7.0.0
-	for _, m := range []string{"backendSecretSet", "relaunch", "configApply"} {
+	for _, m := range []string{"backendSecretSet", "relaunch", "configApply", "userList"} {
 		_, out := s.call(t, "alice", m, `{}`)
 		if r, _ := out["result"].(map[string]any); r["forbidden"] != "admin" {
 			t.Errorf("%s : forbidden attendu pour un utilisateur : %v", m, out)
 		}
 	}
-	for _, m := range []string{"open", "refresh", "create", "termInput", "backendTest", "quit", "secretReveal", "userList"} {
+	for _, m := range []string{"open", "refresh", "create", "termInput", "backendTest", "quit", "secretReveal"} {
 		_, out := s.call(t, "alice", m, `{}`)
 		if out["error"] == nil || !strings.Contains(fmt.Sprint(out["error"]), msgNoSpaceMethod) {
 			t.Errorf("%s accepté pour un utilisateur : %v", m, out)

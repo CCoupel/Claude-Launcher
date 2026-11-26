@@ -122,9 +122,6 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	// règle R1 inchangée (v7.0.0) : une écriture réservée à l'admin répond « forbidden », jamais « indisponible ». Seule
 	// exception : configSave du backends.yaml de SON espace
 	forbidden := map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}
-	if method == "userList" { // méthode de l'admin (non classée : R1, échec fermé) ; pour un utilisateur, elle n'existe pas
-		return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
-	}
 	if cls, _ := core.ClassOf(method); cls == core.ClassR1 {
 		if method == "configSave" {
 			var in struct{ Kind, Content string }

@@ -93,8 +93,9 @@ func TestSpaces255UserListAdminSeulement(t *testing.T) {
 		t.Errorf("userList expose un identifiant : %v", out)
 	}
 	for _, u := range []string{"alice", "bob"} {
-		if o := sp255Call(t, s, u, "userList", `{}`); o["error"] == nil || o["result"] != nil {
-			t.Errorf("userList accepté pour %s : %v", u, o)
+		// chemin R1 général (revue LOT-2) : {ok:false, forbidden:admin}, jamais une liste
+		if r, _ := sp255Call(t, s, u, "userList", `{}`)["result"].(map[string]any); r["forbidden"] != "admin" || r["users"] != nil {
+			t.Errorf("userList accepté pour %s : %v", u, r)
 		}
 	}
 }
