@@ -136,7 +136,7 @@ func TestSignIn172ErrorPageUnchanged(t *testing.T) {
 		}
 	}
 	d.StatusCode, d.Message = 403, ""
-	if out := renderAuthTemplate(t, "error.html", "error.html", d); !strings.Contains(out, "Accès refusé") || !strings.Contains(out, "/sign_out?rd=%2Fsigned-out") {
+	if out := renderAuthTemplate(t, "error.html", "error.html", d); !strings.Contains(out, "Accès refusé") || !strings.Contains(out, "/oauth2/sign_out?rd=") {
 		t.Error("error.html 403 : « Accès refusé » ou lien de déconnexion absent")
 	}
 }

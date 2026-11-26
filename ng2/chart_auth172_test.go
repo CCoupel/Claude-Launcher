@@ -588,7 +588,7 @@ func TestChartAuth172Templates(t *testing.T) {
 				}
 			}
 		}
-		for _, w := range []string{"Accès refusé", "Trop de tentatives", "/sign_out?rd=%2Fsigned-out"} { // {{.ProxyPrefix}} = /oauth2
+		for _, w := range []string{"Accès refusé", "Trop de tentatives", "/sign_out?rd="} { // lien relatif au préfixe du proxy ({{.ProxyPrefix}}) ; la cible de rd dépend du sous-chemin (addendum 4)
 			if !strings.Contains(er, w) {
 				t.Errorf("%s : error.html sans « %s »", name, w)
 			}
