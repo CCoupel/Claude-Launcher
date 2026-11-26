@@ -35,7 +35,7 @@ type Teammate struct {
 
 // frontKeys : model/effort du frontmatter d'un fichier d'agent.
 func frontKeys(path string) (model, effort string) {
-	b, err := os.ReadFile(path)
+	b, err := readFileRetry(path)
 	if err != nil {
 		return "", ""
 	}

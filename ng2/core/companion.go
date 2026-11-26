@@ -243,7 +243,7 @@ func applyCompanion(path string, model, effort *string) (removed, changed bool, 
 	if err != nil {
 		return false, false, err
 	}
-	cur, rerr := os.ReadFile(path)
+	cur, rerr := readFileRetry(path)
 	exists := rerr == nil
 	switch {
 	case del && exists:
@@ -264,7 +264,7 @@ func applyCompanion(path string, model, effort *string) (removed, changed bool, 
 // rewriteCompanion : nouveau contenu du compagnon. del : plus rien à garder (fichier supprimé, ou jamais créé).
 // model / effort : valeur explicite à écrire, "" pour retirer la clé.
 func rewriteCompanion(path string, model, effort *string) (out []byte, del bool, err error) {
-	src, rerr := os.ReadFile(path)
+	src, rerr := readFileRetry(path)
 	if rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
 		return nil, false, rerr
 	}

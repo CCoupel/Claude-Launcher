@@ -182,6 +182,21 @@ func removeRetry(path string) error {
 	return err
 }
 
+// readFileRetry : os.ReadFile, réessayé brièvement sous Windows. Un fichier remplacé (rename) par une écriture
+// concurrente refuse l'ouverture le temps du remplacement (violation de partage passagère) ; ailleurs, sans réessai.
+func readFileRetry(path string) ([]byte, error) {
+	var b []byte
+	var err error
+	for try := 0; try < 8; try++ {
+		b, err = os.ReadFile(path)
+		if err == nil || errors.Is(err, os.ErrNotExist) || runtime.GOOS != "windows" {
+			return b, err
+		}
+		time.Sleep(time.Duration(5+try*10) * time.Millisecond)
+	}
+	return b, err
+}
+
 // createExclusive : crée path avec data s'il n'existe pas (atomique) ; created faux : il existait déjà.
 func createExclusive(path string, data []byte, perm os.FileMode) (created bool, err error) {
 	if err := guardWrite(path); err != nil {
