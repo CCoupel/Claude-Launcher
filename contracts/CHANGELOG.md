@@ -15,6 +15,17 @@
 - **[CHANGED]** chart : aucune CSP sur la route `/` (préserve le `sandbox` de `/files`) ; `ingress.controller: nginx` refusé avec
   le compte local.
 
+## [20261126] — v7.0.0 (addendum 4, LOT-3) : accès public par sous-chemin `coupel.net/claude-qualif`
+
+- **[NEW]** `externalIngress.pathPrefix` (validé, vide = comportement précédent) ; `CL_WEB_URL` admet un chemin (base) ;
+  le launcher retire et réinjecte la base (routes, `Location`, `user.logout`, `/files` des sessions) ; `<base href>`
+  injecté dans `index.html`.
+- **[CHANGED]** client web : chemins relatifs uniquement (plus de `/api/…` ni `location.href = '/'`).
+- **[CHANGED]** oauth2-proxy externe : `--proxy-prefix`, `--cookie-path`, cookie `__Secure-cl_auth_ext`, `--redirect-url`
+  avec préfixe ; HSTS non posé avec un préfixe.
+- **[ADDED]** risques de l'origine partagée (`contracts/auth.md` §9) : XSS d'une autre application de `coupel.net` =
+  contrôle du launcher (P12), dépôt de cookie.
+
 ## [20261125] — v7.0.0 (addendum 3, LOT-3) : identifiants GitHub en valeurs Helm
 
 - **[NEW]** `auth.github.clientId` / `auth.github.clientSecret` : le chart crée le Secret `<release>-github` ; exclusif

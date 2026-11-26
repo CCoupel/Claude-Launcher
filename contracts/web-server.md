@@ -176,3 +176,7 @@ La piste Traefik `forwardAuth` étudiée en v6.4.0 est **remplacée** par oauth2
 boucle locale (décision D2 du cadrage v7). Contrat : `contracts/auth.md` (mode `proxy`, identité, R1, audit, ingress
 externe) et `contracts/helm-values.md` « v7.0.0 ». En mode `proxy`, `/files` exige l'identité comme les autres routes ;
 le reste de ce contrat est inchangé.
+
+**[addendum 4]** Accès par sous-chemin (`externalIngress.pathPrefix`) : toutes les routes de ce contrat (`/files/…`,
+`/api/…`, `/healthz` excepté) sont servies sous `<base>` pour l'hôte externe ; le client web n'emploie que des chemins
+relatifs avec `<base href>` injecté — `contracts/auth.md` §9.

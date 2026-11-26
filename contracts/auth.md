@@ -324,3 +324,52 @@ Contrepartie : oauth2-proxy n'a pas de limite d'essais propre → limite de déb
   à chaque rendu dans ce cas (documenté).
 - Session sans état (m6) : un cookie reste valide jusqu'à son expiration ; la révocation est la **liste du launcher**
   (`CL_AUTH_*`, relue à chaque requête, changée par `helm upgrade`) ou la rotation du `cookie-secret`.
+
+## 9. Accès externe par sous-chemin (`externalIngress.pathPrefix`) **[NEW addendum 4]** (#254)
+
+> Décision utilisateur : QUALIF publiée sous `https://coupel.net/claude-qualif` (sous-chemin d'un hôte partagé avec
+> ~15 applications publiques), et non sous un sous-domaine (recommandation `infra`). Préfixe vide = comportement
+> précédent (sous-domaine, chemin `/`).
+
+### Chaîne (le préfixe n'est **jamais retiré** par Traefik)
+
+```
+navigateur ─ https://coupel.net/claude-qualif/… ─► Traefik : Host(coupel.net) && PathPrefix(/claude-qualif)
+   ─► auth-proxy-ext :8083 (--proxy-prefix=/claude-qualif/oauth2, cookie Path=/claude-qualif)
+   ─► launcher 127.0.0.1:8081 /claude-qualif/…  (base de l'hôte externe = /claude-qualif, retirée par le launcher)
+```
+
+- Pas de `StripPrefix` : oauth2-proxy et le launcher voient le même chemin que le navigateur (redirections, `rd`, liens
+  et `Location` cohérents sans `X-Forwarded-Prefix`, qui n'est pas lu).
+- **Launcher** : `CL_WEB_URL=https://coupel.net/claude-qualif` (l'adresse publique **admet désormais un chemin** :
+  segments `^/[a-z0-9-]+(/[a-z0-9-]+)*$`, sans `/` final). La **base** d'une requête est le chemin de l'adresse publique
+  dont l'hôte correspond (`CL_WEB_URL`, `CL_WEB_ALT_URLS`) ; hôte interne : base vide. Une requête de l'hôte externe hors
+  de sa base → `404` ; `<base>` exactement (sans `/`) → `308` vers `<base>/`. Le launcher retire la base avant son routeur
+  (`/api/call`, `/api/events`, `/files/…`, `/signed-out`, `/too-many`, ressources), et la remet dans **toute** URL qu'il
+  émet : `Location` (`/?t=` → `<base>/`), `user.logout`
+  (`<base>/oauth2/sign_out?rd=<base>%2Fsigned-out`), liens des pages `/signed-out` et `/too-many`, `CL_BROWSER_PATH_MAP`
+  (`<CL_WEB_URL>/files/<projet>`) et `CL_BROWSER_HINT`.
+- **Client web** : **chemins relatifs uniquement** (`api/call`, `api/events`, `files/…`, ressources `vendor/…`) et
+  `<base href="<base>/">` injecté par le launcher dans `index.html` (base de l'hôte de la requête ; `/` en interne).
+  Aucun chemin absolu (`/api…`, `location.href = '/'`) ; « Se reconnecter » = `location.href = document.baseURI`. Les
+  URL venues du serveur (`user.logout`) sont utilisées telles quelles. Pas de WebSocket (SSE seulement).
+- **Contrôles** : `Origin` attendu = origine de l'adresse publique (`https://coupel.net`, sans chemin) ; `Host` normalisé
+  (m2) **et** préfixe ; `Sec-Fetch-Site` inchangé.
+- **oauth2-proxy externe** : `--proxy-prefix=<base>/oauth2`, `--redirect-url=https://coupel.net<base>/oauth2/callback`,
+  `--cookie-path=<base>`, `--cookie-name=__Secure-cl_auth_ext` (préfixe `__Secure-` : `Secure` exigé ; **pas**
+  `__Host-`, qui impose `Path=/`), `--cookie-samesite=lax` (retour OAuth en navigation de premier niveau), CSRF
+  d'oauth2-proxy sous le même chemin, `--skip-auth-route=GET=^<base>/(signed-out|too-many)$`. GitHub App : URL de retour
+  `https://coupel.net/claude-qualif/oauth2/callback`.
+- Pages `signed-out`, `too-many`, `sign_in`, `error` : liens relatifs à la base (variables de gabarit d'oauth2-proxy
+  `.ProxyPrefix` pour ses pages).
+
+### Sécurité de l'origine partagée (point d'attention de l'utilisateur)
+
+| Menace | Mitigation | Reste |
+|--------|------------|-------|
+| (a) Cookie : `__Host-` impossible ; dépôt de cookie (« cookie tossing ») par une autre application de `coupel.net` sur `Path=/claude-qualif` (fixation de session, connexion forcée sur le compte de l'attaquant) | `__Secure-` + `Path=/claude-qualif` + `SameSite=Lax` + `HttpOnly` ; liste d'autorisation du launcher (un compte non listé est refusé) | Une application de `coupel.net` compromise peut écraser ou effacer le cookie (déni, connexion sur un compte autorisé seulement) — **risque accepté** |
+| (b) CSRF / XSS depuis une autre application de la même origine vers `/claude-qualif/api/call` | `Origin`, `Sec-Fetch-Site`, corps JSON, CSP `frame-ancestors 'none'` arrêtent un **autre site** | Une **XSS dans n'importe quelle application de `coupel.net`** s'exécute dans la **même origine** : elle envoie le cookie (le chemin n'est pas une frontière de sécurité), lit les réponses et pilote le launcher (terminaux = exécution de code dans les pods projets, réglages si la victime est admin). **Aucune mitigation robuste** dans le navigateur — **risque accepté (P12)** ou sous-domaine |
+| (c) `/files` | CSP `sandbox` (origine opaque) inchangée : une maquette ne lit ni cookie ni `/api` | — |
+| (d) Fuite vers les autres applications | Cookie `Path=/claude-qualif` jamais envoyé à `/emby`… ; le launcher ne journalise jamais `Cookie` (les cookies des autres applications, `Path=/`, lui parviennent) | — |
+| (e) Capture des autres chemins de `coupel.net` | Ingress `PathPrefix` limité au segment `/claude-qualif` (pas de `/` ni de joker), refus de rendu d'un `pathPrefix` vide avec un hôte déjà servi n'est pas vérifiable par Helm → consigne + test QUALIF (`/emby` inchangé) | — |
+| HSTS | **Non posé** quand `pathPrefix` est non vide (il s'appliquerait à tout `coupel.net`, dont des applications en `http`) (P13) | — |
