@@ -176,6 +176,27 @@ func drainTree(t *testing.T, dir string, within time.Duration) {
 	t.Error(msg)
 }
 
+// sandboxDirPattern : motif de os.MkdirTemp du bac à sable. Le nom du dossier ne doit JAMAIS contenir tel quel le nom du test : un
+// sous-test s'appelle « url=https://x:y/chemin (a|b) » et Windows refuse « <>:"/\|?* » dans un nom de dossier (« The directory name is
+// invalid ») ; t.TempDir() assainissait lui-même. Ici : préfixe fixe (jamais un nom réservé CON, NUL, COM1…), seuls [A-Za-z0-9_-],
+// 24 caractères au plus (chemins courts : les sockets et les chemins Windows sont limités), jamais de point ni d'espace final ; l'unicité
+// vient du suffixe aléatoire de MkdirTemp.
+func sandboxDirPattern(name string) string {
+	var b strings.Builder
+	for _, r := range name {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+		if b.Len() >= 24 {
+			break
+		}
+	}
+	return "cl-sbx-" + b.String() + "-"
+}
+
 // sandbox : HOME, config, CLAUDE_CONFIG_DIR et racine de projets isolés ; un
 // projet git par nom.
 func sandbox(t *testing.T, root string, names ...string) (projects []string) {
@@ -185,7 +206,7 @@ func sandbox(t *testing.T, root string, names ...string) (projects []string) {
 		// lui, n'est tenté qu'une fois, juste après, et échouait sous Windows (« The directory is not empty ») quand un écrivain tardif
 		// (recherche de mise à jour en cours, serveur de fichiers) recréait xdg_cache_home entre les deux (#270).
 		var err error
-		if root, err = os.MkdirTemp("", strings.NewReplacer("/", "_", " ", "_").Replace(t.Name())); err != nil {
+		if root, err = os.MkdirTemp("", sandboxDirPattern(t.Name())); err != nil {
 			t.Fatal(err)
 		}
 	}
