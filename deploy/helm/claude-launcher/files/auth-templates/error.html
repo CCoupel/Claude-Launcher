@@ -41,12 +41,12 @@ Trop de tentatives de connexion depuis cette adresse. Réessayez plus tard.
 Ce compte n'est pas autorisé sur ce launcher.<br>
 Demandez à l'administrateur de l'ajouter, ou connectez-vous avec un autre compte.
 {{if .Message}}<p class="note">{{.Message}}</p>{{end}}
-<div class="btns"><a class="b1" href="/oauth2/sign_out?rd=%2Fsigned-out">Se déconnecter</a><a class="b2" href="/">Réessayer</a></div>
+<div class="btns"><a class="b1" href="{{.ProxyPrefix}}/sign_out?rd={{.ProxyPrefix}}%2Fsign_in">Se déconnecter</a><a class="b2" href="{{.ProxyPrefix}}/../">Réessayer</a></div>
 {{else}}
 <h1>⚠ Erreur de connexion</h1>
 La connexion a échoué. Réessayez.
 <p class="note">Erreur {{.StatusCode}}{{if .Message}} · {{.Message}}{{end}}</p>
-<div class="btns"><a class="b1" href="/">Réessayer</a></div>
+<div class="btns"><a class="b1" href="{{.ProxyPrefix}}/../">Réessayer</a></div>
 {{end}}
 </main>
 </body>

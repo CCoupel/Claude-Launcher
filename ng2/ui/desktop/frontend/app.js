@@ -52,7 +52,7 @@ function whoMenu(ev) {
   const st = sessionText(whoUser.session); if (st) m.appendChild(el('div', 'dis hd', st));
   m.appendChild(el('hr'));
   const out = el('div'); out.append(el('span', 'ck', '⎋'), el('span', '', 'Se déconnecter'));
-  out.onclick = (e) => { e.stopPropagation(); m.remove(); location.href = whoUser.logout || '/oauth2/sign_out?rd=%2Fsigned-out'; };
+  out.onclick = (e) => { e.stopPropagation(); m.remove(); location.href = whoUser.logout || 'oauth2/sign_out?rd=' + encodeURIComponent(new URL('signed-out', document.baseURI).pathname); };
   m.appendChild(out);
   document.body.appendChild(m);
   const r = $('who').getBoundingClientRect();
@@ -89,7 +89,7 @@ function expiredModal() {
   if (document.getElementById('expired')) return;
   const o = el('div', 'expired'); o.id = 'expired'; o.setAttribute('role', 'alertdialog'); o.setAttribute('aria-modal', 'true');
   const d = el('div', 'expdlg');
-  const b = el('button', 'btn pri', 'Se reconnecter'); b.onclick = () => { location.href = '/'; };
+  const b = el('button', 'btn pri', 'Se reconnecter'); b.onclick = () => { location.href = document.baseURI; };
   const bt = el('div', 'btns'); bt.appendChild(b);
   d.append(el('b', '', 'Session expirée'), el('p', '', 'La session du launcher a pris fin. Les terminaux sont figés ; les projets continuent dans leurs pods.'), bt);
   o.appendChild(d); document.body.appendChild(o);
@@ -133,7 +133,7 @@ function startFlow(env) {
   // veille : le serveur envoie un évènement « ping » toutes les 15 s ; rien pendant 40 s (flux à moitié ouvert, sans
   // onerror) : flux déclaré mort, fermé, bandeau et reprise par init.
   const open = () => {
-    const es = env.newES('/api/events');
+    const es = env.newES('api/events');
     let wd = null, dead = false;
     const arm = () => { env.unwatch(wd); if (!dead) wd = env.watch(() => { if (dead) return; dead = true; es.close(); console.warn('[flux] aucun évènement depuis 40 s : flux fermé'); retry(); }, 40000); };
     arm();
@@ -166,7 +166,7 @@ const transport = (() => {
         const r = await window.go.desktop.Bridge.Call(method, JSON.stringify(args || {}));
         return r ? JSON.parse(r) : null;
       }
-      const res = await fetch('/api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args: args || {} }) });
+      const res = await fetch('api/call', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ method, args: args || {} }) });
       if (res.status === 401 || res.status === 403) { // session perdue, ou accès refusé (hôte/origine) : en-tête X-Launcher-Refusal du Go (#171)
         const why = res.headers.get('X-Launcher-Refusal');
         if (why === 'host' || why === 'origin') { accessDenied(); throw new Error(DENIED_MSG); }
