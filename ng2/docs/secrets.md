@@ -68,3 +68,10 @@ Contrat : `contracts/auth.md` §4.
 Chaque écriture porte son auteur dans `<CacheDir>/secrets-journal.jsonl` : le champ `user` (login GitHub, ou `admin@local`
 pour le compte de secours), à côté de l'instance, de l'action et de l'empreinte. Le journal ne contient jamais le contenu.
 Les mêmes écritures apparaissent dans le journal d'audit (`audit.jsonl`, voir [kubernetes.md](kubernetes.md) §4b).
+
+## Coffre de l'utilisateur (v7.1.0, LOT-2)
+
+Un utilisateur a son coffre dans `users/<uid>/vault/` (dossier 0700, fichiers 0600, **en clair**), séparé de celui de l'admin.
+Le coffre de la racine n'est pas modifié. Les méthodes de secrets de backend (`backendSecret*`, `backendTest`) ne servent pas
+encore un utilisateur : elles arrivent en LOT-3.1, pour éviter qu'un nom de backend commun lise le coffre de l'admin.
+Contrat : `contracts/user-backends.md` §7.

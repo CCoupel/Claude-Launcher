@@ -244,3 +244,20 @@ En résumé :
 
 v7.1.0 apporte l'agent d'espace et les comptes utilisateur ; la première étape est le contrat `agent-protocol`, à écrire au
 plan de v7.1.0.
+
+## 7. Ajouts v7.1.0 — LOT-2 (espace par utilisateur, #255)
+
+Ajouts factuels de LOT-2 ; la refonte du modèle (sans agent, P15, schéma M3) est au LOT-4. Contrat : `contracts/user-backends.md` §2, §9, §11.
+
+- **Espace par utilisateur** : `<racine>/.config/claude-launcher-ng2/users/<uid>/` (0700), `<uid>` = `github-<id numérique>`.
+  Il contient les backends de l'utilisateur, son coffre, ses réglages (`config.json`) et la trace des projets vus. Aucune
+  donnée projet n'y est écrite.
+- **Identité** : le login (`X-Forwarded-User`) est résolu en identifiant numérique GitHub, mis en cache 24 h. Un login dont
+  l'identifiant change est refusé (`401` + audit) jusqu'à `ForgetUserLogin` par l'admin. API injoignable : dernier identifiant
+  connu, sans identifiant connu `503`.
+- **Routage** : une instance d'état par utilisateur, créée à la première connexion, libérée 10 min après le dernier client.
+  SSE, terminaux et `/files` filtrés par identité. `/files` répond `404` à un utilisateur tant qu'il n'a pas de projet (LOT-3.2).
+- **Instance utilisateur restreinte** : seules les méthodes listées au contrat §9 sont servies à un utilisateur. Le launcher
+  lit encore les chemins globaux (backends, coffre, `projects.json` de la racine) ; une seconde application complète par
+  utilisateur aurait lu l'espace de l'admin, d'où ce choix.
+- **Admin** : son espace reste la racine actuelle (sans migration). `userList` (R1) liste les espaces sans identifiant numérique.

@@ -8,6 +8,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
 ## [Unreleased]
 
+### Added
+- Espace par utilisateur (#255) : chaque utilisateur GitHub a son propre espace (backends, coffre, réglages, trace des projets
+  vus) sous `users/<uid>/` ; un utilisateur sans backend voit « Ajoute ton premier backend ». Identité GitHub numérique
+  (résolue depuis le login, cache 24 h ; un login dont l'identifiant change est refusé jusqu'à action de l'admin)
+- Routage par identité (#255) : SSE, terminaux et `/files` ne livrent que les événements de l'espace de l'utilisateur ; l'espace
+  est libéré 10 min après le dernier client
+- Méthode `userList` (admin, R1) : login, nombre de backends et état de chaque utilisateur, sans identifiant numérique
+
+### Changed
+- Utilisateur (#255) : instance restreinte. Ses méthodes servent l'état de son espace (`clientInfo`, `init`, `setPrefs`,
+  `setTheme`, `configFiles/Open/Validate/Save` sur son seul `backends.yaml`) ; les autres répondent « indisponible dans votre
+  espace ». Les refus R1 sont inchangés (`forbidden:admin`, audités)
+
 ### Fixed
 - Fermeture des projets Kubernetes (#269) : un pod à l'ancien modèle de montage n'est plus un problème du backend mais un
   avertissement (« montages d'avant v7.0.0 ») ; le backend reste en état normal et la liste des pods s'affiche. « Fermer » et
