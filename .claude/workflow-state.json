@@ -22,7 +22,7 @@
   "lots": {
     "current": "LOT-1",
     "items": {
-      "LOT-1": { "status": "in_progress", "issues": [269, 271], "phase": "dev-backend" },
+      "LOT-1": { "status": "in_progress", "issues": [269, 271], "phase": "deploy-qualif" },
       "LOT-2": { "status": "pending", "issues": [255] },
       "LOT-3.1": { "status": "pending", "issues": [257] },
       "LOT-3.2": { "status": "pending", "issues": [275] },
@@ -32,13 +32,13 @@
   "phases": {
     "clarification": { "status": "completed", "skipped": false },
     "plan": { "status": "completed", "report": "_work/reports/plan-20261126-134958.md", "timestamp": "2026-11-26T15:30:00Z" },
-    "dev-backend": { "status": "pending" },
-    "dev-frontend": { "status": "pending" },
-    "test-writer": { "status": "pending" },
-    "review": { "status": "pending" },
-    "qa": { "status": "pending" },
-    "doc": { "status": "pending" },
-    "deploy-qualif": { "status": "pending", "steps": { "build": { "status": "pending" }, "publish": { "status": "pending" }, "deploy": { "status": "pending" } } },
+    "dev-backend": { "status": "completed", "sha": "553110b", "handoff": "_work/handoff/dev-backend-lot1.md" },
+    "dev-frontend": { "status": "skipped" },
+    "test-writer": { "status": "completed", "sha": "d9bcf54", "handoff": "_work/handoff/test-writer-lot1.md" },
+    "review": { "status": "completed", "report": "_work/reports/code-reviewer-lot1.md" },
+    "qa": { "status": "completed", "report": "_work/reports/qa-lot1.md" },
+    "doc": { "status": "completed", "sha": "42d9403" },
+    "deploy-qualif": { "status": "completed", "version": "7.1.0.1", "steps": { "build": { "status": "completed" }, "publish": { "status": "completed" }, "deploy": { "status": "completed" } } },
     "deploy-prod": { "status": "pending", "steps": { "publish": { "status": "pending" }, "deploy": { "status": "pending" } } }
   }
 }
