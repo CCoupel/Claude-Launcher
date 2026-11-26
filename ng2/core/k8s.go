@@ -660,7 +660,7 @@ func podMounts(podJSON string) map[string]string {
 func k8sProblems(b BackendConf) []Problem {
 	var out []Problem
 	for _, st := range k8sSteps(b) {
-		if !st.OK {
+		if !st.OK && !st.Warn { // un avertissement ne bloque pas le backend (#269)
 			out = append(out, Problem{st.Detail, st.Fix})
 		}
 	}
@@ -730,7 +730,7 @@ func k8sHardeningSteps(b BackendConf, e Engine) []TestStep {
 		}
 		if len(old) > 0 {
 			sort.Strings(old)
-			steps = append(steps, TestStep{Label: "montages des pods projets",
+			steps = append(steps, TestStep{Label: "montages des pods projets", Warn: true,
 				Detail: OldMountsNote + " (" + strings.Join(old, ", ") + ")",
 				Fix:    "fermer puis rouvrir ces projets : leurs pods sont recréés avec le dossier du projet et CLAUDE_CONFIG_DIR seulement"})
 		}

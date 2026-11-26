@@ -24,6 +24,7 @@ import (
 type TestStep struct {
 	Label  string `json:"label"`
 	OK     bool   `json:"ok"`
+	Warn   bool   `json:"warn,omitempty"` // avertissement : jamais un problème bloquant du backend (#269)
 	Detail string `json:"detail,omitempty"`
 	Fix    string `json:"fix,omitempty"`
 }

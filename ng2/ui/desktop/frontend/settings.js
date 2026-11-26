@@ -636,7 +636,7 @@ function stFillTests(out, b) {
   out.classList.remove('hidden');
   if (t.running) { out.appendChild(el('div', 'dim', 'test en cours… (jusqu\'à 45 s)')); return; }
   for (const s of t.steps || []) {
-    const r = el('div'); r.append(el('span', s.ok ? 't-green' : 't-red', s.ok ? '✓ ' : '✗ '), el('span', '', s.label + (s.detail ? ' : ' + s.detail : '')));
+    const r = el('div'); r.append(el('span', s.ok ? 't-green' : (s.warn ? 't-yellow' : 't-red'), s.ok ? '✓ ' : (s.warn ? '⚠ ' : '✗ ')), el('span', '', s.label + (s.detail ? ' : ' + s.detail : '')));
     out.appendChild(r);
     if (!s.ok && s.fix) out.appendChild(el('div', 'dim', '   → ' + s.fix));
   }
