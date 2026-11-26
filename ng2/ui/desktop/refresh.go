@@ -604,7 +604,7 @@ func (a *App) runForceClose(path string, p core.ProjInfo, t *projTerm, localOnly
 					notes = append(notes, fmt.Sprintf("%d pane(s) caché(s) du conteneur tué(s)", n))
 				}
 			}
-			if p.Ctr.Running && !p.Ctr.Failed { // en marche et sain : jamais arrêté d'ici
+			if p.Ctr.Running && !p.Ctr.Failed && !p.Ctr.OldMounts { // en marche et sain : jamais arrêté d'ici (sauf pod d'avant v7.0.0, #269)
 				notes = append(notes, "conteneur en marche laissé tel quel")
 			} else if stopErr = e.Stop(path, p.Ctr.Name); stopErr == nil {
 				notes = append(notes, "arrêt du conteneur demandé")
