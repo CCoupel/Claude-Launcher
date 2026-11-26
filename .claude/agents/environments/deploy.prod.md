@@ -89,30 +89,30 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
    prise de main hub ↔ cluster sur un projet réel, faite par l'utilisateur.
 5. Mise à jour : rejouer l'étape 2 avec le nouveau `vX.Y.Z` (nouvelle empreinte) — l'ancien pod s'arrête avant le démarrage du nouveau.
 
-## Authentification (v7.0.0, #172) — avant et après `helm upgrade`
+## Authentification (v7.0.0, #172, #254) — avant et après `helm upgrade`
 
-Contrat : `contracts/helm-values.md` (« Valeurs `auth.*` »), `contracts/auth.md`. Valeurs de PROD dans `PRIVATE/PROD/values-local.yaml`.
+Contrat : `contracts/helm-values.md` (« Valeurs `auth.*` », `externalIngress.*`), `contracts/auth.md`. Valeurs de PROD : `PRIVATE/PROD/values-local.yaml`
+(auth GitHub + compte local interne, `externalIngress` sur `coupel.net` + `pathPrefix: /claude`, sans certificat : celui de `coupel.net` par SNI).
+Release `claude-launcher` (namespace `claude-ng2`), révision courante **9** (v6.9.0).
 
-1. **Secret GitHub OAuth — créé AVANT `helm upgrade`** (`auth.github.enabled: true`, défaut ; absent → le pod ne démarre pas) :
-   `client-id` / `client-secret` de l'application GitHub **de PROD** fournis par l'utilisateur dans `PRIVATE/PROD/` (jamais inventés ni
-   affichés) ; URL de retour : `https://launcher.local/oauth2/callback`. Le `cookie-secret` est généré par le chart (`<release>-auth-cookie`).
-   ```bash
-   ( set -euo pipefail; . .claude/agents/environments/prod.env
-     KUBECONFIG=$PROD_KUBECONFIG kubectl -n claude-ng2 create secret generic <nom auth.existingSecret> \
-       --from-file=client-id=PRIVATE/PROD/github-client-id --from-file=client-secret=PRIVATE/PROD/github-client-secret )
-   ```
-   `auth.admins` (logins GitHub, non vide) dans `PRIVATE/PROD/values-local.yaml` — fournis par l'utilisateur (M4).
-2. **Mot de passe `admin@local`** : secours seulement sur l'hôte interne (refusé sur l'hôte externe). Lecture à la demande dans un fichier
-   tmpfs pour l'utilisateur, jamais affiché dans un rapport ni un journal :
+1. **Même GitHub App que QUALIF** : fichier source `PRIVATE/GLOBAL/github-app.txt` ; `PRIVATE/GLOBAL/github-client-id|secret` (600, sans fin de ligne) ;
+   paire validée (`access_token` + `code=invalid` → `bad_verification_code`, corps `client_id=…&client_secret=…&code=invalid` joint par `&`, `--data @fichier`).
+   Copies identiques par environnement (`PRIVATE/QUALIF/`) conservées : chaque procédure lit son dossier ; en cas de rotation du secret, mettre à jour GLOBAL, QUALIF et les deux Secrets.
+2. **Secret `claude-launcher-github` — créé AVANT `helm upgrade`** (fait le 2026-11-26 ; ne coupe pas la v6.9.0) :
+   `kubectl -n claude-ng2 create secret generic claude-launcher-github --from-file=client-id=PRIVATE/GLOBAL/github-client-id --from-file=client-secret=PRIVATE/GLOBAL/github-client-secret`
+   (nom = `<release>-github`, clés `client-id`/`client-secret` ; le `cookie-secret` est généré par le chart). Contrôle : `kubectl -n claude-ng2 get secret claude-launcher-github -o json` (longueurs 20 / 40, jamais les valeurs).
+3. **Callbacks de la GitHub App** (à enregistrer par l'utilisateur, en plus de QUALIF) : `https://launcher.local/oauth2/callback` et `https://coupel.net/claude/oauth2/callback`.
+   `auth.admins: [CCoupel]` : casse exacte de GitHub (proxy sensible à la casse ; `curl -s https://api.github.com/users/<login>` → `login`).
+4. **Chemins de `coupel.net`** : `/claude` (Exact) et `/claude/` (Prefix) ne chevauchent aucun Ingress existant (`/emby /radarr /sonarr /lidarr /prowlarr /chaptarr /ombi /seerr /automation-factory`) ;
+   `/claude-qualif` (QUALIF) n'est pas capturé (Exact + Prefix par segment). Certificat par SNI : contrôler `curl -vI https://coupel.net/claude/` (Let's Encrypt, pas le certificat par défaut de Traefik).
+5. **Mot de passe `admin@local`** (Secret `claude-launcher-local-admin` généré par le chart ; interne seulement) : lu à la demande dans un fichier tmpfs pour l'utilisateur, jamais affiché ni journalisé :
    `( umask 077; . .claude/agents/environments/prod.env; U=$(mktemp -p /dev/shm claude-launcher-prod-admin-XXXXXX); KUBECONFIG=$PROD_KUBECONFIG kubectl -n claude-ng2 get secret claude-launcher-local-admin -o jsonpath='{.data.password}' | base64 -d > "$U"; ( sleep 600; rm -f "$U" ) >/dev/null 2>&1 & echo "$U (cat par l'utilisateur, effacé dans 10 min)" )`
    (nom de clé à vérifier dans `contracts/auth.md` §8).
-3. **Contrôle `/healthz`** (port santé `CL_HEALTH_ADDR`, 8082, interne au pod) :
-   `kubectl -n claude-ng2 exec statefulset/claude-launcher -c launcher -- curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/healthz` → `200`
-   (ou `port-forward pod/claude-launcher-0 8082`). Sans identité, `https://launcher.local/` ne répond que la connexion.
-4. **Ingress externe : reste DÉSACTIVÉ** (`externalIngress.enabled: false`) **jusqu'à LOT-3** (#254, hôte public + `letsencrypt-prod`,
-   applications GitHub). Ne pas l'activer à la mise en production de LOT-2.
-5. Sidecar figé par empreinte : `quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048`
-   (relevée le 2026-11-25) ; contrôler l'image rendue du sidecar comme celle du launcher (étape 2 ci-dessus).
+6. **Contrôles après upgrade** : rollout ; `/healthz` interne au pod (`kubectl -n claude-ng2 exec statefulset/claude-launcher -c launcher -- curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8082/healthz` → `200`) ;
+   sans identité, `https://launcher.local/` et `https://coupel.net/claude/` ne répondent que la connexion (`401` sur `/api/`, `302` ailleurs) ; connexion GitHub réelle par l'utilisateur ; pods de projets en marche conservés (P6, signalés sur les cartes, recréés à la réouverture) ; sessions claude en cours **non coupées**.
+7. **Retour arrière** : `helm rollback claude-launcher 9 -n claude-ng2` (v6.9.0, sans authentification) ; le Secret `claude-launcher-github` est inoffensif et peut rester. Un `helm upgrade` jamais avec `--reuse-values`.
+8. **Ingress externe** : ACTIVÉ en PROD v7.0.0 (décision utilisateur, `coupel.net` + `/claude`, risque d'origine partagée accepté) ; contrôler d'abord le test externe `Host: launcher.local` hors LAN (403 attendu) tant que la v6.9.0 tourne.
+9. Sidecar figé par empreinte : `quay.io/oauth2-proxy/oauth2-proxy:v7.15.6@sha256:c3415e8660af553f5e18f5d90db050614c02493c0ac6260ac59442f6d9b12048` ; contrôler l'image rendue du sidecar comme celle du launcher (étape 2 ci-dessus).
 
 ## `helm upgrade` — jamais `--reuse-values` (constaté en QUALIF 6.4.0.12, vital pour la PROD v6.4.0)
 
