@@ -121,11 +121,14 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
      KUBECONFIG=$QUALIF_KUBECONFIG kubectl -n claude-qualif rollout status statefulset/claude-launcher-qualif --timeout=5m
    )
    ```
-4. Accès à l'interface : **`web.access: none`** (valeur de QUALIF et défaut du chart) → ouvrir directement `https://launcher-qualif.local/`
-   depuis une adresse de `192.168.1.0/24`, **sans jeton** ni URL d'amorçage. L'Ingress (liste d'adresses + TLS) est la seule barrière :
-   pas de NetworkPolicy (risque accepté jusqu'à v6.4.0) — le test négatif H3 (étape 7) est donc **obligatoire** avant validation.
-   Contrôle : `kubectl -n claude-qualif exec statefulset/claude-launcher-qualif -- printenv CL_WEB_ACCESS` → `none`.
-   Seulement si `web.access: token` — URL d'amorçage, **jeton jamais affiché ni écrit sur le partage** : lu dans le pod, écrit dans un fichier en mémoire
+4. Accès à l'interface (v7.0.0) : avec `auth.enabled: true` (défaut du chart), **`web.access` est imposé à `proxy` — ne pas le poser**.
+   `https://launcher-qualif.local/` (depuis une adresse de `192.168.1.0/24`) affiche la connexion (GitHub, ou compte local
+   `admin@local` à l'étape 2 ci-dessous), jamais l'interface sans identité. Barrières : liste d'adresses de l'Ingress + authentification
+   oauth2-proxy. **NetworkPolicy présente** (valeurs par défaut du chart : `networkPolicy.enabled: true`, entrée depuis le namespace
+   `traefik` et les pods `app.kubernetes.io/name: traefik`, `ingressCIDRs: []`) ; le test négatif H3 (étape 7) reste **obligatoire** avant validation
+   (si Traefik est en réseau d'hôte, les adresses des nœuds doivent figurer dans `networkPolicy.ingressCIDRs`).
+   Contrôle : `kubectl -n claude-qualif exec statefulset/claude-launcher-qualif -- printenv CL_WEB_ACCESS` → `proxy`.
+   Seulement si `auth.enabled: false` (`web.access: token`, non utilisé en QUALIF) — URL d'amorçage, **jeton jamais affiché ni écrit sur le partage** : lu dans le pod, écrit dans un fichier en mémoire
    (tmpfs `/dev/shm`, 600) que **l'utilisateur** ouvre dans son terminal ; le fichier s'efface seul au bout de 10 min :
    ```bash
    ( umask 077; . .claude/agents/environments/qualif.env
@@ -159,7 +162,9 @@ Aucun certificat n'est généré ni signé à la main : `openssl` ne sert qu'à 
 ## Authentification (v7.0.0, #172) — avant et après `helm upgrade`
 
 Contrat : `contracts/helm-values.md` (« Valeurs `auth.*` »), `contracts/auth.md`. Valeurs de QUALIF dans `PRIVATE/QUALIF/values-local.yaml`
-(`auth.enabled: true`, `auth.github.enabled: false` + compte local `admin@local` tant que les applications GitHub n'existent pas).
+(`auth.enabled: true` ; `auth.github.enabled: true` — défaut du chart, GitHub App de QUALIF appairée le 2026-11-26, Secret créé à l'étape 1 ;
+compte local `admin@local` maintenu en secours). Valeurs réelles de `values-local.yaml` (`auth.admins`, `auth.existingSecret`, `auth.github.enabled`)
+**non relues** par la doc : à confirmer par `infra` avant le prochain `helm upgrade`.
 
 1. **Secret GitHub OAuth — créé AVANT `helm upgrade`** (seulement quand `auth.github.enabled: true` ; absent → le pod ne démarre pas).
    `client-id` et `client-secret` de l'application GitHub **de QUALIF** sont fournis par l'utilisateur dans `PRIVATE/QUALIF/`

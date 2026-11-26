@@ -614,8 +614,9 @@ refusées (erreur « deux PVC »).
 - **Jeton de ServiceAccount** : non monté (`automountServiceAccountToken: false`). Pour le remonter, poser
   `pod.automountServiceAccountToken: true` dans `backends.yaml` ; le diagnostic le signale (« jeton de ServiceAccount monté »).
 - **Pods en marche à l'ancien modèle** (sans l'annotation `cl.mounts: "v2"`) : conservés, leur session continue. La carte
-  affiche « Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre », et le diagnostic le signale.
-  Un pod arrêté, ou à recréer, est recréé au nouveau modèle.
+  affiche « Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre ». Le diagnostic le signale en
+  **avertissement** (il ne bloque pas le backend). « Fermer » et « Forcer fermer » arrêtent ce pod ; la réouverture le
+  recrée au nouveau modèle. Un pod arrêté, ou à recréer, est recréé au nouveau modèle.
 - Docker, podman et ssh : inchangés (ils ne montent déjà que le projet et `CLAUDE_CONFIG_DIR`).
 - Le coffre est hors des pods, mais **pas les jetons GitHub** : `GH_TOKEN` et `GITHUB_PERSONAL_ACCESS_TOKEN` figurent dans
   `.claude/settings.json` (`CLAUDE_CONFIG_DIR`, monté) et sont lisibles par les sessions du pod (voir [secrets.md](secrets.md)).
@@ -638,7 +639,8 @@ Les points ci-dessous restent vrais, sauf mention contraire.
   `auth.users` ; un autre compte pourrait reprendre le login.
 - **`/files` lisible depuis le LAN** : les fichiers des projets sont servis, sauf les éléments sensibles (`PRIVATE`, `.git`,
   `.claude`, `.env*`, clés, identifiants d'outils comme `.git-credentials`, `.npmrc`, `.docker`, `*.p12`, `*.pfx`, `*.jks`),
-  les dossiers d'état du launcher et `_work/tmp`. Dans `_work`, seul `_work/mockup` est servi. Les requêtes cross-site sont
+  les dossiers d'état du launcher et `_work/tmp`. Dans `_work`, seuls `_work/mockup` et `_work/test-plan` sont servis ;
+  `_work/reports`, `_work/handoff` et `_work/tasks` sont refusés (404) et masqués dans les listes. Les requêtes cross-site sont
   refusées, sauf les sous-ressources de maquette et la navigation de premier niveau (ouverture d'une maquette par l'extension ou un lien), acceptée de toute provenance.
 - **Script cross-site d'une maquette** : une page tierce peut exécuter un fichier `.js` d'un projet servi sous `/files` et lire
   ses variables globales. Les scripts de maquette ne sont pas restreints en `connect-src` (CDN et API publiques).

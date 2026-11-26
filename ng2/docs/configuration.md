@@ -850,6 +850,7 @@ est ouverte ou que sa pastille n'est pas `○`.
   sera nettoyé. Le nettoyage est local : marque de sortie, verrou périmé, fichier d'ordre, panes cachés orphelins.
   `projects.json` n'est jamais modifié. La fermeture est refusée si un autre launcher pilote le projet, ou si le projet
   revit entre la question et la confirmation (la question expire au bout de 2 min).
+  Un pod k8s en marche à l'ancien modèle de montage (avant v7.0.0) est arrêté par « Forcer la fermeture… » comme par « Fermer ».
 - **Backend injoignable** : la fermeture forcée est proposée avec l'avertissement « le projet tourne peut-être encore ».
   Seul le nettoyage local est fait : aucun arrêt du conteneur n'est demandé au backend.
 - **« dubious ownership » (Windows, dépôt sur un partage)** : git refuse les dépôts dont le propriétaire est un autre

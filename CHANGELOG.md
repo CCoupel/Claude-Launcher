@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
+## [Unreleased]
+
+### Fixed
+- Fermeture des projets Kubernetes (#269) : un pod à l'ancien modèle de montage n'est plus un problème du backend mais un
+  avertissement (« montages d'avant v7.0.0 ») ; le backend reste en état normal et la liste des pods s'affiche. « Fermer » et
+  « Forcer fermer » arrêtent désormais aussi ce pod à l'ancien modèle (avant : laissé tel quel)
+- Interface web : `_work/test-plan` est servi par le serveur de fichiers comme `_work/mockup` (#271) ; `_work/reports`,
+  `_work/handoff`, `_work/tasks` et `_work/tmp` restent refusés (404) et masqués dans les listes
+
 ## [7.0.0] — 2026-11-26
 
 ### Changed
