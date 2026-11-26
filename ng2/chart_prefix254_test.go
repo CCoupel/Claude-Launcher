@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -130,6 +131,7 @@ func TestChartPrefix254IngressNeverCapturesOtherRoutes(t *testing.T) {
 		t.Fatalf("%d Ingress pour %s, attendu au moins 2 (préfixe et son /oauth2)", len(ext), t254Shared)
 	}
 	sawOAuth, sawMain := false, false
+	var rules [][2]string // (chemin, pathType) de tous les Ingress externes
 	for _, ing := range ext {
 		name := fmt.Sprint(get(ing, "metadata", "name"))
 		for _, r := range get(ing, "spec", "rules").([]any) {
@@ -148,9 +150,18 @@ func TestChartPrefix254IngressNeverCapturesOtherRoutes(t *testing.T) {
 				if strings.ContainsAny(path, "*()") {
 					t.Errorf("Ingress %s : joker dans %q", name, path)
 				}
-				if pt := fmt.Sprint(get(p, "pathType")); pt != "Prefix" {
-					t.Errorf("Ingress %s : pathType %q, attendu Prefix", name, pt)
+				// le préfixe seul en Exact (jamais en Prefix : « /claude-qualif » Prefix capterait /claude-qualifx) ; le reste en Prefix
+				pt := fmt.Sprint(get(p, "pathType"))
+				if path == t254Base && pt != "Exact" {
+					t.Errorf("Ingress %s : %s en %s, attendu Exact (un Prefix sans « / » final capturerait %sx)", name, path, pt, t254Base)
 				}
+				if path != t254Base && pt != "Prefix" {
+					t.Errorf("Ingress %s : %s en %s, attendu Prefix", name, path, pt)
+				}
+				if pt == "Prefix" && !strings.HasSuffix(path, "/") && path != t254Base+"/oauth2" {
+					t.Errorf("Ingress %s : Prefix %s sans « / » final", name, path)
+				}
+				rules = append(rules, [2]string{path, pt})
 				if path == t254Base+"/oauth2" {
 					sawOAuth = true
 				}
@@ -173,6 +184,26 @@ func TestChartPrefix254IngressNeverCapturesOtherRoutes(t *testing.T) {
 	if !sawMain || !sawOAuth {
 		t.Errorf("routes %s (%v) et %s/oauth2 (%v) attendues", t254Base, sawMain, t254Base, sawOAuth)
 	}
+	// correspondance telle que Traefik la fait (Exact = égalité ; Prefix = préfixe de CHAÎNE) : seules les routes du launcher
+	matches := func(req string) bool {
+		for _, r := range rules {
+			if r[1] == "Exact" && req == r[0] || r[1] == "Prefix" && strings.HasPrefix(req, r[0]) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, req := range []string{"/", "/emby", "/emby/", "/claude-qualifx", "/claude-qualification", "/claude-qualif-other/", "/claude-qualifier/x",
+		"/claude-qualifx/", "/claude", "/claude-qualif%2f", "/other/claude-qualif/", "/Claude-Qualif/"} {
+		if matches(req) {
+			t.Errorf("%s capturé par l'Ingress externe (autre route de %s)", req, t254Shared)
+		}
+	}
+	for _, req := range []string{"/claude-qualif", "/claude-qualif/", "/claude-qualif/api/call", "/claude-qualif/oauth2/callback", "/claude-qualif/files/p/x.html"} {
+		if !matches(req) {
+			t.Errorf("%s non routé vers le launcher", req)
+		}
+	}
 	for _, mw := range o["Middleware"] {
 		if get(mw, "spec", "stripPrefix") != nil || get(mw, "spec", "stripPrefixRegex") != nil || get(mw, "spec", "replacePathRegex") != nil || get(mw, "spec", "replacePath") != nil {
 			t.Errorf("Middleware %v : le préfixe ne doit jamais être retiré ni réécrit (pas de StripPrefix)", get(mw, "metadata", "name"))
@@ -194,7 +225,7 @@ func TestChartPrefix254ProxyArguments(t *testing.T) {
 	ex := t172Args(t172Container(t, o, "auth-proxy-ext"))
 	for _, want := range []string{
 		"--proxy-prefix=" + t254Base + "/oauth2", "--cookie-path=" + t254Base, "--redirect-url=https://" + t254Shared + t254Base + "/oauth2/callback",
-		"--cookie-name=__Secure-cl_auth_ext", "--cookie-secure=true", "--cookie-samesite=lax", "--skip-provider-button=true",
+		"--cookie-name=__Secure-cl_auth_ext_claude-qualif", "--cookie-secure=true", "--request-logging=false", "--cookie-samesite=lax", "--skip-provider-button=true",
 	} {
 		if !t172HasArg(ex, want) {
 			t.Errorf("auth-proxy-ext : argument %q absent de %v", want, ex)
@@ -218,7 +249,7 @@ func TestChartPrefix254ProxyArguments(t *testing.T) {
 			t.Errorf("exemption de %s sous %s absente : %v", page, t254Base, skips)
 		}
 	}
-	if n := t172ArgPrefix(ex, "--cookie-name="); strings.Contains(n, "__Host-") {
+	if n := t172ArgPrefix(ex, "--cookie-name="); strings.Contains(n, "__Host-") || n == "--cookie-name=__Secure-cl_auth_ext" {
 		t.Errorf("cookie %q : __Host- impose Path=/ (incompatible avec le préfixe)", n)
 	}
 	// les routes publiques du proxy ne sont pas exemptées hors du préfixe
@@ -226,6 +257,22 @@ func TestChartPrefix254ProxyArguments(t *testing.T) {
 		if strings.HasPrefix(a, "--skip-auth-route=") && !strings.Contains(a, t254Base) {
 			t.Errorf("exemption hors du préfixe : %s", a)
 		}
+	}
+	// le nom du cookie dépend du préfixe (un cookie d'un autre préfixe de l'hôte partagé n'est jamais lu) : segments joints par « - »
+	for prefix, want := range map[string]string{"/claude-qualif": "__Secure-cl_auth_ext_claude-qualif", "/a": "__Secure-cl_auth_ext_a", "/v1/qualif": "__Secure-cl_auth_ext_v1-qualif", "/x/y/z": "__Secure-cl_auth_ext_x-y-z"} {
+		v := t254Prefix()
+		sub(v, "externalIngress")["pathPrefix"] = prefix
+		got := strings.TrimPrefix(t172ArgPrefix(t172Args(t172Container(t, must(t, v), "auth-proxy-ext")), "--cookie-name="), "--cookie-name=")
+		if got != want {
+			t.Errorf("préfixe %s : cookie %q, attendu %q", prefix, got, want)
+		}
+	}
+	// sans préfixe : __Host-_cl_auth_ext ; l'interne garde _cl_auth ; les deux instances ne journalisent pas les requêtes
+	if got := strings.TrimPrefix(t172ArgPrefix(t172Args(t172Container(t, must(t, t254Values()), "auth-proxy-ext")), "--cookie-name="), "--cookie-name="); got != "__Host-_cl_auth_ext" {
+		t.Errorf("sans préfixe : cookie %q, attendu __Host-_cl_auth_ext", got)
+	}
+	if !t172HasArg(t172Args(t172Container(t, o, "auth-proxy")), "--request-logging=false") {
+		t.Error("auth-proxy interne sans --request-logging=false")
 	}
 	// instance interne : inchangée (chemin racine, cookie _cl_auth)
 	in := t172Args(t172Container(t, o, "auth-proxy"))
@@ -380,4 +427,158 @@ func TestChartPrefix254IgnoredWhenDisabled(t *testing.T) {
 	if t172Container(t, o, "auth-proxy-ext") != nil || strings.Contains(out, t254Base) {
 		t.Error("objets externes ou préfixe rendus alors que l'ingress externe est désactivé")
 	}
+}
+
+// Avec pathPrefix : aucune demande de certificat pour l'hôte partagé (Certificate ni annotation cert-manager.io/cluster-issuer : le
+// certificat de l'hôte existe déjà, servi par l'entrypoint) ; le bloc tls ne porte que les hôtes, `secretName` seulement s'il est fourni.
+func TestChartPrefix254NoCertificateRequest(t *testing.T) {
+	needHelm(t)
+	o := must(t, t254Prefix())
+	for _, ing := range t254ExtIngresses(o) {
+		if v := get(ing, "metadata", "annotations", "cert-manager.io/cluster-issuer"); v != nil {
+			t.Errorf("Ingress %v : cert-manager.io/cluster-issuer = %v avec un sous-chemin", get(ing, "metadata", "name"), v)
+		}
+		if v := get(ing, "metadata", "annotations", "cert-manager.io/issuer"); v != nil {
+			t.Errorf("Ingress %v : cert-manager.io/issuer = %v", get(ing, "metadata", "name"), v)
+		}
+		for _, tl := range get(ing, "spec", "tls").([]any) {
+			if get(tl, "secretName") != nil {
+				t.Errorf("Ingress %v : secretName %v alors qu'aucun Secret n'est fourni", get(ing, "metadata", "name"), get(tl, "secretName"))
+			}
+			if fmt.Sprint(get(tl, "hosts")) != "["+t254Shared+"]" {
+				t.Errorf("Ingress %v : tls.hosts = %v, attendu [%s]", get(ing, "metadata", "name"), get(tl, "hosts"), t254Shared)
+			}
+		}
+	}
+	for _, c := range o["Certificate"] {
+		if b, _ := yaml.Marshal(c); strings.Contains(string(b), t254Shared) {
+			t.Errorf("Certificate pour %s avec un sous-chemin : %s", t254Shared, b)
+		}
+	}
+	// secretName fourni : repris tel quel, toujours aucune demande
+	v := t254Prefix()
+	sub(v, "externalIngress")["tls"] = m{"secretName": "coupel-net-tls"}
+	o2 := must(t, v)
+	for _, ing := range t254ExtIngresses(o2) {
+		if get(ing, "metadata", "annotations", "cert-manager.io/cluster-issuer") != nil {
+			t.Errorf("secretName fourni : annotation cert-manager sur %v", get(ing, "metadata", "name"))
+		}
+	}
+}
+
+// externalIngress.sessionDuration : défaut 4 h (l'externe est plus court que l'interne, 8 h), 15 m à 168 h, strictement supérieure
+// à auth.sessionRefresh ; hors plage ou illisible → refus nommant la valeur.
+func TestChartPrefix254ExternalSessionDuration(t *testing.T) {
+	needHelm(t)
+	dur := func(v m, container string) (string, string) {
+		o := must(t, v)
+		a := t172Args(t172Container(t, o, container))
+		return strings.TrimPrefix(t172ArgPrefix(a, "--cookie-expire="), "--cookie-expire="), strings.TrimPrefix(t172ArgPrefix(a, "--cookie-refresh="), "--cookie-refresh=")
+	}
+	for name, v := range map[string]m{"avec préfixe": t254Prefix(), "sans préfixe": t254Values()} {
+		if e, _ := dur(v, "auth-proxy-ext"); e != "4h" {
+			t.Errorf("%s : session externe %q, attendu 4h par défaut", name, e)
+		}
+		if e, _ := dur(v, "auth-proxy"); e != "8h" {
+			t.Errorf("%s : session interne %q, attendu 8h (inchangée)", name, e)
+		}
+	}
+	v := t254Prefix()
+	sub(v, "externalIngress")["sessionDuration"] = "2h"
+	if e, r := dur(v, "auth-proxy-ext"); e != "2h" || r != "1h" {
+		t.Errorf("sessionDuration 2h : expire %q refresh %q", e, r)
+	}
+	if e, _ := dur(v, "auth-proxy"); e != "8h" {
+		t.Errorf("l'interne suit l'externe : %q", e)
+	}
+	for _, ok := range []string{"15m", "90m", "168h"} {
+		v := t254Prefix()
+		sub(v, "auth")["sessionRefresh"] = "10m"
+		sub(v, "externalIngress")["sessionDuration"] = ok
+		if _, out, err := render(t, v); err != nil {
+			t.Errorf("sessionDuration %s refusée : %.200s", ok, out)
+		}
+	}
+	for name, d := range map[string]string{"trop court": "10m", "juste sous le minimum": "14m", "trop long": "169h", "illisible": "quatre heures", "zéro": "0", "négatif": "-4h", "vide non nul": " "} {
+		t.Run(name, func(t *testing.T) {
+			v := t254Prefix()
+			sub(v, "externalIngress")["sessionDuration"] = d
+			t172Refused(t, v, "sessionDuration")
+		})
+	}
+	// strictement supérieure à auth.sessionRefresh
+	for name, tc := range map[string][2]string{"egale_au_refresh": {"1h", "1h"}, "inferieure_au_refresh": {"30m", "1h"}, "refresh_2h_duree_90m": {"90m", "2h"}} {
+		t.Run(name, func(t *testing.T) {
+			v := t254Prefix()
+			sub(v, "externalIngress")["sessionDuration"] = tc[0]
+			sub(v, "auth")["sessionRefresh"] = tc[1]
+			t172Refused(t, v, "sessionDuration", "sessionRefresh")
+		})
+	}
+}
+
+// error.html : « Se déconnecter » vise <base>/signed-out (rd= substitué par Helm), jamais /sign_in ni /../ ; interne : /signed-out ;
+// externe sans préfixe : /signed-out ; externe avec préfixe : <base>/signed-out. Échoue si la substitution ne remplace plus rien.
+func TestChartErrorHTML254RdPinned(t *testing.T) {
+	needHelm(t)
+	multi := t254Prefix()
+	sub(multi, "externalIngress")["pathPrefix"] = "/v1/qualif"
+	for name, tc := range map[string]struct {
+		v        m
+		internal string
+		external string
+	}{
+		"sans préfixe":        {t254Values(), "%2Fsigned-out", "%2Fsigned-out"},
+		"avec préfixe":        {t254Prefix(), "%2Fsigned-out", "%2Fclaude-qualif%2Fsigned-out"},
+		"préfixe à 2 niveaux": {multi, "%2Fsigned-out", "%2Fv1%2Fqualif%2Fsigned-out"},
+	} {
+		o := must(t, tc.v)
+		for cmName, want := range map[string]string{t172Release + "-auth-templates": tc.internal, t172Release + "-auth-templates-ext": tc.external} {
+			cm := t172Named(o, "ConfigMap", cmName)
+			if cm == nil {
+				t.Errorf("%s : ConfigMap %s absente", name, cmName)
+				continue
+			}
+			er, _ := get(cm, "data", "error.html").(string)
+			if er == "" {
+				t.Errorf("%s / %s : error.html absent", name, cmName)
+				continue
+			}
+			if n := strings.Count(er, "/sign_out?rd="); n != 1 {
+				t.Errorf("%s / %s : %d liens sign_out?rd=, attendu 1", name, cmName, n)
+			}
+			if !strings.Contains(er, `/sign_out?rd=`+want+`"`) {
+				t.Errorf("%s / %s : rd ne vaut pas %s (cible <base>/signed-out) : %s", name, cmName, want, regexpFind254(er))
+			}
+			// le lien de déconnexion (et lui seul : « Réessayer » a sa propre cible) ne vise jamais /sign_in ni /../
+			href := ""
+			if mm := regexp.MustCompile(`href="([^"]*sign_out\?rd=[^"]*)"`).FindStringSubmatch(er); mm != nil {
+				href = mm[1]
+			}
+			if href == "" {
+				t.Errorf("%s / %s : lien de déconnexion introuvable", name, cmName)
+			}
+			for _, bad := range []string{"sign_in", "/../", "{{.ProxyPrefix}}%2F", "rd={{", "%2F%2F"} {
+				if strings.Contains(strings.TrimPrefix(href, "{{.ProxyPrefix}}"), bad) {
+					t.Errorf("%s / %s : lien de déconnexion %q contient %q (rd mal substitué)", name, cmName, href, bad)
+				}
+			}
+			// la déconnexion de l'interne ne pointe jamais vers la base de l'externe, et réciproquement
+			if cmName == t172Release+"-auth-templates" && strings.Contains(er, "claude-qualif") {
+				t.Errorf("%s : l'error.html interne cite la base de l'externe", name)
+			}
+		}
+	}
+}
+
+func regexpFind254(s string) string {
+	i := strings.Index(s, "sign_out?rd=")
+	if i < 0 {
+		return "(pas de sign_out)"
+	}
+	j := i + 60
+	if j > len(s) {
+		j = len(s)
+	}
+	return s[i:j]
 }

@@ -327,3 +327,34 @@ func TestPrefix254StartRefusalInvalidPath(t *testing.T) {
 		})
 	}
 }
+
+// Un chemin dans l'adresse publique n'est admis QU'en mode proxy (contrat §9) : en mode token ou none, refus de démarrer avec un
+// message clair (le mode et le chemin y figurent). (CL_WEB_ALT_URLS n'est lue qu'en mode proxy.)
+func TestPrefix254BaseRefusedOutsideProxy(t *testing.T) {
+	for _, mode := range []string{"token", "none", ""} {
+		for name, set := range map[string]map[string]string{
+			"CL_WEB_URL": {"CL_WEB_URL": "https://" + px172Ext + px254Base},
+		} {
+			t.Run(mode+"/"+name, func(t *testing.T) {
+				px172Env(t)
+				sandbox(t, "", "alpha")
+				l4WriteBackends(t, "")
+				t.Setenv("CL_WEB_ACCESS", mode)
+				t.Setenv("CL_HEALTH_ADDR", "")
+				for k, v := range set {
+					t.Setenv(k, v)
+				}
+				done := make(chan error, 1)
+				go func() { done <- RunWeb("127.0.0.1:"+strconv.Itoa(l4FreePort(t)), false) }()
+				select {
+				case err := <-done:
+					if err == nil || !strings.Contains(err.Error(), "proxy") || !strings.Contains(err.Error(), "chemin") {
+						t.Errorf("mode %q : erreur %v, attendu un refus qui dit que le chemin est réservé au mode proxy", mode, err)
+					}
+				case <-time.After(10 * time.Second):
+					t.Fatal("RunWeb n'a pas refusé de démarrer")
+				}
+			})
+		}
+	}
+}

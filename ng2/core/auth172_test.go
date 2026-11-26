@@ -144,7 +144,7 @@ func TestAuth172StartRefusal(t *testing.T) {
 	}
 }
 
-// CL_WEB_ALT_URLS : https, sans chemin, mêmes règles que CL_WEB_URL ; invalide → erreur nommant la variable.
+// CL_WEB_ALT_URLS : https, mêmes règles que CL_WEB_URL (sous-chemin admis, contrat §9) ; invalide → erreur nommant la variable.
 func TestAuth172AltURLs(t *testing.T) {
 	t.Parallel()
 	got, err := ParseAltURLs("https://a.example, https://b.example:8443")
@@ -154,7 +154,14 @@ func TestAuth172AltURLs(t *testing.T) {
 	if got, err := ParseAltURLs(""); err != nil || len(got) != 0 {
 		t.Errorf("vide : %v %v", got, err)
 	}
-	for _, bad := range []string{"http://a.example", "a.example", "https://a.example/chemin", "https://user@a.example", "ftp://a.example"} {
+	// un sous-chemin valide est admis : la base de CETTE adresse (jamais mélangée à celle des autres)
+	if got, err := ParseAltURLs("https://c.example/claude-qualif, https://d.example"); err != nil || len(got) != 2 || got[0].Origin != "https://c.example" ||
+		got[0].Base != "/claude-qualif" || got[1].Base != "" {
+		t.Errorf("alternative avec sous-chemin : %+v %v", got, err)
+	}
+	for _, bad := range []string{"http://a.example", "a.example", "https://user@a.example", "ftp://a.example",
+		"https://a.example/Chemin", "https://a.example/a//b", "https://a.example/a/../b", "https://a.example/%2e%2e", "https://a.example/a/",
+		"https://a.example/a?x=1", "https://a.example/a#f", "http://a.example/a"} {
 		if _, err := ParseAltURLs("https://ok.example," + bad); err == nil || !strings.Contains(err.Error(), "CL_WEB_ALT_URLS") {
 			t.Errorf("%q : erreur nommant CL_WEB_ALT_URLS attendue, obtenu %v", bad, err)
 		}
