@@ -104,3 +104,56 @@ spec:
     contentSecurityPolicy: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
 {{- end }}
 {{- end }}
+{{- if $external }}
+{{- $pfx := .Values.externalIngress.pathPrefix | default "" }}
+---
+# Instance externe : page 429 servie par auth-proxy-ext (port http-ext), sous le sous-chemin public s'il y en a un
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-errors-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  errors:
+    status: ["429"]
+    service:
+      name: {{ include "cl.fullname" . }}
+      port: http-ext
+    query: {{ $pfx }}/too-many
+---
+# Instance externe : en-têtes de sécurité ; HSTS seulement quand l'hôte est dédié (un sous-chemin le ferait valoir pour tout l'hôte,
+# dont d'autres applications en http — P13) ; jamais de CSP sur « / » (sandbox de /files)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    {{- if not $pfx }}
+    stsSeconds: 31536000
+    {{- end }}
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers-oauth-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    {{- if not $pfx }}
+    stsSeconds: 31536000
+    {{- end }}
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    contentSecurityPolicy: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
+{{- end }}

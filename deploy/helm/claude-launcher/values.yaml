@@ -117,7 +117,8 @@ auth:
 externalIngress:
   enabled: false
   className: ""
-  host: ""
+  host: ""                # nom d'hôte RFC 1123 en minuscules (sans schéma ni chemin)
+  pathPrefix: ""          # sous-chemin public (ex. /claude-qualif) : Ingress sur ce seul préfixe, jamais retiré ; vide : racine de l'hôte
   tls:
     clusterIssuer: ""     # ex. letsencrypt-prod
     secretName: ""

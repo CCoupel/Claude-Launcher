@@ -176,9 +176,9 @@ spec:
             {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- if $auth }}
-        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy" "port" 8080 "portName" "http" "local" $a.localAdmin.enabled "host" (include "cl.internalHost" .) "cookie" "_cl_auth" "secret" (include "cl.cookieSecretName" .) "tpl" "auth-templates") | nindent 8 }}
+        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy" "port" 8080 "portName" "http" "local" $a.localAdmin.enabled "host" (include "cl.internalHost" .) "cookie" "_cl_auth" "secret" (include "cl.cookieSecretName" .) "tpl" "auth-templates" "base" "") | nindent 8 }}
         {{- if .Values.externalIngress.enabled }}
-        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy-ext" "port" 8083 "portName" "http-ext" "local" false "host" .Values.externalIngress.host "cookie" "__Host-_cl_auth_ext" "secret" (include "cl.cookieSecretNameExt" .) "tpl" "auth-templates-ext") | nindent 8 }}
+        {{- include "cl.authProxy" (dict "root" . "name" "auth-proxy-ext" "port" 8083 "portName" "http-ext" "local" false "host" .Values.externalIngress.host "cookie" (ternary "__Secure-cl_auth_ext" "__Host-_cl_auth_ext" (ne (.Values.externalIngress.pathPrefix | default "") "")) "secret" (include "cl.cookieSecretNameExt" .) "tpl" "auth-templates-ext" "base" (.Values.externalIngress.pathPrefix | default "")) | nindent 8 }}
         {{- end }}
         {{- end }}
       volumes:

@@ -4,6 +4,7 @@ sans compte local) est la seule barrière ; cl.validate refuse externalIngress.e
 {{- $name := printf "%s-external" (include "cl.fullname" .) }}
 {{- $base := include "cl.fullname" . }}
 {{- $ctl := include "cl.extController" . }}
+{{- $pfx := .Values.externalIngress.pathPrefix | default "" }}
 {{- $tls := default (printf "%s-tls" $name) .Values.externalIngress.tls.secretName }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -17,7 +18,7 @@ metadata:
     {{- end }}
     {{- if eq $ctl "traefik" }}
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers@kubernetescrd" .Release.Namespace $base .Release.Namespace $base | quote }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers-ext@kubernetescrd" .Release.Namespace $base .Release.Namespace $base | quote }}
     {{- else }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
@@ -39,7 +40,8 @@ spec:
     - host: {{ .Values.externalIngress.host | quote }}
       http:
         paths:
-          - path: /
+          # sous-chemin : Prefix sur ce seul segment (jamais « / » : les autres routes de l'hôte ne sont pas capturées), sans StripPrefix
+          - path: {{ default "/" $pfx }}
             pathType: Prefix
             backend:
               service:
@@ -57,7 +59,7 @@ metadata:
   annotations:
     {{- if eq $ctl "traefik" }}
     traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
-    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers-oauth@kubernetescrd,%s-%s-errors@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base | quote }}
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers-oauth-ext@kubernetescrd,%s-%s-errors-ext@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base | quote }}
     {{- else }}
     nginx.ingress.kubernetes.io/ssl-redirect: "true"
     nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
@@ -75,7 +77,7 @@ spec:
     - host: {{ .Values.externalIngress.host | quote }}
       http:
         paths:
-          - path: /oauth2
+          - path: {{ $pfx }}/oauth2
             pathType: Prefix
             backend:
               service:

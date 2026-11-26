@@ -209,7 +209,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/* adresse publique principale (CL_WEB_URL) : l'hôte externe s'il est activé (P7), sinon l'hôte interne */}}
 {{- define "cl.primaryURL" -}}
-{{- if .Values.externalIngress.enabled -}}https://{{ .Values.externalIngress.host }}{{- else if .Values.ingress.enabled -}}https://{{ .Values.ingress.host }}{{- end -}}
+{{- if .Values.externalIngress.enabled -}}https://{{ .Values.externalIngress.host }}{{ .Values.externalIngress.pathPrefix | default "" }}{{- else if .Values.ingress.enabled -}}https://{{ .Values.ingress.host }}{{- end -}}
 {{- end -}}
 
 {{/* Secret de la GitHub App : celui fourni (existingSecret), sinon <release>-github créé par le chart (clientId / clientSecret) */}}
@@ -233,6 +233,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $_ := required "externalIngress.className est obligatoire quand externalIngress.enabled" .Values.externalIngress.className -}}
 {{- $_ := required "externalIngress.host est obligatoire quand externalIngress.enabled" .Values.externalIngress.host -}}
 {{- include "cl.checkHostname" (dict "name" "externalIngress.host" "host" .Values.externalIngress.host) -}}
+{{- if and .Values.externalIngress.pathPrefix (not (regexMatch "^/[a-z0-9-]+(/[a-z0-9-]+)*$" .Values.externalIngress.pathPrefix)) -}}
+{{- fail (printf "externalIngress.pathPrefix : « %s » invalide (segments en minuscules a-z 0-9 -, ex. /claude-qualif ; sans « / » final, sans « // », sans « .. »)" .Values.externalIngress.pathPrefix) -}}
+{{- end -}}
 {{- if and .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer -}}
 {{- fail "externalIngress.tls : secretName et clusterIssuer sont exclusifs, en donner un seul" -}}
 {{- end -}}
@@ -343,7 +346,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/* conteneur oauth2-proxy (contracts/helm-values.md « Pod du launcher avec auth.enabled ») : dict root, name, port, portName,
      local (compte local : htpasswd + formulaire ; jamais sur l'instance externe), host (hôte de l'instance : URL de retour fixe),
-     cookie (nom du cookie), secret (Secret du cookie), tpl (volume des gabarits) */}}
+     cookie (nom du cookie), secret (Secret du cookie), tpl (volume des gabarits), base (sous-chemin public de l'instance, "" = racine) */}}
 {{- define "cl.authProxy" -}}
 {{- $root := .root -}}
 {{- $a := $root.Values.auth -}}
@@ -373,9 +376,18 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     - --pass-user-headers=true
     - --pass-access-token=false
     - --skip-provider-button={{ if .local }}false{{ else }}true{{ end }}
-    - --api-route=^/api/
+    - --api-route=^{{ .base }}/api/
+    {{- if .base }}
+    - --skip-auth-route=GET=^{{ .base }}/(signed-out|too-many)$
+    {{- else }}
     - --skip-auth-route=GET=^/signed-out$
     - --skip-auth-route=GET=^/too-many$
+    {{- end }}
+    {{- if .base }}
+    # sous-chemin public : le préfixe n'est jamais retiré par Traefik ; oauth2-proxy vit sous <base>/oauth2 et son cookie sous <base>
+    - --proxy-prefix={{ .base }}/oauth2
+    - --cookie-path={{ .base }}
+    {{- end }}
     - --cookie-name={{ .cookie }}
     - --cookie-secure=true
     - --cookie-samesite=lax
@@ -390,7 +402,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     - --pass-authorization-header=false
     - --set-xauthrequest=false
     - --skip-auth-strip-headers=true
-    - --redirect-url=https://{{ .host }}/oauth2/callback
+    - --redirect-url=https://{{ .host }}{{ .base }}/oauth2/callback
     {{- if .local }}
     - --htpasswd-file=/etc/cl-auth/local/htpasswd
     - --display-htpasswd-form=true

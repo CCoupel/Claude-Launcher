@@ -435,6 +435,10 @@
         },
         "annotations": {
           "type": "object"
+        },
+        "pathPrefix": {
+          "type": "string",
+          "description": "sous-chemin public (ex. /claude-qualif), vide = racine ; forme contrôlée au rendu (cl.validateAuth)"
         }
       }
     },
