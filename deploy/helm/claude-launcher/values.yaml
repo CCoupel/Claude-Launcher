@@ -114,7 +114,8 @@ auth:
     burst: 20
 
 # Avec pathPrefix, l'hôte est déjà servi par d'autres applications : le chart ne crée aucun Certificat (ni annotation cert-manager) ;
-# donner tls.secretName (certificat existant du namespace) ou rien (certificat de l'hôte choisi par SNI).
+# tls.clusterIssuer est REFUSÉ au rendu ; donner tls.secretName (certificat existant du namespace) ou rien (certificat de l'hôte
+# choisi par SNI).
 # Ingress externe (v7.0.0, #254) : exige auth.enabled ; cible l'instance auth-proxy-ext (sans compte local)
 externalIngress:
   enabled: false

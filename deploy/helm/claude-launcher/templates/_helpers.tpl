@@ -239,7 +239,10 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if and .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer -}}
 {{- fail "externalIngress.tls : secretName et clusterIssuer sont exclusifs, en donner un seul" -}}
 {{- end -}}
-{{- if not (or .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer) -}}
+{{- if and .Values.externalIngress.pathPrefix .Values.externalIngress.tls.clusterIssuer -}}
+{{- fail "externalIngress.tls.clusterIssuer refusé avec externalIngress.pathPrefix : l'hôte est déjà servi par d'autres applications, le certificat de l'hôte partagé est réutilisé — retirer tls.clusterIssuer ou fournir tls.secretName (certificat existant du namespace)" -}}
+{{- end -}}
+{{- if and (not .Values.externalIngress.pathPrefix) (not (or .Values.externalIngress.tls.secretName .Values.externalIngress.tls.clusterIssuer)) -}}
 {{- fail "externalIngress.tls : TLS obligatoire — donner externalIngress.tls.secretName ou externalIngress.tls.clusterIssuer" -}}
 {{- end -}}
 {{- if and .Values.ingress.enabled .Values.externalIngress.tls.clusterIssuer (eq .Values.externalIngress.tls.clusterIssuer .Values.ingress.tls.clusterIssuer) -}}

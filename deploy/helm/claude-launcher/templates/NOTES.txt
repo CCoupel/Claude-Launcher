@@ -27,7 +27,7 @@ Compte local de secours « admin@local » (hôtes admis : {{ include "cl.localHo
 Compte local : désactivé.
 {{- end }}
 {{- if .Values.externalIngress.enabled }}
-Ingress externe : https://{{ .Values.externalIngress.host }} (adresse principale annoncée aux sessions claude) — GitHub seulement, sans liste d'adresses.
+Ingress externe : https://{{ .Values.externalIngress.host }}{{ .Values.externalIngress.pathPrefix }}{{ if .Values.externalIngress.pathPrefix }} (sous-chemin : le certificat de l'hôte partagé est réutilisé, aucun Certificat n'est créé par ce chart){{ end }} (adresse principale annoncée aux sessions claude) — GitHub seulement, sans liste d'adresses.
 {{- end }}
 Journal d'audit : <CL_CACHE_DIR>/audit.jsonl et sortie standard du conteneur launcher (lignes « audit … ») ; connexions : journal du conteneur auth-proxy.
 Avant de renommer ou supprimer un compte GitHub administrateur ou utilisateur : retirer son login de auth.admins / auth.users (un login libéré peut être recréé par un tiers).
