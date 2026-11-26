@@ -9,7 +9,8 @@ metadata:
     {{- include "cl.labels" . | nindent 4 }}
 data:
   error.html: |-
-    {{- .Files.Get "files/auth-templates/error.html" | nindent 4 }}
+    {{- /* « Se déconnecter » : rd vise /signed-out (jamais /sign_in, qui relancerait la connexion) */}}
+    {{- regexReplaceAll "(sign_out\\?rd=)[^\"']*" (.Files.Get "files/auth-templates/error.html") "${1}%2Fsigned-out" | nindent 4 }}
   sign_in.html: |-
     {{- if and .Values.auth.github.enabled .Values.auth.localAdmin.enabled }}
     {{- .Files.Get "files/auth-templates/sign_in.html" | nindent 4 }}
@@ -31,7 +32,9 @@ metadata:
     {{- include "cl.labels" . | nindent 4 }}
 data:
   error.html: |-
-    {{- .Files.Get "files/auth-templates/error.html" | nindent 4 }}
+    {{- /* rd vise <base>/signed-out : la base de l'instance externe est connue du chart (oauth2-proxy refuse un rd relatif en /../) */}}
+    {{- $rd := printf "%s%%2Fsigned-out" (replace "/" "%2F" (.Values.externalIngress.pathPrefix | default "")) }}
+    {{- regexReplaceAll "(sign_out\\?rd=)[^\"']*" (.Files.Get "files/auth-templates/error.html") (printf "${1}%s" $rd) | nindent 4 }}
   sign_in.html: |-
     {{- $si := regexReplaceAll "(?s)\\{\\{if \\.CustomLogin\\}\\}.*?\\{\\{else\\}\\}" (.Files.Get "files/auth-templates/sign_in.html") "" }}
     {{- regexReplaceAll "\\{\\{end\\}\\}\\n</body>" $si "</body>" | nindent 4 }}

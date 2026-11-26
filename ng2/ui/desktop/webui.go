@@ -212,6 +212,9 @@ func (a *App) applyWebUIFrom(retry bool) {
 			if m := core.AccessNoneRefusal(access, conf.Loopback, pub); m != "" {
 				aerr = errors.New(m) // garde : « none » seulement en boucle locale ou derrière une adresse publique https
 			}
+			if aerr == nil && access != core.AccessProxy && pub != nil && pub.Base != "" { // base réservée au mode proxy (cookie Path=/)
+				aerr = fmt.Errorf("adresse publique avec chemin (%s) réservée au mode proxy : le cookie de session du mode %s est en Path=/ et fuirait vers les autres applications de l'hôte", pub.URL(), access)
+			}
 		}
 		if aerr != nil {
 			a.stopWebUILocked()

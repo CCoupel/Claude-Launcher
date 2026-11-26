@@ -351,6 +351,8 @@ func ParsePublicURL(raw string) (PublicURL, error) {
 		return bad("hôte manquant")
 	case u.User != nil:
 		return bad("identifiants interdits")
+	case strings.Contains(u.EscapedPath(), "%"):
+		return bad("« % » interdit dans le chemin (segments a-z 0-9 - sans encodage : %2f serait décodé en « / »)")
 	case strings.Contains(raw, "?") || strings.Contains(raw, "#"):
 		return bad("paramètres et fragment interdits")
 	case u.Path != "" && u.Path != "/" && !ValidBasePath(u.Path):

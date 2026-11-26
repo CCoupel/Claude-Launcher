@@ -148,13 +148,18 @@ func (b *baseWriter) Flush() {
 
 func (b *baseWriter) Unwrap() http.ResponseWriter { return b.ResponseWriter }
 
+var (
+	reBaseTag = regexp.MustCompile(`(?i)<base\s[^>]*>`)
+	reHeadTag = regexp.MustCompile(`(?i)<head[^>]*>`)
+)
+
 // injectBase : <base href="<base>/"> inséré dans la page HTML (après <head>, sinon en tête) ; un <base> existant est remplacé.
 func injectBase(page []byte, base string) []byte {
 	tag := []byte(`<base href="` + base + `/">`)
-	if re := regexp.MustCompile(`(?i)<base\s[^>]*>`); re.Match(page) {
-		return re.ReplaceAll(page, tag)
+	if reBaseTag.Match(page) {
+		return reBaseTag.ReplaceAll(page, tag)
 	}
-	if i := regexp.MustCompile(`(?i)<head[^>]*>`).FindIndex(page); i != nil {
+	if i := reHeadTag.FindIndex(page); i != nil {
 		return append(append(append([]byte{}, page[:i[1]]...), tag...), page[i[1]:]...)
 	}
 	return append(append([]byte{}, tag...), page...)
@@ -913,6 +918,13 @@ func RunWeb(addr string, open bool) error {
 		return aerr
 	}
 	w.access = access
+	// une base (sous-chemin public) n'a de sens que derrière oauth2-proxy : hors du mode proxy, le cookie de session du launcher
+	// reste en Path=/ (__Host-) et fuirait vers les autres applications de l'hôte partagé
+	if access != core.AccessProxy {
+		if w.public != nil && w.public.Base != "" {
+			return fmt.Errorf("adresse publique avec chemin (%s) réservée au mode proxy (CL_WEB_ACCESS=proxy) : le cookie de session du mode %s est en Path=/ et fuirait vers les autres applications de l'hôte", w.public.URL(), access)
+		}
+	}
 	// mode proxy (v7.0.0) : listes de logins, adresses publiques supplémentaires ; réservé au cluster (fichier de réglages)
 	if access == core.AccessProxy {
 		if !core.InCluster() && strings.TrimSpace(os.Getenv(core.WebAccessVar)) == "" {
