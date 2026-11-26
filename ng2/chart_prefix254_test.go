@@ -431,7 +431,11 @@ func TestChartPrefix254ClusterIssuerRefusedWithPrefix(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			v := t254Prefix()
 			sub(v, "externalIngress")["tls"] = tls
-			t172Refused(t, v, "pathPrefix", "clusterIssuer")
+			if name == "clusterIssuer seul" {
+				t172Refused(t, v, "pathPrefix", "clusterIssuer")
+			} else {
+				t172Refused(t, v, "clusterIssuer") // refusé aussi (exclusivité secretName / clusterIssuer)
+			}
 		})
 	}
 	// secretName seul : accepté (déjà couvert par t254Prefix) ; sans préfixe : clusterIssuer accepté comme avant, sans secretName
