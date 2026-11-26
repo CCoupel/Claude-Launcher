@@ -189,6 +189,8 @@ Ces points sont tranchés par l'utilisateur. Ils priment sur les recommandations
 | **P9** Compte local `admin@local` | Activé par défaut, sur l'hôte interne seul. |
 | **P10** Compte local sur l'externe | Jamais, ni par le proxy ni par le launcher. |
 | **P11** Mot de passe local | Généré par le chart ; un `existingSecret` bcrypt reste possible en option. |
+| **P12** Origine publique partagée | QUALIF et PROD publiées sous `https://coupel.net/claude-qualif` (sous-chemin d'un hôte partagé avec d'autres applications). Le risque d'origine partagée (une XSS dans une autre application de `coupel.net` contrôle le launcher) est **accepté** par l'utilisateur. La recommandation contraire, un sous-domaine dédié, n'est pas retenue. |
+| **P13** HSTS | Non posé quand un sous-chemin est utilisé (il s'appliquerait à tout `coupel.net`). |
 | **Clés GitHub** | `auth.existingSecret` (recommandé), et valeurs Helm `auth.github.clientId` / `clientSecret` ajoutées en LOT-3 (dans `PRIVATE/<ENV>/values-local.yaml`, jamais commitées). |
 
 ### 5.2 Recommandé ou à décider (v7.1 et au-delà)

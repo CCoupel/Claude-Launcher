@@ -337,6 +337,36 @@ listes (refus au rendu). Un login absent des deux listes reçoit `403`.
   (`CL_WEB_ALT_URLS`).
 - L'application GitHub doit accepter les deux URL de retour, interne et externe (`https://<hôte>/oauth2/callback`).
 
+**Accès public par sous-chemin** (`externalIngress.pathPrefix`, contrat `contracts/auth.md` §9) : l'accès externe peut
+être publié sous un chemin d'un hôte déjà servi par d'autres applications, par exemple `coupel.net` avec le préfixe
+`/claude-qualif`. C'est le choix retenu pour QUALIF et PROD, décidé par l'utilisateur.
+
+```yaml
+externalIngress:
+  enabled: true
+  className: traefik
+  host: coupel.net                       # nom d'hôte seul, sans chemin
+  pathPrefix: /claude-qualif             # vide = sous-domaine, chemin /
+  tls:
+    clusterIssuer: letsencrypt-prod
+```
+
+- Le préfixe est validé au rendu : segments `[a-z0-9-]`, pas de `/` final, de `//` ni de `..`.
+- L'Ingress ne capture **que** `PathPrefix(/claude-qualif)` ; Traefik ne retire pas le préfixe. Le launcher et oauth2-proxy
+  voient donc la même URL que le navigateur. Les autres applications de l'hôte restent inchangées (vérification en QUALIF :
+  `/emby` ne doit pas répondre par le launcher).
+- `CL_WEB_URL` devient `https://coupel.net/claude-qualif` (la base publique). L'URL interne `https://launcher.local/` ne change pas.
+- **Cookie** : `__Secure-cl_auth_ext`, `Path=/claude-qualif`, `SameSite=Lax`. Le préfixe `__Host-` est impossible, car il impose `Path=/`.
+- **GitHub App** : URL de retour `https://coupel.net/claude-qualif/oauth2/callback`, en plus de l'URL interne.
+- **HSTS non posé** avec un préfixe : il s'appliquerait à tout `coupel.net`, donc aussi aux applications servies en `http`. Le
+  chart ne pose donc pas `Strict-Transport-Security` sur l'ingress externe dans ce mode.
+- **Risque d'origine partagée, accepté par l'utilisateur pour QUALIF et PROD** : toutes les applications de `coupel.net`
+  partagent la même origine. Une faille de script dans une de ces applications (XSS) peut envoyer le cookie du launcher,
+  lire ses réponses et piloter le launcher : terminaux, donc exécution de code dans les pods projets, et réglages si la
+  victime est admin. Le chemin n'est pas une frontière de sécurité, et il n'existe pas de mitigation robuste côté navigateur.
+  Un **sous-domaine dédié** isole l'origine : c'est la recommandation de la sécurité et d'`infra`. Ce choix n'a pas été retenu.
+- Préfixe vide : comportement précédent (sous-domaine, chemin `/`, HSTS posé comme avant).
+
 **5. Sessions** : `auth.sessionDuration` (8 h par défaut), renouvelée toutes les `auth.sessionRefresh` (1 h) : l'appartenance aux
 listes est revérifiée à chaque renouvellement. Déconnexion : menu « Se déconnecter » (page `/signed-out`).
 
