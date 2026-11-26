@@ -184,7 +184,7 @@ func TestAuth172EffectiveAccessProxy(t *testing.T) {
 func TestAuth172MethodClasses(t *testing.T) {
 	t.Parallel()
 	want := map[Class][]string{
-		ClassR1: {"configSave", "configApply", "backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "relaunch", "login"},
+		ClassR1: {"configSave", "configApply", "backendSecretSet", "backendSecretDelete", "backendKnownHostsSet", "relaunch", "login", "userList"},
 		ClassProject: {"create", "createCancel", "projectSettings", "projectApply", "execApply", "envTrustAnswer", "initProposalAnswer",
 			"projectMove", "projectMoveResume", "projectMoveAbort", "categoryCreate", "backendTest", "backendHostScan", "open", "reattach",
 			"refreshProject", "forceClose", "forceCloseConfirm", "close", "closeConfirm", "detach", "refresh", "rescan", "teamToggle",

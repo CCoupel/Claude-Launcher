@@ -218,7 +218,7 @@ var methodClass = map[string]Class{}
 
 // r1Methods : méthodes R1 par nature (configSave / configApply : R1 selon le fichier, ConfigKindR1 / AdminFieldsChanged).
 var r1Methods = map[string]bool{"configSave": true, "configApply": true, "backendSecretSet": true, "backendSecretDelete": true,
-	"backendKnownHostsSet": true, "relaunch": true, "login": true}
+	"backendKnownHostsSet": true, "relaunch": true, "login": true, "userList": true}
 
 func init() {
 	for m := range r1Methods { // configSave / configApply : R1 ou projet selon le fichier ; classés « R1 » ici (échec fermé)

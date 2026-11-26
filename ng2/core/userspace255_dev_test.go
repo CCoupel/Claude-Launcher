@@ -1,0 +1,209 @@
+package core
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// #255 (dev) : identifiant GitHub, espace par utilisateur. Dossiers temporaires, API GitHub factice.
+
+func dev255Env(t *testing.T) {
+	t.Helper()
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+}
+
+// dev255API : API factice ; ids : login → identifiant ; hits compte les appels.
+func dev255API(t *testing.T, ids map[string]*atomic.Int64) *atomic.Int64 {
+	t.Helper()
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		login := strings.TrimPrefix(r.URL.Path, "/")
+		id, ok := ids[login]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		fmt.Fprintf(w, `{"id":%d,"login":%q}`, id.Load(), login)
+	}))
+	t.Cleanup(srv.Close)
+	old := GithubUsersURL
+	GithubUsersURL = srv.URL + "/"
+	t.Cleanup(func() { GithubUsersURL = old })
+	return &hits
+}
+
+func TestResolveUIDCacheEtLoginRepris255(t *testing.T) {
+	dev255Env(t)
+	id := &atomic.Int64{}
+	id.Store(42)
+	hits := dev255API(t, map[string]*atomic.Int64{"alice": id})
+	uid, err := ResolveUID("Alice")
+	if err != nil || uid != "github-42" {
+		t.Fatalf("ResolveUID = %q, %v", uid, err)
+	}
+	if uid, _ = ResolveUID("alice"); uid != "github-42" || hits.Load() != 1 {
+		t.Errorf("le cache doit servir : uid %q, %d appel(s) API", uid, hits.Load())
+	}
+	// entrée périmée, même compte : revérifiée, acceptée
+	defer ghidTTL.Set(ghidTTL.Set(time.Nanosecond))
+	time.Sleep(2 * time.Millisecond)
+	if uid, err = ResolveUID("alice"); err != nil || uid != "github-42" || hits.Load() != 2 {
+		t.Fatalf("revérification : %q, %v, %d appel(s)", uid, err, hits.Load())
+	}
+	// le login est repris par un autre compte : refusé, jusqu'à l'action de l'admin
+	id.Store(99)
+	time.Sleep(2 * time.Millisecond)
+	if _, err = ResolveUID("alice"); !errors.Is(err, ErrLoginReused) {
+		t.Fatalf("login repris : %v, ErrLoginReused attendu", err)
+	}
+	if _, err = ResolveUID("alice"); !errors.Is(err, ErrLoginReused) {
+		t.Errorf("le refus doit durer : %v", err)
+	}
+	if err := ForgetUserLogin("alice"); err != nil {
+		t.Fatal(err)
+	}
+	if uid, err = ResolveUID("alice"); err != nil || uid != "github-99" {
+		t.Errorf("après l'action de l'admin : %q, %v", uid, err)
+	}
+}
+
+func TestResolveUIDInconnuEtApiHorsLigne255(t *testing.T) {
+	dev255Env(t)
+	hits := dev255API(t, map[string]*atomic.Int64{})
+	if _, err := ResolveUID("nobody"); !errors.Is(err, ErrLoginUnresolved) {
+		t.Errorf("login inconnu : %v", err)
+	}
+	if _, err := ResolveUID("../etc"); err == nil {
+		t.Error("login invalide accepté")
+	}
+	if hits.Load() != 1 {
+		t.Errorf("login invalide : aucun appel API attendu (%d)", hits.Load())
+	}
+	// API hors ligne mais entrée connue (périmée) : l'identifiant connu sert
+	id := &atomic.Int64{}
+	id.Store(7)
+	dev255API(t, map[string]*atomic.Int64{"bob": id})
+	if uid, err := ResolveUID("bob"); err != nil || uid != "github-7" {
+		t.Fatal(uid, err)
+	}
+	GithubUsersURL = "http://127.0.0.1:1/"
+	defer ghidTTL.Set(ghidTTL.Set(time.Nanosecond))
+	time.Sleep(2 * time.Millisecond)
+	if uid, err := ResolveUID("bob"); err != nil || uid != "github-7" {
+		t.Errorf("API hors ligne : %q, %v", uid, err)
+	}
+}
+
+func TestSpaceOfEtChemins255(t *testing.T) {
+	dev255Env(t)
+	if sp, err := SpaceOf(Identity{Login: "root", Role: RoleAdmin}); err != nil || !sp.Admin || sp.BackendsPath() != BackendsPath() {
+		t.Errorf("admin : %+v, %v", sp, err)
+	}
+	for _, bad := range []string{"", "..", "github-1/../x", "github-0", "github-01", "admin", "github-1x"} {
+		if _, err := UserSpace(bad); err == nil {
+			t.Errorf("espace %q accepté", bad)
+		}
+	}
+	sp, err := UserSpace("github-5")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sp.Dir() != filepath.Join(UsersDir(), "github-5") || sp.BackendsPath() != filepath.Join(sp.Dir(), "backends.yaml") ||
+		sp.VaultDir() != filepath.Join(sp.Dir(), "vault") {
+		t.Errorf("chemins : %s %s %s", sp.Dir(), sp.BackendsPath(), sp.VaultDir())
+	}
+}
+
+func TestEspaceUtilisateurDroitsEtSchema255(t *testing.T) {
+	dev255Env(t)
+	sp, _ := UserSpace("github-5")
+	if err := sp.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		for _, d := range []string{sp.Dir(), sp.VaultDir()} {
+			if st, _ := os.Stat(d); st == nil || st.Mode().Perm() != 0o700 {
+				t.Errorf("%s : droits %v, 0700 attendu", d, st.Mode().Perm())
+			}
+		}
+	}
+	// sans fichier : aucun backend (ni host implicite, ni moteur détecté)
+	if bs, err := sp.LoadBackends(); err != nil || len(bs) != 0 {
+		t.Errorf("espace vide : %v, %v", bs, err)
+	}
+	if _, err := sp.SaveBackends([]byte("backends:\n  k:\n    type: k8s\n    namespace: ns\n"), time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	bs, err := sp.LoadBackends()
+	if err != nil || len(bs) != 1 || bs[0].Name != "k" {
+		t.Fatalf("backends : %v, %v", bs, err)
+	}
+	// conflit : le fichier a changé depuis l'ouverture
+	if _, err := sp.SaveBackends([]byte("backends: {}\n"), time.Time{}); !errors.Is(err, ErrConfigConflict) {
+		t.Errorf("conflit attendu : %v", err)
+	}
+	if err := sp.SaveSettings(UserSettings{GithubToken: "oauth", ClaudeOptions: "--x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := sp.SaveSettings(UserSettings{GithubToken: "jeton"}); err == nil {
+		t.Error("choix de jeton invalide accepté")
+	}
+	if err := sp.RecordTrace(Trace{Backend: "k", Kind: "k8s", Object: "o", Project: "p", Category: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	// aucune donnée projet : seuls les fichiers du contrat
+	ents, _ := os.ReadDir(sp.Dir())
+	for _, e := range ents {
+		switch n := e.Name(); {
+		case n == "backends.yaml", n == "backends.yaml.bak", n == "vault", n == "config.json", n == "traces.json",
+			strings.HasSuffix(n, ".lock"):
+		default:
+			t.Errorf("fichier hors contrat dans l'espace : %s", n)
+		}
+	}
+}
+
+func TestTracesSchemaEtPurge255(t *testing.T) {
+	dev255Env(t)
+	sp, _ := UserSpace("github-5")
+	t1 := Trace{Backend: "k", Kind: "k8s", Object: "sts-p", Project: "p", Category: "c"}
+	if err := sp.RecordTrace(t1); err != nil {
+		t.Fatal(err)
+	}
+	first, _ := sp.LoadTraces()
+	time.Sleep(5 * time.Millisecond)
+	_ = sp.RecordTrace(t1)
+	_ = sp.RecordTrace(Trace{Backend: "k2", Kind: "docker", Object: "o2", Project: "q", Category: "c"})
+	ts, _ := sp.LoadTraces()
+	if len(ts) != 2 || !ts[0].FirstSeen.Equal(first[0].FirstSeen) || !ts[0].LastSeen.After(first[0].LastSeen) {
+		t.Errorf("mise à jour d'une trace : %+v", ts)
+	}
+	b, _ := os.ReadFile(sp.TracesPath())
+	for _, k := range []string{`"backend"`, `"kind"`, `"object"`, `"project"`, `"category"`, `"first_seen"`, `"last_seen"`} {
+		if !strings.Contains(string(b), k) {
+			t.Errorf("champ %s absent de traces.json", k)
+		}
+	}
+	if n, err := sp.PurgeTrace("k", "p"); err != nil || n != 1 {
+		t.Errorf("PurgeTrace = %d, %v", n, err)
+	}
+	if n, _ := sp.PurgeBackendTraces("k2"); n != 1 {
+		t.Errorf("PurgeBackendTraces = %d", n)
+	}
+	if ts, _ = sp.LoadTraces(); len(ts) != 0 {
+		t.Errorf("traces restantes : %+v", ts)
+	}
+	if _, err := AdminSpace().PurgeTrace("k", "p"); err == nil {
+		t.Error("l'admin n'a pas de traces")
+	}
+}

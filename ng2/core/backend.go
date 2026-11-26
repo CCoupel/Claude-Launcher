@@ -449,8 +449,13 @@ func BackendsPath() string { return filepath.Join(Ng2ConfigDir(), "backends.yaml
 // LoadBackends : backends déclarés, triés (host en premier). Sans fichier :
 // host + les moteurs de conteneurs trouvés dans le PATH.
 func LoadBackends() ([]BackendConf, error) {
-	var f backendsFile
 	b, err := os.ReadFile(BackendsPath())
+	return loadBackendsData(b, err)
+}
+
+// loadBackendsData : LoadBackends sur le contenu (b, err) d'une lecture de backends.yaml.
+func loadBackendsData(b []byte, err error) ([]BackendConf, error) {
+	var f backendsFile
 	switch {
 	case err == nil:
 		if err := yaml.Unmarshal(b, &f); err != nil {
