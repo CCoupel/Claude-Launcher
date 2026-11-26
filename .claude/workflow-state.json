@@ -1,11 +1,11 @@
 {
   "type": "FEATURE",
   "description": "Milestone v7.0.0 — Accès authentifié du launcher (mono-utilisateur) : #172 #184 #251 #252 #253 #254",
-  "status": "in_progress",
+  "status": "completed",
   "branch": "milestone/v7.0.0",
   "version": "7.0.0",
   "started_at": "2026-11-25T14:35:00Z",
-  "updated_at": "2026-11-25T18:15:00Z",
+  "updated_at": "2026-11-26T13:00:26Z",
   "cycles": 0,
   "issue_nums": [
     172,
@@ -35,7 +35,7 @@
     "valide": "GATE 2"
   },
   "lots": {
-    "current": "LOT-3",
+    "current": null,
     "items": {
       "LOT-1": {
         "status": "completed",
@@ -99,5 +99,6 @@
     "deploy-prod": {
       "status": "pending"
     }
-  }
+  },
+  "note": "Reconcilie au /start-session 2026-11-26 : v7.0.0 publie (tag + release), issues DONE, branche fusionnee"
 }
