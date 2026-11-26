@@ -130,3 +130,4 @@
 | ng2/ui/desktop/prefix254_web_test.go | integration | web | Launcher derriere un sous-chemin : base href injecte, 308 de la base, 404 hors base, URLs emises avec la base, pages publiques, SSE, /files, Origin strict, X-Forwarded-Prefix ignore, refus d'un chemin invalide (#254) | feature | critical |
 | tests/integration/ui-web/auth-prefix-254/ | integration | web | E2E navigateur sans tete derriere un reverse proxy a sous-chemin : interface, SSE, deconnexion, session expiree, aucune requete hors de la base (#254) | feature | smoke |
 
+| tests/procedures/ui-desktop/fermeture-k8s-269-271/ | procedure | ui-desktop | Fermer / Forcer fermer un pod k8s ancien modele, _work/test-plan servi (#269, #271) | regression | |
