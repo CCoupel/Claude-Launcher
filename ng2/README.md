@@ -32,6 +32,7 @@ Vue d'ensemble, site et installation rapide : [README du repo](../README.md).
 | utiliser l'interface (onglets, cartes, raccourcis, interface web) | [interface.md](docs/interface.md) |
 | comprendre les versions, les mises à jour et le template | [versions.md](docs/versions.md) |
 | comprendre le code (structure, détection des changements) | [architecture.md](docs/architecture.md) |
+| comprendre l'étude multi-utilisateur (décisions, découpage v7.1 à v7.3, état après v7.0.0) | [saas.md](docs/saas.md) |
 | résoudre un problème | [depannage.md](docs/depannage.md) |
 | lancer les tests et mesurer | [tests.md](docs/tests.md) |
 

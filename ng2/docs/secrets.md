@@ -46,3 +46,25 @@ Le coffre est **en clair** sur la racine partagée, protégé par les seuls droi
 stockage partagé et ses administrateurs peuvent lire les clés. Choix de l'utilisateur au GATE 2 de la v6.5.0 ; l'audit de
 sécurité est reporté à la v7.0.0 (authentification). Pour un secret à ne jamais partager, utilisez un coffre local
 (`CL_SECRETS_DIR` hors racine) sur le poste concerné.
+
+## Coffre hors des pods projets (v7.0.0)
+
+Un pod projet Kubernetes ne monte plus que son dossier et `CLAUDE_CONFIG_DIR` (voir [kubernetes.md](kubernetes.md), §8b).
+Le dossier `<racine>/.config/claude-launcher-ng2/secrets/` lui est donc absent : une session claude ne peut pas lire les
+clés ssh, les `known_hosts` ni les kubeconfigs du coffre. Le coffre reste accessible au hub Linux et à l'exe Windows, comme
+avant.
+
+**« Pas de coffre dans les pods » ne veut pas dire « pas de jeton GitHub ».** `.claude/settings.json` (dans
+`CLAUDE_CONFIG_DIR`, monté dans les pods projets) contient les variables `GH_TOKEN` et `GITHUB_PERSONAL_ACCESS_TOKEN`,
+injectées volontairement depuis la v5.7.0 (hors périmètre de #253). Ces jetons sont donc lisibles par les sessions du pod.
+
+## Qui écrit le coffre (v7.0.0)
+
+Avec l'authentification activée (`auth.enabled: true`), **seul un administrateur** peut écrire dans le coffre : clé ssh,
+`known_hosts`, kubeconfig (`backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet`). Un `user` peut utiliser les
+secrets existants (déclarer ou tester un backend, sans les écrire) ; `backendSecretGet` ne renvoie jamais le contenu.
+Contrat : `contracts/auth.md` §4.
+
+Chaque écriture porte son auteur dans `<CacheDir>/secrets-journal.jsonl` : le champ `user` (login GitHub, ou `admin@local`
+pour le compte de secours), à côté de l'instance, de l'action et de l'empreinte. Le journal ne contient jamais le contenu.
+Les mêmes écritures apparaissent dans le journal d'audit (`audit.jsonl`, voir [kubernetes.md](kubernetes.md) §4b).

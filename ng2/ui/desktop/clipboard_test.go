@@ -255,10 +255,18 @@ func TestPasteBigLinesReadOnlyAndTooBig(t *testing.T) {
 // par morceau (mémoire retenue bornée), et rendent exactement les mêmes commandes.
 func TestPasteStreamsChunksWithoutMaterializing(t *testing.T) {
 	data := []byte(strings.Repeat("ligne de collage é€ — 0123456789\n", maxPaste/38+1)[:maxPaste])
-	var base runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&base)
-	var peak uint64
+	// Mesure indépendante de l'état du tas global (les autres tests du paquet et leurs goroutines le font varier de plusieurs Mo) :
+	// on compare des mesures prises après un GC forcé, pendant le flux, à des références prises avant ET après le flux (données
+	// toujours vivantes). Une matérialisation (≈ 100 Mo) garde TOUS les échantillons du flux très au-dessus des références, quel que
+	// soit le bruit ; un flux par morceaux les en laisse proches. Le plus petit échantillon écarte les pics passagers d'autres tests.
+	live := func() uint64 {
+		var m runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&m)
+		return m.HeapAlloc
+	}
+	before := live()
+	var samples []uint64
 	chunks, total := 0, 0
 	eachHexChunk(data, func(args []string) bool {
 		if len(args) == 0 || len(args) > hexChunkSize {
@@ -267,20 +275,26 @@ func TestPasteStreamsChunksWithoutMaterializing(t *testing.T) {
 		chunks++
 		total += len(args)
 		if chunks%1000 == 0 {
-			var m runtime.MemStats
-			runtime.GC()
-			runtime.ReadMemStats(&m)
-			peak = max(peak, m.HeapAlloc)
+			samples = append(samples, live())
 		}
 		return true
 	})
+	after := live()
+	runtime.KeepAlive(data)
 	if total != len(data) || chunks != (len(data)+hexChunkSize-1)/hexChunkSize {
 		t.Fatalf("%d octets en %d morceaux", total, chunks)
 	}
-	// données comprises (4 Mo) : la mémoire retenue en plus reste très en deçà de la
-	// matérialisation (millions de chaînes de 2 octets + en-têtes ≈ 100 Mo)
-	if grown := int64(peak) - int64(base.HeapAlloc); grown > 8<<20 {
-		t.Errorf("mémoire retenue pendant le flux : +%d Mo", grown>>20)
+	if len(samples) < 5 {
+		t.Fatalf("%d échantillons seulement (morceaux : %d) : mesure sans valeur", len(samples), chunks)
+	}
+	floor, ref := samples[0], min(before, after)
+	for _, v := range samples {
+		floor = min(floor, v)
+	}
+	// données comprises (4 Mo) : la mémoire retenue en plus reste très en deçà de la matérialisation (millions de chaînes de
+	// 2 octets + en-têtes ≈ 100 Mo)
+	if grown := int64(floor) - int64(ref); grown > 8<<20 {
+		t.Errorf("mémoire retenue pendant le flux : +%d Mo (échantillon le plus bas %d Mo, référence %d Mo)", grown>>20, floor>>20, ref>>20)
 	}
 	// mêmes commandes que la forme complète
 	small := []byte("a\x1bé\n" + strings.Repeat("z", 600))

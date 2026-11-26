@@ -7,15 +7,40 @@ Adresse : https://{{ .Values.ingress.host }}  (adresses admises : {{ join ", " .
 Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ include "cl.fullname" . }} 8080:8080
 {{- end }}
 
-{{- if eq (.Values.web.access | default "none") "none" }}
+{{- if .Values.auth.enabled }}
+Accès AUTHENTIFIÉ (oauth2-proxy, sidecar du pod) : le launcher n'écoute que sur la boucle locale du pod.
+{{- if .Values.auth.github.enabled }}
+Logins : copier ceux de GitHub tels qu'affichés (la casse compte pour oauth2-proxy ; le launcher l'ignore).
+Connexion GitHub : {{ len .Values.auth.admins }} administrateur(s), {{ len (.Values.auth.users | default list) }} utilisateur(s) ; Secret de l'application GitHub : {{ include "cl.githubSecretName" . }} (clés client-id, client-secret){{ if .Values.auth.existingSecret }} — le pod ne démarre pas s'il est absent.{{ else }} — créé par le chart depuis auth.github.clientId / clientSecret.
+ATTENTION : le secret de la GitHub App est dans les valeurs Helm (lisible par « helm get values », stocké dans le Secret de release) : préférer auth.existingSecret.{{ end }}
+{{- else }}
+Connexion GitHub DÉSACTIVÉE (auth.github.enabled: false) : seul le compte local ouvre l'interface.
+{{- end }}
+{{- if .Values.auth.existingSecret }}
+Secret {{ .Values.auth.existingSecret }} (hors chart) : s'il change, redémarrer le pod pour que les sidecars le relisent :
+  kubectl -n {{ .Release.Namespace }} rollout restart statefulset/{{ include "cl.fullname" . }}
+{{- end }}
+{{- if .Values.auth.localAdmin.enabled }}
+Compte local de secours « admin@local » (hôtes admis : {{ include "cl.localHosts" . }}, jamais depuis Internet). Mot de passe :
+  kubectl -n {{ .Release.Namespace }} get secret {{ include "cl.localAdminSecretName" . }} -o jsonpath='{.data.password}' | base64 -d
+  (rotation : supprimer ce Secret puis helm upgrade ; désactivation : auth.localAdmin.enabled: false)
+{{- else }}
+Compte local : désactivé.
+{{- end }}
+{{- if .Values.externalIngress.enabled }}
+Ingress externe : https://{{ .Values.externalIngress.host }}{{ .Values.externalIngress.pathPrefix }}{{ if .Values.externalIngress.pathPrefix }} (sous-chemin : le certificat de l'hôte partagé est réutilisé, aucun Certificat n'est créé par ce chart){{ end }} (adresse principale annoncée aux sessions claude) — GitHub seulement, sans liste d'adresses.
+{{- end }}
+Journal d'audit : <CL_CACHE_DIR>/audit.jsonl et sortie standard du conteneur launcher (lignes « audit … ») ; connexions : journal du conteneur auth-proxy.
+Avant de renommer ou supprimer un compte GitHub administrateur ou utilisateur : retirer son login de auth.admins / auth.users (un login libéré peut être recréé par un tiers).
+Rotation des accès locaux : supprimer les Secrets {{ include "cl.localAdminSecretName" . }}, {{ include "cl.cookieSecretName" . }}{{ if .Values.externalIngress.enabled }} et {{ include "cl.cookieSecretNameExt" . }}{{ end }} puis helm upgrade (sessions en cours invalidées).
+{{- else if eq (.Values.web.access | default "none") "none" }}
 Accès SANS jeton (web.access: none) : ouvrir https://{{ .Values.ingress.host | default "<hôte>" }}/ depuis une adresse admise.
-AUCUNE authentification en v6.4.0 (#172 : v7.0.0) : tout poste de la liste d'adresses de l'Ingress interne pilote les projets.
+AUCUNE authentification (auth.enabled: false) : tout poste de la liste d'adresses de l'Ingress interne pilote les projets ; configuration et secrets en lecture seule depuis l'interface (règle R1).
 {{- if .Values.networkPolicy.enabled }}
 NetworkPolicy active : entrée du pod seulement depuis {{ join ", " .Values.networkPolicy.ingressNamespaces }}{{ if .Values.networkPolicy.ingressCIDRs }} et {{ join ", " .Values.networkPolicy.ingressCIDRs }}{{ end }}.
 {{- else }}
 NetworkPolicy DÉSACTIVÉE : tout pod du cluster atteint le Service sans passer par l'Ingress.
 {{- end }}
-Ingress externe : non disponible (refusé au rendu avant l'authentification de v7.0.0).
 {{- else }}
 URL d'amorçage (web.access: token) : https://{{ .Values.ingress.host | default "<hôte>" }}/?t=<jeton> — le jeton n'est pas écrit dans le journal ;
 il est dans le dossier d'état du launcher (voir deploy.qualif.md / deploy.prod.md : lu sans être affiché).
@@ -24,4 +49,8 @@ il est dans le dossier d'état du launcher (voir deploy.qualif.md / deploy.prod.
 État : kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "cl.fullname" . }}
 Mise à jour : changer image.tag (l'ancien pod s'arrête avant le démarrage du nouveau).
 Désinstallation : helm uninstall {{ .Release.Name }} — ne touche ni au PVC, ni aux pods de projets, ni aux fichiers de la racine.
+{{- if .Values.auth.enabled }}
+Conservés à la désinstallation (helm.sh/resource-policy: keep) : Secrets {{ include "cl.cookieSecretName" . }}{{ if and .Values.auth.localAdmin.enabled (not .Values.auth.localAdmin.existingSecret) }} et {{ include "cl.localAdminSecretName" . }}{{ end }}.
+{{- else }}
 Non créé : Secret du jeton (avec web.access: token, le jeton reste dans le cache sur le volume partagé).
+{{- end }}

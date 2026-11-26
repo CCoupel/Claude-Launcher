@@ -14,3 +14,10 @@ spec:
       port: {{ .Values.service.port }}
       targetPort: http
       protocol: TCP
+    {{- if .Values.externalIngress.enabled }}
+    # instance auth-proxy-ext (sans compte local) : seule cible de l'Ingress externe (#254)
+    - name: http-ext
+      port: 8083
+      targetPort: http-ext
+      protocol: TCP
+    {{- end }}

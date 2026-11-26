@@ -1262,6 +1262,9 @@ type Found struct {
 	Running bool
 	Server  string // groupe de serveurs : serveur où le conteneur a été trouvé
 	Failed  bool   // devrait tourner mais n'y arrive pas (pod pas prêt, conteneur dead/restarting)
+	// OldMounts : pod k8s en marche au modèle de montage d'avant v7.0.0 (racines des
+	// volumes entières) : conservé jusqu'à sa réouverture (#253, P6)
+	OldMounts bool
 }
 
 // List : conteneurs NG2 du backend — de tous ses serveurs pour un groupe (#61) ;

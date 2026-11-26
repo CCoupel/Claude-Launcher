@@ -170,12 +170,13 @@ L'écart signalé plus tôt (schéma à `minimum: 0` face à une attente fixe) e
 grâce inférieur à 30 s, et l'arrêt est borné à 25 s. Les valeurs QUALIF et PROD n'écrivent pas cette valeur : elles
 ont le défaut de 30 s.
 
-## Piste v7.0.0 — authentification de l'ingress externe (#172, hors v6.4.0)
+## v7.0.0 — authentification (#172) **[CHANGED]**
 
-Étudiée au GATE 2 rev1 (plan `_work/reports/plan-20261117-163459.md`, « Comparaison des options »), **option A
-recommandée** : Traefik `forwardAuth` + oauth2-proxy (fournisseur GitHub, `--github-user` = un seul compte, cookie de
-session de 8 h, `/oauth2/sign_out`, `--whitelist-domain`), middlewares Traefik intégrés (aucun plugin : Traefik
-v3.7.18 du cluster n'en a pas d'activé), une OAuth App GitHub par environnement (URL de retour
-`https://<nom public>/oauth2/callback`). Le launcher resterait en `none`, et lirait `X-Auth-Request-User` sur l'hôte
-externe seulement (affichage, requêtes de confiance pour les secrets : règle R1, `contracts/backends-remote.md`).
-À reprendre au plan de v7.0.0, avec le modèle multi-utilisateur.
+La piste Traefik `forwardAuth` étudiée en v6.4.0 est **remplacée** par oauth2-proxy en sidecar du pod, le launcher en
+boucle locale (décision D2 du cadrage v7). Contrat : `contracts/auth.md` (mode `proxy`, identité, R1, audit, ingress
+externe) et `contracts/helm-values.md` « v7.0.0 ». En mode `proxy`, `/files` exige l'identité comme les autres routes ;
+le reste de ce contrat est inchangé.
+
+**[addendum 4]** Accès par sous-chemin (`externalIngress.pathPrefix`) : toutes les routes de ce contrat (`/files/…`,
+`/api/…`, `/healthz` excepté) sont servies sous `<base>` pour l'hôte externe ; le client web n'emploie que des chemins
+relatifs avec `<base href>` injecté — `contracts/auth.md` §9.

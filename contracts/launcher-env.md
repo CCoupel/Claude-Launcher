@@ -179,6 +179,11 @@ L'étape `get namespace` n'est pas jouée en cluster : elle exigerait un Cluster
 | `--no-open` | — | inchangé |
 | `--url <adresse publique>` | `CL_WEB_URL` | adresse publique derrière un proxy inverse — voir `contracts/desktop-web.md` |
 | — | `CL_WEB_ACCESS` | **NEW** (LOT-4.4) — mode d'accès de l'interface web : `token` (défaut) ou `none` (sans jeton, ni cookie, ni session). L'emporte sur `desktop_web.access`. `none` exige une écoute en boucle locale ou une adresse publique en `https` — voir `contracts/desktop-web.md` « Mode d'accès » |
+| — | `CL_WEB_ACCESS=proxy` | **NEW** (v7.0.0) — launcher de cluster derrière oauth2-proxy : identité par `X-Forwarded-User`, écoute en boucle locale exigée — `contracts/auth.md` §2 |
+| — | `CL_WEB_ADDR` | **NEW** (v7.0.0) — adresse d'écoute lue par `entrypoint.sh` (défaut `0.0.0.0:8080`) |
+| — | `CL_HEALTH_ADDR` | **NEW** (v7.0.0) — écoute séparée des sondes `/healthz` `/readyz` (vide : aucune) |
+| — | `CL_WEB_ALT_URLS` | **NEW** (v7.0.0) — autres adresses publiques https admises (virgules) |
+| — | `CL_AUTH_ADMINS`, `CL_AUTH_USERS` | **NEW** (v7.0.0) — logins GitHub des rôles `admin` et `user` (mode `proxy`) |
 
 **Sortie de démarrage en cluster** (`CL_IN_CLUSTER` ou détection automatique) : la sortie standard part dans les
 journaux du pod (`pods/log`, collecte) : **le jeton n'y est jamais imprimé**. Le lancement affiche l'adresse sans
@@ -200,7 +205,7 @@ restent ouverts dans leurs pods, comme à la fermeture de la fenêtre.
 | Fichiers | `deploy/image/Dockerfile`, `deploy/image/entrypoint.sh`, `.dockerignore` |
 | Contenu | binaire statique `claude-launcher-ng2`, `bash`, `git`, `gh`, `kubectl`, certificats racine. Pas de `claude`, pas de `tmux` |
 | Utilisateur | non root, uid:gid `1000:1000` par défaut, remplaçables par le chart (`runAsUser`, `runAsGroup`) |
-| Point d'entrée | `entrypoint.sh` : refuse de démarrer sans `CL_ROOT_BASE`, puis `exec claude-launcher-ng2 desktop --web --addr 0.0.0.0:8080 --no-open` (+ `--url` si `CL_WEB_URL`) |
+| Point d'entrée | `entrypoint.sh` : refuse de démarrer sans `CL_ROOT_BASE`, puis `exec claude-launcher-ng2 desktop --web --addr ${CL_WEB_ADDR:-0.0.0.0:8080} --no-open` (+ `--url` si `CL_WEB_URL`) — **[CHANGED]** v7.0.0 |
 | Variables fixées | `CL_UPDATE_MODE=notify`, `HOME=/home/launcher` (dossier inscriptible, non persistant) |
 | Port | `8080` |
 | Version | `claude-launcher-ng2 version` rend le tag de l'image |

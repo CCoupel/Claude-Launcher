@@ -1347,3 +1347,42 @@ Arguments : `{ "path": "<projet>", "agent": "<entrée du registre>", "model": "o
   `claude-launcher-ng2 team-set <projet> <agent> [model=<m>|model=default] [effort=<e>|effort=default]` (sortie : la ligne `note`,
   code 0 ; refus : message sur stderr, code 2), lancée par le menu `display-menu` de la carte (maquette retenue A) et
   utilisée par les tests.
+
+## v7.0.0 — identité et règle R1 (#251, #252)
+
+Contrat complet : `contracts/auth.md` §3 à §5. Résumé pour le client :
+
+### `init`, `clientInfo` **[CHANGED]**
+
+- Champ `user = {login, role, logout}` en mode `proxy` seulement (absent ailleurs). `clientInfo` rend
+  `{ "remote": true, "user": {…} }`.
+
+### Méthodes R1 **[CHANGED]**
+
+**[addendum 2]** Classement complet : `contracts/auth.md` §4 (R1 = `configSave`/`configApply` sur config globale ou
+champs R1 de `backends.yaml`, `backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet`, `relaunch`, `login` ;
+`quit` refusé en mode `proxy` ; méthode non classée = R1) : refus
+`{ "ok": false, "forbidden": "admin", "msg": "réservé à un administrateur authentifié (règle R1)" }` (sans `error`)
+pour un client web `proxy` de rôle `user` et pour tout client web en mode `none`. Le client grise ces actions quand
+`user.role` vaut `user`, ou quand le mode d'accès (`webui.access`) vaut `none` en mode serveur.
+
+### Réponse `401` **[NEW]**
+
+En mode `proxy`, `/api/call` et `/api/events` peuvent répondre `401` (session oauth2-proxy expirée) : bandeau
+« Session expirée — Se reconnecter » (rechargement de `/`), aucune nouvelle tentative automatique.
+
+## v7.0.0 — estimation approximative des quotas (#268)
+
+### `Snapshot.usage[]` (`UsageRow`) **[CHANGED]**
+
+- `approx` (booléen, **NEW**) : estimation sur échantillon court (`contracts/usage-levels.md` « Calcul ») ; alors
+  `resetLevel` et `alert` sont absents.
+- `estimate` (chaîne, **NEW**) : `"≈ épuisement ~HH:MM"` (heure locale, `FormatReset`) quand `approx` est vrai et que
+  l'épuisement projeté précède le renouvellement ; sinon absent. Affiché en gris (pas de couleur d'alerte), infobulle
+  « estimation approximative : échantillon court ». Coque tmux : même texte, couleur atténuée.
+
+### `init.access`, `user.session`, `user.kind` **[NEW addendum 2]**
+
+Voir `contracts/auth.md` « Précisions client » : `access = {mode, role, deny[], backendsAdminFields}` dans tous les modes
+du serveur web (absent dans la fenêtre native) — seule source du grisage côté client ; `configModel` marque les champs
+R1 de `backends.yaml` par `adminOnly: true`. `user.session = {duration, refresh}`, `user.kind = github | local`.

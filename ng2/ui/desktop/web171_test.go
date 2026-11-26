@@ -304,7 +304,8 @@ func TestEventsStreamProxyHeaders(t *testing.T) {
 
 func TestPublicURLValidationAndSources(t *testing.T) {
 	for _, bad := range []string{
-		"https://launcher.test/chemin", "https://launcher.test/?x=1", "https://launcher.test/#f",
+		"https://launcher.test/chemin", "https://launcher.test/claude-qualif", "https://launcher.test/Chemin", "https://launcher.test/a//b", "https://launcher.test/a/../b", "https://launcher.test/%2e%2e",
+		"https://launcher.test/a/", "https://launcher.test/a_b", "https://launcher.test/a?x=1", "https://launcher.test/?x=1", "https://launcher.test/#f",
 		"https://user:pw@launcher.test", "ftp://launcher.test", "launcher.test", "https://", "https://launcher.test:99999",
 	} {
 		t.Run(bad, func(t *testing.T) {
@@ -315,6 +316,11 @@ func TestPublicURLValidationAndSources(t *testing.T) {
 			w := l4WaitWebUI(t, a, "error", 8*time.Second)
 			if msg, _ := w["msg"].(string); msg == "" {
 				t.Errorf("erreur sans raison dans webUI.msg : %v", w)
+			} else if strings.Contains(bad, "/claude-qualif") || bad == "https://launcher.test/chemin" {
+				// un chemin valide n'est admis QU'en mode proxy (contrat §9) : hors proxy, refus qui le dit
+				if !strings.Contains(msg, "proxy") {
+					t.Errorf("refus du chemin hors mode proxy sans le dire : %q", msg)
+				}
 			}
 			if d183Reach(p) {
 				t.Errorf("l'interface écoute malgré une adresse publique invalide")

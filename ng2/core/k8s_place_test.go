@@ -11,6 +11,10 @@ import (
 // podSpecOf : spec du pod et conteneur principal du manifeste généré.
 func podSpecOf(t *testing.T, b BackendConf) (spec, ctr, ann map[string]any) {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", "/p/.claude")
+	if b.Volumes == nil {
+		b.Volumes = map[string]string{"/p": "pvc-p"}
+	}
 	raw, err := Engine{b}.k8sManifest("/p/proj", EnvSpec{Image: "debian:12"})
 	if err != nil {
 		t.Fatal(err)

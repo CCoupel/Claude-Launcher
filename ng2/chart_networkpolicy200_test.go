@@ -141,9 +141,9 @@ func TestChartIngressExterneRefuse200(t *testing.T) {
 	sub(e, "tls")["clusterIssuer"] = "letsencrypt-prod"
 	_, out, err := render(t, v)
 	if err == nil {
-		t.Fatal("externalIngress.enabled=true accepté : aucune authentification avant v7.0.0")
+		t.Fatal("externalIngress.enabled=true accepté avec auth.enabled: false")
 	}
-	for _, want := range []string{"ingress externe refusé", "v7.0.0"} {
+	for _, want := range []string{"ingress externe refusé", "authentification désactivée"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("le message ne contient pas %q :\n%s", want, out)
 		}

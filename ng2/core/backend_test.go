@@ -55,6 +55,9 @@ func TestCtrName(t *testing.T) {
 func withHome(t *testing.T) string {
 	t.Helper()
 	h := t.TempDir()
+	// nettoyage robuste (#270) : un outil lancé sous ce HOME (stockage de conteneurs, répertoires en mode 000) ne doit jamais faire
+	// échouer le RemoveAll de t.TempDir ; ce nettoyage, enregistré après lui, s'exécute AVANT lui
+	t.Cleanup(func() { makeWritable(h) })
 	t.Setenv("HOME", h)
 	winHome(t, h)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, "state"))
@@ -217,6 +220,7 @@ func TestLeaderRemoteContainerUnknown(t *testing.T) {
 }
 
 func TestK8sArgv(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", "/share/MFS/ROOT/.claude") // dans le volume (montage subPath, #253)
 	e := Engine{BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "ns", Volumes: map[string]string{"/share/MFS/ROOT": "pvc-a"}}}
 	a := e.ExecArgv("clx-p-1-0", true, false, "sh", "-s")
 	if strings.Join(a, " ") != "kubectl --context k8s -n ns exec -i clx-p-1-0 -c main -- sh -s" {
@@ -235,7 +239,7 @@ func TestK8sArgv(t *testing.T) {
 		t.Errorf("nom de pod : %s", k8sPod("/x/Demo Projet"))
 	}
 	m, err := e.k8sManifest("/share/MFS/ROOT/p", EnvSpec{Image: "debian:12"})
-	if err != nil || !strings.Contains(string(m), `"claimName":"pvc-a"`) || !strings.Contains(string(m), `"mountPath":"/share/MFS/ROOT"`) || !strings.Contains(string(m), `"cl.project":"/share/MFS/ROOT/p"`) {
+	if err != nil || !strings.Contains(string(m), `"claimName":"pvc-a"`) || !strings.Contains(string(m), `"mountPath":"/share/MFS/ROOT/p"`) || !strings.Contains(string(m), `"cl.project":"/share/MFS/ROOT/p"`) {
 		t.Errorf("manifeste : %v %s", err, m)
 	}
 }
@@ -363,6 +367,7 @@ func TestCtrHostIsProjectName(t *testing.T) {
 	if err != nil || !strings.Contains(strings.Join(a, " "), "--hostname "+ctrHost(proj)+" ") {
 		t.Errorf("runArgs hostname : %v %q", err, a)
 	}
+	t.Setenv("CLAUDE_CONFIG_DIR", "/share/MFS/ROOT/.claude")
 	k := Engine{BackendConf{Name: "lab", Type: "k8s", Context: "k8s", Namespace: "ns", Volumes: map[string]string{"/share/MFS/ROOT": "pvc-a"}}}
 	m, err := k.k8sManifest("/share/MFS/ROOT/Mon_Projet", EnvSpec{Image: "debian:12"})
 	if err != nil || !strings.Contains(string(m), `"name":"root-mon-projet"`) {
@@ -381,5 +386,23 @@ func TestLeaderLocalStoppedByProjectHost(t *testing.T) {
 	}
 	if leaderAliveIn(42, "autre-projet#pid:[1]") != platform.LeaderUnknown {
 		t.Error("projet inconnu des moteurs locaux : rien à conclure")
+	}
+}
+
+// makeWritable : rend l'arbre lisible, accessible et modifiable par le propriétaire (chmod -R u+rwX) avant sa suppression. Récursif
+// (chmod du dossier AVANT de le lire : filepath.Walk lit un dossier avant d'appeler sa fonction, il ne descend jamais dans un mode 000).
+func makeWritable(p string) {
+	fi, err := os.Lstat(p)
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	if !fi.IsDir() {
+		_ = os.Chmod(p, fi.Mode().Perm()|0o600)
+		return
+	}
+	_ = os.Chmod(p, fi.Mode().Perm()|0o700)
+	ents, _ := os.ReadDir(p)
+	for _, e := range ents {
+		makeWritable(filepath.Join(p, e.Name()))
 	}
 }

@@ -116,7 +116,7 @@ func (a *App) configSave(kind core.ConfigKind, project, content, mtime string) (
 }
 
 // errWebDesktopWeb : un client web ne modifie pas desktop_web (interface web, allow_lan).
-const errWebDesktopWeb = "les réglages desktop_web (interface web, allow_lan) et browser_server (serveur de fichiers) ne se modifient que depuis la fenêtre native"
+const errWebDesktopWeb = "les réglages desktop_web (interface web, allow_lan) et browser_server (serveur de fichiers), ainsi que le kubeconfig des backends, ne se modifient que depuis la fenêtre native"
 
 // configSaveAs : configSave ; web : appel d'un client web du processus de la fenêtre — il ne peut
 // pas modifier les réglages desktop_web (un client web rouvrirait l'interface sur le réseau).

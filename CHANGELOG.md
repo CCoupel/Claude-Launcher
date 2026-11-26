@@ -6,9 +6,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 Les changements de contrats (API, schémas) sont suivis à part dans `contracts/CHANGELOG.md`.
-## [Unreleased]
+## [7.0.0] — 2026-11-26
 
-## [6.9.0] — à publier
+### Changed
+- **[BREAKING] Pods projets Kubernetes** : un pod projet ne monte plus la racine partagée, seulement son dossier et `CLAUDE_CONFIG_DIR` (`subPath`). Le coffre des secrets, `backends.yaml`, `.kube` et `.cache` ne sont plus visibles depuis un pod projet. Le jeton de ServiceAccount n'est plus monté, sauf `pod.automountServiceAccountToken: true` dans `backends.yaml` ; un dossier de projet ou `CLAUDE_CONFIG_DIR` égal à la racine d'un volume est refusé (« stockage partagé … racine »), deux racines identiques avec des PVC différents donnent une erreur « deux PVC » (#253)
+- Pods projets en marche à l'ancien modèle : conservés jusqu'à la fermeture puis la réouverture du projet ; la carte et le diagnostic le signalent. Un pod arrêté est recréé au nouveau modèle (#253)
+- **[BREAKING] Authentification du launcher de cluster** : `auth.enabled` vaut `true` par défaut. Un sidecar oauth2-proxy (connexion GitHub, listes `auth.admins` / `auth.users`) se place devant le launcher ; `web.access` est imposé à `proxy` et ne se règle plus à la main. Compte local de secours `admin@local` (hôte interne seulement, mot de passe généré dans un Secret) ; limite d'essais Traefik sur `/oauth2/` ; page `429` (#172)
+- **[BREAKING] Rôles et règle R1** : `admin` gère le serveur et les options globales, le coffre des secrets des backends et les champs de `backends.yaml` qui touchent au pod ; `user` gère ses projets et ses backends. Une requête JSON à clés en double est refusée (#252)
+- Journal d'audit des appels (`audit.jsonl` et sortie du conteneur `launcher`, phrase `audit `), avec une ligne d'intention avant chaque action admin (#251)
+- Interface : identité et déconnexion dans le menu, grisage des actions réservées à l'admin, bandeau « session expirée » (#252)
+- Quotas : le niveau estimé (projection sur peu de données) s'affiche en gris (#268)
+
+### Fixed
+- Authentification : les logins GitHub de `auth.admins` / `auth.users` sont transmis à oauth2-proxy avec leur casse
+  (`--github-user` la compare en respectant la casse) ; le launcher les compare toujours sans casse. Une même identité sous
+  deux casses est refusée au rendu. Sans cela, une casse différente de celle de GitHub donnait une erreur de connexion (#172)
+
+## [6.9.0] — 2026-11-25
 
 ### Added
 - Carte TEAM : le modèle et l'effort de chaque teammate se règlent depuis la carte (fenêtre native : clic → menu ; coque tmux : clic sur la colonne → `display-menu`). Le réglage écrit le compagnon projet `.claude/agents/<agent>.md` et prend effet au prochain spawn (⟳ tant qu'un teammate tourne avec une autre valeur). Entrée « Défaut (template) » pour retirer la surcharge ; effort non pris en charge par le modèle grisé ; teamleader : `.claude/settings.json` réécrit aussi (#250)

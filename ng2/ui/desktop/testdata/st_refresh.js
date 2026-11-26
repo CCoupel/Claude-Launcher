@@ -16,6 +16,7 @@ const ctx = {
   document: { createElement: (t) => new N(t) }, console, window: {}, setTimeout, setInterval() {}, confirm: () => true,
   el: (t, c, x) => { const n = new N(t); if (c) n.className = c; if (x != null) n.append(String(x)); return n; },
   $: (id) => doc.byId[id] || (/box$/.test(id) ? undefined : new N('x')),
+  r1Gate: (x) => x, r1Admin: () => false, r1Denied: () => false, R1_TIP: '',
   call: (m) => new Promise((r) => pending.push(() => r(m === 'backendSecretGet'
     ? { hasKey: true, publicKey: 'ssh-ed25519 X', fingerprint: 'SHA256:z', hasKubeconfig: true, kubeContexts: ['k8s'], knownHosts: [] } : {}))),
 };

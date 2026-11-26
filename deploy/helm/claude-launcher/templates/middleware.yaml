@@ -1,4 +1,6 @@
-{{- if and .Values.ingress.enabled (eq .Values.ingress.controller "traefik") }}
+{{- $internal := and .Values.ingress.enabled (eq .Values.ingress.controller "traefik") -}}
+{{- $external := and .Values.externalIngress.enabled (eq (include "cl.extController" .) "traefik") -}}
+{{- if $internal }}
 # Traefik : seules les adresses de ingress.allowedSourceRanges atteignent le launcher.
 # Sans ipStrategy (choix délibéré) : Traefik compare l'adresse distante de la connexion TCP, jamais
 # X-Forwarded-For (falsifiable par le client). Prérequis : le Service de Traefik doit conserver l'adresse
@@ -12,8 +14,13 @@ metadata:
     {{- include "cl.labels" . | nindent 4 }}
 spec:
   ipAllowList:
+    # adresse de la connexion TCP, jamais X-Forwarded-For (profondeur 0, explicite)
+    ipStrategy:
+      depth: 0
     sourceRange:
       {{- toYaml .Values.ingress.allowedSourceRanges | nindent 6 }}
+{{- end }}
+{{- if or $internal $external }}
 ---
 # Traefik : HTTP redirigé vers HTTPS (sans effet sur une requête déjà en HTTPS)
 apiVersion: traefik.io/v1alpha1
@@ -26,4 +33,127 @@ spec:
   redirectScheme:
     scheme: https
     permanent: true
+{{- if .Values.auth.enabled }}
+---
+# Traefik : essais de connexion limités par adresse source sur /oauth2/ (#172) — average par minute, burst en rafale ;
+# dépassement : 429, page « Trop de tentatives » d'oauth2-proxy n'est pas rendue (réponse de Traefik)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-ratelimit
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  rateLimit:
+    average: {{ .Values.auth.rateLimit.average }}
+    period: 1m
+    burst: {{ .Values.auth.rateLimit.burst }}
+    sourceCriterion:
+      ipStrategy:
+        depth: 0
+---
+# Traefik : page « Trop de tentatives » — le 429 du rateLimit est remplacé par /too-many du launcher (route sans identité,
+# exemptée par oauth2-proxy) ; ce middleware doit ENCADRER le rateLimit (listé avant lui) pour intercepter son 429
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-errors
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  errors:
+    status: ["429"]
+    service:
+      name: {{ include "cl.fullname" . }}
+      port: http
+    query: /too-many
+---
+# Traefik : en-têtes de sécurité (HSTS, nosniff, Referrer-Policy ; jamais de CSP sur « / », voir /files) et en-tête Authorization retiré de la requête
+# (oauth2-proxy accepterait sinon « Authorization: Basic » avec le fichier htpasswd, hors limite de débit)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    stsSeconds: 31536000
+    stsIncludeSubdomains: false
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    # AUCUNE CSP ici : elle écraserait le CSP « sandbox » de /files/… (HTML de projet : origine opaque) ;
+    # frame-ancestors, X-Frame-Options et nosniff sont posés par le launcher lui-même
+---
+# Traefik : pages du proxy (/oauth2/…) — CSP stricte, sans script ni ressource externe
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers-oauth
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    stsSeconds: 31536000
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    contentSecurityPolicy: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
+{{- end }}
+{{- end }}
+{{- if $external }}
+{{- $pfx := .Values.externalIngress.pathPrefix | default "" }}
+---
+# Instance externe : page 429 servie par auth-proxy-ext (port http-ext), sous le sous-chemin public s'il y en a un
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-errors-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  errors:
+    status: ["429"]
+    service:
+      name: {{ include "cl.fullname" . }}
+      port: http-ext
+    query: {{ $pfx }}/too-many
+---
+# Instance externe : en-têtes de sécurité ; HSTS seulement quand l'hôte est dédié (un sous-chemin le ferait valoir pour tout l'hôte,
+# dont d'autres applications en http — P13) ; jamais de CSP sur « / » (sandbox de /files)
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    {{- if not $pfx }}
+    stsSeconds: 31536000
+    {{- end }}
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+---
+apiVersion: traefik.io/v1alpha1
+kind: Middleware
+metadata:
+  name: {{ include "cl.fullname" . }}-headers-oauth-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+spec:
+  headers:
+    customRequestHeaders:
+      Authorization: ""
+    {{- if not $pfx }}
+    stsSeconds: 31536000
+    {{- end }}
+    contentTypeNosniff: true
+    referrerPolicy: no-referrer
+    contentSecurityPolicy: "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'"
 {{- end }}

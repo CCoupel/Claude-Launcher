@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -97,8 +98,10 @@ func resolveDesktopWebFor(f backendsFile, host, goos string) (DesktopWebConf, er
 		merge(v.ov.DesktopWeb, v.src("desktop_web", true))
 	}
 	c := DesktopWebConf{Source: src, ListenSrc: src, URL: strings.TrimSpace(pubURL), Access: strings.TrimSpace(access)}
-	if a := c.Access; a != "" && a != AccessToken && a != AccessNone {
-		return DesktopWebConf{Off: true, Source: src, ListenSrc: src, URL: c.URL, Access: a}, fmt.Errorf("%s : access %q inconnu (token ou none attendu)", src, a)
+	if a := c.Access; a == AccessProxy && !InCluster() {
+		return DesktopWebConf{Off: true, Source: src, ListenSrc: src, URL: c.URL, Access: a}, fmt.Errorf("%s : accès proxy : réservé au launcher de cluster", src)
+	} else if a != "" && a != AccessToken && a != AccessNone && a != AccessProxy {
+		return DesktopWebConf{Off: true, Source: src, ListenSrc: src, URL: c.URL, Access: a}, fmt.Errorf("%s : access %q inconnu (token, none ou proxy attendu)", src, a)
 	}
 	listen = strings.TrimSpace(listen)
 	noListen := listen == "" || isOff(listen)
@@ -231,7 +234,7 @@ func DesktopWebChanged(oldContent, newContent []byte) bool {
 }
 
 // WebExposureChanged : les réglages des deux rubriques web — desktop_web (interface complète), browser_server
-// (fichiers en lecture seule), browser_paths et browser_device (chemins et appariement du serveur de maquettes) : défauts, machines, surcharges par système — de deux contenus
+// (fichiers en lecture seule), browser_paths et browser_device (chemins et appariement du serveur de maquettes) : défauts, machines, surcharges par système — et le kubeconfig de chaque backend (v7.0.0) — de deux contenus
 // de backends.yaml diffèrent. Un client web ne peut modifier ni l'un ni l'autre ; les autres réglages restent
 // permis. Contenu illisible : l'empreinte vide diffère, donc refus (fail-closed).
 func WebExposureChanged(oldContent, newContent []byte) bool {
@@ -268,6 +271,21 @@ func desktopWebPrint(content []byte) string {
 	}
 	sort.Strings(names)
 	var sb strings.Builder
+	// kubeconfig de chaque backend (chemin ou true, v7.0.0 R1) : un client web, même administrateur, ne le modifie pas
+	var bnames []string
+	for k := range f.Backends {
+		bnames = append(bnames, k)
+	}
+	sort.Strings(bnames)
+	for _, k := range bnames {
+		if kc := f.Backends[k].Kubeconfig; kc.set() {
+			v := kc.Path
+			if kc.Vault {
+				v = "true"
+			}
+			sb.WriteString("kubeconfig:" + k + "=" + v + ";")
+		}
+	}
 	sb.WriteString("defaults=" + one(f.Defaults.DesktopWeb, f.Defaults.BrowserServer, f.Defaults.BrowserPaths, ""))
 	for _, k := range names {
 		h := f.Hubs[k]
@@ -290,16 +308,29 @@ func desktopWebPrint(content []byte) string {
 
 // PublicURL : adresse publique d'une interface web derrière un proxy inverse, découpée.
 type PublicURL struct {
-	Origin string // schéma://hôte[:port] — l'origine exacte attendue pour cet hôte
+	Origin string // schéma://hôte[:port] — l'origine exacte attendue pour cet hôte (jamais de chemin : c'est celle d'Origin)
+	// Base : sous-chemin public (ex. « /claude-qualif », contracts/auth.md §9), sans « / » final ; "" = racine. Jamais retiré par le
+	// proxy : le launcher le retire à l'entrée et le remet dans toute URL qu'il émet.
+	Base   string
 	Scheme string // http ou https
 	Host   string // nom d'hôte en minuscules, sans port ni crochets
 	Port   string // port explicite de l'adresse, "" sinon
 }
 
+// URL : adresse complète (origine + base), sans « / » final.
+func (p PublicURL) URL() string { return p.Origin + p.Base }
+
+// basePathRE : sous-chemin public admis (segments en minuscules, sans « / » final, sans « // » ni « .. »).
+var basePathRE = regexp.MustCompile(`^/[a-z0-9-]+(/[a-z0-9-]+)*$`)
+
+// ValidBasePath : « /claude-qualif », « /a/b » ; pas de « / » final, de « // », de « .. » ni de majuscule.
+func ValidBasePath(p string) bool { return basePathRE.MatchString(p) }
+
 // HTTPS : le proxy termine le TLS — le cookie de session est alors Secure.
 func (p PublicURL) HTTPS() bool { return p.Scheme == "https" }
 
-// ParsePublicURL : « http(s)://hôte[:port] » — sans chemin, paramètres, fragment ni identifiants. Toute autre
+// ParsePublicURL : « http(s)://hôte[:port][/sous/chemin] » — sans paramètres, fragment ni identifiants ; le chemin éventuel est la base
+// (segments a-z 0-9 -, sans « / » final). Toute autre
 // forme est une erreur de réglage (l'interface web reste éteinte, la raison est dite). L'hôte est une adresse IP
 // littérale ou un nom RFC 1123 (lettres, chiffres, « - » et « . ») ; un nom internationalisé est converti en
 // punycode (c'est ce que le navigateur envoie dans Host et Origin) ; « % » et toute autre ponctuation sont
@@ -307,7 +338,7 @@ func (p PublicURL) HTTPS() bool { return p.Scheme == "https" }
 // navigateur ne le portent jamais.
 func ParsePublicURL(raw string) (PublicURL, error) {
 	bad := func(why string) (PublicURL, error) {
-		return PublicURL{}, fmt.Errorf("adresse publique %q invalide : %s (forme attendue : https://hôte[:port] ou http://hôte[:port], sans chemin ni paramètres)", raw, why)
+		return PublicURL{}, fmt.Errorf("adresse publique %q invalide : %s (forme attendue : https://hôte[:port][/sous-chemin] ou http://hôte[:port][/sous-chemin], sans paramètres)", raw, why)
 	}
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
@@ -320,8 +351,12 @@ func ParsePublicURL(raw string) (PublicURL, error) {
 		return bad("hôte manquant")
 	case u.User != nil:
 		return bad("identifiants interdits")
-	case u.Path != "" && u.Path != "/" || strings.Contains(raw, "?") || strings.Contains(raw, "#"):
-		return bad("chemin, paramètres et fragment interdits")
+	case strings.Contains(u.EscapedPath(), "%"):
+		return bad("« % » interdit dans le chemin (segments a-z 0-9 - sans encodage : %2f serait décodé en « / »)")
+	case strings.Contains(raw, "?") || strings.Contains(raw, "#"):
+		return bad("paramètres et fragment interdits")
+	case u.Path != "" && u.Path != "/" && !ValidBasePath(u.Path):
+		return bad("chemin invalide (segments en minuscules a-z 0-9 -, sans « / » final, sans « // » ni « .. »)")
 	case strings.Contains(u.Host, "%"):
 		return bad("« % » interdit dans l'hôte")
 	}
@@ -346,7 +381,11 @@ func ParsePublicURL(raw string) (PublicURL, error) {
 	if port != "" {
 		origin += ":" + port
 	}
-	return PublicURL{Origin: origin, Scheme: u.Scheme, Host: host, Port: port}, nil
+	base := ""
+	if u.Path != "/" {
+		base = u.Path
+	}
+	return PublicURL{Origin: origin, Base: base, Scheme: u.Scheme, Host: host, Port: port}, nil
 }
 
 // publicHost : hôte d'une adresse publique, en minuscules ASCII — IP littérale, ou nom RFC 1123 (punycode si
@@ -386,7 +425,8 @@ func (p PublicURL) MatchesHost(reqHost string) bool {
 	if err != nil {
 		h, port = strings.Trim(reqHost, "[]"), ""
 	}
-	return strings.EqualFold(strings.Trim(h, "[]"), p.Host) && port == p.Port
+	h = strings.TrimSuffix(strings.Trim(h, "[]"), ".") // point final retiré (m2)
+	return strings.EqualFold(h, p.Host) && port == p.Port
 }
 
 // ── Mode d'accès (LOT-4.4) ───────────────────────────────────────────────
@@ -408,10 +448,10 @@ func EffectiveWebAccess(conf DesktopWebConf) (string, error) {
 	switch v {
 	case "":
 		return AccessToken, nil
-	case AccessToken, AccessNone:
+	case AccessToken, AccessNone, AccessProxy:
 		return v, nil
 	}
-	return AccessToken, fmt.Errorf("%s : access %q inconnu (token ou none attendu)", src, v)
+	return AccessToken, fmt.Errorf("%s : access %q inconnu (token, none ou proxy attendu)", src, v)
 }
 
 // AccessNoneRefusal : le mode « none » n'est admis que sur une écoute en boucle locale SANS adresse publique, ou avec une
@@ -428,4 +468,67 @@ func AccessNoneRefusal(access string, loopback bool, pub *PublicURL) string {
 		return ""
 	}
 	return "accès sans jeton refusé : écoute réseau sans adresse publique en https"
+}
+
+// ── Champs R1 de backends.yaml (v7.0.0, contracts/auth.md §4) ──────────────────────────────────────────────────────
+
+// adminBackendKeys : clés d'un backend réservées à l'administrateur (ServiceAccount, volumes, machine hôte).
+var adminBackendKeys = []string{"kubeconfig", "context", "volumes", "namespace"}
+
+// adminPodKeys : clés de pod: réservées à l'administrateur.
+var adminPodKeys = []string{"serviceAccountName", "automountServiceAccountToken", "securityContext", "nodeName", "runtimeClassName",
+	"hostAliases", "dnsConfig", "dnsPolicy", "tolerations", "priorityClassName", "schedulerName", "imagePullSecrets"}
+
+// AdminFieldsChanged : les champs R1 de deux contenus de backends.yaml diffèrent — toutes les rubriques hors « backends: »,
+// et pour chaque backend : kubeconfig, context, volumes, namespace, type host, et les clés de pod sensibles. Contenu illisible :
+// vrai (échec fermé).
+func AdminFieldsChanged(oldContent, newContent []byte) bool {
+	a, okA := adminPrint(oldContent)
+	b, okB := adminPrint(newContent)
+	return !okA || !okB || a != b
+}
+
+func adminPrint(content []byte) (string, bool) {
+	var f map[string]any
+	if len(strings.TrimSpace(string(content))) > 0 {
+		if yaml.Unmarshal(content, &f) != nil {
+			return "", false
+		}
+	}
+	js := func(v any) string { b, _ := json.Marshal(v); return string(b) }
+	var keys []string
+	for k := range f {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	for _, k := range keys {
+		if k != "backends" {
+			sb.WriteString("top:" + k + "=" + js(f[k]) + ";")
+		}
+	}
+	bs, _ := f["backends"].(map[string]any)
+	var names []string
+	for n := range bs {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		be, _ := bs[n].(map[string]any)
+		if t, _ := be["type"].(string); t == "host" {
+			sb.WriteString("host:" + n + ";")
+		}
+		for _, k := range adminBackendKeys {
+			if v, ok := be[k]; ok {
+				sb.WriteString(n + "." + k + "=" + js(v) + ";")
+			}
+		}
+		pod, _ := be["pod"].(map[string]any)
+		for _, k := range adminPodKeys {
+			if v, ok := pod[k]; ok {
+				sb.WriteString(n + ".pod." + k + "=" + js(v) + ";")
+			}
+		}
+	}
+	return sb.String(), true
 }

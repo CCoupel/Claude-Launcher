@@ -2,6 +2,105 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261125] — v7.0.0 (correctif cycle 1 LOT-2, audit sécurité final et revue)
+
+- **[CHANGED]** audit `auth.md` §5 : toute action **R1** autorisée est précédée d'une ligne d'**intention** (`"phase":"intent"`,
+  champs `ts`, `user`, `role`, `src`, `method`, `target`, `ok: true`), puis de sa ligne de résultat habituelle (sans `phase`) ;
+  journal inaccessible : l'action est refusée. Refus R1 soumis à la rafale de 60/min ; `method` ≤ 64 (`unknown` si inconnue),
+  `target` et `project` ≤ 128 ; `src` garde la queue du `X-Forwarded-For` ; flux `/api/events` fermé après
+  `CL_AUTH_SESSION_REFRESH`.
+- **[CHANGED]** `auth.md` §4 : arguments JSON à clés égales (casse comprise) refusés ; `backendTest` : backend déclaré tel
+  quel ou nouveau sans champ R1, sinon R1 ; clés de pod R1 : + `tolerations`, `priorityClassName`, `schedulerName`,
+  `imagePullSecrets`.
+- **[CHANGED]** chart : aucune CSP sur la route `/` (préserve le `sandbox` de `/files`) ; `ingress.controller: nginx` refusé avec
+  le compte local.
+
+## [20261126] — v7.0.0 (addendum 4, LOT-3) : accès public par sous-chemin `coupel.net/claude-qualif`
+
+- **[NEW]** `externalIngress.pathPrefix` (validé, vide = comportement précédent) ; `CL_WEB_URL` admet un chemin (base) ;
+  le launcher retire et réinjecte la base (routes, `Location`, `user.logout`, `/files` des sessions) ; `<base href>`
+  injecté dans `index.html`.
+- **[CHANGED]** client web : chemins relatifs uniquement (plus de `/api/…` ni `location.href = '/'`).
+- **[CHANGED]** oauth2-proxy externe : `--proxy-prefix`, `--cookie-path`, cookie `__Secure-cl_auth_ext_<préfixe en tirets>`, `--redirect-url`
+  avec préfixe ; HSTS non posé avec un préfixe.
+- **[ADDED]** risques de l'origine partagée (`contracts/auth.md` §9) : XSS d'une autre application de `coupel.net` =
+  contrôle du launcher (P12), dépôt de cookie.
+
+## [20261125] — v7.0.0 (addendum 3, LOT-3) : identifiants GitHub en valeurs Helm
+
+- **[NEW]** `auth.github.clientId` / `auth.github.clientSecret` : le chart crée le Secret `<release>-github` ; exclusif
+  avec `auth.existingSecret` (conservé, recommandé) ; GitHub activé sans aucun des deux → refus. Valeurs réservées à
+  `PRIVATE/<ENV>/values-local.yaml` ; avertissement `helm get values` / `helm template` ; contrôle `scripts/ci.sh` contre
+  un `clientSecret` dans un fichier suivi par git — `helm-values.md` « v7.0.0 ».
+
+## [20261125] — v7.0.0 (addendum 2) : R1 recentrée sur le serveur, corrections de sécurité (revue du modèle de menace)
+
+- **[BREAKING]** (par rapport au plan) R1 = **serveur et options globales** (décision utilisateur) : `config.conf`,
+  `env.yaml` du launcher, `hub`, champs R1 de `backends.yaml` (rubriques globales ; `kubeconfig`, `context`, `volumes`,
+  `namespace`, `type: host`, clés `pod.` de ServiceAccount, sécurité et placement d'hôte), écriture du coffre,
+  `relaunch`, `login`. Un `user` garde `create`, `projectSettings`, `projectApply`, `execApply`, `envTrustAnswer`,
+  `initProposalAnswer`, `projectMove*`, `categoryCreate`, `backendHostScan`, le reste de `backends.yaml`. `quit` refusé en
+  mode `proxy`. Méthode non classée = R1 (test) — `contracts/auth.md` §4.
+- **[CHANGED]** refus de démarrage et de rendu : mode `proxy` + `CL_ALLOW_HOST_BACKEND` ; `RemoteAddr` en boucle locale
+  contrôlé à chaque requête ; comparaison d'hôtes normalisée (m2).
+- **[CHANGED]** audit : doublé sur la sortie standard, 5 générations de 10 Mio, agrégation au-delà de 60 appels/min hors
+  R1, entrées `deny` (401/403), `target` court, `src` borné à 256 octets, `encoding/json` seul — `auth.md` §5.
+- **[CHANGED]** chart : middleware `headers` (retrait d'`Authorization`, en-têtes de sécurité), `ipStrategy` profondeur 0,
+  cookies et Secrets distincts par instance (`__Host-_cl_auth_ext`, sans sous-chemin), Service/NetworkPolicy `http-ext`, `allowHostBackend`
+  refusé avec l'auth, bcrypt `$2a|$2b|$2y$` ; arguments oauth2-proxy explicites (m4) — `helm-values.md` « v7.0.0 ».
+- **[NEW]** `init.access` / `clientInfo.access` `{mode, role, deny[], backendsAdminFields}` (grisage reçu du serveur,
+  plus de liste en dur), `configModel` `adminOnly`, `user.session {duration, refresh}`, `user.kind` ; routes Go
+  embarquées `GET /signed-out` et `GET /too-many` ; chart : `sign_in.local-only.html` monté comme `sign_in.html` si
+  GitHub désactivé, ConfigMap externe distincte, middleware `errors` 429 → `/too-many` (réserves dev-frontend 4421a97).
+- **[ADDED]** risques acceptés écrits : login GitHub renommable (MAJ-5, `CL_AUTH_ADMIN_IDS` en v7.1.0), mot de passe local
+  dans le Secret de release Helm, session non révocable avant expiration, pouvoir d'exécution d'un `user` (m9).
+
+## [20261125] — v7.0.0 (addendum LOT-2) : estimation d'épuisement des quotas (#268, bugfix)
+
+- **[CHANGED]** `contracts/usage-levels.md` « Calcul » : projection calculée à chaque mise à jour du compteur, session
+  et hebdomadaires, sans délai d'attente ; garde-fous techniques seuls (`p` ≤ 0, temps écoulé ≤ 0, `resets_at`
+  invalide/passé) ; échantillon court (< 30 min session, < 3 h hebdo, ou `p` < 3 %) → estimation **approximative** sans
+  couleur (plus de rouge sur un échantillon court). `exhausts_at` n'est plus `null` sur un échantillon court.
+- **[NEW]** champ `approx` (booléen) de `windows[]` (schéma reste `1` : ajout rétrocompatible, absent = `false`) ;
+  `UsageRow.approx` et `UsageRow.estimate` (« ≈ épuisement ~HH:MM ») pour l'interface (`contracts/desktop-dispatch.md`).
+- Consommateur (panneau du template #160) : un ancien panneau voit `exhausts_at` renseigné avec `level` = `null` ; il
+  n'affiche pas de couleur (comportement inchangé).
+
+## [20261125] — v7.0.0 (plan rev1, GATE 2) : compte local de secours, GitHub App, ingress externe sans compte local
+
+- **[NEW]** compte `admin@local` (rôle admin) par le fichier htpasswd d'oauth2-proxy : `auth.localAdmin.enabled`
+  (défaut vrai, P9), mot de passe généré (Secret `<release>-local-admin`, P11) ou `auth.localAdmin.existingSecret`
+  (bcrypt), `auth.localAdmin.hosts` (hôte interne seul, P10) ; `CL_AUTH_LOCAL_ADMIN_HOSTS` ; page de connexion
+  affichée (M7) — `contracts/auth.md` §8.
+- **[NEW]** `auth.github.enabled` (false permis avec le compte local) ; `cookie-secret` généré par le chart
+  (`auth.existingSecret` ne porte plus que `client-id` / `client-secret`).
+- **[CHANGED]** P8 : GitHub App (plusieurs URL de retour) au lieu d'une OAuth App ; second sidecar `auth-proxy-ext`
+  (port 8083, sans compte local) derrière l'ingress externe.
+- **[CHANGED]** `auth.admins` obligatoire seulement si `auth.github.enabled`.
+
+## [20261125] — v7.0.0 (plan) : accès authentifié du launcher de cluster (#172, #251, #252, #253, #254)
+
+- **[BREAKING]** chart : `auth.enabled` **vrai par défaut** (P1) — `auth.existingSecret` (OAuth App GitHub) et
+  `auth.admins` deviennent obligatoires ; une installation v6.x mise à jour sans eux échoue au rendu
+  (`contracts/helm-values.md` « v7.0.0 »).
+- **[BREAKING]** mode serveur authentifié : plus de jeton ni de cookie du launcher, identité par oauth2-proxy (sidecar),
+  launcher en boucle locale `127.0.0.1:8081`, sondes sur `8082` ; nouveau mode `CL_WEB_ACCESS=proxy`
+  (`contracts/auth.md` §2). `web.access` posé avec `auth.enabled` → refus.
+- **[BREAKING]** règle R1 : 12 méthodes d'écriture refusées (`{ok:false, forbidden:"admin"}`) pour un client web
+  `proxy` de rôle `user` et pour tout client web en `none` (cluster sans authentification = réglages en lecture seule
+  depuis l'interface) ; la clé `kubeconfig` entre dans `WebExposureChanged` (`contracts/auth.md` §4,
+  `contracts/backends-remote.md` « v7.0.0 »).
+- **[BREAKING]** pods projets k8s : seuls le dossier du projet et `CLAUDE_CONFIG_DIR` montés (`subPath`), plus de jeton
+  de ServiceAccount (`automountServiceAccountToken: false`) ; annotation `cl.mounts: "v2"` ; pod en marche conservé
+  jusqu'à sa réouverture (P5, P6).
+- **[CHANGED]** `externalIngress.enabled` activable (refusé si `auth.enabled: false`, émetteur interne refusé) ;
+  `CL_WEB_URL` = hôte externe s'il est activé, `CL_WEB_ALT_URLS` = hôte interne (P7).
+- **[NEW]** `init.user` / `clientInfo.user` `{login, role, logout}` ; réponse `401` de session expirée ; page
+  `/signed-out` ; journal `<CacheDir>/audit.jsonl` (méthodes fréquentes agrégées par minute, P3) ; champ `user` du
+  journal des secrets ; variables `CL_WEB_ADDR`, `CL_HEALTH_ADDR`, `CL_WEB_ALT_URLS`, `CL_AUTH_ADMINS`, `CL_AUTH_USERS` ;
+  valeurs `auth.*`, ConfigMap des gabarits oauth2-proxy, `rateLimit` sur `/oauth2/`.
+- Hub Linux, exe Windows, fenêtre native : **aucun changement**.
+
 ## [20261125] — v6.9.0 (plan, révisé GATE 2) : modèle et effort des teammates (#250)
 
 - **[NEW]** méthode `teamAgentSet` `{path, agent, model, effort}` : surcharge écrite dans le frontmatter du compagnon

@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"claude-launcher-ng2/internal/tun"
+	"context"
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -51,8 +53,15 @@ type webBridge struct {
 	// Host (sur son port), son origine exacte dans Origin, https y rend le cookie Secure. Aucun en-tête
 	// X-Forwarded-*, Forwarded ni X-Real-IP n'est lu : le schéma et l'hôte publics ne viennent que de là.
 	public *core.PublicURL
-	// access : « none » — aucun jeton, aucune session, aucun cookie (LOT-4.4) ; "" ou « token » : jeton, session, cookie
+	// access : « none » — aucun jeton, aucune session, aucun cookie (LOT-4.4) ; « proxy » — idem, l'identité vient d'oauth2-proxy
+	// (v7.0.0) ; "" ou « token » : jeton, session, cookie
 	access string
+	// mode proxy (v7.0.0, contracts/auth.md) : listes de logins, adresses publiques supplémentaires (CL_WEB_ALT_URLS), journal d'audit
+	auth  core.AuthConf
+	alts  []core.PublicURL
+	audit *core.Audit
+	// healthSeparate : les sondes sont servies par un port dédié (CL_HEALTH_ADDR) ; l'écoute principale n'en sert plus
+	healthSeparate bool
 
 	mu        sync.Mutex           // jeton et sessions (authentification, appels)
 	lastStamp time.Time            // dernière date attribuée à une session (strictement croissante : voir stamp)
@@ -76,6 +85,93 @@ var maxSubscribers = tun.Of(32)
 
 // sseWriteTimeout : échéance de chaque envoi d'évènement ; au-delà (connexion figée) le flux est fermé.
 var sseWriteTimeout = tun.Of(10 * time.Second)
+
+// noToken : aucun jeton, aucune session ni cookie du launcher (modes « none » et « proxy »).
+func (w *webBridge) noToken() bool {
+	return w.access == core.AccessNone || w.access == core.AccessProxy
+}
+
+// matchesPublic : l'en-tête Host désigne l'adresse publique principale ou l'une des adresses supplémentaires.
+func (w *webBridge) matchesPublic(host string) bool {
+	if w.public != nil && w.public.MatchesHost(host) {
+		return true
+	}
+	for _, a := range w.alts {
+		if a.MatchesHost(host) {
+			return true
+		}
+	}
+	return false
+}
+
+// baseFor : sous-chemin public (base) de l'adresse publique dont l'hôte est celui de la requête ; "" : racine (hôte interne,
+// loopback, hub). contracts/auth.md §9.
+func (w *webBridge) baseFor(host string) string {
+	if w.public != nil && w.public.MatchesHost(host) {
+		return w.public.Base
+	}
+	for _, a := range w.alts {
+		if a.MatchesHost(host) {
+			return a.Base
+		}
+	}
+	return ""
+}
+
+type baseKey struct{}
+
+// baseOf : base de la requête (posée par secured ; "" si aucune).
+func baseOf(r *http.Request) string {
+	b, _ := r.Context().Value(baseKey{}).(string)
+	return b
+}
+
+// baseWriter : remet la base dans tout « Location » absolu-chemin émis par le routeur ou un gestionnaire (redirections de
+// http.Redirect, de ServeMux, du serveur de fichiers) : le launcher travaille sans la base, le navigateur la voit.
+type baseWriter struct {
+	http.ResponseWriter
+	base string
+}
+
+func (b *baseWriter) WriteHeader(code int) {
+	if loc := b.Header().Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, "//") && !strings.HasPrefix(loc, b.base+"/") {
+		b.Header().Set("Location", b.base+loc)
+	}
+	b.ResponseWriter.WriteHeader(code)
+}
+
+func (b *baseWriter) Flush() {
+	if f, ok := b.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (b *baseWriter) Unwrap() http.ResponseWriter { return b.ResponseWriter }
+
+var (
+	reBaseTag = regexp.MustCompile(`(?i)<base\s[^>]*>`)
+	reHeadTag = regexp.MustCompile(`(?i)<head[^>]*>`)
+)
+
+// injectBase : <base href="<base>/"> inséré dans la page HTML (après <head>, sinon en tête) ; un <base> existant est remplacé.
+func injectBase(page []byte, base string) []byte {
+	tag := []byte(`<base href="` + base + `/">`)
+	if reBaseTag.Match(page) {
+		return reBaseTag.ReplaceAll(page, tag)
+	}
+	if i := reHeadTag.FindIndex(page); i != nil {
+		return append(append(append([]byte{}, page[:i[1]]...), tag...), page[i[1]:]...)
+	}
+	return append(append([]byte{}, tag...), page...)
+}
+
+type ctxKey struct{}
+
+// identityOf : identité posée par le contrôle du mode proxy (nil ailleurs).
+func identityOf(r *http.Request) *core.Identity {
+	id, _ := r.Context().Value(ctxKey{}).(*core.Identity)
+	return id
+}
 
 // setToken : nouveau jeton ; sessions et flux ouverts révoqués.
 func (w *webBridge) setToken(t string) {
@@ -249,7 +345,7 @@ func (w *webBridge) emit(name string, data any) {
 // jeton de l'URL. Les appels (/api/call, /api/events) n'acceptent que le cookie :
 // le jeton d'une URL traîne dans l'historique, les journaux et l'en-tête Referer.
 func (w *webBridge) authorized(r *http.Request, allowQuery bool) bool {
-	if w.access == core.AccessNone { // aucun jeton : l'accès repose sur l'écoute, l'Ingress et les contrôles Host / origine / JSON
+	if w.noToken() { // aucun jeton : l'accès repose sur l'écoute, l'Ingress et les contrôles Host / origine / JSON
 		return true
 	}
 	if c, err := r.Cookie(w.cookieName(r)); err == nil && c.Value != "" && w.validSession(c.Value) {
@@ -267,7 +363,7 @@ func (w *webBridge) sameOrigin(r *http.Request) bool {
 	case "cross-site": // le navigateur déclare une requête d'un autre site : refusée (les deux modes)
 		return false
 	case "same-site": // un autre sous-domaine du même site : refusé en mode « none » (aucun jeton ne le distingue)
-		if w.access == core.AccessNone {
+		if w.noToken() {
 			return false
 		}
 	} // same-origin, none (navigation de l'utilisateur) ou absent : règles habituelles (Origin, corps JSON)
@@ -277,6 +373,11 @@ func (w *webBridge) sameOrigin(r *http.Request) bool {
 	}
 	if w.public != nil && w.public.MatchesHost(r.Host) { // hôte public : l'origine de l'adresse publique, exactement
 		return strings.EqualFold(o, w.public.Origin)
+	}
+	for _, a := range w.alts { // autre adresse publique (CL_WEB_ALT_URLS) : son origine exacte
+		if a.MatchesHost(r.Host) {
+			return strings.EqualFold(o, a.Origin)
+		}
 	}
 	return strings.EqualFold(o, "http://"+r.Host)
 }
@@ -290,7 +391,7 @@ func jsonRequest(r *http.Request) bool {
 
 // hostOK : l'en-tête Host désigne bien la boucle locale (et le port d'écoute).
 func (w *webBridge) hostOK(r *http.Request) bool {
-	if w.public != nil && w.public.MatchesHost(r.Host) { // nom de l'adresse publique, sur son port
+	if w.matchesPublic(r.Host) { // nom d'une adresse publique, sur son port
 		return true
 	}
 	if w.hosts != nil {
@@ -316,28 +417,141 @@ func (w *webBridge) secured(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
 		// sondes du cluster : sans session, SANS contrôle de Host (elles appellent l'adresse du pod), et sans aucune
 		// information (ni version, ni nom, ni état des projets)
-		if (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") && (r.Method == http.MethodGet || r.Method == http.MethodHead) {
-			rw.Header().Set("Cache-Control", "no-store")
-			rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
-			if r.URL.Path == "/readyz" && w.app != nil && !w.app.ready.Load() {
-				rw.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = io.WriteString(rw, "starting\n")
-				return
-			}
-			_, _ = io.WriteString(rw, "ok\n")
+		if !w.healthSeparate && w.isHealth(r) {
+			w.serveHealth(rw, r)
 			return
 		}
 		if !w.hostOK(r) {
 			refuse(rw, "host", "hôte refusé")
 			return
 		}
+		// sous-chemin public (contracts/auth.md §9) : la base de l'hôte de la requête est retirée avant le routeur (le proxy ne la
+		// retire jamais), les « Location » la retrouvent ; hors de la base : 404 ; la base seule : 308 vers « <base>/ »
+		if base := w.baseFor(r.Host); base != "" {
+			p := r.URL.Path
+			switch {
+			case p == base:
+				loc := base + "/"
+				if r.URL.RawQuery != "" {
+					loc += "?" + r.URL.RawQuery
+				}
+				http.Redirect(rw, r, loc, http.StatusPermanentRedirect)
+				return
+			case strings.HasPrefix(p, base+"/"):
+				u := *r.URL
+				u.Path = p[len(base):]
+				if u.RawPath != "" {
+					if strings.HasPrefix(u.RawPath, base+"/") {
+						u.RawPath = u.RawPath[len(base):]
+					} else {
+						u.RawPath = ""
+					}
+				}
+				r2 := r.WithContext(context.WithValue(r.Context(), baseKey{}, base))
+				r2.URL = &u
+				r = r2
+				rw = &baseWriter{ResponseWriter: rw, base: base}
+			default:
+				http.NotFound(rw, r)
+				return
+			}
+		}
 		h := rw.Header()
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("X-Frame-Options", "DENY")
 		h.Set("Content-Security-Policy", "frame-ancestors 'none'")
+		if w.access == core.AccessProxy && !publicStatic(r) { // identité exigée partout sauf santé, /signed-out et /too-many
+			// seul le sidecar (même espace réseau que le pod) est un client : toute autre source est refusée à CHAQUE requête
+			if !loopbackSource(r.RemoteAddr) {
+				w.auditDeny(r, "", http.StatusForbidden)
+				rw.Header().Set("X-Launcher-Refusal", "source")
+				http.Error(rw, "source refusée", http.StatusForbidden)
+				return
+			}
+			id, why := w.auth.Identify(r.Header.Values("X-Forwarded-User"), r.Host)
+			if why != "" {
+				code := http.StatusUnauthorized
+				if why == core.RefusalUser {
+					code = http.StatusForbidden
+				}
+				w.auditDeny(r, strings.TrimSpace(r.Header.Get("X-Forwarded-User")), code)
+				refuseIdentity(rw, why)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, &id))
+		}
 		next.ServeHTTP(rw, r)
 	})
+}
+
+// isHealth : sonde du cluster (GET ou HEAD /healthz, /readyz).
+func (w *webBridge) isHealth(r *http.Request) bool {
+	return (r.URL.Path == "/healthz" || r.URL.Path == "/readyz") && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
+// serveHealth : réponse des sondes, sans session, SANS contrôle de Host (elles appellent l'adresse du pod), et sans aucune
+// information (ni version, ni nom, ni état des projets).
+func (w *webBridge) serveHealth(rw http.ResponseWriter, r *http.Request) {
+	rw.Header().Set("Cache-Control", "no-store")
+	rw.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	if r.URL.Path == "/readyz" && w.app != nil && !w.app.ready.Load() {
+		rw.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = io.WriteString(rw, "starting\n")
+		return
+	}
+	_, _ = io.WriteString(rw, "ok\n")
+}
+
+// healthHandler : port de santé dédié (CL_HEALTH_ADDR) — /healthz et /readyz seulement, toute autre route : 404 vide.
+func (w *webBridge) healthHandler() http.Handler {
+	return http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		if w.isHealth(r) {
+			w.serveHealth(rw, r)
+			return
+		}
+		rw.WriteHeader(http.StatusNotFound)
+	})
+}
+
+// publicStatic : pages statiques servies sans identité (mode proxy) : /signed-out et /too-many.
+func publicStatic(r *http.Request) bool { return signedOutRoute(r) || tooManyRoute(r) }
+
+func tooManyRoute(r *http.Request) bool {
+	return r.URL.Path == "/too-many" && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
+// loopbackSource : la connexion vient de la boucle locale (sidecar du pod).
+func loopbackSource(remote string) bool {
+	h, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		h = remote
+	}
+	ip := net.ParseIP(strings.Trim(h, "[]"))
+	return ip != nil && ip.IsLoopback()
+}
+
+// auditDeny : refus d'identité (401, 403) du launcher, agrégé par minute dans le journal d'audit.
+func (w *webBridge) auditDeny(r *http.Request, login string, code int) {
+	if w.audit != nil {
+		_ = w.audit.Deny(login, code)
+	}
+}
+
+// signedOutRoute : page /signed-out (statique, sans identité, exemptée par le proxy).
+func signedOutRoute(r *http.Request) bool {
+	return r.URL.Path == "/signed-out" && (r.Method == http.MethodGet || r.Method == http.MethodHead)
+}
+
+// refuseIdentity : 401 (identité absente ou invalide) ou 403 (login non autorisé), cause dans X-Launcher-Refusal.
+func refuseIdentity(rw http.ResponseWriter, why string) {
+	rw.Header().Set("X-Launcher-Refusal", why)
+	rw.Header().Set("Cache-Control", "no-store")
+	if why == core.RefusalIdentity {
+		http.Error(rw, core.MsgNoIdentity, http.StatusUnauthorized)
+		return
+	}
+	http.Error(rw, core.MsgUserDenied, http.StatusForbidden)
 }
 
 // refuse : 403 dont la cause se lit dans l'en-tête X-Launcher-Refusal (host, origin, session, method) et dans le
@@ -354,7 +568,7 @@ func (w *webBridge) handler() http.Handler {
 	mux.HandleFunc("/", func(rw http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
 			_, hasToken := r.URL.Query()["t"]
-			if w.access == core.AccessNone { // aucun jeton : « /?t=… » (ancien lien) aboutit sur l'interface, sans cookie
+			if w.noToken() { // aucun jeton : « /?t=… » (ancien lien) aboutit sur l'interface, sans cookie
 				if hasToken {
 					rw.Header().Set("Cache-Control", "no-store")
 					http.Redirect(rw, r, "/", http.StatusSeeOther)
@@ -364,7 +578,7 @@ func (w *webBridge) handler() http.Handler {
 				refuse(rw, "session", "jeton manquant ou invalide : ouvrir l'URL affichée au lancement")
 				return
 			}
-			if hasToken && w.access != core.AccessNone {
+			if hasToken && !w.noToken() {
 				// le jeton de l'URL est échangé contre un identifiant de session aléatoire, en mémoire, révoqué à
 				// l'arrêt du serveur ou à la régénération du jeton : le cookie ne porte jamais le jeton. Aucune page
 				// n'est servie sur une URL qui porte le jeton (historique, journaux, Referer) : 303 vers « / ».
@@ -378,6 +592,13 @@ func (w *webBridge) handler() http.Handler {
 			}
 		}
 		rw.Header().Set("Cache-Control", "no-store")
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" { // <base href> : le client n'emploie que des chemins relatifs
+			if b, err := fs.ReadFile(assets, "index.html"); err == nil {
+				rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = rw.Write(injectBase(b, baseOf(r)))
+				return
+			}
+		}
 		files.ServeHTTP(rw, r)
 	})
 	// fichiers des projets (#174) : même serveur que celui des maquettes, sous /files ; sans session en mode « none » (la
@@ -391,17 +612,43 @@ func (w *webBridge) handler() http.Handler {
 		// ressources relatives partent donc « cross-site ». Sans danger : nosniff (un script ou une feuille de style ne
 		// se charge qu'avec un type MIME qui convient), aucune lecture possible sans CORS (jamais d'en-tête
 		// Access-Control-*), et les éléments sensibles ne sont jamais servis.
-		if site := r.Header.Get("Sec-Fetch-Site"); (site == "cross-site" || site == "same-site" && w.access == core.AccessNone) &&
+		if site := r.Header.Get("Sec-Fetch-Site"); (site == "cross-site" || site == "same-site" && w.noToken()) &&
 			!filesSubresource(r.Header.Get("Sec-Fetch-Dest")) && !filesNavigation(r.Header.Get("Sec-Fetch-Dest"), r.Header.Get("Sec-Fetch-Mode")) {
 			refuse(rw, "origin", "origine refusée")
 			return
 		}
-		if w.access != core.AccessNone && !strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/__claude-launcher__") && !w.authorized(r, false) {
+		if !w.noToken() && !strings.HasPrefix(r.URL.Path, core.FilesPrefix+"/__claude-launcher__") && !w.authorized(r, false) {
 			refuse(rw, "session", "session absente ou expirée : rouvrir le lien d'accès")
 			return
 		}
+		w.auditRecord(r, identityOf(r), "files", filesProject(r.URL.Path), true, "")
 		filesH.ServeHTTP(rw, r)
 	}
+	// page de déconnexion (mode proxy, contracts/auth.md §2) : statique, sans identité ni appel /api
+	mux.HandleFunc("/signed-out", func(rw http.ResponseWriter, r *http.Request) {
+		if w.access != core.AccessProxy || r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(rw, r)
+			return
+		}
+		rw.Header().Set("Cache-Control", "no-store")
+		if b, err := fs.ReadFile(assets, "signed-out.html"); err == nil {
+			rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+			_, _ = rw.Write(injectBase(b, baseOf(r)))
+			return
+		}
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(rw, strings.ReplaceAll(signedOutFallback, `href="/"`, `href="`+baseOf(r)+`/"`))
+	})
+	// page du 429 de Traefik (essais de connexion limités) : statique, sans identité (exemptée par oauth2-proxy)
+	mux.HandleFunc("/too-many", func(rw http.ResponseWriter, r *http.Request) {
+		if w.access != core.AccessProxy || r.Method != http.MethodGet && r.Method != http.MethodHead {
+			http.NotFound(rw, r)
+			return
+		}
+		rw.Header().Set("Cache-Control", "no-store")
+		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = io.WriteString(rw, strings.ReplaceAll(tooManyPage, `href="/"`, `href="`+baseOf(r)+`/"`))
+	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method != http.MethodPost:
@@ -428,7 +675,22 @@ func (w *webBridge) handler() http.Handler {
 			return
 		}
 		rw.Header().Set("Cache-Control", "no-store") // jamais mis en cache (secretReveal : valeur révélée)
-		res, err := w.app.DispatchWeb(requestSource(r), w.remoteAccess(r), w.sessionID(r), req.Method, req.Args)
+		id := identityOf(r)
+		if serr := core.StrictJSONArgs(req.Args); serr != nil { // clés en double (casse comprise) : jamais deux lectures possibles
+			http.Error(rw, serr.Error(), http.StatusBadRequest)
+			return
+		}
+		target, r1 := w.app.r1Info(req.Method, req.Args)
+		// action R1 : l'INTENTION est journalisée avant l'exécution ; journal inaccessible : l'écriture sensible est refusée
+		if w.audit != nil && id != nil && r1 && core.R1Allowed(w.access, id) {
+			if aerr := w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: req.Method, Target: target, OK: true, Phase: "intent"}); aerr != nil {
+				rw.Header().Set("Content-Type", "application/json")
+				_ = json.NewEncoder(rw).Encode(map[string]any{"result": map[string]any{"ok": false, "msg": aerr.Error()}})
+				return
+			}
+		}
+		res, err := w.app.DispatchWebAs(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id, Base: baseOf(r)}, req.Method, req.Args)
+		w.auditCall(r, id, req.Method, req.Args, res, err, target, r1)
 		out := map[string]any{"result": res}
 		if err != nil {
 			out["error"] = err.Error()
@@ -445,6 +707,7 @@ func (w *webBridge) handler() http.Handler {
 			refuse(rw, "origin", "origine refusée")
 			return
 		}
+		w.auditRecord(r, identityOf(r), "events", "", true, "")
 		rc := http.NewResponseController(rw)
 		if _, ok := rw.(http.Flusher); !ok {
 			http.Error(rw, "flux impossible", http.StatusInternalServerError)
@@ -498,6 +761,13 @@ func (w *webBridge) handler() http.Handler {
 				return
 			}
 		}
+		// mode proxy : durée de vie bornée du flux (≈ renouvellement du cookie) ; le client se reconnecte, l'identité est revérifiée
+		var maxLife <-chan time.Time
+		if w.access == core.AccessProxy {
+			t := time.NewTimer(sseMaxLife())
+			defer t.Stop()
+			maxLife = t.C
+		}
 		ping := time.NewTicker(ssePingEvery.Get())
 		defer ping.Stop()
 		check := time.NewTicker(checkEvery())
@@ -506,8 +776,10 @@ func (w *webBridge) handler() http.Handler {
 			select {
 			case <-r.Context().Done():
 				return
+			case <-maxLife:
+				return
 			case <-check.C:
-				if w.access != core.AccessNone && !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
+				if !w.noToken() && !w.sessionAlive(sid) { // session expirée, évincée ou révoquée : flux fermé
 					return
 				}
 			case <-ping.C:
@@ -536,6 +808,75 @@ func (w *webBridge) handler() http.Handler {
 	}))
 }
 
+// signedOutFallback : page de déconnexion minimale (sans le fichier signed-out.html du client).
+const signedOutFallback = `<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Déconnecté</title>` +
+	`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem"><h1>Déconnecté du launcher</h1>` +
+	`<p>La session GitHub de ce navigateur reste ouverte : se reconnecter peut aboutir sans saisie.</p><p><a href="/">Se reconnecter</a></p></body></html>`
+
+// tooManyPage : « Trop de tentatives » (style M2 A, sans ressource externe).
+const tooManyPage = `<!doctype html><html lang="fr"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Trop de tentatives</title>` +
+	`<body style="font-family:system-ui,sans-serif;max-width:32rem;margin:15vh auto;padding:0 1rem;background:#0F1217;color:#C9CED6"><h1>Trop de tentatives</h1>` +
+	`<p>Trop de tentatives de connexion depuis cette adresse. Réessayer dans une minute.</p><p><a style="color:#60CDFF" href="/">Réessayer</a></p></body></html>`
+
+// filesProject : nom de projet d'un chemin /files/<projet>/… ("" : racine ou chemin réservé).
+func filesProject(p string) string {
+	rest := strings.TrimPrefix(p, core.FilesPrefix+"/")
+	name, _, _ := strings.Cut(rest, "/")
+	if strings.HasPrefix(name, "__") {
+		return ""
+	}
+	return name
+}
+
+// auditRecord : une entrée du journal d'audit (mode proxy seulement) ; l'erreur d'écriture n'interrompt pas l'appel (avertissement
+// unique du journal), seules les méthodes R1 en dépendent (contrôle préalable à l'appel).
+func (w *webBridge) auditRecord(r *http.Request, id *core.Identity, method, project string, ok bool, errs string) {
+	if w.audit == nil || id == nil {
+		return
+	}
+	_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: method, Project: project, OK: ok, Err: errs})
+}
+
+// auditCall : journalise un appel /api/call — jamais d'argument, seulement le nom du projet qu'il porte.
+func (w *webBridge) auditCall(r *http.Request, id *core.Identity, method string, args json.RawMessage, res any, err error, target string, r1 bool) {
+	if w.audit == nil || id == nil {
+		return
+	}
+	var a struct {
+		Path string `json:"path"`
+	}
+	_ = json.Unmarshal(args, &a)
+	project := ""
+	if a.Path != "" {
+		project = core.CtrName(a.Path)
+	}
+	ok, es := err == nil, ""
+	if err != nil {
+		es = "error"
+	}
+	if m, isMap := res.(map[string]any); isMap {
+		if _, forbid := m["forbidden"]; forbid {
+			ok, es = false, "forbidden"
+		} else if v, has := m["ok"].(bool); has && !v && ok {
+			ok, es = false, "error"
+		} else if inv, has := m["invalid"].(bool); has && inv && ok {
+			ok, es = false, "invalid"
+		}
+	}
+	if !r1 {
+		target = ""
+	}
+	_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: method, Project: project, Target: target, OK: ok, Err: es})
+}
+
+// sseMaxLife : durée de vie maximale d'un flux d'évènements en mode proxy : CL_AUTH_SESSION_REFRESH (défaut 1 h).
+var sseMaxLife = func() time.Duration {
+	if d, err := time.ParseDuration(os.Getenv("CL_AUTH_SESSION_REFRESH")); err == nil && d > 0 {
+		return d
+	}
+	return time.Hour
+}
+
 // ssePingEvery : cadence du ping du flux d'évènements (#198) ; remplacée dans les tests.
 var ssePingEvery = tun.Of(15 * time.Second)
 
@@ -560,6 +901,10 @@ func newHTTPServer(h http.Handler) *http.Server {
 	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 16}
 }
 
+// runWebApp : crochet de test, appelé avec l'App créée par RunWeb (qui ne la rend pas) : un test l'arrête et attend ses tâches de fond
+// avant l'effacement de ses dossiers temporaires (#270). Sans effet en production.
+var runWebApp = tun.Of(func(*App) {})
+
 // RunWeb : interface servie sur addr (« 127.0.0.1:0 » : port libre) ; open :
 // ouvrir le navigateur par défaut. Bloque jusqu'à la sortie.
 func RunWeb(addr string, open bool) error {
@@ -577,10 +922,35 @@ func RunWeb(addr string, open bool) error {
 		return aerr
 	}
 	w.access = access
+	// une base (sous-chemin public) n'a de sens que derrière oauth2-proxy : hors du mode proxy, le cookie de session du launcher
+	// reste en Path=/ (__Host-) et fuirait vers les autres applications de l'hôte partagé
+	if access != core.AccessProxy {
+		if w.public != nil && w.public.Base != "" {
+			return fmt.Errorf("adresse publique avec chemin (%s) réservée au mode proxy (CL_WEB_ACCESS=proxy) : le cookie de session du mode %s est en Path=/ et fuirait vers les autres applications de l'hôte", w.public.URL(), access)
+		}
+	}
+	// mode proxy (v7.0.0) : listes de logins, adresses publiques supplémentaires ; réservé au cluster (fichier de réglages)
+	if access == core.AccessProxy {
+		if !core.InCluster() && strings.TrimSpace(os.Getenv(core.WebAccessVar)) == "" {
+			return errors.New("accès proxy : réservé au launcher de cluster")
+		}
+		if os.Getenv("CL_ALLOW_HOST_BACKEND") != "" { // une session tmux du conteneur du launcher forgerait l'identité (MAJ-3)
+			return errors.New("backend host interdit derrière le proxy d'authentification")
+		}
+		auth, err := core.LoadAuthConf()
+		if err != nil {
+			return err
+		}
+		alts, err := core.ParseAltURLs(os.Getenv(core.WebAltURLsVar))
+		if err != nil {
+			return err
+		}
+		w.auth, w.alts, w.audit = auth, alts, core.NewAudit("")
+	}
 	// jeton (mode « token » seulement) : CL_DESKTOP_TOKEN, sinon — dans un pod — le jeton conservé (il ne change plus à
 	// chaque redémarrage du pod : un lien déjà distribué reste valable) ; hors cluster, toujours un nouveau jeton (#167).
 	// Mode « none » : aucun jeton n'est tiré, lu ni écrit ; CL_DESKTOP_TOKEN est ignoré.
-	if access == core.AccessNone {
+	if access == core.AccessNone || access == core.AccessProxy {
 		w.token = ""
 		removeDesktopWebToken() // le fichier d'un mode « token » précédent ne reste pas sur le volume (#F3)
 	} else if t := os.Getenv("CL_DESKTOP_TOKEN"); t != "" {
@@ -594,7 +964,8 @@ func RunWeb(addr string, open bool) error {
 		}
 	}
 	a := NewApp(w.emit)
-	a.web = true // le presse-papiers de cette machine n'est jamais exposé à un client web
+	runWebApp.Get()(a) // crochet de test : le test arrête et attend les tâches de fond de CETTE App (#270)
+	a.web = true       // le presse-papiers de cette machine n'est jamais exposé à un client web
 	w.app = a
 	// relance après une mise à jour : l'ancien processus vient de libérer le port
 	ln, err := listenRetry(addr, 10*time.Second)
@@ -606,6 +977,25 @@ func RunWeb(addr string, open bool) error {
 		_ = ln.Close()
 		return errors.New(m)
 	}
+	if access == core.AccessProxy { // garde du mode « proxy » : boucle locale, adresse https, au moins un administrateur
+		if m := w.auth.StartRefusal(w.strictHost, w.public); m != "" {
+			_ = ln.Close()
+			return errors.New(m)
+		}
+	}
+	// port de santé dédié (CL_HEALTH_ADDR) : /healthz et /readyz seulement ; vide : sondes sur l'écoute principale
+	var healthSrv *http.Server
+	if ha := strings.TrimSpace(os.Getenv("CL_HEALTH_ADDR")); ha != "" {
+		hln, herr := listenRetry(ha, 10*time.Second)
+		if herr != nil {
+			_ = ln.Close()
+			return fmt.Errorf("port de santé %s : %v", ha, herr)
+		}
+		w.healthSeparate = true
+		healthSrv = newHTTPServer(w.healthHandler())
+		go func() { _ = healthSrv.Serve(hln) }()
+		defer healthSrv.Close()
+	}
 	if warn != "" && !core.InCluster() { // en pod, l'écoute sur toutes les interfaces derrière l'Ingress est voulue
 		fmt.Println("⚠ " + warn)
 	}
@@ -616,19 +1006,24 @@ func RunWeb(addr string, open bool) error {
 	a.webui.mu.Unlock()
 	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.tokenNow())
 	if w.public != nil {
-		url = w.public.Origin + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
+		url = w.public.URL() + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
 	}
-	if access == core.AccessNone { // aucun jeton : l'adresse seule s'ouvre directement
+	if w.noToken() { // aucun jeton : l'adresse seule s'ouvre directement
 		url = "http://" + ln.Addr().String() + "/"
 		if w.public != nil {
-			url = w.public.Origin + "/"
+			url = w.public.URL() + "/"
 		}
 	}
-	if access == core.AccessNone {
+	if access == core.AccessProxy {
+		// jamais la liste des logins, jamais de jeton
+		fmt.Println("Claude Launcher (interface web) :", w.public.URL()+"/")
+		fmt.Printf("Accès authentifié (oauth2-proxy, GitHub) : %d administrateur(s), %d utilisateur(s)\n", len(w.auth.Admins), len(w.auth.Users))
+		fmt.Println("Arrêt par SIGTERM : serveur fermé, terminaux détachés ; les projets restent ouverts dans leurs pods.")
+	} else if access == core.AccessNone {
 		// aucun jeton : l'adresse seule (dans un pod la sortie part dans les journaux, sans rien de secret)
 		base := "http://" + ln.Addr().String()
 		if w.public != nil {
-			base = w.public.Origin
+			base = w.public.URL()
 		}
 		fmt.Println("Claude Launcher (interface web) :", base+"/")
 		fmt.Println("Accès sans jeton (CL_WEB_ACCESS=none) : l'accès repose sur l'écoute locale ou sur l'adresse publique https (Ingress, liste d'adresses).")
@@ -642,7 +1037,7 @@ func RunWeb(addr string, open bool) error {
 		// donnée sans jeton, avec l'endroit où le lire.
 		base := "http://" + ln.Addr().String()
 		if w.public != nil {
-			base = w.public.Origin
+			base = w.public.URL()
 		}
 		fmt.Println("Claude Launcher (mode serveur) :", base+"/")
 		if os.Getenv("CL_DESKTOP_TOKEN") != "" {
@@ -682,10 +1077,26 @@ func RunWeb(addr string, open bool) error {
 		}
 		os.Exit(0)
 	})
-	if access != core.AccessNone {
+	if !w.noToken() {
 		restartEnv.Set([]string{"CL_DESKTOP_TOKEN=" + w.token})
 	}
 	a.Start()
+	if w.audit != nil {
+		stopAudit := make(chan struct{})
+		defer func() { close(stopAudit); _ = w.audit.Flush(true) }()
+		go func() {
+			t := time.NewTicker(30 * time.Second)
+			defer t.Stop()
+			for {
+				select {
+				case <-t.C:
+					_ = w.audit.Flush(false)
+				case <-stopAudit:
+					return
+				}
+			}
+		}()
+	}
 	if open {
 		openURL(url)
 	}
@@ -748,10 +1159,16 @@ func requestSource(r *http.Request) string {
 		s = h
 	}
 	if x := strings.TrimSpace(r.Header.Get("X-Forwarded-For")); x != "" {
-		if len(x) > 100 {
-			x = x[:100]
+		if len(x) > 256 { // la QUEUE est gardée : Traefik ajoute la vraie adresse source en fin de chaîne
+			x = x[len(x)-256:]
 		}
-		s += " (X-Forwarded-For: " + strings.NewReplacer("\n", " ", "\r", " ").Replace(x) + ")"
+		x = strings.Map(func(r rune) rune {
+			if r < 0x20 || r == 0x7f {
+				return -1
+			}
+			return r
+		}, x)
+		s += " (X-Forwarded-For: " + x + ")"
 	}
 	return s
 }

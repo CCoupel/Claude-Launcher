@@ -262,7 +262,7 @@ func (a *App) Start() {
 			}
 		}
 	})
-	go core.RunBrowserServer() // fichiers pour le navigateur (#106)
+	a.bg(func() { core.RunBrowserServerUntil(a.quit) }) // fichiers pour le navigateur (#106) ; arrêté et attendu avec l'App (#270)
 	go a.emitter()
 	go a.treeLoop()
 	a.bg(func() {
@@ -285,7 +285,7 @@ func (a *App) Start() {
 	go a.everyTimed("milestones", time.Minute, func() { a.readMilestones(false) })
 	go a.every(2*time.Second, a.refreshCards)
 	a.startAttention() // teamleaders en attente (#223)
-	go a.updateLoop()
+	a.bg(a.updateLoop) // suivie : une recherche en cours écrit update-check.json AVANT que Stop ne rende la main (#270)
 	if a.mgr != nil {
 		go func() {
 			for ps := range a.mgr.Done {
@@ -901,6 +901,9 @@ type UsageRow struct {
 	ResetLevel string `json:"resetLevel,omitempty"`
 	// Alert : « ⚠ épuisé ~HH:MM » (rouge), seulement si ResetLevel = red.
 	Alert string `json:"alert,omitempty"`
+	// Approx : estimation sur échantillon court (#268) — ni ResetLevel ni Alert ; Estimate : « ≈ épuisement ~HH:MM ».
+	Approx   bool   `json:"approx,omitempty"`
+	Estimate string `json:"estimate,omitempty"`
 }
 
 // Snapshot : tout ce que montre la colonne de gauche, et les onglets.
@@ -1055,6 +1058,7 @@ func (a *App) usageRows(s *Snapshot) {
 			now := time.Now()
 			ex := l.Exhaustion(now)
 			row.ResetLevel, row.Alert = ex.Level, ex.Alert(now)
+			row.Approx, row.Estimate = ex.Approx, ex.Estimate(l.ResetsAt)
 		}
 		s.Usage = append(s.Usage, row)
 	}
@@ -1135,6 +1139,7 @@ type Cards struct {
 	Open      bool             `json:"open"`
 	Files     []FileRow        `json:"files"`
 	Pending   []string         `json:"pending,omitempty"` // encore à compléter (état, team) : en cours
+	Warn      string           `json:"warn,omitempty"`    // avertissement du projet (pod aux montages d'avant v7.0.0, #253)
 }
 
 // Span : texte et sa couleur (dim, yellow… ; vide : normal).

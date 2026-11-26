@@ -1,0 +1,42 @@
+{{- /* Gabarits d'oauth2-proxy (contracts/auth.md §6) : error.html et sign_in.html ; sans connexion GitHub
+(auth.github.enabled: false), sign_in.html est la variante « compte local seul ». */ -}}
+{{- if .Values.auth.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cl.fullname" . }}-auth-templates
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+data:
+  error.html: |-
+    {{- /* « Se déconnecter » : rd vise /signed-out (jamais /sign_in, qui relancerait la connexion) */}}
+    {{- regexReplaceAll "(sign_out\\?rd=)[^\"']*" (.Files.Get "files/auth-templates/error.html") "${1}%2Fsigned-out" | nindent 4 }}
+  sign_in.html: |-
+    {{- if and .Values.auth.github.enabled .Values.auth.localAdmin.enabled }}
+    {{- .Files.Get "files/auth-templates/sign_in.html" | nindent 4 }}
+    {{- else if .Values.auth.github.enabled }}
+    {{- /* GitHub seul : la branche « carte simple » du gabarit à deux colonnes (sans la colonne du compte local) */ -}}
+    {{- $si := regexReplaceAll "(?s)\\{\\{if \\.CustomLogin\\}\\}.*?\\{\\{else\\}\\}" (.Files.Get "files/auth-templates/sign_in.html") "" }}
+    {{- regexReplaceAll "\\{\\{end\\}\\}\\n</body>" $si "</body>" | nindent 4 }}
+    {{- else }}
+    {{- .Files.Get "files/auth-templates/sign_in.local-only.html" | nindent 4 }}
+    {{- end }}
+{{- if .Values.externalIngress.enabled }}
+---
+# Instance externe (sans compte local) : sign_in.html = colonne GitHub seule (page jamais vue : --skip-provider-button=true)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "cl.fullname" . }}-auth-templates-ext
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+data:
+  error.html: |-
+    {{- /* rd vise <base>/signed-out : la base de l'instance externe est connue du chart (oauth2-proxy refuse un rd relatif en /../) */}}
+    {{- $rd := printf "%s%%2Fsigned-out" (replace "/" "%2F" (.Values.externalIngress.pathPrefix | default "")) }}
+    {{- regexReplaceAll "(sign_out\\?rd=)[^\"']*" (.Files.Get "files/auth-templates/error.html") (printf "${1}%s" $rd) | nindent 4 }}
+  sign_in.html: |-
+    {{- $si := regexReplaceAll "(?s)\\{\\{if \\.CustomLogin\\}\\}.*?\\{\\{else\\}\\}" (.Files.Get "files/auth-templates/sign_in.html") "" }}
+    {{- regexReplaceAll "\\{\\{end\\}\\}\\n</body>" $si "</body>" | nindent 4 }}
+{{- end }}
+{{- end }}

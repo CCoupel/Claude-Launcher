@@ -35,10 +35,10 @@ runAsGroup: 1000
 
 allowHostBackend: false   # CL_ALLOW_HOST_BACKEND
 
-# accès à l'interface web : none (défaut du chart) = sans jeton, l'Ingress (liste d'adresses + TLS) est la seule barrière ;
-# token = URL d'amorçage avec jeton (comme le launcher local). Devient CL_WEB_ACCESS dans le pod.
-web:
-  access: none
+# accès à l'interface web quand auth.enabled est faux : none (défaut) = sans jeton, l'Ingress (liste d'adresses + TLS) est la
+# seule barrière ; token = URL d'amorçage avec jeton (comme le launcher local). Devient CL_WEB_ACCESS dans le pod.
+# Avec auth.enabled: true (défaut v7.0.0), le mode est imposé à « proxy » : laisser vide (poser une valeur est refusé).
+web: {}                 # access: none | token (sans auth.enabled) ; ne pas poser avec auth.enabled
 
 service:
   port: 8080              # Service ClusterIP uniquement (type non réglable)
@@ -77,11 +77,53 @@ networkPolicy:
     app.kubernetes.io/name: traefik
   ingressCIDRs: []
 
-# Ingress externe PRÉPARÉ, REFUSÉ au rendu tant que l'authentification n'existe pas (v7.0.0, #172)
+# v7.0.0 — accès authentifié (#172, contracts/auth.md, contracts/helm-values.md « Valeurs auth.* ») : sidecar oauth2-proxy
+# devant le launcher (qui n'écoute plus que sur la boucle locale du pod). auth.enabled: false = comportement de v6.9.0.
+auth:
+  enabled: true
+  github:
+    enabled: true           # connexion GitHub ; false permis seulement avec localAdmin.enabled (QUALIF avant les applications GitHub, secours)
+    # Alternative à existingSecret : le chart crée le Secret <release>-github (client-id, client-secret). ATTENTION : la valeur de
+    # clientSecret est lisible par « helm get values » et « helm template », et stockée dans le Secret de release Helm — réservé à
+    # PRIVATE/<ENV>/values-local.yaml, JAMAIS dans un fichier suivi par git (scripts/ci.sh le contrôle). existingSecret reste recommandé.
+    clientId: ""
+    clientSecret: ""
+  existingSecret: ""        # Secret du namespace, clés client-id et client-secret (GitHub App) — RECOMMANDÉ ; jamais la valeur ici.
+                            # OBLIGATOIRE si github.enabled, sauf si github.clientId / github.clientSecret sont donnés (exclusifs)
+  admins: []                # OBLIGATOIRE non vide si github.enabled — logins GitHub, rôle admin (écritures sensibles R1 permises) ;
+                            # copier le login TEL QU'AFFICHÉ par GitHub (casse comprise : oauth2-proxy la respecte)
+  users: []                 # logins GitHub (casse de GitHub, comme admins), rôle user (terminaux et projets, pas d'écriture R1)
+  localAdmin:               # compte local de secours admin@local (htpasswd d'oauth2-proxy), jamais sur l'hôte externe
+    enabled: true
+    existingSecret: ""      # Secret fourni (clé htpasswd : admin@local:$2y$<coût ≥ 10>$…) ; vide : Secret <release>-local-admin généré
+    hosts: []               # hôtes où le compte local est admis ; défaut : [ingress.host] ; l'hôte externe y est refusé
+  sessionDuration: 8h       # --cookie-expire (15m à 168h)
+  sessionRefresh: 1h        # --cookie-refresh (inférieur à la durée)
+  proxy:
+    image:
+      repository: quay.io/oauth2-proxy/oauth2-proxy
+      tag: v7.15.6          # jamais latest
+      digest: ""            # sha256:… facultatif (empreinte de l'image) ; fixée dans values-qualif.yaml et values-prod.yaml
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        memory: 128Mi
+  rateLimit:                # Traefik : essais par minute et par adresse source sur /oauth2/ (nginx : limit-rpm)
+    average: 10
+    burst: 20
+
+# Avec pathPrefix, l'hôte est déjà servi par d'autres applications : le chart ne crée aucun Certificat (ni annotation cert-manager) ;
+# tls.clusterIssuer est REFUSÉ au rendu ; donner tls.secretName (certificat existant du namespace) ou rien (certificat de l'hôte
+# choisi par SNI).
+# Ingress externe (v7.0.0, #254) : exige auth.enabled ; cible l'instance auth-proxy-ext (sans compte local)
 externalIngress:
   enabled: false
   className: ""
-  host: ""
+  host: ""                # nom d'hôte RFC 1123 en minuscules (sans schéma ni chemin)
+  sessionDuration: 4h     # session de l'instance externe (--cookie-expire) : plus courte que l'interne (8h) — exposition Internet, 15m à 168h
+  pathPrefix: ""          # sous-chemin public (ex. /claude-qualif) : Ingress sur ce seul préfixe, jamais retiré ; vide : racine de l'hôte
   tls:
     clusterIssuer: ""     # ex. letsencrypt-prod
     secretName: ""

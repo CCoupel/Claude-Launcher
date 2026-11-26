@@ -137,3 +137,117 @@ que l'ingress externe attend v7.0.0.
 
 - Conteneur d'initialisation `secrets-perms` : supprimé (droits posés par le launcher sur le partage, uid `runAsUser`).
 - `runAsUser` doit être le propriétaire du partage (déjà requis) : sinon le coffre `0700` est illisible (refus clair).
+
+## v7.0.0 — authentification, ingress externe, pods projets **[BREAKING]** (#172, #251, #252, #253, #254)
+
+> Contrat du launcher : `contracts/auth.md`. Points `P<n>` : plan `.claude/workflow/plan-v7.0.0.md` (valeur écrite =
+> option recommandée, à corriger après le GATE 2). `Chart.yaml` : `version: 7.0.0`, `appVersion: v7.0.0` (règle #204).
+
+### Valeurs `auth.*` **[NEW]**
+
+| Valeur | Type | Défaut | Obligatoire | Rôle |
+|--------|------|--------|-------------|------|
+| `auth.enabled` | booléen | **`true`** (P1) | — | sidecar oauth2-proxy, launcher en `CL_WEB_ACCESS=proxy` sur la boucle locale. `false` : comportement de v6.9.0 (`web.access` honoré) et règle R1 « lecture seule » des réglages depuis l'interface |
+| `auth.github.enabled` | booléen | `true` | — | **[rev1]** connexion GitHub ; `false` permis seulement avec `auth.localAdmin.enabled` (QUALIF avant les applications GitHub, secours) |
+| `auth.existingSecret` | chaîne | — | **oui** si `auth.github.enabled` | Secret du namespace, clés `client-id`, `client-secret` (application **GitHub App** de l'environnement, P8) ; jamais dans les valeurs ; absent du cluster → le pod ne démarre pas (nommé par `NOTES.txt`) |
+| — (cookie) | — | — | — | **[rev1]** `cookie-secret` généré par le chart (Secret `<release>-auth-cookie`, 32 caractères, `keep`, réutilisé par `lookup`) |
+| `auth.github.clientId` / `auth.github.clientSecret` | chaînes | `""` | — | **[addendum 3, LOT-3]** alternative à `auth.existingSecret` : le chart crée le Secret `<release>-github` (`client-id`, `client-secret`). Réservé à `PRIVATE/<ENV>/values-local.yaml` (jamais commité). **Avertissement** (`values.yaml`, `NOTES.txt`, guide) : `helm get values` et `helm template` l'affichent en clair, il est stocké dans le Secret de release Helm ; `existingSecret` reste **recommandé**. Rendu : les deux posés → refus (« auth.existingSecret et auth.github.clientId/clientSecret sont exclusifs ») ; `clientId` sans `clientSecret` (ou l'inverse) → refus ; GitHub activé sans aucun des deux → refus. `NOTES.txt` ne l'affiche jamais. Contrôle `scripts/ci.sh` : `clientSecret` non vide dans un fichier suivi par git (`deploy/helm/values-*.yaml`, tout `*.yaml` suivi) → échec (Helm ne sait pas d'où vient une valeur) |
+| `auth.admins` | liste de logins GitHub | `[]` | **oui**, non vide, si `auth.github.enabled` | rôle `admin` (R1) ; chaque entrée validée (forme d'un login, sans doublon) |
+| `auth.localAdmin.enabled` | booléen | `true` (P9) | — | **[rev1]** compte `admin@local` (`contracts/auth.md` §8) |
+| `auth.localAdmin.existingSecret` | chaîne | `""` | — | **[rev1]** Secret fourni (clé `htpasswd`, ligne `admin@local:$2[aby]$<coût≥10>$…`, contrôlée au rendu par `lookup` quand le cluster est joignable ; mot de passe ≥ 20 caractères aléatoires : consigne) ; vide : Secret `<release>-local-admin` généré (P11) |
+| `auth.localAdmin.hosts` | liste | `[<ingress.host>]` | — | **[rev1]** hôtes où le compte local est admis (`CL_AUTH_LOCAL_ADMIN_HOSTS`) ; l'hôte externe y est **refusé au rendu** (P10) |
+| `auth.users` | liste de logins GitHub | `[]` | — | rôle `user` (P2) : terminaux et projets, pas d'écriture R1 ; un login présent dans les deux listes est refusé au rendu |
+| `auth.sessionDuration` | durée (`h`, `m`) | `8h` | — | `--cookie-expire` ; minimum `15m`, maximum `168h` |
+| `auth.sessionRefresh` | durée | `1h` | — | `--cookie-refresh` (< `sessionDuration`, `0` interdit). **[addendum 2, m6]** Le fournisseur GitHub n'a pas de jeton de renouvellement : rien n'est revérifié chez GitHub ; la révocation est la liste du launcher (`CL_AUTH_*`, relue à chaque requête) ou la rotation du `cookie-secret` |
+| `auth.proxy.image.repository` | chaîne | `quay.io/oauth2-proxy/oauth2-proxy` | — | image du sidecar |
+| `auth.proxy.image.tag` | chaîne | `v7.15.6` (rapport `infra` du 2026-11-25) | — | jamais `latest` (refusé au rendu) ; digest relevé au build |
+| `auth.proxy.image.digest` | chaîne | `""` | — | `sha256:…` facultatif, comme `image.digest` |
+| `auth.proxy.resources` | table | demandes `10m` / `32Mi`, limite mémoire `128Mi` | — | — |
+| `auth.rateLimit.average` / `.burst` | entiers | `10` / `20` | — | Traefik `rateLimit` (par adresse source, par minute) sur les routes `/oauth2/` des ingress : essais répétés bloqués (#172) ; nginx : `limit-rpm` sur un Ingress `/oauth2` séparé |
+
+- **[cycle 1, m6]** `ingress.controller: nginx` avec `auth.localAdmin.enabled` → refus au rendu (le retrait de `Authorization` et la limite d'essais passent par un snippet souvent désactivé).
+- **[casse des logins]** `--github-user` reçoit les logins de `auth.admins` ∪ `auth.users` **avec la casse saisie** (oauth2-proxy compare
+  en respectant la casse : copier le login tel qu'affiché par GitHub) ; `CL_AUTH_ADMINS` / `CL_AUTH_USERS` restent en minuscules (le
+  launcher les compare sans casse) ; deux casses d'une même identité (dans une liste ou entre les deux) : refus au rendu.
+- `auth.enabled: true` et `web.access` posé explicitement → refus (« web.access est imposé à proxy par auth.enabled ;
+  le retirer »).
+- `auth.enabled: true` avec `ingress.enabled: false` et `externalIngress.enabled: false` → refus (aucune adresse https
+  pour le retour OAuth).
+
+### Pod du launcher avec `auth.enabled: true`
+
+| Conteneur | Port | Rôle |
+|-----------|------|------|
+| `auth-proxy` (oauth2-proxy) | `http` 8080 (seul port du Service) | `--provider=github`, `--github-user=<admins ∪ users>`, `--email-domain=*`, `--upstream=http://127.0.0.1:8081/`, `--http-address=0.0.0.0:8080`, `--reverse-proxy=true`, `--pass-user-headers=true`, `--pass-access-token=false`, `--skip-provider-button=true`, `--api-route=^/api/`, `--skip-auth-route=GET=^/signed-out$`, `--cookie-name=_cl_auth`, `--cookie-secure=true`, `--cookie-samesite=lax`, `--cookie-expire`, `--cookie-refresh`, `--custom-templates-dir=/etc/cl-auth/templates`, `--request-logging=false`, `--auth-logging=true`, `--ping-path=/ping` ; identifiants par `envFrom`/`secretKeyRef` du Secret (`OAUTH2_PROXY_CLIENT_ID`, `_CLIENT_SECRET`, `_COOKIE_SECRET`) ; `runAsNonRoot`, `readOnlyRootFilesystem`, capacités retirées ; sondes `httpGet /ping` |
+| `auth-proxy-ext` (oauth2-proxy, **[rev1]** si `externalIngress.enabled`) | `http-ext` 8083 | mêmes arguments que `auth-proxy`, **sans** `--htpasswd-file` ni formulaire ; seule cible de l'Ingress externe |
+| `launcher` | `health` 8082 (non exposé par le Service) | `CL_WEB_ACCESS=proxy`, `CL_WEB_ADDR=127.0.0.1:8081`, `CL_HEALTH_ADDR=0.0.0.0:8082` ; sondes `startup` / `liveness` / `readiness` sur `health` |
+
+- ConfigMap `<release>-auth-templates` : `error.html`, `sign_in.html` (`contracts/auth.md` §6), montée en lecture seule.
+- Redirection OAuth : `https://<hôte de la requête>/oauth2/callback` (hôte interne et, s'il est activé, hôte externe) ;
+  **GitHub App** par environnement (P8 : plusieurs URL de retour), permission « Email addresses : read-only »,
+  expiration des jetons utilisateur désactivée. GitHub ne se connecte jamais à ces URL : le retour est une redirection
+  du navigateur ; seul oauth2-proxy appelle `github.com` (sortie du pod).
+- Compte local activé : `--htpasswd-file` (Secret monté en lecture seule, `defaultMode: 0444` — **[écart justifié]** le chart ne pose jamais `fsGroup` (changement de propriétaire récursif du partage) : un fichier `root:root 0440` serait illisible par l'uid du pod ; le Secret n'est monté que dans le conteneur `auth-proxy`, jamais dans `launcher`), `--display-htpasswd-form=true`,
+  `--skip-provider-button=false` ; ConfigMap des gabarits rendue avec ou sans bouton GitHub.
+- **[addendum 2]** Règles de rendu : `allowHostBackend: true` avec `auth.enabled: true` → refus (« backend host interdit
+  derrière le proxy d'authentification », MAJ-3).
+- **[addendum 2]** Middleware Traefik `<release>-headers` sur **les deux** ingress : `customRequestHeaders:
+  {Authorization: ""}` (MAJ-1 : chemin Basic-auth fermé) et en-têtes de réponse HSTS, `nosniff`, `Referrer-Policy:
+  no-referrer` (m7) — **jamais de CSP** sur `/` (cycle 1, CRIT-2 : elle écraserait le CSP `sandbox` de `/files`) ; le CSP strict
+  ne vaut que pour `<release>-headers-oauth` (route `/oauth2`) ; `ipAllowList.ipStrategy.depth: 0` et `rateLimit.sourceCriterion.ipStrategy.depth: 0` (champ valide du CRD Traefik : un `rateLimit.ipStrategy` serait élagué). nginx :
+  `proxy_set_header Authorization ""` par l'annotation dédiée du chart. Tests de rendu : middleware référencé par
+  chaque ingress.
+- **[addendum 2, réserves dev-frontend]** Gabarits : la ConfigMap `<release>-auth-templates` porte `error.html` et
+  `sign_in.html` ; la clé `sign_in.html` est rendue depuis `files/auth-templates/sign_in.html` (GitHub + compte local,
+  M7 B) ou `files/auth-templates/sign_in.local-only.html` quand `auth.github.enabled: false`. L'instance externe a sa
+  propre ConfigMap `<release>-auth-templates-ext` (`sign_in.html` = colonne GitHub seule ; page jamais vue en pratique :
+  `--skip-provider-button=true` sur l'externe, faute de formulaire).
+- **[addendum 2]** Page `429` : middleware Traefik `<release>-errors` (`errors`, `status: ["429"]`, `service:` le Service
+  du launcher port `http`, `query: /too-many`) chaîné **avant** `rateLimit` sur la route `/oauth2/` de chaque ingress (Traefik exécute la chaîne dans l'ordre listé : `headers-oauth`, `errors`, `ratelimit` ; listé après, il ne voit jamais le `429`) ;
+  `/too-many` est servie par le launcher sans identité (route exemptée par oauth2-proxy). nginx : `429` brut (corps du
+  contrôleur), documenté.
+- Variables ajoutées : `CL_AUTH_SESSION_DURATION`, `CL_AUTH_SESSION_REFRESH` (réservées).
+- **[addendum 2, m1]** Secrets de cookie distincts : `<release>-auth-cookie` (`_cl_auth`) et `<release>-auth-cookie-ext`
+  (`__Host-_cl_auth_ext` : préfixe __Host- = Secure, Path=/, sans Domain), générés, `keep`, `lookup`.
+- **[addendum 2, m3]** Service : ports `http` (8080) et, si l'externe est activé, `http-ext` (8083) ; **jamais**
+  `health` (8082) ni 8081. NetworkPolicy : entrée sur `http` et `http-ext` depuis le contrôleur d'Ingress seulement
+  (vérifié en QUALIF depuis un pod projet : 8080, 8082, 8083 refusés).
+- NetworkPolicy : inchangée (entrée sur le port `http` depuis le contrôleur d'Ingress) ; sortie non restreinte
+  (oauth2-proxy appelle `github.com` et `api.github.com`).
+- `NOTES.txt` : adresse(s), « authentification GitHub : N administrateur(s) », nom du Secret attendu ; plus de mention
+  « aucune authentification ».
+
+### Ingress externe **[CHANGED]** (#254)
+
+| Valeur | Type | Défaut | Obligatoire | Rôle |
+|--------|------|--------|-------------|------|
+| `externalIngress.enabled` | booléen | `false` | — | **activable** : `true` avec `auth.enabled: false` → refus (« ingress externe refusé : authentification désactivée (auth.enabled: false) ») |
+| `externalIngress.className`, `.host` | chaînes | — | **oui** si activé | classe et nom DNS public |
+| `externalIngress.tls.clusterIssuer` \| `.tls.secretName` | chaînes | — | l'un des deux, si activé | émetteur public (ex. `letsencrypt-prod`) ou Secret fourni ; jamais l'émetteur interne `claude-launcher-ca` (contraintes de nom `launcher.local`) — refus si `clusterIssuer` = celui de `ingress.tls` |
+| `externalIngress.annotations` | table | `{}` | — | mêmes annotations réservées que `ingress.annotations` |
+| `externalIngress.pathPrefix` | chaîne | `""` | — | **[addendum 4]** sous-chemin public (ex. `/claude-qualif`) ; validé `^/[a-z0-9-]+(/[a-z0-9-]+)*$` (pas de `/` final, de `//` ni de `..`) ; `externalIngress.host` reste un nom d'hôte strict. Non vide : Ingress `pathType: Prefix` sur ce seul chemin (jamais `/`), **sans** `StripPrefix` ; `auth-proxy-ext` en `--proxy-prefix=<préfixe>/oauth2`, `--cookie-path=<préfixe>`, cookie `__Secure-cl_auth_ext_<préfixe en tirets>`, `--redirect-url` avec le préfixe ; `CL_WEB_URL=https://<host><préfixe>` ; middleware `errors` 429 → `<préfixe>/too-many` ; **HSTS non posé** (P13). Certificat : **aucun** créé par le chart avec un préfixe (l'hôte est déjà servi) : `tls.clusterIssuer` est **refusé** au rendu (« le certificat de l'hôte partagé est réutilisé : retirer tls.clusterIssuer ou fournir tls.secretName ») ; `tls.secretName` (certificat existant du namespace) ou rien (certificat choisi par SNI). Contrat : `contracts/auth.md` §9 |
+
+- Aucune liste d'adresses (accès Internet) ; middlewares : redirection HTTPS, `rateLimit` sur `/oauth2/`.
+- **[rev1]** cible : port `http-ext` (instance `auth-proxy-ext` sans compte local) ; `externalIngress.host` dans
+  `auth.localAdmin.hosts` → refus au rendu.
+- Activé : `CL_WEB_URL=https://<externalIngress.host>` (P7), `CL_WEB_ALT_URLS=https://<ingress.host>` si l'ingress
+  interne est aussi activé. Désactivé : aucun objet externe rendu (inchangé).
+
+### Pods projets (backend k8s) **[CHANGED]** (#253)
+
+Manifeste produit par le launcher (`core/k8s.go`), sans valeur du chart :
+
+- **Montages** : plus aucune racine de volume montée entière. Pour chaque PVC de `volumes`, seuls sont montés, en
+  `subPath`, au même chemin que dans le launcher : le **dossier du projet** et **`CLAUDE_CONFIG_DIR`** (P5). Jamais
+  `<racine>/.config`, `.cache`, `.kube`, les binaires ni les autres projets. Les dossiers « local » (emptyDir) restent
+  montés par-dessus le dossier du projet.
+- Un chemin à monter hors de tout volume du backend → erreur existante « stockage partagé » (aucun repli sur la racine).
+- Le dossier du projet **ou** `CLAUDE_CONFIG_DIR` égal à la racine d'un volume/PVC → refusé (`stockage partagé : … est la
+  racine du volume … monter un sous-dossier …, jamais la racine`). Deux racines identiques déclarées avec des PVC
+  différents → erreur « deux PVC » (résolution déterministe, pas de choix au hasard).
+- **Jeton de ServiceAccount** : `automountServiceAccountToken: false` dans le pod, sauf si `pod.automountServiceAccountToken`
+  est posé explicitement dans `backends.yaml` (signalé par le diagnostic « jeton de ServiceAccount monté »).
+- Annotation `cl.mounts: "v2"` (modèle de montage). Pod **en marche** sans elle : conservé (sa session continue),
+  carte « Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre » et ligne du diagnostic ;
+  pod arrêté ou à recréer : recréé au nouveau modèle (P6).
+- Docker / podman / ssh : inchangés (ils ne montent déjà que le projet et `CLAUDE_CONFIG_DIR`).

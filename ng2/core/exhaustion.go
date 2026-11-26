@@ -53,16 +53,31 @@ func hasWord(k, w string) bool {
 	}
 }
 
-// Exhaustion : projection d'une fenêtre. Level vide = projection non fiable.
+// Exhaustion : projection d'une fenêtre. Exhausts nul = projection impossible ;
+// Level vide avec Exhausts non nul = estimation approximative (Approx).
 type Exhaustion struct {
-	Level    string    // red, yellow, green, ou "" (non fiable)
+	Level    string    // red, yellow, green, ou "" (impossible ou approximative)
 	Before   bool      // épuisé avant le renouvellement
 	Exhausts time.Time // instant d'épuisement projeté
+	Approx   bool      // échantillon court (#268) : estimation sans couleur ni alerte
 }
 
+// Échantillon minimal d'une projection fiable (#268) : en dessous, estimation
+// approximative (Approx), jamais de couleur.
+func approxElapsed(win time.Duration) time.Duration {
+	if win <= 5*time.Hour {
+		return 30 * time.Minute
+	}
+	return 3 * time.Hour
+}
+
+const approxPercent = 3.0 // un pourcentage entier à ±1 % pèse plus de 30 % sous 3 %
+
 // ProjectExhaustion : rythme moyen depuis le début de la fenêtre (resetsAt − durée),
-// extrapolé jusqu'à 100 %. Non fiable (zéro) si fenêtre inconnue, resetsAt invalide
-// ou passé, conso nulle, ou fenêtre entamée depuis moins de max(10 min, 5 %).
+// extrapolé jusqu'à 100 %, sans délai d'attente (#268). Impossible (zéro) : fenêtre
+// inconnue, resetsAt absent, invalide ou passé, conso ≤ 0, temps écoulé ≤ 0.
+// Approximative (Approx, pas de niveau) : temps écoulé < 30 min (session) ou 3 h
+// (hebdomadaire), ou conso < 3 %.
 func ProjectExhaustion(kind string, percent float64, resetsAt string, now time.Time) Exhaustion {
 	win := UsageWindow(kind)
 	reset, err := time.Parse(time.RFC3339Nano, resetsAt)
@@ -82,11 +97,27 @@ func ProjectExhaustion(kind string, percent float64, resetsAt string, now time.T
 		return Exhaustion{Level: ExhaustRed, Before: true, Exhausts: now}
 	}
 	elapsed := win - reset.Sub(now)
-	minElapsed := max(10*time.Minute, time.Duration(float64(win)*0.05))
-	if percent <= 0 || elapsed < minElapsed {
+	if percent <= 0 || elapsed <= 0 {
 		return Exhaustion{}
 	}
-	return lvl(now.Add(time.Duration((100 - percent) / percent * float64(elapsed))))
+	ex := now.Add(time.Duration((100 - percent) / percent * float64(elapsed)))
+	if elapsed < approxElapsed(win) || percent < approxPercent {
+		return Exhaustion{Exhausts: ex, Approx: true}
+	}
+	return lvl(ex)
+}
+
+// Estimate : « ≈ épuisement ~HH:MM » d'une estimation approximative dont l'épuisement
+// précède le renouvellement resetsAt ; "" sinon.
+func (e Exhaustion) Estimate(resetsAt string) string {
+	if !e.Approx {
+		return ""
+	}
+	reset, err := time.Parse(time.RFC3339Nano, resetsAt)
+	if err != nil || !e.Exhausts.Before(reset) {
+		return ""
+	}
+	return "≈ épuisement ~" + FormatReset(e.Exhausts.UTC().Format(time.RFC3339Nano))
 }
 
 // Alert : « ⚠ épuisé ~HH:MM » si épuisé avant le renouvellement, sinon "".

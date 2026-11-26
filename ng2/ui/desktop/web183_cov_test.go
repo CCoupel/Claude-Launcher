@@ -95,6 +95,7 @@ func TestRunWebServerModeStartsAndQuits(t *testing.T) {
 	sandbox(t, "", "alpha")
 	l4WriteBackends(t, "  desktop_web: { enabled: false, listen: off }\n")
 	t.Setenv("CL_DESKTOP_TOKEN", "tokRunWebServerMode123456")
+	cap := captureRunWebApp(t)
 	oldQuit, oldRestart, oldEnv := quitHook.Get(), restartApp.Get(), restartEnv.Get()
 	defer func() { quitHook.Set(oldQuit); restartApp.Set(oldRestart); restartEnv.Set(oldEnv) }()
 
@@ -161,7 +162,7 @@ func TestRunWebServerModeStartsAndQuits(t *testing.T) {
 	case <-time.After(15 * time.Second):
 		t.Fatal("RunWeb ne s'arrête pas après quit")
 	}
-	time.Sleep(300 * time.Millisecond) // tâches de fond (trace de performance) avant l'effacement des dossiers
+	cap.assertSettled270(t) // fin réelle de l'arrêt et des tâches de fond (plus de pause fixe) avant l'effacement des dossiers
 }
 
 // d183Find : première valeur de la clé key dans un JSON décodé (l'instantané peut être emballé).

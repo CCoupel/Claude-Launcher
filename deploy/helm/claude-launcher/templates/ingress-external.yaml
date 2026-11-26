@@ -1,7 +1,11 @@
-{{- /* Ingress externe PRÉPARÉ (#172, v7.0.0) : jamais rendu en v6.4.0 — cl.validate refuse externalIngress.enabled tant que
-l'authentification n'existe pas. Aucune liste d'adresses : l'authentification serait la seule barrière. */ -}}
+{{- /* Ingress externe (v7.0.0, #254) : Internet, SANS liste d'adresses — l'authentification (GitHub, instance auth-proxy-ext
+sans compte local) est la seule barrière ; cl.validate refuse externalIngress.enabled sans auth.enabled. */ -}}
 {{- if .Values.externalIngress.enabled }}
 {{- $name := printf "%s-external" (include "cl.fullname" .) }}
+{{- $base := include "cl.fullname" . }}
+{{- $ctl := include "cl.extController" . }}
+{{- $pfx := .Values.externalIngress.pathPrefix | default "" }}
+{{- $tls := default (printf "%s-tls" $name) .Values.externalIngress.tls.secretName }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -9,8 +13,21 @@ metadata:
   labels:
     {{- include "cl.labels" . | nindent 4 }}
   annotations:
-    {{- if .Values.externalIngress.tls.clusterIssuer }}
+    {{- /* sous-chemin : l'hôte est déjà servi par d'autres applications — jamais de second Certificat (pas d'annotation cert-manager) */ -}}
+    {{- if and .Values.externalIngress.tls.clusterIssuer (not $pfx) }}
     cert-manager.io/cluster-issuer: {{ .Values.externalIngress.tls.clusterIssuer | quote }}
+    {{- end }}
+    {{- if eq $ctl "traefik" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers-ext@kubernetescrd" .Release.Namespace $base .Release.Namespace $base | quote }}
+    {{- else }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Authorization "";
     {{- end }}
     {{- with .Values.externalIngress.annotations }}
     {{- toYaml . | nindent 4 }}
@@ -19,16 +36,76 @@ spec:
   ingressClassName: {{ .Values.externalIngress.className }}
   tls:
     - hosts: [{{ .Values.externalIngress.host | quote }}]
-      secretName: {{ default (printf "%s-tls" $name) .Values.externalIngress.tls.secretName }}
+      {{- if or (not $pfx) .Values.externalIngress.tls.secretName }}
+      secretName: {{ $tls }}
+      {{- end }}
   rules:
     - host: {{ .Values.externalIngress.host | quote }}
       http:
         paths:
+          {{- if $pfx }}
+          # sous-chemin : jamais « / » (les autres routes de l'hôte ne sont pas capturées), sans StripPrefix. Le préfixe seul en Exact
+          # et « <préfixe>/ » en Prefix : /claude-qualifx et /claude-qualification ne sont capturés par aucune version de Traefik
+          # (Prefix peut y être un préfixe de chaîne)
+          - path: {{ $pfx }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $base }}
+                port:
+                  name: http-ext
+          - path: {{ $pfx }}/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $base }}
+                port:
+                  name: http-ext
+          {{- else }}
           - path: /
             pathType: Prefix
             backend:
               service:
-                name: {{ include "cl.fullname" . }}
+                name: {{ $base }}
                 port:
-                  name: http
+                  name: http-ext
+          {{- end }}
+---
+# Essais de connexion limités sur /oauth2/ (#172, #254)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $name }}-oauth
+  labels:
+    {{- include "cl.labels" . | nindent 4 }}
+  annotations:
+    {{- if eq $ctl "traefik" }}
+    traefik.ingress.kubernetes.io/router.entrypoints: web,websecure
+    traefik.ingress.kubernetes.io/router.middlewares: {{ printf "%s-%s-https@kubernetescrd,%s-%s-headers-oauth-ext@kubernetescrd,%s-%s-errors-ext@kubernetescrd,%s-%s-ratelimit@kubernetescrd" .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base .Release.Namespace $base | quote }}
+    {{- else }}
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Authorization "";
+    nginx.ingress.kubernetes.io/limit-rpm: {{ .Values.auth.rateLimit.average | quote }}
+    nginx.ingress.kubernetes.io/limit-burst-multiplier: {{ div .Values.auth.rateLimit.burst .Values.auth.rateLimit.average | max 1 | quote }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.externalIngress.className }}
+  tls:
+    - hosts: [{{ .Values.externalIngress.host | quote }}]
+      {{- if or (not $pfx) .Values.externalIngress.tls.secretName }}
+      secretName: {{ $tls }}
+      {{- end }}
+  rules:
+    - host: {{ .Values.externalIngress.host | quote }}
+      http:
+        paths:
+          - path: {{ $pfx }}/oauth2
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $base }}
+                port:
+                  name: http-ext
 {{- end }}

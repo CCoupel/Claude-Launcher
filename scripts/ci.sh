@@ -217,13 +217,104 @@ case "$(uname -s)" in
     # de test est donné au rendu de QUALIF et de PROD.
     chart=../deploy/helm/claude-launcher
     issuer=(--set ingress.tls.clusterIssuer=ci-test)
-    minimal=(--set rootBase=/ci --set volume.existingClaim=ci --set ingress.enabled=false --set web.access=token)
+    # v7.0.0 : l'authentification est activée par défaut (#172) — le rendu exige le Secret de la GitHub App et au moins un
+    # administrateur (valeurs de test, jamais de secret) ; le rendu minimal sans Ingress la désactive (sans adresse https, refusée)
+    auth=(--set auth.existingSecret=ci-test --set 'auth.admins={ci-admin}')
+    minimal=(--set rootBase=/ci --set volume.existingClaim=ci --set ingress.enabled=false --set web.access=token --set auth.enabled=false)
     helm lint --quiet "$chart" "${minimal[@]}" >/dev/null
-    helm lint --quiet "$chart" -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" >/dev/null
-    helm lint --quiet "$chart" -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null
+    helm lint --quiet "$chart" -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
+    helm lint --quiet "$chart" -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
     helm template ci "$chart" "${minimal[@]}" >/dev/null
-    helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" >/dev/null
-    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null
+    helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
+    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" >/dev/null
+    # authentification activée par défaut (aucun auth.enabled posé), avec compte local et GitHub
+    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" --set auth.localAdmin.enabled=true >/dev/null
+    # QUALIF avant les applications GitHub : GitHub coupé, compte local seul
+    helm template ci "$chart" -n claude-qualif -f ../deploy/helm/values-qualif.yaml "${issuer[@]}" --set auth.github.enabled=false >/dev/null
+    # paire clientId / clientSecret (Secret <release>-github créé par le chart) à la place de auth.existingSecret
+    helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" --set 'auth.admins={ci-admin}' \
+      --set auth.github.clientId=ci-id --set auth.github.clientSecret=ci-secret >/dev/null
+    # refus attendus : authentification activée sans Secret ni administrateur ; ingress externe sans authentification
+    if helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" >/dev/null 2>&1; then
+      echo "ECHEC : le chart rend avec auth.enabled sans auth.existingSecret ni auth.admins (refus attendu)" >&2; exit 1
+    fi
+    if helm template ci "$chart" -n claude-ng2 -f ../deploy/helm/values-prod.yaml "${issuer[@]}" "${auth[@]}" \
+      --set auth.github.clientId=ci-id --set auth.github.clientSecret=ci-secret >/dev/null 2>&1; then
+      echo "ECHEC : auth.existingSecret et auth.github.clientId/clientSecret acceptés ensemble (refus attendu)" >&2; exit 1
+    fi
+    if helm template ci "$chart" "${minimal[@]}" --set externalIngress.enabled=true --set externalIngress.className=traefik \
+      --set externalIngress.host=ext.ci.test --set externalIngress.tls.clusterIssuer=ci-public >/dev/null 2>&1; then
+      echo "ECHEC : le chart rend un ingress externe avec auth.enabled=false (refus attendu)" >&2; exit 1
+    fi
+    # le secret de la GitHub App ne doit jamais figurer dans un fichier suivi par git (auth.github.clientSecret : visible par
+    # « helm get values », réservé à PRIVATE/<ENV>/values-local.yaml, gitignoré) — Helm ne sait pas d'où vient une valeur.
+    # Garde FAIL-CLOSED : toute clé « client[_-]secret » (casse, guillemets, forme en ligne, valeur à la ligne suivante, --set,
+    # Secret stringData/data) dont la valeur n'est pas un espace réservé ENTIER ("" '' ${VAR} ${{ … }} {{ … }} <…>) fait échouer ;
+    # la valeur n'est JAMAIS affichée ; une erreur d'awk fait échouer ; un CANARI (fichier factice portant un client_secret en clair)
+    # doit être détecté par la même fonction, sinon la CI échoue (la garde ne peut pas devenir aveugle sans bruit).
+    # Exclusions ciblées (raison) : *.md (documentation et contrats qui citent le NOM de la clé) ; modèles du chart (références
+    # .Values, jamais de valeur) ; values.schema.json (le schéma DÉFINIT la propriété, aucune valeur) ; scripts/ci.sh (porte le canari) ;
+    # test de la garde et ses fixtures (ng2/chart_lot3_254_test.go, ng2/chart_lot3_254_fixtures/) ; code tiers embarqué
+    # (ng2/ui/desktop/frontend/vendor/, minifié). Tous les autres fichiers texte suivis sont contrôlés, binaires exclus.
+    # Limites assumées : une clé YAML exotique (« ? clientSecret », clé multi-lignes), une valeur échappée ou encodée au-delà de la
+    # base64 de Secret ne sont pas reconnues — gitleaks (non installé) couvrirait une détection générale.
+    ghscan() {   # chemins séparés par NUL sur l'entrée ; affiche fichier:ligne des fuites ; 2 si awk échoue
+      local f
+      while IFS= read -r -d '' f; do
+        [ -f "$f" ] || continue
+        awk -v F="$f" '
+          function trim(x) { sub(/^[[:space:]]+/, "", x); sub(/[[:space:]]+$/, "", x); return x }
+          function placeholder(v) {   # espace réservé ENTIER seulement : un vrai secret commençant par $x, { ou [ est une fuite
+            return v ~ /^\$\{[^{}]*\}$/ || v ~ /^\$\{\{.*\}\}$/ || v ~ /^\{\{.*\}\}$/ || v ~ /^<[^<>]*>$/ || v ~ /^%[-+# 0-9.]*[a-z]([^a-z0-9]|$)/   # dernier : verbe de format Go/printf (message de test)
+          }
+          function bad(n) { print F ":" n }
+          { l = tolower($0) }
+          l ~ /^[[:space:]]*#/ { next }
+          pending {
+            pending = 0
+            if (l !~ /^[[:space:]]*$/ && l !~ /^[[:space:]]*["\047]?[a-z_][a-z0-9_.-]*["\047]?[[:space:]]*:([[:space:]]|$)/ && !placeholder(trim(l))) bad(NR)
+          }
+          {
+            s = l
+            while (match(s, /client[_-]?secret["\047]?[[:space:]]*[:=]/)) {
+              endk = RSTART + RLENGTH; v = substr(s, endk)
+              if (match(v, /^[[:space:]]*["\047]/)) {          # valeur entre guillemets : le contenu compte, espaces compris
+                q = substr(v, RLENGTH, 1); v = substr(v, RLENGTH + 1); i = index(v, q)
+                inner = (i > 0) ? substr(v, 1, i - 1) : v
+                if (inner != "" && !placeholder(inner)) bad(NR)
+              } else {
+                sub(/[[:space:]]+#.*$/, "", v); v = trim(v)
+                if (v == "") { if (s ~ /:[[:space:]]*(#.*)?$/) pending = 1 }
+                else if (!placeholder(v)) bad(NR)
+              }
+              s = substr(s, endk)
+            }
+          }' "$f" || return 2
+      done
+    }
+    ghfiles() {  # fichiers suivis à contrôler (tous les fichiers texte), séparés par NUL (cwd : racine du dépôt)
+      local f
+      git ls-files -z | while IFS= read -r -d '' f; do
+        case "$f" in
+          *.md|deploy/helm/claude-launcher/templates/*|deploy/helm/claude-launcher/values.schema.json|scripts/ci.sh) continue ;;
+          ng2/chart_lot3_254_test.go|ng2/chart_lot3_254_fixtures/*|ng2/ui/desktop/frontend/vendor/*) continue ;;
+        esac
+        [ -f "$f" ] && grep -Iq . "$f" && printf '%s\0' "$f"
+      done
+    }
+    canary=$(mktemp -d "${TMPDIR:-/tmp}/ci-canary.XXXXXX") || { echo "ECHEC : garde du clientSecret : dossier temporaire du canari impossible" >&2; exit 1; }
+    printf 'auth:\n  github:\n    client_secret: canari-ci-123\n' > "$canary/canari.yaml"
+    printf 'CLIENT_SECRET=canari-ci-123\n' > "$canary/canari.env"
+    printf '%s\0' "$canary/canari.yaml" "$canary/canari.env" | ghscan > "$canary/detected" || { rm -rf "$canary"; echo "ECHEC : garde du clientSecret en erreur sur le canari" >&2; exit 1; }
+    if [ "$(wc -l < "$canary/detected")" -ne 2 ]; then
+      rm -rf "$canary"; echo "ECHEC : la garde du clientSecret n'a pas détecté son canari (garde aveugle)" >&2; exit 1
+    fi
+    rm -rf "$canary"
+    leaks=$(cd .. && ghfiles | ghscan) || { echo "ECHEC : garde du clientSecret en erreur (awk ou git) — contrôle non fiable" >&2; exit 1; }
+    if [ -n "$leaks" ]; then
+      echo "ECHEC : clientSecret non vide dans un fichier suivi par git (PRIVATE/<ENV>/values-local.yaml, jamais commité) — valeur non affichée :" >&2
+      echo "$leaks" >&2; exit 1
+    fi
     step_done "chart"
     # image du launcher du cluster (#167, décision C3) : même Dockerfile que la release ; buildah sans démon,
     # stockage vfs ; la couche d'outils (RUN apt) exige root → sudo hors root (deploy/image/build.sh).

@@ -65,12 +65,25 @@ type BackendsModel struct {
 	// de l'interface (backend k8s : ServiceAccount du pod, namespace implicite, #168)
 	InCluster    bool   `json:"inCluster"`
 	PodNamespace string `json:"podNamespace"`
+	// AdminFields : champs d'un backend réservés à l'administrateur (règle R1, contracts/auth.md §4) — « type:host »
+	// = un backend de type host ; « pod.<clé> » = clé de pod:. Constante : le client grise ces champs selon access.backendsAdminFields.
+	AdminFields []string `json:"adminFields"`
+}
+
+// AdminBackendFields : liste des champs R1 d'un backend.
+func AdminBackendFields() []string {
+	out := append([]string{}, adminBackendKeys...)
+	out = append(out, "type:host")
+	for _, k := range adminPodKeys {
+		out = append(out, "pod."+k)
+	}
+	return out
 }
 
 // ReadBackendsModel : modèle du contenu de backends.yaml (même décodage que le
 // chargement : mêmes types, mêmes erreurs). Contenu vide : modèle vide.
 func ReadBackendsModel(content []byte) (BackendsModel, error) {
-	m := BackendsModel{Backends: []BackendEntry{}, Pools: []PoolEntry{}, Images: []string{}, InCluster: InCluster(), PodNamespace: PodNamespace()}
+	m := BackendsModel{Backends: []BackendEntry{}, Pools: []PoolEntry{}, Images: []string{}, InCluster: InCluster(), PodNamespace: PodNamespace(), AdminFields: AdminBackendFields()}
 	var f backendsFile
 	if err := yaml.Unmarshal(content, &f); err != nil {
 		return m, fmt.Errorf("backends.yaml : %w", err)

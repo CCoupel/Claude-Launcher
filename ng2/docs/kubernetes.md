@@ -10,11 +10,14 @@
     - [2. Valeurs](#2-valeurs)
     - [3. Installation](#3-installation)
     - [4. Accès](#4-accès)
+    - [4b. Authentification (v7.0.0)](#4b-authentification-v700) (application GitHub, rôles, compte local, ingress externe)
+    - [4c. Créer la GitHub App](#4c-créer-la-github-app)
     - [5. Vérifications obligatoires](#5-vérifications-obligatoires)
     - [6. Mise à jour et retour arrière](#6-mise-à-jour-et-retour-arrière)
     - [7. Cohabitation : cluster, hub Linux et exe Windows sur la même racine](#7-cohabitation--cluster-hub-linux-et-exe-windows-sur-la-même-racine)
     - [8. Backends distants depuis le pod](#8-backends-distants-depuis-le-pod)
-    - [9. Limites de v6.4.0 (risques acceptés)](#9-limites-de-v640-risques-acceptés)
+    - [8b. Pods projets (v7.0.0, breaking)](#8b-pods-projets-v700-breaking)
+    - [9. Limites de v7.0.0 (risques acceptés)](#9-limites-de-v700-risques-acceptés)
 
 ---
 
@@ -107,8 +110,8 @@ avec #185.
 
 Ce guide installe le launcher dans un namespace Kubernetes, accessible **seulement depuis le réseau interne**, avec le
 chart `deploy/helm/claude-launcher`. Les valeurs complètes sont dans `contracts/helm-values.md`. Le guide couvre l'état
-livré en **v6.4.0** : **aucune authentification** (elle arrive en v7.0.0, #172). La liste d'adresses de l'Ingress
-interne est la seule barrière d'accès.
+livré en **v7.0.0** : **authentification** par GitHub (oauth2-proxy, §4b), avec un compte local `admin@local` de secours
+interne. La liste d'adresses de l'Ingress interne reste une barrière en amont, pas la seule.
 
 Le schéma ci-dessous montre les zones de confiance : le poste et le LAN, le cluster, et ce qui reste hors cluster.
 Les flèches qui franchissent une frontière portent ce qui les protège. Le launcher du cluster ne remplace pas les
@@ -188,8 +191,11 @@ ingress:
   tls:
     clusterIssuer: claude-launcher-ca          # ou secretName, un des deux
   annotations: {}
-web:
-  access: none                                 # défaut du chart : pas de jeton, l'Ingress est la barrière
+auth:
+  enabled: true                                # v7.0.0 : sidecar oauth2-proxy, web.access imposé à proxy (§4b)
+  existingSecret: <nom-du-secret>              # Secret GitHub App : client-id, client-secret (§4b)
+  admins: [<login-github>]                     # rôle admin ; liste non vide si auth.github.enabled
+  users: []                                    # rôle user
 networkPolicy:
   enabled: true                                # défaut : entrée au pod seulement depuis les pods Traefik
   ingressNamespaces: [traefik]
@@ -206,13 +212,13 @@ backends:
     secretName: ""                             # Secret TLS docker/podman (ca.pem, cert.pem, key.pem)
 terminationGracePeriodSeconds: 30              # minimum 30 : le launcher attend jusqu'à 20 s les ouvertures en cours
 externalIngress:
-  enabled: false                               # true est refusé au rendu tant qu'il n'y a pas d'authentification (v7.0.0)
+  enabled: false                               # v7.0.0 : permis avec auth.enabled (§4b)
 ```
 
 Valeurs obligatoires : `rootBase`, `volume.existingClaim`, `ingress.controller`, `ingress.className`, `ingress.host`,
 `ingress.allowedSourceRanges`, et l'un de `ingress.tls.secretName` ou `ingress.tls.clusterIssuer`. Une absente fait échouer
 `helm install` avec un message qui la nomme. `allowedSourceRanges` refuse tout `/0` et tout préfixe plus large.
-`terminationGracePeriodSeconds` en dessous de 30 est refusé par le schéma. `externalIngress.enabled: true` fait échouer le rendu.
+`terminationGracePeriodSeconds` en dessous de 30 est refusé par le schéma. `externalIngress.enabled: true` exige `auth.enabled: true` (sinon échec du rendu).
 
 **Droits** : un Role et un RoleBinding limités au namespace (et à chaque namespace de `rbac.extraNamespaces`), jamais de
 ClusterRole. Le launcher n'a aucun droit sur les Secrets Kubernetes : son coffre est un dossier de la racine partagée (`<rootBase>/.config/claude-launcher-ng2/secrets/`, en clair, voir [secrets.md](secrets.md)).
@@ -248,7 +254,9 @@ Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont cr
 
 #### 4. Accès
 
-- **`web.access: none`** (défaut) : ouvrez `https://launcher.local/` depuis une adresse de la liste. Il n'y a pas de jeton
+- **Avec `auth.enabled: true` (défaut v7.0.0)** : `web.access` vaut `proxy`. Connectez-vous avec GitHub (ou avec le compte
+  local `admin@local` depuis l'hôte interne), voir §4b. Les puces suivantes décrivent `auth.enabled: false`.
+- **`web.access: none`** (`auth.enabled: false`) : ouvrez `https://launcher.local/` depuis une adresse de la liste. Il n'y a pas de jeton
   ni de lien d'amorçage. Contrôle : `kubectl -n claude-ng2 exec statefulset/claude-launcher -- printenv CL_WEB_ACCESS` → `none`.
 - **`web.access: token`** : le jeton ne s'affiche jamais dans les journaux du pod. Lisez-le dans le fichier
   `<rootBase>/.cache/claude-launcher-ng2/<hubName>/desktop-web-token` du pod, par `kubectl exec`, puis donnez-le à l'utilisateur
@@ -261,6 +269,249 @@ Le chart ne crée ni ne supprime aucun PVC existant. Les pods de projets sont cr
   `CL_WEB_URL/files` ; le chemin interne du pod n'apparaît jamais. Les fichiers sont servis avec une CSP `sandbox` (origine
   opaque) et les fichiers sensibles sont exclus (voir §9).
 - La CA doit être installée sur le poste, sinon le navigateur refuse le certificat.
+
+#### 4b. Authentification (v7.0.0)
+
+Avec `auth.enabled: true` (défaut), un sidecar **oauth2-proxy** (`auth-proxy`, port 8080, seul port du Service) se place
+devant le launcher. Le launcher écoute sur la boucle locale du pod (`CL_WEB_ACCESS=proxy`) et lit l'identité que le proxy
+pose ; il n'a ni mot de passe ni session propre. Contrat complet : `contracts/auth.md`.
+
+**1. Application GitHub** (une par environnement, créée avant le `helm upgrade` ; pas à pas : [4c](#4c-créer-la-github-app)) :
+
+- URL de retour : `https://<hôte>/oauth2/callback`, où `<hôte>` est celui d'où l'on se connecte (ex. `https://launcher.local/oauth2/callback`).
+- Permission « Email addresses : read-only ». Expiration des jetons utilisateur désactivée.
+- Les identifiants vont dans un Secret du namespace, jamais dans les valeurs ni dans git. Depuis le dépôt, dans `PRIVATE/<ENV>/` :
+  ```bash
+  kubectl -n <ns> create secret generic <nom-du-secret> \
+    --from-file=client-id=PRIVATE/<ENV>/client-id --from-file=client-secret=PRIVATE/<ENV>/client-secret
+  ```
+  puis `auth.existingSecret: <nom-du-secret>`. Sans ce Secret, le pod ne démarre pas, et `NOTES.txt` le nomme.
+  Le Secret étant hors du chart, **un changement de sa valeur ne redémarre pas le pod** : lancez
+  `kubectl -n <ns> rollout restart statefulset/<release>` après la mise à jour du Secret.
+- **Autre façon (moins recommandée)** : `auth.github.clientId` et `auth.github.clientSecret` en valeurs Helm. Le chart crée
+  alors le Secret `<release>-github`. Un changement de ces valeurs redémarre le pod automatiquement (checksum du Secret dans
+  le modèle du pod). Ces valeurs se mettent **uniquement** dans `PRIVATE/<ENV>/values-local.yaml`, jamais
+  commitées. **Attention** : `helm get values` et `helm template` les affichent en clair, et elles sont stockées dans le
+  Secret de release Helm. `existingSecret` reste donc la voie recommandée. Les deux à la fois sont refusés au rendu, de même
+  qu'une seule des deux valeurs.
+  Un `clientId` purement numérique se passe avec `--set-string` (sinon le schéma le refuse).
+  Le contrôle de `scripts/ci.sh` (un `clientSecret` non vide dans un fichier suivi par git) est une **protection de confort, pas une garantie** : il ne voit pas les formes en flux (`{clientSecret: x}`), ni les `.json` et `.md`, ni les fichiers pas encore suivis par git.
+
+**2. Rôles et comptes GitHub** : les comptes se déclarent dans les valeurs Helm, pas dans un Secret : `auth.admins` (logins
+GitHub, rôle `admin`, obligatoire et non vide si GitHub est activé) et `auth.users` (rôle `user`). Ce ne sont pas des secrets :
+ils vont dans `PRIVATE/<ENV>/values-local.yaml` ou `values-<env>.yaml`, à passer avec `-f` à `helm upgrade`. Au démarrage, le
+launcher journalise `Accès authentifié (oauth2-proxy, GitHub) : N administrateur(s), M utilisateur(s)`. En QUALIF, ces listes
+sont vides car GitHub est coupé : seul le compte `admin@local` peut se connecter.
+
+- **Login renommable** : avant de renommer ou de supprimer un compte GitHub, retirez son login de `auth.admins` et `auth.users`,
+  et relancez `helm upgrade` ; sinon un autre compte pourrait reprendre le login et hériter de ses droits.
+
+**Casse exacte du login GitHub.** Copiez chaque login **tel qu'affiché par GitHub, avec sa casse** :
+
+- oauth2-proxy compare `--github-user` **en respectant la casse** ; le launcher, lui, compare sans casse. Un login saisi
+  avec une autre casse que celle de GitHub ne correspond donc pas côté proxy.
+- Erreur typique si la casse diffère : page « Erreur de connexion », réponse `500`, et dans le journal du sidecar
+  `auth-proxy` la ligne `missing github user`.
+- Vérifier la casse : `https://api.github.com/users/<login>` renvoie le champ `login` avec sa casse exacte (API publique).
+- Vérifier ce que le chart a transmis au sidecar (login public, aucun secret) :
+  `kubectl -n <ns> get pod <pod> -o jsonpath='{.spec.containers[?(@.name=="auth-proxy")].args}'`, puis lire la valeur de
+  `--github-user=`.
+- Une même identité saisie sous deux casses (dans une liste ou entre `auth.admins` et `auth.users`) est **refusée au rendu**.
+
+Un login ne peut figurer dans les deux
+listes (refus au rendu). Un login absent des deux listes reçoit `403`.
+
+- `admin` : serveur et options globales (`config.conf`, `env.yaml`, hub), relance du launcher, coffre des secrets des backends
+  (clés ssh, `known_hosts`, kubeconfig), et les champs de `backends.yaml` qui touchent au pod (contexte, namespace, volumes, options du pod, type `host`).
+- `user` : projets, terminaux, backends (déclaration et test). Il ne peut pas modifier le serveur ni le coffre.
+
+**3. Compte local `admin@local`** (secours, hôte interne seulement) :
+
+- Le chart génère le mot de passe à la première installation, dans le Secret `<release>-local-admin` (clés `password` et `htpasswd`).
+  Lecture, sans l'afficher dans les journaux :
+  ```bash
+  kubectl -n <ns> get secret <release>-local-admin -o jsonpath='{.data.password}' | base64 -d
+  ```
+- Rotation : supprimez les Secrets `<release>-local-admin` et `<release>-auth-cookie`, puis relancez `helm upgrade` (les sessions en cours sont invalidées).
+- Variante sans mot de passe généré : `auth.localAdmin.existingSecret` (clé `htpasswd`, bcrypt `$2a$`, `$2b$` ou `$2y$`, coût ≥ 10, mot de passe ≥ 20 caractères aléatoires).
+- Désactivation : `auth.localAdmin.enabled: false`. Le compte est refusé sur l'hôte externe, par construction et par le launcher.
+- Force brute : `rateLimit` Traefik sur `/oauth2/` (10 essais par minute en moyenne, 20 en rafale, par adresse source), puis `429`.
+
+**4. Ingress externe** (`externalIngress.enabled: true`) : accès depuis Internet, derrière l'authentification.
+
+- Prérequis : `auth.enabled: true` (sinon refus au rendu), un nom public (`externalIngress.host`), une classe d'ingress
+  (`externalIngress.className`) et un émetteur public, par exemple `externalIngress.tls.clusterIssuer: letsencrypt-prod`
+  (HTTP-01). L'émetteur interne `claude-launcher-ca` est refusé : il ne peut pas signer un nom public.
+- Ports : 80 et 443 doivent atteindre Traefik depuis Internet (HTTP redirigé vers HTTPS).
+- Une seconde instance d'oauth2-proxy (`auth-proxy-ext`, port 8083) sert l'hôte externe. Elle n'a **ni compte local ni
+  formulaire** : `admin@local` n'existe pas sur Internet, et le launcher le refuse aussi sur cet hôte. Son cookie
+  (`__Host-_cl_auth_ext` sans sous-chemin, voir ci-dessous) est distinct de celui de l'interne.
+- Le launcher annonce l'hôte externe aux sessions (`CL_WEB_URL`) quand il est activé ; l'hôte interne reste admis
+  (`CL_WEB_ALT_URLS`).
+- L'application GitHub doit accepter les deux URL de retour, interne et externe (`https://<hôte>/oauth2/callback`).
+
+**Accès public par sous-chemin** (`externalIngress.pathPrefix`, contrat `contracts/auth.md` §9) : l'accès externe peut
+être publié sous un chemin d'un hôte déjà servi par d'autres applications, par exemple `coupel.net` avec le préfixe
+`/claude-qualif`. C'est le choix retenu pour QUALIF et PROD, décidé par l'utilisateur.
+
+```yaml
+externalIngress:
+  enabled: true
+  className: traefik
+  host: coupel.net                       # nom d'hôte seul, sans chemin
+  pathPrefix: /claude-qualif             # vide = sous-domaine, chemin /
+  tls:
+    clusterIssuer: letsencrypt-prod
+```
+
+- Le préfixe est validé au rendu : segments `[a-z0-9-]`, pas de `/` final, de `//` ni de `..`.
+- L'Ingress ne capture **que** `PathPrefix(/claude-qualif)` ; Traefik ne retire pas le préfixe. Le launcher et oauth2-proxy
+  voient donc la même URL que le navigateur. Les autres applications de l'hôte restent inchangées (vérification en QUALIF :
+  `/emby` ne doit pas répondre par le launcher).
+- `CL_WEB_URL` devient `https://coupel.net/claude-qualif` (la base publique). L'URL interne `https://launcher.local/` ne change pas.
+- **Cookie** : `__Secure-cl_auth_ext_claude-qualif` en QUALIF (`__Secure-cl_auth_ext_claude` en PROD), `Path=/claude-qualif`
+  (ou `/claude`), `SameSite=Lax`, sans `Domain`. Le nom est dérivé du sous-chemin, tirets compris. Le préfixe `__Host-`
+  est impossible avec un sous-chemin, car il impose `Path=/`. Sans sous-chemin : `__Host-_cl_auth_ext`.
+- **GitHub App** : URL de retour `https://coupel.net/claude-qualif/oauth2/callback`, en plus de l'URL interne.
+- **HSTS non posé** avec un préfixe : il s'appliquerait à tout `coupel.net`, donc aussi aux applications servies en `http`. Le
+  chart ne pose donc pas `Strict-Transport-Security` sur l'ingress externe dans ce mode.
+- **Risque d'origine partagée, accepté par l'utilisateur pour QUALIF et PROD** : toutes les applications de `coupel.net`
+  partagent la même origine. Une faille de script dans une de ces applications (XSS) peut envoyer le cookie du launcher,
+  lire ses réponses et piloter le launcher : terminaux, donc exécution de code dans les pods projets, et réglages si la
+  victime est admin. Le chemin n'est pas une frontière de sécurité, et il n'existe pas de mitigation robuste côté navigateur.
+  Un **sous-domaine dédié** isole l'origine : c'est la recommandation de la sécurité et d'`infra`. Ce choix n'a pas été retenu.
+- Préfixe vide : comportement précédent (sous-domaine, chemin `/`, HSTS posé comme avant).
+
+**5. Sessions** : `auth.sessionDuration` (8 h par défaut), renouvelée toutes les `auth.sessionRefresh` (1 h) : l'appartenance aux
+listes est revérifiée à chaque renouvellement. Déconnexion : menu « Se déconnecter » (page `/signed-out`).
+
+**6. Journal d'audit** : `<CacheDir>/audit.jsonl` (hors du coffre, `0600`), une ligne par appel (agrégée pour les méthodes
+fréquentes), recopiée sur la sortie du conteneur `launcher` avec le préfixe `audit ` :
+`kubectl -n <ns> logs statefulset/claude-launcher -c launcher | grep '^audit '`. Rotation à 10 Mio, 5 générations. Une action
+admin est écrite avant son exécution (`phase: intent`). Aucun contenu, aucune valeur de secret n'est journalisé.
+
+**7. Requêtes JSON à clés en double** (même à la casse près, à toute profondeur) : refusées (`400`), avant toute décision R1.
+
+**8. Notes**
+
+- **Tag oauth2-proxy surchargé** : `auth.proxy.image.tag` est figé par le chart (v7.15.6). Une version sans le champ `StatusCode`
+  dans les données du gabarit `sign_in` ferait répondre `500` à la page de connexion. Ne surchargez le tag que vers une
+  version testée en QUALIF (revue #172-3).
+- **Backends** (`contracts/auth.md` §4) : un `user` peut tester un backend déjà déclaré tel quel. Il ne peut plus tester un
+  backend dont il a modifié l'hôte ou le pool.
+
+#### 4c. Créer la GitHub App
+
+Cette section suit la création pas à pas. La version courte est dans le [README](../../README.md#kubernetes-helm--le-launcher-dans-le-cluster).
+
+**1. Pourquoi une GitHub App, et non une OAuth App.** Le launcher est joignable par deux adresses : l'interne
+(`https://launcher.local`) et l'externe (`https://coupel.net/<sous-chemin>`). Une OAuth App n'accepte qu'une seule URL de
+retour ; une GitHub App en accepte plusieurs. Une même App sert QUALIF et PROD : il suffit d'ajouter les URL de retour.
+
+**2. Créer l'application** (compte GitHub de l'administrateur) :
+
+1. Ouvrir `github.com` › photo de profil › **Settings** › **Developer settings** › **GitHub Apps** › **New GitHub App**.
+2. **GitHub App name** : un nom unique sur GitHub, par exemple `Claude Launcher <ENV>` (ajouter un suffixe si pris).
+3. **Homepage URL** : l'URL du dépôt ou `https://<hôte interne>`. Elle n'est pas appelée par le launcher.
+4. **Callback URL** : une entrée par adresse, avec le bouton « Add Callback URL » pour la seconde (10 au maximum) :
+   - interne : `https://<hôte interne>/oauth2/callback`, par exemple `https://launcher.local/oauth2/callback` ;
+   - externe, si activée : `https://<hôte>[/<sous-chemin>]/oauth2/callback`, par exemple
+     `https://coupel.net/claude/oauth2/callback` (PROD) ou `https://coupel.net/claude-qualif/oauth2/callback` (QUALIF).
+   - Une URL en `.local` est acceptée : GitHub ne l'appelle jamais, c'est le navigateur qui y est redirigé.
+5. **Expire user authorization tokens** : **décoché**. Coché, le jeton expire après 8 h et la session se coupe.
+6. **Request user authorization (OAuth) during installation** : **coché**.
+7. **Webhook** : **Active décoché**. Le launcher n'a pas besoin de webhook.
+8. **Permissions** › **Account permissions** › **Email addresses** : **Read-only**. Sans cette permission, la connexion
+   échoue. Aucune permission de dépôt ni d'organisation.
+9. **Where can this GitHub App be installed?** : **Only on this account**.
+10. Cliquer sur **Create GitHub App**.
+
+**3. Récupérer le Client ID et le client secret.** Sur la page de l'App :
+
+- **About** : noter le **Client ID** (il commence par `Iv`). Ce n'est pas l'**App ID**.
+- **Client secrets** › **Generate a new client secret** : le secret n'est affiché **qu'une fois**. Le copier aussitôt.
+
+**4. Installer l'App sur son compte** : page de l'App › **Install App** › installer sur le compte de l'administrateur
+(« Install & Authorize »). Sans cette étape, la connexion n'aboutit pas.
+
+**5. Stocker les deux valeurs hors git.** Un fichier par valeur, sans retour à la ligne final ni espace, en mode `600` :
+
+```bash
+cd <racine du projet>
+read -rsp 'Client ID : ' v; printf '%s' "$v" > PRIVATE/<ENV>/github-client-id; echo
+read -rsp 'Client secret : ' v; printf '%s' "$v" > PRIVATE/<ENV>/github-client-secret; echo; unset v
+chmod 600 PRIVATE/<ENV>/github-client-id PRIVATE/<ENV>/github-client-secret
+```
+
+`PRIVATE/` est ignoré par git. Ne collez jamais ces valeurs dans un chat, un ticket ou un fichier suivi par git. Si un
+secret a fuité, régénérez-le sur la page de l'App, puis remplacez-le (étape 7).
+
+**6. Créer le Secret Kubernetes, avant le `helm upgrade`** :
+
+```bash
+kubectl -n <ns> create secret generic <nom-du-secret> \
+  --from-file=client-id=PRIVATE/<ENV>/github-client-id \
+  --from-file=client-secret=PRIVATE/<ENV>/github-client-secret
+```
+
+Dans `PRIVATE/<ENV>/values-local.yaml` :
+
+```yaml
+auth:
+  existingSecret: <nom-du-secret>
+  admins: [<login-github>]        # copié tel qu'affiché par GitHub, avec sa casse exacte
+  users: []
+```
+
+Variante : `auth.github.clientId` et `auth.github.clientSecret` en valeurs Helm. Le chart crée alors le Secret lui-même.
+**Attention** : `helm get values` et `helm template` affichent ces valeurs en clair, et elles sont stockées dans le Secret
+de release. `existingSecret` reste la voie recommandée. Un `clientId` purement numérique se passe avec `--set-string`.
+
+**7. Les logins GitHub.** Les listes `auth.admins` et `auth.users` reçoivent les logins **exactement comme GitHub les affiche**.
+oauth2-proxy compare `--github-user` **en respectant la casse** : `<login>` et `<Login>` ne sont pas équivalents côté
+proxy, même si le launcher les compare sans casse. Vérifier la casse exacte :
+
+```bash
+curl -s https://api.github.com/users/<login> | grep '"login"'
+```
+
+Une même identité saisie sous deux casses est refusée au rendu.
+
+**8. Vérifier la paire Client ID / secret, sans se connecter.** Le fichier de test contient les deux valeurs : le
+créer dans `_work/tmp`, puis le supprimer.
+
+```bash
+F=$(mktemp -p _work/tmp)
+printf 'client_id=%s&client_secret=%s&code=invalid' \
+  "$(cat PRIVATE/<ENV>/github-client-id)" "$(cat PRIVATE/<ENV>/github-client-secret)" > "$F"
+curl -s -X POST https://github.com/login/oauth/access_token -H 'Accept: application/json' --data @"$F"
+rm -f "$F"
+```
+
+Lire la réponse :
+
+| Réponse | Signification |
+|---------|---------------|
+| `bad_verification_code` | paire valide (le code `invalid` est seul en cause) |
+| `incorrect_client_credentials` | paire fausse : Client ID ou secret incorrect |
+| `404` | Client ID inconnu, ou requête mal formée (ex. valeurs séparées par des retours à la ligne au lieu de `&`) |
+
+**9. Dépannage.**
+
+| Symptôme | Cause probable | Action |
+|----------|----------------|--------|
+| « Erreur de connexion », `500` | casse du login différente de celle de GitHub, ou secret périmé | vérifier la casse (étape 7) ; régénérer le secret si la paire est fausse (étape 8) |
+| `missing github user` dans le sidecar | login absent de `auth.admins` / `auth.users` ou casse différente | corriger la liste, `helm upgrade` |
+| `redirect_uri mismatch` | URL de retour absente ou différente de l'URL utilisée | ajouter l'URL exacte dans les Callback URL de l'App |
+| connexion qui boucle | permission « Email addresses » absente, ou App non installée | étapes 2.8 et 4 |
+| session coupée après 8 h | expiration des jetons utilisateurs active | décocher « Expire user authorization tokens » |
+
+**Rotation du secret.** Régénérer le client secret sur la page de l'App, puis : avec `existingSecret`, mettre à jour le
+Secret (étape 6) et **redémarrer le pod** : `kubectl -n <ns> rollout restart statefulset/<release>`. Avec les valeurs Helm,
+un `helm upgrade` suffit : le pod redémarre seul.
+
+**10. Une seule App pour plusieurs environnements.** Ajouter les URL de retour de chaque environnement dans la même App
+(QUALIF et PROD), chacune avec son propre Secret Kubernetes dans son namespace.
 
 #### 5. Vérifications obligatoires
 
@@ -345,25 +596,54 @@ launchers de même nom sont refusés.
   `backends.docker.secretName` (`DOCKER_CERT_PATH`, `DOCKER_TLS_VERIFY=1`). Un `tcp://…:2375` sans TLS reste accepté.
 - **« Tester »** : vérifie le client présent, la clé et l'empreinte (ssh), puis l'accès.
 
-#### 9. Limites de v6.4.0 (risques acceptés)
+#### 8b. Pods projets (v7.0.0, breaking)
 
-Ces risques sont acceptés pour v6.4.0 et levés par la règle R1 de **v7.0.0** (#172) : session authentifiée exigée pour toute
-écriture et tout accès aux fichiers.
+Un pod projet ne voit plus la racine partagée. Pour chaque volume du backend, seuls sont montés, en `subPath` et au même
+chemin que dans le launcher :
 
-- **Pas d'authentification.** Tout poste de la liste d'adresses de l'Ingress pilote les projets. Ne publiez jamais l'Ingress
-  hors du réseau interne, et n'exposez pas le port d'écoute autrement. L'ingress externe (`externalIngress`) reste refusé.
-- **Écriture des secrets depuis le LAN** (clés ssh, `known_hosts`, kubeconfig) : une machine admise peut redéclarer un backend
-  ssh, y déposer sa clé et son empreinte, puis lancer un projet qui exécute des commandes sur un hôte qu'elle contrôle. Atténuations :
-  liste d'adresses, NetworkPolicy, journal des écritures, relevé d'empreinte limité aux backends déclarés (ni loopback, ni
-  link-local, ni adresse du pod).
+- le **dossier du projet** ;
+- **`CLAUDE_CONFIG_DIR`**.
+
+Les dossiers « local » (emptyDir) restent montés par-dessus le dossier du projet. Sont **absents** du pod : `<racine>/.config`
+(dont le coffre des secrets, voir [secrets.md](secrets.md)), `backends.yaml`, `.kube`, `.cache`, les binaires, les autres
+projets et la racine elle-même. Un chemin hors de tout volume du backend est refusé (erreur « stockage partagé ») : aucun
+repli sur la racine. Le dossier du projet ou `CLAUDE_CONFIG_DIR` égal à la racine d'un volume est refusé (erreur
+« stockage partagé … racine » : monter un sous-dossier). Deux racines identiques déclarées avec des PVC différents sont
+refusées (erreur « deux PVC »).
+
+- **Jeton de ServiceAccount** : non monté (`automountServiceAccountToken: false`). Pour le remonter, poser
+  `pod.automountServiceAccountToken: true` dans `backends.yaml` ; le diagnostic le signale (« jeton de ServiceAccount monté »).
+- **Pods en marche à l'ancien modèle** (sans l'annotation `cl.mounts: "v2"`) : conservés, leur session continue. La carte
+  affiche « Montages d'avant v7.0.0 : fermer puis rouvrir le projet pour les restreindre », et le diagnostic le signale.
+  Un pod arrêté, ou à recréer, est recréé au nouveau modèle.
+- Docker, podman et ssh : inchangés (ils ne montent déjà que le projet et `CLAUDE_CONFIG_DIR`).
+- Le coffre est hors des pods, mais **pas les jetons GitHub** : `GH_TOKEN` et `GITHUB_PERSONAL_ACCESS_TOKEN` figurent dans
+  `.claude/settings.json` (`CLAUDE_CONFIG_DIR`, monté) et sont lisibles par les sessions du pod (voir [secrets.md](secrets.md)).
+
+#### 9. Limites de v7.0.0 (risques acceptés)
+
+Avec `auth.enabled: true` (défaut), l'accès est authentifié et les écritures sensibles sont réservées à l'admin (R1, §4b).
+Les points ci-dessous restent vrais, sauf mention contraire.
+
+- **Authentification désactivée (`auth.enabled: false`)** : comportement de v6.9.0. Seule la liste d'adresses de l'Ingress
+  protège le launcher ; tout poste admis pilote les projets. Ne publiez jamais l'Ingress hors du réseau interne dans ce mode.
+- **Écriture des secrets** (clés ssh, `known_hosts`, kubeconfig) : réservée à l'admin avec `auth.enabled: true`. Avec
+  `auth.enabled: false`, une machine admise peut redéclarer un backend ssh, y déposer sa clé et son empreinte, puis lancer un
+  projet qui exécute des commandes sur un hôte qu'elle contrôle. Atténuations : liste d'adresses, NetworkPolicy, journal des
+  écritures, relevé d'empreinte limité aux backends déclarés (ni loopback, ni link-local, ni adresse du pod).
+- **Pouvoir d'un `user`** : il exécute du code dans les pods de projets et y lit `GH_TOKEN` (voir [secrets.md](secrets.md)).
+  Les pods projets tournent encore en root (capacités par défaut) : durcissement prévu en v7.1.0.
+- **Pas de locataire** : tous les utilisateurs authentifiés voient les mêmes projets et backends ; « ses backends » arrive en v7.1.0.
+- **Login GitHub renommable** : avant de renommer ou de supprimer un compte GitHub, retirez son login de `auth.admins` et
+  `auth.users` ; un autre compte pourrait reprendre le login.
 - **`/files` lisible depuis le LAN** : les fichiers des projets sont servis, sauf les éléments sensibles (`PRIVATE`, `.git`,
   `.claude`, `.env*`, clés, identifiants d'outils comme `.git-credentials`, `.npmrc`, `.docker`, `*.p12`, `*.pfx`, `*.jks`),
   les dossiers d'état du launcher et `_work/tmp`. Dans `_work`, seul `_work/mockup` est servi. Les requêtes cross-site sont
   refusées, sauf les sous-ressources de maquette et la navigation de premier niveau (ouverture d'une maquette par l'extension ou un lien), acceptée de toute provenance.
 - **Script cross-site d'une maquette** : une page tierce peut exécuter un fichier `.js` d'un projet servi sous `/files` et lire
   ses variables globales. Les scripts de maquette ne sont pas restreints en `connect-src` (CDN et API publiques).
-- **`web.access: token`** : le jeton reste dans `<cache>/desktop-web-token`, sur le volume partagé de la racine : tout pod qui
-  monte ce volume, y compris les pods de projets, peut le lire. Avec `web.access: none`, aucun jeton n'existe.
+- **`web.access: token`** (`auth.enabled: false` seulement) : le jeton reste dans `<cache>/desktop-web-token`, sur le volume partagé de la racine : tout pod qui
+  monte ce volume peut le lire. Les pods projets ne montent plus ce volume depuis v7.0.0 (§8b). Avec `web.access: none`, aucun jeton n'existe.
 - **Saturation possible** : 32 flux `/api/events` au total, ouvrables par tout client qui atteint le port.
 - **Contexte k8s** : sans `kubeconfig` du backend, le `context` d'un backend `k8s` est ignoré en cluster. Déclarez seulement
   des backends `k8s` du cluster où tourne le launcher.

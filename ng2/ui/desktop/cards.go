@@ -62,6 +62,9 @@ func (a *App) cardsFast(path string) Cards {
 		c.Pending = append(c.Pending, "état")
 	}
 	c.Legend = core.Legend(p)
+	if p.CtrKnown && p.Ctr.OldMounts {
+		c.Warn = core.OldMountsNote
+	}
 	c.Milestone = msCard(ms)
 	teamCache.Lock()
 	te, ok := teamCache.m[n.Path]

@@ -21,6 +21,8 @@ if [ ! -d "$CL_ROOT_BASE" ]; then
 fi
 mkdir -p "${HOME:-/home/launcher}" 2>/dev/null || true
 
-args=(desktop --web --addr 0.0.0.0:8080 --no-open)
+# CL_WEB_ADDR : écoute du launcher (posée à 127.0.0.1:8081 par le chart quand le proxy d'authentification est actif, v7.0.0) ;
+# défaut : 0.0.0.0:8080, comportement de v6.9.0
+args=(desktop --web --addr "${CL_WEB_ADDR:-0.0.0.0:8080}" --no-open)
 [ -n "${CL_WEB_URL:-}" ] && args+=(--url "$CL_WEB_URL")
 exec claude-launcher-ng2 "${args[@]}" "$@"

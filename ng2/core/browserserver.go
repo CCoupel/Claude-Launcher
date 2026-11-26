@@ -564,13 +564,27 @@ func servedRoots(lists ...[]string) []string {
 // RunBrowserServer : lancé avec le pane des cartes du hub (supervisé). Réglage
 // relu toutes les 10 s : changement d'adresse ou off pris en compte sans
 // relance ; port occupé → nouvel essai.
-func RunBrowserServer() {
+func RunBrowserServer() { RunBrowserServerUntil(nil) }
+
+// RunBrowserServerUntil : RunBrowserServer, qui rend la main (serveur fermé, plus aucune écriture du fichier d'état) dès que stop est
+// fermé ; nil : jamais (processus du pane des cartes). Sans cela, la goroutine de chaque App démarrée (fenêtre, --web, tests) vivait
+// jusqu'à la fin du processus et réécrivait toutes les 10 s browser-server.status dans le CacheDir COURANT — celui du test en cours :
+// « The directory is not empty » au nettoyage de t.TempDir sous Windows (#270).
+func RunBrowserServerUntil(stop <-chan struct{}) {
 	var cur serverConf
 	var srv *http.Server
 	var allow []string
 	var amu sync.Mutex
 	roots := cachedRoots(func() []string { amu.Lock(); defer amu.Unlock(); return allow })
 	for {
+		select {
+		case <-stop:
+			if srv != nil {
+				_ = srv.Close()
+			}
+			return
+		default:
+		}
 		c, err := browserServer()
 		if err != nil {
 			setServerStatus("config invalide : " + err.Error())
@@ -605,7 +619,14 @@ func RunBrowserServer() {
 		} else if c.Off && err == nil {
 			setServerStatus("désactivé (" + c.Source + ")")
 		}
-		time.Sleep(10 * time.Second)
+		select {
+		case <-stop:
+			if srv != nil {
+				_ = srv.Close()
+			}
+			return
+		case <-time.After(10 * time.Second):
+		}
 	}
 }
 
