@@ -137,6 +137,7 @@ func TestGhID255ReponseDunAutreLoginRefusee(t *testing.T) {
 
 func TestGhID255ErreursReseau(t *testing.T) {
 	g := gh255Start(t, map[string]int64{"alice": 5})
+	defer ghidRetry.Set(ghidRetry.Set(0)) // pas d'attente de 5 min entre deux essais : chaque étape rejoue l'API (revue LOT-2)
 	// sans entrée connue : erreur franche, rien d'écrit
 	g.setMode("500")
 	if uid, err := ResolveUID("alice"); !errors.Is(err, ErrLoginUnresolved) || uid != "" {

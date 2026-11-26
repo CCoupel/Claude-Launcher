@@ -230,3 +230,102 @@ func TestUserAdminFieldsEchecFerme255(t *testing.T) {
 		t.Error("fichier écrit malgré un YAML illisible")
 	}
 }
+
+// Revue LOT-2 : un appel API lent ne bloque ni les autres logins, ni les autres requêtes du même login ; un seul vol par login ;
+// après un échec, pas de nouvel appel avant ghidRetry.
+func TestResolveUIDApiLenteSansBlocage255(t *testing.T) {
+	dev255Env(t)
+	release := make(chan struct{})
+	var slowHits, otherHits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch strings.TrimPrefix(r.URL.Path, "/") {
+		case "slow":
+			slowHits.Add(1)
+			<-release
+			fmt.Fprint(w, `{"id":5,"login":"slow"}`)
+		case "fast":
+			otherHits.Add(1)
+			fmt.Fprint(w, `{"id":6,"login":"fast"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	defer func(old string) { GithubUsersURL = old }(GithubUsersURL)
+	GithubUsersURL = srv.URL + "/"
+	defer close(release)
+
+	// trois requêtes concurrentes du login lent : un seul appel API
+	res := make(chan string, 3)
+	for i := 0; i < 3; i++ {
+		go func() { uid, _ := ResolveUID("slow"); res <- uid }()
+	}
+	for slowHits.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	// pendant ce temps, un autre login est résolu sans attendre
+	done := make(chan string, 1)
+	go func() { uid, _ := ResolveUID("fast"); done <- uid }()
+	select {
+	case uid := <-done:
+		if uid != "github-6" {
+			t.Errorf("fast = %q", uid)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("un login lent bloque les autres utilisateurs")
+	}
+	release <- struct{}{}
+	for i := 0; i < 3; i++ {
+		if uid := <-res; uid != "github-5" {
+			t.Errorf("slow = %q", uid)
+		}
+	}
+	if slowHits.Load() != 1 {
+		t.Errorf("%d appels API pour un login, 1 attendu (un seul vol)", slowHits.Load())
+	}
+}
+
+func TestResolveUIDEchecPasDeNouvelEssaiAvant5Min255(t *testing.T) {
+	dev255Env(t)
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		http.Error(w, "rate limit", http.StatusForbidden)
+	}))
+	defer srv.Close()
+	defer func(old string) { GithubUsersURL = old }(GithubUsersURL)
+	GithubUsersURL = srv.URL + "/"
+	clock := time.Now()
+	defer ghidNow.Set(ghidNow.Set(func() time.Time { return clock }))
+	for i := 0; i < 5; i++ {
+		if _, err := ResolveUID("carol"); !errors.Is(err, ErrLoginUnresolved) {
+			t.Fatalf("essai %d : %v", i, err)
+		}
+	}
+	if hits.Load() != 1 {
+		t.Errorf("%d appels pendant l'attente, 1 attendu", hits.Load())
+	}
+	clock = clock.Add(6 * time.Minute) // le délai est passé : nouvel essai
+	_, _ = ResolveUID("carol")
+	if hits.Load() != 2 {
+		t.Errorf("%d appels après 6 min, 2 attendus", hits.Load())
+	}
+	// entrée connue périmée + API en panne : l'entrée sert, une seule tentative par fenêtre
+	id := &atomic.Int64{}
+	id.Store(8)
+	dev255API(t, map[string]*atomic.Int64{"dave": id})
+	if uid, _ := ResolveUID("dave"); uid != "github-8" {
+		t.Fatal(uid)
+	}
+	GithubUsersURL = srv.URL + "/"
+	hits.Store(0)
+	clock = clock.Add(48 * time.Hour)
+	for i := 0; i < 4; i++ {
+		if uid, err := ResolveUID("dave"); err != nil || uid != "github-8" {
+			t.Fatalf("dave : %q %v", uid, err)
+		}
+	}
+	if hits.Load() != 1 {
+		t.Errorf("%d appels pour une entrée périmée en panne, 1 attendu", hits.Load())
+	}
+}

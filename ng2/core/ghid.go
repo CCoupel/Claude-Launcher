@@ -58,7 +58,54 @@ func UserIndexPath() string { return filepath.Join(UsersDir(), "index.json") }
 // UserUID : nom de l'espace d'un compte GitHub (« github-<id> »).
 func UserUID(id int64) string { return fmt.Sprintf("github-%d", id) }
 
-var ghidMu sync.Mutex // sérialise les résolutions (un seul appel API à la fois ; le cache est relu sous verrou fichier)
+// ghidRetry : après un échec de l'API GitHub, aucune nouvelle tentative pour ce login avant ce délai (l'entrée connue sert).
+var ghidRetry = tun.Of(5 * time.Minute)
+
+// ghidNow : horloge (tests).
+var ghidNow = tun.Of(time.Now)
+
+// cache mémoire du résultat de users/index.json et état des résolutions. ghidMu ne protège QUE ces structures : jamais tenu
+// pendant un appel réseau ni une écriture de fichier (SpaceOf est appelé à chaque requête).
+var (
+	ghidMu      sync.Mutex
+	ghidPath    string                    // index chargé en mémoire (change si le dossier de config change)
+	ghidSig     string                    // taille + date du fichier au chargement : relu seulement s'il a changé
+	ghidIdx     map[string]UserIndexEntry // login → entrée
+	ghidRetryAt = map[string]time.Time{}  // login → pas d'appel API avant
+	ghidBlock   = map[string]bool{}       // login repris par un autre compte : refusé jusqu'à l'action de l'admin
+	ghidFly     = map[string]*ghidCall{}  // résolutions en cours (un seul vol par login)
+)
+
+type ghidCall struct {
+	done chan struct{}
+	uid  string
+	err  error
+}
+
+// gk : clé d'état d'un login (propre au dossier de config : plusieurs configurations dans un même processus, tests).
+func gk(login string) string { return UserIndexPath() + "\x00" + login }
+
+func fileSig(p string) string {
+	st, err := os.Stat(p)
+	if err != nil {
+		return "absent"
+	}
+	return fmt.Sprintf("%d/%d", st.Size(), st.ModTime().UnixNano())
+}
+
+// ghidLoad : index en mémoire (relu seulement si le fichier a changé). ghidMu tenu.
+func ghidLoad() error {
+	p := UserIndexPath()
+	if sig := fileSig(p); p == ghidPath && sig == ghidSig && ghidIdx != nil {
+		return nil
+	}
+	f, err := readUserIndex()
+	if err != nil {
+		return err
+	}
+	ghidPath, ghidSig, ghidIdx = p, fileSig(p), f.Users
+	return nil
+}
 
 func readUserIndex() (userIndexFile, error) {
 	f := userIndexFile{Users: map[string]UserIndexEntry{}}
@@ -108,47 +155,97 @@ func githubUserID(login string) (int64, error) {
 	return u.ID, nil
 }
 
-// ResolveUID : espace (« github-<id> ») du login GitHub. Cache d'abord ; entrée périmée (ghidTTL) : revérifiée, et un
-// identifiant différent donne ErrLoginReused (le cache n'est pas modifié). API injoignable : l'entrée connue, même
-// périmée, sert ; sans entrée, ErrLoginUnresolved.
+// ResolveUID : espace (« github-<id> ») du login GitHub. Chemin chaud : cache mémoire, sans appel réseau. Entrée absente ou
+// périmée (ghidTTL) : UN SEUL appel à l'API par login (les autres requêtes du même login attendent ce résultat s'il n'y a pas
+// d'entrée, sinon servent l'entrée connue sans attendre), jamais sous verrou global. Un identifiant différent donne
+// ErrLoginReused jusqu'à ForgetUserLogin. Échec de l'API : l'entrée connue sert, et aucune nouvelle tentative avant ghidRetry ;
+// sans entrée : ErrLoginUnresolved.
 func ResolveUID(login string) (string, error) {
 	login = strings.ToLower(strings.TrimSpace(login))
 	if !loginRE.MatchString(login) {
 		return "", fmt.Errorf("login invalide : %q", login)
 	}
+	now := ghidNow.Get()()
 	ghidMu.Lock()
-	defer ghidMu.Unlock()
-	idx, err := readUserIndex()
-	if err != nil {
+	if ghidBlock[gk(login)] {
+		ghidMu.Unlock()
+		return "", fmt.Errorf("%w (%s)", ErrLoginReused, login)
+	}
+	if err := ghidLoad(); err != nil {
+		ghidMu.Unlock()
 		return "", err
 	}
-	cur, known := idx.Users[login]
-	if known && time.Since(cur.At) < ghidTTL.Get() {
+	cur, known := ghidIdx[login]
+	if known && now.Sub(cur.At) < ghidTTL.Get() {
+		ghidMu.Unlock()
 		return UserUID(cur.ID), nil
 	}
+	if until, ok := ghidRetryAt[gk(login)]; ok && now.Before(until) { // échec récent : pas d'appel
+		ghidMu.Unlock()
+		if known {
+			return UserUID(cur.ID), nil
+		}
+		return "", fmt.Errorf("%w : API GitHub indisponible, nouvel essai plus tard", ErrLoginUnresolved)
+	}
+	if c, flying := ghidFly[gk(login)]; flying {
+		ghidMu.Unlock()
+		if known { // une résolution est en cours : l'entrée connue sert sans attendre
+			return UserUID(cur.ID), nil
+		}
+		<-c.done
+		return c.uid, c.err
+	}
+	c := &ghidCall{done: make(chan struct{})}
+	ghidFly[gk(login)] = c
+	ghidMu.Unlock()
+
+	c.uid, c.err = ghidRefresh(login, cur, known)
+	ghidMu.Lock()
+	delete(ghidFly, gk(login))
+	ghidMu.Unlock()
+	close(c.done)
+	return c.uid, c.err
+}
+
+// ghidRefresh : appel à l'API (hors verrou global) puis mise à jour du cache mémoire et du fichier.
+func ghidRefresh(login string, cur UserIndexEntry, known bool) (string, error) {
 	id, err := githubUserID(login)
+	now := ghidNow.Get()()
 	switch {
-	case err != nil && known:
-		return UserUID(cur.ID), nil // API indisponible : le dernier identifiant connu fait foi
 	case err != nil:
+		ghidMu.Lock()
+		ghidRetryAt[gk(login)] = now.Add(ghidRetry.Get())
+		ghidMu.Unlock()
+		if known {
+			return UserUID(cur.ID), nil // API indisponible : le dernier identifiant connu fait foi
+		}
 		return "", fmt.Errorf("%w : %v", ErrLoginUnresolved, err)
 	case known && id != cur.ID:
+		ghidMu.Lock()
+		ghidBlock[gk(login)] = true
+		ghidMu.Unlock()
 		return "", fmt.Errorf("%w (%s : %d connu, %d reçu)", ErrLoginReused, login, cur.ID, id)
 	}
+	e := UserIndexEntry{ID: id, At: now.UTC()}
+	ghidMu.Lock()
+	delete(ghidRetryAt, gk(login))
+	if ghidIdx != nil && ghidPath == UserIndexPath() {
+		ghidIdx[login] = e // le cache sert tout de suite ; le fichier suit (sa signature changera : relu à la prochaine requête)
+	}
+	ghidMu.Unlock()
 	err = WithFileLock(UserIndexPath(), func() error {
-		f, err := readUserIndex() // relu sous verrou : un autre launcher a pu écrire
+		f, err := readUserIndex() // relu sous verrou fichier : un autre launcher a pu écrire
 		if err != nil {
 			return err
 		}
 		if o, ok := f.Users[login]; ok && o.ID != id {
+			ghidMu.Lock()
+			ghidBlock[gk(login)] = true
+			ghidMu.Unlock()
 			return fmt.Errorf("%w (%s)", ErrLoginReused, login)
 		}
-		f.Users[login] = UserIndexEntry{ID: id, At: time.Now().UTC()}
-		b, err := json.MarshalIndent(f, "", "  ")
-		if err != nil {
-			return err
-		}
-		return WriteFileAtomic(UserIndexPath(), append(b, '\n'), 0o600)
+		f.Users[login] = e
+		return writeUserIndex(f)
 	})
 	if err != nil {
 		return "", err
@@ -156,12 +253,25 @@ func ResolveUID(login string) (string, error) {
 	return UserUID(id), nil
 }
 
-// ForgetUserLogin : action de l'admin — retire le login de users/index.json (il sera résolu de nouveau à son prochain
-// accès, sous son nouvel identifiant). Ne supprime aucun espace.
+func writeUserIndex(f userIndexFile) error {
+	b, err := json.MarshalIndent(f, "", "  ")
+	if err != nil {
+		return err
+	}
+	return WriteFileAtomic(UserIndexPath(), append(b, '\n'), 0o600)
+}
+
+// ForgetUserLogin : action de l'admin — retire le login de users/index.json et de la mémoire, lève le refus d'un login repris
+// (il sera résolu de nouveau à son prochain accès, sous son nouvel identifiant). Ne supprime aucun espace.
 func ForgetUserLogin(login string) error {
 	login = strings.ToLower(strings.TrimSpace(login))
 	ghidMu.Lock()
-	defer ghidMu.Unlock()
+	delete(ghidBlock, gk(login))
+	delete(ghidRetryAt, gk(login))
+	if ghidIdx != nil && ghidPath == UserIndexPath() {
+		delete(ghidIdx, login)
+	}
+	ghidMu.Unlock()
 	return WithFileLock(UserIndexPath(), func() error {
 		f, err := readUserIndex()
 		if err != nil {
@@ -171,11 +281,7 @@ func ForgetUserLogin(login string) error {
 			return nil
 		}
 		delete(f.Users, login)
-		b, err := json.MarshalIndent(f, "", "  ")
-		if err != nil {
-			return err
-		}
-		return WriteFileAtomic(UserIndexPath(), append(b, '\n'), 0o600)
+		return writeUserIndex(f)
 	})
 }
 
