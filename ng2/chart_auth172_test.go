@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"os"
 	"regexp"
@@ -695,8 +696,21 @@ func TestChartAuth172ChartVersion(t *testing.T) {
 	if err := yaml.Unmarshal(b, &c); err != nil {
 		t.Fatal(err)
 	}
-	if c.Version != "7.0.0" || c.AppVersion != "v7.0.0" {
-		t.Errorf("Chart.yaml : version %q appVersion %q, attendu 7.0.0 et v7.0.0 (règle #204)", c.Version, c.AppVersion)
+	// version attendue : celle du projet (project-config.json, « X.Y.Z » ou « X.Y.Z.a » en dev), comme le fait
+	// scripts/ci.sh sur une branche milestone — jamais recopiée ici
+	want := c.Version
+	if pc, err := os.ReadFile("../.claude/project-config.json"); err == nil {
+		var cfg struct {
+			Version string `json:"version"`
+		}
+		if json.Unmarshal(pc, &cfg) == nil && cfg.Version != "" {
+			if f := strings.Split(cfg.Version, "."); len(f) >= 3 {
+				want = strings.Join(f[:3], ".")
+			}
+		}
+	}
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(want) || c.Version != want || c.AppVersion != "v"+want {
+		t.Errorf("Chart.yaml : version %q appVersion %q, attendu %s et v%s (règle #204)", c.Version, c.AppVersion, want, want)
 	}
 }
 
