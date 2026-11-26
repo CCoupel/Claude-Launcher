@@ -23,6 +23,8 @@ func t254Prefix() m {
 	v := t254Values()
 	sub(v, "externalIngress")["host"] = t254Shared
 	sub(v, "externalIngress")["pathPrefix"] = t254Base
+	// hôte partagé : certificat déjà en place, fourni par secretName (clusterIssuer + pathPrefix est refusé au rendu, voir plus bas)
+	sub(v, "externalIngress")["tls"] = m{"secretName": "coupel-net-tls"}
 	return v
 }
 
@@ -383,35 +385,66 @@ func TestChartPrefix254NoHSTSOnSharedHost(t *testing.T) {
 	}
 }
 
-// Certificat : l'hôte partagé est servi par un certificat propre au namespace (annotation cert-manager de l'Ingress ou Certificate) ;
-// avec tls.secretName : le Secret fourni, aucun Certificate.
+// Certificat : avec pathPrefix l'hôte partagé est servi par le Secret fourni (`tls.secretName`) — repris tel quel dans le bloc tls des
+// Ingress externes ; aucune demande de certificat (annotation cert-manager.io/*, Certificate) pour cet hôte.
 func TestChartPrefix254Certificate(t *testing.T) {
 	needHelm(t)
 	o := must(t, t254Prefix())
 	ext := t254ExtIngresses(o)
-	hasTLS := false
+	if len(ext) < 2 {
+		t.Fatalf("%d Ingress externes", len(ext))
+	}
 	for _, ing := range ext {
-		if b, _ := yaml.Marshal(get(ing, "spec", "tls")); strings.Contains(string(b), t254Shared) {
-			hasTLS = true
+		name := fmt.Sprint(get(ing, "metadata", "name"))
+		tls, _ := get(ing, "spec", "tls").([]any)
+		if len(tls) == 0 {
+			t.Errorf("Ingress %s sans bloc tls", name)
+		}
+		for _, tl := range tls {
+			if fmt.Sprint(get(tl, "hosts")) != "["+t254Shared+"]" || get(tl, "secretName") != "coupel-net-tls" {
+				t.Errorf("Ingress %s : tls = %v, attendu hosts [%s] et secretName coupel-net-tls", name, tl, t254Shared)
+			}
+		}
+		for _, k := range []string{"cert-manager.io/cluster-issuer", "cert-manager.io/issuer", "cert-manager.io/common-name"} {
+			if get(ing, "metadata", "annotations", k) != nil {
+				t.Errorf("Ingress %s : annotation %s avec un sous-chemin", name, k)
+			}
 		}
 	}
-	if !hasTLS {
-		t.Error("aucun bloc tls pour l'hôte partagé")
-	}
-	v := t254Prefix()
-	sub(v, "externalIngress")["tls"] = m{"secretName": "coupel-net-tls"}
-	o2 := must(t, v)
-	if b, _ := yaml.Marshal(o2["Certificate"]); strings.Contains(string(b), t254Shared) {
-		t.Errorf("Certificate créé pour %s avec tls.secretName : %s", t254Shared, b)
-	}
-	found := false
-	for _, ing := range t254ExtIngresses(o2) {
-		if b, _ := yaml.Marshal(get(ing, "spec", "tls")); strings.Contains(string(b), "coupel-net-tls") {
-			found = true
+	for _, c := range o["Certificate"] {
+		if b, _ := yaml.Marshal(c); strings.Contains(string(b), t254Shared) {
+			t.Errorf("Certificate pour %s avec un sous-chemin : %s", t254Shared, b)
 		}
 	}
-	if !found {
-		t.Error("secretName coupel-net-tls absent des Ingress externes")
+}
+
+// Réserve QA R1 : pathPrefix + tls.clusterIssuer est REFUSÉ au rendu (le certificat de l'hôte partagé n'est pas demandé par ce chart :
+// un Certificate/une annotation cert-manager viendrait en doublon de celui des autres applications) avec un message qui cite pathPrefix
+// ET clusterIssuer ; pathPrefix + tls.secretName seul est accepté ; sans préfixe, clusterIssuer reste accepté comme avant.
+func TestChartPrefix254ClusterIssuerRefusedWithPrefix(t *testing.T) {
+	needHelm(t)
+	must(t, t254Prefix())
+	for name, tls := range map[string]m{
+		"clusterIssuer seul":          {"clusterIssuer": "letsencrypt-prod"},
+		"clusterIssuer et secretName": {"clusterIssuer": "letsencrypt-prod", "secretName": "coupel-net-tls"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			v := t254Prefix()
+			sub(v, "externalIngress")["tls"] = tls
+			t172Refused(t, v, "pathPrefix", "clusterIssuer")
+		})
+	}
+	// secretName seul : accepté (déjà couvert par t254Prefix) ; sans préfixe : clusterIssuer accepté comme avant, sans secretName
+	if _, out, err := render(t, t254Values()); err != nil {
+		t.Errorf("sans préfixe, clusterIssuer refusé : %.300s", out)
+	}
+	for _, p := range []string{"", "/claude-qualif"} {
+		v := t254Values()
+		sub(v, "externalIngress")["pathPrefix"] = p
+		sub(v, "externalIngress")["tls"] = m{"secretName": "ext-tls"}
+		if _, out, err := render(t, v); err != nil {
+			t.Errorf("secretName seul refusé (préfixe %q) : %.300s", p, out)
+		}
 	}
 }
 
@@ -426,43 +459,6 @@ func TestChartPrefix254IgnoredWhenDisabled(t *testing.T) {
 	}
 	if t172Container(t, o, "auth-proxy-ext") != nil || strings.Contains(out, t254Base) {
 		t.Error("objets externes ou préfixe rendus alors que l'ingress externe est désactivé")
-	}
-}
-
-// Avec pathPrefix : aucune demande de certificat pour l'hôte partagé (Certificate ni annotation cert-manager.io/cluster-issuer : le
-// certificat de l'hôte existe déjà, servi par l'entrypoint) ; le bloc tls ne porte que les hôtes, `secretName` seulement s'il est fourni.
-func TestChartPrefix254NoCertificateRequest(t *testing.T) {
-	needHelm(t)
-	o := must(t, t254Prefix())
-	for _, ing := range t254ExtIngresses(o) {
-		if v := get(ing, "metadata", "annotations", "cert-manager.io/cluster-issuer"); v != nil {
-			t.Errorf("Ingress %v : cert-manager.io/cluster-issuer = %v avec un sous-chemin", get(ing, "metadata", "name"), v)
-		}
-		if v := get(ing, "metadata", "annotations", "cert-manager.io/issuer"); v != nil {
-			t.Errorf("Ingress %v : cert-manager.io/issuer = %v", get(ing, "metadata", "name"), v)
-		}
-		for _, tl := range get(ing, "spec", "tls").([]any) {
-			if get(tl, "secretName") != nil {
-				t.Errorf("Ingress %v : secretName %v alors qu'aucun Secret n'est fourni", get(ing, "metadata", "name"), get(tl, "secretName"))
-			}
-			if fmt.Sprint(get(tl, "hosts")) != "["+t254Shared+"]" {
-				t.Errorf("Ingress %v : tls.hosts = %v, attendu [%s]", get(ing, "metadata", "name"), get(tl, "hosts"), t254Shared)
-			}
-		}
-	}
-	for _, c := range o["Certificate"] {
-		if b, _ := yaml.Marshal(c); strings.Contains(string(b), t254Shared) {
-			t.Errorf("Certificate pour %s avec un sous-chemin : %s", t254Shared, b)
-		}
-	}
-	// secretName fourni : repris tel quel, toujours aucune demande
-	v := t254Prefix()
-	sub(v, "externalIngress")["tls"] = m{"secretName": "coupel-net-tls"}
-	o2 := must(t, v)
-	for _, ing := range t254ExtIngresses(o2) {
-		if get(ing, "metadata", "annotations", "cert-manager.io/cluster-issuer") != nil {
-			t.Errorf("secretName fourni : annotation cert-manager sur %v", get(ing, "metadata", "name"))
-		}
 	}
 }
 
