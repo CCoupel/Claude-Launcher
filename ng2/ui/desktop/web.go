@@ -70,6 +70,8 @@ type webBridge struct {
 	subMu   sync.Mutex // abonnés SSE : jamais tenu en même temps que mu, jamais pendant une attente
 	subs    map[chan []byte]bool
 	subSess map[chan []byte]string // session de chaque abonné : fermé avec elle (expiration, éviction, révocation)
+	subUID  map[chan []byte]string // espace de chaque abonné d'un utilisateur (v7.1.0) ; absent : espace de l'admin (App commune)
+	spaces  spaceHub               // instances d'état d'interface des utilisateurs (spaces.go)
 	active  atomic.Int32           // gestionnaires de flux vivants (jusqu'à leur vraie sortie, même retirés de subs)
 }
 
@@ -166,6 +168,15 @@ func injectBase(page []byte, base string) []byte {
 }
 
 type ctxKey struct{}
+type spaceKey struct{}
+
+// spaceOf : espace de la requête (mode proxy : celui de l'identité) ; l'espace de l'admin ailleurs.
+func spaceOf(r *http.Request) core.Space {
+	if sp, ok := r.Context().Value(spaceKey{}).(core.Space); ok {
+		return sp
+	}
+	return core.AdminSpace()
+}
 
 // identityOf : identité posée par le contrôle du mode proxy (nil ailleurs).
 func identityOf(r *http.Request) *core.Identity {
@@ -281,6 +292,7 @@ func (w *webBridge) dropSubs(ids ...string) {
 		if gone[id] && w.subs[ch] {
 			delete(w.subs, ch)
 			delete(w.subSess, ch)
+			delete(w.subUID, ch)
 			close(ch)
 		}
 	}
@@ -328,14 +340,32 @@ func (w *webBridge) emit(name string, data any) {
 	if err != nil {
 		return
 	}
+	w.sendTo("", b)
+}
+
+// emitTo : évènement aux seuls flux de l'espace uid (instance d'un utilisateur) — jamais à l'App commune ni aux autres.
+func (w *webBridge) emitTo(uid, name string, data any) {
+	b, err := json.Marshal(map[string]any{"name": name, "data": data})
+	if err != nil {
+		return
+	}
+	w.sendTo(uid, b)
+}
+
+// sendTo : b aux abonnés de l'espace uid (« » : l'App commune, c'est-à-dire l'admin et les modes sans identité).
+func (w *webBridge) sendTo(uid string, b []byte) {
 	w.subMu.Lock()
 	defer w.subMu.Unlock()
 	for ch := range w.subs {
+		if w.subUID[ch] != uid {
+			continue
+		}
 		select {
 		case ch <- b:
 		default:
 			delete(w.subs, ch)
 			delete(w.subSess, ch)
+			delete(w.subUID, ch)
 			close(ch)
 		}
 	}
@@ -480,6 +510,21 @@ func (w *webBridge) secured(next http.Handler) http.Handler {
 				return
 			}
 			r = r.WithContext(context.WithValue(r.Context(), ctxKey{}, &id))
+			// espace de l'identité : l'identifiant numérique GitHub d'un utilisateur est résolu (puis mis en cache) ; un login
+			// repris par un autre compte est refusé (401 + audit) jusqu'à l'action de l'admin
+			sp, err := core.SpaceOf(id)
+			switch {
+			case errors.Is(err, core.ErrLoginReused):
+				w.auditDeny(r, id.Login, http.StatusUnauthorized)
+				refuseIdentity(rw, core.RefusalIdentity)
+				return
+			case err != nil:
+				w.auditDeny(r, id.Login, http.StatusServiceUnavailable)
+				rw.Header().Set("Cache-Control", "no-store")
+				http.Error(rw, "espace indisponible : identifiant GitHub introuvable", http.StatusServiceUnavailable)
+				return
+			}
+			r = r.WithContext(context.WithValue(r.Context(), spaceKey{}, sp))
 		}
 		next.ServeHTTP(rw, r)
 	})
@@ -622,6 +667,10 @@ func (w *webBridge) handler() http.Handler {
 			return
 		}
 		w.auditRecord(r, identityOf(r), "files", filesProject(r.URL.Path), true, "")
+		if !spaceOf(r).Admin { // un utilisateur n'a pas de projet sur la racine (les siens : LOT-3.2) : jamais ceux de l'admin
+			http.NotFound(rw, r)
+			return
+		}
 		filesH.ServeHTTP(rw, r)
 	}
 	// page de déconnexion (mode proxy, contracts/auth.md §2) : statique, sans identité ni appel /api
@@ -680,6 +729,22 @@ func (w *webBridge) handler() http.Handler {
 			http.Error(rw, serr.Error(), http.StatusBadRequest)
 			return
 		}
+		if sp := spaceOf(r); !sp.Admin { // instance de l'utilisateur : ses méthodes seulement, jamais l'App commune
+			u := w.spaces.get(sp, id.Login)
+			res, err := u.dispatch(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id, Base: baseOf(r)}, req.Method, req.Args)
+			refused := false
+			if m, ok := res.(map[string]any); ok && m["forbidden"] != nil { // refus R1 : cible journalisée, comme pour l'App commune
+				refused = true
+			}
+			w.auditCall(r, id, req.Method, req.Args, res, err, userTarget(req.Method, req.Args), refused)
+			out := map[string]any{"result": res}
+			if err != nil {
+				out["error"] = err.Error()
+			}
+			rw.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(rw).Encode(out)
+			return
+		}
 		target, r1 := w.app.r1Info(req.Method, req.Args)
 		// action R1 : l'INTENTION est journalisée avant l'exécution ; journal inaccessible : l'écriture sensible est refusée
 		if w.audit != nil && id != nil && r1 && core.R1Allowed(w.access, id) {
@@ -733,12 +798,25 @@ func (w *webBridge) handler() http.Handler {
 			w.subSess = map[chan []byte]string{}
 		}
 		w.subs[ch], w.subSess[ch] = true, sid
+		var userInst *userSpace
+		if sp := spaceOf(r); !sp.Admin { // flux d'un utilisateur : ses évènements seulement (jamais ceux de l'App commune)
+			if w.subUID == nil {
+				w.subUID = map[chan []byte]string{}
+			}
+			w.subUID[ch] = sp.UID
+			userInst = w.spaces.get(sp, identityOf(r).Login)
+			userInst.clients.Add(1)
+		}
 		w.subMu.Unlock()
+		if userInst != nil {
+			defer func() { userInst.touch(); userInst.clients.Add(-1) }()
+		}
 		defer func() {
 			w.subMu.Lock()
 			if w.subs[ch] {
 				delete(w.subs, ch)
 				delete(w.subSess, ch)
+				delete(w.subUID, ch)
 				close(ch)
 			}
 			w.subMu.Unlock()
@@ -963,6 +1041,9 @@ func RunWeb(addr string, open bool) error {
 			}
 		}
 	}
+	reapStop := make(chan struct{})
+	defer close(reapStop)
+	go w.spaces.runReaper(reapStop) // instances des utilisateurs libérées après 10 min sans client
 	a := NewApp(w.emit)
 	runWebApp.Get()(a) // crochet de test : le test arrête et attend les tâches de fond de CETTE App (#270)
 	a.web = true       // le presse-papiers de cette machine n'est jamais exposé à un client web

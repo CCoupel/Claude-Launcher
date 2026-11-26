@@ -225,6 +225,8 @@ func (a *App) DispatchWebAs(c webCall, method string, raw json.RawMessage) (any,
 		return map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}, nil
 	}
 	switch method {
+	case "userList": // v7.1.0 : utilisateurs connus (admin seulement : R1 vérifiée ci-dessus), jamais d'identifiant
+		return userList(), nil
 	case "clientInfo": // #250 : l'interface grise le réglage modèle · effort d'un accès distant
 		out := map[string]any{"remote": remote, "access": c.accessInfo()}
 		if u := c.userInfo(); u != nil {

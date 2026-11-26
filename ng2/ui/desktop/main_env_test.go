@@ -4,6 +4,8 @@ import (
 	"claude-launcher-ng2/core"
 	"claude-launcher-ng2/internal/testguard"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"testing"
@@ -20,6 +22,18 @@ func TestMain(m *testing.M) {
 	// l'environnement restauré à la fin de chaque test (sandbox) redonnait le CLAUDE_CONFIG_DIR RÉEL à tout code encore
 	// actif (tâche de fond d'une App, ouverture de projet) — c'est ainsi qu'un faux jeton a pu atteindre le vrai
 	// settings.json (#216, enquête GH_TOKEN). core et ui/tmux le faisaient déjà.
+	// Résolution des identifiants GitHub (ghid.go) : jamais l'API réelle (limite de débit, réseau) — une API factice répond à tout
+	// login par un identifiant stable. Les tests qui veulent leur propre réponse remplacent core.GithubUsersURL puis le restaurent.
+	ghAPI := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		login := strings.TrimPrefix(r.URL.Path, "/")
+		id := 1000
+		for _, c := range login {
+			id = id*31 + int(c)%997
+		}
+		fmt.Fprintf(w, `{"id":%d,"login":%q}`, id, login)
+	}))
+	defer ghAPI.Close()
+	core.GithubUsersURL = ghAPI.URL + "/"
 	claudeDir, cerr := os.MkdirTemp("", "ng2-test-claude-")
 	if cerr != nil {
 		panic(cerr)
