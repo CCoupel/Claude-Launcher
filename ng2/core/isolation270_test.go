@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // #270 — CI ubuntu : « TempDir RemoveAll cleanup: … /.local/share/containers/storage/overlay/…/work/work: permission denied ». Un
@@ -59,4 +60,46 @@ func TestWithHomeCleanupSurvivesLockedTrees270(t *testing.T) {
 			}
 		}
 	})
+}
+
+// RunBrowserServerUntil : rend la main dès que stop est fermé et n'écrit plus rien ensuite (browser-server.status). C'est la goroutine
+// qui, lancée sans arrêt par chaque App, réécrivait le fichier d'état dans le CacheDir du test EN COURS (#270, nettoyage Windows).
+func TestRunBrowserServerUntilStopsAndStaysQuiet270(t *testing.T) {
+	withHome(t)
+	cache := t.TempDir()
+	t.Setenv("CL_CACHE_DIR", cache)
+	if err := os.WriteFile(BackendsPath(), []byte("defaults:\n  browser_server: { listen: off }\n"), 0o644); err != nil {
+		_ = os.MkdirAll(filepath.Dir(BackendsPath()), 0o755)
+		_ = os.WriteFile(BackendsPath(), []byte("defaults:\n  browser_server: { listen: off }\n"), 0o644)
+	}
+	stop := make(chan struct{})
+	done := make(chan struct{})
+	go func() { RunBrowserServerUntil(stop); close(done) }()
+	st := filepath.Join(cache, "browser-server.status")
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		if _, err := os.Stat(st); err == nil {
+			break
+		}
+	}
+	close(stop)
+	select {
+	case <-done:
+	case <-time.After(3 * time.Second):
+		t.Fatal("RunBrowserServerUntil ne rend pas la main après la fermeture de stop (goroutine perdue jusqu'à la fin du processus)")
+	}
+	a, _ := os.Stat(st)
+	time.Sleep(400 * time.Millisecond)
+	b, _ := os.Stat(st)
+	if a != nil && b != nil && (!a.ModTime().Equal(b.ModTime()) || a.Size() != b.Size()) {
+		t.Error("browser-server.status réécrit après l'arrêt")
+	}
+	// stop déjà fermé avant le premier tour : aucune écriture
+	other := t.TempDir()
+	t.Setenv("CL_CACHE_DIR", other)
+	closed := make(chan struct{})
+	close(closed)
+	RunBrowserServerUntil(closed)
+	if _, err := os.Stat(filepath.Join(other, "browser-server.status")); err == nil {
+		t.Error("fichier d'état écrit alors que stop était déjà fermé")
+	}
 }

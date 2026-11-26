@@ -901,6 +901,10 @@ func newHTTPServer(h http.Handler) *http.Server {
 	return &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute, MaxHeaderBytes: 1 << 16}
 }
 
+// runWebApp : crochet de test, appelé avec l'App créée par RunWeb (qui ne la rend pas) : un test l'arrête et attend ses tâches de fond
+// avant l'effacement de ses dossiers temporaires (#270). Sans effet en production.
+var runWebApp = tun.Of(func(*App) {})
+
 // RunWeb : interface servie sur addr (« 127.0.0.1:0 » : port libre) ; open :
 // ouvrir le navigateur par défaut. Bloque jusqu'à la sortie.
 func RunWeb(addr string, open bool) error {
@@ -960,7 +964,8 @@ func RunWeb(addr string, open bool) error {
 		}
 	}
 	a := NewApp(w.emit)
-	a.web = true // le presse-papiers de cette machine n'est jamais exposé à un client web
+	runWebApp.Get()(a) // crochet de test : le test arrête et attend les tâches de fond de CETTE App (#270)
+	a.web = true       // le presse-papiers de cette machine n'est jamais exposé à un client web
 	w.app = a
 	// relance après une mise à jour : l'ancien processus vient de libérer le port
 	ln, err := listenRetry(addr, 10*time.Second)

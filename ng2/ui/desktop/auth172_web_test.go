@@ -102,6 +102,7 @@ func px172Start(t *testing.T, withHealth bool) *px172 {
 		}
 		close(scanned)
 	}()
+	capt := captureRunWebApp(t)
 	done := make(chan error, 1)
 	go func() { done <- RunWeb("127.0.0.1:"+strconv.Itoa(s.port), false) }()
 	var once sync.Once
@@ -115,6 +116,7 @@ func px172Start(t *testing.T, withHealth bool) *px172 {
 			case <-time.After(15 * time.Second):
 				t.Error("RunWeb ne s'arrête pas sur SIGTERM")
 			}
+			capt.finish(t) // tâches de fond de l'App attendues avant de rendre la main (écrivain tardif : #270)
 			os.Stdout = oldOut
 			_ = pw.Close()
 			<-scanned
@@ -703,10 +705,12 @@ func TestProxy172StartRefusals(t *testing.T) {
 	run := func(addr string) error {
 		oldQuit, oldRestart, oldEnv := quitHook.Get(), restartApp.Get(), restartEnv.Get()
 		defer func() { quitHook.Set(oldQuit); restartApp.Set(oldRestart); restartEnv.Set(oldEnv) }()
+		capt := captureRunWebApp(t)
 		done := make(chan error, 1)
 		go func() { done <- RunWeb(addr, false) }()
 		select {
 		case err := <-done:
+			capt.finish(t) // RunWeb refuse de démarrer sans arrêter l'App qu'il a créée : on l'arrête ici
 			return err
 		case <-time.After(15 * time.Second):
 			t.Fatal("RunWeb n'a pas refusé de démarrer")

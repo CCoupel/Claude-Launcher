@@ -308,10 +308,12 @@ func TestPrefix254StartRefusalInvalidPath(t *testing.T) {
 		l4WriteBackends(t, "")
 		t.Setenv("CL_WEB_URL", url)
 		t.Setenv("CL_HEALTH_ADDR", "")
+		capt := captureRunWebApp(t)
 		done := make(chan error, 1)
 		go func() { done <- RunWeb("127.0.0.1:"+strconv.Itoa(l4FreePort(t)), false) }()
 		select {
 		case err := <-done:
+			capt.finish(t)
 			return err
 		case <-time.After(10 * time.Second):
 			t.Fatal("RunWeb n'a pas refusé de démarrer")
@@ -344,10 +346,12 @@ func TestPrefix254BaseRefusedOutsideProxy(t *testing.T) {
 				for k, v := range set {
 					t.Setenv(k, v)
 				}
+				capt := captureRunWebApp(t)
 				done := make(chan error, 1)
 				go func() { done <- RunWeb("127.0.0.1:"+strconv.Itoa(l4FreePort(t)), false) }()
 				select {
 				case err := <-done:
+					capt.finish(t)
 					if err == nil || !strings.Contains(err.Error(), "proxy") || !strings.Contains(err.Error(), "chemin") {
 						t.Errorf("mode %q : erreur %v, attendu un refus qui dit que le chemin est réservé au mode proxy", mode, err)
 					}

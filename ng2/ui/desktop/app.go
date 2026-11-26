@@ -262,7 +262,7 @@ func (a *App) Start() {
 			}
 		}
 	})
-	go core.RunBrowserServer() // fichiers pour le navigateur (#106)
+	a.bg(func() { core.RunBrowserServerUntil(a.quit) }) // fichiers pour le navigateur (#106) ; arrêté et attendu avec l'App (#270)
 	go a.emitter()
 	go a.treeLoop()
 	a.bg(func() {
@@ -285,7 +285,7 @@ func (a *App) Start() {
 	go a.everyTimed("milestones", time.Minute, func() { a.readMilestones(false) })
 	go a.every(2*time.Second, a.refreshCards)
 	a.startAttention() // teamleaders en attente (#223)
-	go a.updateLoop()
+	a.bg(a.updateLoop) // suivie : une recherche en cours écrit update-check.json AVANT que Stop ne rende la main (#270)
 	if a.mgr != nil {
 		go func() {
 			for ps := range a.mgr.Done {
