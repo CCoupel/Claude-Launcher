@@ -17,6 +17,11 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Interface : identité et déconnexion dans le menu, grisage des actions réservées à l'admin, bandeau « session expirée » (#252)
 - Quotas : le niveau estimé (projection sur peu de données) s'affiche en gris (#268)
 
+### Fixed
+- Authentification : les logins GitHub de `auth.admins` / `auth.users` sont transmis à oauth2-proxy avec leur casse
+  (`--github-user` la compare en respectant la casse) ; le launcher les compare toujours sans casse. Une même identité sous
+  deux casses est refusée au rendu. Sans cela, une casse différente de celle de GitHub donnait une erreur de connexion (#172)
+
 ## [6.9.0] — à publier
 
 ### Added

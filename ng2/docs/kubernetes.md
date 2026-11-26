@@ -305,6 +305,18 @@ sont vides car GitHub est coupé : seul le compte `admin@local` peut se connecte
 - **Login renommable** : avant de renommer ou de supprimer un compte GitHub, retirez son login de `auth.admins` et `auth.users`,
   et relancez `helm upgrade` ; sinon un autre compte pourrait reprendre le login et hériter de ses droits.
 
+**Casse exacte du login GitHub.** Copiez chaque login **tel qu'affiché par GitHub, avec sa casse** :
+
+- oauth2-proxy compare `--github-user` **en respectant la casse** ; le launcher, lui, compare sans casse. Un login saisi
+  avec une autre casse que celle de GitHub ne correspond donc pas côté proxy.
+- Erreur typique si la casse diffère : page « Erreur de connexion », réponse `500`, et dans le journal du sidecar
+  `auth-proxy` la ligne `missing github user`.
+- Vérifier la casse : `https://api.github.com/users/<login>` renvoie le champ `login` avec sa casse exacte (API publique).
+- Vérifier ce que le chart a transmis au sidecar (login public, aucun secret) :
+  `kubectl -n <ns> get pod <pod> -o jsonpath='{.spec.containers[?(@.name=="auth-proxy")].args}'`, puis lire la valeur de
+  `--github-user=`.
+- Une même identité saisie sous deux casses (dans une liste ou entre `auth.admins` et `auth.users`) est **refusée au rendu**.
+
 Un login ne peut figurer dans les deux
 listes (refus au rendu). Un login absent des deux listes reçoit `403`.
 
