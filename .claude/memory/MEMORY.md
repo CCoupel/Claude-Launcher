@@ -4,18 +4,23 @@
 
 ## Etat courant
 
-- **Version** : **v7.0.0** en cours de livraison (milestone #27 « Accès authentifié »). Candidate **7.0.0.6** ; QUALIF
-  helm rév. **56** ; **PROD à déployer** : rév. **10**, depuis la rév. 9 (v6.9.0).
-- **Précédente** : v6.9.0 en PROD (milestone #36 fermé, tag `v6.9.0`, helm `claude-ng2` rév. 9).
-- **Branche** : `milestone/v7.0.0` (`main` après la PROD).
+- **Version** : **v7.0.0 PUBLIÉE en PROD** (tag `v7.0.0`, release GitHub 2026-11-26 11:50Z, milestone #27 « Accès
+  authentifié » fermé : #253 #172 #251 #252 #268 #254 #184 DONE). Branche `milestone/v7.0.0` fusionnée et supprimée ;
+  `main` = branche courante.
+- **Précédente** : v6.9.0 (milestone #36 fermé, tag `v6.9.0`, helm `claude-ng2` rév. 9).
+- **Site gh-pages** : à jour v7.0.0 (commit `0fc20a6`, build Pages OK). Notes : `docs/releases/v7.0.0/release-notes.md` (PR #276, merge `109dbea`).
+- **Template** : synchronisé v5.16.0 → v5.16.1 (PR #274).
 - **Environnements** :
-  - PROD : namespace `claude-ng2`, v6.9.0 rév. 9 ; v7.0.0 rév. 10 à déployer.
+  - PROD : namespace `claude-ng2`, v7.0.0 rév. 10.
   - QUALIF : `claude-launcher-qualif`, helm rév. 56.
   - Accès public : **QUALIF** `https://coupel.net/claude-qualif`, **PROD** `https://coupel.net/claude` (sous-chemin, P12).
-  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` (binaires à remplacer après la PROD, contrôle SHA256).
+  - Hub : `/share/MFS/ROOT/CLAUDE_PROJETS/claude-launcher-ng2` + `.exe` (binaires à remplacer après la PROD, contrôle SHA256 — non vérifié).
   - CA interne cert-manager `claude-launcher-ca` (nameConstraints `launcher.local` / `launcher-qualif.local`).
   - Kubeconfig Rancher ADMIN dans `PRIVATE/{QUALIF,PROD}/kubeconfig` (risque accepté).
-- **Travail en cours** : aucun. Restent : PROD v7.0.0 (`/deploy prod`), merge `milestone/v7.0.0` → `main`.
+- **Travail en cours** : aucun. **Backlog ouvert** : #269 (Fermer / Forcer fermer sans effet sur projet k8s, QUALIF 7.0.0.1),
+  #270 (test instable ui/desktop ; PR `fix/tests-attentes-270` commit `2a86aa5` à fusionner), #271 (serveur de fichiers
+  404 pour un dossier créé en cours de session). Milestones : v7.1.0 « Agent d'espace et stockage utilisateur » (6 issues),
+  v7.2.0 « Comptes, espaces et limites », v7.3.0 « Partage de projets » ; aucun démarré.
 
 ## Décisions de la session (v7.0.0)
 
@@ -77,9 +82,13 @@ Arbitrées par l'utilisateur (`ng2/docs/saas.md` § 5.1 ; plan `plan-v7.0.0` P1�
 
 ## Points pour la prochaine session
 
-- **PROD v7.0.0** : `/deploy prod` (rév. 10), contrôle SHA256 des binaires hub, puis merge `milestone/v7.0.0` → `main`.
+- **Binaires hub** : contrôle SHA256 après PROD v7.0.0 (non vérifié cette session).
+- **Constat** : le serveur de fichiers du launcher (/files, bac à sable) n'applique pas le CSS externe ni Google Fonts
+  d'une page HTML servie : aperçu multi-fichiers = copie autonome (CSS inline) sous `_work/mockup/`. Pas encore d'issue.
+- **Restes site** : traduction FR/EN limitée aux blocs v7.0.0 (à décider) ; points « à vérifier » (noms Secret/release
+  Helm, ports/classes d'ingress ; exemple /claude vs /claude-qualif) ; `_work/mockup/` à purger via /cleanup.
 - **Ouverts** :
-  - #268 fermée (estimation des quotas) ; #269 « Fermer / Forcer fermer » sans effet (bug) ;
+  - #269 « Fermer / Forcer fermer » sans effet (bug) ;
   - #270 tests instables (partiellement traité) ; #271 serveur de fichiers 404 sur `_work/test-plan/` ;
   - `tests/integration/ui-web/clic-bandeau-242/run.sh` non exécutable ; S10.3 renvoie 308 au lieu de 302 ;
   - extension Chrome derrière le proxy : à tester après la PROD ;
