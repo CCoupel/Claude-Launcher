@@ -21,7 +21,7 @@
   le launcher retire et réinjecte la base (routes, `Location`, `user.logout`, `/files` des sessions) ; `<base href>`
   injecté dans `index.html`.
 - **[CHANGED]** client web : chemins relatifs uniquement (plus de `/api/…` ni `location.href = '/'`).
-- **[CHANGED]** oauth2-proxy externe : `--proxy-prefix`, `--cookie-path`, cookie `__Secure-cl_auth_ext`, `--redirect-url`
+- **[CHANGED]** oauth2-proxy externe : `--proxy-prefix`, `--cookie-path`, cookie `__Secure-cl_auth_ext_<préfixe en tirets>`, `--redirect-url`
   avec préfixe ; HSTS non posé avec un préfixe.
 - **[ADDED]** risques de l'origine partagée (`contracts/auth.md` §9) : XSS d'une autre application de `coupel.net` =
   contrôle du launcher (P12), dépôt de cookie.
@@ -46,7 +46,7 @@
 - **[CHANGED]** audit : doublé sur la sortie standard, 5 générations de 10 Mio, agrégation au-delà de 60 appels/min hors
   R1, entrées `deny` (401/403), `target` court, `src` borné à 256 octets, `encoding/json` seul — `auth.md` §5.
 - **[CHANGED]** chart : middleware `headers` (retrait d'`Authorization`, en-têtes de sécurité), `ipStrategy` profondeur 0,
-  cookies et Secrets distincts par instance (`_cl_auth_ext`), Service/NetworkPolicy `http-ext`, `allowHostBackend`
+  cookies et Secrets distincts par instance (`__Host-_cl_auth_ext`, sans sous-chemin), Service/NetworkPolicy `http-ext`, `allowHostBackend`
   refusé avec l'auth, bcrypt `$2a|$2b|$2y$` ; arguments oauth2-proxy explicites (m4) — `helm-values.md` « v7.0.0 ».
 - **[NEW]** `init.access` / `clientInfo.access` `{mode, role, deny[], backendsAdminFields}` (grisage reçu du serveur,
   plus de liste en dur), `configModel` `adminOnly`, `user.session {duration, refresh}`, `user.kind` ; routes Go

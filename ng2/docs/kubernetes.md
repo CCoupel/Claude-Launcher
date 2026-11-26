@@ -344,7 +344,7 @@ listes (refus au rendu). Un login absent des deux listes reçoit `403`.
 - Ports : 80 et 443 doivent atteindre Traefik depuis Internet (HTTP redirigé vers HTTPS).
 - Une seconde instance d'oauth2-proxy (`auth-proxy-ext`, port 8083) sert l'hôte externe. Elle n'a **ni compte local ni
   formulaire** : `admin@local` n'existe pas sur Internet, et le launcher le refuse aussi sur cet hôte. Son cookie
-  (`_cl_auth_ext`) est distinct de celui de l'interne.
+  (`__Host-_cl_auth_ext` sans sous-chemin, voir ci-dessous) est distinct de celui de l'interne.
 - Le launcher annonce l'hôte externe aux sessions (`CL_WEB_URL`) quand il est activé ; l'hôte interne reste admis
   (`CL_WEB_ALT_URLS`).
 - L'application GitHub doit accepter les deux URL de retour, interne et externe (`https://<hôte>/oauth2/callback`).
@@ -368,7 +368,9 @@ externalIngress:
   voient donc la même URL que le navigateur. Les autres applications de l'hôte restent inchangées (vérification en QUALIF :
   `/emby` ne doit pas répondre par le launcher).
 - `CL_WEB_URL` devient `https://coupel.net/claude-qualif` (la base publique). L'URL interne `https://launcher.local/` ne change pas.
-- **Cookie** : `__Secure-cl_auth_ext`, `Path=/claude-qualif`, `SameSite=Lax`. Le préfixe `__Host-` est impossible, car il impose `Path=/`.
+- **Cookie** : `__Secure-cl_auth_ext_claude-qualif` en QUALIF (`__Secure-cl_auth_ext_claude` en PROD), `Path=/claude-qualif`
+  (ou `/claude`), `SameSite=Lax`, sans `Domain`. Le nom est dérivé du sous-chemin, tirets compris. Le préfixe `__Host-`
+  est impossible avec un sous-chemin, car il impose `Path=/`. Sans sous-chemin : `__Host-_cl_auth_ext`.
 - **GitHub App** : URL de retour `https://coupel.net/claude-qualif/oauth2/callback`, en plus de l'URL interne.
 - **HSTS non posé** avec un préfixe : il s'appliquerait à tout `coupel.net`, donc aussi aux applications servies en `http`. Le
   chart ne pose donc pas `Strict-Transport-Security` sur l'ingress externe dans ce mode.

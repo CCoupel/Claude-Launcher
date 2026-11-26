@@ -38,8 +38,8 @@ Arbitrées par l'utilisateur (`ng2/docs/saas.md` § 5.1 ; plan `plan-v7.0.0` P1�
   avec `existingSecret`, automatique avec les valeurs (checksum).
 - **Accès public** : par **sous-chemin** `coupel.net/claude-qualif` (QUALIF) et `coupel.net/claude` (PROD). **Risque
   d'origine partagée accepté** (P12) ; sous-domaine dédié recommandé, non retenu. **Pas de HSTS** avec un sous-chemin (P13).
-  Cookies `__Secure-cl_auth_ext…` avec `Path` = le sous-chemin (pas de `__Host-`). *À confirmer : nom exact du cookie
-  (`__Secure-cl_auth_ext` ou `__Secure-cl_auth_ext_<préfixe>`) dans `contracts/auth.md` §9 et `kubernetes.md` §4b.*
+  Cookie externe : `__Secure-cl_auth_ext_<préfixe en tirets>` (QUALIF `__Secure-cl_auth_ext_claude-qualif`, PROD
+  `__Secure-cl_auth_ext_claude`), `Path` = le sous-chemin, sans `Domain` ; sans sous-chemin `__Host-_cl_auth_ext`.
 - **Login GitHub** : copier **avec sa casse exacte** (`--github-user` sensible à la casse) ; login renommable → le retirer
   avant de renommer ou supprimer le compte.
 

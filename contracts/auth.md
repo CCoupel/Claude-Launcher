@@ -301,7 +301,7 @@ Contrepartie : oauth2-proxy n'a pas de limite d'essais propre → limite de déb
   `--set-xauthrequest=false`, `--skip-auth-strip-headers=true`, `--redirect-url=https://<hôte de l'instance>/oauth2/callback`
   (fixe), `--whitelist-domain` vide, pas de `--metrics-address`.
 - **Cookies distincts (m1)** : `auth-proxy` (`_cl_auth`, Secret `<release>-auth-cookie`) et `auth-proxy-ext`
-  (`__Host-_cl_auth_ext`, Secret `<release>-auth-cookie-ext`) : un cookie de l'interne n'ouvre pas de session sur l'externe.
+  (`__Host-_cl_auth_ext` sans sous-chemin, `__Secure-cl_auth_ext_<préfixe en tirets>` avec sous-chemin ; Secret `<release>-auth-cookie-ext`) : un cookie de l'interne n'ouvre pas de session sur l'externe.
   Le compte local est refusé sur l'externe **par construction (proxy sans htpasswd) et par le launcher** (garde `Host`).
 - **Droits du fichier htpasswd** : Secret monté en `0444` dans le seul conteneur `auth-proxy` (pas de `fsGroup` dans le pod, pour ne pas faire changer de propriétaire le partage ; `0440` serait illisible par l'uid du pod) ; le conteneur `launcher` ne le monte pas.
 - **Mot de passe** (P11) : généré par le chart à la première installation (32 caractères aléatoires,
@@ -359,7 +359,7 @@ navigateur ─ https://coupel.net/claude-qualif/… ─► Traefik : Host(coupel
 - **Contrôles** : `Origin` attendu = origine de l'adresse publique (`https://coupel.net`, sans chemin) ; `Host` normalisé
   (m2) **et** préfixe ; `Sec-Fetch-Site` inchangé.
 - **oauth2-proxy externe** : `--proxy-prefix=<base>/oauth2`, `--redirect-url=https://coupel.net<base>/oauth2/callback`,
-  `--cookie-path=<base>`, `--cookie-name=__Secure-cl_auth_ext` (préfixe `__Secure-` : `Secure` exigé ; **pas**
+  `--cookie-path=<base>`, `--cookie-name=__Secure-cl_auth_ext_<préfixe en tirets>` (ex. `__Secure-cl_auth_ext_claude-qualif` ; préfixe `__Secure-` : `Secure` exigé ; **pas**
   `__Host-`, qui impose `Path=/`), `--cookie-samesite=lax` (retour OAuth en navigation de premier niveau), CSRF
   d'oauth2-proxy sous le même chemin, `--skip-auth-route=GET=^<base>/(signed-out|too-many)$`. GitHub App : URL de retour
   `https://coupel.net/claude-qualif/oauth2/callback`.
