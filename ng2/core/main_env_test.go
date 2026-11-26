@@ -4,6 +4,7 @@ import (
 	"claude-launcher-ng2/internal/testguard"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -23,6 +24,15 @@ func TestMain(m *testing.M) {
 	os.Setenv("CL_IN_CLUSTER", "0") // le conteneur de développement est lui-même un pod : jamais de refus du backend host (#169)
 	// pas d'interrogation des vrais moteurs locaux depuis leaderAliveIn
 	LocalCtrHosts.Set(func() map[string]bool { return nil })
+	// jamais le VRAI podman / docker (#270) : « podman version » crée son stockage overlay (répertoires en mode 000, que le RemoveAll de
+	// t.TempDir ne peut pas supprimer) sous le HOME temporaire d'un test — instable selon le runner. Faux moteurs en échec immédiat
+	// en tête du PATH (comme ui/desktop et ui/tmux) ET stockage des conteneurs hors de tout dossier temporaire de test.
+	if d := testguard.FakeEngines(); d != "" {
+		defer os.RemoveAll(d)
+	}
+	if os.Getenv("XDG_DATA_HOME") == "" || strings.HasPrefix(os.Getenv("XDG_DATA_HOME"), os.TempDir()+"/Test") {
+		os.Setenv("XDG_DATA_HOME", filepath.Join(os.TempDir(), "cl-core-test-data"))
+	}
 	guard := testguard.Start()
 	code := m.Run()
 	if !guard() && code == 0 {

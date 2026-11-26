@@ -55,6 +55,9 @@ func TestCtrName(t *testing.T) {
 func withHome(t *testing.T) string {
 	t.Helper()
 	h := t.TempDir()
+	// nettoyage robuste (#270) : un outil lancé sous ce HOME (stockage de conteneurs, répertoires en mode 000) ne doit jamais faire
+	// échouer le RemoveAll de t.TempDir ; ce nettoyage, enregistré après lui, s'exécute AVANT lui
+	t.Cleanup(func() { makeWritable(h) })
 	t.Setenv("HOME", h)
 	winHome(t, h)
 	t.Setenv("XDG_STATE_HOME", filepath.Join(h, "state"))
@@ -383,5 +386,23 @@ func TestLeaderLocalStoppedByProjectHost(t *testing.T) {
 	}
 	if leaderAliveIn(42, "autre-projet#pid:[1]") != platform.LeaderUnknown {
 		t.Error("projet inconnu des moteurs locaux : rien à conclure")
+	}
+}
+
+// makeWritable : rend l'arbre lisible, accessible et modifiable par le propriétaire (chmod -R u+rwX) avant sa suppression. Récursif
+// (chmod du dossier AVANT de le lire : filepath.Walk lit un dossier avant d'appeler sa fonction, il ne descend jamais dans un mode 000).
+func makeWritable(p string) {
+	fi, err := os.Lstat(p)
+	if err != nil || fi.Mode()&os.ModeSymlink != 0 {
+		return
+	}
+	if !fi.IsDir() {
+		_ = os.Chmod(p, fi.Mode().Perm()|0o600)
+		return
+	}
+	_ = os.Chmod(p, fi.Mode().Perm()|0o700)
+	ents, _ := os.ReadDir(p)
+	for _, e := range ents {
+		makeWritable(filepath.Join(p, e.Name()))
 	}
 }
