@@ -83,23 +83,20 @@
             "credentials_file": "PRIVATE/QUALIF/kubeconfig",
             "verified": {
               "status": "ok",
-              "at": "2026-11-22T15:06:45Z",
+              "at": "2026-11-26T15:42:22Z",
               "checks": [
-                "target-dir",
-                "target-writable",
-                "disk-space",
-                "go-toolchain",
-                "build-dir-ignored",
                 "kubeconfig-admin",
                 "ns-claude-qualif",
                 "psa-baseline",
-                "can-i-chart-objects",
-                "pv-claude-qualif-pv-bound",
-                "pvc-bound",
+                "can-i-chart-objects(sts,exec,netpol,sa,role,rolebinding,ingress,secret,middleware,certificate)",
+                "pvc-bound-rwx",
                 "clusterissuer-claude-launcher-ca-ready",
-                "ghcr/gh-push",
+                "helm-release-7.0.0-rev56-deployed",
                 "helm-lint-qualif",
-                "buildah"
+                "gh-write-packages",
+                "buildah",
+                "disk-space",
+                "build-dir-ignored"
               ],
               "note": "compte administrateur (risque accepté) ; registre local abandonné (2026-11-17) : image de QUALIF sur ghcr (claude-launcher-qualif)"
             }
