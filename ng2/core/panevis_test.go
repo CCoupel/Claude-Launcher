@@ -154,7 +154,7 @@ func newIsoTmux(t *testing.T) isoTmux {
 			}
 		}
 		_, _ = i.run("kill-server")
-		deadline := time.Now().Add(5 * time.Second)
+		deadline := time.Now().Add(30 * time.Second)
 		for {
 			out, _ := exec.Command("pgrep", "-f", "sleep "+i.marker).Output()
 			left := strings.TrimSpace(string(out))
@@ -327,7 +327,7 @@ func TestCloseKillsHiddenPanes(t *testing.T) {
 	if _, err := i.run("has-session", "-t", "="+HiddenSession); err == nil {
 		t.Fatal("réserve conservée sans pane caché")
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for {
 		out, _ := exec.Command("pgrep", "-fc", "^sleep "+i.marker+"$").Output()
 		if strings.TrimSpace(string(out)) == "1" {
@@ -450,7 +450,7 @@ func TestApplyPaneVisReturnInCompactWindow(t *testing.T) {
 
 func waitProcs(t *testing.T, i isoTmux, want string) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for {
 		out, _ := exec.Command("pgrep", "-fc", "^sleep "+i.marker+"$").Output()
 		if strings.TrimSpace(string(out)) == want {

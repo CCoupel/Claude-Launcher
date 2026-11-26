@@ -230,7 +230,7 @@ func TestPasteBigLinesReadOnlyAndTooBig(t *testing.T) {
 	if size1, _ := os.Stat(out); size1.Size() != size0.Size() {
 		t.Fatalf("saisie envoyée à tmux malgré la lecture seule (%d → %d)", size0.Size(), size1.Size())
 	}
-	end := time.Now().Add(3 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	said := false
 	for !said && time.Now().Before(end) {
 		a.mu.Lock()

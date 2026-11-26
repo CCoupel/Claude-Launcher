@@ -51,7 +51,7 @@ func TestReattachNeCreeRien(t *testing.T) {
 	if res["ok"] != true || res["tab"] != ps[0] || a.term(ps[0]) == nil {
 		t.Fatalf("session vivante : %v", res)
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for a.term(ps[0]).info().State != "ready" && time.Now().Before(deadline) {
 		time.Sleep(50 * time.Millisecond)
 	}

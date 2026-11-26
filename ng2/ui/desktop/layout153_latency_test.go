@@ -127,8 +127,14 @@ func fakeTeamProject(t *testing.T) (f fakeProj, leaderW func() float64) {
 	return f, leaderW
 }
 
+// waitFloor : durée minimale de toute attente par condition (#270). Un événement asynchrone (écriture abandonnée, détachement, rendu)
+// peut tarder bien au-delà de quelques secondes sur un runner Windows chargé ; l'attente se termine dès que la condition est vraie,
+// donc la durée n'allonge que l'échec. Les tests qui vérifient qu'un événement N'ARRIVE PAS n'utilisent pas ces attentes.
+const waitFloor = 30 * time.Second
+
 func waitUntil(t *testing.T, what string, d time.Duration, ok func() bool) {
 	t.Helper()
+	d = max(d, waitFloor)
 	end := time.Now().Add(d)
 	for time.Now().Before(end) {
 		if ok() {

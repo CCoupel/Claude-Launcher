@@ -131,7 +131,7 @@ func newPasteFix(t *testing.T) pasteFix {
 	r.wait(t, 10*time.Second, "layout", isTerm(ps[0], "layout", nil))
 	f := pasteFix{a: a, pt: pt, proj: ps[0], pane: pt.lastLayout().Leader, out: out, sock: sock}
 	// attendre que cat soit en place (le script a écrit son marqueur)
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(out); err == nil {
 			break

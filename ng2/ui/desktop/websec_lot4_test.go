@@ -350,7 +350,7 @@ func TestWebUIStateLanAndWarn(t *testing.T) {
 		for try := 0; try < 8; try++ {
 			l4WriteBackends(t, "  desktop_web: { listen: \""+listenOf(l4FreePort(t))+"\""+allow+" }\n")
 			a.applyWebUI()
-			end := time.Now().Add(5 * time.Second)
+			end := time.Now().Add(30 * time.Second)
 			for time.Now().Before(end) {
 				w := l4WebUIOf(t, a)
 				if w["state"] == "on" {

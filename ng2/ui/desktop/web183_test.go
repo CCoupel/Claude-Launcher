@@ -42,7 +42,7 @@ func d183Reach(p int) bool {
 
 func d183WaitReach(t *testing.T, p int, want bool) {
 	t.Helper()
-	end := time.Now().Add(8 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for time.Now().Before(end) {
 		if d183Reach(p) == want {
 			return
@@ -161,7 +161,7 @@ func TestWebUIToggleIndependentOfBrowserServer(t *testing.T) {
 		r.Body.Close()
 		return true
 	}
-	end := time.Now().Add(8 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for !bsReach() && time.Now().Before(end) {
 		time.Sleep(50 * time.Millisecond)
 	}
@@ -313,7 +313,7 @@ func TestConfigHubOverrideEffectiveAndEditApplies(t *testing.T) {
 		t.Fatalf("configApply : %v %v", res, err)
 	}
 	w = l4WaitWebUI(t, a, "on", 8*time.Second)
-	end := time.Now().Add(8 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for w["listen"] != "127.0.0.1:"+strconv.Itoa(pNew) && time.Now().Before(end) {
 		time.Sleep(50 * time.Millisecond)
 		w = l4WebUIOf(t, a)

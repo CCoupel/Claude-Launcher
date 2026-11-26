@@ -34,7 +34,7 @@ func d183FakeOpener(t *testing.T) string {
 
 func d183WaitOpened(t *testing.T, file string) string {
 	t.Helper()
-	end := time.Now().Add(5 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for time.Now().Before(end) {
 		if b, err := os.ReadFile(file); err == nil && len(b) > 0 {
 			return strings.TrimSpace(string(b))

@@ -675,7 +675,7 @@ func TestProxy172HealthPort(t *testing.T) {
 		b, _ := io.ReadAll(resp.Body)
 		return resp.StatusCode, string(b)
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for {
 		if st, _ := get("GET", "/readyz", ""); st == 200 || time.Now().After(deadline) {
 			break

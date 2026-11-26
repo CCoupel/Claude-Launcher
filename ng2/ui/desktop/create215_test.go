@@ -348,7 +348,7 @@ func TestInitProposalLancerTapeDansLeLeader215(t *testing.T) {
 	if v := dispatchJSON(t, f.a, "initProposalAnswer", map[string]any{"path": dir, "run": true}); v["ok"] != true {
 		t.Fatalf("initProposalAnswer(run:true) = %v", v)
 	}
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
 		if b, _ := os.ReadFile(f.in); strings.Contains(string(b), "/init-project") {
 			return

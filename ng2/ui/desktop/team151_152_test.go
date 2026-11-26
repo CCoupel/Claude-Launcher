@@ -288,7 +288,7 @@ func TestLayoutPanesStateAndBorderOptions(t *testing.T) {
 	paneOpt := func(pane, opt string) string { return tm("show-options", "-pqv", "-t", pane, opt) }
 	waitOpt := func(pane, opt, want string) {
 		t.Helper()
-		end := time.Now().Add(6 * time.Second)
+		end := time.Now().Add(30 * time.Second)
 		for time.Now().Before(end) {
 			if paneOpt(pane, opt) == want {
 				return
