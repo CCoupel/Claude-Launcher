@@ -25,6 +25,7 @@ function r1Info(r) {
     const u = r.user;
     whoUser = u && u.login ? { login: String(u.login), role: u.role === 'admin' ? 'admin' : 'user', kind: u.kind === 'local' || u.login === 'admin@local' ? 'local' : 'github', logout: typeof u.logout === 'string' ? u.logout : '', session: u.session && typeof u.session === 'object' ? u.session : null } : null;
   }
+  if (r.space !== undefined) { const was = noBackend(); whoSpace = r.space && typeof r.space === 'object' ? r.space : null; if (was !== noBackend() && typeof renderTree === 'function' && S.snap) { renderTree(); if (typeof leaders !== 'undefined') leaders.layout(); } }
   renderWho(); r1Apply();
 }
 const fmtDur = (d) => { const m = /^(\d+)\s*(h|m)$/.exec(String(d || '')); return m ? m[1] + (m[2] === 'h' ? ' h' : ' min') : String(d || ''); };
@@ -486,8 +487,9 @@ function badgeCells(r) {
 }
 
 // ── Utilisateur sans backend (#255, M1) : espace vide, ni projet ni terminal, invitation à ajouter un backend.
-// Source : `noBackend` de l'instantané « state » (le serveur reste seul juge).
-const noBackend = () => !!(S.snap && S.snap.noBackend);
+// Source : `space.empty` de la réponse `init` (le serveur reste seul juge).
+let whoSpace = null; // `space` de init/clientInfo : { admin, login, backends[], empty, error? } (absent pour l'admin)
+const noBackend = () => !!(whoSpace && whoSpace.empty === true);
 function noBackendBox() {
   const d = el('div', 'nobackend');
   d.append(el('h2', '', 'Ajoute ton premier backend'));
