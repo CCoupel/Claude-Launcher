@@ -485,10 +485,24 @@ function badgeCells(r) {
   return cols;
 }
 
+// ── Utilisateur sans backend (#255, M1) : espace vide, ni projet ni terminal, invitation à ajouter un backend.
+// Source : `noBackend` de l'instantané « state » (le serveur reste seul juge).
+const noBackend = () => !!(S.snap && S.snap.noBackend);
+function noBackendBox() {
+  const d = el('div', 'nobackend');
+  d.append(el('h2', '', 'Ajoute ton premier backend'));
+  d.append(el('p', '', 'Tes projets s\'exécutent sur tes propres serveurs (Kubernetes, Docker ou Podman). Le launcher ne stocke rien pour toi : il se connecte à ton backend, y retrouve tes projets et les démarre.'));
+  const b = el('button', 'btn primary', '+ Ajouter un backend');
+  b.onclick = () => { if (typeof openSettings === 'function') openSettings('', 'backends'); };
+  d.append(b);
+  if (whoUser) d.append(el('p', 'dim', 'Connecté en tant que ' + whoUser.login));
+  return d;
+}
+
 function renderTree() {
   const tree = $('tree'); tree.textContent = '';
   const rows = visibleRows();
-  if (!rows.length) tree.appendChild(el('div', 'row empty dim', 'aucun projet'));
+  if (!rows.length) tree.appendChild(el('div', 'row empty dim', noBackend() ? 'aucun backend' : 'aucun projet'));
   for (const r of rows) {
     const d = el('div', 'row ' + r.kind);
     d.dataset.path = r.path;
@@ -1810,7 +1824,9 @@ const leaders = {
     const g = this.grid;
     g.querySelectorAll('.empty').forEach((e) => e.remove());
     if (!n) {
-      const e = el('div', 'empty'); e.innerHTML = 'Aucun projet ouvert.<br>Entrée ou double-clic sur un projet pour l\'ouvrir ; ses teamleaders apparaîtront ici.';
+      const e = el('div', 'empty');
+      if (noBackend()) e.append(noBackendBox());
+      else e.innerHTML = 'Aucun projet ouvert.<br>Entrée ou double-clic sur un projet pour l\'ouvrir ; ses teamleaders apparaîtront ici.';
       g.appendChild(e); g.style.gridTemplateColumns = '1fr'; return;
     }
     const cols = Math.ceil(Math.sqrt(n)), rows = Math.ceil(n / cols);

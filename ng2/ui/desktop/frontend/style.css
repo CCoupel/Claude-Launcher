@@ -556,3 +556,9 @@ body.cardsfolded #hsplit { display: none; }
 .expdlg { background: var(--panel); border: 1px solid var(--orange); border-radius: 8px; padding: 18px 20px; max-width: min(420px, 92vw); color: var(--text2); line-height: 1.5; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); }
 .expdlg b { color: var(--text); font-size: 15px; } .expdlg p { margin: 6px 0; } .expdlg .btns { display: flex; justify-content: flex-end; margin-top: 12px; }
 #usage .rst-est { color: var(--dim); }
+
+/* utilisateur sans backend (#255) */
+.nobackend { max-width: 460px; }
+.nobackend h2 { margin: 0 0 10px; font-size: 18px; color: var(--text); }
+.nobackend p { margin: 0 0 14px; }
+.nobackend .btn.primary { background: var(--orange); color: #0B0D11; border: 0; border-radius: 4px; padding: 6px 14px; font-weight: 700; cursor: pointer; }
