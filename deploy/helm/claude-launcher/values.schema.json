@@ -439,6 +439,10 @@
         "pathPrefix": {
           "type": "string",
           "description": "sous-chemin public (ex. /claude-qualif), vide = racine ; forme contrôlée au rendu (cl.validateAuth)"
+        },
+        "sessionDuration": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*[hm]$"
         }
       }
     },

@@ -13,7 +13,8 @@ metadata:
   labels:
     {{- include "cl.labels" . | nindent 4 }}
   annotations:
-    {{- if .Values.externalIngress.tls.clusterIssuer }}
+    {{- /* sous-chemin : l'hôte est déjà servi par d'autres applications — jamais de second Certificat (pas d'annotation cert-manager) */ -}}
+    {{- if and .Values.externalIngress.tls.clusterIssuer (not $pfx) }}
     cert-manager.io/cluster-issuer: {{ .Values.externalIngress.tls.clusterIssuer | quote }}
     {{- end }}
     {{- if eq $ctl "traefik" }}
@@ -35,19 +36,40 @@ spec:
   ingressClassName: {{ .Values.externalIngress.className }}
   tls:
     - hosts: [{{ .Values.externalIngress.host | quote }}]
+      {{- if or (not $pfx) .Values.externalIngress.tls.secretName }}
       secretName: {{ $tls }}
+      {{- end }}
   rules:
     - host: {{ .Values.externalIngress.host | quote }}
       http:
         paths:
-          # sous-chemin : Prefix sur ce seul segment (jamais « / » : les autres routes de l'hôte ne sont pas capturées), sans StripPrefix
-          - path: {{ default "/" $pfx }}
+          {{- if $pfx }}
+          # sous-chemin : jamais « / » (les autres routes de l'hôte ne sont pas capturées), sans StripPrefix. Le préfixe seul en Exact
+          # et « <préfixe>/ » en Prefix : /claude-qualifx et /claude-qualification ne sont capturés par aucune version de Traefik
+          # (Prefix peut y être un préfixe de chaîne)
+          - path: {{ $pfx }}
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $base }}
+                port:
+                  name: http-ext
+          - path: {{ $pfx }}/
             pathType: Prefix
             backend:
               service:
                 name: {{ $base }}
                 port:
                   name: http-ext
+          {{- else }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $base }}
+                port:
+                  name: http-ext
+          {{- end }}
 ---
 # Essais de connexion limités sur /oauth2/ (#172, #254)
 apiVersion: networking.k8s.io/v1
@@ -72,7 +94,9 @@ spec:
   ingressClassName: {{ .Values.externalIngress.className }}
   tls:
     - hosts: [{{ .Values.externalIngress.host | quote }}]
+      {{- if or (not $pfx) .Values.externalIngress.tls.secretName }}
       secretName: {{ $tls }}
+      {{- end }}
   rules:
     - host: {{ .Values.externalIngress.host | quote }}
       http:

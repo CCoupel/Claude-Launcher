@@ -113,11 +113,14 @@ auth:
     average: 10
     burst: 20
 
+# Avec pathPrefix, l'hôte est déjà servi par d'autres applications : le chart ne crée aucun Certificat (ni annotation cert-manager) ;
+# donner tls.secretName (certificat existant du namespace) ou rien (certificat de l'hôte choisi par SNI).
 # Ingress externe (v7.0.0, #254) : exige auth.enabled ; cible l'instance auth-proxy-ext (sans compte local)
 externalIngress:
   enabled: false
   className: ""
   host: ""                # nom d'hôte RFC 1123 en minuscules (sans schéma ni chemin)
+  sessionDuration: 4h     # session de l'instance externe (--cookie-expire) : plus courte que l'interne (8h) — exposition Internet, 15m à 168h
   pathPrefix: ""          # sous-chemin public (ex. /claude-qualif) : Ingress sur ce seul préfixe, jamais retiré ; vide : racine de l'hôte
   tls:
     clusterIssuer: ""     # ex. letsencrypt-prod

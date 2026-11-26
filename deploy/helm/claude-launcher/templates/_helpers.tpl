@@ -308,6 +308,15 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if ge $ref $dur -}}
 {{- fail (printf "auth.sessionRefresh (%s) doit être inférieur à auth.sessionDuration (%s)" $a.sessionRefresh $a.sessionDuration) -}}
 {{- end -}}
+{{- if .Values.externalIngress.enabled -}}
+{{- $edur := include "cl.minutes" (dict "name" "externalIngress.sessionDuration" "value" .Values.externalIngress.sessionDuration) | atoi -}}
+{{- if or (lt $edur 15) (gt $edur 10080) -}}
+{{- fail (printf "externalIngress.sessionDuration (%s) : 15m au minimum, 168h au maximum" .Values.externalIngress.sessionDuration) -}}
+{{- end -}}
+{{- if ge $ref $edur -}}
+{{- fail (printf "externalIngress.sessionDuration (%s) doit rester supérieure à auth.sessionRefresh (%s)" .Values.externalIngress.sessionDuration $a.sessionRefresh) -}}
+{{- end -}}
+{{- end -}}
 {{- $pi := $a.proxy.image -}}
 {{- if or (not $pi.tag) (eq (lower $pi.tag) "latest") -}}
 {{- fail "auth.proxy.image.tag : une version précise est exigée (jamais latest ni vide)" -}}
@@ -346,7 +355,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 
 {{/* conteneur oauth2-proxy (contracts/helm-values.md « Pod du launcher avec auth.enabled ») : dict root, name, port, portName,
      local (compte local : htpasswd + formulaire ; jamais sur l'instance externe), host (hôte de l'instance : URL de retour fixe),
-     cookie (nom du cookie), secret (Secret du cookie), tpl (volume des gabarits), base (sous-chemin public de l'instance, "" = racine) */}}
+     duration (--cookie-expire), cookie (nom du cookie), secret (Secret du cookie), tpl (volume des gabarits), base (sous-chemin public de l'instance, "" = racine) */}}
 {{- define "cl.authProxy" -}}
 {{- $root := .root -}}
 {{- $a := $root.Values.auth -}}
@@ -391,7 +400,7 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     - --cookie-name={{ .cookie }}
     - --cookie-secure=true
     - --cookie-samesite=lax
-    - --cookie-expire={{ $a.sessionDuration }}
+    - --cookie-expire={{ .duration }}
     - --cookie-refresh={{ $a.sessionRefresh }}
     - --custom-templates-dir=/etc/cl-auth/templates
     - --request-logging=false
