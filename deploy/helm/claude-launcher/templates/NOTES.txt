@@ -10,6 +10,7 @@ Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ 
 {{- if .Values.auth.enabled }}
 Accès AUTHENTIFIÉ (oauth2-proxy, sidecar du pod) : le launcher n'écoute que sur la boucle locale du pod.
 {{- if .Values.auth.github.enabled }}
+Logins : copier ceux de GitHub tels qu'affichés (la casse compte pour oauth2-proxy ; le launcher l'ignore).
 Connexion GitHub : {{ len .Values.auth.admins }} administrateur(s), {{ len (.Values.auth.users | default list) }} utilisateur(s) ; Secret de l'application GitHub : {{ include "cl.githubSecretName" . }} (clés client-id, client-secret){{ if .Values.auth.existingSecret }} — le pod ne démarre pas s'il est absent.{{ else }} — créé par le chart depuis auth.github.clientId / clientSecret.
 ATTENTION : le secret de la GitHub App est dans les valeurs Helm (lisible par « helm get values », stocké dans le Secret de release) : préférer auth.existingSecret.{{ end }}
 {{- else }}

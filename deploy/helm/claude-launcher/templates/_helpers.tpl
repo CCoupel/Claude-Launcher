@@ -363,6 +363,9 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- $root := .root -}}
 {{- $a := $root.Values.auth -}}
 {{- $logins := concat ($a.admins | default list) ($a.users | default list) | uniq -}}
+{{- /* une identité = une entrée : dédoublonnage insensible à la casse, première casse gardée */ -}}
+{{- $seenL := dict -}}{{- $uniq := list -}}
+{{- range $logins -}}{{- $k := lower (toString .) -}}{{- if not (hasKey $seenL $k) -}}{{- $_ := set $seenL $k true -}}{{- $uniq = append $uniq (toString .) -}}{{- end -}}{{- end -}}
 - name: {{ .name }}
   image: {{ include "cl.proxyImage" $root | quote }}
   imagePullPolicy: {{ $root.Values.image.pullPolicy }}
@@ -375,7 +378,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
   args:
     - --provider=github
     {{- if $a.github.enabled }}
-    - --github-user={{ join "," $logins | lower }}
+    # casse CONSERVÉE : oauth2-proxy compare le login GitHub à --github-user en respectant la casse (le launcher, lui, la ignore)
+    - --github-user={{ join "," $uniq }}
     {{- else }}
     # sans connexion GitHub : client factice (le bouton GitHub n'est pas rendu), aucun Secret exigé
     - --client-id=disabled

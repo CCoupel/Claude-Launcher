@@ -166,6 +166,9 @@ que l'ingress externe attend v7.0.0.
 | `auth.rateLimit.average` / `.burst` | entiers | `10` / `20` | — | Traefik `rateLimit` (par adresse source, par minute) sur les routes `/oauth2/` des ingress : essais répétés bloqués (#172) ; nginx : `limit-rpm` sur un Ingress `/oauth2` séparé |
 
 - **[cycle 1, m6]** `ingress.controller: nginx` avec `auth.localAdmin.enabled` → refus au rendu (le retrait de `Authorization` et la limite d'essais passent par un snippet souvent désactivé).
+- **[casse des logins]** `--github-user` reçoit les logins de `auth.admins` ∪ `auth.users` **avec la casse saisie** (oauth2-proxy compare
+  en respectant la casse : copier le login tel qu'affiché par GitHub) ; `CL_AUTH_ADMINS` / `CL_AUTH_USERS` restent en minuscules (le
+  launcher les compare sans casse) ; deux casses d'une même identité (dans une liste ou entre les deux) : refus au rendu.
 - `auth.enabled: true` et `web.access` posé explicitement → refus (« web.access est imposé à proxy par auth.enabled ;
   le retirer »).
 - `auth.enabled: true` avec `ingress.enabled: false` et `externalIngress.enabled: false` → refus (aucune adresse https

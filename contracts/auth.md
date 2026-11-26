@@ -44,6 +44,9 @@ kubelet ──http──► [launcher :8082] /healthz /readyz seulement (aucune 
 
 - En-tête **`X-Forwarded-User`** posé par oauth2-proxy (`--pass-user-headers`) = **login GitHub**. Aucun autre en-tête
   n'est lu pour l'identité (`X-Forwarded-Email`, `X-Forwarded-Preferred-Username`, `X-Auth-Request-*` ignorés).
+- **Casse (cycle QUALIF)** : le launcher compare les logins **sans casse** (forme canonique minuscule) ; en revanche oauth2-proxy compare le
+  login GitHub à `--github-user` **en respectant la casse** : le chart transmet donc les logins de `auth.admins` / `auth.users` **tels
+  que saisis** (copier le login tel qu'affiché par GitHub) ; une même identité sous deux casses est refusée au rendu.
 - Valeur validée : `^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$` (forme d'un login GitHub), comparée **sans casse**
   (forme canonique : minuscules), **ou** exactement `admin@local` (compte local, §8 ; un login GitHub ne contient
   jamais `@`, aucune collision). Plusieurs en-têtes `X-Forwarded-User` → refus.
