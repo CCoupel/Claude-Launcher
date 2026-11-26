@@ -131,3 +131,4 @@
 | tests/integration/ui-web/auth-prefix-254/ | integration | web | E2E navigateur sans tete derriere un reverse proxy a sous-chemin : interface, SSE, deconnexion, session expiree, aucune requete hors de la base (#254) | feature | smoke |
 
 | tests/procedures/ui-desktop/fermeture-k8s-269-271/ | procedure | ui-desktop | Fermer / Forcer fermer un pod k8s ancien modele, _work/test-plan servi (#269, #271) | regression | |
+| tests/procedures/ui-desktop/espace-utilisateur-255/ | procedure | ui-desktop | Espace par utilisateur : identifiant GitHub, users/<uid>/, isolement, admin inchange (#255) | feature | |
