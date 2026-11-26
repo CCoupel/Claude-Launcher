@@ -5,9 +5,17 @@
   "branch": "milestone/v7.1.0",
   "version": "7.1.0",
   "started_at": "2026-11-26T13:40:00Z",
-  "updated_at": "2026-11-26T16:05:00Z",
+  "updated_at": "2026-11-26T17:05:00Z",
   "cycles": 1,
-  "issue_nums": [249, 255, 257, 259, 269, 271, 275],
+  "issue_nums": [
+    249,
+    255,
+    257,
+    259,
+    269,
+    271,
+    275
+  ],
   "milestone_num": 37,
   "plan": ".claude/workflow/plan-v7.1.0.md",
   "cadrage": {
@@ -16,29 +24,115 @@
     "review": true,
     "qualif": true,
     "doc": "agent",
-    "team": ["dev-backend", "dev-frontend", "test-writer", "code-reviewer", "qa", "doc-updater"],
+    "team": [
+      "dev-backend",
+      "dev-frontend",
+      "test-writer",
+      "code-reviewer",
+      "qa",
+      "doc-updater"
+    ],
     "valide": "GATE 2"
   },
   "lots": {
     "current": "LOT-2",
     "items": {
-      "LOT-1": { "status": "completed", "issues": [269, 271], "ci_sha": "bd7ebde" },
-      "LOT-2": { "status": "in_progress", "issues": [255], "phase": "dev-backend" },
-      "LOT-3.1": { "status": "pending", "issues": [257] },
-      "LOT-3.2": { "status": "pending", "issues": [275] },
-      "LOT-4": { "status": "pending", "issues": [259, 249] }
+      "LOT-1": {
+        "status": "completed",
+        "issues": [
+          269,
+          271
+        ],
+        "ci_sha": "bd7ebde"
+      },
+      "LOT-2": {
+        "status": "in_progress",
+        "issues": [
+          255
+        ],
+        "phase": "deploy-qualif"
+      },
+      "LOT-3.1": {
+        "status": "pending",
+        "issues": [
+          257
+        ]
+      },
+      "LOT-3.2": {
+        "status": "pending",
+        "issues": [
+          275
+        ]
+      },
+      "LOT-4": {
+        "status": "pending",
+        "issues": [
+          259,
+          249
+        ]
+      }
     }
   },
   "phases": {
-    "clarification": { "status": "completed", "skipped": false },
-    "plan": { "status": "completed", "report": "_work/reports/plan-20261126-134958.md", "timestamp": "2026-11-26T15:30:00Z" },
-    "dev-backend": { "status": "in_progress" },
-    "dev-frontend": { "status": "in_progress" },
-    "test-writer": { "status": "in_progress" },
-    "review": { "status": "pending" },
-    "qa": { "status": "pending" },
-    "doc": { "status": "pending" },
-    "deploy-qualif": { "status": "pending", "steps": { "build": { "status": "pending" }, "publish": { "status": "pending" }, "deploy": { "status": "pending" } } },
-    "deploy-prod": { "status": "pending", "steps": { "publish": { "status": "pending" }, "deploy": { "status": "pending" } } }
+    "clarification": {
+      "status": "completed",
+      "skipped": false
+    },
+    "plan": {
+      "status": "completed",
+      "report": "_work/reports/plan-20261126-134958.md",
+      "timestamp": "2026-11-26T15:30:00Z"
+    },
+    "dev-backend": {
+      "status": "completed",
+      "sha": "6d6f004",
+      "handoff": "_work/handoff/dev-backend-lot2.md"
+    },
+    "dev-frontend": {
+      "status": "completed",
+      "sha": "4dbffb8",
+      "handoff": "_work/handoff/dev-frontend-lot2.md"
+    },
+    "test-writer": {
+      "status": "completed",
+      "sha": "7245175",
+      "handoff": "_work/handoff/test-writer-lot2.md"
+    },
+    "review": {
+      "status": "completed",
+      "report": "_work/reports/code-reviewer-lot2.md"
+    },
+    "qa": {
+      "status": "completed",
+      "report": "_work/reports/qa-lot2.md"
+    },
+    "doc": {
+      "status": "in_progress"
+    },
+    "deploy-qualif": {
+      "status": "in_progress",
+      "steps": {
+        "build": {
+          "status": "pending"
+        },
+        "publish": {
+          "status": "pending"
+        },
+        "deploy": {
+          "status": "pending"
+        }
+      }
+    },
+    "deploy-prod": {
+      "status": "pending",
+      "steps": {
+        "publish": {
+          "status": "pending"
+        },
+        "deploy": {
+          "status": "pending"
+        }
+      }
+    }
   }
 }
