@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -307,16 +308,29 @@ func desktopWebPrint(content []byte) string {
 
 // PublicURL : adresse publique d'une interface web derrière un proxy inverse, découpée.
 type PublicURL struct {
-	Origin string // schéma://hôte[:port] — l'origine exacte attendue pour cet hôte
+	Origin string // schéma://hôte[:port] — l'origine exacte attendue pour cet hôte (jamais de chemin : c'est celle d'Origin)
+	// Base : sous-chemin public (ex. « /claude-qualif », contracts/auth.md §9), sans « / » final ; "" = racine. Jamais retiré par le
+	// proxy : le launcher le retire à l'entrée et le remet dans toute URL qu'il émet.
+	Base   string
 	Scheme string // http ou https
 	Host   string // nom d'hôte en minuscules, sans port ni crochets
 	Port   string // port explicite de l'adresse, "" sinon
 }
 
+// URL : adresse complète (origine + base), sans « / » final.
+func (p PublicURL) URL() string { return p.Origin + p.Base }
+
+// basePathRE : sous-chemin public admis (segments en minuscules, sans « / » final, sans « // » ni « .. »).
+var basePathRE = regexp.MustCompile(`^/[a-z0-9-]+(/[a-z0-9-]+)*$`)
+
+// ValidBasePath : « /claude-qualif », « /a/b » ; pas de « / » final, de « // », de « .. » ni de majuscule.
+func ValidBasePath(p string) bool { return basePathRE.MatchString(p) }
+
 // HTTPS : le proxy termine le TLS — le cookie de session est alors Secure.
 func (p PublicURL) HTTPS() bool { return p.Scheme == "https" }
 
-// ParsePublicURL : « http(s)://hôte[:port] » — sans chemin, paramètres, fragment ni identifiants. Toute autre
+// ParsePublicURL : « http(s)://hôte[:port][/sous/chemin] » — sans paramètres, fragment ni identifiants ; le chemin éventuel est la base
+// (segments a-z 0-9 -, sans « / » final). Toute autre
 // forme est une erreur de réglage (l'interface web reste éteinte, la raison est dite). L'hôte est une adresse IP
 // littérale ou un nom RFC 1123 (lettres, chiffres, « - » et « . ») ; un nom internationalisé est converti en
 // punycode (c'est ce que le navigateur envoie dans Host et Origin) ; « % » et toute autre ponctuation sont
@@ -324,7 +338,7 @@ func (p PublicURL) HTTPS() bool { return p.Scheme == "https" }
 // navigateur ne le portent jamais.
 func ParsePublicURL(raw string) (PublicURL, error) {
 	bad := func(why string) (PublicURL, error) {
-		return PublicURL{}, fmt.Errorf("adresse publique %q invalide : %s (forme attendue : https://hôte[:port] ou http://hôte[:port], sans chemin ni paramètres)", raw, why)
+		return PublicURL{}, fmt.Errorf("adresse publique %q invalide : %s (forme attendue : https://hôte[:port][/sous-chemin] ou http://hôte[:port][/sous-chemin], sans paramètres)", raw, why)
 	}
 	raw = strings.TrimSpace(raw)
 	u, err := url.Parse(raw)
@@ -337,8 +351,10 @@ func ParsePublicURL(raw string) (PublicURL, error) {
 		return bad("hôte manquant")
 	case u.User != nil:
 		return bad("identifiants interdits")
-	case u.Path != "" && u.Path != "/" || strings.Contains(raw, "?") || strings.Contains(raw, "#"):
-		return bad("chemin, paramètres et fragment interdits")
+	case strings.Contains(raw, "?") || strings.Contains(raw, "#"):
+		return bad("paramètres et fragment interdits")
+	case u.Path != "" && u.Path != "/" && !ValidBasePath(u.Path):
+		return bad("chemin invalide (segments en minuscules a-z 0-9 -, sans « / » final, sans « // » ni « .. »)")
 	case strings.Contains(u.Host, "%"):
 		return bad("« % » interdit dans l'hôte")
 	}
@@ -363,7 +379,11 @@ func ParsePublicURL(raw string) (PublicURL, error) {
 	if port != "" {
 		origin += ":" + port
 	}
-	return PublicURL{Origin: origin, Scheme: u.Scheme, Host: host, Port: port}, nil
+	base := ""
+	if u.Path != "/" {
+		base = u.Path
+	}
+	return PublicURL{Origin: origin, Base: base, Scheme: u.Scheme, Host: host, Port: port}, nil
 }
 
 // publicHost : hôte d'une adresse publique, en minuscules ASCII — IP littérale, ou nom RFC 1123 (punycode si

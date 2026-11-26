@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -103,6 +104,8 @@ type webCall struct {
 	// Access : mode d'accès du serveur (token, none, proxy ; "" = token) ; User : identité du mode proxy (nil ailleurs)
 	Access string
 	User   *core.Identity
+	// Base : sous-chemin public de la requête (contracts/auth.md §9) ; "" : racine
+	Base string
 }
 
 // msgR1 : refus d'une écriture sensible (règle R1, contracts/auth.md §4).
@@ -121,7 +124,11 @@ func (c webCall) userInfo() map[string]any {
 	if c.User == nil || c.Access != core.AccessProxy {
 		return nil
 	}
-	u := map[string]any{"login": c.User.Login, "role": c.User.Role, "logout": "/oauth2/sign_out?rd=%2Fsigned-out", "kind": "github"}
+	logout := "/oauth2/sign_out?rd=%2Fsigned-out"
+	if c.Base != "" { // sous-chemin : le proxy de l'instance externe vit sous <base>/oauth2
+		logout = c.Base + "/oauth2/sign_out?rd=" + url.QueryEscape(c.Base+"/signed-out")
+	}
+	u := map[string]any{"login": c.User.Login, "role": c.User.Role, "logout": logout, "kind": "github"}
 	if c.User.Local() {
 		u["kind"] = "local"
 	}

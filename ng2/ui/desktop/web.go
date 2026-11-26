@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -101,6 +102,62 @@ func (w *webBridge) matchesPublic(host string) bool {
 		}
 	}
 	return false
+}
+
+// baseFor : sous-chemin public (base) de l'adresse publique dont l'hôte est celui de la requête ; "" : racine (hôte interne,
+// loopback, hub). contracts/auth.md §9.
+func (w *webBridge) baseFor(host string) string {
+	if w.public != nil && w.public.MatchesHost(host) {
+		return w.public.Base
+	}
+	for _, a := range w.alts {
+		if a.MatchesHost(host) {
+			return a.Base
+		}
+	}
+	return ""
+}
+
+type baseKey struct{}
+
+// baseOf : base de la requête (posée par secured ; "" si aucune).
+func baseOf(r *http.Request) string {
+	b, _ := r.Context().Value(baseKey{}).(string)
+	return b
+}
+
+// baseWriter : remet la base dans tout « Location » absolu-chemin émis par le routeur ou un gestionnaire (redirections de
+// http.Redirect, de ServeMux, du serveur de fichiers) : le launcher travaille sans la base, le navigateur la voit.
+type baseWriter struct {
+	http.ResponseWriter
+	base string
+}
+
+func (b *baseWriter) WriteHeader(code int) {
+	if loc := b.Header().Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, "//") && !strings.HasPrefix(loc, b.base+"/") {
+		b.Header().Set("Location", b.base+loc)
+	}
+	b.ResponseWriter.WriteHeader(code)
+}
+
+func (b *baseWriter) Flush() {
+	if f, ok := b.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+func (b *baseWriter) Unwrap() http.ResponseWriter { return b.ResponseWriter }
+
+// injectBase : <base href="<base>/"> inséré dans la page HTML (après <head>, sinon en tête) ; un <base> existant est remplacé.
+func injectBase(page []byte, base string) []byte {
+	tag := []byte(`<base href="` + base + `/">`)
+	if re := regexp.MustCompile(`(?i)<base\s[^>]*>`); re.Match(page) {
+		return re.ReplaceAll(page, tag)
+	}
+	if i := regexp.MustCompile(`(?i)<head[^>]*>`).FindIndex(page); i != nil {
+		return append(append(append([]byte{}, page[:i[1]]...), tag...), page[i[1]:]...)
+	}
+	return append(append([]byte{}, tag...), page...)
 }
 
 type ctxKey struct{}
@@ -363,6 +420,37 @@ func (w *webBridge) secured(next http.Handler) http.Handler {
 			refuse(rw, "host", "hôte refusé")
 			return
 		}
+		// sous-chemin public (contracts/auth.md §9) : la base de l'hôte de la requête est retirée avant le routeur (le proxy ne la
+		// retire jamais), les « Location » la retrouvent ; hors de la base : 404 ; la base seule : 308 vers « <base>/ »
+		if base := w.baseFor(r.Host); base != "" {
+			p := r.URL.Path
+			switch {
+			case p == base:
+				loc := base + "/"
+				if r.URL.RawQuery != "" {
+					loc += "?" + r.URL.RawQuery
+				}
+				http.Redirect(rw, r, loc, http.StatusPermanentRedirect)
+				return
+			case strings.HasPrefix(p, base+"/"):
+				u := *r.URL
+				u.Path = p[len(base):]
+				if u.RawPath != "" {
+					if strings.HasPrefix(u.RawPath, base+"/") {
+						u.RawPath = u.RawPath[len(base):]
+					} else {
+						u.RawPath = ""
+					}
+				}
+				r2 := r.WithContext(context.WithValue(r.Context(), baseKey{}, base))
+				r2.URL = &u
+				r = r2
+				rw = &baseWriter{ResponseWriter: rw, base: base}
+			default:
+				http.NotFound(rw, r)
+				return
+			}
+		}
 		h := rw.Header()
 		h.Set("Referrer-Policy", "no-referrer")
 		h.Set("X-Content-Type-Options", "nosniff")
@@ -499,6 +587,13 @@ func (w *webBridge) handler() http.Handler {
 			}
 		}
 		rw.Header().Set("Cache-Control", "no-store")
+		if r.URL.Path == "/" || r.URL.Path == "/index.html" { // <base href> : le client n'emploie que des chemins relatifs
+			if b, err := fs.ReadFile(assets, "index.html"); err == nil {
+				rw.Header().Set("Content-Type", "text/html; charset=utf-8")
+				_, _ = rw.Write(injectBase(b, baseOf(r)))
+				return
+			}
+		}
 		files.ServeHTTP(rw, r)
 	})
 	// fichiers des projets (#174) : même serveur que celui des maquettes, sous /files ; sans session en mode « none » (la
@@ -533,11 +628,11 @@ func (w *webBridge) handler() http.Handler {
 		rw.Header().Set("Cache-Control", "no-store")
 		if b, err := fs.ReadFile(assets, "signed-out.html"); err == nil {
 			rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-			_, _ = rw.Write(b)
+			_, _ = rw.Write(injectBase(b, baseOf(r)))
 			return
 		}
 		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(rw, signedOutFallback)
+		_, _ = io.WriteString(rw, strings.ReplaceAll(signedOutFallback, `href="/"`, `href="`+baseOf(r)+`/"`))
 	})
 	// page du 429 de Traefik (essais de connexion limités) : statique, sans identité (exemptée par oauth2-proxy)
 	mux.HandleFunc("/too-many", func(rw http.ResponseWriter, r *http.Request) {
@@ -547,7 +642,7 @@ func (w *webBridge) handler() http.Handler {
 		}
 		rw.Header().Set("Cache-Control", "no-store")
 		rw.Header().Set("Content-Type", "text/html; charset=utf-8")
-		_, _ = io.WriteString(rw, tooManyPage)
+		_, _ = io.WriteString(rw, strings.ReplaceAll(tooManyPage, `href="/"`, `href="`+baseOf(r)+`/"`))
 	})
 	mux.HandleFunc("/api/call", func(rw http.ResponseWriter, r *http.Request) {
 		switch {
@@ -589,7 +684,7 @@ func (w *webBridge) handler() http.Handler {
 				return
 			}
 		}
-		res, err := w.app.DispatchWebAs(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id}, req.Method, req.Args)
+		res, err := w.app.DispatchWebAs(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id, Base: baseOf(r)}, req.Method, req.Args)
 		w.auditCall(r, id, req.Method, req.Args, res, err, target, r1)
 		out := map[string]any{"result": res}
 		if err != nil {
@@ -894,24 +989,24 @@ func RunWeb(addr string, open bool) error {
 	a.webui.mu.Unlock()
 	url := fmt.Sprintf("http://%s/?t=%s", ln.Addr().String(), w.tokenNow())
 	if w.public != nil {
-		url = w.public.Origin + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
+		url = w.public.URL() + "/?t=" + w.tokenNow() // lien d'amorçage : l'adresse publique
 	}
 	if w.noToken() { // aucun jeton : l'adresse seule s'ouvre directement
 		url = "http://" + ln.Addr().String() + "/"
 		if w.public != nil {
-			url = w.public.Origin + "/"
+			url = w.public.URL() + "/"
 		}
 	}
 	if access == core.AccessProxy {
 		// jamais la liste des logins, jamais de jeton
-		fmt.Println("Claude Launcher (interface web) :", w.public.Origin+"/")
+		fmt.Println("Claude Launcher (interface web) :", w.public.URL()+"/")
 		fmt.Printf("Accès authentifié (oauth2-proxy, GitHub) : %d administrateur(s), %d utilisateur(s)\n", len(w.auth.Admins), len(w.auth.Users))
 		fmt.Println("Arrêt par SIGTERM : serveur fermé, terminaux détachés ; les projets restent ouverts dans leurs pods.")
 	} else if access == core.AccessNone {
 		// aucun jeton : l'adresse seule (dans un pod la sortie part dans les journaux, sans rien de secret)
 		base := "http://" + ln.Addr().String()
 		if w.public != nil {
-			base = w.public.Origin
+			base = w.public.URL()
 		}
 		fmt.Println("Claude Launcher (interface web) :", base+"/")
 		fmt.Println("Accès sans jeton (CL_WEB_ACCESS=none) : l'accès repose sur l'écoute locale ou sur l'adresse publique https (Ingress, liste d'adresses).")
@@ -925,7 +1020,7 @@ func RunWeb(addr string, open bool) error {
 		// donnée sans jeton, avec l'endroit où le lire.
 		base := "http://" + ln.Addr().String()
 		if w.public != nil {
-			base = w.public.Origin
+			base = w.public.URL()
 		}
 		fmt.Println("Claude Launcher (mode serveur) :", base+"/")
 		if os.Getenv("CL_DESKTOP_TOKEN") != "" {

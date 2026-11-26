@@ -333,7 +333,7 @@ func (a *App) webUIOpen() map[string]any {
 		suffix = "/"
 	}
 	if pub != nil { // lien d'amorçage : l'adresse publique
-		openURL(pub.Origin + suffix)
+		openURL(pub.URL() + suffix)
 		return map[string]any{"ok": true}
 	}
 	h, port, _ := net.SplitHostPort(listen)
@@ -418,7 +418,7 @@ func publicOrigin(p *core.PublicURL) string {
 	if p == nil {
 		return ""
 	}
-	return p.Origin
+	return p.URL()
 }
 
 // relaunchArgs : arguments de la relance du mode serveur après une mise à jour (même adresse, même adresse publique).
