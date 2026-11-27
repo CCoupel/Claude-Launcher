@@ -2432,7 +2432,7 @@ function newUserProject() {
     field('category', 'Catégorie', cat);
     const name = el('input'); name.placeholder = 'nom du projet'; name.spellcheck = false;
     field('name', 'Nom', name);
-    const src = el('select'); for (const [v, t] of [['empty', 'Projet vide (dossier et git init)'], ['git', 'Cloner un dépôt Git']]) { const o = el('option', '', t); o.value = v; src.appendChild(o); }
+    const src = el('select'); for (const [v, t] of [['empty', 'Projet brut (dossier et git init)'], ['git', 'Cloner un dépôt Git']]) { const o = el('option', '', t); o.value = v; src.appendChild(o); }
     field('source', 'Source', src);
     const url = el('input'); url.placeholder = 'https://github.com/moi/projet.git ou git@github.com:moi/projet.git'; url.spellcheck = false;
     field('repo', 'URL du dépôt', url);
@@ -2464,6 +2464,7 @@ function newUserProject() {
       if (r && r.ok === false) { showFail(r); gate(); return; }
       closeModal();
       if (r && r.job) { flash('Clonage en cours…'); return; }
+      if (r && r.path) select(r.path); // le projet créé (backend/catégorie/nom) est sélectionné dans l'arbre
       if (r && r.tab) showView(r.tab, true);
     };
     btns.append(cancel, ok); b.appendChild(btns);

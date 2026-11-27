@@ -1615,7 +1615,7 @@ async function pjLoad(keepDraft) {
     const txt = {};
     for (const k of PJ_LISTS) txt[k] = (e[k] || []).join('\n');
     txt.pbm = pjPbmText(e.packages_by_manager); txt.mounts = pjMountsText(e.mounts);
-    ST.pj = { path, loading: false, data: r, opt: pjOptInit(r.options), orig: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), layout: r.layoutAuto ? '' : String(r.layout || ''), env: { image: e.image || '', prefer: e.prefer || '', txt: stClone(txt) } },
+    ST.pj = { path, loading: false, data: r, opt: pjOptInit(r.options, r.warnings), orig: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), layout: r.layoutAuto ? '' : String(r.layout || ''), env: { image: e.image || '', prefer: e.prefer || '', txt: stClone(txt) } },
       d: { backend: r.backend || '', image: r.image || '', color: r.colorAuto ? '' : String(r.color || ''), layout: r.layoutAuto ? '' : String(r.layout || ''), env: { image: e.image || '', prefer: e.prefer || '', txt } },
       merged: r.merged || [], mergedProblems: null, result: null, mtime: r.envMtime || '' };
   } catch (e) { ST.pj = { path, loading: false, err: e.message }; }
@@ -1688,7 +1688,7 @@ function stPageProjet(p) {
   be.value = d.backend; be.disabled = open || stUserSpace(); if (stUserSpace()) be.title = 'le backend d\'un projet ne change pas dans ton espace';
   be.addEventListener('change', () => { d.backend = be.value; stRenderFoot(); });
   // #234 : select de la liste complète (backends.yaml ∪ défauts ∪ image courante), indépendante de la valeur pré-remplie ; « Autre… » = saisie libre
-  const im = el('select', 'stin w'); im.id = 'pjf-image'; im.disabled = open || stUserSpace(); if (stUserSpace()) im.title = 'image en lecture seule : celle du backend (jusqu\'au LOT suivant)';
+  const im = el('select', 'stin w'); im.id = 'pjf-image'; im.disabled = open;
   const imgs = (r.images || []).slice(); if (d.image && !imgs.includes(d.image)) imgs.push(d.image);
   im.appendChild(Object.assign(el('option', '', '(aucune)'), { value: '' }));
   for (const i of imgs) im.appendChild(Object.assign(el('option', '', i), { value: i }));
@@ -1703,6 +1703,7 @@ function stPageProjet(p) {
     stRenderFoot();
   });
   const imBox = el('span'); imBox.append(im, imo);
+  if (stUserSpace()) { im.disabled = true; imo.disabled = true; im.title = 'image en lecture seule : celle du backend'; } // espace utilisateur
   const rows = [['Backend', be, open ? ENV_LOCK_MSG + ' (backend et image)' : 'hôte, ou un backend conteneur ; modifiable projet fermé'],
     ['Image de base', imBox, 'ignorée pour le backend host'], ['Backend préféré', (() => { const pf = stInput(d.env.prefer, (v) => { d.env.prefer = v; pjPreview(); }, '(aucun)'); const l2 = envLock({ open }, 'project-env', r); if (l2.locked) { pf.disabled = true; pf.title = l2.why; } return pf; })(), envLock({ open }, 'project-env', r).locked ? envLock({ open }, 'project-env', r).why + ' (env.yaml)' : 'proposé aux autres postes (prefer, env.yaml)']];
   const sw = el('span', 'pjcolors'); sw.id = 'pjf-color';
@@ -1828,9 +1829,10 @@ async function pjSave() {
   const keep = pj.focus;
   if (typeof layoutDrop === 'function') { layoutDrop(pj.path); if (typeof paintLayoutButton === 'function') paintLayoutButton(); } // relecture après écriture
   await pjLoad();
-  if (ST.pj) ST.pj.res = { saved: true, note: r.note || '', warn: r.warn || '' };
+  if (ST.pj) ST.pj.res = { saved: true, note: r.note || pjAppliedNote(r.applied), warn: r.warn || '' };
   stRender();
 }
+const pjAppliedNote = (a) => ({ hot: 'options appliquées à chaud', 'next-start': 'options appliquées au prochain démarrage du pod', recreated: 'conteneur recréé avec les nouvelles options' }[a] || '');
 
 $('cfgbtn').title = 'Réglages (Ctrl+,)';
 
@@ -1842,10 +1844,10 @@ $('cfgbtn').title = 'Réglages (Ctrl+,)';
 const PJ_OPT_K8S = [['cpuRequest', 'CPU demandé', '', 'pod.requests.cpu'], ['memRequest', 'Mémoire demandée', '', 'pod.requests.memory'], ['cpuLimit', 'CPU limite', '', 'pod.limits.cpu'], ['memLimit', 'Mémoire limite', '', 'pod.limits.memory'], ['ephemeral', 'Stockage éphémère (limite)', '', 'pod.limits.ephemeral-storage']];
 const PJ_OPT_CTR = [['cpus', 'CPU (cpus)', 'appliqué à chaud (docker update), sans redémarrage', 'container.cpus'], ['memory', 'Mémoire (memory)', 'appliquée à chaud', 'container.memory'],
   ['pids_limit', 'Processus (pids_limit)', 'appliqué à chaud', 'container.pids_limit'], ['shm_size', 'Mémoire partagée (shm_size)', 'recrée le conteneur après confirmation', 'container.shm_size'], ['gpus', 'GPU (gpus)', 'recrée le conteneur après confirmation', 'container.gpus']];
-function pjOptInit(o) {
+function pjOptInit(o, warnings) {
   if (!o || !o.kind) return null;
   const cur = { values: Object.assign({}, o.values || {}), podJson: o.podJson || '', uid: o.runAs ? String(o.runAs.uid || '') : '', gid: o.runAs ? String(o.runAs.gid || '') : '' };
-  return { o, cur, orig: stClone(cur), problems: [], jsonErr: '', recreate: null, busy: false };
+  return { o, cur, orig: stClone(cur), problems: [], jsonErr: '', recreate: null, busy: false, warnings: Array.isArray(warnings) ? warnings.map(String) : [] };
 }
 const pjOptFields = (op) => (op.o.kind === 'k8s' ? PJ_OPT_K8S : PJ_OPT_CTR);
 function pjOptChanged() { const op = ST.pj && ST.pj.opt; return !!(op && JSON.stringify(op.cur) !== JSON.stringify(op.orig)); }
@@ -1936,6 +1938,7 @@ function pjOptBox(pj) {
     ['Groupe (gid)', (() => { const i = stInput(op.cur.gid, (v) => { op.cur.gid = v; pjOptEdited(); }, ra.gid ? String(ra.gid) : '2000'); i.classList.add('sm'); return i; })(), 'non nul ; changer l\'uid refait le chown du stockage au prochain démarrage']]);
   body.appendChild(ug);
   body.appendChild(el('p', 'note', 'Image : ' + (o.image || '(celle du backend)') + ' — en lecture seule.'));
+  for (const w of op.warnings) if (!/partag/i.test(w) || !o.shared) body.appendChild(el('div', 'stwarn', '⚠ ' + w)); // avertissements du serveur (textContent)
   if (o.shared) body.appendChild(el('div', 'stwarn', '⚠ Si ce backend est partagé avec d\'autres utilisateurs, leurs projets ne sont pas isolés des vôtres (un autre compte peut créer un objet qui imite les vôtres).'));
   return stBox(k8s ? 'Ressources et placement du pod' : 'Ressources du conteneur', body, el('span', 'dim', 'objet du projet'));
 }
@@ -1957,7 +1960,7 @@ function pjRecreateBox(pj) {
       if (op.busy) return; op.busy = true; op.err = ''; stRenderPage();
       let r; try { r = await call('projectApply', { path: pj.path, options: pjOptArg(), confirm: rc.token }); } catch (e) { r = { ok: false, msg: stErrText(e) }; }
       op.busy = false;
-      if (r && r.ok) { op.recreate = null; await pjLoad(); if (ST.pj) ST.pj.res = { saved: true, note: '', warn: '' }; stRender(); return; }
+      if (r && r.ok) { op.recreate = null; await pjLoad(); if (ST.pj) ST.pj.res = { saved: true, note: pjAppliedNote(r.applied), warn: '' }; stRender(); return; }
       op.err = (r && (r.msg || (r.problems && r.problems[0] && r.problems[0].msg))) || 'recréation refusée';
       stRender();
     }, 'pri'));
