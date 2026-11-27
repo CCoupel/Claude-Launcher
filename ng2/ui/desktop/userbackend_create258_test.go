@@ -516,7 +516,8 @@ func TestRefus258AdresseJamaisPourUnAutreMotif(t *testing.T) {
 		t.Errorf("backendSecretGet inconnu : message sans « backend » : %q", msg)
 	}
 	// un hôte public est accepté par configApply et par userBackendAdd
-	raw, res, e := c.call(t, "alice", "configApply", map[string]any{"kind": "backends.yaml", "path": "", "mtime": "", "changes": []any{map[string]any{"op": "set", "at": []string{"backends", "pub"}, "value": map[string]any{"type": "docker", "host": cHost, "volume": "v"}}}})
+	mt, _, _ := c.model(t, "alice")
+	raw, res, e := c.call(t, "alice", "configApply", map[string]any{"kind": "backends.yaml", "path": "", "mtime": mt, "changes": []any{map[string]any{"op": "set", "at": []string{"backends", "pub"}, "value": map[string]any{"type": "docker", "host": cHost, "volume": "v"}}}})
 	if e != "" || res["saved"] != true {
 		t.Errorf("hôte public refusé par configApply : %s", raw)
 	}
