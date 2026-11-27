@@ -28,6 +28,12 @@ const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'b
 const stClone = (o) => JSON.parse(JSON.stringify(o));
 // Toute modification du brouillon efface un refus d'enregistrement : le serveur rejugera au prochain essai. Sans cela les
 // erreurs du refus restaient et « Enregistrer » restait grisé après correction (#257, B6/B9).
+// Secrets collés d'un brouillon : gardés en mémoire de la page seulement tant que SA fiche est ouverte (#257). Effacés dès que
+// l'on change de backend, à l'annulation et à la fermeture.
+function stWipe(keep) {
+  if (ST.draft) for (const b of ST.draft.backends) if (b !== keep && b._secrets) delete b._secrets;
+  stKeepClear();
+}
 function stEdited() {
   if (ST.result && (ST.result.refused || ST.result.saved)) ST.result = null; // un message d'avant la modification ne vaut plus
   if (ST.fieldErr) { ST.fieldErr = null; document.querySelectorAll('#stpg .bad').forEach((x) => x.classList.remove('bad')); document.querySelectorAll('#stpg .fielderr').forEach((x) => x.remove()); }
@@ -350,8 +356,11 @@ function stKeepClear(prefix) { for (const k of [...STKEEP.keys()]) if (!prefix |
 function stClose(force) {
   stKeepClear();
   if (!force && stDirty() && !confirm('Fermer sans enregistrer ? Les modifications seront perdues.')) return;
+  stWipe(null); ST.draft = null; ST.orig = null; ST.model = null; ST.tls = null; ST.fieldErr = null; ST.result = null; // plus aucun secret collé en mémoire
   ST.on = false; clearTimeout(ST.timer);
   $('modalbox').classList.remove('wide');
+  $('modalbox').querySelectorAll('textarea,input').forEach((x) => { x.value = ''; }); // aucun texte collé ne reste dans la page masquée
+  $('modalbox').textContent = '';
   closeModal();
 }
 
@@ -440,12 +449,12 @@ function stPageBackends(p) {
     if (d.defaults.backend && d.defaults.backend === b.name) n.appendChild(el('span', 'pill', 'défaut'));
     r.append(n, el('td', '', b.type), (() => { const c = el('td', 'm sta', stAddr(b)); c.title = stAddr(b); return c; })(), ...(stUserSpace() ? [] : [el('td', 'm', b.pool || '')]), el('td'));
     r.lastChild.className = 'stst'; r.lastChild.appendChild(b._orig ? stStateCell(b._orig) : el('span', 'dim', 'nouveau'));
-    r.onclick = () => { stKeepClear(); ST.sel.backend = i; ST.test = null; stRenderPage(); };
+    r.onclick = () => { stKeepClear(); ST.sel.backend = i; stWipe(d.backends[i]); ST.fieldErr = null; ST.test = null; stRenderPage(); };
     t.appendChild(r);
   });
   left.appendChild(t);
   const bar = el('div', 'stbar');
-  bar.append(stBtn('+ Ajouter', () => { stEdited(); d.backends.push({ name: stUniqueName('nouveau', d.backends), type: 'docker' }); ST.sel.backend = d.backends.length - 1; ST.test = null; stRenderPage(); stRenderFoot(); }),
+  bar.append(stBtn('+ Ajouter', () => { stEdited(); d.backends.push({ name: stUniqueName('nouveau', d.backends), type: 'docker' }); ST.sel.backend = d.backends.length - 1; stWipe(d.backends[ST.sel.backend]); ST.test = null; stRenderPage(); stRenderFoot(); }),
     stBtn('Dupliquer', () => {
       const b = d.backends[ST.sel.backend]; if (!b || b.implicit) return;
       stEdited();
