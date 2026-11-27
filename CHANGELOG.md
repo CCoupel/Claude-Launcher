@@ -18,6 +18,12 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Éditeur de backends de l'utilisateur (#255) : « Mon espace › Backends » ; méthodes `configModel`, `configApply` et
   `backendStates`, limitées à son seul `backends.yaml`. Repli sur l'éditeur YAML. Validation en liste blanche : rubrique
   `backends:` seule ; types `k8s`, `docker`, `podman` ; docker/podman en `tcp://` avec TLS ; `ssh`, `unix://` et toute autre clé refusés
+- Backends de l'utilisateur (#257) : déclaration de backends `k8s` (namespace, PVC, options de pod) et `docker` / `podman`
+  (`tcp://` avec TLS) ; kubeconfig et certificats TLS collés dans l'éditeur, rangés dans son coffre (`backendSecretSet`,
+  `backendSecretGet`, `backendSecretDelete`) ; `backendTest` avec avertissements (root sur l'hôte, droits plus larges que
+  nécessaire, certificat expiré). Limites `users.maxBackends` (défaut 10) et `users.backendTestsPerMinute` (défaut 6) ;
+  audit `backend.call` de chaque appel sortant, sans secret
+- Éditeur de backends de l'administrateur (#257) : champs TLS (docker/podman) et PVC (k8s), sans bornage d'hôte
 
 ### Changed
 - Utilisateur (#255) : instance restreinte. Ses méthodes servent l'état de son espace (`clientInfo`, `init`, `setPrefs`,
@@ -25,6 +31,20 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   espace ». Les refus R1 sont inchangés (`forbidden:admin`, audités)
 - Chart (#255) : `auth.admins` peut être vide quand le compte local `admin@local` est actif (administrateur de fait, hôte
   interne seul). Sans aucune liste GitHub, `--github-user=-` (aucun login admis) ; `NOTES.txt` le signale
+- Coffre des backends par espace (#257) : chaque utilisateur a son coffre (`users/<uid>/vault/`, 0700 / 0600, en clair) ;
+  l'admin garde celui de la racine
+- Utilisateur (#257) : un backend `k8s` exige un kubeconfig dans le coffre (plus de repli sur le ServiceAccount du pod) ;
+  `ssh` refusé en mode serveur (message clair) ; hôtes d'utilisateur limités à Internet public (adresses privées, loopback et
+  liens locaux refusés) ; serveur d'API avec chemin accepté après bornage de l'hôte (ex. Rancher)
+- Chart (#257) : `users.enabled` (`CL_USERS_ENABLED`), `users.maxBackends`, `users.backendTestsPerMinute`. `users.enabled: false`
+  rétablit un espace commun
+
+### Security
+- Backends d'utilisateur (#257) : résolution DNS en échec fermé (aucune résolution = refus, non mis en cache) ; clés
+  kubeconfig et backends.yaml en doublon à la casse près refusés ; environnement des commandes nettoyé (`DOCKER_CONFIG` sur un
+  dossier vide privé) ; coffre refusé si lien symbolique ou droits > 0600 ; plafond des dépôts de secrets (60 par minute)
+- Risque résiduel accepté (#257) : rebinding DNS entre le contrôle et l'appel de l'outil (`kubectl` / `docker` résolvent de nouveau) ;
+  une redirection HTTP de l'API vers une adresse interne n'est pas bornée
 
 ### Fixed
 - Fermeture des projets Kubernetes (#269) : un pod à l'ancien modèle de montage n'est plus un problème du backend mais un

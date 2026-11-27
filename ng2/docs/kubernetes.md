@@ -405,6 +405,20 @@ admin est écrite avant son exécution (`phase: intent`). Aucun contenu, aucune 
 - **Backends** (`contracts/auth.md` §4) : un `user` peut tester un backend déjà déclaré tel quel. Il ne peut plus tester un
   backend dont il a modifié l'hôte ou le pool.
 
+#### 4bis. Espaces et backends des utilisateurs (v7.1.0, chart `users.*`)
+
+- **`users.enabled`** (défaut `true`) : chaque utilisateur a son espace sous `users/<uid>/` (contrat `contracts/user-backends.md`).
+  Transmis au launcher par `CL_USERS_ENABLED`. `false` rétablit l'espace commun de la v7.0.0.
+- **`users.maxBackends`** (1 à 100, défaut `10`) : backends déclarés par utilisateur ; au-delà, refus à l'enregistrement.
+- **`users.backendTestsPerMinute`** (1 à 60, défaut `6`) : `backendTest` par utilisateur et par minute, un seul à la fois (`429` au-delà).
+  Les dépôts de secrets sont plafonnés à 10 fois cette valeur par minute (`429` au-delà).
+- **Hôtes des backends d'utilisateur** : Internet public seulement. Un nom qui ne se résout pas (ou se résout en adresse privée,
+  loopback ou lien local) est refusé ; la résolution est revérifiée avant chaque appel, cache 30 s.
+  **Risque accepté** : un DNS qui change entre la vérification et l'appel de `kubectl` ou `docker` (rebinding) n'est pas couvert.
+- **Mode serveur** : `ssh` refusé pour tous (`contracts/user-backends.md` §3). Le `backendTest` d'un utilisateur est audité
+  (`backend.call`), sans secret.
+- **Sortie réseau du pod** : non restreinte par le chart (valeurs `networkPolicy`, voir §4b) ; les backends d'utilisateur s'appuient sur le bornage d'hôte ci-dessus.
+
 #### 4c. Créer la GitHub App
 
 Cette section suit la création pas à pas. La version courte est dans le [README](../../README.md#kubernetes-helm--le-launcher-dans-le-cluster).

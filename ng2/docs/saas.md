@@ -266,3 +266,12 @@ Ajouts factuels de LOT-2 ; la refonte du modèle (sans agent, P15, schéma M3) e
   ce qui n'est pas listé est refusé sans rien écrire.
 - **Administrateur de fait** : avec `auth.localAdmin.enabled`, `auth.admins` peut rester vide ; l'administration passe alors par
   `admin@local`, depuis l'hôte interne seul (`kubernetes.md` §4b, `contracts/helm-values.md`).
+- **Backends de l'utilisateur** (LOT-3.1, #257) : déclaration de backends k8s et docker/podman, kubeconfig et certificats collés
+  et rangés dans le coffre de l'espace (`secrets.md`), `backendTest` avec avertissements, limites `users.maxBackends` et
+  `users.backendTestsPerMinute` (`kubernetes.md` §4bis), audit `backend.call`. `ssh` est refusé en mode serveur (P13).
+  Contrat : `contracts/user-backends.md` §3, §7, §11.
+- **Hôtes** : un utilisateur ne vise que l'Internet public ; un nom qui ne se résout pas est refusé (échec fermé). Le rebinding DNS
+  entre la vérification et l'appel de l'outil reste un **risque accepté**.
+- **Point ouvert avant LOT-3.2** : les plafonds de `pod.resources` / `affinity` / `nodeSelector` ne sont pas encore bornés
+  (audit de sécurité M3). Le pod n'est créé qu'en LOT-3.2.
+- **Dettes** : coffre en clair (#279) ; sondage des backends d'utilisateur (LOT-3.2 / LOT-4, non fait en LOT-3.1).
