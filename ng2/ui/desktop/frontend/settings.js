@@ -447,10 +447,12 @@ function stBackendForm(b) {
   rows.push(['', stCheck(d.defaults.backend === b.name && !!b.name, 'backend par défaut', (v) => { if (v) d.defaults.backend = b.name; else if (d.defaults.backend === b.name) d.defaults.backend = ''; stRenderFoot(); })]);
   body.appendChild(stForm(rows));
   // identifiants (#194, #193) : juste sous les champs de connexion ; le coffre exige un backend déjà déclaré
-  if (t === 'ssh' || t === 'k8s') body.appendChild(b.name && b._orig ? (t === 'ssh' ? stSshBox(b) : stKubeBox(b)) : stSecretWait(b, t));
+  if ((t === 'ssh' || t === 'k8s') && stUserSpace()) body.appendChild(el('p', 'note', 'Identifiants et test du backend : bientôt disponibles dans ton espace (v7.1.0, lot suivant).'));
+  else if (t === 'ssh' || t === 'k8s') body.appendChild(b.name && b._orig ? (t === 'ssh' ? stSshBox(b) : stKubeBox(b)) : stSecretWait(b, t));
   // test par étapes (jusqu'à 45 s : état « en cours »)
   const test = el('button', 'btn sm pri', ST.test && ST.test.running && ST.test.name === b.name ? 'Test en cours…' : 'Tester');
   test.disabled = !!(ST.test && ST.test.running);
+  if (stUserSpace()) { test.disabled = true; test.title = 'bientôt disponible dans ton espace'; }
   test.onclick = () => stTest(b);
   const out = el('div', 'sttests'); out.id = 'sttests';
   stFillTests(out, b);
