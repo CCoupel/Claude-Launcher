@@ -5,7 +5,7 @@
   "branch": "milestone/v7.1.0",
   "version": "7.1.0",
   "started_at": "2026-11-26T13:40:00Z",
-  "updated_at": "2026-11-27T09:40:00Z",
+  "updated_at": "2026-11-27T09:50:00Z",
   "cycles": 1,
   "issue_nums": [
     249,
@@ -35,7 +35,7 @@
     "valide": "GATE 2"
   },
   "lots": {
-    "current": "LOT-2",
+    "current": "LOT-3.1",
     "items": {
       "LOT-1": {
         "status": "completed",
@@ -50,14 +50,15 @@
         "issues": [
           255
         ],
-        "ci_sha": "pending",
+        "ci_sha": "4ba0261",
         "validation": "GATE LOT-2 : 8 OK, 1 KO consigné (scénario 6 userList sans interface, reportée à #278)"
       },
       "LOT-3.1": {
-        "status": "pending",
+        "status": "in_progress",
         "issues": [
           257
-        ]
+        ],
+        "phase": "security-infra"
       },
       "LOT-3.2": {
         "status": "pending",
@@ -85,33 +86,25 @@
       "timestamp": "2026-11-26T15:30:00Z"
     },
     "dev-backend": {
-      "status": "completed",
-      "sha": "6d6f004",
-      "handoff": "_work/handoff/dev-backend-lot2.md"
+      "status": "pending"
     },
     "dev-frontend": {
-      "status": "completed",
-      "sha": "4dbffb8",
-      "handoff": "_work/handoff/dev-frontend-lot2.md"
+      "status": "pending"
     },
     "test-writer": {
-      "status": "completed",
-      "sha": "7245175",
-      "handoff": "_work/handoff/test-writer-lot2.md"
+      "status": "pending"
     },
     "review": {
-      "status": "completed",
-      "report": "_work/reports/code-reviewer-lot2.md"
+      "status": "pending"
     },
     "qa": {
-      "status": "completed",
-      "report": "_work/reports/qa-lot2.md"
+      "status": "pending"
     },
     "doc": {
-      "status": "in_progress"
+      "status": "pending"
     },
     "deploy-qualif": {
-      "status": "in_progress",
+      "status": "pending",
       "steps": {
         "build": {
           "status": "pending"
