@@ -28,7 +28,7 @@ const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'b
 const stClone = (o) => JSON.parse(JSON.stringify(o));
 // Toute modification du brouillon efface un refus d'enregistrement : le serveur rejugera au prochain essai. Sans cela les
 // erreurs du refus restaient et « Enregistrer » restait grisé après correction (#257, B6/B9).
-function stEdited() { if (ST.result && ST.result.refused) ST.result = null; }
+function stEdited() { if (ST.result && ST.result.refused) ST.result = null; ST.fieldErr = null; }
 const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 
 // Espace d'un utilisateur (mode serveur, `space` présent et non admin, #255) : seule la rubrique Backends (backends.yaml
@@ -40,7 +40,7 @@ async function openSettings(project, page, focus) {
   ST.project = project || '';
   if (page) ST.page = page;
   ST.result = null; ST.test = null;
-  ST.tls = null; ST.pj = null; ST.docs = {}; ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
+  ST.tls = null; ST.fieldErr = null; ST.pj = null; ST.docs = {}; ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
   openModal((b) => {
     b.classList.add('wide');
     b.innerHTML = '';
@@ -176,6 +176,14 @@ function stLocalProblems() {
     else if (seen.has(b.name)) ps.push({ severity: 'error', message: 'backend « ' + b.name + ' » en double' });
     seen.add(b.name);
     if (b._podErr) ps.push({ severity: 'error', message: 'backend « ' + b.name + ' » : options du pod : ' + b._podErr });
+    if (stUserSpace() && !b._orig && b.name && !b.implicit) { // brouillon : les secrets partent avec la fiche (#257) ; raison visible
+      const sc = b._secrets || {}, pre = 'backend « ' + b.name + ' » : ';
+      if (b.type === 'k8s' && !String(sc.kubeconfig || '').trim()) ps.push({ severity: 'error', message: pre + 'colle le kubeconfig pour enregistrer un backend k8s' });
+      if ((b.type === 'docker' || b.type === 'podman') && b.tls && b.tls.enabled) {
+        if (!String(sc.cert || '').trim() || !String(sc.key || '').trim()) ps.push({ severity: 'error', message: pre + 'colle le certificat et la clé client pour activer TLS (ou décoche « activer TLS »)' });
+        if (b.tls.verify !== false && !String(sc.ca || '').trim()) ps.push({ severity: 'error', message: pre + 'colle la CA du serveur (ou décoche « vérifier le certificat du serveur »)' });
+      }
+    }
   }
   const sp = new Set();
   for (const p of d.pools) {
@@ -245,9 +253,53 @@ function stRenderFoot() {
 const stEditable = () => ST.page === 'backends' || ST.page === 'pools' || ST.page === 'defauts';
 const stDirty = () => stBuildChanges().length > 0 || pjDirty() || docDirty();
 
+// Enregistrement dans l'espace d'un utilisateur : les champs des backends existants par configApply, puis chaque NOUVEAU
+// backend avec ses secrets collés, en une seule requête `userBackendAdd` (tout ou rien côté serveur, #257).
+async function stSaveUser() {
+  const d = ST.draft; if (!d) return;
+  const news = d.backends.filter((b) => !b._orig && !b.implicit);
+  const isNew = new Set(news.map((b) => b.name));
+  const ch = stBuildChanges().filter((c) => !(c.op === 'set' && c.at && c.at[0] === 'backends' && isNew.has(c.at[1])));
+  const reload = async (rest) => { const pg = ST.page; await stLoad(); ST.page = pg; if (ST.draft) for (const b of rest) ST.draft.backends.push(b); };
+  const refuse = async (b, r, added) => {
+    if (added.length) await reload(news.filter((x) => !added.includes(x)));
+    const cur = (ST.draft || d).backends;
+    const i = cur.indexOf(b);
+    if (i >= 0) ST.sel.backend = i;
+    ST.fieldErr = r.field && i >= 0 ? { ref: b, field: r.field, msg: r.msg || 'refusé' } : null;
+    ST.result = { problems: [{ severity: 'error', message: (b ? 'backend « ' + b.name + ' » : ' : '') + (r.msg || 'refusé') }], refused: true };
+    stRender();
+  };
+  if (ch.length) {
+    let r;
+    try { r = await call('configApply', { kind: 'backends.yaml', path: '', mtime: ST.mtime, changes: ch }); }
+    catch (e) { ST.result = { problems: [{ severity: 'error', message: stErrText(e) }], refused: true }; stRenderFoot(); return; }
+    if (r.conflict) { ST.result = { conflict: true, mtime: r.mtime }; stRenderFoot(); return; }
+    if (r.invalid) { ST.result = { problems: r.problems || [], refused: true }; stRenderFoot(); return; }
+    await reload(news);
+  }
+  const added = [], warns = [];
+  for (const b of news) {
+    const v = stBackendValue(b); v.name = b.name;
+    const sc = b._secrets || {}, secrets = {};
+    if (b.type === 'k8s') secrets.kubeconfig = sc.kubeconfig || '';
+    else if (b.tls && b.tls.enabled) secrets.tls = { ca: sc.ca || '', cert: sc.cert || '', key: sc.key || '' };
+    let r;
+    try { r = await call('userBackendAdd', { backend: v, secrets, mtime: ST.exists ? ST.mtime : '' }); }
+    catch (e) { await refuse(b, { msg: stErrText(e) }, added); return; }
+    if (!r || r.ok === false) { await refuse(b, r || {}, added); return; }
+    added.push(b); for (const w of r.warnings || []) warns.push(w);
+    try { const m = await call('configModel', { kind: 'backends.yaml' }); ST.mtime = m.mtime; ST.exists = m.exists; } catch (e) { /* relu au rechargement */ }
+  }
+  const pg = ST.page; await stLoad(); ST.page = pg; ST.fieldErr = null;
+  ST.result = { saved: true, note: '', warn: warns.join(' · '), problems: [] };
+  stRender(); stPoll();
+}
+
 async function stSave() {
   if (ST.page === 'projet') return pjSave();
   if (docOfPage()) return docSave(docOfPage());
+  if (stUserSpace()) return stSaveUser();
   const ch = stBuildChanges();
   if (!ch.length) return;
   let r;
@@ -312,11 +364,15 @@ function stArea(val, on, rows, ph) {
   t.addEventListener('input', () => { on(t.value); stEdited(); stRenderFoot(); });
   return t;
 }
-function stForm(rows) {
-  const f = el('div', 'stform');
+// fmap : libellé de ligne → champ du contrat (`field` d'un refus) ; le champ fautif est mis en évidence avec son message (#257)
+const ST_FIELDS = { Nom: 'name', Type: 'type', Adresse: 'host', Volume: 'volume', Namespace: 'namespace', PVC: 'pvc', 'Options du pod': 'pod' };
+function stForm(rows, fmap) {
+  const f = el('div', 'stform'), fe = ST.fieldErr, cur = ST.draft && ST.draft.backends[ST.sel.backend];
   for (const [label, node, hint] of rows) {
     f.appendChild(el('label', '', label));
     f.appendChild(node);
+    const bad = !!(fe && fmap && fmap[label] && fe.field === fmap[label] && fe.ref === cur);
+    if (bad) { node.classList.add('bad'); f.appendChild(el('span')); f.appendChild(el('span', 'hint t-red', '✗ ' + fe.msg)); }
     if (hint) { f.appendChild(el('span')); f.appendChild(el('span', 'hint', hint)); }
   }
   return f;
@@ -378,7 +434,7 @@ function stPageBackends(p) {
     stBtn('Dupliquer', () => {
       const b = d.backends[ST.sel.backend]; if (!b || b.implicit) return;
       stEdited();
-      const c = stClone(b); delete c._orig; delete c.implicit; c.name = stUniqueName(b.name + '-copie', d.backends);
+      const c = stClone(b); delete c._orig; delete c.implicit; delete c._secrets; c.name = stUniqueName(b.name + '-copie', d.backends);
       d.backends.push(c); ST.sel.backend = d.backends.length - 1; ST.test = null; stRenderPage(); stRenderFoot();
     }),
     stBtn('Supprimer', () => {
@@ -466,18 +522,24 @@ function stBackendForm(b) {
     }, 5, '{ "nodeSelector": { … } }')), us ? 'objet JSON : resources, nodeSelector, affinity' : 'objet JSON (nodeSelector, tolerations, resources…)']);
   }
   rows.push(['', stCheck(d.defaults.backend === b.name && !!b.name, 'backend par défaut', (v) => { if (v) d.defaults.backend = b.name; else if (d.defaults.backend === b.name) d.defaults.backend = ''; stRenderFoot(); })]);
-  body.appendChild(stForm(rows));
+  body.appendChild(stForm(rows, ST_FIELDS));
   // identifiants (#194, #193) : juste sous les champs de connexion ; le coffre exige un backend déjà déclaré
-  if (t === 'podman' || t === 'docker') {
+  if (stUserSpace() && !b._orig && (t === 'k8s' || t === 'podman' || t === 'docker')) { // création atomique : secrets collés dans la fiche (#257)
+    body.appendChild(stDraftSecrets(b));
+    if (t !== 'k8s') for (const w of stWarns(b)) body.appendChild(el('div', 'stwarn', '⚠ ' + w));
+  } else if (t === 'podman' || t === 'docker') {
     body.appendChild(b.name && b._orig ? stTlsBox(b) : stSecretWait(b, 'tls'));
     for (const w of stWarns(b)) body.appendChild(el('div', 'stwarn', '⚠ ' + w));
   } else if (t === 'ssh' || t === 'k8s') body.appendChild(b.name && b._orig ? (t === 'ssh' ? stSshBox(b) : stKubeBox(b)) : stSecretWait(b, t));
   // test par étapes (jusqu'à 45 s : état « en cours »)
   const test = el('button', 'btn sm pri', ST.test && ST.test.running && ST.test.name === b.name ? 'Test en cours…' : 'Tester');
   test.disabled = !!(ST.test && ST.test.running);
+  const draftUser = stUserSpace() && !b._orig; // brouillon : rien à tester avant l'enregistrement (la raison est affichée)
+  if (draftUser) { test.disabled = true; test.title = 'Enregistre le backend pour pouvoir le tester'; }
   test.onclick = () => stTest(b);
   const out = el('div', 'sttests'); out.id = 'sttests';
   stFillTests(out, b);
+  if (draftUser) { out.classList.remove('hidden'); out.appendChild(el('div', 'dim', 'Enregistre le backend pour pouvoir le tester.')); }
   body.appendChild(out);
   return stBox(b.name || '(sans nom)', body, test);
 }
@@ -604,6 +666,52 @@ function stWarns(b) { // avertissements permanents de la fiche (#257)
   const w = [];
   if ((b.type === 'docker' || b.type === 'podman') && b.host && (!b.tls || !b.tls.enabled || b.tls.verify === false)) w.push('Accès docker sans TLS vérifié : quiconque atteint ce port est root sur l\'hôte. À réserver à un réseau de confiance.');
   return w;
+}
+// ── Brouillon d'un backend d'utilisateur (« + Ajouter ») : kubeconfig ou TLS COLLÉS dans la fiche, envoyés avec elle ──
+// Le contenu collé reste dans l'objet brouillon (mémoire de la page seulement, jamais stocké ni journalisé), conservé après
+// un refus pour corriger et réenvoyer ; il disparaît avec le brouillon, une fois l'enregistrement accepté.
+function stDraftArea(b, k, rows, ph, hintKey) {
+  const ta = el('textarea', 'stin stta'); ta.rows = rows; ta.spellcheck = false; ta.autocomplete = 'off'; ta.placeholder = ph;
+  ta.value = b._secrets[k] || '';
+  const hs = el('div', 'hint');
+  const upd = () => { const r = hintKey ? stPemHint(hintKey, ta.value) : null; hs.textContent = r ? (r.ok ? '✓ ' : '✗ ') + r.t : ''; hs.className = 'hint ' + (r ? (r.ok ? 't-green' : 't-red') : ''); };
+  ta.addEventListener('input', () => { b._secrets[k] = ta.value; stEdited(); upd(); stRenderFoot(); });
+  upd();
+  return [ta, hs];
+}
+function stDraftSecrets(b) {
+  b._secrets = b._secrets || {};
+  const fe = ST.fieldErr, bad = (f) => !!(fe && fe.ref === b && fe.field === f);
+  const box = el('div', 'stbox stssh'); box.id = 'stdraftbox';
+  const h = el('div', 'bh'), bb = el('div', 'bb');
+  const errLine = (f) => (bad(f) ? el('div', 't-red', '✗ ' + fe.msg) : null);
+  if (b.type === 'k8s') {
+    h.append(el('span', '', '🔑 Kubeconfig'), el('span', 'dim', ' — enregistré avec le backend, dans le coffre du launcher (en clair)'));
+    const [ta, hs] = stDraftArea(b, 'kubeconfig', 10, 'apiVersion: v1\nkind: Config\n…   (colle le contenu ; formes *-data seulement, pas d\'exec ni de chemins)');
+    if (bad('kubeconfig')) ta.classList.add('bad');
+    bb.append(stForm([['Contenu', ta, 'obligatoire pour un backend k8s ; 64 Kio au plus ; jamais relu après l\'envoi']]));
+    const e = errLine('kubeconfig'); if (e) bb.appendChild(e);
+  } else {
+    h.append(el('span', '', '🔐 TLS'), el('span', 'dim', ' — enregistré avec le backend, dans le coffre du launcher (en clair)'));
+    const tl = b.tls || {}, on = !!tl.enabled, verify = tl.verify !== false;
+    const chk = el('div', 'stchks');
+    chk.append(stCheck(on, 'activer TLS', (v) => { b.tls = { enabled: v, verify: v ? (b.tls ? b.tls.verify !== false : true) : true }; stRenderPage(); stRenderFoot(); }));
+    if (on) chk.append(stCheck(verify, 'vérifier le certificat du serveur', (v) => { b.tls = { enabled: true, verify: v }; stRenderPage(); stRenderFoot(); }));
+    bb.appendChild(chk);
+    if (on) {
+      const rows = [];
+      for (const [k, label, file, hint] of TLS_PARTS) {
+        const [ta, hs] = stDraftArea(b, k, k === 'key' ? 4 : 5, k === 'key' ? 'Colle ici le contenu « -----BEGIN PRIVATE KEY----- … »' : 'Colle ici le contenu « -----BEGIN CERTIFICATE----- … »', k);
+        if (bad('tls.' + k)) ta.classList.add('bad');
+        const c = el('div'); c.append(ta, hs); const e = errLine('tls.' + k); if (e) c.appendChild(e);
+        rows.push([label + ' (' + file + ')', c, k === 'ca' ? hint + ' ; exigée si le certificat du serveur est vérifié' : hint]);
+      }
+      bb.appendChild(stForm(rows));
+      bb.appendChild(el('div', 'dim', 'procédure côté hôte : docs.docker.com › Protect the Docker daemon socket'));
+    }
+  }
+  box.append(h, bb);
+  return box;
 }
 function stTlsBox(b) {
   const box = el('div', 'stbox stssh'); box.id = 'sttlsbox';
