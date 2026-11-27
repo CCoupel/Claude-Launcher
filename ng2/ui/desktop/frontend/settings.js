@@ -610,7 +610,7 @@ async function stTlsLoad(b) {
   if (ST.tls === T) stSecretRefresh('tls');
 }
 function stTlsFill(b, box) {
-  const T = ST.tls, info = (T.info && T.info.tls) || {};
+  const T = ST.tls, gi = T.info || {}, info = { ca: (gi.tls && gi.tls.ca) || null, cert: (gi.tls && gi.tls.cert) || null, key: !!gi.hasTlsKey };
   box.textContent = '';
   const h = el('div', 'bh'); h.append(el('span', '', '🔐 TLS'), el('span', 'dim', stUserSpace() ? ' — coffre du launcher (en clair), jamais réaffiché' : ' — coffre du launcher, jamais réaffiché'));
   const bb = el('div', 'bb');
@@ -625,29 +625,37 @@ function stTlsFill(b, box) {
     if (T.loading) bb.appendChild(el('div', 'dim', 'lecture du coffre…'));
     else {
       const rows = [], inputs = {};
-      for (const [k, label, file, hint] of TLS_PARTS) {
-        const cur = info[k] || {};
+      const exp = (c) => (c && (c.notAfter || c.expires)) ? el('span', 'dim', ' · expire le ' + new Date(c.notAfter || c.expires).toLocaleDateString('fr-FR')) : null;
+      const certState = (c) => [c.subject ? el('span', 'm', ' · ' + c.subject) : null, c.fingerprint ? el('span', 'dim', ' · ' + c.fingerprint) : null, exp(c)].filter(Boolean);
+      // zone de collage d'une pièce : état PEM local sous la zone (le serveur reste seul juge)
+      const zone = (k) => {
         const cell = el('div');
-        if (cur.present && !T.edit[k]) {
-          const st = el('div', 'pemst');
-          const det = k === 'key' ? [el('span', 'dim', ' (jamais affichée)')] : [cur.subject ? el('span', 'm', ' · ' + cur.subject) : null, cur.fingerprint ? el('span', 'dim', ' · ' + cur.fingerprint) : null, cur.expires ? el('span', 'dim', ' · expire le ' + new Date(cur.expires).toLocaleDateString('fr-FR')) : null].filter(Boolean);
-          st.append(el('span', 't-green', k === 'key' ? 'enregistrée' : 'enregistré'), ...det);
-          const bar = el('div', 'stbar');
-          bar.append(stBtn('Remplacer', () => { T.edit[k] = true; T.msg = ''; redo(); }, '', 'backendSecretSet'),
-            stBtn('Supprimer', () => { if (!confirm('Supprimer ' + (k === 'key' ? 'la clé client' : k === 'ca' ? 'la CA' : 'le certificat client') + ' du backend « ' + b.name + ' » ?')) return; stTlsAct(b, async () => { await call('backendSecretDelete', { backend: b.name, what: k }); T.msg = 'supprimé'; }); }, 'dg', 'backendSecretDelete'));
-          cell.append(st, bar);
-        } else {
-          const ta = el('textarea', 'stin stta'); ta.rows = k === 'key' ? 4 : 5; ta.spellcheck = false; ta.autocomplete = 'off';
-          ta.placeholder = k === 'key' ? 'Colle ici le contenu « -----BEGIN PRIVATE KEY----- … »' : 'Colle ici le contenu « -----BEGIN CERTIFICATE----- … »';
-          stKeep('tls:' + b.name + ':' + k, ta); inputs[k] = ta;
-          const hs = el('div', 'hint'); hs.id = 'pem-' + k;
-          const upd = () => { const r = stPemHint(k, ta.value); hs.textContent = r ? (r.ok ? '✓ ' : '✗ ') + r.t : ''; hs.className = 'hint ' + (r ? (r.ok ? 't-green' : 't-red') : ''); };
-          ta.addEventListener('input', upd); upd();
-          cell.append(ta, hs);
-          if (T.errs[k]) cell.appendChild(el('div', 't-red', '✗ ' + T.errs[k]));
-          if (T.edit[k]) cell.appendChild(stBtn('Annuler', () => { delete T.edit[k]; stKeepClear('tls:' + b.name + ':' + k); redo(); }));
-        }
-        rows.push([label + ' (' + file + ')', cell, hint]);
+        const ta = el('textarea', 'stin stta'); ta.rows = k === 'key' ? 4 : 5; ta.spellcheck = false; ta.autocomplete = 'off';
+        ta.placeholder = k === 'key' ? 'Colle ici le contenu « -----BEGIN PRIVATE KEY----- … »' : 'Colle ici le contenu « -----BEGIN CERTIFICATE----- … »';
+        stKeep('tls:' + b.name + ':' + k, ta); inputs[k] = ta;
+        const hs = el('div', 'hint'); hs.id = 'pem-' + k;
+        const upd = () => { const r = stPemHint(k, ta.value); hs.textContent = r ? (r.ok ? '✓ ' : '✗ ') + r.t : ''; hs.className = 'hint ' + (r ? (r.ok ? 't-green' : 't-red') : ''); };
+        ta.addEventListener('input', upd); upd();
+        cell.append(ta, hs);
+        return cell;
+      };
+      const cancelBtn = (k) => stBtn('Annuler', () => { for (const x of k) { delete T.edit[x]; stKeepClear('tls:' + b.name + ':' + x); } redo(); });
+      // CA du serveur (facultative, exigée si le certificat du serveur est vérifié)
+      if (info.ca && !T.edit.ca) {
+        const c = el('div'); const st = el('div', 'pemst'); st.append(el('span', 't-green', 'enregistrée'), ...certState(info.ca));
+        c.append(st, stBtn('Remplacer', () => { T.edit.ca = true; T.msg = ''; redo(); }, '', 'backendSecretSet'));
+        rows.push(['CA du serveur (ca.pem)', c, 'exigée si le certificat du serveur est vérifié']);
+      } else { const c = zone('ca'); if (T.edit.ca) c.appendChild(cancelBtn(['ca'])); rows.push(['CA du serveur (ca.pem)', c, 'exigée si le certificat du serveur est vérifié']); }
+      // certificat et clé client : déposés ensemble (la clé doit correspondre au certificat)
+      if (info.cert && info.key && !T.edit.pair) {
+        const c = el('div'); const st = el('div', 'pemst'); st.append(el('span', 't-green', 'enregistré'), ...certState(info.cert));
+        const st2 = el('div', 'pemst'); st2.append(el('span', 't-green', 'clé enregistrée'), el('span', 'dim', ' (jamais affichée)'));
+        c.append(st, st2, stBtn('Remplacer la paire', () => { T.edit.pair = true; T.msg = ''; redo(); }, '', 'backendSecretSet'));
+        rows.push(['Certificat et clé client', c, 'certificat présenté au serveur et sa clé']);
+      } else {
+        const c1 = zone('cert'), c2 = zone('key'); if (T.edit.pair) c2.appendChild(cancelBtn(['cert', 'key']));
+        rows.push(['Certificat client (cert.pem)', c1, 'certificat présenté au serveur ; se dépose avec sa clé']);
+        rows.push(['Clé client (key.pem)', c2, 'clé privée non chiffrée, qui correspond au certificat']);
       }
       bb.appendChild(stForm(rows));
       const bar = el('div', 'stbar');
@@ -655,12 +663,14 @@ function stTlsFill(b, box) {
         const args = { backend: b.name };
         for (const k of Object.keys(inputs)) if (inputs[k].value.trim()) args[k] = inputs[k].value;
         if (Object.keys(args).length === 1) { T.err = 'rien à enregistrer : colle au moins une zone'; return; }
+        if ((args.cert && !args.key) || (args.key && !args.cert)) { T.err = 'le certificat et la clé client se déposent ensemble'; return; }
         let r;
         try { r = await call('backendSecretSet', args); }
         finally { for (const k of Object.keys(inputs)) { inputs[k].value = ''; stKeepClear('tls:' + b.name + ':' + k); } }
-        if (r.ok) { T.warns = r.warnings || []; for (const k of Object.keys(args)) delete T.edit[k]; T.msg = 'certificats enregistrés'; }
-        else { if (r.field) T.errs[r.field] = r.msg || 'refusé'; else T.err = r.msg || 'dépôt refusé'; }
+        if (r.ok) { T.warns = r.warnings || []; T.edit = {}; T.msg = 'certificats enregistrés'; }
+        else T.err = r.msg || 'dépôt refusé';
       }), 'pri', 'backendSecretSet'));
+      if (info.ca || info.cert || info.key) bar.append(stBtn('Supprimer les certificats', () => { if (!confirm('Supprimer les certificats TLS du backend « ' + b.name + ' » ?')) return; stTlsAct(b, async () => { const r = await call('backendSecretDelete', { backend: b.name, what: 'tls' }); if (r && r.ok === false) T.err = r.msg || 'suppression refusée'; else { T.msg = 'certificats supprimés'; T.edit = {}; } }); }, 'dg', 'backendSecretDelete'));
       bar.append(el('span', 'dim', ' procédure côté hôte : docs.docker.com › Protect the Docker daemon socket'));
       bb.appendChild(bar);
     }
@@ -776,7 +786,12 @@ function stFillTests(out, b) {
   for (const s of t.steps || []) {
     const r = el('div'); r.append(el('span', s.ok ? 't-green' : (s.warn ? 't-yellow' : 't-red'), s.ok ? '✓ ' : (s.warn ? '⚠ ' : '✗ ')), el('span', '', s.label + (s.detail ? ' : ' + s.detail : '')));
     out.appendChild(r);
-    if (!s.ok && s.fix) out.appendChild(el('div', 'dim', '   → ' + s.fix));
+    if (!s.ok && s.fix) {
+      if (/^Role minimale/.test(String(s.fix)) || String(s.fix).includes('\n')) { // Role minimale suggérée : bloc repliable, texte seulement
+        const d = el('details', 'strole'); d.append(el('summary', '', 'Role minimale suggérée'), el('pre', 'm', String(s.fix)));
+        out.appendChild(d);
+      } else out.appendChild(el('div', 'dim', '   → ' + s.fix));
+    }
   }
   if (t.err) out.appendChild(el('div', 't-red', t.err));
   if (t.role) { // Role minimale suggérée (compte k8s trop puissant, ou droits manquants) : texte seulement, jamais de HTML
@@ -797,7 +812,8 @@ async function stTest(b) {
   stRenderPage();
   try {
     const r = await call('backendTest', { backend: f });
-    ST.test = { name: b.name, running: false, steps: r.steps || [], role: r.role || '' };
+    if (r && r.ok === false) ST.test = { name: b.name, running: false, steps: [], err: stErrText({ message: (r.status ? r.status + ' ' : '') + (r.msg || 'test refusé') }) };
+    else ST.test = { name: b.name, running: false, steps: (r && r.steps) || [], role: (r && r.role) || '' };
   } catch (e) { ST.test = { name: b.name, running: false, steps: [], err: stErrText(e) }; }
   if (ST.on) stRenderPage();
 }
