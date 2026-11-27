@@ -2,6 +2,12 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.1 (#257) : `backendSecret*` dans l'espace de l'utilisateur
+
+- **[CHANGED]** `auth.md` §4 : `backendSecretSet` / `backendSecretDelete` **hors R1** pour un `user` sur les backends de son
+  `backends.yaml`, limités à `users/<uid>/vault/<backend>/` ; coffre commun (admin), `backendKnownHostsSet` et
+  `secretReveal` restent R1 / refusés. `user-backends.md` §7 aligné.
+
 ## [20261127] — v7.1.0 LOT-3.1 (#257) : bornage des hôtes, kubeconfig obligatoire, limites
 
 - **[CHANGED]** `user-backends.md` §3 : backend d'un utilisateur = **Internet public seulement** (loopback, link-local,

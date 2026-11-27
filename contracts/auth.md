@@ -168,7 +168,7 @@ kubelet ──http──► [launcher :8082] /healthz /readyz seulement (aucune 
 
 | Classe | Méthodes | `admin` | `user` | mode `none` (web) |
 |--------|----------|---------|--------|-------------------|
-| **R1** — serveur, options globales | `configSave` / `configApply` sur `config.conf`, `env.yaml` (launcher), `hub` ; `configSave` / `configApply` sur `backends.yaml` **quand un champ R1 change** (ci-dessous) ; `backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet` ; `relaunch` ; `login` ; **`userList`** (v7.1.0, #255 : utilisateurs connus, jamais d'identifiant) | oui | **non** | non |
+| **R1** — serveur, options globales | `configSave` / `configApply` sur `config.conf`, `env.yaml` (launcher), `hub` ; `configSave` / `configApply` sur `backends.yaml` **quand un champ R1 change** (ci-dessous) ; `backendSecretSet`, `backendSecretDelete`, `backendKnownHostsSet` **sur le coffre commun (espace de l'admin)** ; `relaunch` ; `login` ; **`userList`** (v7.1.0, #255 : utilisateurs connus, jamais d'identifiant) | oui | **non** | non |
 | **Projets et backends** (`user` libre) | `create`, `createCancel`, `projectSettings`, `projectApply`, `execApply`, `envTrustAnswer`, `initProposalAnswer`, `projectMove`, `projectMoveResume`, `projectMoveAbort`, `categoryCreate`, `configSave` / `configApply` sur `project-env` et sur `backends.yaml` hors champs R1, `backendTest`, `backendHostScan`, `open`, `reattach`, `refreshProject`, `forceClose`, `forceCloseConfirm`, `close`, `closeConfirm`, `detach`, `refresh`, `rescan`, `teamToggle`, `relayout`, `select`, `cardsFor`, `setPrefs`, `setTheme`, `dismiss`, `alert` | oui | oui | oui |
 | **Lecture** | `init`, `clientInfo`, `diag`, `tools`, `newInfo`, `projectMoveInfo`, `envTrustInfo`, `projectBases`, `projectCategories`, `configFiles`, `configOpen`, `configValidate`, `configModel`, `backendStates`, `launcherInfo`, `backendSecretGet` | oui | oui | oui |
 | **Terminal** | `termInput`, `launchInput`, `resizePane`, `termResize`, `termFocus`, `termZoom`, `termSync` | oui | oui | oui |
@@ -199,7 +199,18 @@ kubelet ──http──► [launcher :8082] /healthz /readyz seulement (aucune 
   `error` ; rien n'est écrit ; journalisé (§5, `ok: false`, `err: "forbidden"`, `target`).
 - **Journal des secrets** `<CacheDir>/secrets-journal.jsonl` : champ **`user`** ajouté.
 
-### Secrets des backends (coffre) : **R1 (admin)** en v7.0.0 — décision proposée
+### Secrets des backends d'un utilisateur : **hors R1** **[CHANGED v7.1.0]** (#257, LOT-3.1)
+
+- Dans l'instance d'un `user` (espace `users/<uid>/`), `backendSecretSet` et `backendSecretDelete` sont **permis** pour
+  les backends déclarés dans **son** `backends.yaml`. Ils n'écrivent et ne suppriment que dans
+  `users/<uid>/vault/<backend>/` (`user-backends.md` §7), **jamais** dans le coffre commun ni dans le coffre d'un autre
+  utilisateur. Un nom de backend absent de son `backends.yaml`, ou non conforme (DNS-1123), est refusé.
+- Restent **R1** : toute écriture du coffre commun (backends de l'admin), `backendKnownHostsSet` (ssh, refusé en mode
+  serveur pour un utilisateur), et `secretReveal` (refus distant inchangé).
+- Contenu jamais relu (`backendSecretGet` : état et empreinte seulement), jamais journalisé ; journal des secrets avec
+  `user`.
+
+### Secrets des backends (coffre commun) : **R1 (admin)** en v7.0.0 — décision proposée
 
 - En v7.0.0 les backends et le coffre sont **communs** (un seul `backends.yaml`, un dossier par backend, aucune notion
   de propriétaire avant v7.1.0) : « ses backends » n'existe pas encore. Un `user` qui remplacerait la clé ssh ou le

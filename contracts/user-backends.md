@@ -279,8 +279,9 @@ backends:
 - `users/<uid>/vault/<backend>/` **en clair**, `0700` / `0600`, comme le coffre actuel de l'admin (risque accepté
   v6.5.0) : lisible par les administrateurs du stockage partagé et dans les instantanés MooseFS.
 - **Dette assumée** : chiffrement au repos (clé hors racine) dans une prochaine version (issue de suivi proposée).
-- Écrit par l'interface (`secretSet`, aucune relecture sauf clé publique) ; jamais journalisé, jamais rendu, jamais
-  transmis au navigateur ; passé à `kubectl` ou `docker` par chemin de fichier.
+- Écrit par l'interface (`backendSecretSet` / `backendSecretDelete`, **hors R1 pour l'utilisateur sur ses propres
+  backends**, `auth.md` §4), aucune relecture sauf état et empreinte ; jamais journalisé, jamais rendu, jamais transmis au
+  navigateur ; passé à `kubectl` ou `docker` par chemin de fichier temporaire privé (§3).
 
 ## 8. Jeton GitHub de l'utilisateur **[NEW]** (P5 « les 2 »)
 
