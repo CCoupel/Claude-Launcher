@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"claude-launcher-ng2/internal/tun"
 	"gopkg.in/yaml.v3"
 )
 
@@ -32,6 +33,9 @@ type AddResult struct {
 	Name, Type string
 	Warnings   []string
 }
+
+// removeAll : suppression d'un dossier de coffre (point d'injection des tests : échec de suppression, sans dépendre des droits Unix).
+var removeAll = tun.Of(os.RemoveAll)
 
 const msgConflictMTime = "le fichier a changé depuis l'ouverture de l'éditeur : rouvre l'éditeur"
 
@@ -282,7 +286,7 @@ func (s Space) AddBackend(req AddRequest, w SecretWrite) (*AddResult, *AddError)
 				fail = aerr("name", "conflict", "coffre refusé : lien symbolique")
 				return nil
 			}
-			if err := os.RemoveAll(dir); err != nil {
+			if err := removeAll.Get()(dir); err != nil {
 				fail = aerr("name", "conflict", "un ancien coffre de ce nom ne peut pas être supprimé : choisir un autre nom")
 				return nil
 			}
@@ -316,7 +320,7 @@ func (s Space) AddBackend(req AddRequest, w SecretWrite) (*AddResult, *AddError)
 		return nil
 	})
 	if created != "" { // étape 2 manquée : plus de secret sans son backend
-		_ = os.RemoveAll(created)
+		_ = removeAll.Get()(created)
 	}
 	if fail != nil {
 		return nil, fail
@@ -375,7 +379,7 @@ func (s Space) RemoveBackend(name string, w SecretWrite) *AddError {
 		}
 		if hasVault {
 			_ = journalSecret(name, "backend", "delete", "", w.Source, w.User)
-			if err := os.RemoveAll(dir); err != nil {
+			if err := removeAll.Get()(dir); err != nil {
 				fail = aerr("", "invalid", "le backend est retiré mais son coffre n'a pas pu être supprimé : réessaie (le nom reste réutilisable)")
 				return nil
 			}

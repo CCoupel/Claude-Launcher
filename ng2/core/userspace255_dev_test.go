@@ -730,17 +730,14 @@ func TestRemoveOrphelinEtCourseAdd257(t *testing.T) {
 		}
 		_ = sp.RemoveBackend("k", w)
 	}
-	// RemoveAll en échec : erreur claire, pas de succès affiché
-	if os.Geteuid() != 0 {
-		_ = add()
-		d := filepath.Join(sp.VaultDir(), "k")
-		sub := filepath.Join(d, "figé")
-		_ = os.MkdirAll(sub, 0o700)
-		_ = os.WriteFile(filepath.Join(sub, "x"), []byte("x"), 0o600)
-		_ = os.Chmod(sub, 0o500) // sans droit d'écriture : x ne peut pas être supprimé
-		defer os.Chmod(sub, 0o700)
-		if e := sp.RemoveBackend("k", w); e == nil || !strings.Contains(e.Msg, "coffre") {
-			t.Errorf("échec de suppression du coffre invisible : %v", e)
-		}
+	// suppression du coffre en échec : erreur claire, pas de succès affiché (échec injecté : indépendant des droits Unix et de Windows)
+	_ = add()
+	defer removeAll.Set(removeAll.Set(func(string) error { return errors.New("verrouillé") }))
+	if e := sp.RemoveBackend("k", w); e == nil || !strings.Contains(e.Msg, "coffre") {
+		t.Errorf("échec de suppression du coffre invisible : %v", e)
+	}
+	removeAll.Set(os.RemoveAll)
+	if e := sp.RemoveBackend("k", w); e != nil { // le nom reste réutilisable : le coffre orphelin est purgé au retrait suivant
+		t.Errorf("purge de l'orphelin après l'échec : %v", e)
 	}
 }
