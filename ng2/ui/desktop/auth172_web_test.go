@@ -391,6 +391,8 @@ func TestProxy172R1OverHTTP(t *testing.T) {
 		`{"method":"configSave","args":{"kind":"config.conf","content":"x"}}`, `{"method":"configSave","args":{"kind":"env.yaml","content":"x"}}`,
 		`{"method":"configApply","args":{"kind":"hub","changes":[]}}`,
 		`{"method":"configSave","args":{"kind":"backends.yaml","content":"backends:\n  k: {type: k8s, volumes: {/a: pvc}}\n"}}`,
+		// liste blanche (#255, revue) : rubrique globale, ssh, socket local : réservés (R1) pour un utilisateur
+		`{"method":"configSave","args":{"kind":"backends.yaml","content":"defaults:\n  browser_server: { listen: off }\nbackends:\n  s: {type: ssh, host: h, shared: [/a]}\n"}}`,
 		`{"method":"inconnue","args":{}}`,
 	}
 	for _, body := range r1 {
@@ -416,7 +418,7 @@ func TestProxy172R1OverHTTP(t *testing.T) {
 		`{"method":"projectSettings","args":{}}`, `{"method":"projectApply","args":{}}`, `{"method":"execApply","args":{}}`,
 		`{"method":"envTrustAnswer","args":{}}`, `{"method":"initProposalAnswer","args":{}}`, `{"method":"backendHostScan","args":{}}`,
 		`{"method":"backendTest","args":{}}`, `{"method":"backendSecretGet","args":{}}`, `{"method":"refresh","args":{}}`,
-		`{"method":"configSave","args":{"kind":"backends.yaml","content":"defaults:\n  browser_server: { listen: off }\nbackends:\n  s: {type: ssh, host: h, shared: [/a]}\n"}}`, // rubrique globale du bac à sable conservée
+		`{"method":"configSave","args":{"kind":"backends.yaml","content":"backends:\n  s: {type: docker, host: 'tcp://h:2376', volume: v}\n"}}`, // backend de l'utilisateur dans son espace (#255)
 		`{"method":"configSave","args":{"kind":"project-env","path":"/inexistant","content":"x"}}`, `{"method":"clientInfo","args":{}}`,
 	} {
 		if v, st := s.call("alice", px172Ext, body); st != 200 || d183Find(v, "forbidden") != nil {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -182,7 +183,7 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	}
 	// éditeur de configuration : un seul fichier, le backends.yaml de l'espace ; aucun chemin venu du client
 	if method != "configFiles" && core.ConfigKind(in.Kind) != core.ConfBackends {
-		return nil, fmt.Errorf("%s : rubrique « %s » réservée à l'administrateur", method, in.Kind)
+		return nil, fmt.Errorf("%s : rubrique %s réservée à l'administrateur", method, shortKind(in.Kind))
 	}
 	if in.Path != "" {
 		return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
@@ -360,4 +361,12 @@ func userTarget(method string, raw json.RawMessage) string {
 	var name string
 	_ = json.Unmarshal(in.Backend, &name)
 	return name
+}
+
+// shortKind : kind d'une rubrique pour un message — jamais la valeur brute du client (tronquée, entre guillemets échappés).
+func shortKind(k string) string {
+	if r := []rune(k); len(r) > 24 {
+		k = string(r[:24]) + "…"
+	}
+	return strconv.Quote(k)
 }
