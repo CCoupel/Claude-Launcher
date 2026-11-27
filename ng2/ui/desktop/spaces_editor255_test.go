@@ -155,7 +155,7 @@ func TestEditor255EnregistrementDunBackendValide(t *testing.T) {
 	mtime, _ := m0["mtime"].(string)
 	ch := []map[string]any{
 		{"op": "set", "at": []string{"backends", "mon-k8s"}, "value": map[string]any{"type": "k8s", "namespace": "ns-a", "kubeconfig": true}},
-		{"op": "set", "at": []string{"backends", "mon-docker"}, "value": map[string]any{"type": "docker", "host": "tcp://nas.lan:2376"}},
+		{"op": "set", "at": []string{"backends", "mon-docker"}, "value": map[string]any{"type": "docker", "host": "tcp://93.184.216.34:2376"}},
 	}
 	raw, e, r := ed255Do(t, s, "alice", "configApply", map[string]any{"kind": "backends.yaml", "path": "", "mtime": mtime, "changes": ch})
 	if e != "" || r["saved"] != true || r["invalid"] != nil || r["conflict"] != nil {

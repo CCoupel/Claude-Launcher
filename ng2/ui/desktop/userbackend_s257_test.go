@@ -209,7 +209,8 @@ func TestKubeconfig257ServerBorne(t *testing.T) {
 	u := ub257Start(t)
 	ub16Declare(t, "github-1111", "mon-k8s")
 	second := func(srv string) string {
-		return ub257Kube("https://93.184.216.34:6443", "", "") + "- name: c2\n  cluster:\n    server: " + srv + "\n"
+		// le second cluster doit être DANS la liste « clusters » (ajouté en fin du fichier, il serait du YAML invalide)
+		return strings.Replace(ub257Kube("https://93.184.216.34:6443", "", ""), "users:\n", "- name: c2\n  cluster:\n    server: "+srv+"\nusers:\n", 1)
 	}
 	for name, kc := range map[string]string{
 		"http":                 ub257Kube("http://93.184.216.34:6443", "", ""),

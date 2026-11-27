@@ -34,6 +34,9 @@ type BackendEntry struct {
 	Volumes    map[string]string `json:"volumes,omitempty"`
 	Spread     *bool             `json:"spread,omitempty"`
 	Pod        map[string]any    `json:"pod,omitempty"`
+	PVC        string            `json:"pvc,omitempty"`      // k8s (#257) : PVC existant
+	Volume     string            `json:"volume,omitempty"`   // docker / podman (#257) : volume existant
+	TLS        *TLSConf          `json:"tls,omitempty"`      // docker / podman (#257)
 	Implicit   bool              `json:"implicit,omitempty"` // host ajouté sans déclaration (Windows)
 }
 
@@ -105,7 +108,7 @@ func ReadBackendsModel(content []byte) (BackendsModel, error) {
 		c := f.Backends[n]
 		m.Backends = append(m.Backends, BackendEntry{Name: n, Type: c.Type, Context: c.Context, Host: c.Host, Hosts: c.Hosts,
 			Pool: c.Pool, Engine: c.Engine, EngineHost: c.EngHost, Shared: c.Shared, Namespace: c.Namespace,
-			Volumes: c.Volumes, Spread: c.Spread, Pod: c.Pod, Kubeconfig: c.Kubeconfig.asAny()})
+			Volumes: c.Volumes, Spread: c.Spread, Pod: c.Pod, Kubeconfig: c.Kubeconfig.asAny(), PVC: c.PVC, Volume: c.Volume, TLS: c.TLS})
 	}
 	if _, declared := f.Backends["host"]; !declared && runtime.GOOS == "windows" {
 		m.Backends = append([]BackendEntry{{Name: "host", Type: "host", Implicit: true}}, m.Backends...)
@@ -140,7 +143,7 @@ type ConfigChange struct {
 
 // backendKeyOrder : ordre d'écriture des clés d'un backend ajouté.
 var backendKeyOrder = []string{"type", "context", "kubeconfig", "host", "hosts", "pool", "engine", "engine_host", "shared",
-	"namespace", "volumes", "spread", "pod"}
+	"namespace", "pvc", "volume", "tls", "volumes", "spread", "pod"}
 
 // ApplyConfigChanges applique les changements au texte de backends.yaml :
 // commentaires, ordre et clés non touchées conservés. Le texte rendu n'est pas

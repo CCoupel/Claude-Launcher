@@ -407,3 +407,27 @@ func TestUserAdminFieldsListeBlanche255(t *testing.T) {
 		}
 	}
 }
+
+// 11b : l'éditeur de l'ADMIN lit et écrit les mêmes champs que celui de l'utilisateur (pvc, volume, tls), sans bornage d'hôte.
+func TestModeleAdminPVCVolumeTLS257(t *testing.T) {
+	content := "backends:\n  k:\n    type: k8s\n    namespace: ns\n    pvc: projets\n  d:\n    type: docker\n    host: tcp://nas.lan:2376\n    volume: v\n    tls:\n      enabled: true\n      verify: false\n"
+	m, err := ReadBackendsModel([]byte(content))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]BackendEntry{}
+	for _, b := range m.Backends {
+		got[b.Name] = b
+	}
+	if got["k"].PVC != "projets" || got["d"].Volume != "v" || got["d"].TLS == nil || !got["d"].TLS.Enabled || got["d"].TLS.Verify == nil || *got["d"].TLS.Verify {
+		t.Errorf("modèle : %+v", got)
+	}
+	out, err := ApplyConfigChanges(ConfBackends, []byte(content), []ConfigChange{
+		{Op: "set", At: []string{"backends", "n"}, Value: map[string]any{"type": "docker", "host": "tcp://10.0.0.5:2375", "volume": "w", "tls": map[string]any{"enabled": true, "verify": true}}}})
+	if err != nil || !strings.Contains(string(out), "volume: w") || !strings.Contains(string(out), "verify: true") {
+		t.Fatalf("écriture : %v\n%s", err, out)
+	}
+	if ms := errMsgs(ValidateConfig(ConfBackends, out)); len(ms) != 0 { // admin : hôte LAN accepté
+		t.Errorf("admin : %v", ms)
+	}
+}

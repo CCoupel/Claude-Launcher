@@ -446,6 +446,25 @@
         }
       }
     },
+    "users": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxBackends": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "backendTestsPerMinute": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 60
+        }
+      }
+    },
     "auth": {
       "type": "object",
       "additionalProperties": false,

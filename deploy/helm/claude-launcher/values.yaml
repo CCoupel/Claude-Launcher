@@ -141,3 +141,9 @@ backends:
 extraEnv: []              # [{name: X, value: y}]
 
 terminationGracePeriodSeconds: 30
+
+# Espaces et backends des utilisateurs (v7.1.0, contracts/user-backends.md, helm-values.md « users.* »)
+users:
+  enabled: true             # espaces par utilisateur (users/<uid>/ sous la config de la racine) ; false : comportement v7.0.0
+  maxBackends: 10           # backends par utilisateur (1 à 100) ; au-delà, refus à l'enregistrement
+  backendTestsPerMinute: 6  # backendTest par utilisateur et par minute (1 à 60), un seul à la fois (429)

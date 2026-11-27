@@ -391,8 +391,8 @@ func TestProxy172R1OverHTTP(t *testing.T) {
 		`{"method":"configSave","args":{"kind":"config.conf","content":"x"}}`, `{"method":"configSave","args":{"kind":"env.yaml","content":"x"}}`,
 		`{"method":"configApply","args":{"kind":"hub","changes":[]}}`,
 		`{"method":"configSave","args":{"kind":"backends.yaml","content":"backends:\n  k: {type: k8s, volumes: {/a: pvc}}\n"}}`,
-		// liste blanche (#255, revue) : rubrique globale, ssh, socket local : réservés (R1) pour un utilisateur
-		`{"method":"configSave","args":{"kind":"backends.yaml","content":"defaults:\n  browser_server: { listen: off }\nbackends:\n  s: {type: ssh, host: h, shared: [/a]}\n"}}`,
+		// liste blanche (#255, revue) : rubrique globale, socket local : réservés (R1) pour un utilisateur (ssh : refus clair, invalid)
+		`{"method":"configSave","args":{"kind":"backends.yaml","content":"defaults:\n  browser_server: { listen: off }\nbackends:\n  s: {type: docker, host: 'tcp://h:2376'}\n"}}`,
 		`{"method":"inconnue","args":{}}`,
 	}
 	for _, body := range r1 {

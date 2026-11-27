@@ -38,6 +38,10 @@ type userSpace struct {
 	clients atomic.Int32
 	last    atomic.Int64
 	prefsMu sync.Mutex
+	// backendTest : 6 par minute (tmu, tests) et un seul à la fois (testing)
+	tmu     sync.Mutex
+	tests   []time.Time
+	testing atomic.Bool
 }
 
 func (u *userSpace) touch() { u.last.Store(time.Now().UnixNano()) }
@@ -115,7 +119,7 @@ var userMethods = map[string]bool{
 	"clientInfo": true, "init": true, "setPrefs": true, "setTheme": true,
 	"configFiles": true, "configOpen": true, "configValidate": true, "configSave": true,
 	"configModel": true, "configApply": true, "backendStates": true,
-	"backendSecretSet": true, "backendSecretGet": true, "backendSecretDelete": true,
+	"backendSecretSet": true, "backendSecretGet": true, "backendSecretDelete": true, "backendTest": true,
 }
 
 // dispatch : un appel de l'utilisateur. L'identité (c.User) n'est jamais celle d'une autre instance : l'instance est choisie
@@ -130,6 +134,9 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 			var in struct{ Kind, Content string }
 			switch _ = json.Unmarshal(raw, &in); core.ConfigKind(in.Kind) {
 			case core.ConfBackends: // son propre fichier : libre, sauf les champs R1 (configApply : vérifiés sur le contenu produit)
+				if method == "configSave" && core.UserSSHRefused([]byte(in.Content)) { // ssh : refus clair (P13), pas un refus R1
+					return map[string]any{"invalid": true, "problems": u.sp.ValidateBackends([]byte(in.Content))}, nil
+				}
 				if method == "configSave" && core.UserAdminFields([]byte(in.Content)) {
 					return forbidden, nil
 				}
@@ -149,6 +156,8 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	switch method {
 	case "backendSecretSet", "backendSecretGet", "backendSecretDelete":
 		return u.secretCall(c, method, raw)
+	case "backendTest":
+		return u.backendTest(raw)
 	case "backendStates": // aucun état sondé en LOT-2 (le sondage des backends de l'utilisateur vient avec LOT-4) : listes vides
 		return map[string]any{"states": map[string]any{}, "load": map[string]any{}}, nil
 	case "clientInfo":
@@ -246,7 +255,7 @@ func (u *userSpace) configModel() (any, error) {
 	}
 	model, merr := core.ReadBackendsModel([]byte(content))
 	if merr != nil && len(d.Problems) == 0 {
-		d.Problems = []core.ConfigProblem{{Severity: core.SevError, Message: merr.Error()}}
+		d.Problems = core.ScrubProblems([]core.ConfigProblem{{Severity: core.SevError, Message: merr.Error()}})
 	}
 	return map[string]any{"path": d.Path, "mtime": d.MTime, "exists": d.Exists, "problems": d.Problems, "model": model}, nil
 }
@@ -262,7 +271,10 @@ func (u *userSpace) configApply(changes []core.ConfigChange, mtime string) (any,
 	}
 	out, err := core.ApplyConfigChanges(core.ConfBackends, cur, changes)
 	if err != nil {
-		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: err.Error()}}}, nil
+		return map[string]any{"invalid": true, "problems": core.ScrubProblems([]core.ConfigProblem{{Severity: core.SevError, Message: err.Error()}})}, nil
+	}
+	if core.UserSSHRefused(out) {
+		return map[string]any{"invalid": true, "problems": u.sp.ValidateBackends(out)}, nil
 	}
 	if core.UserAdminFields(out) {
 		return map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}, nil
@@ -375,32 +387,37 @@ func shortKind(k string) string {
 	return strconv.Quote(k)
 }
 
-// secretUserOK : l'appel de coffre vise le kubeconfig d'un backend k8s de l'utilisateur (le seul secret qu'il dépose en LOT-3.1).
+// secretUserOK : l'appel de coffre vise un secret que l'utilisateur dépose pour son backend : kubeconfig (k8s) ou CA / certificat / clé
+// TLS (docker, podman). Clés ssh et known_hosts : admin seulement.
 func secretUserOK(method string, raw json.RawMessage) bool {
 	var in struct {
-		Kubeconfig, What string
+		Kubeconfig, CA, Cert, Key, What string
 	}
 	_ = json.Unmarshal(raw, &in)
 	switch method {
 	case "backendSecretSet":
-		return in.Kubeconfig != ""
+		return in.Kubeconfig != "" || in.CA != "" || in.Cert != "" || in.Key != ""
 	case "backendSecretDelete":
-		return in.What == "kubeconfig"
+		return in.What == "kubeconfig" || in.What == "tls"
 	}
 	return false
 }
 
-// secretCall : coffre de l'utilisateur — SON espace seulement (users/<uid>/vault/<backend>/), backend déclaré dans SON backends.yaml,
-// type k8s. Réponses sans contenu, sans chemin, sans identifiant.
+// secretCall : coffre de l'utilisateur — SON espace seulement (users/<uid>/vault/<backend>/), backend déclaré dans SON backends.yaml.
+// Réponses sans contenu, sans chemin, sans identifiant.
 func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (any, error) {
 	var in struct {
 		Backend    string `json:"backend"`
 		Kubeconfig string `json:"kubeconfig"`
+		CA         string `json:"ca"`
+		Cert       string `json:"cert"`
+		Key        string `json:"key"`
+		What       string `json:"what"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, fmt.Errorf("%s : arguments invalides", method)
 	}
-	fail := func(msg string) (any, error) { return map[string]any{"ok": false, "msg": msg}, nil }
+	fail := func(msg string) (any, error) { return map[string]any{"ok": false, "msg": core.ScrubMessage(msg)}, nil }
 	if err := core.CheckUserBackendName(in.Backend); err != nil {
 		return fail(err.Error())
 	}
@@ -408,22 +425,43 @@ func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (a
 	if err != nil {
 		return fail("backends.yaml illisible : corriger la déclaration d'abord")
 	}
-	declared := false
+	kind := ""
 	for _, b := range bs {
-		declared = declared || b.Name == in.Backend && b.Type == "k8s"
+		if b.Name == in.Backend {
+			kind = b.Type
+		}
 	}
-	if !declared {
-		return fail("backend k8s inconnu dans vos réglages : l'enregistrer avant d'y déposer un kubeconfig")
+	tlsCall := in.CA != "" || in.Cert != "" || in.Key != "" || in.What == "tls"
+	switch {
+	case kind == "":
+		return fail("backend inconnu dans vos réglages : l'enregistrer avant d'y déposer un secret")
+	case tlsCall && kind != "docker" && kind != "podman":
+		return fail("les certificats TLS ne concernent que les backends docker")
+	case !tlsCall && method != "backendSecretGet" && kind != "k8s":
+		return fail("le kubeconfig ne concerne que les backends k8s")
 	}
 	w := core.SecretWrite{Source: "navigateur", User: c.userLabel()}
 	switch method {
 	case "backendSecretGet":
 		return u.sp.SecretInfo(in.Backend)
 	case "backendSecretDelete":
-		if err := u.sp.SecretDeleteKubeconfig(in.Backend, w); err != nil {
+		var err error
+		if tlsCall {
+			err = u.sp.SecretDeleteTLS(in.Backend, w)
+		} else {
+			err = u.sp.SecretDeleteKubeconfig(in.Backend, w)
+		}
+		if err != nil {
 			return fail(err.Error())
 		}
 		return map[string]any{"ok": true}, nil
+	}
+	if tlsCall {
+		infos, err := u.sp.SecretSetTLS(in.Backend, in.CA, in.Cert, in.Key, w)
+		if err != nil {
+			return fail(err.Error())
+		}
+		return map[string]any{"ok": true, "tls": infos, "warnings": []string{}, "msg": "certificats enregistrés"}, nil
 	}
 	ctxs, fp, warns, err := u.sp.SecretSetKubeconfig(in.Backend, in.Kubeconfig, w)
 	if err != nil {
@@ -433,4 +471,42 @@ func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (a
 		warns = []string{}
 	}
 	return map[string]any{"ok": true, "fingerprint": fp, "contexts": ctxs, "warnings": warns, "msg": "kubeconfig enregistré"}, nil
+}
+
+// backendTest : test d'un backend de l'utilisateur — 6 par minute au plus et un seul à la fois (S31, D5) ; diagnostic grossier.
+func (u *userSpace) backendTest(raw json.RawMessage) (any, error) {
+	var in struct {
+		Backend core.BackendEntry `json:"backend"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, fmt.Errorf("backendTest : arguments invalides")
+	}
+	if msg := u.admitTest(time.Now()); msg != "" {
+		return map[string]any{"ok": false, "status": 429, "msg": msg}, nil
+	}
+	defer u.testing.Store(false)
+	steps := u.sp.TestBackend(in.Backend)
+	return map[string]any{"steps": steps}, nil
+}
+
+// admitTest : "" si le test peut partir ; sinon le message du refus 429. Réservé tant que le test tourne (testing).
+func (u *userSpace) admitTest(now time.Time) string {
+	if !u.testing.CompareAndSwap(false, true) {
+		return "429 : un seul test à la fois — un test est déjà en cours"
+	}
+	u.tmu.Lock()
+	defer u.tmu.Unlock()
+	keep := u.tests[:0]
+	for _, t := range u.tests {
+		if now.Sub(t) < time.Minute {
+			keep = append(keep, t)
+		}
+	}
+	u.tests = keep
+	if max := core.UserTestsPerMinute(); len(u.tests) >= max {
+		u.testing.Store(false)
+		return fmt.Sprintf("429 : limite atteinte (%d tests par minute)", max)
+	}
+	u.tests = append(u.tests, now)
+	return ""
 }

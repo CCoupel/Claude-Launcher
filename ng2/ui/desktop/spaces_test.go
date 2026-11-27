@@ -166,7 +166,7 @@ func TestSpaces255UtilisateurSansBackendEtatVide(t *testing.T) {
 		t.Errorf("bob voit des projets : %v", rows)
 	}
 	// ni terminal ni action de projet : refusés
-	for _, m := range []string{"open", "termInput", "create", "refresh", "backendTest", "quit"} {
+	for _, m := range []string{"open", "termInput", "create", "refresh", "quit"} {
 		if o := sp255Call(t, s, "bob", m, `{}`); o["error"] == nil {
 			t.Errorf("%s accepté pour un utilisateur sans backend", m)
 		}

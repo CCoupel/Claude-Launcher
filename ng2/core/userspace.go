@@ -392,7 +392,28 @@ func (s Space) ValidateBackends(content []byte) []ConfigProblem {
 		return []ConfigProblem{{Severity: SevError, Message: "backends.yaml trop gros"}}
 	}
 	ps := ValidateConfig(ConfBackends, content)
-	return append(ps, userBackendProblems(content)...)
+	return ScrubProblems(append(ps, userBackendProblems(content)...)) // jamais une valeur de l'utilisateur dans un message (S25)
+}
+
+// UserSSHRefused : le contenu déclare un backend ssh (type, host ou engine_host en ssh://) — refusé en mode serveur (P13).
+func UserSSHRefused(content []byte) bool {
+	var f struct {
+		Backends map[string]map[string]any `yaml:"backends"`
+	}
+	if yaml.Unmarshal(content, &f) != nil {
+		return false
+	}
+	for _, be := range f.Backends {
+		if t, _ := be["type"].(string); t == "ssh" {
+			return true
+		}
+		for _, k := range []string{"host", "engine_host"} {
+			if h, _ := be[k].(string); strings.HasPrefix(strings.ToLower(strings.TrimSpace(h)), "ssh:") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Variables d'environnement posées par le chart (users.maxBackends, users.backendTestsPerMinute).

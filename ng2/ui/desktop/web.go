@@ -737,6 +737,7 @@ func (w *webBridge) handler() http.Handler {
 				refused = true
 			}
 			w.auditCall(r, id, req.Method, req.Args, res, err, userTarget(req.Method, req.Args), refused)
+			w.auditBackendCall(r, id, req.Method, req.Args, res, err)
 			out := map[string]any{"result": res}
 			if err != nil {
 				out["error"] = err.Error()
@@ -1269,4 +1270,45 @@ func filesSubresource(dest string) bool {
 		return true
 	}
 	return false
+}
+
+// auditBackendCall : audit « backend.call » d'un appel sortant d'un utilisateur vers un de ses backends (D5) — utilisateur, backend,
+// opération, résultat ; JAMAIS d'adresse, de secret ni de réponse du backend.
+func (w *webBridge) auditBackendCall(r *http.Request, id *core.Identity, method string, args json.RawMessage, res any, err error) {
+	if w.audit == nil || id == nil {
+		return
+	}
+	switch method {
+	case "backendTest", "backendSecretSet", "backendSecretGet", "backendSecretDelete":
+	default:
+		return
+	}
+	var a struct {
+		Backend json.RawMessage `json:"backend"`
+	}
+	_ = json.Unmarshal(args, &a)
+	name := ""
+	if json.Unmarshal(a.Backend, &name) != nil { // backendTest : objet {name…}
+		var o struct {
+			Name string `json:"name"`
+		}
+		_ = json.Unmarshal(a.Backend, &o)
+		name = o.Name
+	}
+	if len([]rune(name)) > 63 || !regexp.MustCompile(`^[a-z0-9-]*$`).MatchString(name) {
+		name = ""
+	}
+	ok, es := err == nil, ""
+	if err != nil {
+		es = "error"
+	}
+	if m, isMap := res.(map[string]any); isMap {
+		if v, has := m["ok"].(bool); has && !v {
+			ok, es = false, "refused"
+			if st, _ := m["status"].(int); st == 429 {
+				es = "rate"
+			}
+		}
+	}
+	_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: "backend.call", Target: method + ":" + name, OK: ok, Err: es})
 }

@@ -211,7 +211,7 @@ func (s Space) SecretSetTLS(backend, ca, cert, key string, w SecretWrite) (infos
 		}
 		kb, err := onePEM(key, "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY")
 		if err != nil {
-			return nil, errors.New("clé : un bloc de clé privée non chiffrée attendu (PRIVATE KEY, RSA PRIVATE KEY ou EC PRIVATE KEY)")
+			return nil, errors.New("clé : une clé privée non chiffrée, en un seul bloc PEM, attendue")
 		}
 		if _, err := tls.X509KeyPair(pem.EncodeToMemory(cb), pem.EncodeToMemory(kb)); err != nil {
 			return nil, errors.New("la clé ne correspond pas au certificat")
