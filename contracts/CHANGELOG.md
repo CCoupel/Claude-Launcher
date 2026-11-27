@@ -2,6 +2,14 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.1 (#257) : `CL_USERS_ENABLED`, plafond des dépôts, DNS fermé
+
+- **[NEW]** `helm-values.md` : `users.enabled` transmis par `CL_USERS_ENABLED` (`false` → espace commun v7.0.0).
+- **[CHANGED]** `user-backends.md` : `backendSecretSet` plafonné à 10 × `users.backendTestsPerMinute` par minute (60,
+  `429`) ; résolution DNS en erreur = refus uniforme, jamais mis en cache ; fichier du coffre en lien symbolique ou
+  droits > `0600` refusé ; avertissement pour un certificat expiré ou à moins de 30 jours ; `DOCKER_CONFIG` = dossier
+  vide privé.
+
 ## [20261127] — v7.1.0 LOT-3.1 (#257) : `backendSecret*` dans l'espace de l'utilisateur
 
 - **[CHANGED]** `auth.md` §4 : `backendSecretSet` / `backendSecretDelete` **hors R1** pour un `user` sur les backends de son

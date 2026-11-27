@@ -148,14 +148,15 @@ backends:
     - noms internes (sans point, `*.local`, `*.lan`, `*.internal`, `*.home.arpa`, `*.svc`, `*.cluster.local`, `localhost*`, `kubernetes.default`).
   - Hôte analysé strictement (`url.Parse` / `net/netip`) : formes numériques non canoniques, zone IPv6, userinfo, chemin, requête refusés ; IPv4-mappée, NAT64 et 6to4 déballées puis contrôlées ; port obligatoire 1–65535.
   - Appliqué au `host` docker/podman **et** au `server:` (en `https://`) de tous les clusters du kubeconfig.
-  - **Contrôle à l'enregistrement et avant chaque appel** : résolution DNS par le launcher, cache 30 s, une seule IP interdite parmi celles rendues suffit à refuser.
+  - **Contrôle à l'enregistrement et avant chaque appel** : résolution DNS par le launcher, cache 30 s, une seule IP interdite parmi celles rendues suffit à refuser. **Résolution en erreur** (NXDOMAIN, délai, serveur injoignable) → même refus uniforme, **jamais mis en cache** (échec fermé).
   - Risque résiduel accepté : le CLI résout à nouveau (fenêtre de rebinding de quelques ms).
   - Un backend derrière un NAT sans redirection de port ni tunnel reste impossible (« injoignable depuis la plateforme »).
 - **Backend k8s d'un utilisateur** : `kubeconfig: true` (kubeconfig collé dans son coffre) **obligatoire**. Sans lui, refus à la déclaration et à l'exécution : jamais le ServiceAccount du launcher, jamais `~/.kube/config`. Coffre : `users/<uid>/vault/<backend>/` uniquement.
-- **Appels d'un utilisateur** : environnement nettoyé (`HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY`, `DOCKER_*`, `CONTAINER_HOST`, `KUBECONFIG` retirés) ; certificats TLS en fichiers temporaires `0600` privés, supprimés après l'appel ; erreurs filtrées (joignable / non joignable, sans corps de réponse ni secret) ; `proxy-url` refusé ; kubeconfig ≤ 64 Kio, sans alias ni ancre.
+- **Appels d'un utilisateur** : environnement nettoyé (`HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY`, `DOCKER_*`, `CONTAINER_HOST`, `KUBECONFIG` retirés ; `DOCKER_CONFIG` pointé vers un dossier vide privé, pour que la configuration docker du launcher ne s'applique jamais) ; certificats TLS en fichiers temporaires `0600` privés, supprimés après l'appel ; erreurs filtrées (joignable / non joignable, sans corps de réponse ni secret) ; `proxy-url` refusé ; kubeconfig ≤ 64 Kio, sans alias ni ancre.
 - **Limites (D5)** :
   - `users.maxBackends` backends par utilisateur (Helm, défaut 10) ;
   - `backendTest` : `users.backendTestsPerMinute` par utilisateur (défaut 6) et un seul test à la fois (`429` au-delà) ;
+  - `backendSecretSet` : 10 × `users.backendTestsPerMinute` dépôts par minute et par utilisateur (60 par défaut), `429` au-delà ;
   - sondage : un appel en vol par backend, attente croissante (10 s → 5 min) quand il est injoignable ;
   - audit `backend.call` de chaque appel sortant (utilisateur, backend, opération, résultat, durée ; sans secret ; agrégé par minute pour le sondage).
 - Pools nommés, `hosts` multiples, `spread` : non proposés aux utilisateurs en v7.1.0.
@@ -279,6 +280,10 @@ backends:
 - `users/<uid>/vault/<backend>/` **en clair**, `0700` / `0600`, comme le coffre actuel de l'admin (risque accepté
   v6.5.0) : lisible par les administrateurs du stockage partagé et dans les instantanés MooseFS.
 - **Dette assumée** : chiffrement au repos (clé hors racine) dans une prochaine version (issue de suivi proposée).
+- **Lecture du coffre** : un fichier du coffre qui est un lien symbolique, ou dont les droits dépassent `0600` (dossier
+  `0700`), est **refusé** (le backend est signalé « coffre non conforme », rien n'est lancé).
+- **Certificats** (CA, certificat client, certificat du kubeconfig) : avertissement s'ils sont expirés ou s'ils expirent dans
+  moins de 30 jours (carte du backend et `backendTest`), sans refus.
 - Écrit par l'interface (`backendSecretSet` / `backendSecretDelete`, **hors R1 pour l'utilisateur sur ses propres
   backends**, `auth.md` §4), aucune relecture sauf état et empreinte ; jamais journalisé, jamais rendu, jamais transmis au
   navigateur ; passé à `kubectl` ou `docker` par chemin de fichier temporaire privé (§3).
