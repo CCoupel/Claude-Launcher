@@ -563,3 +563,10 @@ body.cardsfolded #hsplit { display: none; }
 .nobackend p { margin: 0 0 14px; }
 .nobackend .btn.primary { background: var(--orange); color: #0B0D11; border: 0; border-radius: 4px; padding: 6px 14px; font-weight: 700; cursor: pointer; }
 .row.empty { position: static; display: block; inset: auto; text-align: left; line-height: inherit; }
+
+/* éditeur de backends : TLS collé, avertissements, Role minimale (#257) */
+.stwarn { margin: 8px 0 0; padding: 6px 10px; border: 1px solid var(--orange); border-radius: 5px; color: var(--orange); font-size: 12.5px; }
+.stchks { display: flex; gap: 18px; flex-wrap: wrap; margin-bottom: 6px; }
+.pemst { font-size: 12.5px; margin-bottom: 4px; }
+.strole { margin-top: 6px; }
+.strole pre { max-height: 220px; overflow: auto; margin: 4px 0 0; padding: 6px 8px; background: var(--input); border: 1px solid var(--line2); border-radius: 4px; font-size: 11.5px; }

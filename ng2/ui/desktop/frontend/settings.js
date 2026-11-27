@@ -15,6 +15,8 @@ const ST = {
 };
 
 const ST_TYPES = ['host', 'podman', 'docker', 'ssh', 'k8s'];
+const ST_TYPES_USER = ['podman', 'docker', 'k8s']; // espace utilisateur : ni host ni ssh (#257, P13)
+const stTypes = () => (stUserSpace() ? ST_TYPES_USER : ST_TYPES);
 const ST_RAIL = [
   ['GLOBAL', [['backends', 'Backends'], ['pools', 'Pools'], ['defauts', 'Défauts'], ['launcher', 'Launcher'], ['conteneurs', 'Conteneurs']]],
   ['CE POSTE', [['poste', 'Ce poste'], ['maquettes', 'Serveur de maquettes'], ['web', 'Interface web']]],
@@ -35,7 +37,7 @@ async function openSettings(project, page, focus) {
   ST.project = project || '';
   if (page) ST.page = page;
   ST.result = null; ST.test = null;
-  ST.pj = null; ST.docs = {}; ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
+  ST.tls = null; ST.pj = null; ST.docs = {}; ST.draft = null; ST.loading = true; ST.states = {}; ST.load = {}; // fenêtre affichée tout de suite, données ensuite
   openModal((b) => {
     b.classList.add('wide');
     b.innerHTML = '';
@@ -91,7 +93,8 @@ function stPoll() {
 // ── Changements = différence entre le brouillon et le fichier lu ────────────
 function stBackendValue(b) {
   const v = {};
-  for (const k of ['type', 'context', 'host', 'pool', 'engine', 'engine_host', 'namespace']) if (b[k]) v[k] = b[k];
+  for (const k of ['type', 'context', 'host', 'pool', 'engine', 'engine_host', 'namespace', 'volume', 'pvc']) if (b[k]) v[k] = b[k];
+  if (b.tls && typeof b.tls === 'object') v.tls = { enabled: !!b.tls.enabled, verify: b.tls.verify !== false }; // #257
   if (b.hosts && b.hosts.length) v.hosts = b.hosts;
   if (b.shared && b.shared.length) v.shared = b.shared;
   if (b.volumes && Object.keys(b.volumes).length) v.volumes = b.volumes;
@@ -352,14 +355,14 @@ function stPageBackends(p) {
   const split = el('div', 'stsplit'); p.appendChild(split);
   const left = el('div', 'stleft'); split.appendChild(left);
   const t = el('table', 'sttable'); const hr = el('tr');
-  for (const h of ['Nom', 'Type', 'Adresse', 'Pool', 'État']) hr.appendChild(el('th', '', h));
+  for (const h of (stUserSpace() ? ['Nom', 'Type', 'Adresse', 'État'] : ['Nom', 'Type', 'Adresse', 'Pool', 'État'])) hr.appendChild(el('th', '', h));
   t.appendChild(hr);
   if (ST.sel.backend >= d.backends.length) ST.sel.backend = Math.max(0, d.backends.length - 1);
   d.backends.forEach((b, i) => {
     const r = el('tr', i === ST.sel.backend ? 'on' : '');
     const n = el('td', 'm', b.name || '(sans nom)');
     if (d.defaults.backend && d.defaults.backend === b.name) n.appendChild(el('span', 'pill', 'défaut'));
-    r.append(n, el('td', '', b.type), (() => { const c = el('td', 'm sta', stAddr(b)); c.title = stAddr(b); return c; })(), el('td', 'm', b.pool || ''), el('td'));
+    r.append(n, el('td', '', b.type), (() => { const c = el('td', 'm sta', stAddr(b)); c.title = stAddr(b); return c; })(), ...(stUserSpace() ? [] : [el('td', 'm', b.pool || '')]), el('td'));
     r.lastChild.className = 'stst'; r.lastChild.appendChild(b._orig ? stStateCell(b._orig) : el('span', 'dim', 'nouveau'));
     r.onclick = () => { stKeepClear(); ST.sel.backend = i; ST.test = null; stRenderPage(); };
     t.appendChild(r);
@@ -403,11 +406,15 @@ function stBackendForm(b) {
     if (d.defaults.backend === old) d.defaults.backend = v;
   };
   const rows = [['Nom', stInput(b.name, rename)]];
-  const typeSel = stSelect(b.type, ST_TYPES.map((x) => [x, x]), (v) => { b.type = v; ST.test = null; stRenderPage(); });
+  const typeSel = stSelect(b.type, stTypes().map((x) => [x, x]), (v) => { b.type = v; ST.test = null; stRenderPage(); });
   if (r1Admin()) { const oh = [...typeSel.options].find((o) => o.value === 'host'); if (oh && b.type !== 'host') { oh.disabled = true; oh.title = R1_TIP; } else if (b.type === 'host') { typeSel.disabled = true; typeSel.title = R1_TIP; } }
   rows.push(['Type', typeSel]);
   const t = b.type;
-  if (t === 'podman' || t === 'docker' || t === 'ssh') {
+  const us = stUserSpace();
+  if (us && (t === 'podman' || t === 'docker')) {
+    rows.push(['Adresse', stInput(b.host, (v) => { b.host = v; }, 'tcp://hôte:port'), 'tcp://hôte:port (Internet public) ; ssh et unix:// sont interdits en mode serveur']);
+    rows.push(['Volume', stInput(b.volume, (v) => { b.volume = v; }, 'projets-alice'), 'volume existant de l\'hôte ; un dossier par projet, .claude partagé']);
+  } else if (t === 'podman' || t === 'docker' || t === 'ssh') {
     const mode = b.pool ? 'pool' : (b.hosts && b.hosts.length) ? 'groupe' : 'adresse';
     const m = el('span', 'stmode');
     for (const [v, txt] of [['adresse', 'une adresse'], ['groupe', 'groupe'], ['pool', 'pool']]) {
@@ -427,32 +434,39 @@ function stBackendForm(b) {
       rows.push(['Moteur', stSelect(b.engine || 'podman', [['podman', 'podman'], ['docker', 'docker']], (v) => { b.engine = v; })]);
       rows.push(['Adresse du démon', stInput(b.engine_host, (v) => { b.engine_host = v; }), 'adresse du démon vu depuis le serveur ; facultatif']);
     } else rows.push(['Contexte ' + t, stInput(b.context, (v) => { b.context = v; }, '(aucun)')]);
-    rows.push(['Stockage partagé', stArea((b.shared || []).join('\n'), (v) => { b.shared = stLines(v); }, 2), 'racines vues à l\'identique par le launcher et le serveur ; une par ligne']);
+    if (!us) rows.push(['Stockage partagé', stArea((b.shared || []).join('\n'), (v) => { b.shared = stLines(v); }, 2), 'racines vues à l\'identique par le launcher et le serveur ; une par ligne']);
   } else if (t === 'k8s') {
     // launcher dans un pod (#168) : sans contexte, le ServiceAccount du pod ; sans namespace, celui du pod
     const ic = !!(ST.model && ST.model.inCluster), pns = (ST.model && ST.model.podNamespace) || '';
+    if (us) {
+      rows.push(['Namespace', stInput(b.namespace, (v) => { b.namespace = v; }, 'claude-alice'), 'obligatoire : le namespace de ton cluster où tourneront les projets']);
+      rows.push(['PVC', stInput(b.pvc, (v) => { b.pvc = v; }, 'projets-alice'), 'PVC existant du namespace, en RWX ; un dossier par projet, .claude partagé']);
+    } else {
     rows.push(['Contexte', r1Adm(stInput(b.context, (v) => { b.context = v; }, ic ? 'ServiceAccount du pod' : '')), ic ? 'vide : le launcher utilise le ServiceAccount de son pod (pas de kubeconfig)' : '']);
     rows.push(['Namespace', r1Adm(stInput(b.namespace, (v) => { b.namespace = v; }, ic ? (pns ? 'namespace du pod : ' + pns : 'namespace du pod') : '')), ic ? 'vide : namespace du pod du launcher (et non « default »)' : '']);
+    rows.push(['PVC', stInput(b.pvc, (v) => { b.pvc = v; }, 'projets-alice'), 'PVC existant du namespace (RWX), monté en sous-dossiers par projet ; facultatif pour l\'admin (voir Volumes)']);
     rows.push(['Volumes', r1Adm(stArea(Object.entries(b.volumes || {}).map(([k, v]) => k + '=' + v).join('\n'), (v) => {
       const o = {}; for (const l of stLines(v)) { const i = l.indexOf('='); if (i > 0) o[l.slice(0, i).trim()] = l.slice(i + 1).trim(); }
       b.volumes = o;
     }, 3)), 'racine=PVC, une par ligne']);
     rows.push(['Répartition', stCheck(b.spread, 'répartir les pods sur les nœuds', (v) => { b.spread = v; stRenderFoot(); })]);
-    rows.push(['Options du pod', r1Adm(stArea(b.pod && Object.keys(b.pod).length ? JSON.stringify(b.pod, null, 2) : '', (v) => {
+    }
+    rows.push(['Options du pod', (us ? (x) => x : r1Adm)(stArea(b.pod && Object.keys(b.pod).length ? JSON.stringify(b.pod, null, 2) : '', (v) => {
       b._podErr = '';
       if (!v.trim()) { b.pod = {}; return; }
       try { const o = JSON.parse(v); if (typeof o !== 'object' || Array.isArray(o)) throw new Error('un objet est attendu'); b.pod = o; } catch (e) { b._podErr = e.message; }
-    }, 5, '{ "nodeSelector": { … } }')), 'objet JSON (nodeSelector, tolerations, resources…)']);
+    }, 5, '{ "nodeSelector": { … } }')), us ? 'objet JSON : resources, nodeSelector, affinity' : 'objet JSON (nodeSelector, tolerations, resources…)']);
   }
   rows.push(['', stCheck(d.defaults.backend === b.name && !!b.name, 'backend par défaut', (v) => { if (v) d.defaults.backend = b.name; else if (d.defaults.backend === b.name) d.defaults.backend = ''; stRenderFoot(); })]);
   body.appendChild(stForm(rows));
   // identifiants (#194, #193) : juste sous les champs de connexion ; le coffre exige un backend déjà déclaré
-  if ((t === 'ssh' || t === 'k8s') && stUserSpace()) body.appendChild(el('p', 'note', 'Identifiants et test du backend : bientôt disponibles dans ton espace (v7.1.0, lot suivant).'));
-  else if (t === 'ssh' || t === 'k8s') body.appendChild(b.name && b._orig ? (t === 'ssh' ? stSshBox(b) : stKubeBox(b)) : stSecretWait(b, t));
+  if (t === 'podman' || t === 'docker') {
+    body.appendChild(b.name && b._orig ? stTlsBox(b) : stSecretWait(b, 'tls'));
+    for (const w of stWarns(b)) body.appendChild(el('div', 'stwarn', '⚠ ' + w));
+  } else if (t === 'ssh' || t === 'k8s') body.appendChild(b.name && b._orig ? (t === 'ssh' ? stSshBox(b) : stKubeBox(b)) : stSecretWait(b, t));
   // test par étapes (jusqu'à 45 s : état « en cours »)
   const test = el('button', 'btn sm pri', ST.test && ST.test.running && ST.test.name === b.name ? 'Test en cours…' : 'Tester');
   test.disabled = !!(ST.test && ST.test.running);
-  if (stUserSpace()) { test.disabled = true; test.title = 'bientôt disponible dans ton espace'; }
   test.onclick = () => stTest(b);
   const out = el('div', 'sttests'); out.id = 'sttests';
   stFillTests(out, b);
@@ -462,7 +476,7 @@ function stBackendForm(b) {
 
 function stSecretWait(b, t) {
   const box = el('div', 'stbox stssh'); const h = el('div', 'bh');
-  h.append(el('span', '', t === 'ssh' ? '🔑 Identifiants ssh' : '🔑 Kubeconfig'));
+  h.append(el('span', '', t === 'ssh' ? '🔑 Identifiants ssh' : t === 'tls' ? '🔐 TLS' : '🔑 Kubeconfig'));
   const bb = el('div', 'bb', b.name ? 'Enregistrez d\'abord le backend (bouton Enregistrer en bas de la fenêtre) : le coffre n\'accepte que les backends déclarés.' : 'Nommez puis enregistrez d\'abord le backend : le coffre n\'accepte que les backends déclarés.');
   box.append(h, bb); return box;
 }
@@ -471,7 +485,7 @@ function stSecretWait(b, t) {
 function stSecretRefresh(kind) {
   const box = $('st' + kind + 'box'), b = ST.draft && ST.draft.backends[ST.sel.backend];
   if (!box || !b || !ST[kind] || ST[kind].name !== b.name) return;
-  (kind === 'ssh' ? stSshFill : stKubeFill)(b, box);
+  ({ ssh: stSshFill, kube: stKubeFill, tls: stTlsFill })[kind](b, box);
 }
 
 // ── Identifiants ssh d'un backend (#194) : clé et empreinte de l'hôte, coffre du launcher ──
@@ -524,6 +538,7 @@ function stKubeFill(b, box) {
     const st = el('div');
     if (isPath) st.append(el('span', 'm', 'chemin : ' + b.kubeconfig), el('span', 'dim', '  (fichier du poste, jamais relu ici)'));
     else if (i.hasKubeconfig) st.append(el('span', 't-green', 'déposé'), el('span', 'dim', ' (contenu jamais affiché)' + when(i.kubeconfigModified)), b.kubeconfig ? el('span') : el('span', 't-orange', ' · non activé : enregistrer la fiche'));
+    else if (stUserSpace()) st.append(el('span', 't-orange', 'obligatoire : colle le kubeconfig de ton cluster (jamais le ServiceAccount du launcher)'));
     else st.append(el('span', 'dim', 'aucun : kubectl utilise le contexte du poste ou le ServiceAccount du pod'));
     bb.appendChild(st);
     const ctxs = i.kubeContexts || [];
@@ -539,7 +554,9 @@ function stKubeFill(b, box) {
       const ta = el('textarea', 'stin stta'); ta.rows = 6; ta.spellcheck = false; ta.autocomplete = 'off'; ta.placeholder = 'apiVersion: v1\nkind: Config\n…'; stKeep('kube:' + b.name, ta);
       const file = el('input'); file.type = 'file';
       file.onchange = () => { const f = file.files[0]; if (f) f.text().then((t) => { ta.value = t; }); };
-      bb.appendChild(stForm([['Fichier', file, 'ou coller le contenu ci-dessous'], ['Contenu', ta, 'formes *-data seulement (pas d\'exec, de chemins de fichiers ni de auth-provider) ; jamais relu après l\'envoi']]));
+      const hintKc = 'formes *-data seulement (pas d\'exec, de chemins de fichiers ni de auth-provider) ; jamais relu après l\'envoi';
+      if (stUserSpace()) { ta.rows = 10; ta.placeholder = 'apiVersion: v1\nkind: Config\n…   (colle le contenu ; formes *-data seulement, pas d\'exec ni de chemins)'; bb.appendChild(stForm([['Contenu', ta, hintKc + ' ; 64 Kio au plus']])); } // collage seulement : aucun chemin local (#257)
+      else bb.appendChild(stForm([['Fichier', file, 'ou coller le contenu ci-dessous'], ['Contenu', ta, hintKc]]));
       const bar = el('div', 'stbar');
       bar.append(stBtn('Enregistrer', () => act(async () => {
         let r;
@@ -555,6 +572,112 @@ function stKubeFill(b, box) {
   for (const w of K.warns || []) bb.appendChild(el('div', 't-orange', '⚠ ' + w));
   if (K.err) bb.appendChild(el('div', 't-red', '⚠ ' + K.err));
   box.append(h, bb);
+}
+// ── TLS docker/podman (#257, maquette M1 proposition A) : CA, certificat client et clé COLLÉS ─────────────────
+// Trois zones empilées, état PEM sous chaque zone ; une fois enregistré : « enregistré · sujet · empreinte · expire »
+// (la clé : « enregistrée », sans détail). Rien n'est jamais relu ni réaffiché ; zones vidées après l'envoi.
+const TLS_PARTS = [
+  ['ca', 'CA du serveur', 'ca.pem', 'exigée si le certificat du serveur est vérifié', /-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----/],
+  ['cert', 'Certificat client', 'cert.pem', 'certificat présenté au serveur', /-----BEGIN CERTIFICATE-----[\s\S]+-----END CERTIFICATE-----/],
+  ['key', 'Clé client', 'key.pem', 'clé privée non chiffrée, qui correspond au certificat', /-----BEGIN (RSA |EC )?PRIVATE KEY-----[\s\S]+-----END (RSA |EC )?PRIVATE KEY-----/],
+];
+// contrôle local léger (le serveur reste seul juge) : texte affiché sous la zone
+function stPemHint(part, v) {
+  v = String(v || '').trim();
+  if (!v) return null;
+  if (/ENCRYPTED/.test(v)) return { ok: false, t: 'clé chiffrée par mot de passe : colle la clé déchiffrée (openssl pkey -in key.pem)' };
+  if (v.length > 65536) return { ok: false, t: 'trop long (64 Kio au plus)' };
+  const re = TLS_PARTS.find((x) => x[0] === part)[4];
+  if (!re.test(v)) return { ok: false, t: part === 'key' ? 'illisible : bloc « PRIVATE KEY » attendu' : 'illisible : bloc « CERTIFICATE » attendu' };
+  if (part !== 'key' && (v.match(/-----BEGIN CERTIFICATE-----/g) || []).length > 1) return { ok: false, t: 'un seul certificat attendu' };
+  return { ok: true, t: part === 'key' ? 'bloc de clé reconnu' : 'bloc certificat reconnu' };
+}
+function stWarns(b) { // avertissements permanents de la fiche (#257)
+  const w = [];
+  if ((b.type === 'docker' || b.type === 'podman') && b.host && (!b.tls || !b.tls.enabled || b.tls.verify === false)) w.push('Accès docker sans TLS vérifié : quiconque atteint ce port est root sur l\'hôte. À réserver à un réseau de confiance.');
+  return w;
+}
+function stTlsBox(b) {
+  const box = el('div', 'stbox stssh'); box.id = 'sttlsbox';
+  if (!ST.tls || ST.tls.name !== b.name) { ST.tls = { name: b.name, info: null, edit: {}, msg: '', err: '', errs: {}, warns: [], busy: false, loading: true }; stTlsLoad(b); }
+  stTlsFill(b, box);
+  return box;
+}
+async function stTlsLoad(b) {
+  const T = ST.tls;
+  try { T.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { T.err = stErrText(e); }
+  T.loading = false;
+  if (ST.tls === T) stSecretRefresh('tls');
+}
+function stTlsFill(b, box) {
+  const T = ST.tls, info = (T.info && T.info.tls) || {};
+  box.textContent = '';
+  const h = el('div', 'bh'); h.append(el('span', '', '🔐 TLS'), el('span', 'dim', stUserSpace() ? ' — coffre du launcher (en clair), jamais réaffiché' : ' — coffre du launcher, jamais réaffiché'));
+  const bb = el('div', 'bb');
+  const redo = () => stSecretRefresh('tls');
+  const tl = b.tls || {};
+  const on = !!tl.enabled, verify = tl.verify !== false;
+  const chk = el('div', 'stchks');
+  chk.append(stCheck(on, 'activer TLS', (v) => { b.tls = { enabled: v, verify: v ? (b.tls ? b.tls.verify !== false : true) : true }; stRenderPage(); stRenderFoot(); }));
+  if (on) chk.append(stCheck(verify, 'vérifier le certificat du serveur', (v) => { b.tls = { enabled: true, verify: v }; stRenderPage(); stRenderFoot(); }));
+  bb.appendChild(chk);
+  if (on) {
+    if (T.loading) bb.appendChild(el('div', 'dim', 'lecture du coffre…'));
+    else {
+      const rows = [], inputs = {};
+      for (const [k, label, file, hint] of TLS_PARTS) {
+        const cur = info[k] || {};
+        const cell = el('div');
+        if (cur.present && !T.edit[k]) {
+          const st = el('div', 'pemst');
+          const det = k === 'key' ? [el('span', 'dim', ' (jamais affichée)')] : [cur.subject ? el('span', 'm', ' · ' + cur.subject) : null, cur.fingerprint ? el('span', 'dim', ' · ' + cur.fingerprint) : null, cur.expires ? el('span', 'dim', ' · expire le ' + new Date(cur.expires).toLocaleDateString('fr-FR')) : null].filter(Boolean);
+          st.append(el('span', 't-green', k === 'key' ? 'enregistrée' : 'enregistré'), ...det);
+          const bar = el('div', 'stbar');
+          bar.append(stBtn('Remplacer', () => { T.edit[k] = true; T.msg = ''; redo(); }, '', 'backendSecretSet'),
+            stBtn('Supprimer', () => { if (!confirm('Supprimer ' + (k === 'key' ? 'la clé client' : k === 'ca' ? 'la CA' : 'le certificat client') + ' du backend « ' + b.name + ' » ?')) return; stTlsAct(b, async () => { await call('backendSecretDelete', { backend: b.name, what: k }); T.msg = 'supprimé'; }); }, 'dg', 'backendSecretDelete'));
+          cell.append(st, bar);
+        } else {
+          const ta = el('textarea', 'stin stta'); ta.rows = k === 'key' ? 4 : 5; ta.spellcheck = false; ta.autocomplete = 'off';
+          ta.placeholder = k === 'key' ? 'Colle ici le contenu « -----BEGIN PRIVATE KEY----- … »' : 'Colle ici le contenu « -----BEGIN CERTIFICATE----- … »';
+          stKeep('tls:' + b.name + ':' + k, ta); inputs[k] = ta;
+          const hs = el('div', 'hint'); hs.id = 'pem-' + k;
+          const upd = () => { const r = stPemHint(k, ta.value); hs.textContent = r ? (r.ok ? '✓ ' : '✗ ') + r.t : ''; hs.className = 'hint ' + (r ? (r.ok ? 't-green' : 't-red') : ''); };
+          ta.addEventListener('input', upd); upd();
+          cell.append(ta, hs);
+          if (T.errs[k]) cell.appendChild(el('div', 't-red', '✗ ' + T.errs[k]));
+          if (T.edit[k]) cell.appendChild(stBtn('Annuler', () => { delete T.edit[k]; stKeepClear('tls:' + b.name + ':' + k); redo(); }));
+        }
+        rows.push([label + ' (' + file + ')', cell, hint]);
+      }
+      bb.appendChild(stForm(rows));
+      const bar = el('div', 'stbar');
+      bar.append(stBtn('Enregistrer les certificats', () => stTlsAct(b, async () => {
+        const args = { backend: b.name };
+        for (const k of Object.keys(inputs)) if (inputs[k].value.trim()) args[k] = inputs[k].value;
+        if (Object.keys(args).length === 1) { T.err = 'rien à enregistrer : colle au moins une zone'; return; }
+        let r;
+        try { r = await call('backendSecretSet', args); }
+        finally { for (const k of Object.keys(inputs)) { inputs[k].value = ''; stKeepClear('tls:' + b.name + ':' + k); } }
+        if (r.ok) { T.warns = r.warnings || []; for (const k of Object.keys(args)) delete T.edit[k]; T.msg = 'certificats enregistrés'; }
+        else { if (r.field) T.errs[r.field] = r.msg || 'refusé'; else T.err = r.msg || 'dépôt refusé'; }
+      }), 'pri', 'backendSecretSet'));
+      bar.append(el('span', 'dim', ' procédure côté hôte : docs.docker.com › Protect the Docker daemon socket'));
+      bb.appendChild(bar);
+    }
+  }
+  if (T.busy) bb.appendChild(el('div', 'dim', 'en cours…'));
+  if (T.msg) bb.appendChild(el('div', 't-green', T.msg));
+  for (const w of T.warns || []) bb.appendChild(el('div', 't-orange', '⚠ ' + w));
+  if (T.err) bb.appendChild(el('div', 't-red', '⚠ ' + T.err));
+  box.append(h, bb);
+}
+async function stTlsAct(b, fn) {
+  const T = ST.tls; if (!T || T.busy) return;
+  T.busy = true; T.err = ''; T.msg = ''; T.warns = []; T.errs = {}; stSecretRefresh('tls');
+  try { await fn(); } catch (e) { T.err = stErrText(e); }
+  T.busy = false;
+  try { T.info = await call('backendSecretGet', { backend: b.name }); } catch (e) { /* conservé */ }
+  if (ST.tls === T) { stSecretRefresh('tls'); stRenderFoot(); }
 }
 function stSshFill(b, box) {
   const S2 = ST.ssh, i = S2.info || {};
@@ -656,6 +779,16 @@ function stFillTests(out, b) {
     if (!s.ok && s.fix) out.appendChild(el('div', 'dim', '   → ' + s.fix));
   }
   if (t.err) out.appendChild(el('div', 't-red', t.err));
+  if (t.role) { // Role minimale suggérée (compte k8s trop puissant, ou droits manquants) : texte seulement, jamais de HTML
+    const d = el('details', 'strole'); d.append(el('summary', '', 'Role minimale suggérée'), el('pre', 'm', String(t.role)));
+    out.appendChild(d);
+  }
+}
+// messages d'erreur lisibles d'un appel d'utilisateur (limites, refus d'hôte)
+function stErrText(e) {
+  const m = String((e && e.message) || e || '');
+  if (/429|trop de tests|too many/i.test(m)) return 'Trop de tests : un seul à la fois, 6 par minute au plus. Réessaie dans une minute.';
+  return m;
 }
 
 async function stTest(b) {
@@ -664,8 +797,8 @@ async function stTest(b) {
   stRenderPage();
   try {
     const r = await call('backendTest', { backend: f });
-    ST.test = { name: b.name, running: false, steps: r.steps || [] };
-  } catch (e) { ST.test = { name: b.name, running: false, steps: [], err: e.message }; }
+    ST.test = { name: b.name, running: false, steps: r.steps || [], role: r.role || '' };
+  } catch (e) { ST.test = { name: b.name, running: false, steps: [], err: stErrText(e) }; }
   if (ST.on) stRenderPage();
 }
 
