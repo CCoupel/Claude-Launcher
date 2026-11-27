@@ -143,6 +143,13 @@ func userEngineSteps(b BackendConf) []TestStep {
 			return append(steps, userStep("certificats TLS", false, "CA du serveur requise pour vérifier le certificat (tls.verify)", "coller la CA du serveur dans l'encadré TLS"))
 		}
 		steps = append(steps, userStep("certificats TLS", true, "", ""))
+		ws, expired := tlsExpiry(Space{UID: "x"}.tlsInfos(d), time.Now())
+		for _, w := range ws {
+			steps = append(steps, TestStep{Label: "avertissement", Warn: true, Detail: w, Fix: "renouveler le certificat dans l'encadré TLS"})
+		}
+		if expired {
+			return steps
+		}
 	}
 	if _, err := runQuiet(15*time.Second, e.cli("version", "--format", "{{.Server.Version}}")...); err != nil {
 		return append(steps, userStep("démon joignable", false, "backend injoignable depuis la plateforme", "vérifier l'adresse, le port, le TLS et que le démon accepte les connexions depuis Internet"))

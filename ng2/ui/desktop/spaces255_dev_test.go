@@ -334,3 +334,21 @@ func TestSpacesAccessDenyServi257(t *testing.T) {
 		t.Errorf("backendKnownHostsSet doit rester refusé : %s", deny)
 	}
 }
+
+// Audit m4 : dépôts de secrets limités par minute (10 × le plafond de backendTest), fenêtre glissante.
+func TestSpacesAdmitSecret257(t *testing.T) {
+	u := &userSpace{}
+	now := time.Now()
+	max := 10 * core.UserTestsPerMinute()
+	for i := 0; i < max; i++ {
+		if m := u.admitSecret(now); m != "" {
+			t.Fatalf("dépôt %d/%d refusé : %s", i+1, max, m)
+		}
+	}
+	if m := u.admitSecret(now); !strings.Contains(m, "429") {
+		t.Errorf("dépôt au-delà du plafond accepté : %q", m)
+	}
+	if m := u.admitSecret(now.Add(61 * time.Second)); m != "" {
+		t.Errorf("fenêtre non glissante : %q", m)
+	}
+}

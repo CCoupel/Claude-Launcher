@@ -51,7 +51,7 @@ func UserSpace(uid string) (Space, error) {
 // SpaceOf : espace d'une identité du mode proxy. Un administrateur (compte local compris) a l'espace actuel ; un utilisateur
 // a le sien, d'après l'identifiant numérique de son login (ResolveUID). Erreur : ErrLoginReused, ErrLoginUnresolved.
 func SpaceOf(id Identity) (Space, error) {
-	if id.Role == RoleAdmin {
+	if id.Role == RoleAdmin || !UsersEnabled() { // users.enabled: false : espace commun, comme en v7.0.0
 		return AdminSpace(), nil
 	}
 	uid, err := ResolveUID(id.Login)
@@ -138,6 +138,9 @@ func (s Space) LoadBackends() ([]BackendConf, error) {
 			continue
 		}
 		if err := CheckUserBackendName(c.Name); err != nil { // échec fermé : le fichier entier est refusé
+			return nil, err
+		}
+		if err := userFieldsOK(c); err != nil { // défense en profondeur : le fichier a pu être posé hors de l'API (S14, S29)
 			return nil, err
 		}
 		c.user, c.vault = true, s.VaultDir() // S15 / S16 : son coffre, jamais celui de l'admin ni le ServiceAccount
@@ -429,6 +432,19 @@ func envInt(name string, def, lo, hi int) int {
 	return def
 }
 
+// UsersEnabledVar : « false » rend le comportement v7.0.0 (un espace commun : tout compte authentifié sert l'App de l'admin, avec ses
+// règles R1) ; posée par le chart (users.enabled).
+const UsersEnabledVar = "CL_USERS_ENABLED"
+
+// UsersEnabled : le routage par utilisateur est actif (défaut : oui).
+func UsersEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(UsersEnabledVar))) {
+	case "false", "0", "no", "non":
+		return false
+	}
+	return true
+}
+
 // UserMaxBackends : nombre maximal de backends d'un utilisateur (défaut 10, 1 à 100).
 func UserMaxBackends() int { return envInt(UsersMaxBackendsVar, 10, 1, 100) }
 
@@ -669,4 +685,29 @@ func userBackendOK(be map[string]any) bool {
 		return true
 	}
 	return false // host, ssh, type absent ou inconnu
+}
+
+// userFieldsOK : namespace, PVC, volume et hôte d'un backend lu du fichier d'un utilisateur respectent les formats (comme à
+// l'enregistrement) ; sans résolution DNS (revérifiée avant chaque appel).
+func userFieldsOK(c BackendConf) error {
+	bad := func(what string) error { return fmt.Errorf("backend « %s » : %s invalide", shortName(c.Name), what) }
+	switch c.Type {
+	case "k8s":
+		if !dnsLabelRE.MatchString(c.Namespace) {
+			return bad("namespace")
+		}
+		if c.PVC != "" && !dnsLabelRE.MatchString(c.PVC) {
+			return bad("pvc")
+		}
+	case "docker", "podman":
+		if _, _, err := parseUserEndpoint(c.Host, "tcp"); err != nil {
+			return errors.New("backend « " + shortName(c.Name) + " » : " + HostRefusal)
+		}
+		if c.Volume != "" && !volumeNameRE.MatchString(c.Volume) {
+			return bad("volume")
+		}
+	default:
+		return bad("type")
+	}
+	return nil
 }

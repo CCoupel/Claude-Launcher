@@ -3,6 +3,7 @@ package core
 import (
 	"claude-launcher-ng2/internal/testguard"
 	"fmt"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -16,6 +17,8 @@ func TestMain(m *testing.M) {
 	NoExecSelf = true                // jamais « <binaire de test> version » (#219)
 	TestIsolation = true             // écritures de config/secrets hors dossier temporaire refusées (isolation.go)
 	os.Setenv(TestIsolationVar, "1") // … aussi dans les sous-processus lancés par les tests
+	// résolution DNS des hôtes d'utilisateurs (échec fermé) : jamais le vrai DNS dans les tests — tout nom rend une IP publique
+	userHostResolver.Set(func(string) ([]net.IP, error) { return []net.IP{net.ParseIP("93.184.216.34")}, nil })
 	d, err := os.MkdirTemp("", "ng2-test-claude-")
 	if err != nil {
 		panic(err)

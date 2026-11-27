@@ -42,6 +42,7 @@ type userSpace struct {
 	tmu     sync.Mutex
 	tests   []time.Time
 	testing atomic.Bool
+	secrets []time.Time // backendSecretSet : même plafond par minute que backendTest
 }
 
 func (u *userSpace) touch() { u.last.Store(time.Now().UnixNano()) }
@@ -441,6 +442,11 @@ func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (a
 		return fail("le kubeconfig ne concerne que les backends k8s")
 	}
 	w := core.SecretWrite{Source: "navigateur", User: c.userLabel()}
+	if method == "backendSecretSet" { // analyse YAML 64 Kio et DNS : même plafond que backendTest (audit m4)
+		if msg := u.admitSecret(time.Now()); msg != "" {
+			return map[string]any{"ok": false, "status": 429, "msg": msg}, nil
+		}
+	}
 	switch method {
 	case "backendSecretGet":
 		return u.sp.SecretInfo(in.Backend)
@@ -461,7 +467,11 @@ func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (a
 		if err != nil {
 			return fail(err.Error())
 		}
-		return map[string]any{"ok": true, "tls": infos, "warnings": []string{}, "msg": "certificats enregistrés"}, nil
+		warns := core.TLSExpiryWarnings(infos)
+		if warns == nil {
+			warns = []string{}
+		}
+		return map[string]any{"ok": true, "tls": infos, "warnings": warns, "msg": "certificats enregistrés"}, nil
 	}
 	ctxs, fp, warns, err := u.sp.SecretSetKubeconfig(in.Backend, in.Kubeconfig, w)
 	if err != nil {
@@ -526,4 +536,23 @@ func userAccess(c webCall) core.AccessInfo {
 	}
 	ai.Deny = deny
 	return ai
+}
+
+// admitSecret : "" si le dépôt de secret peut partir ; sinon le message 429 (10 fois le plafond de backendTest par minute : un
+// collage s'essaie plusieurs fois, mais l'analyse YAML et le DNS ne sont pas illimités).
+func (u *userSpace) admitSecret(now time.Time) string {
+	u.tmu.Lock()
+	defer u.tmu.Unlock()
+	keep := u.secrets[:0]
+	for _, t := range u.secrets {
+		if now.Sub(t) < time.Minute {
+			keep = append(keep, t)
+		}
+	}
+	u.secrets = keep
+	if max := 10 * core.UserTestsPerMinute(); len(u.secrets) >= max { // 60/min par défaut : les essais d'un collage restent possibles
+		return fmt.Sprintf("429 : limite atteinte (%d dépôts de secret par minute)", max)
+	}
+	u.secrets = append(u.secrets, now)
+	return ""
 }

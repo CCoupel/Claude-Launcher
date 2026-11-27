@@ -4,6 +4,7 @@ import (
 	"claude-launcher-ng2/core"
 	"claude-launcher-ng2/internal/testguard"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -34,6 +35,7 @@ func TestMain(m *testing.M) {
 	}))
 	defer ghAPI.Close()
 	core.GithubUsersURL = ghAPI.URL + "/"
+	core.SetUserHostResolverForTest(func(string) ([]net.IP, error) { return []net.IP{net.ParseIP("93.184.216.34")}, nil }) // jamais le vrai DNS
 	claudeDir, cerr := os.MkdirTemp("", "ng2-test-claude-")
 	if cerr != nil {
 		panic(cerr)

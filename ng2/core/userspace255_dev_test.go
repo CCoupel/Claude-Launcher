@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -429,5 +430,119 @@ func TestModeleAdminPVCVolumeTLS257(t *testing.T) {
 	}
 	if ms := errMsgs(ValidateConfig(ConfBackends, out)); len(ms) != 0 { // admin : hôte LAN accepté
 		t.Errorf("admin : %v", ms)
+	}
+}
+
+// Audit LOT-3.1 M1 : résolution en erreur = refus (échec FERMÉ), non mis en cache ; l'admin n'est jamais soumis à la résolution.
+func TestDNSEchecFerme257(t *testing.T) {
+	s257Tools(t)
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	var calls atomic.Int64
+	fail := true
+	defer userHostResolver.Set(userHostResolver.Set(func(string) ([]net.IP, error) {
+		calls.Add(1)
+		if fail {
+			return nil, errors.New("SERVFAIL")
+		}
+		return []net.IP{net.ParseIP("93.184.216.34")}, nil
+	}))
+	resetResolveCache()
+	if err := CheckUserHost("tcp://docker.example.org:2376"); err == nil || err.Error() != HostRefusal {
+		t.Errorf("CheckUserHost avec résolution en erreur : %v", err)
+	}
+	if err := CheckUserServer("https://k8s.example.org:6443"); err == nil {
+		t.Error("CheckUserServer avec résolution en erreur accepté")
+	}
+	sp := s15Space(t, "github-9", "backends:\n  d:\n    type: docker\n    host: tcp://docker.example.org:2376\n    volume: v\n")
+	bs, err := sp.LoadBackends()
+	if err != nil || len(bs) == 0 {
+		t.Fatal(err)
+	}
+	if err := (Engine{bs[0]}).cmd("version").Run(); err == nil {
+		t.Error("docker lancé alors que la résolution échoue")
+	}
+	// l'erreur n'est pas mise en cache : le nom qui résout de nouveau est admis tout de suite
+	fail = false
+	if err := CheckUserHost("tcp://docker.example.org:2376"); err != nil {
+		t.Errorf("après retour du DNS : %v", err)
+	}
+	// admin : aucune résolution
+	fail = true
+	calls.Store(0)
+	if ms := errMsgs(ValidateConfig(ConfBackends, hb("tcp://nas.example.org:2375"))); len(ms) != 0 || calls.Load() != 0 {
+		t.Errorf("admin : %v, %d résolution(s)", ms, calls.Load())
+	}
+}
+
+// Audit m3 / m6 : DOCKER_CONFIG vide et privé ; fichier du coffre : lien symbolique ou droits larges refusés.
+func TestAuditM3M6Docker257(t *testing.T) {
+	f := s257Tools(t)
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	t.Setenv("CL_CACHE_DIR", t.TempDir())
+	_, b := s257Docker(t, true)
+	_ = (Engine{b}).cmd("version").Run()
+	if !strings.Contains(f.text(), "DOCKER_CONFIG="+dockerEmptyConfig()) {
+		t.Errorf("DOCKER_CONFIG doit désigner le dossier vide privé :\n%s", f.text())
+	}
+	if ents, _ := os.ReadDir(dockerEmptyConfig()); len(ents) != 0 {
+		t.Errorf("dossier de config docker non vide : %v", ents)
+	}
+	// droits trop larges sur la CA : refus, docker non lancé
+	ca := filepath.Join(b.vault, "d", "ca.pem")
+	_ = os.Chmod(ca, 0o644)
+	_ = os.Remove(f.log)
+	if err := (Engine{b}).cmd("version").Run(); err == nil || strings.Contains(f.text(), "ARGV") {
+		t.Errorf("CA en 0644 acceptée : %v\n%s", err, f.text())
+	}
+	// lien symbolique à la place du fichier
+	_ = os.Remove(ca)
+	target := filepath.Join(t.TempDir(), "autre.pem")
+	_ = os.WriteFile(target, []byte("x"), 0o600)
+	_ = os.Symlink(target, ca)
+	if err := (Engine{b}).cmd("version").Run(); err == nil || strings.Contains(f.text(), "ARGV") {
+		t.Errorf("lien symbolique accepté : %v", err)
+	}
+}
+
+// Audit m5 : LoadBackends d'un utilisateur revalide les champs lus du fichier (posé hors API).
+func TestAuditM5LoadBackendsRevalide257(t *testing.T) {
+	s15Setup(t)
+	for name, y := range map[string]string{
+		"namespace":   "backends:\n  k:\n    type: k8s\n    namespace: 'a;b'\n    kubeconfig: true\n",
+		"pvc":         "backends:\n  k:\n    type: k8s\n    namespace: ns\n    pvc: '../x'\n    kubeconfig: true\n",
+		"volume":      "backends:\n  d:\n    type: docker\n    host: tcp://93.184.216.34:2376\n    volume: /etc\n",
+		"host":        "backends:\n  d:\n    type: docker\n    host: tcp://10.0.0.1:2376\n",
+		"type ssh":    "backends:\n  d:\n    type: ssh\n    host: srv1\n",
+		"sans namesp": "backends:\n  k:\n    type: k8s\n    kubeconfig: true\n",
+	} {
+		sp := s15Space(t, "github-12", y)
+		if _, err := sp.LoadBackends(); err == nil {
+			t.Errorf("%s : chargé sans refus", name)
+		}
+	}
+}
+
+// Audit m6 : certificat expiré ou proche de l'expiration → avertissement.
+func TestAuditM6Expiration257(t *testing.T) {
+	now := time.Now()
+	w, expired := tlsExpiry(map[string]TLSCertInfo{"ca": {NotAfter: now.Add(-time.Hour).Format(time.RFC3339)}, "cert": {NotAfter: now.Add(10 * 24 * time.Hour).Format(time.RFC3339)}}, now)
+	if !expired || len(w) != 2 {
+		t.Errorf("expiration : %v expired=%v", w, expired)
+	}
+	if w, expired = tlsExpiry(map[string]TLSCertInfo{"ca": {NotAfter: now.Add(90 * 24 * time.Hour).Format(time.RFC3339)}}, now); expired || len(w) != 0 {
+		t.Errorf("certificat sain : %v", w)
+	}
+}
+
+// m2 : users.enabled: false → espace commun (comportement v7.0.0).
+func TestUsersEnabledFalse257(t *testing.T) {
+	t.Setenv(UsersEnabledVar, "false")
+	sp, err := SpaceOf(Identity{Login: "alice", Role: RoleUser})
+	if err != nil || !sp.Admin {
+		t.Errorf("users.enabled=false : %+v %v", sp, err)
+	}
+	t.Setenv(UsersEnabledVar, "")
+	if !UsersEnabled() {
+		t.Error("défaut : actif attendu")
 	}
 }

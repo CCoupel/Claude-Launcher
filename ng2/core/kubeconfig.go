@@ -163,6 +163,11 @@ func (b BackendConf) kubeconfigArgs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
+	if b.user { // fichier du coffre : régulier, pas un lien symbolique, droits ≤ 0600 (S23)
+		if serr := safeVaultFile(f); serr != nil {
+			return nil, errors.New("kubeconfig de l'utilisateur absent ou refusé (lien symbolique, droits trop larges)")
+		}
+	}
 	raw, rerr := os.ReadFile(f)
 	if rerr != nil && b.user { // utilisateur : jamais « kubectl échoue seul » (aucun repli possible) — kubectl n'est pas lancé
 		return nil, errors.New("kubeconfig de l'utilisateur absent ou illisible : le déposer dans les réglages du backend")

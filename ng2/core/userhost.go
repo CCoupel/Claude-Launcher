@@ -192,17 +192,17 @@ func checkResolved(name string) error {
 	}
 	resolveMu.Unlock()
 	ips, err := userHostResolver.Get()(name)
-	// une résolution qui échoue (aucune réponse) n'ouvre aucune adresse : l'outil échouera seul ; seule une réponse contenant une IP
-	// interdite est refusée. Le nom est revérifié avant chaque appel (cache de userHostCacheTTL), donc un nom qui se met à résoudre
-	// vers une IP interne est refusé dès l'appel suivant.
+	// échec FERMÉ (audit LOT-3.1, M1) : une résolution qui échoue ou ne rend rien est un refus, jamais mis en cache (le prochain appel
+	// réessaie) ; une seule IP interdite parmi celles rendues suffit à refuser.
+	if err != nil || len(ips) == 0 {
+		return errHostRefused
+	}
 	var res error
-	if err == nil {
-		for _, ip := range ips {
-			a, ok := netip.AddrFromSlice(ip)
-			if !ok || !ipAllowed(a) {
-				res = errHostRefused
-				break
-			}
+	for _, ip := range ips {
+		a, ok := netip.AddrFromSlice(ip)
+		if !ok || !ipAllowed(a) {
+			res = errHostRefused
+			break
 		}
 	}
 	resolveMu.Lock()
@@ -262,18 +262,22 @@ func (e Engine) userCli(args []string) []string {
 	if err := e.B.userHostGate(); err != nil {
 		return kubectlRefused(err)
 	}
-	out := envUnset()
+	out := append(envUnset(), "DOCKER_CONFIG="+dockerEmptyConfig())
 	switch e.B.Type {
 	case "docker":
 		out = append(out, "docker", "-H", e.B.Host)
 		if t := e.B.TLS; t != nil && t.Enabled {
 			d := filepath.Join(e.B.vault, e.B.Name)
+			use := func(f string) bool { return safeVaultFile(filepath.Join(d, f)) == nil }
 			if t.verifies() {
+				if !use("ca.pem") {
+					return kubectlRefused(errors.New("CA du serveur absente ou refusée"))
+				}
 				out = append(out, "--tlsverify", "--tlscacert="+filepath.Join(d, "ca.pem"))
 			} else {
 				out = append(out, "--tls")
 			}
-			if regularFile(filepath.Join(d, "cert.pem")) && regularFile(filepath.Join(d, "key.pem")) {
+			if use("cert.pem") && use("key.pem") {
 				out = append(out, "--tlscert="+filepath.Join(d, "cert.pem"), "--tlskey="+filepath.Join(d, "key.pem"))
 			}
 		}
@@ -293,4 +297,56 @@ func resetResolveCache() {
 	resolveMu.Lock()
 	resolveCache = map[string]resolvedHost{}
 	resolveMu.Unlock()
+}
+
+// SetUserHostResolverForTest : remplace le résolveur (tests d'autres paquets) et vide le cache ; rend la fonction de restauration.
+func SetUserHostResolverForTest(fn func(host string) ([]net.IP, error)) (restore func()) {
+	old := userHostResolver.Set(fn)
+	resetResolveCache()
+	return func() { userHostResolver.Set(old); resetResolveCache() }
+}
+
+// dockerEmptyConfig : dossier de configuration docker vide et privé — le $HOME/.docker/config.json du launcher (assistants
+// d'identifiants, registres) n'est jamais lu pour l'appel d'un utilisateur (audit LOT-3.1, m3).
+func dockerEmptyConfig() string {
+	d := filepath.Join(CacheDir(), "docker-empty")
+	_ = os.MkdirAll(d, 0o700)
+	return d
+}
+
+// safeVaultFile : fichier du coffre utilisable — régulier, pas un lien symbolique, droits ≤ 0600 (S23).
+func safeVaultFile(p string) error {
+	st, err := os.Lstat(p)
+	if err != nil {
+		return err
+	}
+	if !st.Mode().IsRegular() || st.Mode().Perm()&0o077 != 0 {
+		return errors.New("fichier du coffre refusé (lien symbolique ou droits trop larges)")
+	}
+	return nil
+}
+
+// tlsExpiry : avertissements sur les certificats enregistrés (expirés ou à moins de 30 jours) ; expired : au moins un l'est.
+func tlsExpiry(infos map[string]TLSCertInfo, now time.Time) (warns []string, expired bool) {
+	for _, k := range []string{"ca", "cert"} {
+		i, ok := infos[k]
+		if !ok {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, i.NotAfter)
+		switch {
+		case err != nil:
+		case now.After(t):
+			warns, expired = append(warns, "certificat « "+k+" » expiré"), true
+		case t.Sub(now) < 30*24*time.Hour:
+			warns = append(warns, "certificat « "+k+" » expire dans moins de 30 jours")
+		}
+	}
+	return warns, expired
+}
+
+// TLSExpiryWarnings : avertissements d'expiration des certificats enregistrés (UI).
+func TLSExpiryWarnings(infos map[string]TLSCertInfo) []string {
+	w, _ := tlsExpiry(infos, time.Now())
+	return w
 }
