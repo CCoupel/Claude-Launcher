@@ -1192,3 +1192,39 @@ func TestChartAuth172GithubUserCaseDuplicates(t *testing.T) {
 	sub(v, "auth")["users"] = []any{"ccoupel"}
 	t172Refused(t, v, "ccoupel")
 }
+
+// #255 (décision utilisateur au GATE LOT-2) : auth.admins vide permis quand le compte local admin@local est actif ;
+// refus conservé quand plus aucun administrateur ne serait possible.
+func TestChartAuth255AdminsVideAvecCompteLocal(t *testing.T) {
+	needHelm(t)
+	// admins vide + compte local actif : rendu accepté, aucun login administrateur côté launcher
+	v := t172Local()
+	sub(v, "auth")["admins"] = []any{}
+	sub(v, "auth")["users"] = []any{"alice"}
+	o := must(t, v)
+	if got := t172ArgPrefix(t172Args(t172Container(t, o, "auth-proxy")), "--github-user="); got != "--github-user=alice" {
+		t.Errorf("--github-user = %q, alice attendu", got)
+	}
+	// ni admins ni users : jamais « tout le monde » (login impossible), pas d'argument vide
+	delete(sub(v, "auth"), "users")
+	o = must(t, v)
+	if got := t172ArgPrefix(t172Args(t172Container(t, o, "auth-proxy")), "--github-user="); got != "--github-user=-" {
+		t.Errorf("--github-user = %q, « - » attendu (aucun compte autorisé)", got)
+	}
+	// admins absent (clé retirée) + compte local actif : accepté aussi
+	delete(sub(v, "auth"), "admins")
+	must(t, v)
+	// admins vide + compte local inactif : refusé
+	for _, drop := range []bool{false, true} {
+		w := t172Values()
+		if drop {
+			delete(sub(w, "auth"), "admins")
+		} else {
+			sub(w, "auth")["admins"] = []any{}
+		}
+		t172Refused(t, w, "auth.admins")
+	}
+	// avec un administrateur, comportement inchangé (compte local ou non)
+	must(t, t172Values())
+	must(t, t172Local())
+}

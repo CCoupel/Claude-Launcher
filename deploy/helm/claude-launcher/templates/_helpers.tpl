@@ -289,8 +289,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- if not (or $a.existingSecret $a.github.clientId) -}}
 {{- fail "auth.github.enabled : donner auth.existingSecret (recommandé : Secret du namespace, clés client-id et client-secret de la GitHub App) ou la paire auth.github.clientId / clientSecret" -}}
 {{- end -}}
-{{- if not $a.admins -}}
-{{- fail "auth.admins est obligatoire et non vide quand auth.github.enabled (logins GitHub administrateurs)" -}}
+{{- if and (not $a.admins) (not $a.localAdmin.enabled) -}}
+{{- fail "auth.admins est obligatoire et non vide quand auth.github.enabled, sauf si auth.localAdmin.enabled (compte local admin@local, sur l'hôte interne) : sans l'un ni l'autre, plus aucun administrateur" -}}
 {{- end -}}
 {{- end -}}
 {{- include "cl.checkLogins" (dict "name" "auth.admins" "list" $a.admins) -}}
@@ -379,7 +379,8 @@ app.kubernetes.io/instance: {{ .Release.Name }}
     - --provider=github
     {{- if $a.github.enabled }}
     # casse CONSERVÉE : oauth2-proxy compare le login GitHub à --github-user en respectant la casse (le launcher, lui, la ignore)
-    - --github-user={{ join "," $uniq }}
+    # aucun login (admins vide avec admin@local, users vide) : « - » n'est le login d'aucun compte GitHub (invalide) → personne ne passe le proxy, jamais « tout le monde »
+    - --github-user={{ if $uniq }}{{ join "," $uniq }}{{ else }}-{{ end }}
     {{- else }}
     # sans connexion GitHub : client factice (le bouton GitHub n'est pas rendu), aucun Secret exigé
     - --client-id=disabled

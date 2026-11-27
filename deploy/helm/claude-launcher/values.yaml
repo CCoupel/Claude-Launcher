@@ -90,7 +90,7 @@ auth:
     clientSecret: ""
   existingSecret: ""        # Secret du namespace, clés client-id et client-secret (GitHub App) — RECOMMANDÉ ; jamais la valeur ici.
                             # OBLIGATOIRE si github.enabled, sauf si github.clientId / github.clientSecret sont donnés (exclusifs)
-  admins: []                # OBLIGATOIRE non vide si github.enabled — logins GitHub, rôle admin (écritures sensibles R1 permises) ;
+  admins: []                # OBLIGATOIRE non vide si github.enabled, SAUF si localAdmin.enabled (admin@local, hôte interne seulement : les actions R1 se font alors depuis l'hôte interne) — logins GitHub, rôle admin (écritures sensibles R1 permises) ;
                             # copier le login TEL QU'AFFICHÉ par GitHub (casse comprise : oauth2-proxy la respecte)
   users: []                 # logins GitHub (casse de GitHub, comme admins), rôle user (terminaux et projets, pas d'écriture R1)
   localAdmin:               # compte local de secours admin@local (htpasswd d'oauth2-proxy), jamais sur l'hôte externe
