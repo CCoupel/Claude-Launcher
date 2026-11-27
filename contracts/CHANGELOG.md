@@ -2,6 +2,13 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.2 (#275) : recréation du conteneur après confirmation (P27)
+
+- **[CHANGED]** `user-backends.md` §5 bis : `shm_size` / `gpus` modifiés après la création → conteneur **recréé après
+  confirmation** (liste de ce qui est perdu ou gardé ; projet ouvert fermé d'abord), avec retour arrière (ancien conteneur
+  renommé puis restauré si la recréation échoue) ; volume jamais touché ; audit `project.recreate`. `cpus`, `memory`,
+  `pids_limit` restent modifiables à chaud.
+
 ## [20261127] — v7.1.0 LOT-3.2 (#275) : réseaux privés par paramètre, limite de projets, options par projet
 
 - **[NEW]** Helm `users.allowPrivateNetworks` (défaut `false`, `CL_USERS_ALLOW_PRIVATE`) : plages privées et noms internes

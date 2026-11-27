@@ -333,8 +333,24 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   avec un message nommé (`field: "pod.<chemin>"` / `"container.<champ>"`).
 - **Modification après création** :
   - k8s : patch du StatefulSet, appliqué au prochain démarrage du pod ;
-  - docker/podman : `cpus`, `memory`, `pids_limit` changés par `docker update`, sans recréer ; `shm_size` et `gpus` sont
-    fixés à la création (changement → refus nommé, voir P27).
+  - docker/podman : `cpus`, `memory`, `pids_limit` changés **à chaud** par `docker update`, sans recréer. `shm_size` et
+    `gpus` ne se changent pas sur un conteneur existant : le changement **recrée le conteneur après confirmation**
+    (P27 tranché).
+- **Recréation d'un conteneur (P27)** :
+  - **Confirmation explicite** : la boîte de dialogue liste ce qui est **perdu** (tout ce qui a été installé ou modifié dans
+    le conteneur hors du volume : paquets, fichiers hors `/space`) et ce qui est **gardé** (dossier du projet, `.claude`,
+    état et approbation sous `.claude-launcher/`, tous dans le volume).
+  - **Session claude en cours ou terminal ouvert** : la confirmation annonce que le projet sera d'abord fermé (comme
+    « Fermer ») ; sans confirmation, rien ne change.
+  - **Déroulé, avec retour arrière** :
+    1. arrêt du conteneur ;
+    2. renommage en `<nom>-old-<horodatage>` ;
+    3. création du nouveau conteneur (mêmes labels, nouvelles options, même volume) puis démarrage ;
+    4. succès → suppression de l'ancien ;
+    5. échec à l'étape 3 → suppression du nouveau, ancien renommé et redémarré s'il tournait, erreur nommée.
+  - Le volume n'est jamais touché. Audit `project.recreate` (options changées, résultat, sans contenu).
+  - k8s : rien de tel. Un changement d'options patche le StatefulSet, et le pod est recréé à son prochain démarrage (un pod k8s ne garde
+    jamais ses installations hors volume).
 
 ## 6. Projet arrêté **[NEW]** (P9, principe P18)
 
