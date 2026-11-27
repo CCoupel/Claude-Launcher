@@ -98,7 +98,7 @@ func parseUserKubeconfig(raw []byte) (contexts []string, current string, warning
 				return nil, "", nil, errors.New("kubeconfig refusé : proxy ou fichier du poste dans un cluster (utiliser certificate-authority-data, sans proxy)")
 			}
 		}
-		h, _, err := parseUserEndpoint(ciStr(cl, "server"), "https") // forme (sans DNS) ; résolution groupée ci-dessous
+		h, _, err := parseUserEndpointPath(ciStr(cl, "server"), "https", true) // forme (sans DNS) ; résolution groupée ci-dessous
 		if err != nil {
 			return nil, "", nil, err
 		}

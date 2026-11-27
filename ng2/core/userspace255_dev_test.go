@@ -593,3 +593,22 @@ func TestResolutionValidationBornee257(t *testing.T) {
 		t.Errorf("noms non résolus dans le délai acceptés : %v", ms)
 	}
 }
+
+// Serveur d'API avec chemin (Rancher /k8s/clusters/…) : admis si l'hôte et le port sont bornés ; chemins douteux refusés.
+func TestServeurAvecCheminRancher257(t *testing.T) {
+	for _, ok := range []string{"https://93.184.216.34:443/k8s/clusters/c-m-abc12345", "https://rancher.example.org:443/k8s/clusters/local/"} {
+		if err := CheckUserServer(ok); err != nil {
+			t.Errorf("%q refusé : %v", ok, err)
+		}
+	}
+	for _, bad := range []string{"https://10.0.0.1:443/k8s/clusters/x", "https://93.184.216.34:443/../x", "https://93.184.216.34:443/a?b=1", "https://93.184.216.34:443/a#f",
+		"https://93.184.216.34:443/a b", "https://93.184.216.34/k8s/clusters/x", "https://u@93.184.216.34:443/x", "https://93.184.216.34:443//x"} {
+		if err := CheckUserServer(bad); err == nil {
+			t.Errorf("%q accepté", bad)
+		}
+	}
+	// un docker « host » n'admet jamais de chemin
+	if err := CheckUserHost("tcp://93.184.216.34:2376/x"); err == nil {
+		t.Error("chemin accepté pour un hôte docker")
+	}
+}

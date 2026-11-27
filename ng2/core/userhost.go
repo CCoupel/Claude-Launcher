@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -87,6 +88,15 @@ func splitHostPort(hp string) (host string, port int, err error) {
 // parseUserEndpoint : « scheme://hôte:port » → (hôte canonique, port). Refus de toute forme non canonique : userinfo, chemin, requête,
 // fragment, zone IPv6, caractères de contrôle, espaces, numérique non « a.b.c.d », nom interne, IP interdite. Aucune résolution.
 func parseUserEndpoint(raw, scheme string) (host string, port int, err error) {
+	return parseUserEndpointPath(raw, scheme, false)
+}
+
+// serverPathRE : chemin d'un serveur d'API (Rancher : /k8s/clusters/c-xxxx) — segments simples, jamais « .. », requête ni fragment.
+var serverPathRE = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+/?$`)
+
+// parseUserEndpointPath : parseUserEndpoint ; path vrai : un chemin sûr est admis après « hôte:port » (l'hôte et le port, seuls
+// responsables de la destination, restent bornés ; le chemin ne change ni l'IP ni le port atteints).
+func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int, err error) {
 	if len(raw) > 300 {
 		return "", 0, errHostRefused
 	}
@@ -100,8 +110,11 @@ func parseUserEndpoint(raw, scheme string) (host string, port int, err error) {
 		return "", 0, errHostRefused
 	}
 	rest := raw[len(pre):]
-	if strings.ContainsAny(rest, "/") {
-		return "", 0, errHostRefused
+	if i := strings.IndexByte(rest, '/'); i >= 0 {
+		if !path || !serverPathRE.MatchString(rest[i:]) || strings.Contains(rest[i:], "..") {
+			return "", 0, errHostRefused
+		}
+		rest = rest[:i]
 	}
 	h, port, err := splitHostPort(rest)
 	if err != nil {
@@ -225,7 +238,7 @@ func CheckUserHost(raw string) error {
 
 // CheckUserServer : « https://hôte:port » (serveur d'un kubeconfig) — mêmes règles, https obligatoire.
 func CheckUserServer(raw string) error {
-	h, _, err := parseUserEndpoint(raw, "https")
+	h, _, err := parseUserEndpointPath(raw, "https", true)
 	if err != nil {
 		return err
 	}
