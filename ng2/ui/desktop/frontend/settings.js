@@ -29,7 +29,7 @@ const stClone = (o) => JSON.parse(JSON.stringify(o));
 // Toute modification du brouillon efface un refus d'enregistrement : le serveur rejugera au prochain essai. Sans cela les
 // erreurs du refus restaient et « Enregistrer » restait grisé après correction (#257, B6/B9).
 function stEdited() {
-  if (ST.result && ST.result.refused) ST.result = null;
+  if (ST.result && (ST.result.refused || ST.result.saved)) ST.result = null; // un message d'avant la modification ne vaut plus
   if (ST.fieldErr) { ST.fieldErr = null; document.querySelectorAll('#stpg .bad').forEach((x) => x.classList.remove('bad')); document.querySelectorAll('#stpg .fielderr').forEach((x) => x.remove()); }
 }
 const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
@@ -262,7 +262,10 @@ async function stSaveUser() {
   const d = ST.draft; if (!d) return;
   const news = d.backends.filter((b) => !b._orig && !b.implicit);
   const isNew = new Set(news.map((b) => b.name));
-  const ch = stBuildChanges().filter((c) => !(c.op === 'set' && c.at && c.at[0] === 'backends' && isNew.has(c.at[1])));
+  const all = stBuildChanges().filter((c) => !(c.op === 'set' && c.at && c.at[0] === 'backends' && isNew.has(c.at[1])));
+  // suppression d'un backend existant : `userBackendRemove` (déclaration, coffre et traces ; rien chez l'utilisateur)
+  const rm = all.filter((c) => c.op === 'delete' && c.at && c.at[0] === 'backends').map((c) => c.at[1]);
+  const ch = all.filter((c) => !(c.op === 'delete' && c.at && c.at[0] === 'backends'));
   const reload = async (rest) => { const pg = ST.page; await stLoad(); ST.page = pg; if (ST.draft) for (const b of rest) ST.draft.backends.push(b); };
   const refuse = async (b, r, added) => {
     if (added.length) await reload(news.filter((x) => !added.includes(x)));
@@ -273,6 +276,15 @@ async function stSaveUser() {
     ST.result = { problems: [{ severity: 'error', message: (b ? 'backend « ' + b.name + ' » : ' : '') + (r.msg || 'refusé') }], refused: true };
     stRender();
   };
+  const fresh = async () => { try { const m = await call('configModel', { kind: 'backends.yaml' }); ST.mtime = m.mtime; ST.exists = m.exists; } catch (e) { /* relu au rechargement */ } };
+  for (const name of rm) {
+    let r;
+    try { r = await call('userBackendRemove', { name }); }
+    catch (e) { ST.result = { problems: [{ severity: 'error', message: stErrText(e) }], refused: true }; stRenderFoot(); return; }
+    if (!r || r.ok === false) { ST.result = { problems: [{ severity: 'error', message: 'backend « ' + name + ' » : ' + ((r && r.msg) || 'suppression refusée') }], refused: true }; stRenderFoot(); return; }
+    await fresh();
+  }
+  if (!ch.length && !news.length && rm.length) { const pg = ST.page; await stLoad(); ST.page = pg; ST.result = { saved: true, note: '', warn: '', problems: [] }; stRender(); stPoll(); return; }
   if (ch.length) {
     let r;
     try { r = await call('configApply', { kind: 'backends.yaml', path: '', mtime: ST.mtime, changes: ch }); }
@@ -292,7 +304,7 @@ async function stSaveUser() {
     catch (e) { await refuse(b, { msg: stErrText(e) }, added); return; }
     if (!r || r.ok === false) { await refuse(b, r || {}, added); return; }
     added.push(b); for (const w of r.warnings || []) warns.push(w);
-    try { const m = await call('configModel', { kind: 'backends.yaml' }); ST.mtime = m.mtime; ST.exists = m.exists; } catch (e) { /* relu au rechargement */ }
+    await fresh();
   }
   const pg = ST.page; await stLoad(); ST.page = pg; ST.fieldErr = null;
   ST.result = { saved: true, note: '', warn: warns.join(' · '), problems: [] };
@@ -701,6 +713,7 @@ function stDraftSecrets(b) {
     chk.append(stCheck(on, 'activer TLS', (v) => { b.tls = { enabled: v, verify: v ? (b.tls ? b.tls.verify !== false : true) : true }; stRenderPage(); stRenderFoot(); }));
     if (on) chk.append(stCheck(verify, 'vérifier le certificat du serveur', (v) => { b.tls = { enabled: true, verify: v }; stRenderPage(); stRenderFoot(); }));
     bb.appendChild(chk);
+    { const e = errLine('tls'); if (e) bb.appendChild(e); }
     if (on) {
       const rows = [];
       for (const [k, label, file, hint] of TLS_PARTS) {
