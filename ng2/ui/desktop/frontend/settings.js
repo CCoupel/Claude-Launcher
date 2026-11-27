@@ -383,7 +383,7 @@ function stPageBackends(p) {
       d.backends.splice(ST.sel.backend, 1); ST.test = null; stRenderPage(); stRenderFoot();
     }, 'dg'));
   left.appendChild(bar);
-  left.appendChild(el('p', 'note', 'podman / docker : adresse (tcp:// ou ssh://) ou groupe de serveurs ou pool, contexte, stockage partagé. ssh : destination(s) ou pool, moteur, adresse du démon distant. k8s : contexte, namespace, volumes (racine → PVC), répartition, options du pod. hôte : aucun champ.'));
+  if (!stUserSpace()) left.appendChild(el('p', 'note', 'podman / docker : adresse (tcp:// ou ssh://) ou groupe de serveurs ou pool, contexte, stockage partagé. ssh : destination(s) ou pool, moteur, adresse du démon distant. k8s : contexte, namespace, volumes (racine → PVC), répartition, options du pod. hôte : aucun champ.'));
   const b = d.backends[ST.sel.backend];
   if (b) split.appendChild(stBackendForm(b));
 }
