@@ -93,7 +93,7 @@
 |-------|--------|-----------------|----------------|------|
 | 1 | Se connecter a QUALIF avec le compte A (autorise) | Interface sans backend : message « Ajoute ton premier backend » ; identite affichee | | |
 | 2 | Dans un autre navigateur (profil prive), se connecter avec le compte B | Meme etat vide pour B, identite de B affichee | | |
-| 3 | Compte admin : ouvrir la liste des utilisateurs | A et B listes avec nombre de backends et etat, jamais d'identifiant | | |
+| 3 | Compte admin : ouvrir la liste des utilisateurs (`userList`) | **API seule en v7.1.0 — interface en #278 (v7.2.0)** : appel d'API `userList` : A et B listes avec nombre de backends et etat, jamais d'identifiant (aucun ecran a chercher) | | |
 | 4 | Compte admin : verifier son arbre de projets | Espace habituel de l'admin, inchange | | |
 | 5 | Compte A : ouvrir une adresse `/files/...` d'un projet de l'admin | Refus (404/403), rien de l'espace admin visible | | |
 | 6 | Compte A : cliquer « + Ajouter un backend » | Reglages › Backends s'ouvre SANS « Lecture impossible » ni « indisponible dans votre espace » ; liste vide, bouton d'ajout actif | | |
@@ -114,6 +114,18 @@ Decision utilisateur au GATE LOT-2 : l'isolement est valide en LOT-2 ; la creati
 |-------|--------|-----------------|----------------|------|
 | 1 | Compte A : « Mon espace › Backends », ajouter un backend k8s (nom, namespace, PVC), coller un kubeconfig a jeton, « Tester » puis « Enregistrer » | Enregistrement accepte (aucune erreur), le backend est liste apres relecture, l'ecran « Ajoute ton premier backend » disparait | | |
 | 2 | Recharger la page | Backend toujours present ; kubeconfig jamais reaffiche (empreinte seulement) ; rubriques reservees a l'admin non proposees ou refusees clairement | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+### Cas LOT-3.1 — Bornage du host d'un backend docker/podman (SSRF)
+
+Reporte du GATE LOT-2 (commentaire du scenario `unix://` : « un tcp://127.0.0.1 est accepte »).
+
+**Validation** : AUTO (test Go a ecrire avec le dev) — **Issues** : #257
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Utilisateur : enregistrer un backend docker avec `host` = `tcp://127.0.0.1:2375`, `tcp://localhost:2375`, `tcp://169.254.169.254:80`, une adresse interne (10.x, 172.16-31.x, 192.168.x, `[::1]`) | Refus avec un message clair, backend non cree (les adresses de l'infrastructure de la plateforme ne sont jamais joignables par un utilisateur) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
