@@ -48,10 +48,28 @@
 
 ---
 
+### Scenario 4 — Batch 2 : projets sur le backend de l'utilisateur (etiquette `s275proj` pour la couche Go)
+
+**Validation** : AUTO — **Issues** : #275
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `cd ng2 && go test -tags s275proj ./core -run 'TestProj275|TestTrust275'` (API proposee en en-tete) | PASS : decouverte par `cl.user` (jamais un objet d'un autre uid, sans label, ancien ou sauvegarde), 31e projet refuse avant toute commande, creer / cloner (dans le conteneur, sous 2000:2000, arguments positionnels) / deplacer / supprimer sur faux moteur, aucun stockage cree (`create pvc`, `volume create`), aucun `git` du launcher, `cl.meta` / `state.json` bornes (≤ 4 Kio, schema fixe, valeurs inertes), `PlanStart` (Ouvrir demarre avec session, F5 demarre sans session puis relit, le sondage ne relance jamais), approbation scellee HMAC (forgee, copiee, cle changee, MAC tronque, JSON duplique, > 16 Kio, encodage non ambigu, cle O_EXCL 0600) | | |
+| 2 | `cd ng2 && go test ./ui/desktop -run TestProj275` | PASS : `/files` d'un projet arrete → 404 sans aucune commande ; Purger = trace seulement, aucune commande vers le backend | | |
+| 3 | `cd ng2 && go test ./core -run 'TestT16Reprise|TestT14Motif'` | PASS : la sauvegarde `<nom>-old-<ns>-<aleatoire>` n'est reconnue qu'avec les etiquettes d'origine (cl.user = l'appelant, etiquettes qui redonnent le nom nominal) ou cl.recreate-of / cl.state=old ; un projet « x-old-… » jamais touche ; motif `-old-<chiffres>` refuse partout | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Base du plan de test HUMAIN du GATE LOT-3
 
-`ccoupel` (utilisateur) sur les backends de test de QUALIF (parametre LAN actif) : projet cree, demarre, terminal, F5, projet arrete, Purger,
-options de pod / conteneur (a completer au GATE).
+`ccoupel` (utilisateur) sur les backends de test de QUALIF (parametre LAN actif `users.allowPrivateNetworks: true`), scenarios HUMAIN provisoires :
+(1) creer un projet sur k8s puis sur docker, labels et limite ; (2) demarrer, ouvrir un terminal, session claude ; (3) F5 sur un projet arrete : demarre sans session, etat relu ;
+(4) projet arrete : etat date (branche, modifie) lu sans demarrer, `/files` → 404 ; (5) Fermer puis constater l'absence de relance par le sondage ;
+(6) options de pod / conteneur (CPU, memoire, zone JSON, refus nommes avec chemin), recreation avec confirmation (shm_size) ;
+(7) stockage `root:root` : premiere ouverture OK (chown par le bootstrap), 2e ouverture sans chown, stockage refusant le chown : refus nomme avec `chown -R 2000:2000` ;
+(8) namespace en PSA restricted : refus nomme ; (9) Purger un projet disparu : fichiers conserves ; (10) approbation d'un env.yaml clone, image ≠ defaut refusee.
 
 ## Notes QA
 
