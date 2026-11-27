@@ -97,7 +97,23 @@
 | 4 | Compte admin : verifier son arbre de projets | Espace habituel de l'admin, inchange | | |
 | 5 | Compte A : ouvrir une adresse `/files/...` d'un projet de l'admin | Refus (404/403), rien de l'espace admin visible | | |
 | 6 | Compte A : cliquer « + Ajouter un backend » | Reglages › Backends s'ouvre SANS « Lecture impossible » ni « indisponible dans votre espace » ; liste vide, bouton d'ajout actif | | |
-| 7 | Compte A : ajouter un backend k8s (namespace) puis « Enregistrer » | Enregistrement accepte, le backend apparait apres relecture, l'ecran « sans backend » disparait ; les rubriques reservees a l'admin ne sont pas proposees ou sont refusees clairement | | |
+| 7 | Compte A : dans « Mon espace › Backends », ajouter un backend docker `host: unix:///var/run/docker.sock` puis « Enregistrer » | Enregistrement refuse avec un message clair (moteur local interdit a un utilisateur), backend non cree | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+## Reporte en LOT-3.1 (#257) — base du plan de test LOT-3.1
+
+Decision utilisateur au GATE LOT-2 : l'isolement est valide en LOT-2 ; la creation complete d'un backend est testee en LOT-3.1.
+**Ne PAS valider en LOT-2** (un k8s sans kubeconfig replie sur le ServiceAccount du launcher, interdit en LOT-3.1).
+
+### Scenario LOT-3.1 — Enregistrer un backend k8s valide
+
+**Validation** : HUMAIN — **Issues** : #257
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | Compte A : « Mon espace › Backends », ajouter un backend k8s (nom, namespace, PVC), coller un kubeconfig a jeton, « Tester » puis « Enregistrer » | Enregistrement accepte (aucune erreur), le backend est liste apres relecture, l'ecran « Ajoute ton premier backend » disparait | | |
+| 2 | Recharger la page | Backend toujours present ; kubeconfig jamais reaffiche (empreinte seulement) ; rubriques reservees a l'admin non proposees ou refusees clairement | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
