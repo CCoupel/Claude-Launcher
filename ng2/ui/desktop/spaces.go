@@ -130,7 +130,7 @@ var userMethods = map[string]bool{
 	"configModel": true, "configApply": true, "backendStates": true,
 	"backendSecretSet": true, "backendSecretGet": true, "backendSecretDelete": true, "backendTest": true,
 	"userBackendAdd": true, "userBackendRemove": true,
-	"select": true, "cardsFor": true, "refresh": true, "refreshProject": true, "projectPurge": true, "newInfo": true, "create": true,
+	"select": true, "cardsFor": true, "refresh": true, "refreshProject": true, "projectPurge": true, "projectMove": true, "projectDelete": true, "newInfo": true, "create": true,
 	"projectSettings": true, "projectApply": true,
 }
 
@@ -169,7 +169,7 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return u.secretCall(c, method, raw)
 	case "backendTest":
 		return u.backendTest(c, raw)
-	case "select", "cardsFor", "refresh", "refreshProject", "projectPurge", "newInfo", "create", "projectSettings", "projectApply":
+	case "select", "cardsFor", "refresh", "refreshProject", "projectPurge", "projectMove", "projectDelete", "newInfo", "create", "projectSettings", "projectApply":
 		return u.projectCall(c, method, raw)
 	case "userBackendAdd":
 		return u.backendAdd(c, raw)

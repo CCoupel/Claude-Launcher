@@ -100,7 +100,7 @@ func TestUserProjets275Parcours(t *testing.T) {
 		"nom invalide":    {"backend": "d", "category": "cat", "name": "Pas Valide"},
 		"motif réservé":   {"backend": "d", "category": "cat", "name": "x-old-123"},
 		"backend inconnu": {"backend": "zz", "category": "cat", "name": "n"},
-		"dépôt à cloner":  {"backend": "d", "category": "cat", "name": "n2", "repo": "https://github.com/a/b"},
+		"dépôt invalide":  {"backend": "d", "category": "cat", "name": "n2", "repo": "ext::sh -c id"},
 		"image hostile":   {"backend": "d", "category": "cat", "name": "n3", "image": "-v /:/h"},
 	} {
 		if r := call("create", a); r["ok"] != false {

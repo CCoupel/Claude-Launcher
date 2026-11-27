@@ -748,6 +748,7 @@ func (w *webBridge) handler() http.Handler {
 			}
 			w.auditCall(r, id, req.Method, req.Args, res, err, userTarget(req.Method, req.Args), refused)
 			w.auditBackendCall(r, id, req.Method, req.Args, res, err)
+			w.auditRecreate(r, id, req.Method, req.Args, res)
 			out := map[string]any{"result": res}
 			if err != nil {
 				out["error"] = err.Error()
@@ -1332,3 +1333,27 @@ func (w *webBridge) auditBackendCall(r *http.Request, id *core.Identity, method 
 }
 
 var auditNameRE = regexp.MustCompile(`^[a-z0-9-]*$`)
+
+// auditRecreate : audit « project.recreate » d'une recréation CONFIRMÉE de conteneur (projectApply avec jeton) : utilisateur, projet, résultat ; jamais
+// les options ni le jeton.
+func (w *webBridge) auditRecreate(r *http.Request, id *core.Identity, method string, args json.RawMessage, res any) {
+	if w.audit == nil || id == nil || method != "projectApply" {
+		return
+	}
+	var a struct {
+		Path    string `json:"path"`
+		Confirm string `json:"confirm"`
+	}
+	if json.Unmarshal(args, &a) != nil || a.Confirm == "" {
+		return
+	}
+	ok := false
+	if m, isMap := res.(map[string]any); isMap {
+		ok, _ = m["ok"].(bool)
+	}
+	es := ""
+	if !ok {
+		es = "refused"
+	}
+	_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: "project.recreate", Target: a.Path, OK: ok, Err: es})
+}

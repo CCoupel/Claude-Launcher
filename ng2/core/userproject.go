@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -237,4 +239,38 @@ func UserDefaultImage() string {
 		return l[0]
 	}
 	return "docker.io/library/debian:12"
+}
+
+// ensureUser : Ensure d'un backend d'utilisateur — jamais le chemin de l'admin : constructeurs dédiés (création puis démarrage), image validée,
+// propriétaire contrôlé. proj : « /space/PROJETS/<catégorie>/<projet> ». Rend le nom du conteneur (k8s : du pod).
+func (e Engine) ensureUser(proj string, env EnvSpec, log io.Writer) (string, error) {
+	rest, ok := strings.CutPrefix(proj, "/space/PROJETS/")
+	cat, name, ok2 := strings.Cut(rest, "/")
+	if !ok || !ok2 || ValidUserProjectName(cat) != "" || ValidUserProjectName(name) != "" {
+		return "", errors.New("projet d'utilisateur : chemin invalide")
+	}
+	if env.Image == "" {
+		env.Image = UserDefaultImage()
+	}
+	obj := e.ObjectName(cat, name)
+	objs, _ := e.listObjects()
+	exists := false
+	for _, o := range objs {
+		exists = exists || o.Name == obj
+	}
+	if !exists {
+		fmt.Fprintf(log, "  création du projet %s/%s\n", cat, name)
+		if err := e.CreateUserProject(cat, name, env.Image); err != nil {
+			return "", err // ExplainApplyError déjà appliqué par CreateUserProject (PSA baseline)
+		}
+		if err := e.startRaw(cat, name); err != nil {
+			return "", err
+		}
+	} else if err := e.StartUserProject(cat, name); err != nil {
+		return "", err
+	}
+	if e.B.K8s() {
+		return obj + "-0", nil
+	}
+	return obj, nil
 }

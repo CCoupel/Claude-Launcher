@@ -171,6 +171,9 @@ func (e Engine) k8sPodCurrent(pod string, env EnvSpec) bool {
 }
 
 func (e Engine) k8sEnsure(proj string, env EnvSpec, log io.Writer) (string, error) {
+	if e.B.user {
+		return e.ensureUser(proj, env, log)
+	}
 	if err := e.checkShared(proj); err != nil {
 		return "", err
 	}

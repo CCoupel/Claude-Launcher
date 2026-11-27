@@ -1096,6 +1096,9 @@ func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 	if err := refusalErr(e.B); err != nil {
 		return "", err
 	}
+	if e.B.user { // backend d'utilisateur : constructeurs dédiés, jamais le chemin de l'admin
+		return e.ensureUser(proj, env, log)
+	}
 	if e.B.K8s() {
 		return e.k8sEnsure(proj, env, log)
 	}

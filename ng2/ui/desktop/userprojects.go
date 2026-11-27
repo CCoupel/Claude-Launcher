@@ -52,6 +52,7 @@ type userDisc struct {
 }
 
 type userProjects struct {
+	pr   *core.Prober
 	mu   sync.Mutex
 	disc map[string]*userDisc
 }
@@ -86,19 +87,43 @@ func (u *userSpace) discover(force bool) (map[string]*userDisc, []core.BackendCo
 	out := map[string]*userDisc{}
 	for _, b := range bs {
 		d := u.proj.disc[b.Name]
-		if d == nil || force || time.Since(d.at) > userDiscTTL {
-			ps, derr := es[b.Name].DiscoverUserProjects()
-			d = &userDisc{at: time.Now(), projects: ps, err: derr, loaded: true}
+		if d == nil || force { // première lecture ou demande explicite : synchrone
+			d = u.probeOnce(b, es[b.Name])
 			u.proj.disc[b.Name] = d
-			if derr == nil {
-				for _, p := range ps {
-					_ = u.sp.RecordTrace(core.Trace{Backend: b.Name, Kind: b.Type, Object: p.Object, Project: p.Project, Category: p.Category})
+		} else if time.Since(d.at) > userDiscTTL { // rafraîchissement : sondeur (10 s → 5 min d'attente en cas d'échec, 16 en vol au plus), hors de l'appel
+			b, e := b, es[b.Name]
+			u.proj.prober().Run(b.Name, func() error {
+				nd := u.probeOnce(b, e)
+				u.proj.mu.Lock()
+				if u.proj.disc != nil {
+					u.proj.disc[b.Name] = nd
 				}
-			}
+				u.proj.mu.Unlock()
+				u.pushState()
+				return nd.err
+			})
 		}
 		out[b.Name] = d
 	}
 	return out, bs
+}
+
+// probeOnce : une lecture du backend (découverte) et mise à jour de la trace.
+func (u *userSpace) probeOnce(b core.BackendConf, e core.Engine) *userDisc {
+	ps, derr := e.DiscoverUserProjects()
+	if derr == nil {
+		for _, p := range ps {
+			_ = u.sp.RecordTrace(core.Trace{Backend: b.Name, Kind: b.Type, Object: p.Object, Project: p.Project, Category: p.Category})
+		}
+	}
+	return &userDisc{at: time.Now(), projects: ps, err: derr, loaded: true}
+}
+
+func (p *userProjects) prober() *core.Prober {
+	if p.pr == nil {
+		p.pr = core.NewProber(time.Now)
+	}
+	return p.pr
 }
 
 func (u *userSpace) invalidate() {
@@ -262,6 +287,10 @@ func (u *userSpace) projectCall(c webCall, method string, raw json.RawMessage) (
 		return u.refreshProject(a.Path)
 	case "projectPurge":
 		return u.projectPurge(a)
+	case "projectMove":
+		return u.projectMove(a)
+	case "projectDelete":
+		return u.projectDelete(a)
 	case "newInfo":
 		return u.newInfo(), nil
 	case "create":
@@ -304,7 +333,9 @@ func (u *userSpace) createProject(c webCall, a userProjArgs) (any, error) {
 		return refusal("name", "invalid", msg), nil
 	}
 	if a.Repo != "" {
-		return refusal("repo", "invalid", "le clonage d'un dépôt n'est pas disponible dans cette version : créer le projet vide, puis cloner dans son terminal"), nil
+		if _, err := core.ValidateCloneURL(a.Repo); err != nil {
+			return refusal("repo", "invalid", err.Error()), nil
+		}
 	}
 	if p := core.CheckProjectLimit(u.projectCount()); p != nil {
 		return refusal("", p.Code, p.Msg), nil
@@ -316,7 +347,13 @@ func (u *userSpace) createProject(c webCall, a userProjArgs) (any, error) {
 	if err := core.CheckUserImage(image); err != nil {
 		return refusal("image", "invalid", err.Error()), nil
 	}
-	if err := e.CreateUserProject(a.Category, a.Name, image); err != nil {
+	var err error
+	if a.Repo != "" { // clone DANS le conteneur (image par défaut : la seule admise)
+		err = u.sp.CreateProject(e, a.Category, a.Name, a.Repo)
+	} else {
+		err = e.CreateUserProject(a.Category, a.Name, image)
+	}
+	if err != nil {
 		code := "invalid"
 		if strings.Contains(err.Error(), "déjà ce nom") {
 			return refusal("name", "conflict", err.Error()), nil
@@ -588,4 +625,56 @@ func (u *userSpace) serveFiles(rw http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e.ServeUserFile(rw, r, cat, name, sub, userGate)
+}
+
+// projectMove : renomme / déplace un projet du MÊME backend (dossier déplacé dans le conteneur, objet recréé aux nouveaux labels).
+func (u *userSpace) projectMove(a userProjArgs) (any, error) {
+	bn, cat, name, err := core.ParseUserProjectID(a.Path)
+	if err != nil {
+		return refusal("path", "invalid", err.Error()), nil
+	}
+	es, _, _ := u.engines()
+	e, ok := es[bn]
+	if !ok {
+		return refusal("backend", "invalid", "backend inconnu"), nil
+	}
+	nc, nn := a.Category, a.Name
+	if nc == "" {
+		nc = cat
+	}
+	if nn == "" {
+		nn = name
+	}
+	if msg := core.ValidUserProjectName(nc); msg != "" {
+		return refusal("category", "invalid", msg), nil
+	}
+	if msg := core.ValidUserProjectName(nn); msg != "" {
+		return refusal("name", "invalid", msg), nil
+	}
+	if err := u.sp.MoveProject(e, cat, name, nc, nn); err != nil {
+		return refusal("", "invalid", err.Error()), nil
+	}
+	u.invalidate()
+	u.pushState()
+	return map[string]any{"ok": true, "path": core.UserProjectID(bn, nc, nn)}, nil
+}
+
+// projectDelete : supprime le dossier du projet (dans le conteneur) puis l'objet ; jamais le volume ni le PVC.
+func (u *userSpace) projectDelete(a userProjArgs) (any, error) {
+	bn, cat, name, err := core.ParseUserProjectID(a.Path)
+	if err != nil {
+		return refusal("path", "invalid", err.Error()), nil
+	}
+	es, _, _ := u.engines()
+	e, ok := es[bn]
+	if !ok {
+		return refusal("backend", "invalid", "backend inconnu"), nil
+	}
+	if err := u.sp.DeleteProject(e, cat, name); err != nil {
+		return refusal("", "invalid", err.Error()), nil
+	}
+	_, _ = u.sp.PurgeProjectTrace(bn, cat, name)
+	u.invalidate()
+	u.pushState()
+	return map[string]any{"ok": true}, nil
 }
