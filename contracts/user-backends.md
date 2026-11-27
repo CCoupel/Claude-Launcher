@@ -79,8 +79,8 @@ rien n'est écrit. YAML illisible, ancres / alias / fusion `<<`, clés en double
 |---|---|---|
 | Rubriques | `backends:` seulement (LOT-3.2 ajoutera `images:` et `defaults: {backend, image}` pour #275) | `pools`, `hubs`, `defaults`, `images` (avant LOT-3.2), `desktop_web`, `browser_server`, `browser_paths`, `browser_device`, toute autre |
 | Tout backend | `type` (obligatoire) ∈ {`k8s`, `docker`, `podman`} | `type: host`, `type: ssh`, type absent ou autre |
-| `docker` / `podman` | `host` **obligatoire**, de la forme `tcp://hôte:port` (`https://` **non admis** : docker et podman utilisent `tcp://` avec TLS) ; `volume` (LOT-3.2) ; `tls: {enabled, verify}` (LOT-3.1) | `host` absent ou vide (moteur local du launcher), `unix://`, `npipe://`, `fd://`, `ssh://`, chemin de socket ; `hosts`, `pool`, `engine`, `engine_host`, `shared`, `volumes`, `context`, `kubeconfig`, `pod`, `spread` |
-| `k8s` | `namespace` (obligatoire, libre) ; `pvc` (LOT-3.2) ; `kubeconfig: true` (**obligatoire** dès LOT-3.1, posé par l'envoi du kubeconfig collé ; jamais un chemin) ; `spread` ; `pod.resources`, `pod.nodeSelector`, `pod.affinity` | `host`, `hosts`, `pool`, `context`, `volumes`, `kubeconfig` autre que `true`, toute autre clé de `pod` (dont les clés R1 de `auth.md` §4) |
+| `docker` / `podman` | `host` **obligatoire**, de la forme `tcp://hôte:port` (`https://` **non admis** : docker et podman utilisent `tcp://` avec TLS) ; `volume` (LOT-3.2) ; `tls: {enabled, verify}` (LOT-3.1) ; `container:` = options **par défaut** des conteneurs de projet (LOT-3.2, §5 bis) | `host` absent ou vide (moteur local du launcher), `unix://`, `npipe://`, `fd://`, `ssh://`, chemin de socket ; `hosts`, `pool`, `engine`, `engine_host`, `shared`, `volumes`, `context`, `kubeconfig`, `pod`, `spread` |
+| `k8s` | `namespace` (obligatoire, libre) ; `pvc` (LOT-3.2) ; `kubeconfig: true` (**obligatoire** dès LOT-3.1, posé par l'envoi du kubeconfig collé ; jamais un chemin) ; `spread` ; `pod:` = options **par défaut** des pods de projet (§5 bis : `resources`, `nodeSelector`, `affinity`, `tolerations`) | `host`, `hosts`, `pool`, `context`, `volumes`, `kubeconfig` autre que `true`, toute autre clé de `pod` (dont les clés R1 de `auth.md` §4) |
 
 - Le champ refusé est nommé dans le message (« `pool` : non autorisé pour un utilisateur »), sans recopier de valeur.
 - Le `backends.yaml` de l'admin n'est pas concerné (règle R1 de `auth.md` §4, inchangée).
@@ -226,7 +226,13 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   l'avertissement « certificat de l'API non vérifié » (même logique que `tls.verify: false`).
 - docker/podman : `version`, `info` ; le volume déclaré doit exister (`volume inspect`), sinon refus.
 - **Joignabilité et bornage des hôtes (décision 2026-11-27)** :
-  - backend d'un **utilisateur** : **Internet public seulement** ;
+  - backend d'un **utilisateur** : **Internet public seulement**, sauf si l'admin pose **`users.allowPrivateNetworks: true`**
+    (Helm, défaut `false`, décision P25) : les plages privées `10/8`, `172.16/12`, `192.168/16` et les adresses IPv6 ULA
+    `fc00::/7` sont alors admises, ainsi que les noms internes qui y mènent (`*.lan`, `*.local`, `*.internal`, `*.home.arpa`,
+    `*.svc`, `*.cluster.local`, noms sans point). **Toujours refusés**, même avec le paramètre : loopback et `localhost*`,
+    `0.0.0.0` / `::`, link-local et métadonnées, multicast, `100.64/10`, `192.0.0/24`, `198.18/15`, documentation, `240/4`,
+    diffusion. Au démarrage, le launcher journalise « réseaux privés autorisés aux utilisateurs : un utilisateur peut
+    viser le LAN de la plateforme ». Usage prévu : la QUALIF ;
   - un **admin** n'a aucune contrainte : LAN permis, `backends.yaml` inchangé.
   - Pour un utilisateur, refus (échec fermé, message unique « adresse non autorisée pour un utilisateur ») de :
     - loopback, `0.0.0.0`, link-local et métadonnées (`169.254/16`, `fe80::/10`, `100.100.100.200`, `fd00:ec2::254`) ;
@@ -241,6 +247,8 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 - **Appels d'un utilisateur** : environnement nettoyé (`HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY`, `DOCKER_*`, `CONTAINER_HOST`, `KUBECONFIG` retirés ; `DOCKER_CONFIG` pointé vers un dossier vide privé, pour que la configuration docker du launcher ne s'applique jamais) ; certificats TLS passés à `docker` par les **chemins du coffre** (`--tlscacert`, `--tlscert`, `--tlskey` → `users/<uid>/vault/<backend>/…`), sans copie : seuls des chemins figurent dans `argv`, fichiers `0600` et dossiers `0700` vérifiés à l'usage (`Lstat`, pas de lien symbolique) ; erreurs filtrées (joignable / non joignable, sans corps de réponse ni secret) ; `proxy-url` refusé ; kubeconfig ≤ 64 Kio, sans alias ni ancre.
 - **Limites (D5)** :
   - `users.maxBackends` backends par utilisateur (Helm, défaut 10) ;
+  - `users.maxProjects` projets par utilisateur, tous backends confondus (Helm, défaut 30 ; objets `cl.user` existants comptés à la création) ; au-delà, refus nommé « nombre maximal de projets atteint (30) » (P26) ;
+  - **aucun plafond de CPU ni de mémoire** imposé par le launcher : l'utilisateur est responsable de sa consommation sur ses backends (P26, risque accepté) ;
   - `backendTest` : `users.backendTestsPerMinute` par utilisateur (défaut 6) et un seul test à la fois (`429` au-delà) ;
   - `backendSecretSet`, `backendSecretDelete`, `userBackendAdd` et `userBackendRemove` : plafond commun de 10 × `users.backendTestsPerMinute` par minute et par utilisateur (60 par défaut), `429` au-delà ;
   - `configOpen`, `configModel`, `configValidate`, `configSave`, `configApply` (espace d'un utilisateur) : 60 par minute, `429` avec `code: "rate"` ;
@@ -305,6 +313,28 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 | Supprimer | conteneur puis API | suppression du dossier (confirmation détaillée existante) puis de l'objet et de la trace |
 | Purger | launcher | trace seulement (§2) |
 | Approbation `env.yaml` (#215) | conteneur à la première ouverture | condensés lus dans le conteneur, approbation scellée (HMAC) écrite dans le volume du projet (§6 bis) |
+
+## 5 bis. Options du pod ou du conteneur, par projet **[NEW]** (P26)
+
+- Les options vivent **sur l'objet du projet** (règle de rangement) : spec du StatefulSet (k8s) ou configuration du
+  conteneur (docker/podman, lue par `inspect`). Le `pod:` / `container:` du backend fournit les **valeurs par défaut** d'un
+  nouveau projet.
+- Édition dans l'interface (réglages du projet, maquette M4). Le launcher construit le manifeste ou l'`argv` sur une
+  **liste blanche fermée** : aucun champ libre, aucun texte recopié tel quel.
+
+| Backend | Champs autorisés (et rien d'autre) | Défauts proposés |
+|---|---|---|
+| k8s (`pod:`) | `resources.requests` / `resources.limits` : `cpu`, `memory`, `ephemeral-storage`, ressources étendues au format `<domaine>/<nom>` (ex. `nvidia.com/gpu`) ; `nodeSelector` (≤ 16 paires, format des labels) ; `affinity` (`nodeAffinity`, `podAffinity`, `podAntiAffinity`, schéma k8s validé) ; `tolerations` (≤ 16) | requests `cpu: 100m`, `memory: 256Mi` ; limits `cpu: "2"`, `memory: 4Gi` ; rien d'autre |
+| docker/podman (`container:`) | `cpus` (décimal > 0), `memory` (quantité, ≥ 64m), `pids_limit` (entier), `shm_size` (quantité), `gpus` (`all` ou entier) | `cpus: 2`, `memory: 4g`, `pids_limit: 4096`, `shm_size: 256m` |
+
+- **Jamais** (k8s et docker/podman), quelle que soit la saisie : `privileged`, capacités (`cap_add`), `hostPath`, `hostNetwork`,
+  `hostPID`, `hostIPC`, montages libres, `--volumes-from`, `--device`, `--network`, `-p` / ports, `securityContext`,
+  `serviceAccountName`, `runtimeClassName`, `--security-opt`, `--userns`, `--pid`. Tout champ hors de la table est refusé
+  avec un message nommé (`field: "pod.<chemin>"` / `"container.<champ>"`).
+- **Modification après création** :
+  - k8s : patch du StatefulSet, appliqué au prochain démarrage du pod ;
+  - docker/podman : `cpus`, `memory`, `pids_limit` changés par `docker update`, sans recréer ; `shm_size` et `gpus` sont
+    fixés à la création (changement → refus nommé, voir P27).
 
 ## 6. Projet arrêté **[NEW]** (P9, principe P18)
 

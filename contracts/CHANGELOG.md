@@ -2,6 +2,16 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.2 (#275) : réseaux privés par paramètre, limite de projets, options par projet
+
+- **[NEW]** Helm `users.allowPrivateNetworks` (défaut `false`, `CL_USERS_ALLOW_PRIVATE`) : plages privées et noms internes
+  admis pour les backends des utilisateurs (QUALIF) ; loopback, link-local, métadonnées, multicast toujours refusés ;
+  journalisé au démarrage.
+- **[NEW]** Helm `users.maxProjects` (défaut 30).
+- **[CHANGED]** `user-backends.md` §3, §5 bis : pas de plafond CPU ni mémoire (l'utilisateur est responsable) ; options du pod
+  (k8s) et du conteneur (docker/podman) **par projet**, sur l'objet du projet, en liste blanche fermée avec des défauts ;
+  `pod:` / `container:` du backend = défauts.
+
 ## [20261127] — v7.1.0 LOT-3.1 cycle 2 (#257) : reprise du coffre orphelin, plafonds
 
 - **[CHANGED]** `user-backends.md` §3, §7 : à `userBackendAdd`, un coffre **non déclaré** (orphelin) est repris (supprimé
