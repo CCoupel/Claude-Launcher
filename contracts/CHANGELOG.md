@@ -2,6 +2,13 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-2 (#255) : `auth.admins` vide permis avec `admin@local`
+
+- **[CHANGED]** `helm-values.md` : `auth.admins` peut être vide quand `auth.localAdmin.enabled` (admin de fait, hôte
+  interne seul) ; refus conservé si GitHub activé + admins vide + compte local inactif ; `NOTES.txt` le signale.
+- **[CHANGED]** `auth.md` §2 : sans administrateur GitHub, les actions R1 ne se font que depuis l'hôte interne par
+  `admin@local` ; un login GitHub reste `user`. Enrôlement (demande, validation, profil) : v7.2.0 (#278, #261, #247).
+
 ## [20261126] — v7.1.0 LOT-2 (#255) : formes livrées, `userList` en R1
 
 - **[CHANGED]** `auth.md` §4 : `userList` classée **R1** (admin). Instance d'un utilisateur : méthodes R1 → refus R1,

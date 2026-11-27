@@ -40,6 +40,16 @@ kubelet ──http──► [launcher :8082] /healthz /readyz seulement (aucune 
 | `desktop_web.access: proxy` hors cluster (fichier `backends.yaml`) | « accès proxy : réservé au launcher de cluster » — la fenêtre native et le hub n'ont pas ce mode |
 | `CL_ALLOW_HOST_BACKEND` posé **[addendum 2, MAJ-3]** | « backend host interdit derrière le proxy d'authentification » : une session tmux dans le conteneur du launcher pourrait joindre `127.0.0.1:8081` et forger l'identité ; le chart refuse aussi `allowHostBackend: true` avec `auth.enabled` |
 
+### Sans administrateur GitHub : `admin@local` administrateur de fait **[CHANGED v7.1.0]** (#255)
+
+- `CL_AUTH_ADMINS` peut être **vide** quand le compte local est actif (`CL_AUTH_LOCAL_ADMIN_HOSTS` non vide) : c'est
+  déjà la règle de démarrage ci-dessus. Le chart l'accepte désormais aussi (`helm-values.md`, v7.1.0).
+- Conséquence : les actions R1 (§4) ne se font **que depuis l'hôte interne**, par `admin@local`. Un login GitHub admis
+  (`CL_AUTH_USERS`) reste `user`, quel que soit l'hôte.
+- Inchangé : aucun administrateur (admins vides **et** compte local inactif) → refus de démarrer.
+- À venir (v7.2.0, #278, #261, #247) : demande d'inscription par l'utilisateur GitHub, validation et attribution du
+  profil par l'admin local, révocation. En v7.1.0, l'attribution se fait encore par les listes Helm.
+
 ### Identité d'une requête
 
 - En-tête **`X-Forwarded-User`** posé par oauth2-proxy (`--pass-user-headers`) = **login GitHub**. Aucun autre en-tête

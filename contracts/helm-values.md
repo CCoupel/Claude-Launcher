@@ -152,7 +152,7 @@ que l'ingress externe attend v7.0.0.
 | `auth.existingSecret` | chaîne | — | **oui** si `auth.github.enabled` | Secret du namespace, clés `client-id`, `client-secret` (application **GitHub App** de l'environnement, P8) ; jamais dans les valeurs ; absent du cluster → le pod ne démarre pas (nommé par `NOTES.txt`) |
 | — (cookie) | — | — | — | **[rev1]** `cookie-secret` généré par le chart (Secret `<release>-auth-cookie`, 32 caractères, `keep`, réutilisé par `lookup`) |
 | `auth.github.clientId` / `auth.github.clientSecret` | chaînes | `""` | — | **[addendum 3, LOT-3]** alternative à `auth.existingSecret` : le chart crée le Secret `<release>-github` (`client-id`, `client-secret`). Réservé à `PRIVATE/<ENV>/values-local.yaml` (jamais commité). **Avertissement** (`values.yaml`, `NOTES.txt`, guide) : `helm get values` et `helm template` l'affichent en clair, il est stocké dans le Secret de release Helm ; `existingSecret` reste **recommandé**. Rendu : les deux posés → refus (« auth.existingSecret et auth.github.clientId/clientSecret sont exclusifs ») ; `clientId` sans `clientSecret` (ou l'inverse) → refus ; GitHub activé sans aucun des deux → refus. `NOTES.txt` ne l'affiche jamais. Contrôle `scripts/ci.sh` : `clientSecret` non vide dans un fichier suivi par git (`deploy/helm/values-*.yaml`, tout `*.yaml` suivi) → échec (Helm ne sait pas d'où vient une valeur) |
-| `auth.admins` | liste de logins GitHub | `[]` | **oui**, non vide, si `auth.github.enabled` | rôle `admin` (R1) ; chaque entrée validée (forme d'un login, sans doublon) |
+| `auth.admins` | liste de logins GitHub | `[]` | **[CHANGED v7.1.0]** non vide si `auth.github.enabled` **et** `auth.localAdmin.enabled: false` ; **vide permis** avec le compte local (admin de fait, hôte interne seul) | rôle `admin` (R1) ; chaque entrée validée (forme d'un login, sans doublon). Vide : aucun login GitHub n'est admin, les actions R1 ne se font que par `admin@local` depuis l'hôte interne (`auth.md` §2 bis) |
 | `auth.localAdmin.enabled` | booléen | `true` (P9) | — | **[rev1]** compte `admin@local` (`contracts/auth.md` §8) |
 | `auth.localAdmin.existingSecret` | chaîne | `""` | — | **[rev1]** Secret fourni (clé `htpasswd`, ligne `admin@local:$2[aby]$<coût≥10>$…`, contrôlée au rendu par `lookup` quand le cluster est joignable ; mot de passe ≥ 20 caractères aléatoires : consigne) ; vide : Secret `<release>-local-admin` généré (P11) |
 | `auth.localAdmin.hosts` | liste | `[<ingress.host>]` | — | **[rev1]** hôtes où le compte local est admis (`CL_AUTH_LOCAL_ADMIN_HOSTS`) ; l'hôte externe y est **refusé au rendu** (P10) |
@@ -264,3 +264,13 @@ Manifeste produit par le launcher (`core/k8s.go`), sans valeur du chart :
   (443/6443/2376) doivent rester joignables ; ne pas poser de `policyTypes: [Egress]` restrictive.
 - Coffre des utilisateurs en clair sous la racine (P14) : aucune valeur Helm ; chiffrement = version ultérieure.
 - La plateforme ne crée aucun stockage ni calcul pour les utilisateurs (P15) : aucune valeur de PVC/namespace par utilisateur.
+
+### v7.1.0 — administrateur local de fait **[CHANGED]** (#255, décision utilisateur au GATE LOT-2)
+
+- Rendu : `auth.github.enabled` + `auth.admins` vide + `auth.localAdmin.enabled: false` → **refus** (inchangé : aucun
+  administrateur). `auth.admins` vide + `auth.localAdmin.enabled: true` → **accepté** : `admin@local` est l'administrateur
+  de fait, sur l'hôte interne seul (P10 inchangée).
+- `CL_AUTH_ADMINS` vide dans ce cas (le launcher l'accepte déjà avec le compte local, `auth.md` §2) ; `--github-user` =
+  `auth.users` seuls. `NOTES.txt` signale « aucun administrateur GitHub : les réglages globaux se font depuis l'hôte
+  interne avec admin@local ».
+
