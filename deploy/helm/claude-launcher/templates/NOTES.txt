@@ -11,8 +11,14 @@ Aucun Ingress : kubectl -n {{ .Release.Namespace }} port-forward statefulset/{{ 
 Accès AUTHENTIFIÉ (oauth2-proxy, sidecar du pod) : le launcher n'écoute que sur la boucle locale du pod.
 {{- if .Values.auth.github.enabled }}
 Logins : copier ceux de GitHub tels qu'affichés (la casse compte pour oauth2-proxy ; le launcher l'ignore).
-Connexion GitHub : {{ len .Values.auth.admins }} administrateur(s), {{ len (.Values.auth.users | default list) }} utilisateur(s) ; Secret de l'application GitHub : {{ include "cl.githubSecretName" . }} (clés client-id, client-secret){{ if .Values.auth.existingSecret }} — le pod ne démarre pas s'il est absent.{{ else }} — créé par le chart depuis auth.github.clientId / clientSecret.
+Connexion GitHub : {{ len (.Values.auth.admins | default list) }} administrateur(s), {{ len (.Values.auth.users | default list) }} utilisateur(s) ; Secret de l'application GitHub : {{ include "cl.githubSecretName" . }} (clés client-id, client-secret){{ if .Values.auth.existingSecret }} — le pod ne démarre pas s'il est absent.{{ else }} — créé par le chart depuis auth.github.clientId / clientSecret.
 ATTENTION : le secret de la GitHub App est dans les valeurs Helm (lisible par « helm get values », stocké dans le Secret de release) : préférer auth.existingSecret.{{ end }}
+{{- if not (.Values.auth.admins | default list) }}
+ATTENTION : aucune administration GitHub (auth.admins vide) : les actions admin (R1 : réglages, coffre, backends de la plateforme) se font uniquement avec admin@local depuis l'hôte interne.
+{{- end }}
+{{- if not (concat (.Values.auth.admins | default list) (.Values.auth.users | default list)) }}
+ATTENTION : aucun login GitHub déclaré (--github-user=-) : personne ne passe la connexion GitHub, seul admin@local entre (hôte interne).
+{{- end }}
 {{- else }}
 Connexion GitHub DÉSACTIVÉE (auth.github.enabled: false) : seul le compte local ouvre l'interface.
 {{- end }}

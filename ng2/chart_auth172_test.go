@@ -1228,3 +1228,23 @@ func TestChartAuth255AdminsVideAvecCompteLocal(t *testing.T) {
 	must(t, t172Values())
 	must(t, t172Local())
 }
+
+// NOTES.txt (revue) : tolère auth.admins: null ; avertit quand aucune administration GitHub ou aucun login n'est déclaré.
+func TestChartAuth255NotesAdminsNullEtAvertissements(t *testing.T) {
+	needHelm(t)
+	v := t172Local()
+	sub(v, "auth")["admins"] = nil // « admins: » laissé vide en YAML
+	sub(v, "auth")["users"] = []any{"alice"}
+	out := t172Notes(t, v)
+	if !strings.Contains(out, "aucune administration GitHub") || strings.Contains(out, "aucun login GitHub déclaré") {
+		t.Errorf("avertissement admins vide attendu seul :\n%s", out)
+	}
+	delete(sub(v, "auth"), "users")
+	out = t172Notes(t, v)
+	if !strings.Contains(out, "aucune administration GitHub") || !strings.Contains(out, "--github-user=-") {
+		t.Errorf("avertissements « aucun admin » et « aucun login » attendus :\n%s", out)
+	}
+	if out := t172Notes(t, t172Local()); strings.Contains(out, "aucune administration GitHub") || strings.Contains(out, "aucun login GitHub déclaré") {
+		t.Errorf("avertissement à tort avec un administrateur :\n%s", out)
+	}
+}
