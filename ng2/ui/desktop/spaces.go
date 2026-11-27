@@ -43,6 +43,7 @@ type userSpace struct {
 	tests   []time.Time
 	testing atomic.Bool
 	secrets []time.Time // backendSecretSet : même plafond par minute que backendTest
+	cfgs    []time.Time // configOpen / Model / Validate / Save / Apply (analyse YAML et DNS) : plafond généreux (audit m9)
 }
 
 func (u *userSpace) touch() { u.last.Store(time.Now().UnixNano()) }
@@ -197,6 +198,11 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &in); err != nil {
 			return nil, fmt.Errorf("%s : arguments invalides : %v", method, err)
+		}
+	}
+	if method != "configFiles" {
+		if msg := u.admitCfg(time.Now()); msg != "" {
+			return map[string]any{"ok": false, "code": "rate", "status": 429, "msg": msg}, nil
 		}
 	}
 	// éditeur de configuration : un seul fichier, le backends.yaml de l'espace ; aucun chemin venu du client
@@ -645,8 +651,30 @@ func (u *userSpace) backendRemove(c webCall, raw json.RawMessage) (any, error) {
 	if err := json.Unmarshal(raw, &in); err != nil {
 		return nil, fmt.Errorf("userBackendRemove : arguments invalides")
 	}
+	if msg := u.admitSecret(time.Now()); msg != "" { // compté dans le plafond des dépôts (audit m10)
+		return map[string]any{"ok": false, "code": "rate", "status": 429, "msg": msg}, nil
+	}
 	if e := u.sp.RemoveBackend(in.Name, core.SecretWrite{Source: "navigateur", User: c.userLabel()}); e != nil {
 		return refusalMap(c, e), nil
 	}
 	return map[string]any{"ok": true}, nil
+}
+
+// admitCfg : "" si l'appel d'éditeur peut partir ; sinon le message 429 (10 fois le plafond de backendTest par minute : l'analyse YAML et la
+// résolution DNS ne sont pas illimitées, mais l'éditeur n'est jamais gêné).
+func (u *userSpace) admitCfg(now time.Time) string {
+	u.tmu.Lock()
+	defer u.tmu.Unlock()
+	keep := u.cfgs[:0]
+	for _, t := range u.cfgs {
+		if now.Sub(t) < time.Minute {
+			keep = append(keep, t)
+		}
+	}
+	u.cfgs = keep
+	if max := 10 * core.UserTestsPerMinute(); len(u.cfgs) >= max {
+		return fmt.Sprintf("429 : limite atteinte (%d appels d'éditeur par minute)", max)
+	}
+	u.cfgs = append(u.cfgs, now)
+	return ""
 }

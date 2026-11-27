@@ -269,9 +269,15 @@ func TestCreate258NomPrisEtCoffreExistant(t *testing.T) {
 	if err := os.MkdirAll(vaultOf("github-1111", "orphelin"), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	// coffre ORPHELIN (nom non déclaré dans backends.yaml : retrait par l'éditeur YAML, arrêt entre les deux étapes) : repris — supprimé
+	// puis recréé sous le verrou — au lieu de bloquer le nom et de laisser des secrets en clair (revue LOT-3.1 cycle 2)
+	_ = os.WriteFile(filepath.Join(vaultOf("github-1111", "orphelin"), "kubeconfig"), []byte("ANCIEN-SECRET"), 0o600)
 	mt, _, _ = c.model(t, "alice")
-	if _, res, _ = c.add(t, "alice", cDocker("orphelin", false), map[string]any{}, mt); res["ok"] != false {
-		t.Errorf("coffre préexistant accepté : %v", res)
+	if _, res, _ = c.add(t, "alice", cDocker("orphelin", false), map[string]any{}, mt); res["ok"] != true {
+		t.Errorf("coffre orphelin non repris : %v", res)
+	}
+	if _, err := os.Stat(filepath.Join(vaultOf("github-1111", "orphelin"), "kubeconfig")); err == nil {
+		t.Error("l'ancien secret de l'orphelin est resté sur disque")
 	}
 }
 

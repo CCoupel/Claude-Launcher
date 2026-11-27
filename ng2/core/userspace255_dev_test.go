@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -671,6 +672,75 @@ func TestHotesPublicsResolveurReel257(t *testing.T) {
 	for _, h := range []string{"tcp://yahoo.fr:2375", "tcp://example.com:2376", "tcp://github.com:2375"} {
 		if err := CheckUserHost(h); err != nil {
 			t.Errorf("%q refusé avec le vrai résolveur : %v (catégorie %q)", h, err, HostRefusalCategory(err))
+		}
+	}
+}
+
+// Revue cycle 2 : coffre orphelin purgé par Remove d'un nom non déclaré ; Remove/Add concurrents ne perdent jamais les secrets de l'Add ;
+// un coffre qui ne peut pas être supprimé est une erreur.
+func TestRemoveOrphelinEtCourseAdd257(t *testing.T) {
+	dev255Env(t)
+	sp, _ := UserSpace("github-5")
+	_ = sp.Ensure()
+	w := SecretWrite{Source: "test", User: "alice"}
+	// orphelin : dossier de coffre sans déclaration
+	orph := filepath.Join(sp.VaultDir(), "orph")
+	_ = os.MkdirAll(orph, 0o700)
+	_ = os.WriteFile(filepath.Join(orph, "kubeconfig"), []byte("SECRET"), 0o600)
+	if e := sp.RemoveBackend("orph", w); e != nil {
+		t.Fatalf("purge d'un orphelin : %v", e)
+	}
+	if _, err := os.Stat(orph); err == nil {
+		t.Error("coffre orphelin non supprimé")
+	}
+	if e := sp.RemoveBackend("orph", w); e == nil || e.Msg != "backend inconnu" {
+		t.Errorf("nom sans déclaration ni coffre : %v", e)
+	}
+	// course Remove/Add du même nom : si l'Add réussit, ses secrets sont intacts (jamais effacés par un Remove qui le précède d'un instant)
+	kc := "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n    server: https://93.184.216.34:6443\nusers:\n- name: u\n  user:\n    token: t\ncontexts:\n- name: ctx\n  context:\n    cluster: c\n    user: u\ncurrent-context: ctx\n"
+	add := func() *AddError {
+		var req AddRequest
+		req.Backend = map[string]any{"name": "k", "type": "k8s", "namespace": "ns"}
+		req.Secrets.Kubeconfig = kc
+		if st, err := os.Stat(sp.BackendsPath()); err == nil {
+			req.MTime = st.ModTime().Format(time.RFC3339Nano)
+		}
+		_, e := sp.AddBackend(req, w)
+		return e
+	}
+	for i := 0; i < 30; i++ {
+		if e := add(); e != nil && e.Code != "conflict" {
+			t.Fatalf("add initial : %v", e)
+		}
+		var wg sync.WaitGroup
+		var addErr *AddError
+		wg.Add(2)
+		go func() { defer wg.Done(); _ = sp.RemoveBackend("k", w) }()
+		go func() { defer wg.Done(); addErr = add() }()
+		wg.Wait()
+		if addErr == nil { // l'Add a réussi : sa déclaration et son coffre vont ensemble
+			declared := false
+			if b, err := os.ReadFile(sp.BackendsPath()); err == nil {
+				declared = strings.Contains(string(b), "k:")
+			}
+			_, kerr := os.Stat(filepath.Join(sp.VaultDir(), "k", secretKubeFile))
+			if declared != (kerr == nil) && declared {
+				t.Fatalf("itération %d : backend déclaré sans son kubeconfig (secrets effacés par le Remove concurrent)", i)
+			}
+		}
+		_ = sp.RemoveBackend("k", w)
+	}
+	// RemoveAll en échec : erreur claire, pas de succès affiché
+	if os.Geteuid() != 0 {
+		_ = add()
+		d := filepath.Join(sp.VaultDir(), "k")
+		sub := filepath.Join(d, "figé")
+		_ = os.MkdirAll(sub, 0o700)
+		_ = os.WriteFile(filepath.Join(sub, "x"), []byte("x"), 0o600)
+		_ = os.Chmod(sub, 0o500) // sans droit d'écriture : x ne peut pas être supprimé
+		defer os.Chmod(sub, 0o700)
+		if e := sp.RemoveBackend("k", w); e == nil || !strings.Contains(e.Msg, "coffre") {
+			t.Errorf("échec de suppression du coffre invisible : %v", e)
 		}
 	}
 }

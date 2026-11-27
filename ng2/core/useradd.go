@@ -274,13 +274,20 @@ func (s Space) AddBackend(req AddRequest, w SecretWrite) (*AddResult, *AddError)
 				}
 			}
 		}
-		// étape 1 : le coffre — le dossier ne doit pas exister (même sans secret : un reste d'un ancien backend n'est jamais repris)
-		if _, lerr := os.Lstat(filepath.Join(s.VaultDir(), name)); lerr == nil {
-			fail = aerr("name", "conflict", "un coffre existe déjà pour ce nom : choisir un autre nom")
-			return nil
+		// étape 1 : le coffre. Un dossier de coffre qui existe pour un nom NON déclaré par backends.yaml est un orphelin (retrait par l'éditeur
+		// YAML, arrêt entre les deux étapes) : il est supprimé ici, sous le verrou, puis recréé — jamais un secret en clair oublié ni un nom bloqué.
+		dir := filepath.Join(s.VaultDir(), name)
+		if st, lerr := os.Lstat(dir); lerr == nil {
+			if st.Mode()&os.ModeSymlink != 0 {
+				fail = aerr("name", "conflict", "coffre refusé : lien symbolique")
+				return nil
+			}
+			if err := os.RemoveAll(dir); err != nil {
+				fail = aerr("name", "conflict", "un ancien coffre de ce nom ne peut pas être supprimé : choisir un autre nom")
+				return nil
+			}
 		}
 		if len(files) > 0 {
-			dir := filepath.Join(s.VaultDir(), name)
 			if err := os.Mkdir(dir, 0o700); err != nil {
 				fail = aerr("name", "conflict", "un coffre existe déjà pour ce nom")
 				return nil
@@ -320,7 +327,9 @@ func (s Space) AddBackend(req AddRequest, w SecretWrite) (*AddResult, *AddError)
 	return res, nil
 }
 
-// RemoveBackend : retire le backend de l'utilisateur (déclaration, coffre, traces) ; rien n'est supprimé sur le backend lui-même.
+// RemoveBackend : retire le backend de l'utilisateur (déclaration, coffre, traces) ; rien n'est supprimé sur le backend lui-même. Tout se
+// fait SOUS le verrou de backends.yaml (un Add du même nom ne voit jamais ses secrets effacés). Un nom non déclaré dont le coffre existe
+// (orphelin) est purgé. Un coffre qui ne peut pas être supprimé est une erreur, jamais un succès affiché.
 func (s Space) RemoveBackend(name string, w SecretWrite) *AddError {
 	if s.Admin {
 		return aerr("", "forbidden_field", "espace de l'admin : éditeur actuel")
@@ -331,38 +340,53 @@ func (s Space) RemoveBackend(name string, w SecretWrite) *AddError {
 	path := s.BackendsPath()
 	var fail *AddError
 	err := WithFileLock(path, func() error {
+		dir, derr := s.vaultDirOf(name, false)
+		if derr != nil {
+			fail = aerr("name", "invalid", "coffre refusé")
+			return nil
+		}
 		cur, rerr := os.ReadFile(path)
-		if rerr != nil {
+		declared := false
+		if rerr == nil {
+			var existing struct {
+				Backends map[string]any `yaml:"backends"`
+			}
+			_ = yaml.Unmarshal(cur, &existing)
+			_, declared = existing.Backends[name]
+		}
+		_, vaultErr := os.Lstat(dir)
+		hasVault := vaultErr == nil
+		if !declared && !hasVault {
 			fail = aerr("name", "invalid", "backend inconnu")
 			return nil
 		}
-		var existing struct {
-			Backends map[string]any `yaml:"backends"`
+		if declared {
+			out, aerrApply := ApplyConfigChanges(ConfBackends, cur, []ConfigChange{{Op: "delete", At: []string{"backends", name}}})
+			if aerrApply != nil {
+				return aerrApply
+			}
+			st, serr := os.Stat(path)
+			if serr != nil {
+				return serr
+			}
+			if err := saveBackendsLocked(path, out, st.ModTime()); err != nil {
+				return err
+			}
 		}
-		_ = yaml.Unmarshal(cur, &existing)
-		if _, ok := existing.Backends[name]; !ok {
-			fail = aerr("name", "invalid", "backend inconnu")
-			return nil
+		if hasVault {
+			_ = journalSecret(name, "backend", "delete", "", w.Source, w.User)
+			if err := os.RemoveAll(dir); err != nil {
+				fail = aerr("", "invalid", "le backend est retiré mais son coffre n'a pas pu être supprimé : réessaie (le nom reste réutilisable)")
+				return nil
+			}
 		}
-		out, aerrApply := ApplyConfigChanges(ConfBackends, cur, []ConfigChange{{Op: "delete", At: []string{"backends", name}}})
-		if aerrApply != nil {
-			return aerrApply
-		}
-		st, serr := os.Stat(path)
-		if serr != nil {
-			return serr
-		}
-		return saveBackendsLocked(path, out, st.ModTime())
+		return nil
 	})
 	if fail != nil {
 		return fail
 	}
 	if err != nil {
 		return aerr("", "invalid", "suppression impossible")
-	}
-	if d, derr := s.vaultDirOf(name, false); derr == nil {
-		_ = journalSecret(name, "backend", "delete", "", w.Source, w.User)
-		_ = os.RemoveAll(d)
 	}
 	_, _ = s.PurgeBackendTraces(name)
 	return nil
