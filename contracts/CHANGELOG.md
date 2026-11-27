@@ -2,6 +2,14 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-2 (#255) : `backends.yaml` d'un utilisateur en liste blanche, conflit de version
+
+- **[CHANGED]** `user-backends.md` §3 : validation en **liste blanche**, échec fermé : rubrique `backends:` seule ; `type` ∈
+  {k8s, docker, podman} ; docker/podman : `host` obligatoire en `tcp://` (`https://` non admis), ni pool, hosts, engine,
+  engine_host, shared, volumes, context ; k8s : `namespace` libre, pas de `host` ; ssh et host refusés. Remplace le
+  refus par liste noire (contournable par un pool ou un `host` absent, revue LOT-2 cycle 2).
+- **[CHANGED]** `user-backends.md` §3 : `mtime` absent avec un fichier existant = conflit (« rouvre l'éditeur »).
+
 ## [20261127] — v7.1.0 LOT-2 (#255) : `auth.admins` vide permis avec `admin@local`
 
 - **[CHANGED]** `helm-values.md` : `auth.admins` peut être vide quand `auth.localAdmin.enabled` (admin de fait, hôte

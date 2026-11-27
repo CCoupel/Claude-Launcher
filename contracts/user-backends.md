@@ -70,6 +70,28 @@
 | `ssh` ; tout `host`/`engine_host` en `ssh://` ; pools d'hôtes ssh | — | — | **refusés pour tous en mode serveur** (P13) |
 | `host` | — | — | refusé en mode serveur (déjà le cas derrière le proxy, v7.0.0) |
 
+### Validation du `backends.yaml` d'un utilisateur : liste blanche, échec fermé (#255, revue LOT-2)
+
+Tout ce qui n'est pas listé ici est **refusé** (« réservé à l'administrateur » ou « non autorisé en mode serveur ») ;
+rien n'est écrit. YAML illisible, ancres / alias / fusion `<<`, clés en double (casse comprise) → refus.
+
+| Niveau | Autorisé | Refusé (exemples, liste non limitative) |
+|---|---|---|
+| Rubriques | `backends:` seulement (LOT-3.2 ajoutera `images:` et `defaults: {backend, image}` pour #275) | `pools`, `hubs`, `defaults`, `images` (avant LOT-3.2), `desktop_web`, `browser_server`, `browser_paths`, `browser_device`, toute autre |
+| Tout backend | `type` (obligatoire) ∈ {`k8s`, `docker`, `podman`} | `type: host`, `type: ssh`, type absent ou autre |
+| `docker` / `podman` | `host` **obligatoire**, de la forme `tcp://hôte:port` (`https://` **non admis** : docker et podman utilisent `tcp://` avec TLS) ; `volume` (LOT-3.2) ; `tls: {enabled, verify}` (LOT-3.1) | `host` absent ou vide (moteur local du launcher), `unix://`, `npipe://`, `fd://`, `ssh://`, chemin de socket ; `hosts`, `pool`, `engine`, `engine_host`, `shared`, `volumes`, `context`, `kubeconfig`, `pod`, `spread` |
+| `k8s` | `namespace` (obligatoire, libre) ; `pvc` (LOT-3.2) ; `kubeconfig: true` (posé par l'envoi du kubeconfig collé, LOT-3.1 ; jamais un chemin) ; `spread` ; `pod.resources`, `pod.nodeSelector` | `host`, `hosts`, `pool`, `context`, `volumes`, `kubeconfig` autre que `true`, toute autre clé de `pod` (dont les clés R1 de `auth.md` §4) |
+
+- Le champ refusé est nommé dans le message (« `pool` : non autorisé pour un utilisateur »), sans recopier de valeur.
+- Le `backends.yaml` de l'admin n'est pas concerné (règle R1 de `auth.md` §4, inchangée).
+
+### Enregistrement : conflit de version
+
+- L'éditeur envoie le `mtime` du fichier lu à l'ouverture. Sous verrou, le launcher refuse l'écriture si le fichier a
+  changé depuis (`mtime` différent), **ou si le `mtime` est absent alors que le fichier existe**. Message : « Le fichier
+  a changé depuis l'ouverture de l'éditeur : rouvre l'éditeur pour repartir de la dernière version. »
+- Fichier absent et `mtime` absent : création. Écriture atomique `0600`, copie `.bak` de la version précédente.
+
 ### TLS docker/podman (P12)
 
 ```yaml
