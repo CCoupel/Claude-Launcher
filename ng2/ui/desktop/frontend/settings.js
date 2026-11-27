@@ -225,7 +225,7 @@ function stRenderFoot() {
   const ch = stBuildChanges(), local = stLocalProblems();
   const res = ST.result;
   const probs = local.concat(res && res.problems ? res.problems : [], res ? [] : ST.loadProblems);
-  const errs = probs.filter((p) => p.severity === 'error').length;
+  const errs = probs.filter((p) => p.severity === 'error' && !(res && res.retry && res.problems && res.problems.includes(p))).length;
   const left = el('div', 'stmsg');
   if (res && res.conflict) {
     left.append(el('span', 't-orange', 'Le fichier a changé sur le disque depuis son ouverture. '));
@@ -273,7 +273,7 @@ async function stSaveUser() {
     const i = cur.indexOf(b);
     if (i >= 0) ST.sel.backend = i;
     ST.fieldErr = r.field && i >= 0 ? { ref: b, field: r.field, msg: r.msg || 'refusé' } : null;
-    ST.result = { problems: [{ severity: 'error', message: (b ? 'backend « ' + b.name + ' » : ' : '') + (r.msg || 'refusé') }], refused: true };
+    ST.result = { problems: [{ severity: 'error', message: (b ? 'backend « ' + b.name + ' » : ' : '') + (r.msg || 'refusé') }], refused: true, retry: !r.field }; // refus sans champ (limite, débit, version) : on peut réessayer tel quel
     stRender();
   };
   const fresh = async () => { try { const m = await call('configModel', { kind: 'backends.yaml' }); ST.mtime = m.mtime; ST.exists = m.exists; } catch (e) { /* relu au rechargement */ } };
