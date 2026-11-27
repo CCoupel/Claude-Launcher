@@ -28,7 +28,10 @@ const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'b
 const stClone = (o) => JSON.parse(JSON.stringify(o));
 // Toute modification du brouillon efface un refus d'enregistrement : le serveur rejugera au prochain essai. Sans cela les
 // erreurs du refus restaient et « Enregistrer » restait grisé après correction (#257, B6/B9).
-function stEdited() { if (ST.result && ST.result.refused) ST.result = null; ST.fieldErr = null; }
+function stEdited() {
+  if (ST.result && ST.result.refused) ST.result = null;
+  if (ST.fieldErr) { ST.fieldErr = null; document.querySelectorAll('#stpg .bad').forEach((x) => x.classList.remove('bad')); document.querySelectorAll('#stpg .fielderr').forEach((x) => x.remove()); }
+}
 const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 
 // Espace d'un utilisateur (mode serveur, `space` présent et non admin, #255) : seule la rubrique Backends (backends.yaml
@@ -372,7 +375,7 @@ function stForm(rows, fmap) {
     f.appendChild(el('label', '', label));
     f.appendChild(node);
     const bad = !!(fe && fmap && fmap[label] && fe.field === fmap[label] && fe.ref === cur);
-    if (bad) { node.classList.add('bad'); f.appendChild(el('span')); f.appendChild(el('span', 'hint t-red', '✗ ' + fe.msg)); }
+    if (bad) { node.classList.add('bad'); f.appendChild(el('span')); f.appendChild(el('span', 'hint t-red fielderr', '✗ ' + fe.msg)); }
     if (hint) { f.appendChild(el('span')); f.appendChild(el('span', 'hint', hint)); }
   }
   return f;
@@ -684,7 +687,7 @@ function stDraftSecrets(b) {
   const fe = ST.fieldErr, bad = (f) => !!(fe && fe.ref === b && fe.field === f);
   const box = el('div', 'stbox stssh'); box.id = 'stdraftbox';
   const h = el('div', 'bh'), bb = el('div', 'bb');
-  const errLine = (f) => (bad(f) ? el('div', 't-red', '✗ ' + fe.msg) : null);
+  const errLine = (f) => (bad(f) ? el('div', 't-red fielderr', '✗ ' + fe.msg) : null);
   if (b.type === 'k8s') {
     h.append(el('span', '', '🔑 Kubeconfig'), el('span', 'dim', ' — enregistré avec le backend, dans le coffre du launcher (en clair)'));
     const [ta, hs] = stDraftArea(b, 'kubeconfig', 10, 'apiVersion: v1\nkind: Config\n…   (colle le contenu ; formes *-data seulement, pas d\'exec ni de chemins)');
