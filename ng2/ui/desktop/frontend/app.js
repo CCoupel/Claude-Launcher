@@ -635,7 +635,44 @@ async function refreshProject(path) {
     if (prev) refreshBands[path] = prev; else delete refreshBands[path];
     if (path === S.cursor) renderCards();
     flash(r.msg || 'rafraîchissement impossible');
+  } else if (r && r.ok && Array.isArray(r.steps)) { // projet d'un utilisateur : réponse directe, sans évènements d'étapes
+    delete refreshBands[path];
+    flash((rowOf(path) || {}).name ? (rowOf(path).name + ' : ' + (r.started ? 'projet démarré, état relu' : 'état relu')) : 'projet rafraîchi', 4000);
+    call('select', { path }).then((c) => { delete cardsCache[path]; takeCards(c); }).catch(() => {});
   }
+}
+
+// Carte d'un projet d'utilisateur (M2 A) : arrêté = dernier état connu daté (lu sans démarrer), en marche = état du moment.
+// Champs : { path, name, backend, found, stopped, image, stateAt, git{branch,dirty,ahead,behind,head}, tpl, team } (jamais de fichier).
+function renderUserCard(c, box) {
+  const t = el('div', 'cardstitle'); t.append(el('span', '', '◈ ÉTAT · ' + c.name + (c.stopped ? ' · arrêté' : '')));
+  box.appendChild(t);
+  const rb = refreshBand(c.path); if (rb) box.appendChild(rb);
+  const k = (title, body, sub) => { const d = el('div', 'card'); const h = el('div', 'ch'); h.append(el('span', '', title)); if (sub) h.append(el('span', 'dim', ' · ' + sub)); d.append(h, body); box.appendChild(d); };
+  const pb = el('div', 'cb');
+  if (c.found === false) { pb.appendChild(el('div', 't-red', '✗ introuvable sur ' + (c.backend || 'le backend') + ' — Purger efface la trace seulement')); k('Projet', pb); return; }
+  if (c.stopped) {
+    const sb = el('div', 'stopbanner');
+    sb.append(el('span', 't-orange', '○ arrêté'), el('span', 'dim', c.stateAt ? ' · état du ' + fmtDate(c.stateAt) + ' (' + fmtAge(c.stateAt) + ')' : ' · état inconnu'), el('span', 'sp'));
+    const f5 = el('button', 'btn sm pri', 'F5 · démarrer et rafraîchir'); f5.title = 'démarre le projet (quelques secondes) puis relit son état ; il reste en marche';
+    f5.onclick = (e) => { e.stopPropagation(); refreshProject(c.path); };
+    sb.appendChild(f5); pb.appendChild(sb);
+  }
+  const kv = el('div', 'kv'), g = c.git || null;
+  kv.append(el('span', '', 'backend'), el('span', '', c.backend || ''));
+  if (c.image) kv.append(el('span', '', 'image'), el('span', '', c.image));
+  if (g) {
+    kv.append(el('span', '', 'branche'), el('span', '', g.branch || '—'),
+      el('span', '', 'état'), el('span', g.dirty ? 't-yellow' : 't-green', g.dirty ? '✎ ' + (typeof g.dirty === 'number' ? g.dirty + ' fichier(s) modifié(s)' : 'modifié') : 'propre'),
+      el('span', '', 'remote'), el('span', '', '↑' + (g.ahead || 0) + ' ↓' + (g.behind || 0)));
+    if (g.head) kv.append(el('span', '', 'dernier'), el('span', '', String(g.head)));
+  } else kv.append(el('span', '', 'git'), el('span', 'dim', 'pas d\'état connu : F5 pour le lire'));
+  if (c.tpl) kv.append(el('span', '', 'template'), el('span', '', String(c.tpl)));
+  if (c.team) kv.append(el('span', '', 'team'), el('span', '', String(c.team)));
+  pb.appendChild(kv);
+  k('Projet', pb);
+  const fb = el('div', 'cb'); fb.appendChild(el('div', 'dim', c.stopped ? 'projet arrêté — F5 pour le démarrer' : 'aucun fichier présenté ici'));
+  k('Fichiers', fb, c.stopped ? 'projet arrêté' : '');
 }
 
 let teamClick = { key: null, at: 0 };
@@ -650,6 +687,7 @@ function renderCards() {
     const bl = refreshBand(c.path); if (bl) box.insertBefore(bl, t.nextSibling);
     return;
   }
+  if (c.found !== undefined) return renderUserCard(c, box); // projet d'un utilisateur : carte lue sur son backend (#275)
   const pend = new Set(c.pending || []);
   const hidden = prefs.get('cardsHidden', false);
   const t = el('div', 'cardstitle');
@@ -2432,12 +2470,6 @@ function newUserProject() {
     field('category', 'Catégorie', cat);
     const name = el('input'); name.placeholder = 'nom du projet'; name.spellcheck = false;
     field('name', 'Nom', name);
-    const src = el('select'); for (const [v, t] of [['empty', 'Projet brut (dossier et git init)'], ['git', 'Cloner un dépôt Git']]) { const o = el('option', '', t); o.value = v; src.appendChild(o); }
-    field('source', 'Source', src);
-    const url = el('input'); url.placeholder = 'https://github.com/moi/projet.git ou git@github.com:moi/projet.git'; url.spellcheck = false;
-    field('repo', 'URL du dépôt', url);
-    const showUrl = () => { for (const n of [url, errs.repo]) n.classList.toggle('hidden', src.value !== 'git'); };
-    src.addEventListener('change', showUrl); showUrl();
     const final = el('div', 'ro'); f.append(el('label', '', 'Emplacement'), final);
     const upd = () => { final.textContent = (be.value || '?') + ' / ' + (cat.value.trim() || '<catégorie>') + ' / ' + (name.value.trim() || '<nom>'); };
     for (const n of [be, cat, name]) n.addEventListener('input', upd); upd();
@@ -2449,22 +2481,21 @@ function newUserProject() {
     const ok = el('button', 'btn pri', 'Créer');
     // jamais de bouton grisé muet : la raison est écrite à côté
     const gate = () => {
-      const r = !cat.value.trim() ? 'saisis une catégorie' : !name.value.trim() ? 'saisis un nom' : (src.value === 'git' && !gitUrlKind(url.value)) ? 'saisis l\'URL du dépôt' : '';
+      const r = !cat.value.trim() ? 'saisis une catégorie' : !name.value.trim() ? 'saisis un nom' : '';
       ok.disabled = !!r; why.textContent = r;
     };
-    for (const n of [cat, name, url, src]) n.addEventListener('input', () => { for (const k of Object.keys(errs)) errs[k].textContent = ''; err.textContent = ''; gate(); });
+    for (const n of [cat, name]) n.addEventListener('input', () => { for (const k of Object.keys(errs)) errs[k].textContent = ''; err.textContent = ''; gate(); });
     gate();
     const showFail = (r) => { const m = (r && r.msg) || 'création refusée'; const t = errs[r && r.field]; if (t) t.textContent = m; else err.textContent = m; };
     ok.onclick = async () => {
       for (const k of Object.keys(errs)) errs[k].textContent = ''; err.textContent = '';
-      const args = { backend: be.value, category: cat.value.trim(), name: name.value.trim(), source: src.value };
-      if (src.value === 'git') Object.assign(args, sourceArgs('git', url.value, ''));
+      const args = { backend: be.value, category: cat.value.trim(), name: name.value.trim() }; // création sur le backend ; le clonage dans le conteneur viendra ensuite
       ok.disabled = true;
       let r; try { r = await transport.call('create', args); } catch (e) { r = { ok: false, msg: e.message }; }
       if (r && r.ok === false) { showFail(r); gate(); return; }
       closeModal();
       if (r && r.job) { flash('Clonage en cours…'); return; }
-      if (r && r.path) select(r.path); // le projet créé (backend/catégorie/nom) est sélectionné dans l'arbre
+      if (r && r.path) { S.selectAfter = r.path; if (rowOf(r.path)) { S.selectAfter = ''; select(r.path); } } // le projet créé est sélectionné dès que sa ligne arrive dans l'arbre
       if (r && r.tab) showView(r.tab, true);
     };
     btns.append(cancel, ok); b.appendChild(btns);
@@ -2868,6 +2899,7 @@ function applyState(s) {
   for (const p of open) if (!S.views[p]) ensureView(p);
   if (S.view !== 'leaders' && !open.has(S.view) && !(S.grace && S.grace.pending.has(S.view))) S.view = 'leaders';
   renderHead(); renderTree(); renderTabs(); lanBanner(); launcherBar(); newJobSync(s.newJob);
+  if (S.selectAfter && (s.rows || []).some((x) => x.path === S.selectAfter)) { const p0 = S.selectAfter; S.selectAfter = ''; select(p0); }
   if (typeof dwRefresh === 'function') dwRefresh();
   for (const [p, v] of Object.entries(S.views)) v.root.classList.toggle('hidden', p !== S.view);
   leaders.root.classList.toggle('hidden', S.view !== 'leaders');

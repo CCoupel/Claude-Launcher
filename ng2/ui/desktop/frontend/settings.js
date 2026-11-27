@@ -1938,8 +1938,8 @@ function pjOptBox(pj) {
     ['Groupe (gid)', (() => { const i = stInput(op.cur.gid, (v) => { op.cur.gid = v; pjOptEdited(); }, ra.gid ? String(ra.gid) : '2000'); i.classList.add('sm'); return i; })(), 'non nul ; changer l\'uid refait le chown du stockage au prochain démarrage']]);
   body.appendChild(ug);
   body.appendChild(el('p', 'note', 'Image : ' + (o.image || '(celle du backend)') + ' — en lecture seule.'));
-  for (const w of op.warnings) if (!/partag/i.test(w) || !o.shared) body.appendChild(el('div', 'stwarn', '⚠ ' + w)); // avertissements du serveur (textContent)
-  if (o.shared) body.appendChild(el('div', 'stwarn', '⚠ Si ce backend est partagé avec d\'autres utilisateurs, leurs projets ne sont pas isolés des vôtres (un autre compte peut créer un objet qui imite les vôtres).'));
+  for (const w of op.warnings) body.appendChild(el('div', 'stwarn', '⚠ ' + w)); // avertissements du serveur (textContent)
+  if (o.shared && !op.warnings.some((w) => /partag/i.test(w))) body.appendChild(el('div', 'stwarn', '⚠ Si ce backend est partagé avec d\'autres utilisateurs, leurs projets ne sont pas isolés des vôtres (un autre compte peut créer un objet qui imite les vôtres).'));
   return stBox(k8s ? 'Ressources et placement du pod' : 'Ressources du conteneur', body, el('span', 'dim', 'objet du projet'));
 }
 // confirmation de recréation (P27) : perdu / gardé, fermeture annoncée, jeton à usage unique renvoyé à la confirmation
