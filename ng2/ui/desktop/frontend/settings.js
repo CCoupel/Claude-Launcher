@@ -26,7 +26,12 @@ const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'b
 const stClone = (o) => JSON.parse(JSON.stringify(o));
 const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 
+// Espace d'un utilisateur (mode serveur, `space` présent et non admin, #255) : seule la rubrique Backends (backends.yaml
+// de son espace) est utilisable ; ni config.conf, env.yaml, poste, ni projet sélectionné.
+const stUserSpace = () => typeof whoSpace !== 'undefined' && !!whoSpace && whoSpace.admin === false;
+
 async function openSettings(project, page, focus) {
+  if (stUserSpace()) { project = ''; page = 'backends'; }
   ST.project = project || '';
   if (page) ST.page = page;
   ST.result = null; ST.test = null;
@@ -47,8 +52,13 @@ async function openSettings(project, page, focus) {
   });
   ST.on = true;
   stRender();
-  stLoad().then(() => { if (!ST.on) return; ST.loading = false; stRender(); });
-  for (const id of Object.keys(DOCS)) docLoad(id); // chargements en parallèle, sans bloquer l'affichage
+  stLoad().then(() => {
+    if (!ST.on) return; ST.loading = false;
+    // lecture impossible dans l'espace de l'utilisateur : repli direct sur l'éditeur YAML (pas d'impasse)
+    if (stUserSpace() && !ST.draft) { stText('backends.yaml'); return; }
+    stRender();
+  });
+  if (!stUserSpace()) for (const id of Object.keys(DOCS)) docLoad(id); // chargements en parallèle, sans bloquer l'affichage
   stPoll(); // états des backends : appel séparé, ne retarde jamais l'affichage
   if (ST.project && ST.project !== 'new') { await pjLoad(); if (!ST.on) return; if (ST.pj && focus) ST.pj.focus = focus; stRenderPage(); stRenderFoot(); }
 }
@@ -176,8 +186,11 @@ function stRender() { stRenderRail(); stRenderPage(); stRenderFoot(); }
 function stRenderRail() {
   const r = $('strail'); if (!r) return;
   r.textContent = '';
-  for (const [g, items] of ST_RAIL) {
-    r.appendChild(el('div', 'rg', g));
+  const us = stUserSpace();
+  for (const [g, items0] of ST_RAIL) {
+    const items = us ? items0.filter(([k]) => k === 'backends') : items0;
+    if (!items.length) continue;
+    r.appendChild(el('div', 'rg', us ? 'MON ESPACE' : g));
     for (const [k, t] of items) {
       const it = el('div', 'ri' + (k === ST.page ? ' on' : ''), t);
       it.onclick = () => { stKeepClear(); ST.page = k; ST.test = null; stRender(); };
