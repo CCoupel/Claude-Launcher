@@ -422,6 +422,9 @@ type SecretKeyInfo struct {
 	HasKubeconfig      bool     `json:"hasKubeconfig"`
 	KubeContexts       []string `json:"kubeContexts,omitempty"`
 	KubeconfigModified string   `json:"kubeconfigModified,omitempty"`
+	// TLS d'un backend docker / podman d'utilisateur (#257) : CA et certificat (empreinte, sujet, expiration), présence de la clé
+	TLS       map[string]TLSCertInfo `json:"tls,omitempty"`
+	HasTLSKey bool                   `json:"hasTlsKey,omitempty"`
 }
 
 // KnownHostEntry : une empreinte d'hôte.

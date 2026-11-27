@@ -39,7 +39,7 @@ func (e Engine) kubectl(args ...string) []string {
 		if e.B.Namespace == "" {
 			return kubectlRefused(errors.New("namespace obligatoire pour un backend d'utilisateur"))
 		}
-		out := append([]string{"env", "-u", "KUBECONFIG", "kubectl"}, ka...)
+		out := append(append(envUnset(), "kubectl"), ka...)
 		return append(append(out, "-n", e.B.Namespace), args...)
 	}
 	out := []string{"kubectl"}

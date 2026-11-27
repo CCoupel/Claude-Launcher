@@ -378,6 +378,13 @@ func validateBackends(content []byte, goos, host string) []ConfigProblem {
 				Message: "defaults.image « " + d + " » n'est pas dans la liste images (elle sera proposée en plus)"})
 		}
 	}
+	if InCluster() { // mode serveur : ssh refusé à l'enregistrement (P13) ; le mode poste le garde
+		for _, b := range bs {
+			if sshBackend(b) {
+				ps = append(ps, ConfigProblem{Line: keyLine(content, b.Name), Severity: SevError, Message: "backend " + b.Name + " : " + SSHRefusal})
+			}
+		}
+	}
 	ev := runtimeEngineEnv()
 	for _, b := range bs {
 		if b.Name == "host" && goos == "windows" {

@@ -111,3 +111,19 @@ func NetBlockedHint() string {
 	}
 	return " — les sorties réseau du pod vers claude.ai et GitHub sont-elles autorisées ? (NetworkPolicy, proxy, DNS du cluster)"
 }
+
+// SSHRefusal : message d'un backend ssh en mode serveur (P13).
+const SSHRefusal = "ssh est interdit en mode serveur ; utiliser docker (TLS) ou k8s"
+
+// sshBackend : le backend passe par ssh (type, host ou engine_host en ssh://, hôtes d'un groupe).
+func sshBackend(b BackendConf) bool {
+	if b.Type == "ssh" {
+		return true
+	}
+	for _, h := range append([]string{b.Host, b.EngHost}, b.Hosts...) {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(h)), "ssh:") {
+			return true
+		}
+	}
+	return false
+}

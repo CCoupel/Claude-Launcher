@@ -167,7 +167,11 @@ func (b BackendConf) kubeconfigArgs() ([]string, error) {
 	if rerr != nil && b.user { // utilisateur : jamais « kubectl échoue seul » (aucun repli possible) — kubectl n'est pas lancé
 		return nil, errors.New("kubeconfig de l'utilisateur absent ou illisible : le déposer dans les réglages du backend")
 	}
-	if rerr == nil {
+	if rerr == nil && b.user { // utilisateur : mêmes contrôles qu'au dépôt, serveurs revérifiés (résolution mise en cache)
+		if perr := userKubeconfigRecheck(raw); perr != nil {
+			return nil, perr
+		}
+	} else if rerr == nil {
 		if _, _, perr := parseKubeconfig(raw); perr != nil {
 			return nil, perr
 		}

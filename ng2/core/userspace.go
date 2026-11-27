@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -384,20 +385,46 @@ func (s Space) BackendsFile() ConfigFile {
 	return configFile(ConfBackends, "backends.yaml — vos backends", s.BackendsPath())
 }
 
-// ValidateBackends : problèmes du contenu proposé pour backends.yaml (mêmes règles de forme que l'éditeur actuel).
+// ValidateBackends : problèmes du contenu proposé pour backends.yaml (mêmes règles de forme que l'éditeur actuel, plus celles d'un
+// backend d'utilisateur : userBackendProblems).
 func (s Space) ValidateBackends(content []byte) []ConfigProblem {
 	if len(content) > maxBackendsFileBytes {
 		return []ConfigProblem{{Severity: SevError, Message: "backends.yaml trop gros"}}
 	}
 	ps := ValidateConfig(ConfBackends, content)
-	if HasErrors(ps) {
-		return ps
-	}
 	return append(ps, userBackendProblems(content)...)
 }
 
-// userBackendProblems : règles propres aux backends d'un utilisateur — nom DNS-1123, kubeconfig « true » (coffre de l'utilisateur)
-// obligatoire pour un k8s : sans lui, kubectl prendrait le ServiceAccount du launcher (S15).
+// Variables d'environnement posées par le chart (users.maxBackends, users.backendTestsPerMinute).
+const (
+	UsersMaxBackendsVar = "CL_USERS_MAX_BACKENDS"
+	UsersTestsPerMinVar = "CL_USERS_BACKEND_TESTS_PER_MINUTE"
+)
+
+func envInt(name string, def, lo, hi int) int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(name))); err == nil && n >= lo && n <= hi {
+		return n
+	}
+	return def
+}
+
+// UserMaxBackends : nombre maximal de backends d'un utilisateur (défaut 10, 1 à 100).
+func UserMaxBackends() int { return envInt(UsersMaxBackendsVar, 10, 1, 100) }
+
+// UserTestsPerMinute : nombre maximal de backendTest par minute et par utilisateur (défaut 6, 1 à 60).
+func UserTestsPerMinute() int { return envInt(UsersTestsPerMinVar, 6, 1, 60) }
+
+// volumeNameRE : un NOM de volume seulement (jamais un chemin ni une liste d'options) ; dnsLabelRE : namespace, PVC.
+var (
+	volumeNameRE = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$`)
+	dnsLabelRE   = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)
+)
+
+// RootOnHostWarning : avertissement d'un accès docker sans TLS vérifié.
+const RootOnHostWarning = "Accès docker sans TLS vérifié : quiconque atteint ce port est root sur l'hôte. À réserver à un réseau de confiance."
+
+// userBackendProblems : règles propres aux backends d'un utilisateur — nom DNS-1123, ssh refusé (P13), kubeconfig « true » obligatoire
+// pour un k8s (S15), hôte borné (S1–S7, D1), namespace / PVC / volume = noms (S14, S29), limite de backends (D5).
 func userBackendProblems(content []byte) []ConfigProblem {
 	var f struct {
 		Backends map[string]map[string]any `yaml:"backends"`
@@ -411,16 +438,60 @@ func userBackendProblems(content []byte) []ConfigProblem {
 	}
 	sort.Strings(names)
 	var ps []ConfigProblem
+	if max := UserMaxBackends(); len(names) > max {
+		ps = append(ps, ConfigProblem{Severity: SevError, Message: fmt.Sprintf("trop de backends : %d déclarés, la limite est de %d par utilisateur", len(names), max)})
+	}
+	bad := func(n, msg string) {
+		ps = append(ps, ConfigProblem{Severity: SevError, Line: keyLine(content, n), Message: "backend « " + shortName(n) + " » : " + msg})
+	}
+	str := func(be map[string]any, k string) string { v, _ := be[k].(string); return v }
 	for _, n := range names {
 		be := f.Backends[n]
 		if err := CheckUserBackendName(n); err != nil {
 			ps = append(ps, ConfigProblem{Severity: SevError, Line: keyLine(content, n), Message: err.Error()})
 			continue
 		}
-		if t, _ := be["type"].(string); t == "k8s" {
+		t := str(be, "type")
+		for _, k := range []string{"host", "engine_host"} {
+			if h := strings.ToLower(strings.TrimSpace(str(be, k))); strings.HasPrefix(h, "ssh:") {
+				bad(n, "ssh est interdit en mode serveur ; utilise docker (TLS) ou k8s")
+			}
+		}
+		switch t {
+		case "ssh":
+			bad(n, "ssh est interdit en mode serveur ; utilise docker (TLS) ou k8s")
+		case "k8s":
 			if v, ok := be["kubeconfig"].(bool); !ok || !v {
-				ps = append(ps, ConfigProblem{Severity: SevError, Line: keyLine(content, n),
-					Message: "backend « " + n + " » : « kubeconfig: true » obligatoire (le kubeconfig se colle dans les réglages du backend ; jamais le compte du launcher)"})
+				bad(n, "« kubeconfig: true » obligatoire (le kubeconfig se colle dans les réglages du backend ; jamais le compte du launcher)")
+			}
+			ns := str(be, "namespace")
+			if !dnsLabelRE.MatchString(ns) {
+				bad(n, "« namespace » obligatoire : un nom DNS-1123 (minuscules, chiffres, tirets, 63 caractères au plus)")
+			}
+			if pvc := str(be, "pvc"); pvc != "" && !dnsLabelRE.MatchString(pvc) {
+				bad(n, "« pvc » : un nom DNS-1123 (minuscules, chiffres, tirets, 63 caractères au plus)")
+			}
+		case "docker", "podman":
+			if err := CheckUserHost(str(be, "host")); err != nil {
+				bad(n, HostRefusal)
+			}
+			if v, has := be["volume"]; has {
+				if vs, ok := v.(string); !ok || !volumeNameRE.MatchString(vs) {
+					bad(n, "« volume » : un nom de volume seulement (lettres, chiffres, « _ », « . », « - » ; jamais un chemin)")
+				}
+			}
+			tlsOn, verify := false, true
+			if tm, ok := be["tls"].(map[string]any); ok {
+				tlsOn, _ = tm["enabled"].(bool)
+				if v, has := tm["verify"].(bool); has {
+					verify = v
+				}
+			}
+			if t == "podman" && tlsOn {
+				bad(n, "podman n'a pas de TLS : le placer derrière un proxy TLS et déclarer le backend docker")
+			}
+			if !tlsOn || !verify {
+				ps = append(ps, ConfigProblem{Severity: SevWarning, Line: keyLine(content, n), Message: "backend « " + shortName(n) + " » : " + RootOnHostWarning})
 			}
 		}
 	}

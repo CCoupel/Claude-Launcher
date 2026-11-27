@@ -397,12 +397,24 @@ type BackendConf struct {
 	Volumes    map[string]string `yaml:"volumes"`              // k8s : racine partagée → PVC ReadWriteMany monté à ce chemin
 	Spread     *bool             `yaml:"spread"`               // k8s : répartir les pods NG2 sur les nodes (défaut : oui, #60)
 	Pod        map[string]any    `yaml:"pod"`                  // k8s : ajouté au spec du pod (nodeSelector, affinity, tolerations, resources…)
+	PVC        string            `yaml:"pvc"`                  // k8s (#257) : PVC existant du namespace qui porte les projets
+	Volume     string            `yaml:"volume"`               // docker / podman (#257) : volume existant de l'hôte
+	TLS        *TLSConf          `yaml:"tls,omitempty"`        // docker / podman (#257) : TLS vers le démon
 	implicit   bool              // host ajouté sans déclaration sous Windows (addImplicitHost)
 	// backend DÉCLARÉ PAR UN UTILISATEUR (Space.LoadBackends) : son coffre est vault (users/<uid>/vault), jamais le coffre commun de
 	// l'admin (S16) ; jamais de repli sur le ServiceAccount du launcher ni sur ~/.kube/config (S15)
 	user  bool
 	vault string
 }
+
+// TLSConf : « tls: » d'un backend docker / podman. verify faux : certificat du serveur non vérifié (avertissement).
+type TLSConf struct {
+	Enabled bool  `yaml:"enabled" json:"enabled"`
+	Verify  *bool `yaml:"verify,omitempty" json:"verify,omitempty"`
+}
+
+// verifies : le certificat du serveur est vérifié (défaut : oui quand TLS est activé).
+func (t *TLSConf) verifies() bool { return t != nil && t.Enabled && (t.Verify == nil || *t.Verify) }
 
 // engine : moteur réellement piloté (podman ou docker).
 func (b BackendConf) engine() string {
@@ -919,6 +931,9 @@ func (e Engine) cli(args ...string) []string { return e.cliT(false, args...) }
 // Par ssh, la commande distante est une seule chaîne passée au shell distant :
 // chaque argument y est protégé.
 func (e Engine) cliT(tty bool, args ...string) []string {
+	if e.B.user && (e.B.Type == "docker" || e.B.Type == "podman") {
+		return e.userCli(args)
+	}
 	switch e.B.Type {
 	case "ssh":
 		out := append(append([]string{"ssh"}, sshBaseArgs(e.B.Name, "10")...), sshMux()...)

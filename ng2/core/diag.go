@@ -137,6 +137,9 @@ func runQuiet(timeout time.Duration, argv ...string) (string, error) {
 
 // Diagnose : problèmes du backend (vide : utilisable) — moteur, puis stockage partagé.
 func Diagnose(b BackendConf) []Problem {
+	if InCluster() && sshBackend(b) { // mode serveur : écarté avec un diagnostic visible, le fichier reste lisible (P13)
+		return []Problem{{"backend « " + b.Name + " » ignoré : " + SSHRefusal, "le retirer de backends.yaml, ou déclarer un backend docker (TLS) ou k8s"}}
+	}
 	if p, refused := LocalRefusal(b); refused {
 		return []Problem{p} // backend local sous Windows (oslimits.go)
 	}

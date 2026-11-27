@@ -2,12 +2,18 @@ package core
 
 import (
 	"crypto/sha256"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
+	"time"
 )
 
 // Coffre d'un utilisateur (contracts/user-backends.md §7, S16, S23, S24) : users/<uid>/vault/<backend>/ UNIQUEMENT. Aucune fonction
@@ -65,7 +71,8 @@ func (s Space) SecretSetKubeconfig(backend, content string, w SecretWrite) (cont
 	if len(raw) > maxUserKubeconfig {
 		return nil, "", nil, errors.New("kubeconfig trop volumineux (64 Kio au plus)")
 	}
-	if contexts, _, err = parseKubeconfig(raw); err != nil {
+	contexts, _, warnings, err = parseUserKubeconfig(raw)
+	if err != nil {
 		return nil, "", nil, err
 	}
 	d, err := s.vaultDirOf(backend, true)
@@ -83,7 +90,7 @@ func (s Space) SecretSetKubeconfig(backend, content string, w SecretWrite) (cont
 	if err != nil {
 		return nil, "", nil, errors.New("écriture du kubeconfig impossible")
 	}
-	return contexts, fingerprint, kubeconfigWarnings(raw), nil
+	return contexts, fingerprint, warnings, nil
 }
 
 // SecretInfo : présence du kubeconfig de ce backend de l'utilisateur et ses contextes (jamais le contenu ni un chemin).
@@ -100,6 +107,12 @@ func (s Space) SecretInfo(backend string) (SecretKeyInfo, error) {
 		if ctxs, _, err := parseKubeconfig(b); err == nil {
 			info.KubeContexts = ctxs
 		}
+	}
+	if t := s.tlsInfos(d); len(t) > 0 {
+		info.TLS = t
+	}
+	if regularFile(filepath.Join(d, secretKeyPEM)) {
+		info.HasTLSKey = true
 	}
 	return info, nil
 }
@@ -118,4 +131,153 @@ func (s Space) SecretDeleteKubeconfig(backend string, w SecretWrite) error {
 	}
 	_ = os.Remove(d)
 	return nil
+}
+
+// ── certificats TLS d'un backend docker / podman (S12, S32) ────────────────
+
+const (
+	secretCAFile   = "ca.pem"
+	secretCertFile = "cert.pem"
+	secretKeyPEM   = "key.pem"
+)
+
+var errPEM = errors.New("PEM invalide")
+
+// onePEM : exactement un bloc PEM, de l'un des types admis.
+func onePEM(s string, types ...string) (*pem.Block, error) {
+	s = strings.TrimSpace(s)
+	if len(s) > maxUserKubeconfig {
+		return nil, errors.New("trop volumineux (64 Kio au plus)")
+	}
+	blk, rest := pem.Decode([]byte(s))
+	if blk == nil || len(strings.TrimSpace(string(rest))) != 0 {
+		return nil, errPEM
+	}
+	for _, t := range types {
+		if blk.Type == t {
+			return blk, nil
+		}
+	}
+	return nil, errPEM
+}
+
+// TLSCertInfo : ce que l'interface montre d'un certificat enregistré — jamais le PEM.
+type TLSCertInfo struct {
+	Fingerprint string `json:"fingerprint"`
+	Subject     string `json:"subject"`
+	NotAfter    string `json:"notAfter"`
+	CA          bool   `json:"ca,omitempty"`
+}
+
+func certInfo(c *x509.Certificate) TLSCertInfo {
+	sum := sha256.Sum256(c.Raw)
+	return TLSCertInfo{Fingerprint: "sha256:" + hex.EncodeToString(sum[:])[:16], Subject: c.Subject.String(),
+		NotAfter: c.NotAfter.UTC().Format(time.RFC3339), CA: c.IsCA}
+}
+
+// SecretSetTLS : CA du serveur (facultative), certificat et clé du client (ensemble). Contrôles : exactement un bloc, clé privée NON
+// chiffrée, clé correspondant au certificat, CA = CA:TRUE ou auto-signé. Rien n'est écrit si un contrôle échoue.
+func (s Space) SecretSetTLS(backend, ca, cert, key string, w SecretWrite) (infos map[string]TLSCertInfo, err error) {
+	if (cert == "") != (key == "") {
+		return nil, errors.New("certificat et clé du client vont ensemble")
+	}
+	if ca == "" && cert == "" {
+		return nil, errors.New("rien à enregistrer : CA du serveur, ou certificat et clé du client")
+	}
+	infos = map[string]TLSCertInfo{}
+	var files = map[string][]byte{}
+	if ca != "" {
+		blk, err := onePEM(ca, "CERTIFICATE")
+		if err != nil {
+			return nil, fmt.Errorf("CA : %w", err)
+		}
+		c, err := x509.ParseCertificate(blk.Bytes)
+		if err != nil {
+			return nil, errors.New("CA : certificat illisible")
+		}
+		if !c.IsCA && c.CheckSignatureFrom(c) != nil {
+			return nil, errors.New("CA : ni CA:TRUE ni auto-signé")
+		}
+		infos["ca"], files[secretCAFile] = certInfo(c), pem.EncodeToMemory(blk)
+	}
+	if cert != "" {
+		cb, err := onePEM(cert, "CERTIFICATE")
+		if err != nil {
+			return nil, fmt.Errorf("certificat : %w", err)
+		}
+		c, err := x509.ParseCertificate(cb.Bytes)
+		if err != nil {
+			return nil, errors.New("certificat : illisible")
+		}
+		kb, err := onePEM(key, "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY")
+		if err != nil {
+			return nil, errors.New("clé : un bloc de clé privée non chiffrée attendu (PRIVATE KEY, RSA PRIVATE KEY ou EC PRIVATE KEY)")
+		}
+		if _, err := tls.X509KeyPair(pem.EncodeToMemory(cb), pem.EncodeToMemory(kb)); err != nil {
+			return nil, errors.New("la clé ne correspond pas au certificat")
+		}
+		infos["cert"] = certInfo(c)
+		files[secretCertFile], files[secretKeyPEM] = pem.EncodeToMemory(cb), pem.EncodeToMemory(kb)
+	}
+	d, err := s.vaultDirOf(backend, true)
+	if err != nil {
+		return nil, err
+	}
+	sum := sha256.New()
+	names := make([]string, 0, len(files))
+	for n := range files {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	for _, n := range names {
+		sum.Write(files[n])
+	}
+	if err := journalSecret(backend, "tls", "set", "sha256:"+hex.EncodeToString(sum.Sum(nil))[:16], w.Source, w.User); err != nil {
+		return nil, err
+	}
+	err = WithFileLock(filepath.Join(s.VaultDir(), vaultLockName), func() error {
+		for _, n := range names {
+			if err := writeSecretFile(filepath.Join(d, n), files[n]); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, errors.New("écriture des certificats impossible")
+	}
+	return infos, nil
+}
+
+// SecretDeleteTLS : retire ca.pem, cert.pem et key.pem du backend.
+func (s Space) SecretDeleteTLS(backend string, w SecretWrite) error {
+	d, err := s.vaultDirOf(backend, false)
+	if err != nil {
+		return err
+	}
+	if err := journalSecret(backend, "tls", "delete", "", w.Source, w.User); err != nil {
+		return err
+	}
+	for _, n := range []string{secretCAFile, secretCertFile, secretKeyPEM} {
+		if err := os.Remove(filepath.Join(d, n)); err != nil && !os.IsNotExist(err) {
+			return errors.New("suppression impossible")
+		}
+	}
+	_ = os.Remove(d)
+	return nil
+}
+
+// tlsInfos : état des certificats d'un backend (empreinte, sujet, expiration ; jamais le contenu).
+func (s Space) tlsInfos(d string) map[string]TLSCertInfo {
+	out := map[string]TLSCertInfo{}
+	for k, f := range map[string]string{"ca": secretCAFile, "cert": secretCertFile} {
+		if b, err := os.ReadFile(filepath.Join(d, f)); err == nil {
+			if blk, _ := pem.Decode(b); blk != nil {
+				if c, err := x509.ParseCertificate(blk.Bytes); err == nil {
+					out[k] = certInfo(c)
+				}
+			}
+		}
+	}
+	return out
 }

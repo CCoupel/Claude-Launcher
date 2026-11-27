@@ -1,5 +1,3 @@
-//go:build s257seams
-
 package core
 
 import (
@@ -20,6 +18,7 @@ import (
 // (enregistrement) et Space.LoadBackends + Engine.cmd (avant chaque appel).
 
 func resolverFake(answers ...[]net.IP) (*atomic.Int64, func(string) ([]net.IP, error)) {
+	resetResolveCache() // le cache de résolution est global : un nouveau résolveur factice repart d'un cache vide
 	var n atomic.Int64
 	return &n, func(string) ([]net.IP, error) {
 		i := int(n.Add(1)) - 1
