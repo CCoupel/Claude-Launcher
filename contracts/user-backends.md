@@ -79,8 +79,8 @@ rien n'est écrit. YAML illisible, ancres / alias / fusion `<<`, clés en double
 |---|---|---|
 | Rubriques | `backends:` seulement (LOT-3.2 ajoutera `images:` et `defaults: {backend, image}` pour #275) | `pools`, `hubs`, `defaults`, `images` (avant LOT-3.2), `desktop_web`, `browser_server`, `browser_paths`, `browser_device`, toute autre |
 | Tout backend | `type` (obligatoire) ∈ {`k8s`, `docker`, `podman`} | `type: host`, `type: ssh`, type absent ou autre |
-| `docker` / `podman` | `host` **obligatoire**, de la forme `tcp://hôte:port` (`https://` **non admis** : docker et podman utilisent `tcp://` avec TLS) ; `volume` (LOT-3.2) ; `tls: {enabled, verify}` (LOT-3.1) ; `container:` = options **par défaut** des conteneurs de projet (LOT-3.2, §5 bis) | `host` absent ou vide (moteur local du launcher), `unix://`, `npipe://`, `fd://`, `ssh://`, chemin de socket ; `hosts`, `pool`, `engine`, `engine_host`, `shared`, `volumes`, `context`, `kubeconfig`, `pod`, `spread` |
-| `k8s` | `namespace` (obligatoire, libre) ; `pvc` (LOT-3.2) ; `kubeconfig: true` (**obligatoire** dès LOT-3.1, posé par l'envoi du kubeconfig collé ; jamais un chemin) ; `spread` ; `pod:` = options **par défaut** des pods de projet (§5 bis : `resources`, `nodeSelector`, `affinity`, `tolerations`) | `host`, `hosts`, `pool`, `context`, `volumes`, `kubeconfig` autre que `true`, toute autre clé de `pod` (dont les clés R1 de `auth.md` §4) |
+| `docker` / `podman` | `host` **obligatoire**, de la forme `tcp://hôte:port` (`https://` **non admis** : docker et podman utilisent `tcp://` avec TLS) ; `volume` (LOT-3.2) ; `tls: {enabled, verify}` (LOT-3.1) ; `container:` = options **par défaut** des conteneurs de projet (LOT-3.2, §5 bis) ; `run_as: {uid, gid}` (non nuls, D3) | `host` absent ou vide (moteur local du launcher), `unix://`, `npipe://`, `fd://`, `ssh://`, chemin de socket ; `hosts`, `pool`, `engine`, `engine_host`, `shared`, `volumes`, `context`, `kubeconfig`, `pod`, `spread` |
+| `k8s` | `run_as: {uid, gid}` (non nuls, D3) ; `namespace` (obligatoire, libre) ; `pvc` (LOT-3.2) ; `kubeconfig: true` (**obligatoire** dès LOT-3.1, posé par l'envoi du kubeconfig collé ; jamais un chemin) ; `spread` ; `pod:` = options **par défaut** des pods de projet (§5 bis : `resources`, `nodeSelector`, `affinity`, `tolerations`) | `host`, `hosts`, `pool`, `context`, `volumes`, `kubeconfig` autre que `true`, toute autre clé de `pod` (dont les clés R1 de `auth.md` §4) |
 
 - Le champ refusé est nommé dans le message (« `pool` : non autorisé pour un utilisateur »), sans recopier de valeur.
 - Le `backends.yaml` de l'admin n'est pas concerné (règle R1 de `auth.md` §4, inchangée).
@@ -232,7 +232,13 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
     `*.svc`, `*.cluster.local`, noms sans point). **Toujours refusés**, même avec le paramètre : loopback et `localhost*`,
     `0.0.0.0` / `::`, link-local et métadonnées, multicast, `100.64/10`, `192.0.0/24`, `198.18/15`, documentation, `240/4`,
     diffusion. Au démarrage, le launcher journalise « réseaux privés autorisés aux utilisateurs : un utilisateur peut
-    viser le LAN de la plateforme ». Usage prévu : la QUALIF ;
+    viser le LAN de la plateforme ». Usage prévu : la QUALIF. **Booléen seul (D1)** : ni plages de la plateforme
+    exclues, ni liste de CIDR. Texte de risque repris tel quel dans `values.yaml`, `NOTES.txt` et la documentation :
+    « `users.allowPrivateNetworks: true` autorise **tout utilisateur authentifié** à faire joindre par le pod du launcher
+    n'importe quelle adresse privée ou interne (réseau de l'infrastructure, services et API du cluster plateforme, DNS
+    interne). Il peut ainsi **cartographier** ce réseau et envoyer des requêtes API docker/Kubernetes à des services
+    internes. À réserver à un environnement de test ; **jamais en production partagée**. » Une NetworkPolicy de sortie du
+    pod launcher reste recommandée ;
   - un **admin** n'a aucune contrainte : LAN permis, `backends.yaml` inchangé.
   - Pour un utilisateur, refus (échec fermé, message unique « adresse non autorisée pour un utilisateur ») de :
     - loopback, `0.0.0.0`, link-local et métadonnées (`169.254/16`, `fe80::/10`, `100.100.100.200`, `fd00:ec2::254`) ;
@@ -288,8 +294,18 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   - k8s : StatefulSets `cl.launcher=ng2, cl.user=<uid>` du namespace ;
   - docker/podman : conteneurs (arrêtés compris, `ps -a`) aux mêmes labels.
   Sondage toutes les 10 s (cadence actuelle de `readCtr`). Chaque découverte réussie met à jour la trace (§2).
-- Labels posés à la création (immuables) : `cl.launcher`, `cl.user`, `cl.project`, `cl.category`, `cl.backend`,
-  `cl.repo` (URL du dépôt, si clone), `cl.created`.
+- Labels posés à la création (immuables), par le launcher seulement, jamais par la saisie, `env.yaml` ni le dépôt :
+  `cl.launcher`, `cl.user`, `cl.project`, `cl.category`, `cl.backend`, `cl.created`, `cl.ctr` ; `cl.repo` (URL validée)
+  en **annotation** k8s / label docker.
+- **Nom d'objet avec un condensé d'uid** (D2, T9) : `cl-<h8>-<catégorie>-<projet>` (`h8` = 8 premiers caractères
+  hexadécimaux du SHA-256 de l'uid, DNS-1123, ≤ 63). Deux utilisateurs sur le même hôte ou namespace n'entrent jamais en
+  collision. Noms de projet et de catégorie : DNS-1123, motif `-old-<chiffres>` réservé (T14).
+- **Vérification `cl.user` avant tout usage** (T10) : aucune opération (exec, ouverture, F5, suppression, `update`,
+  patch, recréation) sur un objet sans label `cl.user` égal à l'uid de l'appelant, qu'il soit trouvé par label ou par nom.
+- **Backend partagé entre utilisateurs** (D2) : non interdit, c'est l'utilisateur qui gère son backend. Une **alerte**
+  figure dans les `warnings` de `userBackendAdd` et de `backendTest`, sur la carte du backend et dans la documentation :
+  « Si ce backend est partagé avec d'autres utilisateurs, leurs projets ne sont pas isolés des vôtres (un autre compte
+  peut créer un objet qui imite les vôtres). » Pas de signature d'objet (`cl.sig`) en v7.1.0.
 
 ### Disparition (P18)
 
@@ -341,10 +357,44 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 - Champs simples : `field: "pod.limits.memory"` etc. ; incohérence `limits < requests` → refus nommé.
 - Jamais de bouton grisé muet : l'enregistrement refusé affiche la liste des problèmes à côté.
 
-- **Jamais** (k8s et docker/podman), quelle que soit la saisie : `privileged`, capacités (`cap_add`), `hostPath`, `hostNetwork`,
-  `hostPID`, `hostIPC`, montages libres, `--volumes-from`, `--device`, `--network`, `-p` / ports, `securityContext`,
-  `serviceAccountName`, `runtimeClassName`, `--security-opt`, `--userns`, `--pid`. Tout champ hors de la table est refusé
-  avec un message nommé (`field: "pod.<chemin>"` / `"container.<champ>"`).
+- **Constructeur dédié** (T1, T2) : le manifeste et l'`argv` d'un projet d'utilisateur sont produits par un constructeur
+  distinct (`userManifest` / `userRunArgs`). Jamais par `placePod`, `withResources` ni `runArgs` du mode admin, qui
+  recopient des champs. Tout champ non listé est **absent** du résultat (test par instantané).
+- **Jamais**, quelle que soit la saisie. Le champ est refusé nommément à la saisie et absent du résultat.
+  - k8s : `serviceAccountName`, `nodeName`, `schedulerName`, `runtimeClassName`, `priorityClassName`, `priority`,
+    `preemptionPolicy`, `imagePullSecrets`, `dnsPolicy`, `dnsConfig`, `hostAliases`, `hostNetwork`, `hostPID`, `hostIPC`,
+    `hostUsers`, `shareProcessNamespace`, `initContainers`, `ephemeralContainers`, `env`, `envFrom`, `command`, `args`,
+    `ports`, `lifecycle`, sondes (`livenessProbe`…), `resources.claims`, `securityContext` (tout niveau), `volumes` hors
+    PVC déclaré et `emptyDir` du launcher, `hostPath`, `enableServiceLinks`, `restartPolicy`, `overhead`,
+    `activeDeadlineSeconds`, `subdomain`, `setHostnameAsFQDN`, `os`, `topologySpreadConstraints` (posé par le launcher
+    seulement).
+  - docker/podman : `--privileged`, `--cap-add`, `--cap-drop`, `--security-opt`, `--ulimit`, `--sysctl`, `--userns`,
+    `--pid`, `--ipc`, `--uts`, `--cgroup-parent`, `--cgroupns`, `--network`, `--net`, `--dns*`, `--add-host`, `-p` /
+    `-P` / `--expose`, `--device*`, `--volumes-from`, `-v`, `--mount` hors gabarit, `--env` / `--env-file`, `--entrypoint`,
+    `--user`, `--restart`, `--log-*`, `--label-file`, `--runtime`, `--storage-opt`, `--tmpfs`, `--init`, `--oom-*`,
+    `--cpuset-*`, `--blkio-*`, `--read-only`, `--platform`, tous **venus du client**. **podman** : `gpus` refusé
+    nommément (pas de `--gpus` ; CDI via `--device` interdit).
+- **Gabarit docker/podman** : `create` puis `start` ; options `--opt=valeur`, jamais de shell :
+  - `--name=cl-<h8>-<cat>-<proj>`, `--hostname=<proj>`, labels du launcher ;
+  - `--mount=type=volume,src=<volume>,dst=/space` (jamais `type=bind` ni `-v`) ;
+  - `--workdir`, `-e HOME=/space/.claude/home`, `-e CLAUDE_CONFIG_DIR=/space/.claude`, `LANG`, `DISABLE_AUTOUPDATER` ;
+  - options du client (`--cpus` `--memory` `--pids-limit` `--shm-size` `--gpus`, valeurs par expression stricte) ;
+  - durcissement fixe (D3) ;
+  - image validée (jamais un `-` initial), puis la commande `pid1` fixe.
+- **Pods et conteneurs sans root par défaut (D3)**. Valeurs par défaut `uid 2000`, `gid 2000`, surchargeables avec un uid
+  et un gid **non nuls** (root refusé), dans cet ordre :
+  1. Helm `users.runAs.uid` / `users.runAs.gid` ;
+  2. `run_as: {uid, gid}` du backend (liste blanche §3) ;
+  3. champs « Utilisateur du pod/conteneur » du projet (M4, deux champs simples).
+  - k8s : `securityContext` fixé par le launcher : `runAsUser`, `runAsGroup`, `runAsNonRoot: true`, `fsGroup` = gid,
+    `fsGroupChangePolicy: OnRootMismatch`, `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`,
+    `capabilities.drop: [ALL]`, **aucun ajout** (le bootstrap n'a plus besoin de `setpriv`/`su`), `privileged: false`,
+    racine en écriture (installations utilisateur dans `$HOME` du volume).
+  - docker/podman : `--user=<uid>:<gid>`, `--cap-drop=ALL`, `--security-opt=no-new-privileges` (fixés par le launcher).
+  - `HOME=/space/.claude/home` et `CLAUDE_CONFIG_DIR=/space/.claude` doivent être accessibles en écriture à cet uid.
+    Volume ou PVC non accessible en écriture → refus nommé au premier démarrage : « le stockage n'est pas accessible en
+    écriture à l'utilisateur 2000:2000 (chown ou fsGroup) ». Conséquence : un `setup` d'`env.yaml` qui exige root
+    (`apt-get install`) échoue ; c'est documenté, l'image doit contenir ses outils.
 - **Modification après création** :
   - k8s : patch du StatefulSet, appliqué au prochain démarrage du pod ;
   - docker/podman : `cpus`, `memory`, `pids_limit` changés **à chaud** par `docker update`, sans recréer. `shm_size` et
@@ -356,13 +406,19 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
     état et approbation sous `.claude-launcher/`, tous dans le volume).
   - **Session claude en cours ou terminal ouvert** : la confirmation annonce que le projet sera d'abord fermé (comme
     « Fermer ») ; sans confirmation, rien ne change.
+  - **Verrou par projet** (une seule recréation à la fois, la seconde est refusée nommément). La confirmation porte un
+    jeton à usage unique lié au projet et aux options demandées.
   - **Déroulé, avec retour arrière** :
     1. arrêt du conteneur ;
-    2. renommage en `<nom>-old-<horodatage>` ;
+    2. renommage en `<nom>-old-<ns>-<aléa>` et étiquetage `cl.recreate-of=<nom>`, `cl.state=old` ;
     3. création du nouveau conteneur (mêmes labels, nouvelles options, même volume) puis démarrage ;
-    4. succès → suppression de l'ancien ;
-    5. échec à l'étape 3 → suppression du nouveau, ancien renommé et redémarré s'il tournait, erreur nommée.
-  - Le volume n'est jamais touché. Audit `project.recreate` (options changées, résultat, sans contenu).
+    4. suppression de l'ancien seulement après démarrage **et** `inspect` du nouveau (labels, image, montage `/space`) ;
+    5. échec → suppression du nouveau, ancien renommé et redémarré s'il tournait, erreur nommée.
+  - La sauvegarde est **identifiée par ses labels, jamais par un motif de nom** ; la découverte exclut `cl.state=old`.
+    Reprise après un arrêt brutal : ancienne présente et nominale absente → restaurée ; les deux présentes → rien n'est
+    supprimé, « doublon » signalé.
+  - Le volume n'est jamais touché : `docker rm` **sans `-v`**, aucune commande `volume`. Le sondage ne relance ni ne crée
+    rien pendant une recréation. Audit `project.recreate` (options changées, résultat, sans contenu).
   - k8s : rien de tel. Un changement d'options patche le StatefulSet, et le pod est recréé à son prochain démarrage (un pod k8s ne garde
     jamais ses installations hors volume).
 
@@ -400,6 +456,11 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 - `cl.meta` : JSON ≤ 4 Kio (`branch`, `dirty`, `ahead`, `behind`, `head`, `tpl`, `team`, `seen`) ; jamais de contenu de
   fichier ni de secret. Exige le verbe `patch` sur `statefulsets` (déjà dans la Role requise).
 
+### Plafonds du launcher par utilisateur (D5)
+
+- ≤ **40** processus d'exec simultanés (terminaux, lectures) et ≤ **4** flux `/files` par utilisateur ; au-delà, refus
+  nommé ; compteurs libérés à la fermeture. Aucun plafond de CPU ni de mémoire sur ses backends (D6, risque accepté).
+
 ## 6 bis. Approbation de l'environnement d'un projet cloné (#215) **[CHANGED]** (P21)
 
 - **Existant** : registre `trust.json` dans la config partagée du launcher (`core/envtrust.go:71`), hors projet. (L'annotation
@@ -421,6 +482,21 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   - le coffre étant en clair (P14), qui lit la racine peut forger une approbation. Mais il a déjà les identifiants des
     backends ;
   - le fichier est versionnable par erreur : exclu de git (`.git/info/exclude`, comme le dossier d'attention).
+
+### `env.yaml` d'un projet d'utilisateur (D4, T4, T5)
+
+- **Approbation scellée** (ci-dessus), **et** l'`image` est obligatoirement autorisée :
+  - LOT-3.2 : l'image d'`env.yaml` doit être **égale à l'image par défaut des projets de l'utilisateur**, sinon refus nommé
+    « image non autorisée : seule l'image par défaut est admise (liste d'images : LOT-3.3) ». L'image par défaut est la
+    première image proposée par la plateforme.
+  - LOT-3.3 : elle doit figurer dans la liste `images:` de l'utilisateur.
+  - Syntaxe de l'image validée avant tout usage (`<registre>/<nom>:<tag>` ou `@sha256:`, ≤ 255, jamais de `-` initial ni
+    d'espace).
+- `mounts` et `local` d'`env.yaml` sont **refusés** pour un utilisateur (pas de liaison hôte, pas de volume anonyme), et le
+  launcher ne fait **aucun** `os.Stat` ni aucune lecture de son propre système de fichiers à partir d'une valeur du dépôt.
+- MAC de l'approbation non ambigu (§6 bis) : `HMAC(clé, "cl-trust-v1" ‖ longueurs ‖ uid ‖ backend ‖ chemin du projet ‖
+  pour chaque fichier trié : nom ‖ sha256)`, `hmac.Equal`, clé créée en `O_EXCL`, une seule lecture des octets hachés
+  puis analysés.
 
 ## 7. Coffre de l'utilisateur **[NEW]** (P14 : en clair)
 

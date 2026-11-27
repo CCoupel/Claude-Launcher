@@ -2,6 +2,21 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.2 (#275) : décisions D1–D4 de la revue de sécurité
+
+- **[CHANGED]** D1 : `users.allowPrivateNetworks` reste un booléen seul ; texte de risque dans `values.yaml`, `NOTES.txt`,
+  documentation ; NetworkPolicy de sortie recommandée.
+- **[CHANGED]** D2 : noms d'objets `cl-<h8>-<cat>-<proj>` (condensé d'uid), vérification `cl.user` avant tout usage, alerte
+  « backend partagé » dans les `warnings` et la documentation ; pas de `cl.sig`.
+- **[NEW]** D3 : pods et conteneurs de projet **sans root** par défaut (`2000:2000`, surchargeable mais jamais 0) ;
+  `securityContext` durci (non root, sans élévation, seccomp, capacités retirées) ; docker `--user`, `--cap-drop=ALL`,
+  `no-new-privileges` ; Helm `users.runAs.uid/gid`, backend `run_as`.
+- **[CHANGED]** D4 : image d'`env.yaml` = image par défaut (LOT-3.2), puis liste `images:` (LOT-3.3) ; `mounts`/`local`
+  d'`env.yaml` refusés ; MAC d'approbation non ambigu.
+- **[CHANGED]** §5 bis : constructeur dédié, liste « Jamais » complète (k8s, docker, podman `gpus` refusé), gabarit
+  docker ; recréation identifiée par `cl.recreate-of` / `cl.state=old`, verrou par projet, jamais `rm -v`.
+- **[NEW]** D5 : 40 exec et 4 flux `/files` par utilisateur ; D6 : pas de plafond CPU/mémoire (risque accepté).
+
 ## [20261127] — v7.1.0 LOT-3.2 (#275) : options du pod, champs simples + zone JSON (M4 retenue)
 
 - **[CHANGED]** `user-backends.md` §5 bis : k8s = champs simples (CPU, mémoire, stockage éphémère) + zone JSON
