@@ -15,6 +15,7 @@ import (
 //
 //	func (e Engine) RecreateContainer(name string, createArgs []string, confirmed bool, wasRunning bool, now time.Time) error
 //
+// + (sécurité T16–T18) : var ErrRecreateBusy, ErrRecreateNothing error ; func (e Engine) RestoreInterrupted(name string) error
 // createArgs : l'argv de « create » du NOUVEAU conteneur (sans « docker ») ; l'erreur sans confirmation est ErrRecreateUnconfirmed.
 // Faux docker : journalise chaque commande ; « failcreate » dans son dossier fait échouer « create » ; l'état (existe / tourne) est simulé.
 
@@ -32,6 +33,7 @@ func rcTools(t *testing.T, running bool) rc {
 	script := `#!/bin/sh
 echo "$*" >> "` + log + `"
 case "$1" in
+  stop) [ -f "` + dir + `/slow" ] && sleep 1 ;;
   create) [ -f "` + dir + `/failcreate" ] && { echo "Error: create failed" >&2; exit 1; }; echo newid ;;
   inspect) [ -f "` + state + `" ] && echo true || echo false ;;
   *) : ;;
@@ -147,5 +149,86 @@ func TestE1cArgumentsDangereuxRefuses(t *testing.T) {
 	}
 	if len(r.calls()) != 0 {
 		t.Errorf("commandes lancées pour des arguments refusés : %v", r.calls())
+	}
+}
+
+// ── Exigences de sécurité T16–T19 (_work/reports/security-lot3.2.md) ───────────────────────────────────
+
+// T16 — la sauvegarde est identifiée par LABEL (cl.recreate-of / cl.state=old), jamais par le motif du nom : un projet d'utilisateur nommé
+// « x-old-<chiffres> » n'est jamais renommé, ni supprimé, ni « restauré » par la reprise après interruption.
+// API proposée : func (e Engine) RestoreInterrupted(name string) error (reprise au démarrage / à l'ouverture).
+func TestT16ProjetNommeXOldJamaisTouche(t *testing.T) {
+	r := rcTools(t, true)
+	e := Engine{rcBackend(t)}
+	// le moteur ne connaît qu'un conteneur « x-old-20261127 » (projet de l'utilisateur, labels cl.user…), aucun « x »
+	_ = os.WriteFile(filepath.Join(r.dir, "ps.out"), []byte("x-old-20261127 cl.user=github-9 cl.project=x-old-20261127\n"), 0o644)
+	if err := e.RestoreInterrupted("x"); err != nil && err != ErrRecreateNothing {
+		t.Logf("RestoreInterrupted : %v", err)
+	}
+	for _, c := range r.calls() {
+		if strings.HasPrefix(c, "rename") || strings.HasPrefix(c, "rm") || strings.HasPrefix(c, "start") || strings.HasPrefix(c, "stop") {
+			t.Errorf("le conteneur d'un projet « x-old-… » a été touché : %s", c)
+		}
+	}
+}
+
+// T17 — verrou par projet : deux recréations simultanées du même projet → une seule s'exécute, l'autre est refusée (ErrRecreateBusy).
+func TestT17RecreationsConcurrentes(t *testing.T) {
+	r := rcTools(t, true)
+	_ = os.WriteFile(filepath.Join(r.dir, "slow"), nil, 0o644) // le faux docker ralentit « stop » (voir rcTools : variable slow)
+	e := Engine{rcBackend(t)}
+	errs := make(chan error, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			errs <- e.RecreateContainer("cl-proj", []string{"create", "--name", "cl-proj", "debian:12"}, true, true, rcNow)
+		}()
+	}
+	a, b := <-errs, <-errs
+	busy := 0
+	for _, err := range []error{a, b} {
+		if err == ErrRecreateBusy {
+			busy++
+		}
+	}
+	if busy != 1 || (a != nil && b != nil && busy != 1) {
+		t.Errorf("recréations simultanées : %v / %v (une seule exécutée, l'autre ErrRecreateBusy)", a, b)
+	}
+	creates := 0
+	for _, c := range r.calls() {
+		if strings.HasPrefix(c, "create") {
+			creates++
+		}
+	}
+	if creates != 1 {
+		t.Errorf("%d création(s) de conteneur pour 2 demandes simultanées", creates)
+	}
+}
+
+// T18 / T19 — l'ancien n'est supprimé qu'APRÈS le démarrage ET l'inspection du nouveau ; jamais « rm -v », « volume », « prune ».
+func TestT18AncienSupprimeApresVerificationDuNouveau(t *testing.T) {
+	r := rcTools(t, true)
+	e := Engine{rcBackend(t)}
+	if err := e.RecreateContainer("cl-proj", []string{"create", "--name", "cl-proj", "debian:12"}, true, true, rcNow); err != nil {
+		t.Fatal(err)
+	}
+	calls := r.calls()
+	idx := func(prefix string, from int) int {
+		for i := from; i < len(calls); i++ {
+			if strings.HasPrefix(calls[i], prefix) {
+				return i
+			}
+		}
+		return -1
+	}
+	start := idx("start", 0)
+	insp := idx("inspect", start+1) // inspection du NOUVEAU après son démarrage
+	rm := idx("rm", 0)
+	if start < 0 || insp < 0 || rm < 0 || !(start < insp && insp < rm) {
+		t.Errorf("ordre attendu start → inspect → rm de l'ancien :\n%s", strings.Join(calls, "\n"))
+	}
+	for _, c := range calls {
+		if strings.Contains(c, "prune") || strings.HasPrefix(c, "volume") || strings.HasPrefix(c, "rm") && (strings.Contains(c, " -v") || strings.Contains(c, "--volumes")) {
+			t.Errorf("commande interdite : %s", c)
+		}
 	}
 }

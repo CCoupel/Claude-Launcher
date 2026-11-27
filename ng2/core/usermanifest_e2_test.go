@@ -2,6 +2,7 @@ package core
 
 import (
 	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -125,7 +126,9 @@ func TestE2K8sJamaisDeChampDangereux(t *testing.T) {
 		t.Fatalf("manifeste refusé : %v", err)
 	}
 	forbidden := map[string]bool{"hostPath": true, "hostNetwork": true, "hostPID": true, "hostIPC": true, "privileged": true, "serviceAccountName": true,
-		"serviceAccount": true, "runtimeClassName": true, "capabilities": true, "hostPort": true, "ports": true, "nodeName": true, "shareProcessNamespace": true}
+		"serviceAccount": true, "runtimeClassName": true, "hostPort": true, "ports": true, "nodeName": true, "shareProcessNamespace": true,
+		"priorityClassName": true, "schedulerName": true, "dnsConfig": true, "dnsPolicy": true, "hostAliases": true, "initContainers": true,
+		"ephemeralContainers": true, "imagePullSecrets": true, "hostUsers": true, "envFrom": true, "args": true, "lifecycle": true, "volumeDevices": true}
 	walk(m, "", func(p string, v any) {
 		k := p[strings.LastIndex(p, ".")+1:]
 		if forbidden[k] {
@@ -169,8 +172,9 @@ func TestE2ImagesInvalidesRefusees(t *testing.T) {
 
 // ── docker / podman ────────────────────────────────────────────────────────────────────────────────────
 
-var dockerForbidden = []string{"--privileged", "-p", "-P", "--publish", "--publish-all", "--network", "--net", "--pid", "--ipc", "--uts", "--cap-add", "--cap-drop",
-	"--security-opt", "--volumes-from", "--device", "--userns", "--cgroupns", "--add-host", "--dns", "--mount", "--sysctl", "--ulimit", "--init"}
+var dockerForbidden = []string{"--privileged", "-p", "-P", "--publish", "--publish-all", "--network", "--net", "--pid", "--ipc", "--uts", "--cap-add",
+	"--volumes-from", "--device", "--userns", "--cgroupns", "--add-host", "--dns", "--dns-search", "--dns-option", "--mount", "--sysctl", "--ulimit", "--init",
+	"--entrypoint", "--restart", "--tmpfs", "--env-file", "--label-file", "--group-add", "--pids-limit-unlimited", "--ipc=host", "--link", "--mac-address", "--ip", "--ip6"}
 
 func e2Args(t *testing.T, b BackendConf, image string) ([]string, error) {
 	t.Helper()
@@ -263,5 +267,170 @@ func TestE2AucunStockageCree(t *testing.T) {
 		if strings.Contains(j, bad) {
 			t.Errorf("« %s » dans l'argv : %s", bad, j)
 		}
+	}
+}
+
+// ── D3 : pods NON root par défaut ───────────────────────────────────────────────────────────────────────
+
+func TestE2K8sNonRoot(t *testing.T) {
+	m, err := e2Manifest(t, e2K8s(t), "debian:12")
+	if err != nil {
+		t.Fatalf("manifeste refusé : %v", err)
+	}
+	spec := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+	ctr := spec["containers"].([]any)[0].(map[string]any)
+	csc, _ := ctr["securityContext"].(map[string]any)
+	psc, _ := spec["securityContext"].(map[string]any)
+	pick := func(k string) any { // au niveau du conteneur, à défaut du pod
+		if v, ok := csc[k]; ok {
+			return v
+		}
+		return psc[k]
+	}
+	if pick("runAsUser") != float64(2000) || pick("runAsGroup") != float64(2000) || pick("runAsNonRoot") != true {
+		t.Errorf("identité : runAsUser=%v runAsGroup=%v runAsNonRoot=%v (2000, 2000, true attendus)", pick("runAsUser"), pick("runAsGroup"), pick("runAsNonRoot"))
+	}
+	if csc["allowPrivilegeEscalation"] != false {
+		t.Errorf("allowPrivilegeEscalation = %v (false attendu)", csc["allowPrivilegeEscalation"])
+	}
+	if sp, _ := pick("seccompProfile").(map[string]any); sp["type"] != "RuntimeDefault" {
+		t.Errorf("seccompProfile = %v (RuntimeDefault attendu)", pick("seccompProfile"))
+	}
+	caps, _ := csc["capabilities"].(map[string]any)
+	if d, _ := caps["drop"].([]any); len(d) != 1 || d[0] != "ALL" {
+		t.Errorf("capabilities.drop = %v ([ALL] attendu)", caps["drop"])
+	}
+	if _, add := caps["add"]; add {
+		t.Error("capabilities.add présent")
+	}
+}
+
+func e2Has(args []string, flag, val string) bool {
+	for i, a := range args {
+		if a == flag && i+1 < len(args) && args[i+1] == val || a == flag+"="+val {
+			return true
+		}
+	}
+	return false
+}
+
+func TestE2DockerNonRootEtDurci(t *testing.T) {
+	for _, typ := range []string{"docker", "podman"} {
+		args, err := e2Args(t, e2Docker(t, typ), "debian:12")
+		if err != nil {
+			t.Errorf("%s : %v", typ, err)
+			continue
+		}
+		if !e2Has(args, "--user", "2000:2000") {
+			t.Errorf("%s : --user 2000:2000 absent : %v", typ, args)
+		}
+		for i, a := range args {
+			if a == "--user" && i+1 < len(args) && (args[i+1] == "0" || args[i+1] == "root" || args[i+1] == "0:0") {
+				t.Errorf("%s : conteneur root : %v", typ, args)
+			}
+		}
+		if !e2Has(args, "--cap-drop", "ALL") {
+			t.Errorf("%s : --cap-drop=ALL absent : %v", typ, args)
+		}
+		if !e2Has(args, "--security-opt", "no-new-privileges") && !e2Has(args, "--security-opt", "no-new-privileges:true") {
+			t.Errorf("%s : --security-opt no-new-privileges absent : %v", typ, args)
+		}
+		for _, a := range args {
+			if a == "--userns=keep-id" || a == "--user=0" {
+				t.Errorf("%s : %s (identité de l'hôte / root)", typ, a)
+			}
+		}
+	}
+}
+
+// Le launcher ne pose que SON environnement et SES options de sécurité : rien d'autre (--env, --restart, --ulimit…).
+func TestE2DockerEnvEtOptionsFixes(t *testing.T) {
+	args, err := e2Args(t, e2Docker(t, "docker"), "debian:12")
+	if err != nil {
+		t.Fatalf("argv refusé : %v", err)
+	}
+	fixed := map[string]bool{"HOME": true, "CLAUDE_CONFIG_DIR": true, "LANG": true, "DISABLE_AUTOUPDATER": true}
+	for i, a := range args {
+		if (a == "-e" || a == "--env") && i+1 < len(args) {
+			if k := strings.SplitN(args[i+1], "=", 2)[0]; !fixed[k] {
+				t.Errorf("variable d'environnement hors liste du launcher : %s", args[i+1])
+			}
+		}
+		if a == "--security-opt" && i+1 < len(args) && !strings.HasPrefix(args[i+1], "no-new-privileges") {
+			t.Errorf("--security-opt inattendu : %s", args[i+1])
+		}
+		if a == "--cap-drop" && i+1 < len(args) && args[i+1] != "ALL" {
+			t.Errorf("--cap-drop inattendu : %s", args[i+1])
+		}
+	}
+}
+
+// Variables d'environnement du conteneur k8s : seulement celles du launcher, jamais de valeur venue de l'utilisateur.
+func TestE2K8sEnvFixe(t *testing.T) {
+	m, err := e2Manifest(t, e2K8s(t), "debian:12")
+	if err != nil {
+		t.Fatalf("manifeste refusé : %v", err)
+	}
+	ctr := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)
+	fixed := map[string]bool{"HOME": true, "CLAUDE_CONFIG_DIR": true, "LANG": true, "DISABLE_AUTOUPDATER": true}
+	for _, e := range ctr["env"].([]any) {
+		if n := e.(map[string]any)["name"].(string); !fixed[n] {
+			t.Errorf("variable d'environnement hors liste : %s", n)
+		}
+		if _, vf := e.(map[string]any)["valueFrom"]; vf {
+			t.Error("env.valueFrom présent")
+		}
+	}
+	if sl, ok := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["enableServiceLinks"]; ok && sl != false {
+		t.Errorf("enableServiceLinks = %v", sl)
+	}
+}
+
+// T1 : des clés « pod » sensibles dans la DÉCLARATION du backend d'un utilisateur n'atteignent jamais le manifeste (constructeur dédié).
+func TestE2K8sPodDuBackendJamaisRecopie(t *testing.T) {
+	s15Setup(t)
+	pod := "    pod:\n      serviceAccountName: launcher\n      nodeName: node-1\n      runtimeClassName: gvisor\n      priorityClassName: system-node-critical\n" +
+		"      schedulerName: x\n      hostAliases: [{ip: 1.2.3.4, hostnames: [a]}]\n      dnsConfig: {nameservers: [1.1.1.1]}\n      securityContext: {runAsUser: 0}\n"
+	sp := s15Space(t, e2UID, "backends:\n  k:\n    type: k8s\n    namespace: ns-u\n    pvc: projets\n    kubeconfig: true\n"+pod)
+	s15Vault(t, sp, "k", s15Kubeconfig("CANARY-e2"))
+	bs, err := sp.LoadBackends()
+	if err != nil || len(bs) == 0 {
+		return // déclaration refusée au chargement : échec fermé
+	}
+	m, merr := e2Manifest(t, bs[0], "debian:12")
+	if merr != nil {
+		return
+	}
+	raw, _ := json.Marshal(m)
+	for _, bad := range []string{"serviceAccountName", "node-1", "gvisor", "system-node-critical", "hostAliases", "dnsConfig", "1.1.1.1", `"runAsUser":0`} {
+		if strings.Contains(string(raw), bad) {
+			t.Errorf("« %s » du pod du backend recopié dans le manifeste d'un projet d'utilisateur", bad)
+		}
+	}
+}
+
+// T9 : noms d'objets avec un condensé d'uid — deux utilisateurs, même namespace/PVC/projet → noms différents ; DNS-1123, ≤ 63.
+func TestE2NomsAvecCondensedUid(t *testing.T) {
+	s15Setup(t)
+	names := map[string]string{}
+	for _, uid := range []string{"github-9", "github-10"} {
+		sp := s15Space(t, uid, "backends:\n  k:\n    type: k8s\n    namespace: ns-u\n    pvc: projets\n    kubeconfig: true\n")
+		s15Vault(t, sp, "k", s15Kubeconfig("CANARY-e2"))
+		bs, err := sp.LoadBackends()
+		if err != nil || len(bs) == 0 {
+			t.Fatalf("%s : %v", uid, err)
+		}
+		m, merr := e2Manifest(t, bs[0], "debian:12")
+		if merr != nil {
+			t.Fatalf("%s : %v", uid, merr)
+		}
+		n := m["metadata"].(map[string]any)["name"].(string)
+		names[uid] = n
+		if len(n) > 63 || !regexp.MustCompile(`^cl-[0-9a-f]{8}-cat-proj$`).MatchString(n) {
+			t.Errorf("%s : nom %q (cl-<8 hex>-cat-proj attendu)", uid, n)
+		}
+	}
+	if names["github-9"] == names["github-10"] {
+		t.Errorf("deux utilisateurs, même nom d'objet : %s", names["github-9"])
 	}
 }

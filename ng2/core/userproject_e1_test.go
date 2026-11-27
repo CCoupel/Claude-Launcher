@@ -18,6 +18,9 @@ import (
 //	func ParseContainerOptions(r ContainerRaw) (ContainerOptions, []OptionProblem)
 //	func DefaultPodSimple() PodSimple ; func DefaultContainerRaw() ContainerRaw
 //	func CheckProjectLimit(existing int) *OptionProblem                                                // users.maxProjects (CL_USERS_MAX_PROJECTS)
+//	func ParsePodSpecJSON(raw []byte) (map[string]any, []OptionProblem)                                // T8 : zone JSON lue depuis les octets
+//	func ParseContainerOptionsFor(backendType string, r ContainerRaw) (ContainerOptions, []OptionProblem) // podman : gpus refusé
+//	func ValidUserProjectName(s string) string                                                         // T14
 //	func (po PodOptions) Apply(m map[string]any)                                                       // construit dans le manifeste, jamais recopié
 
 func ok275(t *testing.T, ps []OptionProblem) {
@@ -166,5 +169,92 @@ func TestE1LimiteDeProjets(t *testing.T) {
 	t.Setenv("CL_USERS_MAX_PROJECTS", "n'importe quoi")
 	if CheckProjectLimit(30) == nil {
 		t.Error("valeur illisible : retour au défaut (30)")
+	}
+}
+
+// ── Exigences de sécurité (_work/reports/security-lot3.2.md) ───────────────────────────────────────────
+
+// T8 — zone JSON « Spécification du pod » : lue depuis les OCTETS (clés en double détectées avant tout décodage en map) ;
+// API proposée : func ParsePodSpecJSON(raw []byte) (map[string]any, []OptionProblem).
+func TestT8ZoneJSONDurcie(t *testing.T) {
+	deep := strings.Repeat(`{"a":`, 21) + "1" + strings.Repeat("}", 21)
+	many := `{"nodeSelector":{` + strings.TrimSuffix(strings.Repeat(`"k":"v",`, 1), ",") + `}}`
+	_ = many
+	var nodes strings.Builder
+	nodes.WriteString(`{"tolerations":[`)
+	for i := 0; i < 300; i++ {
+		if i > 0 {
+			nodes.WriteString(",")
+		}
+		nodes.WriteString(`{"key":"k","operator":"Exists"}`)
+	}
+	nodes.WriteString("]}")
+	for name, raw := range map[string]string{
+		"17 Kio":                  `{"nodeSelector":{"a":"` + strings.Repeat("x", 17<<10) + `"}}`,
+		"profondeur 21":           deep,
+		"plus de 256 nœuds":       nodes.String(),
+		"clé en double":           `{"nodeSelector":{"a":"1"},"nodeSelector":{"b":"2"}}`,
+		"clé en double (casse)":   `{"nodeSelector":{"a":"1"},"NodeSelector":{"b":"2"}}`,
+		"clé en double (Unicode)": `{"nodeSelector":{"a":"1"},"nodeſelector":{"b":"2"}}`,
+		"champ inconnu":           `{"nodeSelector":{"a":"1"},"inconnu":true}`,
+		"type inattendu":          `{"nodeSelector":["a"]}`,
+		"JSON invalide":           `{"nodeSelector":`,
+		"valeur nulle interdite":  `{"affinity":null,"hostNetwork":null}`,
+		"NUL":                     "{\"nodeSelector\":{\"a\":\"b\x00\"}}",
+	} {
+		_, ps := ParsePodSpecJSON([]byte(raw))
+		if len(ps) == 0 {
+			t.Errorf("%s : accepté", name)
+		}
+	}
+	if _, ps := ParsePodSpecJSON([]byte(`{"nodeSelector":{"disk":"ssd"},"tolerations":[{"key":"gpu","operator":"Exists","effect":"NoSchedule"}]}`)); len(ps) != 0 {
+		t.Errorf("spécification valide refusée : %+v", ps)
+	}
+	// aucune valeur de l'utilisateur dans un message de refus (S8/T8)
+	_, ps := ParsePodSpecJSON([]byte(`{"nodeSelector":{"CANARY-zone":"CANARY-valeur"},"hostNetwork":"CANARY-secret"}`))
+	for _, p := range ps {
+		if strings.Contains(p.Msg+p.Path+p.Field, "CANARY") && !strings.HasPrefix(p.Path, "$.nodeSelector") {
+			t.Errorf("valeur de l'utilisateur dans le refus : %+v", p)
+		}
+		if strings.Contains(p.Msg, "CANARY-secret") {
+			t.Errorf("valeur citée dans le message : %q", p.Msg)
+		}
+	}
+}
+
+// podman : gpus refusé (API compatible docker sans --gpus) ; docker : accepté. API proposée : ParseContainerOptionsFor(backendType, raw).
+func TestE1PodmanGPUsRefuse(t *testing.T) {
+	if _, ps := ParseContainerOptionsFor("podman", ContainerRaw{Gpus: "all"}); len(ps) == 0 || ps[0].Field != "container.gpus" {
+		t.Errorf("podman gpus accepté : %+v", ps)
+	}
+	if _, ps := ParseContainerOptionsFor("docker", ContainerRaw{Gpus: "all"}); len(ps) != 0 {
+		t.Errorf("docker gpus refusé : %+v", ps)
+	}
+	// valeurs strictes (T7) : forme exacte, jamais d'espace ni de second drapeau
+	for name, r := range map[string]ContainerRaw{
+		"cpus 5 décimales": {Cpus: "1.12345"}, "cpus 5 chiffres": {Cpus: "10000"}, "memory 16 chiffres": {Memory: "1234567890123456g"},
+		"pids 4194305": {PidsLimit: "4194305"}, "gpus 17": {Gpus: "17"}, "gpus 0": {Gpus: "0"}, "cpus espace": {Cpus: "2 "}, "shm négatif": {ShmSize: "-1m"},
+	} {
+		if _, ps := ParseContainerOptionsFor("docker", r); len(ps) == 0 {
+			t.Errorf("%s accepté", name)
+		}
+	}
+	if _, ps := ParseContainerOptionsFor("docker", ContainerRaw{PidsLimit: "-1"}); len(ps) != 0 {
+		t.Errorf("pids_limit -1 (illimité) refusé : %+v", ps)
+	}
+}
+
+// T14 — noms de projet/catégorie d'un utilisateur : DNS-1123, ≤ 63, SANS le motif réservé « -old-<chiffres> » (collision avec les sauvegardes).
+// API proposée : func ValidUserProjectName(s string) string (« » si valide, sinon la raison).
+func TestT14NomsDeProjet(t *testing.T) {
+	for _, bad := range []string{"foo-old-20261127", "x-old-1", "A", "a_b", "a b", "-a", "a-", "", strings.Repeat("a", 64), "a.b", "../x", "a/b", "é", "foo-OLD-1"} {
+		if ValidUserProjectName(bad) == "" {
+			t.Errorf("nom %q accepté", bad)
+		}
+	}
+	for _, ok := range []string{"foo", "a", "mon-projet", "p1", "old", "old-school", "x-old", "x-older-2", strings.Repeat("a", 63)} {
+		if r := ValidUserProjectName(ok); r != "" {
+			t.Errorf("nom %q refusé : %s", ok, r)
+		}
 	}
 }
