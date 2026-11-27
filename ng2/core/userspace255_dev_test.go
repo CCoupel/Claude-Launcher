@@ -329,3 +329,25 @@ func TestResolveUIDEchecPasDeNouvelEssaiAvant5Min255(t *testing.T) {
 		t.Errorf("%d appels pour une entrée périmée en panne, 1 attendu", hits.Load())
 	}
 }
+
+// Contrat §3 : « unix:// » refusé à un utilisateur (socket local = calcul sur la plateforme) ; tcp:// et k8s acceptés.
+func TestUserAdminFieldsUnixRefuse255(t *testing.T) {
+	for _, bad := range []string{
+		"backends:\n  d: {type: docker, host: 'unix:///var/run/docker.sock'}\n",
+		"backends:\n  d: {type: podman, host: UNIX:///run/podman/podman.sock}\n",
+		"backends:\n  d: {type: docker, engine_host: ' unix:///x'}\n",
+		"backends:\n  d: {type: docker, hosts: ['tcp://a:2376', 'unix:///x']}\n",
+	} {
+		if !UserAdminFields([]byte(bad)) {
+			t.Errorf("unix:// accepté : %q", bad)
+		}
+	}
+	for _, ok := range []string{
+		"backends:\n  d: {type: docker, host: 'tcp://nas.lan:2376'}\n",
+		"backends:\n  k: {type: k8s, namespace: ns}\n",
+	} {
+		if UserAdminFields([]byte(ok)) {
+			t.Errorf("contenu légitime refusé : %q", ok)
+		}
+	}
+}

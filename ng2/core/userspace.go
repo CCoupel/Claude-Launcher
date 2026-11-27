@@ -425,7 +425,7 @@ func (s Space) SaveBackends(content []byte, expectedMtime time.Time) ([]ConfigPr
 }
 
 // UserAdminFields : le backends.yaml proposé touche un champ que seul l'admin peut poser (règle R1, contracts/auth.md §4) — un
-// backend « host », ou kubeconfig, context, volumes, clés de pod sensibles. « namespace » n'en fait plus partie dans l'espace
+// backend « host », ou kubeconfig, context, volumes, clés de pod sensibles. un « host » / « engine_host » / « hosts » en unix:// (socket local) ; « namespace » n'en fait plus partie dans l'espace
 // d'un utilisateur : il déclare le sien (#257). Contenu illisible : vrai (échec fermé, contracts/auth.md §4).
 func UserAdminFields(content []byte) bool {
 	var f struct {
@@ -441,6 +441,19 @@ func UserAdminFields(content []byte) bool {
 		for _, k := range []string{"kubeconfig", "context", "volumes"} {
 			if _, ok := be[k]; ok {
 				return true
+			}
+		}
+		// socket local (calcul sur la plateforme, règle n°2) : « unix:// » refusé (échec fermé, contrat §3)
+		for _, k := range []string{"host", "engine_host"} {
+			if h, _ := be[k].(string); strings.HasPrefix(strings.ToLower(strings.TrimSpace(h)), "unix:") {
+				return true
+			}
+		}
+		if hs, _ := be["hosts"].([]any); len(hs) > 0 {
+			for _, h := range hs {
+				if str, _ := h.(string); strings.HasPrefix(strings.ToLower(strings.TrimSpace(str)), "unix:") {
+					return true
+				}
 			}
 		}
 		pod, _ := be["pod"].(map[string]any)
