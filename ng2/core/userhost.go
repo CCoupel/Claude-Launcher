@@ -281,8 +281,8 @@ func (e Engine) userCli(args []string) []string {
 				out = append(out, "--tlscert="+filepath.Join(d, "cert.pem"), "--tlskey="+filepath.Join(d, "key.pem"))
 			}
 		}
-	default: // podman : API compatible docker, TLS par un proxy (podman n'en a pas)
-		out = append(out, "podman", "--url", e.B.Host)
+	default: // podman : API compatible docker, TLS par un proxy (podman n'en a pas) ; jamais l'auth.json du launcher
+		out = append(out, "REGISTRY_AUTH_FILE="+filepath.Join(dockerEmptyConfig(), "auth.json"), "podman", "--url", e.B.Host)
 	}
 	return append(out, args...)
 }
@@ -349,4 +349,48 @@ func tlsExpiry(infos map[string]TLSCertInfo, now time.Time) (warns []string, exp
 func TLSExpiryWarnings(infos map[string]TLSCertInfo) []string {
 	w, _ := tlsExpiry(infos, time.Now())
 	return w
+}
+
+// resolveBudget : durée totale accordée à la résolution des hôtes d'UNE validation (enregistrement) — au-delà, refus.
+var resolveBudget = tun.Of(5 * time.Second)
+
+// checkResolvedAll : résout les noms en parallèle (8 à la fois au plus) dans resolveBudget ; rend, pour chaque nom, son refus éventuel.
+// Un nom dont la résolution n'a pas abouti dans le délai est refusé (échec fermé).
+func checkResolvedAll(names []string) map[string]error {
+	out := map[string]error{}
+	var mu sync.Mutex
+	sem := make(chan struct{}, 8)
+	var wg sync.WaitGroup
+	var uniq []string
+	for _, n := range names {
+		if _, dup := out[n]; !dup {
+			out[n] = errHostRefused // refus tant que le résultat n'est pas arrivé
+			uniq = append(uniq, n)
+		}
+	}
+	for _, n := range uniq {
+		wg.Add(1)
+		go func(n string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			err := checkResolved(n)
+			mu.Lock()
+			out[n] = err
+			mu.Unlock()
+		}(n)
+	}
+	done := make(chan struct{})
+	go func() { wg.Wait(); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(resolveBudget.Get()):
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	res := make(map[string]error, len(out))
+	for k, v := range out {
+		res[k] = v
+	}
+	return res
 }

@@ -475,9 +475,22 @@ func userBackendProblems(content []byte) []ConfigProblem {
 	}
 	sort.Strings(names)
 	var ps []ConfigProblem
+	if yamlDupKeyCI(content) {
+		ps = append(ps, ConfigProblem{Severity: SevError, Message: "clé en double dans backends.yaml (la casse ne distingue pas deux clés)"})
+	}
 	if max := UserMaxBackends(); len(names) > max {
 		ps = append(ps, ConfigProblem{Severity: SevError, Message: fmt.Sprintf("trop de backends : %d déclarés, la limite est de %d par utilisateur", len(names), max)})
 	}
+	// hôtes à résoudre : en parallèle et dans un délai total borné (un fichier de 10 backends ne bloque pas 40 s)
+	var toResolve []string
+	for _, n := range names {
+		if t := f.Backends[n]["type"]; t == "docker" || t == "podman" {
+			if h, _, err := parseUserEndpoint(str0(f.Backends[n], "host"), "tcp"); err == nil {
+				toResolve = append(toResolve, h)
+			}
+		}
+	}
+	resolved := checkResolvedAll(toResolve)
 	bad := func(n, msg string) {
 		ps = append(ps, ConfigProblem{Severity: SevError, Line: keyLine(content, n), Message: "backend « " + shortName(n) + " » : " + msg})
 	}
@@ -509,7 +522,9 @@ func userBackendProblems(content []byte) []ConfigProblem {
 				bad(n, "« pvc » : un nom DNS-1123 (minuscules, chiffres, tirets, 63 caractères au plus)")
 			}
 		case "docker", "podman":
-			if err := CheckUserHost(str(be, "host")); err != nil {
+			if h, _, err := parseUserEndpoint(str(be, "host"), "tcp"); err != nil {
+				bad(n, HostRefusal)
+			} else if rerr := resolved[h]; rerr != nil {
 				bad(n, HostRefusal)
 			}
 			if v, has := be["volume"]; has {
@@ -584,7 +599,7 @@ func UserAdminFields(content []byte) bool {
 		return false
 	}
 	var f map[string]any
-	if yaml.Unmarshal(content, &f) != nil {
+	if yaml.Unmarshal(content, &f) != nil || yamlDupKeyCI(content) { // clé en double (casse comprise) : échec fermé
 		return true
 	}
 	for k := range f {
@@ -711,3 +726,5 @@ func userFieldsOK(c BackendConf) error {
 	}
 	return nil
 }
+
+func str0(be map[string]any, k string) string { v, _ := be[k].(string); return v }

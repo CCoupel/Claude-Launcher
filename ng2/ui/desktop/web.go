@@ -1295,7 +1295,7 @@ func (w *webBridge) auditBackendCall(r *http.Request, id *core.Identity, method 
 		_ = json.Unmarshal(a.Backend, &o)
 		name = o.Name
 	}
-	if len([]rune(name)) > 63 || !regexp.MustCompile(`^[a-z0-9-]*$`).MatchString(name) {
+	if len([]rune(name)) > 63 || !auditNameRE.MatchString(name) {
 		name = ""
 	}
 	ok, es := err == nil, ""
@@ -1312,3 +1312,5 @@ func (w *webBridge) auditBackendCall(r *http.Request, id *core.Identity, method 
 	}
 	_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: "backend.call", Target: method + ":" + name, OK: ok, Err: es})
 }
+
+var auditNameRE = regexp.MustCompile(`^[a-z0-9-]*$`)

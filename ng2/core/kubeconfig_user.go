@@ -25,12 +25,53 @@ func yamlShape(n *yaml.Node, depth int) error {
 	if depth > maxKubeconfigDepth || n.Kind == yaml.AliasNode || n.Anchor != "" {
 		return errKubeUnreadable
 	}
+	if n.Kind == yaml.MappingNode { // clé en double, casse comprise : kubectl lit en JSON (« Server » = « server »), le contrôle d'hôte aussi
+		seen := map[string]bool{}
+		for i := 0; i+1 < len(n.Content); i += 2 {
+			k := strings.ToLower(n.Content[i].Value)
+			if seen[k] {
+				return errKubeUnreadable
+			}
+			seen[k] = true
+		}
+	}
 	for _, c := range n.Content {
 		if err := yamlShape(c, depth+1); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// yamlDupKeyCI : le document porte une clé en double (casse ignorée) dans un même objet.
+func yamlDupKeyCI(content []byte) bool {
+	var doc yaml.Node
+	if yaml.Unmarshal(content, &doc) != nil {
+		return false
+	}
+	var walk func(n *yaml.Node) bool
+	walk = func(n *yaml.Node) bool {
+		if n == nil {
+			return false
+		}
+		if n.Kind == yaml.MappingNode {
+			seen := map[string]bool{}
+			for i := 0; i+1 < len(n.Content); i += 2 {
+				k := strings.ToLower(n.Content[i].Value)
+				if seen[k] {
+					return true
+				}
+				seen[k] = true
+			}
+		}
+		for _, c := range n.Content {
+			if walk(c) {
+				return true
+			}
+		}
+		return false
+	}
+	return walk(&doc)
 }
 
 // userKubeFileKeys : clés qui lisent un fichier du poste (toutes formes, toutes casses).
@@ -49,6 +90,7 @@ func parseUserKubeconfig(raw []byte) (contexts []string, current string, warning
 	if yaml.Unmarshal(raw, &k) != nil || len(ciList(k, "clusters")) == 0 || len(ciList(k, "contexts")) == 0 {
 		return nil, "", nil, errKubeUnreadable
 	}
+	var serverNames []string
 	for _, c := range ciList(k, "clusters") {
 		cl, name := ciMap(c, "cluster"), ciStr(c, "name")
 		for _, key := range []string{"proxy-url", "certificate-authority", "tls-server-name-file"} {
@@ -56,11 +98,19 @@ func parseUserKubeconfig(raw []byte) (contexts []string, current string, warning
 				return nil, "", nil, errors.New("kubeconfig refusé : proxy ou fichier du poste dans un cluster (utiliser certificate-authority-data, sans proxy)")
 			}
 		}
-		if err := CheckUserServer(ciStr(cl, "server")); err != nil {
+		h, _, err := parseUserEndpoint(ciStr(cl, "server"), "https") // forme (sans DNS) ; résolution groupée ci-dessous
+		if err != nil {
 			return nil, "", nil, err
 		}
+		serverNames = append(serverNames, h)
 		if v, _ := ciGet(cl, "insecure-skip-tls-verify"); v == true {
 			warnings = append(warnings, fmt.Sprintf("cluster %q : certificat de l'API non vérifié (insecure-skip-tls-verify)", name))
+		}
+	}
+	for n, err := range checkResolvedAll(serverNames) { // en parallèle, dans un délai total borné
+		if err != nil {
+			_ = n
+			return nil, "", nil, err
 		}
 	}
 	for _, u := range ciList(k, "users") {

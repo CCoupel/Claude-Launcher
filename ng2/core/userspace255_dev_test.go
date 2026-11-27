@@ -546,3 +546,50 @@ func TestUsersEnabledFalse257(t *testing.T) {
 		t.Error("défaut : actif attendu")
 	}
 }
+
+// Revue LOT-3.1 : clés en double (casse comprise) → refus ; « Server » / « server » ne contournent pas le bornage d'hôte, quel que soit l'ordre.
+func TestKubeconfigDoublonsCasse257(t *testing.T) {
+	for i := 0; i < 30; i++ { // lecture déterministe : plus de dépendance à l'ordre de parcours d'une map
+		for _, order := range []string{
+			"    server: https://93.184.216.34:6443\n    Server: https://10.0.0.1:6443\n",
+			"    Server: https://10.0.0.1:6443\n    server: https://93.184.216.34:6443\n",
+		} {
+			kc := "apiVersion: v1\nkind: Config\nclusters:\n- name: c\n  cluster:\n" + order +
+				"users:\n- name: u\n  user:\n    token: t\ncontexts:\n- name: ctx\n  context:\n    cluster: c\n    user: u\ncurrent-context: ctx\n"
+			if _, _, _, err := parseUserKubeconfig([]byte(kc)); err == nil {
+				t.Fatalf("doublon Server/server accepté :\n%s", order)
+			}
+		}
+	}
+	if !UserAdminFields([]byte("backends:\n  k: {type: k8s, namespace: a, Namespace: b, kubeconfig: true}\n")) {
+		t.Error("doublon de clé (casse) dans backends.yaml accepté")
+	}
+	sp, _ := UserSpace("github-5")
+	if ms := errMsgs(sp.ValidateBackends([]byte("backends:\n  k: {type: k8s, namespace: a, Namespace: b, kubeconfig: true}\n"))); len(ms) == 0 {
+		t.Error("ValidateBackends : doublon de clé accepté")
+	}
+}
+
+// Revue LOT-3.1 : résolution de validation bornée (aucun nom ne bloque plus de resolveBudget) ; résolution en parallèle.
+func TestResolutionValidationBornee257(t *testing.T) {
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	block := make(chan struct{})
+	defer close(block)
+	defer userHostResolver.Set(userHostResolver.Set(func(string) ([]net.IP, error) { <-block; return nil, errors.New("tard") }))
+	defer resolveBudget.Set(resolveBudget.Set(300 * time.Millisecond))
+	resetResolveCache()
+	var y strings.Builder
+	y.WriteString("backends:\n")
+	for i := 0; i < 10; i++ {
+		fmt.Fprintf(&y, "  d%d:\n    type: docker\n    host: tcp://h%d.example.org:2376\n    volume: v\n", i, i)
+	}
+	sp, _ := UserSpace("github-5")
+	t0 := time.Now()
+	ms := errMsgs(sp.ValidateBackends([]byte(y.String())))
+	if d := time.Since(t0); d > 2*time.Second {
+		t.Errorf("validation de 10 noms bloquants : %v (bornée à %v)", d, resolveBudget.Get())
+	}
+	if !strings.Contains(strings.Join(ms, "\n"), HostRefusal) {
+		t.Errorf("noms non résolus dans le délai acceptés : %v", ms)
+	}
+}

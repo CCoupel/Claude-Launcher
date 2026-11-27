@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -180,10 +181,24 @@ func userK8sSteps(b BackendConf) []TestStep {
 		return append(steps, userStep("cluster joignable", false, "backend injoignable ou accès refusé", "vérifier le serveur du kubeconfig, le jeton et le namespace"))
 	}
 	steps = append(steps, userStep("cluster joignable, namespace "+b.Namespace, true, "", ""))
+	// 13 revues de droits (« auth can-i ») en parallèle, 4 à la fois : un backend lointain ne coûte pas 13 allers-retours en série
+	denied := make([]bool, len(requiredVerbs))
+	sem := make(chan struct{}, 4)
+	var wg sync.WaitGroup
+	for i, r := range requiredVerbs {
+		wg.Add(1)
+		go func(i int, verb, res string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			out, _ := runQuiet(15*time.Second, e.kubectl("auth", "can-i", verb, res)...)
+			denied[i] = strings.TrimSpace(out) != "yes"
+		}(i, r.verb, r.resource)
+	}
+	wg.Wait()
 	var missing []string
-	for _, r := range requiredVerbs {
-		out, _ := runQuiet(15*time.Second, e.kubectl("auth", "can-i", r.verb, r.resource)...)
-		if strings.TrimSpace(out) != "yes" {
+	for i, r := range requiredVerbs {
+		if denied[i] {
 			missing = append(missing, r.verb+" "+r.resource)
 		}
 	}

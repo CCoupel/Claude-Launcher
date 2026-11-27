@@ -146,8 +146,7 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 			default:
 				return forbidden, nil
 			}
-		} else if secretUserOK(method, raw) { // kubeconfig de SON backend dans SON coffre : libre (clés ssh, known_hosts : admin)
-		} else {
+		} else if !secretUserOK(method, raw) { // kubeconfig / TLS de SON backend dans SON coffre : libre (clés ssh, known_hosts : admin)
 			return forbidden, nil
 		}
 	}
