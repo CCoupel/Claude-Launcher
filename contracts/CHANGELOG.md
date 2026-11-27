@@ -2,6 +2,16 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.1 cycle 2 (#257) : reprise du coffre orphelin, plafonds
+
+- **[CHANGED]** `user-backends.md` §3, §7 : à `userBackendAdd`, un coffre **non déclaré** (orphelin) est repris (supprimé
+  puis recréé) ; un nom déclaré avec coffre existant reste `conflict`. `userBackendRemove` supprime déclaration et coffre
+  sous le même verrou, purge un coffre orphelin, signale un échec de suppression du coffre (« réessaie ») ; lien
+  symbolique jamais suivi.
+- **[CHANGED]** `user-backends.md` §3, §11 : plafond commun de 60/min pour `backendSecretSet`/`Delete`, `userBackendAdd`,
+  `userBackendRemove` ; `configOpen`/`Model`/`Validate`/`Save`/`Apply` d'un utilisateur plafonnés à 60/min (`429`,
+  `code: "rate"`).
+
 ## [20261127] — v7.1.0 LOT-3.1 (#257, GATE refusé) : création atomique d'un backend utilisateur
 
 - **[CHANGED]** `user-backends.md` §3, §7, §11 : `userBackendAdd` crée un backend **avec ses secrets dans le même envoi**

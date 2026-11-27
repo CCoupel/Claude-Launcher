@@ -165,10 +165,20 @@ par le serveur, jamais par le client.
 5. limites : 11ᵉ backend (`users.maxBackends`), débit des dépôts (60/min), conflit de version (`mtime`).
 
 **Écriture tout ou rien** (sous le verrou de l'espace) :
-1. le dossier `users/<uid>/vault/<nom>/` est écrit (il ne doit pas exister ; fichiers `0600`, dossier `0700`) ;
+1. le dossier `users/<uid>/vault/<nom>/` est écrit (fichiers `0600`, dossier `0700`). Un coffre **non déclaré**
+   (orphelin : déclaration retirée par l'éditeur YAML, arrêt entre les deux étapes) est **repris** : supprimé puis
+   recréé. Un nom **déclaré** dont le coffre existe déjà est refusé (`conflict`). Un lien symbolique au nom du coffre
+   n'est jamais suivi (refus) ;
 2. puis `backends.yaml` (écriture atomique, contrôle `mtime`, `.bak`) ;
 3. si l'étape 2 échoue, le dossier du coffre créé à l'étape 1 est supprimé. Aucun backend sans ses secrets, aucun secret
-   sans son backend.
+   sans son backend. Tout se fait sous le verrou de `backends.yaml`.
+
+**Retrait** (`userBackendRemove`, sous le même verrou) : la déclaration et le coffre sont supprimés ensemble.
+- Nom non déclaré mais coffre présent : le coffre orphelin est purgé.
+- Ni déclaration ni coffre : « backend inconnu ».
+- Échec de la suppression du coffre : erreur claire, « le backend est retiré mais son coffre n'a pas pu être supprimé :
+  réessaie » (un nouvel appel purge le coffre orphelin).
+- Un lien symbolique au nom du coffre n'est jamais suivi.
 
 Aucun test n'est lancé automatiquement : « Tester » reste une action séparée (plafond de 6 par minute).
 
@@ -232,7 +242,8 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 - **Limites (D5)** :
   - `users.maxBackends` backends par utilisateur (Helm, défaut 10) ;
   - `backendTest` : `users.backendTestsPerMinute` par utilisateur (défaut 6) et un seul test à la fois (`429` au-delà) ;
-  - `backendSecretSet` : 10 × `users.backendTestsPerMinute` dépôts par minute et par utilisateur (60 par défaut), `429` au-delà ;
+  - `backendSecretSet`, `backendSecretDelete`, `userBackendAdd` et `userBackendRemove` : plafond commun de 10 × `users.backendTestsPerMinute` par minute et par utilisateur (60 par défaut), `429` au-delà ;
+  - `configOpen`, `configModel`, `configValidate`, `configSave`, `configApply` (espace d'un utilisateur) : 60 par minute, `429` avec `code: "rate"` ;
   - sondage : un appel en vol par backend, attente croissante (10 s → 5 min) quand il est injoignable ;
   - audit `backend.call` de chaque appel sortant (utilisateur, backend, opération, résultat, durée ; sans secret ; agrégé par minute pour le sondage).
 - Pools nommés, `hosts` multiples, `spread` : non proposés aux utilisateurs en v7.1.0.
@@ -357,7 +368,9 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   v6.5.0) : lisible par les administrateurs du stockage partagé et dans les instantanés MooseFS.
 - **Dette assumée** : chiffrement au repos (clé hors racine) dans une prochaine version (issue de suivi proposée).
 - **Création** : le coffre d'un nouveau backend est écrit **dans la même action** que sa déclaration (`userBackendAdd`, §3),
-  tout ou rien ; ensuite, remplacement et suppression par `backendSecretSet` / `backendSecretDelete`.
+  tout ou rien ; ensuite, remplacement et suppression par `backendSecretSet` / `backendSecretDelete`. Un coffre orphelin
+  (sans déclaration) est repris à la création ou purgé au retrait (§3) ; le retrait supprime déclaration et coffre
+  ensemble.
 - **Lecture du coffre** : un fichier du coffre qui est un lien symbolique, ou dont les droits dépassent `0600` (dossier
   `0700`), est **refusé** (le backend est signalé « coffre non conforme », rien n'est lancé).
 - **Certificats** (CA, certificat client, certificat du kubeconfig) : avertissement s'ils sont expirés ou s'ils expirent dans
@@ -418,7 +431,7 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 |---|---|---|
 | (existantes) `configOpen/Save/Validate` sur `backends.yaml`, `secretSet/Delete/Status`, `backendTest`, `create`, `open`, `refresh`… | user | **portée = espace de l'identité** ; fichiers de l'admin réservés à l'admin (R1 inchangée) ; `refresh` démarre un projet arrêté (§5) |
 | `userBackendAdd` | user | **création atomique** d'un backend avec ses secrets (§3 « Création ») ; validation complète, puis écriture tout ou rien ; réponse `{ok, backend, warnings}` ou `{ok:false, field, code, msg}` ; aucun test automatique |
-| `userBackendRemove` | user | retire le backend ; ses projets disparaissent de l'arbre, rien n'est supprimé chez l'utilisateur |
+| `userBackendRemove` | user | retire la déclaration **et** le coffre sous le même verrou (coffre orphelin purgé ; « backend inconnu » sans l'un ni l'autre ; échec de suppression du coffre → erreur « réessaie ») ; plafond des dépôts (60/min) ; ses projets disparaissent de l'arbre (traces purgées après confirmation), rien n'est supprimé chez l'utilisateur |
 | `githubTokenMode` | user | `pat` / `oauth` (§8) |
 | `projectPurge` | user | efface la trace d'un projet introuvable (§5) ; jamais de suppression sur le backend |
 | `userList` | admin (R1, `auth.md` §4) | `{users: [{login, backends, state}]}` : login, nombre de backends, état ; jamais d'identifiant numérique |
