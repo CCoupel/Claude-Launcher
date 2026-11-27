@@ -377,24 +377,40 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 - **Gabarit docker/podman** : `create` puis `start` ; options `--opt=valeur`, jamais de shell :
   - `--name=cl-<h8>-<cat>-<proj>`, `--hostname=<proj>`, labels du launcher ;
   - `--mount=type=volume,src=<volume>,dst=/space` (jamais `type=bind` ni `-v`) ;
-  - `--workdir`, `-e HOME=/space/.claude/home`, `-e CLAUDE_CONFIG_DIR=/space/.claude`, `LANG`, `DISABLE_AUTOUPDATER` ;
+  - `--workdir`, `-e HOME=/space/.claude/home`, `-e CLAUDE_CONFIG_DIR=/space/.claude`, `XDG_CONFIG_HOME`, `LANG`, `DISABLE_AUTOUPDATER` ;
   - options du client (`--cpus` `--memory` `--pids-limit` `--shm-size` `--gpus`, valeurs par expression stricte) ;
-  - durcissement fixe (D3) ;
+  - capacités et options de sécurité fixées par le launcher (D3 révisée, ci-dessous) ;
   - image validée (jamais un `-` initial), puis la commande `pid1` fixe.
-- **Pods et conteneurs sans root par défaut (D3)**. Valeurs par défaut `uid 2000`, `gid 2000`, surchargeables avec un uid
-  et un gid **non nuls** (root refusé), dans cet ordre :
+- **Démarrage root, traitement standard sans root (D3 révisée par P28, 2026-11-27)**. « Jamais root pour le traitement
+  standard ; root pour le bootstrap seulement. » Utilisateur du traitement : `uid 2000`, `gid 2000` par défaut,
+  surchargeable avec un uid et un gid **non nuls**, dans cet ordre :
   1. Helm `users.runAs.uid` / `users.runAs.gid` ;
-  2. `run_as: {uid, gid}` du backend (liste blanche §3) ;
-  3. champs « Utilisateur du pod/conteneur » du projet (M4, deux champs simples).
-  - k8s : `securityContext` fixé par le launcher : `runAsUser`, `runAsGroup`, `runAsNonRoot: true`, `fsGroup` = gid,
-    `fsGroupChangePolicy: OnRootMismatch`, `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`,
-    `capabilities.drop: [ALL]`, **aucun ajout** (le bootstrap n'a plus besoin de `setpriv`/`su`), `privileged: false`,
-    racine en écriture (installations utilisateur dans `$HOME` du volume).
-  - docker/podman : `--user=<uid>:<gid>`, `--cap-drop=ALL`, `--security-opt=no-new-privileges` (fixés par le launcher).
-  - `HOME=/space/.claude/home` et `CLAUDE_CONFIG_DIR=/space/.claude` doivent être accessibles en écriture à cet uid.
-    Volume ou PVC non accessible en écriture → refus nommé au premier démarrage : « le stockage n'est pas accessible en
-    écriture à l'utilisateur 2000:2000 (chown ou fsGroup) ». Conséquence : un `setup` d'`env.yaml` qui exige root
-    (`apt-get install`) échoue ; c'est documenté, l'image doit contenir ses outils.
+  2. `run_as: {uid, gid}` du backend ;
+  3. champs « Utilisateur » du projet (M4).
+  - **Bootstrap** (`pid1`, root) : installation des paquets système (`tmux`, `git`, `gh`, `curl`) par le gestionnaire de
+    paquets de l'image, **sans** `sudo` ni création d'entrée `sudoers`, comme le démarrage actuel de l'admin. Ensuite, le
+    `pid1` passe **définitivement** à l'utilisateur du traitement :
+    `setpriv --reuid=<uid> --regid=<gid> --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all`.
+    claude est installé par l'utilisateur du traitement dans `$HOME` (`/space/.claude/home`, installeur natif, sans
+    root) : il survit à la recréation du conteneur et se met à jour seul.
+  - **Traitement standard** (sessions claude, serveur tmux, terminaux, lectures git/état/fichiers, `/files`) : toujours sous
+    l'uid du traitement. Chaque `exec` du launcher passe par `setpriv` (k8s) ou `docker exec --user=<uid>:<gid>`
+    (docker/podman) ; jamais un `exec` en root. `sudo` n'est **pas** installé pour l'utilisateur et serait inopérant
+    (`no-new-privs`).
+  - **k8s** : `securityContext` du conteneur fixé par le launcher : `runAsUser: 0` (bootstrap), `runAsNonRoot` **non posé**,
+    `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`, `capabilities.drop: [ALL]` puis
+    `add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]` (paquets, `setpriv` ; justifiés), `privileged: false`. Ces
+    capacités ne sont plus présentes dans le processus de session (`--bounding-set=-all`). **PSA requise : `baseline`**
+    (le profil `restricted` refuse root) ; namespace en `restricted` → refus nommé « le namespace impose le profil
+    restricted : le démarrage d'un projet exige baseline ».
+  - **docker/podman** : `--cap-drop=ALL`, `--cap-add=CHOWN,DAC_OVERRIDE,FOWNER,SETUID,SETGID`,
+    `--security-opt=no-new-privileges`, conteneur démarré en root pour le bootstrap ; `exec` avec `--user=<uid>:<gid>`.
+  - `HOME=/space/.claude/home`, `CLAUDE_CONFIG_DIR=/space/.claude`, `XDG_CONFIG_HOME=/space/.claude/home/.config`.
+  - **Stockage (P29)** : jamais de chown ajouté par le launcher. Au premier démarrage, le bootstrap vérifie, sous l'uid du
+    traitement, que `/space` (PVC `subPath` ou volume) est **inscriptible**. Sinon il **refuse nommément**, sans démarrer
+    de session : « Le stockage n'est pas accessible en écriture à l'utilisateur 2000:2000. Exécute sur ton stockage :
+    `chown -R 2000:2000 <dossier>` (procédure dans la documentation). » La question de confirmation P30 (chown fait par
+    le bootstrap, déjà root) est ouverte ; ce texte s'applique tant qu'elle n'est pas tranchée.
 - **Modification après création** :
   - k8s : patch du StatefulSet, appliqué au prochain démarrage du pod ;
   - docker/podman : `cpus`, `memory`, `pids_limit` changés **à chaud** par `docker update`, sans recréer. `shm_size` et

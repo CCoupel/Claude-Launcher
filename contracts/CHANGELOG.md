@@ -2,6 +2,16 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.2 (#275) : D3 révisée (P28, P29) — bootstrap root, traitement sans root
+
+- **[CHANGED]** `user-backends.md` §5 bis : bootstrap en root (paquets système, sans `sudo`), puis passage définitif à
+  l'uid du traitement (`setpriv … --no-new-privs --bounding-set=-all`) ; sessions, terminaux et exec toujours sous
+  `2000:2000` (`setpriv` / `docker exec --user`) ; claude installé dans `$HOME` par l'utilisateur. k8s :
+  `runAsUser: 0`, `runAsNonRoot` non posé, `allowPrivilegeEscalation: false`, `drop ALL` + `CHOWN, DAC_OVERRIDE, FOWNER,
+  SETUID, SETGID`, PSA **baseline** (restricted refusé nommément) ; docker : mêmes capacités, `no-new-privileges`.
+- **[CHANGED]** P29 : pas de chown par le launcher ; stockage non inscriptible par 2000 → refus nommé avec la commande
+  `chown -R 2000:2000` (P30 ouverte : chown par le bootstrap déjà root).
+
 ## [20261127] — v7.1.0 LOT-3.2 (#275) : décisions D1–D4 de la revue de sécurité
 
 - **[CHANGED]** D1 : `users.allowPrivateNetworks` reste un booléen seul ; texte de risque dans `values.yaml`, `NOTES.txt`,
