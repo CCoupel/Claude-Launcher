@@ -256,7 +256,7 @@ Manifeste produit par le launcher (`core/k8s.go`), sans valeur du chart :
 
 | Valeur | Type | Défaut | Rôle |
 |---|---|---|---|
-| `users.enabled` | booléen | `true` | espaces par utilisateur (`users/<uid>/` sous la config de la racine) ; `false` : comportement v7.0.0 (un espace commun). Transmis au launcher par **`CL_USERS_ENABLED`** (`true`/`false`, variable réservée) ; absente ou autre valeur que `false` → espaces actifs |
+| `users.enabled` | booléen | `true` | espaces par utilisateur (`users/<uid>/` sous la config de la racine) ; `false` : comportement v7.0.0 (un espace commun). Transmis au launcher par **`CL_USERS_ENABLED`** (`true`/`false`, variable réservée) ; absente ou autre valeur que `false` → espaces actifs. **`false`** : tout compte authentifié (admin ou user) est servi par l'instance de l'admin (espace commun, règle R1 de v7.0.0) ; aucun dossier `users/` n'est lu ni créé |
 | `users.maxBackends` | entier 1–100 | `10` | backends par utilisateur (D5) ; au-delà, refus à l'enregistrement |
 | `users.backendTestsPerMinute` | entier 1–60 | `6` | `backendTest` par utilisateur et par minute, un seul à la fois (`429`) |
 | `auth.passAccessToken` | booléen | `false` | `--pass-access-token` sur les sidecars oauth2-proxy (choix `oauth` du jeton GitHub, P5) ; exige une GitHub App avec permissions dépôts |

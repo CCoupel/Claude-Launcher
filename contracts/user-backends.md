@@ -152,7 +152,7 @@ backends:
   - Risque résiduel accepté : le CLI résout à nouveau (fenêtre de rebinding de quelques ms).
   - Un backend derrière un NAT sans redirection de port ni tunnel reste impossible (« injoignable depuis la plateforme »).
 - **Backend k8s d'un utilisateur** : `kubeconfig: true` (kubeconfig collé dans son coffre) **obligatoire**. Sans lui, refus à la déclaration et à l'exécution : jamais le ServiceAccount du launcher, jamais `~/.kube/config`. Coffre : `users/<uid>/vault/<backend>/` uniquement.
-- **Appels d'un utilisateur** : environnement nettoyé (`HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY`, `DOCKER_*`, `CONTAINER_HOST`, `KUBECONFIG` retirés ; `DOCKER_CONFIG` pointé vers un dossier vide privé, pour que la configuration docker du launcher ne s'applique jamais) ; certificats TLS en fichiers temporaires `0600` privés, supprimés après l'appel ; erreurs filtrées (joignable / non joignable, sans corps de réponse ni secret) ; `proxy-url` refusé ; kubeconfig ≤ 64 Kio, sans alias ni ancre.
+- **Appels d'un utilisateur** : environnement nettoyé (`HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY`, `DOCKER_*`, `CONTAINER_HOST`, `KUBECONFIG` retirés ; `DOCKER_CONFIG` pointé vers un dossier vide privé, pour que la configuration docker du launcher ne s'applique jamais) ; certificats TLS passés à `docker` par les **chemins du coffre** (`--tlscacert`, `--tlscert`, `--tlskey` → `users/<uid>/vault/<backend>/…`), sans copie : seuls des chemins figurent dans `argv`, fichiers `0600` et dossiers `0700` vérifiés à l'usage (`Lstat`, pas de lien symbolique) ; erreurs filtrées (joignable / non joignable, sans corps de réponse ni secret) ; `proxy-url` refusé ; kubeconfig ≤ 64 Kio, sans alias ni ancre.
 - **Limites (D5)** :
   - `users.maxBackends` backends par utilisateur (Helm, défaut 10) ;
   - `backendTest` : `users.backendTestsPerMinute` par utilisateur (défaut 6) et un seul test à la fois (`429` au-delà) ;
@@ -286,7 +286,9 @@ backends:
   moins de 30 jours (carte du backend et `backendTest`), sans refus.
 - Écrit par l'interface (`backendSecretSet` / `backendSecretDelete`, **hors R1 pour l'utilisateur sur ses propres
   backends**, `auth.md` §4), aucune relecture sauf état et empreinte ; jamais journalisé, jamais rendu, jamais transmis au
-  navigateur ; passé à `kubectl` ou `docker` par chemin de fichier temporaire privé (§3).
+  navigateur ; passé à `kubectl` (`--kubeconfig`) ou `docker` (`--tls*`) par **le chemin du fichier dans le coffre**, sans
+  copie temporaire (décision security et revue LOT-3.1 : jamais de contenu dans `argv` ni dans l'environnement ; droits et
+  absence de lien vérifiés à chaque usage).
 
 ## 8. Jeton GitHub de l'utilisateur **[NEW]** (P5 « les 2 »)
 

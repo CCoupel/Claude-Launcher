@@ -2,6 +2,14 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.1 (#257) : TLS docker par chemins du coffre
+
+- **[CHANGED]** `user-backends.md` §3 et §7 : certificats TLS et kubeconfig passés par **les chemins du coffre**
+  (`--tls*`, `--kubeconfig`), sans copie temporaire ; droits et liens vérifiés à l'usage (remplace « fichier temporaire
+  privé »).
+- **[CHANGED]** `helm-values.md` : `users.enabled: false` (`CL_USERS_ENABLED=false`) = instance de l'admin pour tout
+  compte authentifié, aucun dossier `users/` lu ni créé.
+
 ## [20261127] — v7.1.0 LOT-3.1 (#257) : `CL_USERS_ENABLED`, plafond des dépôts, DNS fermé
 
 - **[NEW]** `helm-values.md` : `users.enabled` transmis par `CL_USERS_ENABLED` (`false` → espace commun v7.0.0).
