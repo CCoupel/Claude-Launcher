@@ -97,6 +97,19 @@
 
 ---
 
+### Scenario 8 — Cycle 2 : hotes publics reels, creation atomique, editeur apres refus
+
+**Validation** : AUTO — **Issues** : #257
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `cd ng2 && go test ./core -run Public258` ; `go test -tags net ./core -run Net258` (vrai DNS, non bloquant en CI) | PASS : adresses publiques reelles (yahoo.fr, github.com, example.com ; v4 ET v6, AAAA) acceptees ; plages limites (juste en dessous / au-dessus de chaque plage interdite) ; DNS en echec → refus non mis en cache ; resolution lente acceptee, bloquee bornee ; validation en parallele | | |
+| 2 | `cd ng2 && go test ./ui/desktop -run 'Create258|Secret258|Editeur258|Diagnostic258'` | PASS : `userBackendAdd` k8s/docker (tout ou rien, coffre 0700/0600, `kubeconfig: true` pose par le serveur), refus nommes `{ok:false, field, code, msg}`, nom pris, 11e backend, remplacement/suppression de secret, debit, editeur utilisable apres un refus (fichier et mtime intacts), raison interne du refus dans l'audit | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Base du plan de test HUMAIN de LOT-3.1
 
 Voir `tests/procedures/ui-desktop/espace-utilisateur-255/` section « Reporte en LOT-3.1 » (parcours admin complet, refus par `CCoupel`) ;
