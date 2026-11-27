@@ -23,10 +23,6 @@ func TestZoomNotSlowedByTeamRead(t *testing.T) {
 	if err := syscall.Mkfifo(fifo, 0o644); err != nil {
 		t.Skip("mkfifo : ", err)
 	}
-	t.Cleanup(func() { // débloque le tour lent resté sur la lecture
-		if f, err := os.OpenFile(fifo, os.O_RDWR, 0); err == nil {
-			f.Close()
-		}
-	})
+	t.Cleanup(func() { unfifo(fifo) }) // débloque le tour lent resté sur la lecture (et ceux qui suivraient)
 	zoomTiming(t, h.r, h.pt)
 }

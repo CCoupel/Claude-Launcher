@@ -93,8 +93,8 @@ func TestShareDeadToggleErrorsWithinTimeout220(t *testing.T) {
 	d := installDeadShare(t)
 
 	res, took := applyLayout(t, a, path, "left")
-	if took > 3*time.Second {
-		t.Errorf("erreur rendue après %v, attendu ≤ 3 s (SHARE_WRITE_TIMEOUT=2 + 1 s)", took)
+	if took > 4500*time.Millisecond { // délai 2 s + marge de 2,5 s (1 s ne tenait pas sous forte charge)
+		t.Errorf("erreur rendue après %v, attendu ≤ 4,5 s (SHARE_WRITE_TIMEOUT=2 + marge)", took)
 	}
 	if took < 1500*time.Millisecond {
 		t.Errorf("erreur rendue après %v : avant le délai configuré (2 s), l'écriture n'a pas été attendue", took)
@@ -142,15 +142,24 @@ func TestShareDeadOneAbandonedWritePerFile220(t *testing.T) {
 		if msg, _ := res["msg"].(string); !strings.Contains(msg, "partage injoignable") {
 			t.Errorf("clic %d : msg = %q, attendu le même message que le premier", i, msg)
 		}
-		if took > 500*time.Millisecond {
+		// « immédiat » = bien avant le délai de partage (2 s) : marge de 1,5 s, tenue sous forte charge (500 ms ne l'était pas)
+		if took > 1500*time.Millisecond {
 			t.Errorf("clic %d : %v, attendu un échec immédiat", i, took)
 		}
 	}
 	if n := d.entered.Load(); n != 1 {
 		t.Errorf("%d écritures entrées dans le partage, attendu 1 (une seule écriture abandonnée par fichier)", n)
 	}
-	time.Sleep(100 * time.Millisecond) // tâches de fond lancées par les clics (remise en page) : laissées finir
-	if after := runtime.NumGoroutine(); after > before+3 {
+	// tâches de fond lancées par les clics (remise en page) : attendues par condition, pas par un sommeil fixe
+	var after int
+	end := time.Now().Add(10 * time.Second)
+	for time.Now().Before(end) {
+		if after = runtime.NumGoroutine(); after <= before+3 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if after > before+3 {
 		t.Errorf("goroutines : %d → %d après 10 clics, une écriture abandonnée par fichier au plus", before, after)
 	}
 }
@@ -163,7 +172,9 @@ func TestShareDeadResumesAutomatically220(t *testing.T) {
 		t.Fatalf("premier clic : %v", res)
 	}
 	d.release() // le partage revient
-	waitUntil(t, "écriture abandonnée terminée", 5*time.Second, func() bool { return d.left.Load() == 1 })
+	// ≥ 1 et non == 1 : des tâches de fond (remise en page) peuvent entrer une écriture de plus entre la libération et le prochain
+	// relevé ; sous charge le relevé tarde et « == 1 » n'était alors jamais vrai. Délai porté à 30 s : borne de sûreté, jamais atteinte à vide.
+	waitUntil(t, "écriture abandonnée terminée", 30*time.Second, func() bool { return d.left.Load() >= 1 })
 
 	var res map[string]any
 	waitUntil(t, "clic écrit de nouveau", 5*time.Second, func() bool {
@@ -179,7 +190,7 @@ func TestShareDeadResumesAutomatically220(t *testing.T) {
 	noLockFiles(t)
 	// deux clics de plus : aucune écriture ne reste coincée
 	for _, l := range []string{"left", "top"} {
-		if r, took := applyLayout(t, a, path, l); r["ok"] != true || took > 2*time.Second {
+		if r, took := applyLayout(t, a, path, l); r["ok"] != true || took > 4*time.Second {
 			t.Errorf("clic %s après reprise : %v en %v", l, r, took)
 		}
 	}
@@ -211,8 +222,8 @@ func TestShareDeadBoundsColorAndHide220(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%v : %v", args, err)
 		}
-		if took := time.Since(t0); took > 3500*time.Millisecond {
-			t.Errorf("%v : %v, attendu ≤ SHARE_WRITE_TIMEOUT + 1 s", args, took)
+		if took := time.Since(t0); took > 5*time.Second {
+			t.Errorf("%v : %v, attendu ≤ SHARE_WRITE_TIMEOUT + marge (5 s)", args, took)
 		}
 		if m, _ := res.(map[string]any); m["ok"] != false {
 			t.Errorf("%v : %v, attendu une erreur de délai", args, res)

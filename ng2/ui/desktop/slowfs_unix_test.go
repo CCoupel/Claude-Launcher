@@ -45,6 +45,15 @@ func TestNothingSlowBeforeDisplay(t *testing.T) {
 		default:
 		}
 	})
+	// les tubes sont débloqués dans TOUS les cas (y compris l'échec « bloqué » ci-dessous, qui sort par Fatal) : sinon la goroutine
+	// restée en lecture sur un tube sans écrivain survit au test, et les tests suivants qui comptent les goroutines de terminal la
+	// voient (TestStop*221 sous charge). Enregistré après l'arrêt de l'App : s'exécute avant (ordre inverse).
+	unblock := func() {
+		for _, p := range ps {
+			unfifo(filepath.Join(hub, "state", filepath.Base(core.StatePath(core.RemotePath(p)))))
+		}
+	}
+	t.Cleanup(unblock)
 	go func() {
 		t0 := time.Now()
 		var r recorder
@@ -65,11 +74,17 @@ func TestNothingSlowBeforeDisplay(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("bloqué sur une lecture du cache du hub avant l'affichage")
 	}
-	// les tubes sont débloqués pour que le nettoyage n'attende rien
-	for _, p := range ps {
-		f, err := os.OpenFile(filepath.Join(hub, "state", filepath.Base(core.StatePath(core.RemotePath(p)))), os.O_RDWR, 0)
-		if err == nil {
-			f.Close()
-		}
+	unblock() // les tubes sont débloqués pour que le nettoyage n'attende rien
+}
+
+// unfifo : libère les lecteurs bloqués sur le tube (ouverture en lecture-écriture), puis le remplace par un fichier ordinaire vide :
+// une lecture lancée plus tard par une tâche de fond de l'App ne s'y bloque plus (elle restait sinon à jamais en open sans écrivain,
+// et les tests qui comptent les goroutines de terminal la voyaient).
+func unfifo(path string) {
+	if f, err := os.OpenFile(path, os.O_RDWR, 0); err == nil {
+		f.Close()
+	}
+	if os.Remove(path) == nil {
+		_ = os.WriteFile(path, nil, 0o644)
 	}
 }
