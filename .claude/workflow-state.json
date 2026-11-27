@@ -5,7 +5,7 @@
   "branch": "milestone/v7.1.0",
   "version": "7.1.0",
   "started_at": "2026-11-26T13:40:00Z",
-  "updated_at": "2026-11-26T17:05:00Z",
+  "updated_at": "2026-11-27T09:40:00Z",
   "cycles": 1,
   "issue_nums": [
     249,
@@ -46,11 +46,12 @@
         "ci_sha": "bd7ebde"
       },
       "LOT-2": {
-        "status": "in_progress",
+        "status": "completed",
         "issues": [
           255
         ],
-        "phase": "deploy-qualif"
+        "ci_sha": "pending",
+        "validation": "GATE LOT-2 : 8 OK, 1 KO consigné (scénario 6 userList sans interface, reportée à #278)"
       },
       "LOT-3.1": {
         "status": "pending",
