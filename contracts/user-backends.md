@@ -80,7 +80,7 @@ rien n'est écrit. YAML illisible, ancres / alias / fusion `<<`, clés en double
 | Rubriques | `backends:` seulement (LOT-3.2 ajoutera `images:` et `defaults: {backend, image}` pour #275) | `pools`, `hubs`, `defaults`, `images` (avant LOT-3.2), `desktop_web`, `browser_server`, `browser_paths`, `browser_device`, toute autre |
 | Tout backend | `type` (obligatoire) ∈ {`k8s`, `docker`, `podman`} | `type: host`, `type: ssh`, type absent ou autre |
 | `docker` / `podman` | `host` **obligatoire**, de la forme `tcp://hôte:port` (`https://` **non admis** : docker et podman utilisent `tcp://` avec TLS) ; `volume` (LOT-3.2) ; `tls: {enabled, verify}` (LOT-3.1) | `host` absent ou vide (moteur local du launcher), `unix://`, `npipe://`, `fd://`, `ssh://`, chemin de socket ; `hosts`, `pool`, `engine`, `engine_host`, `shared`, `volumes`, `context`, `kubeconfig`, `pod`, `spread` |
-| `k8s` | `namespace` (obligatoire, libre) ; `pvc` (LOT-3.2) ; `kubeconfig: true` (posé par l'envoi du kubeconfig collé, LOT-3.1 ; jamais un chemin) ; `spread` ; `pod.resources`, `pod.nodeSelector` | `host`, `hosts`, `pool`, `context`, `volumes`, `kubeconfig` autre que `true`, toute autre clé de `pod` (dont les clés R1 de `auth.md` §4) |
+| `k8s` | `namespace` (obligatoire, libre) ; `pvc` (LOT-3.2) ; `kubeconfig: true` (**obligatoire** dès LOT-3.1, posé par l'envoi du kubeconfig collé ; jamais un chemin) ; `spread` ; `pod.resources`, `pod.nodeSelector`, `pod.affinity` | `host`, `hosts`, `pool`, `context`, `volumes`, `kubeconfig` autre que `true`, toute autre clé de `pod` (dont les clés R1 de `auth.md` §4) |
 
 - Le champ refusé est nommé dans le message (« `pool` : non autorisé pour un utilisateur »), sans recopier de valeur.
 - Le `backends.yaml` de l'admin n'est pas concerné (règle R1 de `auth.md` §4, inchangée).
@@ -139,8 +139,25 @@ backends:
   limité au namespace » + la Role minimale suggérée. Risque documenté (`backends-utilisateur.md`). `insecure-skip-tls-verify` est accepté avec
   l'avertissement « certificat de l'API non vérifié » (même logique que `tls.verify: false`).
 - docker/podman : `version`, `info` ; le volume déclaré doit exister (`volume inspect`), sinon refus.
-- **Joignabilité** : le launcher doit atteindre l'API (Internet ou LAN). Un backend derrière un NAT sans redirection de
-  port ni tunnel fourni par l'utilisateur est **impossible** (diagnostic « injoignable depuis la plateforme »).
+- **Joignabilité et bornage des hôtes (décision 2026-11-27)** :
+  - backend d'un **utilisateur** : **Internet public seulement** ;
+  - un **admin** n'a aucune contrainte : LAN permis, `backends.yaml` inchangé.
+  - Pour un utilisateur, refus (échec fermé, message unique « adresse non autorisée pour un utilisateur ») de :
+    - loopback, `0.0.0.0`, link-local et métadonnées (`169.254/16`, `fe80::/10`, `100.100.100.200`, `fd00:ec2::254`) ;
+    - plages privées et réservées (`10/8`, `172.16/12`, `192.168/16`, `100.64/10`, `fc00::/7`, `192.0.0/24`, `198.18/15`, documentation, multicast, `240/4`, diffusion) ;
+    - noms internes (sans point, `*.local`, `*.lan`, `*.internal`, `*.home.arpa`, `*.svc`, `*.cluster.local`, `localhost*`, `kubernetes.default`).
+  - Hôte analysé strictement (`url.Parse` / `net/netip`) : formes numériques non canoniques, zone IPv6, userinfo, chemin, requête refusés ; IPv4-mappée, NAT64 et 6to4 déballées puis contrôlées ; port obligatoire 1–65535.
+  - Appliqué au `host` docker/podman **et** au `server:` (en `https://`) de tous les clusters du kubeconfig.
+  - **Contrôle à l'enregistrement et avant chaque appel** : résolution DNS par le launcher, cache 30 s, une seule IP interdite parmi celles rendues suffit à refuser.
+  - Risque résiduel accepté : le CLI résout à nouveau (fenêtre de rebinding de quelques ms).
+  - Un backend derrière un NAT sans redirection de port ni tunnel reste impossible (« injoignable depuis la plateforme »).
+- **Backend k8s d'un utilisateur** : `kubeconfig: true` (kubeconfig collé dans son coffre) **obligatoire**. Sans lui, refus à la déclaration et à l'exécution : jamais le ServiceAccount du launcher, jamais `~/.kube/config`. Coffre : `users/<uid>/vault/<backend>/` uniquement.
+- **Appels d'un utilisateur** : environnement nettoyé (`HTTP(S)_PROXY`, `ALL_PROXY`, `NO_PROXY`, `DOCKER_*`, `CONTAINER_HOST`, `KUBECONFIG` retirés) ; certificats TLS en fichiers temporaires `0600` privés, supprimés après l'appel ; erreurs filtrées (joignable / non joignable, sans corps de réponse ni secret) ; `proxy-url` refusé ; kubeconfig ≤ 64 Kio, sans alias ni ancre.
+- **Limites (D5)** :
+  - `users.maxBackends` backends par utilisateur (Helm, défaut 10) ;
+  - `backendTest` : `users.backendTestsPerMinute` par utilisateur (défaut 6) et un seul test à la fois (`429` au-delà) ;
+  - sondage : un appel en vol par backend, attente croissante (10 s → 5 min) quand il est injoignable ;
+  - audit `backend.call` de chaque appel sortant (utilisateur, backend, opération, résultat, durée ; sans secret ; agrégé par minute pour le sondage).
 - Pools nommés, `hosts` multiples, `spread` : non proposés aux utilisateurs en v7.1.0.
 
 ### ssh en mode serveur : refus explicite, jamais silencieux (P13)

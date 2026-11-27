@@ -2,6 +2,15 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.1 (#257) : bornage des hôtes, kubeconfig obligatoire, limites
+
+- **[CHANGED]** `user-backends.md` §3 : backend d'un utilisateur = **Internet public seulement** (loopback, link-local,
+  métadonnées, plages privées et réservées, noms internes refusés ; contrôle à l'enregistrement et avant chaque appel,
+  cache DNS 30 s) ; admin sans contrainte. Backend k8s d'un utilisateur : `kubeconfig: true` obligatoire (jamais le
+  ServiceAccount du launcher). Environnement des appels nettoyé, erreurs filtrées, `proxy-url` refusé, kubeconfig ≤ 64 Kio.
+  `pod.affinity` admis. Audit `backend.call`.
+- **[NEW]** Helm : `users.maxBackends` (défaut 10), `users.backendTestsPerMinute` (défaut 6).
+
 ## [20261127] — v7.1.0 LOT-2 (#255) : `backends.yaml` d'un utilisateur en liste blanche, conflit de version
 
 - **[CHANGED]** `user-backends.md` §3 : validation en **liste blanche**, échec fermé : rubrique `backends:` seule ; `type` ∈
