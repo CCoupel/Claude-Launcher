@@ -344,3 +344,54 @@ func TestT10ProprietaireVerifieAvantUsage(t *testing.T) {
 		}
 	}
 }
+
+// T14–T19, écart validé (docker/podman ne peuvent pas ajouter une étiquette à un conteneur existant) : la sauvegarde garde ses étiquettes
+// d'origine ET un nom <nom>-old-<ns>-<aléa> ; la reprise exige le nom exact, cl.user = l'appelant et des étiquettes qui, recalculées, redonnent
+// le nom nominal (ou cl.recreate-of / cl.state=old). Cas d'usurpation : jamais restauré, renommé ni supprimé.
+func TestT16RepriseExigeLesEtiquettesDOrigine(t *testing.T) {
+	nominal := UserObjName("github-9", "cat", "x")
+	cases := map[string]string{
+		"projet « x-old-1-abcd » (étiquettes du projet, pas celles de x)": UserObjName("github-9", "cat", "x-old-1-abcd") + " cl.launcher=ng2,cl.user=github-9,cl.category=cat,cl.project=x-old-1-abcd\n",
+		"nom de sauvegarde mais cl.user d'un autre":                       nominal + "-old-1-abcd cl.launcher=ng2,cl.user=github-10,cl.category=cat,cl.project=x\n",
+		"nom de sauvegarde sans aucune étiquette":                         nominal + "-old-1-abcd \n",
+		"étiquettes d'un autre projet":                                    nominal + "-old-1-abcd cl.launcher=ng2,cl.user=github-9,cl.category=cat,cl.project=y\n",
+		"suffixe invalide (pas de chiffres)":                              nominal + "-old-abc-abcd cl.launcher=ng2,cl.user=github-9,cl.category=cat,cl.project=x\n",
+		"recreate-of d'un autre nom":                                      nominal + "-old-1-abcd cl.recreate-of=" + nominal + "z,cl.state=old,cl.user=github-9\n",
+	}
+	for name, ps := range cases {
+		r := rcTools(t, false)
+		e := Engine{rcBackend(t)}
+		_ = os.WriteFile(filepath.Join(r.dir, "ps.out"), []byte(ps), 0o644)
+		_ = e.RestoreInterrupted(nominal)
+		for _, c := range r.calls() {
+			if strings.HasPrefix(c, "rename") || strings.HasPrefix(c, "rm") || strings.HasPrefix(c, "start") || strings.HasPrefix(c, "stop") {
+				t.Errorf("%s : objet touché : %s", name, c)
+			}
+		}
+	}
+	// cas légitime (étiquettes d'origine) : restauré
+	r := rcTools(t, false)
+	e := Engine{rcBackend(t)}
+	_ = os.WriteFile(filepath.Join(r.dir, "ps.out"), []byte(nominal+"-old-1-abcd cl.launcher=ng2,cl.user=github-9,cl.category=cat,cl.project=x\n"), 0o644)
+	if err := e.RestoreInterrupted(nominal); err != nil {
+		t.Fatalf("sauvegarde légitime non restaurée : %v", err)
+	}
+	if !strings.Contains(strings.Join(r.calls(), "\n"), "rename "+nominal+"-old-1-abcd "+nominal) {
+		t.Errorf("rename attendu :\n%s", strings.Join(r.calls(), "\n"))
+	}
+}
+
+// Le motif réservé « -old-<chiffres> » est refusé PARTOUT dans un nom de projet ou de catégorie (pas seulement en suffixe) : aucun projet ne
+// peut porter un nom de sauvegarde.
+func TestT14MotifReserveEnTouteIssue(t *testing.T) {
+	for _, bad := range []string{"x-old-1", "x-old-1-abcd", "a-old-99-zz", "x-old-20261127", "cat-old-5", "old-1", "x-old-1-y-old-2"} {
+		if ValidUserProjectName(bad) == "" && strings.Contains(bad, "-old-") {
+			t.Errorf("nom %q accepté (motif -old-<chiffres> réservé)", bad)
+		}
+	}
+	for _, ok := range []string{"old", "old-school", "x-old", "x-older-2", "x-old-school", "bold-1"} {
+		if r := ValidUserProjectName(ok); r != "" {
+			t.Errorf("nom %q refusé à tort : %s", ok, r)
+		}
+	}
+}
