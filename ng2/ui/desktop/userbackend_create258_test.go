@@ -617,3 +617,28 @@ func TestRemove258OrphelinIsoleEntreUtilisateurs(t *testing.T) {
 		t.Error("le coffre de bob a été supprimé avec l'orphelin d'alice")
 	}
 }
+
+// D2 — alerte « backend partagé » dans les warnings de userBackendAdd et de backendTest (pas de signature d'objet en v7.1.0).
+const sharedWarn = "partagé avec d'autres utilisateurs"
+
+func TestD2275AlerteBackendPartage(t *testing.T) {
+	c := cr258Start(t)
+	mt, _, _ := c.model(t, "alice")
+	raw, res, _ := c.add(t, "alice", cK8s("mon-k8s"), map[string]any{"kubeconfig": ub257Kube(cPub, "", "")}, mt)
+	if res["ok"] != true || !strings.Contains(fmt.Sprint(res["warnings"]), sharedWarn) {
+		t.Errorf("userBackendAdd k8s : alerte « %s » absente des warnings : %s", sharedWarn, raw)
+	}
+	mt, _, _ = c.model(t, "alice")
+	raw, res, _ = c.add(t, "alice", cDocker("d", false), map[string]any{}, mt)
+	if res["ok"] != true || !strings.Contains(fmt.Sprint(res["warnings"]), sharedWarn) {
+		t.Errorf("userBackendAdd docker : alerte absente : %s", raw)
+	}
+	raw, _, _ = c.call(t, "alice", "backendTest", map[string]any{"backend": map[string]any{"name": "d", "type": "docker", "host": cHost, "volume": "v"}})
+	if !strings.Contains(raw, sharedWarn) {
+		t.Errorf("backendTest : alerte « backend partagé » absente : %.300s", raw)
+	}
+	// l'alerte n'est pas un refus : l'enregistrement a réussi ; l'admin (backend à lui) n'est pas concerné par le texte utilisateur
+	if y, _ := yamlOf(t, "github-1111"); !strings.Contains(y, "mon-k8s") {
+		t.Error("l'alerte a bloqué l'enregistrement")
+	}
+}

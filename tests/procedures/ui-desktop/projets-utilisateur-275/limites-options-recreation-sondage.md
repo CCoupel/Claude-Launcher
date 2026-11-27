@@ -30,7 +30,7 @@
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | `cd ng2 && go test ./core -run 'TestE2(K8s|Images|Docker|Aucun|Noms)'` ; `go test ./core -run T23` | PASS : StatefulSet avec labels `cl.*` (dont `cl.user`), PVC declare monte en subPath (projet + `.claude`), `automountServiceAccountToken: false`, aucun champ dangereux, commande fixe, images validees ; docker/podman : `-v <volume>:/space`, `--workdir`, labels, aucune option dangereuse ni montage hote, injection refusee, aucun stockage cree ; D3 : pods NON root (2000:2000, runAsNonRoot, allowPrivilegeEscalation false, seccomp RuntimeDefault, drop ALL ; docker `--user 2000:2000`, `--cap-drop ALL`, no-new-privileges) ; champs « jamais » etendus ; noms d'objets avec condense d'uid (T9) ; en-tetes /files `nosniff` + CSP sandbox (T23) | | |
+| 1 | `cd ng2 && go test ./core -run 'TestE2(K8s|Images|Docker|Aucun|Noms)'` ; `go test ./core -run 'T23|RunAs'` ; `go test ./ui/desktop -run D2275` ; `go test . -run 'TestChartRunAs275'` | PASS : StatefulSet avec labels `cl.*` (dont `cl.user`), PVC declare monte en subPath (projet + `.claude`), `automountServiceAccountToken: false`, aucun champ dangereux, commande fixe, images validees ; docker/podman : `-v <volume>:/space`, `--workdir`, labels, aucune option dangereuse ni montage hote, injection refusee, aucun stockage cree ; D3 : pods NON root (2000:2000, runAsNonRoot, allowPrivilegeEscalation false, seccomp RuntimeDefault, drop ALL ; docker `--user 2000:2000`, `--cap-drop ALL`, no-new-privileges) ; champs « jamais » etendus ; noms d'objets avec condense d'uid (T9) ; en-tetes /files `nosniff` + CSP sandbox (T23) | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
@@ -42,7 +42,7 @@
 
 | Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
 |-------|--------|-----------------|----------------|------|
-| 1 | `cd ng2 && go test -tags s275api ./core -run 'TestE1|TestE3'` | PASS : liste blanche fermee (chemin exact des refus), aucun plafond CPU/memoire (`cpu: 64`, `memory: 1Ti` acceptes), quantites invalides refusees, defauts, 31e projet refuse (30), recreation P27 (confirmation, deroule, retour arriere, volume intact), sondage (1 appel en vol, attente 10 s → 5 min, goroutines bornees) ; T8 zone JSON durcie (cles dupliquees casse/Unicode), podman sans gpus, T14 noms sans `-old-<chiffres>`, T16–T19 sauvegarde identifiee par label, verrou par projet, ancien supprime apres verification, jamais `rm -v` | | |
+| 1 | `cd ng2 && go test -tags s275api ./core -run 'TestE1|TestE3|TestT|TestD'` | PASS : liste blanche fermee (chemin exact des refus), aucun plafond CPU/memoire (`cpu: 64`, `memory: 1Ti` acceptes), quantites invalides refusees, defauts, 31e projet refuse (30), recreation P27 (confirmation, deroule, retour arriere, volume intact), sondage (1 appel en vol, attente 10 s → 5 min, goroutines bornees) ; T8 zone JSON durcie (cles dupliquees casse/Unicode), podman sans gpus, T14 noms sans `-old-<chiffres>`, T3 tables « Jamais » (≥ 40 k8s + ≥ 40 docker/podman), D3 `run_as` Helm → backend → projet (uid/gid 0 refuses), T4/T5 image et `mounts`/`local` d'env.yaml, T16–T19 sauvegarde etiquetee `cl.recreate-of`/`cl.state=old`, jeton de confirmation a usage unique, verrou par projet, reprise apres arret brutal, ancien supprime apres verification, jamais `rm -v`, T10 proprietaire `cl.user` verifie avant usage, D5 plafonds 40 exec / 4 flux | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 

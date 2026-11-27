@@ -73,3 +73,35 @@ func TestChartProjects275NonRegressionLot31(t *testing.T) {
 	sub(v, "users")["allowPrivateNetworks"] = true
 	must(t, v)
 }
+
+// D3 — users.runAs.uid / users.runAs.gid : entiers ≥ 1, défaut 2000/2000 (jamais root) ; transmis au binaire (variable dont le nom contient
+// RUN, AS et UID / GID : le dev choisit le nom exact).
+func TestChartRunAs275(t *testing.T) {
+	needHelm(t)
+	v := u257Vals()
+	if got, ok := u257Env(t, v, "RUN", "UID"); !ok || got != "2000" {
+		t.Errorf("users.runAs.uid par défaut : %q (présent=%v), 2000 attendu", got, ok)
+	}
+	if got, ok := u257Env(t, v, "RUN", "GID"); !ok || got != "2000" {
+		t.Errorf("users.runAs.gid par défaut : %q (présent=%v), 2000 attendu", got, ok)
+	}
+	sub(v, "users")["runAs"] = m{"uid": 1500, "gid": 1600}
+	if got, _ := u257Env(t, v, "RUN", "UID"); got != "1500" {
+		t.Errorf("runAs.uid=1500 : %q", got)
+	}
+	if got, _ := u257Env(t, v, "RUN", "GID"); got != "1600" {
+		t.Errorf("runAs.gid=1600 : %q", got)
+	}
+	for name, ra := range map[string]m{
+		"uid 0": {"uid": 0, "gid": 2000}, "gid 0": {"uid": 2000, "gid": 0}, "uid négatif": {"uid": -1, "gid": 2000}, "uid texte": {"uid": "root", "gid": 2000},
+		"uid décimal": {"uid": 2.5, "gid": 2000}, "uid énorme": {"uid": 4294967296, "gid": 2000}, "clé inconnue": {"uid": 2000, "gid": 2000, "groups": []any{0}},
+	} {
+		w := u257Vals()
+		sub(w, "users")["runAs"] = ra
+		if _, out, err := render(t, w); err == nil {
+			t.Errorf("runAs %s : rendu accepté", name)
+		} else if !strings.Contains(out, "runAs") && !strings.Contains(out, "users") {
+			t.Errorf("runAs %s : message sans « runAs » ni « users » : %.200s", name, out)
+		}
+	}
+}

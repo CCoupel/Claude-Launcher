@@ -21,6 +21,8 @@ import (
 //	func ParsePodSpecJSON(raw []byte) (map[string]any, []OptionProblem)                                // T8 : zone JSON lue depuis les octets
 //	func ParseContainerOptionsFor(backendType string, r ContainerRaw) (ContainerOptions, []OptionProblem) // podman : gpus refusé
 //	func ValidUserProjectName(s string) string                                                         // T14
+//	type RunAs struct{ UID, GID int } ; func ParseRunAs(uid, gid string) (RunAs, []OptionProblem) ; func ResolveRunAs(helm, backend, project *RunAs) RunAs  // D3
+//	func ParseContainerOptionsMap(backendType string, m map[string]any) (ContainerOptions, []OptionProblem) ; func CheckUserEnv(env EnvSpec, defaultImage string) []OptionProblem // T3, T4, T5
 //	func (po PodOptions) Apply(m map[string]any)                                                       // construit dans le manifeste, jamais recopié
 
 func ok275(t *testing.T, ps []OptionProblem) {
@@ -255,6 +257,112 @@ func TestT14NomsDeProjet(t *testing.T) {
 	for _, ok := range []string{"foo", "a", "mon-projet", "p1", "old", "old-school", "x-old", "x-older-2", strings.Repeat("a", 63)} {
 		if r := ValidUserProjectName(ok); r != "" {
 			t.Errorf("nom %q refusé : %s", ok, r)
+		}
+	}
+}
+
+// ── Contrat D1–D6 (c527353) ────────────────────────────────────────────────────────────────────────────
+// API proposée en plus : func ParseContainerOptionsMap(backendType string, m map[string]any) (ContainerOptions, []OptionProblem)
+// (clés hors des cinq options → refus « container.<clé> ») ; func CheckUserEnv(env EnvSpec, defaultImage string) []OptionProblem (T4, T5).
+
+// T3 — table « Jamais » k8s COMPLÈTE : chaque champ refusé NOMMÉMENT avec son chemin, à la racine de la zone JSON.
+func TestT3JamaisK8s(t *testing.T) {
+	fields := []string{"serviceAccountName", "nodeName", "schedulerName", "runtimeClassName", "priorityClassName", "priority", "preemptionPolicy",
+		"imagePullSecrets", "dnsPolicy", "dnsConfig", "hostAliases", "hostNetwork", "hostPID", "hostIPC", "hostUsers", "shareProcessNamespace",
+		"initContainers", "ephemeralContainers", "env", "envFrom", "command", "args", "ports", "lifecycle", "livenessProbe", "readinessProbe", "startupProbe",
+		"securityContext", "volumes", "hostPath", "enableServiceLinks", "restartPolicy", "overhead", "activeDeadlineSeconds", "subdomain",
+		"setHostnameAsFQDN", "os", "topologySpreadConstraints", "containers", "volumeMounts", "automountServiceAccountToken", "terminationGracePeriodSeconds",
+		"privileged", "capabilities", "serviceAccount", "hostname", "image", "workingDir", "stdin", "tty"}
+	if len(fields) < 40 {
+		t.Fatalf("%d entrées (≥ 40 attendues)", len(fields))
+	}
+	for _, k := range fields {
+		_, ps := ParsePodOptions(DefaultPodSimple(), map[string]any{k: map[string]any{"x": 1}})
+		if p := hasPath(ps, "$."+k); p == nil || p.Field != "pod.spec" || p.Msg == "" {
+			t.Errorf("%s : refus nommé avec le chemin $.%s attendu : %+v", k, k, ps)
+		}
+	}
+	// resources.claims et securityContext « à tout niveau » (dans affinity, tolerations…)
+	if _, ps := ParsePodOptions(DefaultPodSimple(), map[string]any{"resources": map[string]any{"claims": []any{map[string]any{"name": "x"}}}}); hasPath(ps, "$.resources.claims") == nil {
+		t.Errorf("resources.claims : %+v", ps)
+	}
+}
+
+// T3 — table « Jamais » docker/podman : toute clé hors des cinq options (cpus, memory, pids_limit, shm_size, gpus) → refus « container.<clé> ».
+func TestT3JamaisDocker(t *testing.T) {
+	keys := []string{"privileged", "cap_add", "cap-add", "cap_drop", "security_opt", "security-opt", "ulimit", "sysctl", "userns", "pid", "ipc", "uts", "cgroup_parent", "cgroupns",
+		"network", "net", "dns", "dns_search", "add_host", "ports", "publish", "expose", "device", "devices", "volumes_from", "volumes", "volume", "mount", "mounts", "env",
+		"env_file", "entrypoint", "user", "restart", "log_driver", "log_opt", "label_file", "runtime", "storage_opt", "tmpfs", "init", "oom_kill_disable", "oom_score_adj",
+		"cpuset_cpus", "cpuset_mems", "blkio_weight", "read_only", "platform", "hostname", "name", "image", "command", "labels", "working_dir"}
+	if len(keys) < 40 {
+		t.Fatalf("%d entrées (≥ 40 attendues)", len(keys))
+	}
+	for _, typ := range []string{"docker", "podman"} {
+		for _, k := range keys {
+			_, ps := ParseContainerOptionsMap(typ, map[string]any{k: "x"})
+			if len(ps) == 0 || ps[0].Field != "container."+k || ps[0].Msg == "" {
+				t.Errorf("%s : %q accepté ou refus non nommé (container.%s attendu) : %+v", typ, k, k, ps)
+			}
+		}
+	}
+	if _, ps := ParseContainerOptionsMap("podman", map[string]any{"gpus": "all"}); len(ps) == 0 || ps[0].Field != "container.gpus" {
+		t.Errorf("podman gpus accepté : %+v", ps)
+	}
+}
+
+// D3 — utilisateur du pod / conteneur (deux champs simples) : uid et gid non nuls ; surcharge du backend par le projet ; root jamais.
+// API proposée : func ParseRunAs(uid, gid string) (RunAs, []OptionProblem) ; func ResolveRunAs(helm, backend, project *RunAs) RunAs (Helm → backend → projet).
+func TestD3RunAsDuProjet(t *testing.T) {
+	for name, c := range map[string][2]string{"uid 0": {"0", "2000"}, "gid 0": {"2000", "0"}, "négatif": {"-1", "2000"}, "texte": {"root", "2000"}, "vide": {"", ""},
+		"énorme": {"4294967296", "2000"}, "décimal": {"2000.5", "2000"}, "espace": {"2000 ", "2000"}} {
+		if _, ps := ParseRunAs(c[0], c[1]); len(ps) == 0 || !strings.HasPrefix(ps[0].Field, "pod.run_as") && !strings.HasPrefix(ps[0].Field, "container.run_as") && !strings.Contains(ps[0].Field, "user") {
+			t.Errorf("%s : refus nommé attendu : %+v", name, ps)
+		}
+	}
+	if ra, ps := ParseRunAs("1000", "1000"); len(ps) != 0 || ra.UID != 1000 || ra.GID != 1000 {
+		t.Errorf("1000:1000 : %+v %+v", ra, ps)
+	}
+	h, b, p := &RunAs{UID: 2000, GID: 2000}, &RunAs{UID: 3000, GID: 3100}, &RunAs{UID: 4000, GID: 4100}
+	if r := ResolveRunAs(h, nil, nil); r != *h {
+		t.Errorf("Helm seul : %+v", r)
+	}
+	if r := ResolveRunAs(h, b, nil); r != *b {
+		t.Errorf("backend surcharge Helm : %+v", r)
+	}
+	if r := ResolveRunAs(h, b, p); r != *p {
+		t.Errorf("projet surcharge backend : %+v", r)
+	}
+	if r := ResolveRunAs(nil, nil, nil); r.UID != 2000 || r.GID != 2000 {
+		t.Errorf("défaut : %+v (2000:2000)", r)
+	}
+	if r := ResolveRunAs(&RunAs{UID: 0, GID: 0}, nil, nil); r.UID == 0 || r.GID == 0 {
+		t.Errorf("Helm à 0 : root jamais, retour au défaut : %+v", r)
+	}
+}
+
+// D4 / T4 / T5 — env.yaml d'un projet d'utilisateur : image = image par défaut (LOT-3.2) ; mounts et local refusés ; syntaxe de l'image.
+func TestT4ImageDEnvYAML(t *testing.T) {
+	def := "ghcr.io/ccoupel/claude-base:1.0"
+	if ps := CheckUserEnv(EnvSpec{Image: def}, def); len(ps) != 0 {
+		t.Errorf("image par défaut refusée : %+v", ps)
+	}
+	if ps := CheckUserEnv(EnvSpec{}, def); len(ps) != 0 {
+		t.Errorf("env.yaml sans image refusé : %+v", ps)
+	}
+	ps := CheckUserEnv(EnvSpec{Image: "debian:12"}, def)
+	if len(ps) == 0 || !strings.Contains(ps[0].Msg, "image non autorisée : seule l'image par défaut est admise") || ps[0].Field != "env.image" {
+		t.Errorf("image ≠ défaut : %+v", ps)
+	}
+	for _, bad := range []string{"-v /:/host", "--privileged", "a b", "x;y", "A/B:1", strings.Repeat("a", 256), "a@sha256:xyz", "ghcr.io//x", "x:", ":1"} {
+		if ps := CheckUserEnv(EnvSpec{Image: bad}, def); len(ps) == 0 {
+			t.Errorf("image %q acceptée", bad)
+		}
+	}
+	// T5 : liaisons hôte et volumes anonymes ignorés/refusés — jamais d'accès au système de fichiers du launcher
+	ro := false
+	for name, e := range map[string]EnvSpec{"mounts": {Mounts: []EnvMount{{Path: "/etc"}}}, "mounts ro": {Mounts: []EnvMount{{Path: "../x", RO: &ro}}}, "local": {Local: []string{"node_modules"}}} {
+		if ps := CheckUserEnv(e, def); len(ps) == 0 || ps[0].Field == "" {
+			t.Errorf("%s : refus nommé attendu : %+v", name, ps)
 		}
 	}
 }
