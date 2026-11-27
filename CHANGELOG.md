@@ -15,11 +15,16 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Routage par identité (#255) : SSE, terminaux et `/files` ne livrent que les événements de l'espace de l'utilisateur ; l'espace
   est libéré 10 min après le dernier client
 - Méthode `userList` (admin, R1) : login, nombre de backends et état de chaque utilisateur, sans identifiant numérique
+- Éditeur de backends de l'utilisateur (#255) : « Mon espace › Backends » ; méthodes `configModel`, `configApply` et
+  `backendStates`, limitées à son seul `backends.yaml`. Repli sur l'éditeur YAML. Validation en liste blanche : rubrique
+  `backends:` seule ; types `k8s`, `docker`, `podman` ; docker/podman en `tcp://` avec TLS ; `ssh`, `unix://` et toute autre clé refusés
 
 ### Changed
 - Utilisateur (#255) : instance restreinte. Ses méthodes servent l'état de son espace (`clientInfo`, `init`, `setPrefs`,
   `setTheme`, `configFiles/Open/Validate/Save` sur son seul `backends.yaml`) ; les autres répondent « indisponible dans votre
   espace ». Les refus R1 sont inchangés (`forbidden:admin`, audités)
+- Chart (#255) : `auth.admins` peut être vide quand le compte local `admin@local` est actif (administrateur de fait, hôte
+  interne seul). Sans aucune liste GitHub, `--github-user=-` (aucun login admis) ; `NOTES.txt` le signale
 
 ### Fixed
 - Fermeture des projets Kubernetes (#269) : un pod à l'ancien modèle de montage n'est plus un problème du backend mais un
@@ -27,6 +32,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   « Forcer fermer » arrêtent désormais aussi ce pod à l'ancien modèle (avant : laissé tel quel)
 - Interface web : `_work/test-plan` est servi par le serveur de fichiers comme `_work/mockup` (#271) ; `_work/reports`,
   `_work/handoff`, `_work/tasks` et `_work/tmp` restent refusés (404) et masqués dans les listes
+- Utilisateur (#255) : une rubrique réservée à l'administrateur (config.conf, env.yaml, réglages du hub) répond
+  « réservée à l'administrateur » ; le genre demandé n'est plus réinjecté dans la réponse
 
 ## [7.0.0] — 2026-11-26
 

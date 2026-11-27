@@ -261,3 +261,8 @@ Ajouts factuels de LOT-2 ; la refonte du modèle (sans agent, P15, schéma M3) e
   lit encore les chemins globaux (backends, coffre, `projects.json` de la racine) ; une seconde application complète par
   utilisateur aurait lu l'espace de l'admin, d'où ce choix.
 - **Admin** : son espace reste la racine actuelle (sans migration). `userList` (R1) liste les espaces sans identifiant numérique.
+- **Éditeur de backends** (cycle 2) : « Mon espace › Backends » lit et écrit le seul `backends.yaml` de l'utilisateur
+  (`configModel`, `configApply`, `backendStates`). La validation est en liste blanche (`contracts/user-backends.md` §3) : tout
+  ce qui n'est pas listé est refusé sans rien écrire.
+- **Administrateur de fait** : avec `auth.localAdmin.enabled`, `auth.admins` peut rester vide ; l'administration passe alors par
+  `admin@local`, depuis l'hôte interne seul (`kubernetes.md` §4b, `contracts/helm-values.md`).

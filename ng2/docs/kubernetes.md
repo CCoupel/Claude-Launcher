@@ -336,6 +336,11 @@ listes (refus au rendu). Un login absent des deux listes reçoit `403`.
 - Variante sans mot de passe généré : `auth.localAdmin.existingSecret` (clé `htpasswd`, bcrypt `$2a$`, `$2b$` ou `$2y$`, coût ≥ 10, mot de passe ≥ 20 caractères aléatoires).
 - Désactivation : `auth.localAdmin.enabled: false`. Le compte est refusé sur l'hôte externe, par construction et par le launcher.
 - Force brute : `rateLimit` Traefik sur `/oauth2/` (10 essais par minute en moyenne, 20 en rafale, par adresse source), puis `429`.
+- **Liste `auth.admins` vide (v7.1.0)** : permise seulement si `auth.localAdmin.enabled: true` ; `admin@local` devient alors
+  l'administrateur de fait. Il n'est admis que sur l'hôte interne (refusé sur l'hôte externe, par construction et par le
+  launcher). Sans aucune liste (`auth.admins` et `auth.users` vides), le chart émet `--github-user=-` : aucun compte GitHub ne
+  passe, seul `admin@local` entre. Avec `auth.localAdmin.enabled: false`, un `auth.admins` vide reste refusé au rendu.
+  `NOTES.txt` signale l'absence d'administrateur GitHub. Contrat : `contracts/helm-values.md` (`auth.admins`).
 
 **4. Ingress externe** (`externalIngress.enabled: true`) : accès depuis Internet, derrière l'authentification.
 
