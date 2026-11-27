@@ -12,7 +12,8 @@
 >   backends, ses identifiants, ses réglages et une **trace** minimale des projets vus (§2) ; projets découverts sur le
 >   backend, métadonnées lues dans le projet ou sur l'objet du backend.
 > - Pas d'arrêt automatique (P17) ; relance seulement sur Ouvrir ou F5 (P20) ; compte k8s trop puissant = avertissement
->   (P19) ; approbation `env.yaml` dans le volume, scellée par le launcher (P21). Aucun point ouvert. **Mode poste inchangé** (hub tmux Linux, exe Windows, fenêtre native : ssh compris).
+>   (P19) ; approbation `env.yaml` dans le volume, scellée par le launcher (P21) ; chown du stockage par le bootstrap
+>   root (P30). Aucun point ouvert. **Mode poste inchangé** (hub tmux Linux, exe Windows, fenêtre native : ssh compris).
 
 ## 1. Vocabulaire et règles
 
@@ -406,11 +407,16 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   - **docker/podman** : `--cap-drop=ALL`, `--cap-add=CHOWN,DAC_OVERRIDE,FOWNER,SETUID,SETGID`,
     `--security-opt=no-new-privileges`, conteneur démarré en root pour le bootstrap ; `exec` avec `--user=<uid>:<gid>`.
   - `HOME=/space/.claude/home`, `CLAUDE_CONFIG_DIR=/space/.claude`, `XDG_CONFIG_HOME=/space/.claude/home/.config`.
-  - **Stockage (P29)** : jamais de chown ajouté par le launcher. Au premier démarrage, le bootstrap vérifie, sous l'uid du
-    traitement, que `/space` (PVC `subPath` ou volume) est **inscriptible**. Sinon il **refuse nommément**, sans démarrer
-    de session : « Le stockage n'est pas accessible en écriture à l'utilisateur 2000:2000. Exécute sur ton stockage :
-    `chown -R 2000:2000 <dossier>` (procédure dans la documentation). » La question de confirmation P30 (chown fait par
-    le bootstrap, déjà root) est ouverte ; ce texte s'applique tant qu'elle n'est pas tranchée.
+  - **Stockage (P29, P30 tranchée)** : au premier démarrage, le **bootstrap, déjà root**, donne le stockage à l'uid du
+    traitement : `chown -R <uid>:<gid>` de `/space` (docker/podman) ou du `subPath` monté (k8s), **une seule fois**. Aucune
+    étape root ajoutée (pas d'initContainer de chown, pas de conteneur ponctuel `--user 0`).
+    - Idempotence : marqueur `/space/.claude-launcher/owner` (`<uid>:<gid>`, écrit après le chown). Marqueur présent et
+      propriétaire de `/space` égal à l'uid → aucun chown ; uid du projet changé (M4) → nouveau chown, marqueur mis à jour.
+    - Le chown ne suit pas les liens symboliques (`chown -R -h` sans `-L`) et ne sort pas de `/space`.
+    - **Contrôle d'inscriptibilité** ensuite, sous l'uid du traitement : si `/space` n'est pas inscriptible (stockage qui
+      refuse le chown, NFS `root_squash`, MooseFS sans droits…), **refus nommé** sans démarrer de session : « Le stockage
+      n'est pas accessible en écriture à l'utilisateur 2000:2000 et le launcher n'a pas pu en changer le propriétaire.
+      Exécute sur ton stockage : `chown -R 2000:2000 <dossier>` (procédure dans la documentation). »
 - **Modification après création** :
   - k8s : patch du StatefulSet, appliqué au prochain démarrage du pod ;
   - docker/podman : `cpus`, `memory`, `pids_limit` changés **à chaud** par `docker update`, sans recréer. `shm_size` et

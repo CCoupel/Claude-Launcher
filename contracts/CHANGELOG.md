@@ -2,6 +2,12 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.2 (#275) : chown du stockage par le bootstrap (P30)
+
+- **[CHANGED]** `user-backends.md` §5 bis : le bootstrap root fait **une fois** `chown -R <uid>:<gid>` de `/space` / du
+  `subPath` (marqueur `.claude-launcher/owner`, liens non suivis), sans étape root ajoutée ; contrôle d'inscriptibilité
+  ensuite, refus nommé avec la commande `chown -R 2000:2000` si le chown échoue.
+
 ## [20261127] — v7.1.0 LOT-3.2 (#275) : D3 révisée (P28, P29) — bootstrap root, traitement sans root
 
 - **[CHANGED]** `user-backends.md` §5 bis : bootstrap en root (paquets système, sans `sudo`), puis passage définitif à
