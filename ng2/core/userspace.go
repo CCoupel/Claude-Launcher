@@ -516,7 +516,7 @@ func userBackendProblems(content []byte) []ConfigProblem {
 			bad(n, "ssh est interdit en mode serveur ; utilise docker (TLS) ou k8s")
 		case "k8s":
 			if v, ok := be["kubeconfig"].(bool); !ok || !v {
-				bad(n, "« kubeconfig: true » obligatoire (le kubeconfig se colle dans les réglages du backend ; jamais le compte du launcher)")
+				bad(n, "kubeconfig obligatoire pour un backend k8s : l'ajouter avec + Ajouter (le kubeconfig se colle à la création ; jamais le compte du launcher)")
 			}
 			ns := str(be, "namespace")
 			if !dnsLabelRE.MatchString(ns) {
@@ -527,9 +527,9 @@ func userBackendProblems(content []byte) []ConfigProblem {
 			}
 		case "docker", "podman":
 			if h, _, err := parseUserEndpoint(str(be, "host"), "tcp"); err != nil {
-				bad(n, HostRefusal+HostRefusalHint, HostRefusalCategory(err))
+				bad(n, HostMessage(err), HostRefusalCategory(err))
 			} else if rerr := resolved[h]; rerr != nil {
-				bad(n, HostRefusal+HostRefusalHint, HostRefusalCategory(rerr))
+				bad(n, HostMessage(rerr), HostRefusalCategory(rerr))
 			}
 			if v, has := be["volume"]; has {
 				if vs, ok := v.(string); !ok || !volumeNameRE.MatchString(vs) {
@@ -568,27 +568,30 @@ func (s Space) SaveBackends(content []byte, expectedMtime time.Time) ([]ConfigPr
 		return ps, err
 	}
 	path := s.BackendsPath()
-	return ps, WithFileLock(path, func() error {
-		st, err := os.Stat(path)
-		switch {
-		case err == nil && (expectedMtime.IsZero() || !st.ModTime().Equal(expectedMtime)):
-			return ErrConfigConflict
-		case err != nil && !os.IsNotExist(err):
-			return err
-		case err != nil && !expectedMtime.IsZero():
-			return ErrConfigConflict
+	return ps, WithFileLock(path, func() error { return saveBackendsLocked(path, content, expectedMtime) })
+}
+
+// saveBackendsLocked : contrôle de la date, copie .bak, écriture atomique 0600 — sous le verrou du fichier (tenu par l'appelant).
+func saveBackendsLocked(path string, content []byte, expectedMtime time.Time) error {
+	st, err := os.Stat(path)
+	switch {
+	case err == nil && (expectedMtime.IsZero() || !st.ModTime().Equal(expectedMtime)):
+		return ErrConfigConflict
+	case err != nil && !os.IsNotExist(err):
+		return err
+	case err != nil && !expectedMtime.IsZero():
+		return ErrConfigConflict
+	}
+	if err == nil {
+		old, rerr := os.ReadFile(path)
+		if rerr != nil {
+			return rerr
 		}
-		if err == nil {
-			old, rerr := os.ReadFile(path)
-			if rerr != nil {
-				return rerr
-			}
-			if berr := WriteFileAtomic(path+".bak", old, 0o600); berr != nil {
-				return fmt.Errorf("copie .bak : %w", berr)
-			}
+		if berr := WriteFileAtomic(path+".bak", old, 0o600); berr != nil {
+			return fmt.Errorf("copie .bak : %w", berr)
 		}
-		return WriteFileAtomic(path, content, 0o600)
-	})
+	}
+	return WriteFileAtomic(path, content, 0o600)
 }
 
 // UserAdminFields : le backends.yaml proposé sort de ce qu'un utilisateur peut déclarer (règle R1, contracts/auth.md §4 et

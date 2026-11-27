@@ -227,7 +227,8 @@ func init() {
 	for _, m := range []string{"create", "createCancel", "projectSettings", "projectApply", "execApply", "envTrustAnswer",
 		"initProposalAnswer", "projectMove", "projectMoveResume", "projectMoveAbort", "categoryCreate", "backendTest",
 		"backendHostScan", "open", "reattach", "refreshProject", "forceClose", "forceCloseConfirm", "close", "closeConfirm",
-		"detach", "refresh", "rescan", "teamToggle", "relayout", "select", "cardsFor", "setPrefs", "setTheme", "dismiss", "alert"} {
+		"detach", "refresh", "rescan", "teamToggle", "relayout", "select", "cardsFor", "setPrefs", "setTheme", "dismiss", "alert",
+		"userBackendAdd", "userBackendRemove"} {
 		methodClass[m] = ClassProject
 	}
 	for _, m := range []string{"init", "clientInfo", "diag", "tools", "newInfo", "projectMoveInfo", "envTrustInfo", "projectBases",

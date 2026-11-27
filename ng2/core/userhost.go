@@ -23,27 +23,52 @@ import (
 // HostRefusal : message unique de tout refus d'hôte.
 const HostRefusal = "adresse non autorisée pour un utilisateur"
 
-// HostError : refus d'hôte. Le TEXTE est unique (HostRefusal : aucun oracle de topologie) ; la catégorie sert au diagnostic côté serveur
-// (audit), jamais à l'utilisateur : « forme » (syntaxe, port, schéma), « plage » (IP ou nom interdit), « résolution » (DNS en échec).
-type HostError struct{ Cat string }
+// HostError : refus d'hôte. Refus de PLAGE ou de RÉSOLUTION (IP, nom interne, DNS en échec) : texte unique HostRefusal (aucun oracle de
+// topologie, S8). Refus de FORME (schéma, port, caractère, chemin) : message propre et utile, sans lien avec la topologie. Reason
+// sert au diagnostic côté serveur (audit) : « form » (syntaxe), « range » (IP ou nom interdit), « dns » (résolution en échec).
+type HostError struct{ Reason, Msg string }
 
-func (e *HostError) Error() string { return HostRefusal }
+func (e *HostError) Error() string {
+	if e.Msg != "" {
+		return e.Msg
+	}
+	return HostRefusal
+}
 
-// HostRefusalCategory : catégorie d'un refus d'hôte (« » si l'erreur n'en est pas un).
+// Uniform : le refus porte le texte unique (plage ou résolution) — code « forbidden_address » côté API.
+func (e *HostError) Uniform() bool { return e.Msg == "" }
+
+// HostRefusalCategory : raison interne d'un refus d'hôte (« » si l'erreur n'en est pas un).
 func HostRefusalCategory(err error) string {
 	var he *HostError
 	if errors.As(err, &he) {
-		return he.Cat
+		return he.Reason
 	}
 	return ""
 }
 
+// HostRefusalUniform : l'erreur est un refus d'adresse au texte unique (plage ou résolution).
+func HostRefusalUniform(err error) bool {
+	var he *HostError
+	return errors.As(err, &he) && he.Uniform()
+}
+
+func formErr(msg string) *HostError {
+	return &HostError{Reason: "form", Msg: "adresse invalide : " + msg}
+}
+
 var (
-	errForm    = &HostError{"forme"}
-	errRange   = &HostError{"plage"}
-	errResolve = &HostError{"résolution"}
-	// errHostRefused : refus sans catégorie précise (compatibilité) ; compté comme « forme »
+	errForm    = &HostError{Reason: "form"} // forme numérique non canonique (127.1, décimal, hexadécimal) : texte unique, comme une plage
+	errRange   = &HostError{Reason: "range"}
+	errResolve = &HostError{Reason: "dns"}
+	// errHostRefused : refus sans raison précise (compatibilité)
 	errHostRefused error = errForm
+
+	errFormChar   = formErr("caractère interdit")
+	errFormScheme = formErr("schéma obligatoire (tcp://hôte:port)")
+	errFormPort   = formErr("port obligatoire, de 1 à 65535 (tcp://hôte:port)")
+	errFormPath   = formErr("ni chemin, ni requête, ni identifiant dans l'adresse")
+	errFormLong   = formErr("adresse trop longue")
 )
 
 // HostRefusalHint : texte ajouté au message d'un refus de forme ou de plage (le même pour toutes les causes).
@@ -95,16 +120,16 @@ var internalSuffixes = []string{".local", ".lan", ".internal", ".home.arpa", ".s
 func splitHostPort(hp string) (host string, port int, err error) {
 	h, p, err := net.SplitHostPort(hp)
 	if err != nil || h == "" || p == "" {
-		return "", 0, errHostRefused
+		return "", 0, errFormPort
 	}
 	for _, r := range p {
 		if r < '0' || r > '9' {
-			return "", 0, errHostRefused
+			return "", 0, errFormPort
 		}
 	}
 	n, err := strconv.Atoi(p)
 	if err != nil || n < 1 || n > 65535 {
-		return "", 0, errHostRefused
+		return "", 0, errFormPort
 	}
 	return h, n, nil
 }
@@ -126,21 +151,24 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 		raw = strings.TrimSuffix(raw, "/") // « tcp://hôte:port/ » : une barre finale seule est tolérée
 	}
 	if len(raw) > 300 {
-		return "", 0, errHostRefused
+		return "", 0, errFormLong
 	}
 	for _, r := range raw {
-		if r <= ' ' || r == 0x7f || strings.ContainsRune(`\"'`+"`"+`$;|&<>{}()@#?%`, r) {
-			return "", 0, errHostRefused
+		if strings.ContainsRune("@?#", r) {
+			return "", 0, errFormPath
+		}
+		if r <= ' ' || r == 0x7f || strings.ContainsRune(`\"'`+"`"+`$;|&<>{}()%`, r) {
+			return "", 0, errFormChar
 		}
 	}
 	pre := scheme + "://"
 	if len(raw) <= len(pre) || !strings.EqualFold(raw[:len(pre)], pre) {
-		return "", 0, errHostRefused
+		return "", 0, errFormScheme
 	}
 	rest := raw[len(pre):]
 	if i := strings.IndexByte(rest, '/'); i >= 0 {
 		if !path || !serverPathRE.MatchString(rest[i:]) || strings.Contains(rest[i:], "..") {
-			return "", 0, errHostRefused
+			return "", 0, errFormPath
 		}
 		rest = rest[:i]
 	}
@@ -151,7 +179,7 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 	if strings.HasPrefix(rest, "[") { // IPv6 entre crochets
 		a, perr := netip.ParseAddr(h)
 		if perr != nil || a.Zone() != "" || !a.Is6() && !a.Is4In6() {
-			return "", 0, errForm
+			return "", 0, errFormChar
 		}
 		if !ipAllowed(a) {
 			return "", 0, errRange
@@ -160,7 +188,7 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 	}
 	if a, perr := netip.ParseAddr(h); perr == nil { // IP littérale (forme canonique décimale pointée, ou IPv6 sans crochets : refusée par SplitHostPort)
 		if a.Zone() != "" {
-			return "", 0, errForm
+			return "", 0, errFormChar
 		}
 		if !ipAllowed(a) {
 			return "", 0, errRange
@@ -178,11 +206,11 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 	}
 	for _, l := range labels {
 		if len(l) == 0 || len(l) > 63 || l[0] == '-' || l[len(l)-1] == '-' {
-			return "", 0, errHostRefused
+			return "", 0, errFormChar
 		}
 		for _, r := range l {
 			if !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r == '-') {
-				return "", 0, errHostRefused
+				return "", 0, errFormChar
 			}
 		}
 	}
@@ -440,4 +468,13 @@ func checkResolvedAll(names []string) map[string]error {
 		res[k] = v
 	}
 	return res
+}
+
+// HostMessage : message affiché pour un refus d'hôte — le texte unique (+ forme attendue) pour une plage ou une résolution, le message
+// de forme sinon.
+func HostMessage(err error) string {
+	if HostRefusalUniform(err) {
+		return HostRefusal + HostRefusalHint
+	}
+	return err.Error() + HostRefusalHint
 }

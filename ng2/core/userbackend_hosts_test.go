@@ -108,8 +108,10 @@ func TestHosts257TableDesFormesInterditesAUnUtilisateur(t *testing.T) {
 			if len(ms) == 0 {
 				t.Fatalf("%q accepté à l'enregistrement", f.host)
 			}
-			if !strings.Contains(strings.Join(ms, "\n"), hostRefusal) {
-				t.Errorf("%q : message non uniforme %q (attendu « %s »)", f.host, ms, hostRefusal)
+			// refus de PLAGE ou de RÉSOLUTION : texte unique ; refus de FORME (schéma, port, caractère, chemin) : message propre « adresse
+			// invalide : … » (GATE LOT-3.1 : un utilisateur qui saisit « yahoo.fr » sans schéma ni port doit apprendre pourquoi)
+			if j := strings.Join(ms, "\n"); !strings.Contains(j, hostRefusal) && !strings.Contains(j, "adresse invalide :") {
+				t.Errorf("%q : message %q (attendu « %s » ou « adresse invalide : … »)", f.host, ms, hostRefusal)
 			}
 			if _, err := sp.SaveBackends(hb(f.host), time.Time{}); err == nil {
 				t.Errorf("%q : SaveBackends l'a accepté", f.host)

@@ -394,12 +394,57 @@ func TestSpacesRefusAuditeEtEditeurUtilisable257(t *testing.T) {
 		if l["method"] == "backend.refused" {
 			found = true
 			b, _ := json.Marshal(l)
-			if l["target"] != "plage" || strings.Contains(string(b), "192.168.1.5") {
+			if l["reason"] != "range" || strings.Contains(string(b), "192.168.1.5") {
 				t.Errorf("audit backend.refused : %s", b)
 			}
 		}
 	}
 	if !found {
 		t.Error("aucun audit backend.refused")
+	}
+}
+
+// GATE LOT-3.1 : une adresse saisie sans schéma ou sans port reçoit SON message (forme), jamais « adresse non autorisée » ; un hôte public
+// avec schéma et port est accepté ; la raison interne part à l'audit (form), pas à l'utilisateur.
+func TestUserBackendAddMessagesDeForme257(t *testing.T) {
+	c := cr258Start(t)
+	cases := []struct{ host, field, code, want string }{
+		{"yahoo.fr:2375", "host", "invalid", "schéma obligatoire"},
+		{"tcp://yahoo.fr", "host", "invalid", "port obligatoire"},
+		{"tcp://yahoo.fr:70000", "host", "invalid", "port obligatoire"},
+		{"tcp://yahoo.fr:2375/x", "host", "invalid", "ni chemin"},
+		{"tcp://192.168.1.5:2375", "host", "forbidden_address", uRefus},
+		{"", "host", "required", "adresse obligatoire"},
+	}
+	for _, x := range cases {
+		mt, _, _ := c.model(t, "alice")
+		be := map[string]any{"name": "d", "type": "docker", "host": x.host, "volume": "v"}
+		raw, res, _ := c.add(t, "alice", be, map[string]any{}, mt)
+		msg, _ := res["msg"].(string)
+		if res["ok"] != false || res["field"] != x.field || res["code"] != x.code || !strings.Contains(msg, x.want) {
+			t.Errorf("%q : %s (field %s, code %s, « %s » attendus)", x.host, raw, x.field, x.code, x.want)
+		}
+		if x.code != "forbidden_address" && strings.Contains(msg, uRefus) {
+			t.Errorf("%q : refus de forme renvoyé comme refus d'adresse : %q", x.host, msg)
+		}
+	}
+	mt, _, _ := c.model(t, "alice")
+	if raw, res, _ := c.add(t, "alice", map[string]any{"name": "ok", "type": "docker", "host": "tcp://93.184.216.34:2375", "volume": "v"}, map[string]any{}, mt); res["ok"] != true {
+		t.Errorf("hôte public refusé : %s", raw)
+	}
+	// l'audit porte la raison (form / range), jamais l'adresse
+	time.Sleep(200 * time.Millisecond)
+	seen := map[string]bool{}
+	for _, l := range c.s.auditLines(t) {
+		if l["method"] == "backend.refused" {
+			r, _ := l["reason"].(string)
+			seen[r] = true
+			if b, _ := json.Marshal(l); strings.Contains(string(b), "192.168.1.5") || strings.Contains(string(b), "yahoo") {
+				t.Errorf("audit avec l'adresse : %s", b)
+			}
+		}
+	}
+	if !seen["form"] || !seen["range"] {
+		t.Errorf("raisons d'audit : %v (form et range attendues)", seen)
 	}
 }

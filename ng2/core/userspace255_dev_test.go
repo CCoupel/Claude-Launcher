@@ -641,16 +641,21 @@ func TestHotesPublicsReels257(t *testing.T) {
 		}
 	}
 	// catégories : forme / plage / résolution ; le texte reste unique
-	for h, want := range map[string]string{"tcp://yahoo.fr": "forme", "yahoo.fr:2375": "forme", "tcp://10.0.0.1:2375": "plage", "tcp://nas.lan:2375": "plage",
-		"tcp://inconnu.example.org:2375": "résolution"} {
+	for h, want := range map[string]string{"tcp://yahoo.fr": "form", "yahoo.fr:2375": "form", "tcp://10.0.0.1:2375": "range", "tcp://nas.lan:2375": "range",
+		"tcp://inconnu.example.org:2375": "dns"} {
 		err := CheckUserHost(h)
-		if err == nil || err.Error() != HostRefusal || HostRefusalCategory(err) != want {
-			t.Errorf("%q : %v catégorie %q, attendu %q", h, err, HostRefusalCategory(err), want)
+		if err == nil || HostRefusalCategory(err) != want {
+			t.Errorf("%q : %v raison %q, attendu %q", h, err, HostRefusalCategory(err), want)
+		}
+		if uniform := want != "form"; HostRefusalUniform(err) != uniform {
+			t.Errorf("%q : texte unique = %v attendu %v (%v)", h, HostRefusalUniform(err), uniform, err)
 		}
 	}
-	ps := sp.ValidateBackends(hb("tcp://yahoo.fr"))
-	if !strings.Contains(strings.Join(errMsgs(ps), "\n"), "tcp://nom-public:port") || FirstProblemCat(ps) != "forme" {
-		t.Errorf("message sans indication de forme attendue, ou catégorie absente : %v", ps)
+	for host, want := range map[string]string{"tcp://yahoo.fr": "port obligatoire", "yahoo.fr:2375": "schéma obligatoire"} {
+		ps := sp.ValidateBackends(hb(host))
+		if j := strings.Join(errMsgs(ps), "\n"); !strings.Contains(j, want) || strings.Contains(j, hostRefusal) || FirstProblemCat(ps) != "form" {
+			t.Errorf("%q : message de forme « %s » attendu (distinct du refus d'adresse), raison form : %v", host, want, ps)
+		}
 	}
 }
 

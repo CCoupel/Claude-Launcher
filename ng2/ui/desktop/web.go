@@ -732,8 +732,9 @@ func (w *webBridge) handler() http.Handler {
 		if sp := spaceOf(r); !sp.Admin { // instance de l'utilisateur : ses méthodes seulement, jamais l'App commune
 			u := w.spaces.get(sp, id.Login)
 			note := func(cat string) {
+				op := req.Method
 				if w.audit != nil && cat != "" {
-					_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: "backend.refused", Target: cat, OK: false, Err: "refused"})
+					_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: "backend.refused", Target: op, Reason: cat, OK: false, Err: "refused"})
 				}
 			}
 			res, err := u.dispatch(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id, Base: baseOf(r), Note: note}, req.Method, req.Args)
@@ -748,6 +749,9 @@ func (w *webBridge) handler() http.Handler {
 				out["error"] = err.Error()
 			}
 			rw.Header().Set("Content-Type", "application/json")
+			if m, ok := res.(map[string]any); ok && m["status"] == 429 && m["code"] == "rate" { // débit des dépôts dépassé : HTTP 429, même corps
+				rw.WriteHeader(http.StatusTooManyRequests)
+			}
 			_ = json.NewEncoder(rw).Encode(out)
 			return
 		}
@@ -1284,15 +1288,16 @@ func (w *webBridge) auditBackendCall(r *http.Request, id *core.Identity, method 
 		return
 	}
 	switch method {
-	case "backendTest", "backendSecretSet", "backendSecretGet", "backendSecretDelete":
+	case "backendTest", "backendSecretSet", "backendSecretGet", "backendSecretDelete", "userBackendAdd", "userBackendRemove":
 	default:
 		return
 	}
 	var a struct {
 		Backend json.RawMessage `json:"backend"`
+		Name    string          `json:"name"`
 	}
 	_ = json.Unmarshal(args, &a)
-	name := ""
+	name := a.Name
 	if json.Unmarshal(a.Backend, &name) != nil { // backendTest : objet {name…}
 		var o struct {
 			Name string `json:"name"`

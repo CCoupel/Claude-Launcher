@@ -175,60 +175,94 @@ func certInfo(c *x509.Certificate) TLSCertInfo {
 		NotAfter: c.NotAfter.UTC().Format(time.RFC3339), CA: c.IsCA}
 }
 
-// SecretSetTLS : CA du serveur (facultative), certificat et clé du client (ensemble). Contrôles : exactement un bloc, clé privée NON
-// chiffrée, clé correspondant au certificat, CA = CA:TRUE ou auto-signé. Rien n'est écrit si un contrôle échoue.
-func (s Space) SecretSetTLS(backend, ca, cert, key string, w SecretWrite) (infos map[string]TLSCertInfo, err error) {
+// AddError : refus de validation d'une création ou d'un dépôt — {field, code, msg} côté API. Reason : raison interne d'un refus d'hôte
+// (form | range | dns), pour l'audit seulement.
+type AddError struct{ Field, Code, Msg, Reason string }
+
+func (e *AddError) Error() string { return e.Msg }
+
+const errEncryptedKey = "clé privée chiffrée : colle la clé déchiffrée"
+
+// parseTLSMaterial : contrôle CA du serveur (facultative), certificat et clé du client (ensemble) sans rien écrire. Un bloc PEM, clé privée
+// NON chiffrée, clé correspondant au certificat, CA = CA:TRUE ou auto-signé, 64 Kio au plus. Rend les fichiers à écrire et leur état.
+func parseTLSMaterial(ca, cert, key string) (files map[string][]byte, infos map[string]TLSCertInfo, aerr *AddError) {
+	big := func(field string) *AddError {
+		return &AddError{Field: field, Code: "too_large", Msg: "trop volumineux (64 Kio au plus)"}
+	}
+	bad := func(field, msg string) *AddError { return &AddError{Field: field, Code: "invalid", Msg: msg} }
+	for f, v := range map[string]string{"tls.ca": ca, "tls.cert": cert, "tls.key": key} {
+		if len(v) > maxUserKubeconfig {
+			return nil, nil, big(f)
+		}
+	}
 	if (cert == "") != (key == "") {
-		return nil, errors.New("certificat et clé du client vont ensemble")
+		if cert == "" {
+			return nil, nil, &AddError{Field: "tls.cert", Code: "required", Msg: "certificat du client obligatoire avec sa clé"}
+		}
+		return nil, nil, &AddError{Field: "tls.key", Code: "required", Msg: "clé du client obligatoire avec son certificat"}
 	}
 	if ca == "" && cert == "" {
-		return nil, errors.New("rien à enregistrer : CA du serveur, ou certificat et clé du client")
+		return nil, nil, &AddError{Field: "tls.ca", Code: "required", Msg: "rien à enregistrer : CA du serveur, ou certificat et clé du client"}
 	}
-	infos = map[string]TLSCertInfo{}
-	var files = map[string][]byte{}
+	infos, files = map[string]TLSCertInfo{}, map[string][]byte{}
 	if ca != "" {
 		blk, err := onePEM(ca, "CERTIFICATE")
 		if err != nil {
-			return nil, fmt.Errorf("CA : %w", err)
+			return nil, nil, bad("tls.ca", "CA : un seul bloc CERTIFICATE PEM attendu")
 		}
 		c, err := x509.ParseCertificate(blk.Bytes)
 		if err != nil {
-			return nil, errors.New("CA : certificat illisible")
+			return nil, nil, bad("tls.ca", "CA : certificat illisible")
 		}
 		if !c.IsCA && c.CheckSignatureFrom(c) != nil {
-			return nil, errors.New("CA : ni CA:TRUE ni auto-signé")
+			return nil, nil, bad("tls.ca", "CA : ni CA:TRUE ni auto-signé")
 		}
 		infos["ca"], files[secretCAFile] = certInfo(c), pem.EncodeToMemory(blk)
 	}
 	if cert != "" {
 		cb, err := onePEM(cert, "CERTIFICATE")
 		if err != nil {
-			return nil, fmt.Errorf("certificat : %w", err)
+			return nil, nil, bad("tls.cert", "certificat : un seul bloc CERTIFICATE PEM attendu")
 		}
 		c, err := x509.ParseCertificate(cb.Bytes)
 		if err != nil {
-			return nil, errors.New("certificat : illisible")
+			return nil, nil, bad("tls.cert", "certificat : illisible")
 		}
 		kb, err := onePEM(key, "PRIVATE KEY", "RSA PRIVATE KEY", "EC PRIVATE KEY")
 		if err != nil {
-			return nil, errors.New("clé : une clé privée non chiffrée, en un seul bloc PEM, attendue")
+			if blk, _ := pem.Decode([]byte(strings.TrimSpace(key))); blk != nil && strings.Contains(blk.Type, "ENCRYPTED") {
+				return nil, nil, bad("tls.key", errEncryptedKey)
+			}
+			return nil, nil, bad("tls.key", "clé : une clé privée en un seul bloc PEM attendue")
+		}
+		if _, hdr := kb.Headers["DEK-Info"]; hdr {
+			return nil, nil, bad("tls.key", errEncryptedKey)
 		}
 		if _, err := tls.X509KeyPair(pem.EncodeToMemory(cb), pem.EncodeToMemory(kb)); err != nil {
-			return nil, errors.New("la clé ne correspond pas au certificat")
+			return nil, nil, bad("tls.key", "la clé ne correspond pas au certificat")
 		}
 		infos["cert"] = certInfo(c)
 		files[secretCertFile], files[secretKeyPEM] = pem.EncodeToMemory(cb), pem.EncodeToMemory(kb)
+	}
+	return files, infos, nil
+}
+
+// SecretSetTLS : dépose les certificats d'un backend docker EXISTANT (parseTLSMaterial) dans SON coffre. Rien n'est écrit si un contrôle échoue.
+func (s Space) SecretSetTLS(backend, ca, cert, key string, w SecretWrite) (infos map[string]TLSCertInfo, err error) {
+	files, infos, aerr := parseTLSMaterial(ca, cert, key)
+	if aerr != nil {
+		return nil, errors.New(aerr.Msg)
 	}
 	d, err := s.vaultDirOf(backend, true)
 	if err != nil {
 		return nil, err
 	}
-	sum := sha256.New()
 	names := make([]string, 0, len(files))
 	for n := range files {
 		names = append(names, n)
 	}
 	sort.Strings(names)
+	sum := sha256.New()
 	for _, n := range names {
 		sum.Write(files[n])
 	}

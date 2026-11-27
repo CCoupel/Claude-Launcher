@@ -100,7 +100,8 @@ func parseUserKubeconfig(raw []byte) (contexts []string, current string, warning
 		}
 		h, _, err := parseUserEndpointPath(ciStr(cl, "server"), "https", true) // forme (sans DNS) ; résolution groupée ci-dessous
 		if err != nil {
-			return nil, "", nil, err
+			// le « server: » d'un kubeconfig collé : texte unique pour toute cause (le serveur n'est pas saisi à la main, aucun conseil de forme)
+			return nil, "", nil, &HostError{Reason: HostRefusalCategory(err)}
 		}
 		serverNames = append(serverNames, h)
 		if v, _ := ciGet(cl, "insecure-skip-tls-verify"); v == true {

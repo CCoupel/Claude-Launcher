@@ -46,6 +46,7 @@ type AuditEntry struct {
 	Target  string // méthodes R1 : identifiant court (kind de config, nom de backend), jamais une valeur
 	OK      bool
 	Err     string // court : forbidden, invalid, error
+	Reason  string // raison interne d'un refus d'hôte (form | range | dns) : diagnostic administrateur, jamais montrée à l'utilisateur
 }
 
 type auditAgg struct {
@@ -165,6 +166,9 @@ func (a *Audit) Record(e AuditEntry) error {
 	}
 	if e.Phase != "" {
 		rec["phase"] = e.Phase
+	}
+	if e.Reason != "" {
+		rec["reason"] = e.Reason
 	}
 	if werr := a.writeLocked(rec); werr != nil {
 		return werr

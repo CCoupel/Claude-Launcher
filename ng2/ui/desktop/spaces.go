@@ -121,6 +121,7 @@ var userMethods = map[string]bool{
 	"configFiles": true, "configOpen": true, "configValidate": true, "configSave": true,
 	"configModel": true, "configApply": true, "backendStates": true,
 	"backendSecretSet": true, "backendSecretGet": true, "backendSecretDelete": true, "backendTest": true,
+	"userBackendAdd": true, "userBackendRemove": true,
 }
 
 // dispatch : un appel de l'utilisateur. L'identité (c.User) n'est jamais celle d'une autre instance : l'instance est choisie
@@ -158,6 +159,10 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return u.secretCall(c, method, raw)
 	case "backendTest":
 		return u.backendTest(c, raw)
+	case "userBackendAdd":
+		return u.backendAdd(c, raw)
+	case "userBackendRemove":
+		return u.backendRemove(c, raw)
 	case "backendStates": // aucun état sondé en LOT-2 (le sondage des backends de l'utilisateur vient avec LOT-4) : listes vides
 		return map[string]any{"states": map[string]any{}, "load": map[string]any{}}, nil
 	case "clientInfo":
@@ -255,6 +260,15 @@ func (u *userSpace) configModel() (any, error) {
 	if d.FromTemp {
 		content = "" // fichier absent : l'exemple commenté n'est pas une configuration
 	}
+	// problèmes de LECTURE du modèle : les erreurs seulement ; les avertissements (docker sans TLS vérifié…) restent affichés en permanence
+	// sur la carte du backend (d'après `tls` du modèle), pas comme un défaut de lecture
+	errs := []core.ConfigProblem{}
+	for _, p := range d.Problems {
+		if p.Severity == core.SevError {
+			errs = append(errs, p)
+		}
+	}
+	d.Problems = errs
 	model, merr := core.ReadBackendsModel([]byte(content))
 	if merr != nil && len(d.Problems) == 0 {
 		d.Problems = core.ScrubProblems([]core.ConfigProblem{{Severity: core.SevError, Message: merr.Error()}})
@@ -447,7 +461,7 @@ func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (a
 	w := core.SecretWrite{Source: "navigateur", User: c.userLabel()}
 	if method == "backendSecretSet" { // analyse YAML 64 Kio et DNS : même plafond que backendTest (audit m4)
 		if msg := u.admitSecret(time.Now()); msg != "" {
-			return map[string]any{"ok": false, "status": 429, "msg": msg}, nil
+			return map[string]any{"ok": false, "code": "rate", "status": 429, "msg": msg}, nil
 		}
 	}
 	switch method {
@@ -576,4 +590,63 @@ func (u *userSpace) currentMTime() string {
 		return st.ModTime().Format(time.RFC3339Nano)
 	}
 	return ""
+}
+
+// refusalMap : refus de validation en {ok:false, field, code, msg} ; la raison interne d'un refus d'hôte part à l'audit, jamais à l'utilisateur.
+func refusalMap(c webCall, e *core.AddError) map[string]any {
+	c.noteRefusal(e.Reason)
+	m := map[string]any{"ok": false, "code": e.Code, "msg": e.Msg}
+	if e.Field != "" {
+		m["field"] = e.Field
+	}
+	return m
+}
+
+// backendAdd : création atomique d'un backend avec ses secrets (contrat §3) ; compte dans le plafond de dépôts (60/min).
+func (u *userSpace) backendAdd(c webCall, raw json.RawMessage) (any, error) {
+	var in struct {
+		Backend map[string]any `json:"backend"`
+		Secrets struct {
+			Kubeconfig string `json:"kubeconfig"`
+			TLS        struct {
+				CA   string `json:"ca"`
+				Cert string `json:"cert"`
+				Key  string `json:"key"`
+			} `json:"tls"`
+		} `json:"secrets"`
+		MTime string `json:"mtime"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil || in.Backend == nil {
+		return nil, fmt.Errorf("userBackendAdd : arguments invalides")
+	}
+	if msg := u.admitSecret(time.Now()); msg != "" {
+		return map[string]any{"ok": false, "code": "rate", "status": 429, "msg": msg}, nil
+	}
+	var req core.AddRequest
+	req.Backend, req.MTime = in.Backend, in.MTime
+	req.Secrets.Kubeconfig = in.Secrets.Kubeconfig
+	req.Secrets.TLS.CA, req.Secrets.TLS.Cert, req.Secrets.TLS.Key = in.Secrets.TLS.CA, in.Secrets.TLS.Cert, in.Secrets.TLS.Key
+	res, e := u.sp.AddBackend(req, core.SecretWrite{Source: "navigateur", User: c.userLabel()})
+	if e != nil {
+		return refusalMap(c, e), nil
+	}
+	warns := res.Warnings
+	if warns == nil {
+		warns = []string{}
+	}
+	return map[string]any{"ok": true, "backend": map[string]any{"name": res.Name, "type": res.Type}, "warnings": warns}, nil
+}
+
+// backendRemove : retire un backend de l'utilisateur (déclaration, coffre, traces).
+func (u *userSpace) backendRemove(c webCall, raw json.RawMessage) (any, error) {
+	var in struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, fmt.Errorf("userBackendRemove : arguments invalides")
+	}
+	if e := u.sp.RemoveBackend(in.Name, core.SecretWrite{Source: "navigateur", User: c.userLabel()}); e != nil {
+		return refusalMap(c, e), nil
+	}
+	return map[string]any{"ok": true}, nil
 }
