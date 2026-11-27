@@ -2,6 +2,16 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.1 (#257, GATE refusé) : création atomique d'un backend utilisateur
+
+- **[CHANGED]** `user-backends.md` §3, §7, §11 : `userBackendAdd` crée un backend **avec ses secrets dans le même envoi**
+  (`backend` + `secrets: {kubeconfig | tls: {ca, cert, key}}` + `mtime`). Validation complète avant toute écriture, puis
+  écriture tout ou rien (coffre, puis `backends.yaml`, coffre retiré si l'écriture échoue). Refus nommé :
+  `{ok:false, field, code, msg}` (codes `required`, `invalid`, `forbidden_address`, `forbidden_field`, `too_large`,
+  `conflict`, `limit`, `rate`), `429` pour le débit. Brouillon conservé après un refus, jamais de bouton grisé sans
+  raison. Modification d'un backend existant : `configApply` + `backendSecretSet` séparés (inchangé) ; ajout par
+  `configApply` d'un k8s sans kubeconfig → refusé avec le même message.
+
 ## [20261127] — v7.1.0 LOT-3.1 (#257) : TLS docker par chemins du coffre
 
 - **[CHANGED]** `user-backends.md` §3 et §7 : certificats TLS et kubeconfig passés par **les chemins du coffre**

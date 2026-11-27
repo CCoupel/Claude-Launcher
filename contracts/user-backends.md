@@ -130,6 +130,82 @@ backends:
 - Après l'envoi : champ vidé, contenu **jamais réaffiché** ; état affiché = « enregistré · empreinte SHA256 · sujet ·
   expiration » (clé : « enregistrée », sans détail). Remplacer / Supprimer comme l'encadré ssh actuel.
 
+### Création d'un backend d'utilisateur : une seule action atomique **[NEW]** (GATE LOT-3.1 refusé, B9/B12/B13)
+
+Un backend d'utilisateur se crée **avec ses identifiants, dans le même envoi**. Il n'y a plus de « crée d'abord, dépose
+ensuite » : un backend k8s sans kubeconfig est refusé (S15), et il est impossible d'y joindre un kubeconfig avant qu'il
+existe.
+
+**Interface** : « + Ajouter » ouvre un brouillon de fiche (non enregistré) qui contient, selon le type :
+- k8s : la zone de **kubeconfig collé** ;
+- docker/podman : l'**encadré TLS** (activer, vérifier, CA, certificat, clé).
+
+« Enregistrer » envoie **une** requête `userBackendAdd`.
+
+**Requête** `userBackendAdd` :
+
+```json
+{ "backend": { "name": "k8s-maison", "type": "k8s", "namespace": "claude-alice", "pvc": "projets-alice",
+               "pod": { "resources": {…}, "nodeSelector": {…}, "affinity": {…} } },
+  "secrets": { "kubeconfig": "apiVersion: v1\n…" },
+  "mtime": "<mtime du backends.yaml lu à l'ouverture de l'éditeur, ou vide si absent>" }
+```
+
+docker/podman : `"backend": {"name", "type", "host": "tcp://…", "volume", "tls": {"enabled", "verify"}}` et
+`"secrets": {"tls": {"ca", "cert", "key"}}`. Les champs `kubeconfig: true` et la présence des fichiers TLS sont posés
+par le serveur, jamais par le client.
+
+**Validation complète avant toute écriture** (rien n'est écrit si une règle échoue) :
+1. liste blanche de la déclaration (§3), nom DNS-1123, nom pas déjà pris (`conflict`) ;
+2. bornage de l'hôte (`host`, et `server:` de tous les clusters du kubeconfig), DNS compris ;
+3. secrets obligatoires selon le type :
+   - k8s → `secrets.kubeconfig` **obligatoire** ;
+   - docker/podman avec `tls.enabled` → `cert` et `key` obligatoires, plus `ca` si `tls.verify` ;
+4. contrôles des secrets : kubeconfig durci, PEM, tailles (§3) ;
+5. limites : 11ᵉ backend (`users.maxBackends`), débit des dépôts (60/min), conflit de version (`mtime`).
+
+**Écriture tout ou rien** (sous le verrou de l'espace) :
+1. le dossier `users/<uid>/vault/<nom>/` est écrit (il ne doit pas exister ; fichiers `0600`, dossier `0700`) ;
+2. puis `backends.yaml` (écriture atomique, contrôle `mtime`, `.bak`) ;
+3. si l'étape 2 échoue, le dossier du coffre créé à l'étape 1 est supprimé. Aucun backend sans ses secrets, aucun secret
+   sans son backend.
+
+Aucun test n'est lancé automatiquement : « Tester » reste une action séparée (plafond de 6 par minute).
+
+**Réponses** :
+
+| Cas | Réponse |
+|---|---|
+| Succès | `{ "ok": true, "backend": {"name", "type"}, "warnings": ["…"] }` (avertissements : compte trop puissant, TLS non vérifié, root sur l'hôte, certificat proche de l'expiration) |
+| Refus de validation | `{ "ok": false, "field": "<champ>", "code": "<code>", "msg": "<raison en clair>" }` |
+| Débit dépassé | HTTP `429`, même forme, `code: "rate"` |
+| Règle R1 (admin) | forme R1 inchangée (`auth.md` §4) |
+
+- `field` désigne l'élément du formulaire à corriger : `name`, `type`, `host`, `namespace`, `pvc`, `volume`, `pod`,
+  `kubeconfig`, `tls.ca`, `tls.cert`, `tls.key`, ou absent pour une erreur globale (`limit`, `conflict`).
+- Codes : `required`, `invalid`, `forbidden_address`, `forbidden_field`, `too_large`, `conflict`, `limit`, `rate`.
+- Messages, exemples (jamais de contenu de secret ni d'IP résolue) :
+  - « kubeconfig obligatoire pour un backend k8s » ;
+  - « adresse non autorisée pour un utilisateur » ;
+  - « kubeconfig refusé : commande exec interdite » ;
+  - « clé privée chiffrée : colle la clé déchiffrée » ;
+  - « nombre maximal de backends atteint (10) » ;
+  - « un backend porte déjà ce nom » ;
+  - « le fichier a changé depuis l'ouverture de l'éditeur : rouvre l'éditeur ».
+
+**Comportement de l'éditeur** :
+- Après un refus, la fiche reste ouverte et **modifiable**. Le brouillon est conservé, y compris le contenu collé, gardé
+  en mémoire de la page seulement (jamais stocké ni journalisé). Le champ nommé par `field` est mis en évidence avec le
+  message : on corrige et on réenvoie, sans passer par le YAML.
+- **Jamais de bouton grisé muet** : un bouton désactivé affiche à côté la raison (« colle le kubeconfig pour enregistrer
+  un backend k8s »).
+- **Modification d'un backend existant** : les champs non secrets passent par `configApply` / `configSave` (comme en
+  LOT-2). Le remplacement ou la suppression d'un secret reste possible séparément (`backendSecretSet` /
+  `backendSecretDelete`, `auth.md` §4). Passer un backend existant en `type: k8s` sans kubeconfig déjà présent est
+  refusé (`field: "kubeconfig"`, `code: "required"`).
+- `configApply` / `configSave` qui **ajoutent** un backend k8s, ou docker/podman avec TLS, sans ses secrets sont refusés
+  avec le même message, et renvoient vers « + Ajouter ».
+
 ### Droits vérifiés à l'enregistrement (`backendTest` étendu)
 
 - k8s : `SelfSubjectAccessReview` sur les verbes requis dans le namespace (statefulsets CRUD + scale, pods
@@ -280,6 +356,8 @@ backends:
 - `users/<uid>/vault/<backend>/` **en clair**, `0700` / `0600`, comme le coffre actuel de l'admin (risque accepté
   v6.5.0) : lisible par les administrateurs du stockage partagé et dans les instantanés MooseFS.
 - **Dette assumée** : chiffrement au repos (clé hors racine) dans une prochaine version (issue de suivi proposée).
+- **Création** : le coffre d'un nouveau backend est écrit **dans la même action** que sa déclaration (`userBackendAdd`, §3),
+  tout ou rien ; ensuite, remplacement et suppression par `backendSecretSet` / `backendSecretDelete`.
 - **Lecture du coffre** : un fichier du coffre qui est un lien symbolique, ou dont les droits dépassent `0600` (dossier
   `0700`), est **refusé** (le backend est signalé « coffre non conforme », rien n'est lancé).
 - **Certificats** (CA, certificat client, certificat du kubeconfig) : avertissement s'ils sont expirés ou s'ils expirent dans
@@ -339,7 +417,7 @@ backends:
 | Méthode | Rôle | Effet |
 |---|---|---|
 | (existantes) `configOpen/Save/Validate` sur `backends.yaml`, `secretSet/Delete/Status`, `backendTest`, `create`, `open`, `refresh`… | user | **portée = espace de l'identité** ; fichiers de l'admin réservés à l'admin (R1 inchangée) ; `refresh` démarre un projet arrêté (§5) |
-| `userBackendAdd` | user | déclare un backend (type, URL, namespace, `pvc`/`volume`, `tls`) + identifiants → coffre ; lance `backendTest` |
+| `userBackendAdd` | user | **création atomique** d'un backend avec ses secrets (§3 « Création ») ; validation complète, puis écriture tout ou rien ; réponse `{ok, backend, warnings}` ou `{ok:false, field, code, msg}` ; aucun test automatique |
 | `userBackendRemove` | user | retire le backend ; ses projets disparaissent de l'arbre, rien n'est supprimé chez l'utilisateur |
 | `githubTokenMode` | user | `pat` / `oauth` (§8) |
 | `projectPurge` | user | efface la trace d'un projet introuvable (§5) ; jamais de suppression sur le backend |
