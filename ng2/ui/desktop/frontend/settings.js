@@ -26,6 +26,9 @@ const ST_KIND = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'b
 const ST_FILE = { backends: 'backends.yaml', pools: 'backends.yaml', defauts: 'backends.yaml', launcher: 'config.conf', conteneurs: 'env.yaml (launcher)', poste: 'backends.yaml → hubs.<machine> ; desktop-ui.json', maquettes: 'backends.yaml → hubs.<machine>.browser_server, browser_paths, browser_device', web: 'backends.yaml → hubs.<machine>.desktop_web', projet: '.claude-launcher/env.yaml du projet' };
 
 const stClone = (o) => JSON.parse(JSON.stringify(o));
+// Toute modification du brouillon efface un refus d'enregistrement : le serveur rejugera au prochain essai. Sans cela les
+// erreurs du refus restaient et « Enregistrer » restait grisé après correction (#257, B6/B9).
+function stEdited() { if (ST.result && ST.result.refused) ST.result = null; }
 const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(Boolean);
 
 // Espace d'un utilisateur (mode serveur, `space` présent et non admin, #255) : seule la rubrique Backends (backends.yaml
@@ -228,6 +231,7 @@ function stRenderFoot() {
     left.appendChild(el('span', 'dim', 'Chargement…'));
   } else {
     left.appendChild(el('span', 't-green', '✓ valide'));
+    if (!ch.length) left.appendChild(el('span', 'dim', ' · aucun changement à enregistrer'));
   }
   const txt = el('button', 'btn', 'Éditer en YAML'); txt.onclick = () => stText(ST_KIND[ST.page]);
   const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = () => stClose();
@@ -247,9 +251,10 @@ async function stSave() {
   const ch = stBuildChanges();
   if (!ch.length) return;
   let r;
-  try { r = await call('configApply', { kind: 'backends.yaml', path: '', mtime: ST.mtime, changes: ch }); } catch (e) { return; }
+  try { r = await call('configApply', { kind: 'backends.yaml', path: '', mtime: ST.mtime, changes: ch }); }
+  catch (e) { ST.result = { problems: [{ severity: 'error', message: stErrText(e) }], refused: true }; stRenderFoot(); return; } // jamais muet : la raison s'affiche
   if (r.conflict) { ST.result = { conflict: true, mtime: r.mtime }; stRenderFoot(); return; }
-  if (r.invalid) { ST.result = { problems: r.problems || [] }; stRenderFoot(); return; }
+  if (r.invalid) { ST.result = { problems: r.problems || [], refused: true }; stRenderFoot(); return; }
   const keep = { page: ST.page };
   await stLoad();
   ST.page = keep.page;
@@ -287,24 +292,24 @@ function stClose(force) {
 function stInput(val, on, ph, cls) {
   const i = el('input', 'stin' + (cls ? ' ' + cls : '')); i.type = 'text'; i.value = val == null ? '' : val; i.spellcheck = false;
   if (ph) i.placeholder = ph;
-  i.addEventListener('input', () => { on(i.value); stRenderFoot(); });
+  i.addEventListener('input', () => { on(i.value); stEdited(); stRenderFoot(); });
   return i;
 }
 function stSelect(val, opts, on) {
   const s = el('select', 'stin');
   for (const [v, t] of opts) { const o = el('option', '', t); o.value = v; s.appendChild(o); }
-  s.value = val || ''; s.addEventListener('change', () => { on(s.value); stRenderFoot(); });
+  s.value = val || ''; s.addEventListener('change', () => { on(s.value); stEdited(); stRenderFoot(); });
   return s;
 }
 function stCheck(on, text, fn) {
   const l = el('label', 'stchk'); const c = el('input'); c.type = 'checkbox'; c.checked = !!on;
-  c.addEventListener('change', () => fn(c.checked));
+  c.addEventListener('change', () => { stEdited(); fn(c.checked); });
   l.append(c, el('span', '', text)); return l;
 }
 function stArea(val, on, rows, ph) {
   const t = el('textarea', 'stin stta'); t.rows = rows || 3; t.value = val || ''; t.spellcheck = false;
   if (ph) t.placeholder = ph;
-  t.addEventListener('input', () => { on(t.value); stRenderFoot(); });
+  t.addEventListener('input', () => { on(t.value); stEdited(); stRenderFoot(); });
   return t;
 }
 function stForm(rows) {
@@ -369,9 +374,10 @@ function stPageBackends(p) {
   });
   left.appendChild(t);
   const bar = el('div', 'stbar');
-  bar.append(stBtn('+ Ajouter', () => { d.backends.push({ name: stUniqueName('nouveau', d.backends), type: 'docker' }); ST.sel.backend = d.backends.length - 1; ST.test = null; stRenderPage(); stRenderFoot(); }),
+  bar.append(stBtn('+ Ajouter', () => { stEdited(); d.backends.push({ name: stUniqueName('nouveau', d.backends), type: 'docker' }); ST.sel.backend = d.backends.length - 1; ST.test = null; stRenderPage(); stRenderFoot(); }),
     stBtn('Dupliquer', () => {
       const b = d.backends[ST.sel.backend]; if (!b || b.implicit) return;
+      stEdited();
       const c = stClone(b); delete c._orig; delete c.implicit; c.name = stUniqueName(b.name + '-copie', d.backends);
       d.backends.push(c); ST.sel.backend = d.backends.length - 1; ST.test = null; stRenderPage(); stRenderFoot();
     }),
@@ -379,6 +385,7 @@ function stPageBackends(p) {
       const b = d.backends[ST.sel.backend]; if (!b || b.implicit) return;
       const isDef = !!b.name && d.defaults.backend === b.name;
       if (!confirm('Supprimer le backend « ' + b.name + ' » ?' + (isDef ? '\nC\'est le backend par défaut : il sera retiré des défauts dans le même enregistrement.' : ''))) return;
+      stEdited();
       if (isDef) d.defaults.backend = '';
       d.backends.splice(ST.sel.backend, 1); ST.test = null; stRenderPage(); stRenderFoot();
     }, 'dg'));
@@ -420,6 +427,7 @@ function stBackendForm(b) {
     for (const [v, txt] of [['adresse', 'une adresse'], ['groupe', 'groupe'], ['pool', 'pool']]) {
       const l = el('label', 'stchk'); const r = el('input'); r.type = 'radio'; r.name = 'stmode'; r.checked = mode === v;
       r.onchange = () => {
+        stEdited();
         if (v === 'adresse') { b.hosts = []; b.pool = ''; } else if (v === 'groupe') { b.host = ''; b.pool = ''; if (!b.hosts || !b.hosts.length) b.hosts = ['']; } else { b.host = ''; b.hosts = []; if (!b.pool) b.pool = (d.pools[0] || {}).name || ''; }
         stRenderPage(); stRenderFoot();
       };
