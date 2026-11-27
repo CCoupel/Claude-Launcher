@@ -271,6 +271,12 @@ Manifeste produit par le launcher (`core/k8s.go`), sans valeur du chart :
   administrateur). `auth.admins` vide + `auth.localAdmin.enabled: true` → **accepté** : `admin@local` est l'administrateur
   de fait, sur l'hôte interne seul (P10 inchangée).
 - `CL_AUTH_ADMINS` vide dans ce cas (le launcher l'accepte déjà avec le compte local, `auth.md` §2) ; `--github-user` =
-  `auth.users` seuls. `NOTES.txt` signale « aucun administrateur GitHub : les réglages globaux se font depuis l'hôte
+  `auth.users` seuls.
+- **Aucune liste** (`auth.admins` et `auth.users` vides) : le chart émet `--github-user=-`, un login impossible. Une valeur
+  vide serait lue par oauth2-proxy comme « tout compte GitHub authentifié ». Personne ne passe donc par GitHub tant qu'aucune
+  liste n'est renseignée, et seul `admin@local` entre (hôte interne). Test de rendu obligatoire.
+- **v7.2.0, avec le registre des comptes actif** (#278, #261) : l'inverse sera voulu. Le proxy admettra tout compte GitHub
+  authentifié, et le launcher filtrera (« demande en attente »). Ce sera un changement explicite, lié à l'activation du
+  registre, jamais un effet de bord d'une liste vide. `NOTES.txt` signale « aucun administrateur GitHub : les réglages globaux se font depuis l'hôte
   interne avec admin@local ».
 

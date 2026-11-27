@@ -8,6 +8,9 @@
   interne seul) ; refus conservé si GitHub activé + admins vide + compte local inactif ; `NOTES.txt` le signale.
 - **[CHANGED]** `auth.md` §2 : sans administrateur GitHub, les actions R1 ne se font que depuis l'hôte interne par
   `admin@local` ; un login GitHub reste `user`. Enrôlement (demande, validation, profil) : v7.2.0 (#278, #261, #247).
+- **[CHANGED]** `helm-values.md` : sans `auth.admins` ni `auth.users`, `--github-user=-` (login impossible) au lieu d'une
+  valeur vide (= tout compte GitHub pour oauth2-proxy) ; l'ouverture à tout compte GitHub viendra en v7.2.0, avec le
+  registre des comptes actif (#278).
 
 ## [20261126] — v7.1.0 LOT-2 (#255) : formes livrées, `userList` en R1
 
