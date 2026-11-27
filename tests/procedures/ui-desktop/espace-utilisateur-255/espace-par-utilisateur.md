@@ -59,6 +59,18 @@
 
 ---
 
+### Scenario 5b — Editeur de backends d'un utilisateur : sequence exacte de l'interface (retour QUALIF)
+
+**Validation** : AUTO — **Issues** : #255
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `cd ng2 && go test ./ui/desktop -run Editor255` | PASS : `configModel`/`backendStates` sans erreur « indisponible », modele limite a son `backends.yaml`, `configApply` k8s/docker valides acceptes, champs R1 (kubeconfig local, host, context, volumes, pod sensible) refuses sans ecriture, autres rubriques et coffre refuses avec message clair, aucun element de l'admin dans les reponses | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ### Scenario 5 — Chart : `users.enabled`
 
 **Validation** : AUTO — **Issues** : #255
@@ -84,6 +96,8 @@
 | 3 | Compte admin : ouvrir la liste des utilisateurs | A et B listes avec nombre de backends et etat, jamais d'identifiant | | |
 | 4 | Compte admin : verifier son arbre de projets | Espace habituel de l'admin, inchange | | |
 | 5 | Compte A : ouvrir une adresse `/files/...` d'un projet de l'admin | Refus (404/403), rien de l'espace admin visible | | |
+| 6 | Compte A : cliquer « + Ajouter un backend » | Reglages › Backends s'ouvre SANS « Lecture impossible » ni « indisponible dans votre espace » ; liste vide, bouton d'ajout actif | | |
+| 7 | Compte A : ajouter un backend k8s (namespace) puis « Enregistrer » | Enregistrement accepte, le backend apparait apres relecture, l'ecran « sans backend » disparait ; les rubriques reservees a l'admin ne sont pas proposees ou sont refusees clairement | | |
 
 **Verdict** : [ ] PASS  [ ] FAIL
 
