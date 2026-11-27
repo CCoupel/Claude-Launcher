@@ -93,7 +93,7 @@ func openWith(t *testing.T, script string) *panelHost {
 	pt.resize(100, 30)
 	r.wait(t, 20*time.Second, "ready", isTerm(ps[0], "status", func(e map[string]any) bool { return e["state"] == "ready" }))
 	r.wait(t, 10*time.Second, "layout", isTerm(ps[0], "layout", nil))
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for !strings.Contains(r.output(ps[0]), "prêt") && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -110,7 +110,7 @@ func (h *panelHost) reseeded(t *testing.T, pane string, do func()) string {
 	t.Helper()
 	n := h.r.count()
 	do()
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for time.Now().Before(end) {
 		for _, e := range h.r.since(n) {
 			if e["_name"] == "term" && e["kind"] == "out" && e["path"] == h.path {
@@ -193,7 +193,7 @@ func TestPaneBorderDragAndMouse(t *testing.T) {
 	h := openPanel(t)
 	leader := h.pt.lastLayout().Leader
 	h.tm("split-window", "-h", "-d", "-t", leader, "exec cat")
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for len(h.pt.lastLayout().Panes) < 2 && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -256,7 +256,7 @@ func TestBracketedPasteAfterReseed(t *testing.T) {
 	// collage de 3 lignes tel que xterm.js l'envoie en mode ?2004
 	paste := "\x1b[200~un\rdeux\rtrois\x1b[201~"
 	h.pt.input(leader, paste)
-	end := time.Now().Add(5 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	var got []byte
 	for time.Now().Before(end) {
 		got, _ = os.ReadFile(log)

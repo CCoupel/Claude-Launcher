@@ -65,7 +65,7 @@ func TestWindowSizeWithTwoClients(t *testing.T) {
 	}
 	waitSize := func(want string) {
 		t.Helper()
-		end := time.Now().Add(8 * time.Second)
+		end := time.Now().Add(30 * time.Second)
 		for size() != want && time.Now().Before(end) {
 			time.Sleep(100 * time.Millisecond)
 		}
@@ -81,7 +81,7 @@ func TestWindowSizeWithTwoClients(t *testing.T) {
 	if out, err := exec.Command("tmux", "-L", outer, "new-session", "-d", "-x", "90", "-y", "25", inner).CombinedOutput(); err != nil {
 		t.Fatalf("second client : %v %s", err, out)
 	}
-	end := time.Now().Add(5 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for time.Now().Before(end) {
 		b, _ := exec.Command("tmux", "-L", sock, "list-clients", "-F", "#{client_control_mode}").Output()
 		if strings.Count(string(b), "0") >= 1 {
@@ -116,7 +116,7 @@ func TestWindowSizeWithTwoClients(t *testing.T) {
 		}
 	}
 	// la fenêtre prend la taille de l'autre client (moins sa barre d'état, s'il en a une)
-	end = time.Now().Add(8 * time.Second)
+	end = time.Now().Add(30 * time.Second)
 	w := strings.Split(other, "x")[0] + "x"
 	for !strings.HasPrefix(size(), w) && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)

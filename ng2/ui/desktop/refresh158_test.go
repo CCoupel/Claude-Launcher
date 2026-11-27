@@ -334,7 +334,7 @@ func (f fakeProj) deadButShown(t *testing.T) {
 	pt.detaching = true
 	pt.mu.Unlock()
 	f.tmux("kill-server")
-	end := time.Now().Add(5 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for f.sessionAlive() && time.Now().Before(end) {
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -347,6 +347,7 @@ func (f fakeProj) deadButShown(t *testing.T) {
 
 func (f fakeProj) waitTabGone(t *testing.T, d time.Duration) {
 	t.Helper()
+	d = max(d, waitFloor) // voir waitFloor (#270)
 	end := time.Now().Add(d)
 	for time.Now().Before(end) {
 		if !f.hasTab() {

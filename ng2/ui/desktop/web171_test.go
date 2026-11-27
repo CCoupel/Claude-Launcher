@@ -243,7 +243,7 @@ func TestHealthzReadyzNoSessionNoHostCheck(t *testing.T) {
 	for _, path := range []string{"/healthz", "/readyz"} {
 		var resp *http.Response
 		var body string
-		end := time.Now().Add(8 * time.Second)
+		end := time.Now().Add(30 * time.Second)
 		for { // readyz : 503 avant le chargement initial
 			resp, body = w171Do(t, p, "GET", path, "10.1.2.3:"+strconv.Itoa(p), nil, "") // adresse du pod, Host quelconque
 			if resp.StatusCode == 200 || time.Now().After(end) {

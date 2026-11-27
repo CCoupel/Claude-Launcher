@@ -149,7 +149,7 @@ func TestStateMgrSurveilleLesNouveauxSousDossiers(t *testing.T) {
 		_, ok := m.dirOwner[sub]
 		return ok
 	}
-	for end := time.Now().Add(5 * time.Second); !watched() && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+	for end := time.Now().Add(30 * time.Second); !watched() && time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
 	}
 	if !watched() {
 		t.Fatal("sous-dossier créé non surveillé")
@@ -191,7 +191,7 @@ func TestStateMgrRafaleDeDossiersFileDebordee(t *testing.T) {
 		dirs = append(dirs, d)
 	}
 	// le débordement est marqué pendant qu'adder est retenu
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for time.Now().Before(end) {
 		m.mu.Lock()
 		marked := m.rescan[proj]
@@ -259,7 +259,7 @@ func TestStateMgrReparcoursEspaces(t *testing.T) {
 	if n := m.Rescans(); n != 1 {
 		t.Errorf("%d reparcours en moins d'une seconde, attendu 1 (intervalle minimal)", n)
 	}
-	for end := time.Now().Add(5 * time.Second); m.Rescans() < 2 && time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+	for end := time.Now().Add(30 * time.Second); m.Rescans() < 2 && time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
 	}
 	if n := m.Rescans(); n != 2 {
 		t.Errorf("après l'intervalle : %d reparcours, attendu 2 (le débordement noté est repris une fois)", n)

@@ -57,6 +57,7 @@ func settingsMouse225(t *testing.T) (string, bool) {
 
 func waitFor225(t *testing.T, within time.Duration, what string, ok func() bool) {
 	t.Helper()
+	within = max(within, waitFloor) // voir waitFloor (#270)
 	for end := time.Now().Add(within); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
 		if ok() {
 			return

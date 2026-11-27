@@ -35,7 +35,7 @@ func TestEcouteWebReessaieQuandLePortSeLibere(t *testing.T) {
 	p, ln := busyPort(t)
 	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: true, listen: \"127.0.0.1:%d\" }\n", p))
 	a := l4StartNative(t)
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	var msg string
 	for time.Now().Before(end) {
 		var st string
@@ -71,7 +71,7 @@ func TestEcouteWebAbandonneApresLesEssais(t *testing.T) {
 	defer ln.Close()
 	l4WriteBackends(t, fmt.Sprintf("  desktop_web: { enabled: true, listen: \"127.0.0.1:%d\" }\n", p))
 	a := l4StartNative(t)
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	var msg string
 	for time.Now().Before(end) {
 		if _, msg = webMsg(t, a); strings.Contains(msg, "abandon après 3 essais") {

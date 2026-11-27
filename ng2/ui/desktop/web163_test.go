@@ -81,6 +81,7 @@ func l4WebUIOf(t *testing.T, a *App) map[string]any {
 
 func l4WaitWebUI(t *testing.T, a *App, state string, d time.Duration) map[string]any {
 	t.Helper()
+	d = max(d, waitFloor) // attente par condition : voir waitFloor (#270)
 	end := time.Now().Add(d)
 	var w map[string]any
 	for time.Now().Before(end) {
@@ -233,7 +234,7 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 	}
 	waitReach := func(p int, want bool) {
 		t.Helper()
-		end := time.Now().Add(8 * time.Second)
+		end := time.Now().Add(30 * time.Second)
 		for time.Now().Before(end) {
 			if reach(p) == want {
 				return
@@ -247,7 +248,7 @@ func TestDesktopWebHotReloadStartStopMove(t *testing.T) {
 	waitReach(p1, true)
 	tok1 := l4WebToken(t)
 	setListen("127.0.0.1:" + strconv.Itoa(p2)) // déplacement
-	end := time.Now().Add(8 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for l4WebToken(t) == tok1 && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)
 	}

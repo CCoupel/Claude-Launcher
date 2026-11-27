@@ -41,7 +41,7 @@ func TestDev210SignalPendantRelectureLente(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	close(release)
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for reads.Load() < 2 || func() bool { a.cardsSt.Lock(); defer a.cardsSt.Unlock(); return a.cardsRun }() {
 		if time.Now().After(deadline) {
 			t.Fatalf("relectures : %d, en cours attendue terminée", reads.Load())

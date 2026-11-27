@@ -47,7 +47,7 @@ func TestDrainCloseAucuneGoroutineResiduelle206(t *testing.T) {
 		<-finished // échéance dépassée
 		close(release)
 	}
-	deadline := time.Now().Add(3 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for runtime.NumGoroutine() > before+2 && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}

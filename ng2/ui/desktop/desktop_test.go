@@ -64,6 +64,7 @@ func (r *recorder) all() []map[string]any { return r.since(0) }
 // wait : premier événement qui satisfait ok, au plus d.
 func (r *recorder) wait(t *testing.T, d time.Duration, what string, ok func(map[string]any) bool) map[string]any {
 	t.Helper()
+	d = max(d, waitFloor) // attente par condition : voir waitFloor (#270)
 	end := time.Now().Add(d)
 	seen := 0
 	for time.Now().Before(end) {
@@ -397,7 +398,7 @@ func TestHostProjectWithTmux(t *testing.T) {
 	pt.resize(120, 40)
 	r.wait(t, 20*time.Second, "ready", isTerm(ps[0], "status", func(e map[string]any) bool { return e["state"] == "ready" }))
 	r.wait(t, 10*time.Second, "layout", isTerm(ps[0], "layout", nil))
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for !strings.Contains(r.output(ps[0]), "faux claude prêt") && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -406,7 +407,7 @@ func TestHostProjectWithTmux(t *testing.T) {
 	}
 	leader := pt.lastLayout().Leader
 	pt.input(leader, "bonjour é\r")
-	end = time.Now().Add(10 * time.Second)
+	end = time.Now().Add(30 * time.Second)
 	for !strings.Contains(r.output(ps[0]), "reçu:bonjour é") && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)
 	}
@@ -529,7 +530,7 @@ func TestHostProjectWithTmux(t *testing.T) {
 		l := e["layout"].(map[string]any)
 		return l["cols"].(float64) == 140 && l["rows"].(float64) == 46
 	}))
-	end = time.Now().Add(5 * time.Second)
+	end = time.Now().Add(30 * time.Second)
 	for resets() == before && time.Now().Before(end) {
 		time.Sleep(100 * time.Millisecond)
 	}

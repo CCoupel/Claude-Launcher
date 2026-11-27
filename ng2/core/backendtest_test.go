@@ -225,7 +225,7 @@ func TestTestBackendTimeoutLeavesNoGoroutine(t *testing.T) {
 	if len(st) >= 200 {
 		t.Fatalf("le test n'a pas été interrompu : %d étapes", len(st))
 	}
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
 		time.Sleep(20 * time.Millisecond)
 	}

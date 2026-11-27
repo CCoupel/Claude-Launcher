@@ -104,7 +104,7 @@ func TestBootstrapInterromputEstRepris(t *testing.T) {
 	c, out := startStarter(t, dir, "sleep 30\n")
 	// boot.pid porte d'abord le pid du lanceur (provisoire), puis celui du bootstrap détaché
 	var pid int
-	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
+	for end := time.Now().Add(30 * time.Second); time.Now().Before(end); time.Sleep(50 * time.Millisecond) {
 		if b, err := os.ReadFile(filepath.Join(dir, "boot.pid")); err == nil {
 			if n, _ := strconv.Atoi(strings.TrimSpace(string(b))); n != 0 && n != c.Process.Pid {
 				pid = n

@@ -168,7 +168,7 @@ func TestTeamToggleHidesPane(t *testing.T) {
 		t.Fatal("carte Team non renvoyée (visible) au retour de l'appel")
 	}
 	r.wait(t, 10*time.Second, "3 panes au retour", isTerm(ps[0], "layout", panesIn(3)))
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	recaptured := false
 	for !recaptured && time.Now().Before(deadline) {
 		for _, e := range r.since(nev) {

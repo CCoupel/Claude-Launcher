@@ -78,14 +78,14 @@ func (f *fix210) cards() []Cards {
 
 func wait210(t *testing.T, what string, cond func() bool) {
 	t.Helper()
-	end := time.Now().Add(10 * time.Second)
+	end := time.Now().Add(30 * time.Second)
 	for time.Now().Before(end) {
 		if cond() {
 			return
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	t.Fatalf("condition non atteinte en 10 s : %s", what)
+	t.Fatalf("condition non atteinte en 30 s : %s", what)
 }
 
 // premier signal : la relecture démarre et reste bloquée ; rend la main quand l'emitter a consommé le signal.

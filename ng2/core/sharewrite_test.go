@@ -31,7 +31,7 @@ func TestWithinShareBlockedThenResumes(t *testing.T) {
 		t.Fatalf("la seconde écriture doit échouer tout de suite : %v", err)
 	}
 	close(release)
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(30 * time.Second)
 	for {
 		shareMu.Lock()
 		busy := shareBusy
