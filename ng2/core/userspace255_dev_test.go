@@ -141,7 +141,7 @@ func TestEspaceUtilisateurDroitsEtSchema255(t *testing.T) {
 	if bs, err := sp.LoadBackends(); err != nil || len(bs) != 0 {
 		t.Errorf("espace vide : %v, %v", bs, err)
 	}
-	if _, err := sp.SaveBackends([]byte("backends:\n  k:\n    type: k8s\n    namespace: ns\n"), time.Time{}); err != nil {
+	if _, err := sp.SaveBackends([]byte("backends:\n  k:\n    type: k8s\n    namespace: ns\n    kubeconfig: true\n"), time.Time{}); err != nil {
 		t.Fatal(err)
 	}
 	bs, err := sp.LoadBackends()

@@ -398,6 +398,10 @@ type BackendConf struct {
 	Spread     *bool             `yaml:"spread"`               // k8s : répartir les pods NG2 sur les nodes (défaut : oui, #60)
 	Pod        map[string]any    `yaml:"pod"`                  // k8s : ajouté au spec du pod (nodeSelector, affinity, tolerations, resources…)
 	implicit   bool              // host ajouté sans déclaration sous Windows (addImplicitHost)
+	// backend DÉCLARÉ PAR UN UTILISATEUR (Space.LoadBackends) : son coffre est vault (users/<uid>/vault), jamais le coffre commun de
+	// l'admin (S16) ; jamais de repli sur le ServiceAccount du launcher ni sur ~/.kube/config (S15)
+	user  bool
+	vault string
 }
 
 // engine : moteur réellement piloté (podman ou docker).

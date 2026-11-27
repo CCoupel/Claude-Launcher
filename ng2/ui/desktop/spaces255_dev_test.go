@@ -73,7 +73,7 @@ func (s *sp255) call(t *testing.T, login, method, args string) (int, map[string]
 
 func TestSpacesInitVideEtBackendsIsoles255(t *testing.T) {
 	s := sp255Start(t)
-	cfg := `{"kind":"backends.yaml","content":"backends:\n  mien:\n    type: k8s\n    namespace: ns\n"}`
+	cfg := `{"kind":"backends.yaml","content":"backends:\n  mien:\n    type: k8s\n    namespace: ns\n    kubeconfig: true\n"}`
 	if code, out := s.call(t, "alice", "configSave", cfg); code != 200 || out["error"] != nil || out["result"].(map[string]any)["saved"] != true {
 		t.Fatalf("alice configSave : %d %v", code, out)
 	}
@@ -286,7 +286,7 @@ func TestSpacesEditeurBackendsSequence255(t *testing.T) {
 		t.Errorf("backendStates : %v", st)
 	}
 	// enregistrement : ajout d'un backend k8s (namespace libre)
-	add := `{"kind":"backends.yaml","path":"","mtime":"","changes":[{"op":"set","at":["backends","mien"],"value":{"type":"k8s","namespace":"ns-alice"}}]}`
+	add := `{"kind":"backends.yaml","path":"","mtime":"","changes":[{"op":"set","at":["backends","mien"],"value":{"type":"k8s","namespace":"ns-alice","kubeconfig":true}}]}`
 	if r := res("alice", "configApply", add); r["saved"] != true {
 		t.Fatalf("configApply : %v", r)
 	}
@@ -298,7 +298,7 @@ func TestSpacesEditeurBackendsSequence255(t *testing.T) {
 		t.Errorf("bob voit le backend d'alice : %s", got)
 	}
 	// conflit : mtime périmé
-	if r := res("alice", "configApply", `{"kind":"backends.yaml","mtime":"2000-01-01T00:00:00Z","changes":[{"op":"set","at":["backends","x"],"value":{"type":"k8s","namespace":"n"}}]}`); r["conflict"] != true {
+	if r := res("alice", "configApply", `{"kind":"backends.yaml","mtime":"2000-01-01T00:00:00Z","changes":[{"op":"set","at":["backends","x"],"value":{"type":"k8s","namespace":"n","kubeconfig":true}}]}`); r["conflict"] != true {
 		t.Errorf("conflit attendu : %v", r)
 	}
 	// champs R1 : refusés ; changement inapplicable : invalid

@@ -139,7 +139,7 @@ func TestEditor255ConfigModelNeRendJamaisLAdmin(t *testing.T) {
 		}
 	}
 	// et dans l'autre sens : ce qu'alice enregistre n'est pas dans le modèle de bob
-	ch := []map[string]any{{"op": "set", "at": []string{"backends", "marqueur-alice"}, "value": map[string]any{"type": "k8s", "namespace": "ns-alice"}}}
+	ch := []map[string]any{{"op": "set", "at": []string{"backends", "marqueur-alice"}, "value": map[string]any{"type": "k8s", "namespace": "ns-alice", "kubeconfig": true}}}
 	if _, e, r := ed255Do(t, s, "alice", "configApply", map[string]any{"kind": "backends.yaml", "path": "", "mtime": "", "changes": ch}); e != "" || r["saved"] != true {
 		t.Fatalf("configApply alice : %q %v", e, r)
 	}
@@ -154,7 +154,7 @@ func TestEditor255EnregistrementDunBackendValide(t *testing.T) {
 	_, _, m0 := ed255Do(t, s, "alice", "configModel", map[string]any{"kind": "backends.yaml"})
 	mtime, _ := m0["mtime"].(string)
 	ch := []map[string]any{
-		{"op": "set", "at": []string{"backends", "mon-k8s"}, "value": map[string]any{"type": "k8s", "namespace": "ns-a"}},
+		{"op": "set", "at": []string{"backends", "mon-k8s"}, "value": map[string]any{"type": "k8s", "namespace": "ns-a", "kubeconfig": true}},
 		{"op": "set", "at": []string{"backends", "mon-docker"}, "value": map[string]any{"type": "docker", "host": "tcp://nas.lan:2376"}},
 	}
 	raw, e, r := ed255Do(t, s, "alice", "configApply", map[string]any{"kind": "backends.yaml", "path": "", "mtime": mtime, "changes": ch})

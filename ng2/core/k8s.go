@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -30,6 +31,17 @@ import (
 func (b BackendConf) K8s() bool { return b.Type == "k8s" }
 
 func (e Engine) kubectl(args ...string) []string {
+	if e.B.user { // backend d'utilisateur : kubeconfig de SON coffre et namespace déclaré, sinon kubectl n'est pas lancé (S15, S30)
+		ka, err := e.B.kubeconfigArgs()
+		if err != nil {
+			return kubectlRefused(err)
+		}
+		if e.B.Namespace == "" {
+			return kubectlRefused(errors.New("namespace obligatoire pour un backend d'utilisateur"))
+		}
+		out := append([]string{"env", "-u", "KUBECONFIG", "kubectl"}, ka...)
+		return append(append(out, "-n", e.B.Namespace), args...)
+	}
 	out := []string{"kubectl"}
 	if (k8sViaServiceAccount(e.B) || e.B.hasKubeconfig()) && os.Getenv("KUBECONFIG") != "" {
 		out = []string{"env", "-u", "KUBECONFIG", "kubectl"} // ServiceAccount du pod ou kubeconfig du backend : jamais le kubeconfig de l'environnement

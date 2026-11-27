@@ -115,6 +115,7 @@ var userMethods = map[string]bool{
 	"clientInfo": true, "init": true, "setPrefs": true, "setTheme": true,
 	"configFiles": true, "configOpen": true, "configValidate": true, "configSave": true,
 	"configModel": true, "configApply": true, "backendStates": true,
+	"backendSecretSet": true, "backendSecretGet": true, "backendSecretDelete": true,
 }
 
 // dispatch : un appel de l'utilisateur. L'identité (c.User) n'est jamais celle d'une autre instance : l'instance est choisie
@@ -137,6 +138,7 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 			default:
 				return forbidden, nil
 			}
+		} else if secretUserOK(method, raw) { // kubeconfig de SON backend dans SON coffre : libre (clés ssh, known_hosts : admin)
 		} else {
 			return forbidden, nil
 		}
@@ -145,6 +147,8 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
 	}
 	switch method {
+	case "backendSecretSet", "backendSecretGet", "backendSecretDelete":
+		return u.secretCall(c, method, raw)
 	case "backendStates": // aucun état sondé en LOT-2 (le sondage des backends de l'utilisateur vient avec LOT-4) : listes vides
 		return map[string]any{"states": map[string]any{}, "load": map[string]any{}}, nil
 	case "clientInfo":
@@ -369,4 +373,64 @@ func shortKind(k string) string {
 		k = string(r[:24]) + "…"
 	}
 	return strconv.Quote(k)
+}
+
+// secretUserOK : l'appel de coffre vise le kubeconfig d'un backend k8s de l'utilisateur (le seul secret qu'il dépose en LOT-3.1).
+func secretUserOK(method string, raw json.RawMessage) bool {
+	var in struct {
+		Kubeconfig, What string
+	}
+	_ = json.Unmarshal(raw, &in)
+	switch method {
+	case "backendSecretSet":
+		return in.Kubeconfig != ""
+	case "backendSecretDelete":
+		return in.What == "kubeconfig"
+	}
+	return false
+}
+
+// secretCall : coffre de l'utilisateur — SON espace seulement (users/<uid>/vault/<backend>/), backend déclaré dans SON backends.yaml,
+// type k8s. Réponses sans contenu, sans chemin, sans identifiant.
+func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (any, error) {
+	var in struct {
+		Backend    string `json:"backend"`
+		Kubeconfig string `json:"kubeconfig"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, fmt.Errorf("%s : arguments invalides", method)
+	}
+	fail := func(msg string) (any, error) { return map[string]any{"ok": false, "msg": msg}, nil }
+	if err := core.CheckUserBackendName(in.Backend); err != nil {
+		return fail(err.Error())
+	}
+	bs, err := u.sp.LoadBackends()
+	if err != nil {
+		return fail("backends.yaml illisible : corriger la déclaration d'abord")
+	}
+	declared := false
+	for _, b := range bs {
+		declared = declared || b.Name == in.Backend && b.Type == "k8s"
+	}
+	if !declared {
+		return fail("backend k8s inconnu dans vos réglages : l'enregistrer avant d'y déposer un kubeconfig")
+	}
+	w := core.SecretWrite{Source: "navigateur", User: c.userLabel()}
+	switch method {
+	case "backendSecretGet":
+		return u.sp.SecretInfo(in.Backend)
+	case "backendSecretDelete":
+		if err := u.sp.SecretDeleteKubeconfig(in.Backend, w); err != nil {
+			return fail(err.Error())
+		}
+		return map[string]any{"ok": true}, nil
+	}
+	ctxs, fp, warns, err := u.sp.SecretSetKubeconfig(in.Backend, in.Kubeconfig, w)
+	if err != nil {
+		return fail(err.Error())
+	}
+	if warns == nil {
+		warns = []string{}
+	}
+	return map[string]any{"ok": true, "fingerprint": fp, "contexts": ctxs, "warnings": warns, "msg": "kubeconfig enregistré"}, nil
 }

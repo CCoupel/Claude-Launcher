@@ -26,7 +26,7 @@ func us255(t *testing.T, uid string) Space {
 	return sp
 }
 
-const us255Backends = "backends:\n  k:\n    type: k8s\n    namespace: ns\n"
+const us255Backends = "backends:\n  k:\n    type: k8s\n    namespace: ns\n    kubeconfig: true\n"
 
 func TestUserSpace255SeulementLesFichiersDuContratEtLesDroits(t *testing.T) {
 	sp := us255(t, "github-5")

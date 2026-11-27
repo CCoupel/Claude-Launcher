@@ -94,6 +94,18 @@ func (b BackendConf) hasKubeconfig() bool { return b.K8s() && b.Kubeconfig.set()
 // sain à l'usage. Un chemin sous une zone partagée est refusé. Le chemin est rendu même si le fichier manque :
 // kubectl échoue alors (aucun repli).
 func (b BackendConf) kubeconfigFile() (string, error) {
+	if b.user { // backend d'utilisateur : SON coffre seulement (users/<uid>/vault/<backend>/kubeconfig), jamais le coffre commun (S16)
+		if !b.Kubeconfig.Vault {
+			return "", errors.New("kubeconfig: true obligatoire pour un backend d'utilisateur (aucun repli sur le ServiceAccount du launcher)")
+		}
+		if err := CheckUserBackendName(b.Name); err != nil {
+			return "", err
+		}
+		if b.vault == "" {
+			return "", errors.New("coffre de l'utilisateur inconnu")
+		}
+		return filepath.Join(b.vault, b.Name, secretKubeFile), nil
+	}
 	switch {
 	case b.Kubeconfig.Vault:
 		if checkBackendName(b.Name) != nil {
@@ -151,7 +163,11 @@ func (b BackendConf) kubeconfigArgs() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if raw, rerr := os.ReadFile(f); rerr == nil {
+	raw, rerr := os.ReadFile(f)
+	if rerr != nil && b.user { // utilisateur : jamais « kubectl échoue seul » (aucun repli possible) — kubectl n'est pas lancé
+		return nil, errors.New("kubeconfig de l'utilisateur absent ou illisible : le déposer dans les réglages du backend")
+	}
+	if rerr == nil {
 		if _, _, perr := parseKubeconfig(raw); perr != nil {
 			return nil, perr
 		}

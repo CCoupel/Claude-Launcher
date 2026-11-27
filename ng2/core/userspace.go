@@ -133,9 +133,14 @@ func (s Space) LoadBackends() ([]BackendConf, error) {
 	}
 	out := bs[:0:0]
 	for _, c := range bs {
-		if c.Type != "host" {
-			out = append(out, c)
+		if c.Type == "host" {
+			continue
 		}
+		if err := CheckUserBackendName(c.Name); err != nil { // échec fermé : le fichier entier est refusé
+			return nil, err
+		}
+		c.user, c.vault = true, s.VaultDir() // S15 / S16 : son coffre, jamais celui de l'admin ni le ServiceAccount
+		out = append(out, c)
 	}
 	return out, nil
 }
@@ -384,7 +389,42 @@ func (s Space) ValidateBackends(content []byte) []ConfigProblem {
 	if len(content) > maxBackendsFileBytes {
 		return []ConfigProblem{{Severity: SevError, Message: "backends.yaml trop gros"}}
 	}
-	return ValidateConfig(ConfBackends, content)
+	ps := ValidateConfig(ConfBackends, content)
+	if HasErrors(ps) {
+		return ps
+	}
+	return append(ps, userBackendProblems(content)...)
+}
+
+// userBackendProblems : règles propres aux backends d'un utilisateur — nom DNS-1123, kubeconfig « true » (coffre de l'utilisateur)
+// obligatoire pour un k8s : sans lui, kubectl prendrait le ServiceAccount du launcher (S15).
+func userBackendProblems(content []byte) []ConfigProblem {
+	var f struct {
+		Backends map[string]map[string]any `yaml:"backends"`
+	}
+	if yaml.Unmarshal(content, &f) != nil {
+		return nil // déjà signalé par ValidateConfig
+	}
+	names := make([]string, 0, len(f.Backends))
+	for n := range f.Backends {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var ps []ConfigProblem
+	for _, n := range names {
+		be := f.Backends[n]
+		if err := CheckUserBackendName(n); err != nil {
+			ps = append(ps, ConfigProblem{Severity: SevError, Line: keyLine(content, n), Message: err.Error()})
+			continue
+		}
+		if t, _ := be["type"].(string); t == "k8s" {
+			if v, ok := be["kubeconfig"].(bool); !ok || !v {
+				ps = append(ps, ConfigProblem{Severity: SevError, Line: keyLine(content, n),
+					Message: "backend « " + n + " » : « kubeconfig: true » obligatoire (le kubeconfig se colle dans les réglages du backend ; jamais le compte du launcher)"})
+			}
+		}
+	}
+	return ps
 }
 
 // SaveBackends : enregistre backends.yaml de l'espace d'un utilisateur — validé d'abord (ErrConfigInvalid), refusé si le
@@ -426,7 +466,7 @@ func (s Space) SaveBackends(content []byte, expectedMtime time.Time) ([]ConfigPr
 
 // UserAdminFields : le backends.yaml proposé sort de ce qu'un utilisateur peut déclarer (règle R1, contracts/auth.md §4 et
 // user-backends.md §3). LISTE BLANCHE, échec fermé : seule la rubrique « backends: » ; chaque backend est k8s, docker ou podman ;
-//   - k8s : type, namespace, pvc, spread, pod (resources, nodeSelector, affinity seulement) ;
+//   - k8s : type, namespace, pvc, spread, kubeconfig (true seulement), pod (resources, nodeSelector, affinity seulement) ;
 //   - docker / podman : type, host OBLIGATOIRE en tcp://, volume, tls (enabled, verify) ;
 //
 // tout autre champ (kubeconfig, context, volumes, pool, hosts, engine, engine_host, shared…) est refusé jusqu'à ce que le LOT-3.1
@@ -480,7 +520,10 @@ func userBackendOK(be map[string]any) bool {
 	str := func(k string) string { s, _ := be[k].(string); return s }
 	switch str("type") {
 	case "k8s":
-		if !allowed("type", "namespace", "pvc", "spread", "pod") {
+		if !allowed("type", "namespace", "pvc", "spread", "pod", "kubeconfig") {
+			return false
+		}
+		if v, has := be["kubeconfig"]; has && v != true { // seul « true » (coffre de l'utilisateur) : jamais un chemin du poste
 			return false
 		}
 		if _, has := be["spread"]; has {

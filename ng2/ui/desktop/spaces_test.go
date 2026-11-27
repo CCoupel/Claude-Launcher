@@ -121,7 +121,7 @@ func TestSpaces255EtatDInterfaceNonCroise(t *testing.T) {
 		t.Errorf("chemin du serveur ou identifiant exposé : %v", files)
 	}
 	// ce qu'alice enregistre n'est lu ni par bob ni par l'admin
-	cfg := `{"kind":"backends.yaml","content":"backends:\n  marqueur-alice:\n    type: k8s\n    namespace: ns\n"}`
+	cfg := `{"kind":"backends.yaml","content":"backends:\n  marqueur-alice:\n    type: k8s\n    namespace: ns\n    kubeconfig: true\n"}`
 	if o := sp255Call(t, s, "alice", "configSave", cfg); o["error"] != nil {
 		t.Fatalf("configSave alice : %v", o)
 	}
