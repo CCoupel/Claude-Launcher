@@ -32,7 +32,7 @@ case "$1" in
     n=$#; i=0
     for a in "$@"; do i=$((i+1)); [ $i -eq $((n-3)) ] && image="$a"; done
     echo "$name|created|$image|${labels#,}" >> "$S"; echo newid ;;
-  ps) cat "$S" ;;
+  ps) case "$*" in *State*) cat "$S" ;; *) awk -F"|" '{print $1" "$4}' "$S" ;; esac ;;
   start) sed -i "s/^$2|created|/$2|running|/; s/^$2|exited|/$2|running|/" "$S" ;;
   stop) sed -i "s/^$2|running|/$2|exited|/" "$S" ;;
   inspect)

@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"time"
 )
 
 // Approbation scellée de l'environnement d'un projet cloné (LOT-3.2 tâche 16, contrat §6 bis, P21) : <projet>/.claude-launcher/trust.json dans le
@@ -51,15 +50,23 @@ func (s Space) ApprovalKey() ([]byte, error) {
 	return key, err
 }
 
-// TrustFile : contenu de trust.json.
-type TrustFile struct {
-	Digests map[string]string `json:"digests"` // fichier d'environnement → SHA-256 (hex)
-	Date    string            `json:"date"`
-	MAC     string            `json:"mac"` // HMAC-SHA256 (hex)
+// trust.json : {"files":{nom:sha256 hex},"mac":hex}. MAC = HMAC-SHA256(clé, « cl-trust-v1 » ‖ uid ‖ backend ‖ chemin du projet ‖ pour chaque fichier
+// trié : nom ‖ condensé), chaque élément précédé de sa longueur sur 8 octets (encodage non ambigu).
+type trustJSON struct {
+	Files map[string]string `json:"files"`
+	MAC   string            `json:"mac"`
 }
 
-// trustMAC : HMAC-SHA256(clé, uid ‖ liste triée des (fichier, condensé)) à encodage NON AMBIGU (longueurs préfixées).
-func trustMAC(key []byte, uid string, digests map[string]string) string {
+func digestsOf(files map[string][]byte) map[string]string {
+	d := make(map[string]string, len(files))
+	for n, b := range files {
+		h := sha256.Sum256(b)
+		d[n] = hex.EncodeToString(h[:])
+	}
+	return d
+}
+
+func trustMAC(key []byte, uid, backend, project string, digests map[string]string) string {
 	h := hmac.New(sha256.New, key)
 	put := func(s string) {
 		var n [8]byte
@@ -67,7 +74,10 @@ func trustMAC(key []byte, uid string, digests map[string]string) string {
 		h.Write(n[:])
 		h.Write([]byte(s))
 	}
+	put("cl-trust-v1")
 	put(uid)
+	put(backend)
+	put(project)
 	names := make([]string, 0, len(digests))
 	for n := range digests {
 		names = append(names, n)
@@ -80,44 +90,37 @@ func trustMAC(key []byte, uid string, digests map[string]string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// SealTrust : approbation scellée des condensés donnés.
-func SealTrust(key []byte, uid string, digests map[string]string, now time.Time) TrustFile {
-	d := make(map[string]string, len(digests))
-	for k, v := range digests {
-		d[k] = v
+// BuildTrust : contenu de trust.json pour les fichiers d'environnement approuvés d'un projet.
+func BuildTrust(key []byte, uid, backend, project string, files map[string][]byte) ([]byte, error) {
+	if len(key) != 32 {
+		return nil, errors.New("clé d'approbation invalide")
 	}
-	return TrustFile{Digests: d, Date: now.UTC().Format(time.RFC3339), MAC: trustMAC(key, uid, d)}
+	d := digestsOf(files)
+	return json.Marshal(trustJSON{Files: d, MAC: trustMAC(key, uid, backend, project, d)})
 }
 
-// ParseTrust : trust.json lu des OCTETS (16 Kio, champs connus, une seule valeur, aucune clé en double) ; illisible : erreur.
-func ParseTrust(raw []byte) (TrustFile, error) {
-	var t TrustFile
-	if len(raw) > 16<<10 {
-		return t, errors.New("trust.json trop gros")
-	}
-	if yamlDupKeyCI(raw) { // un JSON est du YAML : même détection des clés en double (casse comprise)
-		return t, errors.New("trust.json : clé en double")
-	}
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&t); err != nil || dec.More() || t.Digests == nil {
-		return TrustFile{}, errors.New("trust.json illisible")
-	}
-	return t, nil
-}
-
-// VerifyTrust : l'approbation lue vaut pour les fichiers d'environnement ACTUELS — HMAC valide ET mêmes fichiers, mêmes condensés. Tout écart
-// (forgé, copié d'un autre projet pour un autre contenu, clé changée, fichier ajouté ou modifié) : faux, l'approbation est redemandée.
-func VerifyTrust(key []byte, uid string, t TrustFile, current map[string]string) bool {
-	if len(t.Digests) != len(current) {
+// VerifyTrust : l'approbation lue vaut pour les fichiers ACTUELS — HMAC valide ET mêmes fichiers, mêmes condensés. Tout écart (forgé, copié d'un
+// autre projet, clé changée, fichier ajouté, retiré ou modifié, trust.json illisible ou > 16 Kio) : faux, l'approbation est redemandée.
+func VerifyTrust(key []byte, uid, backend, project string, files map[string][]byte, trust []byte) bool {
+	if len(key) != 32 || len(trust) == 0 || len(trust) > 16<<10 || yamlDupKeyCI(trust) {
 		return false
 	}
-	for n, d := range current {
-		if t.Digests[n] != d {
+	var t trustJSON
+	dec := json.NewDecoder(bytes.NewReader(trust))
+	dec.DisallowUnknownFields()
+	if dec.Decode(&t) != nil || dec.More() || t.Files == nil {
+		return false
+	}
+	cur := digestsOf(files)
+	if len(t.Files) != len(cur) {
+		return false
+	}
+	for n, d := range cur {
+		if t.Files[n] != d {
 			return false
 		}
 	}
 	want, err := hex.DecodeString(t.MAC)
-	got, _ := hex.DecodeString(trustMAC(key, uid, t.Digests))
+	got, _ := hex.DecodeString(trustMAC(key, uid, backend, project, cur))
 	return err == nil && hmac.Equal(want, got)
 }

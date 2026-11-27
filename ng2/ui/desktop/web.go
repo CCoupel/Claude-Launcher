@@ -667,7 +667,11 @@ func (w *webBridge) handler() http.Handler {
 			return
 		}
 		w.auditRecord(r, identityOf(r), "files", filesProject(r.URL.Path), true, "")
-		if !spaceOf(r).Admin { // un utilisateur n'a pas de projet sur la racine (les siens : LOT-3.2) : jamais ceux de l'admin
+		if sp := spaceOf(r); !sp.Admin { // un utilisateur : SES projets sur SON backend (lecture par exec), jamais ceux de l'admin
+			if id := identityOf(r); id != nil {
+				w.spaces.get(sp, id.Login).serveFiles(rw, r)
+				return
+			}
 			http.NotFound(rw, r)
 			return
 		}

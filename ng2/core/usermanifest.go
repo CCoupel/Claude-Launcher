@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Constructeur DÉDIÉ du manifeste k8s et de l'argv docker/podman d'un projet d'UTILISATEUR (LOT-3.2 E2, sécurité T1…T11 : liste blanche
@@ -201,7 +202,7 @@ func (e Engine) userRunArgsOpts(name, proj string, env EnvSpec, opts []string) (
 	// montage de l'hôte ; aucune valeur de l'utilisateur n'est un argument séparé qui pourrait se lire comme un drapeau
 	args := []string{"create", "--name=" + name, "--hostname=" + dnsSlug(pname, 30, "projet"),
 		"--label=cl.launcher=ng2", "--label=cl.backend=" + l["cl.backend"], "--label=cl.user=" + l["cl.user"],
-		"--label=cl.category=" + cat, "--label=cl.project=" + pname, "--label=cl.image=" + env.Image,
+		"--label=cl.category=" + cat, "--label=cl.project=" + pname, "--label=cl.image=" + env.Image, "--label=cl.created=" + time.Now().UTC().Format("20060102T150405Z"),
 		"--mount=type=volume,src=" + e.B.Volume + ",dst=/space", "--workdir=" + proj,
 		"-e", "HOME=/space/.claude/home", "-e", "CLAUDE_CONFIG_DIR=/space/.claude", "-e", "XDG_CONFIG_HOME=/space/.claude/home/.config",
 		"-e", "LANG=C.UTF-8", "-e", "DISABLE_AUTOUPDATER=1",

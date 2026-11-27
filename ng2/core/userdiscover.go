@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 // Découverte des projets d'un utilisateur SUR SON backend (LOT-3.2 tâche 14, contrat §5) : la source de vérité est le backend. k8s : StatefulSets
@@ -111,58 +112,74 @@ func (e Engine) discoverDocker() ([]UserProject, error) {
 
 // ── état d'un projet arrêté ───────────────────────────────────────────────
 
-// UserMeta : dernier état connu d'un projet, rangé SUR LE BACKEND (annotation cl.meta ou .claude-launcher/state.json) : schéma fixe, 4 Kio au
+// ProjectMeta : dernier état connu d'un projet, rangé SUR LE BACKEND (annotation cl.meta ou .claude-launcher/state.json) : schéma fixe, 4 Kio au
 // plus, jamais un contenu de fichier ni un secret ; affiché seulement, jamais exécuté.
-type UserMeta struct {
-	Branch string `json:"branch"`
-	Dirty  bool   `json:"dirty"`
-	Ahead  int    `json:"ahead"`
-	Behind int    `json:"behind"`
-	Head   string `json:"head"`
-	Tpl    string `json:"tpl"`
-	Team   string `json:"team"`
-	Seen   string `json:"seen"` // RFC 3339
+type ProjectMeta struct {
+	Branch string    `json:"branch"`
+	Dirty  bool      `json:"dirty"`
+	Ahead  int       `json:"ahead"`
+	Behind int       `json:"behind"`
+	Head   string    `json:"head"`
+	Tpl    string    `json:"tpl"`
+	Team   []string  `json:"team"`
+	Seen   time.Time `json:"seen"`
 }
+
+// UserMeta : ancien nom.
+type UserMeta = ProjectMeta
 
 const maxUserMeta = 4 << 10
 
-// ParseUserMeta : JSON ≤ 4 Kio, champs connus seulement, une seule valeur ; les chaînes sont bornées et débarrassées des caractères de contrôle.
-func ParseUserMeta(raw []byte) (UserMeta, error) {
-	var m UserMeta
-	if len(raw) > maxUserMeta {
-		return m, errors.New("état trop gros")
+func badMetaStr(s string, n int) bool {
+	if len(s) > n {
+		return true
+	}
+	for _, r := range s {
+		if r < 0x20 || r == 0x7f || r == '<' || r == '>' {
+			return true
+		}
+	}
+	return false
+}
+
+// ParseProjectState : JSON ≤ 4 Kio, champs connus, une seule valeur, aucune clé en double, bornes ; une chaîne avec balise ou caractère de contrôle est refusée.
+func ParseProjectState(raw []byte) (ProjectMeta, error) {
+	var m ProjectMeta
+	if len(raw) > maxUserMeta || yamlDupKeyCI(raw) {
+		return m, errors.New("état illisible")
 	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&m); err != nil || dec.More() {
-		return UserMeta{}, errors.New("état illisible")
+		return ProjectMeta{}, errors.New("état illisible")
 	}
-	clean := func(s string, n int) string {
-		s = strings.Map(func(r rune) rune {
-			if r < 0x20 || r == 0x7f {
-				return -1
-			}
-			return r
-		}, s)
-		if r := []rune(s); len(r) > n {
-			s = string(r[:n])
-		}
-		return s
+	bad := m.Ahead < 0 || m.Behind < 0 || m.Ahead > 1e6 || m.Behind > 1e6 || len(m.Team) > 32 ||
+		badMetaStr(m.Branch, 128) || badMetaStr(m.Head, 64) || badMetaStr(m.Tpl, 64)
+	for _, t := range m.Team {
+		bad = bad || badMetaStr(t, 64)
 	}
-	m.Branch, m.Head, m.Tpl, m.Team, m.Seen = clean(m.Branch, 128), clean(m.Head, 64), clean(m.Tpl, 64), clean(m.Team, 128), clean(m.Seen, 40)
-	if m.Ahead < 0 || m.Behind < 0 || m.Ahead > 1e6 || m.Behind > 1e6 {
-		return UserMeta{}, errors.New("état illisible")
+	if bad {
+		return ProjectMeta{}, errors.New("état illisible")
 	}
 	return m, nil
 }
 
-// JSON : forme écrite (≤ 4 Kio).
-func (m UserMeta) JSON() ([]byte, error) {
+// ParseUserMeta : ancien nom de ParseProjectState.
+func ParseUserMeta(raw []byte) (ProjectMeta, error) { return ParseProjectState(raw) }
+
+// BuildClMeta : forme écrite (≤ 4 Kio, jamais tronquée).
+func BuildClMeta(m ProjectMeta) (string, error) {
 	b, err := json.Marshal(m)
 	if err == nil && len(b) > maxUserMeta {
-		return nil, errors.New("état trop gros")
+		return "", errors.New("état trop gros")
 	}
-	return b, err
+	return string(b), err
+}
+
+// JSON : forme écrite.
+func (m ProjectMeta) JSON() ([]byte, error) {
+	s, err := BuildClMeta(m)
+	return []byte(s), err
 }
 
 // WriteUserMeta : écrit l'état d'un projet k8s dans l'annotation cl.meta de son StatefulSet (patch ; le pod n'a pas de jeton pour le faire).

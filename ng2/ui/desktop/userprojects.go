@@ -3,6 +3,7 @@ package desktop
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"sort"
 	"strings"
 	"sync"
@@ -137,7 +138,7 @@ func (u *userSpace) rows() []userRow {
 				seen[id] = true
 				r := userRow{Row: Row{Kind: "project", Name: p.Project, Path: id, Depth: 2}, Backend: bn, Stopped: !p.Running}
 				if p.Meta != nil {
-					r.StateAt = p.Meta.Seen
+					r.StateAt = p.Meta.Seen.UTC().Format(time.RFC3339)
 				}
 				if p.Running {
 					r.StateAt = time.Now().UTC().Format(time.RFC3339)
@@ -253,7 +254,7 @@ func (u *userSpace) projectCall(c webCall, method string, raw json.RawMessage) (
 			card["image"] = p.Image
 		}
 		if p.Meta != nil {
-			card["stateAt"], card["git"] = p.Meta.Seen, map[string]any{"branch": p.Meta.Branch, "dirty": p.Meta.Dirty, "ahead": p.Meta.Ahead, "behind": p.Meta.Behind, "head": p.Meta.Head}
+			card["stateAt"], card["git"] = p.Meta.Seen.UTC().Format(time.RFC3339), map[string]any{"branch": p.Meta.Branch, "dirty": p.Meta.Dirty, "ahead": p.Meta.Ahead, "behind": p.Meta.Behind, "head": p.Meta.Head}
 			card["tpl"], card["team"] = p.Meta.Tpl, p.Meta.Team
 		}
 		return card, nil
@@ -349,6 +350,7 @@ func (u *userSpace) refreshProject(id string) (any, error) {
 		}
 		started = true
 	}
+	_ = e.RefreshUserMeta(p.Category, p.Project, time.Now()) // état rangé sur le backend ; un échec n'empêche pas le F5
 	u.invalidate()
 	u.pushState()
 	return map[string]any{"ok": true, "started": started, "steps": []string{"start"}}, nil
@@ -529,4 +531,61 @@ func (u *userSpace) projectApply(a userProjArgs) (any, error) {
 	u.invalidate()
 	u.pushState()
 	return map[string]any{"ok": true, "applied": "recreated"}, nil
+}
+
+// gate : plafonds par utilisateur (40 exec, 4 flux /files).
+var userGate = core.NewUserGate()
+
+// serveFiles : /files/<catégorie>/<projet>/… ou /files/<projet>/… d'un projet de l'utilisateur. Décision d'après la DERNIÈRE découverte connue (jamais de
+// commande vers le backend pour décider) : projet inconnu ou arrêté → 404 « projet arrêté » sans lecture ni démarrage.
+func (u *userSpace) serveFiles(rw http.ResponseWriter, r *http.Request) {
+	rest := strings.TrimPrefix(strings.TrimPrefix(r.URL.Path, core.FilesPrefix), "/")
+	segs := strings.Split(rest, "/")
+	for _, s := range segs {
+		if s == ".." || strings.HasPrefix(s, "__") {
+			http.NotFound(rw, r)
+			return
+		}
+	}
+	u.proj.mu.Lock()
+	var hit *core.UserProject
+	var sub string
+	var bn string
+	for b, d := range u.proj.disc {
+		if d == nil || d.err != nil {
+			continue
+		}
+		for i := range d.projects {
+			p := &d.projects[i]
+			switch {
+			case len(segs) >= 2 && segs[0] == p.Category && segs[1] == p.Project:
+				hit, sub, bn = p, strings.Join(segs[2:], "/"), b
+			case hit == nil && segs[0] == p.Project:
+				hit, sub, bn = p, strings.Join(segs[1:], "/"), b
+			}
+		}
+	}
+	var running bool
+	if hit != nil {
+		running = hit.Running
+	}
+	var cat, name string
+	if hit != nil {
+		cat, name = hit.Category, hit.Project
+	}
+	u.proj.mu.Unlock()
+	if hit == nil || !running {
+		http.Error(rw, "projet arrêté", http.StatusNotFound)
+		return
+	}
+	if strings.HasSuffix(r.URL.Path, "/") && sub != "" {
+		sub += "/"
+	}
+	es, _, _ := u.engines()
+	e, ok := es[bn]
+	if !ok {
+		http.NotFound(rw, r)
+		return
+	}
+	e.ServeUserFile(rw, r, cat, name, sub, userGate)
 }

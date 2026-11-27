@@ -48,8 +48,12 @@ func (e Engine) CreateUserProject(cat, name, image string) error {
 	}
 	proj := UserProjectDir(cat, name)
 	env := EnvSpec{Image: image}
-	if e.UserProjectExists(cat, name) {
-		return errors.New("un projet porte déjà ce nom")
+	if objs, err := e.listObjects(); err == nil {
+		for _, o := range objs {
+			if o.Name == e.ObjectName(cat, name) {
+				return errors.New("un projet porte déjà ce nom")
+			}
+		}
 	}
 	if e.B.K8s() {
 		raw, err := e.userManifestN(proj, env, 0)
@@ -79,18 +83,20 @@ func (e Engine) CreateUserProject(cat, name, image string) error {
 
 // StartUserProject : démarre le projet arrêté (k8s : 1 réplique ; docker/podman : start). Jamais appelé par le sondage : seulement sur Ouvrir ou F5.
 func (e Engine) StartUserProject(cat, name string) error {
+	if err := e.ownerOf(e.ObjectName(cat, name)); err != nil {
+		return err
+	}
+	return e.startRaw(cat, name)
+}
+
+// startRaw : démarrage sans contrôle de propriétaire (objet qu'on vient de créer).
+func (e Engine) startRaw(cat, name string) error {
 	obj := e.ObjectName(cat, name)
 	if e.B.K8s() {
-		if err := e.VerifyOwnerK8s(obj); err != nil {
-			return err
-		}
 		if out, err := e.kcmd("scale", "statefulset", obj, "--replicas=1").CombinedOutput(); err != nil {
 			return errors.New("démarrage impossible : " + ScrubMessage(firstLine(string(out), err)))
 		}
 		return nil
-	}
-	if err := e.VerifyOwner(e.B.uid, obj); err != nil {
-		return err
 	}
 	if out, err := e.cmd("start", obj).CombinedOutput(); err != nil {
 		return errors.New("démarrage impossible : " + ScrubMessage(firstLine(string(out), err)))

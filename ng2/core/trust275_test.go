@@ -1,5 +1,3 @@
-//go:build s275proj
-
 package core
 
 import (
