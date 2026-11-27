@@ -424,44 +424,114 @@ func (s Space) SaveBackends(content []byte, expectedMtime time.Time) ([]ConfigPr
 	})
 }
 
-// UserAdminFields : le backends.yaml proposé touche un champ que seul l'admin peut poser (règle R1, contracts/auth.md §4) — un
-// backend « host », ou kubeconfig, context, volumes, clés de pod sensibles. un « host » / « engine_host » / « hosts » en unix:// (socket local) ; « namespace » n'en fait plus partie dans l'espace
-// d'un utilisateur : il déclare le sien (#257). Contenu illisible : vrai (échec fermé, contracts/auth.md §4).
+// UserAdminFields : le backends.yaml proposé sort de ce qu'un utilisateur peut déclarer (règle R1, contracts/auth.md §4 et
+// user-backends.md §3). LISTE BLANCHE, échec fermé : seule la rubrique « backends: » ; chaque backend est k8s, docker ou podman ;
+//   - k8s : type, namespace, pvc, spread, pod (resources, nodeSelector, affinity seulement) ;
+//   - docker / podman : type, host OBLIGATOIRE en tcp://, volume, tls (enabled, verify) ;
+//
+// tout autre champ (kubeconfig, context, volumes, pool, hosts, engine, engine_host, shared…) est refusé jusqu'à ce que le LOT-3.1
+// les ouvre avec leurs contrôles, comme tout backend ssh, tout socket local et tout moteur local sans host. YAML illisible : vrai.
 func UserAdminFields(content []byte) bool {
-	var f struct {
-		Backends map[string]map[string]any `yaml:"backends"`
+	if len(strings.TrimSpace(string(content))) == 0 {
+		return false
 	}
+	var f map[string]any
 	if yaml.Unmarshal(content, &f) != nil {
 		return true
 	}
-	for _, be := range f.Backends {
-		if t, _ := be["type"].(string); t == "host" {
+	for k := range f {
+		if k != "backends" {
+			return true // pools, hubs, defaults, images… : rubriques de l'administrateur
+		}
+	}
+	if f["backends"] == nil {
+		return false
+	}
+	bs, ok := f["backends"].(map[string]any)
+	if !ok {
+		return true
+	}
+	for _, v := range bs {
+		be, ok := v.(map[string]any)
+		if !ok {
 			return true
 		}
-		for _, k := range []string{"kubeconfig", "context", "volumes"} {
-			if _, ok := be[k]; ok {
-				return true
-			}
-		}
-		// socket local (calcul sur la plateforme, règle n°2) : « unix:// » refusé (échec fermé, contrat §3)
-		for _, k := range []string{"host", "engine_host"} {
-			if h, _ := be[k].(string); strings.HasPrefix(strings.ToLower(strings.TrimSpace(h)), "unix:") {
-				return true
-			}
-		}
-		if hs, _ := be["hosts"].([]any); len(hs) > 0 {
-			for _, h := range hs {
-				if str, _ := h.(string); strings.HasPrefix(strings.ToLower(strings.TrimSpace(str)), "unix:") {
-					return true
-				}
-			}
-		}
-		pod, _ := be["pod"].(map[string]any)
-		for _, k := range adminPodKeys {
-			if _, ok := pod[k]; ok {
-				return true
-			}
+		if !userBackendOK(be) {
+			return true
 		}
 	}
 	return false
+}
+
+// userBackendOK : un backend de l'utilisateur reste dans la liste blanche.
+func userBackendOK(be map[string]any) bool {
+	allowed := func(keys ...string) bool {
+		for k := range be {
+			ok := false
+			for _, a := range keys {
+				ok = ok || k == a
+			}
+			if !ok {
+				return false
+			}
+		}
+		return true
+	}
+	str := func(k string) string { s, _ := be[k].(string); return s }
+	switch str("type") {
+	case "k8s":
+		if !allowed("type", "namespace", "pvc", "spread", "pod") {
+			return false
+		}
+		if _, has := be["spread"]; has {
+			if _, isBool := be["spread"].(bool); !isBool {
+				return false
+			}
+		}
+		for _, k := range []string{"namespace", "pvc"} {
+			if _, has := be[k]; has {
+				if _, isStr := be[k].(string); !isStr {
+					return false
+				}
+			}
+		}
+		if p, has := be["pod"]; has && p != nil {
+			pod, isMap := p.(map[string]any)
+			if !isMap {
+				return false
+			}
+			for k := range pod {
+				if k != "resources" && k != "nodeSelector" && k != "affinity" {
+					return false
+				}
+			}
+		}
+		return true
+	case "docker", "podman":
+		if !allowed("type", "host", "volume", "tls") {
+			return false
+		}
+		host := strings.TrimSpace(str("host"))
+		if len(host) <= len("tcp://") || !strings.EqualFold(host[:len("tcp://")], "tcp://") || strings.Contains(host, "{}") {
+			return false // host obligatoire, tcp:// seulement (ni unix, npipe, fd, ssh, https, chemin nu, modèle de pool)
+		}
+		if _, has := be["volume"]; has {
+			if _, isStr := be["volume"].(string); !isStr {
+				return false
+			}
+		}
+		if t, has := be["tls"]; has && t != nil {
+			tls, isMap := t.(map[string]any)
+			if !isMap {
+				return false
+			}
+			for k, v := range tls {
+				if _, isBool := v.(bool); (k != "enabled" && k != "verify") || !isBool {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false // host, ssh, type absent ou inconnu
 }

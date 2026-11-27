@@ -351,3 +351,59 @@ func TestUserAdminFieldsUnixRefuse255(t *testing.T) {
 		}
 	}
 }
+
+// Revue LOT-2 cycle 2 : liste blanche — chaque contournement de la liste noire est refusé ; les déclarations légitimes passent.
+func TestUserAdminFieldsListeBlanche255(t *testing.T) {
+	for name, bad := range map[string]string{
+		"pool et socket local": "pools:\n  p:\n    hosts: ['unix:///var/run/docker.sock']\nbackends:\n  b: {type: docker, pool: p, host: '{}'}\n",
+		"docker sans host":     "backends:\n  d: {type: docker}\n",
+		"podman sans host":     "backends:\n  d: {type: podman, volume: v}\n",
+		"chemin nu":            "backends:\n  d: {type: docker, host: /var/run/docker.sock}\n",
+		"npipe":                "backends:\n  d: {type: docker, host: 'npipe:////./pipe/docker_engine'}\n",
+		"fd":                   "backends:\n  d: {type: docker, host: 'fd://'}\n",
+		"ssh://":               "backends:\n  d: {type: docker, host: 'ssh://root@h'}\n",
+		"https://":             "backends:\n  d: {type: docker, host: 'https://h:2376'}\n",
+		"modèle de pool":       "backends:\n  d: {type: docker, host: 'tcp://{}:2375'}\n",
+		"type ssh":             "backends:\n  s: {type: ssh, host: h}\n",
+		"type host":            "backends:\n  s: {type: host}\n",
+		"type absent":          "backends:\n  s: {namespace: ns}\n",
+		"type inconnu":         "backends:\n  s: {type: lxc, host: 'tcp://h:1'}\n",
+		"rubrique pools":       "pools:\n  p: {hosts: [a]}\nbackends:\n  k: {type: k8s, namespace: ns}\n",
+		"rubrique hubs":        "hubs:\n  m: {}\nbackends:\n  k: {type: k8s, namespace: ns}\n",
+		"rubrique defaults":    "defaults:\n  browser_server: {listen: off}\nbackends:\n  k: {type: k8s, namespace: ns}\n",
+		"rubrique images":      "images:\n  - x\nbackends:\n  k: {type: k8s, namespace: ns}\n",
+		"k8s kubeconfig":       "backends:\n  k: {type: k8s, namespace: ns, kubeconfig: /etc/k3s.yaml}\n",
+		"k8s context":          "backends:\n  k: {type: k8s, namespace: ns, context: c}\n",
+		"k8s volumes":          "backends:\n  k: {type: k8s, namespace: ns, volumes: {/a: p}}\n",
+		"k8s host":             "backends:\n  k: {type: k8s, namespace: ns, host: 'tcp://h:1'}\n",
+		"k8s pod sensible":     "backends:\n  k: {type: k8s, namespace: ns, pod: {serviceAccountName: x}}\n",
+		"k8s pod tolerations":  "backends:\n  k: {type: k8s, namespace: ns, pod: {tolerations: []}}\n",
+		"docker engine_host":   "backends:\n  d: {type: docker, host: 'tcp://h:1', engine_host: 'unix:///x'}\n",
+		"docker hosts":         "backends:\n  d: {type: docker, host: 'tcp://h:1', hosts: ['unix:///x']}\n",
+		"docker shared":        "backends:\n  d: {type: docker, host: 'tcp://h:1', shared: [/a]}\n",
+		"docker volumes":       "backends:\n  d: {type: docker, host: 'tcp://h:1', volumes: {/a: b}}\n",
+		"docker champ inconnu": "backends:\n  d: {type: docker, host: 'tcp://h:1', privileged: true}\n",
+		"tls hors schéma":      "backends:\n  d: {type: docker, host: 'tcp://h:1', tls: {ca: /etc/ca.pem}}\n",
+		"backends pas une map": "backends: [a]\n",
+		"backend pas une map":  "backends:\n  d: oui\n",
+		"racine pas une map":   "- backends\n",
+		"fusion YAML (<<)":     "x: &a {type: docker}\nbackends:\n  d:\n    <<: *a\n    host: 'unix:///x'\n",
+	} {
+		if !UserAdminFields([]byte(bad)) {
+			t.Errorf("%s : accepté", name)
+		}
+	}
+	for name, ok := range map[string]string{
+		"vide":                "",
+		"backends vide":       "backends: {}\n",
+		"backends null":       "backends:\n",
+		"k8s namespace":       "backends:\n  k: {type: k8s, namespace: ns}\n",
+		"k8s pvc, ressources": "backends:\n  k: {type: k8s, namespace: ns, pvc: p, spread: true, pod: {resources: {requests: {cpu: '1'}}, nodeSelector: {a: b}}}\n",
+		"docker tcp + TLS":    "backends:\n  d:\n    type: docker\n    host: tcp://nas.lan:2376\n    volume: v\n    tls: {enabled: true, verify: true}\n",
+		"podman tcp":          "backends:\n  p: {type: podman, host: 'TCP://h:8080'}\n",
+	} {
+		if UserAdminFields([]byte(ok)) {
+			t.Errorf("%s : refusé à tort", name)
+		}
+	}
+}
