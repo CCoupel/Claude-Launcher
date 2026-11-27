@@ -143,7 +143,7 @@ func (s Space) LoadBackends() ([]BackendConf, error) {
 		if err := userFieldsOK(c); err != nil { // défense en profondeur : le fichier a pu être posé hors de l'API (S14, S29)
 			return nil, err
 		}
-		c.user, c.vault = true, s.VaultDir() // S15 / S16 : son coffre, jamais celui de l'admin ni le ServiceAccount
+		c.user, c.vault, c.uid = true, s.VaultDir(), s.UID // S15 / S16 : son coffre, jamais celui de l'admin ni le ServiceAccount
 		out = append(out, c)
 	}
 	return out, nil
@@ -506,6 +506,9 @@ func userBackendProblems(content []byte) []ConfigProblem {
 			continue
 		}
 		t := str(be, "type")
+		if !runAsOK(be) {
+			bad(n, "run_as : {uid, gid} — deux entiers de 1 à 4294967294 (jamais root)")
+		}
 		for _, k := range []string{"host", "engine_host"} {
 			if h := strings.ToLower(strings.TrimSpace(str(be, k))); strings.HasPrefix(h, "ssh:") {
 				bad(n, "ssh est interdit en mode serveur ; utilise docker (TLS) ou k8s")
@@ -650,7 +653,10 @@ func userBackendOK(be map[string]any) bool {
 	str := func(k string) string { s, _ := be[k].(string); return s }
 	switch str("type") {
 	case "k8s":
-		if !allowed("type", "namespace", "pvc", "spread", "pod", "kubeconfig") {
+		if !allowed("type", "namespace", "pvc", "spread", "pod", "kubeconfig", "run_as") {
+			return false
+		}
+		if !runAsOK(be) {
 			return false
 		}
 		if v, has := be["kubeconfig"]; has && v != true { // seul « true » (coffre de l'utilisateur) : jamais un chemin du poste
@@ -681,7 +687,10 @@ func userBackendOK(be map[string]any) bool {
 		}
 		return true
 	case "docker", "podman":
-		if !allowed("type", "host", "volume", "tls") {
+		if !allowed("type", "host", "volume", "tls", "run_as") {
+			return false
+		}
+		if !runAsOK(be) {
 			return false
 		}
 		host := strings.TrimSpace(str("host"))
@@ -713,6 +722,9 @@ func userBackendOK(be map[string]any) bool {
 // l'enregistrement) ; sans résolution DNS (revérifiée avant chaque appel).
 func userFieldsOK(c BackendConf) error {
 	bad := func(what string) error { return fmt.Errorf("backend « %s » : %s invalide", shortName(c.Name), what) }
+	if r := c.RunAs; r != nil && (!validID(r.UID) || !validID(r.GID)) {
+		return bad("run_as")
+	}
 	switch c.Type {
 	case "k8s":
 		if !dnsLabelRE.MatchString(c.Namespace) {
@@ -735,3 +747,22 @@ func userFieldsOK(c BackendConf) error {
 }
 
 func str0(be map[string]any, k string) string { v, _ := be[k].(string); return v }
+
+// runAsOK : « run_as » absent, ou {uid, gid} — exactement ces deux clés, entiers de 1 à 4294967294 (root jamais).
+func runAsOK(be map[string]any) bool {
+	v, has := be["run_as"]
+	if !has {
+		return true
+	}
+	m, ok := v.(map[string]any)
+	if !ok || len(m) != 2 {
+		return false
+	}
+	for _, k := range []string{"uid", "gid"} {
+		n, isInt := m[k].(int)
+		if !isInt || !validID(int64(n)) {
+			return false
+		}
+	}
+	return true
+}

@@ -328,6 +328,9 @@ func (e Engine) sharedMounts(paths ...string) (mounts, vols []map[string]any, er
 }
 
 func (e Engine) k8sManifest(proj string, env EnvSpec) ([]byte, error) {
+	if e.B.user { // constructeur DÉDIÉ : jamais placePod ni withResources (liste blanche fermée, non root)
+		return e.userManifest(proj, env)
+	}
 	// chemins et identité vus du pod (pathmap.go ; Linux : inchangés)
 	home := CtrUser().Home
 	rp := RemotePath(proj)

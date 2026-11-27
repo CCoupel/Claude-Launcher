@@ -400,11 +400,19 @@ type BackendConf struct {
 	PVC        string            `yaml:"pvc"`                  // k8s (#257) : PVC existant du namespace qui porte les projets
 	Volume     string            `yaml:"volume"`               // docker / podman (#257) : volume existant de l'hôte
 	TLS        *TLSConf          `yaml:"tls,omitempty"`        // docker / podman (#257) : TLS vers le démon
+	RunAs      *RunAsConf        `yaml:"run_as,omitempty"`     // backend d'utilisateur (#275) : identité des pods et conteneurs de projet (jamais 0)
 	implicit   bool              // host ajouté sans déclaration sous Windows (addImplicitHost)
 	// backend DÉCLARÉ PAR UN UTILISATEUR (Space.LoadBackends) : son coffre est vault (users/<uid>/vault), jamais le coffre commun de
 	// l'admin (S16) ; jamais de repli sur le ServiceAccount du launcher ni sur ~/.kube/config (S15)
 	user  bool
 	vault string
+	uid   string // espace de l'utilisateur propriétaire (« github-<id> ») : étiquette cl.user, condensé des noms d'objets
+}
+
+// RunAsConf : « run_as: {uid, gid} » d'un backend d'utilisateur — entiers de 1 à 4294967294 (root jamais).
+type RunAsConf struct {
+	UID int64 `yaml:"uid" json:"uid"`
+	GID int64 `yaml:"gid" json:"gid"`
 }
 
 // TLSConf : « tls: » d'un backend docker / podman. verify faux : certificat du serveur non vérifié (avertissement).
@@ -1142,6 +1150,9 @@ func (e Engine) Ensure(proj string, env EnvSpec, log io.Writer) (string, error) 
 }
 
 func (e Engine) runArgs(name, proj string, env EnvSpec) ([]string, error) {
+	if e.B.user { // constructeur DÉDIÉ : jamais l'argv du backend de l'admin (liste blanche fermée, non root)
+		return e.userRunArgs(name, proj, env)
+	}
 	// chemins et identité vus du moteur (pathmap.go ; Linux : inchangés)
 	home := CtrUser().Home
 	cd := RemotePath(ClaudeDir())

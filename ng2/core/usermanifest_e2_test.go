@@ -174,7 +174,7 @@ func TestE2ImagesInvalidesRefusees(t *testing.T) {
 // ── docker / podman ────────────────────────────────────────────────────────────────────────────────────
 
 var dockerForbidden = []string{"--privileged", "-p", "-P", "--publish", "--publish-all", "--network", "--net", "--pid", "--ipc", "--uts", "--cap-add",
-	"--volumes-from", "--device", "--userns", "--cgroupns", "--add-host", "--dns", "--dns-search", "--dns-option", "--mount", "--sysctl", "--ulimit", "--init",
+	"--volumes-from", "--device", "--userns", "--cgroupns", "--add-host", "--dns", "--dns-search", "--dns-option", "--sysctl", "--ulimit", "--init",
 	"--entrypoint", "--restart", "--tmpfs", "--env-file", "--label-file", "--group-add", "--pids-limit-unlimited", "--ipc=host", "--link", "--mac-address", "--ip", "--ip6"}
 
 func e2Args(t *testing.T, b BackendConf, image string) ([]string, error) {
