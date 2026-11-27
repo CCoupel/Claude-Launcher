@@ -147,3 +147,12 @@ users:
   enabled: true             # espaces par utilisateur (users/<uid>/ sous la config de la racine) ; false : comportement v7.0.0 (CL_USERS_ENABLED=false, lu par le launcher : un seul espace commun, règles R1 inchangées)
   maxBackends: 10           # backends par utilisateur (1 à 100) ; au-delà, refus à l'enregistrement
   backendTestsPerMinute: 6  # backendTest par utilisateur et par minute (1 à 60), un seul à la fois (429)
+  maxProjects: 30           # projets par utilisateur, tous backends confondus (1 à 1000) ; au-delà, refus à la création
+  runAs:                    # identité des pods et conteneurs de projet des utilisateurs : jamais root (surchargeable par backend et par projet)
+    uid: 2000
+    gid: 2000
+  # ⚠ RISQUE — jamais en production partagée : « true » admet pour les backends des utilisateurs les plages privées (10/8, 172.16/12,
+  # 192.168/16, fc00::/7) et les noms internes. Tout utilisateur authentifié peut alors faire joindre par le pod du launcher n'importe quelle
+  # adresse privée ou interne (infrastructure, API et services du cluster plateforme, DNS) et cartographier ce réseau. Loopback, link-local,
+  # métadonnées, multicast restent refusés. Journalisé au démarrage. Une NetworkPolicy de sortie est recommandée.
+  allowPrivateNetworks: false

@@ -1,8 +1,9 @@
 package core
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
-	"regexp"
 	"strings"
 	"testing"
 )
@@ -193,13 +194,23 @@ func TestE2DockerArgvDUnProjetUtilisateur(t *testing.T) {
 			t.Errorf("%s : premier argument %v", typ, args)
 		}
 		j := " " + strings.Join(args, " ") + " "
-		for _, want := range []string{" -v vol:/space ", " cl.user=" + e2UID + " ", " cl.category=cat ", " cl.project=proj ", " cl.backend=d ", " cl.launcher=ng2 "} {
-			if !strings.Contains(j, want) {
-				t.Errorf("%s : %q absent de %v", typ, strings.TrimSpace(want), args)
+		// gabarit (contrat §5 bis) : « create » puis « start », options --opt=valeur, volume nommé monté par --mount=type=volume
+		if args[0] != "create" {
+			t.Errorf("%s : « create » attendu (puis « start »), reçu %q", typ, args[0])
+		}
+		if !e2Has(args, "--mount", "type=volume,src=vol,dst=/space") {
+			t.Errorf("%s : --mount=type=volume,src=vol,dst=/space absent : %v", typ, args)
+		}
+		for _, want := range []string{"cl.user=" + e2UID, "cl.category=cat", "cl.project=proj", "cl.backend=d", "cl.launcher=ng2"} {
+			if !strings.Contains(j, "--label="+want+" ") && !strings.Contains(j, " --label "+want+" ") {
+				t.Errorf("%s : label %s absent de %v", typ, want, args)
 			}
 		}
-		if !strings.Contains(j, " --workdir "+e2Proj+" ") && !strings.Contains(j, " -w "+e2Proj+" ") {
+		if !e2Has(args, "--workdir", e2Proj) {
 			t.Errorf("%s : dossier de travail %s absent : %v", typ, e2Proj, args)
+		}
+		if !e2Has(args, "-e", "HOME=/space/.claude/home") && !strings.Contains(j, " HOME=/space/.claude/home ") || !strings.Contains(j, "CLAUDE_CONFIG_DIR=/space/.claude ") {
+			t.Errorf("%s : HOME=/space/.claude/home et CLAUDE_CONFIG_DIR=/space/.claude attendus : %v", typ, args)
 		}
 		for _, f := range dockerForbidden {
 			for _, a := range args {
@@ -208,13 +219,13 @@ func TestE2DockerArgvDUnProjetUtilisateur(t *testing.T) {
 				}
 			}
 		}
-		// jamais de montage de l'hôte : seul le volume nommé, monté sur /space
+		// jamais de montage de l'hôte ni de « -v » : seul le volume nommé, par --mount=type=volume
 		for i, a := range args {
-			if (a == "-v" || a == "--volume") && i+1 < len(args) && args[i+1] != "vol:/space" {
-				t.Errorf("%s : volume ou montage hôte inattendu %q", typ, args[i+1])
+			if a == "-v" || a == "--volume" || strings.HasPrefix(a, "--volume=") || strings.HasPrefix(a, "-v=") {
+				t.Errorf("%s : « %s » interdit (gabarit : --mount=type=volume) : %v", typ, a, args)
 			}
-			if strings.Contains(a, "type=bind") || strings.HasPrefix(a, "/") && a != e2Proj {
-				t.Errorf("%s : chemin de l'hôte dans l'argv : %q", typ, a)
+			if strings.Contains(a, "type=bind") || strings.Contains(a, "type=tmpfs") || strings.HasPrefix(a, "/") && a != e2Proj && (i == 0 || args[i-1] != "--workdir") {
+				t.Errorf("%s : montage ou chemin de l'hôte dans l'argv : %q", typ, a)
 			}
 		}
 		// la commande finale est celle du launcher (sh -c pid1), image en un seul argument avant elle
@@ -302,6 +313,69 @@ func TestE2K8sNonRoot(t *testing.T) {
 	}
 	if _, add := caps["add"]; add {
 		t.Error("capabilities.add présent")
+	}
+	if psc["fsGroup"] != float64(2000) || psc["fsGroupChangePolicy"] != "OnRootMismatch" {
+		t.Errorf("pod securityContext : fsGroup=%v fsGroupChangePolicy=%v (2000 et OnRootMismatch attendus)", psc["fsGroup"], psc["fsGroupChangePolicy"])
+	}
+	if csc["privileged"] != false {
+		t.Errorf("privileged = %v (false explicite attendu)", csc["privileged"])
+	}
+	if csc["readOnlyRootFilesystem"] == true {
+		t.Error("racine en lecture seule : le contrat veut une racine en écriture")
+	}
+}
+
+// Surcharge : run_as du backend (uid/gid non nuls) → manifeste et argv ; jamais root.
+func TestE2RunAsDuBackend(t *testing.T) {
+	s15Setup(t)
+	sp := s15Space(t, e2UID, "backends:\n  k:\n    type: k8s\n    namespace: ns-u\n    pvc: projets\n    kubeconfig: true\n    run_as: {uid: 3000, gid: 4000}\n"+
+		"  d:\n    type: docker\n    host: tcp://93.184.216.34:2376\n    volume: vol\n    run_as: {uid: 3000, gid: 4000}\n")
+	s15Vault(t, sp, "k", s15Kubeconfig("CANARY-e2"))
+	bs, err := sp.LoadBackends()
+	if err != nil || len(bs) != 2 {
+		t.Fatalf("run_as non admis dans la déclaration d'un backend d'utilisateur : %v (%d backends)", err, len(bs))
+	}
+	for _, b := range bs {
+		switch b.Type {
+		case "k8s":
+			m, merr := e2Manifest(t, b, "debian:12")
+			if merr != nil {
+				t.Fatalf("manifeste : %v", merr)
+			}
+			spec := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
+			psc, _ := spec["securityContext"].(map[string]any)
+			csc, _ := spec["containers"].([]any)[0].(map[string]any)["securityContext"].(map[string]any)
+			uid, gid := csc["runAsUser"], csc["runAsGroup"]
+			if uid == nil {
+				uid, gid = psc["runAsUser"], psc["runAsGroup"]
+			}
+			if uid != float64(3000) || gid != float64(4000) || psc["fsGroup"] != float64(4000) {
+				t.Errorf("k8s : runAsUser=%v runAsGroup=%v fsGroup=%v (3000, 4000, 4000)", uid, gid, psc["fsGroup"])
+			}
+		default:
+			args, aerr := e2Args(t, b, "debian:12")
+			if aerr != nil || !e2Has(args, "--user", "3000:4000") {
+				t.Errorf("docker : --user=3000:4000 attendu : %v %v", args, aerr)
+			}
+		}
+	}
+}
+
+// run_as : uid ou gid nul / négatif / non entier / absent / hors plage → refusé nommément (root jamais).
+func TestE2RunAsRefuse(t *testing.T) {
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	sp, _ := UserSpace("github-5")
+	for name, ra := range map[string]string{"uid 0": "{uid: 0, gid: 2000}", "gid 0": "{uid: 2000, gid: 0}", "tous deux 0": "{uid: 0, gid: 0}", "uid négatif": "{uid: -1, gid: 2000}",
+		"uid texte": "{uid: root, gid: 2000}", "uid décimal": "{uid: 2000.5, gid: 2000}", "gid absent": "{uid: 2000}", "uid absent": "{gid: 2000}",
+		"uid énorme": "{uid: 4294967296, gid: 2000}", "clé en plus": "{uid: 2000, gid: 2000, groups: [0]}", "liste": "[2000, 2000]"} {
+		y := "backends:\n  d:\n    type: docker\n    host: tcp://93.184.216.34:2376\n    volume: v\n    run_as: " + ra + "\n"
+		if ms := errMsgs(sp.ValidateBackends([]byte(y))); len(ms) == 0 {
+			t.Errorf("run_as %s accepté", name)
+		}
+	}
+	ok := "backends:\n  d:\n    type: docker\n    host: tcp://93.184.216.34:2376\n    volume: v\n    run_as: {uid: 1000, gid: 1000}\n"
+	if ms := errMsgs(sp.ValidateBackends([]byte(ok))); len(ms) != 0 {
+		t.Errorf("run_as 1000:1000 refusé : %v", ms)
 	}
 }
 
@@ -426,8 +500,9 @@ func TestE2NomsAvecCondensedUid(t *testing.T) {
 		}
 		n := m["metadata"].(map[string]any)["name"].(string)
 		names[uid] = n
-		if len(n) > 63 || !regexp.MustCompile(`^cl-[0-9a-f]{8}-cat-proj$`).MatchString(n) {
-			t.Errorf("%s : nom %q (cl-<8 hex>-cat-proj attendu)", uid, n)
+		h := sha256.Sum256([]byte(uid))
+		if want := "cl-" + hex.EncodeToString(h[:])[:8] + "-cat-proj"; n != want || len(n) > 63 {
+			t.Errorf("%s : nom %q (attendu %q : 8 premiers hex du SHA-256 de l'uid)", uid, n, want)
 		}
 	}
 	if names["github-9"] == names["github-10"] {

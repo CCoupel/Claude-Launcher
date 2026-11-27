@@ -91,6 +91,12 @@ spec:
             # limites des backends d'utilisateur (v7.1.0, users.*)
             - name: CL_USERS_ENABLED
               value: {{ if eq (toString (.Values.users | default dict).enabled) "false" }}"false"{{ else }}"true"{{ end }}
+            - name: CL_USERS_MAX_PROJECTS
+              value: {{ (.Values.users | default dict).maxProjects | default 30 | quote }}
+            - name: CL_USERS_ALLOW_PRIVATE
+              value: {{ if eq (toString (.Values.users | default dict).allowPrivateNetworks) "true" }}"true"{{ else }}"false"{{ end }}
+            - name: CL_USERS_RUN_AS
+              value: {{ printf "%v:%v" ((.Values.users | default dict).runAs | default dict).uid | default 2000 ((.Values.users | default dict).runAs | default dict).gid | default 2000 | quote }}
             - name: CL_USERS_MAX_BACKENDS
               value: {{ (.Values.users | default dict).maxBackends | default 10 | quote }}
             - name: CL_USERS_BACKEND_TESTS_PER_MINUTE

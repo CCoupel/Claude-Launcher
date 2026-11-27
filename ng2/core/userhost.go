@@ -84,32 +84,50 @@ var (
 	userHostCacheTTL = tun.Of(30 * time.Second)
 )
 
-// plages refusées à un utilisateur (netip.Prefix, jamais une regex sur la chaîne)
-var blockedPrefixes = func() []netip.Prefix {
+// UsersAllowPrivateVar : « true » (et rien d'autre) admet pour un utilisateur les plages PRIVÉES (10/8, 172.16/12, 192.168/16, fc00::/7) et les
+// noms internes qui y mènent. Loopback, link-local, métadonnées, multicast et plages réservées restent TOUJOURS refusés. Posé par le chart
+// (users.allowPrivateNetworks) ; lu à chaque appel : le retirer refuse l'appel suivant sans relire backends.yaml.
+const UsersAllowPrivateVar = "CL_USERS_ALLOW_PRIVATE"
+
+// UsersAllowPrivate : le paramètre est actif (valeur exactement « true » : tout autre cas, échec fermé).
+func UsersAllowPrivate() bool { return os.Getenv(UsersAllowPrivateVar) == "true" }
+
+func mustPrefixes(ps ...string) []netip.Prefix {
 	var out []netip.Prefix
-	for _, p := range []string{
-		"0.0.0.0/8", "10.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "172.16.0.0/12", "192.0.0.0/24", "192.0.2.0/24",
-		"192.88.99.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
-		"::/128", "::1/128", "::/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "2002::/16",
-		"fc00::/7", "fe80::/10", "fec0::/10", "ff00::/8",
-	} {
+	for _, p := range ps {
 		out = append(out, netip.MustParsePrefix(p))
 	}
 	return out
-}()
+}
 
-// ipAllowed : l'adresse est publique. IPv4-mappée déballée avant le contrôle ; NAT64, 6to4, Teredo, IPv4-compatible refusés en bloc.
+// plages TOUJOURS refusées à un utilisateur (netip.Prefix, jamais une regex sur la chaîne). fd00:ec2::/32 : métadonnées AWS v6, dans fc00::/7.
+var alwaysBlockedPrefixes = mustPrefixes(
+	"0.0.0.0/8", "100.64.0.0/10", "127.0.0.0/8", "169.254.0.0/16", "192.0.0.0/24", "192.0.2.0/24",
+	"192.88.99.0/24", "198.18.0.0/15", "198.51.100.0/24", "203.0.113.0/24", "224.0.0.0/4", "240.0.0.0/4",
+	"::/128", "::1/128", "::/96", "64:ff9b::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "2002::/16",
+	"fd00:ec2::/32", "fe80::/10", "fec0::/10", "ff00::/8")
+
+// plages PRIVÉES : refusées par défaut, admises avec CL_USERS_ALLOW_PRIVATE=true
+var privatePrefixes = mustPrefixes("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7")
+
+// ipAllowed : l'adresse est atteignable par un utilisateur. IPv4-mappée déballée avant le contrôle ; NAT64, 6to4, Teredo, IPv4-compatible
+// refusés en bloc ; plages privées selon UsersAllowPrivate.
 func ipAllowed(a netip.Addr) bool {
 	a = a.Unmap().WithZone("")
-	if !a.IsValid() {
+	if !a.IsValid() || a.IsLoopback() || a.IsLinkLocalUnicast() || a.IsMulticast() || a.IsUnspecified() {
 		return false
 	}
-	for _, p := range blockedPrefixes {
+	for _, p := range alwaysBlockedPrefixes {
 		if p.Contains(a) {
 			return false
 		}
 	}
-	return !a.IsLoopback() && !a.IsPrivate() && !a.IsLinkLocalUnicast() && !a.IsMulticast() && !a.IsUnspecified()
+	for _, p := range privatePrefixes {
+		if p.Contains(a) {
+			return UsersAllowPrivate()
+		}
+	}
+	return !a.IsPrivate()
 }
 
 // internalSuffixes : noms réservés à un réseau interne (le filtre d'IP reste la barrière réelle).
@@ -196,8 +214,9 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 		return a.String(), port, nil
 	}
 	n := strings.ToLower(strings.TrimSuffix(h, "."))
-	if len(n) == 0 || len(n) > 253 || !strings.Contains(n, ".") {
-		return "", 0, errRange // sans point : nom interne (localhost, intranet, kubernetes…)
+	allowPriv := UsersAllowPrivate()
+	if len(n) == 0 || len(n) > 253 || n == "localhost" || !allowPriv && !strings.Contains(n, ".") {
+		return "", 0, errRange // sans point : nom interne (localhost, intranet, kubernetes…) — admis avec le paramètre, sauf localhost
 	}
 	labels := strings.Split(n, ".")
 	last := labels[len(labels)-1]
@@ -214,17 +233,19 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 			}
 		}
 	}
-	if labels[0] == "kubernetes" || labels[0] == "localhost" || n == "localhost" {
-		return "", 0, errRange
+	if labels[0] == "kubernetes" || labels[0] == "localhost" || strings.HasSuffix("."+n, ".localhost") {
+		return "", 0, errRange // jamais, même avec le paramètre
 	}
-	for _, s := range internalSuffixes {
-		if strings.HasSuffix("."+n, s) {
-			return "", 0, errRange
+	if !allowPriv { // les noms internes mènent à des plages privées : admis avec le paramètre (l'IP résolue reste contrôlée)
+		for _, s := range internalSuffixes {
+			if strings.HasSuffix("."+n, s) {
+				return "", 0, errRange
+			}
 		}
-	}
-	for _, l := range labels {
-		if l == "svc" {
-			return "", 0, errRange
+		for _, l := range labels {
+			if l == "svc" {
+				return "", 0, errRange
+			}
 		}
 	}
 	return n, port, nil
@@ -260,8 +281,9 @@ func checkResolved(name string) error {
 		return nil // déjà contrôlée par parseUserEndpoint
 	}
 	now := time.Now()
+	ck := name + "|" + strconv.FormatBool(UsersAllowPrivate()) // le verdict dépend du paramètre : jamais celui de l'autre réglage
 	resolveMu.Lock()
-	if c, ok := resolveCache[name]; ok && now.Before(c.until) {
+	if c, ok := resolveCache[ck]; ok && now.Before(c.until) {
 		resolveMu.Unlock()
 		return c.err
 	}
@@ -284,7 +306,7 @@ func checkResolved(name string) error {
 	if len(resolveCache) > 512 {
 		resolveCache = map[string]resolvedHost{}
 	}
-	resolveCache[name] = resolvedHost{until: now.Add(userHostCacheTTL.Get()), err: res}
+	resolveCache[ck] = resolvedHost{until: now.Add(userHostCacheTTL.Get()), err: res}
 	resolveMu.Unlock()
 	return res
 }

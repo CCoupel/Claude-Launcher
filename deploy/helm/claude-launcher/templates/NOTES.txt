@@ -33,6 +33,9 @@ Compte local de secours « admin@local » (hôtes admis : {{ include "cl.localHo
 {{- else }}
 Compte local : désactivé.
 {{- end }}
+{{- if eq (toString (.Values.users | default dict).allowPrivateNetworks) "true" }}
+⚠ users.allowPrivateNetworks: true — RISQUE : tout utilisateur authentifié peut faire joindre par le pod du launcher n'importe quelle adresse privée ou interne (infrastructure, API et services du cluster plateforme, DNS) et cartographier ce réseau. Jamais en production partagée ; une NetworkPolicy de sortie est recommandée.
+{{- end }}
 {{- if .Values.externalIngress.enabled }}
 Ingress externe : https://{{ .Values.externalIngress.host }}{{ .Values.externalIngress.pathPrefix }}{{ if .Values.externalIngress.pathPrefix }} (sous-chemin : le certificat de l'hôte partagé est réutilisé, aucun Certificat n'est créé par ce chart){{ end }} (adresse principale annoncée aux sessions claude) — GitHub seulement, sans liste d'adresses.
 {{- end }}

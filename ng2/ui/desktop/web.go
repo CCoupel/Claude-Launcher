@@ -1034,6 +1034,9 @@ func RunWeb(addr string, open bool) error {
 			return err
 		}
 		w.auth, w.alts, w.audit = auth, alts, core.NewAudit("")
+		if core.UsersAllowPrivate() { // journalisé au démarrage (users.allowPrivateNetworks) : risque assumé par l'administrateur
+			fmt.Println("⚠ users.allowPrivateNetworks actif : les backends des utilisateurs peuvent viser les plages privées et les noms internes (loopback, link-local, métadonnées, multicast restent refusés)")
+		}
 	}
 	// jeton (mode « token » seulement) : CL_DESKTOP_TOKEN, sinon — dans un pod — le jeton conservé (il ne change plus à
 	// chaque redémarrage du pod : un lien déjà distribué reste valable) ; hors cluster, toujours un nouveau jeton (#167).
