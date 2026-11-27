@@ -552,3 +552,68 @@ func TestCreate258RollbackSiLEcritureDuYAMLEchoue(t *testing.T) {
 		t.Error("backend déclaré malgré l'échec d'écriture")
 	}
 }
+
+// Coffre orphelin (révision après la revue) : un lien symbolique au nom du coffre n'est jamais suivi (S23) — le contenu pointé n'est ni
+// lu ni supprimé ; si la création réussit, le coffre créé est un vrai dossier.
+func TestCreate258OrphelinLienSymboliqueNonSuivi(t *testing.T) {
+	c := cr258Start(t)
+	outside := t.TempDir()
+	if err := os.WriteFile(filepath.Join(outside, "garde"), []byte("A-NE-PAS-EFFACER"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(core.UsersDir(), "github-1111", "vault"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, vaultOf("github-1111", "lien")); err != nil {
+		t.Skip("liens symboliques indisponibles")
+	}
+	mt, _, _ := c.model(t, "alice")
+	_, res, _ := c.add(t, "alice", cDocker("lien", false), map[string]any{}, mt)
+	if b, err := os.ReadFile(filepath.Join(outside, "garde")); err != nil || string(b) != "A-NE-PAS-EFFACER" {
+		t.Errorf("le contenu pointé par le lien a été supprimé ou modifié : %v %q", err, b)
+	}
+	if res["ok"] == true {
+		if st, err := os.Lstat(vaultOf("github-1111", "lien")); err != nil || st.Mode()&os.ModeSymlink != 0 || !st.IsDir() {
+			t.Errorf("coffre créé sur un lien symbolique : %v %v", err, st)
+		}
+	}
+	// purge d'un orphelin lien : le lien disparaît, jamais sa cible
+	_ = os.RemoveAll(vaultOf("github-1111", "lien2"))
+	if err := os.Symlink(outside, vaultOf("github-1111", "lien2")); err == nil {
+		c.call(t, "alice", "userBackendRemove", map[string]any{"name": "lien2"})
+		if b, err := os.ReadFile(filepath.Join(outside, "garde")); err != nil || string(b) != "A-NE-PAS-EFFACER" {
+			t.Errorf("userBackendRemove a suivi le lien : %v %q", err, b)
+		}
+	}
+}
+
+// Un orphelin appartient à son espace : l'autre utilisateur ne peut ni le reprendre ni le purger.
+func TestRemove258OrphelinIsoleEntreUtilisateurs(t *testing.T) {
+	c := cr258Start(t)
+	d := vaultOf("github-1111", "orph")
+	if err := os.MkdirAll(d, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.WriteFile(filepath.Join(d, "kubeconfig"), []byte("SECRET-ALICE"), 0o600)
+	c.call(t, "bob", "userBackendRemove", map[string]any{"name": "orph"})
+	if b, err := os.ReadFile(filepath.Join(d, "kubeconfig")); err != nil || string(b) != "SECRET-ALICE" {
+		t.Errorf("l'orphelin d'alice a été touché par bob : %v %q", err, b)
+	}
+	// bob crée « orph » chez lui : n'affecte pas celui d'alice
+	mt, _, _ := c.model(t, "bob")
+	c.add(t, "bob", cK8s("orph"), map[string]any{"kubeconfig": ub257Kube(cPub, "", "")}, mt) // k8s : crée un coffre chez bob
+	if b, _ := os.ReadFile(filepath.Join(d, "kubeconfig")); string(b) != "SECRET-ALICE" {
+		t.Error("la création de bob a modifié le coffre d'alice")
+	}
+	// alice purge son orphelin : disparu, rien d'autre touché
+	_, res, _ := c.call(t, "alice", "userBackendRemove", map[string]any{"name": "orph"})
+	if res["ok"] != true {
+		t.Errorf("purge de l'orphelin par son propriétaire : %v", res)
+	}
+	if _, err := os.Stat(d); err == nil {
+		t.Error("orphelin non purgé")
+	}
+	if _, err := os.Stat(vaultOf("github-2222", "orph")); err != nil {
+		t.Error("le coffre de bob a été supprimé avec l'orphelin d'alice")
+	}
+}
