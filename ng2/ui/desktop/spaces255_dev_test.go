@@ -319,3 +319,18 @@ func TestSpacesEditeurBackendsSequence255(t *testing.T) {
 		}
 	}
 }
+
+// access.deny d'un utilisateur : ne grise pas les secrets que son espace sert (kubeconfig, TLS) ; ssh (known_hosts) reste refusé.
+func TestSpacesAccessDenyServi257(t *testing.T) {
+	s := sp255Start(t)
+	_, out := s.call(t, "alice", "init", `{}`)
+	deny := fmt.Sprint(out["result"].(map[string]any)["access"].(map[string]any)["deny"])
+	for _, m := range []string{"backendSecretSet", "backendSecretDelete"} {
+		if strings.Contains(deny, m) {
+			t.Errorf("%s grisé pour l'utilisateur alors que son espace le sert : %s", m, deny)
+		}
+	}
+	if !strings.Contains(deny, "backendKnownHostsSet") {
+		t.Errorf("backendKnownHostsSet doit rester refusé : %s", deny)
+	}
+}

@@ -161,14 +161,14 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	case "backendStates": // aucun état sondé en LOT-2 (le sondage des backends de l'utilisateur vient avec LOT-4) : listes vides
 		return map[string]any{"states": map[string]any{}, "load": map[string]any{}}, nil
 	case "clientInfo":
-		out := map[string]any{"remote": c.Remote, "access": c.accessInfo(), "space": u.info()}
+		out := map[string]any{"remote": c.Remote, "access": userAccess(c), "space": u.info()}
 		if ui := c.userInfo(); ui != nil {
 			out["user"] = ui
 		}
 		return out, nil
 	case "init":
 		out := map[string]any{"state": u.snapshot(), "cards": nil, "help": helpData(), "prefs": u.prefs(), "server": serverInfo(),
-			"access": c.accessInfo(), "space": u.info()}
+			"access": userAccess(c), "space": u.info()}
 		if ui := c.userInfo(); ui != nil {
 			out["user"] = ui
 		}
@@ -509,4 +509,21 @@ func (u *userSpace) admitTest(now time.Time) string {
 	}
 	u.tests = append(u.tests, now)
 	return ""
+}
+
+// userSpaceServed : méthodes R1 par nature que l'instance d'un utilisateur sert pourtant dans SON espace (kubeconfig et certificats de
+// ses backends) : retirées de access.deny (source unique du grisage de l'interface). backendKnownHostsSet (ssh) reste refusé.
+var userSpaceServed = map[string]bool{"backendSecretSet": true, "backendSecretDelete": true}
+
+// userAccess : access de l'utilisateur, sans les méthodes que son espace sert.
+func userAccess(c webCall) core.AccessInfo {
+	ai := c.accessInfo()
+	deny := make([]string, 0, len(ai.Deny))
+	for _, m := range ai.Deny {
+		if !userSpaceServed[m] {
+			deny = append(deny, m)
+		}
+	}
+	ai.Deny = deny
+	return ai
 }
