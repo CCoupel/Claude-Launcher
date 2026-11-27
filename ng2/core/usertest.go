@@ -66,6 +66,16 @@ func userStep(label string, ok bool, detail, fix string) TestStep {
 	return TestStep{Label: label, OK: ok, Detail: ScrubMessage(detail), Fix: fix}
 }
 
+// FirstProblemCat : première catégorie de refus d'hôte relevée dans des problèmes.
+func FirstProblemCat(ps []ConfigProblem) string {
+	for _, p := range ps {
+		if p.Cat != "" {
+			return p.Cat
+		}
+	}
+	return ""
+}
+
 // TestBackend : étapes du test d'un backend DÉCLARÉ PAR l'utilisateur (e : formulaire ou entrée du fichier). Même contrôle de forme
 // qu'à l'enregistrement ; puis, sans jamais rendre une réponse du backend (diagnostic grossier, S8) : joignabilité, droits (reviews
 // seulement, rien n'est créé pour sonder), PVC / volume existant, avertissements (root sur l'hôte, TLS non vérifié, compte trop puissant).
@@ -111,7 +121,9 @@ func (s Space) TestBackend(e BackendEntry) []TestStep {
 	ps := s.ValidateBackends(content)
 	for _, p := range ps {
 		if p.Severity == SevError {
-			return []TestStep{userStep("déclaration", false, p.Message, "corriger la déclaration du backend")}
+			st := userStep("déclaration", false, p.Message, "corriger la déclaration du backend")
+			st.Cat = p.Cat
+			return []TestStep{st}
 		}
 	}
 	bs, err := loadBackendsData(content, nil)

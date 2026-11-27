@@ -238,6 +238,9 @@ func TestCreate258RefusNommes(t *testing.T) {
 		if strings.Contains(raw, uCanary) || strings.Contains(raw, "BEGIN") {
 			t.Errorf("%s : contenu de secret dans la réponse : %.200s", x.name, raw)
 		}
+		if msg, _ := res["msg"].(string); res["code"] != "forbidden_address" && strings.Contains(msg, uRefus) {
+			t.Errorf("%s : le refus d'adresse est renvoyé pour un autre motif (field %v, code %v) : %q", x.name, res["field"], res["code"], msg)
+		}
 		after, st1 := yamlOf(t, "github-1111")
 		if before != after || (st0 != nil && st1 != nil && !st0.ModTime().Equal(st1.ModTime())) {
 			t.Errorf("%s : backends.yaml modifié par un refus", x.name)
@@ -481,5 +484,64 @@ func TestDiagnostic258RaisonDuRefusDansLAudit(t *testing.T) {
 	}
 	if !found {
 		t.Error("aucune ligne d'audit « backend.refused » avec un champ « reason » (dns | range | form) pour ce refus")
+	}
+}
+
+// Le refus « adresse non autorisée » ne sort QUE d'un refus d'adresse : jamais pour un backend inconnu, un secret ou un test sur un
+// backend non enregistré (GATE LOT-3.1 : « yahoo.fr toujours rejeté » — refus probablement mal attribué).
+func TestRefus258AdresseJamaisPourUnAutreMotif(t *testing.T) {
+	c := cr258Start(t)
+	kc := ub257Kube(cPub, "", "")
+	calls := []struct {
+		method string
+		args   map[string]any
+	}{
+		{"backendSecretGet", map[string]any{"backend": "inconnu"}},
+		{"backendSecretSet", map[string]any{"backend": "inconnu", "kubeconfig": kc}},
+		{"backendSecretSet", map[string]any{"backend": "inconnu", "ca": "x", "cert": "y", "key": "z"}},
+		{"backendSecretDelete", map[string]any{"backend": "inconnu", "what": "kubeconfig"}},
+		{"backendTest", map[string]any{"backend": map[string]any{"name": "inconnu", "type": "docker", "host": cHost, "volume": "v"}}},
+		{"userBackendRemove", map[string]any{"name": "inconnu"}},
+		{"configApply", map[string]any{"kind": "backends.yaml", "path": "", "mtime": "", "changes": []any{map[string]any{"op": "set", "at": []string{"backends", "a"}, "value": map[string]any{"type": "docker", "host": "tcp://yahoo.fr:2376", "volume": "v"}}}}},
+	}
+	for _, x := range calls {
+		raw, _, _ := c.call(t, "alice", x.method, x.args)
+		if strings.Contains(raw, uRefus) {
+			t.Errorf("%s sur un backend inconnu / hôte public : « %s » renvoyé : %.250s", x.method, uRefus, raw)
+		}
+	}
+	// refus d'un backend inconnu : message qui dit ce qui manque, distinct d'un refus d'adresse
+	_, res, e := c.call(t, "alice", "backendSecretGet", map[string]any{"backend": "inconnu"})
+	if msg, ok := ub257Refusal(res, e); ok && !strings.Contains(strings.ToLower(msg), "backend") {
+		t.Errorf("backendSecretGet inconnu : message sans « backend » : %q", msg)
+	}
+	// un hôte public est accepté par configApply et par userBackendAdd
+	raw, res, e := c.call(t, "alice", "configApply", map[string]any{"kind": "backends.yaml", "path": "", "mtime": "", "changes": []any{map[string]any{"op": "set", "at": []string{"backends", "pub"}, "value": map[string]any{"type": "docker", "host": cHost, "volume": "v"}}}})
+	if e != "" || res["saved"] != true {
+		t.Errorf("hôte public refusé par configApply : %s", raw)
+	}
+}
+
+// Échec d'écriture de backends.yaml (étape 2) : le coffre écrit à l'étape 1 est retiré (aucun secret sans backend).
+func TestCreate258RollbackSiLEcritureDuYAMLEchoue(t *testing.T) {
+	c := cr258Start(t)
+	mt, _, _ := c.model(t, "alice")
+	if _, res, _ := c.add(t, "alice", cDocker("base", false), map[string]any{}, mt); res["ok"] != true {
+		t.Fatalf("création : %v", res)
+	}
+	// la copie .bak de l'étape 2 ne peut pas s'écrire : un DOSSIER occupe son nom
+	if err := os.MkdirAll(filepath.Join(core.UsersDir(), "github-1111", "backends.yaml.bak", "x"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mt, _, _ = c.model(t, "alice")
+	raw, res, _ := c.add(t, "alice", cK8s("perdu"), map[string]any{"kubeconfig": ub257Kube(cPub, "", "")}, mt)
+	if res["ok"] != false {
+		t.Skipf("l'écriture n'a pas échoué (implémentation sans .bak bloquant) : %.200s", raw)
+	}
+	if _, err := os.Stat(vaultOf("github-1111", "perdu")); err == nil {
+		t.Error("coffre laissé en place alors que backends.yaml n'a pas été écrit")
+	}
+	if y, _ := yamlOf(t, "github-1111"); strings.Contains(y, "perdu") {
+		t.Error("backend déclaré malgré l'échec d'écriture")
 	}
 }

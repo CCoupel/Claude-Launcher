@@ -23,7 +23,31 @@ import (
 // HostRefusal : message unique de tout refus d'hôte.
 const HostRefusal = "adresse non autorisée pour un utilisateur"
 
-var errHostRefused = errors.New(HostRefusal)
+// HostError : refus d'hôte. Le TEXTE est unique (HostRefusal : aucun oracle de topologie) ; la catégorie sert au diagnostic côté serveur
+// (audit), jamais à l'utilisateur : « forme » (syntaxe, port, schéma), « plage » (IP ou nom interdit), « résolution » (DNS en échec).
+type HostError struct{ Cat string }
+
+func (e *HostError) Error() string { return HostRefusal }
+
+// HostRefusalCategory : catégorie d'un refus d'hôte (« » si l'erreur n'en est pas un).
+func HostRefusalCategory(err error) string {
+	var he *HostError
+	if errors.As(err, &he) {
+		return he.Cat
+	}
+	return ""
+}
+
+var (
+	errForm    = &HostError{"forme"}
+	errRange   = &HostError{"plage"}
+	errResolve = &HostError{"résolution"}
+	// errHostRefused : refus sans catégorie précise (compatibilité) ; compté comme « forme »
+	errHostRefused error = errForm
+)
+
+// HostRefusalHint : texte ajouté au message d'un refus de forme ou de plage (le même pour toutes les causes).
+const HostRefusalHint = " (attendu : tcp://nom-public:port — Internet public seulement)"
 
 // userHostResolver : résolveur du launcher (défaut : net.DefaultResolver) ; userHostCacheTTL : durée du cache de résolution (D1).
 var (
@@ -97,6 +121,10 @@ var serverPathRE = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+/?$`)
 // parseUserEndpointPath : parseUserEndpoint ; path vrai : un chemin sûr est admis après « hôte:port » (l'hôte et le port, seuls
 // responsables de la destination, restent bornés ; le chemin ne change ni l'IP ni le port atteints).
 func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int, err error) {
+	raw = strings.TrimSpace(raw) // espaces ou saut de ligne autour de la valeur (champ d'éditeur) : sans effet sur la destination
+	if !path {
+		raw = strings.TrimSuffix(raw, "/") // « tcp://hôte:port/ » : une barre finale seule est tolérée
+	}
 	if len(raw) > 300 {
 		return "", 0, errHostRefused
 	}
@@ -122,20 +150,26 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 	}
 	if strings.HasPrefix(rest, "[") { // IPv6 entre crochets
 		a, perr := netip.ParseAddr(h)
-		if perr != nil || a.Zone() != "" || !a.Is6() && !a.Is4In6() || !ipAllowed(a) {
-			return "", 0, errHostRefused
+		if perr != nil || a.Zone() != "" || !a.Is6() && !a.Is4In6() {
+			return "", 0, errForm
+		}
+		if !ipAllowed(a) {
+			return "", 0, errRange
 		}
 		return a.String(), port, nil
 	}
 	if a, perr := netip.ParseAddr(h); perr == nil { // IP littérale (forme canonique décimale pointée, ou IPv6 sans crochets : refusée par SplitHostPort)
-		if a.Zone() != "" || !ipAllowed(a) {
-			return "", 0, errHostRefused
+		if a.Zone() != "" {
+			return "", 0, errForm
+		}
+		if !ipAllowed(a) {
+			return "", 0, errRange
 		}
 		return a.String(), port, nil
 	}
 	n := strings.ToLower(strings.TrimSuffix(h, "."))
 	if len(n) == 0 || len(n) > 253 || !strings.Contains(n, ".") {
-		return "", 0, errHostRefused // sans point : nom interne (localhost, intranet, kubernetes…)
+		return "", 0, errRange // sans point : nom interne (localhost, intranet, kubernetes…)
 	}
 	labels := strings.Split(n, ".")
 	last := labels[len(labels)-1]
@@ -153,16 +187,16 @@ func parseUserEndpointPath(raw, scheme string, path bool) (host string, port int
 		}
 	}
 	if labels[0] == "kubernetes" || labels[0] == "localhost" || n == "localhost" {
-		return "", 0, errHostRefused
+		return "", 0, errRange
 	}
 	for _, s := range internalSuffixes {
 		if strings.HasSuffix("."+n, s) {
-			return "", 0, errHostRefused
+			return "", 0, errRange
 		}
 	}
 	for _, l := range labels {
 		if l == "svc" {
-			return "", 0, errHostRefused
+			return "", 0, errRange
 		}
 	}
 	return n, port, nil
@@ -208,13 +242,13 @@ func checkResolved(name string) error {
 	// échec FERMÉ (audit LOT-3.1, M1) : une résolution qui échoue ou ne rend rien est un refus, jamais mis en cache (le prochain appel
 	// réessaie) ; une seule IP interdite parmi celles rendues suffit à refuser.
 	if err != nil || len(ips) == 0 {
-		return errHostRefused
+		return errResolve
 	}
 	var res error
 	for _, ip := range ips {
 		a, ok := netip.AddrFromSlice(ip)
 		if !ok || !ipAllowed(a) {
-			res = errHostRefused
+			res = errRange
 			break
 		}
 	}
@@ -377,7 +411,7 @@ func checkResolvedAll(names []string) map[string]error {
 	var uniq []string
 	for _, n := range names {
 		if _, dup := out[n]; !dup {
-			out[n] = errHostRefused // refus tant que le résultat n'est pas arrivé
+			out[n] = errResolve // refus tant que le résultat n'est pas arrivé (délai dépassé)
 			uniq = append(uniq, n)
 		}
 	}

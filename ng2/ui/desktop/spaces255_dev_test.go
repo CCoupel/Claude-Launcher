@@ -352,3 +352,54 @@ func TestSpacesAdmitSecret257(t *testing.T) {
 		t.Errorf("fenêtre non glissante : %q", m)
 	}
 }
+
+// GATE LOT-3.1 (1)(3) : un refus d'hôte est audité par catégorie (sans adresse) ; un refus ne modifie RIEN et rend la date actuelle, de sorte
+// que l'éditeur reste utilisable (enregistrer, puis ajouter ou modifier de nouveau).
+func TestSpacesRefusAuditeEtEditeurUtilisable257(t *testing.T) {
+	u := ub257Start(t)
+	ok := `{"kind":"backends.yaml","path":"","mtime":"","changes":[{"op":"set","at":["backends","a"],"value":{"type":"docker","host":"tcp://93.184.216.34:2376","volume":"v"}}]}`
+	out, _ := u.s.call("alice", px172Ext, `{"method":"configApply","args":`+ok+`}`)
+	res, _ := out["result"].(map[string]any)
+	if res["saved"] != true {
+		t.Fatalf("premier enregistrement : %v", out)
+	}
+	mtime, _ := res["mtime"].(string)
+	sp, _ := core.UserSpace("github-1111")
+	before, _ := os.ReadFile(sp.BackendsPath())
+	bak := sp.BackendsPath() + ".bak"
+	_, bakBefore := os.Stat(bak)
+	// refus (hôte interne) avec la bonne date : rien ne change, la date rendue est celle du fichier
+	bad := `{"kind":"backends.yaml","path":"","mtime":"` + mtime + `","changes":[{"op":"set","at":["backends","b"],"value":{"type":"docker","host":"tcp://192.168.1.5:2375","volume":"v"}}]}`
+	out, _ = u.s.call("alice", px172Ext, `{"method":"configApply","args":`+bad+`}`)
+	res, _ = out["result"].(map[string]any)
+	if res["invalid"] != true || res["mtime"] != mtime {
+		t.Fatalf("refus : %v (invalid et mtime=%q attendus)", out, mtime)
+	}
+	if after, _ := os.ReadFile(sp.BackendsPath()); string(after) != string(before) {
+		t.Errorf("un refus a modifié le fichier :\n%s", after)
+	}
+	if _, bakAfter := os.Stat(bak); (bakBefore == nil) != (bakAfter == nil) {
+		t.Error("un refus a créé ou supprimé le .bak")
+	}
+	// l'éditeur reste utilisable : même date, nouvel ajout valide accepté
+	good := `{"kind":"backends.yaml","path":"","mtime":"` + mtime + `","changes":[{"op":"set","at":["backends","c"],"value":{"type":"docker","host":"tcp://93.184.216.35:2376","volume":"v"}}]}`
+	out, _ = u.s.call("alice", px172Ext, `{"method":"configApply","args":`+good+`}`)
+	if res, _ = out["result"].(map[string]any); res["saved"] != true {
+		t.Errorf("ajout après un refus : %v", out)
+	}
+	// audit : catégorie « plage », jamais l'adresse
+	time.Sleep(200 * time.Millisecond)
+	found := false
+	for _, l := range u.s.auditLines(t) {
+		if l["method"] == "backend.refused" {
+			found = true
+			b, _ := json.Marshal(l)
+			if l["target"] != "plage" || strings.Contains(string(b), "192.168.1.5") {
+				t.Errorf("audit backend.refused : %s", b)
+			}
+		}
+	}
+	if !found {
+		t.Error("aucun audit backend.refused")
+	}
+}

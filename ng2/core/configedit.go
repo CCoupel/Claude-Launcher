@@ -61,6 +61,8 @@ type ConfigProblem struct {
 	Line     int    `json:"line"`
 	Severity string `json:"severity"` // error, warning
 	Message  string `json:"message"`
+	// Cat : catégorie d'un refus d'hôte (forme, plage, résolution) pour l'audit serveur — jamais montrée à l'utilisateur
+	Cat string `json:"-"`
 }
 
 const (

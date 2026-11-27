@@ -491,8 +491,12 @@ func userBackendProblems(content []byte) []ConfigProblem {
 		}
 	}
 	resolved := checkResolvedAll(toResolve)
-	bad := func(n, msg string) {
-		ps = append(ps, ConfigProblem{Severity: SevError, Line: keyLine(content, n), Message: "backend « " + shortName(n) + " » : " + msg})
+	bad := func(n, msg string, cat ...string) {
+		p := ConfigProblem{Severity: SevError, Line: keyLine(content, n), Message: "backend « " + shortName(n) + " » : " + msg}
+		if len(cat) > 0 {
+			p.Cat = cat[0]
+		}
+		ps = append(ps, p)
 	}
 	str := func(be map[string]any, k string) string { v, _ := be[k].(string); return v }
 	for _, n := range names {
@@ -523,9 +527,9 @@ func userBackendProblems(content []byte) []ConfigProblem {
 			}
 		case "docker", "podman":
 			if h, _, err := parseUserEndpoint(str(be, "host"), "tcp"); err != nil {
-				bad(n, HostRefusal)
+				bad(n, HostRefusal+HostRefusalHint, HostRefusalCategory(err))
 			} else if rerr := resolved[h]; rerr != nil {
-				bad(n, HostRefusal)
+				bad(n, HostRefusal+HostRefusalHint, HostRefusalCategory(rerr))
 			}
 			if v, has := be["volume"]; has {
 				if vs, ok := v.(string); !ok || !volumeNameRE.MatchString(vs) {

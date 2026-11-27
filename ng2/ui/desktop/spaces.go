@@ -157,7 +157,7 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	case "backendSecretSet", "backendSecretGet", "backendSecretDelete":
 		return u.secretCall(c, method, raw)
 	case "backendTest":
-		return u.backendTest(raw)
+		return u.backendTest(c, raw)
 	case "backendStates": // aucun état sondé en LOT-2 (le sondage des backends de l'utilisateur vient avec LOT-4) : listes vides
 		return map[string]any{"states": map[string]any{}, "load": map[string]any{}}, nil
 	case "clientInfo":
@@ -207,13 +207,15 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	case "configOpen":
 		return u.configOpen()
 	case "configValidate":
-		return map[string]any{"problems": u.sp.ValidateBackends([]byte(in.Content)), "merged": ""}, nil
+		ps := u.sp.ValidateBackends([]byte(in.Content))
+		c.noteRefusal(core.FirstProblemCat(ps))
+		return map[string]any{"problems": ps, "merged": ""}, nil
 	case "configSave":
-		return u.configSave(in.Content, in.MTime)
+		return u.configSave(c, in.Content, in.MTime)
 	case "configModel":
 		return u.configModel()
 	case "configApply":
-		return u.configApply(in.Changes, in.MTime)
+		return u.configApply(c, in.Changes, in.MTime)
 	}
 	return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
 }
@@ -262,7 +264,7 @@ func (u *userSpace) configModel() (any, error) {
 
 // configApply : changements structurés appliqués à SON backends.yaml, puis enregistrés comme configSave. Un contenu qui touche un
 // champ R1 est refusé (forbidden) ; un changement inapplicable donne {invalid, problems}.
-func (u *userSpace) configApply(changes []core.ConfigChange, mtime string) (any, error) {
+func (u *userSpace) configApply(c webCall, changes []core.ConfigChange, mtime string) (any, error) {
 	var cur []byte
 	if b, err := os.ReadFile(u.sp.BackendsPath()); err == nil {
 		cur = b
@@ -279,10 +281,10 @@ func (u *userSpace) configApply(changes []core.ConfigChange, mtime string) (any,
 	if core.UserAdminFields(out) {
 		return map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}, nil
 	}
-	return u.configSave(string(out), mtime)
+	return u.configSave(c, string(out), mtime)
 }
 
-func (u *userSpace) configSave(content, mtime string) (any, error) {
+func (u *userSpace) configSave(c webCall, content, mtime string) (any, error) {
 	var expected time.Time
 	if mtime != "" {
 		var err error
@@ -299,7 +301,9 @@ func (u *userSpace) configSave(content, mtime string) (any, error) {
 		}
 		return map[string]any{"conflict": true, "mtime": cur, "problems": ps}, nil
 	case errors.Is(err, core.ErrConfigInvalid):
-		return map[string]any{"invalid": true, "problems": ps}, nil
+		c.noteRefusal(core.FirstProblemCat(ps))
+		// un refus ne modifie RIEN (ni fichier, ni .bak) ; la date actuelle est rendue pour que l'éditeur reste synchronisé
+		return map[string]any{"invalid": true, "problems": ps, "mtime": u.currentMTime()}, nil
 	case err != nil:
 		return nil, err
 	}
@@ -483,7 +487,7 @@ func (u *userSpace) secretCall(c webCall, method string, raw json.RawMessage) (a
 }
 
 // backendTest : test d'un backend de l'utilisateur — 6 par minute au plus et un seul à la fois (S31, D5) ; diagnostic grossier.
-func (u *userSpace) backendTest(raw json.RawMessage) (any, error) {
+func (u *userSpace) backendTest(c webCall, raw json.RawMessage) (any, error) {
 	var in struct {
 		Backend core.BackendEntry `json:"backend"`
 	}
@@ -495,6 +499,9 @@ func (u *userSpace) backendTest(raw json.RawMessage) (any, error) {
 	}
 	defer u.testing.Store(false)
 	steps := u.sp.TestBackend(in.Backend)
+	for _, st := range steps {
+		c.noteRefusal(st.Cat)
+	}
 	return map[string]any{"steps": steps}, nil
 }
 
@@ -553,5 +560,20 @@ func (u *userSpace) admitSecret(now time.Time) string {
 		return fmt.Sprintf("429 : limite atteinte (%d dépôts de secret par minute)", max)
 	}
 	u.secrets = append(u.secrets, now)
+	return ""
+}
+
+// noteRefusal : catégorie d'un refus d'hôte, pour l'audit serveur (jamais renvoyée à l'utilisateur).
+func (c webCall) noteRefusal(cat string) {
+	if c.Note != nil && cat != "" {
+		c.Note(cat)
+	}
+}
+
+// currentMTime : date actuelle du backends.yaml de l'espace ("" s'il n'existe pas).
+func (u *userSpace) currentMTime() string {
+	if st, err := os.Stat(u.sp.BackendsPath()); err == nil {
+		return st.ModTime().Format(time.RFC3339Nano)
+	}
 	return ""
 }

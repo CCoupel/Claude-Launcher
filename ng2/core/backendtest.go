@@ -27,6 +27,7 @@ type TestStep struct {
 	Warn   bool   `json:"warn,omitempty"` // avertissement : jamais un problème bloquant du backend (#269)
 	Detail string `json:"detail,omitempty"`
 	Fix    string `json:"fix,omitempty"`
+	Cat    string `json:"-"` // catégorie d'un refus d'hôte (audit serveur)
 }
 
 // TestBackendTimeout borne le test entier (un ssh ou un cluster lent).

@@ -731,7 +731,12 @@ func (w *webBridge) handler() http.Handler {
 		}
 		if sp := spaceOf(r); !sp.Admin { // instance de l'utilisateur : ses méthodes seulement, jamais l'App commune
 			u := w.spaces.get(sp, id.Login)
-			res, err := u.dispatch(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id, Base: baseOf(r)}, req.Method, req.Args)
+			note := func(cat string) {
+				if w.audit != nil && cat != "" {
+					_ = w.audit.Record(core.AuditEntry{User: id.Login, Role: id.Role, Src: requestSource(r), Method: "backend.refused", Target: cat, OK: false, Err: "refused"})
+				}
+			}
+			res, err := u.dispatch(webCall{Src: requestSource(r), Remote: w.remoteAccess(r), Sid: w.sessionID(r), Access: w.access, User: id, Base: baseOf(r), Note: note}, req.Method, req.Args)
 			refused := false
 			if m, ok := res.(map[string]any); ok && m["forbidden"] != nil { // refus R1 : cible journalisée, comme pour l'App commune
 				refused = true

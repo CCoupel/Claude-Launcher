@@ -296,7 +296,7 @@ func auditClean(e AuditEntry) AuditEntry {
 		return s
 	}
 	e.Method = cut(e.Method, 64)
-	if _, known := ClassOf(e.Method); !known && e.Method != "events" && e.Method != "files" && e.Method != "backend.call" {
+	if _, known := ClassOf(e.Method); !known && e.Method != "events" && e.Method != "files" && e.Method != "backend.call" && e.Method != "backend.refused" {
 		e.Method = "unknown"
 	}
 	e.Target, e.Project = cut(e.Target, 128), cut(e.Project, 128)

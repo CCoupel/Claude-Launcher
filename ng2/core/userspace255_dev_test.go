@@ -612,3 +612,60 @@ func TestServeurAvecCheminRancher257(t *testing.T) {
 		t.Error("chemin accepté pour un hôte docker")
 	}
 }
+
+// GATE LOT-3.1 (1) : adresses publiques réelles (IPv4 ET IPv6, dont celles de yahoo.fr) acceptées avec un résolveur factice ; formes tolérées ;
+// catégories de refus distinguées côté serveur, texte unique côté utilisateur.
+func TestHotesPublicsReels257(t *testing.T) {
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	byName := map[string][]net.IP{
+		"yahoo.fr":    {net.ParseIP("76.223.84.192"), net.ParseIP("13.248.158.7")},
+		"example.com": {net.ParseIP("172.66.147.243"), net.ParseIP("104.20.23.154"), net.ParseIP("2606:4700:10::6814:179a"), net.ParseIP("2606:4700:10::ac42:93f3")},
+		"github.com":  {net.ParseIP("140.82.121.3")},
+		"v6.example":  {net.ParseIP("2a00:1288:110:1c::1"), net.ParseIP("2001:4860:4860::8888")},
+	}
+	defer userHostResolver.Set(userHostResolver.Set(func(h string) ([]net.IP, error) {
+		if ips, ok := byName[h]; ok {
+			return ips, nil
+		}
+		return nil, errors.New("NXDOMAIN")
+	}))
+	resetResolveCache()
+	sp, _ := UserSpace("github-5")
+	for _, h := range []string{"tcp://yahoo.fr:2375", "tcp://yahoo.fr:2376", "tcp://example.com:2376", "tcp://github.com:2375", "tcp://v6.example:2376",
+		"  tcp://yahoo.fr:2375\n", "tcp://yahoo.fr:2375/", "TCP://Yahoo.FR:2375", "tcp://yahoo.fr.:2375", "tcp://[2606:4700:10::6814:179a]:2376", "tcp://[2a00:1288:110:1c::1]:2376"} {
+		if err := CheckUserHost(h); err != nil {
+			t.Errorf("hôte public %q refusé : %v", h, err)
+		}
+		if ms := errMsgs(sp.ValidateBackends(hb(h))); len(ms) != 0 {
+			t.Errorf("ValidateBackends %q : %v", h, ms)
+		}
+	}
+	// catégories : forme / plage / résolution ; le texte reste unique
+	for h, want := range map[string]string{"tcp://yahoo.fr": "forme", "yahoo.fr:2375": "forme", "tcp://10.0.0.1:2375": "plage", "tcp://nas.lan:2375": "plage",
+		"tcp://inconnu.example.org:2375": "résolution"} {
+		err := CheckUserHost(h)
+		if err == nil || err.Error() != HostRefusal || HostRefusalCategory(err) != want {
+			t.Errorf("%q : %v catégorie %q, attendu %q", h, err, HostRefusalCategory(err), want)
+		}
+	}
+	ps := sp.ValidateBackends(hb("tcp://yahoo.fr"))
+	if !strings.Contains(strings.Join(errMsgs(ps), "\n"), "tcp://nom-public:port") || FirstProblemCat(ps) != "forme" {
+		t.Errorf("message sans indication de forme attendue, ou catégorie absente : %v", ps)
+	}
+}
+
+// Résolveur RÉEL (réseau requis) : un hôte public connu est accepté. Ignoré hors réseau (CL_NET_TESTS=1 pour l'exiger).
+func TestHotesPublicsResolveurReel257(t *testing.T) {
+	if _, err := net.LookupIP("example.com"); err != nil {
+		if os.Getenv("CL_NET_TESTS") == "1" {
+			t.Fatalf("pas de DNS : %v", err)
+		}
+		t.Skip("pas de DNS dans cet environnement")
+	}
+	resetResolveCache()
+	for _, h := range []string{"tcp://yahoo.fr:2375", "tcp://example.com:2376", "tcp://github.com:2375"} {
+		if err := CheckUserHost(h); err != nil {
+			t.Errorf("%q refusé avec le vrai résolveur : %v (catégorie %q)", h, err, HostRefusalCategory(err))
+		}
+	}
+}

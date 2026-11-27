@@ -106,6 +106,8 @@ type webCall struct {
 	User   *core.Identity
 	// Base : sous-chemin public de la requête (contracts/auth.md §9) ; "" : racine
 	Base string
+	// Note : diagnostic serveur d'un refus d'hôte (catégorie forme / plage / résolution) — audit « backend.refused », sans adresse ni secret
+	Note func(cat string)
 }
 
 // msgR1 : refus d'une écriture sensible (règle R1, contracts/auth.md §4).
