@@ -260,3 +260,62 @@ func TestSpacesYamlIllisibleRefuse255(t *testing.T) {
 		t.Errorf("configValidate d'un YAML illisible sans erreur : %v", out)
 	}
 }
+
+// Séquence de l'éditeur de backends actuel (Réglages › Backends), pour un utilisateur : à l'ouverture configModel puis
+// backendStates, à l'enregistrement configApply (changements structurés), puis relecture. Limité à SON backends.yaml.
+func TestSpacesEditeurBackendsSequence255(t *testing.T) {
+	s := sp255Start(t)
+	res := func(login, method, args string) map[string]any {
+		t.Helper()
+		code, out := s.call(t, login, method, args)
+		if code != 200 || out["error"] != nil {
+			t.Fatalf("%s %s : %d %v", login, method, code, out)
+		}
+		r, _ := out["result"].(map[string]any)
+		return r
+	}
+	// ouverture : modèle vide valide (fichier absent), états vides
+	m := res("alice", "configModel", `{"kind":"backends.yaml"}`)
+	if m["model"] == nil || m["path"] != "backends.yaml" || m["exists"] != false {
+		t.Fatalf("configModel à l'ouverture : %v", m)
+	}
+	if ps, _ := m["problems"].([]any); len(ps) != 0 {
+		t.Errorf("problèmes sur un espace vide : %v", ps)
+	}
+	if st := res("alice", "backendStates", `{}`); st["states"] == nil || st["load"] == nil {
+		t.Errorf("backendStates : %v", st)
+	}
+	// enregistrement : ajout d'un backend k8s (namespace libre)
+	add := `{"kind":"backends.yaml","path":"","mtime":"","changes":[{"op":"set","at":["backends","mien"],"value":{"type":"k8s","namespace":"ns-alice"}}]}`
+	if r := res("alice", "configApply", add); r["saved"] != true {
+		t.Fatalf("configApply : %v", r)
+	}
+	m = res("alice", "configModel", `{"kind":"backends.yaml"}`)
+	if !strings.Contains(fmt.Sprint(m["model"]), "mien") || m["exists"] != true || m["mtime"] == "" {
+		t.Errorf("le modèle ne montre pas le backend ajouté : %v", m)
+	}
+	if got := fmt.Sprint(res("bob", "configModel", `{"kind":"backends.yaml"}`)["model"]); strings.Contains(got, "mien") {
+		t.Errorf("bob voit le backend d'alice : %s", got)
+	}
+	// conflit : mtime périmé
+	if r := res("alice", "configApply", `{"kind":"backends.yaml","mtime":"2000-01-01T00:00:00Z","changes":[{"op":"set","at":["backends","x"],"value":{"type":"k8s","namespace":"n"}}]}`); r["conflict"] != true {
+		t.Errorf("conflit attendu : %v", r)
+	}
+	// champs R1 : refusés ; changement inapplicable : invalid
+	if r := res("alice", "configApply", `{"kind":"backends.yaml","mtime":"`+m["mtime"].(string)+`","changes":[{"op":"set","at":["backends","mien","volumes"],"value":{"/a":"pvc"}}]}`); r["forbidden"] != "admin" {
+		t.Errorf("volumes : forbidden attendu : %v", r)
+	}
+	if r := res("alice", "configApply", `{"kind":"backends.yaml","changes":[{"op":"boum","at":["a"]}]}`); r["invalid"] != true {
+		t.Errorf("changement inapplicable : %v", r)
+	}
+	// autres fichiers : refusés, jamais ceux de l'admin
+	for _, k := range []string{"config.conf", "env.yaml", "hub"} {
+		_, out := s.call(t, "alice", "configModel", `{"kind":"`+k+`"}`)
+		if out["error"] == nil || !strings.Contains(fmt.Sprint(out["error"]), "administrateur") {
+			t.Errorf("configModel %s : refus attendu : %v", k, out)
+		}
+		if r := res("alice", "configApply", `{"kind":"`+k+`","changes":[]}`); r["forbidden"] != "admin" {
+			t.Errorf("configApply %s : forbidden attendu : %v", k, r)
+		}
+	}
+}

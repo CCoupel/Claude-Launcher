@@ -113,6 +113,7 @@ func (h *spaceHub) runReaper(stop <-chan struct{}) {
 var userMethods = map[string]bool{
 	"clientInfo": true, "init": true, "setPrefs": true, "setTheme": true,
 	"configFiles": true, "configOpen": true, "configValidate": true, "configSave": true,
+	"configModel": true, "configApply": true, "backendStates": true,
 }
 
 // dispatch : un appel de l'utilisateur. L'identité (c.User) n'est jamais celle d'une autre instance : l'instance est choisie
@@ -120,14 +121,14 @@ var userMethods = map[string]bool{
 func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any, error) {
 	u.touch()
 	// règle R1 inchangée (v7.0.0) : une écriture réservée à l'admin répond « forbidden », jamais « indisponible ». Seule
-	// exception : configSave du backends.yaml de SON espace
+	// exception : configSave et configApply du backends.yaml de SON espace
 	forbidden := map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}
 	if cls, _ := core.ClassOf(method); cls == core.ClassR1 {
-		if method == "configSave" {
+		if method == "configSave" || method == "configApply" {
 			var in struct{ Kind, Content string }
 			switch _ = json.Unmarshal(raw, &in); core.ConfigKind(in.Kind) {
-			case core.ConfBackends: // son propre fichier : libre, sauf les champs R1
-				if core.UserAdminFields([]byte(in.Content)) {
+			case core.ConfBackends: // son propre fichier : libre, sauf les champs R1 (configApply : vérifiés sur le contenu produit)
+				if method == "configSave" && core.UserAdminFields([]byte(in.Content)) {
 					return forbidden, nil
 				}
 			case core.ConfProjectEnv: // pas de projet dans son espace (LOT-3.2) : ni refus R1 ni écriture
@@ -143,6 +144,8 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
 	}
 	switch method {
+	case "backendStates": // aucun état sondé en LOT-2 (le sondage des backends de l'utilisateur vient avec LOT-4) : listes vides
+		return map[string]any{"states": map[string]any{}, "load": map[string]any{}}, nil
 	case "clientInfo":
 		out := map[string]any{"remote": c.Remote, "access": c.accessInfo(), "space": u.info()}
 		if ui := c.userInfo(); ui != nil {
@@ -166,10 +169,11 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return nil, nil // le thème d'une fenêtre native n'existe pas ici ; la préférence passe par setPrefs
 	}
 	var in struct {
-		Kind    string `json:"kind"`
-		Path    string `json:"path"`
-		Content string `json:"content"`
-		MTime   string `json:"mtime"`
+		Kind    string              `json:"kind"`
+		Path    string              `json:"path"`
+		Content string              `json:"content"`
+		MTime   string              `json:"mtime"`
+		Changes []core.ConfigChange `json:"changes"`
 	}
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &in); err != nil {
@@ -178,7 +182,7 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 	}
 	// éditeur de configuration : un seul fichier, le backends.yaml de l'espace ; aucun chemin venu du client
 	if method != "configFiles" && core.ConfigKind(in.Kind) != core.ConfBackends {
-		return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
+		return nil, fmt.Errorf("%s : rubrique « %s » réservée à l'administrateur", method, in.Kind)
 	}
 	if in.Path != "" {
 		return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
@@ -192,6 +196,10 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return map[string]any{"problems": u.sp.ValidateBackends([]byte(in.Content)), "merged": ""}, nil
 	case "configSave":
 		return u.configSave(in.Content, in.MTime)
+	case "configModel":
+		return u.configModel()
+	case "configApply":
+		return u.configApply(in.Changes, in.MTime)
 	}
 	return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
 }
@@ -219,6 +227,42 @@ func (u *userSpace) configOpen() (ConfigDoc, error) {
 		d.Problems = ps
 	}
 	return d, nil
+}
+
+// configModel : le modèle structuré de SON backends.yaml (éditeur de backends actuel) ; jamais le fichier de l'admin.
+func (u *userSpace) configModel() (any, error) {
+	d, err := u.configOpen()
+	if err != nil {
+		return nil, err
+	}
+	content := d.Content
+	if d.FromTemp {
+		content = "" // fichier absent : l'exemple commenté n'est pas une configuration
+	}
+	model, merr := core.ReadBackendsModel([]byte(content))
+	if merr != nil && len(d.Problems) == 0 {
+		d.Problems = []core.ConfigProblem{{Severity: core.SevError, Message: merr.Error()}}
+	}
+	return map[string]any{"path": d.Path, "mtime": d.MTime, "exists": d.Exists, "problems": d.Problems, "model": model}, nil
+}
+
+// configApply : changements structurés appliqués à SON backends.yaml, puis enregistrés comme configSave. Un contenu qui touche un
+// champ R1 est refusé (forbidden) ; un changement inapplicable donne {invalid, problems}.
+func (u *userSpace) configApply(changes []core.ConfigChange, mtime string) (any, error) {
+	var cur []byte
+	if b, err := os.ReadFile(u.sp.BackendsPath()); err == nil {
+		cur = b
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	out, err := core.ApplyConfigChanges(core.ConfBackends, cur, changes)
+	if err != nil {
+		return map[string]any{"invalid": true, "problems": []core.ConfigProblem{{Severity: core.SevError, Message: err.Error()}}}, nil
+	}
+	if core.UserAdminFields(out) {
+		return map[string]any{"ok": false, "forbidden": core.RoleAdmin, "msg": msgR1}, nil
+	}
+	return u.configSave(string(out), mtime)
 }
 
 func (u *userSpace) configSave(content, mtime string) (any, error) {
