@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -144,10 +145,10 @@ func TestE2K8sJamaisDeChampDangereux(t *testing.T) {
 	if sc, _ := ctr["securityContext"].(map[string]any); sc == nil || sc["privileged"] == true || sc["allowPrivilegeEscalation"] == true {
 		t.Errorf("securityContext du conteneur : %v", sc)
 	}
-	// la commande est celle du launcher, identique à celle d'un projet de l'admin
+	// la commande est un script FIXE du launcher (bootstrap root puis setpriv), jamais une valeur de l'utilisateur
 	cmd, _ := ctr["command"].([]any)
-	if len(cmd) != 3 || cmd[0] != "sh" || cmd[1] != "-c" || cmd[2] != pid1 {
-		t.Errorf("commande du conteneur : %v", cmd)
+	if len(cmd) != 3 || cmd[0] != "sh" || cmd[1] != "-c" || !strings.Contains(fmt.Sprint(cmd[2]), e2SetprivPrefix(2000, 2000)) {
+		t.Errorf("commande du conteneur : %v (sh -c <script avec %s>)", cmd, e2SetprivPrefix(2000, 2000))
 	}
 	// ni PVC ni volume créés par le launcher
 	raw, _ := json.Marshal(m)
@@ -173,7 +174,7 @@ func TestE2ImagesInvalidesRefusees(t *testing.T) {
 
 // ── docker / podman ────────────────────────────────────────────────────────────────────────────────────
 
-var dockerForbidden = []string{"--privileged", "-p", "-P", "--publish", "--publish-all", "--network", "--net", "--pid", "--ipc", "--uts", "--cap-add",
+var dockerForbidden = []string{"--privileged", "-p", "-P", "--publish", "--publish-all", "--network", "--net", "--pid", "--ipc", "--uts",
 	"--volumes-from", "--device", "--userns", "--cgroupns", "--add-host", "--dns", "--dns-search", "--dns-option", "--sysctl", "--ulimit", "--init",
 	"--entrypoint", "--restart", "--tmpfs", "--env-file", "--label-file", "--group-add", "--pids-limit-unlimited", "--ipc=host", "--link", "--mac-address", "--ip", "--ip6"}
 
@@ -230,8 +231,8 @@ func TestE2DockerArgvDUnProjetUtilisateur(t *testing.T) {
 		}
 		// la commande finale est celle du launcher (sh -c pid1), image en un seul argument avant elle
 		n := len(args)
-		if n < 4 || args[n-3] != "sh" || args[n-2] != "-c" || args[n-1] != pid1 || args[n-4] != "debian:12" {
-			t.Errorf("%s : fin d'argv %v (image, sh, -c, pid1 attendus)", typ, args[max(0, n-5):])
+		if n < 4 || args[n-3] != "sh" || args[n-2] != "-c" || !strings.Contains(args[n-1], e2SetprivPrefix(2000, 2000)) || args[n-4] != "debian:12" {
+			t.Errorf("%s : fin d'argv %v (image, sh, -c, script de bootstrap avec setpriv attendus)", typ, args[max(0, n-5):])
 		}
 	}
 }
@@ -292,40 +293,51 @@ func TestE2K8sNonRoot(t *testing.T) {
 	ctr := spec["containers"].([]any)[0].(map[string]any)
 	csc, _ := ctr["securityContext"].(map[string]any)
 	psc, _ := spec["securityContext"].(map[string]any)
-	pick := func(k string) any { // au niveau du conteneur, à défaut du pod
-		if v, ok := csc[k]; ok {
-			return v
-		}
-		return psc[k]
+	// D3 révisée (P28) : démarrage en ROOT pour le bootstrap seulement ; le traitement passe à 2000:2000 par setpriv
+	if csc["runAsUser"] != float64(0) && psc["runAsUser"] != float64(0) {
+		t.Errorf("runAsUser = %v / %v (0 attendu : bootstrap root)", csc["runAsUser"], psc["runAsUser"])
 	}
-	if pick("runAsUser") != float64(2000) || pick("runAsGroup") != float64(2000) || pick("runAsNonRoot") != true {
-		t.Errorf("identité : runAsUser=%v runAsGroup=%v runAsNonRoot=%v (2000, 2000, true attendus)", pick("runAsUser"), pick("runAsGroup"), pick("runAsNonRoot"))
+	if csc["runAsNonRoot"] == true || psc["runAsNonRoot"] == true {
+		t.Error("runAsNonRoot: true posé alors que le bootstrap est root (le profil restricted est refusé nommément)")
 	}
 	if csc["allowPrivilegeEscalation"] != false {
 		t.Errorf("allowPrivilegeEscalation = %v (false attendu)", csc["allowPrivilegeEscalation"])
 	}
-	if sp, _ := pick("seccompProfile").(map[string]any); sp["type"] != "RuntimeDefault" {
-		t.Errorf("seccompProfile = %v (RuntimeDefault attendu)", pick("seccompProfile"))
+	sp, _ := csc["seccompProfile"].(map[string]any)
+	if sp == nil {
+		sp, _ = psc["seccompProfile"].(map[string]any)
+	}
+	if sp["type"] != "RuntimeDefault" {
+		t.Errorf("seccompProfile = %v (RuntimeDefault attendu)", sp)
 	}
 	caps, _ := csc["capabilities"].(map[string]any)
 	if d, _ := caps["drop"].([]any); len(d) != 1 || d[0] != "ALL" {
 		t.Errorf("capabilities.drop = %v ([ALL] attendu)", caps["drop"])
 	}
-	if _, add := caps["add"]; add {
-		t.Error("capabilities.add présent")
+	got := map[string]bool{}
+	adds, _ := caps["add"].([]any)
+	for _, a := range adds {
+		got[fmt.Sprint(a)] = true
 	}
-	if psc["fsGroup"] != float64(2000) || psc["fsGroupChangePolicy"] != "OnRootMismatch" {
-		t.Errorf("pod securityContext : fsGroup=%v fsGroupChangePolicy=%v (2000 et OnRootMismatch attendus)", psc["fsGroup"], psc["fsGroupChangePolicy"])
+	want := []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID"}
+	if len(adds) != len(want) {
+		t.Errorf("capabilities.add = %v (EXACTEMENT %v)", adds, want)
+	}
+	for _, w := range want {
+		if !got[w] {
+			t.Errorf("capabilité %s absente de capabilities.add : %v", w, adds)
+		}
 	}
 	if csc["privileged"] != false {
 		t.Errorf("privileged = %v (false explicite attendu)", csc["privileged"])
 	}
 	if csc["readOnlyRootFilesystem"] == true {
-		t.Error("racine en lecture seule : le contrat veut une racine en écriture")
+		t.Error("racine en lecture seule : le bootstrap installe des paquets")
 	}
 }
 
-// Surcharge : run_as du backend (uid/gid non nuls) → manifeste et argv ; jamais root.
+// Surcharge : run_as du backend (uid/gid non nuls) → UTILISATEUR DU TRAITEMENT (exec, setpriv) ; le conteneur démarre toujours en root
+// (bootstrap) et ne reçoit jamais « --user » à la création.
 func TestE2RunAsDuBackend(t *testing.T) {
 	s15Setup(t)
 	sp := s15Space(t, e2UID, "backends:\n  k:\n    type: k8s\n    namespace: ns-u\n    pvc: projets\n    kubeconfig: true\n    run_as: {uid: 3000, gid: 4000}\n"+
@@ -343,25 +355,35 @@ func TestE2RunAsDuBackend(t *testing.T) {
 				t.Fatalf("manifeste : %v", merr)
 			}
 			spec := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)
-			psc, _ := spec["securityContext"].(map[string]any)
 			csc, _ := spec["containers"].([]any)[0].(map[string]any)["securityContext"].(map[string]any)
-			uid, gid := csc["runAsUser"], csc["runAsGroup"]
-			if uid == nil {
-				uid, gid = psc["runAsUser"], psc["runAsGroup"]
+			if csc["runAsUser"] != float64(0) {
+				t.Errorf("k8s : runAsUser=%v (0 : bootstrap root)", csc["runAsUser"])
 			}
-			if uid != float64(3000) || gid != float64(4000) || psc["fsGroup"] != float64(4000) {
-				t.Errorf("k8s : runAsUser=%v runAsGroup=%v fsGroup=%v (3000, 4000, 4000)", uid, gid, psc["fsGroup"])
+			cmd := fmt.Sprint(spec["containers"].([]any)[0].(map[string]any)["command"])
+			if !strings.Contains(cmd, e2SetprivPrefix(3000, 4000)) {
+				t.Errorf("k8s : le bootstrap doit passer à 3000:4000 par setpriv : %s", cmd)
+			}
+			if j := strings.Join(Engine{b}.ExecArgv("cl-x-0", false, false, "id"), " "); !strings.Contains(j, e2SetprivPrefix(3000, 4000)) {
+				t.Errorf("k8s : exec sans setpriv 3000:4000 : %s", j)
 			}
 		default:
 			args, aerr := e2Args(t, b, "debian:12")
-			if aerr != nil || !e2Has(args, "--user", "3000:4000") {
-				t.Errorf("docker : --user=3000:4000 attendu : %v %v", args, aerr)
+			if aerr != nil {
+				t.Fatalf("argv : %v", aerr)
+			}
+			for _, a := range args {
+				if a == "--user" || strings.HasPrefix(a, "--user=") || a == "-u" {
+					t.Errorf("docker : --user ne doit pas figurer au create (bootstrap root) : %v", args)
+				}
+			}
+			if j := strings.Join(Engine{b}.ExecArgv("cl-x", false, false, "id"), " "); !strings.Contains(j, "--user=3000:4000") {
+				t.Errorf("docker : exec sans --user=3000:4000 : %s", j)
 			}
 		}
 	}
 }
 
-// run_as : uid ou gid nul / négatif / non entier / absent / hors plage → refusé nommément (root jamais).
+// run_as : uid ou gid nul / négatif / non entier / absent / hors plage → refusé nommément (root jamais pour le traitement).
 func TestE2RunAsRefuse(t *testing.T) {
 	t.Setenv("CL_CONFIG_DIR", t.TempDir())
 	sp, _ := UserSpace("github-5")
@@ -376,6 +398,43 @@ func TestE2RunAsRefuse(t *testing.T) {
 	ok := "backends:\n  d:\n    type: docker\n    host: tcp://93.184.216.34:2376\n    volume: v\n    run_as: {uid: 1000, gid: 1000}\n"
 	if ms := errMsgs(sp.ValidateBackends([]byte(ok))); len(ms) != 0 {
 		t.Errorf("run_as 1000:1000 refusé : %v", ms)
+	}
+}
+
+// e2SetprivPrefix : préfixe imposé à tout exec k8s et au bootstrap (D3 révisée).
+func e2SetprivPrefix(uid, gid int) string {
+	return fmt.Sprintf("setpriv --reuid=%d --regid=%d --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all", uid, gid)
+}
+
+// Chaque exec du launcher : docker/podman → --user=<uid>:<gid> ; k8s → préfixe setpriv ; JAMAIS en root, même si l'appelant le demande.
+func TestE2ExecToujoursSousLUtilisateurDuTraitement(t *testing.T) {
+	cases := map[string]BackendConf{"k8s": e2K8s(t), "docker": e2Docker(t, "docker"), "podman": e2Docker(t, "podman")}
+	for typ, b := range cases {
+		for _, root := range []bool{false, true} {
+			for _, tty := range []bool{false, true} {
+				argv := Engine{b}.ExecArgv("cl-ctr", root, tty, "tmux", "ls")
+				j := strings.Join(argv, " ")
+				if typ == "k8s" {
+					if !strings.Contains(j, e2SetprivPrefix(2000, 2000)) {
+						t.Errorf("%s root=%v tty=%v : préfixe setpriv absent : %s", typ, root, tty, j)
+					}
+					for _, bad := range []string{"--init-groups", "exec su ", " su -"} {
+						if strings.Contains(j, bad) {
+							t.Errorf("%s root=%v tty=%v : « %s » (repli ou groupes hérités) : %s", typ, root, tty, bad, j)
+						}
+					}
+				} else {
+					if !strings.Contains(j, "--user=2000:2000") {
+						t.Errorf("%s root=%v tty=%v : --user=2000:2000 absent : %s", typ, root, tty, j)
+					}
+					for _, bad := range []string{"-u 0", "--user=0", "--user 0", "-u root", "--user=root"} {
+						if strings.Contains(j, bad) {
+							t.Errorf("%s root=%v tty=%v : exec en root (%s) : %s", typ, root, tty, bad, j)
+						}
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -395,24 +454,43 @@ func TestE2DockerNonRootEtDurci(t *testing.T) {
 			t.Errorf("%s : %v", typ, err)
 			continue
 		}
-		if !e2Has(args, "--user", "2000:2000") {
-			t.Errorf("%s : --user 2000:2000 absent : %v", typ, args)
-		}
-		for i, a := range args {
-			if a == "--user" && i+1 < len(args) && (args[i+1] == "0" || args[i+1] == "root" || args[i+1] == "0:0") {
-				t.Errorf("%s : conteneur root : %v", typ, args)
+		for _, a := range args {
+			if a == "--user" || a == "-u" || strings.HasPrefix(a, "--user=") {
+				t.Errorf("%s : %s au create (le bootstrap démarre en root ; --user seulement sur chaque exec) : %v", typ, a, args)
+			}
+			if a == "--userns=keep-id" {
+				t.Errorf("%s : --userns=keep-id", typ)
 			}
 		}
 		if !e2Has(args, "--cap-drop", "ALL") {
 			t.Errorf("%s : --cap-drop=ALL absent : %v", typ, args)
 		}
+		caps := map[string]bool{}
+		for i, a := range args {
+			v := ""
+			switch {
+			case a == "--cap-add" && i+1 < len(args):
+				v = args[i+1]
+			case strings.HasPrefix(a, "--cap-add="):
+				v = strings.TrimPrefix(a, "--cap-add=")
+			}
+			for _, c := range strings.Split(v, ",") {
+				if c != "" {
+					caps[c] = true
+				}
+			}
+		}
+		want := []string{"CHOWN", "DAC_OVERRIDE", "FOWNER", "SETUID", "SETGID"}
+		if len(caps) != len(want) {
+			t.Errorf("%s : capacités ajoutées %v (EXACTEMENT %v)", typ, caps, want)
+		}
+		for _, w := range want {
+			if !caps[w] {
+				t.Errorf("%s : --cap-add %s absent : %v", typ, w, args)
+			}
+		}
 		if !e2Has(args, "--security-opt", "no-new-privileges") && !e2Has(args, "--security-opt", "no-new-privileges:true") {
 			t.Errorf("%s : --security-opt no-new-privileges absent : %v", typ, args)
-		}
-		for _, a := range args {
-			if a == "--userns=keep-id" || a == "--user=0" {
-				t.Errorf("%s : %s (identité de l'hôte / root)", typ, a)
-			}
 		}
 	}
 }
@@ -423,7 +501,7 @@ func TestE2DockerEnvEtOptionsFixes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("argv refusé : %v", err)
 	}
-	fixed := map[string]bool{"HOME": true, "CLAUDE_CONFIG_DIR": true, "LANG": true, "DISABLE_AUTOUPDATER": true}
+	fixed := map[string]bool{"HOME": true, "CLAUDE_CONFIG_DIR": true, "XDG_CONFIG_HOME": true, "LANG": true, "DISABLE_AUTOUPDATER": true}
 	for i, a := range args {
 		if (a == "-e" || a == "--env") && i+1 < len(args) {
 			if k := strings.SplitN(args[i+1], "=", 2)[0]; !fixed[k] {
@@ -436,6 +514,13 @@ func TestE2DockerEnvEtOptionsFixes(t *testing.T) {
 		if a == "--cap-drop" && i+1 < len(args) && args[i+1] != "ALL" {
 			t.Errorf("--cap-drop inattendu : %s", args[i+1])
 		}
+		if a == "--cap-add" && i+1 < len(args) {
+			for _, c := range strings.Split(args[i+1], ",") {
+				if !map[string]bool{"CHOWN": true, "DAC_OVERRIDE": true, "FOWNER": true, "SETUID": true, "SETGID": true}[c] {
+					t.Errorf("capacité hors liste du launcher : %s", c)
+				}
+			}
+		}
 	}
 }
 
@@ -446,13 +531,21 @@ func TestE2K8sEnvFixe(t *testing.T) {
 		t.Fatalf("manifeste refusé : %v", err)
 	}
 	ctr := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["containers"].([]any)[0].(map[string]any)
-	fixed := map[string]bool{"HOME": true, "CLAUDE_CONFIG_DIR": true, "LANG": true, "DISABLE_AUTOUPDATER": true}
+	fixed := map[string]bool{"HOME": true, "CLAUDE_CONFIG_DIR": true, "XDG_CONFIG_HOME": true, "LANG": true, "DISABLE_AUTOUPDATER": true}
+	vals := map[string]string{}
 	for _, e := range ctr["env"].([]any) {
-		if n := e.(map[string]any)["name"].(string); !fixed[n] {
+		em := e.(map[string]any)
+		vals[em["name"].(string)], _ = em["value"].(string)
+		if n := em["name"].(string); !fixed[n] {
 			t.Errorf("variable d'environnement hors liste : %s", n)
 		}
 		if _, vf := e.(map[string]any)["valueFrom"]; vf {
 			t.Error("env.valueFrom présent")
+		}
+	}
+	for k, want := range map[string]string{"HOME": "/space/.claude/home", "CLAUDE_CONFIG_DIR": "/space/.claude", "XDG_CONFIG_HOME": "/space/.claude/home/.config"} {
+		if vals[k] != want {
+			t.Errorf("%s = %q (attendu %q)", k, vals[k], want)
 		}
 	}
 	if sl, ok := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["enableServiceLinks"]; ok && sl != false {

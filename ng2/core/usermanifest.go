@@ -46,8 +46,9 @@ func (b BackendConf) runAs() (uid, gid int64) {
 }
 
 var (
-	userSegRE   = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
-	userImageRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/:@-]{0,254}$`)
+	userSegRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$`)
+	// image : référence de dépôt en minuscules (registre[:port]/chemin), étiquette facultative, condensé sha256 facultatif (64 hex)
+	userImageRE = regexp.MustCompile(`^(?:[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?/)?[a-z0-9]+(?:[._-][a-z0-9]+)*(?:/[a-z0-9]+(?:[._-][a-z0-9]+)*)*(?::[A-Za-z0-9_][A-Za-z0-9_.-]{0,127})?(?:@sha256:[a-f0-9]{64})?$`)
 	userCtrRE   = regexp.MustCompile(`^cl-[a-z0-9][a-z0-9-]{0,59}$`)
 )
 
@@ -66,7 +67,7 @@ func userProj(proj string) (cat, name string, err error) {
 
 // CheckUserImage : référence d'image admise pour un projet d'utilisateur — jamais un drapeau, un espace ni un caractère de shell.
 func CheckUserImage(image string) error {
-	if !userImageRE.MatchString(image) || strings.Contains(image, "..") || strings.Contains(image, "//") || strings.HasPrefix(image, "-") {
+	if len(image) > 255 || !userImageRE.MatchString(image) {
 		return errors.New("image refusée : référence d'image simple attendue (registre/nom:étiquette ou @sha256:…)")
 	}
 	return nil
