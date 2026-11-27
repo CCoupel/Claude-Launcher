@@ -37,6 +37,10 @@ type AddResult struct {
 // removeAll : suppression d'un dossier de coffre (point d'injection des tests : échec de suppression, sans dépendre des droits Unix).
 var removeAll = tun.Of(os.RemoveAll)
 
+// SharedBackendWarning : alerte (D2) — le launcher ne signe pas les objets d'un backend : un backend (ou un stockage) partagé avec d'autres
+// utilisateurs mélange leurs projets sans que le launcher puisse les distinguer.
+const SharedBackendWarning = "Attention : si ce backend est partagé avec d'autres utilisateurs, leurs projets y coexistent et le launcher ne les distingue pas des tiens ; n'y déclare que ton propre stockage."
+
 const msgConflictMTime = "le fichier a changé depuis l'ouverture de l'éditeur : rouvre l'éditeur"
 
 func aerr(field, code, msg string) *AddError { return &AddError{Field: field, Code: code, Msg: msg} }
@@ -316,7 +320,7 @@ func (s Space) AddBackend(req AddRequest, w SecretWrite) (*AddResult, *AddError)
 			return err
 		}
 		created = "" // tout est écrit : rien à retirer
-		res = &AddResult{Name: name, Type: typ, Warnings: warnings}
+		res = &AddResult{Name: name, Type: typ, Warnings: append(warnings, SharedBackendWarning)}
 		return nil
 	})
 	if created != "" { // étape 2 manquée : plus de secret sans son backend

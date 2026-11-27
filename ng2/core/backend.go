@@ -1242,6 +1242,9 @@ func ensureSharedConfig() error {
 // ExecArgv : commande exécutée dans le conteneur ; root : en root, sinon en
 // utilisateur de l'hôte (uid:gid) ; tty : terminal interactif (attach).
 func (e Engine) ExecArgv(name string, root, tty bool, argv ...string) []string {
+	if e.B.user { // backend d'utilisateur : JAMAIS un exec en root (le paramètre root est ignoré), sous l'uid du traitement
+		return e.userExecArgv(name, tty, argv...)
+	}
 	if e.B.K8s() {
 		return e.k8sExecArgv(name, root, tty, argv...)
 	}

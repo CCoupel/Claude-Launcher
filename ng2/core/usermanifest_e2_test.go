@@ -569,10 +569,15 @@ func TestE2K8sPodDuBackendJamaisRecopie(t *testing.T) {
 		return
 	}
 	raw, _ := json.Marshal(m)
-	for _, bad := range []string{"serviceAccountName", "node-1", "gvisor", "system-node-critical", "hostAliases", "dnsConfig", "1.1.1.1", `"runAsUser":0`} {
+	for _, bad := range []string{"serviceAccountName", "node-1", "gvisor", "system-node-critical", "hostAliases", "dnsConfig", "1.1.1.1"} {
 		if strings.Contains(string(raw), bad) {
 			t.Errorf("« %s » du pod du backend recopié dans le manifeste d'un projet d'utilisateur", bad)
 		}
+	}
+	// « securityContext: {runAsUser: 0} » du backend : le runAsUser 0 du bootstrap est celui du launcher, AU NIVEAU DU CONTENEUR seulement ; le
+	// pod n'a aucun securityContext venu du backend
+	if psc := m["spec"].(map[string]any)["template"].(map[string]any)["spec"].(map[string]any)["securityContext"]; psc != nil {
+		t.Errorf("securityContext du pod recopié du backend : %v", psc)
 	}
 }
 

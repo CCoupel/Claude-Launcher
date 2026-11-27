@@ -138,11 +138,12 @@ func (s Space) TestBackend(e BackendEntry) []TestStep {
 	}
 	b.user, b.vault = true, s.VaultDir()
 	steps := []TestStep{userStep("déclaration", true, "", "")}
+	shared := TestStep{Label: "avertissement", Warn: true, Detail: SharedBackendWarning}
 	switch b.Type {
 	case "k8s":
-		return append(steps, userK8sSteps(b)...)
+		return append(append(steps, userK8sSteps(b)...), shared)
 	case "docker", "podman":
-		return append(steps, userEngineSteps(b)...)
+		return append(append(steps, userEngineSteps(b)...), shared)
 	}
 	return append(steps, userStep("type", false, "type de backend non pris en charge", ""))
 }
