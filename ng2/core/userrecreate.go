@@ -78,7 +78,7 @@ func (e Engine) consumeRecreateToken(tok, name string, args []string) bool {
 // options admises dans l'argv de « create » : celles que le constructeur dédié produit — jamais autre chose (T3).
 var createAllowed = map[string]bool{"--name": true, "--hostname": true, "--label": true, "--mount": true, "--workdir": true, "-w": true, "-e": true,
 	"--env": true, "--user": true, "--cap-drop": true, "--security-opt": true, "--cpus": true, "--memory": true, "--pids-limit": true,
-	"--shm-size": true, "--gpus": true}
+	"--shm-size": true, "--gpus": true, "--cap-add": true}
 
 // checkCreateArgs : « create » puis des options de la liste blanche, l'image, la commande fixe ; jamais un drapeau étranger.
 func checkCreateArgs(args []string) error {
@@ -105,6 +105,17 @@ func checkCreateArgs(args []string) error {
 		}
 		if !createAllowed[name] {
 			return errors.New("option de création non admise")
+		}
+		if name == "--cap-add" { // seules les cinq capacités du bootstrap
+			v := strings.TrimPrefix(a, "--cap-add=")
+			if !strings.Contains(a, "=") && i+1 < len(args) {
+				v = args[i+1]
+			}
+			for _, c := range strings.Split(v, ",") {
+				if !map[string]bool{"CHOWN": true, "DAC_OVERRIDE": true, "FOWNER": true, "SETUID": true, "SETGID": true}[c] {
+					return errors.New("capacité non admise")
+				}
+			}
 		}
 	}
 	return nil

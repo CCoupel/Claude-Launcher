@@ -766,3 +766,8 @@ func runAsOK(be map[string]any) bool {
 	}
 	return true
 }
+
+// PurgeProjectTrace : efface la trace d'un projet précis (backend, catégorie, nom) — action « Purger » ; aucune commande vers le backend.
+func (s Space) PurgeProjectTrace(backend, cat, project string) (int, error) {
+	return s.purge(func(t Trace) bool { return t.Backend == backend && t.Category == cat && t.Project == project })
+}

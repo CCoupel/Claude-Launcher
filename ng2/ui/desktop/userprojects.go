@@ -1,0 +1,532 @@
+package desktop
+
+import (
+	"encoding/json"
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"claude-launcher-ng2/core"
+)
+
+// Projets d'un UTILISATEUR (LOT-3.2, contrat §5, §5 bis, §6) : la liste vient du BACKEND (découverte par labels) complétée par la trace ; un projet est
+// identifié par « <backend>/<catégorie>/<nom> » (jamais un chemin du serveur). Aucune lecture du stockage de l'utilisateur par le launcher.
+
+// rowGone : projet dont l'objet a disparu du backend (trace sans objet).
+type rowGone struct {
+	Backend string `json:"backend"`
+	Seen    string `json:"seen"`
+}
+
+// rowUnreach : projet d'un backend injoignable (trace seulement).
+type rowUnreach struct {
+	Backend string `json:"backend"`
+	Reason  string `json:"reason"`
+}
+
+// userRow : ligne de l'arbre d'un utilisateur. « missing » (objet) masque le booléen de Row du même nom.
+type userRow struct {
+	Row
+	Missing     *rowGone    `json:"missing,omitempty"`
+	Stopped     bool        `json:"stopped,omitempty"`
+	StateAt     string      `json:"stateAt,omitempty"`
+	Unreachable *rowUnreach `json:"unreachable,omitempty"`
+	Backend     string      `json:"backend,omitempty"`
+}
+
+// userSnapshot : état d'interface d'un utilisateur (rows de projets).
+type userSnapshot struct {
+	Snapshot
+	Rows []userRow `json:"rows"`
+}
+
+// découverte : cache de 10 s par backend (la cadence du sondage), jamais plusieurs lectures simultanées d'un même backend.
+type userDisc struct {
+	at       time.Time
+	projects []core.UserProject
+	err      error
+	loaded   bool
+}
+
+type userProjects struct {
+	mu   sync.Mutex
+	disc map[string]*userDisc
+}
+
+const userDiscTTL = 10 * time.Second
+
+func (u *userSpace) engines() (map[string]core.Engine, []core.BackendConf, error) {
+	bs, err := u.sp.LoadBackends()
+	if err != nil {
+		return nil, nil, err
+	}
+	m := map[string]core.Engine{}
+	for _, b := range bs {
+		if e, ok := core.EngineOf(b); ok {
+			m[b.Name] = e
+		}
+	}
+	return m, bs, nil
+}
+
+// discover : projets découverts par backend (cache), trace mise à jour pour chaque découverte réussie. force : relecture immédiate.
+func (u *userSpace) discover(force bool) (map[string]*userDisc, []core.BackendConf) {
+	es, bs, err := u.engines()
+	if err != nil {
+		return map[string]*userDisc{}, nil
+	}
+	u.proj.mu.Lock()
+	defer u.proj.mu.Unlock()
+	if u.proj.disc == nil {
+		u.proj.disc = map[string]*userDisc{}
+	}
+	out := map[string]*userDisc{}
+	for _, b := range bs {
+		d := u.proj.disc[b.Name]
+		if d == nil || force || time.Since(d.at) > userDiscTTL {
+			ps, derr := es[b.Name].DiscoverUserProjects()
+			d = &userDisc{at: time.Now(), projects: ps, err: derr, loaded: true}
+			u.proj.disc[b.Name] = d
+			if derr == nil {
+				for _, p := range ps {
+					_ = u.sp.RecordTrace(core.Trace{Backend: b.Name, Kind: b.Type, Object: p.Object, Project: p.Project, Category: p.Category})
+				}
+			}
+		}
+		out[b.Name] = d
+	}
+	return out, bs
+}
+
+func (u *userSpace) invalidate() {
+	u.proj.mu.Lock()
+	u.proj.disc = nil
+	u.proj.mu.Unlock()
+}
+
+func (u *userSpace) pushState() {
+	if u.emit != nil {
+		u.emit("state", u.snapshot())
+	}
+}
+
+// rows : arbre « backend → catégorie → projet » (découverte + trace).
+func (u *userSpace) rows() []userRow {
+	disc, bs := u.discover(false)
+	traces, _ := u.sp.LoadTraces()
+	var rows []userRow
+	names := make([]string, 0, len(bs))
+	for _, b := range bs {
+		names = append(names, b.Name)
+	}
+	sort.Strings(names)
+	for _, bn := range names {
+		d := disc[bn]
+		rows = append(rows, userRow{Row: Row{Kind: "root", Name: bn, Path: bn, Depth: 0}, Backend: bn})
+		type item struct {
+			cat, name string
+			row       userRow
+		}
+		var items []item
+		seen := map[string]bool{}
+		if d != nil && d.err == nil {
+			for _, p := range d.projects {
+				id := core.UserProjectID(bn, p.Category, p.Project)
+				seen[id] = true
+				r := userRow{Row: Row{Kind: "project", Name: p.Project, Path: id, Depth: 2}, Backend: bn, Stopped: !p.Running}
+				if p.Meta != nil {
+					r.StateAt = p.Meta.Seen
+				}
+				if p.Running {
+					r.StateAt = time.Now().UTC().Format(time.RFC3339)
+				}
+				items = append(items, item{p.Category, p.Project, r})
+			}
+		}
+		for _, t := range traces {
+			id := core.UserProjectID(bn, t.Category, t.Project)
+			if t.Backend != bn || seen[id] {
+				continue
+			}
+			r := userRow{Row: Row{Kind: "project", Name: t.Project, Path: id, Depth: 2}, Backend: bn}
+			if d == nil || d.err != nil { // backend injoignable : la trace seule
+				r.Unreachable = &rowUnreach{Backend: bn, Reason: "backend injoignable"}
+			} else { // objet disparu d'un backend joignable
+				r.Missing = &rowGone{Backend: bn, Seen: t.LastSeen.UTC().Format(time.RFC3339)}
+			}
+			items = append(items, item{t.Category, t.Project, r})
+		}
+		sort.Slice(items, func(i, j int) bool {
+			if items[i].cat != items[j].cat {
+				return items[i].cat < items[j].cat
+			}
+			return items[i].name < items[j].name
+		})
+		cat := ""
+		for _, it := range items {
+			if it.cat != cat {
+				cat = it.cat
+				rows = append(rows, userRow{Row: Row{Kind: "cat", Name: cat, Path: bn + "/" + cat, Depth: 1}, Backend: bn})
+			}
+			rows = append(rows, it.row)
+		}
+	}
+	if rows == nil {
+		rows = []userRow{}
+	}
+	return rows
+}
+
+// projectCount : projets de l'utilisateur, tous backends confondus (limite users.maxProjects).
+func (u *userSpace) projectCount() int {
+	disc, _ := u.discover(false)
+	n := 0
+	for _, d := range disc {
+		if d != nil && d.err == nil {
+			n += len(d.projects)
+		}
+	}
+	return n
+}
+
+func (u *userSpace) findProject(id string) (core.Engine, core.UserProject, *core.BackendConf, bool, error) {
+	bn, cat, name, err := core.ParseUserProjectID(id)
+	if err != nil {
+		return core.Engine{}, core.UserProject{}, nil, false, err
+	}
+	es, bs, lerr := u.engines()
+	e, ok := es[bn]
+	if lerr != nil || !ok {
+		return core.Engine{}, core.UserProject{}, nil, false, fmt.Errorf("backend inconnu")
+	}
+	var b *core.BackendConf
+	for i := range bs {
+		if bs[i].Name == bn {
+			b = &bs[i]
+		}
+	}
+	disc, _ := u.discover(false)
+	if d := disc[bn]; d != nil && d.err == nil {
+		for _, p := range d.projects {
+			if p.Category == cat && p.Project == name {
+				return e, p, b, true, nil
+			}
+		}
+	}
+	return e, core.UserProject{Backend: bn, Category: cat, Project: name}, b, false, nil
+}
+
+// refusal : refus nommé {ok:false, field?, code, msg}.
+func refusal(field, code, msg string) map[string]any {
+	m := map[string]any{"ok": false, "code": code, "msg": core.ScrubMessage(msg)}
+	if field != "" {
+		m["field"] = field
+	}
+	return m
+}
+
+type userProjArgs struct {
+	Path, Backend, Project, Category, Name, Image, Repo string
+	Confirm                                             string
+	DryRun                                              bool
+	Options                                             json.RawMessage
+}
+
+// projectCall : méthodes projets de l'instance utilisateur.
+func (u *userSpace) projectCall(c webCall, method string, raw json.RawMessage) (any, error) {
+	var a userProjArgs
+	if len(raw) > 0 && string(raw) != "null" {
+		if err := json.Unmarshal(raw, &a); err != nil {
+			return nil, fmt.Errorf("%s : arguments invalides", method)
+		}
+	}
+	switch method {
+	case "select", "cardsFor":
+		_, p, b, found, err := u.findProject(a.Path)
+		if err != nil {
+			return nil, nil
+		}
+		card := map[string]any{"path": a.Path, "name": p.Project, "backend": p.Backend, "stopped": found && !p.Running, "found": found}
+		if b != nil && found {
+			card["image"] = p.Image
+		}
+		if p.Meta != nil {
+			card["stateAt"], card["git"] = p.Meta.Seen, map[string]any{"branch": p.Meta.Branch, "dirty": p.Meta.Dirty, "ahead": p.Meta.Ahead, "behind": p.Meta.Behind, "head": p.Meta.Head}
+			card["tpl"], card["team"] = p.Meta.Tpl, p.Meta.Team
+		}
+		return card, nil
+	case "refresh", "refreshProject":
+		return u.refreshProject(a.Path)
+	case "projectPurge":
+		return u.projectPurge(a)
+	case "newInfo":
+		return u.newInfo(), nil
+	case "create":
+		return u.createProject(c, a)
+	case "projectSettings":
+		return u.projectSettings(a)
+	case "projectApply":
+		return u.projectApply(a)
+	}
+	return nil, fmt.Errorf("%s : %s", method, msgNoSpaceMethod)
+}
+
+func (u *userSpace) newInfo() map[string]any {
+	_, bs, _ := u.engines()
+	img := core.UserDefaultImage()
+	var list []map[string]any
+	for _, b := range bs {
+		list = append(list, map[string]any{"name": b.Name, "type": b.Type, "image": img})
+	}
+	if list == nil {
+		list = []map[string]any{}
+	}
+	return map[string]any{"backends": list, "defaultImage": img, "maxProjects": core.UserMaxProjects(), "count": u.projectCount()}
+}
+
+// createProject : crée l'objet labellisé du projet (arrêté) sur le backend choisi ; limite de projets, noms, image par défaut.
+func (u *userSpace) createProject(c webCall, a userProjArgs) (any, error) {
+	if msg := u.admitCfg(time.Now()); msg != "" {
+		return map[string]any{"ok": false, "code": "rate", "status": 429, "msg": msg}, nil
+	}
+	es, _, _ := u.engines()
+	e, ok := es[a.Backend]
+	if !ok {
+		return refusal("backend", "invalid", "backend inconnu dans vos réglages"), nil
+	}
+	if msg := core.ValidUserProjectName(a.Category); msg != "" {
+		return refusal("category", "invalid", msg), nil
+	}
+	if msg := core.ValidUserProjectName(a.Name); msg != "" {
+		return refusal("name", "invalid", msg), nil
+	}
+	if a.Repo != "" {
+		return refusal("repo", "invalid", "le clonage d'un dépôt n'est pas disponible dans cette version : créer le projet vide, puis cloner dans son terminal"), nil
+	}
+	if p := core.CheckProjectLimit(u.projectCount()); p != nil {
+		return refusal("", p.Code, p.Msg), nil
+	}
+	image := a.Image
+	if image == "" {
+		image = core.UserDefaultImage()
+	}
+	if err := core.CheckUserImage(image); err != nil {
+		return refusal("image", "invalid", err.Error()), nil
+	}
+	if err := e.CreateUserProject(a.Category, a.Name, image); err != nil {
+		code := "invalid"
+		if strings.Contains(err.Error(), "déjà ce nom") {
+			return refusal("name", "conflict", err.Error()), nil
+		}
+		return refusal("", code, err.Error()), nil
+	}
+	u.invalidate()
+	u.pushState()
+	return map[string]any{"ok": true, "path": core.UserProjectID(a.Backend, a.Category, a.Name)}, nil
+}
+
+// refreshProject (F5) : un projet arrêté est démarré (sans session claude), puis l'état est relu ; jamais par le sondage.
+func (u *userSpace) refreshProject(id string) (any, error) {
+	if msg := u.admitCfg(time.Now()); msg != "" {
+		return map[string]any{"ok": false, "code": "rate", "status": 429, "msg": msg}, nil
+	}
+	u.invalidate() // F5 : relecture immédiate du backend
+	e, p, _, found, err := u.findProject(id)
+	if err != nil {
+		return refusal("path", "invalid", err.Error()), nil
+	}
+	if !found {
+		u.invalidate()
+		u.pushState()
+		return refusal("", "invalid", "projet introuvable sur le backend"), nil
+	}
+	started := false
+	if !p.Running {
+		if err := e.StartUserProject(p.Category, p.Project); err != nil {
+			return refusal("", "invalid", err.Error()), nil
+		}
+		started = true
+	}
+	u.invalidate()
+	u.pushState()
+	return map[string]any{"ok": true, "started": started, "steps": []string{"start"}}, nil
+}
+
+// projectPurge : efface la TRACE d'un projet dont l'objet a disparu ; jamais une commande vers le backend ni une suppression chez l'utilisateur.
+func (u *userSpace) projectPurge(a userProjArgs) (any, error) {
+	id := a.Path
+	if id == "" && a.Backend != "" && a.Project != "" {
+		id = a.Backend + "/" + a.Project
+	}
+	bn, cat, name, err := core.ParseUserProjectID(id)
+	if err != nil {
+		return refusal("path", "invalid", err.Error()), nil
+	}
+	_, _, _, found, ferr := u.findProject(id)
+	if ferr != nil {
+		return refusal("path", "invalid", ferr.Error()), nil
+	}
+	if found {
+		return refusal("", "invalid", "le projet existe encore sur le backend : rien à purger"), nil
+	}
+	n, perr := u.sp.PurgeProjectTrace(bn, cat, name)
+	if perr != nil || n == 0 {
+		return refusal("", "invalid", "aucune trace à purger"), nil
+	}
+	u.invalidate()
+	u.pushState()
+	where := "le stockage de ton backend"
+	if bs, err := u.sp.LoadBackends(); err == nil {
+		for _, b := range bs {
+			if b.Name == bn && b.PVC != "" {
+				where = "le PVC " + b.PVC
+			} else if b.Name == bn && b.Volume != "" {
+				where = "le volume " + b.Volume
+			}
+		}
+	}
+	return map[string]any{"ok": true, "msg": "trace purgée ; les fichiers éventuels restent dans " + where}, nil
+}
+
+// options d'un projet : formes échangées avec l'interface (champs simples + zone JSON « Spécification du pod »).
+type userOptionsIn struct {
+	Values  map[string]string `json:"values"`
+	PodJSON string            `json:"podJson"`
+	RunAs   struct {
+		UID string `json:"uid"`
+		GID string `json:"gid"`
+	} `json:"runAs"`
+}
+
+func problemMaps(ps []core.OptionProblem) []map[string]any {
+	out := make([]map[string]any, 0, len(ps))
+	for _, p := range ps {
+		m := map[string]any{"field": p.Field, "code": p.Code, "msg": p.Msg}
+		if p.Path != "" {
+			m["path"] = p.Path
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+func (u *userSpace) projectSettings(a userProjArgs) (any, error) {
+	e, p, b, found, err := u.findProject(a.Path)
+	if err != nil || b == nil {
+		return refusal("path", "invalid", "projet inconnu"), nil
+	}
+	if !found {
+		return refusal("", "invalid", "projet introuvable sur le backend"), nil
+	}
+	values, verr := e.UserProjectValues(p.Category, p.Project)
+	if verr != nil {
+		values = map[string]string{}
+	}
+	uid, gid := b.RunAsValues()
+	ra := map[string]int64{"uid": uid, "gid": gid}
+	opts := map[string]any{"backend": p.Backend, "image": p.Image, "shared": true, "values": values, "runAs": ra, "runAsDefault": ra}
+	if b.K8s() {
+		d := core.DefaultPodSimple()
+		opts["kind"] = "k8s"
+		opts["defaults"] = map[string]string{"cpuRequest": d.CPURequest, "memRequest": d.MemRequest, "cpuLimit": d.CPULimit, "memLimit": d.MemLimit, "ephemeral": d.Ephemeral}
+		opts["podJson"], opts["podJsonDefault"] = "{}", "{}"
+	} else {
+		d := core.DefaultContainerRaw()
+		opts["kind"] = "container"
+		opts["defaults"] = map[string]string{"cpus": d.Cpus, "memory": d.Memory, "pids_limit": d.PidsLimit, "shm_size": d.ShmSize, "gpus": d.Gpus}
+	}
+	return map[string]any{"options": opts, "warnings": []string{core.SharedBackendWarning}}, nil
+}
+
+// projectApply : valide les options (même code que la saisie en direct : dryRun), puis les applique — k8s : patch du StatefulSet (au prochain
+// démarrage) ; docker/podman : cpus, memory, pids_limit à chaud ; shm_size et gpus : recréation après confirmation (jeton lié au projet et aux options).
+func (u *userSpace) projectApply(a userProjArgs) (any, error) {
+	var in struct {
+		Options userOptionsIn `json:"options"`
+	}
+	if len(a.Options) > 0 {
+		var o userOptionsIn
+		if err := json.Unmarshal(a.Options, &o); err != nil {
+			return refusal("options", "invalid", "options illisibles"), nil
+		}
+		in.Options = o
+	}
+	e, p, b, found, err := u.findProject(a.Path)
+	if err != nil || b == nil || !found {
+		return refusal("path", "invalid", "projet introuvable sur le backend"), nil
+	}
+	o := in.Options
+	var problems []core.OptionProblem
+	if o.RunAs.UID != "" || o.RunAs.GID != "" {
+		if ra, ps := core.ParseRunAs(o.RunAs.UID, o.RunAs.GID); len(ps) > 0 {
+			problems = append(problems, ps...)
+		} else if cu, cg := b.RunAsValues(); int64(ra.UID) != cu || int64(ra.GID) != cg {
+			problems = append(problems, core.OptionProblem{Field: "pod.run_as", Code: "invalid", Msg: "changer l'utilisateur d'un projet existant n'est pas disponible dans cette version"})
+		}
+	}
+	if b.K8s() {
+		simple := core.PodSimple{CPURequest: o.Values["cpuRequest"], CPULimit: o.Values["cpuLimit"], MemRequest: o.Values["memRequest"], MemLimit: o.Values["memLimit"], Ephemeral: o.Values["ephemeral"]}
+		var spec map[string]any
+		if strings.TrimSpace(o.PodJSON) != "" {
+			var sps []core.OptionProblem
+			if spec, sps = core.ParsePodSpecJSON([]byte(o.PodJSON)); len(sps) > 0 {
+				problems = append(problems, sps...)
+				spec = nil
+			}
+		}
+		po, ps := core.ParsePodOptions(simple, spec)
+		problems = append(problems, ps...)
+		if len(problems) > 0 {
+			return map[string]any{"ok": false, "problems": problemMaps(problems)}, nil
+		}
+		if a.DryRun {
+			return map[string]any{"ok": true, "dryRun": true}, nil
+		}
+		if err := e.ApplyPodOptions(p.Category, p.Project, po); err != nil {
+			return refusal("", "invalid", err.Error()), nil
+		}
+		u.invalidate()
+		return map[string]any{"ok": true, "applied": "next-start"}, nil
+	}
+	raw := core.ContainerRaw{Cpus: o.Values["cpus"], Memory: o.Values["memory"], PidsLimit: o.Values["pids_limit"], ShmSize: o.Values["shm_size"], Gpus: o.Values["gpus"]}
+	co, ps := core.ParseContainerOptionsFor(b.Type, raw)
+	problems = append(problems, ps...)
+	if len(problems) > 0 {
+		return map[string]any{"ok": false, "problems": problemMaps(problems)}, nil
+	}
+	if a.DryRun {
+		return map[string]any{"ok": true, "dryRun": true}, nil
+	}
+	cur, _ := e.UserProjectValues(p.Category, p.Project)
+	var changes []map[string]string
+	for k, nv := range map[string]string{"shm_size": co.ShmSize, "gpus": co.Gpus} {
+		if nv != "" && nv != cur[k] {
+			changes = append(changes, map[string]string{"key": k, "from": cur[k], "to": nv})
+		}
+	}
+	if len(changes) == 0 { // cpus, memory, pids_limit : à chaud, sans recréer
+		if err := e.UpdateContainerHot(p.Category, p.Project, co); err != nil {
+			return refusal("", "invalid", err.Error()), nil
+		}
+		u.invalidate()
+		return map[string]any{"ok": true, "applied": "hot"}, nil
+	}
+	args, aerr := e.RecreateArgs(p.Category, p.Project, p.Image, co)
+	if aerr != nil {
+		return refusal("", "invalid", aerr.Error()), nil
+	}
+	if a.Confirm == "" {
+		sort.Slice(changes, func(i, j int) bool { return changes[i]["key"] < changes[j]["key"] })
+		return map[string]any{"ok": false, "recreate": map[string]any{"token": e.RecreateToken(e.ObjectName(p.Category, p.Project), args),
+			"lost": []string{"les paquets et fichiers installés dans le conteneur hors du volume"}, "kept": []string{"le dossier du projet", ".claude", "l'état et l'approbation sous .claude-launcher/"},
+			"sessionOpen": p.Running, "changes": changes}}, nil
+	}
+	if err := e.RecreateContainer(e.ObjectName(p.Category, p.Project), args, a.Confirm, p.Running, time.Now()); err != nil {
+		return refusal("", "invalid", err.Error()), nil
+	}
+	u.invalidate()
+	u.pushState()
+	return map[string]any{"ok": true, "applied": "recreated"}, nil
+}

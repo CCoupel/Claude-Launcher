@@ -87,8 +87,10 @@ func TestSpacesInitVideEtBackendsIsoles255(t *testing.T) {
 	if rb["space"].(map[string]any)["empty"] != true {
 		t.Errorf("bob doit voir un espace vide : %v", rb["space"])
 	}
-	if rows := ra["state"].(map[string]any)["rows"].([]any); len(rows) != 0 {
-		t.Errorf("l'utilisateur voit des projets : %v", rows)
+	for _, r := range ra["state"].(map[string]any)["rows"].([]any) { // LOT-3.2 : l'arbre porte ses backends ; aucun projet ne vient de la racine de l'admin
+		if r.(map[string]any)["kind"] == "project" {
+			t.Errorf("l'utilisateur voit un projet : %v", r)
+		}
 	}
 	if ra["user"] == nil || strings.Contains(fmt.Sprint(a), "github-11") {
 		t.Errorf("identifiant numérique exposé ou user absent : %v", a)
@@ -108,7 +110,7 @@ func TestSpacesMethodesEtFichiersRefuses255(t *testing.T) {
 			t.Errorf("%s : forbidden attendu pour un utilisateur : %v", m, out)
 		}
 	}
-	for _, m := range []string{"open", "refresh", "create", "termInput", "quit", "secretReveal"} {
+	for _, m := range []string{"open", "termInput", "quit", "secretReveal"} {
 		_, out := s.call(t, "alice", m, `{}`)
 		if out["error"] == nil || !strings.Contains(fmt.Sprint(out["error"]), msgNoSpaceMethod) {
 			t.Errorf("%s accepté pour un utilisateur : %v", m, out)

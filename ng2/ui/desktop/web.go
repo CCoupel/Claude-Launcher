@@ -997,6 +997,7 @@ var runWebApp = tun.Of(func(*App) {})
 // ouvrir le navigateur par défaut. Bloque jusqu'à la sortie.
 func RunWeb(addr string, open bool) error {
 	w := &webBridge{token: newToken(), subs: map[chan []byte]bool{}}
+	w.spaces.emitTo = w.emitTo
 	// adresse publique : --url > CL_WEB_URL > desktop_web.url ; invalide : le serveur ne démarre pas
 	c, _ := core.DesktopWebSetting() // c.URL : desktop_web.url, même quand l'interface de la fenêtre est éteinte
 	pub, _, perr := effectivePublicURL(c)

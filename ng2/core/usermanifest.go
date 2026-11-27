@@ -119,6 +119,11 @@ func (e Engine) userPodOptions(spec, ctr map[string]any) {
 // userManifest : StatefulSet d'un projet d'utilisateur. PVC DÉCLARÉ monté en subPath (dossier du projet et .claude), jamais la racine ;
 // aucun PVC créé ; non root ; securityContext durci ; environnement et commande fixés par le launcher.
 func (e Engine) userManifest(proj string, env EnvSpec) ([]byte, error) {
+	return e.userManifestN(proj, env, 1)
+}
+
+// userManifestN : userManifest avec le nombre de répliques voulu (0 : projet créé arrêté).
+func (e Engine) userManifestN(proj string, env EnvSpec, replicas int) ([]byte, error) {
 	cat, name, err := e.userCommon(proj, env)
 	if err != nil {
 		return nil, err
@@ -158,7 +163,7 @@ func (e Engine) userManifest(proj string, env EnvSpec) ([]byte, error) {
 		"apiVersion": "apps/v1", "kind": "StatefulSet",
 		"metadata": map[string]any{"name": obj, "labels": labels, "annotations": ann},
 		"spec": map[string]any{
-			"replicas": 1, "serviceName": obj,
+			"replicas": replicas, "serviceName": obj,
 			"selector": map[string]any{"matchLabels": map[string]string{"cl.ctr": obj}},
 			"template": map[string]any{"metadata": map[string]any{"labels": labels, "annotations": ann}, "spec": spec},
 		},
@@ -169,6 +174,17 @@ func (e Engine) userManifest(proj string, env EnvSpec) ([]byte, error) {
 // userRunArgs : argv « docker run » d'un projet d'utilisateur — volume nommé DÉCLARÉ monté sur /space (jamais un montage de l'hôte),
 // non root, toutes capacités retirées, no-new-privileges ; aucune option libre, aucune valeur de l'utilisateur interprétée.
 func (e Engine) userRunArgs(name, proj string, env EnvSpec) ([]string, error) {
+	return e.userRunArgsOpts(name, proj, env, e.userDefaultOptions().Args())
+}
+
+// userDefaultOptions : options conteneur par défaut (valeurs proposées) — surchargées par celles du projet.
+func (e Engine) userDefaultOptions() ContainerOptions {
+	c, _ := ParseContainerOptionsFor(e.B.Type, DefaultContainerRaw())
+	return c
+}
+
+// userRunArgsOpts : userRunArgs avec les options du conteneur (--cpus=… déjà validées par ParseContainerOptions), avant l'image.
+func (e Engine) userRunArgsOpts(name, proj string, env EnvSpec, opts []string) ([]string, error) {
 	cat, pname, err := e.userCommon(proj, env)
 	if err != nil {
 		return nil, err
@@ -191,6 +207,7 @@ func (e Engine) userRunArgs(name, proj string, env EnvSpec) ([]string, error) {
 		"-e", "LANG=C.UTF-8", "-e", "DISABLE_AUTOUPDATER=1",
 		// démarrage ROOT (bootstrap) : capacités minimales, passage définitif à uid:gid par setpriv ; « --user » seulement sur chaque exec
 		"--cap-drop=ALL", "--cap-add=CHOWN,DAC_OVERRIDE,FOWNER,SETUID,SETGID", "--security-opt=no-new-privileges"}
+	args = append(args, opts...)
 	return append(args, env.Image, "sh", "-c", UserBootstrapScript(int(uid), int(gid))), nil
 }
 
@@ -220,3 +237,6 @@ func (e Engine) userExecArgv(name string, tty bool, argv ...string) []string {
 	a = append(a, "-e", "LANG=C.UTF-8")
 	return e.cli(append(append(a, name), argv...)...)
 }
+
+// RunAsValues : identité du traitement d'un projet de ce backend (run_as du backend, sinon le réglage du chart).
+func (b BackendConf) RunAsValues() (uid, gid int64) { return b.runAs() }

@@ -188,7 +188,7 @@ func TestAuth172MethodClasses(t *testing.T) {
 		ClassProject: {"create", "createCancel", "projectSettings", "projectApply", "execApply", "envTrustAnswer", "initProposalAnswer",
 			"projectMove", "projectMoveResume", "projectMoveAbort", "categoryCreate", "backendTest", "backendHostScan", "open", "reattach",
 			"refreshProject", "forceClose", "forceCloseConfirm", "close", "closeConfirm", "detach", "refresh", "rescan", "teamToggle",
-			"relayout", "select", "cardsFor", "setPrefs", "setTheme", "dismiss", "alert", "userBackendAdd", "userBackendRemove"},
+			"relayout", "select", "cardsFor", "setPrefs", "setTheme", "dismiss", "alert", "userBackendAdd", "userBackendRemove", "projectPurge"},
 		ClassRead: {"init", "clientInfo", "diag", "tools", "newInfo", "projectMoveInfo", "envTrustInfo", "projectBases", "projectCategories",
 			"configFiles", "configOpen", "configValidate", "configModel", "backendStates", "launcherInfo", "backendSecretGet"},
 		ClassTerminal:    {"termInput", "launchInput", "resizePane", "termResize", "termFocus", "termZoom", "termSync"},

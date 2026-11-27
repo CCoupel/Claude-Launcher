@@ -42,8 +42,10 @@ type userSpace struct {
 	tmu     sync.Mutex
 	tests   []time.Time
 	testing atomic.Bool
-	secrets []time.Time // backendSecretSet : même plafond par minute que backendTest
-	cfgs    []time.Time // configOpen / Model / Validate / Save / Apply (analyse YAML et DNS) : plafond généreux (audit m9)
+	secrets []time.Time                 // backendSecretSet : même plafond par minute que backendTest
+	proj    userProjects                // découverte des projets par backend (cache 10 s)
+	emit    func(name string, data any) // évènements de CETTE identité seulement (jamais une diffusion commune)
+	cfgs    []time.Time                 // configOpen / Model / Validate / Save / Apply (analyse YAML et DNS) : plafond généreux (audit m9)
 }
 
 func (u *userSpace) touch() { u.last.Store(time.Now().UnixNano()) }
@@ -57,8 +59,9 @@ func (u *userSpace) idleSince(now time.Time) time.Duration {
 
 // spaceHub : instances des utilisateurs, par espace.
 type spaceHub struct {
-	mu sync.Mutex
-	m  map[string]*userSpace
+	mu     sync.Mutex
+	m      map[string]*userSpace
+	emitTo func(uid, name string, data any) // évènements d'une identité (web.go)
 }
 
 // get : l'instance de l'espace sp (créée à la première requête).
@@ -71,6 +74,10 @@ func (h *spaceHub) get(sp core.Space, login string) *userSpace {
 	u := h.m[sp.UID]
 	if u == nil {
 		u = &userSpace{sp: sp, login: login}
+		if h.emitTo != nil {
+			emitTo, uid := h.emitTo, sp.UID
+			u.emit = func(name string, data any) { emitTo(uid, name, data) }
+		}
 		h.m[sp.UID] = u
 	}
 	u.login = login // un login renommé garde son espace (même identifiant numérique)
@@ -123,6 +130,8 @@ var userMethods = map[string]bool{
 	"configModel": true, "configApply": true, "backendStates": true,
 	"backendSecretSet": true, "backendSecretGet": true, "backendSecretDelete": true, "backendTest": true,
 	"userBackendAdd": true, "userBackendRemove": true,
+	"select": true, "cardsFor": true, "refresh": true, "refreshProject": true, "projectPurge": true, "newInfo": true, "create": true,
+	"projectSettings": true, "projectApply": true,
 }
 
 // dispatch : un appel de l'utilisateur. L'identité (c.User) n'est jamais celle d'une autre instance : l'instance est choisie
@@ -160,6 +169,8 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return u.secretCall(c, method, raw)
 	case "backendTest":
 		return u.backendTest(c, raw)
+	case "select", "cardsFor", "refresh", "refreshProject", "projectPurge", "newInfo", "create", "projectSettings", "projectApply":
+		return u.projectCall(c, method, raw)
 	case "userBackendAdd":
 		return u.backendAdd(c, raw)
 	case "userBackendRemove":
@@ -349,9 +360,9 @@ func (u *userSpace) info() map[string]any {
 }
 
 // snapshot : état d'interface d'un utilisateur — pas de projets (LOT-3.2), aucune donnée de la racine.
-func (u *userSpace) snapshot() Snapshot {
-	return Snapshot{Version: core.NgName + " " + core.Version(), Tpl: "—", Alerts: []Alert{}, Usage: []UsageRow{}, Rows: []Row{},
-		Tabs: []TabInfo{}, Roots: []string{}, OS: goos, Server: serverInfo(), WebUI: WebUIState{State: "on", Server: true, Enabled: true}}
+func (u *userSpace) snapshot() userSnapshot {
+	return userSnapshot{Snapshot: Snapshot{Version: core.NgName + " " + core.Version(), Tpl: "—", Alerts: []Alert{}, Usage: []UsageRow{}, Rows: []Row{},
+		Tabs: []TabInfo{}, Roots: []string{}, OS: goos, Server: serverInfo(), WebUI: WebUIState{State: "on", Server: true, Enabled: true}}, Rows: u.rows()}
 }
 
 func (u *userSpace) prefs() map[string]any {
