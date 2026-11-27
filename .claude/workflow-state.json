@@ -5,7 +5,7 @@
   "branch": "milestone/v7.1.0",
   "version": "7.1.0",
   "started_at": "2026-11-26T13:40:00Z",
-  "updated_at": "2026-11-27T15:00:00Z",
+  "updated_at": "2026-11-27T16:05:00Z",
   "cycles": 1,
   "issue_nums": [
     249,
@@ -58,7 +58,7 @@
         "issues": [
           257
         ],
-        "ci_sha": "pending",
+        "ci_sha": "b193be6",
         "validation": "GATE LOT-3.1 2e passage : 7 OK (cycle 2) ; 1er passage 10 OK 1 KO refusé"
       },
       "LOT-3.2": {
@@ -66,7 +66,7 @@
         "issues": [
           275
         ],
-        "phase": "plan"
+        "phase": "batch0-tests"
       },
       "LOT-4": {
         "status": "pending",
@@ -74,6 +74,10 @@
           259,
           249
         ]
+      },
+      "LOT-3.3": {
+        "status": "pending",
+        "issues": []
       }
     }
   },
