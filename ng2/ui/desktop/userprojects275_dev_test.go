@@ -146,9 +146,6 @@ func TestUserProjets275Parcours(t *testing.T) {
 		t.Errorf("recréation confirmée : %v", r)
 	}
 	// Purger : refusé tant que l'objet existe ; disparu → ligne « missing », puis purge de la trace seule
-	if r := call("projectPurge", map[string]any{"path": "d/cat/proj"}); r["ok"] != false {
-		t.Errorf("purge d'un projet existant : %v", r)
-	}
 	_ = os.WriteFile(filepath.Join(u.dir, "state"), nil, 0o644)
 	time.Sleep(10 * time.Millisecond)
 	if _, res, _ := u.call(t, "alice", "refreshProject", map[string]any{"path": "d/cat/proj"}); res["ok"] != false { // force la relecture

@@ -356,27 +356,27 @@ func (u *userSpace) refreshProject(id string) (any, error) {
 
 // projectPurge : efface la TRACE d'un projet dont l'objet a disparu ; jamais une commande vers le backend ni une suppression chez l'utilisateur.
 func (u *userSpace) projectPurge(a userProjArgs) (any, error) {
-	id := a.Path
-	if id == "" && a.Backend != "" && a.Project != "" {
-		id = a.Backend + "/" + a.Project
+	bn, cat, name := a.Backend, "", a.Project
+	if a.Path != "" {
+		var err error
+		if bn, cat, name, err = core.ParseUserProjectID(a.Path); err != nil {
+			return refusal("path", "invalid", err.Error()), nil
+		}
 	}
-	bn, cat, name, err := core.ParseUserProjectID(id)
-	if err != nil {
-		return refusal("path", "invalid", err.Error()), nil
+	if core.CheckUserBackendName(bn) != nil || core.ValidUserProjectName(name) != "" || (cat != "" && core.ValidUserProjectName(cat) != "") {
+		return refusal("path", "invalid", "identifiant de projet invalide"), nil
 	}
-	_, _, _, found, ferr := u.findProject(id)
-	if ferr != nil {
-		return refusal("path", "invalid", ferr.Error()), nil
+	// trace seulement : AUCUNE commande vers le backend (ni découverte ni suppression)
+	var n int
+	var perr error
+	if cat != "" {
+		n, perr = u.sp.PurgeProjectTrace(bn, cat, name)
+	} else {
+		n, perr = u.sp.PurgeTrace(bn, name)
 	}
-	if found {
-		return refusal("", "invalid", "le projet existe encore sur le backend : rien à purger"), nil
-	}
-	n, perr := u.sp.PurgeProjectTrace(bn, cat, name)
 	if perr != nil || n == 0 {
 		return refusal("", "invalid", "aucune trace à purger"), nil
 	}
-	u.invalidate()
-	u.pushState()
 	where := "le stockage de ton backend"
 	if bs, err := u.sp.LoadBackends(); err == nil {
 		for _, b := range bs {
