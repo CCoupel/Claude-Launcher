@@ -503,6 +503,43 @@ function noBackendBox() {
   return d;
 }
 
+// ── Projets d'un utilisateur (#275, M2 A) : état de la ligne d'après les champs du serveur (arrêté, disparu, injoignable) ──
+const fmtDate = (iso) => { const t = Date.parse(iso || ''); return isNaN(t) ? '' : new Date(t).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+function fmtAge(iso) {
+  const t = Date.parse(iso || ''); if (isNaN(t)) return '';
+  const m = Math.max(0, Math.round((Date.now() - t) / 60000));
+  if (m < 2) return 'à l\'instant'; if (m < 60) return 'il y a ' + m + ' min'; const h = Math.round(m / 60); if (h < 48) return 'il y a ' + h + ' h'; return 'il y a ' + Math.round(h / 24) + ' j';
+}
+function projState(r) {
+  const gone = r.missing && typeof r.missing === 'object' ? r.missing : null, un = r.unreachable && typeof r.unreachable === 'object' ? r.unreachable : null;
+  if (gone) return { kind: 'gone', icon: '✗', tone: 't-red', label: 'introuvable', title: 'introuvable sur ' + (gone.backend || 'le backend') + (gone.seen ? ' (vu le ' + fmtDate(gone.seen) + ')' : '') + ' — Purger efface la trace seulement' };
+  if (un) return { kind: 'unreach', icon: '⊘', tone: 't-dim', label: '', title: (un.backend ? 'backend ' + un.backend + ' injoignable' : 'backend injoignable') + (un.since ? ' depuis ' + fmtAge(un.since).replace('il y a ', '') : '') + (un.reason ? ' — ' + un.reason : '') + ' · nom et catégorie seulement ; ouvrir / fermer / F5 désactivés' };
+  if (r.stopped) return { kind: 'stopped', icon: '○', tone: 't-dim', label: 'arrêté', title: 'arrêté' + (r.stateAt ? ' · état du ' + fmtDate(r.stateAt) + ' (' + fmtAge(r.stateAt) + ')' : '') };
+  return {};
+}
+// raison d'un projet qu'on ne peut ni ouvrir ni rafraîchir (disparu, injoignable) ; '' : possible
+function projBlocked(r) { const st = r ? projState(r) : {}; return st.kind === 'gone' || st.kind === 'unreach' ? st.title : ''; }
+function purgeProject(r) {
+  const gone = r.missing && typeof r.missing === 'object' ? r.missing : {}, name = (r.path || '').split('/').filter(Boolean).pop() || r.name;
+  openModal((b) => {
+    b.append(el('h2', '', 'Purger « ' + name + ' » ?'));
+    b.append(el('p', '', 'Purger efface seulement la trace de ce projet dans le launcher. Rien n\'est supprimé chez toi : les fichiers éventuels restent dans le stockage du backend' + (gone.backend ? ' « ' + gone.backend + ' »' : '') + '.'));
+    const err = el('div', 't-red'); b.appendChild(err);
+    const btns = el('div', 'btns');
+    const no = el('button', 'btn', 'Annuler'); no.onclick = closeModal;
+    const yes = el('button', 'btn danger', 'Purger');
+    yes.onclick = async () => {
+      err.textContent = ''; yes.disabled = true;
+      const segs = (r.path || '').split('/').filter(Boolean);
+      let res; try { res = await call('projectPurge', { path: r.path, backend: gone.backend || segs[0] || '', project: segs[segs.length - 1] || '' }); } catch (e) { res = { ok: false, msg: e.message }; }
+      yes.disabled = false;
+      if (res && res.ok === false) { err.textContent = '✗ ' + (res.msg || 'purge refusée'); return; }
+      closeModal(); if (res && res.msg) flash(res.msg);
+    };
+    btns.append(no, yes); b.appendChild(btns); no.focus();
+  });
+}
+
 function renderTree() {
   const tree = $('tree'); tree.textContent = '';
   const rows = visibleRows();
@@ -529,6 +566,14 @@ function renderTree() {
       const name = el('span', 'name', r.name);
       name.title = r.path;
       d.append(dot, name);
+      // M2 A (#275) : projet arrêté grisé et daté, projet disparu en erreur, backend injoignable ⊘ (raison en infobulle)
+      const st = projState(r);
+      if (st.kind) {
+        d.classList.add(st.kind);
+        if (st.icon) { dot.textContent = st.icon; dot.className = 'dot ' + st.tone; }
+        if (st.title) { dot.title = st.title; name.title = st.title; }
+        if (st.label) d.appendChild(el('span', 'stlabel', st.label));
+      }
       if (r.attention) { const ab = el('span', 'attnbadge', '❓ en attente'); ab.title = attnText(r.attention); d.appendChild(ab); }
       d.append(el('span', 'rel', r.release || ''), badgeCells(r));
       if (r.open) {
@@ -547,7 +592,7 @@ function renderTree() {
 // ── Rafraîchir un projet, bandeau d'étapes (#158) ───────────────────────────
 // Un bandeau par projet rafraîchi, en tête de ses cartes : une coche par étape de l'évènement `refresh`.
 // Fin sans erreur : il disparaît ; avec erreur : il reste en rouge jusqu'à × ou au rafraîchissement suivant.
-const REFRESH_LABELS = { ctr: 'conteneur / pod', session: 'session', git: 'git', github: 'GitHub', tpl: 'template', usage: 'consommation' };
+const REFRESH_LABELS = { start: 'démarrage', ctr: 'conteneur / pod', session: 'session', git: 'git', github: 'GitHub', tpl: 'template', usage: 'consommation' };
 const REFRESH_IDS = ['ctr', 'session', 'git', 'github', 'tpl', 'usage'];
 const refreshBands = {};
 function refreshBand(path) {
@@ -579,9 +624,10 @@ function onRefresh(ev) {
 }
 async function refreshProject(path) {
   const r0 = rowOf(path);
+  { const why = projBlocked(r0); if (why) { flash('⚠ ' + why); return; } }
   // bandeau posé avant l'appel : un évènement `done` arrivé avant le retour du call le remplace/l'efface correctement
   const prev = refreshBands[path];
-  refreshBands[path] = { name: r0 ? r0.name : '', steps: REFRESH_IDS.map((id) => ({ id, state: 'wait' })), done: false, msg: '' };
+  refreshBands[path] = { name: r0 ? r0.name : '', steps: (r0 && r0.stopped ? ['start'].concat(REFRESH_IDS) : REFRESH_IDS).map((id) => ({ id, state: 'wait' })), done: false, msg: '' }; // projet arrêté : étape « démarrage » en tête
   if (path === S.cursor) renderCards();
   let r;
   try { r = await call('refreshProject', { path }); } catch (e) { r = { ok: false, msg: e.message }; }
@@ -610,7 +656,7 @@ function renderCards() {
   const fold = el('span', 'fold' + (hidden ? '' : ' open'), '›');
   fold.title = hidden ? 'afficher les cartes' : 'masquer les cartes';
   t.onclick = (e) => { if (e.target.closest('.cfglink')) return; e.stopPropagation(); setCardsHidden(!hidden); };
-  t.append(fold, el('span', '', '◈ ÉTAT · ' + c.name));
+  t.append(fold, el('span', '', '◈ ÉTAT · ' + c.name + (c.stopped ? ' · arrêté' : '')));
   const ce = el('span', 'cfglink', '⚙ env.yaml'); ce.title = 'environnement du projet (.claude-launcher/env.yaml)'; ce.onclick = (e) => { e.stopPropagation(); configEditor(c.path, 'project-env'); };
   if (c.updated) t.append(el('span', c.staleUpd ? 't-yellow' : '', '· mis à jour ' + c.updated));
   t.append(el('span', 'sp'), ce);
@@ -639,6 +685,13 @@ function renderCards() {
   };
   // Projet : légende des icônes de la ligne, puis git et versions
   const pb = el('div', 'cb');
+  if (c.stopped) { // projet arrêté (M2 A) : dernier état connu daté, lu sans démarrer ; F5 démarre et relit
+    const sb = el('div', 'stopbanner');
+    sb.append(el('span', 't-orange', '○ arrêté'), el('span', 'dim', c.stateAt ? ' · état du ' + fmtDate(c.stateAt) + ' (' + fmtAge(c.stateAt) + ')' : ' · état inconnu'), el('span', 'sp'));
+    const f5 = el('button', 'btn sm pri', 'F5 · démarrer et rafraîchir'); f5.title = 'démarre le projet (5 à 30 s) puis relit son état ; il reste en marche';
+    f5.onclick = (e) => { e.stopPropagation(); refreshProject(c.path); };
+    sb.appendChild(f5); pb.appendChild(sb);
+  }
   const lg = el('div', 'legend');
   for (const i of c.legend || []) lg.append(el('span', 'i ' + tone(i.tone), i.icon), el('span', 't', i.text));
   pb.appendChild(lg);
@@ -748,9 +801,10 @@ function renderCards() {
       const n = el('span', 'n' + (f.dir ? ' dir' : ''), f.name + (f.dir ? '/' : '')); n.title = f.name;
       g.append(el('span', cls, ch), n, el('span', 'dim', f.meta));
     }
-    if (!c.files || !c.files.length) g.append(el('span'), el('span', 'dim', '(vide)'), el('span'));
+    if (c.stopped) g.append(el('span'), el('span', 'dim', 'projet arrêté — F5 pour le démarrer'), el('span')); // jamais une erreur muette
+    else if (!c.files || !c.files.length) g.append(el('span'), el('span', 'dim', '(vide)'), el('span'));
     fb.appendChild(g);
-    card('Fichiers', String((c.files || []).length), fb);
+    card('Fichiers', c.stopped ? 'projet arrêté' : String((c.files || []).length), fb);
   }
 }
 
@@ -810,6 +864,7 @@ function move(d) {
 
 async function openProject(path, mode) {
   if (path === 'new') return newProject('');
+  { const why = projBlocked(rowOf(path)); if (why) { flash('⚠ ' + why); return; } } // disparu / injoignable : la raison, jamais un échec muet
   const r = await call('open', { path });
   if (!r) return;
   if (r.execChoice) return execChoice(r.execChoice, true);
@@ -1087,10 +1142,22 @@ function showProjectMenu(path, x, y) {
     m.appendChild(d);
     return d;
   };
+  { // projet disparu ou backend injoignable : seules actions possibles, avec la raison
+    const why = projBlocked(r);
+    if (why) {
+      m.appendChild(Object.assign(el('div', 'dis hd', why)));
+      it('Ouvrir', 'Entrée', () => {}, true); it('⟳ Rafraîchir', 'F5', () => {}, true);
+      m.appendChild(el('hr'));
+      it('Purger…', '', () => purgeProject(r));
+      document.body.appendChild(m);
+      m.style.left = Math.max(0, Math.min(x, window.innerWidth - m.offsetWidth - 4)) + 'px'; m.style.top = Math.max(0, Math.min(y, window.innerHeight - m.offsetHeight - 4)) + 'px';
+      return;
+    }
+  }
   it('Ouvrir', 'Entrée', () => openProject(path));
   // Fermer : selon l'état de la ligne (ouvert ou pastille autre que ○), plus selon la présence d'un onglet (#158)
   it('Fermer', 'Suppr', () => askClose(path), !(r.open || (r.dot && r.dot.icon && r.dot.icon !== '○')));
-  it('⟳ Rafraîchir', 'F5', () => refreshProject(path), !!r.refreshing);
+  it(r.stopped ? '⟳ F5 · démarrer et rafraîchir' : '⟳ Rafraîchir', 'F5', () => refreshProject(path), !!r.refreshing);
   it('Forcer la fermeture…', '', () => askForceClose(path), !r.canForce);
   m.appendChild(el('hr'));
   const mv = moveMenuState(r); // #216 : projet ouvert = grisé (les autres blocages restent dans le dialogue)
@@ -2350,7 +2417,62 @@ function sourceArgs(src, url, remote) {
 
 // création d'un projet : base, catégorie, nom, source (brut, template, dépôt Git), exécution
 // `pre` : dossier de l'arbre (base ou catégorie) à pré-sélectionner, '' sinon.
+// Utilisateur (mode serveur) : un projet naît sur UN de SES backends (backend, catégorie, nom), jamais sur un dossier du serveur (#275).
+function newUserProject() {
+  const bs = (whoSpace && whoSpace.backends) || [];
+  if (!bs.length) { flash('⚠ Ajoute d\'abord un backend (Réglages › Backends)'); if (typeof openSettings === 'function') openSettings('', 'backends'); return; }
+  openModal((b) => {
+    b.append(el('h2', '', 'Nouveau projet'));
+    const f = el('div', 'form');
+    const errs = {};
+    const field = (key, label, ctl) => { f.append(el('label', '', label), ctl); const w = el('div', 'fe err'); f.append(el('span', ''), w); errs[key] = w; };
+    const be = el('select'); for (const x of bs) { const o = el('option', '', x.name + (x.type ? ' (' + x.type + ')' : '')); o.value = x.name; be.appendChild(o); }
+    field('backend', 'Backend', be);
+    const cat = el('input'); cat.placeholder = 'catégorie (a-b ; a/b : imbriquée)'; cat.spellcheck = false;
+    field('category', 'Catégorie', cat);
+    const name = el('input'); name.placeholder = 'nom du projet'; name.spellcheck = false;
+    field('name', 'Nom', name);
+    const src = el('select'); for (const [v, t] of [['empty', 'Projet vide (dossier et git init)'], ['git', 'Cloner un dépôt Git']]) { const o = el('option', '', t); o.value = v; src.appendChild(o); }
+    field('source', 'Source', src);
+    const url = el('input'); url.placeholder = 'https://github.com/moi/projet.git ou git@github.com:moi/projet.git'; url.spellcheck = false;
+    field('repo', 'URL du dépôt', url);
+    const showUrl = () => { for (const n of [url, errs.repo]) n.classList.toggle('hidden', src.value !== 'git'); };
+    src.addEventListener('change', showUrl); showUrl();
+    const final = el('div', 'ro'); f.append(el('label', '', 'Emplacement'), final);
+    const upd = () => { final.textContent = (be.value || '?') + ' / ' + (cat.value.trim() || '<catégorie>') + ' / ' + (name.value.trim() || '<nom>'); };
+    for (const n of [be, cat, name]) n.addEventListener('input', upd); upd();
+    b.appendChild(f);
+    const err = el('div', 'err'); b.appendChild(err);
+    const why = el('div', 'dim'); b.appendChild(why);
+    const btns = el('div', 'btns');
+    const cancel = el('button', 'btn', 'Annuler'); cancel.onclick = closeModal;
+    const ok = el('button', 'btn pri', 'Créer');
+    // jamais de bouton grisé muet : la raison est écrite à côté
+    const gate = () => {
+      const r = !cat.value.trim() ? 'saisis une catégorie' : !name.value.trim() ? 'saisis un nom' : (src.value === 'git' && !gitUrlKind(url.value)) ? 'saisis l\'URL du dépôt' : '';
+      ok.disabled = !!r; why.textContent = r;
+    };
+    for (const n of [cat, name, url, src]) n.addEventListener('input', () => { for (const k of Object.keys(errs)) errs[k].textContent = ''; err.textContent = ''; gate(); });
+    gate();
+    const showFail = (r) => { const m = (r && r.msg) || 'création refusée'; const t = errs[r && r.field]; if (t) t.textContent = m; else err.textContent = m; };
+    ok.onclick = async () => {
+      for (const k of Object.keys(errs)) errs[k].textContent = ''; err.textContent = '';
+      const args = { backend: be.value, category: cat.value.trim(), name: name.value.trim(), source: src.value };
+      if (src.value === 'git') Object.assign(args, sourceArgs('git', url.value, ''));
+      ok.disabled = true;
+      let r; try { r = await transport.call('create', args); } catch (e) { r = { ok: false, msg: e.message }; }
+      if (r && r.ok === false) { showFail(r); gate(); return; }
+      closeModal();
+      if (r && r.job) { flash('Clonage en cours…'); return; }
+      if (r && r.tab) showView(r.tab, true);
+    };
+    btns.append(cancel, ok); b.appendChild(btns);
+    cat.focus();
+  });
+}
+
 async function newProject(pre) {
+  if (whoSpace && whoSpace.admin === false) return newUserProject();
   const info = await call('newInfo', {});
   const bases = (info.bases || (info.roots || []).map((r) => ({ path: r }))).filter((x) => x && !x.missing).map((x) => x.path);
   const sp = splitPreselect(bases, pre);

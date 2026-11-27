@@ -576,3 +576,13 @@ body.cardsfolded #hsplit { display: none; }
 .pjrecreate { border: 1px solid var(--orange); border-radius: 6px; padding: 10px; }
 .pjrecreate h4 { margin: 0 0 8px; }
 .stin.sm { max-width: 160px; }
+
+/* projets d'un utilisateur : arrêté, disparu, injoignable (#275, M2 A) */
+.row.project.stopped .name, .row.project.unreach .name { color: var(--muted); }
+.row.project.gone .name { color: var(--red); text-decoration: line-through; text-decoration-color: color-mix(in srgb, var(--red) 50%, transparent); }
+.row.project .stlabel { margin-left: 6px; font-size: 11px; color: var(--muted); }
+.row.project.gone .stlabel { color: var(--red); }
+.stopbanner { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 6px; }
+.stopbanner .sp { flex: 1; }
+.pjopt td { white-space: normal; vertical-align: top; }
+.pjopt td .hint { margin: 2px 0 0; }

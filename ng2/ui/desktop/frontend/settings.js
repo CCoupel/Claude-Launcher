@@ -45,7 +45,7 @@ const stLines = (s) => String(s || '').split('\n').map((x) => x.trim()).filter(B
 const stUserSpace = () => typeof whoSpace !== 'undefined' && !!whoSpace && whoSpace.admin === false;
 
 async function openSettings(project, page, focus) {
-  if (stUserSpace()) { project = ''; page = 'backends'; }
+  if (stUserSpace()) { if (page !== 'projet' || !project || project === 'new') { project = ''; page = 'backends'; } } // seules rubriques : Backends et le Projet sélectionné (options du pod / conteneur)
   ST.project = project || '';
   if (page) ST.page = page;
   ST.result = null; ST.test = null;
@@ -211,16 +211,16 @@ function stRenderRail() {
   r.textContent = '';
   const us = stUserSpace();
   for (const [g, items0] of ST_RAIL) {
-    const items = us ? items0.filter(([k]) => k === 'backends') : items0;
+    const items = us ? items0.filter(([k]) => k === 'backends' || (k === 'projet' && ST.project && ST.project !== 'new')) : items0;
     if (!items.length) continue;
-    r.appendChild(el('div', 'rg', us ? 'MON ESPACE' : g));
+    r.appendChild(el('div', 'rg', us ? (g === 'GLOBAL' ? 'MON ESPACE' : g) : g));
     for (const [k, t] of items) {
       const it = el('div', 'ri' + (k === ST.page ? ' on' : ''), t);
       it.onclick = () => { stKeepClear(); ST.page = k; ST.test = null; stRender(); };
       r.appendChild(it);
     }
   }
-  $('stpath').textContent = ST_FILE[ST.page] || '';
+  $('stpath').textContent = (stUserSpace() && ST.page === 'projet') ? 'options du projet' : (ST_FILE[ST.page] || '');
 }
 
 function stRenderFoot() {
@@ -1727,6 +1727,7 @@ function stPageProjet(p) {
   p.appendChild(layBox);
   p.appendChild(stBox('Exécution', ex, el('span', 'dim', 'projects.json · config.conf')));
   { const ob = pjOptBox(pj); if (ob) p.appendChild(ob); } // options du pod / conteneur (#275, M4)
+  if (stUserSpace()) return pjUserTail(p, pj); // utilisateur : options du pod / conteneur seulement (env.yaml : hors de ce lot)
   if (r.envTrust) { // #215 : environnement d'un dépôt cloné — état et « Revoir »
     const et = r.envTrust, box = el('div');
     const lbl = { pending: 'à approuver (la question vient à la prochaine ouverture en conteneur)', none: 'aucun fichier d\'environnement dans ce dépôt', accepted: 'accepté', ignored: 'ignoré — seul le socle choisi à la création est utilisé' }[et.state] || et.state;
@@ -1765,6 +1766,8 @@ function stPageProjet(p) {
   if (pj.focus) { const t = $(pj.focus); pj.focus = ''; if (t) { t.scrollIntoView({ block: 'center' }); const f = t.matches('input,select,textarea') ? t : t.querySelector('input,select,textarea'); if (f && !f.disabled) f.focus(); } }
 }
 
+function pjUserTail(p, pj) { if (pj.focus) pj.focus = ''; }
+
 function pjFoot(f) {
   const pj = ST.pj;
   const left = el('div', 'stmsg');
@@ -1795,7 +1798,8 @@ function pjFoot(f) {
   save.title = errs ? 'Corriger les erreurs avant d\'enregistrer' : !dirty ? 'aucun changement' : '';
   if (!dirty && !errs) left.appendChild(el('span', 'dim', ' · aucun changement à enregistrer')); // jamais de bouton grisé muet
   save.onclick = () => pjSave();
-  f.append(left, el('span', 'sp'), txt, cancel, save);
+  if (stUserSpace()) f.append(left, el('span', 'sp'), cancel, save); // pas d'édition YAML d'env.yaml dans l'espace utilisateur
+  else f.append(left, el('span', 'sp'), txt, cancel, save);
 }
 
 async function pjSave() {
@@ -1834,9 +1838,10 @@ $('cfgbtn').title = 'Réglages (Ctrl+,)';
 // Champs simples avec le défaut du backend en regard et ↺ ; zone JSON « Spécification du pod » (k8s) préremplie ; refus nommés
 // par champ / chemin JSON, listés ensemble ; changement de shm_size / gpus : recréation du conteneur après confirmation (P27).
 // Le serveur reste seul juge : l'interface ne garde aucune liste de champs autorisés hors des libellés.
-const PJ_OPT_K8S = [['cpuRequest', 'CPU demandé'], ['memRequest', 'Mémoire demandée'], ['cpuLimit', 'CPU limite'], ['memLimit', 'Mémoire limite'], ['ephemeral', 'Stockage éphémère (limite)']];
-const PJ_OPT_CTR = [['cpus', 'CPU (cpus)', 'appliqué à chaud (docker update), sans redémarrage'], ['memory', 'Mémoire (memory)', 'appliquée à chaud'],
-  ['pids_limit', 'Processus (pids_limit)', 'appliqué à chaud'], ['shm_size', 'Mémoire partagée (shm_size)', 'recrée le conteneur après confirmation'], ['gpus', 'GPU (gpus)', 'recrée le conteneur après confirmation']];
+// [clé de valeur, libellé, note, nom de champ du serveur dans un refus (`field`)]
+const PJ_OPT_K8S = [['cpuRequest', 'CPU demandé', '', 'pod.requests.cpu'], ['memRequest', 'Mémoire demandée', '', 'pod.requests.memory'], ['cpuLimit', 'CPU limite', '', 'pod.limits.cpu'], ['memLimit', 'Mémoire limite', '', 'pod.limits.memory'], ['ephemeral', 'Stockage éphémère (limite)', '', 'pod.limits.ephemeral-storage']];
+const PJ_OPT_CTR = [['cpus', 'CPU (cpus)', 'appliqué à chaud (docker update), sans redémarrage', 'container.cpus'], ['memory', 'Mémoire (memory)', 'appliquée à chaud', 'container.memory'],
+  ['pids_limit', 'Processus (pids_limit)', 'appliqué à chaud', 'container.pids_limit'], ['shm_size', 'Mémoire partagée (shm_size)', 'recrée le conteneur après confirmation', 'container.shm_size'], ['gpus', 'GPU (gpus)', 'recrée le conteneur après confirmation', 'container.gpus']];
 function pjOptInit(o) {
   if (!o || !o.kind) return null;
   const cur = { values: Object.assign({}, o.values || {}), podJson: o.podJson || '', uid: o.runAs ? String(o.runAs.uid || '') : '', gid: o.runAs ? String(o.runAs.gid || '') : '' };
@@ -1861,7 +1866,26 @@ function pjOptProblems() {
   for (const x of op.problems) ps.push({ severity: 'error', message: (x.path ? x.path + ' : ' : (x.field ? x.field + ' : ' : '')) + (x.msg || 'refusé') });
   return ps;
 }
-function pjOptEdited() { const op = ST.pj && ST.pj.opt; if (op) op.problems = []; if (ST.pj) ST.pj.res = null; }
+function pjOptEdited() {
+  const op = ST.pj && ST.pj.opt; if (op) { op.problems = []; clearTimeout(op.timer); op.timer = setTimeout(pjOptLive, 450); }
+  if (ST.pj) ST.pj.res = null;
+}
+// validation en direct par le serveur (même code que l'enregistrement, rien n'est écrit) : refus nommés par champ / chemin JSON
+async function pjOptLive() {
+  const pj = ST.pj, op = pj && pj.opt; if (!op || !ST.on || op.jsonErr || !pjOptChanged()) return;
+  const seq = op.seq = (op.seq || 0) + 1;
+  let r; try { r = await call('projectApply', { path: pj.path, options: pjOptArg(), dryRun: true }); } catch (e) { return; }
+  if (!ST.on || ST.pj !== pj || op.seq !== seq) return;
+  op.problems = r && r.ok === false ? ((r.problems && r.problems.length) ? r.problems : [{ field: r.field, path: r.path, code: r.code, msg: r.msg }]) : [];
+  if (r && r.recreate) op.recreateNote = true; // la confirmation viendra à l'enregistrement
+  const a = document.activeElement;
+  if (a && a.id === 'pjopt-json') { stRenderFoot(); pjOptPaintJsonProblems(); } else { stRenderPage(); stRenderFoot(); }
+}
+function pjOptPaintJsonProblems(el0) {
+  const op = ST.pj && ST.pj.opt, box = el0 || $('pjopt-jsonprobs'); if (!op || !box) return;
+  box.textContent = '';
+  for (const x of op.problems.filter((q) => q.path || q.field === 'pod.spec')) box.appendChild(el('div', 't-red', '✗ ' + (x.path ? x.path + ' : ' : '') + x.msg));
+}
 function pjOptCheckJson(v) {
   const op = ST.pj.opt; op.jsonErr = '';
   if (!v.trim()) return;
@@ -1874,17 +1898,17 @@ function pjOptBox(pj) {
   const body = el('div');
   if (op.recreate) { body.appendChild(pjRecreateBox(pj)); return stBox(k8s ? 'Ressources et placement du pod' : 'Ressources du conteneur', body); }
   const bad = (f) => op.problems.filter((x) => x.field === f && !x.path);
-  const t = el('table', 'sttable'); const hr = el('tr');
+  const t = el('table', 'sttable pjopt'); const hr = el('tr');
   for (const h of ['option', 'valeur du projet', 'défaut du backend', '']) hr.appendChild(el('th', '', h));
   t.appendChild(hr);
-  for (const [key, label, note] of pjOptFields(op)) {
+  for (const [key, label, note, fld] of pjOptFields(op)) {
     const nogpu = key === 'gpus' && o.backendType === 'podman'; // podman : pas de --gpus (refusé nommément)
     const tr = el('tr');
     const inp = stInput(op.cur.values[key] || '', (v) => { op.cur.values[key] = v; pjOptEdited(); }, def[key] ? String(def[key]) : '(aucun)');
     inp.classList.add('sm'); if (nogpu) { inp.disabled = true; inp.title = 'podman ne gère pas --gpus'; }
     const tdv = el('td'); tdv.appendChild(inp);
     if (note && !k8s) tdv.appendChild(el('div', 'hint', nogpu ? 'non disponible avec podman' : note));
-    for (const b of bad('values.' + key)) { inp.classList.add('bad'); tdv.appendChild(el('div', 't-red hint', '✗ ' + b.msg)); }
+    for (const b of bad(fld)) { inp.classList.add('bad'); tdv.appendChild(el('div', 't-red hint fielderr', '✗ ' + b.msg)); }
     const rs = stBtn('↺', () => { op.cur.values[key] = ''; pjOptEdited(); stRenderPage(); stRenderFoot(); }, '');
     rs.title = 'revenir au défaut du backend'; rs.disabled = nogpu || !(op.cur.values[key] || ''); 
     tr.append(el('td', '', label), tdv, el('td', 'm dim', def[key] ? String(def[key]) : '(aucun)'), Object.assign(el('td'), {}));
@@ -1903,7 +1927,7 @@ function pjOptBox(pj) {
       stBtn('↺ défauts du backend', () => { op.cur.podJson = o.podJsonDefault || ''; pjOptCheckJson(op.cur.podJson); pjOptEdited(); stRenderPage(); stRenderFoot(); }));
     const jm = el('div', 't-red'); jm.id = 'pjopt-jsonmsg'; if (op.jsonErr) jm.textContent = '✗ ' + op.jsonErr;
     body.append(jh, ta, jm);
-    for (const x of op.problems.filter((q) => q.path || q.field === 'pod.spec')) body.appendChild(el('div', 't-red', '✗ ' + (x.path ? x.path + ' : ' : '') + x.msg));
+    const jp = el('div'); jp.id = 'pjopt-jsonprobs'; body.appendChild(jp); pjOptPaintJsonProblems(jp);
     body.appendChild(el('p', 'note', 'Défaut du backend pour cette zone : ' + (o.podJsonDefault || '{}') + '. CPU et mémoire se règlent dans les champs ci-dessus. Pas de plafond : tu es responsable de la consommation sur ton cluster ; privileged, capacités, securityContext, hostPath, hostNetwork, volumes, serviceAccountName… sont refusés nommément.'));
   } else body.appendChild(el('p', 'note', 'Pas de plafond : tu es responsable de la consommation sur ton hôte.'));
   // utilisateur du traitement : uid / gid non nuls
