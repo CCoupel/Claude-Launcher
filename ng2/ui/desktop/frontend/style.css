@@ -571,3 +571,8 @@ body.cardsfolded #hsplit { display: none; }
 .strole { margin-top: 6px; }
 .strole pre { white-space: pre-wrap; max-height: 220px; overflow: auto; margin: 4px 0 0; padding: 6px 8px; background: var(--input); border: 1px solid var(--line2); border-radius: 4px; font-size: 11.5px; }
 .stin.bad, textarea.stin.bad { border-color: var(--red, #D14B4B); box-shadow: 0 0 0 1px var(--red, #D14B4B); }
+
+/* options du pod / conteneur d'un projet (#275, M4) */
+.pjrecreate { border: 1px solid var(--orange); border-radius: 6px; padding: 10px; }
+.pjrecreate h4 { margin: 0 0 8px; }
+.stin.sm { max-width: 160px; }
