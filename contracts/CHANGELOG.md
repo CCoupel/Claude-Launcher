@@ -2,6 +2,13 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261127] — v7.1.0 LOT-3.2 (#275) : options du pod, champs simples + zone JSON (M4 retenue)
+
+- **[CHANGED]** `user-backends.md` §5 bis : k8s = champs simples (CPU, mémoire, stockage éphémère) + zone JSON
+  « Spécification du pod » (ressources étendues, `nodeSelector`, `tolerations`, `affinity`) validée contre la liste
+  blanche, refus par chemin JSON (`path: "$.tolerations[1].effect"`, liste `problems`) ; docker/podman = cinq champs
+  simples, sans zone JSON.
+
 ## [20261127] — v7.1.0 LOT-3.2 (#275) : recréation du conteneur après confirmation (P27)
 
 - **[CHANGED]** `user-backends.md` §5 bis : `shm_size` / `gpus` modifiés après la création → conteneur **recréé après

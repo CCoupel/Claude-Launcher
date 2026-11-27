@@ -322,10 +322,24 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
 - Édition dans l'interface (réglages du projet, maquette M4). Le launcher construit le manifeste ou l'`argv` sur une
   **liste blanche fermée** : aucun champ libre, aucun texte recopié tel quel.
 
-| Backend | Champs autorisés (et rien d'autre) | Défauts proposés |
-|---|---|---|
-| k8s (`pod:`) | `resources.requests` / `resources.limits` : `cpu`, `memory`, `ephemeral-storage`, ressources étendues au format `<domaine>/<nom>` (ex. `nvidia.com/gpu`) ; `nodeSelector` (≤ 16 paires, format des labels) ; `affinity` (`nodeAffinity`, `podAffinity`, `podAntiAffinity`, schéma k8s validé) ; `tolerations` (≤ 16) | requests `cpu: 100m`, `memory: 256Mi` ; limits `cpu: "2"`, `memory: 4Gi` ; rien d'autre |
-| docker/podman (`container:`) | `cpus` (décimal > 0), `memory` (quantité, ≥ 64m), `pids_limit` (entier), `shm_size` (quantité), `gpus` (`all` ou entier) | `cpus: 2`, `memory: 4g`, `pids_limit: 4096`, `shm_size: 256m` |
+| Backend | Champs simples (un champ chacun, défaut en regard) | Zone « Spécification du pod » (JSON, avancé) | Défauts proposés |
+|---|---|---|---|
+| k8s | `cpu` et `memory` en `requests` et `limits` ; `ephemeral-storage` en `limits` | objet JSON aux seules clés : `resources` (`requests` / `limits` de **ressources étendues** seulement : `<domaine>/<nom>` comme `nvidia.com/gpu`, `hugepages-<taille>`) ; `nodeSelector` (≤ 16 paires, format des labels) ; `tolerations` (≤ 16 ; `key`, `operator` ∈ {Equal, Exists}, `value`, `effect` ∈ {NoSchedule, PreferNoSchedule, NoExecute}, `tolerationSeconds`) ; `affinity` (`nodeAffinity`, `podAffinity`, `podAntiAffinity`, schéma k8s) | champs : requests `100m` / `256Mi`, limits `2` / `4Gi` ; zone : `{}` |
+| docker/podman | `cpus` (décimal > 0), `memory` (quantité ≥ 64m), `pids_limit` (entier), `shm_size` (quantité), `gpus` (`all` ou entier) | aucune (cinq options plates) | `cpus 2`, `memory 4g`, `pids_limit 4096`, `shm_size 256m` |
+
+- **Zone JSON** : ≤ 16 Kio, profondeur ≤ 20, clés en double refusées, préremplie avec les défauts du backend
+  (`pod.spec` du backend), « ↺ défauts du backend ». `cpu`, `memory` ou `ephemeral-storage` saisis dans la zone →
+  refus (« utilise les champs CPU / mémoire »). Le launcher **ne recopie jamais** l'objet : il en extrait les seuls
+  champs listés et construit le manifeste lui-même.
+- **Validation en direct** (`projectSettings` / `projectApply`, même code côté serveur) : chaque problème est rendu avec
+  son **chemin JSON** : `{ok:false, field:"pod.spec", path:"$.tolerations[1].effect", code:"invalid", msg:"…"}` ;
+  plusieurs problèmes → liste `problems: [{field, path, code, msg}]`. Exemples :
+  - `$.hostNetwork` : « champ non autorisé » ;
+  - `$.resources.limits.cpu` : « utilise le champ CPU » ;
+  - `$.nodeSelector.<clé>` : « clé de label invalide » ;
+  - `$.affinity.podAffinity.…namespaceSelector` : accepté (cluster de l'utilisateur).
+- Champs simples : `field: "pod.limits.memory"` etc. ; incohérence `limits < requests` → refus nommé.
+- Jamais de bouton grisé muet : l'enregistrement refusé affiche la liste des problèmes à côté.
 
 - **Jamais** (k8s et docker/podman), quelle que soit la saisie : `privileged`, capacités (`cap_add`), `hostPath`, `hostNetwork`,
   `hostPID`, `hostIPC`, montages libres, `--volumes-from`, `--device`, `--network`, `-p` / ports, `securityContext`,
