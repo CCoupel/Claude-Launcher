@@ -84,13 +84,16 @@ Contrat : `contracts/user-backends.md` §7.
 - **Lecture** : un lien symbolique, un fichier non régulier ou des droits au-delà de `0600` (dossier `0700`) sont **refusés** ;
   le backend est signalé « coffre non conforme » et rien n'est lancé. Un certificat expiré ou qui expire dans moins de 30 jours
   produit un avertissement, sans refus.
-- **Écriture** : `backendSecretSet` / `backendSecretDelete` (hors R1 pour l'utilisateur sur ses propres backends). Rien n'est écrit
-  si un contrôle échoue (PEM : un seul bloc, clé non chiffrée, appariement certificat/clé vérifié). Le journal de dépôt ne contient
-  pas de contenu ; le contenu n'est jamais rendu ni transmis au navigateur.
+- **Écriture** : `userBackendAdd` (création : déclaration et coffre ensemble, tout ou rien), `backendSecretSet` /
+  `backendSecretDelete` (remplacement ou suppression des secrets), `userBackendRemove` (retrait des deux). Hors R1 pour l'utilisateur
+  sur ses propres backends. Rien n'est écrit si un contrôle échoue (PEM : un seul bloc, clé non chiffrée, appariement
+  certificat/clé vérifié). Le journal de dépôt ne contient pas de contenu ; le contenu n'est jamais rendu ni transmis au navigateur.
+- **Coffre orphelin** : un dossier `vault/<nom>` sans déclaration (retrait fait à la main dans l'éditeur YAML, ou arrêt entre
+  deux étapes) est **repris** à la création d'un backend de même nom (supprimé puis recréé), ou **purgé** à `userBackendRemove`.
+  Si la suppression échoue, l'erreur demande de réessayer.
+- **Liens symboliques** : jamais suivis, ni à la création, ni au retrait, ni à la lecture ; un lien au nom du coffre est refusé.
 - **Passage à `kubectl` / `docker`** : les **chemins** des fichiers du coffre sont passés directement (`--tlscacert=…`, `--tlscert=…`,
   `--tlskey=…`), sans copie temporaire. Les chemins apparaissent dans la liste des processus (`ps`) ; ils ne révèlent ni valeur
-  ni secret (identifiant GitHub numérique et nom de backend). La phrase « par chemin de fichier temporaire privé » de
-  `contracts/user-backends.md` §7 est à corriger en conséquence (écart signalé, aucun code modifié).
+  ni secret (identifiant GitHub numérique et nom de backend).
 - **Environnement** : `DOCKER_CONFIG` pointe vers un dossier vide privé (`<cache>/docker-empty`, 0700) ; podman utilise un
   `REGISTRY_AUTH_FILE` isolé ; les autres variables héritées sont retirées.
-- **Limite résiduelle** : `$HOME/.docker/config.json` du launcher n'est pas isolé par ce réglage (audit m3).

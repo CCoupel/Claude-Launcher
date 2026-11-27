@@ -274,4 +274,8 @@ Ajouts factuels de LOT-2 ; la refonte du modèle (sans agent, P15, schéma M3) e
   entre la vérification et l'appel de l'outil reste un **risque accepté**.
 - **Point ouvert avant LOT-3.2** : les plafonds de `pod.resources` / `affinity` / `nodeSelector` ne sont pas encore bornés
   (audit de sécurité M3). Le pod n'est créé qu'en LOT-3.2.
+- **Création en une action** (cycle 2) : `userBackendAdd` écrit la déclaration et ses secrets tout ou rien ; `userBackendRemove`
+  retire les deux ensemble. Les refus sont nommés par champ et par code (`contracts/user-backends.md` §3, §11).
+- **Refus de forme** : les messages de forme d'adresse (schéma, port…) sont distincts de « adresse non autorisée », réservé
+  à une plage interdite ou à un DNS en échec. L'audit `backend.refused` porte la raison (`form`, `range`, `dns`).
 - **Dettes** : coffre en clair (#279) ; sondage des backends d'utilisateur (LOT-3.2 / LOT-4, non fait en LOT-3.1).

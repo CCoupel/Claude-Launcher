@@ -24,6 +24,10 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   nécessaire, certificat expiré). Limites `users.maxBackends` (défaut 10) et `users.backendTestsPerMinute` (défaut 6) ;
   audit `backend.call` de chaque appel sortant, sans secret
 - Éditeur de backends de l'administrateur (#257) : champs TLS (docker/podman) et PVC (k8s), sans bornage d'hôte
+- Création d'un backend d'utilisateur en une action (#257) : `userBackendAdd` écrit le backend et ses secrets (kubeconfig collé,
+  ou certificats TLS collés) tout ou rien ; `userBackendRemove` retire la déclaration et son coffre ensemble. Refus nommés
+  par champ et par code, le champ fautif s'affiche en rouge ; le brouillon reste sous les yeux après un refus ; les boutons
+  grisés disent pourquoi
 
 ### Changed
 - Utilisateur (#255) : instance restreinte. Ses méthodes servent l'état de son espace (`clientInfo`, `init`, `setPrefs`,
@@ -38,6 +42,12 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   liens locaux refusés) ; serveur d'API avec chemin accepté après bornage de l'hôte (ex. Rancher)
 - Chart (#257) : `users.enabled` (`CL_USERS_ENABLED`), `users.maxBackends`, `users.backendTestsPerMinute`. `users.enabled: false`
   rétablit un espace commun
+- Refus de forme d'une adresse (#257) : schéma, port, caractère ou chemin refusés avec un message propre (« schéma
+  obligatoire », « port obligatoire »…). « adresse non autorisée » ne reste que pour une plage interdite ou un DNS en échec.
+  L'audit `backend.refused` porte `reason` (`form`, `range` ou `dns`), sans adresse, nom de backend ni secret
+- Coffre orphelin (#257) : un coffre sans déclaration (retiré par l'éditeur YAML, ou arrêt entre deux étapes) est repris à la
+  création d'un backend de même nom, ou purgé au retrait ; un lien symbolique au nom du coffre n'est jamais suivi
+- Débit (#257) : plafond commun des dépôts et de `userBackendAdd` / `userBackendRemove` de 60 par minute et par utilisateur
 
 ### Security
 - Backends d'utilisateur (#257) : résolution DNS en échec fermé (aucune résolution = refus, non mis en cache) ; clés
@@ -54,6 +64,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   `_work/handoff`, `_work/tasks` et `_work/tmp` restent refusés (404) et masqués dans les listes
 - Utilisateur (#255) : une rubrique réservée à l'administrateur (config.conf, env.yaml, réglages du hub) répond
   « réservée à l'administrateur » ; le genre demandé n'est plus réinjecté dans la réponse
+- Éditeur de backends bloqué après un refus (#257) : un refus laissait ses erreurs dans l'éditeur, « Enregistrer » restait
+  grisé après correction ; toute modification efface désormais l'erreur, et un échec d'appel s'affiche
 
 ## [7.0.0] — 2026-11-26
 

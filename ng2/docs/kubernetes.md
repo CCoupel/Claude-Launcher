@@ -416,7 +416,10 @@ admin est écrite avant son exécution (`phase: intent`). Aucun contenu, aucune 
   loopback ou lien local) est refusé ; la résolution est revérifiée avant chaque appel, cache 30 s.
   **Risque accepté** : un DNS qui change entre la vérification et l'appel de `kubectl` ou `docker` (rebinding) n'est pas couvert.
 - **Mode serveur** : `ssh` refusé pour tous (`contracts/user-backends.md` §3). Le `backendTest` d'un utilisateur est audité
-  (`backend.call`), sans secret.
+  (`backend.call`), sans secret. Un refus de création ou d'adresse est audité (`backend.refused`, `reason` = `form`, `range` ou
+  `dns`), sans adresse ni secret.
+- **Création d'un backend** (`userBackendAdd`) : écrit le backend et ses secrets tout ou rien ; un refus de forme indique le champ
+  fautif. Le plafond de débit des dépôts (60 par minute) couvre aussi `userBackendAdd` et `userBackendRemove`.
 - **Sortie réseau du pod** : non restreinte par le chart (valeurs `networkPolicy`, voir §4b) ; les backends d'utilisateur s'appuient sur le bornage d'hôte ci-dessus.
 
 #### 4c. Créer la GitHub App
