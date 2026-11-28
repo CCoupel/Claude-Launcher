@@ -123,7 +123,7 @@ func checkCreateArgs(args []string) error {
 
 // ownerLabel : étiquette cl.user de l'objet ; known faux si le moteur n'en dit rien d'exploitable.
 func (e Engine) ownerLabel(name string) string {
-	out, err := e.cmd("inspect", "-f", `{{index .Config.Labels "cl.user"}}`, name).Output()
+	out, err := e.output(e.cmdD(userReadTimeout, "inspect", "-f", `{{index .Config.Labels "cl.user"}}`, name), maxSmallOut)
 	if err != nil {
 		return ""
 	}
@@ -217,7 +217,7 @@ func (e Engine) RestoreInterrupted(name string) error {
 	if !e.B.user || !userCtrRE.MatchString(name) {
 		return errors.New("reprise : conteneur d'un projet d'utilisateur attendu")
 	}
-	out, err := e.cmd("ps", "-a", "--format", "{{.Names}} {{.Labels}}").Output()
+	out, err := e.output(e.cmdD(userReadTimeout, "ps", "-a", "--format", "{{.Names}} {{.Labels}}"), maxListOut)
 	if err != nil {
 		return errors.New("lecture des conteneurs impossible")
 	}

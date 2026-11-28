@@ -45,7 +45,7 @@ func (e Engine) DiscoverUserProjects() ([]UserProject, error) {
 }
 
 func (e Engine) discoverK8s() ([]UserProject, error) {
-	out, err := e.kcmd("get", "statefulsets", "-l", "cl.launcher=ng2,cl.user="+e.B.uid, "-o", "json").Output()
+	out, err := e.output(e.kcmdD(userReadTimeout, "get", "statefulsets", "-l", "cl.launcher=ng2,cl.user="+e.B.uid, "-o", "json"), maxListOut)
 	if err != nil {
 		return nil, errors.New("lecture des StatefulSets impossible")
 	}
@@ -85,8 +85,8 @@ func (e Engine) discoverK8s() ([]UserProject, error) {
 }
 
 func (e Engine) discoverDocker() ([]UserProject, error) {
-	out, err := e.cmd("ps", "-a", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.user="+e.B.uid,
-		"--format", "{{.Names}}|{{.State}}|{{.Image}}|{{.Labels}}").Output()
+	out, err := e.output(e.cmdD(userReadTimeout, "ps", "-a", "--filter", "label=cl.launcher=ng2", "--filter", "label=cl.user="+e.B.uid,
+		"--format", "{{.Names}}|{{.State}}|{{.Image}}|{{.Labels}}"), maxListOut)
 	if err != nil {
 		return nil, errors.New("lecture des conteneurs impossible")
 	}
@@ -200,7 +200,7 @@ func (e Engine) WriteUserMeta(object string, m UserMeta) error {
 
 // VerifyOwnerK8s : le StatefulSet porte cl.user = l'uid de l'espace (T10) ; sinon refus.
 func (e Engine) VerifyOwnerK8s(object string) error {
-	out, err := e.kcmd("get", "statefulset", object, "-o", `jsonpath={.metadata.labels.cl\.user}`).Output()
+	out, err := e.output(e.kcmdD(userReadTimeout, "get", "statefulset", object, "-o", `jsonpath={.metadata.labels.cl\.user}`), maxSmallOut)
 	if err != nil || strings.TrimSpace(string(out)) != e.B.uid || e.B.uid == "" {
 		return errors.New("l'objet n'appartient pas à cet utilisateur")
 	}

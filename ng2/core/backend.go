@@ -973,9 +973,11 @@ func (e Engine) quick(args ...string) ([]byte, error) {
 	return out, err
 }
 
-func (e Engine) cmd(args ...string) *exec.Cmd {
-	a := e.cli(args...)
-	return platform.NoWindow(exec.Command(a[0], a[1:]...))
+func (e Engine) cmd(args ...string) *exec.Cmd { return e.cmdD(userCmdTimeout, args...) }
+
+// cmdD : cmd avec le délai d (backend d'utilisateur ; sans effet pour l'admin).
+func (e Engine) cmdD(d time.Duration, args ...string) *exec.Cmd {
+	return e.newCmd(d, e.cli(args...))
 }
 
 // dnsSlug : s réduit à un label DNS (minuscules, chiffres, « - »), au plus max
@@ -1274,8 +1276,13 @@ func (e Engine) ExecArgv(name string, root, tty bool, argv ...string) []string {
 }
 
 func (e Engine) Exec(name string, root bool, stdin io.Reader, out io.Writer, argv ...string) error {
+	return e.ExecD(userCmdTimeout, name, root, stdin, out, argv...)
+}
+
+// ExecD : Exec avec le délai d (backend d'utilisateur : la commande est tuée à l'échéance ; sans effet pour l'admin).
+func (e Engine) ExecD(d time.Duration, name string, root bool, stdin io.Reader, out io.Writer, argv ...string) error {
 	a := e.ExecArgv(name, root, false, argv...)
-	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
+	c := e.newCmd(d, a)
 	c.Stdin, c.Stdout, c.Stderr = stdin, out, out
 	return c.Run()
 }
@@ -1287,9 +1294,13 @@ func ctrUIDGID() string {
 }
 
 func (e Engine) Output(name string, argv ...string) (string, error) {
-	var b bytes.Buffer
 	a := e.ExecArgv(name, false, false, argv...)
-	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
+	c := e.newCmd(userCmdTimeout, a)
+	if e.B.user { // sortie bornée : un conteneur hostile ne remplit pas la mémoire du launcher
+		b, err := readBounded(c, maxSmallOut)
+		return strings.TrimSpace(string(b)), err
+	}
+	var b bytes.Buffer
 	c.Stdout = &b
 	err := c.Run()
 	return strings.TrimSpace(b.String()), err

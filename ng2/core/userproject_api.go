@@ -7,12 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os/exec"
 	"strings"
 	"sync"
 	"time"
-
-	"claude-launcher-ng2/platform"
 )
 
 // API des projets d'un utilisateur (LOT-3.2 tâches 13–16) : découverte par labels, création / clone / déplacement / suppression dans le conteneur,
@@ -45,7 +42,7 @@ func OwnedProjects(uid string, objs []ObjMeta) []ObjMeta {
 // listObjects : objets du backend portant cl.launcher=ng2 (docker/podman : « ps -a » ; k8s : StatefulSets).
 func (e Engine) listObjects() ([]ObjMeta, error) {
 	if e.B.K8s() {
-		out, err := e.kcmd("get", "statefulsets", "-l", "cl.launcher=ng2", "-o", "json").Output()
+		out, err := e.output(e.kcmdD(userReadTimeout, "get", "statefulsets", "-l", "cl.launcher=ng2", "-o", "json"), maxListOut)
 		if err != nil {
 			return nil, errors.New("lecture des StatefulSets impossible")
 		}
@@ -66,7 +63,7 @@ func (e Engine) listObjects() ([]ObjMeta, error) {
 		}
 		return objs, nil
 	}
-	out, err := e.cmd("ps", "-a", "--filter", "label=cl.launcher=ng2", "--format", "{{.Names}} {{.Labels}}").Output()
+	out, err := e.output(e.cmdD(userReadTimeout, "ps", "-a", "--filter", "label=cl.launcher=ng2", "--format", "{{.Names}} {{.Labels}}"), maxListOut)
 	if err != nil {
 		return nil, errors.New("lecture des conteneurs impossible")
 	}
@@ -121,15 +118,22 @@ func (sp Space) CreateProject(e Engine, cat, name, repo string) error {
 	if err := e.startRaw(cat, name); err != nil {
 		return err
 	}
-	return e.runIn(obj, "git", "clone", "--", repo, UserProjectDir(cat, name))
+	return e.runInD(userLongTimeout, obj, "git", "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "protocol.ext.allow=never", "clone", "--", repo, UserProjectDir(cat, name))
 }
 
 // runIn : commande dans le conteneur du projet, sous l'uid du traitement.
 func (e Engine) runIn(obj string, argv ...string) error {
-	a := e.ExecArgv(obj, false, false, argv...)
-	out, err := platform.NoWindow(exec.Command(a[0], a[1:]...)).CombinedOutput()
-	if err != nil {
-		return errors.New("commande dans le conteneur impossible : " + ScrubMessage(firstLine(string(out), err)))
+	return e.runInD(userCmdTimeout, obj, argv...)
+}
+
+// runInD : runIn avec le délai d ; la sortie (erreur) est bornée à 64 Kio.
+func (e Engine) runInD(d time.Duration, obj string, argv ...string) error {
+	c := e.newCmd(d, e.ExecArgv(obj, false, false, argv...))
+	eb := &cappedBuf{max: 4 << 10}
+	c.Stderr = eb
+	out, err := readBounded(c, maxSmallOut)
+	if err != nil && !errors.Is(err, ErrOutputTooLarge) {
+		return errors.New("commande dans le conteneur impossible : " + ScrubMessage(firstLine(string(out)+eb.b.String(), err)))
 	}
 	return nil
 }
@@ -267,14 +271,15 @@ func (g *UserGate) AcquireStream(uid string) (func(), error) {
 // backend : annotation cl.meta (k8s) ou .claude-launcher/state.json dans le volume (docker/podman). Un projet sans dépôt : état vide valide.
 func (e Engine) RefreshUserMeta(cat, name string, now time.Time) error {
 	obj, dir := e.ObjectName(cat, name), UserProjectDir(cat, name)
+	// git dans un dépôt potentiellement hostile : ni moniteur de fichiers ni hooks (le .git/config du projet ne lance aucun programme), délai et sortie bornés
 	run := func(argv ...string) string {
-		a := e.ExecArgv(obj, false, false, append([]string{"git", "-C", dir}, argv...)...)
-		out, _ := platform.NoWindow(exec.Command(a[0], a[1:]...)).Output()
+		pre := []string{"git", "-C", dir, "-c", "core.fsmonitor=false", "-c", "core.hooksPath=/dev/null", "-c", "core.pager=cat", "-c", "protocol.ext.allow=never"}
+		out, _ := e.execOut(obj, userReadTimeout, maxGitOut, nil, append(pre, argv...)...)
 		return strings.TrimSpace(string(out))
 	}
 	m := ProjectMeta{Seen: now.UTC(), Team: []string{}}
 	m.Branch, m.Head = run("rev-parse", "--abbrev-ref", "HEAD"), run("rev-parse", "--short", "HEAD")
-	m.Dirty = run("status", "--porcelain") != ""
+	m.Dirty = run("status", "--porcelain", "--untracked-files=normal") != "" // sortie plafonnée : un seul octet suffit à dire « modifié »
 	if badMetaStr(m.Branch, 128) {
 		m.Branch = ""
 	}
@@ -294,10 +299,7 @@ func (e Engine) RefreshUserMeta(cat, name string, now time.Time) error {
 	if err := e.runIn(obj, "mkdir", "-p", "--", dir+"/.claude-launcher"); err != nil {
 		return err
 	}
-	a := e.ExecArgv(obj, false, false, "tee", "--", dir+"/.claude-launcher/state.json")
-	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
-	c.Stdin = bytes.NewReader(b)
-	return c.Run()
+	return e.ExecD(userCmdTimeout, obj, false, bytes.NewReader(b), io.Discard, "tee", "--", dir+"/.claude-launcher/state.json")
 }
 
 // ReadStoppedState : état (state.json) d'un projet docker/podman ARRÊTÉ, lu par « cp » (archive tar sur la sortie, 4 Kio au plus, une seule entrée) ;
@@ -310,17 +312,20 @@ func (e Engine) ReadStoppedState(cat, name string) (*ProjectMeta, error) {
 	if err := e.VerifyOwner(e.B.uid, obj); err != nil {
 		return nil, err
 	}
-	out, err := platform.NoWindow(e.cmd("cp", obj+":"+UserProjectDir(cat, name)+"/.claude-launcher/state.json", "-")).Output()
-	if err != nil || len(out) > 64<<10 {
+	// archive tar lue EN FLUX : en-tête d'abord (régulier, taille ≤ 4 Kio), puis au plus 4 Kio ; au-delà la commande est tuée (jamais tout en mémoire)
+	c := e.cmdD(userReadTimeout, "cp", obj+":"+UserProjectDir(cat, name)+"/.claude-launcher/state.json", "-")
+	pipe, err := c.StdoutPipe()
+	if err != nil || c.Start() != nil {
 		return nil, errors.New("état absent")
 	}
-	tr := tar.NewReader(bytes.NewReader(out))
+	defer func() { _ = c.Process.Kill(); _ = c.Wait() }()
+	tr := tar.NewReader(io.LimitReader(pipe, 64<<10))
 	h, err := tr.Next()
 	if err != nil || h.Typeflag != tar.TypeReg || h.Size > maxUserMeta {
 		return nil, errors.New("état illisible")
 	}
 	raw, err := io.ReadAll(io.LimitReader(tr, maxUserMeta+1))
-	if err != nil {
+	if err != nil || len(raw) > maxUserMeta {
 		return nil, errors.New("état illisible")
 	}
 	m, err := ParseProjectState(raw)

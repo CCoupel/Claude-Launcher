@@ -2,16 +2,15 @@ package core
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"html"
 	"io"
 	"mime"
 	"net/http"
-	"os/exec"
 	"path"
 	"strings"
-
-	"claude-launcher-ng2/platform"
+	"time"
 )
 
 // /files d'un projet d'utilisateur (LOT-3.2 tâche 15, contrat §6) : le launcher ne lit RIEN du stockage de l'utilisateur lui-même ; chaque lecture est
@@ -20,7 +19,31 @@ import (
 
 const maxUserFileBytes = 256 << 20
 
-// ServeUserFile : sert <projet>/<sub> d'un projet EN MARCHE.
+// userResolveScript : chemin RÉEL (liens suivis) dans le conteneur : doit rester sous le dossier réel du projet, être un fichier ordinaire ou un dossier
+// (jamais FIFO, périphérique ni socket). Sort trois lignes : genre (f|d), chemin réel, dossier réel du projet.
+const userResolveScript = `b=$(realpath -e -- "$2") || exit 3; p=$(realpath -e -- "$1") || exit 3
+case "$p" in "$b"|"$b"/*) ;; *) exit 4 ;; esac
+if [ -f "$p" ]; then k=f; elif [ -d "$p" ]; then k=d; else exit 5; fi
+printf '%s\n%s\n%s\n' "$k" "$p" "$b"`
+
+// resolveUserPath : (genre, chemin réel, chemin relatif au dossier réel du projet), ok faux si absent, hors du projet, d'un autre genre ou sensible.
+func (e Engine) resolveUserPath(obj, abs, projDir string) (kind, real, rel string, ok bool) {
+	out, err := e.execOut(obj, userReadTimeout, 4<<10, nil, "sh", "-c", userResolveScript, "sh", abs, projDir)
+	if err != nil {
+		return "", "", "", false
+	}
+	l := strings.Split(strings.TrimRight(string(out), "\n"), "\n")
+	if len(l) != 3 || (l[0] != "f" && l[0] != "d") || !strings.HasPrefix(l[1], "/") || l[1] != l[2] && !strings.HasPrefix(l[1], strings.TrimRight(l[2], "/")+"/") {
+		return "", "", "", false
+	}
+	rel = strings.TrimPrefix(strings.TrimPrefix(l[1], l[2]), "/")
+	if sensitiveRel(rel) { // contrôlé aussi sur le chemin RÉEL : un lien vers .env, .claude… ne contourne rien (T21)
+		return "", "", "", false
+	}
+	return l[0], l[1], rel, true
+}
+
+// ServeUserFile : sert <projet>/<sub> d'un projet EN MARCHE. Annulé avec la requête ; premier octet sous 30 s, durée totale 10 min, 256 Mio au plus.
 func (e Engine) ServeUserFile(w http.ResponseWriter, r *http.Request, cat, name, sub string, g *UserGate) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		http.Error(w, "méthode refusée", http.StatusMethodNotAllowed)
@@ -43,26 +66,41 @@ func (e Engine) ServeUserFile(w http.ResponseWriter, r *http.Request, cat, name,
 		return
 	}
 	defer relExec()
-	obj := e.ObjectName(cat, name)
-	abs := UserProjectDir(cat, name)
+	obj, projDir := e.ObjectName(cat, name), UserProjectDir(cat, name)
+	abs := projDir
 	if clean != "" {
 		abs += "/" + clean
 	}
-	if strings.HasSuffix(sub, "/") || clean == "" { // dossier : liste
-		e.serveUserDir(w, r, obj, abs, clean)
+	kind, real, _, ok := e.resolveUserPath(obj, abs, projDir)
+	if !ok || (kind == "d") != (strings.HasSuffix(sub, "/") || clean == "") {
+		http.NotFound(w, r)
 		return
 	}
-	argv := e.ExecArgv(obj, false, false, "cat", "--", abs)
-	cmd := platform.NoWindow(exec.Command(argv[0], argv[1:]...))
+	if kind == "d" {
+		e.serveUserDir(w, r, obj, real, clean)
+		return
+	}
+	cmd := e.newCmd(userServeTimeout, e.ExecArgv(obj, false, false, "cat", "--", real))
 	out, err := cmd.StdoutPipe()
 	if err != nil || cmd.Start() != nil {
 		http.Error(w, "lecture impossible", http.StatusBadGateway)
 		return
 	}
-	defer func() { _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	done := make(chan struct{})
+	defer func() { close(done); _ = cmd.Process.Kill(); _ = cmd.Wait() }()
+	opened := time.AfterFunc(userOpenTimeout, func() { _ = cmd.Process.Kill() }) // aucun octet à temps (FIFO, système de fichiers bloqué)
+	defer opened.Stop()
+	go func() {
+		select {
+		case <-r.Context().Done(): // client parti : le « cat » est tué, les compteurs libérés
+			_ = cmd.Process.Kill()
+		case <-done:
+		}
+	}()
 	br := bufio.NewReader(io.LimitReader(out, maxUserFileBytes))
 	head, _ := br.Peek(512)
-	if len(head) == 0 { // vide ou absent : « cat » a échoué avant toute sortie → 404 (un fichier vide est servi vide)
+	opened.Stop()
+	if len(head) == 0 { // vide ou échec : un fichier vide est servi vide, une erreur de « cat » est un 404
 		if err := cmd.Wait(); err != nil {
 			http.NotFound(w, r)
 			return
@@ -83,10 +121,9 @@ func (e Engine) ServeUserFile(w http.ResponseWriter, r *http.Request, cat, name,
 	_, _ = io.Copy(w, br)
 }
 
-func (e Engine) serveUserDir(w http.ResponseWriter, r *http.Request, obj, abs, clean string) {
-	argv := e.ExecArgv(obj, false, false, "ls", "-1Ap", "--", abs)
-	out, err := platform.NoWindow(exec.Command(argv[0], argv[1:]...)).Output()
-	if err != nil {
+func (e Engine) serveUserDir(w http.ResponseWriter, r *http.Request, obj, real, clean string) {
+	out, err := e.execOut(obj, userReadTimeout, maxSmallOut, nil, "ls", "-1Ap", "--", real)
+	if err != nil && !errors.Is(err, ErrOutputTooLarge) {
 		http.NotFound(w, r)
 		return
 	}

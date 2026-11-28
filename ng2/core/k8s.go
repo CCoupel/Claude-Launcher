@@ -59,9 +59,11 @@ func (e Engine) kubectl(args ...string) []string {
 	return append(append(out, "-n", k8sNamespace(e.B)), args...)
 }
 
-func (e Engine) kcmd(args ...string) *exec.Cmd {
-	a := e.kubectl(args...)
-	return platform.NoWindow(exec.Command(a[0], a[1:]...))
+func (e Engine) kcmd(args ...string) *exec.Cmd { return e.kcmdD(userCmdTimeout, args...) }
+
+// kcmdD : kcmd avec le délai d (backend d'utilisateur ; sans effet pour l'admin).
+func (e Engine) kcmdD(d time.Duration, args ...string) *exec.Cmd {
+	return e.newCmd(d, e.kubectl(args...))
 }
 
 // k8sName : nom du StatefulSet d'un projet, « <catégorie>-<projet> » ; son pod

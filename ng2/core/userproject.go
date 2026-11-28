@@ -132,7 +132,7 @@ func (e Engine) UserProjectValues(cat, name string) (map[string]string, error) {
 	obj := e.ObjectName(cat, name)
 	v := map[string]string{}
 	if e.B.K8s() {
-		out, err := e.kcmd("get", "statefulset", obj, "-o", "json").Output()
+		out, err := e.output(e.kcmdD(userReadTimeout, "get", "statefulset", obj, "-o", "json"), maxListOut)
 		if err != nil {
 			return nil, errors.New("lecture du projet impossible")
 		}
@@ -163,7 +163,7 @@ func (e Engine) UserProjectValues(cat, name string) (map[string]string, error) {
 	if err := e.VerifyOwner(e.B.uid, obj); err != nil {
 		return nil, err
 	}
-	out, err := e.cmd("inspect", "-f", "{{.HostConfig.NanoCpus}}|{{.HostConfig.Memory}}|{{.HostConfig.PidsLimit}}|{{.HostConfig.ShmSize}}", obj).Output()
+	out, err := e.output(e.cmdD(userReadTimeout, "inspect", "-f", "{{.HostConfig.NanoCpus}}|{{.HostConfig.Memory}}|{{.HostConfig.PidsLimit}}|{{.HostConfig.ShmSize}}", obj), maxSmallOut)
 	if err != nil {
 		return nil, errors.New("lecture du projet impossible")
 	}

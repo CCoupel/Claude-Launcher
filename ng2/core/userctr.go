@@ -53,11 +53,11 @@ const maxUserEnvFile = 64 << 10
 
 // readUserFile : contenu d'un fichier du projet lu PAR EXEC (borné), ok faux si absent.
 func (e Engine) readUserFile(obj, abs string, max int) ([]byte, bool) {
-	var b bytes.Buffer
-	if err := e.Exec(obj, false, nil, &b, "sh", "-c", `test -f "$1" && head -c $2 -- "$1"`, "sh", abs, fmt.Sprint(max+1)); err != nil {
+	b, err := e.execOut(obj, userReadTimeout, int64(max)+1, nil, "sh", "-c", `test -f "$1" && head -c $2 -- "$1"`, "sh", abs, fmt.Sprint(max+1))
+	if err != nil && !errors.Is(err, ErrOutputTooLarge) {
 		return nil, false
 	}
-	return b.Bytes(), true
+	return b, true
 }
 
 // UserEnvFiles : fichiers d'environnement présents dans le projet (nom → contenu).
@@ -142,7 +142,7 @@ func userEnvFromFiles(files map[string][]byte) (EnvSpec, error) {
 func (e Engine) waitUserReady(obj string, out io.Writer, wait time.Duration) error {
 	deadline := time.Now().Add(wait)
 	for {
-		if e.Exec(obj, false, nil, io.Discard, "test", "-f", "/space/.claude-launcher/ready") == nil {
+		if e.ExecD(userReadTimeout, obj, false, nil, io.Discard, "test", "-f", "/space/.claude-launcher/ready") == nil {
 			return nil
 		}
 		if time.Now().After(deadline) {
@@ -250,7 +250,7 @@ func (e Engine) installUserClaude(obj string, out io.Writer) error {
 		return nil
 	}
 	script := "export PATH=\"$HOME/.local/bin:$PATH\"\ncommand -v claude >/dev/null 2>&1 && exit 0\necho '  installation de claude'\ncurl -fsSL https://claude.ai/install.sh | bash\n"
-	if err := e.Exec(obj, false, strings.NewReader(script), out, "bash", "-e", "-s"); err != nil {
+	if err := e.ExecD(userLongTimeout, obj, false, strings.NewReader(script), out, "bash", "-e", "-s"); err != nil {
 		return fmt.Errorf("installation de claude : %w", err)
 	}
 	return nil
