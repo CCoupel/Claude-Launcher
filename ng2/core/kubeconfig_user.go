@@ -108,9 +108,8 @@ func parseUserKubeconfig(raw []byte) (contexts []string, current string, warning
 			warnings = append(warnings, fmt.Sprintf("cluster %q : certificat de l'API non vérifié (insecure-skip-tls-verify)", name))
 		}
 	}
-	for n, err := range checkResolvedAll(serverNames) { // en parallèle, dans un délai total borné
+	for _, err := range checkResolvedAll(serverNames) { // en parallèle, dans un délai total borné
 		if err != nil {
-			_ = n
 			return nil, "", nil, err
 		}
 	}
@@ -140,5 +139,3 @@ func userKubeconfigRecheck(raw []byte) error {
 	_, _, _, err := parseUserKubeconfig(raw)
 	return err
 }
-
-var _ = strings.TrimSpace

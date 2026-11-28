@@ -134,3 +134,43 @@ func TestYamlDupKeyFoldRune275(t *testing.T) {
 		t.Error("faux positif")
 	}
 }
+
+// Revue LOT-3.2 (majeur) : un listage en erreur ne laisse JAMAIS créer sur k8s (le StatefulSet existant n'est ni mis à jour ni arrêté) ; la création
+// emploie « create » et non « apply ».
+func TestCreationK8sEchecFerme275(t *testing.T) {
+	unixOnly(t)
+	b := e2K8s(t)
+	dir := t.TempDir()
+	log := filepath.Join(dir, "calls.log")
+	script := `#!/bin/sh
+echo "$*" >> "` + log + `"
+case "$*" in
+  *"get statefulsets"*) [ -f "` + dir + `/listfail" ] && { echo "timeout" >&2; exit 1; }; echo '{"items":[]}' ;;
+  *) : ;;
+esac
+`
+	if err := os.WriteFile(filepath.Join(dir, "kubectl"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	e := Engine{b}
+	_ = os.WriteFile(filepath.Join(dir, "listfail"), nil, 0o644)
+	if err := e.CreateUserProject("cat", "proj", UserDefaultImage()); err == nil {
+		t.Error("création acceptée malgré l'échec du listage")
+	}
+	sp, _ := UserSpace(e2UID)
+	if err := sp.MoveProject(e, "cat", "proj", "cat2", "proj2"); err == nil {
+		t.Error("déplacement accepté malgré l'échec du listage")
+	}
+	if b, _ := os.ReadFile(log); strings.Contains(string(b), "create") || strings.Contains(string(b), "apply") || strings.Contains(string(b), "delete") {
+		t.Errorf("commande d'écriture lancée malgré l'échec du listage :\n%s", b)
+	}
+	_ = os.Remove(filepath.Join(dir, "listfail"))
+	if err := e.CreateUserProject("cat", "proj", UserDefaultImage()); err != nil {
+		t.Fatalf("création : %v", err)
+	}
+	b2, _ := os.ReadFile(log)
+	if !strings.Contains(string(b2), "create -f -") || strings.Contains(string(b2), "apply") {
+		t.Errorf("« create -f - » attendu, jamais apply :\n%s", b2)
+	}
+}

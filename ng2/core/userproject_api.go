@@ -87,6 +87,16 @@ func (e Engine) listObjects() ([]ObjMeta, error) {
 // CreateProject : crée l'objet labellisé du projet (limite, noms et dépôt validés AVANT toute commande) ; avec un dépôt : démarre le conteneur puis
 // clone DANS le conteneur, sous l'uid du traitement (arguments positionnels après « -- »).
 func (sp Space) CreateProject(e Engine, cat, name, repo string) error {
+	return sp.CreateProjectImage(e, cat, name, repo, UserDefaultImage())
+}
+
+// ErrProjectLimit : nombre maximal de projets atteint.
+type ErrProjectLimit struct{ Msg string }
+
+func (e ErrProjectLimit) Error() string { return e.Msg }
+
+// CreateProjectImage : CreateProject avec l'image (déjà validée par l'appelant) ; point d'entrée UNIQUE de la création — limite et création atomiques par utilisateur.
+func (sp Space) CreateProjectImage(e Engine, cat, name, repo, image string) error {
 	if msg := ValidUserProjectName(cat); msg != "" {
 		return errors.New("catégorie : " + msg)
 	}
@@ -100,10 +110,13 @@ func (sp Space) CreateProject(e Engine, cat, name, repo string) error {
 	}
 	unlock := lockUserCreate(e.B.uid) // limite + création atomiques par utilisateur
 	defer unlock()
-	objs, _ := e.listObjects() // injoignable : la création échouera d'elle-même
+	objs, lerr := e.listObjects()
+	if lerr != nil && e.B.K8s() {
+		return errors.New("lecture des projets impossible : réessaie dans un instant")
+	}
 	owned := OwnedProjects(e.B.uid, objs)
 	if p := CheckProjectLimit(len(owned)); p != nil {
-		return errors.New(p.Msg)
+		return ErrProjectLimit{p.Msg}
 	}
 	obj := e.ObjectName(cat, name)
 	for _, o := range objs {
@@ -111,7 +124,7 @@ func (sp Space) CreateProject(e Engine, cat, name, repo string) error {
 			return errors.New("un projet porte déjà ce nom")
 		}
 	}
-	if err := e.CreateUserProject(cat, name, UserDefaultImage()); err != nil {
+	if err := e.CreateUserProject(cat, name, image); err != nil {
 		return err
 	}
 	if repo == "" {
@@ -182,11 +195,13 @@ func (sp Space) MoveProject(e Engine, cat, name, newCat, newName string) error {
 	if cat == newCat && name == newName {
 		return errors.New("même emplacement")
 	}
-	if objs, _ := e.listObjects(); true {
-		for _, o := range objs {
-			if o.Name == e.ObjectName(newCat, newName) {
-				return errors.New("un projet porte déjà ce nom")
-			}
+	objs, lerr := e.listObjects()
+	if lerr != nil && e.B.K8s() { // échec fermé (voir CreateUserProject)
+		return errors.New("lecture des projets impossible : réessaie dans un instant")
+	}
+	for _, o := range objs {
+		if o.Name == e.ObjectName(newCat, newName) {
+			return errors.New("un projet porte déjà ce nom")
 		}
 	}
 	image := e.objectImage(obj) // l'image du projet suit le déplacement (les options par projet ne suivent pas : à refaire)

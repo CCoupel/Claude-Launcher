@@ -169,10 +169,6 @@ func (e Engine) OpenUserProject(key []byte, cat, name string, t CtrOpenIO) (CtrO
 	if err != nil {
 		return CtrOpen{}, err
 	}
-	pod := strings.TrimSuffix(obj, "-0")
-	if !e.B.K8s() {
-		pod = obj
-	}
 	fmt.Fprintf(out, "\033[1m⬡ %s/%s — %s\033[0m\n", cat, name, e.B.Name)
 	if err := e.waitUserReady(obj, out, userReadyWait); err != nil {
 		return CtrOpen{}, err
@@ -191,7 +187,6 @@ func (e Engine) OpenUserProject(key []byte, cat, name string, t CtrOpenIO) (CtrO
 	if ps := CheckUserEnv(env, UserDefaultImage()); len(ps) > 0 {
 		return CtrOpen{}, errors.New(ps[0].Field + " : " + ps[0].Msg)
 	}
-	_ = pod
 	if err := e.Exec(obj, false, strings.NewReader(userTmuxConfText), io.Discard, "tee", "--", UserTmuxConf); err != nil {
 		return CtrOpen{}, errors.New("configuration tmux impossible à écrire dans ton stockage")
 	}

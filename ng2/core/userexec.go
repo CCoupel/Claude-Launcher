@@ -91,3 +91,11 @@ func (c *cappedBuf) Write(p []byte) (int, error) {
 	}
 	return len(p), nil
 }
+
+// combinedOut : sortie standard et d'erreur d'une commande, plafonnée à 64 Kio (messages d'erreur seulement).
+func combinedOut(c *exec.Cmd) ([]byte, error) {
+	cb := &cappedBuf{max: maxSmallOut}
+	c.Stdout, c.Stderr = cb, cb
+	err := c.Run()
+	return cb.b.Bytes(), err
+}

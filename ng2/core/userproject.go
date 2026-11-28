@@ -6,10 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Cycle de vie des projets d'un utilisateur SUR SON backend (LOT-3.2 tâches 14–16) : créer (objet labellisé, arrêté), démarrer, lire les
@@ -50,11 +48,13 @@ func (e Engine) CreateUserProject(cat, name, image string) error {
 	}
 	proj := UserProjectDir(cat, name)
 	env := EnvSpec{Image: image}
-	if objs, err := e.listObjects(); err == nil {
-		for _, o := range objs {
-			if o.Name == e.ObjectName(cat, name) {
-				return errors.New("un projet porte déjà ce nom")
-			}
+	objs, lerr := e.listObjects()
+	if lerr != nil && e.B.K8s() { // échec FERMÉ : sans liste fiable, un StatefulSet existant ne doit jamais être écrasé (docker : « create » d'un nom pris échoue seul)
+		return errors.New("lecture des projets impossible : réessaie dans un instant")
+	}
+	for _, o := range objs {
+		if o.Name == e.ObjectName(cat, name) {
+			return errors.New("un projet porte déjà ce nom")
 		}
 	}
 	if e.B.K8s() {
@@ -62,9 +62,9 @@ func (e Engine) CreateUserProject(cat, name, image string) error {
 		if err != nil {
 			return err
 		}
-		c := e.kcmd("apply", "-f", "-")
+		c := e.kcmd("create", "-f", "-") // « create » et non « apply » : échoue si l'objet existe, jamais mis à jour ni arrêté
 		c.Stdin = bytes.NewReader(raw)
-		out, err := c.CombinedOutput()
+		out, err := combinedOut(c)
 		if err != nil {
 			if pe := ExplainApplyError(string(out)); pe != nil {
 				return pe
@@ -77,7 +77,7 @@ func (e Engine) CreateUserProject(cat, name, image string) error {
 	if err != nil {
 		return err
 	}
-	if out, err := e.cmd(args...).CombinedOutput(); err != nil {
+	if out, err := combinedOut(e.cmd(args...)); err != nil {
 		return errors.New("création du projet impossible : " + ScrubMessage(firstLine(string(out), err)))
 	}
 	return nil
@@ -95,12 +95,12 @@ func (e Engine) StartUserProject(cat, name string) error {
 func (e Engine) startRaw(cat, name string) error {
 	obj := e.ObjectName(cat, name)
 	if e.B.K8s() {
-		if out, err := e.kcmd("scale", "statefulset", obj, "--replicas=1").CombinedOutput(); err != nil {
+		if out, err := combinedOut(e.kcmd("scale", "statefulset", obj, "--replicas=1")); err != nil {
 			return errors.New("démarrage impossible : " + ScrubMessage(firstLine(string(out), err)))
 		}
 		return nil
 	}
-	if out, err := e.cmd("start", obj).CombinedOutput(); err != nil {
+	if out, err := combinedOut(e.cmd("start", obj)); err != nil {
 		return errors.New("démarrage impossible : " + ScrubMessage(firstLine(string(out), err)))
 	}
 	return nil
@@ -120,9 +120,6 @@ func (e Engine) StopUserProject(cat, name string) error {
 	}
 	return e.cmd("stop", obj).Run()
 }
-
-var _ = os.Getenv
-var _ = time.Now
 
 // ── options d'un projet existant (§5 bis) ─────────────────────────────────
 
@@ -196,7 +193,7 @@ func (e Engine) ApplyPodOptions(cat, name string, po PodOptions) error {
 	spec := map[string]any{"containers": []any{map[string]any{"name": "main", "resources": po.Resources()}}}
 	po.Apply(spec)
 	patch, _ := json.Marshal(map[string]any{"spec": map[string]any{"template": map[string]any{"spec": spec}}})
-	if out, err := e.kcmd("patch", "statefulset", obj, "--type=strategic", "-p", string(patch)).CombinedOutput(); err != nil {
+	if out, err := combinedOut(e.kcmd("patch", "statefulset", obj, "--type=strategic", "-p", string(patch))); err != nil {
 		return errors.New("modification impossible : " + ScrubMessage(firstLine(string(out), err)))
 	}
 	return nil
@@ -217,7 +214,7 @@ func (e Engine) UpdateContainerHot(cat, name string, c ContainerOptions) error {
 	if len(args) == 1 {
 		return nil
 	}
-	if out, err := e.cmd(append(args, obj)...).CombinedOutput(); err != nil {
+	if out, err := combinedOut(e.cmd(append(args, obj)...)); err != nil {
 		return errors.New("modification impossible : " + ScrubMessage(firstLine(string(out), err)))
 	}
 	return nil

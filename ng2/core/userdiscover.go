@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -206,6 +204,3 @@ func (e Engine) VerifyOwnerK8s(object string) error {
 	}
 	return nil
 }
-
-var _ = fmt.Sprint
-var _ = exec.Command

@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"os/exec"
 	"regexp"
 	"strings"
 	"sync"
@@ -200,7 +199,7 @@ func (e Engine) RecreateContainer(name string, createArgs []string, token string
 	if err := run("start", name); err != nil {
 		return rollback("démarrage du nouveau conteneur impossible : l'ancien est rétabli")
 	}
-	if _, err := e.cmd("inspect", "-f", "{{.State.Running}}", name).Output(); err != nil {
+	if _, err := e.output(e.cmdD(userReadTimeout, "inspect", "-f", "{{.State.Running}}", name), maxSmallOut); err != nil {
 		return rollback("inspection du nouveau conteneur impossible : l'ancien est rétabli")
 	}
 	if err := run("rm", old); err != nil { // sans -v : le volume n'est jamais touché ; l'ancien reste identifiable (doublon signalé à la reprise)
@@ -257,5 +256,3 @@ func (e Engine) RestoreInterrupted(name string) error {
 	}
 	return nil
 }
-
-var _ = exec.Command

@@ -128,7 +128,11 @@ func (e Engine) checkShared(proj string) error {
 func runQuiet(timeout time.Duration, argv ...string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	out, err := platform.NoWindow(exec.CommandContext(ctx, argv[0], argv[1:]...)).CombinedOutput()
+	c := platform.NoWindow(exec.CommandContext(ctx, argv[0], argv[1:]...))
+	cb := &cappedBuf{max: 64 << 10} // sortie bornée : jamais plus de 64 Kio en mémoire
+	c.Stdout, c.Stderr = cb, cb
+	err := c.Run()
+	out := cb.b.Bytes()
 	if ctx.Err() != nil {
 		return string(out), fmt.Errorf("délai dépassé (%s)", timeout)
 	}
