@@ -83,7 +83,7 @@ func TestAbandonDePrivilegesReel275(t *testing.T) {
 	for _, c := range userFiveCaps {
 		args = append(args, "--cap-add="+c)
 	}
-	args = append(args, "--security-opt=no-new-privileges", img, "sh", "-c", SetprivPrefix(2000, 2000)+` sh -c 'grep -E "^(Uid|CapPrm|CapEff|NoNewPrivs)" /proc/self/status'`)
+	args = append(args, "--security-opt=no-new-privileges", img, "sh", "-c", SetprivPrefix(2000, 2000)+` sh -c 'grep -E "^(Uid|CapInh|CapPrm|CapEff|CapBnd|CapAmb|NoNewPrivs|Seccomp):" /proc/self/status'`)
 	c := exec.Command("docker", args...)
 	done := make(chan struct{})
 	var out []byte
@@ -96,7 +96,12 @@ func TestAbandonDePrivilegesReel275(t *testing.T) {
 		t.Fatal("délai dépassé")
 	}
 	s := string(out)
-	if err != nil || !strings.Contains(s, "CapEff:\t0000000000000000") || !strings.Contains(s, "CapPrm:\t0000000000000000") || !strings.Contains(s, "NoNewPrivs:\t1") || !strings.Contains(s, "Uid:\t2000") {
-		t.Errorf("session finale : %v\\n%s", err, s)
+	// valeurs attendues (avis security) ; Seccomp 2 : profil par défaut du moteur — vérifié aussi en QUALIF sur pid 1, un shell de session tmux et un exec court
+	want := []string{"Uid:\t2000", "CapInh:\t0000000000000000", "CapPrm:\t0000000000000000", "CapEff:\t0000000000000000", "CapAmb:\t0000000000000000",
+		"CapBnd:\t00000000000000cb", "NoNewPrivs:\t1", "Seccomp:\t2"}
+	for _, w := range want {
+		if !strings.Contains(s, w) {
+			t.Errorf("« %s » absent (err=%v) :\n%s", w, err, s)
+		}
 	}
 }
