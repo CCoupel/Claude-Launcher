@@ -199,6 +199,11 @@ func (u *userSpace) openUserProject(id string) (any, error) {
 	if !ok {
 		return refusal("backend", "invalid", "backend inconnu dans vos réglages"), nil
 	}
+	if t := u.term(id); t == nil { // pas d'onglet : le projet doit EXISTER chez l'utilisateur (open ne crée jamais ; seul « create » crée)
+		if _, _, found := u.owned(id); !found {
+			return refusal("path", "invalid", "projet introuvable"), nil
+		}
+	}
 	if t := u.term(id); t != nil {
 		if !t.isReadOnly() && t.info().State != "error" {
 			return map[string]any{"tab": id}, nil
@@ -248,6 +253,9 @@ func (u *userSpace) closeUserProject(id string) (any, error) {
 		t.detach()
 		userHost{u}.removeTab(id, t)
 	}
+	if _, _, found := u.owned(id); !found {
+		return refusal("path", "invalid", "projet introuvable"), nil
+	}
 	es, _, _ := u.engines()
 	e, ok := es[bn]
 	if !ok {
@@ -273,6 +281,9 @@ func (u *userSpace) envTrustAnswer(a userProjArgs) (any, error) {
 	case "accept":
 	default:
 		return map[string]any{"ok": false, "msg": "choix inconnu : " + a.Choice}, nil
+	}
+	if _, _, found := u.owned(a.Path); !found {
+		return refusal("path", "invalid", "projet introuvable"), nil
 	}
 	es, _, _ := u.engines()
 	e, ok := es[bn]

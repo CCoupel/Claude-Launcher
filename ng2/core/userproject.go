@@ -21,7 +21,7 @@ func UserProjectID(backend, cat, name string) string { return backend + "/" + ca
 // ParseUserProjectID : backend, catégorie et nom d'un identifiant ; erreur générique si la forme n'est pas exacte.
 func ParseUserProjectID(id string) (backend, cat, name string, err error) {
 	p := strings.Split(id, "/")
-	if len(p) != 3 || CheckUserBackendName(p[0]) != nil || !userSegRE.MatchString(p[1]) || !userSegRE.MatchString(p[2]) {
+	if len(p) != 3 || CheckUserBackendName(p[0]) != nil || ValidUserProjectName(p[1]) != "" || ValidUserProjectName(p[2]) != "" {
 		return "", "", "", errors.New("identifiant de projet invalide")
 	}
 	return p[0], p[1], p[2], nil

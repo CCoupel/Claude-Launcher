@@ -649,6 +649,9 @@ func (u *userSpace) projectMove(a userProjArgs) (any, error) {
 	if err != nil {
 		return refusal("path", "invalid", err.Error()), nil
 	}
+	if _, _, ok := u.owned(a.Path); !ok {
+		return refusal("path", "invalid", "projet introuvable"), nil
+	}
 	es, _, _ := u.engines()
 	e, ok := es[bn]
 	if !ok {
@@ -681,6 +684,9 @@ func (u *userSpace) projectDelete(a userProjArgs) (any, error) {
 	if err != nil {
 		return refusal("path", "invalid", err.Error()), nil
 	}
+	if _, _, ok := u.owned(a.Path); !ok {
+		return refusal("path", "invalid", "projet introuvable"), nil
+	}
 	es, _, _ := u.engines()
 	e, ok := es[bn]
 	if !ok {
@@ -693,4 +699,16 @@ func (u *userSpace) projectDelete(a userProjArgs) (any, error) {
 	u.invalidate()
 	u.pushState()
 	return map[string]any{"ok": true}, nil
+}
+
+// owned : le projet figure dans la découverte (objets cl.user=<uid>) de CE utilisateur — relue si le cache ne le connaît pas. Contrôle d'appartenance
+// commun à tout point d'entrée par chemin, AVANT toute commande de création, de démarrage, d'arrêt ou de lecture : jamais de création par un chemin
+// qui n'est pas « create » (noms, motif réservé, limite et options y sont validés).
+func (u *userSpace) owned(id string) (core.Engine, core.UserProject, bool) {
+	e, p, _, found, err := u.findProject(id)
+	if err == nil && !found {
+		u.invalidate()
+		e, p, _, found, err = u.findProject(id)
+	}
+	return e, p, err == nil && found
 }
