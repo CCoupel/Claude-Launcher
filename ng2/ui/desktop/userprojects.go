@@ -2,6 +2,7 @@ package desktop
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -387,18 +388,6 @@ func (u *userSpace) createProject(c webCall, a userProjArgs) (any, error) {
 			return refusal("repo", "invalid", err.Error()), nil
 		}
 	}
-	u.createMu.Lock() // limite et création atomiques pour cet utilisateur
-	defer u.createMu.Unlock()
-	disc, _ := u.discover(true)
-	cnt := 0
-	for _, d := range disc {
-		if d != nil && d.err == nil {
-			cnt += len(d.projects)
-		}
-	}
-	if p := core.CheckProjectLimit(cnt); p != nil {
-		return refusal("", p.Code, p.Msg), nil
-	}
 	image := a.Image
 	if image == "" {
 		image = core.UserDefaultImage()
@@ -406,13 +395,12 @@ func (u *userSpace) createProject(c webCall, a userProjArgs) (any, error) {
 	if err := core.CheckUserImage(image); err != nil {
 		return refusal("image", "invalid", err.Error()), nil
 	}
-	var err error
-	if a.Repo != "" { // clone DANS le conteneur (image par défaut : la seule admise)
-		err = u.sp.CreateProject(e, a.Category, a.Name, a.Repo)
-	} else {
-		err = e.CreateUserProject(a.Category, a.Name, image)
-	}
-	if err != nil {
+	// point d'entrée unique de la création : limite, unicité et création sous le verrou de l'utilisateur ; clone DANS le conteneur si repo
+	if err := u.sp.CreateProjectImage(e, a.Category, a.Name, a.Repo, image); err != nil {
+		var lim core.ErrProjectLimit
+		if errors.As(err, &lim) {
+			return refusal("", "limit", lim.Msg), nil
+		}
 		code := "invalid"
 		if strings.Contains(err.Error(), "déjà ce nom") {
 			return refusal("name", "conflict", err.Error()), nil

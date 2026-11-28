@@ -1459,7 +1459,10 @@ func (t *projTerm) relayout(force bool) {
 	for _, p := range panes {
 		ids.WriteString(p.ID + "\n")
 	}
-	tp := core.FindTeamConfig(t.path)
+	tp := ""
+	if t.user == nil { // jamais le ~/.claude du serveur pour un projet d'utilisateur
+		tp = core.FindTeamConfig(t.path)
+	}
 	if tp == "" && force {
 		t.hs().setMsg("Relayout : aucune team trouvée pour " + t.name)
 	}

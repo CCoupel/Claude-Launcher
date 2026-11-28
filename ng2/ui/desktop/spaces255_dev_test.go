@@ -87,10 +87,15 @@ func TestSpacesInitVideEtBackendsIsoles255(t *testing.T) {
 	if rb["space"].(map[string]any)["empty"] != true {
 		t.Errorf("bob doit voir un espace vide : %v", rb["space"])
 	}
-	for _, r := range ra["state"].(map[string]any)["rows"].([]any) { // LOT-3.2 : l'arbre porte ses backends ; aucun projet ne vient de la racine de l'admin
-		if r.(map[string]any)["kind"] == "project" {
-			t.Errorf("l'utilisateur voit un projet : %v", r)
+	// LOT-3.2 : l'arbre de l'utilisateur ne porte QUE ses propres backends (ici « mien ») ; aucun projet ni nom de la racine ou des backends de l'admin
+	for _, r := range ra["state"].(map[string]any)["rows"].([]any) {
+		m := r.(map[string]any)
+		if m["kind"] == "project" || m["kind"] == "cat" || m["kind"] != "root" || m["name"] != "mien" || m["path"] != "mien" {
+			t.Errorf("ligne étrangère à l'espace de l'utilisateur : %v", m)
 		}
+	}
+	if rows := rb["state"].(map[string]any)["rows"].([]any); len(rows) != 0 {
+		t.Errorf("bob (sans backend) voit des lignes : %v", rows)
 	}
 	if ra["user"] == nil || strings.Contains(fmt.Sprint(a), "github-11") {
 		t.Errorf("identifiant numérique exposé ou user absent : %v", a)
