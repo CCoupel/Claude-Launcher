@@ -29,7 +29,8 @@ func UserBootstrapScript(uid, gid int) string {
 	u, g := int64(uid), int64(gid)
 	refusal := fmt.Sprintf("Le stockage n'est pas accessible en écriture à l'utilisateur %d:%d et le launcher n'a pas pu en changer le propriétaire. "+
 		"Exécute sur ton stockage : chown -R %d:%d <dossier> (procédure dans la documentation).", u, g, u, g)
-	return fmt.Sprintf(`D=/space; M=/space/.claude-launcher/owner; U=%[1]d; G=%[2]d
+	return fmt.Sprintf(`D=/space; M=/space/.claude-launcher/owner; R=/space/.claude-launcher/ready; U=%[1]d; G=%[2]d
+rm -f "$R" 2>/dev/null
 need=""
 for c in tmux git curl; do command -v $c >/dev/null 2>&1 || need="$need $c"; done
 if [ -n "$need" ]; then
@@ -43,6 +44,7 @@ if [ "$cur" != "$U:$G" ] || [ "$own" != "$U:$G" ]; then
   if chown -R -h %[1]d:%[2]d /space 2>/dev/null; then mkdir -p $D/.claude-launcher && printf '%%s' "$U:$G" > "$M" && chown -h %[1]d:%[2]d $D/.claude-launcher "$M"; fi
 fi
 %[3]s sh -c 'test -w /space && mkdir -p /space/.claude/home/.config' || { echo "%[4]s" >&2; exit 1; }
+%[3]s sh -c ': > /space/.claude-launcher/ready' 2>/dev/null || { mkdir -p /space/.claude-launcher && : > "$R"; }
 P='trap "exit 0" TERM INT; while :; do sleep 3600 & wait $!; done'
 exec %[3]s env %[5]s sh -c "$P"
 `, u, g, SetprivPrefix(u, g), refusal, strings.Join(userEnvPairs, " "))

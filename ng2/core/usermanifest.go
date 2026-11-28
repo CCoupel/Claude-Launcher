@@ -221,6 +221,12 @@ func (e Engine) userExecArgv(name string, tty bool, argv ...string) []string {
 		if tty {
 			a = append(a, "-t")
 		}
+		for i, x := range argv {
+			if x == "/etc/cl-tmux.conf" {
+				argv = append([]string(nil), argv...)
+				argv[i] = UserTmuxConf
+			}
+		}
 		a = append(a, name, "-c", "main", "--")
 		a = append(a, strings.Fields(SetprivPrefix(uid, gid))...)
 		a = append(a, "env")
@@ -236,6 +242,15 @@ func (e Engine) userExecArgv(name string, tty bool, argv ...string) []string {
 		a = []string{"exec", "-i", "-t", "--user=" + fmt.Sprintf("%d:%d", uid, gid), "-e", "TERM=tmux-256color"}
 	}
 	a = append(a, "-e", "LANG=C.UTF-8")
+	for _, kv := range userEnvPairs { // docker exec n'hérite pas de l'environnement posé au démarrage du processus 1
+		a = append(a, "-e", kv)
+	}
+	for i, x := range argv { // conf tmux du projet : dans le stockage de l'utilisateur (aucun /etc écrit par l'uid)
+		if x == "/etc/cl-tmux.conf" {
+			argv = append([]string(nil), argv...)
+			argv[i] = UserTmuxConf
+		}
+	}
 	return e.cli(append(append(a, name), argv...)...)
 }
 
