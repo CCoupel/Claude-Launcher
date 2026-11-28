@@ -79,8 +79,8 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   production partagée ; une NetworkPolicy de sortie est recommandée
 - **Restes déclarés** (#275) : recréation avec `VerifyOwner` strict (m2, à faire avant PROD) ; `install.sh` de Claude non épinglé
   (m6, épinglage en LOT-3.3) ; image libre à la création sans dépôt (m7) ; options de pod perdues par un déplacement ;
-  TOCTOU entre `realpath` et lecture (le lecteur est le propriétaire du conteneur). Avant PROD : sorties non plafonnées
-  sur les appels `CombinedOutput` (m9) et limite de création étendue au parcours sans dépôt (m3-bis)
+  TOCTOU entre `realpath` et lecture (le lecteur est le propriétaire du conteneur) ; `env -u` (environnement nettoyé) valable
+  sous Linux seulement ; caches de création et de découverte d'un backend retiré non purgés
 - **Dette** : coffre des backends en clair (#279)
 
 ### Fixed
