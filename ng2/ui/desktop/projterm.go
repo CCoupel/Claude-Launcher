@@ -31,6 +31,8 @@ import (
 
 type projTerm struct {
 	a               *App
+	h               termHost // hôte d'un projet d'UTILISATEUR (nil : l'App commune, a)
+	user            *userOpen
 	path, key, name string
 	color           string // couleur tmux 256 du projet
 	mode            core.LaunchMode
@@ -153,7 +155,7 @@ func (t *projTerm) emit(kind string, data map[string]any) {
 		data = map[string]any{}
 	}
 	data["path"], data["kind"] = t.path, kind
-	t.a.emit("term", data)
+	t.hs().Emit("term", data)
 }
 
 func (t *projTerm) setState(state, msg string) {
@@ -162,9 +164,9 @@ func (t *projTerm) setState(state, msg string) {
 	ro := t.readOnly
 	t.mu.Unlock()
 	t.emit("status", map[string]any{"state": state, "msg": msg, "readOnly": ro})
-	t.a.changed()
+	t.hs().changed()
 	if state == "ready" && !ro {
-		t.a.proposeInit(t.path) // #215 : projet créé depuis le template : /init-project proposé à la 1re ouverture
+		t.hs().proposeInit(t.path) // #215 : projet créé depuis le template : /init-project proposé à la 1re ouverture
 	}
 }
 
@@ -260,7 +262,7 @@ func (t *projTerm) run() {
 	t.spawn(t.flusher)
 	// ouverture déjà inscrite par open() (openGate.begin) : l'arrêt du launcher l'attend (Stop, #198) ; terminée ici
 	err := func() error {
-		defer t.a.openGate.end()
+		defer t.hs().endOpen()
 		return t.prepare()
 	}()
 	if err != nil {
@@ -284,7 +286,10 @@ func (t *projTerm) run() {
 
 // prepare : backend, script de démarrage, conteneur ou session de l'hôte.
 func (t *projTerm) prepare() error {
-	cfg := t.a.confNow()
+	if t.user != nil {
+		return t.prepareUser()
+	}
+	cfg := t.hs().confNow()
 	be, err := core.LaunchBackend(t.path)
 	if err != nil {
 		return err
@@ -306,7 +311,7 @@ func (t *projTerm) prepare() error {
 	}
 	if op.Canceled {
 		t.setState("closed", "ouverture annulée")
-		t.a.removeTab(t.path, t)
+		t.hs().removeTab(t.path, t)
 		return nil
 	}
 	t.mu.Lock()
@@ -411,7 +416,7 @@ func (t *projTerm) attach() error {
 		return err
 	}
 	t.mu.Lock()
-	if t.detaching || t.a.stopped() { // arrêt pendant l'attache : aucun client ne survit à Stop (#221) ; test et affectation sous t.mu, comme detachBy
+	if t.detaching || t.hs().stopped() { // arrêt pendant l'attache : aucun client ne survit à Stop (#221) ; test et affectation sous t.mu, comme detachBy
 		t.mu.Unlock()
 		c.CloseBy(time.Now().Add(time.Second), time.Now().Add(2*time.Second))
 		return fmt.Errorf("interface arrêtée")
@@ -448,15 +453,15 @@ func (t *projTerm) ended() {
 		return
 	}
 	why := t.client.Why()
-	if !t.host.Load() && t.a.conf().CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
+	if !t.host.Load() && t.hs().conf().CtrStopOnExit && !t.isReadOnly() && !t.e.HasSession(t.ctr) {
 		fmt.Fprintf(t, "\r\n⏻ claude terminé : arrêt du conteneur (CTR_STOP_ON_EXIT)\r\n")
 		_ = t.e.Stop(t.path, t.ctr)
 	}
 	t.setState("closed", why)
-	t.a.removeTab(t.path, t)
-	t.a.setMsg("✓ " + t.name + " : " + why)
-	go t.a.readCtr()
-	go t.a.readSessions()
+	t.hs().removeTab(t.path, t)
+	t.hs().setMsg("✓ " + t.name + " : " + why)
+	go t.hs().readCtr()
+	go t.hs().readSessions()
 }
 
 // detach : l'interface se ferme ou l'onglet est retiré ; la session continue.
@@ -614,7 +619,7 @@ func (t *projTerm) seedPane(pane string, light bool) {
 		if light {
 			kind = "recapture (taille)"
 		}
-		t.a.perf.trace(kind, t.name+" "+pane, time.Since(t0), fmt.Sprintf("%d octets", len(data)))
+		t.hs().trace(kind, t.name+" "+pane, time.Since(t0), fmt.Sprintf("%d octets", len(data)))
 		t.mu.Lock()
 		t.seeding[pane] = false
 		t.carry[pane] = nil
@@ -941,9 +946,9 @@ func (t *projTerm) tick(fast bool) {
 		defer tickDone.Add(1)
 	}
 	if !fast { // config.conf modifié ailleurs : relu à chaud (#153), par le chemin unique (validation, copie valide gardée, #225)
-		t.a.confRefresh(true)
+		t.hs().confRefresh(true)
 	}
-	cfg := t.a.conf()
+	cfg := t.hs().conf()
 	if d := time.Duration(tickSlow.Load()); !fast && d > 0 {
 		time.Sleep(d) // simule la lecture lente de la team (après la lecture de cfg, comme en production)
 	}
@@ -957,7 +962,7 @@ func (t *projTerm) tick(fast bool) {
 				tc = &x
 			}
 		}
-		t.a.perf.trace("team (tour)", core.ClaudeDir(), time.Since(t0))
+		t.hs().trace("team (tour)", core.ClaudeDir(), time.Since(t0))
 		t.mu.Lock()
 		t.team = tc
 		t.mu.Unlock()
@@ -970,7 +975,7 @@ func (t *projTerm) tick(fast bool) {
 	defer t.pubMu.Unlock()
 	t0 := time.Now()
 	panes, w, h, zoomed, visible, err := t.readWin()
-	t.a.perf.trace("fenêtre (list-panes)", t.name, time.Since(t0))
+	t.hs().trace("fenêtre (list-panes)", t.name, time.Since(t0))
 	if err != nil || len(panes) == 0 {
 		return
 	}
@@ -1016,7 +1021,7 @@ func (t *projTerm) tick(fast bool) {
 	// organisation effective changée (réglage global ou du projet) : remise en page, sans relance (#153)
 	// configuration relue SOUS pubMu : une bascule arrivée pendant un tour lent est déjà prise en compte par
 	// relayoutNow (même signature), ce tour ne remet pas en page une seconde fois ni ne ramène l'ancienne valeur
-	if cfgL := t.a.conf(); !fast { // UNE photo de la configuration pour la signature et pour la mise en page
+	if cfgL := t.hs().conf(); !fast { // UNE photo de la configuration pour la signature et pour la mise en page
 		sig := layoutSig(cfgL, t.key)
 		if t.watch.layoutSig != "" && sig != t.watch.layoutSig && !ro && len(panes) > 1 {
 			if !t.arrangeWith(cfgL, cps, w, h, leader, tc) { // échec de transport : signature inchangée, retenté au tour suivant
@@ -1140,7 +1145,7 @@ func (t *projTerm) refreshVis(tc *core.TeamConfig, cfg core.Config, own bool) bo
 	t.visSig = sig.String()
 	t.mu.Unlock()
 	if changed {
-		t.a.pushTeam(t.path) // carte Team tout de suite, depuis la mémoire
+		t.hs().pushTeam(t.path) // carte Team tout de suite, depuis la mémoire
 	}
 	return moved
 }
@@ -1177,7 +1182,7 @@ func (t *projTerm) teamToggle(pane string) (bool, string) {
 	if t.cl() == nil {
 		return false, "projet fermé"
 	}
-	if msg := t.a.conf().HideIdleRefusal(t.path); msg != "" { // masquage désactivé (global #188, ou « no hide » du projet #209)
+	if msg := t.hs().conf().HideIdleRefusal(t.path); msg != "" { // masquage désactivé (global #188, ou « no hide » du projet #209)
 		return false, msg
 	}
 	t.mu.Lock()
@@ -1259,7 +1264,7 @@ func (t *projTerm) relayoutNow() {
 	}
 	t.pubMu.Lock()
 	defer t.pubMu.Unlock()
-	cfg := t.a.conf() // UNE photo : signature et plan en sont tirés
+	cfg := t.hs().conf() // UNE photo : signature et plan en sont tirés
 	sig := layoutSig(cfg, t.key)
 	if t.watch.layoutSig == "" || sig == t.watch.layoutSig { // jamais mise en page (le tour s'en charge), ou rien de changé
 		return
@@ -1318,12 +1323,12 @@ func (t *projTerm) relayoutNow() {
 	}
 	t2 := time.Now()
 	t.publish(panes, w, h, zoomed, visible, leader, tc, tc != nil && core.ActiveSignature(*tc) != "")
-	t.a.perf.trace("bascule : lecture", t.name, tRead, "1 aller-retour")
-	t.a.perf.trace("bascule : mise en page", t.name, tArrange, fmt.Sprintf("%d commandes, 1 aller-retour", len(cmds)))
-	t.a.perf.trace("bascule : publication", t.name, time.Since(t2))
+	t.hs().trace("bascule : lecture", t.name, tRead, "1 aller-retour")
+	t.hs().trace("bascule : mise en page", t.name, tArrange, fmt.Sprintf("%d commandes, 1 aller-retour", len(cmds)))
+	t.hs().trace("bascule : publication", t.name, time.Since(t2))
 	rounds := c.rounds.Load() - rounds0
 	lastRelayoutRounds.Store(rounds)
-	t.a.perf.trace("bascule : remise en page", t.name, time.Since(start), fmt.Sprintf("%d aller(s)-retour(s) tmux", rounds))
+	t.hs().trace("bascule : remise en page", t.name, time.Since(start), fmt.Sprintf("%d aller(s)-retour(s) tmux", rounds))
 }
 
 // relayoutOpen : relayoutNow de chaque projet ouvert (après un enregistrement de config.conf).
@@ -1353,7 +1358,7 @@ func (t *projTerm) applyNow() {
 	if err != nil || len(panes) == 0 {
 		return
 	}
-	cfg := t.a.conf()
+	cfg := t.hs().conf()
 	var ids strings.Builder
 	for _, p := range panes {
 		ids.WriteString(p.ID + "\n")
@@ -1386,7 +1391,10 @@ func (t *projTerm) registry() []core.Teammate {
 		return r
 	}
 	t.mu.Unlock()
-	r := core.ReadTeammates(t.path)
+	var r []core.Teammate
+	if t.user == nil {
+		r = core.ReadTeammates(t.path)
+	}
 	t.mu.Lock()
 	t.reg, t.regAt = r, time.Now()
 	t.mu.Unlock()
@@ -1407,12 +1415,15 @@ func (t *projTerm) teamRows() []core.TeamLine {
 	t.mu.Lock()
 	tc := t.team
 	t.mu.Unlock()
-	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.a.conf().HideIdleArgOf(t.path), time.Now().Unix())
+	return core.TeamLinesFor(t.registry(), core.LiveMembers(tc, panes), panes, choices, t.hs().conf().HideIdleArgOf(t.path), time.Now().Unix())
 }
 
 // findTeam : config.json de la team du projet (compté pour les tests : une
 // recherche par tour).
 func (t *projTerm) findTeam() string {
+	if t.user != nil { // jamais le ~/.claude du serveur pour un projet d'utilisateur
+		return ""
+	}
 	atomic.AddInt32(&t.finds, 1)
 	return core.FindTeamConfig(t.path)
 }
@@ -1429,7 +1440,7 @@ func (t *projTerm) heartbeat() {
 		t.mu.Lock()
 		t.readOnly, t.owner = true, o.Id
 		t.mu.Unlock()
-		t.a.setMsg("⬢ " + o.Id + " a pris la main sur " + t.name + " : lecture seule — Entrée sur le projet pour la reprendre")
+		t.hs().setMsg("⬢ " + o.Id + " a pris la main sur " + t.name + " : lecture seule — Entrée sur le projet pour la reprendre")
 		t.setState("ready", "")
 		t.govern() // le pilote décide de la taille (#126)
 		return
@@ -1441,7 +1452,7 @@ func (t *projTerm) heartbeat() {
 func (t *projTerm) relayout(force bool) {
 	panes, w, h, _, _, err := t.readWin()
 	if err != nil || len(panes) <= 1 {
-		t.a.setMsg("Relayout : pas de team active (1 seul pane)")
+		t.hs().setMsg("Relayout : pas de team active (1 seul pane)")
 		return
 	}
 	var ids strings.Builder
@@ -1450,7 +1461,7 @@ func (t *projTerm) relayout(force bool) {
 	}
 	tp := core.FindTeamConfig(t.path)
 	if tp == "" && force {
-		t.a.setMsg("Relayout : aucune team trouvée pour " + t.name)
+		t.hs().setMsg("Relayout : aucune team trouvée pour " + t.name)
 	}
 	var tc *core.TeamConfig
 	if tp != "" {
@@ -1475,7 +1486,7 @@ func (t *projTerm) planArrange(cfg core.Config, panes []core.WinPane, w, h int, 
 }
 
 func (t *projTerm) arrange(panes []core.WinPane, w, h int, leader string, tc *core.TeamConfig) {
-	_ = t.arrangeWith(t.a.conf(), panes, w, h, leader, tc)
+	_ = t.arrangeWith(t.hs().conf(), panes, w, h, leader, tc)
 }
 
 // arrangeWith : arrange avec la photo de configuration cfg (la même que celle dont la signature d'organisation
@@ -1505,12 +1516,12 @@ func (t *projTerm) fallbackMsg() string {
 func (t *projTerm) noteFallback(fell bool) {
 	if fell {
 		if !t.fbSaid.Swap(true) {
-			t.a.setMsgSoon(t.fallbackMsg())
+			t.hs().setMsgSoon(t.fallbackMsg())
 		}
 		return
 	}
 	if t.fbSaid.Swap(false) {
-		t.a.clearMsgIf(t.fallbackMsg())
+		t.hs().clearMsgIf(t.fallbackMsg())
 	}
 }
 
@@ -1617,7 +1628,7 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 		t.seed(p)
 	}
 	if zoomToggled && !zoomAt.IsZero() {
-		t.a.perf.trace("plein écran : mise en page", t.name, time.Since(zoomAt), fmt.Sprintf("zoom=%v, %d pane(s) à recapturer", msg.Zoomed, len(resizedPanes)))
+		t.hs().trace("plein écran : mise en page", t.name, time.Since(zoomAt), fmt.Sprintf("zoom=%v, %d pane(s) à recapturer", msg.Zoomed, len(resizedPanes)))
 	}
 	if zoomToggled {
 		for _, p := range resizedPanes {
@@ -1627,7 +1638,7 @@ func (t *projTerm) publish(panes []winPaneFull, w, h int, zoomed bool, visible, 
 		t.reseedLater(resizedPanes...)
 	}
 	if busyChanged {
-		t.a.changed()
+		t.hs().changed()
 	}
 }
 

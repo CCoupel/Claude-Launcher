@@ -2,10 +2,13 @@ package core
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 
@@ -251,4 +254,51 @@ func (e Engine) installUserClaude(obj string, out io.Writer) error {
 		return fmt.Errorf("installation de claude : %w", err)
 	}
 	return nil
+}
+
+// UserEnvSHA : empreinte des fichiers d'environnement affichés à l'utilisateur ; la réponse « accepter » doit la rappeler (fichier modifié pendant la question → retry).
+func UserEnvSHA(files map[string][]byte) string {
+	d := digestsOf(files)
+	names := make([]string, 0, len(d))
+	for n := range d {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	for _, n := range names {
+		b.WriteString(n + "=" + d[n] + "\n")
+	}
+	h := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(h[:])
+}
+
+// UserEnvTrustInfo : charge utile de la question d'approbation d'un projet d'utilisateur (même forme que celle de l'admin : l'interface la rend telle quelle).
+func UserEnvTrustInfo(id string, files map[string][]byte, changed bool) EnvTrustInfo {
+	info := EnvTrustInfo{Path: id, State: TrustPending, Changed: changed, SHA: UserEnvSHA(files), Source: "projet", Files: map[string]string{}}
+	for n, b := range files {
+		info.Files[n] = string(b)
+	}
+	nz := func(l []string) []string {
+		if l == nil {
+			return []string{}
+		}
+		return l
+	}
+	info.Spec = EnvTrustSpec{Packages: []string{}, PackagesByManager: map[string][]string{}, Setup: []string{}, OnStart: []string{}, Watch: []string{}, Mounts: []EnvTrustMount{}, Local: []string{}}
+	info.Risk.Scripts = []string{}
+	if e, err := userEnvFromFiles(files); err == nil {
+		info.Spec.Image, info.Spec.Packages, info.Spec.Setup, info.Spec.OnStart = e.Image, nz(e.Packages), nz(e.Setup), nz(e.OnStart)
+		info.Spec.Watch, info.Spec.Local = nz(e.Watch), nz(e.Local)
+		if e.PackagesByManager != nil {
+			info.Spec.PackagesByManager = e.PackagesByManager
+		}
+		for _, m := range e.Mounts {
+			info.Spec.Mounts = append(info.Spec.Mounts, EnvTrustMount{Path: m.Path, RO: m.RO == nil || *m.RO})
+			info.Risk.HostMounts++
+		}
+		info.Risk.Exec = len(e.Setup) + len(e.OnStart)
+		info.Risk.Packages = len(e.Packages)
+		info.Risk.Watch, info.Risk.Local = len(e.Watch), len(e.Local)
+	}
+	return info
 }

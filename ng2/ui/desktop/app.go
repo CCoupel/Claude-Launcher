@@ -1700,3 +1700,38 @@ func (a *App) manualRefresh() {
 }
 
 var goos = runtime.GOOS
+
+// Hôte de terminal : ce que projTerm attend de son environnement. L'App commune l'implémente telle quelle (comportement admin inchangé) ; l'instance
+// d'un utilisateur en fournit une, sans fichier ni configuration de l'administrateur.
+type termHost interface {
+	Emit(name string, data any)
+	changed()
+	proposeInit(path string)
+	endOpen()
+	confNow() core.Config
+	conf() core.Config
+	confRefresh(force bool)
+	removeTab(path string, t *projTerm)
+	stopped() bool
+	setMsg(m string)
+	setMsgSoon(m string)
+	clearMsgIf(m string)
+	readCtr()
+	readSessions()
+	pushTeam(path string)
+	trace(step, path string, d time.Duration, detail ...string)
+}
+
+// hs : hôte du terminal.
+func (t *projTerm) hs() termHost {
+	if t.h != nil {
+		return t.h
+	}
+	return t.a
+}
+
+func (a *App) Emit(name string, data any) { a.emit(name, data) }
+func (a *App) endOpen()                   { a.openGate.end() }
+func (a *App) trace(step, path string, d time.Duration, detail ...string) {
+	a.perf.trace(step, path, d, detail...)
+}

@@ -1,10 +1,12 @@
 package core
 
 import (
+	"archive/tar"
 	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os/exec"
 	"strings"
 	"sync"
@@ -296,4 +298,34 @@ func (e Engine) RefreshUserMeta(cat, name string, now time.Time) error {
 	c := platform.NoWindow(exec.Command(a[0], a[1:]...))
 	c.Stdin = bytes.NewReader(b)
 	return c.Run()
+}
+
+// ReadStoppedState : état (state.json) d'un projet docker/podman ARRÊTÉ, lu par « cp » (archive tar sur la sortie, 4 Kio au plus, une seule entrée) ;
+// jamais exécuté ni démarré. k8s : l'état est dans l'annotation cl.meta (découverte).
+func (e Engine) ReadStoppedState(cat, name string) (*ProjectMeta, error) {
+	if e.B.K8s() {
+		return nil, errors.New("k8s : annotation cl.meta")
+	}
+	obj := e.ObjectName(cat, name)
+	if err := e.VerifyOwner(e.B.uid, obj); err != nil {
+		return nil, err
+	}
+	out, err := platform.NoWindow(e.cmd("cp", obj+":"+UserProjectDir(cat, name)+"/.claude-launcher/state.json", "-")).Output()
+	if err != nil || len(out) > 64<<10 {
+		return nil, errors.New("état absent")
+	}
+	tr := tar.NewReader(bytes.NewReader(out))
+	h, err := tr.Next()
+	if err != nil || h.Typeflag != tar.TypeReg || h.Size > maxUserMeta {
+		return nil, errors.New("état illisible")
+	}
+	raw, err := io.ReadAll(io.LimitReader(tr, maxUserMeta+1))
+	if err != nil {
+		return nil, errors.New("état illisible")
+	}
+	m, err := ParseProjectState(raw)
+	if err != nil {
+		return nil, err
+	}
+	return &m, nil
 }

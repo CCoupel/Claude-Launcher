@@ -1,6 +1,8 @@
 package core
 
 import (
+	"archive/tar"
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -25,6 +27,7 @@ for a in "$@"; do prev2="$prev"; prev="$a"; done
 case "$1" in
   ps) cat "` + dir + `/ps.out" ;;
   inspect) echo github-9 ;;
+  cp) cat "` + dir + `/state.tar" ;;
   exec)
     case "$*" in
       *"head -c"*) f="$F/$(basename "$prev2")"; [ -f "$f" ] && cat "$f" || exit 1 ;;
@@ -122,5 +125,34 @@ func TestOuvrirProjetUtilisateur275(t *testing.T) {
 	_ = e.ApproveUserEnv(key, "cat", "p", fs)
 	if _, err := open(); err == nil || !strings.Contains(err.Error(), "mounts") {
 		t.Errorf("mounts accepté : %v", err)
+	}
+}
+
+func TestEtatProjetArrete275(t *testing.T) {
+	dir, e := uctrFake(t)
+	mk := func(name, body string, typ byte) []byte {
+		var b bytes.Buffer
+		w := tar.NewWriter(&b)
+		_ = w.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: int64(len(body)), Typeflag: typ})
+		_, _ = w.Write([]byte(body))
+		_ = w.Close()
+		return b.Bytes()
+	}
+	put := func(b []byte) { _ = os.WriteFile(filepath.Join(dir, "state.tar"), b, 0o644) }
+	put(mk("state.json", `{"branch":"main","dirty":true,"ahead":1,"behind":0,"head":"abc","tpl":"","team":[],"seen":"2026-11-27T10:00:00Z"}`, tar.TypeReg))
+	m, err := e.ReadStoppedState("cat", "p")
+	if err != nil || m.Branch != "main" || !m.Dirty {
+		t.Fatalf("état valide : %+v %v", m, err)
+	}
+	for name, b := range map[string][]byte{
+		"trop gros":       mk("state.json", `{"branch":"`+strings.Repeat("a", 5000)+`"}`, tar.TypeReg),
+		"lien":            mk("state.json", "", tar.TypeSymlink),
+		"clé inconnue":    mk("state.json", `{"cmd":"x"}`, tar.TypeReg),
+		"pas une archive": []byte("pas du tar"),
+	} {
+		put(b)
+		if _, err := e.ReadStoppedState("cat", "p"); err == nil {
+			t.Errorf("%s accepté", name)
+		}
 	}
 }

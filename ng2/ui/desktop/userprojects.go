@@ -161,7 +161,7 @@ func (u *userSpace) rows() []userRow {
 			for _, p := range d.projects {
 				id := core.UserProjectID(bn, p.Category, p.Project)
 				seen[id] = true
-				r := userRow{Row: Row{Kind: "project", Name: p.Project, Path: id, Depth: 2}, Backend: bn, Stopped: !p.Running}
+				r := userRow{Row: Row{Kind: "project", Name: p.Project, Path: id, Depth: 2, Open: u.term(id) != nil}, Backend: bn, Stopped: !p.Running}
 				if p.Meta != nil {
 					r.StateAt = p.Meta.Seen.UTC().Format(time.RFC3339)
 				}
@@ -256,6 +256,9 @@ func refusal(field, code, msg string) map[string]any {
 type userProjArgs struct {
 	Path, Backend, Project, Category, Name, Image, Repo string
 	Confirm                                             string
+	Pane, Data, Kind, Choice, SHA                       string
+	Binary                                              bool
+	Cols, Rows                                          int
 	DryRun                                              bool
 	Options                                             json.RawMessage
 }
@@ -270,9 +273,14 @@ func (u *userSpace) projectCall(c webCall, method string, raw json.RawMessage) (
 	}
 	switch method {
 	case "select", "cardsFor":
-		_, p, b, found, err := u.findProject(a.Path)
+		e, p, b, found, err := u.findProject(a.Path)
 		if err != nil {
 			return nil, nil
+		}
+		if found && !p.Running && p.Meta == nil && b != nil && !b.K8s() { // docker/podman arrêté : state.json lu par cp
+			if m, merr := e.ReadStoppedState(p.Category, p.Project); merr == nil {
+				p.Meta = m
+			}
 		}
 		card := map[string]any{"path": a.Path, "name": p.Project, "backend": p.Backend, "stopped": found && !p.Running, "found": found}
 		if b != nil && found {
@@ -291,6 +299,14 @@ func (u *userSpace) projectCall(c webCall, method string, raw json.RawMessage) (
 		return u.projectMove(a)
 	case "projectDelete":
 		return u.projectDelete(a)
+	case "open":
+		return u.openUserProject(a.Path)
+	case "close", "forceClose", "closeConfirm", "forceCloseConfirm":
+		return u.closeUserProject(a.Path)
+	case "envTrustAnswer":
+		return u.envTrustAnswer(a)
+	case "termInput", "termResize", "termFocus", "termZoom", "resizePane", "launchInput", "termSync":
+		return u.termCall(method, a)
 	case "newInfo":
 		return u.newInfo(), nil
 	case "create":

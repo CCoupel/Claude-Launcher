@@ -110,7 +110,7 @@ func TestSpacesMethodesEtFichiersRefuses255(t *testing.T) {
 			t.Errorf("%s : forbidden attendu pour un utilisateur : %v", m, out)
 		}
 	}
-	for _, m := range []string{"open", "termInput", "quit", "secretReveal"} {
+	for _, m := range []string{"quit", "secretReveal"} {
 		_, out := s.call(t, "alice", m, `{}`)
 		if out["error"] == nil || !strings.Contains(fmt.Sprint(out["error"]), msgNoSpaceMethod) {
 			t.Errorf("%s accepté pour un utilisateur : %v", m, out)

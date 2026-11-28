@@ -43,6 +43,7 @@ type userSpace struct {
 	tests   []time.Time
 	testing atomic.Bool
 	secrets []time.Time                 // backendSecretSet : même plafond par minute que backendTest
+	tabs    userTabs                    // onglets (terminaux) de cette instance
 	proj    userProjects                // découverte des projets par backend (cache 10 s)
 	emit    func(name string, data any) // évènements de CETTE identité seulement (jamais une diffusion commune)
 	cfgs    []time.Time                 // configOpen / Model / Validate / Save / Apply (analyse YAML et DNS) : plafond généreux (audit m9)
@@ -93,6 +94,7 @@ func (h *spaceHub) reap(now time.Time) int {
 	for uid, u := range h.m {
 		if u.idleSince(now) > spaceIdle.Get() {
 			delete(h.m, uid)
+			go u.closeTerms() // sessions gardées dans les conteneurs ; seuls les clients tmux sont détachés
 			n++
 		}
 	}
@@ -130,7 +132,7 @@ var userMethods = map[string]bool{
 	"configModel": true, "configApply": true, "backendStates": true,
 	"backendSecretSet": true, "backendSecretGet": true, "backendSecretDelete": true, "backendTest": true,
 	"userBackendAdd": true, "userBackendRemove": true,
-	"select": true, "cardsFor": true, "refresh": true, "refreshProject": true, "projectPurge": true, "projectMove": true, "projectDelete": true, "newInfo": true, "create": true,
+	"select": true, "cardsFor": true, "refresh": true, "refreshProject": true, "projectPurge": true, "open": true, "close": true, "forceClose": true, "closeConfirm": true, "forceCloseConfirm": true, "envTrustAnswer": true, "termInput": true, "termResize": true, "termFocus": true, "termZoom": true, "resizePane": true, "launchInput": true, "termSync": true, "projectMove": true, "projectDelete": true, "newInfo": true, "create": true,
 	"projectSettings": true, "projectApply": true,
 }
 
@@ -169,7 +171,7 @@ func (u *userSpace) dispatch(c webCall, method string, raw json.RawMessage) (any
 		return u.secretCall(c, method, raw)
 	case "backendTest":
 		return u.backendTest(c, raw)
-	case "select", "cardsFor", "refresh", "refreshProject", "projectPurge", "projectMove", "projectDelete", "newInfo", "create", "projectSettings", "projectApply":
+	case "select", "cardsFor", "refresh", "refreshProject", "projectPurge", "open", "close", "forceClose", "closeConfirm", "forceCloseConfirm", "envTrustAnswer", "termInput", "termResize", "termFocus", "termZoom", "resizePane", "launchInput", "termSync", "projectMove", "projectDelete", "newInfo", "create", "projectSettings", "projectApply":
 		return u.projectCall(c, method, raw)
 	case "userBackendAdd":
 		return u.backendAdd(c, raw)
@@ -362,7 +364,7 @@ func (u *userSpace) info() map[string]any {
 // snapshot : état d'interface d'un utilisateur — pas de projets (LOT-3.2), aucune donnée de la racine.
 func (u *userSpace) snapshot() userSnapshot {
 	return userSnapshot{Snapshot: Snapshot{Version: core.NgName + " " + core.Version(), Tpl: "—", Alerts: []Alert{}, Usage: []UsageRow{}, Rows: []Row{},
-		Tabs: []TabInfo{}, Roots: []string{}, OS: goos, Server: serverInfo(), WebUI: WebUIState{State: "on", Server: true, Enabled: true}}, Rows: u.rows()}
+		Tabs: u.tabInfos(), Roots: []string{}, OS: goos, Server: serverInfo(), WebUI: WebUIState{State: "on", Server: true, Enabled: true}}, Rows: u.rows()}
 }
 
 func (u *userSpace) prefs() map[string]any {
