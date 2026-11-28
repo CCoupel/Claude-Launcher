@@ -25,6 +25,7 @@
   - [Launcher arrêté, hub fermé](#launcher-arrêté-hub-fermé)
   - [Fermer un projet](#fermer-un-projet)
   - [Rafraîchir et forcer la fermeture (v6.2.0, #158)](#rafraîchir-et-forcer-la-fermeture-v620-158)
+  - [Projets d'un utilisateur en mode serveur (v7.1.0, #275)](#projets-dun-utilisateur-en-mode-serveur-v710-275)
   - [Plusieurs launchers sur un même projet](#plusieurs-launchers-sur-un-même-projet)
   - [Config de claude dans les conteneurs](#config-de-claude-dans-les-conteneurs)
   - [Consommation du compte : un seul cache pour tous](#consommation-du-compte--un-seul-cache-pour-tous)
@@ -862,6 +863,25 @@ est ouverte ou que sa pastille n'est pas `○`.
   l'exécutez que pour vos propres dépôts.
 
 Dans la coque Linux, `Suppr` sur un projet propose la fermeture forcée (`o/N`) quand elle est possible ; `F1` la décrit.
+
+### Projets d'un utilisateur en mode serveur (v7.1.0, #275)
+
+Sur le launcher de cluster, chaque utilisateur gère ses projets sur ses propres backends (voir `contracts/user-backends.md` §5 à §6 bis).
+
+- **Découverte** : les projets sont les objets qui existent sur le backend (labels `cl.user`). Rien n'est installé chez vous.
+  Le launcher garde seulement une trace des projets vus (nom, catégorie, backend, date).
+- **États** : `arrêté` (objet présent, conteneur à l'arrêt, dernier état connu affiché avec sa date) ; `introuvable` (objet
+  absent, trace présente) : seul **Purger** est proposé, il efface la trace et ne supprime rien sur le backend ;
+  `injoignable` (backend hors ligne) : les projets restent visibles, les actions sont désactivées avec la raison.
+- **F5** sur un projet arrêté démarre le conteneur sans session claude et met à jour le dernier état. Le launcher ne démarre
+  jamais un projet par lui-même : seuls **Ouvrir** et **F5** le relancent.
+- **Options du conteneur** (réglages du projet) : CPU, mémoire, PIDs, mémoire partagée et GPU pour docker/podman ; CPU et
+  mémoire demandés ou limités, éphémère et zone JSON avancée pour k8s. Les valeurs hors liste blanche sont refusées avec le
+  chemin du champ fautif. Modifier une option qui exige une recréation demande une confirmation : les données du projet sont
+  conservées, les sessions ouvertes sont coupées.
+- **Approbation de `env.yaml`** : à la première ouverture d'un projet cloné, le launcher demande d'approuver le fichier
+  (image et paquets affichés). L'approbation est scellée par une clé propre à votre compte ; elle est redemandée si le fichier change.
+- **Plafonds** : nombre de projets (`users.maxProjects`, défaut 30) et de terminaux ou lectures simultanés (40 par utilisateur).
 
 ### Plusieurs launchers sur un même projet
 

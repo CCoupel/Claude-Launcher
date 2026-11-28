@@ -28,6 +28,17 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   ou certificats TLS collés) tout ou rien ; `userBackendRemove` retire la déclaration et son coffre ensemble. Refus nommés
   par champ et par code, le champ fautif s'affiche en rouge ; le brouillon reste sous les yeux après un refus ; les boutons
   grisés disent pourquoi
+- Projets d'utilisateur sans agent (#275) : découverte des projets sur ses backends par les labels `cl.user` (StatefulSets
+  k8s, conteneurs docker/podman arrêtés compris) ; états arrêté, introuvable (Purger, trace seulement) et injoignable ;
+  dernier état connu conservé sur le backend (`cl.meta` pour k8s, `.claude-launcher/state.json` pour docker/podman) ; F5 démarre
+  le projet sans session ; créer, déplacer dans le même backend, supprimer, Purger
+- Options de pod ou de conteneur par projet (#275) : liste blanche fermée (CPU, mémoire, éphémère, PIDs, mémoire partagée, GPU ;
+  zone JSON avancée pour k8s), défauts du backend, refus nommés par chemin ; une option qui exige une recréation demande
+  confirmation (les données sont conservées, les sessions ouvertes coupées)
+- Approbation scellée de `env.yaml` (#275) : `.claude-launcher/trust.json` dans le volume du projet, HMAC-SHA256 avec une clé
+  par utilisateur (`users/<uid>/vault/approval.key`), vérifiée à chaque ouverture
+- Ouvrir et terminal d'un projet d'utilisateur (#275) : réutilisent le terminal des projets (`termHost`), 40 exec par utilisateur
+- Chart (#275) : `users.maxProjects` (défaut 30), `users.runAs.uid` / `gid` (défaut 2000:2000), `users.allowPrivateNetworks` (défaut `false`)
 
 ### Changed
 - Utilisateur (#255) : instance restreinte. Ses méthodes servent l'état de son espace (`clientInfo`, `init`, `setPrefs`,
@@ -48,6 +59,11 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
 - Coffre orphelin (#257) : un coffre sans déclaration (retiré par l'éditeur YAML, ou arrêt entre deux étapes) est repris à la
   création d'un backend de même nom, ou purgé au retrait ; un lien symbolique au nom du coffre n'est jamais suivi
 - Débit (#257) : plafond commun des dépôts et de `userBackendAdd` / `userBackendRemove` de 60 par minute et par utilisateur
+- Conteneur d'un projet d'utilisateur non-root (#275) : un bootstrap root installe les paquets, rend le stockage inscriptible
+  pour l'uid du traitement (2000:2000 par défaut), puis les sessions et `exec` passent à cet uid, capacités retirées
+  (`setpriv`). PSA `baseline` requise
+- Alerte « backend partagé » (#275) : si un backend sert à d'autres utilisateurs, les projets ne sont pas isolés (un autre
+  compte peut créer un objet qui imite les vôtres) ; affichée dans les avertissements de `userBackendAdd` et de `backendTest`
 
 ### Security
 - Backends d'utilisateur (#257) : résolution DNS en échec fermé (aucune résolution = refus, non mis en cache) ; clés
@@ -55,6 +71,17 @@ Les changements de contrats (API, schémas) sont suivis à part dans `contracts/
   dossier vide privé) ; coffre refusé si lien symbolique ou droits > 0600 ; plafond des dépôts de secrets (60 par minute)
 - Risque résiduel accepté (#257) : rebinding DNS entre le contrôle et l'appel de l'outil (`kubectl` / `docker` résolvent de nouveau) ;
   une redirection HTTP de l'API vers une adresse interne n'est pas bornée
+- Projets d'utilisateur (#275) : toute commande sur un backend d'utilisateur a un délai (60 s opérations, 15 s lectures,
+  5 min clone et installation) et ses sorties sont plafonnées ; `/files` suit les liens sur le chemin réel ; dépôts git lus
+  sans fsmonitor ni hooks ; FIFO et périphériques refusés
+- **Risque accepté** (#275) : `users.allowPrivateNetworks: true` permet à tout utilisateur authentifié de faire joindre par le
+  pod du launcher des adresses privées ou internes (cartographie du réseau, requêtes aveugles). À ne jamais activer en
+  production partagée ; une NetworkPolicy de sortie est recommandée
+- **Restes déclarés** (#275) : recréation avec `VerifyOwner` strict (m2, à faire avant PROD) ; `install.sh` de Claude non épinglé
+  (m6, épinglage en LOT-3.3) ; image libre à la création sans dépôt (m7) ; options de pod perdues par un déplacement ;
+  TOCTOU entre `realpath` et lecture (le lecteur est le propriétaire du conteneur). Avant PROD : sorties non plafonnées
+  sur les appels `CombinedOutput` (m9) et limite de création étendue au parcours sans dépôt (m3-bis)
+- **Dette** : coffre des backends en clair (#279)
 
 ### Fixed
 - Fermeture des projets Kubernetes (#269) : un pod à l'ancien modèle de montage n'est plus un problème du backend mais un
