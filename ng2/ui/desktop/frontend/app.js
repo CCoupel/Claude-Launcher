@@ -2135,13 +2135,14 @@ async function envTrustBox(src) {
   if (!info || !info.path) { if (info && info.ok === false) flash('⚠ ' + safeText(info.msg || 'environnement illisible')); return; }
   const name = String(info.path).split(/[\\/]/).filter(Boolean).pop() || info.path;
   const draw = (info, note) => openModal((b) => {
-    b.append(el('h2', '', '⚠ Environnement fourni par le dépôt — ' + safeText(name)));
-    b.append(el('div', 'dim', 'Cloné depuis ' + safeText(info.source || 'un dépôt externe') + '. Rien n\'est appliqué sans ton accord.'));
+    const usr = !!(whoSpace && whoSpace.admin === false); // projet d'un utilisateur : fichiers lus dans le volume du projet
+    b.append(el('h2', '', (usr ? '⚠ Environnement du projet — ' : '⚠ Environnement fourni par le dépôt — ') + safeText(name)));
+    b.append(el('div', 'dim', (usr ? 'Fichiers env.yaml lus dans le volume du projet.' : 'Cloné depuis ' + safeText(info.source || 'un dépôt externe') + '.') + ' Rien n\'est appliqué sans ton accord.'));
     if (info.broken) b.append(el('div', 'err', '⚠ ' + safeText(info.broken))); // registre illisible : texte du serveur, échappé
     if (info.changed === true) b.append(el('div', 'err', 'L\'environnement du dépôt a changé depuis votre approbation.'));
     if (note) b.append(el('div', 'err', note));
     const cols = el('div', 'trustcols');
-    const left = el('div'); left.append(el('div', 'cap', 'Ce que le dépôt demande'));
+    const left = el('div'); left.append(el('div', 'cap', usr ? 'Ce que le projet demande' : 'Ce que le dépôt demande'));
     const rows = trustRows(info);
     if (!rows.length) left.append(el('div', 'dim', 'rien de particulier'));
     for (const r of rows) {
@@ -2153,7 +2154,7 @@ async function envTrustBox(src) {
     if (info.scriptNote) left.append(el('div', 'err', safeText(info.scriptNote))); // scripts du dépôt : non couverts par l'approbation
     const right = el('div');
     for (const [fn, txt] of Object.entries(info.files || {})) {
-      right.append(el('div', 'cap', '.claude-launcher/' + fn));
+      right.append(el('div', 'cap', usr ? fn : '.claude-launcher/' + fn));
       right.append(txt ? el('pre', 'trustraw', safeText(txt)) : el('div', 'dim', 'absent'));
     }
     cols.append(left, right); b.appendChild(cols);
@@ -2173,7 +2174,8 @@ async function envTrustBox(src) {
     const no = el('button', 'btn', 'Annuler'); no.onclick = () => answer('cancel');
     const ign = el('button', 'btn', 'Ouvrir sans'); ign.title = 'Socle choisi à la création, sans paquets, commandes ni montages du dépôt'; ign.onclick = () => answer('ignore');
     const acc = el('button', 'btn pri', 'Accepter et ouvrir'); acc.onclick = () => answer('accept');
-    btns.append(no, ign, acc); b.appendChild(btns);
+    if (usr) btns.append(no, acc); else btns.append(no, ign, acc); // « Ouvrir sans » n'existe pas pour un projet d'utilisateur
+    b.appendChild(btns);
     setTimeout(() => no.focus(), 0); // défaut sûr : Entrée n'accepte pas
   });
   draw(info, '');
