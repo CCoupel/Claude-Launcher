@@ -412,8 +412,8 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   - **Stockage (P29, P30 tranchée)** : au premier démarrage, le **bootstrap, déjà root**, donne le stockage à l'uid du
     traitement : `chown -R <uid>:<gid>` de `/space` (docker/podman) ou du `subPath` monté (k8s), **une seule fois**. Aucune
     étape root ajoutée (pas d'initContainer de chown, pas de conteneur ponctuel `--user 0`).
-    - Idempotence : marqueur `/space/.claude-launcher/owner` (`<uid>:<gid>`, écrit après le chown). Marqueur présent et
-      propriétaire de `/space` égal à l'uid → aucun chown ; uid du projet changé (M4) → nouveau chown, marqueur mis à jour.
+    - Idempotence : marqueur `/space/.claude/.cl-owner` (dans le volume `.claude`, persistant sous k8s) (`<uid>:<gid>`, écrit après le chown). Marqueur présent → aucun `chown -R`
+      (seul le dossier `/space` lui-même est re-donné, sans récursion, quand son propriétaire a changé : nouveau pod k8s) ; uid du projet changé (M4) → nouveau chown, marqueur mis à jour.
     - Le chown ne suit pas les liens symboliques (`chown -R -h` sans `-L`) et ne sort pas de `/space`.
     - **Contrôle d'inscriptibilité** ensuite, sous l'uid du traitement : si `/space` n'est pas inscriptible (stockage qui
       refuse le chown, NFS `root_squash`, MooseFS sans droits…), **refus nommé** sans démarrer de session : « Le stockage

@@ -105,3 +105,38 @@ func TestAbandonDePrivilegesReel275(t *testing.T) {
 		}
 	}
 }
+
+// QUALIF 7.1.0.8 : docker/podman refusent « --cap-add=A,B,C » — UNE option par capacité, valeur sans virgule ni préfixe CAP_ ; le marqueur du chown vit
+// dans le volume .claude (persistant) et un marqueur à jour ne rejoue pas le chown récursif.
+func TestCapAddUneParOption275(t *testing.T) {
+	for _, typ := range []string{"docker", "podman"} {
+		args, err := e2Args(t, e2Docker(t, typ), "docker.io/library/debian:12")
+		if err != nil {
+			t.Fatal(err)
+		}
+		var adds []string
+		for _, a := range args {
+			if strings.HasPrefix(a, "--cap-add") {
+				v, ok := strings.CutPrefix(a, "--cap-add=")
+				if !ok || strings.ContainsAny(v, ", ") || strings.HasPrefix(v, "CAP_") || v == "" {
+					t.Errorf("%s : option invalide pour le moteur : %q (une capacité par option, nom seul)", typ, a)
+				}
+				adds = append(adds, v)
+			}
+		}
+		if strings.Join(adds, ",") != strings.Join(userFiveCaps, ",") {
+			t.Errorf("%s : capacités %v (cinq exactes attendues)", typ, adds)
+		}
+	}
+}
+
+func TestMarqueurChownPersistant275(t *testing.T) {
+	sc := UserBootstrapScript(2000, 2000)
+	if !strings.Contains(sc, "M=/space/.claude/.cl-owner") || strings.Contains(sc, "M=/space/.claude-launcher/owner") {
+		t.Errorf("marqueur hors du volume .claude :\n%s", sc)
+	}
+	// chown récursif seulement si le marqueur manque ou diffère ; propriétaire de /space seul : chown NON récursif
+	if !strings.Contains(sc, `if [ "$cur" != "$U:$G" ]; then`) || !strings.Contains(sc, "elif [ \"$own\" != \"$U:$G\" ]; then chown -h 2000:2000 /space") {
+		t.Errorf("idempotence du chown :\n%s", sc)
+	}
+}

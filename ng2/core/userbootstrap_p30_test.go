@@ -28,8 +28,8 @@ func TestP30ScriptDeBootstrap(t *testing.T) {
 	if chown == nil {
 		t.Fatalf("chown -R -h 2000:2000 /space absent :\n%s", s)
 	}
-	if idx("/space/.claude-launcher/owner") < 0 {
-		t.Error("marqueur /space/.claude-launcher/owner absent")
+	if idx("/space/.claude/.cl-owner") < 0 { // QUALIF 7.1.0.8 : le marqueur vit dans le volume .claude (persistant), plus dans le système de fichiers du conteneur
+		t.Error("marqueur /space/.claude/.cl-owner absent")
 	}
 	setpriv := idx(e2SetprivPrefix(2000, 2000))
 	if setpriv < 0 {

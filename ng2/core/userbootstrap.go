@@ -8,7 +8,7 @@ import (
 )
 
 // Démarrage ROOT du conteneur d'un projet d'utilisateur, traitement standard SANS root (LOT-3.2, D3 révisée P28, P30 ; contrat §5 bis) :
-// le bootstrap (pid1, root) installe les paquets, donne UNE FOIS le stockage à l'uid du traitement (marqueur /space/.claude-launcher/owner),
+// le bootstrap (pid1, root) installe les paquets, donne UNE FOIS le stockage à l'uid du traitement (marqueur /space/.claude/.cl-owner : dans le volume « .claude », donc persistant sous k8s où /space n'est pas un volume),
 // contrôle l'inscriptibilité sous cet uid, puis passe DÉFINITIVEMENT à l'uid du traitement par setpriv. Chaque exec du launcher se fait sous
 // cet uid, jamais en root.
 
@@ -31,8 +31,8 @@ func UserBootstrapScript(uid, gid int) string {
 	u, g := int64(uid), int64(gid)
 	refusal := fmt.Sprintf("Le stockage n'est pas accessible en écriture à l'utilisateur %d:%d et le launcher n'a pas pu en changer le propriétaire. "+
 		"Exécute sur ton stockage : chown -R %d:%d <dossier> (procédure dans la documentation).", u, g, u, g)
-	return fmt.Sprintf(`D=/space; M=/space/.claude-launcher/owner; R=/space/.claude-launcher/ready; U=%[1]d; G=%[2]d
-[ -L "$D/.claude-launcher" ] && rm -f "$D/.claude-launcher"; [ -L "$M" ] && rm -f "$M"
+	return fmt.Sprintf(`D=/space; M=/space/.claude/.cl-owner; R=/space/.claude-launcher/ready; U=%[1]d; G=%[2]d
+[ -L "$D/.claude-launcher" ] && rm -f "$D/.claude-launcher"; [ -L "$D/.claude" ] && rm -f "$D/.claude"; [ -L "$M" ] && rm -f "$M"
 rm -f "$R" 2>/dev/null
 need=""
 for c in tmux git curl; do command -v $c >/dev/null 2>&1 || need="$need $c"; done
@@ -43,8 +43,9 @@ if [ -n "$need" ]; then
   fi
 fi
 cur=$(cat "$M" 2>/dev/null); own=$(stat -c %%u:%%g "$D" 2>/dev/null)
-if [ "$cur" != "$U:$G" ] || [ "$own" != "$U:$G" ]; then
-  if chown -R -h %[1]d:%[2]d /space 2>/dev/null; then mkdir -p $D/.claude-launcher && rm -f "$M" && (set -C; printf '%%s' "$U:$G" > "$M") && chown -h %[1]d:%[2]d $D/.claude-launcher "$M"; fi
+if [ "$cur" != "$U:$G" ]; then
+  if chown -R -h %[1]d:%[2]d /space 2>/dev/null; then mkdir -p $D/.claude && rm -f "$M" && (set -C; printf '%%s' "$U:$G" > "$M") && chown -h %[1]d:%[2]d $D/.claude "$M"; fi
+elif [ "$own" != "$U:$G" ]; then chown -h %[1]d:%[2]d /space 2>/dev/null
 fi
 if ! E=$(%[3]s true 2>&1); then echo "échec de l'abandon des privilèges : $(printf %%s "$E" | head -c 300)" >&2; exit 1; fi
 %[3]s sh -c 'test -w /space && mkdir -p /space/.claude/home/.config' || { echo "%[4]s" >&2; exit 1; }

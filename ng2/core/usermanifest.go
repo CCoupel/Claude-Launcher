@@ -207,7 +207,8 @@ func (e Engine) userRunArgsOpts(name, proj string, env EnvSpec, opts []string) (
 		"-e", "HOME=/space/.claude/home", "-e", "CLAUDE_CONFIG_DIR=/space/.claude", "-e", "XDG_CONFIG_HOME=/space/.claude/home/.config",
 		"-e", "LANG=C.UTF-8", "-e", "DISABLE_AUTOUPDATER=1",
 		// démarrage ROOT (bootstrap) : capacités minimales, passage définitif à uid:gid par setpriv ; « --user » seulement sur chaque exec
-		"--cap-drop=ALL", "--cap-add=CHOWN,DAC_OVERRIDE,FOWNER,SETUID,SETGID", "--security-opt=no-new-privileges"}
+		"--cap-drop=ALL", "--cap-add=CHOWN", "--cap-add=DAC_OVERRIDE", "--cap-add=FOWNER", "--cap-add=SETUID", "--cap-add=SETGID", // UNE option par capacité : docker et podman refusent une liste
+		"--security-opt=no-new-privileges"}
 	args = append(args, opts...)
 	return append(args, env.Image, "sh", "-c", UserBootstrapScript(int(uid), int(gid))), nil
 }

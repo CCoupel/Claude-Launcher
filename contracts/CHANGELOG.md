@@ -3,6 +3,8 @@
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
 ## [20261128] — v7.1.0 LOT-3.2 (#275) : correctif QUALIF — `setpriv` sans `--bounding-set`
+- **[CHANGED]** docker/podman : une option `--cap-add=<CAP>` PAR capacité (une liste est refusée par le moteur) ; marqueur de propriété du stockage déplacé
+  en `/space/.claude/.cl-owner` (volume `.claude`, persistant : le `chown -R` n'est plus rejoué à chaque création de pod).
 
 - **[CHANGED]** `user-backends.md` §5 bis : `--bounding-set=-all` retiré du passage à l'uid du traitement (exige `CAP_SETPCAP`, hors des
   cinq capacités → CrashLoopBackOff en QUALIF 7.1.0.7). Inchangé : `drop ALL` + cinq capacités, `--no-new-privs`,
