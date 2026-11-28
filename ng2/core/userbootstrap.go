@@ -12,9 +12,11 @@ import (
 // contrôle l'inscriptibilité sous cet uid, puis passe DÉFINITIVEMENT à l'uid du traitement par setpriv. Chaque exec du launcher se fait sous
 // cet uid, jamais en root.
 
-// SetprivPrefix : bascule définitive vers uid:gid — sans groupes hérités, sans nouveaux privilèges, sans aucune capacité.
+// SetprivPrefix : bascule définitive vers uid:gid — sans groupes hérités, sans nouveaux privilèges, sans capacité héritable. Pas de « --bounding-set » :
+// le réduire exige CAP_SETPCAP, hors des cinq capacités accordées ; le conteneur démarre déjà avec « drop ALL » + ces cinq (son bounding set en est donc
+// limité), le passage de l'uid 0 à l'uid du traitement vide les capacités permises et effectives, et no_new_privs interdit tout regain (setuid, capacités de fichier).
 func SetprivPrefix(uid, gid int64) string {
-	return fmt.Sprintf("setpriv --reuid=%d --regid=%d --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all", uid, gid)
+	return fmt.Sprintf("setpriv --reuid=%d --regid=%d --clear-groups --no-new-privs --inh-caps=-all", uid, gid)
 }
 
 // userEnvPairs : environnement fixé par le launcher pour le traitement.
@@ -44,6 +46,7 @@ cur=$(cat "$M" 2>/dev/null); own=$(stat -c %%u:%%g "$D" 2>/dev/null)
 if [ "$cur" != "$U:$G" ] || [ "$own" != "$U:$G" ]; then
   if chown -R -h %[1]d:%[2]d /space 2>/dev/null; then mkdir -p $D/.claude-launcher && rm -f "$M" && (set -C; printf '%%s' "$U:$G" > "$M") && chown -h %[1]d:%[2]d $D/.claude-launcher "$M"; fi
 fi
+if ! E=$(%[3]s true 2>&1); then echo "échec de l'abandon des privilèges : $(printf %%s "$E" | head -c 300)" >&2; exit 1; fi
 %[3]s sh -c 'test -w /space && mkdir -p /space/.claude/home/.config' || { echo "%[4]s" >&2; exit 1; }
 %[3]s sh -c ': > /space/.claude-launcher/ready' 2>/dev/null || { mkdir -p /space/.claude-launcher && : > "$R"; }
 P='trap "exit 0" TERM INT; while :; do sleep 3600 & wait $!; done'

@@ -2,6 +2,12 @@
 
 > Changements de contrats (API, schemas) : `BREAKING` | `CHANGED` | `ADDED`. Lu par le CDP au GATE 2.
 
+## [20261128] — v7.1.0 LOT-3.2 (#275) : correctif QUALIF — `setpriv` sans `--bounding-set`
+
+- **[CHANGED]** `user-backends.md` §5 bis : `--bounding-set=-all` retiré du passage à l'uid du traitement (exige `CAP_SETPCAP`, hors des
+  cinq capacités → CrashLoopBackOff en QUALIF 7.1.0.7). Inchangé : `drop ALL` + cinq capacités, `--no-new-privs`,
+  `--inh-caps=-all`, `--clear-groups`. Un échec de `setpriv` est dit « échec de l'abandon des privilèges », plus « stockage non inscriptible ».
+
 ## [20261127] — v7.1.0 LOT-3.2 (#275) : chown du stockage par le bootstrap (P30)
 
 - **[CHANGED]** `user-backends.md` §5 bis : le bootstrap root fait **une fois** `chown -R <uid>:<gid>` de `/space` / du

@@ -403,7 +403,7 @@ func TestE2RunAsRefuse(t *testing.T) {
 
 // e2SetprivPrefix : préfixe imposé à tout exec k8s et au bootstrap (D3 révisée).
 func e2SetprivPrefix(uid, gid int) string {
-	return fmt.Sprintf("setpriv --reuid=%d --regid=%d --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all", uid, gid)
+	return fmt.Sprintf("setpriv --reuid=%d --regid=%d --clear-groups --no-new-privs --inh-caps=-all", uid, gid)
 }
 
 // Chaque exec du launcher : docker/podman → --user=<uid>:<gid> ; k8s → préfixe setpriv ; JAMAIS en root, même si l'appelant le demande.

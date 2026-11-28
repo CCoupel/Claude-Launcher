@@ -391,7 +391,9 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   - **Bootstrap** (`pid1`, root) : installation des paquets système (`tmux`, `git`, `gh`, `curl`) par le gestionnaire de
     paquets de l'image, **sans** `sudo` ni création d'entrée `sudoers`, comme le démarrage actuel de l'admin. Ensuite, le
     `pid1` passe **définitivement** à l'utilisateur du traitement :
-    `setpriv --reuid=<uid> --regid=<gid> --clear-groups --no-new-privs --bounding-set=-all --inh-caps=-all`.
+    `setpriv --reuid=<uid> --regid=<gid> --clear-groups --no-new-privs --inh-caps=-all` (sans `--bounding-set` : le réduire exige
+    `CAP_SETPCAP`, absente des cinq capacités ; le conteneur est déjà en `drop ALL` + cinq, le passage de l'uid 0 à l'uid du
+    traitement vide les capacités permises et effectives, `no_new_privs` interdit tout regain).
     claude est installé par l'utilisateur du traitement dans `$HOME` (`/space/.claude/home`, installeur natif, sans
     root) : il survit à la recréation du conteneur et se met à jour seul.
   - **Traitement standard** (sessions claude, serveur tmux, terminaux, lectures git/état/fichiers, `/files`) : toujours sous
@@ -401,7 +403,7 @@ Aucun test n'est lancé automatiquement : « Tester » reste une action séparé
   - **k8s** : `securityContext` du conteneur fixé par le launcher : `runAsUser: 0` (bootstrap), `runAsNonRoot` **non posé**,
     `allowPrivilegeEscalation: false`, `seccompProfile: RuntimeDefault`, `capabilities.drop: [ALL]` puis
     `add: [CHOWN, DAC_OVERRIDE, FOWNER, SETUID, SETGID]` (paquets, `setpriv` ; justifiés), `privileged: false`. Ces
-    capacités ne sont plus présentes dans le processus de session (`--bounding-set=-all`). **PSA requise : `baseline`**
+    capacités ne sont plus présentes dans le processus de session (permitted/effective vidées par le changement d'uid, `no_new_privs`). **PSA requise : `baseline`**
     (le profil `restricted` refuse root) ; namespace en `restricted` → refus nommé « le namespace impose le profil
     restricted : le démarrage d'un projet exige baseline ».
   - **docker/podman** : `--cap-drop=ALL`, `--cap-add=CHOWN,DAC_OVERRIDE,FOWNER,SETUID,SETGID`,
