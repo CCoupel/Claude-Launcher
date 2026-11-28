@@ -52,9 +52,10 @@ type userDisc struct {
 }
 
 type userProjects struct {
-	pr   *core.Prober
-	mu   sync.Mutex
-	disc map[string]*userDisc
+	flight map[string]chan struct{} // lectures synchrones en cours, par backend
+	pr     *core.Prober
+	mu     sync.Mutex
+	disc   map[string]*userDisc
 }
 
 const userDiscTTL = 10 * time.Second
@@ -79,18 +80,45 @@ func (u *userSpace) discover(force bool) (map[string]*userDisc, []core.BackendCo
 	if err != nil {
 		return map[string]*userDisc{}, nil
 	}
-	u.proj.mu.Lock()
-	defer u.proj.mu.Unlock()
-	if u.proj.disc == nil {
-		u.proj.disc = map[string]*userDisc{}
-	}
-	out := map[string]*userDisc{}
+	// Le verrou ne protège QUE la table : jamais tenu pendant un appel au backend (un backend qui ne répond pas ne bloque ni la liste, ni /files, ni F5).
+	// Première lecture ou demande explicite : synchrone, en parallèle d'un backend à l'autre, bornée par le délai des commandes ; un seul vol par backend.
+	var wg sync.WaitGroup
 	for _, b := range bs {
-		d := u.proj.disc[b.Name]
-		if d == nil || force { // première lecture ou demande explicite : synchrone
-			d = u.probeOnce(b, es[b.Name])
-			u.proj.disc[b.Name] = d
-		} else if time.Since(d.at) > userDiscTTL { // rafraîchissement : sondeur (10 s → 5 min d'attente en cas d'échec, 16 en vol au plus), hors de l'appel
+		u.proj.mu.Lock()
+		if u.proj.disc == nil {
+			u.proj.disc = map[string]*userDisc{}
+		}
+		if u.proj.flight == nil {
+			u.proj.flight = map[string]chan struct{}{}
+		}
+		d, fl := u.proj.disc[b.Name], u.proj.flight[b.Name]
+		syncRead := d == nil || force
+		if syncRead && fl == nil {
+			fl = make(chan struct{})
+			u.proj.flight[b.Name] = fl
+			u.proj.mu.Unlock()
+			wg.Add(1)
+			go func(b core.BackendConf, e core.Engine, fl chan struct{}) {
+				defer wg.Done()
+				nd := u.probeOnce(b, e)
+				u.proj.mu.Lock()
+				if u.proj.disc == nil {
+					u.proj.disc = map[string]*userDisc{}
+				}
+				u.proj.disc[b.Name] = nd
+				delete(u.proj.flight, b.Name)
+				u.proj.mu.Unlock()
+				close(fl)
+			}(b, es[b.Name], fl)
+			continue
+		}
+		u.proj.mu.Unlock()
+		if syncRead { // un autre appel lit déjà ce backend : attendre son résultat (borné)
+			wg.Add(1)
+			go func(fl chan struct{}) { defer wg.Done(); <-fl }(fl)
+			continue
+		}
+		if time.Since(d.at) > userDiscTTL { // rafraîchissement : sondeur (10 s → 5 min d'attente en cas d'échec, 16 en vol au plus), hors de l'appel
 			b, e := b, es[b.Name]
 			u.proj.prober().Run(b.Name, func() error {
 				nd := u.probeOnce(b, e)
@@ -103,8 +131,14 @@ func (u *userSpace) discover(force bool) (map[string]*userDisc, []core.BackendCo
 				return nd.err
 			})
 		}
-		out[b.Name] = d
 	}
+	wg.Wait()
+	out := map[string]*userDisc{}
+	u.proj.mu.Lock()
+	for _, b := range bs {
+		out[b.Name] = u.proj.disc[b.Name]
+	}
+	u.proj.mu.Unlock()
 	return out, bs
 }
 
