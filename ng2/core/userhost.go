@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -411,13 +412,17 @@ func dockerEmptyConfig() string {
 	return d
 }
 
+// userVaultPermsChecked : contrôle des droits Unix du coffre (faux sous Windows ; variable pour simuler Windows en test).
+var userVaultPermsChecked = runtime.GOOS != "windows"
+
 // safeVaultFile : fichier du coffre utilisable — régulier, pas un lien symbolique, droits ≤ 0600 (S23).
 func safeVaultFile(p string) error {
 	st, err := os.Lstat(p)
 	if err != nil {
 		return err
 	}
-	if !st.Mode().IsRegular() || st.Mode().Perm()&0o077 != 0 {
+	// Windows ne porte pas de droits Unix (os.Stat y rend 0666) : seul le contrôle « fichier ordinaire » s'y applique ; le coffre y est protégé par l'ACL du dossier
+	if !st.Mode().IsRegular() || userVaultPermsChecked && st.Mode().Perm()&0o077 != 0 {
 		return errors.New("fichier du coffre refusé (lien symbolique ou droits trop larges)")
 	}
 	return nil

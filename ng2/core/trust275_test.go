@@ -3,6 +3,7 @@ package core
 import (
 	"bytes"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -35,7 +36,7 @@ func TestTrust275CleDApprobation(t *testing.T) {
 	if len(k) != 32 || bytes.Equal(k, make([]byte, 32)) {
 		t.Fatalf("clé de %d octets (32 aléatoires attendus)", len(k))
 	}
-	if st, err := os.Stat(sp.VaultDir() + "/approval.key"); err != nil || st.Mode().Perm() != 0o600 {
+	if st, err := os.Stat(sp.VaultDir() + "/approval.key"); err != nil || runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 { // Windows ne rapporte pas de droits Unix (0666), comme userspace_test.go
 		t.Errorf("approval.key : %v %v (0600 dans le coffre de l'utilisateur)", err, st)
 	}
 	if k2, _ := sp.ApprovalKey(); !bytes.Equal(k, k2) {

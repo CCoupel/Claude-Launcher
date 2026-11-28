@@ -1,6 +1,7 @@
 package core
 
 import (
+	"bytes"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -172,5 +173,28 @@ esac
 	b2, _ := os.ReadFile(log)
 	if !strings.Contains(string(b2), "create -f -") || strings.Contains(string(b2), "apply") {
 		t.Errorf("« create -f - » attendu, jamais apply :\n%s", b2)
+	}
+}
+
+// Windows simulé : droits Unix non rapportés (0666) — la clé d'approbation reste lisible et identique, sans affaiblir le contrôle ailleurs.
+func TestCleApprobationWindowsSimule275(t *testing.T) {
+	unixOnly(t)
+	old := userVaultPermsChecked
+	userVaultPermsChecked = false
+	defer func() { userVaultPermsChecked = old }()
+	t.Setenv("CL_CONFIG_DIR", t.TempDir())
+	sp, _ := UserSpace("github-9")
+	k1, err := sp.ApprovalKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Chmod(sp.VaultDir()+"/approval.key", 0o666) // ce que Windows rapporte
+	k2, err := sp.ApprovalKey()
+	if err != nil || !bytes.Equal(k1, k2) || len(k2) != 32 {
+		t.Errorf("clé relue : %v %x", err, k2)
+	}
+	userVaultPermsChecked = true // Unix : droits trop larges refusés
+	if _, err := sp.ApprovalKey(); err == nil {
+		t.Error("clé aux droits 0666 acceptée sous Unix")
 	}
 }
