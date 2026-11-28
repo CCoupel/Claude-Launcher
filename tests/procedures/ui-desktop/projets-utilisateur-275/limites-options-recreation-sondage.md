@@ -62,6 +62,19 @@
 
 ---
 
+### Scenario 5 — Jalon 4 : Ouvrir, approbation scellee, terminal, Fermer, F5 (couche web et core)
+
+**Validation** : AUTO — **Issues** : #275
+
+| Etape | Action | Resultat Attendu | Resultat Obtenu | OK ? |
+|-------|--------|-----------------|----------------|------|
+| 1 | `cd ng2 && go test ./ui/desktop -run TestUT4` (tmux requis) | PASS : ouverture (onglet `ready`, session `cl`, chaque exec en `--user=2000:2000`, jamais root, variables limitees) ; approbation manquante / annulee / mauvais condense / forgee → evenement `envTrust` (jamais de session) ; acceptation → `trust.json` scelle (MAC) dans le volume ; autre utilisateur : ni reponse, ni onglet, ni terminal, ni evenement ; Fermer arrete le conteneur et le sondage ne relance jamais ; `/files` projet arrete → 404 sans commande ; F5 demarre sans session claude ; `open` ne cree jamais un projet inexistant ni de nom invalide | | |
+| 2 | `cd ng2 && go test ./core -run TestT4` | PASS : approbation copiee d'un autre projet / backend / utilisateur refusee ; image ≠ defaut refusee meme approuvee ; `run_as` du backend sur chaque exec ; aucune donnee de l'admin (config.conf, env.yaml, variables) dans les commandes ni le volume | | |
+
+**Verdict** : [ ] PASS  [ ] FAIL
+
+---
+
 ## Base du plan de test HUMAIN du GATE LOT-3
 
 `ccoupel` (utilisateur) sur les backends de test de QUALIF (parametre LAN actif `users.allowPrivateNetworks: true`), scenarios HUMAIN provisoires :
@@ -69,7 +82,7 @@
 (4) projet arrete : etat date (branche, modifie) lu sans demarrer, `/files` → 404 ; (5) Fermer puis constater l'absence de relance par le sondage ;
 (6) options de pod / conteneur (CPU, memoire, zone JSON, refus nommes avec chemin), recreation avec confirmation (shm_size) ;
 (7) stockage `root:root` : premiere ouverture OK (chown par le bootstrap), 2e ouverture sans chown, stockage refusant le chown : refus nomme avec `chown -R 2000:2000` ;
-(8) namespace en PSA restricted : refus nomme ; (9) Purger un projet disparu : fichiers conserves ; (10) approbation d'un env.yaml clone, image ≠ defaut refusee.
+(8) namespace en PSA restricted : refus nomme ; (9) Purger un projet disparu : fichiers conserves ; (10) approbation d'un env.yaml clone, image ≠ defaut refusee ; (11) approbation : annuler ne demarre rien, accepter ouvre, modifier l'env.yaml la redemande ; (12) ouvrir un chemin de projet inexistant (URL) : refuse, rien cree ; (13) second compte : ne voit ni n'agit sur l'onglet du premier.
 
 ## Notes QA
 
