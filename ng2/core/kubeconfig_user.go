@@ -28,7 +28,7 @@ func yamlShape(n *yaml.Node, depth int) error {
 	if n.Kind == yaml.MappingNode { // clé en double, casse comprise : kubectl lit en JSON (« Server » = « server »), le contrôle d'hôte aussi
 		seen := map[string]bool{}
 		for i := 0; i+1 < len(n.Content); i += 2 {
-			k := strings.ToLower(n.Content[i].Value)
+			k := strings.Map(foldRune, strings.ToLower(n.Content[i].Value)) // mêmes équivalences que la zone JSON du pod (ſ=s, K=k)
 			if seen[k] {
 				return errKubeUnreadable
 			}
@@ -57,7 +57,7 @@ func yamlDupKeyCI(content []byte) bool {
 		if n.Kind == yaml.MappingNode {
 			seen := map[string]bool{}
 			for i := 0; i+1 < len(n.Content); i += 2 {
-				k := strings.ToLower(n.Content[i].Value)
+				k := strings.Map(foldRune, strings.ToLower(n.Content[i].Value))
 				if seen[k] {
 					return true
 				}

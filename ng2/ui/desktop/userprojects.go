@@ -387,7 +387,16 @@ func (u *userSpace) createProject(c webCall, a userProjArgs) (any, error) {
 			return refusal("repo", "invalid", err.Error()), nil
 		}
 	}
-	if p := core.CheckProjectLimit(u.projectCount()); p != nil {
+	u.createMu.Lock() // limite et création atomiques pour cet utilisateur
+	defer u.createMu.Unlock()
+	disc, _ := u.discover(true)
+	cnt := 0
+	for _, d := range disc {
+		if d != nil && d.err == nil {
+			cnt += len(d.projects)
+		}
+	}
+	if p := core.CheckProjectLimit(cnt); p != nil {
 		return refusal("", p.Code, p.Msg), nil
 	}
 	image := a.Image

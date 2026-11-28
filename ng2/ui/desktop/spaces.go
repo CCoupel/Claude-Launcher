@@ -39,14 +39,15 @@ type userSpace struct {
 	last    atomic.Int64
 	prefsMu sync.Mutex
 	// backendTest : 6 par minute (tmu, tests) et un seul à la fois (testing)
-	tmu     sync.Mutex
-	tests   []time.Time
-	testing atomic.Bool
-	secrets []time.Time                 // backendSecretSet : même plafond par minute que backendTest
-	tabs    userTabs                    // onglets (terminaux) de cette instance
-	proj    userProjects                // découverte des projets par backend (cache 10 s)
-	emit    func(name string, data any) // évènements de CETTE identité seulement (jamais une diffusion commune)
-	cfgs    []time.Time                 // configOpen / Model / Validate / Save / Apply (analyse YAML et DNS) : plafond généreux (audit m9)
+	tmu      sync.Mutex
+	tests    []time.Time
+	testing  atomic.Bool
+	secrets  []time.Time // backendSecretSet : même plafond par minute que backendTest
+	createMu sync.Mutex
+	tabs     userTabs                    // onglets (terminaux) de cette instance
+	proj     userProjects                // découverte des projets par backend (cache 10 s)
+	emit     func(name string, data any) // évènements de CETTE identité seulement (jamais une diffusion commune)
+	cfgs     []time.Time                 // configOpen / Model / Validate / Save / Apply (analyse YAML et DNS) : plafond généreux (audit m9)
 }
 
 func (u *userSpace) touch() { u.last.Store(time.Now().UnixNano()) }

@@ -98,6 +98,8 @@ func (sp Space) CreateProject(e Engine, cat, name, repo string) error {
 			return fmt.Errorf("dépôt : %w", err)
 		}
 	}
+	unlock := lockUserCreate(e.B.uid) // limite + création atomiques par utilisateur
+	defer unlock()
 	objs, _ := e.listObjects() // injoignable : la création échouera d'elle-même
 	owned := OwnedProjects(e.B.uid, objs)
 	if p := CheckProjectLimit(len(owned)); p != nil {
@@ -187,19 +189,25 @@ func (sp Space) MoveProject(e Engine, cat, name, newCat, newName string) error {
 			}
 		}
 	}
+	image := e.objectImage(obj) // l'image du projet suit le déplacement (les options par projet ne suivent pas : à refaire)
+	if image == "" {
+		image = UserDefaultImage()
+	}
 	if err := e.StartUserProject(cat, name); err != nil {
 		return err
 	}
 	if err := e.runIn(obj, "mkdir", "-p", "--", "/space/PROJETS/"+newCat); err != nil {
 		return err
 	}
-	if err := e.runIn(obj, "mv", "--", UserProjectDir(cat, name), UserProjectDir(newCat, newName)); err != nil {
+	if err := e.runIn(obj, "mv", "-n", "--", UserProjectDir(cat, name), UserProjectDir(newCat, newName)); err != nil {
 		return err
 	}
-	if err := e.removeObject(obj); err != nil {
+	// le nouvel objet est créé AVANT de retirer l'ancien : un échec ne perd pas le projet (dossier remis en place)
+	if err := e.CreateUserProject(newCat, newName, image); err != nil {
+		_ = e.runIn(obj, "mv", "--", UserProjectDir(newCat, newName), UserProjectDir(cat, name))
 		return err
 	}
-	return e.CreateUserProject(newCat, newName, UserDefaultImage())
+	return e.removeObject(obj)
 }
 
 // StartPlan : ce qu'un déclencheur doit faire d'un projet (P20).
@@ -333,4 +341,30 @@ func (e Engine) ReadStoppedState(cat, name string) (*ProjectMeta, error) {
 		return nil, err
 	}
 	return &m, nil
+}
+
+var createLocks sync.Map // uid → *sync.Mutex
+
+// lockUserCreate : sérialise les créations d'un même utilisateur (la limite de projets ne se contourne pas en parallèle).
+func lockUserCreate(uid string) func() {
+	m, _ := createLocks.LoadOrStore(uid, &sync.Mutex{})
+	mu := m.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
+
+// objectImage : image enregistrée sur l'objet du projet (label ou annotation cl.image) ; vide si illisible.
+func (e Engine) objectImage(obj string) string {
+	var b []byte
+	var err error
+	if e.B.K8s() {
+		b, err = e.output(e.kcmdD(userReadTimeout, "get", "statefulset", obj, "-o", `jsonpath={.metadata.annotations.cl\.image}`), maxSmallOut)
+	} else {
+		b, err = e.output(e.cmdD(userReadTimeout, "inspect", "-f", `{{index .Config.Labels "cl.image"}}`, obj), maxSmallOut)
+	}
+	img := strings.TrimSpace(string(b))
+	if err != nil || CheckUserImage(img) != nil {
+		return ""
+	}
+	return img
 }

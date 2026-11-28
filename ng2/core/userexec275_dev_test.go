@@ -123,3 +123,14 @@ func TestFilesFifoEtCheminReel275(t *testing.T) {
 	}
 	// sortie infinie : plafonnée (256 Mio) ou coupée à la fin de la requête — ici le client part tout de suite
 }
+
+func TestYamlDupKeyFoldRune275(t *testing.T) {
+	for name, y := range map[string]string{"s/ſ": "a: 1\nA: 2\n", "ſ": "ſ: 1\ns: 2\n", "K": "K: 1\nk: 2\n"} {
+		if !yamlDupKeyCI([]byte(y)) {
+			t.Errorf("%s : clé en double non détectée", name)
+		}
+	}
+	if yamlDupKeyCI([]byte("a: 1\nb: 2\n")) {
+		t.Error("faux positif")
+	}
+}
